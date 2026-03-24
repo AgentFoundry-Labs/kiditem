@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Query, HttpCode } from '@nestjs/common';
+import { Controller, Get, Post, Delete, Body, Param, Query, HttpCode, NotFoundException } from '@nestjs/common';
 import { ProductsService } from './products.service';
 
 @Controller('products')
@@ -15,9 +15,22 @@ export class ProductsController {
     return this.productsService.findAll({ grade, status, search, company });
   }
 
+  @Get(':id')
+  async findOne(@Param('id') id: string) {
+    const product = await this.productsService.findOne(id);
+    if (!product) throw new NotFoundException('Product not found');
+    return product;
+  }
+
   @Post()
   @HttpCode(201)
   create(@Body() body: Record<string, unknown>) {
     return this.productsService.create(body);
+  }
+
+  @Delete(':id')
+  async remove(@Param('id') id: string) {
+    await this.productsService.remove(id);
+    return { ok: true };
   }
 }

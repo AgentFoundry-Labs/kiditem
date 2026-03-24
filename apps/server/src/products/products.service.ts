@@ -164,4 +164,15 @@ export class ProductsService {
       throw new InternalServerErrorException('상품 등록 실패');
     }
   }
+
+  async findOne(id: string) {
+    return this.prisma.product.findUnique({
+      where: { id },
+      include: { company: true, inventory: true },
+    });
+  }
+
+  async remove(id: string) {
+    return this.prisma.product.delete({ where: { id } });
+  }
 }
