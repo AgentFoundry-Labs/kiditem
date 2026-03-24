@@ -79,20 +79,24 @@ export const productsApi = {
   }): Promise<ProductListResponse> {
     const res = await fetch(`${SOURCING_BASE}/extension/products?limit=${params?.limit || 100}`);
     const raw = await res.json() as any[];
-    const items: ProductListItem[] = raw.map((p: any) => ({
-      id: p.id,
-      name: p.name || p.title || '',
-      status: (p.status || 'DRAFT').toUpperCase() as ProductStatus,
-      source_platform: p.sourcePlatform || p.source_platform || '',
-      source_url: p.sourceUrl || p.source_url || null,
-      thumbnail_url: p.thumbnailUrl || p.thumbnail_url || (p.rawData?.images?.[0]) || null,
-      price_krw: p.sellPrice || null,
-      cost_cny: p.costCny ? Number(p.costCny) : null,
-      image_count: p.rawData?.images?.length || 0,
-      is_processed: p.status === 'listed' || p.status === 'LISTED',
-      created_at: p.createdAt || p.created_at || '',
-      updated_at: p.updatedAt || p.updated_at || '',
-    }));
+    const items: ProductListItem[] = raw.map((p: any) => {
+      const rawData = p.rawData || {};
+      const images = rawData.images || [];
+      return {
+        id: p.id,
+        name: p.name || rawData.title || '',
+        status: (p.status || 'DRAFT').toUpperCase() as ProductStatus,
+        source_platform: p.sourcePlatform || rawData.source_platform || '',
+        source_url: p.sourceUrl || rawData.source_url || null,
+        thumbnail_url: p.thumbnailUrl || images[0] || null,
+        price_krw: p.sellPrice || null,
+        cost_cny: p.costCny ? Number(p.costCny) : (rawData.price ? parseFloat(rawData.price) : null),
+        image_count: images.length,
+        is_processed: p.processedData != null,
+        created_at: p.createdAt || '',
+        updated_at: p.updatedAt || '',
+      };
+    });
     return { items, total: items.length };
   },
 

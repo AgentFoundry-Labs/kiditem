@@ -18,6 +18,18 @@ export class SourcingService {
     const productCount = pageType === 'search' ? (data.total_found || 0) : (data.title ? 1 : 0);
 
     if (pageType === 'detail' && data.title) {
+      const price = data.price ? parseFloat(data.price) : null;
+      const images: string[] = data.images || [];
+      const productData = {
+        name: data.title,
+        description: data.description || '',
+        rawData: data as any,
+        thumbnailUrl: images[0] || null,
+        costCny: price,
+        category: data.category_name || null,
+        tags: data.tags || [],
+      };
+
       const existing = await this.prisma.product.findFirst({
         where: { sourceUrl: data.source_url },
       });
@@ -25,24 +37,15 @@ export class SourcingService {
       if (existing) {
         await this.prisma.product.update({
           where: { id: existing.id },
-          data: {
-            name: data.title,
-            description: data.description || '',
-            rawData: data,
-            thumbnailUrl: data.images?.[0] || null,
-          },
+          data: productData,
         });
       } else {
         await this.prisma.product.create({
           data: {
+            ...productData,
             companyId,
-            name: data.title,
-            description: data.description || '',
             sourceUrl: data.source_url,
             sourcePlatform: platform,
-            thumbnailUrl: data.images?.[0] || null,
-            category: data.category_name || null,
-            rawData: data,
           },
         });
       }
