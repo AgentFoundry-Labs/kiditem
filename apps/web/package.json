@@ -14,6 +14,7 @@
     "db:seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
+    "@grapesjs/react": "^2.0.0",
     "@prisma/adapter-pg": "^7.5.0",
     "@prisma/client": "^7.5.0",
     "@radix-ui/react-dialog": "^1.1.15",
@@ -27,6 +28,8 @@
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
     "dotenv": "^16.6.1",
+    "@kiditem/templates": "*",
+    "grapesjs": "^0.22.14",
     "lucide-react": "^0.577.0",
     "next": "14.2.35",
     "pg": "^8.20.0",

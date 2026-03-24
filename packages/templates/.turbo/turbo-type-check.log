@@ -1,0 +1,4 @@
+
+> @auto-seller/templates@0.1.0 type-check /Users/yhc125/workspace/e-commerce-system/packages/templates
+> tsc --noEmit
+

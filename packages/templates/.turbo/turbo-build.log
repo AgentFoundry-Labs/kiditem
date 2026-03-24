@@ -1,0 +1,23 @@
+
+> @auto-seller/templates@0.1.0 build /Users/yhc125/workspace/e-commerce-system/packages/templates
+> tsup && pnpm build:css
+
+CLI Building entry: src/index.ts
+CLI Using tsconfig: tsconfig.json
+CLI tsup v8.5.1
+CLI Using tsup config: /Users/yhc125/workspace/e-commerce-system/packages/templates/tsup.config.ts
+CLI Target: es2022
+CLI Cleaning output folder
+ESM Build start
+ESM dist/index.js 27.02 KB
+ESM ⚡️ Build success in 16ms
+DTS Build start
+DTS ⚡️ Build success in 7369ms
+DTS dist/index.d.ts 17.06 KB
+
+> @auto-seller/templates@0.1.0 build:css /Users/yhc125/workspace/e-commerce-system/packages/templates
+> tailwindcss -i src/styles.css -o dist/styles.css --minify
+
+≈ tailwindcss v4.2.1
+
+Done in 147ms

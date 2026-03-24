@@ -1,7 +1,7 @@
 {
   "name": "kiditem",
   "private": true,
-  "workspaces": ["apps/*"],
+  "workspaces": ["apps/*", "packages/*"],
   "scripts": {
     "dev": "npm run dev --workspace=apps/web",
     "dev:server": "npm run start:dev --workspace=apps/server",

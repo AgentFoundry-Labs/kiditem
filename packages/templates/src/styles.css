@@ -1,0 +1,7 @@
+@import "tailwindcss";
+@source ".";
+
+@theme {
+  --font-display: "Black Han Sans", sans-serif;
+  --font-sans: "Noto Sans KR", "Pretendard", sans-serif;
+}

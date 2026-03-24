@@ -1,0 +1,115 @@
+/* ======================== *
+ * GrapesJS 에디터 스타일 오버라이드
+ * DetailPageEditor 컴포넌트 전용
+ * ======================== */
+
+:root {
+    --gjs-color-blue: #6366f1;
+    --gjs-canvas-top: 0;
+    --gjs-left-width: 0;
+    --gjs-placeholder-background-color: #6366f1;
+}
+
+.gjs-pn-panels,
+.gjs-pn-views-container,
+.gjs-pn-views,
+.gjs-pn-options,
+.gjs-pn-commands,
+.gjs-pn-devices-c,
+.gjs-cv-canvas__top,
+.gjs-frame-wrapper__top {
+    display: none !important;
+}
+
+.gjs-cv-canvas {
+    background-color: #1e293b !important;
+    overflow: auto !important;
+}
+
+.gjs-frame-wrapper {
+    background: #fff !important;
+    box-shadow: 0 8px 48px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.08) !important;
+    border-radius: 6px !important;
+    overflow: hidden !important;
+}
+
+.gjs-highlighter {
+    outline: 1px solid rgba(99, 102, 241, 0.5) !important;
+    outline-offset: -1px;
+}
+
+.gjs-highlighter-sel {
+    outline: 2px solid rgba(99, 102, 241, 0.85) !important;
+    outline-offset: -2px;
+}
+
+.gjs-toolbar {
+    background: #1e293b !important;
+    border: 1px solid #334155 !important;
+    border-radius: 6px !important;
+    padding: 3px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 1px !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25) !important;
+}
+
+.gjs-toolbar:empty {
+    display: none !important;
+}
+
+.gjs-toolbar-item {
+    width: 28px !important;
+    padding: 5px !important;
+    border-radius: 4px !important;
+    transition: background-color 0.15s !important;
+    opacity: 0.85;
+}
+
+.gjs-toolbar-item:hover {
+    background-color: rgba(255, 255, 255, 0.1) !important;
+    opacity: 1;
+}
+
+.gjs-badge {
+    background-color: #1e293b !important;
+    color: #e2e8f0 !important;
+    font-size: 10px !important;
+    padding: 2px 6px !important;
+    border-radius: 3px !important;
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif !important;
+}
+
+.gjs-resizer-h {
+    border: 2px solid #6366f1 !important;
+    width: 8px !important;
+    height: 8px !important;
+    border-radius: 1px !important;
+}
+
+.gjs-rte-toolbar {
+    background: #1e293b !important;
+    border: 1px solid #334155 !important;
+    border-radius: 8px !important;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3) !important;
+    padding: 4px 6px !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 2px !important;
+    color: #e2e8f0 !important;
+}
+
+.gjs-rte-toolbar .gjs-rte-btn {
+    border-radius: 4px !important;
+    padding: 4px 6px !important;
+    color: #e2e8f0 !important;
+    transition: background-color 0.15s !important;
+}
+
+.gjs-rte-toolbar .gjs-rte-btn:hover {
+    background-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+.gjs-rte-toolbar .gjs-rte-active {
+    background-color: rgba(99, 102, 241, 0.3) !important;
+}
