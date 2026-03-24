@@ -52,8 +52,8 @@ export interface ScrapeUrlResponse {
   product_id: string | null;
 }
 
-const PRODUCTS_BASE = `${API_BASE}/api/v1/products`;
-const SOURCING_BASE = `${API_BASE}/api/v1/sourcing`;
+const PRODUCTS_BASE = `${API_BASE}/api/products`;
+const SOURCING_BASE = `${API_BASE}/api/sourcing`;
 
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -77,14 +77,23 @@ export const productsApi = {
     status?: string;
     platform?: string;
   }): Promise<ProductListResponse> {
-    const qs = new URLSearchParams();
-    if (params?.skip != null) qs.set('skip', String(params.skip));
-    if (params?.limit != null) qs.set('limit', String(params.limit));
-    if (params?.status) qs.set('status', params.status);
-    if (params?.platform) qs.set('platform', params.platform);
-    const query = qs.toString();
-    const res = await fetch(`${PRODUCTS_BASE}${query ? `?${query}` : ''}`);
-    return handleResponse<ProductListResponse>(res);
+    const res = await fetch(`${SOURCING_BASE}/extension/products?limit=${params?.limit || 100}`);
+    const raw = await res.json() as any[];
+    const items: ProductListItem[] = raw.map((p: any) => ({
+      id: p.id,
+      name: p.name || p.title || '',
+      status: (p.status || 'DRAFT').toUpperCase() as ProductStatus,
+      source_platform: p.sourcePlatform || p.source_platform || '',
+      source_url: p.sourceUrl || p.source_url || null,
+      thumbnail_url: p.thumbnailUrl || p.thumbnail_url || (p.rawData?.images?.[0]) || null,
+      price_krw: p.sellPrice || null,
+      cost_cny: p.costCny ? Number(p.costCny) : null,
+      image_count: p.rawData?.images?.length || 0,
+      is_processed: p.status === 'listed' || p.status === 'LISTED',
+      created_at: p.createdAt || p.created_at || '',
+      updated_at: p.updatedAt || p.updated_at || '',
+    }));
+    return { items, total: items.length };
   },
 
   async getDetail(id: string): Promise<ProductDetailResponse> {
