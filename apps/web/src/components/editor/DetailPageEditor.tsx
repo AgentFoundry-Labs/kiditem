@@ -438,7 +438,7 @@ function EditorToolbar({
 </body>
 </html>`;
 
-      const res = await fetch(`${API_BASE}/api/v1/render-image`, {
+      const res = await fetch(`${API_BASE}/api/render-image`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ html: fullHtml }),

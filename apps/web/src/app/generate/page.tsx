@@ -184,7 +184,7 @@ export default function GeneratePage() {
         body.imageBase64s = images;
       }
 
-      const res = await fetch(`${API_BASE}/api/v1/content/analyze-product`, {
+      const res = await fetch(`${API_BASE}/api/content/analyze-product`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),

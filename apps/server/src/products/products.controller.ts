@@ -22,6 +22,18 @@ export class ProductsController {
     return product;
   }
 
+  @Get(':id/preview')
+  async preview(@Param('id') id: string) {
+    const product = await this.productsService.findOne(id);
+    if (!product) throw new NotFoundException('Product not found');
+    const rawData = (product.rawData as Record<string, unknown>) || {};
+    return {
+      template: product.processedData ? 'bold-vertical' : null,
+      data: product.processedData || rawData,
+      images: rawData['images'] || [],
+    };
+  }
+
   @Post()
   @HttpCode(201)
   create(@Body() body: Record<string, unknown>) {

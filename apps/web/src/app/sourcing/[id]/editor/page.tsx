@@ -52,8 +52,8 @@ export default function EditorPage() {
     setError(null);
     try {
       const [detailRes, previewRes, cssRes] = await Promise.all([
-        fetch(`${API_BASE}/api/v1/products/${productId}`),
-        fetch(`${API_BASE}/api/v1/products/${productId}/preview`),
+        fetch(`${API_BASE}/api/products/${productId}`),
+        fetch(`${API_BASE}/api/products/${productId}/preview`),
         fetch('/templates-styles.css').then((r) => (r.ok ? r.text() : '')).catch(() => ''),
       ]);
 
