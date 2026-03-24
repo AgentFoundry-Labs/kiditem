@@ -26,9 +26,12 @@ model Company {
   thumbnails     Thumbnail[]
   reviews        Review[]
   alerts         Alert[]
-  douyinLiveRooms  DouyinLiveRoom[]
-  contentGenerations ContentGeneration[]
-  coupangListings    CoupangListing[]
+  douyinLiveRooms     DouyinLiveRoom[]
+  contentGenerations  ContentGeneration[]
+  coupangListings     CoupangListing[]
+  workflowTemplates   WorkflowTemplate[]
+  credentials         Credential[]
+  activityEvents      ActivityEvent[]
 
   @@map("companies")
 }
@@ -320,6 +323,28 @@ model Review {
   @@map("reviews")
 }
 
+// ─── Activity Events ──────────────────────────────────────────────────────────
+
+model ActivityEvent {
+  id         String   @id @default(uuid()) @db.Uuid
+  companyId  String   @map("company_id") @db.Uuid
+  objectType String   @map("object_type")
+  objectId   String   @map("object_id") @db.Uuid
+  eventType  String   @map("event_type")
+  source     String   @default("manual")
+  title      String
+  data       Json?
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([objectType, objectId])
+  @@index([eventType])
+  @@index([createdAt])
+  @@map("activity_events")
+}
+
 // ─── Alerts ───────────────────────────────────────────────────────────────────
 
 model Alert {
@@ -353,6 +378,10 @@ model AgentTask {
   status    String  @default("pending")
   priority  Int     @default(0)
 
+  workflowRunId  String? @map("workflow_run_id") @db.Uuid
+  workflowNodeId String? @map("workflow_node_id")
+  sourceDataId   String? @map("source_data_id")
+
   input  Json?
   output Json?
   error  String?
@@ -366,6 +395,7 @@ model AgentTask {
 
   @@index([status])
   @@index([agentType])
+  @@index([workflowRunId])
   @@index([createdAt])
   @@map("agent_tasks")
 }
@@ -507,4 +537,88 @@ model ProductPerformance {
   @@index([listingId])
   @@index([date])
   @@map("product_performances")
+}
+
+// ─── Workflow Engine ──────────────────────────────────────────────────────────
+
+model WorkflowTemplate {
+  id          String   @id @default(uuid()) @db.Uuid
+  companyId   String   @map("company_id") @db.Uuid
+  name        String
+  description String   @default("")
+  module      String   @default("order")
+  isActive    Boolean  @default(false) @map("is_active")
+  triggerType String   @default("manual") @map("trigger_type")
+  schedule    String?
+  nodesJson   Json     @map("nodes_json")
+  edgesJson   Json     @map("edges_json")
+  version     Int      @default(1)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  runs    WorkflowRun[]
+
+  @@index([companyId])
+  @@index([isActive])
+  @@index([module])
+  @@map("workflow_templates")
+}
+
+model WorkflowRun {
+  id          String    @id @default(uuid()) @db.Uuid
+  templateId  String    @map("template_id") @db.Uuid
+  status      String    @default("pending")
+  triggeredBy String    @default("manual") @map("triggered_by")
+  contextData Json?     @map("context_data")
+  error       String?
+  startedAt   DateTime? @map("started_at") @db.Timestamptz
+  completedAt DateTime? @map("completed_at") @db.Timestamptz
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  template WorkflowTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  steps    WorkflowStepRun[]
+
+  @@index([templateId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("workflow_runs")
+}
+
+model WorkflowStepRun {
+  id          String    @id @default(uuid()) @db.Uuid
+  runId       String    @map("run_id") @db.Uuid
+  nodeId      String    @map("node_id")
+  nodeType    String    @map("node_type")
+  nodeLabel   String    @default("") @map("node_label")
+  status      String    @default("pending")
+  inputData   Json?     @map("input_data")
+  outputData  Json?     @map("output_data")
+  error       String?
+  startedAt   DateTime? @map("started_at") @db.Timestamptz
+  completedAt DateTime? @map("completed_at") @db.Timestamptz
+
+  run WorkflowRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId])
+  @@index([nodeId])
+  @@map("workflow_step_runs")
+}
+
+model Credential {
+  id             String    @id @default(uuid()) @db.Uuid
+  companyId      String    @map("company_id") @db.Uuid
+  provider       String
+  name           String
+  encryptedData  String    @map("encrypted_data")
+  status         String    @default("active")
+  lastVerifiedAt DateTime? @map("last_verified_at") @db.Timestamptz
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([provider])
+  @@map("credentials")
 }

@@ -2,6 +2,7 @@
 import { API_BASE } from "@/lib/api";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Plus, Download, Upload, Search } from "lucide-react";
 import { formatKRW, formatPercent, getGradeColor, getProfitColor, getProductStatusBadge } from "@/lib/utils";
 
@@ -30,6 +31,7 @@ interface Product {
 }
 
 export default function ProductsPage() {
+  const router = useRouter();
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -179,7 +181,7 @@ export default function ProductsPage() {
               {products.map((p) => {
                 const badge = getProductStatusBadge(p.status);
                 return (
-                  <tr key={p.id} className={p.profitRate < 0 ? "bg-red-50/50" : p.profitRate <= 3 ? "bg-orange-50/30" : ""}>
+                  <tr key={p.id} onClick={() => router.push(`/products/${p.id}`)} className={`cursor-pointer hover:bg-slate-50 ${p.profitRate < 0 ? "bg-red-50/50" : p.profitRate <= 3 ? "bg-orange-50/30" : ""}`}>
                     <td><span className={`px-2 py-0.5 rounded text-xs font-bold ${getGradeColor(p.abcGrade)}`}>{p.abcGrade}</span></td>
                     <td className="font-medium text-slate-900 max-w-[200px] truncate">{p.name}</td>
                     <td className="text-slate-500 text-xs font-mono">{p.sku}</td>

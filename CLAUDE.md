@@ -49,6 +49,21 @@ apps/server/src/{domain}/
 - `PrismaModule`이 `@Global()` → 모든 Service에서 `PrismaService` 주입
 - CORS: `localhost:*` 허용
 
+## 워크플로우 엔진
+
+셀러 관리 특화 워크플로우 자동화 (n8n 스타일). NestJS 기반 실행 엔진.
+
+```
+apps/server/src/workflows/       — 엔진 + API + 노드 카탈로그
+apps/server/src/workflows/executors/ — 노드 실행기 (표준 엔티티 필수)
+```
+
+- 실행: 스택 기반 DAG 순회 (n8n 패턴). 에러 시 로깅 후 중단, 재시도 없음.
+- 데이터 플로우: `{{nodes.X.output.Y}}` 템플릿으로 노드 간 데이터 참조.
+- 외부 API 데이터는 `StandardOrder`, `StandardProduct` 등 표준 타입으로 변환 필수.
+- Executor 추가: `types.ts → catalog.ts → executor 구현 → registerNode() → 프론트 동기화`.
+- 상세 규칙: `apps/server/src/workflows/CLAUDE.md`.
+
 ## Python Agent 패턴
 
 ```

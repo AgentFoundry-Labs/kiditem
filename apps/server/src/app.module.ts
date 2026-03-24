@@ -13,6 +13,8 @@ import { DashboardModule } from './dashboard/dashboard.module';
 import { AlertsModule } from './alerts/alerts.module';
 import { AgentTasksModule } from './agent-tasks/agent-tasks.module';
 import { SourcingModule } from './sourcing/sourcing.module';
+import { WorkflowsModule } from './workflows/workflows.module';
+import { ActivityEventsModule } from './activity-events/activity-events.module';
 
 @Module({
   imports: [
@@ -30,6 +32,8 @@ import { SourcingModule } from './sourcing/sourcing.module';
     AlertsModule,
     AgentTasksModule,
     SourcingModule,
+    WorkflowsModule,
+    ActivityEventsModule,
   ],
 })
 export class AppModule {}
