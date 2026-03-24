@@ -12,6 +12,7 @@ import { CompaniesModule } from './companies/companies.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { AlertsModule } from './alerts/alerts.module';
 import { AgentTasksModule } from './agent-tasks/agent-tasks.module';
+import { SourcingModule } from './sourcing/sourcing.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { AgentTasksModule } from './agent-tasks/agent-tasks.module';
     DashboardModule,
     AlertsModule,
     AgentTasksModule,
+    SourcingModule,
   ],
 })
 export class AppModule {}

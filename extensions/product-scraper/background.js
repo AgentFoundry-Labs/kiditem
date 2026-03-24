@@ -1,4 +1,4 @@
-const DEFAULT_API = "http://localhost:8000/api/v1/sourcing/extension";
+const DEFAULT_API = "http://localhost:4000/api/sourcing/extension";
 const EXTRACT_TIMEOUT_MS = 20000;
 
 let apiBase = DEFAULT_API;
