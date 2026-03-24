@@ -25,15 +25,19 @@ class ContentAgent(BaseAgent):
         if not task_input:
             raise ValueError("task_input is required for content agent")
 
-        product_id = task_input.get("product_id")
+        product_id = task_input.get("productId") or task_input.get("product_id")
         if not product_id:
             raise ValueError("product_id is required in task_input")
 
-        generation_mode = task_input.get("generation_mode", "oneshot")
-        reference_image_url = task_input.get("reference_image_url", "")
+        generation_mode = (
+            task_input.get("generation_mode") or task_input.get("generationMode") or "oneshot"
+        )
+        reference_image_url = (
+            task_input.get("reference_image_url") or task_input.get("referenceImageUrl") or ""
+        )
 
         product = await pool.fetchrow(
-            "SELECT id, raw_data, status FROM products WHERE id = $1",
+            "SELECT id, company_id, raw_data, status FROM products WHERE id = $1",
             product_id,
         )
         if not product:
@@ -84,6 +88,7 @@ class ContentAgent(BaseAgent):
             await self._upsert_content_generation(
                 pool,
                 product_id=product_id,
+                company_id=product["company_id"],
                 page_data=page_data,
                 status="COMPLETED",
             )
@@ -111,6 +116,7 @@ class ContentAgent(BaseAgent):
             await self._upsert_content_generation(
                 pool,
                 product_id=product_id,
+                company_id=product["company_id"],
                 status="FAILED",
                 error_message=error_msg[:1000],
             )
@@ -122,6 +128,7 @@ class ContentAgent(BaseAgent):
         pool: asyncpg.Pool,
         *,
         product_id: str,
+        company_id: str,
         page_data: DetailPageData | None = None,
         status: str = "PENDING",
         error_message: str | None = None,
@@ -167,12 +174,13 @@ class ContentAgent(BaseAgent):
             await pool.execute(
                 """
                 INSERT INTO content_generations
-                    (id, product_id, generated_title, detail_page_html,
+                    (id, company_id, product_id, generated_title, detail_page_html,
                      original_images, processed_images, status, error_message,
                      created_at, updated_at)
                 VALUES
-                    (gen_random_uuid(), $1, $2, $3, $4::jsonb, $5::jsonb, $6, $7, NOW(), NOW())
+                    (gen_random_uuid(), $1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, NOW(), NOW())
                 """,
+                company_id,
                 product_id,
                 generated_title,
                 detail_page_json,
