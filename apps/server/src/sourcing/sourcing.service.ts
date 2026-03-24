@@ -74,6 +74,7 @@ export class SourcingService {
     const limit = parseInt(query.limit || '50');
     return this.prisma.product.findMany({
       where: {
+        status: { in: ['draft', 'processing', 'processed'] },
         ...(query.platform && {
           sourcePlatform: PLATFORM_MAP[query.platform.toLowerCase()] || query.platform,
         }),
