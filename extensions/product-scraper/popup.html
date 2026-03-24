@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <h1>Product Scraper</h1>
+  </header>
+
+  <main>
+    <section class="detect-section">
+      <div class="detect-badge" id="detectBadge">
+        <span class="detect-icon" id="detectIcon">—</span>
+        <div class="detect-info">
+          <span class="detect-platform" id="detectPlatform">감지 중...</span>
+          <span class="detect-page" id="detectPage"></span>
+        </div>
+      </div>
+    </section>
+
+    <section class="collect-section">
+      <button id="btnCollect" class="btn btn-collect" disabled>수집</button>
+    </section>
+
+    <section class="status" id="statusSection" style="display:none;">
+      <div class="status-row">
+        <span class="dot" id="dot"></span>
+        <span id="statusText"></span>
+      </div>
+      <div class="error-text" id="lastError"></div>
+    </section>
+
+    <details class="api-details">
+      <summary>API 설정</summary>
+      <div class="input-row">
+        <input type="text" id="apiUrl" value="http://localhost:8000/api/v1/sourcing/extension">
+        <button id="btnSave" class="btn btn-sm">저장</button>
+      </div>
+    </details>
+  </main>
+
+  <footer>v2.0.0</footer>
+
+  <script src="popup.js"></script>
+</body>
+</html>
