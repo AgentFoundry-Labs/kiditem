@@ -144,7 +144,7 @@ export default function RawDataTab({ rawData }: RawDataTabProps) {
         )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+      <div className="space-y-6">
         <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
           <h2 className="text-base font-bold text-gray-900 mb-4">상세 스펙 ({specs.length}개)</h2>
           
