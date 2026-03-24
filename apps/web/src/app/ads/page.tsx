@@ -1,0 +1,226 @@
+"use client";
+import { API_BASE } from "@/lib/api";
+
+import { useEffect, useState } from "react";
+import { Megaphone, TrendingDown, AlertTriangle, Download } from "lucide-react";
+import { formatKRW, formatPercent, getGradeColor } from "@/lib/utils";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
+
+interface AdProduct {
+  id: string; name: string; sku: string; company: string; grade: string;
+  adTier: string; spend: number; impressions: number; clicks: number;
+  conversions: number; adRevenue: number; ctr: number; convRate: number;
+  roas: number; acos: number; adRate: number; revenue: number;
+  netProfit: number; profitRate: number;
+}
+
+interface AdSummary {
+  totalSpend: number; totalAdRevenue: number; totalRevenue: number;
+  overallAdRate: number; overallRoas: number; highAdCount: number;
+  gradeSpend: Record<string, number>;
+  tierSpend: Record<string, number>;
+  gradeSpendPercent: Record<string, number>;
+}
+
+export default function AdsPage() {
+  const [products, setProducts] = useState<AdProduct[]>([]);
+  const [summary, setSummary] = useState<AdSummary | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState("all");
+
+  useEffect(() => {
+    fetch(`${API_BASE}/api/ads`)
+      .then((r) => r.json())
+      .then((data) => {
+        setProducts(data.products);
+        setSummary(data.summary);
+      })
+      .catch((err) => console.error("광고 데이터 로딩 실패:", err))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const filtered = products.filter((p) => {
+    if (filter === "high") return p.adRate > 15;
+    if (filter === "1차") return p.adTier === "1차";
+    if (filter === "2차") return p.adTier === "2차";
+    if (filter === "3차") return p.adTier === "3차";
+    return true;
+  });
+
+  const handleExcel = () => {
+    import("xlsx").then((XLSX) => {
+      const ws = XLSX.utils.json_to_sheet(
+        filtered.map((p) => ({
+          등급: p.grade, 광고등급: p.adTier, 상품명: p.name, 회사: p.company,
+          광고비: p.spend, 광고매출: p.adRevenue, ROAS: p.roas,
+          "CTR(%)": p.ctr, "전환율(%)": p.convRate, "ACoS(%)": p.acos,
+          "광고비율(%)": p.adRate, 매출: p.revenue, 순이익: p.netProfit,
+        }))
+      );
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "광고현황");
+      XLSX.writeFile(wb, `광고현황_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    });
+  };
+
+  if (loading || !summary) return <div className="flex items-center justify-center h-64 text-slate-500">로딩 중...</div>;
+
+  const gradeChartData = [
+    { name: "A등급", value: summary.gradeSpendPercent.A, target: 80, fill: "#3b82f6" },
+    { name: "B등급", value: summary.gradeSpendPercent.B, target: 15, fill: "#94a3b8" },
+    { name: "C등급", value: summary.gradeSpendPercent.C, target: 5, fill: "#f97316" },
+  ];
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-slate-900">광고 관리</h1>
+        <button onClick={handleExcel} className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-medium">
+          <Download size={16} /> 엑셀 다운로드
+        </button>
+      </div>
+
+      {/* Summary Cards */}
+      <div className="grid grid-cols-4 gap-4">
+        <div className="bg-white rounded-xl p-4 border border-slate-200">
+          <div className="flex items-center gap-2 text-sm text-slate-500"><Megaphone size={16} /> 총 광고비</div>
+          <div className="text-xl font-bold text-slate-900 mt-1">{formatKRW(summary.totalSpend)}원</div>
+        </div>
+        <div className="bg-white rounded-xl p-4 border border-slate-200">
+          <div className="text-sm text-slate-500">ROAS</div>
+          <div className={`text-xl font-bold mt-1 ${summary.overallRoas >= 300 ? "text-green-600" : summary.overallRoas >= 200 ? "text-orange-500" : "text-red-600"}`}>{summary.overallRoas}%</div>
+        </div>
+        <div className={`rounded-xl p-4 border ${summary.overallAdRate > 20 ? "bg-red-50 border-red-200" : summary.overallAdRate > 15 ? "bg-orange-50 border-orange-200" : "bg-green-50 border-green-200"}`}>
+          <div className="text-sm text-slate-500">광고비율</div>
+          <div className={`text-xl font-bold mt-1 ${summary.overallAdRate > 20 ? "text-red-700" : summary.overallAdRate > 15 ? "text-orange-700" : "text-green-700"}`}>{summary.overallAdRate}%</div>
+          <div className="text-xs text-slate-500 mt-1">목표: 업계평균</div>
+        </div>
+        <div className="bg-red-50 rounded-xl p-4 border border-red-200">
+          <div className="flex items-center gap-2 text-sm text-red-600"><AlertTriangle size={16} /> 15% 초과</div>
+          <div className="text-xl font-bold text-red-700 mt-1">{summary.highAdCount}개</div>
+        </div>
+      </div>
+
+      {/* Budget Allocation */}
+      <div className="grid grid-cols-2 gap-6">
+        <div className="bg-white rounded-xl p-6 border border-slate-200">
+          <h3 className="font-semibold text-slate-900 mb-4">등급별 광고비 배분 (목표: A등급 80%)</h3>
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={gradeChartData} layout="vertical">
+              <XAxis type="number" domain={[0, 100]} tickFormatter={(v: number) => `${v}%`} fontSize={12} />
+              <YAxis type="category" dataKey="name" width={60} fontSize={12} />
+              {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+              <Tooltip formatter={(v: any) => [`${v}%`, "비중"]} />
+              <Bar dataKey="value" radius={[0, 4, 4, 0]}>
+                {gradeChartData.map((entry, i) => (
+                  <Cell key={i} fill={entry.fill} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+          <div className="mt-3 flex gap-4 text-xs text-slate-500">
+            <span>A등급: <strong className="text-blue-600">{summary.gradeSpendPercent.A}%</strong> (목표 80%)</span>
+            <span>B등급: <strong>{summary.gradeSpendPercent.B}%</strong></span>
+            <span>C등급: <strong className="text-orange-600">{summary.gradeSpendPercent.C}%</strong></span>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl p-6 border border-slate-200">
+          <h3 className="font-semibold text-slate-900 mb-4">광고 등급별 배분 (1차:15 / 2차:10 / 3차:5)</h3>
+          <div className="space-y-4 mt-6">
+            {["1차", "2차", "3차"].map((tier) => {
+              const spend = summary.tierSpend[tier] || 0;
+              const pct = summary.totalSpend > 0 ? (spend / summary.totalSpend) * 100 : 0;
+              return (
+                <div key={tier} className="flex items-center gap-3">
+                  <span className="w-10 text-sm font-medium">{tier}</span>
+                  <div className="flex-1 bg-slate-100 rounded-full h-6 relative">
+                    <div className="bg-blue-500 h-6 rounded-full flex items-center justify-end pr-2" style={{ width: `${Math.min(pct, 100)}%` }}>
+                      <span className="text-xs text-white font-medium">{Math.round(pct)}%</span>
+                    </div>
+                  </div>
+                  <span className="text-sm text-slate-500 w-24 text-right">{formatKRW(spend)}원</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* Filter */}
+      <div className="flex gap-2">
+        {[
+          { key: "all", label: "전체" },
+          { key: "high", label: `15% 초과 (${products.filter(p => p.adRate > 15).length})` },
+          { key: "1차", label: "1차 (핵심)" },
+          { key: "2차", label: "2차 (성장)" },
+          { key: "3차", label: "3차 (테스트)" },
+        ].map((f) => (
+          <button key={f.key} onClick={() => setFilter(f.key)} className={`px-4 py-2 rounded-lg text-sm font-medium ${filter === f.key ? "bg-blue-600 text-white" : "bg-white border border-slate-200 hover:bg-slate-50"}`}>
+            {f.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Table */}
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table>
+            <thead>
+              <tr className="bg-slate-50">
+                <th>등급</th>
+                <th>광고</th>
+                <th>상품명</th>
+                <th className="text-right">광고비</th>
+                <th className="text-right">광고매출</th>
+                <th className="text-right">ROAS</th>
+                <th className="text-right">CTR</th>
+                <th className="text-right">전환율</th>
+                <th className="text-right">광고비율</th>
+                <th className="text-right">순이익률</th>
+                <th>상태</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.length === 0 && (
+                <tr><td colSpan={11} className="text-center py-12 text-slate-500">광고 데이터가 없습니다.</td></tr>
+              )}
+              {filtered.map((p) => (
+                <tr key={p.id} className={p.adRate > 15 ? "bg-red-50/50" : ""}>
+                  <td><span className={`px-2 py-0.5 rounded text-xs font-bold ${getGradeColor(p.grade)}`}>{p.grade}</span></td>
+                  <td><span className="px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800">{p.adTier}</span></td>
+                  <td className="font-medium text-slate-900">{p.name}</td>
+                  <td className="text-right">{formatKRW(p.spend)}</td>
+                  <td className="text-right">{formatKRW(p.adRevenue)}</td>
+                  <td className={`text-right font-semibold ${p.roas >= 300 ? "text-green-600" : p.roas >= 200 ? "text-orange-500" : "text-red-600"}`}>{p.roas}%</td>
+                  <td className="text-right">{p.ctr}%</td>
+                  <td className="text-right">{p.convRate}%</td>
+                  <td className={`text-right font-semibold ${p.adRate > 15 ? "text-red-600" : "text-slate-600"}`}>{formatPercent(p.adRate)}</td>
+                  <td className={`text-right ${p.profitRate < 0 ? "text-red-600 font-bold" : p.profitRate <= 3 ? "text-orange-500" : "text-green-600"}`}>{formatPercent(p.profitRate)}</td>
+                  <td>
+                    {p.adRate > 15 && <span className="px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">점검필요</span>}
+                    {p.roas < 200 && p.adRate <= 15 && <span className="px-2 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-800">효율낮음</span>}
+                    {p.adRate <= 15 && p.roas >= 200 && <span className="px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">정상</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Rules */}
+      <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
+        <h4 className="font-semibold text-sm text-slate-700 mb-2"><TrendingDown size={16} className="inline mr-1" />자동 규칙</h4>
+        <div className="grid grid-cols-3 gap-3 text-xs text-slate-600">
+          <div className="bg-white p-3 rounded-lg border">광고비율 &gt; 15% &rarr; <strong className="text-red-600">점검 알림</strong></div>
+          <div className="bg-white p-3 rounded-lg border">ROAS &lt; 200% &rarr; <strong className="text-orange-600">효율 낮음 알림</strong></div>
+          <div className="bg-white p-3 rounded-lg border">7일 연속 적자 &rarr; <strong className="text-red-600">광고 중단 추천</strong></div>
+          <div className="bg-white p-3 rounded-lg border">A등급 광고비 &lt; 80% &rarr; <strong className="text-blue-600">재배분 추천</strong></div>
+          <div className="bg-white p-3 rounded-lg border">전환율 &lt; 평균50% &rarr; <strong className="text-orange-600">개선 필요</strong></div>
+          <div className="bg-white p-3 rounded-lg border">예산: 1차 15 / 2차 10 / 3차 5 <strong className="text-purple-600">배분 기준</strong></div>
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,340 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Companies ────────────────────────────────────────────────────────────────
+
+model Company {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  slug      String   @unique
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  users          User[]
+  products       Product[]
+  inventory      Inventory[]
+  orders         Order[]
+  purchaseOrders PurchaseOrder[]
+  ads            Ad[]
+  profitLoss     ProfitLoss[]
+  thumbnails     Thumbnail[]
+  reviews        Review[]
+  alerts         Alert[]
+
+  @@map("companies")
+}
+
+// ─── Users ────────────────────────────────────────────────────────────────────
+
+model User {
+  id        String   @id @default(uuid()) @db.Uuid
+  companyId String   @map("company_id") @db.Uuid
+  email     String   @unique
+  name      String
+  role      String   @default("member")
+  team      String?
+  avatarUrl String?  @map("avatar_url")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@map("users")
+}
+
+// ─── Products ─────────────────────────────────────────────────────────────────
+
+model Product {
+  id          String   @id @default(uuid()) @db.Uuid
+  companyId   String   @map("company_id") @db.Uuid
+  name        String
+  description String   @default("")
+  status      String   @default("draft")
+  category    String?
+  tags        Json     @default("[]")
+  thumbnailUrl String? @map("thumbnail_url")
+
+  sourceUrl      String?  @map("source_url")
+  sourcePlatform String?  @map("source_platform")
+  costCny        Decimal? @map("cost_cny") @db.Decimal(12, 2)
+  marginRate     Decimal? @map("margin_rate") @db.Decimal(5, 4)
+  rawData        Json?    @map("raw_data")
+  processedData  Json?    @map("processed_data")
+  detailPageUrl  String?  @map("detail_page_url")
+
+  sellPrice      Int?     @map("sell_price")
+  commissionRate Decimal? @map("commission_rate") @db.Decimal(5, 4)
+  shippingCost   Int?     @map("shipping_cost")
+  abcGrade       String?  @map("abc_grade")
+  adTier         String?  @map("ad_tier")
+
+  coupangProductId String? @map("coupang_product_id")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company    Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  inventory  Inventory?
+  orders     Order[]
+  ads        Ad[]
+  profitLoss ProfitLoss[]
+  thumbnails Thumbnail[]
+  reviews    Review[]
+  alerts     Alert[]
+  purchaseOrderItems PurchaseOrderItem[]
+
+  @@index([companyId])
+  @@index([status])
+  @@index([abcGrade])
+  @@map("products")
+}
+
+// ─── Inventory ────────────────────────────────────────────────────────────────
+
+model Inventory {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  productId String @unique @map("product_id") @db.Uuid
+
+  currentStock    Int   @default(0) @map("current_stock")
+  reservedStock   Int   @default(0) @map("reserved_stock")
+  safetyStock     Int   @default(0) @map("safety_stock")
+  reorderPoint    Int   @default(0) @map("reorder_point")
+  reorderQuantity Int   @default(0) @map("reorder_quantity")
+  leadTimeDays    Int?  @map("lead_time_days")
+  dailySalesAvg   Float @default(0) @map("daily_sales_avg")
+
+  lastRestockedAt DateTime? @map("last_restocked_at") @db.Timestamptz
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([productId])
+  @@map("inventory")
+}
+
+// ─── Orders ───────────────────────────────────────────────────────────────────
+
+model Order {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  productId String? @map("product_id") @db.Uuid
+
+  orderNumber    String  @map("order_number")
+  platform       String
+  coupangOrderId String? @map("coupang_order_id")
+  customerName   String  @default("") @map("customer_name")
+  productName    String  @map("product_name")
+  quantity       Int     @default(1)
+  unitPrice      Int     @map("unit_price")
+  totalPrice     Int     @map("total_price")
+  status         String  @default("pending")
+  trackingNumber String? @map("tracking_number")
+  shippingCompany String? @map("shipping_company")
+
+  orderedAt   DateTime  @default(now()) @map("ordered_at") @db.Timestamptz
+  shippedAt   DateTime? @map("shipped_at") @db.Timestamptz
+  deliveredAt DateTime? @map("delivered_at") @db.Timestamptz
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([companyId])
+  @@index([productId])
+  @@index([status])
+  @@index([platform])
+  @@index([orderedAt])
+  @@map("orders")
+}
+
+// ─── Purchase Orders ──────────────────────────────────────────────────────────
+
+model PurchaseOrder {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+
+  supplierName    String  @map("supplier_name")
+  supplierContact String? @map("supplier_contact")
+  totalAmountCny  Decimal @map("total_amount_cny") @db.Decimal(12, 2)
+  status          String  @default("draft")
+
+  orderDate            DateTime  @default(now()) @map("order_date") @db.Date
+  expectedDeliveryDate DateTime? @map("expected_delivery_date") @db.Date
+  trackingNumber       String?   @map("tracking_number")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  items   PurchaseOrderItem[]
+
+  @@index([companyId])
+  @@index([status])
+  @@map("purchase_orders")
+}
+
+model PurchaseOrderItem {
+  id        String @id @default(uuid()) @db.Uuid
+  orderId   String @map("order_id") @db.Uuid
+  productId String? @map("product_id") @db.Uuid
+
+  productName  String  @map("product_name")
+  quantity     Int
+  unitPriceCny Decimal @map("unit_price_cny") @db.Decimal(12, 2)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  order   PurchaseOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product?      @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@map("purchase_order_items")
+}
+
+// ─── Ads ──────────────────────────────────────────────────────────────────────
+
+model Ad {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  productId String @map("product_id") @db.Uuid
+
+  platform     String  @default("coupang")
+  campaignName String? @map("campaign_name")
+  dailyBudget  Int?    @map("daily_budget")
+  spend        Int     @default(0)
+  impressions  Int     @default(0)
+  clicks       Int     @default(0)
+  conversions  Int     @default(0)
+  roas         Decimal? @db.Decimal(10, 2)
+
+  date      DateTime @default(now()) @db.Date
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([productId])
+  @@index([date])
+  @@map("ads")
+}
+
+// ─── Profit & Loss ────────────────────────────────────────────────────────────
+
+model ProfitLoss {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  productId String @map("product_id") @db.Uuid
+
+  year  Int
+  month Int
+
+  revenue      Int @default(0)
+  cogs         Int @default(0)
+  commission   Int @default(0)
+  shippingCost Int @default(0) @map("shipping_cost")
+  adCost       Int @default(0) @map("ad_cost")
+  otherCost    Int @default(0) @map("other_cost")
+  netProfit    Int @default(0) @map("net_profit")
+  orderCount   Int @default(0) @map("order_count")
+  returnCount  Int @default(0) @map("return_count")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([productId])
+  @@index([year, month])
+  @@map("profit_loss")
+}
+
+// ─── Thumbnails ───────────────────────────────────────────────────────────────
+
+model Thumbnail {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  productId String @map("product_id") @db.Uuid
+
+  imageUrl    String  @map("image_url")
+  strategy    String  @default("standard")
+  status      String  @default("active")
+  ctr         Decimal? @db.Decimal(5, 4)
+  impressions Int     @default(0)
+  clicks      Int     @default(0)
+
+  measuredAt DateTime? @map("measured_at") @db.Timestamptz
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([productId])
+  @@map("thumbnails")
+}
+
+// ─── Reviews ──────────────────────────────────────────────────────────────────
+
+model Review {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  productId String @map("product_id") @db.Uuid
+
+  platform     String   @default("coupang")
+  rating       Int
+  content      String?
+  reviewerName String?  @map("reviewer_name")
+
+  reviewedAt DateTime @default(now()) @map("reviewed_at") @db.Timestamptz
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([productId])
+  @@map("reviews")
+}
+
+// ─── Alerts ───────────────────────────────────────────────────────────────────
+
+model Alert {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  productId String? @map("product_id") @db.Uuid
+
+  type     String
+  severity String  @default("warning")
+  title    String
+  message  String?
+  isRead   Boolean @default(false) @map("is_read")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  company Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([companyId])
+  @@index([isRead])
+  @@index([type])
+  @@index([createdAt])
+  @@map("alerts")
+}
