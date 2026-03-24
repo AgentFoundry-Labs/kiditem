@@ -12,21 +12,19 @@ cp apps/server/.env.example apps/server/.env   # GEMINI_API_KEY 등 설정
 docker compose up -d                           # PostgreSQL + NestJS + Langfuse
 npm run db:push                                # 스키마 적용
 npm run db:seed                                # 시드 데이터
-npm run dev                                    # Next.js (localhost:3000)
+npm run dev                                    # Next.js 프론트엔드 (별도 터미널)
 ```
 
 NestJS 코드 변경 시: `docker compose up -d --build server`
 
-Python 에이전트: `cd agents && .venv/bin/python -m src.runner`
-
 ## 포트
 
-| 서비스 | URL |
-|---|---|
-| Next.js | http://localhost:3000 |
-| NestJS API | http://localhost:4000/api |
-| PostgreSQL | localhost:5433 |
-| Langfuse | http://localhost:3100 |
+| 서비스 | URL | 실행 방식 |
+|---|---|---|
+| Next.js | http://localhost:3000 | 로컬 (`npm run dev`) |
+| NestJS API | http://localhost:4000/api | Docker |
+| PostgreSQL | localhost:5433 | Docker |
+| Langfuse | http://localhost:3100 | Docker |
 
 ## 구조
 
