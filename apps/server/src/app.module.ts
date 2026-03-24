@@ -11,6 +11,7 @@ import { ReturnsModule } from './returns/returns.module';
 import { CompaniesModule } from './companies/companies.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { AlertsModule } from './alerts/alerts.module';
+import { AgentTasksModule } from './agent-tasks/agent-tasks.module';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { AlertsModule } from './alerts/alerts.module';
     CompaniesModule,
     DashboardModule,
     AlertsModule,
+    AgentTasksModule,
   ],
 })
 export class AppModule {}

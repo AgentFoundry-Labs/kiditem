@@ -338,3 +338,43 @@ model Alert {
   @@index([createdAt])
   @@map("alerts")
 }
+
+// ─── Agent Tasks (Phase 2) ────────────────────────────────────────────────────
+
+model AgentTask {
+  id        String  @id @default(uuid()) @db.Uuid
+  agentType String  @map("agent_type")
+  status    String  @default("pending")
+  priority  Int     @default(0)
+
+  input  Json?
+  output Json?
+  error  String?
+
+  scheduledAt DateTime? @map("scheduled_at") @db.Timestamptz
+  startedAt   DateTime? @map("started_at") @db.Timestamptz
+  completedAt DateTime? @map("completed_at") @db.Timestamptz
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  logs AgentLog[]
+
+  @@index([status])
+  @@index([agentType])
+  @@index([createdAt])
+  @@map("agent_tasks")
+}
+
+model AgentLog {
+  id     String @id @default(uuid()) @db.Uuid
+  taskId String @map("task_id") @db.Uuid
+  level  String @default("info")
+  message String
+  data   Json?
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  task AgentTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@map("agent_logs")
+}
