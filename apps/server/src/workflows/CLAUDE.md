@@ -8,15 +8,19 @@
 workflows/
 ├── dag.ts                    — ReactFlow JSON → DAG (스택 기반 실행)
 ├── context.ts                — 노드 간 데이터 플로우 + {{nodes.X.output.Y}} 템플릿
-├── workflow-runner.service.ts — 실행 엔진 (DAG 순회, 스텝 기록, 에러 중단)
+├── workflow-runner.service.ts — 실행 엔진 (DAG 순회, 스텝 기록, AI 분석)
 ├── workflows.service.ts       — CRUD + 실행 트리거 (fire-and-forget)
 ├── workflows.controller.ts   — REST API
 ├── workflows.module.ts        — NestJS 모듈
-└── executors/
-    ├── index.ts              — 레지스트리 (executor + definition)
-    ├── types.ts              — 표준 엔티티 타입 + NodeDefinition
-    ├── catalog.ts            — 30개 노드 정의 (입출력 스키마)
-    └── builtin.ts            — 내장 executor 구현
+├── executors/
+│   ├── index.ts              — 레지스트리 (executor + definition)
+│   ├── types.ts              — 표준 엔티티 타입 + NodeDefinition
+│   ├── catalog.ts            — 30개 노드 정의 (입출력 스키마)
+│   ├── builtin.ts            — 내장 executor 구현
+│   └── ai-analyze.ts         — Gemini AI 분석 executor
+└── actions/
+    ├── types.ts              — ActionDefinition 타입
+    └── catalog.ts            — 전체 액션 목록 + getActionsForPrompt()
 ```
 
 ## API
@@ -28,9 +32,20 @@ workflows/
 | GET | /api/workflows/:id | 상세 |
 | PUT | /api/workflows/:id | 수정 (version 자동 증가) |
 | DELETE | /api/workflows/:id | 삭제 |
-| POST | /api/workflows/:id/run | 실행 트리거 |
+| POST | /api/workflows/batch-run | 배치 실행 (여러 워크플로우 → 종합 AI 분석) |
+| POST | /api/workflows/:id/run | 단일 실행 (context에 productId 전달 가능) |
 | GET | /api/workflows/:id/runs | 실행 이력 |
 | GET | /api/workflow-runs/:runId | 실행 상세 + 스텝 목록 |
+
+## 실행 흐름
+
+1. `POST /api/workflows/:id/run` (body: `{ context: { productId? } }`)
+2. WorkflowRun 생성 (pending) → fire-and-forget 실행
+3. DAG 순회: 노드별 executor 실행 → 스텝 기록
+4. 완료 후 자동 AI 분석 1회 (`runAnalysisAndRecord`)
+5. ActivityEvent 생성 (AI 요약 + 추천 액션)
+
+배치: 개별 워크플로우는 `skipAnalysis: true`로 실행 → 마지막에 전체 결과 종합 AI 분석 1회.
 
 ## Executor 규칙
 
@@ -76,8 +91,7 @@ registerNode(
 엔진이 주입하므로 executor가 직접 세팅하지 말 것. 읽기만.
 
 - `company_id` — 현재 회사 ID
-- `_workflow_run_id` — 현재 실행 ID
-- `_workflow_node_id` — 현재 노드 ID
+- `_context` — 실행 컨텍스트 (productId 등). `internal.db_query`에서 자동 필터링에 사용.
 
 ### output 형태
 

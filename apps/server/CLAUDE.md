@@ -44,6 +44,12 @@ src/{domain}/
 | thumbnails | `/api/thumbnails` | GET |
 | companies | `/api/companies` | GET |
 | alerts | `/api/alerts` | GET |
+| workflows | `/api/workflows` | GET, POST, GET /:id, PUT /:id, DELETE /:id |
+| workflows | `/api/workflows/:id/run` | POST (body: { context? }) |
+| workflows | `/api/workflows/batch-run` | POST (body: { workflowIds, context? }) |
+| workflows | `/api/workflows/:id/runs` | GET |
+| workflow-runs | `/api/workflow-runs/:runId` | GET |
+| activity-events | `/api/activity-events` | GET (query: objectType, objectId, companyId, eventType) |
 
 ## PrismaService
 

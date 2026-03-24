@@ -20,8 +20,17 @@ src/
 │   ├── sourcing/           # 소싱 파이프라인 (수집, 편집, 에디터)
 │   ├── generate/           # AI 콘텐츠 생성
 │   ├── products/           # 상품 관리 (운영)
+│   ├── products/[id]/      # 상품 상세 (Object View — 메트릭+재고+활동이력+액션)
 │   ├── orders/             # 주문
 │   ├── inventory/          # 재고
+│   ├── ads/                # 광고 관리
+│   ├── profit-loss/        # 손익표
+│   ├── reviews/            # 리뷰 관리
+│   ├── thumbnails/         # 썸네일 관리 (CTR 추적)
+│   ├── core-products/      # 핵심상품 (A등급 전용)
+│   ├── cleanup/            # 정리 대상 (순이익 3% 이하)
+│   ├── reports/            # 리포트/엑셀 출력
+│   ├── workflows/          # 워크플로우 관리
 │   └── ...
 ├── components/
 │   ├── layout/             # AppLayout, Sidebar, Header
