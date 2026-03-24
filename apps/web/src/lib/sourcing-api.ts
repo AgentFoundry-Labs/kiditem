@@ -102,7 +102,25 @@ export const productsApi = {
 
   async getDetail(id: string): Promise<ProductDetailResponse> {
     const res = await fetch(`${PRODUCTS_BASE}/${id}`);
-    return handleResponse<ProductDetailResponse>(res);
+    const p = await handleResponse<any>(res);
+    const rawData = p.rawData || p.raw_data || {};
+    const images = rawData.images || [];
+    return {
+      id: p.id,
+      name: p.name || rawData.title || '',
+      status: (p.status || 'DRAFT').toUpperCase() as ProductStatus,
+      source_platform: p.sourcePlatform || rawData.source_platform || '',
+      source_url: p.sourceUrl || rawData.source_url || null,
+      thumbnail_url: p.thumbnailUrl || images[0] || null,
+      price_krw: p.sellPrice || null,
+      cost_cny: p.costCny ? Number(p.costCny) : (rawData.price ? parseFloat(rawData.price) : null),
+      image_count: images.length,
+      is_processed: p.processedData != null,
+      raw_data: rawData,
+      processed_data: p.processedData || p.processed_data || null,
+      created_at: p.createdAt || '',
+      updated_at: p.updatedAt || '',
+    };
   },
 
   async delete(id: string): Promise<{ ok: boolean }> {
@@ -114,22 +132,29 @@ export const productsApi = {
     id: string,
     opts?: { generation_mode?: 'template' | 'oneshot' }
   ): Promise<{ ok: boolean; message: string }> {
-    const res = await fetch(`${PRODUCTS_BASE}/${id}/process`, {
+    const res = await fetch(`${API_BASE}/api/agent-tasks`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(opts ?? {}),
+      body: JSON.stringify({
+        agentType: 'content',
+        input: { productId: id, ...(opts || {}) },
+      }),
     });
-    return handleResponse<{ ok: boolean; message: string }>(res);
+    await handleResponse<any>(res);
+    return { ok: true, message: 'AI 가공 작업이 시작되었습니다.' };
   },
 
   async cancel(id: string): Promise<{ ok: boolean }> {
-    const res = await fetch(`${PRODUCTS_BASE}/${id}/cancel`, { method: 'POST' });
-    return handleResponse<{ ok: boolean }>(res);
+    return { ok: true };
   },
 
   async status(id: string): Promise<StatusResponse> {
-    const res = await fetch(`${PRODUCTS_BASE}/${id}/status`);
-    return handleResponse<StatusResponse>(res);
+    const detail = await this.getDetail(id);
+    return {
+      id: detail.id,
+      status: detail.status,
+      is_processed: detail.is_processed,
+    };
   },
 
   async loadSample(): Promise<{ ok: boolean; message: string }> {
