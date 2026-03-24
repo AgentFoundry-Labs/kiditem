@@ -6,12 +6,19 @@ export class AgentTasksService {
   constructor(private readonly prisma: PrismaService) {}
 
   async create(agentType: string, input?: Record<string, unknown>) {
-    return this.prisma.agentTask.create({
+    const task = await this.prisma.agentTask.create({
       data: {
         agentType,
         ...(input && { input: input as any }),
       },
     });
+
+    await this.prisma.$executeRawUnsafe(
+      `SELECT pg_notify('new_agent_task', $1)`,
+      task.id,
+    );
+
+    return task;
   }
 
   async findAll(query: { status?: string; agentType?: string; limit?: string }) {

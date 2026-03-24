@@ -18,11 +18,13 @@ AGENTS: dict[str, BaseAgent] = {
 }
 
 running = True
+task_event = asyncio.Event()
 
 
 def handle_shutdown(_sig, _frame):
     global running
     running = False
+    task_event.set()
     print("\nShutting down...")
 
 
@@ -94,19 +96,46 @@ async def process_task(pool, task):
         print(f"[{agent_type}] ✗ Failed: {e}")
 
 
+async def drain_pending(pool):
+    while running:
+        task = await claim_task(pool)
+        if not task:
+            break
+        await process_task(pool, task)
+
+
+def on_notify(conn, pid, channel, payload):
+    task_event.set()
+
+
+async def listen_loop(pool):
+    conn = await pool.acquire()
+    try:
+        await conn.add_listener("new_agent_task", on_notify)
+        print("LISTEN new_agent_task — waiting for notifications...")
+
+        while running:
+            task_event.clear()
+            await drain_pending(pool)
+
+            try:
+                await asyncio.wait_for(task_event.wait(), timeout=POLL_INTERVAL_SECONDS)
+            except asyncio.TimeoutError:
+                pass
+    finally:
+        await conn.remove_listener("new_agent_task", on_notify)
+        await pool.release(conn)
+
+
 async def main():
     signal.signal(signal.SIGINT, handle_shutdown)
     signal.signal(signal.SIGTERM, handle_shutdown)
 
     pool = await get_pool()
-    print(f"Agent runner started. Polling every {POLL_INTERVAL_SECONDS}s...")
+    print(f"Agent runner started (LISTEN/NOTIFY + fallback poll {POLL_INTERVAL_SECONDS}s)")
 
-    while running:
-        task = await claim_task(pool)
-        if task:
-            await process_task(pool, task)
-        else:
-            await asyncio.sleep(POLL_INTERVAL_SECONDS)
+    await drain_pending(pool)
+    await listen_loop(pool)
 
     await close_pool()
     print("Agent runner stopped.")
