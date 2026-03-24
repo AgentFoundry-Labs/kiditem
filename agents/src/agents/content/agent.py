@@ -30,7 +30,7 @@ class ContentAgent(BaseAgent):
             raise ValueError("product_id is required in task_input")
 
         generation_mode = (
-            task_input.get("generation_mode") or task_input.get("generationMode") or "oneshot"
+            task_input.get("generation_mode") or task_input.get("generationMode") or "template"
         )
         reference_image_url = (
             task_input.get("reference_image_url") or task_input.get("referenceImageUrl") or ""

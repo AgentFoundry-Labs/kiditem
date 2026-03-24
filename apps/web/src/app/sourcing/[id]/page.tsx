@@ -171,9 +171,9 @@ export default function ProductDetailPage() {
     return () => clearInterval(interval);
   }, [isReprocessing, productId, fetchProduct]);
 
-  const handleReprocess = async () => {
+  const handleReprocess = async (mode: 'template' | 'oneshot' = 'template') => {
     try {
-      await productsApi.process(productId);
+      await productsApi.process(productId, { generation_mode: mode });
       setIsReprocessing(true);
     } catch {
       void 0;
