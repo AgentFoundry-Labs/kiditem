@@ -146,6 +146,37 @@ export default function RawDataTab({ rawData }: RawDataTabProps) {
 
       <div className="space-y-6">
         <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+          <div className="flex items-center gap-2 mb-4">
+            <ImageIcon size={18} className="text-purple-500" />
+            <h2 className="text-base font-bold text-gray-900">상세 설명 이미지 ({descriptionImages.length}장)</h2>
+          </div>
+          
+          {descriptionImages.length > 0 ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+              {descriptionImages.map((url, idx) => (
+                <div
+                  key={`desc-img-${idx}`}
+                  className="aspect-[3/4] rounded-lg border border-gray-200 overflow-hidden cursor-pointer hover:border-purple-500 transition-colors bg-gray-50"
+                  onClick={() => setEnlargedImage(url)}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={url}
+                    alt={`Description image ${idx + 1}`}
+                    className="w-full h-full object-cover"
+                    loading="lazy"
+                  />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-gray-500 py-8 text-center border border-gray-100 bg-gray-50 rounded-lg">
+              상세 설명 이미지가 없습니다.
+            </p>
+          )}
+        </div>
+
+        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
           <h2 className="text-base font-bold text-gray-900 mb-4">상세 스펙 ({specs.length}개)</h2>
           
           {specs.length > 0 ? (
@@ -168,38 +199,6 @@ export default function RawDataTab({ rawData }: RawDataTabProps) {
           ) : (
             <p className="text-sm text-gray-500 py-8 text-center border border-gray-100 bg-gray-50 rounded-lg">
               상세 스펙 정보가 없습니다.
-            </p>
-          )}
-        </div>
-
-        {/* Description Images */}
-        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
-          <div className="flex items-center gap-2 mb-4">
-            <ImageIcon size={18} className="text-purple-500" />
-            <h2 className="text-base font-bold text-gray-900">상세 설명 이미지 ({descriptionImages.length}장)</h2>
-          </div>
-          
-          {descriptionImages.length > 0 ? (
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
-              {descriptionImages.map((url, idx) => (
-                <div
-                  key={`desc-img-${idx}`}
-                  className="aspect-[3/4] rounded-lg border border-gray-200 overflow-hidden cursor-pointer hover:border-purple-500 transition-colors bg-gray-50"
-                  onClick={() => setEnlargedImage(url)}
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={url}
-                    alt={`Description image ${idx + 1}`}
-                    className="w-full h-full object-cover"
-                    loading="lazy"
-                  />
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-sm text-gray-500 py-8 text-center border border-gray-100 bg-gray-50 rounded-lg">
-              상세 설명 이미지가 없습니다.
             </p>
           )}
         </div>
