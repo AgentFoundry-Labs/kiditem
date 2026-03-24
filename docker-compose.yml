@@ -17,6 +17,22 @@ services:
       timeout: 5s
       retries: 5
 
+  server:
+    container_name: kiditem-server
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+    ports:
+      - "4000:4000"
+    environment:
+      DATABASE_URL: postgresql://kiditem:kiditem@postgres:5432/kiditem
+    env_file:
+      - apps/server/.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
   langfuse:
     container_name: kiditem-langfuse
     image: langfuse/langfuse:2
