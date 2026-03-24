@@ -20,6 +20,8 @@ import {
   FileText,
   ChevronLeft,
   Zap,
+  Search,
+  Sparkles,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useStore } from '@/store/useStore';
@@ -38,6 +40,11 @@ const operationsNav = [
   { href: '/reviews', label: '리뷰', icon: MessageSquare },
   { href: '/reports', label: '리포트', icon: FileSpreadsheet },
   { href: '/settings', label: '설정/연동', icon: Settings },
+];
+
+const sourcingNav = [
+  { href: '/sourcing', label: '소싱/수집', icon: Search },
+  { href: '/generate', label: '콘텐츠 생성', icon: Sparkles },
 ];
 
 const automationNav = [
@@ -104,6 +111,20 @@ export default function Sidebar() {
         <nav className="px-3 py-3 space-y-0.5">
           {operationsNav.map(renderNavItem)}
         </nav>
+
+        <div className="px-3 pb-3">
+          {sidebarOpen && (
+            <p className="px-3 mb-2 text-[10px] font-semibold text-gray-600 uppercase tracking-wider">
+              Sourcing
+            </p>
+          )}
+          {!sidebarOpen && (
+            <div className="mx-3 mb-2 border-t border-gray-200" />
+          )}
+          <nav className="space-y-0.5">
+            {sourcingNav.map(renderNavItem)}
+          </nav>
+        </div>
 
         <div className="px-3 pb-3">
           {sidebarOpen && (

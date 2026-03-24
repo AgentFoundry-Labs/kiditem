@@ -7,10 +7,14 @@ from datetime import datetime, timezone
 from src.config import POLL_INTERVAL_SECONDS
 from src.db import get_pool, close_pool
 from src.agents.base import BaseAgent
+from src.agents.content.agent import ContentAgent
 from src.agents.inventory import InventoryAgent
+from src.agents.sourcing.agent import SourcingAgent
 
 AGENTS: dict[str, BaseAgent] = {
     "inventory": InventoryAgent(),
+    "sourcing": SourcingAgent(),
+    "content": ContentAgent(),
 }
 
 running = True

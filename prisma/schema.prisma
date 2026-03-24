@@ -26,6 +26,9 @@ model Company {
   thumbnails     Thumbnail[]
   reviews        Review[]
   alerts         Alert[]
+  douyinLiveRooms  DouyinLiveRoom[]
+  contentGenerations ContentGeneration[]
+  coupangListings    CoupangListing[]
 
   @@map("companies")
 }
@@ -90,6 +93,9 @@ model Product {
   reviews    Review[]
   alerts     Alert[]
   purchaseOrderItems PurchaseOrderItem[]
+  douyinLiveProducts DouyinLiveProduct[]
+  contentGenerations ContentGeneration[]
+  coupangListings    CoupangListing[]
 
   @@index([companyId])
   @@index([status])
@@ -377,4 +383,128 @@ model AgentLog {
 
   @@index([taskId])
   @@map("agent_logs")
+}
+
+// ─── Phase 2: Sourcing ────────────────────────────────────────────────────────
+
+model DouyinLiveRoom {
+  id            String   @id @default(uuid()) @db.Uuid
+  companyId     String   @map("company_id") @db.Uuid
+  roomId        String   @unique @map("room_id")
+  webRoomId     String   @map("web_room_id")
+  streamerName  String   @default("") @map("streamer_name")
+  liveUrl       String   @default("") @map("live_url")
+  status        String   @default("PAUSED")
+  viewerCount   Int      @default(0) @map("viewer_count")
+  productCount  Int      @default(0) @map("product_count")
+  lastConnectedAt DateTime? @map("last_connected_at") @db.Timestamptz
+  errorMessage  String?  @map("error_message")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company  Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  products DouyinLiveProduct[]
+
+  @@index([companyId])
+  @@map("douyin_live_rooms")
+}
+
+model DouyinLiveProduct {
+  id             String   @id @default(uuid()) @db.Uuid
+  liveRoomId     String   @map("live_room_id") @db.Uuid
+  productId      String?  @map("product_id") @db.Uuid
+  promotionId    BigInt   @map("promotion_id")
+  productName    String   @default("") @map("product_name")
+  price          Decimal  @default(0) @db.Decimal(12, 2)
+  imageUrl       String   @default("") @map("image_url")
+  productUrl     String   @default("") @map("product_url")
+  indexInList    Int      @default(0) @map("index_in_list")
+  extraData      Json?    @map("extra_data")
+  detectedAt     DateTime @default(now()) @map("detected_at") @db.Timestamptz
+
+  matchStatus      String   @default("PENDING") @map("match_status")
+  matched1688Url   String?  @map("matched_1688_url")
+  matched1688Price Decimal? @map("matched_1688_price") @db.Decimal(12, 2)
+  matched1688Title String?  @map("matched_1688_title")
+  matchScore       Decimal? @map("match_score") @db.Decimal(5, 4)
+  matchedAt        DateTime? @map("matched_at") @db.Timestamptz
+
+  liveRoom DouyinLiveRoom @relation(fields: [liveRoomId], references: [id], onDelete: Cascade)
+  product  Product?       @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([liveRoomId])
+  @@index([productId])
+  @@index([promotionId])
+  @@map("douyin_live_products")
+}
+
+// ─── Phase 2: Content ─────────────────────────────────────────────────────────
+
+model ContentGeneration {
+  id                   String   @id @default(uuid()) @db.Uuid
+  companyId            String   @map("company_id") @db.Uuid
+  productId            String   @map("product_id") @db.Uuid
+  originalImages       Json?    @map("original_images")
+  processedImages      Json?    @map("processed_images")
+  generatedTitle       String?  @map("generated_title")
+  generatedDescription String?  @map("generated_description")
+  generatedCopy        String?  @map("generated_copy")
+  detailPageHtml       String?  @map("detail_page_html")
+  status               String   @default("PENDING")
+  retryCount           Int      @default(0) @map("retry_count")
+  errorMessage         String?  @map("error_message")
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt            DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([productId])
+  @@index([status])
+  @@map("content_generations")
+}
+
+// ─── Phase 2: Listing ─────────────────────────────────────────────────────────
+
+model CoupangListing {
+  id               String   @id @default(uuid()) @db.Uuid
+  companyId        String   @map("company_id") @db.Uuid
+  productId        String   @map("product_id") @db.Uuid
+  coupangProductId String   @map("coupang_product_id")
+  listingUrl       String   @map("listing_url")
+  status           String   @default("ACTIVE")
+  currentPrice     Int      @map("current_price")
+  viewsCount       Int      @default(0) @map("views_count")
+  conversionRate   Decimal  @default(0) @map("conversion_rate") @db.Decimal(5, 4)
+  adSpend          Decimal? @map("ad_spend") @db.Decimal(12, 2)
+  adRoas           Decimal? @map("ad_roas") @db.Decimal(10, 2)
+  listedAt         DateTime @default(now()) @map("listed_at") @db.Timestamptz
+  updatedAt        DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company      Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  product      Product              @relation(fields: [productId], references: [id], onDelete: Cascade)
+  performances ProductPerformance[]
+
+  @@index([companyId])
+  @@index([productId])
+  @@map("coupang_listings")
+}
+
+model ProductPerformance {
+  id           String   @id @default(uuid()) @db.Uuid
+  listingId    String   @map("listing_id") @db.Uuid
+  date         DateTime @db.Date
+  views        Int      @default(0)
+  clicks       Int      @default(0)
+  orders       Int      @default(0)
+  revenue      Int      @default(0)
+  adSpendDaily Decimal  @default(0) @map("ad_spend_daily") @db.Decimal(12, 2)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  listing CoupangListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@index([listingId])
+  @@index([date])
+  @@map("product_performances")
 }
