@@ -5,27 +5,26 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   AlertCircle,
-  ArrowLeft,
   ChevronDown,
   Code2,
   Download,
-  GripVertical,
   Loader2,
-  Lock,
   Pencil,
-  Plus,
-  RefreshCw,
   Settings,
   Square,
-  Unlock,
 } from 'lucide-react';
 import {
   productsApi,
   type ProductDetailResponse,
 } from '@/lib/sourcing-api';
 import MobilePreview from '../components/MobilePreview';
-
-type EditTabType = 'basic' | 'detail' | 'raw';
+import ProductEditHeader from '../components/ProductEditHeader';
+import ProductEditTabs, {
+  type EditTabType,
+} from '../components/ProductEditTabs';
+import ThumbnailGrid from '../components/ThumbnailGrid';
+import TagEditor from '../components/TagEditor';
+import RawDataTab from '../components/RawDataTab';
 
 interface ProductInfoItem {
   key: string;
@@ -111,13 +110,19 @@ export default function ProductDetailPage() {
   const router = useRouter();
   const productId = params.id as string;
 
-  const [product, setProduct] = useState<ProductDetailResponse | null>(null);
+  const [product, setProduct] = useState<ProductDetailResponse | null>(
+    null
+  );
   const [isLoadingProduct, setIsLoadingProduct] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<EditTabType>('basic');
+  const [isEditComplete, setIsEditComplete] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
   const [isReprocessing, setIsReprocessing] = useState(false);
-  const [editData, setEditData] = useState<ProductEditState>(PLACEHOLDER_DATA);
+  const [editData, setEditData] =
+    useState<ProductEditState>(PLACEHOLDER_DATA);
+
+  const goBack = () => router.push('/sourcing');
 
   const fetchProduct = useCallback(async () => {
     setIsLoadingProduct(true);
@@ -195,15 +200,17 @@ export default function ProductDetailPage() {
   if (isLoadingProduct) {
     return (
       <div className="flex flex-col h-full overflow-hidden">
-        <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-center gap-4">
-          <button
-            onClick={() => router.push('/sourcing')}
-            className="p-2 hover:bg-gray-100 rounded-lg text-gray-500"
-          >
-            <ArrowLeft size={20} />
-          </button>
-          <span className="text-sm text-gray-400">불러오는 중...</span>
-        </header>
+        <ProductEditHeader
+          productName="불러오는 중..."
+          productId={productId}
+          isEditComplete={false}
+          isLocked={false}
+          isReprocessing={false}
+          onToggleEditComplete={() => {}}
+          onToggleLocked={() => {}}
+          onReprocess={() => {}}
+          onBack={goBack}
+        />
         <div className="flex-1 flex items-center justify-center bg-gray-50">
           <div className="flex flex-col items-center gap-3 text-gray-400">
             <Loader2 size={32} className="animate-spin" />
@@ -219,15 +226,17 @@ export default function ProductDetailPage() {
   if (loadError) {
     return (
       <div className="flex flex-col h-full overflow-hidden">
-        <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-center gap-4">
-          <button
-            onClick={() => router.push('/sourcing')}
-            className="p-2 hover:bg-gray-100 rounded-lg text-gray-500"
-          >
-            <ArrowLeft size={20} />
-          </button>
-          <span className="text-sm text-gray-400">오류</span>
-        </header>
+        <ProductEditHeader
+          productName="오류"
+          productId={productId}
+          isEditComplete={false}
+          isLocked={false}
+          isReprocessing={false}
+          onToggleEditComplete={() => {}}
+          onToggleLocked={() => {}}
+          onReprocess={() => {}}
+          onBack={goBack}
+        />
         <div className="flex-1 flex items-center justify-center bg-gray-50">
           <div className="flex flex-col items-center gap-3 text-gray-500">
             <AlertCircle size={32} className="text-red-400" />
@@ -244,270 +253,202 @@ export default function ProductDetailPage() {
     );
   }
 
-  const tabs: { key: EditTabType; label: string }[] = [
-    { key: 'basic', label: '기본 정보' },
-    { key: 'detail', label: '상세페이지' },
-    { key: 'raw', label: '원본 데이터' },
-  ];
+  const nameLength = Array.from(editData.name).length;
 
-  const renderBasicTab = () => (
-    <div className="space-y-6 p-6">
-      <div className="bg-white rounded-xl border border-gray-200 p-5">
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <label className="text-sm font-semibold text-gray-700">
-              썸네일 이미지
-            </label>
-            <span className="text-xs text-gray-400">
-              {editData.thumbnails.length}/10장
-            </span>
-          </div>
-          <div className="flex gap-2 flex-wrap">
-            {editData.thumbnails.map((url, index) => (
-              <div
-                key={`thumb-${index}`}
-                className="relative group w-[88px] h-[88px] rounded-lg overflow-hidden border-2 border-gray-200 hover:border-emerald-400 transition-colors cursor-grab"
-              >
-                <img
-                  src={url}
-                  alt={`상품 이미지 ${index + 1}`}
-                  className="w-full h-full object-cover"
-                />
-                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors" />
-                <div className="absolute top-1 left-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <GripVertical
-                    size={14}
-                    className="text-white drop-shadow-md"
+  const renderTabContent = () => {
+    switch (activeTab) {
+      case 'basic':
+        return (
+          <div className="space-y-6 p-6">
+            <div className="bg-white rounded-xl border border-gray-200 p-5">
+              <ThumbnailGrid
+                thumbnails={editData.thumbnails}
+                onThumbnailsChange={(v) => updateField('thumbnails', v)}
+              />
+            </div>
+
+            <div className="bg-white rounded-xl border border-gray-200 p-5">
+              <div className="space-y-3">
+                <label className="text-sm font-semibold text-gray-700">
+                  카테고리
+                </label>
+                <div className="relative">
+                  <select
+                    value={editData.category}
+                    onChange={(e) =>
+                      updateField('category', e.target.value)
+                    }
+                    className="w-full appearance-none px-4 py-2.5 pr-10 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400 transition-colors cursor-pointer"
+                  >
+                    <option value="">카테고리 선택</option>
+                    {CATEGORIES.map((cat) => (
+                      <option key={cat} value={cat}>
+                        {cat}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown
+                    size={16}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
                   />
                 </div>
-                {index === 0 && (
-                  <span className="absolute bottom-0 left-0 right-0 bg-emerald-600 text-white text-[10px] text-center py-0.5 font-medium">
-                    대표
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl border border-gray-200 p-5">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-semibold text-gray-700">
+                    상품명
+                  </label>
+                  <span
+                    className={`text-xs font-medium ${
+                      nameLength > 100
+                        ? 'text-red-500'
+                        : 'text-gray-400'
+                    }`}
+                  >
+                    {nameLength}/100자
                   </span>
-                )}
-                <button
-                  onClick={() =>
-                    updateField(
-                      'thumbnails',
-                      editData.thumbnails.filter((_, i) => i !== index)
-                    )
-                  }
-                  className="absolute top-1 right-1 w-5 h-5 bg-black/50 hover:bg-red-500 text-white rounded-full flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-all"
+                </div>
+                <input
+                  type="text"
+                  value={editData.name}
+                  onChange={(e) => updateField('name', e.target.value)}
+                  className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400 transition-colors"
+                  placeholder="상품명을 입력하세요"
+                  maxLength={100}
+                />
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl border border-gray-200 p-5">
+              <TagEditor
+                tags={editData.tags}
+                onTagsChange={(v) => updateField('tags', v)}
+              />
+            </div>
+
+            {editData.productInfo.length > 0 && (
+              <div className="bg-white rounded-xl border border-gray-200 p-5">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm font-semibold text-gray-700">
+                      상품정보제공공시
+                    </label>
+                    <button className="text-xs text-emerald-600 hover:text-emerald-700 font-medium transition-colors">
+                      편집
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {editData.productInfo.map((item) => (
+                      <div
+                        key={item.key}
+                        className="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm hover:border-slate-300 transition-colors"
+                      >
+                        <span className="text-gray-500 font-medium">
+                          {item.key}:
+                        </span>
+                        <span className="text-gray-800">
+                          {item.value}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+
+      case 'options':
+        return (
+          <div className="p-6">
+            <div className="bg-white rounded-xl border border-gray-200 p-8">
+              <div className="flex flex-col items-center justify-center py-12 text-gray-400">
+                <Settings size={40} className="mb-3 text-gray-300" />
+                <p className="text-sm font-medium">
+                  옵션 및 판매가 설정
+                </p>
+                <p className="text-xs text-gray-400 mt-1">
+                  준비 중인 기능입니다
+                </p>
+              </div>
+            </div>
+          </div>
+        );
+
+      case 'detail':
+        return (
+          <div className="p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold text-gray-700">
+                생성된 상세페이지
+              </h3>
+              <div className="flex items-center gap-2">
+                <Link
+                  href={`/sourcing/${productId}/editor`}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors"
                 >
-                  ×
+                  <Pencil size={12} />
+                  에디터에서 편집
+                </Link>
+                <button className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-emerald-500 rounded-lg hover:bg-emerald-600 transition-colors">
+                  <Download size={12} />
+                  이미지 다운로드
                 </button>
               </div>
-            ))}
-            <button
-              onClick={() =>
-                updateField('thumbnails', [
-                  ...editData.thumbnails,
-                  `https://placehold.co/400x400/e2e8f0/64748b?text=상품+${editData.thumbnails.length + 1}`,
-                ])
-              }
-              className="w-[88px] h-[88px] rounded-lg border-2 border-dashed border-gray-300 hover:border-emerald-400 flex flex-col items-center justify-center gap-1 text-gray-400 hover:text-emerald-500 transition-colors"
-            >
-              <Plus size={20} />
-              <span className="text-[10px] font-medium">이미지 추가</span>
-            </button>
-          </div>
-        </div>
-      </div>
+            </div>
 
-      <div className="bg-white rounded-xl border border-gray-200 p-5">
-        <div className="space-y-3">
-          <label className="text-sm font-semibold text-gray-700">
-            카테고리
-          </label>
-          <div className="relative">
-            <select
-              value={editData.category}
-              onChange={(e) => updateField('category', e.target.value)}
-              className="w-full appearance-none px-4 py-2.5 pr-10 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400 transition-colors cursor-pointer"
-            >
-              <option value="">카테고리 선택</option>
-              {CATEGORIES.map((cat) => (
-                <option key={cat} value={cat}>
-                  {cat}
-                </option>
-              ))}
-            </select>
-            <ChevronDown
-              size={16}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
-            />
-          </div>
-        </div>
-      </div>
-
-      <div className="bg-white rounded-xl border border-gray-200 p-5">
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <label className="text-sm font-semibold text-gray-700">
-              상품명
-            </label>
-            <span
-              className={`text-xs font-medium ${
-                editData.name.length > 100
-                  ? 'text-red-500'
-                  : 'text-gray-400'
-              }`}
-            >
-              {editData.name.length}/100자
-            </span>
-          </div>
-          <input
-            type="text"
-            value={editData.name}
-            onChange={(e) => updateField('name', e.target.value)}
-            className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400 transition-colors"
-            placeholder="상품명을 입력하세요"
-            maxLength={100}
-          />
-        </div>
-      </div>
-
-      {editData.productInfo.length > 0 && (
-        <div className="bg-white rounded-xl border border-gray-200 p-5">
-          <label className="text-sm font-semibold text-gray-700 block mb-3">
-            상품 정보
-          </label>
-          <div className="flex flex-wrap gap-2">
-            {editData.productInfo.map((item, idx) => (
-              <div
-                key={idx}
-                className="px-3 py-1.5 bg-gray-100 rounded-lg text-xs text-gray-700"
-              >
-                <span className="font-medium text-gray-500">
-                  {item.key}:
-                </span>{' '}
-                {item.value}
+            {product?.is_processed ? (
+              <div className="bg-white rounded-xl border border-gray-200 p-8">
+                <div className="flex flex-col items-center justify-center py-8 text-gray-500">
+                  <Code2 size={40} className="mb-3 text-gray-300" />
+                  <p className="text-sm font-medium">
+                    상세페이지 미리보기
+                  </p>
+                  <p className="text-xs text-gray-400 mt-1">
+                    AI 가공된 상세페이지가 여기에 표시됩니다
+                  </p>
+                </div>
               </div>
-            ))}
+            ) : (
+              <div className="bg-white rounded-xl border border-gray-200 p-8">
+                <div className="flex flex-col items-center justify-center py-12 text-gray-400">
+                  <Settings size={40} className="mb-3 text-gray-300" />
+                  <p className="text-sm font-medium">
+                    생성된 상세페이지가 없습니다
+                  </p>
+                  <p className="text-xs text-gray-400 mt-1">
+                    AI 가공을 먼저 실행해주세요
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
-        </div>
-      )}
-    </div>
-  );
+        );
 
-  const renderDetailTab = () => (
-    <div className="p-6 space-y-4">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-bold text-gray-700">
-          생성된 상세페이지
-        </h3>
-        <div className="flex items-center gap-2">
-          <Link
-            href={`/sourcing/${productId}/editor`}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors"
-          >
-            <Pencil size={12} />
-            에디터에서 편집
-          </Link>
-          <button className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-emerald-500 rounded-lg hover:bg-emerald-600 transition-colors">
-            <Download size={12} />
-            이미지 다운로드
-          </button>
-        </div>
-      </div>
+      case 'raw':
+        return <RawDataTab rawData={product?.raw_data ?? null} />;
 
-      {product?.is_processed ? (
-        <div className="bg-white rounded-xl border border-gray-200 p-8">
-          <div className="flex flex-col items-center justify-center py-8 text-gray-500">
-            <Code2 size={40} className="mb-3 text-gray-300" />
-            <p className="text-sm font-medium">
-              상세페이지 미리보기
-            </p>
-            <p className="text-xs text-gray-400 mt-1">
-              AI 가공된 상세페이지가 여기에 표시됩니다
-            </p>
-          </div>
-        </div>
-      ) : (
-        <div className="bg-white rounded-xl border border-gray-200 p-8">
-          <div className="flex flex-col items-center justify-center py-12 text-gray-400">
-            <Settings size={40} className="mb-3 text-gray-300" />
-            <p className="text-sm font-medium">
-              생성된 상세페이지가 없습니다
-            </p>
-            <p className="text-xs text-gray-400 mt-1">
-              AI 가공을 먼저 실행해주세요
-            </p>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-
-  const renderRawTab = () => (
-    <div className="p-6">
-      <div className="bg-white rounded-xl border border-gray-200 p-5">
-        <h3 className="text-sm font-bold text-gray-700 mb-3">
-          원본 데이터 (JSON)
-        </h3>
-        {product?.raw_data ? (
-          <pre className="bg-gray-50 border border-gray-200 rounded-lg p-4 text-xs text-gray-700 overflow-auto max-h-[600px] font-mono leading-relaxed">
-            {JSON.stringify(product.raw_data, null, 2)}
-          </pre>
-        ) : (
-          <div className="text-sm text-gray-400 text-center py-8">
-            원본 데이터가 없습니다
-          </div>
-        )}
-      </div>
-    </div>
-  );
+      default:
+        return null;
+    }
+  };
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <header className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <button
-            onClick={() => router.push('/sourcing')}
-            className="p-2 hover:bg-gray-100 rounded-lg text-gray-500 transition-colors"
-          >
-            <ArrowLeft size={20} />
-          </button>
-          <div>
-            <h1 className="text-sm font-bold text-gray-900">
-              {editData.name || '(상품명 없음)'}
-            </h1>
-            <p className="text-[10px] text-gray-400">
-              ID: {productId}
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setIsLocked((v) => !v)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
-              isLocked
-                ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                : 'bg-gray-50 text-gray-600 border border-gray-200'
-            }`}
-          >
-            {isLocked ? (
-              <Lock size={12} />
-            ) : (
-              <Unlock size={12} />
-            )}
-            {isLocked ? '잠김' : '열림'}
-          </button>
-
-          <button
-            onClick={handleReprocess}
-            disabled={isReprocessing}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-500 rounded-lg hover:bg-blue-600 transition-colors disabled:opacity-50"
-          >
-            <RefreshCw
-              size={12}
-              className={isReprocessing ? 'animate-spin' : ''}
-            />
-            AI 재가공
-          </button>
-        </div>
-      </header>
+      <ProductEditHeader
+        productName={editData.name || '(상품명 없음)'}
+        productId={productId}
+        isEditComplete={isEditComplete}
+        isLocked={isLocked}
+        isReprocessing={isReprocessing}
+        onToggleEditComplete={() => setIsEditComplete((v) => !v)}
+        onToggleLocked={() => setIsLocked((v) => !v)}
+        onReprocess={handleReprocess}
+        onBack={goBack}
+      />
 
       {isReprocessing && (
         <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 flex items-center justify-between text-amber-700 text-sm font-medium">
@@ -527,28 +468,12 @@ export default function ProductDetailPage() {
 
       <div className="flex flex-1 overflow-hidden">
         <div className="w-[65%] flex flex-col overflow-hidden border-r border-gray-200">
-          <div className="flex border-b border-gray-200 bg-white">
-            {tabs.map((tab) => (
-              <button
-                key={tab.key}
-                onClick={() => setActiveTab(tab.key)}
-                className={`px-6 py-3 text-sm font-medium transition-colors relative ${
-                  activeTab === tab.key
-                    ? 'text-emerald-600'
-                    : 'text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                {tab.label}
-                {activeTab === tab.key && (
-                  <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-500" />
-                )}
-              </button>
-            ))}
-          </div>
+          <ProductEditTabs
+            activeTab={activeTab}
+            onTabChange={setActiveTab}
+          />
           <div className="flex-1 overflow-y-auto bg-gray-50">
-            {activeTab === 'basic' && renderBasicTab()}
-            {activeTab === 'detail' && renderDetailTab()}
-            {activeTab === 'raw' && renderRawTab()}
+            {renderTabContent()}
           </div>
         </div>
 
