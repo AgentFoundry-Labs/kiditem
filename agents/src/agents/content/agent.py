@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import traceback
 
 import asyncpg
 import structlog
@@ -10,9 +9,7 @@ from src.agents.base import BaseAgent
 from src.agents.content.models import (
     DetailPageData,
     ExtensionProductData,
-    GenerationMode,
 )
-from src.agents.content.oneshot import OneshotPipeline
 from src.agents.content.template_pipeline import TemplatePipeline
 
 logger = structlog.get_logger()
@@ -30,12 +27,26 @@ class ContentAgent(BaseAgent):
             raise ValueError("product_id is required in task_input")
 
         generation_mode = (
-            task_input.get("generation_mode") or task_input.get("generationMode") or "template"
+            task_input.get("generation_mode") or task_input.get("generationMode")
         )
-        reference_image_url = (
-            task_input.get("reference_image_url") or task_input.get("referenceImageUrl") or ""
-        )
+        if generation_mode not in ("draft", "image"):
+            raise ValueError(f"Unknown generation_mode: {generation_mode!r}. Must be 'draft' or 'image'.")
 
+        pipeline = TemplatePipeline()
+
+        if generation_mode == "draft":
+            return await self._execute_step1(pool, pipeline, product_id, task_input)
+        else:
+            return await self._execute_step2(pool, pipeline, product_id, task_input)
+
+    async def _execute_step1(
+        self,
+        pool: asyncpg.Pool,
+        pipeline: TemplatePipeline,
+        product_id: str,
+        task_input: dict,
+    ) -> dict:
+        """Step 1: Generate copywriting + theme colors, write to draft_content."""
         product = await pool.fetchrow(
             "SELECT id, company_id, raw_data, status FROM products WHERE id = $1",
             product_id,
@@ -49,6 +60,7 @@ class ContentAgent(BaseAgent):
         if not raw_data:
             raise ValueError(f"Product has no raw_data: {product_id}")
 
+        # D-10: Set status to processing at start
         await pool.execute(
             "UPDATE products SET status = 'processing', updated_at = NOW() WHERE id = $1",
             product_id,
@@ -56,28 +68,101 @@ class ContentAgent(BaseAgent):
 
         try:
             ext_data = ExtensionProductData.model_validate(raw_data)
+            draft_data = await pipeline.run_step1(ext_data, product_id=str(product_id))
 
-            if generation_mode == GenerationMode.TEMPLATE:
-                pipeline = TemplatePipeline()
-                page_data = await pipeline.process(
-                    ext_data,
-                    product_id=str(product_id),
-                )
-            else:
-                pipeline = OneshotPipeline()
-                page_data = await pipeline.process(
-                    ext_data,
-                    product_id=str(product_id),
-                    reference_image_url=reference_image_url,
-                )
+            draft_json = json.dumps(draft_data.model_dump(mode="json"), ensure_ascii=False)
+
+            # D-05: Write to draft_content ONLY. D-10: status=draft, pipeline_step=content_ready
+            await pool.execute(
+                """
+                UPDATE products
+                SET draft_content = $1::jsonb,
+                    status = 'draft',
+                    pipeline_step = 'content_ready',
+                    updated_at = NOW()
+                WHERE id = $2
+                """,
+                draft_json,
+                product_id,
+            )
+
+            await self._upsert_content_generation(
+                pool,
+                product_id=product_id,
+                company_id=product["company_id"],
+                page_data=draft_data,
+                status="COMPLETED",
+            )
+
+            return {
+                "product_id": str(product_id),
+                "generation_mode": "draft",
+                "title": draft_data.title,
+                "step": "content_ready",
+            }
+
+        except Exception as exc:
+            error_msg = f"{type(exc).__name__}: {exc}"
+            logger.exception(
+                "Step 1 content generation failed",
+                product_id=str(product_id),
+                error=error_msg,
+            )
+
+            # Error rollback: revert to null/draft state (no partial content)
+            await pool.execute(
+                "UPDATE products SET status = 'draft', pipeline_step = NULL, updated_at = NOW() WHERE id = $1",
+                product_id,
+            )
+
+            await self._upsert_content_generation(
+                pool,
+                product_id=product_id,
+                company_id=product["company_id"],
+                status="FAILED",
+                error_message=error_msg[:1000],
+            )
+
+            raise
+
+    async def _execute_step2(
+        self,
+        pool: asyncpg.Pool,
+        pipeline: TemplatePipeline,
+        product_id: str,
+        task_input: dict,
+    ) -> dict:
+        """Step 2: Generate images from confirmed snapshot, write to processed_data."""
+        # D-06: Read snapshot from task_input, NOT from live DB
+        draft_snapshot = task_input.get("draftContent") or task_input.get("draft_content")
+        if not draft_snapshot:
+            raise ValueError("draftContent snapshot required in task_input for image mode")
+
+        product = await pool.fetchrow(
+            "SELECT id, company_id FROM products WHERE id = $1",
+            product_id,
+        )
+        if not product:
+            raise ValueError(f"Product not found: {product_id}")
+
+        # D-11: Set status to processing, pipeline_step to images_generating
+        await pool.execute(
+            "UPDATE products SET status = 'processing', pipeline_step = 'images_generating', updated_at = NOW() WHERE id = $1",
+            product_id,
+        )
+
+        try:
+            page_data = await pipeline.run_step2(draft_snapshot, product_id=str(product_id))
 
             processed_json = json.dumps(page_data.model_dump(mode="json"), ensure_ascii=False)
 
+            # D-09: Write to processed_data. D-11: status=draft, pipeline_step=null
             await pool.execute(
                 """
                 UPDATE products
                 SET processed_data = $1::jsonb,
                     status = 'draft',
+                    pipeline_step = NULL,
                     updated_at = NOW()
                 WHERE id = $2
                 """,
@@ -95,7 +180,7 @@ class ContentAgent(BaseAgent):
 
             return {
                 "product_id": str(product_id),
-                "generation_mode": generation_mode,
+                "generation_mode": "image",
                 "title": page_data.title,
                 "image_count": len(page_data.detail_images),
             }
@@ -103,13 +188,14 @@ class ContentAgent(BaseAgent):
         except Exception as exc:
             error_msg = f"{type(exc).__name__}: {exc}"
             logger.exception(
-                "Content generation failed",
+                "Step 2 image generation failed",
                 product_id=str(product_id),
                 error=error_msg,
             )
 
+            # Error rollback: revert to content_ready (Step 1 output preserved)
             await pool.execute(
-                "UPDATE products SET status = 'draft', updated_at = NOW() WHERE id = $1",
+                "UPDATE products SET status = 'draft', pipeline_step = 'content_ready', updated_at = NOW() WHERE id = $1",
                 product_id,
             )
 
