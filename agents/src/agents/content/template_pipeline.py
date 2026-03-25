@@ -14,6 +14,7 @@ from src.agents.content.models import (
     KeyPointItem,
     LayoutConfig,
     MaterialItem,
+    SpecItem,
 )
 from src.agents.content.paths import cleanup_product_artifacts, product_images_dir, to_processed_url
 from src.agents.content.pipeline_base import PipelineBase, _KRW_PER_CNY
@@ -162,6 +163,291 @@ class TemplatePipeline(PipelineBase):
         self._edit_model = AI_IMAGE_EDIT_MODEL
         self._generation_model = AI_TEXT_MODEL
 
+    async def run_step1(
+        self,
+        ext_data: ExtensionProductData,
+        *,
+        product_id: str,
+    ) -> DetailPageData:
+        """Step 1: Generate Korean copywriting + theme colors. No image generation."""
+        structlog.contextvars.bind_contextvars(product_id=product_id)
+
+        if not ext_data.images:
+            raise ValueError("No hero image available -- cannot run step 1")
+
+        hero_url = ext_data.images[0]
+
+        # Only content generation + size chart OCR (image classification removed from flow).
+        size_indices, content = await asyncio.gather(
+            self._scan_size_charts(list(ext_data.description_images)),
+            self._generate_korean_content(ext_data, hero_url=hero_url),
+        )
+
+        logger.info(
+            "Step 1 completed",
+            size_chart_indices=size_indices,
+            title=content.title_ko[:50],
+        )
+
+        return self._assemble_step1(
+            content=content,
+            ext_data=ext_data,
+            size_indices=size_indices,
+        )
+
+    def _assemble_step1(
+        self,
+        *,
+        content: GeneratedContent,
+        ext_data: ExtensionProductData,
+        size_indices: list[int],
+    ) -> DetailPageData:
+        """Assemble Step 1 output: text + colors + original images. No processed images."""
+        key_points: list[KeyPointItem] = []
+        for i, kp in enumerate(content.key_points):
+            key_points.append(
+                KeyPointItem(
+                    number=i + 1,
+                    title=kp.title,
+                    description=kp.description,
+                    images=[],
+                )
+            )
+
+        materials: list[MaterialItem] = [
+            MaterialItem(title=m.key, description=m.value) for m in content.materials_ko
+        ]
+
+        price_krw = int(ext_data.price_min * _KRW_PER_CNY) if ext_data.price_min else None
+        original_krw = int(ext_data.price_max * _KRW_PER_CNY) if ext_data.price_max else None
+        discount_rate = None
+        if price_krw and original_krw and original_krw > price_krw:
+            discount_rate = int((1 - price_krw / original_krw) * 100)
+
+        features = content.features
+        if not features:
+            features = self._fallback_features(ext_data)
+
+        return DetailPageData(
+            title=content.title_ko,
+            description=content.description_ko,
+            hook_text=content.hook_text,
+            hook_title_sub=content.hook_title_sub,
+            hook_subtext=content.hook_subtext,
+            images=list(ext_data.images[:1]),         # original hero URL for preview
+            hero_banner="",                           # empty -- not yet generated
+            size_images=[],                           # empty -- not yet generated
+            size_display_mode="normal",
+            detail_images=[],                         # empty -- not yet generated
+            price=price_krw,
+            original_price=original_krw,
+            discount_rate=discount_rate,
+            key_points=key_points,
+            specs=content.specs_ko,
+            features=features,
+            materials=materials,
+            color_text=content.color_text,
+            detail_text=content.detail_text,
+            notes=content.notes,
+            section_name=content.section_name,
+            section_title=content.section_title,
+            section_subtitle=content.section_subtitle,
+            detail_title=content.detail_title,
+            size_title=content.size_title,
+            size_subtitle=content.size_subtitle,
+            product_info=content.product_info_ko,
+            theme_color_main=content.theme_color_main,
+            theme_color_bg_light=content.theme_color_bg_light,
+            theme_color_badge_1=content.theme_color_badge_1,
+            theme_color_badge_2=content.theme_color_badge_2,
+            theme_section_bg=content.theme_section_bg,
+            theme_text_primary=content.theme_text_primary,
+            theme_text_secondary=content.theme_text_secondary,
+            theme_border_radius=content.theme_border_radius,
+            recycle_material=content.recycle_material,
+            cs_info=CSInfo(
+                refund_rules=[
+                    "수령 후 7일 이내 교환/반품 가능",
+                    "단순 변심 시 반품 배송비 고객 부담",
+                    "상품 하자 시 무료 교환/반품",
+                ],
+            ),
+            generation_mode="draft",
+            _debug={
+                "pipeline": "template-step1",
+                "size_chart_indices": size_indices,
+                "original_images": list(ext_data.images),
+            },
+        )
+
+    async def run_step2(
+        self,
+        draft_snapshot: dict,
+        *,
+        product_id: str,
+    ) -> DetailPageData:
+        """Step 2: Generate images from confirmed snapshot. Reads from snapshot only."""
+        structlog.contextvars.bind_contextvars(product_id=product_id)
+        cleanup_product_artifacts(product_id)
+
+        # Extract from snapshot (D-06: never read live DB for content)
+        hero_image_url = draft_snapshot.get("heroImageUrl") or ""
+        if not hero_image_url:
+            images = draft_snapshot.get("images") or []
+            if images:
+                hero_image_url = images[0]
+        if not hero_image_url:
+            raise ValueError("No hero image URL in draft snapshot")
+
+        debug_info = draft_snapshot.get("debug_info") or draft_snapshot.get("_debug") or {}
+        size_indices = debug_info.get("size_chart_indices", [])
+        original_images = debug_info.get("original_images", [])
+
+        size_urls = [original_images[i] for i in size_indices if i < len(original_images)]
+
+        # Reconstruct GeneratedContent from snapshot for _edit_hero_banner
+        content = GeneratedContent(
+            title_ko=draft_snapshot.get("title", ""),
+            hook_text=draft_snapshot.get("hook_text", ""),
+            hook_subtext=draft_snapshot.get("hook_subtext", ""),
+            description_ko=draft_snapshot.get("description", []),
+            theme_color_main=draft_snapshot.get("theme_color_main", "#ff8c69"),
+            theme_color_bg_light=draft_snapshot.get("theme_color_bg_light", "#fffaf0"),
+        )
+
+        category = ""  # Category not critical for Step 2, banner mood uses colors
+
+        # Per D-08: all 4 FAL.AI operations use hero_image_url
+        # Per Pitfall 6: detail images ALL come from hero
+        detail_urls = [hero_image_url, hero_image_url, hero_image_url]
+
+        hero_banner_url, main_url, detail_img_urls, size_img_urls = await asyncio.gather(
+            self._edit_hero_banner(content, category, hero_image_url),
+            self._edit_main_image(hero_image_url),
+            self._edit_detail_images(detail_urls),
+            self._edit_size_charts(size_urls, product_id),
+        )
+
+        logger.info(
+            "Step 2 completed",
+            edit_model=self._edit_model,
+            detail_count=len(detail_img_urls),
+            size_count=len(size_img_urls),
+        )
+
+        # Full assembly using snapshot data + generated images
+        return self._assemble_step2(
+            draft_snapshot=draft_snapshot,
+            hero_imgs=[main_url],
+            hero_banner=hero_banner_url,
+            size_imgs=size_img_urls,
+            detail_imgs=detail_img_urls,
+        )
+
+    def _assemble_step2(
+        self,
+        *,
+        draft_snapshot: dict,
+        hero_imgs: list[str],
+        hero_banner: str,
+        size_imgs: list[str],
+        detail_imgs: list[str],
+    ) -> DetailPageData:
+        """Assemble Step 2 output: snapshot text/colors + generated images."""
+        # Reconstruct key_points from snapshot
+        key_points: list[KeyPointItem] = []
+        for i, kp in enumerate(draft_snapshot.get("key_points", [])):
+            if isinstance(kp, dict):
+                key_points.append(
+                    KeyPointItem(
+                        number=kp.get("number", i + 1),
+                        title=kp.get("title", ""),
+                        description=kp.get("description", ""),
+                        images=[],
+                    )
+                )
+
+        # Reconstruct materials from snapshot
+        materials: list[MaterialItem] = []
+        for m in draft_snapshot.get("materials", []):
+            if isinstance(m, dict):
+                materials.append(MaterialItem(title=m.get("title", ""), description=m.get("description", "")))
+
+        # Reconstruct specs from snapshot
+        specs: list[SpecItem] = []
+        for s in draft_snapshot.get("specs", []):
+            if isinstance(s, dict):
+                specs.append(SpecItem(key=s.get("key", ""), value=s.get("value", "")))
+
+        # Reconstruct features from snapshot
+        features: list[FeatureItem] = []
+        for f in draft_snapshot.get("features", []):
+            if isinstance(f, dict):
+                features.append(FeatureItem(icon=f.get("icon", ""), title=f.get("title", ""), description=f.get("description", "")))
+
+        # Reconstruct product_info from snapshot
+        product_info: list[SpecItem] = []
+        for pi in draft_snapshot.get("product_info", []):
+            if isinstance(pi, dict):
+                product_info.append(SpecItem(key=pi.get("key", ""), value=pi.get("value", "")))
+
+        return DetailPageData(
+            title=draft_snapshot.get("title", ""),
+            description=draft_snapshot.get("description", []),
+            hook_text=draft_snapshot.get("hook_text", ""),
+            hook_title_sub=draft_snapshot.get("hook_title_sub", ""),
+            hook_subtext=draft_snapshot.get("hook_subtext", ""),
+            images=hero_imgs,
+            hero_banner=hero_banner,
+            size_images=size_imgs,
+            size_display_mode=draft_snapshot.get("size_display_mode", "normal"),
+            detail_images=detail_imgs,
+            price=draft_snapshot.get("price"),
+            original_price=draft_snapshot.get("original_price"),
+            discount_rate=draft_snapshot.get("discount_rate"),
+            key_points=key_points,
+            specs=specs,
+            features=features,
+            materials=materials,
+            color_text=draft_snapshot.get("color_text", ""),
+            detail_text=draft_snapshot.get("detail_text", ""),
+            notes=draft_snapshot.get("notes", []),
+            section_name=draft_snapshot.get("section_name", ""),
+            section_title=draft_snapshot.get("section_title", ""),
+            section_subtitle=draft_snapshot.get("section_subtitle", []),
+            detail_title=draft_snapshot.get("detail_title", "DETAIL"),
+            size_title=draft_snapshot.get("size_title", ""),
+            size_subtitle=draft_snapshot.get("size_subtitle", ""),
+            product_info=product_info,
+            theme_color_main=draft_snapshot.get("theme_color_main", "#ff8c69"),
+            theme_color_bg_light=draft_snapshot.get("theme_color_bg_light", "#fffaf0"),
+            theme_color_badge_1=draft_snapshot.get("theme_color_badge_1", "#ff8c69"),
+            theme_color_badge_2=draft_snapshot.get("theme_color_badge_2", "#69c9ff"),
+            theme_section_bg=draft_snapshot.get("theme_section_bg", "#f4f1eb"),
+            theme_text_primary=draft_snapshot.get("theme_text_primary", "#4a4a4a"),
+            theme_text_secondary=draft_snapshot.get("theme_text_secondary", "#8a8a8a"),
+            theme_border_radius=draft_snapshot.get("theme_border_radius", "32px"),
+            recycle_material=draft_snapshot.get("recycle_material", ""),
+            cs_info=CSInfo(
+                refund_rules=draft_snapshot.get("cs_info", {}).get("refund_rules", [
+                    "수령 후 7일 이내 교환/반품 가능",
+                    "단순 변심 시 반품 배송비 고객 부담",
+                    "상품 하자 시 무료 교환/반품",
+                ]) if isinstance(draft_snapshot.get("cs_info"), dict) else [
+                    "수령 후 7일 이내 교환/반품 가능",
+                    "단순 변심 시 반품 배송비 고객 부담",
+                    "상품 하자 시 무료 교환/반품",
+                ],
+            ),
+            generation_mode="image",
+            _debug={
+                "pipeline": "template-step2",
+                "edit_model": self._edit_model,
+                "detail_images_count": len(detail_imgs),
+                "size_charts_count": len(size_imgs),
+            },
+        )
+
     async def process(
         self,
         ext_data: ExtensionProductData,
@@ -170,29 +456,29 @@ class TemplatePipeline(PipelineBase):
         layout: LayoutConfig | None = None,
         template_name: str = "",
     ) -> DetailPageData:
+        """DEPRECATED: Use run_step1() + run_step2() instead.
+
+        This monolithic method is superseded by the two-step pipeline.
+        Kept for backward reference only -- not called by ContentAgent.
+        """
         structlog.contextvars.bind_contextvars(product_id=product_id)
         cleanup_product_artifacts(product_id)
 
         if not ext_data.images:
             raise ValueError("No hero image available — cannot run template pipeline")
 
-        images_dir = product_images_dir(product_id)
         template = template_name or DETAIL_PAGE_TEMPLATE
         category = ext_data.category_name or ""
         hero_url = ext_data.images[0]
 
-        analysis, size_indices, content = await asyncio.gather(
-            self._analyze_product(ext_data),
+        # Image classification removed from flow. Detail images come from hero URL.
+        size_indices, content = await asyncio.gather(
             self._scan_size_charts(list(ext_data.description_images)),
             self._generate_korean_content(ext_data, hero_url=hero_url, template=template),
         )
 
-        product_desc = analysis.get("description", "")
-        detail_indices = analysis.get("detail_indices", [])
-        detail_urls = [ext_data.images[i] for i in detail_indices if i < len(ext_data.images)]
-        if not detail_urls:
-            detail_urls = list(ext_data.images[1:4])
-        detail_urls = detail_urls[:3]
+        # Use hero-based detail images (no image classification)
+        detail_urls = [hero_url, hero_url, hero_url]
 
         size_urls = [
             ext_data.description_images[i]
