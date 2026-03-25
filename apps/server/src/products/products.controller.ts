@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Delete, Body, Param, Query, HttpCode, NotFoundException } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, HttpCode, NotFoundException } from '@nestjs/common';
 import { ProductsService } from './products.service';
 
 @Controller('products')
@@ -24,14 +24,20 @@ export class ProductsController {
 
   @Get(':id/preview')
   async preview(@Param('id') id: string) {
-    const product = await this.productsService.findOne(id);
-    if (!product) throw new NotFoundException('Product not found');
-    const rawData = (product.rawData as Record<string, unknown>) || {};
-    return {
-      template: product.processedData ? 'bold-vertical' : null,
-      data: product.processedData || rawData,
-      images: rawData['images'] || [],
-    };
+    return this.productsService.getPreview(id);
+  }
+
+  @Put(':id/draft-content')
+  async updateDraftContent(
+    @Param('id') id: string,
+    @Body() body: Record<string, unknown>,
+  ) {
+    return this.productsService.updateDraftContent(id, body);
+  }
+
+  @Post(':id/trigger-image-generation')
+  async triggerImageGeneration(@Param('id') id: string) {
+    return this.productsService.triggerImageGeneration(id);
   }
 
   @Post()
