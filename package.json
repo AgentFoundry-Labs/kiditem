@@ -10,6 +10,7 @@
     "db:generate": "prisma generate --schema=prisma/schema.prisma",
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
+    "db:seed-coupang": "tsx prisma/seed-coupang.ts",
     "db:studio": "prisma studio"
   }
 }
