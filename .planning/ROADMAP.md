@@ -28,7 +28,10 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. `products` table has a nullable `pipelineStep` String column that accepts `null`, `content_ready`, and `images_generating` values
   3. Existing products with `processedData` set and no `draftContent` load in the editor without error (backward compatibility confirmed)
   4. `npx prisma generate` completes and TypeScript compilation passes with the new fields
-**Plans**: TBD
+**Plans:** 1 plan
+
+Plans:
+- [ ] 01-01-PLAN.md — Add draftContent/pipelineStep columns, apply schema, verify compilation
 
 ### Phase 2: Python Agent Split
 **Goal**: Two discrete Python agents replace the monolithic content pipeline — one that generates copywriting and stops, one that reads confirmed edits and runs FAL.AI — so both can be integration-tested against real DB state before any frontend work begins
@@ -71,7 +74,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Schema Foundations | 0/TBD | Not started | - |
+| 1. Schema Foundations | 0/1 | Planning complete | - |
 | 2. Python Agent Split | 0/TBD | Not started | - |
 | 3. NestJS API Extensions | 0/TBD | Not started | - |
 | 4. Frontend Editor Integration | 0/TBD | Not started | - |
