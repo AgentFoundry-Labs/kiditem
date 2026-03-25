@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Ready to execute
-stopped_at: Completed 02-python-agent-split 02-01-PLAN.md
-last_updated: "2026-03-25T16:45:46.340Z"
+status: Phase complete — ready for verification
+stopped_at: Completed 02-python-agent-split 02-02-PLAN.md
+last_updated: "2026-03-25T16:51:55.634Z"
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 4
-  completed_plans: 2
+  completed_plans: 3
 ---
 
 # Project State
@@ -49,6 +49,8 @@ Plan: 3 of 3
 | Phase 01-schema-foundations P01 | 4 | 2 tasks | 1 files |
 | Phase 01 P02 | 2min | 2 tasks | 4 files |
 | Phase 02-python-agent-split P01 | 2 | 2 tasks | 5 files |
+| Phase 01 P03 | 5min | 1 tasks | 1 files |
+| Phase 02-python-agent-split P02 | 4min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -66,6 +68,10 @@ Recent decisions affecting current work:
 - [Phase 01]: CoupangOrderItem.sellerProductId mapped to Product.coupangProductId for order count lookups
 - [Phase 02-python-agent-split]: GenerationMode enum now has DRAFT='draft' and IMAGE='image' only — TEMPLATE and ONESHOT values removed (D-01)
 - [Phase 02-python-agent-split]: fal_edit_image uses fal_client.run_async (FAL.AI SDK), edit_images_multi uses _proxy_gemini_request (Gemini proxy) — two separate routing paths
+- [Phase 01]: 반품 데이터의 completedAt 실제 필드명은 completeConfirmDate — seed-coupang.ts에서 매핑 처리
+- [Phase 02-python-agent-split]: run_step1 does NOT call _analyze_product — hero-based flow makes image classification unnecessary (D-07)
+- [Phase 02-python-agent-split]: run_step2 reads hero_image_url from draft_snapshot (task_input), never from live DB — prevents race conditions (D-06)
+- [Phase 02-python-agent-split]: size_chart_indices stored in debug_info of DetailPageData for cross-step data flow between Step 1 and Step 2
 
 ### Pending Todos
 
@@ -78,6 +84,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-25T16:45:46.336Z
-Stopped at: Completed 02-python-agent-split 02-01-PLAN.md
+Last session: 2026-03-25T16:51:55.631Z
+Stopped at: Completed 02-python-agent-split 02-02-PLAN.md
 Resume file: None

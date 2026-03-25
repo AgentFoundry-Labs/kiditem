@@ -46,7 +46,7 @@ Plans:
 
 Plans:
 - [x] 02-01-PLAN.md — Update models/enums, delete oneshot, implement AIClient image methods
-- [ ] 02-02-PLAN.md — Split TemplatePipeline into run_step1/run_step2, rewrite ContentAgent routing
+- [x] 02-02-PLAN.md — Split TemplatePipeline into run_step1/run_step2, rewrite ContentAgent routing
 - [ ] 02-03-PLAN.md — Test framework scaffold + automated tests for all PIPE requirements
 
 ### Phase 3: NestJS API Extensions
