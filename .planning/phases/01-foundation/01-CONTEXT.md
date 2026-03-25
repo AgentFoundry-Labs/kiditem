@@ -16,7 +16,7 @@ Requirements: SCHM-01~05, IMPT-01~05
 ## Implementation Decisions
 
 ### 주문 모델 구조
-- **D-01:** 기존 `Order` 모델을 삭제하고 새로운 2-tier 구조로 재설계: `CoupangOrder` (배송박스 단위) + `CoupangOrderItem` (아이템 단위)
+- **D-01:** 기존 `Order` 모델은 schema에 유지하되, 새로운 `CoupangOrder` (배송박스 단위) + `CoupangOrderItem` (아이템 단위) 2-tier 모델을 추가한다. 기존 서비스들은 CoupangOrder로 마이그레이션하고, Order 모델은 추후 정리한다.
 - **D-02:** 쿠팡 원본 필드명 최대한 유지 (orderer, receiver는 JSON 타입으로 저장, orderItems는 별도 테이블)
 - **D-03:** `shipmentBoxId`를 CoupangOrder의 unique key로 사용 (upsert 기준)
 
@@ -38,7 +38,7 @@ Requirements: SCHM-01~05, IMPT-01~05
 ### 시드 스크립트
 - **D-11:** 기존 `prisma/seed.ts`와 별도로 `prisma/seed-coupang.ts` 생성. 쿠팡 JSON 데이터 임포트 전용.
 - **D-12:** `upsert` 패턴으로 멱등성 보장. 쿠팡 원본 ID(shipmentBoxId, receiptId, sellerProductId)를 unique 키로 사용.
-- **D-13:** `coupang_orders_raw.json`은 배열이 아닌 객체(`{0:..., 1:...}`) 형태 → `Object.values()` 처리 필수.
+- **D-13:** ~~`coupang_orders_raw.json`은 배열이 아닌 객체~~ [수정: 실제로 정상 JSON Array 확인됨. Object.values() 불필요. RESEARCH.md 참조]
 - **D-14:** npm script `db:seed-coupang` 추가 (`tsx prisma/seed-coupang.ts`)
 
 ### 기존 서비스 호환성
