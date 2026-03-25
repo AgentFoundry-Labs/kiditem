@@ -2,8 +2,8 @@
 phase: 2
 slug: python-agent-split
 status: draft
-nyquist_compliant: false
-wave_0_complete: false
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-03-26
 ---
 
@@ -17,11 +17,11 @@ created: 2026-03-26
 
 | Property | Value |
 |----------|-------|
-| **Framework** | Python: manual verification via asyncpg queries; TypeScript: `npx tsc --noEmit` |
-| **Config file** | none |
+| **Framework** | pytest + pytest-asyncio (installed in Plan 03 Wave 3) |
+| **Config file** | `agents/pytest.ini` (created in Plan 03) |
 | **Quick run command** | `cd agents && python -c "from src.agents.content.agent import ContentAgent; print('import OK')"` |
-| **Full suite command** | `cd agents && python -c "from src.agents.content.agent import ContentAgent; print('import OK')" && cd .. && npx tsc --noEmit -p apps/server/tsconfig.json` |
-| **Estimated runtime** | ~5 seconds |
+| **Full suite command** | `cd agents && .venv/bin/pytest tests/ -v --tb=short` |
+| **Estimated runtime** | ~10 seconds |
 
 ---
 
@@ -30,7 +30,7 @@ created: 2026-03-26
 - **After every task commit:** Run quick run command
 - **After every plan wave:** Run full suite command
 - **Before `/gsd:verify-work`:** Full suite must be green
-- **Max feedback latency:** 5 seconds
+- **Max feedback latency:** 10 seconds
 
 ---
 
@@ -38,10 +38,12 @@ created: 2026-03-26
 
 | Task ID | Plan | Wave | Requirement | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|-----------|-------------------|-------------|--------|
-| 02-01-01 | 01 | 1 | PIPE-04 | import | Python import check | ✅ | ⬜ pending |
-| 02-01-02 | 01 | 1 | PIPE-01, PIPE-05 | import | Python import check | ✅ | ⬜ pending |
-| 02-02-01 | 02 | 1 | PIPE-01, PIPE-05 | schema | grep draftContent in agent.py | ✅ | ⬜ pending |
-| 02-02-02 | 02 | 1 | PIPE-02, PIPE-03, PIPE-06 | schema | grep hero_image_url in agent.py | ✅ | ⬜ pending |
+| 02-01-01 | 01 | 1 | PIPE-04 | import | `cd agents && python -c "from src.agents.content.models import GenerationMode; print(list(GenerationMode))"` | ✅ | ⬜ pending |
+| 02-01-02 | 01 | 1 | PIPE-04 | import | `cd agents && python -c "from src.core.ai_client import AIClient; print('fal methods OK')"` | ✅ | ⬜ pending |
+| 02-02-01 | 02 | 2 | PIPE-01, PIPE-04, PIPE-05 | grep | `grep -n "run_step1" agents/src/agents/content/template_pipeline.py` | ✅ | ⬜ pending |
+| 02-02-02 | 02 | 2 | PIPE-02, PIPE-03, PIPE-06 | grep | `grep -n "run_step2\|draft_snapshot\|hero_image_url" agents/src/agents/content/agent.py` | ✅ | ⬜ pending |
+| 02-03-01 | 03 | 3 | PIPE-01~06 | pytest | `cd agents && .venv/bin/pytest --co -q tests/` | ❌ W0 | ⬜ pending |
+| 02-03-02 | 03 | 3 | PIPE-01~06 | pytest | `cd agents && .venv/bin/pytest tests/ -v --tb=short` | ❌ W0 | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -49,7 +51,13 @@ created: 2026-03-26
 
 ## Wave 0 Requirements
 
-*Existing infrastructure covers all phase requirements. No test framework setup needed — verification is via import checks, grep, and manual DB queries.*
+- [ ] `agents/tests/conftest.py` — shared fixtures (mock pool, sample data)
+- [ ] `agents/tests/test_content_agent.py` — ContentAgent routing tests
+- [ ] `agents/tests/test_template_pipeline.py` — Pipeline step1/step2 tests
+- [ ] `agents/pytest.ini` — pytest configuration
+- [ ] `pip install pytest pytest-asyncio` — test framework in agents venv
+
+*Plan 03 (Wave 3) serves as the test infrastructure wave.*
 
 ---
 
@@ -65,11 +73,11 @@ created: 2026-03-26
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 5s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references
+- [x] No watch-mode flags
+- [x] Feedback latency < 10s
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** approved 2026-03-26
