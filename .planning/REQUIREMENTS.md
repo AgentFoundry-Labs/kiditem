@@ -78,34 +78,34 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SCHM-01 | — | Pending |
-| SCHM-02 | — | Pending |
-| SCHM-03 | — | Pending |
-| SCHM-04 | — | Pending |
-| SCHM-05 | — | Pending |
-| IMPT-01 | — | Pending |
-| IMPT-02 | — | Pending |
-| IMPT-03 | — | Pending |
-| IMPT-04 | — | Pending |
-| IMPT-05 | — | Pending |
-| ORDR-01 | — | Pending |
-| ORDR-02 | — | Pending |
-| ORDR-03 | — | Pending |
-| ORDR-04 | — | Pending |
-| ORDR-05 | — | Pending |
-| RETN-01 | — | Pending |
-| RETN-02 | — | Pending |
-| RETN-03 | — | Pending |
-| RETN-04 | — | Pending |
-| PROD-01 | — | Pending |
-| PROD-02 | — | Pending |
-| PROD-03 | — | Pending |
+| SCHM-01 | Phase 1 | Pending |
+| SCHM-02 | Phase 1 | Pending |
+| SCHM-03 | Phase 1 | Pending |
+| SCHM-04 | Phase 1 | Pending |
+| SCHM-05 | Phase 1 | Pending |
+| IMPT-01 | Phase 1 | Pending |
+| IMPT-02 | Phase 1 | Pending |
+| IMPT-03 | Phase 1 | Pending |
+| IMPT-04 | Phase 1 | Pending |
+| IMPT-05 | Phase 1 | Pending |
+| ORDR-01 | Phase 2 | Pending |
+| ORDR-02 | Phase 2 | Pending |
+| ORDR-03 | Phase 2 | Pending |
+| ORDR-04 | Phase 2 | Pending |
+| ORDR-05 | Phase 2 | Pending |
+| RETN-01 | Phase 3 | Pending |
+| RETN-02 | Phase 3 | Pending |
+| RETN-03 | Phase 3 | Pending |
+| RETN-04 | Phase 3 | Pending |
+| PROD-01 | Phase 4 | Pending |
+| PROD-02 | Phase 4 | Pending |
+| PROD-03 | Phase 4 | Pending |
 
 **Coverage:**
 - v1.0 requirements: 22 total
-- Mapped to phases: 0
-- Unmapped: 22 ⚠️
+- Mapped to phases: 22
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-25*
-*Last updated: 2026-03-25 after initial definition*
+*Last updated: 2026-03-25 after roadmap creation*
