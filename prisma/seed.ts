@@ -183,7 +183,7 @@ async function main() {
   }
   console.log('Reviews: 2-9 per product');
 
-  const statuses = ['pending', 'processing', 'shipped', 'delivered'];
+  const coupangStatuses = ['ACCEPT', 'INSTRUCT', 'DEPARTURE', 'DELIVERING', 'FINAL_DELIVERY'];
   for (const product of products) {
     const count = Math.floor(Math.random() * 10) + 5;
     for (let i = 0; i < count; i++) {
@@ -192,25 +192,38 @@ async function main() {
       orderDate.setDate(orderDate.getDate() - daysAgo);
       const qty = Math.floor(Math.random() * 3) + 1;
       const price = product.sellPrice ?? 10000;
+      const customerName = reviewers[Math.floor(Math.random() * reviewers.length)];
 
-      await prisma.order.create({
+      const coupangOrder = await prisma.coupangOrder.create({
         data: {
           companyId: product.companyId,
-          productId: product.id,
-          orderNumber: `ORD-${Date.now()}-${Math.floor(Math.random() * 9999)}`,
-          platform: 'coupang',
-          customerName: reviewers[Math.floor(Math.random() * reviewers.length)],
-          productName: product.name,
-          quantity: qty,
-          unitPrice: price,
+          shipmentBoxId: `SEED-${Date.now()}-${Math.floor(Math.random() * 9999)}`,
+          orderId: `SEEDORD-${Date.now()}-${i}`,
+          orderer: { name: customerName },
+          receiver: { name: customerName },
           totalPrice: price * qty,
-          status: statuses[Math.floor(Math.random() * statuses.length)],
+          shippingPrice: 0,
+          status: coupangStatuses[Math.floor(Math.random() * coupangStatuses.length)],
           orderedAt: orderDate,
+        },
+      });
+
+      await prisma.coupangOrderItem.create({
+        data: {
+          orderId: coupangOrder.id,
+          vendorItemId: `SEEDVI-${Date.now()}-${i}`,
+          vendorItemName: product.name,
+          sellerProductId: product.coupangProductId ?? null,
+          sellerProductName: product.name,
+          shippingCount: qty,
+          salesPrice: price,
+          orderPrice: price * qty,
+          instantCouponDiscount: 0,
         },
       });
     }
   }
-  console.log('Orders: 5-14 per product');
+  console.log('CoupangOrders: 5-14 per product with CoupangOrderItems');
 
   const alertTypes = ['stock_low', 'profit_low', 'ad_high', 'thumbnail_drop'];
   const alertMessages = [
