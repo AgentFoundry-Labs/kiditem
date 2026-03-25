@@ -42,10 +42,10 @@ Plans:
   2. Triggering a `content` agent task with `generation_mode='image'` reads `hero_image_url` from `agent_tasks.input` snapshot (not from live DB), runs FAL.AI in parallel, and writes the assembled `DetailPageData` to `processedData`
   3. Oneshot pipeline is deleted entirely (per user decision D-02)
   4. Size chart OCR (`_scan_size_charts`) is preserved in Step 1; `_analyze_product` image classification is removed
-**Plans:** 3 plans
+**Plans:** 1/3 plans executed
 
 Plans:
-- [ ] 02-01-PLAN.md — Update models/enums, delete oneshot, implement AIClient image methods
+- [x] 02-01-PLAN.md — Update models/enums, delete oneshot, implement AIClient image methods
 - [ ] 02-02-PLAN.md — Split TemplatePipeline into run_step1/run_step2, rewrite ContentAgent routing
 - [ ] 02-03-PLAN.md — Test framework scaffold + automated tests for all PIPE requirements
 
@@ -80,6 +80,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Schema Foundations | 1/1 | Complete   | 2026-03-25 |
-| 2. Python Agent Split | 0/3 | Not started | - |
+| 2. Python Agent Split | 1/3 | In Progress|  |
 | 3. NestJS API Extensions | 0/TBD | Not started | - |
 | 4. Frontend Editor Integration | 0/TBD | Not started | - |

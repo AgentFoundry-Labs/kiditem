@@ -17,7 +17,7 @@ Requirements for milestone v1.0: 상세페이지 파이프라인 리팩토링
 - [ ] **PIPE-01**: 사용자가 AI 재가공 시 콘텐츠만 생성하고 (한국어 카피 + 테마 컬러), 이미지는 생성하지 않는다
 - [ ] **PIPE-02**: 사용자가 에디터에서 확정 후 이미지 생성을 별도 트리거할 수 있다
 - [ ] **PIPE-03**: 이미지 생성 시 사용자가 선택한 히어로 이미지 1장으로 배너/메인/디테일 전부 생성한다
-- [ ] **PIPE-04**: 기존 이미지 분류(_analyze_product) 호출을 제거하고 히어로 기반으로 전환한다
+- [x] **PIPE-04**: 기존 이미지 분류(_analyze_product) 호출을 제거하고 히어로 기반으로 전환한다
 - [ ] **PIPE-05**: 사이즈 차트 OCR 감지는 기존대로 유지한다
 - [ ] **PIPE-06**: agent_tasks.input에 확정된 데이터를 스냅샷으로 저장하여 race condition을 방지한다
 
@@ -60,7 +60,7 @@ Requirements for milestone v1.0: 상세페이지 파이프라인 리팩토링
 | PIPE-01 | Phase 2 | Pending |
 | PIPE-02 | Phase 2 | Pending |
 | PIPE-03 | Phase 2 | Pending |
-| PIPE-04 | Phase 2 | Pending |
+| PIPE-04 | Phase 2 | Complete |
 | PIPE-05 | Phase 2 | Pending |
 | PIPE-06 | Phase 2 | Pending |
 | EDIT-01 | Phase 4 | Pending |

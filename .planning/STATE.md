@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Ready to plan
-stopped_at: Phase 2 context gathered
-last_updated: "2026-03-25T15:44:41.396Z"
+status: Ready to execute
+stopped_at: Completed 02-python-agent-split 02-01-PLAN.md
+last_updated: "2026-03-25T16:45:46.340Z"
 progress:
   total_phases: 4
   completed_phases: 1
-  total_plans: 1
-  completed_plans: 1
+  total_plans: 4
+  completed_plans: 2
 ---
 
 # Project State
@@ -19,12 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-25)
 
 **Core value:** 소싱 상품을 최소한의 수작업으로 판매 가능한 상세페이지로 변환한다
-**Current focus:** Phase 01 — schema-foundations
+**Current focus:** Phase 02 — python-agent-split
 
 ## Current Position
 
-Phase: 2
-Plan: Not started
+Phase: 02 (python-agent-split) — EXECUTING
+Plan: 3 of 3
 
 ## Performance Metrics
 
@@ -47,6 +47,8 @@ Plan: Not started
 
 *Updated after each plan completion*
 | Phase 01-schema-foundations P01 | 4 | 2 tasks | 1 files |
+| Phase 01 P02 | 2min | 2 tasks | 4 files |
+| Phase 02-python-agent-split P01 | 2 | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -61,6 +63,9 @@ Recent decisions affecting current work:
 - [Phase 01-schema-foundations]: draftContent is the exclusive write target for Step 1; processedData is only ever written by Step 2 (hard separation)
 - [Phase 01-schema-foundations]: pipelineStep uses nullable String (not enum) — native PG enum forbidden per CLAUDE.md; valid values null/content_ready/images_generating enforced at app level
 - [Phase 01-schema-foundations]: No @default on draftContent or pipelineStep — null is the meaningful sentinel for not yet generated
+- [Phase 01]: CoupangOrderItem.sellerProductId mapped to Product.coupangProductId for order count lookups
+- [Phase 02-python-agent-split]: GenerationMode enum now has DRAFT='draft' and IMAGE='image' only — TEMPLATE and ONESHOT values removed (D-01)
+- [Phase 02-python-agent-split]: fal_edit_image uses fal_client.run_async (FAL.AI SDK), edit_images_multi uses _proxy_gemini_request (Gemini proxy) — two separate routing paths
 
 ### Pending Todos
 
@@ -73,6 +78,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-25T15:44:41.393Z
-Stopped at: Phase 2 context gathered
-Resume file: .planning/phases/02-python-agent-split/02-CONTEXT.md
+Last session: 2026-03-25T16:45:46.336Z
+Stopped at: Completed 02-python-agent-split 02-01-PLAN.md
+Resume file: None
