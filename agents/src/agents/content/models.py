@@ -20,8 +20,8 @@ class ContentStatus(enum.StrEnum):
 
 
 class GenerationMode(enum.StrEnum):
-    TEMPLATE = "template"
-    ONESHOT = "oneshot"
+    DRAFT = "draft"
+    IMAGE = "image"
 
 
 class RegenerationMode(enum.StrEnum):
@@ -138,14 +138,6 @@ class ImageAssignment(BaseModel):
 class GeneratedKeyPoint(BaseModel):
     title: str
     description: str
-
-
-class OneshotContent(BaseModel):
-    title_ko: str
-    key_points: list[GeneratedKeyPoint] = Field(default_factory=list)
-    specs_ko: list[SpecItem] = Field(default_factory=list)
-    product_info_ko: list[SpecItem] = Field(default_factory=list)
-    notes: list[str] = Field(default_factory=list)
 
 
 class GeneratedContent(BaseModel):
