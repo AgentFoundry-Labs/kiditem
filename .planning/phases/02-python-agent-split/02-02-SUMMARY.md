@@ -133,6 +133,14 @@ None beyond the auto-fixed deviations above.
 - Step 2 trigger needs to include `draftContent` snapshot in `task_input` (the confirmed editor state)
 - Blocker from STATE.md still active: FAL.AI source URL format not fully confirmed — but `download_image_with_type()` used elsewhere and `fal_edit_image()` is already established from Plan 01
 
+## Self-Check: PASSED
+
+- agents/src/agents/content/template_pipeline.py: FOUND
+- agents/src/agents/content/agent.py: FOUND
+- .planning/phases/02-python-agent-split/02-02-SUMMARY.md: FOUND
+- Commit b06d3e4 (Task 1): FOUND
+- Commit eb0c23c (Task 2): FOUND
+
 ---
 *Phase: 02-python-agent-split*
 *Completed: 2026-03-26*
