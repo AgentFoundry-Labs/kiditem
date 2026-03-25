@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Ready to plan
-stopped_at: Phase 3 context gathered
-last_updated: "2026-03-25T17:19:46.436Z"
+status: Phase complete — ready for verification
+stopped_at: Completed 03-nestjs-api-extensions-01-PLAN.md
+last_updated: "2026-03-25T22:29:02.942Z"
 progress:
   total_phases: 4
-  completed_phases: 3
-  total_plans: 7
-  completed_plans: 7
+  completed_phases: 4
+  total_plans: 8
+  completed_plans: 8
 ---
 
 # Project State
@@ -19,12 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-25)
 
 **Core value:** 소싱 상품을 최소한의 수작업으로 판매 가능한 상세페이지로 변환한다
-**Current focus:** Phase 02 — python-agent-split
+**Current focus:** Phase 03 — nestjs-api-extensions
 
 ## Current Position
 
-Phase: 3
-Plan: Not started
+Phase: 03 (nestjs-api-extensions) — EXECUTING
+Plan: 1 of 1
 
 ## Performance Metrics
 
@@ -52,6 +52,7 @@ Plan: Not started
 | Phase 01 P03 | 5min | 1 tasks | 1 files |
 | Phase 02-python-agent-split P02 | 4min | 2 tasks | 2 files |
 | Phase 02-python-agent-split P03 | 3min | 2 tasks | 5 files |
+| Phase 03-nestjs-api-extensions P01 | 8min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -74,6 +75,7 @@ Recent decisions affecting current work:
 - [Phase 02-python-agent-split]: run_step2 reads hero_image_url from draft_snapshot (task_input), never from live DB — prevents race conditions (D-06)
 - [Phase 02-python-agent-split]: size_chart_indices stored in debug_info of DetailPageData for cross-step data flow between Step 1 and Step 2
 - [Phase 02-python-agent-split]: AIClient mocked at pipeline_base.AIClient boundary; product_images_dir patched in Step 2 tests to avoid filesystem dependency
+- [Phase 03-nestjs-api-extensions]: PUT /api/products/:id/draft-content uses full JSONB replacement (no merge); GET preview uses processedData > draftContent > rawData priority; POST trigger-image-generation snapshots draftContent at trigger time for race-condition safety
 
 ### Pending Todos
 
@@ -86,6 +88,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-25T17:19:46.431Z
-Stopped at: Phase 3 context gathered
-Resume file: .planning/phases/03-nestjs-api-extensions/03-CONTEXT.md
+Last session: 2026-03-25T22:29:02.939Z
+Stopped at: Completed 03-nestjs-api-extensions-01-PLAN.md
+Resume file: None

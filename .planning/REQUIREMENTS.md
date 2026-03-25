@@ -30,9 +30,9 @@ Requirements for milestone v1.0: 상세페이지 파이프라인 리팩토링
 
 ### API
 
-- [ ] **API-01**: PUT /api/products/:id/draft-content로 편집 내용을 저장할 수 있다
-- [ ] **API-02**: GET /api/products/:id/preview가 draftContent 기반으로 프리뷰를 제공한다
-- [ ] **API-03**: POST로 이미지 생성 단계를 트리거할 수 있다
+- [x] **API-01**: PUT /api/products/:id/draft-content로 편집 내용을 저장할 수 있다
+- [x] **API-02**: GET /api/products/:id/preview가 draftContent 기반으로 프리뷰를 제공한다
+- [x] **API-03**: POST로 이미지 생성 단계를 트리거할 수 있다
 
 ## Future Requirements
 
@@ -67,9 +67,9 @@ Requirements for milestone v1.0: 상세페이지 파이프라인 리팩토링
 | EDIT-02 | Phase 4 | Pending |
 | EDIT-03 | Phase 4 | Pending |
 | EDIT-04 | Phase 4 | Pending |
-| API-01 | Phase 3 | Pending |
-| API-02 | Phase 3 | Pending |
-| API-03 | Phase 3 | Pending |
+| API-01 | Phase 3 | Complete |
+| API-02 | Phase 3 | Complete |
+| API-03 | Phase 3 | Complete |
 
 **Coverage:**
 - v1.0 requirements: 15 total

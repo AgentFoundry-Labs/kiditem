@@ -60,7 +60,7 @@ Plans:
 **Plans:** 1 plan
 
 Plans:
-- [ ] 03-01-PLAN.md — Add draft-content save, preview with fallback priority, and image generation trigger endpoints
+- [x] 03-01-PLAN.md — Add draft-content save, preview with fallback priority, and image generation trigger endpoints
 
 ### Phase 4: Frontend Editor Integration
 **Goal**: Users can edit AI-generated copywriting, theme colors, and hero image selection directly in the editor page and then trigger FAL.AI image generation with a single confirmation button
