@@ -74,6 +74,8 @@ model Product {
   marginRate     Decimal? @map("margin_rate") @db.Decimal(5, 4)
   rawData        Json?    @map("raw_data")
   processedData  Json?    @map("processed_data")
+  draftContent   Json?    @map("draft_content")
+  pipelineStep   String?  @map("pipeline_step")
   detailPageUrl  String?  @map("detail_page_url")
 
   sellPrice      Int?     @map("sell_price")
@@ -103,6 +105,7 @@ model Product {
   @@index([companyId])
   @@index([status])
   @@index([abcGrade])
+  @@index([pipelineStep])
   @@map("products")
 }
 
