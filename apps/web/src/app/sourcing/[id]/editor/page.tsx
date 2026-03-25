@@ -1,6 +1,6 @@
 'use client';
 
-import type { DetailPageData, TemplateConfig } from '@kiditem/templates';
+import type { DetailPageData } from '@kiditem/templates';
 import { getTemplate, parseDetailPageData } from '@kiditem/templates';
 import DetailPageEditor from '@/components/editor/DetailPageEditor';
 import { API_BASE } from '@/lib/api';
@@ -49,13 +49,12 @@ export default function EditorPage() {
 
   const [mode, setMode] = useState<'structured' | 'grapes'>('structured');
   const [productName, setProductName] = useState<string>('');
-  const [rawData, setRawData] = useState<Record<string, unknown> | null>(null);
-  const [processedData, setProcessedData] = useState<Record<string, unknown> | null>(null);
   const [previewData, setPreviewData] = useState<DetailPageData | null>(null);
   const [draftData, setDraftData] = useState<DetailPageData | null>(null);
   const [rawImages, setRawImages] = useState<string[]>([]);
   const [processedImages, setProcessedImages] = useState<string[]>([]);
-  const [templateConfig, setTemplateConfig] = useState<TemplateConfig | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [templateConfig, setTemplateConfig] = useState<any>(null);
   const [templateCss, setTemplateCss] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -89,8 +88,6 @@ export default function EditorPage() {
           ? processedDataValue.title
           : '상품명 미지정';
       setProductName(name);
-      setRawData(rawDataValue);
-      setProcessedData(processedDataValue);
       setTemplateCss(css);
 
       // Extract rawImages from preview.images (preferred) or rawData fallback

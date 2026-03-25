@@ -4,15 +4,10 @@ import { renderTemplateToHtml } from '@/lib/template-html';
 import { type DetailPageData } from '@kiditem/templates';
 import { useMemo } from 'react';
 
-interface TemplateConfig {
-  component: React.ComponentType<{ data: DetailPageData }>;
-  fonts: string[];
-  fontFamily: string;
-}
-
 interface StructuredPreviewPaneProps {
   draftData: DetailPageData | null;
-  templateConfig: TemplateConfig | null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  templateConfig: any;
   templateCss: string;
 }
 
