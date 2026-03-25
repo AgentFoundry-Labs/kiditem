@@ -23,12 +23,16 @@
 **Depends on**: Nothing (first phase)
 **Requirements**: SCHM-01, SCHM-02, SCHM-03, SCHM-04, SCHM-05, IMPT-01, IMPT-02, IMPT-03, IMPT-04, IMPT-05
 **Success Criteria** (what must be TRUE):
-  1. `SELECT COUNT(*) FROM orders` 결과가 298이고, `SELECT COUNT(*) FROM returns` 결과가 20이다
+  1. `SELECT COUNT(*) FROM coupang_orders` 결과가 298이고, `SELECT COUNT(*) FROM coupang_returns` 결과가 20이다
   2. `curl /api/orders` 가 200 응답을 반환하고 기존 dashboard/inventory/products/reviews 서비스가 정상 동작한다
   3. `npx tsc --noEmit` 실행 시 에러가 0개다
   4. 임포트 스크립트를 두 번 반복 실행해도 레코드 수가 변하지 않는다 (멱등성)
   5. 쿠팡 19자리 ID(shipmentBoxId, returnDeliveryId 등)가 API 응답에서 문자열로 정상 직렬화된다
-**Plans**: TBD
+**Plans:** 3 plans
+Plans:
+- [ ] 01-01-PLAN.md — Prisma 스키마에 CoupangOrder/CoupangReturn/ProductItem 모델 추가
+- [ ] 01-02-PLAN.md — 기존 Order 의존 서비스 호환성 수정 + seed.ts 변경
+- [ ] 01-03-PLAN.md — 쿠팡 JSON 데이터 임포트 스크립트 + DB 적재
 
 ### Phase 2: Order Dashboard
 **Goal**: 셀러가 쿠팡 주문 데이터를 DB에서 읽어 상태별로 조회하고 각 주문의 상세 정보를 확인할 수 있다
@@ -72,7 +76,7 @@
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation | 0/? | Not started | - |
+| 1. Foundation | 0/3 | Planning complete | - |
 | 2. Order Dashboard | 0/? | Not started | - |
 | 3. Return Dashboard | 0/? | Not started | - |
 | 4. Product Enhancement | 0/? | Not started | - |
