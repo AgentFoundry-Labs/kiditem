@@ -50,15 +50,17 @@ Plans:
 - [x] 02-03-PLAN.md — Test framework scaffold + automated tests for all PIPE requirements
 
 ### Phase 3: NestJS API Extensions
-**Goal**: The backend exposes two new endpoints so the frontend can persist user edits and render a live preview from draft content — establishing the HTTP contract Phase 4 builds against
+**Goal**: The backend exposes three new endpoint capabilities so the frontend can persist user edits, render a live preview from draft content, and trigger image generation — establishing the HTTP contract Phase 4 builds against
 **Depends on**: Phase 2
 **Requirements**: API-01, API-02, API-03
 **Success Criteria** (what must be TRUE):
-  1. `PUT /api/products/:id/draft-content` accepts partial field updates and merges them into the existing `draftContent` JSONB without overwriting unrelated fields
-  2. `GET /api/products/:id/preview` returns a `DetailPageData`-shaped payload built from `draftContent` when `processedData` is null, and falls back to `processedData` for legacy products
+  1. `PUT /api/products/:id/draft-content` accepts a full draftContent object and overwrites the column (per D-01 full replacement strategy)
+  2. `GET /api/products/:id/preview` returns data with processedData > draftContent > rawData priority, template='bold-vertical' when processedData or draftContent exists
   3. `POST /api/products/:id/trigger-image-generation` creates an `agent_tasks` row with the confirmed content snapshot and returns a task ID for polling
-**Plans**: TBD
-**UI hint**: no
+**Plans:** 1 plan
+
+Plans:
+- [ ] 03-01-PLAN.md — Add draft-content save, preview with fallback priority, and image generation trigger endpoints
 
 ### Phase 4: Frontend Editor Integration
 **Goal**: Users can edit AI-generated copywriting, theme colors, and hero image selection directly in the editor page and then trigger FAL.AI image generation with a single confirmation button
@@ -81,5 +83,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 |-------|----------------|--------|-----------|
 | 1. Schema Foundations | 1/1 | Complete   | 2026-03-25 |
 | 2. Python Agent Split | 1/3 | In Progress|  |
-| 3. NestJS API Extensions | 0/TBD | Not started | - |
+| 3. NestJS API Extensions | 0/1 | Not started | - |
 | 4. Frontend Editor Integration | 0/TBD | Not started | - |
