@@ -2,6 +2,7 @@ import {
   Injectable,
   InternalServerErrorException,
   BadRequestException,
+  NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import type { Prisma } from '@prisma/client';
@@ -176,5 +177,57 @@ export class ProductsService {
 
   async remove(id: string) {
     return this.prisma.product.delete({ where: { id } });
+  }
+
+  async updateDraftContent(id: string, body: Record<string, unknown>) {
+    const product = await this.prisma.product.findUnique({ where: { id } });
+    if (!product) throw new NotFoundException('Product not found');
+    return this.prisma.product.update({
+      where: { id },
+      data: { draftContent: body as any },
+    });
+  }
+
+  async getPreview(id: string) {
+    const product = await this.prisma.product.findUnique({ where: { id } });
+    if (!product) throw new NotFoundException('Product not found');
+    const rawData = (product.rawData as Record<string, unknown>) || {};
+    const data = product.processedData || product.draftContent || rawData;
+    const template =
+      product.processedData || product.draftContent ? 'bold-vertical' : null;
+    return {
+      template,
+      data,
+      images: rawData['images'] || [],
+    };
+  }
+
+  async triggerImageGeneration(id: string) {
+    const product = await this.prisma.product.findUnique({ where: { id } });
+    if (!product) throw new NotFoundException('Product not found');
+    if (!product.draftContent) {
+      throw new BadRequestException(
+        'draftContent가 없습니다. 먼저 AI 재가공을 실행하세요.',
+      );
+    }
+    const task = await this.prisma.agentTask.create({
+      data: {
+        agentType: 'content',
+        input: {
+          productId: id,
+          generation_mode: 'image',
+          draftContent: product.draftContent,
+        } as any,
+      },
+    });
+    await this.prisma.$executeRawUnsafe(
+      `SELECT pg_notify('new_agent_task', $1)`,
+      task.id,
+    );
+    await this.prisma.product.update({
+      where: { id },
+      data: { pipelineStep: 'images_generating' },
+    });
+    return { taskId: task.id };
   }
 }
