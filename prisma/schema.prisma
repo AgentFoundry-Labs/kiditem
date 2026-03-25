@@ -32,6 +32,8 @@ model Company {
   workflowTemplates   WorkflowTemplate[]
   credentials         Credential[]
   activityEvents      ActivityEvent[]
+  coupangOrders       CoupangOrder[]
+  coupangReturns      CoupangReturn[]
 
   @@map("companies")
 }
@@ -86,6 +88,12 @@ model Product {
 
   coupangProductId String? @map("coupang_product_id")
 
+  deliveryChargeType String? @map("delivery_charge_type")
+  freeShipOverAmount Int?    @map("free_ship_over_amount")
+  returnCharge       Int?    @map("return_charge")
+  deliveryInfo       Json?   @map("delivery_info")
+  images             Json?   @default("[]")
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
@@ -101,6 +109,7 @@ model Product {
   douyinLiveProducts DouyinLiveProduct[]
   contentGenerations ContentGeneration[]
   coupangListings    CoupangListing[]
+  productItems       ProductItem[]
 
   @@index([companyId])
   @@index([status])
@@ -170,6 +179,130 @@ model Order {
   @@index([platform])
   @@index([orderedAt])
   @@map("orders")
+}
+
+// ─── Coupang Orders ──────────────────────────────────────────────────
+
+model CoupangOrder {
+  id            String   @id @default(uuid()) @db.Uuid
+  companyId     String   @map("company_id") @db.Uuid
+  shipmentBoxId String   @unique @map("shipment_box_id") @db.VarChar(30)
+  orderId       String   @map("order_id") @db.VarChar(30)
+  orderer       Json?
+  receiver      Json?
+  status        String   @default("ACCEPT")
+  deliveryCompanyName String?  @map("delivery_company_name")
+  invoiceNumber String?  @map("invoice_number")
+  parcelPrintMessage  String?  @map("parcel_print_message")
+  shippingPrice Int      @default(0) @map("shipping_price")
+  totalPrice    Int      @default(0) @map("total_price")
+  orderedAt     DateTime @map("ordered_at") @db.Timestamptz
+  paidAt        DateTime? @map("paid_at") @db.Timestamptz
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company       Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  orderItems    CoupangOrderItem[]
+
+  @@index([companyId])
+  @@index([status])
+  @@index([orderedAt])
+  @@map("coupang_orders")
+}
+
+model CoupangOrderItem {
+  id            String   @id @default(uuid()) @db.Uuid
+  orderId       String   @map("order_id") @db.Uuid
+
+  vendorItemId      String  @map("vendor_item_id") @db.VarChar(30)
+  vendorItemName    String  @default("") @map("vendor_item_name")
+  sellerProductId   String? @map("seller_product_id") @db.VarChar(30)
+  sellerProductName String  @default("") @map("seller_product_name")
+
+  shippingCount           Int @default(1) @map("shipping_count")
+  salesPrice              Int @default(0) @map("sales_price")
+  orderPrice              Int @default(0) @map("order_price")
+  instantCouponDiscount   Int @default(0) @map("instant_coupon_discount")
+
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  order         CoupangOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@index([sellerProductId])
+  @@map("coupang_order_items")
+}
+
+// ─── Coupang Returns ─────────────────────────────────────────────────
+
+model CoupangReturn {
+  id            String   @id @default(uuid()) @db.Uuid
+  companyId     String   @map("company_id") @db.Uuid
+  receiptId     String   @unique @map("receipt_id") @db.VarChar(30)
+  orderId       String   @map("order_id") @db.VarChar(30)
+  requesterName String   @default("") @map("requester_name")
+  receiptStatus String   @default("UC") @map("receipt_status")
+  receiptType   String   @default("RETURN") @map("receipt_type")
+  faultByType   String   @default("CUSTOMER") @map("fault_by_type")
+  cancelReason  String   @default("") @map("cancel_reason")
+  cancelReasonCategory1 String? @map("cancel_reason_category1")
+  cancelReasonCategory2 String? @map("cancel_reason_category2")
+  reasonCode    String?  @map("reason_code")
+  reasonCodeText String? @map("reason_code_text")
+  returnDeliveryId String? @map("return_delivery_id") @db.VarChar(30)
+  enclosePrice  Int?     @map("enclose_price")
+  requestedAt   DateTime @map("requested_at") @db.Timestamptz
+  completedAt   DateTime? @map("completed_at") @db.Timestamptz
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  returnItems   CoupangReturnItem[]
+
+  @@index([companyId])
+  @@index([receiptStatus])
+  @@index([faultByType])
+  @@index([requestedAt])
+  @@map("coupang_returns")
+}
+
+model CoupangReturnItem {
+  id            String   @id @default(uuid()) @db.Uuid
+  returnId      String   @map("return_id") @db.Uuid
+
+  vendorItemId    String? @map("vendor_item_id") @db.VarChar(30)
+  vendorItemName  String  @default("") @map("vendor_item_name")
+  sellerProductId String? @map("seller_product_id") @db.VarChar(30)
+  sellerProductName String @default("") @map("seller_product_name")
+  purchaseCount   Int     @default(1) @map("purchase_count")
+  cancelCount     Int     @default(1) @map("cancel_count")
+
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  return        CoupangReturn @relation(fields: [returnId], references: [id], onDelete: Cascade)
+
+  @@index([returnId])
+  @@map("coupang_return_items")
+}
+
+// ─── Product Items ───────────────────────────────────────────────────
+
+model ProductItem {
+  id            String   @id @default(uuid()) @db.Uuid
+  productId     String   @map("product_id") @db.Uuid
+  vendorItemId  String?  @map("vendor_item_id") @db.VarChar(30)
+  itemName      String   @default("") @map("item_name")
+  originalPrice Int      @default(0) @map("original_price")
+  salePrice     Int      @default(0) @map("sale_price")
+  supplyPrice   Int      @default(0) @map("supply_price")
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  product       Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@map("product_items")
 }
 
 // ─── Purchase Orders ──────────────────────────────────────────────────────────
