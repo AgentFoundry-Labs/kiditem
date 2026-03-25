@@ -13,7 +13,7 @@ v1.0 refactors the monolithic AI content pipeline into a two-step human-in-the-l
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Schema Foundations** - Add draftContent and pipelineStep columns to Product; generate Prisma client (completed 2026-03-25)
-- [ ] **Phase 2: Python Agent Split** - Split monolithic ContentAgent into ContentStep1Agent (copywriting) and ContentStep2Agent (FAL.AI image generation)
+- [ ] **Phase 2: Python Agent Split** - Split monolithic ContentAgent into two-step pipeline (draft copywriting + image generation) with oneshot deletion
 - [ ] **Phase 3: NestJS API Extensions** - Expose draft-content persistence and preview endpoints so the frontend has a stable HTTP contract
 - [ ] **Phase 4: Frontend Editor Integration** - Extend the editor page with structured text/color/hero editing, live preview, and the two-step pipeline CTA buttons
 
@@ -34,15 +34,20 @@ Plans:
 - [x] 01-01-PLAN.md — Add draftContent/pipelineStep columns, apply schema, verify compilation
 
 ### Phase 2: Python Agent Split
-**Goal**: Two discrete Python agents replace the monolithic content pipeline — one that generates copywriting and stops, one that reads confirmed edits and runs FAL.AI — so both can be integration-tested against real DB state before any frontend work begins
+**Goal**: Two discrete Python pipeline steps replace the monolithic content pipeline — one that generates copywriting and stops, one that reads confirmed edits and runs FAL.AI — so both can be tested against real DB state before any frontend work begins
 **Depends on**: Phase 1
 **Requirements**: PIPE-01, PIPE-02, PIPE-03, PIPE-04, PIPE-05, PIPE-06
 **Success Criteria** (what must be TRUE):
-  1. Triggering a `content_step1` agent task writes Korean copy and theme colors to `draftContent` and sets `pipelineStep = content_ready`; no FAL.AI calls are made
-  2. Triggering a `content_step2` agent task reads `hero_image_url` from `agent_tasks.input` (not from live DB), runs FAL.AI in parallel, and writes the assembled `DetailPageData` to `processedData`
-  3. The existing oneshot `content` agent task continues to work end-to-end without modification
+  1. Triggering a `content` agent task with `generation_mode='draft'` writes Korean copy and theme colors to `draftContent` and sets `pipelineStep = content_ready`; no FAL.AI calls are made
+  2. Triggering a `content` agent task with `generation_mode='image'` reads `hero_image_url` from `agent_tasks.input` snapshot (not from live DB), runs FAL.AI in parallel, and writes the assembled `DetailPageData` to `processedData`
+  3. Oneshot pipeline is deleted entirely (per user decision D-02)
   4. Size chart OCR (`_scan_size_charts`) is preserved in Step 1; `_analyze_product` image classification is removed
-**Plans**: TBD
+**Plans:** 3 plans
+
+Plans:
+- [ ] 02-01-PLAN.md — Update models/enums, delete oneshot, implement AIClient image methods
+- [ ] 02-02-PLAN.md — Split TemplatePipeline into run_step1/run_step2, rewrite ContentAgent routing
+- [ ] 02-03-PLAN.md — Test framework scaffold + automated tests for all PIPE requirements
 
 ### Phase 3: NestJS API Extensions
 **Goal**: The backend exposes two new endpoints so the frontend can persist user edits and render a live preview from draft content — establishing the HTTP contract Phase 4 builds against
@@ -75,6 +80,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Schema Foundations | 1/1 | Complete   | 2026-03-25 |
-| 2. Python Agent Split | 0/TBD | Not started | - |
+| 2. Python Agent Split | 0/3 | Not started | - |
 | 3. NestJS API Extensions | 0/TBD | Not started | - |
 | 4. Frontend Editor Integration | 0/TBD | Not started | - |
