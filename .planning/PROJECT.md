@@ -32,6 +32,7 @@
 - Workflow engine with AI analysis
 - Product sourcing pipeline with status tracking
 - ✓ DB schema supports intermediate pipeline state (draftContent + pipelineStep) — Phase 1
+- ✓ Two-step pipeline: content_draft (text+colors) → content_image (FAL.AI) — Phase 2
 
 ### Active
 
@@ -88,4 +89,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-26 after Phase 1 completion*
+*Last updated: 2026-03-26 after Phase 2 completion*
