@@ -9,8 +9,8 @@ Requirements for milestone v1.0: 상세페이지 파이프라인 리팩토링
 
 ### Schema
 
-- [ ] **SCHM-01**: Product에 draftContent (JSONB) 컬럼 추가하여 Step 1 결과를 별도 저장할 수 있다
-- [ ] **SCHM-02**: Product에 pipelineStep (String) 컬럼 추가하여 파이프라인 진행 단계를 추적할 수 있다
+- [x] **SCHM-01**: Product에 draftContent (JSONB) 컬럼 추가하여 Step 1 결과를 별도 저장할 수 있다
+- [x] **SCHM-02**: Product에 pipelineStep (String) 컬럼 추가하여 파이프라인 진행 단계를 추적할 수 있다
 
 ### Pipeline
 
@@ -55,8 +55,8 @@ Requirements for milestone v1.0: 상세페이지 파이프라인 리팩토링
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SCHM-01 | Phase 1 | Pending |
-| SCHM-02 | Phase 1 | Pending |
+| SCHM-01 | Phase 1 | Complete |
+| SCHM-02 | Phase 1 | Complete |
 | PIPE-01 | Phase 2 | Pending |
 | PIPE-02 | Phase 2 | Pending |
 | PIPE-03 | Phase 2 | Pending |
