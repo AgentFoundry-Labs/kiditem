@@ -23,10 +23,10 @@ Requirements for milestone v1.0: 상세페이지 파이프라인 리팩토링
 
 ### Editor
 
-- [ ] **EDIT-01**: 에디터에서 텍스트 필드를 직접 편집할 수 있다 (제목, 훅텍스트, 키포인트, 스펙 등)
-- [ ] **EDIT-02**: 에디터에서 테마 컬러 7개를 컬러 피커로 변경할 수 있다
-- [ ] **EDIT-03**: 에디터에서 raw_data.images 중 히어로 이미지를 선택할 수 있다
-- [ ] **EDIT-04**: 편집 내용이 실시간으로 템플릿 프리뷰에 반영된다
+- [x] **EDIT-01**: 에디터에서 텍스트 필드를 직접 편집할 수 있다 (제목, 훅텍스트, 키포인트, 스펙 등)
+- [x] **EDIT-02**: 에디터에서 테마 컬러 7개를 컬러 피커로 변경할 수 있다
+- [x] **EDIT-03**: 에디터에서 raw_data.images 중 히어로 이미지를 선택할 수 있다
+- [x] **EDIT-04**: 편집 내용이 실시간으로 템플릿 프리뷰에 반영된다
 
 ### API
 
@@ -63,10 +63,10 @@ Requirements for milestone v1.0: 상세페이지 파이프라인 리팩토링
 | PIPE-04 | Phase 2 | Complete |
 | PIPE-05 | Phase 2 | Complete |
 | PIPE-06 | Phase 2 | Complete |
-| EDIT-01 | Phase 4 | Pending |
-| EDIT-02 | Phase 4 | Pending |
-| EDIT-03 | Phase 4 | Pending |
-| EDIT-04 | Phase 4 | Pending |
+| EDIT-01 | Phase 4 | Complete |
+| EDIT-02 | Phase 4 | Complete |
+| EDIT-03 | Phase 4 | Complete |
+| EDIT-04 | Phase 4 | Complete |
 | API-01 | Phase 3 | Complete |
 | API-02 | Phase 3 | Complete |
 | API-03 | Phase 3 | Complete |

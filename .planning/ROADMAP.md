@@ -71,10 +71,10 @@ Plans:
   2. User can open a color picker for each of the 7 theme colors and see the template preview update immediately on color change
   3. User can select a hero image from a grid of raw source images; the selection is persisted to `draftContent` via debounced PUT on every change
   4. Clicking "이미지 생성 확정" triggers Step 2 and shows a progress indicator; the editor transitions to the final preview when `processedData` is available
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 
 Plans:
-- [ ] 04-01-PLAN.md — Install react-colorful, create sub-components (ColorPickerField, StructuredEditPanel, StructuredPreviewPane, ImageGenerationCTA)
+- [x] 04-01-PLAN.md — Install react-colorful, create sub-components (ColorPickerField, StructuredEditPanel, StructuredPreviewPane, ImageGenerationCTA)
 - [ ] 04-02-PLAN.md — Wire components into EditorPage with mode orchestration, save, poll, and human verification
 
 ## Progress
@@ -87,4 +87,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | 1. Schema Foundations | 1/1 | Complete   | 2026-03-25 |
 | 2. Python Agent Split | 1/3 | In Progress|  |
 | 3. NestJS API Extensions | 0/1 | Not started | - |
-| 4. Frontend Editor Integration | 0/2 | Not started | - |
+| 4. Frontend Editor Integration | 1/2 | In Progress|  |
