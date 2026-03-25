@@ -33,6 +33,7 @@
 - Product sourcing pipeline with status tracking
 - ✓ DB schema supports intermediate pipeline state (draftContent + pipelineStep) — Phase 1
 - ✓ Two-step pipeline: content_draft (text+colors) → content_image (FAL.AI) — Phase 2
+- ✓ NestJS API: PUT draft-content, GET preview (3-tier fallback), POST trigger-image-gen — Phase 3
 
 ### Active
 
@@ -89,4 +90,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-26 after Phase 2 completion*
+*Last updated: 2026-03-26 after Phase 3 completion*
