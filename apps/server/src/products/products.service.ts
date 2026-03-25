@@ -67,8 +67,8 @@ export class ProductsService {
         _count: true,
       });
 
-      const orderCounts = await this.prisma.order.groupBy({
-        by: ['productId'],
+      const orderCounts = await this.prisma.coupangOrderItem.groupBy({
+        by: ['sellerProductId'],
         _count: true,
       });
 
@@ -83,7 +83,9 @@ export class ProductsService {
         reviewCounts.map((r) => [r.productId, r._count]),
       );
       const orderMap = new Map(
-        orderCounts.map((o) => [o.productId, o._count]),
+        orderCounts
+          .filter((o) => o.sellerProductId !== null)
+          .map((o) => [o.sellerProductId!, o._count]),
       );
 
       return productsData.map((p) => {
@@ -117,7 +119,7 @@ export class ProductsService {
               : 0,
           adRate: Math.round(adRate * 10) / 10,
           reviewCount: reviewMap.get(p.id) ?? 0,
-          orderCount: orderMap.get(p.id) ?? 0,
+          orderCount: orderMap.get(p.coupangProductId ?? '') ?? 0,
           thumbnailCTR: thumbMap.get(p.id) ?? 0,
         };
       });

@@ -16,8 +16,8 @@ export class DashboardService {
       const year = now.getFullYear();
       const month = now.getMonth() + 1;
 
-      const todayAgg = await this.prisma.order.aggregate({
-        _sum: { totalPrice: true, quantity: true },
+      const todayAgg = await this.prisma.coupangOrder.aggregate({
+        _sum: { totalPrice: true },
         _count: true,
         where: { orderedAt: { gte: todayStart } },
       });

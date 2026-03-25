@@ -14,13 +14,15 @@ export class ReviewsService {
 
       const allReviews = await this.prisma.review.findMany();
 
-      const orderCounts = await this.prisma.order.groupBy({
-        by: ['productId'],
+      const orderCounts = await this.prisma.coupangOrderItem.groupBy({
+        by: ['sellerProductId'],
         _count: true,
       });
 
       const orderCountMap = new Map(
-        orderCounts.map((o) => [o.productId, o._count]),
+        orderCounts
+          .filter((o) => o.sellerProductId !== null)
+          .map((o) => [o.sellerProductId!, o._count]),
       );
 
       const reviewsByProduct = new Map<
@@ -55,7 +57,7 @@ export class ReviewsService {
           totalReviews,
           avgRating: Math.round(avgRating * 10) / 10,
           recentReviews,
-          orderCount: orderCountMap.get(p.id) ?? 0,
+          orderCount: orderCountMap.get(p.coupangProductId ?? '') ?? 0,
         };
       });
 
