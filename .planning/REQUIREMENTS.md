@@ -9,10 +9,10 @@ Requirements for milestone v1.0 — 쿠팡 운영 데이터 통합. Each maps to
 
 ### 스키마 (Schema)
 
-- [ ] **SCHM-01**: 쿠팡 주문 데이터를 shipmentBox → orderItems 계층 구조로 저장할 수 있다
-- [ ] **SCHM-02**: 쿠팡 반품 데이터를 return → returnItems 계층 구조로 저장할 수 있다
-- [ ] **SCHM-03**: 상품 상세 정보(옵션, 이미지, 배송정책)를 저장할 수 있다
-- [ ] **SCHM-04**: 쿠팡 ID(shipmentBoxId, orderId 등 대형 숫자)를 데이터 손실 없이 저장할 수 있다
+- [x] **SCHM-01**: 쿠팡 주문 데이터를 shipmentBox → orderItems 계층 구조로 저장할 수 있다
+- [x] **SCHM-02**: 쿠팡 반품 데이터를 return → returnItems 계층 구조로 저장할 수 있다
+- [x] **SCHM-03**: 상품 상세 정보(옵션, 이미지, 배송정책)를 저장할 수 있다
+- [x] **SCHM-04**: 쿠팡 ID(shipmentBoxId, orderId 등 대형 숫자)를 데이터 손실 없이 저장할 수 있다
 - [ ] **SCHM-05**: 기존 Order 의존 서비스(dashboard, inventory, products, reviews)가 스키마 변경 후에도 정상 동작한다
 
 ### 데이터 임포트 (Import)
@@ -78,10 +78,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SCHM-01 | Phase 1 | Pending |
-| SCHM-02 | Phase 1 | Pending |
-| SCHM-03 | Phase 1 | Pending |
-| SCHM-04 | Phase 1 | Pending |
+| SCHM-01 | Phase 1 | Complete |
+| SCHM-02 | Phase 1 | Complete |
+| SCHM-03 | Phase 1 | Complete |
+| SCHM-04 | Phase 1 | Complete |
 | SCHM-05 | Phase 1 | Pending |
 | IMPT-01 | Phase 1 | Pending |
 | IMPT-02 | Phase 1 | Pending |

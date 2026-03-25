@@ -30,7 +30,7 @@
   5. 쿠팡 19자리 ID(shipmentBoxId, returnDeliveryId 등)가 API 응답에서 문자열로 정상 직렬화된다
 **Plans:** 3 plans
 Plans:
-- [ ] 01-01-PLAN.md — Prisma 스키마에 CoupangOrder/CoupangReturn/ProductItem 모델 추가
+- [x] 01-01-PLAN.md — Prisma 스키마에 CoupangOrder/CoupangReturn/ProductItem 모델 추가
 - [ ] 01-02-PLAN.md — 기존 Order 의존 서비스 호환성 수정 + seed.ts 변경
 - [ ] 01-03-PLAN.md — 쿠팡 JSON 데이터 임포트 스크립트 + DB 적재
 
@@ -76,7 +76,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation | 0/3 | Planning complete | - |
+| 1. Foundation | 1/3 | In progress | - |
 | 2. Order Dashboard | 0/? | Not started | - |
 | 3. Return Dashboard | 0/? | Not started | - |
 | 4. Product Enhancement | 0/? | Not started | - |
