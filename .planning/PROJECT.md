@@ -31,6 +31,7 @@
 - Template-based detail page rendering (bold-vertical, simple-vertical)
 - Workflow engine with AI analysis
 - Product sourcing pipeline with status tracking
+- ✓ DB schema supports intermediate pipeline state (draftContent + pipelineStep) — Phase 1
 
 ### Active
 
@@ -87,4 +88,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-25 after milestone v1.0 initialization*
+*Last updated: 2026-03-26 after Phase 1 completion*
