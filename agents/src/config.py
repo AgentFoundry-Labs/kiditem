@@ -20,6 +20,7 @@ AI_IMAGE_MODEL = os.getenv("AI_IMAGE_MODEL", "")
 AI_IMAGE_ANALYSIS_MODEL = os.getenv("AI_IMAGE_ANALYSIS_MODEL", "")
 AI_IMAGE_EDIT_MODEL = os.getenv("AI_IMAGE_EDIT_MODEL", "")
 AI_IMAGE_EDIT_SIZE_MODEL = os.getenv("AI_IMAGE_EDIT_SIZE_MODEL", "")
+FAL_KEY = os.getenv("FAL_KEY", "")
 DETAIL_PAGE_TEMPLATE = os.getenv("DETAIL_PAGE_TEMPLATE", "bold_vertical")
 
 # ── 1688 matching (TMAPI) ──────────────────────────────────────────────────

@@ -17,6 +17,7 @@ import random
 import re
 from typing import TypeVar
 
+import fal_client
 import httpx
 from openai import AsyncOpenAI
 from pydantic import BaseModel, ValidationError
@@ -356,3 +357,69 @@ class AIClient:
         )
         result = response.choices[0].message.content
         return result.strip() if result else "{}"
+
+    async def fal_edit_image(
+        self,
+        image_url: str,
+        prompt: str,
+        model: str = "",
+        image_size: dict[str, int] | None = None,
+    ) -> str:
+        """Submit image to FAL.AI for editing; return URL of result image."""
+        if not model:
+            raise ValueError("model parameter is required for fal_edit_image()")
+        arguments: dict[str, object] = {
+            "image_url": image_url,
+            "prompt": prompt,
+        }
+        if image_size:
+            arguments["image_size"] = image_size
+
+        result = await fal_client.run_async(model, arguments=arguments)
+        images = result.get("images") or []
+        if not images:
+            raise ValueError(f"FAL.AI returned no images for model {model}")
+        return images[0]["url"]
+
+    async def edit_images_multi(
+        self,
+        image_urls: list[str],
+        prompt: str,
+        model: str = "",
+    ) -> bytes:
+        """Multi-image edit via Gemini proxy. Returns bytes of generated composite image."""
+        if not model:
+            raise ValueError("model parameter is required for edit_images_multi()")
+        if not self._proxy_mode:
+            raise ValueError("edit_images_multi requires proxy mode")
+        if not image_urls:
+            raise ValueError("At least one image URL is required")
+
+        # Download all images and convert to base64
+        downloaded = await _download_images_as_base64(image_urls)
+
+        # Build parts: all images first, then prompt text
+        parts: list[dict[str, object]] = []
+        for data_uri in downloaded:
+            match = _DATA_URL_RE.match(data_uri)
+            if match:
+                mime = data_uri.split(";")[0].split(":")[1]
+                b64_data = match.group(1).replace("\n", "").replace(" ", "")
+                parts.append({"inlineData": {"mimeType": mime, "data": b64_data}})
+            else:
+                # Fallback: treat as JPEG
+                raw_b64 = data_uri.split(",", 1)[-1] if "," in data_uri else data_uri
+                parts.append({"inlineData": {"mimeType": "image/jpeg", "data": raw_b64}})
+        parts.append({"text": prompt})
+
+        async with _IMAGE_SEMAPHORE:
+            data = await self._proxy_gemini_request(
+                parts=parts,
+                model=model,
+                response_modalities=["IMAGE", "TEXT"],
+            )
+            result = self._extract_gemini_image(data)
+            _report_image_usage(
+                _extract_proxy_usage(data), model, f"<multi-edit {len(result)} bytes>"
+            )
+            return result
