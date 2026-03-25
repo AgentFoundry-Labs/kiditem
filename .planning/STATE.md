@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: Phase complete — ready for verification
-stopped_at: Completed 02-python-agent-split 02-02-PLAN.md
-last_updated: "2026-03-25T16:51:55.634Z"
+stopped_at: Completed 02-python-agent-split 02-03-PLAN.md
+last_updated: "2026-03-25T16:57:26.675Z"
 progress:
   total_phases: 4
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 4
-  completed_plans: 3
+  completed_plans: 4
 ---
 
 # Project State
@@ -51,6 +51,7 @@ Plan: 3 of 3
 | Phase 02-python-agent-split P01 | 2 | 2 tasks | 5 files |
 | Phase 01 P03 | 5min | 1 tasks | 1 files |
 | Phase 02-python-agent-split P02 | 4min | 2 tasks | 2 files |
+| Phase 02-python-agent-split P03 | 3min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -72,6 +73,7 @@ Recent decisions affecting current work:
 - [Phase 02-python-agent-split]: run_step1 does NOT call _analyze_product — hero-based flow makes image classification unnecessary (D-07)
 - [Phase 02-python-agent-split]: run_step2 reads hero_image_url from draft_snapshot (task_input), never from live DB — prevents race conditions (D-06)
 - [Phase 02-python-agent-split]: size_chart_indices stored in debug_info of DetailPageData for cross-step data flow between Step 1 and Step 2
+- [Phase 02-python-agent-split]: AIClient mocked at pipeline_base.AIClient boundary; product_images_dir patched in Step 2 tests to avoid filesystem dependency
 
 ### Pending Todos
 
@@ -84,6 +86,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-25T16:51:55.631Z
-Stopped at: Completed 02-python-agent-split 02-02-PLAN.md
+Last session: 2026-03-25T16:57:26.671Z
+Stopped at: Completed 02-python-agent-split 02-03-PLAN.md
 Resume file: None

@@ -47,7 +47,7 @@ Plans:
 Plans:
 - [x] 02-01-PLAN.md — Update models/enums, delete oneshot, implement AIClient image methods
 - [x] 02-02-PLAN.md — Split TemplatePipeline into run_step1/run_step2, rewrite ContentAgent routing
-- [ ] 02-03-PLAN.md — Test framework scaffold + automated tests for all PIPE requirements
+- [x] 02-03-PLAN.md — Test framework scaffold + automated tests for all PIPE requirements
 
 ### Phase 3: NestJS API Extensions
 **Goal**: The backend exposes two new endpoints so the frontend can persist user edits and render a live preview from draft content — establishing the HTTP contract Phase 4 builds against
