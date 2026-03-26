@@ -793,6 +793,10 @@ function RightPanel({
   canDesignUndo,
   selectedTextComponent,
   isBusy,
+  selectedImageSrc,
+  onImageEdited,
+  onImageReplace,
+  onImageClose,
 }: {
   onClose?: () => void;
   getHtml: () => string;
@@ -802,6 +806,10 @@ function RightPanel({
   canDesignUndo: boolean;
   selectedTextComponent: any;
   isBusy: React.MutableRefObject<boolean>;
+  selectedImageSrc: string | null;
+  onImageEdited: (newUrl: string) => void;
+  onImageReplace: () => void;
+  onImageClose: () => void;
 }) {
   const editor = useEditor();
   const [hasSelection, setHasSelection] = useState(false);
@@ -920,6 +928,17 @@ function RightPanel({
             editor={editor}
             isBusy={isBusy}
             onClose={() => {/* deselect handled by parent */}}
+          />
+        </div>
+      )}
+
+      {selectedImageSrc && (
+        <div className="border-t border-gray-100">
+          <AIImageEditPanel
+            imageUrl={selectedImageSrc}
+            onEditComplete={onImageEdited}
+            onReplace={onImageReplace}
+            onClose={onImageClose}
           />
         </div>
       )}
@@ -1251,22 +1270,15 @@ export default function DetailPageEditor({
                 canDesignUndo={canDesignUndo}
                 selectedTextComponent={selectedTextComponent}
                 isBusy={isBusyRef}
+                selectedImageSrc={selectedImageSrc}
+                onImageEdited={handleImageEdited}
+                onImageReplace={() => setShowImagePicker(true)}
+                onImageClose={() => setSelectedImageSrc(null)}
               />
             </WithEditor>
           </div>
         </div>
       </div>
-
-      {selectedImageSrc && (
-        <div className="fixed bottom-4 right-[276px] z-50">
-          <AIImageEditPanel
-            imageUrl={selectedImageSrc}
-            onEditComplete={handleImageEdited}
-            onReplace={() => setShowImagePicker(true)}
-            onClose={() => setSelectedImageSrc(null)}
-          />
-        </div>
-      )}
 
       <ImagePickerModal
         open={showImagePicker}
