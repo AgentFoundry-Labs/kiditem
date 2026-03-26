@@ -9,8 +9,6 @@ import GjsEditor, {
   BlocksProvider,
   Canvas,
   LayersProvider,
-  StylesProvider,
-  TraitsProvider,
   useEditor,
   WithEditor,
 } from '@grapesjs/react';
@@ -812,114 +810,21 @@ function RightPanel({
   onImageClose: () => void;
 }) {
   const editor = useEditor();
-  const [hasSelection, setHasSelection] = useState(false);
-  const [canvasWidth, setCanvasWidth] = useState(860);
-  const [canvasHeight, setCanvasHeight] = useState(800);
-  const [bgColor, setBgColor] = useState('#ffffff');
-
-  useEffect(() => {
-    const onSelect = () => setHasSelection(true);
-    const onDeselect = () => setHasSelection(!!editor.getSelected());
-    editor.on('component:selected', onSelect);
-    editor.on('component:deselected', onDeselect);
-    return () => {
-      editor.off('component:selected', onSelect);
-      editor.off('component:deselected', onDeselect);
-    };
-  }, [editor]);
-
-  useEffect(() => {
-    const wrapper = editor.getWrapper();
-    if (!wrapper) return;
-    wrapper.addStyle({ 'min-height': `${canvasHeight}px`, 'background-color': bgColor });
-  }, [editor, canvasHeight, bgColor]);
-
-  useEffect(() => {
-    const iframe = editor.Canvas.getFrameEl();
-    if (!iframe?.contentDocument) return;
-    const contentHeight = iframe.contentDocument.body.scrollHeight ?? 800;
-    const autoHeight = Math.max(contentHeight + 300, 800);
-    if (autoHeight !== canvasHeight) setCanvasHeight(autoHeight);
-  }, [editor]);
-
-  useEffect(() => {
-    const device = editor.Devices.get('coupang');
-    if (device) {
-      device.set('width', `${canvasWidth}px`);
-      editor.setDevice('coupang');
-    }
-  }, [editor, canvasWidth]);
 
   return (
     <aside className="w-[260px] bg-white border-l border-gray-200 flex flex-col overflow-hidden shrink-0">
-      <div className="p-3 border-b border-gray-100 space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-xs font-bold text-gray-700">페이지 설정</h3>
-          {onClose && (
-            <button
-              type="button"
-              onClick={onClose}
-              className="p-0.5 text-gray-400 hover:text-gray-600 rounded transition-colors"
-            >
-              <X size={12} />
-            </button>
-          )}
-        </div>
-        <div>
-          <label className="text-[10px] font-medium text-gray-500 mb-1 block">캔버스 너비</label>
-          <input
-            type="number"
-            value={canvasWidth}
-            onChange={(e) => setCanvasWidth(Number(e.target.value) || 860)}
-            className="w-full px-2.5 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500"
-          />
-        </div>
-        <div>
-          <label className="text-[10px] font-medium text-gray-500 mb-1 block">캔버스 높이</label>
-          <input
-            type="number"
-            value={canvasHeight}
-            onChange={(e) => setCanvasHeight(Number(e.target.value) || 3000)}
-            className="w-full px-2.5 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500"
-          />
-        </div>
-        <div>
-          <label className="text-[10px] font-medium text-gray-500 mb-1 block">배경색</label>
-          <div className="flex items-center gap-2">
-            <input
-              type="color"
-              value={bgColor}
-              onChange={(e) => setBgColor(e.target.value)}
-              className="w-8 h-8 rounded border border-gray-200 cursor-pointer p-0.5"
-            />
-            <input
-              type="text"
-              value={bgColor}
-              onChange={(e) => setBgColor(e.target.value)}
-              className="flex-1 px-2.5 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500"
-            />
-          </div>
-        </div>
+      <div className="p-3 border-b border-gray-100 flex items-center justify-between">
+        <h3 className="text-xs font-bold text-gray-700">AI</h3>
+        {onClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-0.5 text-gray-400 hover:text-gray-600 rounded transition-colors"
+          >
+            <X size={12} />
+          </button>
+        )}
       </div>
-
-      {hasSelection ? (
-        <div className="overflow-y-auto min-h-0 shrink" style={{ flexBasis: '40%' }}>
-          <div className="border-b border-gray-100">
-            <h3 className="text-xs font-bold text-gray-700 px-3 pt-3 pb-1">스타일</h3>
-            <div className="px-1">
-              <StylesProvider>{({ Container }) => <Container>{null}</Container>}</StylesProvider>
-            </div>
-          </div>
-          <div>
-            <h3 className="text-xs font-bold text-gray-700 px-3 pt-3 pb-1">속성</h3>
-            <div className="px-1 pb-3">
-              <TraitsProvider>{({ Container }) => <Container>{null}</Container>}</TraitsProvider>
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="shrink" style={{ flexBasis: '40%' }} />
-      )}
 
       {selectedTextComponent && (
         <div className="border-t border-gray-100">
