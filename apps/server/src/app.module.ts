@@ -15,6 +15,7 @@ import { AgentTasksModule } from './agent-tasks/agent-tasks.module';
 import { SourcingModule } from './sourcing/sourcing.module';
 import { WorkflowsModule } from './workflows/workflows.module';
 import { ActivityEventsModule } from './activity-events/activity-events.module';
+import { CoupangDashboardModule } from './coupang-dashboard/coupang-dashboard.module';
 
 @Module({
   imports: [
@@ -34,6 +35,7 @@ import { ActivityEventsModule } from './activity-events/activity-events.module';
     SourcingModule,
     WorkflowsModule,
     ActivityEventsModule,
+    CoupangDashboardModule,
   ],
 })
 export class AppModule {}
