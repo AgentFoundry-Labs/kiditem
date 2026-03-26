@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: 쿠팡 운영 대시보드
 status: planning
-stopped_at: Completed 03-01-PLAN.md
-last_updated: "2026-03-26T02:31:41.166Z"
-last_activity: 2026-03-26 — v2.0 roadmap created; 10/10 requirements mapped
+stopped_at: Completed 03-02-PLAN.md
+last_updated: "2026-03-26T02:39:36.566Z"
+last_activity: 2026-03-26
 progress:
   total_phases: 3
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 5
-  completed_plans: 3
+  completed_plans: 5
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 Phase: 1 of 3 (Dashboard Infrastructure)
 Plan: 0 of TBD
 Status: Ready to plan
-Last activity: 2026-03-26 — v2.0 roadmap created; 10/10 requirements mapped
+Last activity: 2026-03-26
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -51,6 +51,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 02-orders-dashboard P01 | 8 | 2 tasks | 2 files |
 | Phase 02-orders-dashboard P02-02 | 3 | 2 tasks | 4 files |
 | Phase 03-returns-dashboard P01 | 8 | 2 tasks | 2 files |
+| Phase 03-returns-dashboard P02 | 108s | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -73,6 +74,8 @@ Recent decisions affecting current work:
 - [Phase 02-orders-dashboard]: Sidebar badge fetch is fire-and-forget with silent catch — supplementary UI, not critical path
 - [Phase 03-returns-dashboard]: Return rate formula: Math.round((returnCount / orderCount) * 10000) / 100 — avoids floating point drift, produces percentage with 2 decimal places
 - [Phase 03-returns-dashboard]: fault-split returns object { customer, vendor } not array — frontend can destructure directly without reduce
+- [Phase 03-returns-dashboard]: Vertical BarChart layout for return reasons — Korean category labels on Y-axis are more readable than rotated X-axis labels
+- [Phase 03-returns-dashboard]: IIFE in JSX for fault split percentage calculation — avoids extra component for simple inline derived values
 
 ### Pending Todos
 
@@ -86,6 +89,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T02:31:41.163Z
-Stopped at: Completed 03-01-PLAN.md
+Last session: 2026-03-26T02:35:42.716Z
+Stopped at: Completed 03-02-PLAN.md
 Resume file: None

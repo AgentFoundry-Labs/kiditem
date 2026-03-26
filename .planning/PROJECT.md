@@ -8,16 +8,17 @@
 
 소싱 상품을 최소한의 수작업으로 판매 가능한 상세페이지로 변환하고, 운영 전반을 하나의 대시보드에서 관리한다.
 
-## Current Milestone: v2.0 쿠팡 운영 대시보드
+## Current State
 
-**Goal:** `data/` JSON 원본 데이터를 DB에 정규화하고, 주문/반품/정산/상품 운영 화면을 구축한다.
+**Shipped:** v2.0 쿠팡 운영 대시보드 (2026-03-26)
 
-**Target features:**
-- 쿠팡 주문 대시보드 (상태별 조회, 상세보기, 통계)
-- 반품/교환 관리 화면 (사유 분석, 상태 추적)
-- 상품 리스팅 관리 (성과 지표, 광고 ROI)
+주문/반품 운영 대시보드 구축 완료. KPI 카드, 매출 트렌드 차트, 상품 랭킹, 반품 사유 분석, 과실 비율 표시.
+
+## Next Milestone Goals
+
 - 정산 데이터 조회 (수수료, 정산금 추적)
-- 문의/리뷰 관리
+- 문의/리뷰 관리 (SLA 추적)
+- 쿠팡 API 실시간 연동 (API 키 확보 시)
 
 ## Requirements
 
@@ -31,19 +32,19 @@
 - Template-based detail page rendering (bold-vertical, simple-vertical)
 - Workflow engine with AI analysis
 - Product sourcing pipeline with status tracking
-- DB schema supports intermediate pipeline state (draftContent + pipelineStep) — v1.0 Phase 1
-- Two-step pipeline: content_draft (text+colors) → content_image (FAL.AI) — v1.0 Phase 2
-- NestJS API: PUT draft-content, GET preview (3-tier fallback), POST trigger-image-gen — v1.0 Phase 3
-- Frontend editor with structured editing + pipeline CTA — v1.0 Phase 4
-- Coupang order/return DB schema + Prisma-based API — v2.0 prep
+- DB schema supports intermediate pipeline state (draftContent + pipelineStep) — v1.0
+- Two-step pipeline: content_draft → content_image (FAL.AI) — v1.0
+- NestJS API: draft-content, preview, trigger-image-gen — v1.0
+- Frontend editor with structured editing + pipeline CTA — v1.0
+- ✓ 쿠팡 주문 대시보드 (KPI, 트렌드 차트, 상품 랭킹, 상세) — v2.0
+- ✓ 반품/교환 대시보드 (사유 분석, 과실 비율) — v2.0
+- ✓ KST 타임존 정확한 날짜 처리 — v2.0
+- ✓ DateRangePicker 공유 컴포넌트 — v2.0
 
 ### Active
 
 <!-- Current scope. Building toward these. -->
 
-- [ ] 쿠팡 주문 대시보드 (상태별 필터, 상세보기, 통계 카드)
-- [ ] 반품/교환 관리 (사유 분석, 상태 추적)
-- [ ] 상품 리스팅 관리 (성과 지표, 광고 ROI)
 - [ ] 정산 데이터 조회 (수수료, 정산금)
 - [ ] 문의/리뷰 관리
 
@@ -75,8 +76,10 @@
 |----------|-----------|---------|
 | 히어로 이미지 기반 통합 생성 | 이미지 분류 불필요, 비주얼 일관성 | ✓ Shipped v1.0 |
 | 에디터 페이지 확장 (신규 페이지 X) | 기존 GrapesJS 에디터 활용 | ✓ Shipped v1.0 |
-| DB 기반 조회 (API 연동 없음) | 쿠팡 API 키 미확보 | v2.0 방침 |
-| Orders/Returns Prisma 전환 | JSON 파일 직접 읽기 제거 | ✓ Shipped v2.0 prep |
+| DB 기반 조회 (API 연동 없음) | 쿠팡 API 키 미확보 | ✓ v2.0 방침 |
+| Orders/Returns Prisma 전환 | JSON 파일 직접 읽기 제거 | ✓ Shipped v2.0 |
+| KST DATE_TRUNC for 일별 집계 | Prisma groupBy 불가 | ✓ $queryRaw v2.0 |
+| sellerProductId JOIN 키 | vendorItemId가 아닌 sellerProductId | ✓ v2.0 검증 |
 
 ## Evolution
 
@@ -96,4 +99,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-26 — Milestone v2.0 started*
+*Last updated: 2026-03-26 after v2.0 milestone*
