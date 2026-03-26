@@ -92,7 +92,7 @@ export default function Sidebar() {
             {badgeCounts.pendingAccept}
           </span>
         )}
-        {sidebarOpen && item.href === '/returns' && badgeCounts && badgeCounts.pendingReturns > 0 && (
+        {sidebarOpen && item.href === '/coupang/returns' && badgeCounts && badgeCounts.pendingReturns > 0 && (
           <span className="ml-auto text-xs font-semibold bg-amber-100 text-amber-700 rounded-full px-1.5 py-0.5 min-w-[18px] text-center">
             {badgeCounts.pendingReturns}
           </span>
