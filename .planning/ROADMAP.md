@@ -99,7 +99,7 @@ Plans:
   3. A top-20 product performance table lists products ranked by revenue, grouped by `sellerProductId`, with correct row counts matching DB aggregation
   4. The sidebar displays a live pending-action badge showing ACCEPT order count and UC return count
   5. A date range filter (7d / 30d / 90d / custom) controls all queries on the orders page simultaneously
-**Plans:** 0/2 plans executed
+**Plans:** 2 plans
 
 Plans:
 - [ ] 02-01-PLAN.md — Backend: add getRevenueTrend and getProductRanking service methods + /trend and /ranking controller endpoints
@@ -111,10 +111,14 @@ Plans:
 **Depends on**: Phase 2
 **Requirements**: RET-01, RET-02, RET-03
 **Success Criteria** (what must be TRUE):
-  1. The returns page shows a return rate KPI card (returns / orders × 100%) that recalculates when the date range filter changes
+  1. The returns page shows a return rate KPI card (returns / orders x 100%) that recalculates when the date range filter changes
   2. A return reason breakdown bar chart renders `cancelReasonCategory1` values from `coupang_returns`, showing top reasons by count
   3. A CUSTOMER vs VENDOR fault split indicator shows the proportion of each fault type, enabling the user to distinguish carrier/product issues from customer behaviour
-**Plans**: TBD
+**Plans:** 2 plans
+
+Plans:
+- [ ] 03-01-PLAN.md — Backend: add getReturnSummary, getReturnReasonBreakdown, getReturnFaultSplit service methods + controller endpoints
+- [ ] 03-02-PLAN.md — Frontend: /coupang/returns page (return rate KPI, reason bar chart, fault split indicator, date filter) + sidebar nav item
 **UI hint**: yes
 
 ## Progress
@@ -125,9 +129,9 @@ Phases execute in numeric order: 1 → 2 → 3
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 1. Schema Foundations | v1.0 | 1/1 | Complete | 2026-03-25 |
-| 2. Python Agent Split | v1.0 | 0/2 | Planned    |  |
+| 2. Python Agent Split | v1.0 | 3/3 | Complete | 2026-03-26 |
 | 3. NestJS API Extensions | v1.0 | 1/1 | Complete | 2026-03-26 |
 | 4. Frontend Editor Integration | v1.0 | 2/2 | Complete | 2026-03-26 |
 | 1. Dashboard Infrastructure | v2.0 | 0/1 | Planning | - |
 | 2. Orders Dashboard | v2.0 | 0/2 | Planning | - |
-| 3. Returns Dashboard | v2.0 | 0/TBD | Not started | - |
+| 3. Returns Dashboard | v2.0 | 0/2 | Planning | - |
