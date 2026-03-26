@@ -53,7 +53,7 @@ npm workspaces monorepo. PostgreSQL + Prisma + NestJS + Next.js + Python agents.
 apps/web/            — Next.js 14 (프론트엔드 전용, API Routes 없음)
 apps/server/         — NestJS 11 (백엔드 API, 도메인별 모듈)
 agents/              — Python 3.11+ (백그라운드 워커, asyncpg)
-packages/templates/  — React 상세페이지 템플릿 (bold-vertical, simple-vertical, oneshot)
+packages/templates/  — React 상세페이지 템플릿 (bold-vertical, simple-vertical)
 extensions/          — Chrome 익스텐션 (1688/Alibaba 스크래퍼)
 prisma/              — 공유 스키마 (source of truth)
 ```
