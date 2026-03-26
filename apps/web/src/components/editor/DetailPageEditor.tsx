@@ -813,48 +813,42 @@ function RightPanel({
 
   return (
     <aside className="w-[260px] bg-white border-l border-gray-200 flex flex-col overflow-hidden shrink-0">
-      <div className="p-3 border-b border-gray-100 flex items-center justify-between">
-        <h3 className="text-xs font-bold text-gray-700">AI</h3>
-        {onClose && (
+      {onClose && (
+        <div className="flex justify-end p-1 border-b border-gray-100">
           <button
             type="button"
             onClick={onClose}
-            className="p-0.5 text-gray-400 hover:text-gray-600 rounded transition-colors"
+            className="p-1 text-gray-400 hover:text-gray-600 rounded transition-colors"
+            title="패널 닫기"
           >
             <X size={12} />
           </button>
-        )}
-      </div>
-
-      {selectedTextComponent && (
-        <div className="border-t border-gray-100">
-          <AITextEditPanel
-            component={selectedTextComponent}
-            editor={editor}
-            isBusy={isBusy}
-            onClose={() => {/* deselect handled by parent */}}
-          />
         </div>
       )}
 
-      {selectedImageSrc && (
-        <div className="border-t border-gray-100">
-          <AIImageEditPanel
-            imageUrl={selectedImageSrc}
-            onEditComplete={onImageEdited}
-            onReplace={onImageReplace}
-            onClose={onImageClose}
-          />
-        </div>
+      {selectedTextComponent ? (
+        <AITextEditPanel
+          component={selectedTextComponent}
+          editor={editor}
+          isBusy={isBusy}
+          onClose={() => {/* deselect handled by parent */}}
+        />
+      ) : selectedImageSrc ? (
+        <AIImageEditPanel
+          imageUrl={selectedImageSrc}
+          onEditComplete={onImageEdited}
+          onReplace={onImageReplace}
+          onClose={onImageClose}
+        />
+      ) : (
+        <AIDesignChatPanel
+          getHtml={getHtml}
+          getCss={getCss}
+          onApply={onDesignApply}
+          onUndo={onDesignUndo}
+          canUndo={canDesignUndo}
+        />
       )}
-
-      <AIDesignChatPanel
-        getHtml={getHtml}
-        getCss={getCss}
-        onApply={onDesignApply}
-        onUndo={onDesignUndo}
-        canUndo={canDesignUndo}
-      />
     </aside>
   );
 }
