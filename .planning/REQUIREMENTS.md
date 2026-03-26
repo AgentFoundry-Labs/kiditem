@@ -40,8 +40,8 @@ Requirements for milestone v2.0: 쿠팡 운영 대시보드
 
 ### Infrastructure
 
-- [ ] **INFRA-01**: `kstDayStart(date: Date): Date` 헬퍼가 존재하며 모든 날짜 범위 쿼리에 적용된다. Docker UTC 환경에서 한국 주문의 날짜가 정확히 필터링된다.
-- [ ] **INFRA-02**: `apps/server/src/coupang/constants.ts`가 `ORDER_STATUSES`와 `RETURN_STATUSES`를 `as const`로 export하며 모든 서비스 쿼리가 이 상수를 참조한다.
+- [x] **INFRA-01**: `kstDayStart(date: Date): Date` 헬퍼가 존재하며 모든 날짜 범위 쿼리에 적용된다. Docker UTC 환경에서 한국 주문의 날짜가 정확히 필터링된다.
+- [x] **INFRA-02**: `apps/server/src/coupang/constants.ts`가 `ORDER_STATUSES`와 `RETURN_STATUSES`를 `as const`로 export하며 모든 서비스 쿼리가 이 상수를 참조한다.
 
 ### Orders
 
@@ -116,8 +116,8 @@ Requirements for milestone v2.0: 쿠팡 운영 대시보드
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| INFRA-01 | Phase 1 | Pending |
-| INFRA-02 | Phase 1 | Pending |
+| INFRA-01 | Phase 1 | Complete |
+| INFRA-02 | Phase 1 | Complete |
 | ORD-01 | Phase 2 | Complete |
 | ORD-02 | Phase 2 | Complete |
 | ORD-03 | Phase 2 | Complete |
