@@ -1,20 +1,29 @@
 # Feature Research
 
-**Domain:** Multi-step AI content pipeline with human-in-the-loop editing — e-commerce seller tool (Coupang detail page generator)
-**Researched:** 2026-03-25
-**Confidence:** HIGH (based on existing codebase analysis + verified against current tool patterns)
+**Domain:** WYSIWYG page editor with per-element AI actions (e-commerce product detail page builder)
+**Researched:** 2026-03-26
+**Confidence:** HIGH (existing codebase verified, AI UX patterns from Figma/Framer/Froala research)
 
 ---
 
-## Context
+## Context: What Already Exists
 
-This milestone refactors the existing one-shot `TemplatePipeline` (classification + Korean copywriting + FAL.AI image generation in a single Python agent task) into a **three-step human-in-the-loop pipeline**:
+This is a subsequent milestone on an existing product. The following are built and working — do NOT rebuild:
 
-1. **Content generation** — Korean copy + theme colors, preview with original images (no FAL.AI spend)
-2. **User editing** — text, colors, hero image selection in the existing editor page
-3. **Image generation** — FAL.AI runs only after user confirms content
+| Existing Feature | Location |
+|-----------------|----------|
+| GrapesJS editor page (`/sourcing/[id]/editor`) | `apps/web/src/app/sourcing/[id]/editor/` |
+| Structured edit panel (left side, form-based) | `StructuredEditPanel.tsx` |
+| GrapesJS canvas with image element detection | `DetailPageEditor.tsx` — `component:selected` event |
+| AI image edit panel (floating, appears on image selection) | `AIImageEditPanel.tsx` — presets: remove bg, remove text, replace bg, enhance, full regenerate |
+| AI design chat panel (whole-page rewrite via chat prompt) | `AIDesignChatPanel.tsx` — calls `POST /api/templates/modify` |
+| 2-step AI pipeline: content_draft + content_image (FAL.AI) | Python `content` agent + NestJS endpoints |
+| Image picker modal for hero image selection | `ImagePickerModal.tsx` |
+| Placeholder bold-vertical HTML generation | `renderTemplateToHtml()` + `placeholderDetailPageData` constant |
+| `pipelineStep` + `draftContent` DB columns | `prisma/schema.prisma` `Product` model |
+| Per-element image AI — already ships | Image selection triggers `AIImageEditPanel` floating panel |
 
-The existing infrastructure: `ContentAgent` → `TemplatePipeline` (Python), `DetailPageEditor` (GrapesJS, Next.js), `agent_tasks` table + 3-second polling (frontend), `DetailPageData` interface (shared contract).
+**This milestone adds:** draft-mode editor entry + "AI fill remaining" CTA in GrapesJS mode + per-element text AI actions.
 
 ---
 
@@ -22,114 +31,114 @@ The existing infrastructure: `ContentAgent` → `TemplatePipeline` (Python), `De
 
 ### Table Stakes (Users Expect These)
 
-Features users assume exist. Missing these = product feels incomplete.
+Features a seller using this editor assumes will work. Missing these makes the tool feel broken.
 
-| Feature | Why Expected | Complexity | Notes |
-|---------|--------------|------------|-------|
-| Content-only generation step (text + colors, no images) | FAL.AI costs $0.03-0.08/image, 20-40s per image — users expect confirmation gate before spend | MEDIUM | Requires splitting `TemplatePipeline.process()` into `generate_content()` and `generate_images()`. New agent task type or new `generation_mode` value. |
-| Template preview with original (unprocessed) images | After content step, users must see what the page looks like before committing to image gen | LOW | Already partly supported — editor page fetches `raw_data.images`. Need to render `DetailPageData` with original URLs in the preview panel before image gen runs. |
-| Inline text editing of AI-generated copy | Users expect to fix AI-generated Korean copy (title, hook_text, description, key_points) before paying for images | LOW | GrapesJS editor already handles HTML-level editing. The gap is editing `DetailPageData` fields *before* HTML render — needs a structured field form or direct GrapesJS trait editing. |
-| Theme color editing (primary, background, badges) | AI color choices are often wrong for brand; users expect a color picker | LOW | `GeneratedContent` already exposes 7 color fields. Need color pickers bound to `DetailPageData` fields that live-update the template preview. |
-| Hero image selection from source images | User must pick which raw product image to use as the base for FAL.AI generation | LOW | Source images already available in editor (`rawImages` prop). Need a dedicated image picker UI that sets the hero and previews it in the template. |
-| Processing status indicator during content step | Users expect to see progress during the 10-30s LLM call | LOW | Already implemented via 3-second polling. Extend to distinguish `content_generating` vs `image_generating` sub-states. |
-| Hero-based unified image generation trigger | After edits are confirmed, one button triggers banner + main + detail images from the selected hero | MEDIUM | `TemplatePipeline._edit_hero_banner()`, `_edit_main_image()`, `_edit_detail_images()` already exist but run as one block. Need to accept hero URL override from user selection rather than always using `ext_data.images[0]`. |
+| Feature | Why Expected | Complexity | Dependency on Existing | Notes |
+|---------|--------------|------------|----------------------|-------|
+| Enter GrapesJS editor from draft (no AI run first) | Sellers want to edit immediately after sourcing, before committing to AI generation cost and wait time | LOW | `placeholderDetailPageData` constant exists; editor page already supports GrapesJS mode | Routing logic change: when product is `draft` with no `draftContent`, load placeholder HTML instead of showing "no data" error |
+| Placeholder HTML visible on first open | Standard page-builder behavior — canvas shows template structure, not blank | LOW | `renderTemplateToHtml()` + `placeholderDetailPageData` already imported in `editor/page.tsx` | Content exists. Just needs correct routing condition to trigger it |
+| "AI로 나머지 채우기" CTA accessible from GrapesJS mode | Sellers need to trigger the AI pipeline from inside the editor, not only from the sourcing list | LOW–MEDIUM | `ImageGenerationCTA` component exists but renders only in structured mode | CTA must also appear in GrapesJS mode. Currently blocked by `if (mode === 'structured')` condition |
+| Text elements show AI rewrite options on selection | Industry standard — Figma, Framer, CKEditor, Froala all do this. Selecting text without AI options feels like an incomplete tool | MEDIUM | `component:selected` handler exists; currently only detects `img` type. `AIImageEditPanel` floating pattern is established | New: detect text components (`tagName` h1/h2/p/span), render `AITextEditPanel` in same overlay position as image panel |
+| Image elements show AI edit options on selection | ALREADY DONE | DONE | `AIImageEditPanel` fires on `img` component:selected | No new work needed |
+| Loading state during AI text operation | Users need feedback during 5–15s LLM latency | LOW | Loading patterns exist in `AIImageEditPanel` and `AIDesignChatPanel` | Replicate spinner + disabled state pattern |
+| Graceful error feedback | AI calls fail — user must see what happened | LOW | Error patterns exist in both AI panels | Reuse: inline error message with auto-dismiss |
+| Undo after AI text change | Users must be able to revert AI changes without losing other edits | LOW | GrapesJS `UndoManager` (50-step stack) already tracks `component.set('content', ...)` | Nothing to build — UndoManager handles it automatically |
 
 ### Differentiators (Competitive Advantage)
 
-Features that set the product apart. Not required, but valuable.
+Features that set this tool apart. Aligned with core value: minimum manual work to publish a Korean product page.
 
-| Feature | Value Proposition | Complexity | Notes |
-|---------|-------------------|------------|-------|
-| Live template preview as user edits fields | Seller sees the Coupang detail page re-render as they change text/colors — reduces revision cycles | MEDIUM | `renderTemplateToHtml()` already exists in `lib/template-html.ts`. Bind `DetailPageData` state to it. React re-render on field change is sufficient; no separate API call needed. |
-| "Confirm and generate images" single-action button | Eliminates the confusion of a two-button flow. User edits, hits one button, images generate | LOW | UX pattern: combine edit-save + image-gen trigger into one action. No new infrastructure — just frontend state machine change. |
-| Original-vs-processed image comparison in hero picker | Show source image alongside AI-processed version when selecting hero, so user knows what FAL.AI will receive | MEDIUM | FAL.AI has not run yet at this stage, so comparison is original vs nothing. Better: show original image with a "this will be AI-processed" label. Preview of FAL.AI output only after generation. |
-| Preserve editing state across page refresh | If user closes the editor mid-edit, their text/color changes are not lost | LOW | Store intermediate `DetailPageData` edits in `products.processed_data` as a `content_draft` status. Rehydrate from DB on editor load. |
-| Category-aware color palette suggestions | Instead of arbitrary hex pickers, suggest 3-4 palette options based on product category (plush = warm pastels, toys = bright primaries) | LOW | `_CATEGORY_TONES` already maps categories to tone guidelines. Extend to pre-built color palette suggestions per category. Only 5-8 categories needed. |
+| Feature | Value Proposition | Complexity | Dependency on Existing | Notes |
+|---------|-------------------|------------|----------------------|-------|
+| Per-element text AI with Korean-specific presets | Generic WYSIWYG tools offer "rewrite" only. Presets like "한국 마케팅 문체로 다시쓰기", "번역 (중→한)", "축약" map directly to the Coupang seller task | MEDIUM | Needs new NestJS endpoint: `POST /api/ai/rewrite-text { text, preset, customPrompt? }`. Python agent not involved — this is a direct LLM call from NestJS | `GeneratedContent` schema shows the expected Korean copy style. Presets mirror that vocabulary |
+| "AI로 나머지 채우기" (Fill remaining with AI) from GrapesJS mode | Single CTA fills all placeholder/empty fields via step1 pipeline. No other tool in the Korean seller stack does this. Saves 10+ minutes of manual Korean copywriting | MEDIUM | Python agent `run_step1()` does the full copywriting job. NestJS endpoint for triggering step1 must exist or be added | Core differentiator for the milestone. Workflow: draft → GrapesJS with placeholder → "AI 채우기" → step1 runs → canvas updates with real content |
+| Context-aware text presets (by element type) | Headings get "더 임팩트 있게" while body copy gets "더 자세히" or "축약". Makes AI feel intentional | MEDIUM | GrapesJS `component.get('tagName')` available in selection handler | Frontend-only logic — map tagName to preset set. LOW implementation risk |
 
 ### Anti-Features (Commonly Requested, Often Problematic)
 
-Features that seem good but create problems.
-
 | Feature | Why Requested | Why Problematic | Alternative |
 |---------|---------------|-----------------|-------------|
-| Auto-apply AI edits to GrapesJS HTML canvas inline | "Edit text right on the page" feels natural | GrapesJS canvas edits live in the DOM/GrapesJS JSON model, not in `DetailPageData` struct. Syncing back to structured fields is fragile and breaks template re-render. eBay found 95% of sellers edit content, not canvas structure. | Structured field form (left panel) + live template preview (right panel). Keep GrapesJS for final HTML export only, not for the editing step. |
-| Real-time AI re-generation on every field change | Seems like a premium feature | FAL.AI is $0.03-0.08/image with 20-40s latency — real-time re-gen is economically irrational and creates an unusable lag. Multi-stage approval pipelines universally separate "draft" from "generate assets". | Generate once on explicit user trigger. Show "regenerate" button only after initial generation. |
-| Free-form image crop/resize in editor | Users want to adjust how images appear | GrapesJS handles layout well but image manipulation requires separate tooling (canvas API, crop library). Out of scope for this milestone. | Support hero image selection (which image to use), not image editing. |
-| Separate pages for each pipeline step (Step 1 page, Step 2 page, Step 3 page) | "Clean separation of concerns" | Creates navigation complexity, loses context between steps, and requires URL state management. PROJECT.md explicitly says to extend `/sourcing/[id]/editor`, not create new pages. | Single editor page with a step indicator / stage-aware toolbar. The URL stays the same; the page renders differently based on `pipeline_stage` state. |
-| Batch editing multiple products at once | Sellers want efficiency | Adds modal complexity, conflicts with per-product hero selection (each product needs individual hero choice), and increases risk of mis-applying AI content across products. | Defer to v2+. Current milestone is single-product pipeline quality. |
+| "Improve all text" — rewrite every element at once | Sounds efficient | Homogeneous output; no way to review 15+ elements; latency stacks (15 concurrent LLM calls); sellers lose control over which sections sound human | "AI로 나머지 채우기" fills placeholder/empty fields only. For existing text, require per-element explicit trigger |
+| Real-time AI suggestions as user types | Modern writing tool pattern (Notion AI, Grammarly) | This is a listing preparation tool, not a writing tool. Sellers type in Korean over AI-generated copy. Real-time suggestions create noise, add infrastructure complexity, and interfere with editing focus | Keep click-triggered: select element → click preset → get result |
+| Streaming text output (typewriter effect) | Looks impressive | Breaks GrapesJS `component.set('content', ...)` — setting partial HTML mid-stream corrupts component state. GrapesJS is not designed for streaming DOM updates | Apply full result at once when complete. Show loading spinner during wait |
+| Multi-element selection AI | "Rewrite all headings" button | GrapesJS multi-select is fragile; tracking which elements belong to which "type" across the component tree is complex; output is hard to review | Single element at a time. ~10 editable text elements per page is not onerous |
+| AI version history / diff view | Want to compare old vs new text | Significant new infrastructure (store versions, diff UI) | GrapesJS UndoManager provides single-step revert — covers 95% of use case. Defer diff UI to future milestone |
+| Image actions accessible from text element toolbar | "More AI options in one place" | `AIImageEditPanel` already exists for images and has a clear separation of concerns. Mixing image and text actions creates ambiguity | Keep image and text AI action surfaces separate — element type determines which panel appears |
+| Save GrapesJS HTML back to `processedData` automatically | "Natural persistence model" | `processedData` holds `DetailPageData` JSON, not raw HTML. Overwriting it with editor HTML breaks the structured pipeline (step2 reads `draftContent` JSON) | Save editor HTML to a separate field, or use existing `PUT /api/products/:id/draft-content` with clear separation from structured JSON |
+| OneShot pipeline mode | Legacy compatibility | OneShot conflates content generation + image generation into one uninterruptible task. PROJECT.md explicitly removes it. Python agent already refuses oneshot tasks | 2-step pipeline: step1 (content) + step2 (image generation). Already the production model |
 
 ---
 
 ## Feature Dependencies
 
 ```
-[Content Generation Step]
-    └──requires──> [agent_task: content_only mode OR new pipeline_stage]
-                       └──produces──> [DetailPageData with text+colors, original image URLs]
+[Draft editor entry with placeholder HTML]
+    └──requires──> [routing condition: status=draft AND draftContent=null → load placeholderDetailPageData]
+                       └──both constants/functions already exist in editor/page.tsx imports
 
-[Template Preview with Original Images]
-    └──requires──> [Content Generation Step output]
-                       └──requires──> [renderTemplateToHtml() receives original URLs]
+["AI로 나머지 채우기" CTA in GrapesJS mode]
+    └──requires──> [Draft editor entry]
+    └──requires──> [step1 trigger reachable from editor]
+                       └──check: does POST /api/products/:id/trigger-content-draft exist?
+                       └──ImageGenerationCTA exists but only renders in structured mode
 
-[Inline Text + Color Editing]
-    └──requires──> [Template Preview with Original Images]
-                       └──enhances──> [Live Template Preview on field change]
+[Per-element text AI actions]
+    └──requires──> [new NestJS endpoint: POST /api/ai/rewrite-text]
+                       └──does NOT exist today — must be built
+    └──requires──> [text element detection in component:selected handler]
+                       └──partially exists: checks for img — needs text type check added
 
-[Hero Image Selection]
-    └──requires──> [Raw source images available (already in rawImages prop)]
-    └──enhances──> [Image Generation Step] (user-selected hero overrides ext_data.images[0])
+[NestJS text rewrite endpoint]
+    └──requires──> [LLM client in NestJS (Gemini or OpenAI)]
+                       └──check: does templates/modify endpoint exist? It is called by AIDesignChatPanel
+                       └──if templates/modify missing too, both must be created in same module
 
-[Image Generation Step]
-    └──requires──> [Content Generation Step output]
-    └──requires──> [Hero Image Selection] (optional override, defaults to first image)
-    └──requires──> [User confirmation action]
-    └──produces──> [DetailPageData with FAL.AI-processed URLs]
+[Element type detection]
+    └──enhances──> [Per-element text AI: correct preset set per element type]
 
-[Live Template Preview]
-    └──requires──> [DetailPageData state bound to renderTemplateToHtml()]
-    └──enhances──> [Inline Text + Color Editing]
+[Image AI edit panel]
+    └──already exists: fires on img component:selected
+    └──NO new work needed
 
-[Pipeline Stage State]
-    └──conflicts──> [One-shot pipeline (already runs both steps)]
-    Note: one-shot mode is out of scope per PROJECT.md
+[OneShot code removal]
+    └──independent: cleanup pass, does not block new features
+    └──Python agent already refuses oneshot — frontend/NestJS cleanup only
 ```
 
 ### Dependency Notes
 
-- **Content Generation requires agent task split:** The Python `ContentAgent` currently runs `TemplatePipeline.process()` which is a single async coroutine combining content + images. Splitting requires either a new `generation_mode` value (`content_only`) or a new agent type. New `generation_mode` is lower friction — add `content_only` to `GenerationMode` enum, branch in `ContentAgent.execute()`.
+- **Per-element text AI needs a new NestJS endpoint.** The frontend will call something like `POST /api/ai/rewrite-text` with `{ text: string, preset: string, customPrompt?: string }`. No such endpoint exists. `AIDesignChatPanel` calls `POST /api/templates/modify` which also appears to be missing from NestJS (not found in server source scan). Both may need to be created in a new NestJS `ai` module.
 
-- **Hero Image Selection enhances Image Generation:** The image generation step already uses `ext_data.images[0]` as hero. Override requires passing `hero_image_url` in the agent task input (already partially supported via `reference_image_url` field in `ContentAgent`).
+- **Step1 trigger from editor.** `POST /api/products/:id/trigger-image-generation` triggers step2 (image gen). The sourcing list page likely triggers step1 via a different endpoint. If step1 cannot be triggered from inside the editor, the "AI fill" CTA cannot work. Verify this endpoint exists in NestJS before designing the CTA flow.
 
-- **Live Template Preview depends on `renderTemplateToHtml` being stateless:** Currently `renderTemplateToHtml()` in `lib/template-html.ts` takes `DetailPageData` as input. If editing state lives in React state and re-renders call this function, preview updates without API round-trips.
+- **OneShot removal is independent.** Can be done as a cleanup pass in parallel. Python agent already refuses oneshot tasks. Remaining work is frontend/NestJS cleanup.
 
-- **Structured field editing conflicts with GrapesJS canvas as edit source:** Do not try to sync GrapesJS DOM back to `DetailPageData`. Use GrapesJS only for final HTML export (save to HTML for download/listing), not as the primary editing surface for this milestone.
+- **GrapesJS floating panel pattern is established.** The existing `AIImageEditPanel` appears as `fixed bottom-4 right-[276px]` triggered by `selectedImageSrc` state. The same pattern works for text: add `selectedTextContent` + `selectedTextComponent` state, set them when a text component is selected, render `AITextEditPanel` in the same overlay zone. Applying result: `component.set('content', newHtml)` — tracked by UndoManager automatically.
 
 ---
 
 ## MVP Definition
 
-### Launch With (v1 — this milestone)
+### Launch With (v2.1 scope — items from PROJECT.md Active list)
 
-- [ ] **Content-only agent task mode** — `generation_mode: 'content_only'` in Python agent skips FAL.AI, saves `DetailPageData` with original image URLs, sets product status to `content_draft` — *essential gating of image cost*
-- [ ] **Content draft status + polling** — frontend polls for `content_draft` status, transitions to edit mode when ready — *user knows when to edit*
-- [ ] **Structured field editor panel** — left panel in editor page shows editable fields for title, hook_text, hook_subtext, description_ko, theme colors — *core editing capability*
-- [ ] **Live template preview** — right panel re-renders template on field change using existing `renderTemplateToHtml()` — *user sees result without guessing*
-- [ ] **Hero image picker** — grid of source images, user selects one, sets it as hero for image gen — *removes the "wrong image" frustration*
-- [ ] **"Generate images" confirmation button** — single CTA that fires image-gen agent task with user-confirmed content + hero URL — *cost gate, main UX flow*
-- [ ] **Image generation agent task** — `generation_mode: 'image_only'` (or equivalent) accepts `hero_image_url` override, runs FAL.AI calls, updates product to `processed` — *completes the pipeline*
+- [ ] Draft entry into GrapesJS editor — load placeholder bold-vertical HTML when `draftContent` is null and product is `draft` status
+- [ ] Placeholder HTML loads correctly (not blank canvas) — uses existing `placeholderDetailPageData` + `renderTemplateToHtml()`
+- [ ] "AI로 나머지 채우기" CTA accessible from GrapesJS mode — not just structured mode
+- [ ] Per-element text AI actions: 다시쓰기 / 번역 / 축약 — triggered by selecting a text element in GrapesJS
+- [ ] Per-element image AI actions — ALREADY DONE (no new work)
+- [ ] OneShot pipeline code removal — cleanup pass
 
-### Add After Validation (v1.x)
+### Add After Validation (v2.x)
 
-- [ ] **Category-aware color palette suggestions** — trigger: if users frequently undo AI color choices, palette suggestions reduce editing friction
-- [ ] **Preserve draft edits across refresh** — trigger: if analytics show users close editor before confirming (session data from activity events)
-- [ ] **Regenerate content without losing hero selection** — trigger: if users want to re-run LLM copywriting without starting over
-- [ ] **Detail image selection** — allow user to pick which raw images to use as detail shots (not just hero) — trigger: if image quality complaints arise
+- [ ] Context-aware presets (different presets for h1 vs p) — trigger: sellers report rewrite options not relevant to selected element
+- [ ] Preview-before-accept UI for text rewrite — trigger: undo usage data shows frequent AI text reversion
+- [ ] "AI fill" granularity (fill only empty vs fill all) — trigger: sellers have partially filled pages and want to protect manual edits
 
-### Future Consideration (v2+)
+### Future Consideration (v3+)
 
-- [ ] **Batch pipeline** — process multiple products through content step simultaneously — defer: adds UI complexity, hero selection is per-product
-- [ ] **Template switching in editor** — switch between bold-vertical / simple-vertical after content generated — defer: template backward-compat not guaranteed
-- [ ] **Version history for edits** — revert to previous content draft — defer: requires versioning layer in DB
+- [ ] AI layout/section reorder suggestions — significant GrapesJS component tree manipulation
+- [ ] Multi-template support with AI layout chooser — new templates out of scope for v2.x
+- [ ] Collaborative editing with AI change attribution — requires real-time infrastructure (WebSocket/SSE)
 
 ---
 
@@ -137,67 +146,93 @@ Features that seem good but create problems.
 
 | Feature | User Value | Implementation Cost | Priority |
 |---------|------------|---------------------|----------|
-| Content-only generation (text + colors) | HIGH | MEDIUM | P1 |
-| Hero image picker | HIGH | LOW | P1 |
-| Image generation trigger (user-confirmed) | HIGH | MEDIUM | P1 |
-| Structured field editor (text + colors) | HIGH | LOW | P1 |
-| Live template preview on edit | HIGH | LOW | P1 |
-| Content draft status + polling | MEDIUM | LOW | P1 |
-| Category-aware color suggestions | MEDIUM | LOW | P2 |
-| Preserve draft edits across refresh | MEDIUM | LOW | P2 |
-| Detail image selection | MEDIUM | MEDIUM | P2 |
-| Batch pipeline | LOW | HIGH | P3 |
-| Template switching in editor | LOW | MEDIUM | P3 |
+| Draft entry into GrapesJS | HIGH | LOW | P1 |
+| Placeholder HTML on open | HIGH | LOW | P1 |
+| "AI로 나머지 채우기" in GrapesJS mode | HIGH | LOW–MEDIUM | P1 |
+| New NestJS AI text rewrite endpoint | HIGH (blocks per-element text) | MEDIUM | P1 |
+| Per-element text AI actions panel | HIGH | MEDIUM | P1 |
+| OneShot code removal | MEDIUM (reduces confusion) | LOW | P1 |
+| Context-aware presets by element type | MEDIUM | LOW | P2 |
+| Preview-before-accept for text rewrite | MEDIUM | MEDIUM | P2 |
 
 **Priority key:**
-- P1: Must have for launch (this milestone)
-- P2: Add when core is validated
-- P3: Future consideration
+- P1: Must have for v2.1 launch
+- P2: Add when core is validated (v2.x)
+- P3: Future milestone
+
+---
+
+## Implementation Notes by Feature
+
+### Draft Entry + Placeholder HTML
+
+**Current gap:** `editor/page.tsx` initializes with `previewData = null` and calls `GET /api/products/:id/preview`. If `preview.template === null` it now sets `placeholderDetailPageData` and mode to `grapes`. This handling already exists (line 101–108 of `editor/page.tsx`). The remaining gap may only be navigation — verify the sourcing list page links to `/sourcing/[id]/editor` for `draft` status products (currently may link to `/sourcing/[id]` detail only).
+
+**Risk:** LOW. Logic already partially present. May be a one-line navigation change.
+
+### "AI로 나머지 채우기" CTA in GrapesJS Mode
+
+**Current gap:** `ImageGenerationCTA` renders only inside the `if (mode === 'structured')` block. GrapesJS mode has no AI trigger.
+
+**Fix:** Add a floating CTA overlay to the GrapesJS canvas area. Show when `draftContent` is null (not yet AI-generated). Button text: "AI로 채우기". On click: trigger step1 pipeline, then poll until complete, then reload canvas with generated content.
+
+**Step1 trigger:** Must verify `POST /api/products/:id/trigger-content-draft` exists. If it doesn't, it must be added to `products.controller.ts` + `products.service.ts` (analogous to the existing `trigger-image-generation` endpoint).
+
+### Per-Element Text AI Actions
+
+**Detection:** In `handleEditorInit`, extend the `component:selected` handler:
+- Currently: checks `component.get('type') === 'image' || component.get('tagName') === 'img'`
+- Add: check for text types — tagName in `['h1','h2','h3','h4','p','span','li','td','div']` and `component.get('type')` is `text` or component has non-empty `getInnerHTML()` result
+
+**Extraction:** `component.getInnerHTML()` gives the selected element's HTML content including markup. Strip HTML tags for the LLM prompt, send clean text.
+
+**Apply result:** `component.set('content', result.text)` — GrapesJS UndoManager tracks this automatically.
+
+**Floating panel:** New component `AITextEditPanel` — mirrors `AIImageEditPanel` structure. Presets:
+- 다시쓰기 (rewrite in Korean marketing tone)
+- 번역 (translate Chinese → Korean)
+- 축약 (shorten)
+- 확장 (expand, P2)
+- 직접 입력 (custom prompt, collapsible section)
+
+**Positioning:** Fixed overlay, same zone as `AIImageEditPanel` (`fixed bottom-4 right-[276px]`). Only one panel shows at a time — text or image, not both.
+
+**NestJS endpoint:** `POST /api/ai/rewrite-text` with body `{ text: string, preset: 'rewrite' | 'translate' | 'shorten' | 'custom', customPrompt?: string }`. Returns `{ text: string }`. New NestJS module `ai` (or extend existing products module).
+
+### OneShot Code Removal
+
+Search for: `oneshot`, `one_shot`, `generation_mode: 'oneshot'` in:
+- `apps/server/src/` — any route, service, or executor referencing oneshot
+- `apps/web/src/` — any UI element showing oneshot option
+- Python agent already cleaned up per PROJECT.md context
 
 ---
 
 ## Competitor Feature Analysis
 
-Context: eBay, Shopify Magic, and Coupang's own AI tools represent the closest analogues for AI-assisted seller content workflows.
-
-| Feature | eBay AI Description | Shopify Magic | Our Approach |
-|---------|---------------------|---------------|--------------|
-| Draft → Review → Publish | AI generates draft, seller edits inline on listing form | AI generates section text in theme editor, merchant edits in-place | Content-only step → structured form editor → image gen trigger |
-| Image handling | Seller uploads photos separately from text generation | Image generation is a separate tool (Shopify Magic Images) | Hero selection built into same editor page — tighter integration |
-| Color/theme | Not handled by seller tool | Theme editor has AI color suggestions | Category-aware palette suggestions in editor panel |
-| Intermediate save | No intermediate save — draft lives in browser | Theme changes auto-save as draft | Save `DetailPageData` to `processed_data` at `content_draft` status |
-| Multi-step gating | No explicit cost gate (eBay pays for gen) | Magic Images requires explicit per-image trigger | Explicit "generate images" button as cost gate — matches FAL.AI $0.03/image economics |
-
----
-
-## Existing Infrastructure Leveraged
-
-Documenting what does NOT need to be built:
-
-| Existing Component | Reused As |
-|-------------------|-----------|
-| `ContentAgent` + `TemplatePipeline._generate_korean_content()` | Content-only step (strip image gen calls) |
-| `DetailPageEditor` (GrapesJS) + `renderTemplateToHtml()` | Template preview panel |
-| `ImagePickerModal` component | Hero image picker (already exists, check if suitable) |
-| `agent_tasks` table + polling (3s interval) | Pipeline stage status tracking |
-| `DetailPageData` Pydantic model | Shared contract between steps — no schema change needed |
-| `rawImages` prop in editor | Source image pool for hero picker |
-| `AIImageEditPanel` | Post-generation individual image re-edits (not in-pipeline) |
-| `theme_color_*` fields in `GeneratedContent` | Color editing — all 7 fields already exist |
+| Feature | Figma AI text | Framer AI text | Our Approach |
+|---------|--------------|----------------|--------------|
+| Trigger | Select layer → Actions → "Rewrite this" | Select text → inline toolbar | Select text element in GrapesJS → floating action bar |
+| Preset actions | Custom prompt only | Rewrite, Translate, AI Style | Rewrite, Translate, Shorten + Korean-specific presets |
+| Preview before accept | No — replaces in place, undo available | No — replaces in place | Same: replace in place, rely on GrapesJS UndoManager (50-step) |
+| Bulk AI fill | No | No | "AI로 나머지 채우기" — our differentiator |
+| Image AI | No built-in | No built-in | FAL.AI via `AIImageEditPanel` — already shipped |
+| Domain presets | English-generic | English-generic | Korean e-commerce specific (마케팅 문체, 번역 중→한) |
 
 ---
 
 ## Sources
 
-- Codebase analysis: `agents/src/agents/content/agent.py`, `template_pipeline.py`, `models.py` — HIGH confidence
-- Codebase analysis: `apps/web/src/components/editor/DetailPageEditor.tsx`, `sourcing-api.ts` — HIGH confidence
-- Codebase analysis: `apps/web/src/app/sourcing/[id]/editor/page.tsx` — HIGH confidence
-- [Built a Fully Automated AI Content Creation Pipeline with Multi-Stage Approvals](https://medium.com/@goodnessprosper27/built-a-fully-automated-ai-content-creation-pipeline-with-multi-stage-approvals-5e708253d2dd) — MEDIUM confidence (community pattern)
-- [How AI Content Generation Tools Handle Content Approval Workflows](https://storyteq.com/blog/how-do-ai-content-generation-tools-handle-content-approval-workflows/) — MEDIUM confidence
-- [Retailers test generative AI for product detail page content](https://www.digitalcommerce360.com/2023/09/21/retailers-test-generative-ai-to-create-product-detail-page-content/) — MEDIUM confidence (eBay 95% edit rate finding)
-- [FAL.AI Pricing](https://fal.ai/pricing) — HIGH confidence (cost justification for gating)
+- Codebase audit: `apps/web/src/components/editor/DetailPageEditor.tsx` (lines 1047–1055 for selection handler, 1218–1226 for AIImageEditPanel positioning) — HIGH confidence, verified directly
+- Codebase audit: `apps/web/src/components/editor/AIImageEditPanel.tsx`, `AIDesignChatPanel.tsx` — floating panel and API call patterns — HIGH confidence
+- Codebase audit: `apps/web/src/app/sourcing/[id]/editor/page.tsx` (lines 101–108 for placeholder routing, lines 265–280 for CTA placement) — HIGH confidence
+- Codebase audit: `agents/src/agents/content/models.py`, `template_pipeline.py` — Korean copy structure verified — HIGH confidence
+- [Figma AI text rewrite docs](https://help.figma.com/hc/en-us/articles/24004868368919-Rewrite-translate-and-shorten-text-with-AI) — select → Actions → rewrite, replace in place, rely on undo — MEDIUM confidence, official docs
+- [Shape of AI — Inline Action pattern](https://www.shapeof.ai/patterns/inline-action) — selection-triggered, granular scoping, preview-before-commit — MEDIUM confidence, UX research
+- [GrapesJS component toolbar discussion](https://github.com/GrapesJS/grapesjs/discussions/3914) — no native per-component toolbar button API; use external overlay reacting to selection events — HIGH confidence, official repo maintainer response
+- WebSearch: WYSIWYG AI text patterns 2025 — consistent findings across Froala, Framer, Figma: preset-based actions, selection-triggered, in-place replacement + undo — MEDIUM confidence aggregate
 
 ---
 
-*Feature research for: KidItem v1.0 multi-step AI content pipeline*
-*Researched: 2026-03-25*
+*Feature research for: KidItem v2.1 — WYSIWYG editor + per-element AI actions*
+*Researched: 2026-03-26*

@@ -1,148 +1,193 @@
 # Pitfalls Research
 
-**Domain:** AI content generation pipeline — multi-step split with human editing
-**Researched:** 2026-03-25
-**Confidence:** HIGH (based on direct codebase inspection + established patterns for similar systems)
+**Domain:** GrapesJS WYSIWYG editor + per-element AI actions (v2.1 milestone)
+**Researched:** 2026-03-26
+**Confidence:** HIGH (direct codebase inspection + verified against GrapesJS GitHub issues and community patterns)
 
 ---
 
 ## Critical Pitfalls
 
-### Pitfall 1: Intermediate State Overwrites Completed Processing
+### Pitfall 1: GrapesJS Internal State Goes Stale After AI HTML Replacement
 
 **What goes wrong:**
-Step 2 (content generation, no images) writes to `products.processed_data`. Step 3 (image generation) also writes to `products.processed_data`. If the agent runs a second full pipeline run — triggered accidentally or by retry logic — it overwrites the user's edits from Step 2 without warning. The user's hero image selection and text edits silently disappear.
+When AI rewrites page HTML and you call `editor.setComponents(newHtml)` or `editor.loadProjectData()` to apply the result, GrapesJS wipes its internal component tree and rebuilds from scratch. Any `useRef` or `useState` in React components that held editor-derived values (selected component ID, previously extracted HTML string, undo stack snapshot) are now pointing at dead references. Subsequent calls to `editor.getSelected()` return `undefined`, undo history may be partially cleared or duplicated, and the component tree shown in the Layers panel diverges from what is visible in the canvas iframe.
 
 **Why it happens:**
-The current `ContentAgent.execute()` always writes the entire `DetailPageData` struct to `processed_data` at the end of its run. There is no concept of "partial" or "staged" state — the column holds one opaque JSON blob. When the pipeline becomes two distinct agent tasks, both tasks write to the same column, and the second one clobbers whatever the first wrote (plus user edits on top).
+The existing `AIDesignChatPanel` calls `onApply(result.html)` which reaches `editor.setComponents()` inside `DetailPageEditor`. `setComponents` creates new component model instances. Any pointer to the old component objects — including closure captures inside event listeners or React state — becomes invalid. The React wrapper `@grapesjs/react` does not re-emit `component:selected` automatically after a `setComponents` call, so the toolbar state (canUndo, hasSelection) becomes stale.
 
 **How to avoid:**
-Split the state into two distinct columns at the schema level, not just by convention:
-- `content_draft` — written by Step 1 (content agent), never touched by Step 3
-- `processed_data` — written only by Step 3 (image agent), after merging confirmed user edits
-
-Never let the image agent read from `processed_data` — it must read from `content_draft` + a user-confirmed edit column. This enforces a hard boundary at the DB level.
+After any programmatic HTML replacement:
+1. Call `editor.UndoManager.clear()` then `editor.UndoManager.start()` so history starts from the newly applied content.
+2. Re-emit `editor.select(null)` to force deselection events and reset toolbar state.
+3. Use GrapesJS project data format (`editor.loadProjectData()`) instead of raw HTML (`setComponents()`) when replacing large sections — project data preserves styles without collision.
+4. For per-element text rewrite (not full-page replace), use `component.set('content', newText)` or `component.components().reset(...)` on the specific component model — never call `setComponents()` for a single-element update.
 
 **Warning signs:**
-- A single `processed_data` column being written by two different agent types
-- Agent task input that reads `product.processed_data` to get the "source" for image generation
-- No `content_draft` or `user_edits` column in schema
+- `editor.getSelected()` returns `undefined` immediately after `onApply` callback fires
+- Undo button enabled count is wrong (shows 0 or inflated number) after AI apply
+- Layers panel shows duplicate elements or empty tree after AI response
 
 **Phase to address:**
-Phase 1 — Schema design. Introducing separate columns after Phase 2 is a migration, not an addition.
+Phase 1 (GrapesJS editor base + draft load) — Define the apply/replace strategy at the outset. Changing it later breaks undo history for all users.
 
 ---
 
-### Pitfall 2: Agent Task Input Does Not Capture User Edits at Trigger Time
+### Pitfall 2: Per-Element AI Action Panel Loses Track of Its Target Component
 
 **What goes wrong:**
-The frontend fires `POST /api/agent-tasks` to trigger Step 3. The agent task input records `{ productId, generation_mode: "template" }`. The agent then reads the product row from DB to get the hero image selection and text content. But by the time the agent actually executes (polled queue, potentially 5-30 seconds), the user may have changed something else in the editor. The agent picks up the wrong state.
+A floating AI action panel appears when a GrapesJS component is selected. The user clicks a text AI action (e.g., "번역"), the API call is in flight (3–8 seconds), and during that time the user clicks somewhere else in the editor. GrapesJS fires `component:deselected` and possibly `component:selected` for a different element. When the API response arrives, the callback still holds a stale closure reference to the original component. Calling `staleComponent.set('content', result)` on the deselected component silently succeeds in GrapesJS's model but produces no visible effect (or worse, updates the wrong component).
 
 **Why it happens:**
-The existing `agent_tasks.input` JSON carries only the product ID, not the snapshot of what the user actually confirmed. The agent is designed to "read from DB at runtime" which is fine for a single-step pipeline but is a race condition in a multi-step human-in-the-loop flow.
+React's `useState` for `selectedComponent` captures the component at click time. Async callbacks that fire after state has changed hold the old closed-over value. This is the standard React stale closure problem, amplified by the fact that GrapesJS component models are mutable objects (not React state), so there is no re-render signal when they become invalid.
 
 **How to avoid:**
-Snapshot the user's confirmed edits into `agent_tasks.input` at the moment the trigger API is called. The image agent must use `task.input.confirmed_content` as its source of truth — it must not re-read `processed_data` or `raw_data` at runtime. Treat `agent_tasks.input` as an immutable contract for that execution.
+Use a `useRef` (not `useState`) to hold the current target component so the async callback always reads the latest value:
+```tsx
+const targetComponentRef = useRef<Component | null>(null);
+// On AI panel open: targetComponentRef.current = editor.getSelected();
+// In async callback: targetComponentRef.current?.set('content', result);
+```
+Additionally, abort the in-flight request (via `AbortController`) when `component:deselected` fires. Do not apply a result to a component that is no longer selected.
 
 **Warning signs:**
-- Agent task input contains only `productId` and no content fields
-- Agent calls `pool.fetchrow("SELECT processed_data FROM products ...")` at the start of its `execute()` to decide what to generate
-- No "confirm content" API endpoint that serializes the user's current editor state
+- AI result applies to a different element than the one that was clicked
+- Console shows "cannot set property of undefined" after component deselection during API call
+- Action panel remains visible after the user clicks elsewhere (no cleanup on `component:deselected`)
 
 **Phase to address:**
-Phase 1 — Define the API contract for triggering Step 3 before writing the agent.
+Phase 2 (per-element AI text actions) — The ref pattern and abort logic must be part of the initial action panel design.
 
 ---
 
-### Pitfall 3: `processed_data` Format Breaks Existing Editor Page
+### Pitfall 3: `avoidInlineStyle: true` Causes CSS Rule Accumulation on Repeated Template Loads
 
 **What goes wrong:**
-The editor page at `/sourcing/[id]/editor` currently loads `processed_data` via `GET /api/products/:id/preview`, passes it through `parseDetailPageData()` → `renderTemplateToHtml()`, and injects the resulting HTML into GrapesJS. If the new pipeline stores a `DetailPageData` struct with missing or renamed fields (e.g., `hero_image_url` instead of `images[0]`), the template rendering silently produces blank sections or throws. The editor appears to load but has invisible content.
+The editor is configured with `avoidInlineStyle: true` (confirmed in `DetailPageEditor.tsx` line 255). This instructs GrapesJS to extract inline styles from the loaded HTML and store them as CSS rules with auto-generated class names (e.g., `gjs-comp-XXXXX`). Each time `editor.setComponents(html)` is called with the same template HTML, GrapesJS generates **new** class names for the same inline styles. After 3–5 reloads (or after AI replaces content multiple times), the CSS rule set grows unboundedly. `editor.getCss()` returns progressively larger style strings, template rendering becomes incorrect as styles conflict, and the PNG export produces visually broken output.
 
 **Why it happens:**
-`DetailPageData` is used as the interface between the Python agent and the React template. When the pipeline is split, the intermediate state (Step 1 output) is a partial `DetailPageData` — it has all the text fields but `images` contains raw source URLs, not processed FAL.AI outputs. Templates that render `images[0]` will show 1688 watermarked source images instead of the clean studio shot.
+`avoidInlineStyle` is designed for the first load, not for repeated programmatic updates. GrapesJS has no deduplication logic for CSS rules across multiple `setComponents` calls. The current editor page uses `setComponents` as its primary content-load mechanism.
 
 **How to avoid:**
-Define two explicit types:
-1. `ContentDraft` — text + colors + raw source image URLs (Step 1 output, editor input)
-2. `DetailPageData` — final complete struct with all processed image URLs (Step 3 output)
-
-The editor preview in Step 2 must use `ContentDraft` with source images. Do not render the final template layout during editing — use a simplified preview component. The final `DetailPageData` is assembled only by Step 3.
+For template content that should be treated as "protected" (not edited via StyleManager), use `protectedCss` option to inject the template CSS as protected styles that GrapesJS does not extract or manage. Alternatively, keep inline styles on template elements and only use `avoidInlineStyle: false` for new user-added blocks. When applying AI full-page HTML rewrites, call `editor.CssComposer.clear()` before `setComponents()` to reset the accumulated rules.
 
 **Warning signs:**
-- The editor page using the same `parseDetailPageData()` path for both intermediate and final state
-- Step 1 agent writing a partial `DetailPageData` to `processed_data`
-- Template rendering errors that only appear after the pipeline split, not before
+- `editor.getCss()` output grows longer after each AI apply
+- Layers panel shows components with names like `gjs-comp-abc123` instead of `div`, `p`, `img`
+- Template visuals drift after the second or third AI modification
 
 **Phase to address:**
-Phase 1 — Define ContentDraft type and separate it from DetailPageData before touching the pipeline.
+Phase 1 (GrapesJS editor base + draft load) — Must be validated before any AI apply logic is added. Run: load template, apply AI change, reload — and inspect `editor.getCss()` length across iterations.
 
 ---
 
-### Pitfall 4: Hero Image Selection Stored Only in Frontend State
+### Pitfall 4: Floating AI Action Panel Coordinates Are in React App Space, Not Canvas Iframe Space
 
 **What goes wrong:**
-The user picks a hero image in the Step 2 editor. This selection is held in React state (or GrapesJS editor state). When the user clicks "Generate Images," the frontend sends the `productId`. The backend or agent must then figure out which image was selected — but it was never persisted to DB. The agent falls back to `raw_data.images[0]`, which may differ from what the user selected.
+To show an AI action panel near the selected element, the natural approach is to use `editor.getSelected()`, get its DOM element via `component.getEl()`, and call `getBoundingClientRect()` to position the panel. `getEl()` returns the DOM node inside the GrapesJS iframe, so `getBoundingClientRect()` returns coordinates relative to the iframe's viewport — not the outer React app's viewport. The panel renders at the wrong position (often off-screen or at coordinates near 0,0).
 
 **Why it happens:**
-GrapesJS is a full HTML editor — its "save" action produces rendered HTML, not structured data. There is no natural "save hero image selection" event in the current save flow (`handleSave` just receives `_html` and redirects). Developers assume the user's current selection will make it to the agent somehow.
+GrapesJS renders the canvas in an `<iframe>`. The iframe's document has its own coordinate space. `getBoundingClientRect()` is always relative to the viewport of the document that contains the element — in this case, the iframe's inner document. The outer React layer has no knowledge of the iframe's scroll offset or zoom level.
 
 **How to avoid:**
-Create an explicit "confirm content" API (`PATCH /api/sourcing/:id/content-confirm`) that accepts structured data: `{ hero_image_url, theme_colors, text_overrides }`. This API writes to `products.content_draft` and returns the confirmed state. The "Generate Images" button calls this API first, then triggers the agent task with the confirmed snapshot as input.
+Calculate the correct position by compositing:
+1. Get the iframe element: `editor.Canvas.getFrameEl()`
+2. Get the iframe's position in the outer document: `iframe.getBoundingClientRect()`
+3. Get the component's position inside the iframe: `component.getEl().getBoundingClientRect()`
+4. Add the iframe offset to the component rect: `panelTop = iframeRect.top + compRect.top - scrollOffset`
+Also account for canvas zoom (the editor applies a CSS `zoom` transform on the iframe `documentElement` — confirmed in the existing `applyContentZoom` function). Divide component rect values by the current zoom ratio before adding the iframe offset.
 
 **Warning signs:**
-- No API endpoint that accepts and persists the hero image URL selection
-- Agent task trigger (`POST /api/agent-tasks`) is called directly from UI without a prior "confirm" call
-- Hero URL lives only in React `useState`
+- Action panel appears at top-left of the editor on first use
+- Panel position is correct at 100% zoom but wrong at 80% or 120%
+- Panel flickers when the user scrolls the canvas
 
 **Phase to address:**
-Phase 2 — Editor UI integration. Must be designed before the editor component is built.
+Phase 2 (per-element AI text actions) — Positioning must be solved before the panel is usable. A wrong position makes the feature unusable for QA sign-off.
 
 ---
 
-### Pitfall 5: FAL.AI Image Generation Called With Wrong Source Image After Hero Switch
+### Pitfall 5: GrapesJS Component Toolbar Buttons Do Not Appear for Existing Template Components
 
 **What goes wrong:**
-The current `_edit_hero_banner()` and `_edit_main_image()` both take `hero_url` — always `ext_data.images[0]`. After the pipeline split, the image generation step should use the user-confirmed hero URL, not `images[0]`. If the agent still reads `images[0]` from `raw_data`, it generates from the wrong source image even when the user explicitly chose a different one.
+GrapesJS allows adding custom buttons to the per-component toolbar (the small floating bar that appears above a selected component with move/clone/delete icons). These buttons are configured on the component **type** definition via `editor.DomComponents.addType()`. However, template HTML loaded via `setComponents()` is parsed by GrapesJS and assigned generic types (`default`, `text`, `image`). Custom buttons added only to custom types are not inherited by these generic components. The AI action button never appears on template elements.
 
 **Why it happens:**
-The `TemplatePipeline.process()` method reads `hero_url = ext_data.images[0]` directly from the extension data. This works when the pipeline is monolithic because no user selection is possible. After the split, `ext_data` is still available but the user's selection must override `images[0]`.
+`editor.DomComponents.addType()` extends or overrides a named type. The built-in `text` and `image` types have their own toolbar definitions. Adding a new custom type does not modify existing types. Template elements parsed from HTML get the closest matching built-in type — not the custom type unless the HTML has `data-gjs-type` attributes that explicitly name the custom type.
 
 **How to avoid:**
-The Step 3 image agent must receive the confirmed hero URL as an explicit parameter in `agent_tasks.input`, not derive it from `ext_data`. The agent should never fall back to `ext_data.images[0]` when `confirmed_hero_url` is present in the task input.
+Two valid approaches:
+1. Use `editor.on('component:selected', (component) => { ... })` to dynamically append toolbar items to the selected component's toolbar collection at selection time, regardless of type. This is documented in GrapesJS issue #3233.
+2. Override the built-in `text` and `image` types by calling `editor.DomComponents.addType('text', { extend: 'text', ... })` and adding the AI button to the merged toolbar array.
+
+Approach 1 is simpler and does not risk breaking built-in type behavior. The toolbar append pattern:
+```js
+editor.on('component:selected', (component) => {
+  const toolbar = component.get('toolbar') ?? [];
+  if (!toolbar.find(t => t.id === 'ai-action')) {
+    component.set('toolbar', [...toolbar, { id: 'ai-action', command: 'open-ai-panel', label: '...' }]);
+  }
+});
+```
 
 **Warning signs:**
-- New image agent's `execute()` still constructs `ExtensionProductData` and calls `ext_data.images[0]`
-- No `hero_image_url` field in `agent_tasks.input` for image generation tasks
-- FAL.AI banner generation prompts reference `ext_data` category and title but use a different image source
+- AI button appears on manually dragged-in new blocks but not on template elements
+- `editor.DomComponents.getType('text')` has `attributes: {}` but the toolbar array is missing the new button
+- Toolbar shows the button briefly after first adding an element, then disappears on next selection
 
 **Phase to address:**
-Phase 3 — Image agent implementation. Enforce via required field in task input schema.
+Phase 2 (per-element AI text actions) — Test toolbar injection on a loaded template page during the first implementation iteration.
 
 ---
 
-### Pitfall 6: `product.status` State Machine Breaks With Two-Step Pipeline
+### Pitfall 6: Image `src` Attribute Update Triggers Unintended Undo History Entries
 
 **What goes wrong:**
-The current status flow is: `draft` → `processing` → `draft` (on completion). With two pipeline steps, the product will cycle through `processing` twice, and the frontend 3-second polling loop will declare "done" after Step 1, before Step 3 has run. The user sees the editor with draft text content, thinking full processing is complete, then triggers Step 3 manually — but the UI has no state to represent "content ready, images not yet generated."
+When AI image editing (background removal, FAL.AI generation) completes, the updated image URL is applied by calling `component.setAttributes({ src: newUrl })`. GrapesJS's `UndoManager` records every attribute change as an undoable action. In a typical AI image edit session, one edit triggers: deselect, API call, re-select, setAttributes — all of which may be recorded individually. The undo stack fills with granular intermediate states. Users pressing Ctrl+Z cycle through partial states they never intended to create (e.g., empty src, blank loading state).
 
 **Why it happens:**
-The `status` field in `products` is a single string with no substatus. The frontend polling loop checks `status !== 'PROCESSING'` to stop. After Step 1 completes, status becomes `draft`, polling stops, and the UI normalizes. The multi-step nature is invisible.
+The `UndoManager` wraps all model `.set()` calls including `setAttributes`. There is no built-in "batch" mode that groups related changes into a single undo step. The existing editor sets `undoManager: { maximumStackLength: 50 }` which mitigates depth but not granularity.
 
 **How to avoid:**
-Introduce explicit pipeline stage tracking. Options:
-1. Add a `pipeline_stage` column: `null | 'content_ready' | 'images_ready'`
-2. Use `ContentGeneration.status` as the granular tracker and never rely on `products.status` for pipeline progress
-
-Option 1 is simpler given the existing Prisma pattern. The frontend should poll `ContentGeneration.status` (already present in the schema) rather than `products.status`.
+Wrap programmatic AI-result application in a single undo batch:
+```js
+editor.UndoManager.stop();
+component.setAttributes({ src: newUrl });
+editor.UndoManager.start();
+```
+Using `stop()/start()` prevents the intermediate changes from being recorded. The one-shot `start()` after the change does add the final state as a single undoable step. Apply this pattern to both text content updates (`component.set('content', ...)`) and attribute updates (`component.setAttributes(...)`).
 
 **Warning signs:**
-- Frontend polling `products.status` to drive the two-step UI
-- No `pipeline_stage` or equivalent field in the product or content generation record
-- Both Step 1 and Step 3 setting `products.status = 'draft'` on completion
+- Pressing Ctrl+Z once after an AI image edit reverts to loading-state src, not the original src
+- Undo stack length jumps by 3–5 entries for a single AI action
+- The "Undo" button in `EditorToolbar` shows as enabled for `setLoading` and `clearLoading` calls that should not be tracked
 
 **Phase to address:**
-Phase 1 — Schema design. Adding `pipeline_stage` requires a migration; must happen before either agent is modified.
+Phase 2 (per-element AI text actions) and Phase 3 (per-element AI image actions) — Apply the `stop()/start()` pattern in every AI result-apply handler.
+
+---
+
+### Pitfall 7: "AI로 나머지 채우기" Full-Page Generation Races With In-Progress Per-Element Edit
+
+**What goes wrong:**
+The editor exposes a "AI로 나머지 채우기" CTA that triggers a full-page AI content generation (calls the NestJS `/api/products/:id/draft-content` write and may reload the editor). If the user also has an in-progress per-element text rewrite (`/api/templates/modify` or a targeted rewrite endpoint), both API calls may return responses in unpredictable order. The full-page generation response arrives last and overwrites the per-element result. Alternatively, the per-element result applies to a component that was just replaced by the full-page generation, writing to a dead component reference.
+
+**Why it happens:**
+There is no global loading/lock state in the current `DetailPageEditor`. Each action panel manages its own `loading` state locally. The full-page CTA and per-element actions share the same editor instance but are unaware of each other.
+
+**How to avoid:**
+Introduce a single editor-level `isBusy` flag (via Zustand or a React ref shared via context). Rules:
+- Per-element AI panel: cannot start if `isBusy`
+- Full-page AI CTA: cannot start if `isBusy`; sets `isBusy = true` on start, clears on complete/error
+Both surfaces check the flag before firing their API call. Show a disabled state with tooltip "다른 AI 작업이 진행 중입니다" when blocked.
+
+**Warning signs:**
+- Two spinner states visible simultaneously in the editor
+- Console errors: "Cannot call set on destroyed component model"
+- Full-page reload triggered while an image AI panel is in loading state
+
+**Phase to address:**
+Phase 2 and Phase 3 — Define the `isBusy` coordination mechanism before implementing any AI action, not after adding the second one.
 
 ---
 
@@ -150,11 +195,12 @@ Phase 1 — Schema design. Adding `pipeline_stage` requires a migration; must ha
 
 | Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
 |----------|-------------------|----------------|-----------------|
-| Reuse `processed_data` column for both content draft and final output | No schema migration | Silent overwrites between steps; editor shows wrong state | Never — one column per pipeline stage minimum |
-| Skip "confirm content" API and embed hero URL in the trigger request directly | Faster to implement | Hero selection not persisted; lost on refresh before triggering Step 3 | Never — user's choice must be durable |
-| Keep `TemplatePipeline` monolithic and add conditional branches for hero override | Avoids refactoring | `TemplatePipeline.process()` grows to ~600 lines of branched logic | Acceptable only for a temporary spike to prove FAL.AI behavior |
-| Use GrapesJS HTML export as intermediate state instead of structured JSON | No new type needed | Cannot extract hero URL, theme colors, or text diffs from HTML reliably | Never for structured data like hero image selection |
-| Keep image classification (`detail_indices`) code path alongside hero-based path | Safe fallback | Two code paths diverge over time; category tone/mood resolution duplicated | Acceptable only if removing classification is a later phase |
+| Using `editor.setComponents(fullHtml)` for every AI text rewrite | Simple — just replace all HTML | CSS rule accumulation, undo history wipe, stale references on every edit | Never for per-element actions. Acceptable only for the initial page load. |
+| Positioning the AI panel with `position: fixed` hardcoded offsets | Fast to build | Breaks at any zoom level, any canvas scroll position | Never — canvas is resizable and zoomable. |
+| Adding toolbar buttons only to custom component types | Clean type system | Buttons never appear on template elements (see Pitfall 5) | Never if template elements are the primary edit target |
+| Calling `setAttributes` inside a tight loop without `UndoManager.stop()` | Direct API usage | Undo stack fills with partial states | Never inside AI result-apply handlers |
+| Letting per-element action panel and full-page CTA run concurrently | No coordination code needed | Race conditions corrupt editor state (see Pitfall 7) | Never |
+| Storing current selected component in `useState` instead of `useRef` | React-idiomatic code | Stale closure in async callbacks (see Pitfall 2) | Never for GrapesJS component references held across async boundaries |
 
 ---
 
@@ -162,11 +208,12 @@ Phase 1 — Schema design. Adding `pipeline_stage` requires a migration; must ha
 
 | Integration | Common Mistake | Correct Approach |
 |-------------|----------------|------------------|
-| FAL.AI (`fal_edit_image`) | Passing a 1688 CDN URL directly as source; FAL.AI may reject or fetch stale/blocked images | Download the image to local temp storage first, then pass via base64 or a public URL from your own domain |
-| FAL.AI banner generation | Using theme color hex strings directly in prompt (e.g., `#fffaf0`); LLMs map hex to wrong colors | Translate hex to descriptive color names in the prompt: `warm cream white` not `#fffaf0` |
-| `agent_tasks` LISTEN/NOTIFY | Runner claims a new task while Step 1 result is still being written; Step 3 starts before `content_draft` is committed | Use a DB transaction that inserts the Step 3 task only after `content_draft` is written in the same transaction |
-| GrapesJS `onSave` callback | `onSave` receives rendered HTML; cannot reconstruct `DetailPageData` from HTML reliably | Never use GrapesJS HTML as a data store. Save structured data separately before GrapesJS save fires |
-| `products.processed_data` JSONB | `asyncpg` raw SQL requires explicit `::jsonb` cast for `$1` params; missing cast causes silent storage of string instead of JSON object | Always use `$1::jsonb` when writing JSON to JSONB columns. Current code already does this — must be preserved in new agents |
+| GrapesJS + `@grapesjs/react` `WithEditor` | Accessing `editor` before `WithEditor` has mounted by calling `useEditor()` outside its subtree | All components that call `useEditor()` must be rendered inside `<GjsEditor>` — use `<WithEditor>` wrapper or check `useEditorMaybe()` before calling editor methods |
+| GrapesJS canvas iframe + React overlay | Using `document.getElementById` from the outer React app to query elements inside the canvas | Always use `editor.Canvas.getFrameEl().contentDocument.getElementById` to query inside the canvas iframe |
+| GrapesJS `component:selected` event + async state | Reading `editor.getSelected()` inside a `useEffect` cleanup or stale callback | Use `useRef` for the target component (see Pitfall 2); never rely on `editor.getSelected()` inside an async callback — the selection may have changed |
+| AI image edit panel + FAL.AI latency (20–60s) | Showing only a spinner with no timeout or abort path | Implement a 90-second client-side timeout with `AbortController`. Show "시간이 초과되었습니다. 다시 시도" message. FAL.AI calls in `AIImageEditPanel` already lack abort logic. |
+| NestJS `/api/images/edit` + FAL.AI | Frontend sends raw 1688 CDN URL; FAL.AI may reject or time out fetching blocked Chinese CDN URLs | NestJS must download the source image via `http_utils.py`-equivalent proxy before forwarding to FAL.AI. Add URL validation on the NestJS handler. |
+| GrapesJS `getCss()` + template CSS injection | `editor.getCss()` includes both user-added styles AND the original `templateCss` injected via `canvasCss`; saving `getCss()` output double-applies the template styles | Use `editor.getCss({ avoidProtected: true })` to exclude protected styles, or track which CSS is "template-owned" vs. "user-added" via a naming convention |
 
 ---
 
@@ -174,10 +221,10 @@ Phase 1 — Schema design. Adding `pipeline_stage` requires a migration; must ha
 
 | Trap | Symptoms | Prevention | When It Breaks |
 |------|----------|------------|----------------|
-| Running `_analyze_product()` in Step 1 when it's only needed to select `detail_indices` | Step 1 takes 20+ seconds; image analysis cost billed twice (Step 1 + Step 3) | In hero-based flow, `detail_indices` is not needed; remove `_analyze_product()` from Step 1 entirely | Immediately — doubles API cost |
-| 3-second frontend polling running while user is editing in Step 2 | Unnecessary API calls during editing session; server logs polluted | Stop polling after Step 1 completes; re-start polling only when user triggers Step 3 | At any scale — polling during edit is always wrong |
-| FAL.AI calls for main, banner, and all detail images running in parallel | Memory/concurrency spike if 5+ images queued at once with large dimensions | Cap parallel FAL.AI calls to 3 with a semaphore (already done for OCR downloads — same pattern) | When product has 4+ detail images |
-| Size chart OCR (`_scan_size_charts`) running in Step 1 when user may override the hero image anyway | OCR adds 10-30 seconds; result may be discarded if user selects a hero with no size chart | Defer OCR to Step 3 where the confirmed image set is known, or run it lazily on user request | From the first run — wasted time every time |
+| Listening to `editor.on('update', ...)` to sync state | Handler fires on every keypress, drag, style change; React re-renders on every GrapesJS micro-change | Use specific events: `component:selected`, `component:deselected`, `component:styleupdate` — never use `update` for UI sync | Immediately with any real editing — update fires 10–50 times per second during drag |
+| Passing full GrapesJS HTML to AI text rewrite endpoint on every request | Payload grows with page content; `AIDesignChatPanel` already does this (sends `fullHtml` including all CSS) | For per-element text rewrite, send only the target component's `outerHTML` + minimal context, not the full page | When template HTML exceeds ~50KB (bold-vertical with images is ~30KB + CSS) |
+| Polling `editor.getHtml()` in a `setInterval` for auto-save | `getHtml()` serializes the entire DOM on every tick; expensive on large templates | Auto-save on `editor.on('update', ...)` debounced to 2 seconds; serialize only on `update` event, not on a fixed interval | At any canvas content size beyond trivial |
+| Rendering AI action panel as a DOM portal re-mounting on every `component:selected` | New React subtree mounted on every click; panel state (input text, loading) resets on every selection change | Mount the panel once; show/hide via CSS; pass selected component as a prop update — do not unmount/remount | Every time user switches between elements during editing |
 
 ---
 
@@ -185,9 +232,9 @@ Phase 1 — Schema design. Adding `pipeline_stage` requires a migration; must ha
 
 | Mistake | Risk | Prevention |
 |---------|------|------------|
-| Accepting hero image URL from frontend without validation | SSRF: agent fetches attacker-controlled URL, exposing internal network | Validate that hero URL is from known image CDNs (1688, alicdn, FAL.AI output domain) before passing to FAL.AI |
-| Storing unvalidated `text_overrides` from the "confirm content" API directly in `content_draft` | XSS in the rendered template HTML if title/hook text contains script tags | Sanitize all user-provided text fields before writing to `content_draft` |
-| `agent_tasks.input` containing full `DetailPageData` blob from untrusted frontend | Inflated JSON payloads; potential injection into FAL.AI prompts | Accept only a whitelist of fields in the confirm API; reconstruct the generation prompt server-side |
+| Injecting AI-generated HTML directly via `editor.setComponents(aiHtml)` without sanitization | If the AI endpoint is compromised or returns unexpected content, `<script>` tags or `onload` handlers execute inside the GrapesJS canvas iframe | GrapesJS has known XSS vulnerabilities (CVE-2022-21802). Sanitize AI HTML output with DOMPurify before calling `setComponents`. The iframe does not isolate script execution from the parent page in all browsers. |
+| Sending the full `editor.getHtml()` output (including user-entered text) to the AI rewrite endpoint without input length limits | Large payloads to `/api/templates/modify` can cause AI cost spikes or timeouts; malicious input could probe the prompt | Enforce a max payload size (e.g., 200KB) on the NestJS endpoint; strip `<script>` and `<iframe>` tags from the HTML before forwarding to AI |
+| Displaying AI-generated text content directly in React without escaping | If AI returns text containing `</script>` or HTML entities, and the content is set via `innerHTML` anywhere in the React layer, XSS is possible | Use `component.set('content', text)` for GrapesJS text nodes — GrapesJS escapes content set this way. Never use `innerHTML` to inject AI results in the React UI layer. |
 
 ---
 
@@ -195,23 +242,24 @@ Phase 1 — Schema design. Adding `pipeline_stage` requires a migration; must ha
 
 | Pitfall | User Impact | Better Approach |
 |---------|-------------|-----------------|
-| Showing a GrapesJS full editor for Step 2 when the user only needs to pick a hero image, tweak text, and set a color | Overwhelm; user doesn't know what to edit in 200+ component tree | Show a structured form for Step 2: hero image picker carousel, text fields, color swatches — no GrapesJS canvas needed at this step |
-| No preview of what the generated images will look like before confirming | User triggers FAL.AI (expensive + slow) without knowing the expected output | Show the raw source image with the selected theme color overlaid as a rough preview; make it clear this is "before generation" |
-| Progress indicator only shows "generating..." with no substep breakdown | 40-60 second wait with spinning loader; user refreshes thinking it froze | Show per-image progress: "Banner — done", "Main image — done", "Detail 1 — 3/3..." |
-| Triggering Step 3 from a button labeled "AI 가공" (same as the current full pipeline button) | User cannot distinguish between regenerating content vs. regenerating images | Separate CTA labels: Step 1 = "콘텐츠 생성", Step 2 edit = "편집", Step 3 = "이미지 생성" |
-| Editor page loses user's unsaved edits on navigation away | User clicks back and loses all text changes | Persist draft to `content_draft` column on every field blur, not only on explicit save |
+| Showing AI action button on every selectable element including layout divs and wrappers | User clicks a section wrapper div, sees "AI 다시쓰기" — unclear what it applies to (the wrapper? child text?) | Restrict AI text actions to `text` and `image` component types only; detect type via `component.get('type')` and show buttons conditionally |
+| No visual indication of which element is being processed while AI call is in flight | User clicks another element not knowing the first is still loading; race condition (Pitfall 7) | Apply a CSS class to the target element's wrapper in the canvas: `editor.Canvas.getDocument().getElementById(compId).classList.add('ai-loading')`. Remove on complete. |
+| AI result is applied immediately with no preview/confirm step for text rewrites | User gets result that changes meaning of copy; cannot see before/after | Show a diff or before/after panel in the action popover; require "적용" click before committing. For image edits the current `AIImageEditPanel` already handles this via `onEditComplete` callback — text edits should match this pattern. |
+| Full-page "AI로 나머지 채우기" button is visible while individual element edits are in progress | User triggers full-page generation mid-edit, wiping per-element changes | Disable the CTA while `isBusy` is true (see Pitfall 7). Show explanation: "개별 편집 완료 후 사용 가능". |
+| Action panel dismisses when user accidentally clicks outside of it, losing input text | User typed a long custom rewrite prompt; loses it when clicking back to the canvas | Detect "click outside" only on the outer page, not on the canvas iframe (pointer events differ inside iframe vs. outer document) |
 
 ---
 
 ## "Looks Done But Isn't" Checklist
 
-- [ ] **Schema migration:** `content_draft` column exists in `products` — run `npm run db:push` and verify via DB studio before writing any agent code
-- [ ] **Confirm API:** `PATCH /api/sourcing/:id/content-confirm` returns `201` with the persisted snapshot including `hero_image_url`
-- [ ] **Step 3 agent:** `execute()` reads `hero_image_url` from `task.input`, NOT from `pool.fetchrow("SELECT raw_data ...")` — verify by logging the source URL at agent startup
-- [ ] **Backward compat:** Existing products with `processed_data` but no `content_draft` must still load in the editor without error — verify with a product that completed the old monolithic pipeline
-- [ ] **Polling stops correctly:** After Step 1 completes, frontend stops polling status; after Step 3 completes, frontend re-fetches and shows final state — verify the transition is clean with no stale cache
-- [ ] **Hero-only generation:** `_analyze_product()` is NOT called in the new Step 3 agent — confirm no Gemini/analysis API call in logs during image generation
-- [ ] **FAL.AI source URL:** The URL passed to `fal_edit_image` is the user's confirmed hero URL, not `ext_data.images[0]` — log and verify on first test run
+- [ ] **Toolbar buttons on template elements:** AI button appears when clicking a `<p>` inside the bold-vertical template HTML — not just on newly dragged-in blocks
+- [ ] **Panel position at zoom 80%:** Floating AI panel appears near the selected element at 80% canvas zoom, not at the top-left
+- [ ] **Undo after AI text rewrite:** One Ctrl+Z reverts the text to the pre-AI version; pressing it again reverts to the state before that (not an intermediate loading state)
+- [ ] **Concurrent action prevention:** Clicking "AI 다시쓰기" on a second element while the first is loading is blocked; button shows disabled state
+- [ ] **Full-page CTA disabled during per-element edit:** "AI로 나머지 채우기" button is greyed out while any AI panel is loading
+- [ ] **CSS stability:** After applying AI text rewrite 5 times in a row, `editor.getCss()` length is the same as after 1 application
+- [ ] **Image edit abort:** Closing the `AIImageEditPanel` mid-edit cancels the in-flight API request (verify in Network tab — request is aborted)
+- [ ] **XSS sanity check:** Paste `<img src=x onerror=alert(1)>` as an AI-generated text result; verify it does not execute in the canvas
 
 ---
 
@@ -219,11 +267,11 @@ Phase 1 — Schema design. Adding `pipeline_stage` requires a migration; must ha
 
 | Pitfall | Recovery Cost | Recovery Steps |
 |---------|---------------|----------------|
-| `processed_data` overwritten by Step 3 before user confirmed edits | MEDIUM | Add `content_draft` column, write a migration script that copies current `processed_data` into `content_draft` for all products in `content_ready` pipeline stage |
-| Hero URL embedded in React state lost before Step 3 triggered | LOW | Add auto-persist to `content_draft` on hero selection; no data migration needed |
-| `processed_data` format incompatible with editor after pipeline split | HIGH | Write a compatibility shim in `parseDetailPageData()` that handles both old and new formats; add a `_version` field to the JSON |
-| FAL.AI source URL rejection (1688 CDN blocked) | MEDIUM | Add image proxy/download step before FAL.AI submission; already have `download_image_with_type()` in `http_utils.py` — reuse it |
-| Two agent tasks creating conflicting DB writes | MEDIUM | Add a `pipeline_stage` guard: Step 3 task must check `pipeline_stage = 'content_ready'` before executing; fail fast if not |
+| CSS rule accumulation breaks template visuals (Pitfall 3) | MEDIUM | Add `editor.CssComposer.clear()` before each `setComponents()` call; wipe and re-test existing products in staging |
+| Stale component reference causes writes to wrong element (Pitfall 2) | LOW | Refactor target component storage to `useRef`; add a guard: check `editor.getSelected()?.cid === targetRef.current?.cid` before applying result |
+| Toolbar buttons missing from template components (Pitfall 5) | LOW | Add `component:selected` listener that appends toolbar items; no data migration needed |
+| XSS via unsanitized AI HTML (security) | HIGH | Add DOMPurify to `apps/web` dependencies; wrap every `setComponents(aiOutput)` call; audit all existing HTML injection points in `DetailPageEditor` |
+| Full-page race condition corrupts editor (Pitfall 7) | MEDIUM | Add `isBusy` ref to editor context; wrap all AI action initiators with a check; no DB changes needed |
 
 ---
 
@@ -231,25 +279,33 @@ Phase 1 — Schema design. Adding `pipeline_stage` requires a migration; must ha
 
 | Pitfall | Prevention Phase | Verification |
 |---------|------------------|--------------|
-| Intermediate state overwrites (Pitfall 1) | Phase 1: Schema | `content_draft` column in DB; Step 1 writes there, Step 3 never touches it |
-| Agent reads wrong state at runtime (Pitfall 2) | Phase 1: API contract | `agent_tasks.input` contains `hero_image_url` and `confirmed_content` fields in test task |
-| `processed_data` format breaks editor (Pitfall 3) | Phase 1: Type definitions | `ContentDraft` type defined; editor preview uses it independently of `DetailPageData` |
-| Hero selection lost in frontend state (Pitfall 4) | Phase 2: Confirm API | `PATCH /api/sourcing/:id/content-confirm` returns persisted record with `hero_image_url` |
-| FAL.AI uses wrong source image (Pitfall 5) | Phase 3: Image agent | First integration test: select non-default hero image; verify FAL.AI log shows that URL |
-| `product.status` state machine inadequate (Pitfall 6) | Phase 1: Schema | `pipeline_stage` column exists; frontend polls `ContentGeneration.status` instead of `products.status` |
+| Stale state after HTML replacement (Pitfall 1) | Phase 1: GrapesJS base + draft load | After `setComponents`, call `editor.getSelected()` — must return `null`; `canUndo` must be `false` |
+| Stale component reference in async callback (Pitfall 2) | Phase 2: Per-element AI text actions | Start a text rewrite, click a different element before it completes — result must not apply to the second element |
+| CSS accumulation from `avoidInlineStyle` (Pitfall 3) | Phase 1: GrapesJS base + draft load | Log `editor.getCss().length` before and after 5 successive `setComponents()` calls — length must not grow |
+| Floating panel coordinate mismatch (Pitfall 4) | Phase 2: Per-element AI text actions | Test panel position at 80%, 100%, 120% zoom; test after scrolling canvas halfway down |
+| Toolbar buttons missing on template elements (Pitfall 5) | Phase 2: Per-element AI text actions | Load bold-vertical template, click any `<p>` text — AI button must appear in the component toolbar |
+| Undo granularity pollution (Pitfall 6) | Phase 2 and Phase 3 | Count undo steps after single AI action — must be exactly 1 |
+| Concurrent action race (Pitfall 7) | Phase 2 (define `isBusy`) | Trigger per-element edit, then click full-page CTA — second action must be blocked |
 
 ---
 
 ## Sources
 
-- Direct codebase inspection: `agents/src/agents/content/template_pipeline.py`, `agent.py`, `models.py`, `pipeline_base.py`
-- Direct codebase inspection: `apps/web/src/app/sourcing/[id]/editor/page.tsx`, `[id]/page.tsx`
-- Direct codebase inspection: `prisma/schema.prisma` — confirmed single `processed_data` JSONB column
-- Pattern: human-in-the-loop pipeline state management — established practice in workflow engine systems (n8n pattern observed in `apps/server/src/workflows/`)
-- Pattern: agent task input as immutable snapshot — from `AgentTask.input` field design in existing schema
-- Pattern: GrapesJS HTML vs. structured data separation — from existing `DetailPageEditor` implementation which receives rendered HTML, not structured data
+- Direct codebase inspection: `apps/web/src/components/editor/DetailPageEditor.tsx` — confirmed `avoidInlineStyle: true`, zoom implementation, `UndoManager.maximumStackLength: 50`, existing `AIDesignChatPanel.onApply` pattern, `injectHeadResources` iframe injection
+- Direct codebase inspection: `apps/web/src/components/editor/AIDesignChatPanel.tsx` — confirmed full HTML is sent to AI on every call; no abort controller; no `isBusy` coordination
+- Direct codebase inspection: `apps/web/src/components/editor/AIImageEditPanel.tsx` — confirmed no AbortController; loading state is local-only; no concurrency guard
+- Direct codebase inspection: `apps/web/src/app/sourcing/[id]/editor/page.tsx` — confirmed 3-second polling pattern, `setMode('grapes')` transition
+- GrapesJS GitHub issue [#3233](https://github.com/GrapesJS/grapesjs/issues/3233): toolbar buttons missing on existing components — confirmed `component:selected` append pattern as the solution
+- GrapesJS GitHub issue [#3044](https://github.com/GrapesJS/grapesjs/issues/3044): new toolbar button works only for new components — confirmed built-in type override approach
+- GrapesJS GitHub discussion [#4747](https://github.com/GrapesJS/grapesjs/discussions/4747): inline CSS loaded as style tags becomes CSS rules — confirmed `avoidInlineStyle` accumulation behavior
+- GrapesJS GitHub issue [#2936](https://github.com/GrapesJS/grapesjs/issues/2936): inline style loads on id instead of class — confirms style management side effects
+- Snyk CVE-2022-21802: GrapesJS XSS via component attributes — confirms sanitization requirement for injected HTML
+- GrapesJS GitHub issue [#4076](https://github.com/GrapesJS/grapesjs/issues/4076): XSS vulnerability in Style Manager — confirms ongoing XSS risk in GrapesJS
+- Community pattern: `useRef` for async mutable values in React — standard React docs guidance; specific to GrapesJS component references
+- Community pattern: `UndoManager.stop()/start()` batching — from GrapesJS discussion [#3639](https://github.com/GrapesJS/grapesjs/issues/3639) (Improve UndoManager API)
+- `@grapesjs/react` npm README — confirmed `useEditor` must be inside `WithEditor` subtree; canvas is iframe; `GjsEditor` is not for React components inside canvas
 
 ---
 
-*Pitfalls research for: multi-step AI content pipeline with human editing (KidItem v1.0 milestone)*
-*Researched: 2026-03-25*
+*Pitfalls research for: GrapesJS WYSIWYG editor + per-element AI actions (KidItem v2.1 milestone)*
+*Researched: 2026-03-26*

@@ -1,234 +1,260 @@
 # Project Research Summary
 
-**Project:** KidItem v1.0 — Multi-step AI Content Pipeline with Human Editing Gate
-**Domain:** Human-in-the-loop AI content generation pipeline (e-commerce seller tool)
-**Researched:** 2026-03-25
-**Confidence:** HIGH
+**Project:** KidItem v2.1 — WYSIWYG Editor + Per-Element AI Actions
+**Domain:** GrapesJS-based e-commerce product detail page builder with inline AI editing
+**Researched:** 2026-03-26
+**Confidence:** HIGH (all major findings verified from direct codebase inspection)
 
 ## Executive Summary
 
-KidItem's current one-shot `TemplatePipeline` runs LLM copywriting and FAL.AI image generation in a single Python agent task with no opportunity for user review. This milestone refactors it into a two-step pipeline: Step 1 generates Korean content and theme colors (no FAL.AI spend), Step 2 lets the user edit text/colors/hero image in the existing editor, and Step 3 fires FAL.AI image generation only after explicit user confirmation. This is the standard multi-stage approval pattern used by eBay AI Descriptions, Shopify Magic, and every production AI content pipeline — skipping it leads directly to wasted FAL.AI spend ($0.03-0.08/image, 20-40s latency) and user frustration when wrong images are used.
+This milestone extends the existing KidItem GrapesJS editor to support per-element AI actions (text rewrite/translate/shorten and image editing), a draft-mode entry path, and an "AI로 나머지 채우기" CTA. The pattern is well-understood: the codebase already has a working `AIImageEditPanel` for per-element image AI, an `AIDesignChatPanel` for full-page HTML rewriting, and a `component:selected` event handler that can be extended for text elements. The primary challenge is wiring up 3–4 missing NestJS backend endpoints that the frontend components already call but that have no controllers yet.
 
-The recommended approach is a DB-native state machine using two new Prisma columns (`draftContent`, `pipelineStep`) that enforce hard separation between intermediate content state and final processed state. Two new Python agents (`content_step1`, `content_step2`) replace the monolithic ContentAgent for template mode. A single new NestJS endpoint (`PUT /api/products/:id/draft-content`) handles user edit persistence, and the existing editor page is extended with a structured form panel (not GrapesJS canvas editing). Only one new frontend dependency is needed: `react-colorful@5.6.1` (2.8 KB, zero deps) for color pickers.
+The recommended approach uses zero new npm packages for core functionality. GrapesJS 0.22's Canvas Spots API handles context bar positioning natively without cross-iframe coordinate math hacks. Text AI actions route through a new lightweight NestJS `text` module calling Gemini inline (synchronous, <3s). Image AI actions route through a new Python `ImageEditAgent` via the existing `agent_tasks` queue (asynchronous, 10–40s). The two-track architecture — sync text / async image — cleanly separates latency profiles and reuses all existing infrastructure without new npm packages or schema changes.
 
-The dominant risk is state overwrite: both pipeline steps writing to the same `processed_data` column causes silent loss of user edits. The second critical risk is hero image selection living only in React state and being lost before image generation triggers. Both risks are addressed at the schema level (Phase 1) before any agent or frontend work begins. Four additional pitfalls — agent reading stale DB state at runtime, status state machine inadequacy, FAL.AI using wrong source image, and GrapesJS HTML as a data store — all have established prevention patterns documented in PITFALLS.md.
-
----
+The key risks are GrapesJS-specific: stale component references in async callbacks, CSS rule accumulation from `avoidInlineStyle: true` on repeated template loads, floating panel coordinate mismatch inside the canvas iframe, and race conditions between per-element edits and the full-page AI fill CTA. All 7 critical pitfalls have known preventions documented in PITFALLS.md and must be addressed at phase entry, not patched later. The most urgent are CSS accumulation (Phase 1) and the concurrent action `isBusy` guard (Phase 2, before any AI action is wired).
 
 ## Key Findings
 
 ### Recommended Stack
 
-The existing stack (Next.js 14, NestJS 11, PostgreSQL + Prisma, Python agents with asyncpg, Zustand, Radix UI, GrapesJS) requires only one new dependency. All pipeline state tracking, intermediate data storage, and agent coordination reuse existing infrastructure.
+The existing stack requires no new npm packages for core scope. GrapesJS 0.22.14, `@grapesjs/react` 2.0.0, `lucide-react`, Tailwind, and `zustand` cover all frontend needs. The backend pattern — raw `fetch` to Gemini REST API, reusing `GEMINI_API_KEY` and `AI_TEXT_MODEL` env vars — is already established in `ai-analyze.ts` and must be replicated, not replaced with an SDK.
 
-**Core technologies:**
-- `react-colorful@5.6.1`: Theme color pickers in Step 2 editor — 2.8 KB, zero deps, ships `HexColorPicker` + `HexColorInput`, works inside existing `@radix-ui/react-popover`
-- `products.draftContent Json?` (new Prisma field): Intermediate state storage for Step 1 output + user edits — avoids new table, follows existing `processed_data` pattern
-- `products.pipelineStep String?` (new Prisma field): Status machine for multi-step pipeline state — values: `null | content_ready | images_generating`
-- Existing `agent_tasks` + 3-second polling: Pipeline stage status tracking — no new infrastructure needed
-- Existing `renderTemplateToHtml()`: Live template preview during editing — stateless function, re-render on field change without API round-trip
+**Core technologies and roles:**
+- **GrapesJS Canvas Spots API** (`Canvas.addSpot`, `canvas:spot`, `spot.getStyle()`) — per-element action bar positioning without cross-iframe math; built into 0.22, already installed
+- **NestJS `text` module** (`apps/server/src/text/`) — inline Gemini call for rewrite/translate/shorten; synchronous, no agent queue overhead
+- **NestJS `images` module** (`apps/server/src/images/`) — creates `image_edit` agent_task, returns `{ taskId }` for frontend polling
+- **Python `ImageEditAgent`** (`agents/src/agents/image_edit/`) — wraps existing `AIImageGenerator`; handles FAL.AI background removal, replace, enhance, regenerate
+- **NestJS `templates` module** (`apps/server/src/templates/`) — `POST /api/templates/modify` (unblocks AIDesignChatPanel) + `POST /api/render-image` (Export PNG)
+- **`html-to-image` 3.x** (optional, frontend only) — PNG export without Puppeteer/Chromium in Docker; add only if Export PNG is in scope
+
+**Missing endpoints that must be created (frontend already calls them):**
+
+| Endpoint | Module | Pattern |
+|----------|--------|---------|
+| `POST /api/images/edit` | `images` | Async — creates agent_task, returns `{ taskId }` |
+| `POST /api/templates/modify` | `templates` | Sync — inline Gemini call, returns `{ html }` |
+| `POST /api/render-image` | `templates` | TBD — client-side or RenderAgent |
+| `POST /api/text/rewrite` | `text` | Sync — inline Gemini call, returns `{ text }` |
 
 **What to avoid:**
-- `react-color` (casesandberg): Unmaintained since 2020
-- New `pipeline_stages` table: Over-engineering; a String column on `products` is sufficient
-- New Zustand slice for pipeline state: Pipeline state lives in DB, not client
-- GrapesJS canvas for Step 2 editing: GrapesJS edits HTML, not `DetailPageData` struct
+- `grapesjs-float` plugin (2 stars, no releases) — use Canvas Spots API instead
+- GrapesJS `toolbar` property via `DomComponents.addType` — timing bugs on template elements (GH #3233)
+- `@google/generative-ai` SDK — project already uses raw fetch for Gemini; inconsistent
+- `puppeteer`/`playwright` for render-image initially — adds ~170 MB Chromium to Docker
 
 ### Expected Features
 
-**Must have (table stakes — v1 launch):**
-- Content-only generation mode (`generation_mode: 'content_only'`) — gates FAL.AI cost behind user confirmation
-- Content draft status + polling — frontend knows when to transition to editor
-- Structured field editor panel — title, hook_text, description_ko, theme colors (7 fields)
-- Live template preview on field change — `renderTemplateToHtml()` bound to React state
-- Hero image picker — grid of raw source images, user selects hero for FAL.AI input
-- "Generate images" confirmation button — single CTA that triggers `content_step2` agent with confirmed hero URL
-- Image generation agent task — accepts `hero_image_url` override, runs FAL.AI, writes `processed_data`
+The full feature scope is bounded by PROJECT.md's v2.1 active list. Most table-stakes features require low-complexity routing or wiring changes, not new feature design from scratch.
 
-**Should have (competitive differentiators — v1.x):**
-- Category-aware color palette suggestions — `_CATEGORY_TONES` already maps categories; extend to pre-built palettes
-- Preserve draft edits across refresh — auto-persist on field blur to `draftContent` column
-- Regenerate content without losing hero selection — re-run Step 1 keeping confirmed hero in `draftContent`
+**Must have — P1 (table stakes):**
+- Draft entry into GrapesJS editor with placeholder bold-vertical HTML (routing condition change; logic already partially in `editor/page.tsx`)
+- "AI로 나머지 채우기" CTA accessible from GrapesJS mode, not only structured mode (extend existing CTA render condition)
+- Per-element text AI actions: 다시쓰기 / 번역 / 축약 (new `AITextEditPanel` + new NestJS text endpoint)
+- OneShot pipeline code removal from frontend and NestJS (Python agent already cleaned up)
 
-**Defer (v2+):**
-- Batch pipeline — per-product hero selection makes batching complex
-- Template switching in editor — backward-compat not guaranteed
-- Version history for edits — requires versioning layer in DB
+**Already done (no new work):**
+- Per-element image AI actions (`AIImageEditPanel` fires on `img` component:selected)
+
+**Should have — P2 (differentiators, add after validation):**
+- Context-aware presets by element type (different preset set for h1 vs p vs span)
+- Preview-before-accept for text rewrites (before/after in action panel)
+- "AI fill" granularity (fill only empty vs fill all existing fields)
+
+**Defer to v2.x+:**
+- AI layout/section reorder suggestions
+- Multi-template support with AI layout chooser
+- Collaborative editing with AI change attribution (requires WebSocket/SSE infrastructure)
 
 **Anti-features to explicitly reject:**
-- Auto-apply AI edits to GrapesJS canvas — DOM/GrapesJS model cannot sync back to `DetailPageData` struct reliably
-- Real-time AI re-generation on field change — FAL.AI is $0.03-0.08/image; economically irrational
-- Separate pages for each pipeline step — navigation complexity, loses context; extend existing `/sourcing/[id]/editor` instead
+- "Improve all text" bulk rewrite — homogeneous output, no review, latency stacks
+- Streaming text output (typewriter effect) — breaks `component.set('content', ...)` mid-stream
+- Real-time AI suggestions as user types — wrong tool for listing preparation
+- Multi-element selection AI — GrapesJS multi-select is fragile; one element at a time
 
 ### Architecture Approach
 
-The architecture is a status-gated two-phase agent task pattern: Step 1 writes `draftContent` and sets `pipelineStep = content_ready`; the frontend shows the editor only when this status is detected; user edits are persisted via debounced `PUT /api/products/:id/draft-content`; Step 2 reads `draftContent` (not `rawData` or `processedData`) and runs FAL.AI calls, then writes `processedData` and clears `pipelineStep`. Agents never communicate directly — only through the DB state. The existing oneshot `content` agent remains unchanged for backward compatibility.
+The v2.1 architecture is additive: 3 new NestJS modules, 1 new Python agent, 1 new React component, plus targeted modifications to 6 existing files. No schema changes are needed. The two-track AI action architecture (synchronous Gemini for text < 3s vs. asynchronous FAL.AI via agent_tasks for images 10–40s) maps cleanly to the existing infrastructure and avoids blocking NestJS HTTP threads on long-running image operations.
 
 **Major components:**
 
-1. `ContentStep1Agent` (new Python) — parallel: image analysis + OCR + LLM copywriting; writes `draftContent`, sets `status = 'content_ready'`
-2. `ContentStep2Agent` (new Python) — reads confirmed `draftContent` including `hero_url`; parallel FAL.AI calls; assembles `DetailPageData`; writes `processedData`
-3. `PUT /api/products/:id/draft-content` (new NestJS) — merge-on-save user edits into `draftContent` JSONB; flat merge is sufficient (no deep diff needed)
-4. `buildPreviewFromDraft()` (new NestJS helper) — maps `DraftContent` + raw image URLs to `DetailPageData` shape for editor preview
-5. Editor page `/sourcing/[id]/editor` (modified) — structured form panel (text + color pickers + hero picker), save-on-change, Step 2 trigger button, extended status polling
+1. **`AITextEditPanel.tsx`** (new) — floating panel mirroring `AIImageEditPanel` structure; fires on text `component:selected`; calls `POST /api/text/rewrite`; applies result via `component.set('content', ...)` inside `UndoManager.stop()/start()` batch
+2. **NestJS `text` module** (new) — single controller, inline Gemini call; owns `POST /api/text/rewrite`
+3. **NestJS `images` module** (new) — creates `image_edit` agent_task; `AIImageEditPanel` updated from sync to async polling
+4. **Python `ImageEditAgent`** (new) — agent_type `"image_edit"`; wraps existing `AIImageGenerator`; registered in `runner.py`
+5. **NestJS `templates` module** (new) — owns `POST /api/templates/modify` (inline AI) and `POST /api/render-image` (render path TBD)
+6. **"AI로 나머지 채우기" CTA** (wiring only) — calls existing `POST /api/agent-tasks` with `agentType: "content", generation_mode: "draft"`; polls `pipelineStep === 'content_ready'` on existing 3s interval
 
-**Data flow:**
-```
-User triggers Step 1 → content_step1 agent → draftContent written → status: content_ready
-  → Frontend polls, detects content_ready → editor loads with original images + edit controls
-  → User edits (debounced PUT) → confirmed edits in draftContent
-  → User clicks "이미지 생성 확정" → content_step2 agent → FAL.AI → processedData written
-  → Frontend polls, detects status: draft (with processedData) → final preview shown
-```
+**Files modified (not new):**
+- `agents/src/runner.py` — register `ImageEditAgent`
+- `apps/server/src/agent-tasks/agent-tasks.controller.ts` — add `"image_edit"` to VALID_AGENTS
+- `apps/server/src/app.module.ts` — import 3 new modules
+- `apps/web/src/components/editor/AIImageEditPanel.tsx` — async: handle `{ taskId }`, add polling loop
+- `apps/web/src/components/editor/DetailPageEditor.tsx` — add text element detection + AITextEditPanel mount
+- `apps/web/src/app/sourcing/[id]/editor/page.tsx` — add "AI로 나머지 채우기" CTA logic
+
+**Not modified (confirmed):** `prisma/schema.prisma`, existing content agent, `AIImageGenerator`, full pipeline.
 
 ### Critical Pitfalls
 
-1. **Intermediate state overwrites final output** — both Step 1 and Step 3 write to `processed_data`, causing Step 3 to silently clobber user edits. Prevent by using `draftContent` for Step 1 output exclusively; `processedData` is only ever written by Step 3. Hard DB-level separation, not convention.
+7 critical pitfalls identified; all have known preventions. Top 5 by phase impact:
 
-2. **Agent reads stale DB state at runtime** — agent task triggered with only `productId`; by the time agent executes (queue delay), user may have changed editor state. Prevent by snapshotting confirmed edits into `agent_tasks.input` at trigger time; Step 2 agent reads only from `task.input.confirmed_content`, never from live DB reads.
+1. **Stale GrapesJS internal state after `setComponents`** — After programmatic HTML replacement, call `editor.UndoManager.clear()` then `editor.select(null)` to reset tree and toolbar state. For per-element updates, use `component.set('content', ...)` directly — never `setComponents()`. Address in Phase 1 before any AI apply logic.
 
-3. **Hero image selection lost in frontend state** — hero URL held in React `useState`, never persisted. Prevent by debounced `PUT /api/products/:id/draft-content` on every hero selection change; `draftContent.hero_url` in DB is the single source of truth.
+2. **Stale component reference in async callback (React stale closure)** — Store target component in `useRef`, not `useState`. Abort in-flight requests with `AbortController` when `component:deselected` fires. Address in Phase 2 as part of initial `AITextEditPanel` design.
 
-4. **FAL.AI uses wrong source image after hero switch** — Step 2 agent still reads `ext_data.images[0]` instead of user-confirmed hero. Prevent by requiring `hero_image_url` as an explicit field in `agent_tasks.input`; agent must never fall back to `ext_data.images[0]` when confirmed URL is present.
+3. **CSS rule accumulation from `avoidInlineStyle: true`** — Call `editor.CssComposer.clear()` before each `setComponents()`. Validate in Phase 1: log `editor.getCss().length` before/after 5 successive loads — must not grow. Already confirmed `true` in `DetailPageEditor.tsx` line 255.
 
-5. **Status state machine inadequate for two-step pipeline** — frontend polling `products.status` stops after Step 1 sets `status = 'draft'`, UI thinks processing is complete. Prevent by introducing `pipelineStep` column (`null | content_ready | images_generating`); frontend routes editor behavior on `pipelineStep`, not `products.status`.
+4. **Floating panel coordinate mismatch (iframe vs. outer document)** — Use Canvas Spots API (`spot.getStyle()`) which handles iframe offset and zoom natively. Test at 80%/100%/120% zoom. Address in Phase 2.
 
-6. **`processed_data` format incompatible with editor after pipeline split** — Step 1 produces partial `DetailPageData` with raw image URLs; existing editor path renders these as watermarked 1688 images. Prevent by defining `ContentDraft` type separately from `DetailPageData`; editor preview at Step 2 uses `ContentDraft` + `buildPreviewFromDraft()` helper, never passes through `parseDetailPageData()`.
+5. **Concurrent action race condition** — Introduce a single `isBusy` ref in editor context. Per-element panels and the full-page CTA must both check and set this flag. Define in Phase 2 before wiring any AI action.
 
----
+Additional: undo history granularity pollution (wrap AI result in `UndoManager.stop()/start()`), toolbar buttons missing on template elements (use `component:selected` append, not `DomComponents.addType`).
 
 ## Implications for Roadmap
 
-Based on research, the dependency chain is: DB schema → Python agents → NestJS API → Frontend. Schema decisions at Phase 1 cascade into every subsequent phase. Starting without them risks mid-project migrations.
+Based on the dependency graph from ARCHITECTURE.md and the pitfall-to-phase mapping from PITFALLS.md, a 4-phase structure is recommended.
 
-### Phase 1: Schema and Type Foundations
+### Phase 1: GrapesJS Editor Foundation Fix
 
-**Rationale:** All six critical pitfalls have root causes in schema design. Introducing `draftContent` and `pipelineStep` columns before writing any agent or frontend code prevents migration pain and eliminates the state-overwrite risk class entirely. `DraftContent` type definition prevents the format-break pitfall.
+**Rationale:** Draft-mode entry and CSS accumulation are foundational correctness issues. Every subsequent AI feature depends on a stable editor baseline. CSS accumulation (Pitfall 3) and stale state after HTML replacement (Pitfall 1) must be validated before any AI apply logic is added — fixing them retroactively is costly.
 
-**Delivers:** `products.draftContent Json?`, `products.pipelineStep String?` columns in DB; `DraftContent` TypeScript interface; empty stub registrations for `content_step1` and `content_step2` in `runner.py`; verified that existing oneshot `content` agent still works end-to-end.
+**Delivers:** Draft products enter the editor and see placeholder HTML. Repeated template loads do not accumulate CSS rules. Undo/redo state is clean after programmatic HTML changes.
 
-**Addresses:** Content-only generation mode dependency; pipeline stage tracking.
+**Addresses:**
+- Draft entry into GrapesJS with placeholder bold-vertical HTML (routing condition in `editor/page.tsx`)
+- Placeholder HTML visible on first open (existing `placeholderDetailPageData` + `renderTemplateToHtml()` already available)
+- `editor.CssComposer.clear()` before `setComponents()` (CSS accumulation fix)
+- `UndoManager.clear()` + `editor.select(null)` after HTML replacement pattern established
 
-**Avoids:** Pitfall 1 (state overwrite), Pitfall 3 (format break), Pitfall 6 (status state machine).
+**Avoids:** Pitfall 1 (stale state after HTML replacement), Pitfall 3 (CSS accumulation). Both must be in place before AI modifies canvas content.
 
-**Must do first:** `npm run db:push && npx prisma generate` before any agent code is written.
-
----
-
-### Phase 2: Python Agent Split
-
-**Rationale:** Agent logic is the core of the pipeline. Splitting before the NestJS API allows integration testing of the DB state transitions (`content_ready`, agent writes, `draft`) before the frontend consumes them. The oneshot agent is left unchanged as a safety net.
-
-**Delivers:** `ContentStep1Agent` (analyze + OCR + copywriting → `draftContent`); `ContentStep2Agent` (reads `draftContent.hero_url`, runs FAL.AI in parallel → `processedData`); `runner.py` registration; integration test verifying: trigger step1 → inspect `draftContent` in DB → trigger step2 → inspect `processedData`.
-
-**Addresses:** Content-only generation step; hero-based unified image generation trigger.
-
-**Avoids:** Pitfall 2 (agent reads wrong state at runtime), Pitfall 4 (hero selection lost), Pitfall 5 (FAL.AI uses wrong source image).
-
-**Performance note:** `_analyze_product()` (Gemini image classification) is NOT needed in Step 1 for the hero-based flow — `detail_indices` are no longer used. Removing it saves 20+ seconds and one Gemini API call per product.
-
-**Size chart OCR note:** `_scan_size_charts()` may be deferred to Step 3 if the user can select which images include size charts. Acceptable trade-off if Step 1 latency is a concern.
+**Research flag:** Standard patterns. No additional research needed.
 
 ---
 
-### Phase 3: NestJS API Extensions
+### Phase 2: Per-Element Text AI Actions
 
-**Rationale:** Backend API exposes the new DB columns to the frontend. Two new endpoints: `PUT /api/products/:id/draft-content` for edit persistence, and extending `GET /api/products/:id/preview` to serve `draftContent`-based preview when `processedData` is null.
+**Rationale:** Text AI is synchronous (<3s), requires no new Python agent, and unblocks the highest-value differentiator. The `isBusy` concurrency guard must be introduced here — before image AI in Phase 3 — since it coordinates all AI surfaces. Canvas Spots positioning and stale-ref patterns are also established here as the template for Phase 3.
 
-**Delivers:** `updateDraftContent()` service method with flat JSON merge; `buildPreviewFromDraft()` helper mapping DraftContent + raw image URLs to DetailPageData shape; modified preview endpoint; verified that existing products (old monolithic pipeline, `processedData` set, no `draftContent`) still load in editor without error.
+**Delivers:** Selecting any text element in GrapesJS shows a floating panel with 다시쓰기 / 번역 / 축약 presets. Result applies via a single undo step. Concurrent actions are blocked while one is in progress.
 
-**Addresses:** Edit persistence, editor backward compatibility.
+**Uses:**
+- GrapesJS Canvas Spots API for panel positioning (no cross-iframe math)
+- New NestJS `text` module (`POST /api/text/rewrite`) — inline Gemini call
+- `useRef` for target component reference (Pitfall 2 prevention)
+- `UndoManager.stop()/start()` wrapper for result application (Pitfall 6 prevention)
+- `isBusy` editor-level ref introduced here and shared with full-page CTA
 
-**Avoids:** Pitfall 3 (format break in editor), Pitfall 4 (hero lost before trigger).
+**Implements:** `AITextEditPanel.tsx` + `apps/server/src/text/` module + `DetailPageEditor.tsx` text element detection
 
-**Security note:** Validate that hero URL in `PUT /api/products/:id/draft-content` is from known CDN domains (1688, alicdn, FAL.AI output) before writing; sanitize text fields to prevent XSS in rendered template HTML.
+**Avoids:** Pitfall 2 (stale component ref), Pitfall 4 (coordinate mismatch), Pitfall 5 (toolbar buttons on template elements), Pitfall 6 (undo granularity), Pitfall 7 (concurrent actions — define `isBusy` here).
+
+**Research flag:** Standard patterns. Canvas Spots API verified from working JSFiddle demo. No additional research needed.
 
 ---
 
-### Phase 4: Frontend Editor Integration
+### Phase 3: Per-Element Image AI Actions (Backend Wiring)
 
-**Rationale:** Frontend is the last layer because it depends on API contract from Phase 3 and agent behavior from Phase 2. Building it last means integration can be done against real backend, not mocks.
+**Rationale:** Image AI requires the Python `ImageEditAgent` and async polling — more infrastructure than text AI. The async frontend pattern (handle `{ taskId }`, poll `GET /api/agent-tasks/:taskId`) is a new flow for `AIImageEditPanel` even though the component already exists. Building after Phase 2 means `isBusy` guard and `AbortController` patterns are already established.
 
-**Delivers:** `react-colorful@5.6.1` installed; structured edit panel (text fields + `HexColorPicker` inside `@radix-ui/react-popover` + hero image grid); debounced `PUT` on every field change; `triggerStep2()` function in `sourcing-api.ts`; "이미지 생성 확정" button; extended polling handling `content_ready` (editor active), `images_generating` (spinner), `draft`+`processedData` (final preview); stop polling during Step 2 editing, restart on Step 3 trigger.
+**Delivers:** `AIImageEditPanel` works end-to-end: background removal, replace background, enhance, full regenerate via FAL.AI. `POST /api/images/edit` creates an `image_edit` agent_task. Frontend polls until complete.
 
-**Addresses:** Structured field editor, live template preview, hero picker, confirmation CTA, status indicators.
+**Uses:**
+- New Python `ImageEditAgent` (wraps existing `AIImageGenerator`)
+- New NestJS `images` module (`POST /api/images/edit` → async agent_task)
+- `AbortController` in `AIImageEditPanel` (FAL.AI calls need 90s client-side timeout)
+- Existing `agent_tasks` polling infrastructure (3s interval already in editor)
 
-**Avoids:** Pitfall 4 (hero in React state only), UX pitfall of showing GrapesJS canvas when structured form is sufficient.
+**Implements:** `agents/src/agents/image_edit/agent.py` + `apps/server/src/images/` module + `AIImageEditPanel.tsx` async update
 
-**UX notes from research:**
-- Step 1 trigger CTA: "콘텐츠 생성" (not "AI 가공" — ambiguous)
-- Step 3 trigger CTA: "이미지 생성 확정"
-- Per-image progress if feasible: "배너 완료 — 메인 완료 — 상세 1/3..."
-- GrapesJS is retained for final HTML export only, not as the editing surface
+**Avoids:** Anti-pattern of inline FAL.AI from NestJS (fal_client is Python-only), synchronous await on 10–40s image edits, storing per-edit results in products table.
+
+**Research flag:** Shallow verification needed — confirm exact FAL.AI model names in `agents/src/agents/content/image_generator.py` and verify `FAL_KEY` is accessible in NestJS env before Phase 3 planning. Single file read, not a full research phase.
+
+---
+
+### Phase 4: AI Design Chat + Export PNG + Full-Page AI Fill CTA
+
+**Rationale:** These three features share a theme of full-page or bulk operations. The templates module (`POST /api/templates/modify`, `POST /api/render-image`) unblocks `AIDesignChatPanel` and Export PNG. The "AI로 나머지 채우기" CTA is wiring-only but needs the `isBusy` guard from Phase 2. Render-image has the most implementation uncertainty (client-side vs. RenderAgent) and is appropriately deferred to last.
+
+**Delivers:** `AIDesignChatPanel` functional (was calling a missing endpoint). Export PNG works. Draft products have a one-click AI fill path from inside the editor.
+
+**Uses:**
+- New NestJS `templates` module (`POST /api/templates/modify` sync, `POST /api/render-image` via choice below)
+- `html-to-image` 3.x if client-side PNG export is chosen (saves Puppeteer/Chromium Docker complexity)
+- Existing `POST /api/agent-tasks` for "AI fill" CTA (no new endpoint needed)
+
+**Implements:** `apps/server/src/templates/` module + "AI로 나머지 채우기" CTA in `editor/page.tsx`
+
+**Research flag:** `POST /api/render-image` implementation approach needs a decision before Phase 4 planning. Two paths: (a) client-side `html-to-image` — simpler, no Docker change, may miss cross-origin assets; (b) Python `RenderAgent` with file-polling — more robust, new agent infrastructure. Recommend `/gsd:research-phase` if Export PNG is P1 for this milestone.
 
 ---
 
 ### Phase Ordering Rationale
 
-- Schema first because both pitfall classes (state overwrite, format break) are rooted in DB column design — fixing them later requires migrations and data repair scripts.
-- Python agents second because they produce the DB state transitions the API and frontend depend on; integration-testable independently.
-- NestJS API third because it translates DB state into an HTTP contract the frontend can build against.
-- Frontend last because it is the only layer with no downstream dependents — iteration is cheap once the contract is stable.
-- Oneshot `content` agent is never modified — it remains the fallback for any product that needs full one-shot processing, and it validates that the DB schema additions are backward-compatible.
+- Phase 1 before everything because CSS accumulation and stale-after-setComponents are silent bugs that corrupt all downstream AI work if not fixed first.
+- Phase 2 before Phase 3 because text AI introduces the `isBusy` guard, the `useRef` async pattern, and Canvas Spots positioning — all of which Phase 3 image AI inherits. Reversing the order means retrofitting Phase 3.
+- Phase 4 last because `templates/modify` and `render-image` are called by existing frontend components, and the "AI fill" CTA requires the `isBusy` guard from Phase 2.
+- OneShot code removal is a cleanup task that can run independently at any phase as a low-risk pass.
 
 ### Research Flags
 
-Phases with well-documented patterns (skip research-phase):
-- **Phase 1:** Standard Prisma nullable column addition; `npm run db:push` pattern already established in project.
-- **Phase 3:** NestJS controller + service pattern is the project standard; merge-on-save for JSONB is a one-liner.
-- **Phase 4:** `react-colorful` inside Radix Popover is documented; polling extension follows existing 3-second pattern.
+Phases needing deeper research during planning:
+- **Phase 4 (render-image path):** Decision between client-side `html-to-image` vs. Python `RenderAgent`. Cross-origin image handling and Docker image size tradeoffs should be evaluated. Run `/gsd:research-phase` if Export PNG is P1.
+- **Phase 3 (FAL.AI model names):** Verify exact model IDs and `FAL_KEY` NestJS env availability before Phase 3 planning. Single file read.
 
-Phases that may need targeted research during planning:
-- **Phase 2:** FAL.AI source URL handling — research confirms that 1688 CDN URLs may be rejected by FAL.AI; `download_image_with_type()` in `http_utils.py` is the mitigation, but the exact flow (base64 vs. re-upload to signed URL) should be confirmed against FAL.AI docs before implementation.
-- **Phase 2:** `_scan_size_charts()` PaddleOCR latency impact — whether to include in Step 1 or Step 3 depends on measured latency; spike recommended before committing.
-
----
+Phases with standard patterns (skip research-phase):
+- **Phase 1:** GrapesJS `CssComposer.clear()` and `setComponents` patterns are verified from official GitHub issues. No unknowns.
+- **Phase 2:** Canvas Spots API is documented and demo-verified. Gemini raw fetch is an existing codebase pattern.
+- **Phase 3:** `ImageEditAgent` wraps existing `AIImageGenerator`. Async polling is an existing frontend pattern.
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | HIGH | Existing codebase verified directly; `react-colorful` confirmed via GitHub/search (npm 403 during research, but package existence and bundle size confirmed) |
-| Features | HIGH | Based on direct codebase inspection of existing pipeline + competitor pattern analysis (eBay 95% edit rate finding from MEDIUM-confidence source) |
-| Architecture | HIGH | Based on direct inspection of all relevant source files; patterns verified against existing codebase conventions |
-| Pitfalls | HIGH | Based on direct codebase inspection; all six critical pitfalls derive from verifiable code paths in `template_pipeline.py`, `agent.py`, and `editor/page.tsx` |
+| Stack | HIGH | All technologies verified by direct file reads from codebase. Canvas Spots API confirmed in official docs and working demo. |
+| Features | HIGH | Features verified against `DetailPageEditor.tsx`, `editor/page.tsx`, and agent source. Missing endpoints confirmed by `app.module.ts` inspection. |
+| Architecture | HIGH | All integration points verified by direct codebase inspection. Build order derived from explicit dependency graph. File-level new/modified inventory is complete. |
+| Pitfalls | HIGH | 6 of 7 pitfalls verified against specific GrapesJS GitHub issues with issue numbers. CSS accumulation confirmed from `avoidInlineStyle: true` in source + GH discussion #4747. |
 
 **Overall confidence:** HIGH
 
 ### Gaps to Address
 
-- **FAL.AI source URL handling:** `react-colorful` npm page returned 403 during research; `download_image_with_type()` exists but exact FAL.AI submission format (base64 vs. signed URL) is not confirmed from docs. Verify during Phase 2 implementation before writing the Step 2 agent's image submission code.
-
-- **`_analyze_product()` removal scope:** Research recommends removing Gemini image classification from Step 1 since `detail_indices` are not used in hero-based flow. Confirm with product owner whether `detail_indices` selection should remain as a user-configurable option (detail image picker) or be fully removed. If retained, it belongs in Step 1; if removed, Gemini cost drops to zero for Step 1.
-
-- **Size chart OCR placement:** `_scan_size_charts()` (PaddleOCR) adds 10-30 seconds to Step 1. Decision pending on whether size chart indices should be user-selectable (defer OCR to Step 3 or make it lazy) or auto-detected (keep in Step 1 and accept the latency). Spike on latency before Phase 2 commit.
-
-- **`ImagePickerModal` reuse eligibility:** FEATURES.md notes the existing `ImagePickerModal` component may be suitable as the hero picker. Inspect the component during Phase 4 planning to confirm its API accepts raw source image URLs and emits a selection callback, or whether a new hero picker grid must be built.
-
----
+- **`POST /api/render-image` implementation approach:** Three options exist (client-side `html-to-image`, Python `RenderAgent` with file polling, NestJS subprocess). Resolve before Phase 4 planning — a one-paragraph decision doc in the planning folder is sufficient.
+- **`FAL_KEY` in NestJS env:** Python agent uses FAL.AI. Whether `FAL_KEY` is exposed in `apps/server/.env` is not confirmed. Single env file check before Phase 3 prevents a surprise blocker.
+- **Step 1 trigger endpoint verification:** `POST /api/products/:id/trigger-content-draft` may or may not exist in `products.controller.ts`. Confirm before Phase 4 planning. If missing, must be added alongside the "AI로 나머지 채우기" CTA.
+- **`AIImageEditPanel` async contract change:** Existing component expects a synchronous image URL response from `POST /api/images/edit`. Changing to async `{ taskId }` + polling is a breaking interface change. Phase 3 must explicitly address the migration with no regression on the existing panel UI.
 
 ## Sources
 
 ### Primary (HIGH confidence)
-- Codebase: `agents/src/agents/content/agent.py`, `template_pipeline.py`, `models.py` — pipeline structure verified
-- Codebase: `agents/src/agents/content/pipeline_base.py` — FAL.AI integration pattern
-- Codebase: `agents/src/runner.py` — LISTEN/NOTIFY and agent registration pattern
-- Codebase: `apps/web/src/app/sourcing/[id]/editor/page.tsx` — current editor flow
-- Codebase: `apps/web/src/lib/sourcing-api.ts` — agent task trigger pattern
-- Codebase: `apps/server/src/products/products.controller.ts` — existing preview endpoint
-- Codebase: `apps/web/src/components/editor/DetailPageEditor.tsx` — GrapesJS integration
-- Codebase: `prisma/schema.prisma` — Product model, AgentTask schema, `processed_data Json?`
-- Codebase: `apps/web/package.json` — existing dependencies verified
-- [react-colorful GitHub](https://github.com/omgovich/react-colorful) — bundle size 2.8 KB, React 16.8+ peer dep
-- [FAL.AI Pricing](https://fal.ai/pricing) — $0.03-0.08/image cost justification
-- [Radix UI Popover docs](https://www.radix-ui.com/primitives/docs/components/popover) — already at ^1.1.15
+
+- `apps/web/src/components/editor/DetailPageEditor.tsx` — GrapesJS integration, `component:selected` events, `avoidInlineStyle: true` (line 255), zoom implementation, UndoManager config
+- `apps/web/src/components/editor/AIImageEditPanel.tsx` — existing `/api/images/edit` API contract, floating panel pattern
+- `apps/web/src/components/editor/AIDesignChatPanel.tsx` — `/api/templates/modify` contract, full HTML payload pattern, no AbortController (confirmed)
+- `apps/web/src/app/sourcing/[id]/editor/page.tsx` — draft routing, polling, mode switching, placeholder data usage
+- `apps/server/src/app.module.ts` — confirmed absent modules (images, text, templates)
+- `apps/server/src/workflows/executors/ai-analyze.ts` — Gemini raw fetch pattern, `GEMINI_API_KEY`, `AI_TEXT_MODEL` env vars
+- `agents/src/agents/content/image_generator.py` — `AIImageGenerator` regeneration mode presets
+- `prisma/schema.prisma` — `Product` model fields, no schema changes needed confirmed
 
 ### Secondary (MEDIUM confidence)
-- [Built a Fully Automated AI Content Creation Pipeline with Multi-Stage Approvals](https://medium.com/@goodnessprosper27/built-a-fully-automated-ai-content-creation-pipeline-with-multi-stage-approvals-5e708253d2dd) — multi-stage approval pattern
-- [How AI Content Generation Tools Handle Content Approval Workflows](https://storyteq.com/blog/how-do-ai-content-generation-tools-handle-content-approval-workflows/) — approval workflow patterns
-- [Retailers test generative AI for product detail page content](https://www.digitalcommerce360.com/2023/09/21/retailers-test-generative-ai-to-create-product-detail-page-content/) — eBay 95% seller edit rate finding
+
+- GrapesJS Canvas API docs — `addSpot`, `getSpotsEl`, `canvas:spot`, `spot.getStyle()` in 0.22.x
+- GrapesJS GitHub issue #3233 — toolbar buttons missing on template components; `component:selected` append pattern confirmed
+- GrapesJS GitHub discussion #4747 — `avoidInlineStyle` CSS accumulation behavior confirmed
+- GrapesJS GitHub issue #3044 — custom toolbar button appears only on new components (not template elements)
+- GrapesJS issue #3639 — `UndoManager.stop()/start()` batching pattern
+- JSFiddle Canvas Spots demo — `spot.getStyle()` pattern working in Vue (translates directly to React)
+- Figma AI text docs — select → rewrite → replace in place; rely on undo — UX pattern validation
+- Snyk CVE-2022-21802 — GrapesJS XSS via component attributes
+
+### Tertiary (LOW confidence / needs validation)
+
+- FAL.AI model names for background removal (`fal-ai/birefnet` vs. `fal-ai/remove-background`) — verify from Python agent source before Phase 3
+- `html-to-image` 3.x cross-origin behavior with 1688 CDN URLs — test before committing to client-side PNG export
 
 ---
-
-*Research completed: 2026-03-25*
+*Research completed: 2026-03-26*
 *Ready for roadmap: yes*
