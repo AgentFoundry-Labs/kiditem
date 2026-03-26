@@ -1,81 +1,63 @@
 # Requirements: KidItem
 
-**Defined:** 2026-03-25
-**Core Value:** 소싱 상품을 최소한의 수작업으로 판매 가능한 상세페이지로 변환한다.
+**Defined:** 2026-03-26
+**Core Value:** 소싱 상품을 최소한의 수작업으로 판매 가능한 상세페이지로 변환하고, 운영 전반을 하나의 대시보드에서 관리한다.
 
-## v1.0 Requirements
+## v2.0 Requirements
 
-Requirements for milestone v1.0: 상세페이지 파이프라인 리팩토링
+Requirements for milestone v2.0: 쿠팡 운영 대시보드
 
-### Schema
+### 주문 대시보드 (ORD)
 
-- [x] **SCHM-01**: Product에 draftContent (JSONB) 컬럼 추가하여 Step 1 결과를 별도 저장할 수 있다
-- [x] **SCHM-02**: Product에 pipelineStep (String) 컬럼 추가하여 파이프라인 진행 단계를 추적할 수 있다
+- [ ] **ORD-01**: 셀러가 상태별(ACCEPT/INSTRUCT/DELIVERY/FINAL_DELIVERY) 주문 목록을 필터링하여 조회할 수 있다
+- [ ] **ORD-02**: 셀러가 총 주문 수, 상태별 건수, 총 매출을 KPI 통계 카드로 확인할 수 있다
+- [ ] **ORD-03**: 셀러가 개별 주문을 클릭하여 주문자/수령자/상품 항목 상세를 볼 수 있다
+- [ ] **ORD-04**: 셀러가 일별 주문량/매출 트렌드를 차트로 확인할 수 있다
+- [ ] **ORD-05**: 셀러가 상품별 매출 랭킹(TOP N)을 확인할 수 있다
 
-### Pipeline
+### 반품/교환 관리 (RET)
 
-- [x] **PIPE-01**: 사용자가 AI 재가공 시 콘텐츠만 생성하고 (한국어 카피 + 테마 컬러), 이미지는 생성하지 않는다
-- [x] **PIPE-02**: 사용자가 에디터에서 확정 후 이미지 생성을 별도 트리거할 수 있다
-- [x] **PIPE-03**: 이미지 생성 시 사용자가 선택한 히어로 이미지 1장으로 배너/메인/디테일 전부 생성한다
-- [x] **PIPE-04**: 기존 이미지 분류(_analyze_product) 호출을 제거하고 히어로 기반으로 전환한다
-- [x] **PIPE-05**: 사이즈 차트 OCR 감지는 기존대로 유지한다
-- [x] **PIPE-06**: agent_tasks.input에 확정된 데이터를 스냅샷으로 저장하여 race condition을 방지한다
+- [ ] **RET-01**: 셀러가 반품/교환 목록을 상태·사유별로 필터링하여 조회할 수 있다
+- [ ] **RET-02**: 셀러가 반품 사유 분포를 차트(도넛/바)로 확인할 수 있다
+- [ ] **RET-03**: 셀러가 CUSTOMER vs VENDOR 과실 비율을 통계로 확인할 수 있다
 
-### Editor
+### 공통 인프라 (INFRA)
 
-- [x] **EDIT-01**: 에디터에서 텍스트 필드를 직접 편집할 수 있다 (제목, 훅텍스트, 키포인트, 스펙 등)
-- [x] **EDIT-02**: 에디터에서 테마 컬러 7개를 컬러 피커로 변경할 수 있다
-- [x] **EDIT-03**: 에디터에서 raw_data.images 중 히어로 이미지를 선택할 수 있다
-- [x] **EDIT-04**: 편집 내용이 실시간으로 템플릿 프리뷰에 반영된다
-
-### API
-
-- [x] **API-01**: PUT /api/products/:id/draft-content로 편집 내용을 저장할 수 있다
-- [x] **API-02**: GET /api/products/:id/preview가 draftContent 기반으로 프리뷰를 제공한다
-- [x] **API-03**: POST로 이미지 생성 단계를 트리거할 수 있다
+- [ ] **INFRA-01**: 날짜 범위 필터가 KST 기준으로 정확히 동작한다
+- [ ] **INFRA-02**: 대시보드 통계 쿼리가 Promise.all로 병렬 실행된다
 
 ## Future Requirements
 
-### Enhancements
-
-- **ENH-01**: 디바운스 자동 저장 (편집 중 페이지 이탈 시 데이터 보존)
-- **ENH-02**: 이미지 생성 후 개별 이미지 재생성 기능
-- **ENH-03**: 템플릿 변경 기능 (bold-vertical ↔ simple-vertical 전환)
+- 정산 데이터 조회 (수수료, 정산금 추적) — v2.1
+- 문의/리뷰 관리 (SLA 추적) — v2.1
+- 쿠팡 API 실시간 연동 — API 키 확보 후
+- 다채널 (스마트스토어, 11번가) — 쿠팡 안정화 후
 
 ## Out of Scope
 
 | Feature | Reason |
 |---------|--------|
-| Oneshot 파이프라인 변경 | 템플릿 모드만 대상, oneshot은 별도 흐름 유지 |
-| 새 템플릿 추가 | 파이프라인 분리에 집중, 기존 템플릿 활용 |
+| 쿠팡 API 실시간 동기화 | API 키 미확보 |
+| 정산 정합성 검증 | 정확한 수수료 데이터 없이 오해 유발 |
+| 문의 앱내 답변 | 별도 인증 메커니즘 필요 |
+| WebSocket 실시간 업데이트 | 아키텍처 부적합 |
 | 모바일 앱 | 웹 우선 |
-| GrapesJS 구조화 데이터 동기화 | GrapesJS는 최종 HTML 편집용으로만 유지 |
 
 ## Traceability
 
-| Requirement | Phase | Status |
-|-------------|-------|--------|
-| SCHM-01 | Phase 1 | Complete |
-| SCHM-02 | Phase 1 | Complete |
-| PIPE-01 | Phase 2 | Complete |
-| PIPE-02 | Phase 2 | Complete |
-| PIPE-03 | Phase 2 | Complete |
-| PIPE-04 | Phase 2 | Complete |
-| PIPE-05 | Phase 2 | Complete |
-| PIPE-06 | Phase 2 | Complete |
-| EDIT-01 | Phase 4 | Complete |
-| EDIT-02 | Phase 4 | Complete |
-| EDIT-03 | Phase 4 | Complete |
-| EDIT-04 | Phase 4 | Complete |
-| API-01 | Phase 3 | Complete |
-| API-02 | Phase 3 | Complete |
-| API-03 | Phase 3 | Complete |
+| REQ | Phase | Status |
+|-----|-------|--------|
+| ORD-01 | — | Pending |
+| ORD-02 | — | Pending |
+| ORD-03 | — | Pending |
+| ORD-04 | — | Pending |
+| ORD-05 | — | Pending |
+| RET-01 | — | Pending |
+| RET-02 | — | Pending |
+| RET-03 | — | Pending |
+| INFRA-01 | — | Pending |
+| INFRA-02 | — | Pending |
 
-**Coverage:**
-- v1.0 requirements: 15 total
-- Mapped to phases: 15
-- Unmapped: 0
+## v1.0 Requirements (Completed)
 
----
-*Requirements defined: 2026-03-25*
-*Last updated: 2026-03-25 after roadmap creation — all 15 requirements mapped*
+All v1.0 requirements shipped. See MILESTONES.md for details.
