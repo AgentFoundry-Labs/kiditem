@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: 쿠팡 운영 대시보드
 status: planning
-stopped_at: Phase 2 context gathered
-last_updated: "2026-03-26T01:39:05.293Z"
+stopped_at: Phase 3 context gathered
+last_updated: "2026-03-26T02:16:58.813Z"
 last_activity: 2026-03-26 — v2.0 roadmap created; 10/10 requirements mapped
 progress:
   total_phases: 3
-  completed_phases: 1
-  total_plans: 1
-  completed_plans: 1
+  completed_phases: 2
+  total_plans: 3
+  completed_plans: 3
   percent: 0
 ---
 
@@ -48,6 +48,8 @@ Progress: [░░░░░░░░░░] 0%
 
 *Updated after each plan completion*
 | Phase 01-dashboard-infrastructure P01 | 4 | 3 tasks | 9 files |
+| Phase 02-orders-dashboard P01 | 8 | 2 tasks | 2 files |
+| Phase 02-orders-dashboard P02-02 | 3 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -63,6 +65,11 @@ Recent decisions affecting current work:
 - [Phase 01-dashboard-infrastructure]: kstDayStart uses UTC timestamp arithmetic — avoids server TZ dependency
 - [Phase 01-dashboard-infrastructure]: Controller holds companyId derivation, service receives it as parameter — separation of concerns
 - [Phase 01-dashboard-infrastructure]: Promise.all() for all CoupangDashboard aggregations — no sequential await chains
+- [Phase 02-orders-dashboard]: Used $queryRaw for DATE_TRUNC + complex JOIN+GROUP BY — ORM cannot express these constructs
+- [Phase 02-orders-dashboard]: ::int SQL cast + Number() TS conversion both applied to prevent BigInt serialization crash
+- [Phase 02-orders-dashboard]: sellerProductId used as ranking group key (not vendorItemId) per STATE.md blocker note
+- [Phase 02-orders-dashboard]: Used any type for Recharts Tooltip formatter to match existing pattern in page.tsx
+- [Phase 02-orders-dashboard]: Sidebar badge fetch is fire-and-forget with silent catch — supplementary UI, not critical path
 
 ### Pending Todos
 
@@ -76,6 +83,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T01:39:05.283Z
-Stopped at: Phase 2 context gathered
-Resume file: .planning/phases/02-orders-dashboard/02-CONTEXT.md
+Last session: 2026-03-26T02:16:58.804Z
+Stopped at: Phase 3 context gathered
+Resume file: .planning/phases/03-returns-dashboard/03-CONTEXT.md
