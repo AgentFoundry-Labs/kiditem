@@ -44,12 +44,12 @@
 
 <!-- Current scope. Building toward these. -->
 
-- [ ] 수집 직후(draft) GrapesJS 에디터 진입
-- [ ] 플레이스홀더 bold-vertical HTML 로드
+- [x] 수집 직후(draft) GrapesJS 에디터 진입 — Validated in Phase 4
+- [x] 플레이스홀더 bold-vertical HTML 로드 — Validated in Phase 4
 - [ ] "AI로 나머지 채우기" 빈 필드 자동 생성
 - [ ] 개별 텍스트 AI 편집 (다시쓰기/번역/축약)
 - [ ] 개별 이미지 AI 편집 (배경 제거/AI 생성)
-- [ ] OneShot 파이프라인 코드 제거
+- [x] OneShot 파이프라인 코드 제거 — Validated in Phase 4
 
 ### Out of Scope
 
@@ -62,8 +62,9 @@
 
 - GrapesJS + `@grapesjs/react` 이미 설치됨 (에디터 페이지에서 사용 중)
 - `renderTemplateToHtml()`로 bold-vertical 플레이스홀더 HTML 생성 가능
-- `placeholderDetailPageData` 상수 추가됨 (커밋 전)
-- OneShot 코드 제거 완료 (커밋 전), Python agent는 이미 oneshot 거부
+- `placeholderDetailPageData` 상수 추가됨 — committed in Phase 4
+- OneShot 코드 제거 완료 (apps/web + packages/templates) — committed in Phase 4
+- `injectHeadResources()` CSS 누적 방지 — `data-gjs-injected` fingerprint guard 적용 (Phase 4)
 - Python agent: content_draft(카피라이팅) / content_image(FAL.AI) 2단계 파이프라인
 - NestJS API: draft-content, preview, trigger-image-gen 엔드포인트 존재
 
@@ -103,4 +104,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-26 after v2.1 milestone start*
+*Last updated: 2026-03-26 after Phase 4 (GrapesJS Editor Foundation) completion*
