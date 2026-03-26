@@ -16,6 +16,7 @@ import { SourcingModule } from './sourcing/sourcing.module';
 import { WorkflowsModule } from './workflows/workflows.module';
 import { ActivityEventsModule } from './activity-events/activity-events.module';
 import { CoupangDashboardModule } from './coupang-dashboard/coupang-dashboard.module';
+import { TextAiModule } from './text-ai/text-ai.module';
 
 @Module({
   imports: [
@@ -36,6 +37,7 @@ import { CoupangDashboardModule } from './coupang-dashboard/coupang-dashboard.mo
     WorkflowsModule,
     ActivityEventsModule,
     CoupangDashboardModule,
+    TextAiModule,
   ],
 })
 export class AppModule {}

@@ -44,8 +44,10 @@ import {
 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { AIDesignChatPanel } from './AIDesignChatPanel';
 import { AIImageEditPanel } from './AIImageEditPanel';
+import { AITextEditPanel } from './AITextEditPanel';
 import { ImagePickerModal } from './ImagePickerModal';
 
 interface DetailPageEditorProps {
@@ -1020,6 +1022,68 @@ function ImageAssetModal({
   );
 }
 
+function AITextSpot({
+  component,
+  isBusy,
+  onClose,
+}: {
+  component: any;
+  isBusy: React.MutableRefObject<boolean>;
+  onClose: () => void;
+}) {
+  const editor = useEditor();
+  const [spotStyle, setSpotStyle] = useState<Record<string, string> | null>(null);
+
+  useEffect(() => {
+    if (!component) {
+      editor.Canvas.removeSpots({ type: 'ai-text-panel' });
+      setSpotStyle(null);
+      return;
+    }
+
+    const spot = editor.Canvas.addSpot({
+      type: 'ai-text-panel',
+      component,
+    });
+
+    const update = () => {
+      const style = spot.getStyle();
+      setSpotStyle(style as Record<string, string>);
+    };
+    update();
+    editor.on('canvas:spot', update);
+
+    return () => {
+      editor.off('canvas:spot', update);
+      editor.Canvas.removeSpots({ type: 'ai-text-panel' });
+      setSpotStyle(null);
+    };
+  }, [editor, component]);
+
+  const spotsEl = editor.Canvas.getSpotsEl();
+  if (!spotStyle || !spotsEl || !component) return null;
+
+  const panelStyle: React.CSSProperties = {
+    position: 'absolute',
+    top: `calc(${spotStyle.top || '0px'} + ${spotStyle.height || '0px'})`,
+    left: spotStyle.left || '0px',
+    zIndex: 10,
+    pointerEvents: 'auto',
+  };
+
+  return createPortal(
+    <div style={panelStyle}>
+      <AITextEditPanel
+        component={component}
+        editor={editor}
+        isBusy={isBusy}
+        onClose={onClose}
+      />
+    </div>,
+    spotsEl,
+  );
+}
+
 export default function DetailPageEditor({
   html,
   templateCss,
@@ -1031,6 +1095,8 @@ export default function DetailPageEditor({
 }: DetailPageEditorProps) {
   const parsed = useMemo(() => parseFullHtml(html), [html]);
   const [selectedImageSrc, setSelectedImageSrc] = useState<string | null>(null);
+  const [selectedTextComponent, setSelectedTextComponent] = useState<any>(null);
+  const isBusyRef = useRef(false);
   const [showImagePicker, setShowImagePicker] = useState(false);
   const [editorRef, setEditorRef] = useState<Editor | null>(null);
   const [showLeftPanel, setShowLeftPanel] = useState(true);
@@ -1055,15 +1121,26 @@ export default function DetailPageEditor({
         injectHeadResources(iframeWindow, parsed);
       });
 
-      editor.on('component:selected', (component: { get: (k: string) => string; getAttributes: () => Record<string, string> }) => {
-        if (component.get('type') === 'image' || component.get('tagName') === 'img') {
-          const src = component.getAttributes().src ?? '';
-          setSelectedImageSrc(src);
+      editor.on('component:selected', (component: any) => {
+        const type = (component.get('type') as string) ?? '';
+        const tagName = ((component.get('tagName') as string) ?? '').toLowerCase();
+        const TEXT_TAGS = ['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'span', 'li'];
+
+        if (type === 'image' || tagName === 'img') {
+          setSelectedImageSrc(component.getAttributes().src ?? '');
+          setSelectedTextComponent(null);
+        } else if (type === 'text' || type === 'text-ext' || TEXT_TAGS.includes(tagName)) {
+          setSelectedTextComponent(component);
+          setSelectedImageSrc(null);
         } else {
           setSelectedImageSrc(null);
+          setSelectedTextComponent(null);
         }
       });
-      editor.on('component:deselected', () => setSelectedImageSrc(null));
+      editor.on('component:deselected', () => {
+        setSelectedImageSrc(null);
+        setSelectedTextComponent(null);
+      });
 
       const um = editor.UndoManager;
       um.stop();
@@ -1181,6 +1258,15 @@ export default function DetailPageEditor({
           </div>
           <div ref={canvasWrapperRef} className="flex-1 overflow-hidden bg-gray-100 relative">
             <Canvas />
+            {selectedTextComponent && (
+              <WithEditor>
+                <AITextSpot
+                  component={selectedTextComponent}
+                  isBusy={isBusyRef}
+                  onClose={() => setSelectedTextComponent(null)}
+                />
+              </WithEditor>
+            )}
             {!showLeftPanel && (
               <button
                 type="button"
