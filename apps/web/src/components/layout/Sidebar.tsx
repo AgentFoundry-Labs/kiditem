@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useState, useEffect } from 'react';
 import {
   LayoutDashboard,
   ShoppingCart,
@@ -25,9 +26,11 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useStore } from '@/store/useStore';
+import { API_BASE } from '@/lib/api';
 
 const operationsNav = [
   { href: '/', label: '대시보드', icon: LayoutDashboard },
+  { href: '/coupang/orders', label: '주문 대시보드', icon: BarChart3 },
   { href: '/orders', label: '주문 처리', icon: ShoppingCart },
   { href: '/returns', label: '반품/교환', icon: RotateCcw },
   { href: '/products', label: '상품 관리', icon: Package },
@@ -55,6 +58,16 @@ const automationNav = [
 export default function Sidebar() {
   const pathname = usePathname();
   const { sidebarOpen, toggleSidebar } = useStore();
+  const [badgeCounts, setBadgeCounts] = useState<{ pendingAccept: number; pendingReturns: number } | null>(null);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/api/coupang-dashboard`)
+      .then((r) => r.json())
+      .then((data) =>
+        setBadgeCounts({ pendingAccept: data.pendingAccept, pendingReturns: data.pendingReturns })
+      )
+      .catch(() => {}); // silent fail — badge is supplementary
+  }, []);
 
   const renderNavItem = (item: (typeof operationsNav)[number]) => {
     const isActive =
@@ -73,6 +86,16 @@ export default function Sidebar() {
       >
         <item.icon className="w-4 h-4 flex-shrink-0" />
         {sidebarOpen && <span className="truncate">{item.label}</span>}
+        {sidebarOpen && item.href === '/coupang/orders' && badgeCounts && badgeCounts.pendingAccept > 0 && (
+          <span className="ml-auto text-xs font-semibold bg-blue-100 text-blue-700 rounded-full px-1.5 py-0.5 min-w-[18px] text-center">
+            {badgeCounts.pendingAccept}
+          </span>
+        )}
+        {sidebarOpen && item.href === '/returns' && badgeCounts && badgeCounts.pendingReturns > 0 && (
+          <span className="ml-auto text-xs font-semibold bg-amber-100 text-amber-700 rounded-full px-1.5 py-0.5 min-w-[18px] text-center">
+            {badgeCounts.pendingReturns}
+          </span>
+        )}
       </Link>
     );
   };

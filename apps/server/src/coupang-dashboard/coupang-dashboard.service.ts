@@ -37,4 +37,60 @@ export class CoupangDashboardService {
       pendingReturns,
     };
   }
+
+  async getRevenueTrend(companyId: string, from: Date, to: Date) {
+    const rows = await this.prisma.$queryRaw<
+      { day: Date; revenue: number; order_count: number }[]
+    >`
+      SELECT
+        DATE_TRUNC('day', co.ordered_at AT TIME ZONE 'Asia/Seoul') AS day,
+        SUM(co.total_price)::int AS revenue,
+        COUNT(*)::int AS order_count
+      FROM coupang_orders co
+      WHERE co.company_id = ${companyId}::uuid
+        AND co.ordered_at >= ${from}
+        AND co.ordered_at < ${to}
+      GROUP BY 1
+      ORDER BY 1
+    `;
+
+    return rows.map((r) => ({
+      day: r.day.toISOString().slice(0, 10),
+      revenue: Number(r.revenue),
+      orderCount: Number(r.order_count),
+    }));
+  }
+
+  async getProductRanking(companyId: string, from: Date, to: Date) {
+    const rows = await this.prisma.$queryRaw<
+      {
+        seller_product_id: string | null;
+        seller_product_name: string;
+        revenue: number;
+        order_count: number;
+      }[]
+    >`
+      SELECT
+        coi.seller_product_id,
+        coi.seller_product_name,
+        SUM(coi.order_price)::int AS revenue,
+        COUNT(DISTINCT co.id)::int AS order_count
+      FROM coupang_order_items coi
+      JOIN coupang_orders co ON co.id = coi.order_id
+      WHERE co.company_id = ${companyId}::uuid
+        AND co.ordered_at >= ${from}
+        AND co.ordered_at < ${to}
+        AND coi.seller_product_id IS NOT NULL
+      GROUP BY coi.seller_product_id, coi.seller_product_name
+      ORDER BY revenue DESC
+      LIMIT 20
+    `;
+
+    return rows.map((r) => ({
+      sellerProductId: r.seller_product_id as string,
+      sellerProductName: r.seller_product_name,
+      revenue: Number(r.revenue),
+      orderCount: Number(r.order_count),
+    }));
+  }
 }
