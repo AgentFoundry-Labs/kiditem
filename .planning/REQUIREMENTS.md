@@ -9,8 +9,8 @@ Requirements for v2.1 WYSIWYG 상세페이지 에디터. Each maps to roadmap ph
 
 ### 에디터 기반
 
-- [ ] **EDIT-01**: 수집 직후(draft) 상품에서 GrapesJS 에디터로 바로 진입할 수 있다
-- [ ] **EDIT-02**: 에디터 진입 시 bold-vertical 플레이스홀더 HTML이 GrapesJS 캔버스에 로드된다
+- [x] **EDIT-01**: 수집 직후(draft) 상품에서 GrapesJS 에디터로 바로 진입할 수 있다
+- [x] **EDIT-02**: 에디터 진입 시 bold-vertical 플레이스홀더 HTML이 GrapesJS 캔버스에 로드된다
 - [ ] **EDIT-03**: GrapesJS 모드에서 "AI로 나머지 채우기" CTA를 클릭하면 빈 필드가 AI로 자동 생성된다
 
 ### 개별 요소 AI
@@ -22,7 +22,7 @@ Requirements for v2.1 WYSIWYG 상세페이지 에디터. Each maps to roadmap ph
 
 ### 코드 정리
 
-- [ ] **CLEAN-01**: OneShot 파이프라인 코드가 프론트엔드 + 템플릿 패키지에서 완전히 제거된다
+- [x] **CLEAN-01**: OneShot 파이프라인 코드가 프론트엔드 + 템플릿 패키지에서 완전히 제거된다
 
 ## Future Requirements
 
@@ -47,9 +47,9 @@ Requirements for v2.1 WYSIWYG 상세페이지 에디터. Each maps to roadmap ph
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| EDIT-01 | Phase 4 | Pending |
-| EDIT-02 | Phase 4 | Pending |
-| CLEAN-01 | Phase 4 | Pending |
+| EDIT-01 | Phase 4 | Complete |
+| EDIT-02 | Phase 4 | Complete |
+| CLEAN-01 | Phase 4 | Complete |
 | AI-01 | Phase 5 | Pending |
 | AI-03 | Phase 5 | Pending |
 | AI-02 | Phase 6 | Pending |

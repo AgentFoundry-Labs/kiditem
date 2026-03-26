@@ -126,7 +126,7 @@ Plans:
 
 ### Summary Checklist
 
-- [ ] **Phase 4: GrapesJS Editor Foundation** - Draft 진입 + 플레이스홀더 HTML 로드 + CSS 정확성 + OneShot 제거
+- [x] **Phase 4: GrapesJS Editor Foundation** - Draft 진입 + 플레이스홀더 HTML 로드 + CSS 정확성 + OneShot 제거 (completed 2026-03-26)
 - [ ] **Phase 5: Per-Element Text AI** - 텍스트 요소 AI 액션 패널 (다시쓰기/번역/축약) + 로딩/에러/Undo
 - [ ] **Phase 6: Per-Element Image AI** - 이미지 요소 AI 편집 패널 (배경 제거/AI 생성) + 비동기 폴링
 - [ ] **Phase 7: AI Fill CTA** - GrapesJS 모드 "AI로 나머지 채우기" 빈 필드 자동 생성
@@ -141,10 +141,10 @@ Plans:
   1. Draft 상태 상품의 에디터 페이지(/sourcing/[id]/editor)에 진입하면 AI 가공 없이 GrapesJS 캔버스에 bold-vertical 플레이스홀더 HTML이 표시된다
   2. 에디터에서 HTML을 5회 연속 다시 로드해도 `editor.getCss().length`가 증가하지 않는다 (CSS 누적 없음)
   3. 프론트엔드 및 templates 패키지 어디에도 OneShot 관련 코드가 존재하지 않는다 (`grep -r "oneshot" apps/web packages/` 결과 없음)
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 
 Plans:
-- [ ] 04-01-PLAN.md — OneShot cleanup, CSS accumulation fix, draft entry verification + TypeScript build
+- [x] 04-01-PLAN.md — OneShot cleanup, CSS accumulation fix, draft entry verification + TypeScript build
 
 ### Phase 5: Per-Element Text AI
 **Goal**: GrapesJS 캔버스에서 텍스트 요소를 선택하면 AI 액션 패널이 나타나고, 다시쓰기/번역/축약 동작이 결과를 캔버스에 적용하며, 로딩 상태와 에러 피드백과 Undo가 올바르게 동작한다
@@ -192,7 +192,7 @@ Phases execute in numeric order: 4 → 5 → 6 → 7
 | 1. Schema Foundations | v1.0 | 1/1 | Complete | 2026-03-25 |
 | 2. Python Agent Split | v1.0 | 3/3 | Complete | 2026-03-26 |
 | 3. NestJS API Extensions | v1.0 | 1/1 | Complete | 2026-03-26 |
-| 4. Frontend Editor Integration | v1.0 | 2/2 | Complete | 2026-03-26 |
+| 4. Frontend Editor Integration | v1.0 | 1/1 | Complete   | 2026-03-26 |
 | 1. Dashboard Infrastructure | v2.0 | 1/1 | Complete | 2026-03-26 |
 | 2. Orders Dashboard | v2.0 | 2/2 | Complete | 2026-03-26 |
 | 3. Returns Dashboard | v2.0 | 2/2 | Complete | 2026-03-26 |
