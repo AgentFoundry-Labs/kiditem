@@ -1,12 +1,12 @@
 ---
 gsd_state_version: 1.0
 milestone: v2.0
-milestone_name: coupang-operations-dashboard
-status: Defining requirements
-stopped_at: Milestone v2.0 started
-last_updated: "2026-03-26T12:00:00.000Z"
+milestone_name: 쿠팡 운영 대시보드
+status: Ready to plan
+stopped_at: Roadmap created — Phase 1 ready to plan
+last_updated: "2026-03-26"
 progress:
-  total_phases: 0
+  total_phases: 3
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -18,38 +18,44 @@ progress:
 
 See: .planning/PROJECT.md (updated 2026-03-26)
 
-**Core value:** 소싱 상품을 최소한의 수작업으로 판매 가능한 상세페이지로 변환하고, 운영 전반을 하나의 대시보드에서 관리한다
-**Current focus:** Defining requirements for v2.0
+**Core value:** 소싱 상품을 최소한의 수작업으로 판매 가능한 상세페이지로 변환한다
+**Current focus:** Phase 1 — Dashboard Infrastructure (v2.0)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-03-26 — Milestone v2.0 started
+Phase: 1 of 3 (Dashboard Infrastructure)
+Plan: 0 of TBD
+Status: Ready to plan
+Last activity: 2026-03-26 — v2.0 roadmap created; 10/10 requirements mapped
+
+Progress: [░░░░░░░░░░] 0%
 
 ## Performance Metrics
 
-**Velocity (from v1.0):**
+**Velocity:**
+- Total plans completed: 0
+- Average duration: —
+- Total execution time: 0 hours
 
-| Phase | Plans | Duration | Files |
-|-------|-------|----------|-------|
-| 01-schema-foundations P01 | 4min | 2 tasks | 1 files |
-| 02-python-agent-split P01 | 2min | 2 tasks | 5 files |
-| 02-python-agent-split P02 | 4min | 2 tasks | 2 files |
-| 02-python-agent-split P03 | 3min | 2 tasks | 5 files |
-| 03-nestjs-api-extensions P01 | 8min | 2 tasks | 2 files |
-| 04-frontend-editor P01 | 2min | 2 tasks | 5 files |
-| 04-frontend-editor P02 | 2min | 1 tasks | 1 files |
+**By Phase:**
+
+| Phase | Plans | Total | Avg/Plan |
+|-------|-------|-------|----------|
+| - | - | - | - |
+
+*Updated after each plan completion*
 
 ## Accumulated Context
 
 ### Decisions
 
-- v1.0 content pipeline fully shipped (4 phases)
-- DB 기반 조회 — 쿠팡 API 키 미확보
-- Orders/Returns Prisma 전환 완료
-- data/ 폴더 18개 JSON → 주문/반품 시드 완료, 정산/문의 미시드
+Decisions are logged in PROJECT.md Key Decisions table.
+Recent decisions affecting current work:
+
+- [Roadmap v2.0]: Guard-rails (kstDayStart helper, status constants) are Phase 1 step 0 — all subsequent phases inherit them automatically
+- [Roadmap v2.0]: Dashboard reads from DB only; live Coupang API calls only on explicit user action — never mix in same service method
+- [Roadmap v2.0]: All CoupangDashboardService aggregations use Promise.all() fan-out — no sequential await chains
+- [Roadmap v2.0]: Settlement and inquiry features deferred to v2.x — Phase 3 field name validation needed before schema extension
 
 ### Pending Todos
 
@@ -57,10 +63,12 @@ None yet.
 
 ### Blockers/Concerns
 
-- 쿠팡 API 키 없음 → 실시간 데이터 동기화 불가, DB 기반 조회만
+- Phase 2: `sellerProductId` is the correct join key to `Product.coupangProductId` — do NOT use `vendorItemId` (see reviews.service.ts line 61 for correct pattern)
+- Phase 3: `coupang_settlements_raw.json` and `coupang_inquiries.json` field names not confirmed — must verify before adding CoupangSettlement/CoupangInquiry models (v2.x)
+- Phase 1: `companyId` derivation pattern in dashboard controller guards needs clarification from existing auth session code
 
 ## Session Continuity
 
 Last session: 2026-03-26
-Stopped at: Milestone v2.0 started
+Stopped at: Roadmap created — ready to begin Phase 1 planning
 Resume file: None
