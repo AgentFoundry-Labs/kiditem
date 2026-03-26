@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: WYSIWYG 상세페이지 에디터
-status: Phase complete — ready for verification
+status: Ready to plan
 stopped_at: Completed 04-grapesjs-editor-foundation 04-01-PLAN.md
-last_updated: "2026-03-26T10:24:06.913Z"
+last_updated: "2026-03-26T10:28:31.205Z"
 progress:
   total_phases: 4
   completed_phases: 1
@@ -23,8 +23,8 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 
 ## Current Position
 
-Phase: 04 (grapesjs-editor-foundation) — EXECUTING
-Plan: 1 of 1
+Phase: 5
+Plan: Not started
 
 ## Performance Metrics
 
