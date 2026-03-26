@@ -8,16 +8,19 @@
 
 소싱 상품을 최소한의 수작업으로 판매 가능한 상세페이지로 변환하고, 운영 전반을 하나의 대시보드에서 관리한다.
 
-## Current Milestone: v2.1 WYSIWYG 상세페이지 에디터
+## Completed Milestone: v2.1 WYSIWYG 상세페이지 에디터 ✓
 
 **Goal:** 수집 직후 GrapesJS에서 상세페이지를 직접 편집하고, 개별 요소를 AI로 가공할 수 있다.
 
-**Target features:**
-- 수집 직후(draft) 에디터 진입 — AI 가공 없이 GrapesJS에서 바로 편집
-- 플레이스홀더 bold-vertical HTML을 GrapesJS에 로드
-- "AI로 나머지 채우기" CTA — 빈 필드 한번에 AI 자동 생성
-- 개별 요소 AI 편집 — 텍스트 AI 다시쓰기/번역, 이미지 배경 제거/AI 생성
-- OneShot 제거 + 코드 정리
+**Delivered (2026-03-27):**
+- ✓ 수집 직후(draft) 에디터 진입 — AI 가공 없이 GrapesJS에서 바로 편집
+- ✓ 플레이스홀더 bold-vertical HTML을 GrapesJS에 로드
+- ✓ "AI로 나머지 채우기" CTA — 빈 필드 한번에 AI 자동 생성
+- ✓ 개별 텍스트 AI 편집 — 다시쓰기/번역/축약/자유 프롬프트 (Gemini)
+- ✓ 개별 이미지 AI 편집 — 배경 제거/AI 생성 (FAL.AI)
+- ✓ 오른쪽 패널 AI 전용 자동 전환 (텍스트↔이미지↔디자인 채팅)
+- ✓ isBusy 가드 — 모든 AI 표면에서 동시 실행 방지
+- ✓ OneShot 제거 + 코드 정리
 
 ## Requirements
 
@@ -39,17 +42,19 @@
 - ✓ 반품/교환 대시보드 (사유 분석, 과실 비율) — v2.0
 - ✓ KST 타임존 정확한 날짜 처리 — v2.0
 - ✓ DateRangePicker 공유 컴포넌트 — v2.0
+- ✓ 수집 직후(draft) GrapesJS 에디터 진입 — v2.1
+- ✓ 플레이스홀더 bold-vertical HTML 로드 — v2.1
+- ✓ 개별 텍스트 AI 편집 (다시쓰기/번역/축약/자유 프롬프트) — v2.1
+- ✓ 개별 이미지 AI 편집 (배경 제거/AI 생성) — v2.1
+- ✓ "AI로 나머지 채우기" 빈 필드 자동 생성 — v2.1
+- ✓ 오른쪽 패널 AI 자동 전환 — v2.1
+- ✓ OneShot 파이프라인 코드 제거 — v2.1
 
 ### Active
 
 <!-- Current scope. Building toward these. -->
 
-- [x] 수집 직후(draft) GrapesJS 에디터 진입 — Validated in Phase 4
-- [x] 플레이스홀더 bold-vertical HTML 로드 — Validated in Phase 4
-- [ ] "AI로 나머지 채우기" 빈 필드 자동 생성
-- [ ] 개별 텍스트 AI 편집 (다시쓰기/번역/축약)
-- [ ] 개별 이미지 AI 편집 (배경 제거/AI 생성)
-- [x] OneShot 파이프라인 코드 제거 — Validated in Phase 4
+None — v2.1 milestone complete.
 
 ### Out of Scope
 
@@ -60,13 +65,13 @@
 
 ## Context
 
-- GrapesJS + `@grapesjs/react` 이미 설치됨 (에디터 페이지에서 사용 중)
-- `renderTemplateToHtml()`로 bold-vertical 플레이스홀더 HTML 생성 가능
-- `placeholderDetailPageData` 상수 추가됨 — committed in Phase 4
-- OneShot 코드 제거 완료 (apps/web + packages/templates) — committed in Phase 4
-- `injectHeadResources()` CSS 누적 방지 — `data-gjs-injected` fingerprint guard 적용 (Phase 4)
+- GrapesJS + `@grapesjs/react` — WYSIWYG 에디터 (v2.1 완료)
+- 오른쪽 패널: AI 전용 자동 전환 (텍스트 AI ↔ 이미지 AI ↔ 디자인 채팅)
+- NestJS `POST /api/text-ai/transform` — Gemini 기반 텍스트 변환 (다시쓰기/번역/축약/자유)
+- AIImageEditPanel — 배경 제거, 텍스트 제거, 배경 교체, 화질 개선, 이미지 재생성
+- `isBusyRef` — 모든 AI 표면 공유 동시 실행 방지
 - Python agent: content_draft(카피라이팅) / content_image(FAL.AI) 2단계 파이프라인
-- NestJS API: draft-content, preview, trigger-image-gen 엔드포인트 존재
+- NestJS API: draft-content, preview, trigger-image-gen, text-ai/transform 엔드포인트
 
 ## Constraints
 
@@ -85,6 +90,9 @@
 | Orders/Returns Prisma 전환 | JSON 파일 직접 읽기 제거 | ✓ Shipped v2.0 |
 | KST DATE_TRUNC for 일별 집계 | Prisma groupBy 불가 | ✓ $queryRaw v2.0 |
 | sellerProductId JOIN 키 | vendorItemId가 아닌 sellerProductId | ✓ v2.0 검증 |
+| 오른쪽 패널 AI 전용 자동 전환 | 텍스트/이미지/디자인 채팅 자동 전환 | ✓ Shipped v2.1 |
+| Sync text AI (Gemini inline) | <3s 응답, NestJS 경유 | ✓ Shipped v2.1 |
+| isBusy ref 공유 | 모든 AI 표면 동시 실행 방지 | ✓ Shipped v2.1 |
 
 ## Evolution
 
@@ -104,4 +112,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-26 after Phase 4 (GrapesJS Editor Foundation) completion*
+*Last updated: 2026-03-27 after v2.1 milestone completion*

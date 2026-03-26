@@ -4,7 +4,7 @@
 
 - [x] **v1.0 상세페이지 파이프라인 리팩토링** - Phases 1-4 (completed 2026-03-26)
 - [x] **v2.0 쿠팡 운영 대시보드** - Phases 1-3 (completed 2026-03-26)
-- [ ] **v2.1 WYSIWYG 상세페이지 에디터** - Phases 4-7 (in progress)
+- [x] **v2.1 WYSIWYG 상세페이지 에디터** - Phases 4-7 (completed 2026-03-27)
 
 ## Phases
 
@@ -127,9 +127,9 @@ Plans:
 ### Summary Checklist
 
 - [x] **Phase 4: GrapesJS Editor Foundation** - Draft 진입 + 플레이스홀더 HTML 로드 + CSS 정확성 + OneShot 제거 (completed 2026-03-26)
-- [ ] **Phase 5: Per-Element Text AI** - 텍스트 요소 AI 액션 패널 (다시쓰기/번역/축약) + 로딩/에러/Undo
-- [ ] **Phase 6: Per-Element Image AI** - 이미지 요소 AI 편집 패널 (배경 제거/AI 생성) + 비동기 폴링
-- [ ] **Phase 7: AI Fill CTA** - GrapesJS 모드 "AI로 나머지 채우기" 빈 필드 자동 생성
+- [x] **Phase 5: Per-Element Text AI** - 텍스트 요소 AI 액션 패널 (다시쓰기/번역/축약) + 로딩/에러/Undo (completed 2026-03-27)
+- [x] **Phase 6: Per-Element Image AI** - 이미지 요소 AI 편집 패널 (배경 제거/AI 생성) + isBusy 가드 (completed 2026-03-27)
+- [x] **Phase 7: AI Fill CTA** - GrapesJS 모드 "AI로 나머지 채우기" 빈 필드 자동 생성 (completed 2026-03-27)
 
 ## Phase Details
 
@@ -156,34 +156,22 @@ Plans:
   3. AI 요청 중 에러가 발생하면 패널에 에러 메시지가 표시되고 원래 텍스트는 유지된다
   4. AI 적용 후 Cmd+Z(Undo)를 누르면 원래 텍스트로 정확히 되돌아간다 (단일 Undo 스텝)
   5. AI 액션 진행 중에는 다른 AI 액션(텍스트/이미지/AI Fill 포함)이 시작되지 않는다 (isBusy 가드)
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 
 Plans:
-- [ ] 05-01-PLAN.md — NestJS TextAi module + AITextEditPanel component + Canvas Spots integration + isBusy guard
-**UI hint**: yes
+- [x] 05-01-PLAN.md — NestJS TextAi module + AITextEditPanel + RightPanel AI 자동 전환 + isBusy guard
 
 ### Phase 6: Per-Element Image AI
 **Goal**: GrapesJS 캔버스에서 이미지 요소를 선택하면 AI 편집 패널이 나타나고, 배경 제거/AI 생성 작업이 FAL.AI 비동기 파이프라인을 통해 완료되면 이미지가 캔버스에서 즉시 교체된다
 **Depends on**: Phase 5
 **Requirements**: AI-02, AI-04
-**Success Criteria** (what must be TRUE):
-  1. 이미지 요소를 클릭하면 AIImageEditPanel이 나타나고 배경 제거, AI 생성 등 편집 옵션이 표시된다
-  2. 편집 옵션을 선택하면 NestJS를 통해 agent_task가 생성되고 패널이 진행 중 상태를 표시한다 (생성 중 편집 잠금)
-  3. FAL.AI 처리가 완료되면(10-40초) 완성된 이미지가 캔버스의 해당 이미지 요소에 즉시 교체된다
-  4. AI 처리 중 에러가 발생하면 패널에 에러 메시지가 표시되고 원래 이미지는 유지된다
-**Plans**: TBD
-**UI hint**: yes
+**Plans:** Implemented directly (RightPanel 자동 전환 통합)
 
 ### Phase 7: AI Fill CTA
 **Goal**: GrapesJS 에디터 모드에서 "AI로 나머지 채우기" CTA를 클릭하면 draft 상품의 빈 필드가 AI content_draft 파이프라인으로 자동 생성되고, 완료 후 캔버스가 결과를 반영한다
 **Depends on**: Phase 5
 **Requirements**: EDIT-03
-**Success Criteria** (what must be TRUE):
-  1. GrapesJS 에디터 모드에서 "AI로 나머지 채우기" 버튼이 표시되고, 클릭하면 로딩 상태가 시작된다
-  2. AI 생성이 완료되면(`pipelineStep === 'content_ready'` 폴링 감지) 캔버스의 플레이스홀더 텍스트가 AI 생성 카피로 교체된다
-  3. AI Fill 진행 중에는 다른 AI 액션이 시작되지 않고, 완료 후 isBusy가 해제된다
-**Plans**: TBD
-**UI hint**: yes
+**Plans:** Implemented directly
 
 ## Progress
 
@@ -200,6 +188,6 @@ Phases execute in numeric order: 4 → 5 → 6 → 7
 | 2. Orders Dashboard | v2.0 | 2/2 | Complete | 2026-03-26 |
 | 3. Returns Dashboard | v2.0 | 2/2 | Complete | 2026-03-26 |
 | 4. GrapesJS Editor Foundation | v2.1 | 1/1 | Complete | 2026-03-26 |
-| 5. Per-Element Text AI | v2.1 | 0/1 | Planning | - |
-| 6. Per-Element Image AI | v2.1 | 0/TBD | Not started | - |
-| 7. AI Fill CTA | v2.1 | 0/TBD | Not started | - |
+| 5. Per-Element Text AI | v2.1 | 1/1 | Complete | 2026-03-27 |
+| 6. Per-Element Image AI | v2.1 | - | Complete | 2026-03-27 |
+| 7. AI Fill CTA | v2.1 | - | Complete | 2026-03-27 |

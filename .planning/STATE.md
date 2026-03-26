@@ -2,48 +2,48 @@
 gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: WYSIWYG 상세페이지 에디터
-status: Ready to plan
-stopped_at: Phase 5 planned and verified
-last_updated: "2026-03-26T12:19:59.695Z"
+status: Milestone complete
+stopped_at: v2.1 milestone complete — all phases shipped
+last_updated: "2026-03-27"
 progress:
   total_phases: 4
-  completed_phases: 1
+  completed_phases: 4
   total_plans: 2
-  completed_plans: 1
+  completed_plans: 2
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-03-26)
+See: .planning/PROJECT.md (updated 2026-03-27)
 
 **Core value:** 소싱 상품을 최소한의 수작업으로 판매 가능한 상세페이지로 변환한다
-**Current focus:** Phase 04 — grapesjs-editor-foundation
+**Current focus:** v2.1 complete — ready for next milestone
 
 ## Current Position
 
-Phase: 5
-Plan: Not started
+Phase: All phases complete
+Plan: N/A
 
-## Performance Metrics
+## Milestone History
 
-**Velocity:**
+### v1.0 상세페이지 파이프라인 리팩토링 — COMPLETED 2026-03-26
+- Phase 1: Schema Foundations
+- Phase 2: Python Agent Split
+- Phase 3: NestJS API Extensions
+- Phase 4: Frontend Editor Integration
 
-- Total plans completed (v2.0): 5
-- Total tasks (v2.0): 11
-- Timeline: 1 day (2026-03-26)
+### v2.0 쿠팡 운영 대시보드 — COMPLETED 2026-03-26
+- Phase 1: Dashboard Infrastructure
+- Phase 2: Orders Dashboard
+- Phase 3: Returns Dashboard
 
-**By Phase (v2.0):**
-
-| Phase | Duration | Tasks | Files |
-|-------|----------|-------|-------|
-| 01-dashboard-infrastructure P01 | 4 min | 3 tasks | 9 files |
-| 02-orders-dashboard P01 | 8 min | 2 tasks | 2 files |
-| 02-orders-dashboard P02 | 3 min | 2 tasks | 4 files |
-| 03-returns-dashboard P01 | 8 min | 2 tasks | 2 files |
-| 03-returns-dashboard P02 | 108s | 2 tasks | 2 files |
-| Phase 04-grapesjs-editor-foundation P01 | 2 | 3 tasks | 3 files |
+### v2.1 WYSIWYG 상세페이지 에디터 — COMPLETED 2026-03-27
+- Phase 4: GrapesJS Editor Foundation
+- Phase 5: Per-Element Text AI (NestJS TextAi module + AITextEditPanel + RightPanel 자동 전환)
+- Phase 6: Per-Element Image AI (AIImageEditPanel + isBusy 가드 통합)
+- Phase 7: AI Fill CTA
 
 ## Accumulated Context
 
@@ -51,14 +51,11 @@ Plan: Not started
 
 Key decisions logged in PROJECT.md Key Decisions table.
 
-Recent decisions affecting v2.1:
-
-- GrapesJS Canvas Spots API for floating panel positioning (no cross-iframe math)
-- Sync text AI (Gemini inline, <3s) / Async image AI (FAL.AI via agent_tasks, 10-40s)
-- isBusy ref shared across all AI surfaces (text panel, image panel, AI Fill CTA)
-- No new npm packages needed for core v2.1 scope
-- [Phase 04-grapesjs-editor-foundation]: CSS idempotency via skip-if-exists (data-gjs-injected fingerprint) not clear-and-reinject
-- [Phase 04-grapesjs-editor-foundation]: Fingerprint = length + first 60 chars of styleHtml for lightweight CSS dedup
+v2.1 decisions:
+- 오른쪽 패널 AI 전용 자동 전환 (텍스트↔이미지↔디자인 채팅)
+- Sync text AI (Gemini inline, <3s) / Async image AI (FAL.AI via agent_tasks)
+- isBusy ref shared across all AI surfaces
+- Canvas Spots API 제거 → 오른쪽 패널 통합 (사용자 피드백 반영)
 
 ### Pending Todos
 
@@ -66,11 +63,10 @@ None.
 
 ### Blockers/Concerns
 
-- [Phase 6] FAL_KEY availability in NestJS env needs confirmation before Phase 6 planning (single file check)
-- [Phase 7] POST /api/products/:id/trigger-content-draft existence needs verification before Phase 7 planning
+None.
 
 ## Session Continuity
 
-Last session: 2026-03-26T12:19:59.686Z
-Stopped at: Phase 5 planned and verified
-Resume file: .planning/phases/05-per-element-text-ai/05-01-PLAN.md
+Last session: 2026-03-27
+Stopped at: v2.1 milestone complete — all phases shipped
+Resume file: None
