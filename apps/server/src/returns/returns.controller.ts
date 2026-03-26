@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Query, BadRequestException, ServiceUnavailableException } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Query, BadRequestException, ServiceUnavailableException } from '@nestjs/common';
 import { ReturnsService } from './returns.service';
 
 @Controller('returns')
@@ -8,6 +8,16 @@ export class ReturnsController {
   @Get()
   findAll(@Query() query: { from?: string; to?: string; type?: string }) {
     return this.returnsService.findAll(query);
+  }
+
+  @Get('stats')
+  getStats() {
+    return this.returnsService.getStats();
+  }
+
+  @Get(':id')
+  findOne(@Param('id') id: string) {
+    return this.returnsService.findOne(id);
   }
 
   @Post()

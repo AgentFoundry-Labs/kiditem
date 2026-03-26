@@ -1,64 +1,60 @@
 import { Injectable } from '@nestjs/common';
-import { getReturnRequests, approveReturn, getExchangeRequests } from '../coupang/orders';
-import { readFile } from 'fs/promises';
-import path from 'path';
+import { PrismaService } from '../prisma/prisma.service';
+import { approveReturn } from '../coupang/orders';
 
 @Injectable()
 export class ReturnsService {
-  private async getOfflineReturns() {
-    try {
-      const filePath = path.join(process.cwd(), 'data', 'coupang_returns_all.json');
-      return JSON.parse(await readFile(filePath, 'utf-8')) as Array<Record<string, unknown>>;
-    } catch {
-      return [];
-    }
-  }
-
-  private async getOfflineExchanges() {
-    try {
-      const filePath = path.join(process.cwd(), 'data', 'coupang_exchanges.json');
-      return JSON.parse(await readFile(filePath, 'utf-8')) as Array<Record<string, unknown>>;
-    } catch {
-      return [];
-    }
-  }
+  constructor(private readonly prisma: PrismaService) {}
 
   async findAll(query: { from?: string; to?: string; type?: string }) {
-    const from = query.from || new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
-    const to = query.to || new Date().toISOString().slice(0, 10);
+    const from = query.from
+      ? new Date(query.from)
+      : new Date(Date.now() - 30 * 86400000);
+    const to = query.to ? new Date(query.to) : new Date();
     const type = query.type || 'return';
-    let isOffline = false;
 
-    if (type === 'exchange') {
-      let data: Array<Record<string, unknown>> = [];
-      try {
-        const result = (await getExchangeRequests({ createdAtFrom: from, createdAtTo: to })) as { data?: Array<Record<string, unknown>> } | null;
-        data = result?.data ?? [];
-      } catch {
-        data = await this.getOfflineExchanges();
-        isOffline = true;
-      }
-      return { success: true, data, count: data.length, type: 'exchange', offline: isOffline };
-    }
+    const where = {
+      receiptType: type === 'exchange' ? 'EXCHANGE' : 'RETURN',
+      requestedAt: { gte: from, lte: to },
+    };
 
-    let allReturns: Array<Record<string, unknown>> = [];
-    try {
-      for (const status of ['UC', 'RC']) {
-        try {
-          const result = (await getReturnRequests({ createdAtFrom: from, createdAtTo: to, status })) as { data?: Array<Record<string, unknown>> } | null;
-          allReturns = allReturns.concat(result?.data ?? []);
-        } catch { /* skip */ }
-      }
-      if (allReturns.length === 0) {
-        allReturns = await this.getOfflineReturns();
-        isOffline = true;
-      }
-    } catch {
-      allReturns = await this.getOfflineReturns();
-      isOffline = true;
-    }
+    const data = await this.prisma.coupangReturn.findMany({
+      where,
+      include: { returnItems: true },
+      orderBy: { requestedAt: 'desc' },
+    });
 
-    return { success: true, data: allReturns, count: allReturns.length, type: 'return', offline: isOffline };
+    return {
+      success: true,
+      data,
+      count: data.length,
+      type,
+    };
+  }
+
+  async findOne(id: string) {
+    const returnRecord = await this.prisma.coupangReturn.findUnique({
+      where: { id },
+      include: { returnItems: true },
+    });
+
+    return { success: true, data: returnRecord };
+  }
+
+  async getStats() {
+    const [total, uc, rc, completed] = await Promise.all([
+      this.prisma.coupangReturn.count(),
+      this.prisma.coupangReturn.count({ where: { receiptStatus: 'UC' } }),
+      this.prisma.coupangReturn.count({ where: { receiptStatus: 'RC' } }),
+      this.prisma.coupangReturn.count({
+        where: { receiptStatus: 'COMPLETED' },
+      }),
+    ]);
+
+    return {
+      success: true,
+      stats: { total, uc, rc, completed },
+    };
   }
 
   async approve(receiptId: number) {
