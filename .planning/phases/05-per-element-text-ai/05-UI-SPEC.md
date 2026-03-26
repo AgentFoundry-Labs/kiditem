@@ -33,7 +33,7 @@ Declared values (must be multiples of 4):
 
 | Token | Value | Usage |
 |-------|-------|-------|
-| xs | 4px | Icon gaps, inline padding (e.g. `p-0.5`, `gap-1`) |
+| xs | 4px | Icon gaps, inline padding (e.g. `p-1`, `gap-1`) |
 | sm | 8px | Compact element spacing (e.g. `px-2`, `py-2`, `gap-2`) |
 | md | 16px | Default element spacing (e.g. `px-3 py-2` areas) |
 | lg | 24px | Section padding |
@@ -126,7 +126,7 @@ Focal point: the three preset buttons (다시쓰기, 번역, 축약) are the pri
 [Panel — 280px wide, bg-white, rounded-xl, shadow-lg, border border-gray-200]
 ├── Header row — px-3 py-2, border-b border-gray-100
 │   ├── Left: <Wand2 size={14} /> + "텍스트 편집" (text-xs font-bold text-gray-700)
-│   └── Right: X close button (p-0.5, text-gray-400 hover:text-gray-600,
+│   └── Right: X close button (p-1, text-gray-400 hover:text-gray-600,
 │       aria-label="닫기")
 │
 ├── [Conditional] Loading banner — px-3 py-2, bg-emerald-50, border-b border-emerald-100
