@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v2.1
 milestone_name: WYSIWYG 상세페이지 에디터
 status: Ready to plan
-stopped_at: Phase 5 context gathered
-last_updated: "2026-03-26T11:41:48.515Z"
+stopped_at: Phase 5 UI-SPEC approved
+last_updated: "2026-03-26T12:01:12.125Z"
 progress:
   total_phases: 4
   completed_phases: 1
@@ -71,6 +71,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-03-26T11:41:48.502Z
-Stopped at: Phase 5 context gathered
-Resume file: .planning/phases/05-per-element-text-ai/05-CONTEXT.md
+Last session: 2026-03-26T12:01:12.109Z
+Stopped at: Phase 5 UI-SPEC approved
+Resume file: .planning/phases/05-per-element-text-ai/05-UI-SPEC.md
