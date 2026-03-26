@@ -67,7 +67,14 @@ interface ParsedHtml {
 }
 
 const CANVAS_CSS = `
-  html, body { overflow: hidden !important; }
+  html, body {
+    overflow-y: auto !important;
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
+  }
+  html::-webkit-scrollbar, body::-webkit-scrollbar {
+    display: none !important;
+  }
   .gjs-selected {
     outline: 2px solid rgba(16, 185, 129, 0.85) !important;
     outline-offset: -1px;
@@ -146,6 +153,25 @@ const GJS_THEME_CSS = `
   }
 
   .gjs-field-color-picker { border-radius: 4px !important; }
+
+  .gjs-rte-toolbar {
+    background-color: white !important;
+    border: 1px solid #e5e7eb !important;
+    border-radius: 8px !important;
+    padding: 4px 6px !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.12) !important;
+  }
+  .gjs-rte-toolbar .gjs-rte-btn {
+    color: #374151 !important;
+    border-radius: 4px !important;
+  }
+  .gjs-rte-toolbar .gjs-rte-btn:hover {
+    background-color: #f3f4f6 !important;
+  }
+  .gjs-rte-toolbar .gjs-rte-active {
+    background-color: #ecfdf5 !important;
+    color: #059669 !important;
+  }
 
   .gjs-editor-cont ::-webkit-scrollbar { width: 5px; height: 5px; }
   .gjs-editor-cont ::-webkit-scrollbar-track { background: transparent; }
@@ -269,17 +295,28 @@ function injectHeadResources(iframeWindow: Window, parsed: ParsedHtml) {
   const doc = iframeWindow.document;
   const head = doc.head;
 
+  // Stylesheet links: skip if href already present in head
   for (const url of parsed.stylesheetUrls) {
+    if (head.querySelector(`link[rel="stylesheet"][href="${url}"]`)) continue;
     const link = doc.createElement('link');
     link.rel = 'stylesheet';
     link.href = url;
     head.appendChild(link);
   }
 
+  // Inline styles: skip if data-gjs-injected fingerprint already present
   for (const styleHtml of parsed.inlineStyles) {
-    head.insertAdjacentHTML('beforeend', styleHtml);
+    const fingerprint = String(styleHtml.length) + '_' + styleHtml.slice(0, 60);
+    if (head.querySelector(`style[data-gjs-injected="${CSS.escape(fingerprint)}"]`)) continue;
+    const tempDiv = doc.createElement('div');
+    tempDiv.innerHTML = styleHtml;
+    const el = tempDiv.firstElementChild as HTMLStyleElement | null;
+    if (!el) continue;
+    el.setAttribute('data-gjs-injected', fingerprint);
+    head.appendChild(el);
   }
 
+  // Script handling — unchanged from original
   const appendInlineScripts = () => {
     for (const scriptText of parsed.inlineScripts) {
       const script = doc.createElement('script');
@@ -764,7 +801,7 @@ function RightPanel({
   const editor = useEditor();
   const [hasSelection, setHasSelection] = useState(false);
   const [canvasWidth, setCanvasWidth] = useState(860);
-  const [canvasHeight, setCanvasHeight] = useState(3000);
+  const [canvasHeight, setCanvasHeight] = useState(800);
   const [bgColor, setBgColor] = useState('#ffffff');
 
   useEffect(() => {
@@ -780,10 +817,17 @@ function RightPanel({
 
   useEffect(() => {
     const wrapper = editor.getWrapper();
-    if (wrapper) {
-      wrapper.addStyle({ 'min-height': `${canvasHeight}px`, 'background-color': bgColor });
-    }
+    if (!wrapper) return;
+    wrapper.addStyle({ 'min-height': `${canvasHeight}px`, 'background-color': bgColor });
   }, [editor, canvasHeight, bgColor]);
+
+  useEffect(() => {
+    const iframe = editor.Canvas.getFrameEl();
+    if (!iframe?.contentDocument) return;
+    const contentHeight = iframe.contentDocument.body.scrollHeight ?? 800;
+    const autoHeight = Math.max(contentHeight + 300, 800);
+    if (autoHeight !== canvasHeight) setCanvasHeight(autoHeight);
+  }, [editor]);
 
   useEffect(() => {
     const device = editor.Devices.get('coupang');
@@ -1029,7 +1073,13 @@ export default function DetailPageEditor({
 
       const wrapper = editor.getWrapper();
       if (wrapper) {
-        wrapper.addStyle({ 'min-height': '3000px', 'background-color': '#ffffff' });
+        wrapper.addStyle({ 'background-color': '#ffffff' });
+        requestAnimationFrame(() => {
+          const iframe = editor.Canvas.getFrameEl();
+          const contentHeight = iframe?.contentDocument?.body.scrollHeight ?? 800;
+          const autoHeight = Math.max(contentHeight + 300, 800);
+          wrapper.addStyle({ 'min-height': `${autoHeight}px` });
+        });
       }
     },
     [parsed],
