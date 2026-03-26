@@ -156,7 +156,10 @@ Plans:
   3. AI 요청 중 에러가 발생하면 패널에 에러 메시지가 표시되고 원래 텍스트는 유지된다
   4. AI 적용 후 Cmd+Z(Undo)를 누르면 원래 텍스트로 정확히 되돌아간다 (단일 Undo 스텝)
   5. AI 액션 진행 중에는 다른 AI 액션(텍스트/이미지/AI Fill 포함)이 시작되지 않는다 (isBusy 가드)
-**Plans**: TBD
+**Plans:** 1 plan
+
+Plans:
+- [ ] 05-01-PLAN.md — NestJS TextAi module + AITextEditPanel component + Canvas Spots integration + isBusy guard
 **UI hint**: yes
 
 ### Phase 6: Per-Element Image AI
@@ -196,7 +199,7 @@ Phases execute in numeric order: 4 → 5 → 6 → 7
 | 1. Dashboard Infrastructure | v2.0 | 1/1 | Complete | 2026-03-26 |
 | 2. Orders Dashboard | v2.0 | 2/2 | Complete | 2026-03-26 |
 | 3. Returns Dashboard | v2.0 | 2/2 | Complete | 2026-03-26 |
-| 4. GrapesJS Editor Foundation | v2.1 | 0/1 | Planning | - |
-| 5. Per-Element Text AI | v2.1 | 0/TBD | Not started | - |
+| 4. GrapesJS Editor Foundation | v2.1 | 1/1 | Complete | 2026-03-26 |
+| 5. Per-Element Text AI | v2.1 | 0/1 | Planning | - |
 | 6. Per-Element Image AI | v2.1 | 0/TBD | Not started | - |
 | 7. AI Fill CTA | v2.1 | 0/TBD | Not started | - |
