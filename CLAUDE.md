@@ -171,3 +171,128 @@ agents/src/agents/{name}/
 - **API 경로에 /v1/ 금지** → `/api/{domain}` 직접 매핑.
 - **도메인 모듈 자기 완결** → Controller + Service가 한 폴더에.
 - **워크플로우 AI 분석은 실행당 1회만** → 개별 노드에 ai.analyze 넣지 말 것.
+
+<!-- GSD:project-start source:PROJECT.md -->
+## Project
+
+**KidItem**
+
+키드아이템 이커머스 운영 자동화 플랫폼. 중국(1688/타오바오) 소싱 상품을 AI로 가공하여 한국 마켓플레이스에 리스팅하는 셀러 운영 도구. Next.js 프론트엔드 + NestJS 백엔드 + Python AI 에이전트 구조.
+
+**Core Value:** 소싱 상품을 최소한의 수작업으로 판매 가능한 상세페이지로 변환하고, 운영 전반을 하나의 대시보드에서 관리한다.
+
+### Constraints
+
+- **Tech stack**: 기존 스택 유지 (NestJS + Next.js + Prisma + PostgreSQL)
+- **DB**: Native PG enum 금지 → String + validation
+- **Architecture**: 프론트 → NestJS API → DB 흐름 유지
+- **Frontend**: 'use client' only, 라이트 테마, API_BASE fetch 패턴
+<!-- GSD:project-end -->
+
+<!-- GSD:stack-start source:research/STACK.md -->
+## Technology Stack
+
+## Context: What Already Exists (Do Not Re-add)
+- `zustand` ^5.0.12 — global state
+- `@radix-ui/react-popover` ^1.1.15 — accessible popover primitive
+- `@radix-ui/react-dialog` ^1.1.15 — modal dialogs
+- `grapesjs` ^0.22.14 + `@grapesjs/react` ^2.0.0 — HTML editor
+- `lucide-react` ^0.577.0 — icons
+- `next` 14.2.35, `react` ^18 — framework
+## Recommended Stack Additions
+### New Frontend Libraries
+| Library | Version | Purpose | Why Recommended |
+|---------|---------|---------|-----------------|
+| `react-colorful` | 5.6.1 | Hex color picker + hex input | 2.8 KB, zero dependencies, ships `HexColorPicker` + `HexColorInput`, React 18 compatible. Last published 4 years ago but stable/complete — no active bugs, no API churn. Alternative `@uiw/react-color` is heavier (20+ KB). |
+### No New Backend Libraries Needed
+- A new `pipeline_step` field on `products` table (String, values: `null | "content_ready" | "awaiting_image_gen"`)
+- Storing intermediate `GeneratedContent` JSON in `processed_data` at Step 1 completion
+- Existing `AgentTask` + `agent_tasks` table for Step 3 image generation trigger
+- Existing polling (3-second frontend interval) for status detection
+### No New Python Agent Libraries Needed
+## Architecture of the Pipeline Split (No New Libraries)
+### State Machine: Product.status + Product.pipelineStep
+| Field | Type | Values |
+|-------|------|--------|
+| `status` | String (existing) | `draft` → `processing` → `draft` (after Step 1) → `processing` (during Step 3) → `processed` |
+| `pipelineStep` | String (NEW, nullable) | `null` (no pipeline started), `content_ready` (Step 1 done, awaiting edit), `images_generating` (Step 3 in progress) |
+### Intermediate Data Storage
+### Editor Side Panel: Structured Form (No Library)
+- Tailwind-styled form with `<input type="text">` for copy fields
+- `react-colorful`'s `HexColorPicker` + `HexColorInput` inside `@radix-ui/react-popover` (already installed) for color fields
+- Existing `ImagePickerModal` for hero image selection
+- State: local `useState` inside the panel (no Zustand store addition needed — this is ephemeral edit state that gets POSTed on confirm)
+## Installation
+# apps/web only — one new package
+## Alternatives Considered
+| Recommended | Alternative | When to Use Alternative |
+|-------------|-------------|-------------------------|
+| `react-colorful` 5.6.1 | `@uiw/react-color` | If you need multi-format pickers (HSL, RGB sliders) in addition to hex. 20+ KB vs 2.8 KB — overkill for theme color selection with 6 hex fields. |
+| `react-colorful` 5.6.1 | Build color swatch inline | Acceptable if only swatches (no freeform hex). For arbitrary theme colors, a picker is better UX. |
+| `zustand` (existing) for pipeline step | `react-hook-form` | Use react-hook-form only if the structured panel grows to 20+ fields with complex validation. For 6–10 fields with simple hex + text types, useState + direct POST is sufficient. |
+| `products.pipelineStep` String column | New `pipeline_runs` table | New table only when one product needs to track multiple concurrent runs. Single-pipeline-per-product: new String column is sufficient. |
+| Polling (existing, 3s) | Server-sent events / WebSocket | SSE is better UX but requires new infrastructure. Polling is already implemented and acceptable for the 20–40 second image generation window. |
+## What NOT to Use
+| Avoid | Why | Use Instead |
+|-------|-----|-------------|
+| `react-color` (casesandberg) | Unmaintained since 2020, 30+ KB, no TypeScript types | `react-colorful` |
+| `react-hook-form` for this editor panel | Adds form library overhead where `useState` suffices. No async validation or complex field arrays needed. | Local `useState` + direct fetch POST |
+| New `pipeline_stages` table | Over-engineering. Adding a `pipelineStep` String to `products` achieves the same result without migration complexity | `products.pipelineStep` column |
+| New Zustand slice for pipeline state | Pipeline state lives in DB, not client. Frontend reads via polling. Client doesn't need to own this state. | Server state via fetch polling |
+| GrapesJS for the structured editor panel | GrapesJS edits raw HTML. The Step 2 structured editor edits `DetailPageData` fields before HTML is even rendered. Wrong tool for the job. | Custom React form panel alongside GrapesJS |
+## Version Compatibility
+| Package | Compatible With | Notes |
+|---------|-----------------|-------|
+| `react-colorful@5.6.1` | `react@18` | Peer dep is `react >= 16.8`. Works with React 18. No issues. |
+| `react-colorful@5.6.1` | `@radix-ui/react-popover@1.1.15` | Not directly coupled — colorful renders inside popover content. Works. |
+| New `pipelineStep` DB column | `prisma@7.5.0` | Standard nullable String field. No native enum. Follows existing patterns. |
+## Stack Patterns by Variant
+- Use local `useState` for the panel fields
+- `react-colorful` inside `@radix-ui/react-popover` for each color
+- On "Confirm", POST `/api/products/{id}/pipeline/step2-confirm` with the edited fields
+- No form library needed
+- Add `react-hook-form` at that point
+- Still use `react-colorful` for color fields via Controller integration
+- Add NestJS SSE endpoint: `GET /api/products/{id}/pipeline/status/stream`
+- No new library needed — NestJS supports SSE natively via `@Sse()` decorator
+## Sources
+- Codebase (`apps/web/package.json`) — existing dependencies verified directly
+- [react-colorful npm](https://www.npmjs.com/package/react-colorful) — version 5.6.1, zero dependencies confirmed (MEDIUM confidence — npm page returned 403, confirmed via search results)
+- [react-colorful GitHub](https://github.com/omgovich/react-colorful) — bundle size 2.8 KB, React 16.8+ peer dep
+- [Radix UI Popover docs](https://www.radix-ui.com/primitives/docs/components/popover) — already in project at ^1.1.15
+- `agents/src/agents/content/models.py` — `GeneratedContent` and `DetailPageData` field structure verified from source
+- `agents/src/agents/content/template_pipeline.py` — current pipeline flow verified from source
+- `prisma/schema.prisma` — existing `Product` model and `processed_data: Json?` field verified
+<!-- GSD:stack-end -->
+
+<!-- GSD:conventions-start source:CONVENTIONS.md -->
+## Conventions
+
+Conventions not yet established. Will populate as patterns emerge during development.
+<!-- GSD:conventions-end -->
+
+<!-- GSD:architecture-start source:ARCHITECTURE.md -->
+## Architecture
+
+Architecture not yet mapped. Follow existing patterns found in the codebase.
+<!-- GSD:architecture-end -->
+
+<!-- GSD:workflow-start source:GSD defaults -->
+## GSD Workflow Enforcement
+
+Before using Edit, Write, or other file-changing tools, start work through a GSD command so planning artifacts and execution context stay in sync.
+
+Use these entry points:
+- `/gsd:quick` for small fixes, doc updates, and ad-hoc tasks
+- `/gsd:debug` for investigation and bug fixing
+- `/gsd:execute-phase` for planned phase work
+
+Do not make direct repo edits outside a GSD workflow unless the user explicitly asks to bypass it.
+<!-- GSD:workflow-end -->
+
+<!-- GSD:profile-start -->
+## Developer Profile
+
+> Profile not yet configured. Run `/gsd:profile-user` to generate your developer profile.
+> This section is managed by `generate-claude-profile` -- do not edit manually.
+<!-- GSD:profile-end -->
