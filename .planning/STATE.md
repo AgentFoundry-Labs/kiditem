@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: 쿠팡 운영 대시보드
 status: planning
-stopped_at: Phase 1 context gathered
-last_updated: "2026-03-26T01:10:24.873Z"
+stopped_at: Phase 2 context gathered
+last_updated: "2026-03-26T01:39:05.293Z"
 last_activity: 2026-03-26 — v2.0 roadmap created; 10/10 requirements mapped
 progress:
   total_phases: 3
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  completed_phases: 1
+  total_plans: 1
+  completed_plans: 1
   percent: 0
 ---
 
@@ -47,6 +47,7 @@ Progress: [░░░░░░░░░░] 0%
 | - | - | - | - |
 
 *Updated after each plan completion*
+| Phase 01-dashboard-infrastructure P01 | 4 | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -59,6 +60,9 @@ Recent decisions affecting current work:
 - [Roadmap v2.0]: Dashboard reads from DB only; live Coupang API calls only on explicit user action — never mix in same service method
 - [Roadmap v2.0]: All CoupangDashboardService aggregations use Promise.all() fan-out — no sequential await chains
 - [Roadmap v2.0]: Settlement and inquiry features deferred to v2.x — Phase 3 field name validation needed before schema extension
+- [Phase 01-dashboard-infrastructure]: kstDayStart uses UTC timestamp arithmetic — avoids server TZ dependency
+- [Phase 01-dashboard-infrastructure]: Controller holds companyId derivation, service receives it as parameter — separation of concerns
+- [Phase 01-dashboard-infrastructure]: Promise.all() for all CoupangDashboard aggregations — no sequential await chains
 
 ### Pending Todos
 
@@ -72,6 +76,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T01:10:24.860Z
-Stopped at: Phase 1 context gathered
-Resume file: .planning/phases/01-dashboard-infrastructure/01-CONTEXT.md
+Last session: 2026-03-26T01:39:05.283Z
+Stopped at: Phase 2 context gathered
+Resume file: .planning/phases/02-orders-dashboard/02-CONTEXT.md
