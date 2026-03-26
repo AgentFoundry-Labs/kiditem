@@ -117,7 +117,7 @@ Phases execute in numeric order: 1 → 2 → 3
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 1. Schema Foundations | v1.0 | 1/1 | Complete | 2026-03-25 |
+| 1. Schema Foundations | v1.0 | 0/1 | Planned    |  |
 | 2. Python Agent Split | v1.0 | 3/3 | Complete | 2026-03-26 |
 | 3. NestJS API Extensions | v1.0 | 1/1 | Complete | 2026-03-26 |
 | 4. Frontend Editor Integration | v1.0 | 2/2 | Complete | 2026-03-26 |
