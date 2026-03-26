@@ -6,18 +6,18 @@
 
 ## Core Value
 
-소싱 상품을 최소한의 수작업으로 판매 가능한 상세페이지로 변환한다.
+소싱 상품을 최소한의 수작업으로 판매 가능한 상세페이지로 변환하고, 운영 전반을 하나의 대시보드에서 관리한다.
 
-## Current Milestone: v1.0 상세페이지 파이프라인 리팩토링
+## Current Milestone: v2.0 쿠팡 운영 대시보드
 
-**Goal:** AI 재가공 파이프라인을 단계별로 분리하여 사용자가 중간에 개입/편집할 수 있게 한다.
+**Goal:** `data/` JSON 원본 데이터를 DB에 정규화하고, 주문/반품/정산/상품 운영 화면을 구축한다.
 
 **Target features:**
-- Step 1: 콘텐츠 생성 (한국어 카피 + 테마 컬러) → 원본 이미지로 템플릿 프리뷰
-- Step 2: 에디터에서 사용자 편집 (텍스트, 테마 컬러, 히어로 이미지 선택)
-- Step 3: 확정된 내용 기반 이미지 생성 (히어로 1장 → 배너/메인/디테일 전부)
-- 이미지 분류 단계 제거 — 히어로 기반 통합 생성으로 전환
-- 기존 에디터 페이지(/sourcing/[id]/editor) 확장
+- 쿠팡 주문 대시보드 (상태별 조회, 상세보기, 통계)
+- 반품/교환 관리 화면 (사유 분석, 상태 추적)
+- 상품 리스팅 관리 (성과 지표, 광고 ROI)
+- 정산 데이터 조회 (수수료, 정산금 추적)
+- 문의/리뷰 관리
 
 ## Requirements
 
@@ -31,46 +31,52 @@
 - Template-based detail page rendering (bold-vertical, simple-vertical)
 - Workflow engine with AI analysis
 - Product sourcing pipeline with status tracking
-- ✓ DB schema supports intermediate pipeline state (draftContent + pipelineStep) — Phase 1
-- ✓ Two-step pipeline: content_draft (text+colors) → content_image (FAL.AI) — Phase 2
-- ✓ NestJS API: PUT draft-content, GET preview (3-tier fallback), POST trigger-image-gen — Phase 3
+- DB schema supports intermediate pipeline state (draftContent + pipelineStep) — v1.0 Phase 1
+- Two-step pipeline: content_draft (text+colors) → content_image (FAL.AI) — v1.0 Phase 2
+- NestJS API: PUT draft-content, GET preview (3-tier fallback), POST trigger-image-gen — v1.0 Phase 3
+- Frontend editor with structured editing + pipeline CTA — v1.0 Phase 4
+- Coupang order/return DB schema + Prisma-based API — v2.0 prep
 
 ### Active
 
 <!-- Current scope. Building toward these. -->
 
-- [ ] 파이프라인 2단계 분리 (콘텐츠 생성 → 이미지 생성)
-- [ ] 에디터에서 텍스트/컬러/이미지 편집 후 재가공
-- [ ] 히어로 이미지 기반 통합 이미지 생성
+- [ ] 쿠팡 주문 대시보드 (상태별 필터, 상세보기, 통계 카드)
+- [ ] 반품/교환 관리 (사유 분석, 상태 추적)
+- [ ] 상품 리스팅 관리 (성과 지표, 광고 ROI)
+- [ ] 정산 데이터 조회 (수수료, 정산금)
+- [ ] 문의/리뷰 관리
 
 ### Out of Scope
 
-- 새 템플릿 추가 — 기존 템플릿 활용, 파이프라인 분리에 집중
-- Oneshot 파이프라인 변경 — 템플릿 모드만 대상
+- 쿠팡 API 실시간 연동 — API 키 미확보, DB 기반 조회만
+- 새 템플릿 추가 — 기존 템플릿 활용
 - 모바일 앱 — 웹 우선
+- 다채널 (스마트스토어, 11번가 등) — 쿠팡 우선
 
 ## Context
 
-- 현재 Python ContentAgent (template_pipeline.py)가 분류+콘텐츠+이미지를 한번에 처리
-- FAL.AI 이미지 생성이 비용/시간이 큼 (20-40초) → 사용자 확인 후 생성이 합리적
-- 에디터는 GrapesJS 기반, DetailPageData 인터페이스 활용
-- 이미지 분류 AI가 detail_indices를 선택하는 방식 → 히어로 기반으로 전환하면 불필요
-- 프론트엔드는 폴링(3초)으로 처리 상태 감지
+- `data/` 폴더에 쿠팡 원본 JSON 파일 18개 (주문, 반품, 교환, 정산, 상품, 문의 등)
+- coupang_orders (389건), coupang_returns (20건) 이미 DB 시드 완료
+- OrdersService/ReturnsService는 Prisma 기반으로 전환 완료
+- 정산(settlements), 문의(inquiries) 데이터는 스키마/시드 추가 필요
+- 쿠팡 API 키 없음 → 모든 데이터는 DB 조회 기반
 
 ## Constraints
 
-- **Tech stack**: 기존 스택 유지 (NestJS + Python agent + FAL.AI)
-- **DB**: Prisma + PostgreSQL, native enum 금지
-- **Architecture**: 프론트 → NestJS API → DB/Agent 흐름 유지
-- **Templates**: DetailPageData 인터페이스 하위 호환 유지
+- **Tech stack**: 기존 스택 유지 (NestJS + Next.js + Prisma + PostgreSQL)
+- **DB**: Native PG enum 금지 → String + validation
+- **Architecture**: 프론트 → NestJS API → DB 흐름 유지
+- **Frontend**: 'use client' only, 라이트 테마, API_BASE fetch 패턴
 
 ## Key Decisions
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| 히어로 이미지 기반 통합 생성 | 이미지 분류 불필요, 비주얼 일관성, 파이프라인 단순화 | — Pending |
-| 에디터 페이지 확장 (신규 페이지 X) | 기존 GrapesJS 에디터 활용, 중복 방지 | — Pending |
-| 텍스트+컬러+이미지 편집 범위 | 사용자 최대 자유도 부여 | — Pending |
+| 히어로 이미지 기반 통합 생성 | 이미지 분류 불필요, 비주얼 일관성 | ✓ Shipped v1.0 |
+| 에디터 페이지 확장 (신규 페이지 X) | 기존 GrapesJS 에디터 활용 | ✓ Shipped v1.0 |
+| DB 기반 조회 (API 연동 없음) | 쿠팡 API 키 미확보 | v2.0 방침 |
+| Orders/Returns Prisma 전환 | JSON 파일 직접 읽기 제거 | ✓ Shipped v2.0 prep |
 
 ## Evolution
 
@@ -90,4 +96,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-26 after Phase 3 completion*
+*Last updated: 2026-03-26 — Milestone v2.0 started*
