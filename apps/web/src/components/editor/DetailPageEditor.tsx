@@ -791,6 +791,8 @@ function RightPanel({
   onDesignApply,
   onDesignUndo,
   canDesignUndo,
+  selectedTextComponent,
+  isBusy,
 }: {
   onClose?: () => void;
   getHtml: () => string;
@@ -798,6 +800,8 @@ function RightPanel({
   onDesignApply: (html: string) => void;
   onDesignUndo: () => void;
   canDesignUndo: boolean;
+  selectedTextComponent: any;
+  isBusy: React.MutableRefObject<boolean>;
 }) {
   const editor = useEditor();
   const [hasSelection, setHasSelection] = useState(false);
@@ -907,6 +911,17 @@ function RightPanel({
         </div>
       ) : (
         <div className="shrink" style={{ flexBasis: '40%' }} />
+      )}
+
+      {selectedTextComponent && (
+        <div className="border-t border-gray-100">
+          <AITextEditPanel
+            component={selectedTextComponent}
+            editor={editor}
+            isBusy={isBusy}
+            onClose={() => {/* deselect handled by parent */}}
+          />
+        </div>
       )}
 
       <AIDesignChatPanel
@@ -1234,22 +1249,13 @@ export default function DetailPageEditor({
                 onDesignApply={handleDesignApply}
                 onDesignUndo={handleDesignUndo}
                 canDesignUndo={canDesignUndo}
+                selectedTextComponent={selectedTextComponent}
+                isBusy={isBusyRef}
               />
             </WithEditor>
           </div>
         </div>
       </div>
-
-      {selectedTextComponent && editorRef && (
-        <div className="fixed bottom-4 right-[276px] z-50">
-          <AITextEditPanel
-            component={selectedTextComponent}
-            editor={editorRef}
-            isBusy={isBusyRef}
-            onClose={() => setSelectedTextComponent(null)}
-          />
-        </div>
-      )}
 
       {selectedImageSrc && (
         <div className="fixed bottom-4 right-[276px] z-50">
