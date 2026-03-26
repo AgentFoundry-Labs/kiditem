@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.0
-milestone_name: 쿠팡 운영 대시보드
-status: completed
-stopped_at: Milestone v2.0 complete
-last_updated: "2026-03-26T05:30:00.000Z"
+milestone: v2.1
+milestone_name: WYSIWYG 상세페이지 에디터
+status: active
+stopped_at: null
+last_updated: "2026-03-26T07:00:00.000Z"
 last_activity: 2026-03-26
 progress:
-  total_phases: 3
-  completed_phases: 3
-  total_plans: 5
-  completed_plans: 5
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -21,16 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-26)
 
 **Core value:** 소싱 상품을 최소한의 수작업으로 판매 가능한 상세페이지로 변환한다
-**Current focus:** Planning next milestone
+**Current focus:** v2.1 WYSIWYG 상세페이지 에디터
 
 ## Current Position
 
-Phase: 3 of 3 (complete)
-Plan: 5 of 5 (complete)
-Status: Milestone v2.0 shipped
-Last activity: 2026-03-26
-
-Progress: [██████████] 100%
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-03-26 — Milestone v2.1 started
 
 ## Performance Metrics
 

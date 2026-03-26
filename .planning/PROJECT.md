@@ -8,17 +8,16 @@
 
 소싱 상품을 최소한의 수작업으로 판매 가능한 상세페이지로 변환하고, 운영 전반을 하나의 대시보드에서 관리한다.
 
-## Current State
+## Current Milestone: v2.1 WYSIWYG 상세페이지 에디터
 
-**Shipped:** v2.0 쿠팡 운영 대시보드 (2026-03-26)
+**Goal:** 수집 직후 GrapesJS에서 상세페이지를 직접 편집하고, 개별 요소를 AI로 가공할 수 있다.
 
-주문/반품 운영 대시보드 구축 완료. KPI 카드, 매출 트렌드 차트, 상품 랭킹, 반품 사유 분석, 과실 비율 표시.
-
-## Next Milestone Goals
-
-- 정산 데이터 조회 (수수료, 정산금 추적)
-- 문의/리뷰 관리 (SLA 추적)
-- 쿠팡 API 실시간 연동 (API 키 확보 시)
+**Target features:**
+- 수집 직후(draft) 에디터 진입 — AI 가공 없이 GrapesJS에서 바로 편집
+- 플레이스홀더 bold-vertical HTML을 GrapesJS에 로드
+- "AI로 나머지 채우기" CTA — 빈 필드 한번에 AI 자동 생성
+- 개별 요소 AI 편집 — 텍스트 AI 다시쓰기/번역, 이미지 배경 제거/AI 생성
+- OneShot 제거 + 코드 정리
 
 ## Requirements
 
@@ -45,8 +44,12 @@
 
 <!-- Current scope. Building toward these. -->
 
-- [ ] 정산 데이터 조회 (수수료, 정산금)
-- [ ] 문의/리뷰 관리
+- [ ] 수집 직후(draft) GrapesJS 에디터 진입
+- [ ] 플레이스홀더 bold-vertical HTML 로드
+- [ ] "AI로 나머지 채우기" 빈 필드 자동 생성
+- [ ] 개별 텍스트 AI 편집 (다시쓰기/번역/축약)
+- [ ] 개별 이미지 AI 편집 (배경 제거/AI 생성)
+- [ ] OneShot 파이프라인 코드 제거
 
 ### Out of Scope
 
@@ -57,11 +60,12 @@
 
 ## Context
 
-- `data/` 폴더에 쿠팡 원본 JSON 파일 18개 (주문, 반품, 교환, 정산, 상품, 문의 등)
-- coupang_orders (389건), coupang_returns (20건) 이미 DB 시드 완료
-- OrdersService/ReturnsService는 Prisma 기반으로 전환 완료
-- 정산(settlements), 문의(inquiries) 데이터는 스키마/시드 추가 필요
-- 쿠팡 API 키 없음 → 모든 데이터는 DB 조회 기반
+- GrapesJS + `@grapesjs/react` 이미 설치됨 (에디터 페이지에서 사용 중)
+- `renderTemplateToHtml()`로 bold-vertical 플레이스홀더 HTML 생성 가능
+- `placeholderDetailPageData` 상수 추가됨 (커밋 전)
+- OneShot 코드 제거 완료 (커밋 전), Python agent는 이미 oneshot 거부
+- Python agent: content_draft(카피라이팅) / content_image(FAL.AI) 2단계 파이프라인
+- NestJS API: draft-content, preview, trigger-image-gen 엔드포인트 존재
 
 ## Constraints
 
@@ -99,4 +103,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-26 after v2.0 milestone*
+*Last updated: 2026-03-26 after v2.1 milestone start*
