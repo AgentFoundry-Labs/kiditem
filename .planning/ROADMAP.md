@@ -83,7 +83,10 @@ Plans:
   2. `apps/server/src/coupang/constants.ts` exports `ORDER_STATUSES` and `RETURN_STATUSES` as `as const` objects, and all service queries reference these constants instead of string literals
   3. The `CoupangDashboardModule` is registered in `AppModule`, the `GET /api/coupang-dashboard` endpoint returns HTTP 200, and `Promise.all()` fan-out is verified in the service (not sequential awaits)
   4. `react-day-picker@9` is installed in `apps/web` and the date range picker renders inside a Radix Popover without console errors
-**Plans**: TBD
+**Plans:** 1 plan
+
+Plans:
+- [ ] 01-01-PLAN.md — Backend guard-rails (kst helper, status constants, CoupangDashboard module) + frontend DateRangePicker
 **UI hint**: yes
 
 ### Phase 2: Orders Dashboard
@@ -96,7 +99,11 @@ Plans:
   3. A top-20 product performance table lists products ranked by revenue, grouped by `sellerProductId`, with correct row counts matching DB aggregation
   4. The sidebar displays a live pending-action badge showing ACCEPT order count and UC return count
   5. A date range filter (7d / 30d / 90d / custom) controls all queries on the orders page simultaneously
-**Plans**: TBD
+**Plans:** 2 plans
+
+Plans:
+- [ ] 02-01-PLAN.md — Backend: add getRevenueTrend and getProductRanking service methods + /trend and /ranking controller endpoints
+- [ ] 02-02-PLAN.md — Frontend: /coupang/orders page (KPI bar, trend chart, ranking table, date filter) + sidebar pending-action badges
 **UI hint**: yes
 
 ### Phase 3: Returns Dashboard
@@ -117,10 +124,10 @@ Phases execute in numeric order: 1 → 2 → 3
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 1. Schema Foundations | v1.0 | 0/1 | Planned    |  |
+| 1. Schema Foundations | v1.0 | 1/1 | Complete | 2026-03-25 |
 | 2. Python Agent Split | v1.0 | 3/3 | Complete | 2026-03-26 |
 | 3. NestJS API Extensions | v1.0 | 1/1 | Complete | 2026-03-26 |
 | 4. Frontend Editor Integration | v1.0 | 2/2 | Complete | 2026-03-26 |
-| 1. Dashboard Infrastructure | v2.0 | 0/TBD | Not started | - |
-| 2. Orders Dashboard | v2.0 | 0/TBD | Not started | - |
+| 1. Dashboard Infrastructure | v2.0 | 0/1 | Planning | - |
+| 2. Orders Dashboard | v2.0 | 0/2 | Planning | - |
 | 3. Returns Dashboard | v2.0 | 0/TBD | Not started | - |
