@@ -7,7 +7,7 @@ stopped_at: null
 last_updated: "2026-03-26T07:00:00.000Z"
 last_activity: 2026-03-26
 progress:
-  total_phases: 0
+  total_phases: 4
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -21,24 +21,25 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-26)
 
 **Core value:** 소싱 상품을 최소한의 수작업으로 판매 가능한 상세페이지로 변환한다
-**Current focus:** v2.1 WYSIWYG 상세페이지 에디터
+**Current focus:** Phase 4 — GrapesJS Editor Foundation
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-03-26 — Milestone v2.1 started
+Phase: 4 of 7 (GrapesJS Editor Foundation)
+Plan: — (not yet planned)
+Status: Ready to plan
+Last activity: 2026-03-26 — Roadmap created for v2.1
+
+Progress: [░░░░░░░░░░] 0%
 
 ## Performance Metrics
 
 **Velocity:**
-
-- Total plans completed: 5
-- Total tasks: 11
+- Total plans completed (v2.0): 5
+- Total tasks (v2.0): 11
 - Timeline: 1 day (2026-03-26)
 
-**By Phase:**
+**By Phase (v2.0):**
 
 | Phase | Duration | Tasks | Files |
 |-------|----------|-------|-------|
@@ -54,16 +55,23 @@ Last activity: 2026-03-26 — Milestone v2.1 started
 
 Key decisions logged in PROJECT.md Key Decisions table.
 
+Recent decisions affecting v2.1:
+- GrapesJS Canvas Spots API for floating panel positioning (no cross-iframe math)
+- Sync text AI (Gemini inline, <3s) / Async image AI (FAL.AI via agent_tasks, 10-40s)
+- isBusy ref shared across all AI surfaces (text panel, image panel, AI Fill CTA)
+- No new npm packages needed for core v2.1 scope
+
 ### Pending Todos
 
 None.
 
 ### Blockers/Concerns
 
-None (milestone complete).
+- [Phase 6] FAL_KEY availability in NestJS env needs confirmation before Phase 6 planning (single file check)
+- [Phase 7] POST /api/products/:id/trigger-content-draft existence needs verification before Phase 7 planning
 
 ## Session Continuity
 
 Last session: 2026-03-26
-Stopped at: Milestone v2.0 complete
+Stopped at: Roadmap created — v2.1 phases 4-7 defined
 Resume file: None

@@ -47,20 +47,20 @@ Requirements for v2.1 WYSIWYG 상세페이지 에디터. Each maps to roadmap ph
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| EDIT-01 | — | Pending |
-| EDIT-02 | — | Pending |
-| EDIT-03 | — | Pending |
-| AI-01 | — | Pending |
-| AI-02 | — | Pending |
-| AI-03 | — | Pending |
-| AI-04 | — | Pending |
-| CLEAN-01 | — | Pending |
+| EDIT-01 | Phase 4 | Pending |
+| EDIT-02 | Phase 4 | Pending |
+| CLEAN-01 | Phase 4 | Pending |
+| AI-01 | Phase 5 | Pending |
+| AI-03 | Phase 5 | Pending |
+| AI-02 | Phase 6 | Pending |
+| AI-04 | Phase 6 | Pending |
+| EDIT-03 | Phase 7 | Pending |
 
 **Coverage:**
 - v2.1 requirements: 8 total
-- Mapped to phases: 0
-- Unmapped: 8 ⚠️
+- Mapped to phases: 8
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-03-26*
-*Last updated: 2026-03-26 after initial definition*
+*Last updated: 2026-03-26 after roadmap creation*
