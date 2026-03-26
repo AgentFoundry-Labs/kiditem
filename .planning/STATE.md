@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: 쿠팡 운영 대시보드
 status: planning
-stopped_at: Phase 3 context gathered
-last_updated: "2026-03-26T02:16:58.813Z"
+stopped_at: Completed 03-01-PLAN.md
+last_updated: "2026-03-26T02:31:41.166Z"
 last_activity: 2026-03-26 — v2.0 roadmap created; 10/10 requirements mapped
 progress:
   total_phases: 3
   completed_phases: 2
-  total_plans: 3
+  total_plans: 5
   completed_plans: 3
   percent: 0
 ---
@@ -50,6 +50,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01-dashboard-infrastructure P01 | 4 | 3 tasks | 9 files |
 | Phase 02-orders-dashboard P01 | 8 | 2 tasks | 2 files |
 | Phase 02-orders-dashboard P02-02 | 3 | 2 tasks | 4 files |
+| Phase 03-returns-dashboard P01 | 8 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -70,6 +71,8 @@ Recent decisions affecting current work:
 - [Phase 02-orders-dashboard]: sellerProductId used as ranking group key (not vendorItemId) per STATE.md blocker note
 - [Phase 02-orders-dashboard]: Used any type for Recharts Tooltip formatter to match existing pattern in page.tsx
 - [Phase 02-orders-dashboard]: Sidebar badge fetch is fire-and-forget with silent catch — supplementary UI, not critical path
+- [Phase 03-returns-dashboard]: Return rate formula: Math.round((returnCount / orderCount) * 10000) / 100 — avoids floating point drift, produces percentage with 2 decimal places
+- [Phase 03-returns-dashboard]: fault-split returns object { customer, vendor } not array — frontend can destructure directly without reduce
 
 ### Pending Todos
 
@@ -83,6 +86,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26T02:16:58.804Z
-Stopped at: Phase 3 context gathered
-Resume file: .planning/phases/03-returns-dashboard/03-CONTEXT.md
+Last session: 2026-03-26T02:31:41.163Z
+Stopped at: Completed 03-01-PLAN.md
+Resume file: None

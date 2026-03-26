@@ -45,17 +45,17 @@ Requirements for milestone v2.0: 쿠팡 운영 대시보드
 
 ### Orders
 
-- [ ] **ORD-01**: 주문 페이지에 오늘 주문 수, 오늘 매출(원), 확인 대기 건수 KPI 바가 표시된다.
-- [ ] **ORD-02**: 30일 일별 매출 트렌드 라인 차트가 KST 기준으로 렌더링된다.
-- [ ] **ORD-03**: 상품별 매출 상위 20개 테이블이 `sellerProductId` 기준으로 집계되어 표시된다.
-- [ ] **ORD-04**: 사이드바에 ACCEPT 대기 주문 수와 UC 반품 수가 배지로 표시된다.
-- [ ] **ORD-05**: 7일/30일/90일/사용자 지정 날짜 범위 필터가 모든 주문 대시보드 쿼리에 동시 적용된다.
+- [x] **ORD-01**: 주문 페이지에 오늘 주문 수, 오늘 매출(원), 확인 대기 건수 KPI 바가 표시된다.
+- [x] **ORD-02**: 30일 일별 매출 트렌드 라인 차트가 KST 기준으로 렌더링된다.
+- [x] **ORD-03**: 상품별 매출 상위 20개 테이블이 `sellerProductId` 기준으로 집계되어 표시된다.
+- [x] **ORD-04**: 사이드바에 ACCEPT 대기 주문 수와 UC 반품 수가 배지로 표시된다.
+- [x] **ORD-05**: 7일/30일/90일/사용자 지정 날짜 범위 필터가 모든 주문 대시보드 쿼리에 동시 적용된다.
 
 ### Returns
 
-- [ ] **RET-01**: 반품 페이지에 반품률 KPI 카드가 표시된다 (반품 수 / 주문 수 × 100%).
-- [ ] **RET-02**: `cancelReasonCategory1` 기준 반품 사유 건수 막대 차트가 렌더링된다.
-- [ ] **RET-03**: CUSTOMER 귀책 vs VENDOR 귀책 비율 표시기가 반품 페이지에 표시된다.
+- [x] **RET-01**: 반품 페이지에 반품률 KPI 카드가 표시된다 (반품 수 / 주문 수 × 100%).
+- [x] **RET-02**: `cancelReasonCategory1` 기준 반품 사유 건수 막대 차트가 렌더링된다.
+- [x] **RET-03**: CUSTOMER 귀책 vs VENDOR 귀책 비율 표시기가 반품 페이지에 표시된다.
 
 ## Future Requirements
 
@@ -118,14 +118,14 @@ Requirements for milestone v2.0: 쿠팡 운영 대시보드
 |-------------|-------|--------|
 | INFRA-01 | Phase 1 | Pending |
 | INFRA-02 | Phase 1 | Pending |
-| ORD-01 | Phase 2 | Pending |
-| ORD-02 | Phase 2 | Pending |
-| ORD-03 | Phase 2 | Pending |
-| ORD-04 | Phase 2 | Pending |
-| ORD-05 | Phase 2 | Pending |
-| RET-01 | Phase 3 | Pending |
-| RET-02 | Phase 3 | Pending |
-| RET-03 | Phase 3 | Pending |
+| ORD-01 | Phase 2 | Complete |
+| ORD-02 | Phase 2 | Complete |
+| ORD-03 | Phase 2 | Complete |
+| ORD-04 | Phase 2 | Complete |
+| ORD-05 | Phase 2 | Complete |
+| RET-01 | Phase 3 | Complete |
+| RET-02 | Phase 3 | Complete |
+| RET-03 | Phase 3 | Complete |
 
 **Coverage:**
 - v2.0 requirements: 10 total
