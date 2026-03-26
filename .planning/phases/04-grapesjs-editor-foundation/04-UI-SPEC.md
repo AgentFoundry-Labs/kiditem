@@ -44,9 +44,9 @@ Declared values (multiples of 4):
 | 2xl | 48px | Major section breaks |
 | 3xl | 64px | Page-level spacing |
 
-Exceptions: GrapesJS toolbar items use 28px width (7px per side) and 5px padding — preserved from existing `grapesjs-editor.css` to match GrapesJS internal metrics. Touch targets are not applicable (desktop-only editor).
+Note: GrapesJS toolbar internal metrics are not Phase 4 declared tokens — see `apps/web/src/components/editor/grapesjs-editor.css` for reference. Phase 4 does not introduce or change those values.
 
-Source: Inferred from `apps/web/src/components/editor/grapesjs-editor.css` line 62-67. All other values: 8-point defaults.
+Source: All declared values: 8-point defaults. GrapesJS-internal CSS not owned by this phase.
 
 ---
 
@@ -57,13 +57,11 @@ Source: Inferred from `apps/web/src/components/editor/grapesjs-editor.css` line 
 | Body | 14px | 400 | 1.5 |
 | Label | 12px | 600 | 1.4 |
 | Heading | 16px | 600 | 1.3 |
-| Display | 20px | 700 | 1.2 |
 
 Notes:
 - Body 14px at 400: used for all panel text, status messages, editor mode label "GrapesJS 편집 모드"
 - Label 12px at 600: used for panel section headers (e.g., "구조 편집"), toolbar badge text (10px as GrapesJS exception), table headers
 - Heading 16px at 600: used for page-level headings and modal titles
-- Display 20px at 700: not used in Phase 4 UI surfaces (reserved for future phases)
 
 Source: Observed from `editor/page.tsx` — `text-sm font-semibold` (14px 600), `text-xs` (12px) patterns. Line heights: standard defaults.
 
