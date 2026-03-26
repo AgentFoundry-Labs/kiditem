@@ -93,4 +93,78 @@ export class CoupangDashboardService {
       orderCount: Number(r.order_count),
     }));
   }
+
+  async getReturnSummary(companyId: string, from: Date, to: Date) {
+    const [returnRows, orderRows] = await Promise.all([
+      this.prisma.$queryRaw<{ count: number }[]>`
+        SELECT COUNT(*)::int AS count
+        FROM coupang_returns
+        WHERE company_id = ${companyId}::uuid
+          AND requested_at >= ${from}
+          AND requested_at < ${to}
+      `,
+      this.prisma.$queryRaw<{ count: number }[]>`
+        SELECT COUNT(*)::int AS count
+        FROM coupang_orders
+        WHERE company_id = ${companyId}::uuid
+          AND ordered_at >= ${from}
+          AND ordered_at < ${to}
+      `,
+    ]);
+
+    const returnCount = Number(returnRows[0]?.count ?? 0);
+    const orderCount = Number(orderRows[0]?.count ?? 0);
+    const returnRate =
+      orderCount > 0
+        ? Math.round((returnCount / orderCount) * 10000) / 100
+        : 0;
+
+    return { returnCount, orderCount, returnRate };
+  }
+
+  async getReturnReasonBreakdown(companyId: string, from: Date, to: Date) {
+    const rows = await this.prisma.$queryRaw<
+      { reason: string | null; count: number }[]
+    >`
+      SELECT
+        cancel_reason_category1 AS reason,
+        COUNT(*)::int AS count
+      FROM coupang_returns
+      WHERE company_id = ${companyId}::uuid
+        AND requested_at >= ${from}
+        AND requested_at < ${to}
+      GROUP BY cancel_reason_category1
+      ORDER BY count DESC
+    `;
+
+    return rows.map((r) => ({
+      reason: r.reason ?? '미분류',
+      count: Number(r.count),
+    }));
+  }
+
+  async getReturnFaultSplit(companyId: string, from: Date, to: Date) {
+    const rows = await this.prisma.$queryRaw<
+      { fault_type: string; count: number }[]
+    >`
+      SELECT
+        fault_by_type AS fault_type,
+        COUNT(*)::int AS count
+      FROM coupang_returns
+      WHERE company_id = ${companyId}::uuid
+        AND requested_at >= ${from}
+        AND requested_at < ${to}
+      GROUP BY fault_by_type
+    `;
+
+    const result: Record<string, number> = {};
+    for (const r of rows) {
+      result[r.fault_type] = Number(r.count);
+    }
+
+    return {
+      customer: result['CUSTOMER'] ?? 0,
+      vendor: result['VENDOR'] ?? 0,
+    };
+  }
 }

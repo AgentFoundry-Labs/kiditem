@@ -31,6 +31,7 @@ import { API_BASE } from '@/lib/api';
 const operationsNav = [
   { href: '/', label: '대시보드', icon: LayoutDashboard },
   { href: '/coupang/orders', label: '주문 대시보드', icon: BarChart3 },
+  { href: '/coupang/returns', label: '반품 대시보드', icon: RotateCcw },
   { href: '/orders', label: '주문 처리', icon: ShoppingCart },
   { href: '/returns', label: '반품/교환', icon: RotateCcw },
   { href: '/products', label: '상품 관리', icon: Package },

@@ -62,4 +62,67 @@ export class CoupangDashboardController {
 
     return this.service.getProductRanking(company.id, from, to);
   }
+
+  @Get('return-summary')
+  async getReturnSummary(
+    @Query('from') fromStr?: string,
+    @Query('to') toStr?: string,
+  ) {
+    const company = await this.prisma.company.findFirst({
+      orderBy: { createdAt: 'asc' },
+    });
+    if (!company) throw new NotFoundException('회사 정보 없음');
+
+    const defaultFrom = kstDayStart(new Date(Date.now() - 30 * 86400000));
+    const defaultTo = new Date(kstDayStart(new Date()).getTime() + 86400000);
+
+    const from = fromStr ? kstDayStart(new Date(fromStr)) : defaultFrom;
+    const to = toStr
+      ? new Date(kstDayStart(new Date(toStr)).getTime() + 86400000)
+      : defaultTo;
+
+    return this.service.getReturnSummary(company.id, from, to);
+  }
+
+  @Get('return-reasons')
+  async getReturnReasonBreakdown(
+    @Query('from') fromStr?: string,
+    @Query('to') toStr?: string,
+  ) {
+    const company = await this.prisma.company.findFirst({
+      orderBy: { createdAt: 'asc' },
+    });
+    if (!company) throw new NotFoundException('회사 정보 없음');
+
+    const defaultFrom = kstDayStart(new Date(Date.now() - 30 * 86400000));
+    const defaultTo = new Date(kstDayStart(new Date()).getTime() + 86400000);
+
+    const from = fromStr ? kstDayStart(new Date(fromStr)) : defaultFrom;
+    const to = toStr
+      ? new Date(kstDayStart(new Date(toStr)).getTime() + 86400000)
+      : defaultTo;
+
+    return this.service.getReturnReasonBreakdown(company.id, from, to);
+  }
+
+  @Get('return-fault-split')
+  async getReturnFaultSplit(
+    @Query('from') fromStr?: string,
+    @Query('to') toStr?: string,
+  ) {
+    const company = await this.prisma.company.findFirst({
+      orderBy: { createdAt: 'asc' },
+    });
+    if (!company) throw new NotFoundException('회사 정보 없음');
+
+    const defaultFrom = kstDayStart(new Date(Date.now() - 30 * 86400000));
+    const defaultTo = new Date(kstDayStart(new Date()).getTime() + 86400000);
+
+    const from = fromStr ? kstDayStart(new Date(fromStr)) : defaultFrom;
+    const to = toStr
+      ? new Date(kstDayStart(new Date(toStr)).getTime() + 86400000)
+      : defaultTo;
+
+    return this.service.getReturnFaultSplit(company.id, from, to);
+  }
 }
