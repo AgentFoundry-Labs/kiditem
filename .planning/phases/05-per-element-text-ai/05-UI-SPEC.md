@@ -52,13 +52,14 @@ Source: `AIImageEditPanel.tsx` — all spacing tokens verified directly from exi
 | Role | Size | Weight | Line Height |
 |------|------|--------|-------------|
 | Body | 14px (text-sm) | 400 (normal) | 1.5 |
-| Label | 12px (text-xs) | 500 (medium) | 1.4 |
-| Panel header | 12px (text-xs) | 700 (bold) | 1.4 |
+| Label / UI element | 12px (text-xs) | 700 (bold) | 1.4 |
 | Display | not used in this phase | — | — |
 
-All text in the `AITextEditPanel` uses `text-xs` (12px), matching the `AIImageEditPanel` pattern exactly. Panel header label uses `font-bold`, preset button labels use `font-medium`, error text uses `font-medium`.
+All text in the `AITextEditPanel` uses `text-xs` (12px) with `font-bold`, matching the `AIImageEditPanel` panel header pattern. This applies to: the panel header title, preset button labels, loading banner text, error text, custom toggle label, custom submit button label. Body-level copy (14px `font-normal`) is not used inside this panel.
 
-Source: `AIImageEditPanel.tsx` — classes `text-xs font-bold`, `text-xs font-medium`, `text-xs` verified line-by-line.
+Exactly 2 weights: `font-normal` (400) for general body text outside the panel; `font-bold` (700) for all labeled UI elements inside the panel.
+
+Source: `AIImageEditPanel.tsx` — `text-xs font-bold` class verified on panel header. Weight count reduced from 3 to 2 per spec constraint (removed `font-medium` / 500).
 
 ---
 
@@ -95,7 +96,7 @@ Source: `AIImageEditPanel.tsx` — emerald palette verified. `globals.css` — `
 | Custom prompt toggle | "직접 입력" |
 | Custom prompt placeholder | "원하는 변환 내용을 입력하세요..." |
 | Custom prompt submit button | "AI 텍스트 적용" |
-| Error state | "변환에 실패했습니다" (auto-dismisses after 4 seconds — no manual dismiss needed) |
+| Error state | "변환에 실패했습니다. 다시 시도해 주세요." (auto-dismisses after 4 seconds — no manual dismiss needed) |
 | Empty custom prompt guard | input disabled state — no copy needed, button disabled |
 | isBusy guard | no visible copy — preset buttons enter `disabled` + `opacity-50` state silently |
 
@@ -103,7 +104,7 @@ No empty state: the panel appears only when a text element is selected. If no te
 
 No destructive actions in Phase 5. No confirmation dialog needed.
 
-Source: Decisions D-01 through D-04 from `05-CONTEXT.md`. Korean copy convention follows `AIImageEditPanel.tsx` ("AI 편집 중...", "편집에 실패했습니다", "직접 입력"). Adapted to text context.
+Source: Decisions D-01 through D-04 from `05-CONTEXT.md`. Korean copy convention follows `AIImageEditPanel.tsx` ("AI 편집 중...", "편집에 실패했습니다", "직접 입력"). Adapted to text context. Error copy updated to include solution hint per non-blocking FLAG-3.
 
 ---
 
@@ -119,17 +120,20 @@ Components to create or modify in this phase:
 
 ### AITextEditPanel Layout Spec
 
+Focal point: the three preset buttons (다시쓰기, 번역, 축약) are the primary affordance. They occupy the visual center of the panel and receive the most prominent placement. The custom prompt section is secondary, collapsed by default.
+
 ```
 [Panel — 280px wide, bg-white, rounded-xl, shadow-lg, border border-gray-200]
 ├── Header row — px-3 py-2, border-b border-gray-100
 │   ├── Left: <Wand2 size={14} /> + "텍스트 편집" (text-xs font-bold text-gray-700)
-│   └── Right: X close button (p-0.5, text-gray-400 hover:text-gray-600)
+│   └── Right: X close button (p-0.5, text-gray-400 hover:text-gray-600,
+│       aria-label="닫기")
 │
 ├── [Conditional] Loading banner — px-3 py-2, bg-emerald-50, border-b border-emerald-100
-│   └── <Loader2 size={14} animate-spin text-emerald-600 /> + "AI 변환 중..." (text-xs font-medium text-emerald-700)
+│   └── <Loader2 size={14} animate-spin text-emerald-600 /> + "AI 변환 중..." (text-xs font-bold text-emerald-700)
 │
 ├── Preset buttons section — px-3 pt-3 pb-1, space-y-1
-│   ├── "다시쓰기" button — <Wand2 size={14} />, full-width, bg-gray-50 hover:bg-emerald-50 hover:text-emerald-700, text-xs font-medium, rounded-lg, py-2
+│   ├── "다시쓰기" button — <Wand2 size={14} />, full-width, bg-gray-50 hover:bg-emerald-50 hover:text-emerald-700, text-xs font-bold, rounded-lg, py-2
 │   ├── "번역" button     — <Languages size={14} />, same style
 │   └── "축약" button     — <AlignLeft size={14} />, same style
 │   All buttons: disabled state = opacity-50 cursor-not-allowed (during isBusy or loading)
@@ -140,12 +144,12 @@ Components to create or modify in this phase:
 │   └── [Expanded]
 │       ├── textarea rows={3} — text-xs, border-gray-200, rounded-lg, resize-none,
 │       │   focus:ring-1 focus:ring-emerald-500, placeholder "원하는 변환 내용을 입력하세요..."
-│       └── Submit button — "AI 텍스트 적용", text-xs font-medium, text-white,
-│           bg-emerald-500 hover:bg-emerald-600, rounded-lg, w-full py-1.5,
+│       └── Submit button — "AI 텍스트 적용", text-xs font-bold, text-white,
+│           bg-emerald-500 hover:bg-emerald-600, rounded-lg, w-full py-2,
 │           disabled when loading or empty prompt
 │
 └── [Conditional] Error row — px-3 pb-2
-    └── "변환에 실패했습니다" (text-xs text-red-500 font-medium), auto-dismissed after 4s
+    └── "변환에 실패했습니다. 다시 시도해 주세요." (text-xs text-red-500 font-bold), auto-dismissed after 4s
 ```
 
 Icons from lucide-react: `Wand2` (다시쓰기), `Languages` (번역), `AlignLeft` (축약), `Send` (custom submit alternative if Wand2 is used in header), `X` (close), `ChevronDown`/`ChevronUp` (custom toggle), `Loader2` (loading spinner).
