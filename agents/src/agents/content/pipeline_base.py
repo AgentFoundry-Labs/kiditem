@@ -8,6 +8,7 @@ import uuid
 
 import httpx
 import structlog
+from langfuse import observe
 
 from src.agents.content.http_utils import download_image_with_type
 from src.agents.content.models import ExtensionProductData
@@ -38,8 +39,7 @@ def _parse_llm_json(raw: str) -> dict:
 _KRW_PER_CNY = 190
 
 _PRODUCT_ANALYSIS_PROMPT = """\
-You are a professional product photographer preparing to recreate these product photos \
-for a premium Korean e-commerce listing (Coupang).
+You are selecting the best hero image for a Korean e-commerce listing.
 
 Product title: {title}
 Category: {category}
@@ -48,32 +48,34 @@ Specifications:
 
 You will see {image_count} product photos (P0–P{last_index}).
 
-TASK 1 — PRODUCT DESCRIPTION:
-Examine the product photos carefully. Describe what you see with enough precision \
-that another photographer could recreate an identical product shot:
-1. FORM: Exact product shape, silhouette, proportions, and approximate dimensions. \
-Is it round, rectangular, organic? How tall vs. wide?
-2. SURFACE: Every color present (use specific color names like "dusty rose" or \
-"charcoal gray"), material finish (matte, glossy, satin, textured), \
-and any visible grain, weave, or pattern.
-3. DETAILS: Stitching, seams, buttons, zippers, embossing, engraving, \
-printed graphics, labels, hang tags — anything that makes this product unique.
-4. TEXT: Any Chinese/English text visible on the product, packaging, or labels. \
-Provide the exact text and its Korean translation equivalent.
-5. STYLING: How the product is positioned, any props or context visible, \
-the background type and color.
+TASK 1 — HERO IMAGE SELECTION (hero_index):
+Pick the single best image for the main product thumbnail. Priority order:
+1. WHITE/CLEAN BACKGROUND: Product on solid white or near-white background \
+with no clutter. This is the #1 priority — if any image has a clean white \
+background with the product clearly visible, pick it.
+2. EASY TO CUT OUT: If no white-background image exists, pick the image where \
+the product has the clearest boundary against its background — high contrast \
+edges, minimal overlap with other objects, simple background.
+3. PRODUCT FOCUS: The product must be the clear subject — not packaging, \
+not accessories, not a lifestyle/context shot.
 
-TASK 2 — DETAIL SHOT SELECTION:
-- detail_indices: Which product photo indices (P, excluding P0 which is always hero) \
-show the best angles for detail shots? Pick up to 3.
-- EXCLUDE images that primarily show: packaging boxes, hang tags, labels, \
-certificate cards, or any surface dominated by Chinese text. \
-Only select images where the product itself is the clear focus.
+EXCLUDE from hero consideration:
+- Packaging boxes, hang tags, certificates, labels
+- Collages or multi-product layouts
+- Images dominated by Chinese text or promotional banners
+- Images showing hands holding the product
+
+TASK 2 — PRODUCT DESCRIPTION:
+Describe the product with enough precision for another photographer to recreate it:
+1. FORM: Shape, silhouette, proportions.
+2. SURFACE: Colors, material finish, texture.
+3. DETAILS: Unique features — stitching, logos, printed graphics.
+4. TEXT: Any Chinese/English text on the product and Korean translation.
 
 Return JSON:
 {{
-  "description": "<detailed English description>",
-  "detail_indices": [1, 2]
+  "hero_index": 0,
+  "description": "<detailed English description>"
 }}\
 """
 
@@ -139,12 +141,16 @@ class PipelineBase:
         )
 
         parsed = _parse_llm_json(raw)
-        data = parsed if isinstance(parsed, dict) else {"description": raw, "detail_indices": []}
+        data = parsed if isinstance(parsed, dict) else {"description": raw, "hero_index": 0}
+        hero_idx = data.get("hero_index", 0)
+        if not isinstance(hero_idx, int) or hero_idx < 0 or hero_idx >= len(product_urls):
+            hero_idx = 0
+        data["hero_index"] = hero_idx
         logger.info(
             "Product analyzed",
             image_count=len(product_urls),
+            hero_index=hero_idx,
             description_length=len(data.get("description", "")),
-            detail_indices=data.get("detail_indices", []),
         )
         return data
 
@@ -191,6 +197,7 @@ class PipelineBase:
             return None
         return frozenset(numbers)
 
+    @observe(name="scan-size-charts", capture_input=False)
     async def _scan_size_charts(
         self,
         description_images: list[str],

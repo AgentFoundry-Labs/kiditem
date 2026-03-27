@@ -9,13 +9,12 @@ npm run build       # tsup + tailwind CSS 컴파일
 npm run dev         # watch mode
 ```
 
-## 템플릿 3종
+## 템플릿 2종
 
 | ID | 이름 | 설명 |
 |---|---|---|
 | `bold-vertical` | 볼드 세로형 | 큰 타이포, 강렬한 색상, 포인트 뱃지 |
 | `simple-vertical` | 심플 세로형 | 따뜻한 톤, 넘버링 키포인트, 섹션 on/off |
-| `oneshot` | 원샷 | AI 생성 단일 이미지 |
 
 ## 사용
 

@@ -1,22 +1,24 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   AlertCircle,
   ChevronDown,
-  Code2,
   Download,
   Loader2,
   Pencil,
   Settings,
-  Square,
 } from 'lucide-react';
 import {
   productsApi,
   type ProductDetailResponse,
 } from '@/lib/sourcing-api';
+import type { DetailPageData } from '@kiditem/templates';
+import { getTemplate, parseDetailPageData, placeholderDetailPageData } from '@kiditem/templates';
+import { API_BASE } from '@/lib/api';
+import { renderTemplateToHtml } from '@/lib/template-html';
 import MobilePreview from '../components/MobilePreview';
 import ProductEditHeader from '../components/ProductEditHeader';
 import ProductEditTabs, {
@@ -118,9 +120,10 @@ export default function ProductDetailPage() {
   const [activeTab, setActiveTab] = useState<EditTabType>('basic');
   const [isEditComplete, setIsEditComplete] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
-  const [isReprocessing, setIsReprocessing] = useState(false);
   const [editData, setEditData] =
     useState<ProductEditState>(PLACEHOLDER_DATA);
+  const [templateCss, setTemplateCss] = useState('');
+  const [detailPageData, setDetailPageData] = useState<DetailPageData>(placeholderDetailPageData);
 
   const goBack = () => router.push('/sourcing');
 
@@ -128,8 +131,34 @@ export default function ProductDetailPage() {
     setIsLoadingProduct(true);
     setLoadError(null);
     try {
-      const data = await productsApi.getDetail(productId);
+      const [data, previewRes, css] = await Promise.all([
+        productsApi.getDetail(productId),
+        fetch(`${API_BASE}/api/products/${productId}/preview`)
+          .then((r) => (r.ok ? r.json() : null))
+          .catch(() => null) as Promise<{ template: string | null; data: Record<string, unknown> } | null>,
+        fetch('/templates-styles.css')
+          .then((r) => (r.ok ? r.text() : ''))
+          .catch(() => ''),
+      ]);
       setProduct(data);
+      setTemplateCss(css);
+
+      if (previewRes?.template && previewRes?.data) {
+        try {
+          const parsed = parseDetailPageData(previewRes.data);
+          const resolve = (url: string) => url.startsWith('/processed/') ? `${API_BASE}${url}` : url;
+          parsed.images = parsed.images.map(resolve);
+          parsed.sizeImages = parsed.sizeImages.map(resolve);
+          parsed.detailImages = parsed.detailImages.map(resolve);
+          if (parsed.heroBanner) parsed.heroBanner = resolve(parsed.heroBanner);
+          setDetailPageData(parsed);
+        } catch {
+          setDetailPageData(placeholderDetailPageData);
+        }
+      } else {
+        setDetailPageData(placeholderDetailPageData);
+      }
+
       if (data.processed_data) {
         setEditData(mapProcessedData(data.processed_data));
       } else {
@@ -155,47 +184,22 @@ export default function ProductDetailPage() {
     fetchProduct();
   }, [fetchProduct]);
 
-  useEffect(() => {
-    if (!isReprocessing) return;
-    const interval = setInterval(async () => {
-      try {
-        const status = await productsApi.status(productId);
-        if (status.status !== 'PROCESSING') {
-          setIsReprocessing(false);
-          fetchProduct();
-        }
-      } catch {
-        void 0;
-      }
-    }, 3000);
-    return () => clearInterval(interval);
-  }, [isReprocessing, productId, fetchProduct]);
-
-  const handleReprocess = async (mode: 'template' | 'oneshot' = 'template') => {
-    try {
-      await productsApi.process(productId, { generation_mode: mode });
-      setIsReprocessing(true);
-    } catch {
-      void 0;
-    }
-  };
-
-  const handleCancelReprocess = async () => {
-    try {
-      await productsApi.cancel(productId);
-    } catch {
-      void 0;
-    } finally {
-      setIsReprocessing(false);
-    }
-  };
-
   const updateField = <K extends keyof ProductEditState>(
     field: K,
     value: ProductEditState[K]
   ) => {
     setEditData((prev) => ({ ...prev, [field]: value }));
   };
+
+  const detailPreviewHtml = useMemo(() => {
+    const config = getTemplate('bold-vertical');
+    return renderTemplateToHtml(
+      config.component as React.ComponentType<unknown>,
+      detailPageData,
+      config,
+      templateCss,
+    );
+  }, [detailPageData, templateCss]);
 
   if (isLoadingProduct) {
     return (
@@ -205,10 +209,8 @@ export default function ProductDetailPage() {
           productId={productId}
           isEditComplete={false}
           isLocked={false}
-          isReprocessing={false}
           onToggleEditComplete={() => {}}
           onToggleLocked={() => {}}
-          onReprocess={() => {}}
           onBack={goBack}
         />
         <div className="flex-1 flex items-center justify-center bg-gray-50">
@@ -231,10 +233,8 @@ export default function ProductDetailPage() {
           productId={productId}
           isEditComplete={false}
           isLocked={false}
-          isReprocessing={false}
           onToggleEditComplete={() => {}}
           onToggleLocked={() => {}}
-          onReprocess={() => {}}
           onBack={goBack}
         />
         <div className="flex-1 flex items-center justify-center bg-gray-50">
@@ -400,31 +400,13 @@ export default function ProductDetailPage() {
               </div>
             </div>
 
-            {product?.is_processed ? (
-              <div className="bg-white rounded-xl border border-gray-200 p-8">
-                <div className="flex flex-col items-center justify-center py-8 text-gray-500">
-                  <Code2 size={40} className="mb-3 text-gray-300" />
-                  <p className="text-sm font-medium">
-                    상세페이지 미리보기
-                  </p>
-                  <p className="text-xs text-gray-400 mt-1">
-                    AI 가공된 상세페이지가 여기에 표시됩니다
-                  </p>
-                </div>
-              </div>
-            ) : (
-              <div className="bg-white rounded-xl border border-gray-200 p-8">
-                <div className="flex flex-col items-center justify-center py-12 text-gray-400">
-                  <Settings size={40} className="mb-3 text-gray-300" />
-                  <p className="text-sm font-medium">
-                    생성된 상세페이지가 없습니다
-                  </p>
-                  <p className="text-xs text-gray-400 mt-1">
-                    AI 가공을 먼저 실행해주세요
-                  </p>
-                </div>
-              </div>
-            )}
+            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden" style={{ height: '80vh' }}>
+              <iframe
+                srcDoc={detailPreviewHtml}
+                className="w-full h-full border-0"
+                title="detail-page-preview"
+              />
+            </div>
           </div>
         );
 
@@ -443,28 +425,10 @@ export default function ProductDetailPage() {
         productId={productId}
         isEditComplete={isEditComplete}
         isLocked={isLocked}
-        isReprocessing={isReprocessing}
         onToggleEditComplete={() => setIsEditComplete((v) => !v)}
         onToggleLocked={() => setIsLocked((v) => !v)}
-        onReprocess={handleReprocess}
         onBack={goBack}
       />
-
-      {isReprocessing && (
-        <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 flex items-center justify-between text-amber-700 text-sm font-medium">
-          <div className="flex items-center gap-2">
-            <Loader2 size={14} className="animate-spin" />
-            AI 재가공 중... 완료되면 자동으로 업데이트됩니다.
-          </div>
-          <button
-            onClick={handleCancelReprocess}
-            className="flex items-center gap-1.5 px-3 py-1 text-xs font-bold text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors"
-          >
-            <Square size={12} />
-            중단
-          </button>
-        </div>
-      )}
 
       <div className="flex flex-1 overflow-hidden">
         <div className="w-[65%] flex flex-col overflow-hidden border-r border-gray-200">

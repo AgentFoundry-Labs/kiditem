@@ -140,7 +140,7 @@ export default function SourcingPage() {
 
   const handleProcess = async (
     id: string,
-    generationMode?: 'template' | 'oneshot'
+    generationMode?: string
   ) => {
     setProcessingIds((prev) => new Set(prev).add(id));
     try {
@@ -375,11 +375,11 @@ export default function SourcingPage() {
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          router.push(`/sourcing/${product.id}`);
+                          router.push(`/sourcing/${product.id}/editor`);
                         }}
                         className="text-white font-bold py-3 px-6 rounded-full shadow-lg transform scale-95 group-hover:scale-100 transition-all flex items-center gap-2 bg-emerald-500 hover:bg-emerald-600"
                       >
-                        <Sparkles size={16} /> 상세페이지 수정
+                        <Sparkles size={16} /> 에디터 열기
                       </button>
                     </div>
 
@@ -432,61 +432,12 @@ export default function SourcingPage() {
                     </div>
 
                     <div className="flex gap-2">
-                      {product.is_processed && !isProcessing && (
-                        <>
-                          <button
-                            onClick={() =>
-                              router.push(`/sourcing/${product.id}`)
-                            }
-                            className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-emerald-500 text-white rounded-lg text-xs font-bold hover:bg-emerald-600 transition-colors"
-                          >
-                            <Edit3 size={12} /> 편집
-                          </button>
-                          <button
-                            onClick={() =>
-                              handleProcess(product.id, 'oneshot')
-                            }
-                            className="flex items-center justify-center gap-1.5 py-2 px-2.5 bg-gray-100 text-gray-600 rounded-lg text-xs font-bold hover:bg-gray-200 transition-colors"
-                            title="재가공"
-                          >
-                            <RefreshCw size={12} />
-                          </button>
-                          <button className="flex items-center justify-center gap-1.5 py-2 px-2.5 bg-blue-50 text-blue-600 rounded-lg text-xs font-bold hover:bg-blue-100 transition-colors">
-                            <Eye size={12} /> 보기
-                          </button>
-                        </>
-                      )}
-                      {!product.is_processed && !isProcessing && (
-                        <button
-                          onClick={() =>
-                            handleProcess(product.id, 'oneshot')
-                          }
-                          className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-blue-500 text-white rounded-lg text-xs font-bold hover:bg-blue-600 transition-colors"
-                        >
-                          <Zap size={12} /> AI 가공
-                        </button>
-                      )}
-                      {isProcessing && (
-                        <button
-                          onClick={() => handleCancel(product.id)}
-                          className="group/btn flex-1 flex items-center justify-center gap-1.5 py-2 bg-yellow-100 text-yellow-700 rounded-lg text-xs font-bold hover:bg-red-100 hover:text-red-600 transition-colors"
-                        >
-                          <Loader2
-                            size={12}
-                            className="animate-spin group-hover/btn:hidden"
-                          />
-                          <Square
-                            size={12}
-                            className="hidden group-hover/btn:block"
-                          />
-                          <span className="group-hover/btn:hidden">
-                            가공 중...
-                          </span>
-                          <span className="hidden group-hover/btn:block">
-                            중단
-                          </span>
-                        </button>
-                      )}
+                      <button
+                        onClick={() => router.push(`/sourcing/${product.id}`)}
+                        className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-gray-100 text-gray-600 rounded-lg text-xs font-bold hover:bg-gray-200 transition-colors"
+                      >
+                        <Eye size={12} /> 상세
+                      </button>
                       <button
                         onClick={() => handleDelete(product.id)}
                         disabled={isDeleting}

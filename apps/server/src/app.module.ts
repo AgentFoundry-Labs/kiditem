@@ -17,6 +17,8 @@ import { WorkflowsModule } from './workflows/workflows.module';
 import { ActivityEventsModule } from './activity-events/activity-events.module';
 import { CoupangDashboardModule } from './coupang-dashboard/coupang-dashboard.module';
 import { TextAiModule } from './text-ai/text-ai.module';
+import { ImageAiModule } from './image-ai/image-ai.module';
+import { RenderImageModule } from './render-image/render-image.module';
 
 @Module({
   imports: [
@@ -38,6 +40,8 @@ import { TextAiModule } from './text-ai/text-ai.module';
     ActivityEventsModule,
     CoupangDashboardModule,
     TextAiModule,
+    ImageAiModule,
+    RenderImageModule,
   ],
 })
 export class AppModule {}

@@ -1,0 +1,25 @@
+# Dependencies (Dockerfile에서 자체 install)
+node_modules/
+
+# Build artifacts (Docker 안에서 빌드)
+apps/server/dist/
+apps/web/.next/
+
+# Secrets
+**/.env
+!**/.env.example
+
+# Git
+.git/
+.gitignore
+
+# Python (agents는 별도 context)
+agents/.venv/
+agents/__pycache__/
+**/__pycache__/
+
+# Unnecessary for server build
+extensions/
+*.md
+.planning/
+.sisyphus/

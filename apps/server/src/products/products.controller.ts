@@ -40,6 +40,14 @@ export class ProductsController {
     return this.productsService.triggerImageGeneration(id);
   }
 
+  @Post(':id/trigger-content-draft')
+  async triggerContentDraft(
+    @Param('id') id: string,
+    @Body() body: { seed_hook_text?: string; seed_hook_title_sub?: string; seed_hero_image?: string },
+  ) {
+    return this.productsService.triggerContentDraft(id, body);
+  }
+
   @Post()
   @HttpCode(201)
   create(@Body() body: Record<string, unknown>) {

@@ -1,7 +1,7 @@
 'use client';
 
 import { API_BASE } from '@/lib/api';
-import { ChevronDown, ChevronUp, Loader2, MessageSquare, Send, Undo2 } from 'lucide-react';
+import { Loader2, Send, Undo2 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 interface ChatMessage {
@@ -22,7 +22,6 @@ export function AIDesignChatPanel({ getHtml, getCss, onApply, onUndo, canUndo }:
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [expanded, setExpanded] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -66,118 +65,91 @@ export function AIDesignChatPanel({ getHtml, getCss, onApply, onUndo, canUndo }:
   }, [input, loading, getHtml, getCss, onApply]);
 
   return (
-    <div className={`border-t border-gray-200 flex flex-col ${expanded ? 'flex-1 min-h-0' : 'shrink-0'}`}>
-      <button
-        type="button"
-        onClick={() => setExpanded((v) => !v)}
-        className="w-full flex items-center justify-between px-3 py-2 hover:bg-gray-50 transition-colors shrink-0"
-      >
-        <div className="flex items-center gap-1.5">
-          <MessageSquare size={12} className="text-emerald-500" />
-          <span className="text-xs font-bold text-gray-700">AI 디자인</span>
-          {messages.length > 0 && <span className="text-[10px] text-gray-400">{messages.length}</span>}
-        </div>
-        <div className="flex items-center gap-1">
-          {expanded && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onUndo();
-              }}
-              disabled={!canUndo}
-              title="되돌리기"
-              className="p-0.5 text-gray-400 hover:text-gray-600 rounded transition-colors disabled:opacity-30"
-            >
-              <Undo2 size={11} />
-            </button>
-          )}
-          {expanded ? (
-            <ChevronDown size={12} className="text-gray-400" />
-          ) : (
-            <ChevronUp size={12} className="text-gray-400" />
-          )}
-        </div>
-      </button>
-
-      {expanded && (
-        <div className="flex-1 flex flex-col overflow-hidden min-h-0">
-          <div className="flex-1 overflow-y-auto px-3 py-2 space-y-2 min-h-0">
-            {messages.length === 0 && (
-              <div className="text-center py-4">
-                <p className="text-[10px] text-gray-400 mb-2">디자인 수정을 요청하세요</p>
-                <div className="space-y-1">
-                  {['배경을 검정으로 바꿔줘', '폰트를 더 크게', '더 고급스러운 느낌으로'].map((example) => (
-                    <button
-                      key={example}
-                      type="button"
-                      onClick={() => setInput(example)}
-                      className="block w-full text-left px-2 py-1 text-[10px] text-gray-500 bg-gray-50 hover:bg-emerald-50 hover:text-emerald-700 rounded transition-colors"
-                    >
-                      {example}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {messages.map((msg) => (
-              <div key={msg.timestamp} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div
-                  className={`max-w-[200px] px-2 py-1 rounded-lg text-[10px] leading-relaxed ${
-                    msg.role === 'user'
-                      ? 'bg-emerald-500 text-white rounded-br-sm'
-                      : msg.content.startsWith('오류')
-                        ? 'bg-red-50 text-red-600 rounded-bl-sm'
-                        : 'bg-gray-100 text-gray-700 rounded-bl-sm'
-                  }`}
+    <div className="flex-1 flex flex-col overflow-hidden min-h-0">
+      <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2.5 min-h-0">
+        {messages.length === 0 && (
+          <div className="text-center py-8">
+            <p className="text-xs text-gray-400 mb-3">디자인 수정을 요청하세요</p>
+            <div className="space-y-1.5">
+              {['배경을 검정으로 바꿔줘', '폰트를 더 크게', '더 고급스러운 느낌으로'].map((example) => (
+                <button
+                  key={example}
+                  type="button"
+                  onClick={() => setInput(example)}
+                  className="block w-full text-left px-3 py-2 text-xs text-gray-500 bg-gray-50 hover:bg-emerald-50 hover:text-emerald-700 rounded-lg transition-colors"
                 >
-                  {msg.content}
-                </div>
-              </div>
-            ))}
-
-            {loading && (
-              <div className="flex justify-start">
-                <div className="flex items-center gap-1 px-2 py-1 bg-gray-100 rounded-lg rounded-bl-sm">
-                  <Loader2 size={10} className="animate-spin text-emerald-500" />
-                  <span className="text-[10px] text-gray-500">수정 중...</span>
-                </div>
-              </div>
-            )}
-
-            <div ref={chatEndRef} />
-          </div>
-
-          <div className="border-t border-gray-100 p-2 shrink-0">
-            <div className="flex gap-1">
-              <textarea
-                ref={inputRef}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSubmit();
-                  }
-                }}
-                placeholder="디자인을 어떻게 바꿀까요?"
-                disabled={loading}
-                rows={1}
-                className="flex-1 px-2 py-1.5 text-[10px] border border-gray-200 rounded-lg resize-none focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:opacity-50"
-              />
-              <button
-                type="button"
-                onClick={handleSubmit}
-                disabled={loading || !input.trim()}
-                className="p-1.5 text-white bg-emerald-500 hover:bg-emerald-600 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
-              >
-                {loading ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />}
-              </button>
+                  {example}
+                </button>
+              ))}
             </div>
           </div>
+        )}
+
+        {messages.map((msg) => (
+          <div key={msg.timestamp} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div
+              className={`max-w-[240px] px-3 py-2 rounded-xl text-xs leading-relaxed ${
+                msg.role === 'user'
+                  ? 'bg-emerald-500 text-white rounded-br-sm'
+                  : msg.content.startsWith('오류')
+                    ? 'bg-red-50 text-red-600 rounded-bl-sm'
+                    : 'bg-gray-100 text-gray-700 rounded-bl-sm'
+              }`}
+            >
+              {msg.content}
+            </div>
+          </div>
+        ))}
+
+        {loading && (
+          <div className="flex justify-start">
+            <div className="flex items-center gap-1.5 px-3 py-2 bg-gray-100 rounded-xl rounded-bl-sm">
+              <Loader2 size={12} className="animate-spin text-emerald-500" />
+              <span className="text-xs text-gray-500">수정 중...</span>
+            </div>
+          </div>
+        )}
+
+        <div ref={chatEndRef} />
+      </div>
+
+      <div className="border-t border-gray-200 p-3 shrink-0">
+        {canUndo && (
+          <button
+            type="button"
+            onClick={onUndo}
+            className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 mb-2 transition-colors"
+          >
+            <Undo2 size={12} />
+            되돌리기
+          </button>
+        )}
+        <div className="flex gap-1.5">
+          <textarea
+            ref={inputRef}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleSubmit();
+              }
+            }}
+            placeholder="디자인을 어떻게 바꿀까요?"
+            disabled={loading}
+            rows={2}
+            className="flex-1 px-3 py-2 text-xs border border-gray-200 rounded-lg resize-none focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:opacity-50"
+          />
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={loading || !input.trim()}
+            className="p-2 text-white bg-emerald-500 hover:bg-emerald-600 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0 self-end"
+          >
+            {loading ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+          </button>
         </div>
-      )}
+      </div>
     </div>
   );
 }

@@ -39,4 +39,15 @@ export class AgentTasksService {
       include: { logs: { orderBy: { createdAt: 'asc' } } },
     });
   }
+
+  async cancel(id: string) {
+    return this.prisma.agentTask.update({
+      where: { id },
+      data: {
+        status: 'failed',
+        error: 'Cancelled by user',
+        completedAt: new Date(),
+      },
+    });
+  }
 }

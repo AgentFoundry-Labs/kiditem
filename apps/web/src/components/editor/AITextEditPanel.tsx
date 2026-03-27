@@ -3,18 +3,18 @@
 import { API_BASE } from '@/lib/api';
 import {
   AlignLeft,
-  ChevronDown,
-  ChevronUp,
+  Check,
   Languages,
   Loader2,
+  RefreshCw,
   Wand2,
   X,
 } from 'lucide-react';
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 
 interface AITextEditPanelProps {
-  component: any; // GrapesJS Component model
-  editor: any; // GrapesJS Editor instance
+  component: any;
+  editor: any;
   isBusy: React.MutableRefObject<boolean>;
   onClose: () => void;
 }
@@ -35,29 +35,20 @@ async function transformText(params: {
   return res.json();
 }
 
-/**
- * Applies AI-generated text to a GrapesJS component, handling nested HTML safely.
- *
- * RESEARCH.md open question #1: `component.set('content', newText)` may destroy
- * nested HTML children (e.g. <strong>, <em> inside a <p>). This helper checks
- * whether the component has child components and uses the appropriate strategy:
- *
- * - Leaf text (no children): `component.set('content', newText)` -- simple replacement.
- * - Has children (nested HTML): `component.components().reset([{ type: 'textnode', content: newText }])`
- *   -- replaces all children with a single text node, preserving the parent tag structure.
- */
 function applyTextToComponent(component: any, newText: string): void {
   const children = component.components();
   if (children && children.length > 0) {
-    // Component has nested HTML (e.g. <p><strong>text</strong></p>).
-    // Using set('content') would destroy the component tree.
-    // Reset to a single textnode to safely replace all children.
     children.reset([{ type: 'textnode', content: newText }]);
   } else {
-    // Plain text component with no children -- direct set is safe.
     component.set('content', newText);
   }
 }
+
+const PRESETS = [
+  { id: 'rewrite' as const, label: '다시쓰기', icon: Wand2 },
+  { id: 'translate' as const, label: '번역', icon: Languages },
+  { id: 'shorten' as const, label: '축약', icon: AlignLeft },
+];
 
 export function AITextEditPanel({
   component,
@@ -68,176 +59,183 @@ export function AITextEditPanel({
   const [loading, setLoading] = useState(false);
   const [loadingPreset, setLoadingPreset] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [showCustom, setShowCustom] = useState(false);
   const [customPrompt, setCustomPrompt] = useState('');
+  const [pendingResult, setPendingResult] = useState<string | null>(null);
+  const [lastPreset, setLastPreset] = useState<string | null>(null);
 
-  const handlePresetClick = useCallback(
-    async (preset: 'rewrite' | 'translate' | 'shorten') => {
+  const originalText = useMemo(() => {
+    try {
+      const el = component.getEl?.();
+      if (el?.textContent) return el.textContent.trim();
+      const html = component.getInnerHTML?.() ?? '';
+      const tmp = document.createElement('div');
+      tmp.innerHTML = html;
+      return tmp.textContent?.trim() ?? '';
+    } catch {
+      return '';
+    }
+  }, [component]);
+
+  const runTransform = useCallback(
+    async (preset: 'rewrite' | 'translate' | 'shorten' | 'custom', customInput?: string) => {
       if (isBusy.current) return;
       isBusy.current = true;
       setLoading(true);
       setLoadingPreset(preset);
       setError(null);
+      setPendingResult(null);
       try {
-        const originalText = component.getInnerHTML();
-        const result = await transformText({ text: originalText, preset });
-        const um = editor.UndoManager;
-        um.stop();
-        try {
-          applyTextToComponent(component, result.result);
-        } finally {
-          um.start();
-        }
+        const text = component.getInnerHTML();
+        const result = await transformText({
+          text,
+          preset,
+          custom_prompt: customInput,
+        });
+        setPendingResult(result.result);
+        setLastPreset(preset);
       } catch {
         setError('변환에 실패했습니다. 다시 시도해 주세요.');
-        setTimeout(() => setError(null), 4000);
       } finally {
         isBusy.current = false;
         setLoading(false);
         setLoadingPreset(null);
       }
     },
-    [component, editor, isBusy],
+    [component, isBusy],
   );
 
-  const handleCustomSubmit = useCallback(async () => {
-    if (!customPrompt.trim()) return;
-    if (isBusy.current) return;
-    isBusy.current = true;
-    setLoading(true);
-    setLoadingPreset('custom');
-    setError(null);
+  const handleApplyResult = useCallback(() => {
+    if (!pendingResult) return;
+    const um = editor.UndoManager;
+    um.stop();
     try {
-      const originalText = component.getInnerHTML();
-      const result = await transformText({
-        text: originalText,
-        preset: 'custom',
-        custom_prompt: customPrompt.trim(),
-      });
-      const um = editor.UndoManager;
-      um.stop();
-      try {
-        applyTextToComponent(component, result.result);
-      } finally {
-        um.start();
-      }
-    } catch {
-      setError('변환에 실패했습니다. 다시 시도해 주세요.');
-      setTimeout(() => setError(null), 4000);
+      applyTextToComponent(component, pendingResult);
     } finally {
-      isBusy.current = false;
-      setLoading(false);
-      setLoadingPreset(null);
+      um.start();
     }
-  }, [component, editor, isBusy, customPrompt]);
+    setPendingResult(null);
+    setLastPreset(null);
+  }, [pendingResult, component, editor]);
+
+  const handleRegenerate = useCallback(() => {
+    if (!lastPreset) return;
+    if (lastPreset === 'custom') {
+      runTransform('custom', customPrompt.trim());
+    } else {
+      runTransform(lastPreset as 'rewrite' | 'translate' | 'shorten');
+    }
+  }, [lastPreset, customPrompt, runTransform]);
+
+  const handleDismissResult = useCallback(() => {
+    setPendingResult(null);
+    setLastPreset(null);
+  }, []);
+
+  const handleCustomSubmit = useCallback(() => {
+    if (!customPrompt.trim()) return;
+    runTransform('custom', customPrompt.trim());
+  }, [customPrompt, runTransform]);
 
   return (
-    <div className="w-[280px] bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
-      <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100">
-        <div className="flex items-center gap-1.5">
-          <Wand2 size={14} className="text-gray-500" />
-          <span className="text-xs font-bold text-gray-700">텍스트 편집</span>
+    <div className="flex-1 overflow-y-auto">
+      <div className="p-3 space-y-3">
+        <div>
+          <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">원본</span>
+          <p className="mt-1 text-xs text-gray-600 bg-gray-50 rounded-lg px-3 py-2 leading-relaxed line-clamp-4 border border-gray-100">
+            {originalText || '(텍스트 없음)'}
+          </p>
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="p-0.5 text-gray-400 hover:text-gray-600 rounded transition-colors"
-        >
-          <X size={14} />
-        </button>
-      </div>
 
-      {loading && (
-        <div className="px-3 py-2 bg-emerald-50 border-b border-emerald-100 flex items-center gap-2">
-          <Loader2 size={14} className="animate-spin text-emerald-600" />
-          <span className="text-xs font-bold text-emerald-700">
-            AI 변환 중...
-          </span>
+        <div className="flex gap-1.5">
+          {PRESETS.map((preset) => {
+            const Icon = preset.icon;
+            const isActive = loadingPreset === preset.id;
+            return (
+              <button
+                key={preset.id}
+                type="button"
+                onClick={() => runTransform(preset.id)}
+                disabled={loading}
+                className="flex-1 flex items-center justify-center gap-1.5 px-2 py-2 text-xs font-medium text-gray-700 bg-gray-50 hover:bg-emerald-50 hover:text-emerald-700 border border-gray-200 hover:border-emerald-200 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isActive ? <Loader2 size={13} className="animate-spin" /> : <Icon size={13} />}
+                {preset.label}
+              </button>
+            );
+          })}
         </div>
-      )}
 
-      <div className="px-3 pt-3 pb-1 space-y-1">
-        <button
-          type="button"
-          onClick={() => handlePresetClick('rewrite')}
-          disabled={loading}
-          className="w-full flex items-center gap-2 px-2.5 py-2 text-xs font-bold text-gray-700 bg-gray-50 hover:bg-emerald-50 hover:text-emerald-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {loadingPreset === 'rewrite' ? (
-            <Loader2 size={14} className="animate-spin" />
-          ) : (
-            <Wand2 size={14} />
-          )}
-          다시쓰기
-        </button>
-        <button
-          type="button"
-          onClick={() => handlePresetClick('translate')}
-          disabled={loading}
-          className="w-full flex items-center gap-2 px-2.5 py-2 text-xs font-bold text-gray-700 bg-gray-50 hover:bg-emerald-50 hover:text-emerald-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {loadingPreset === 'translate' ? (
-            <Loader2 size={14} className="animate-spin" />
-          ) : (
-            <Languages size={14} />
-          )}
-          번역
-        </button>
-        <button
-          type="button"
-          onClick={() => handlePresetClick('shorten')}
-          disabled={loading}
-          className="w-full flex items-center gap-2 px-2.5 py-2 text-xs font-bold text-gray-700 bg-gray-50 hover:bg-emerald-50 hover:text-emerald-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {loadingPreset === 'shorten' ? (
-            <Loader2 size={14} className="animate-spin" />
-          ) : (
-            <AlignLeft size={14} />
-          )}
-          축약
-        </button>
-      </div>
+        <div>
+          <textarea
+            value={customPrompt}
+            onChange={(e) => setCustomPrompt(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleCustomSubmit();
+              }
+            }}
+            placeholder="원하는 변환 내용을 입력하세요..."
+            disabled={loading}
+            rows={2}
+            className="w-full px-3 py-2 text-xs border border-gray-200 rounded-lg resize-none focus:outline-none focus:ring-1 focus:ring-emerald-500 placeholder:text-gray-400"
+          />
+          <button
+            type="button"
+            onClick={handleCustomSubmit}
+            disabled={loading || !customPrompt.trim()}
+            className="w-full mt-1.5 py-2 text-xs font-medium text-white bg-emerald-500 hover:bg-emerald-600 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {loadingPreset === 'custom' ? (
+              <Loader2 size={14} className="animate-spin mx-auto" />
+            ) : (
+              'AI 텍스트 변환'
+            )}
+          </button>
+        </div>
 
-      <div className="px-3 pb-3">
-        <button
-          type="button"
-          onClick={() => setShowCustom((v) => !v)}
-          className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 transition-colors mb-1"
-        >
-          {showCustom ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-          직접 입력
-        </button>
-        {showCustom && (
-          <div className="space-y-1.5">
-            <textarea
-              value={customPrompt}
-              onChange={(e) => setCustomPrompt(e.target.value)}
-              placeholder="원하는 변환 내용을 입력하세요..."
-              disabled={loading}
-              rows={3}
-              className="w-full px-2.5 py-2 text-xs border border-gray-200 rounded-lg resize-none focus:outline-none focus:ring-1 focus:ring-emerald-500"
-            />
-            <button
-              type="button"
-              onClick={handleCustomSubmit}
-              disabled={loading || !customPrompt.trim()}
-              className="w-full py-2 text-xs font-bold text-white bg-emerald-500 hover:bg-emerald-600 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              {loadingPreset === 'custom' ? (
-                <Loader2 size={14} className="animate-spin mx-auto" />
-              ) : (
-                'AI 텍스트 적용'
-              )}
-            </button>
+        {pendingResult && (
+          <div className="border border-emerald-200 bg-emerald-50/50 rounded-lg overflow-hidden">
+            <div className="px-3 py-1.5 bg-emerald-100/60">
+              <span className="text-[11px] font-semibold text-emerald-700">AI 결과</span>
+            </div>
+            <p className="px-3 py-2 text-xs text-gray-700 leading-relaxed">
+              {pendingResult}
+            </p>
+            <div className="flex gap-1.5 px-3 py-2 border-t border-emerald-100">
+              <button
+                type="button"
+                onClick={handleApplyResult}
+                className="flex-1 flex items-center justify-center gap-1 py-1.5 text-xs font-medium text-white bg-emerald-500 hover:bg-emerald-600 rounded-md transition-colors"
+              >
+                <Check size={13} />
+                적용
+              </button>
+              <button
+                type="button"
+                onClick={handleRegenerate}
+                disabled={loading}
+                className="flex items-center justify-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-600 bg-white hover:bg-gray-50 border border-gray-200 rounded-md transition-colors disabled:opacity-50"
+              >
+                <RefreshCw size={12} />
+              </button>
+              <button
+                type="button"
+                onClick={handleDismissResult}
+                className="flex items-center justify-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-500 bg-white hover:bg-gray-50 border border-gray-200 rounded-md transition-colors"
+              >
+                <X size={12} />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {error && (
+          <div className="px-3 py-2 text-xs text-red-600 bg-red-50 rounded-lg border border-red-100">
+            {error}
           </div>
         )}
       </div>
-
-      {error && (
-        <div className="px-3 pb-2 text-xs text-red-500 font-bold">
-          {error}
-        </div>
-      )}
     </div>
   );
 }

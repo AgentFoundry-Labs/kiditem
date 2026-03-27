@@ -3,8 +3,6 @@
 Two modes controlled by ``AI_MODE``:
 - **proxy**: all calls route through VectorEngine proxy.
 - **direct**: route by provider (OpenAI or Gemini compat endpoint).
-
-Ported from e-commerce-system — Langfuse decorators stripped.
 """
 
 from __future__ import annotations
@@ -19,6 +17,7 @@ from typing import TypeVar
 
 import fal_client
 import httpx
+from langfuse import get_client, observe
 from openai import AsyncOpenAI
 from pydantic import BaseModel, ValidationError
 
@@ -27,6 +26,7 @@ from src.core.ai_cost import _calc_text_cost, _extract_proxy_usage, _report_imag
 from src.core.providers import ModelProvider, detect_provider
 
 logger = logging.getLogger(__name__)
+_lf = get_client()
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -105,6 +105,7 @@ class AIClient:
                 return detect_provider(model)
         raise ValueError("At least one AI service model must be configured")
 
+    @observe(name="llm-generate", as_type="generation", capture_input=False)
     async def generate(
         self,
         prompt: str,
@@ -139,6 +140,7 @@ class AIClient:
         content = response.choices[0].message.content
         usage = response.usage
 
+        usage_details = {}
         if usage:
             cost = _calc_text_cost(usage, model)
             logger.debug(
@@ -146,6 +148,17 @@ class AIClient:
                 usage.prompt_tokens,
                 usage.completion_tokens,
                 cost,
+            )
+            usage_details = {
+                "input_tokens": usage.prompt_tokens,
+                "output_tokens": usage.completion_tokens,
+            }
+            _lf.update_current_generation(
+                model=model,
+                input=prompt[:1000],
+                output=(content or "")[:1000],
+                usage_details=usage_details,
+                metadata={"cost_usd": f"{cost['total']:.6f}" if cost else "0"},
             )
 
         if content is None:
@@ -184,6 +197,7 @@ class AIClient:
 
         return response_model.model_validate(data)
 
+    @observe(name="llm-generate-with-healing", capture_input=False)
     async def generate_with_healing(
         self,
         prompt: str,
@@ -283,7 +297,10 @@ class AIClient:
     @staticmethod
     def _extract_gemini_image(data: dict) -> bytes:
         for candidate in data.get("candidates", []):
-            for part in candidate.get("content", {}).get("parts", []):
+            content = candidate.get("content")
+            if not content:
+                continue
+            for part in content.get("parts", []):
                 inline_data = part.get("inlineData") or part.get("inline_data") or {}
                 raw = inline_data.get("data")
                 if raw:
@@ -330,11 +347,12 @@ class AIClient:
             try:
                 result = self._extract_gemini_image(data)
                 _report_image_usage(usage, model, f"<edited image {len(result)} bytes>")
-                return result
-            except ValueError:
-                logger.warning("Image edit returned non-image response, using original")
-                return image_bytes
+            except Exception:
+                _report_image_usage(usage, model, "<edited image FAILED>")
+                raise
+            return result
 
+    @observe(name="llm-analyze-images", as_type="generation", capture_input=False)
     async def analyze_images_batch(
         self,
         image_urls: list[str],
@@ -356,8 +374,20 @@ class AIClient:
             response_format={"type": "json_object"},
         )
         result = response.choices[0].message.content
+        usage = response.usage
+        if usage:
+            _lf.update_current_generation(
+                model=model,
+                input=prompt[:500],
+                output=(result or "")[:500],
+                usage_details={
+                    "input_tokens": usage.prompt_tokens,
+                    "output_tokens": usage.completion_tokens,
+                },
+            )
         return result.strip() if result else "{}"
 
+    @observe(name="fal-edit-image", capture_input=False)
     async def fal_edit_image(
         self,
         image_url: str,
@@ -368,8 +398,11 @@ class AIClient:
         """Submit image to FAL.AI for editing; return URL of result image."""
         if not model:
             raise ValueError("model parameter is required for fal_edit_image()")
+        uses_plural = "flux-2" in model
+        img_key = "image_urls" if uses_plural else "image_url"
+        img_val: object = [image_url] if uses_plural else image_url
         arguments: dict[str, object] = {
-            "image_url": image_url,
+            img_key: img_val,
             "prompt": prompt,
         }
         if image_size:
@@ -379,27 +412,73 @@ class AIClient:
         images = result.get("images") or []
         if not images:
             raise ValueError(f"FAL.AI returned no images for model {model}")
+        _lf.update_current_span(
+            metadata={"model": model, "image_size": str(image_size or "default")},
+            output={"url": images[0]["url"]},
+        )
         return images[0]["url"]
 
-    async def edit_images_multi(
+    @observe(name="fal-edit-image-batch", capture_input=False)
+    async def fal_edit_image_batch(
         self,
-        image_urls: list[str],
+        image_url: str,
         prompt: str,
         model: str = "",
+        num_images: int = 3,
+        guidance_scale: float = 3.5,
+    ) -> list[str]:
+        if not model:
+            raise ValueError("model parameter is required for fal_edit_image_batch()")
+        uses_plural = "flux-2" in model
+        img_key = "image_urls" if uses_plural else "image_url"
+        img_val: object = [image_url] if uses_plural else image_url
+        arguments: dict[str, object] = {
+            img_key: img_val,
+            "prompt": prompt,
+            "num_images": num_images,
+            "guidance_scale": guidance_scale,
+        }
+        result = await fal_client.run_async(model, arguments=arguments)
+        images = result.get("images") or []
+        if not images:
+            raise ValueError(f"FAL.AI returned no images for model {model}")
+        urls = [img["url"] for img in images]
+        _lf.update_current_span(
+            metadata={"model": model, "num_images": str(num_images)},
+            output={"urls": urls},
+        )
+        return urls
+
+    @observe(name="gemini-edit-images-multi", capture_input=False)
+    async def edit_images_multi(
+        self,
+        image_urls: list[str] | None = None,
+        prompt: str = "",
+        model: str = "",
+        image_bytes_list: list[tuple[bytes, str]] | None = None,
     ) -> bytes:
         """Multi-image edit via Gemini proxy. Returns bytes of generated composite image."""
         if not model:
             raise ValueError("model parameter is required for edit_images_multi()")
         if not self._proxy_mode:
             raise ValueError("edit_images_multi requires proxy mode")
-        if not image_urls:
-            raise ValueError("At least one image URL is required")
+        if not image_urls and not image_bytes_list:
+            raise ValueError("At least one image source is required")
 
-        # Download all images and convert to base64
-        downloaded = await _download_images_as_base64(image_urls)
-
-        # Build parts: all images first, then prompt text
         parts: list[dict[str, object]] = []
+
+        if image_bytes_list:
+            import base64
+
+            for img_bytes, mime in image_bytes_list:
+                b64_data = base64.b64encode(img_bytes).decode()
+                parts.append({"inlineData": {"mimeType": mime, "data": b64_data}})
+
+        if image_urls:
+            downloaded = await _download_images_as_base64(image_urls)
+        else:
+            downloaded = []
+
         for data_uri in downloaded:
             match = _DATA_URL_RE.match(data_uri)
             if match:
@@ -407,7 +486,6 @@ class AIClient:
                 b64_data = match.group(1).replace("\n", "").replace(" ", "")
                 parts.append({"inlineData": {"mimeType": mime, "data": b64_data}})
             else:
-                # Fallback: treat as JPEG
                 raw_b64 = data_uri.split(",", 1)[-1] if "," in data_uri else data_uri
                 parts.append({"inlineData": {"mimeType": "image/jpeg", "data": raw_b64}})
         parts.append({"text": prompt})
@@ -419,7 +497,14 @@ class AIClient:
                 response_modalities=["IMAGE", "TEXT"],
             )
             result = self._extract_gemini_image(data)
-            _report_image_usage(
-                _extract_proxy_usage(data), model, f"<multi-edit {len(result)} bytes>"
-            )
+            usage = _extract_proxy_usage(data)
+            _report_image_usage(usage, model, f"<multi-edit {len(result)} bytes>")
+            if usage:
+                _lf.update_current_span(
+                    metadata={
+                        "model": model,
+                        "input_images": str(len(image_urls)),
+                        "output_bytes": str(len(result)),
+                    },
+                )
             return result

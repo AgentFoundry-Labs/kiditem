@@ -4,6 +4,7 @@ import json
 
 import asyncpg
 import structlog
+from langfuse import get_client, observe, propagate_attributes
 
 from src.agents.base import BaseAgent
 from src.agents.content.models import (
@@ -13,11 +14,13 @@ from src.agents.content.models import (
 from src.agents.content.template_pipeline import TemplatePipeline
 
 logger = structlog.get_logger()
+_lf = get_client()
 
 
 class ContentAgent(BaseAgent):
     agent_type = "content"
 
+    @observe(name="content-pipeline", capture_input=False)
     async def execute(self, pool: asyncpg.Pool, task_input: dict | None) -> dict:
         if not task_input:
             raise ValueError("task_input is required for content agent")
@@ -26,19 +29,31 @@ class ContentAgent(BaseAgent):
         if not product_id:
             raise ValueError("product_id is required in task_input")
 
-        generation_mode = (
-            task_input.get("generation_mode") or task_input.get("generationMode")
-        )
-        if generation_mode not in ("draft", "image"):
-            raise ValueError(f"Unknown generation_mode: {generation_mode!r}. Must be 'draft' or 'image'.")
+        generation_mode = task_input.get("generation_mode") or task_input.get("generationMode")
+        if generation_mode not in ("draft", "image", "full"):
+            raise ValueError(
+                f"Unknown generation_mode: {generation_mode!r}. Must be 'draft', 'image', or 'full'."
+            )
 
-        pipeline = TemplatePipeline()
+        with propagate_attributes(
+            session_id=task_input.get("_task_id", ""),
+            trace_name=f"content-{generation_mode}",
+            metadata={
+                "product_id": str(product_id),
+                "generation_mode": generation_mode,
+            },
+            tags=["content", generation_mode],
+        ):
+            pipeline = TemplatePipeline()
 
-        if generation_mode == "draft":
-            return await self._execute_step1(pool, pipeline, product_id, task_input)
-        else:
-            return await self._execute_step2(pool, pipeline, product_id, task_input)
+            if generation_mode == "full":
+                return await self._execute_full(pool, pipeline, product_id, task_input)
+            elif generation_mode == "draft":
+                return await self._execute_step1(pool, pipeline, product_id, task_input)
+            else:
+                return await self._execute_step2(pool, pipeline, product_id, task_input)
 
+    @observe(name="execute-step1", capture_input=False)
     async def _execute_step1(
         self,
         pool: asyncpg.Pool,
@@ -68,7 +83,18 @@ class ContentAgent(BaseAgent):
 
         try:
             ext_data = ExtensionProductData.model_validate(raw_data)
-            draft_data = await pipeline.run_step1(ext_data, product_id=str(product_id))
+
+            seed_hook_text = task_input.get("seed_hook_text")
+            seed_hook_title_sub = task_input.get("seed_hook_title_sub")
+            seed_hero_image = task_input.get("seed_hero_image")
+
+            draft_data = await pipeline.run_step1(
+                ext_data,
+                product_id=str(product_id),
+                seed_hook_text=seed_hook_text,
+                seed_hook_title_sub=seed_hook_title_sub,
+                seed_hero_image=seed_hero_image,
+            )
 
             draft_json = json.dumps(draft_data.model_dump(mode="json"), ensure_ascii=False)
 
@@ -125,6 +151,131 @@ class ContentAgent(BaseAgent):
 
             raise
 
+    @observe(name="execute-full", capture_input=False)
+    async def _execute_full(
+        self,
+        pool: asyncpg.Pool,
+        pipeline: TemplatePipeline,
+        product_id: str,
+        task_input: dict,
+    ) -> dict:
+        from src.runner import update_task_progress
+
+        task_id = task_input.get("_task_id", "")
+
+        product = await pool.fetchrow(
+            "SELECT id, company_id, raw_data, status FROM products WHERE id = $1",
+            product_id,
+        )
+        if not product:
+            raise ValueError(f"Product not found: {product_id}")
+
+        raw_data = product["raw_data"]
+        if isinstance(raw_data, str):
+            raw_data = json.loads(raw_data)
+        if not raw_data:
+            raise ValueError(f"Product has no raw_data: {product_id}")
+
+        await pool.execute(
+            "UPDATE products SET status = 'processing', updated_at = NOW() WHERE id = $1",
+            product_id,
+        )
+
+        try:
+            ext_data = ExtensionProductData.model_validate(raw_data)
+
+            seed_hook_text = task_input.get("seed_hook_text")
+            seed_hook_title_sub = task_input.get("seed_hook_title_sub")
+            seed_hero_image = task_input.get("seed_hero_image")
+
+            draft_data = await pipeline.run_step1(
+                ext_data,
+                product_id=str(product_id),
+                seed_hook_text=seed_hook_text,
+                seed_hook_title_sub=seed_hook_title_sub,
+                seed_hero_image=seed_hero_image,
+            )
+
+            draft_json = draft_data.model_dump(mode="json")
+
+            if task_id:
+                await update_task_progress(
+                    pool,
+                    task_id,
+                    {
+                        "step": "content_ready",
+                        "draft": draft_json,
+                    },
+                )
+
+            async def on_image_progress(images: dict):
+                if task_id:
+                    await update_task_progress(
+                        pool,
+                        task_id,
+                        {
+                            "step": "image_progress",
+                            "draft": draft_json,
+                            "images": images,
+                        },
+                    )
+
+            result = await pipeline.run_step2(
+                draft_json,
+                product_id=str(product_id),
+                on_progress=on_image_progress,
+            )
+
+            result_json = json.dumps(result.model_dump(mode="json"), ensure_ascii=False)
+
+            await pool.execute(
+                """
+                UPDATE products
+                SET processed_data = $1::jsonb,
+                    status = 'processed',
+                    pipeline_step = NULL,
+                    updated_at = NOW()
+                WHERE id = $2
+                """,
+                result_json,
+                product_id,
+            )
+
+            await self._upsert_content_generation(
+                pool,
+                product_id=product_id,
+                company_id=product["company_id"],
+                page_data=result,
+                status="COMPLETED",
+            )
+
+            return {
+                "product_id": str(product_id),
+                "generation_mode": "full",
+                "step": "completed",
+                "title": result.title,
+            }
+
+        except Exception as exc:
+            error_msg = f"{type(exc).__name__}: {exc}"
+            logger.exception("Full pipeline failed", product_id=str(product_id), error=error_msg)
+
+            await pool.execute(
+                "UPDATE products SET status = 'draft', pipeline_step = NULL, updated_at = NOW() WHERE id = $1",
+                product_id,
+            )
+
+            await self._upsert_content_generation(
+                pool,
+                product_id=product_id,
+                company_id=product["company_id"],
+                status="FAILED",
+                error_message=error_msg[:1000],
+            )
+
+            raise
+
+    @observe(name="execute-step2", capture_input=False)
     async def _execute_step2(
         self,
         pool: asyncpg.Pool,

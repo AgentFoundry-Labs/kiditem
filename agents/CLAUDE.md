@@ -40,7 +40,7 @@ src/
     ├── base.py            # BaseAgent ABC (execute + log)
     ├── inventory.py       # 재고 부족 감지 → alerts 생성
     ├── sourcing/          # 1688 스크래핑, Douyin, 매칭
-    └── content/           # AI 상세페이지 생성 (oneshot + template)
+    └── content/           # AI 상세페이지 생성 (2-step pipeline)
 ```
 
 ## Agent 추가 방법
@@ -67,4 +67,4 @@ await pool.execute("UPDATE products SET status = $1 WHERE id = $2", 'listed', pr
 - HTTP 서버 금지 — 순수 백그라운드 워커
 - Agent 간 직접 import 금지 — DB 상태 관찰로만 소통
 - `app.` import 금지 — 모든 import는 `src.`
-- Langfuse `@observe` 금지 — 제거됨
+- Langfuse `@observe` 사용 — content pipeline에 연동됨 (SDK v4, `from langfuse import observe`)

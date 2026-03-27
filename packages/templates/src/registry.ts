@@ -4,8 +4,6 @@
 import type { ComponentType } from 'react';
 import { boldVerticalConfig } from './bold-vertical/config';
 import { BoldVertical } from './bold-vertical/index';
-import { oneshotConfig } from './oneshot/config';
-import { Oneshot } from './oneshot/index';
 import { simpleVerticalConfig } from './simple-vertical/config';
 import { SimpleVertical } from './simple-vertical/index';
 import type { DetailPageData } from './types';
@@ -37,14 +35,10 @@ export const templates: Record<string, TemplateConfig> = {
     ...simpleVerticalConfig,
     component: SimpleVertical,
   },
-  oneshot: {
-    ...oneshotConfig,
-    component: Oneshot,
-  },
 };
 
 /** Ordered list of template IDs for UI display. */
-export const templateIds = ['bold-vertical', 'simple-vertical', 'oneshot'] as const;
+export const templateIds = ['bold-vertical', 'simple-vertical'] as const;
 
 export type TemplateId = (typeof templateIds)[number];
 

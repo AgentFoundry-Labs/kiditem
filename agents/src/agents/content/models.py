@@ -135,24 +135,13 @@ class ImageAssignment(BaseModel):
     reason: str = ""
 
 
-class GeneratedKeyPoint(BaseModel):
-    title: str
-    description: str
-
-
 class GeneratedContent(BaseModel):
     title_ko: str
     hook_text: str
     hook_title_sub: str = ""
-    hook_subtext: str
     description_ko: list[str]
-    key_points: list[GeneratedKeyPoint] = Field(default_factory=list)
-    specs_ko: list[SpecItem] = Field(default_factory=list)
-    materials_ko: list[SpecItem] = Field(default_factory=list)
-    features: list[FeatureItem] = Field(default_factory=list)
     color_text: str = ""
     detail_text: str = ""
-    notes: list[str] = Field(default_factory=list)
 
     theme_color_main: str = "#ff8c69"
     theme_color_bg_light: str = "#fffaf0"
@@ -162,20 +151,14 @@ class GeneratedContent(BaseModel):
     theme_section_bg: str = "#f4f1eb"
     theme_text_primary: str = "#4a4a4a"
     theme_text_secondary: str = "#8a8a8a"
-    theme_border_radius: str = "32px"
 
-    recycle_material: str = "종이"
-
-    size_title: str = "한눈에 보는 사이즈"
-    size_subtitle: str = "정확한 사이즈를 확인해보세요"
+    size_subtitle: str = ""
 
     section_name: str = ""
     section_title: str = ""
     section_subtitle: list[str] = Field(default_factory=list)
-    detail_title: str = "DETAIL"
 
     product_info_ko: list[SpecItem] = Field(default_factory=list)
-    image_assignments: list[ImageAssignment] = Field(default_factory=list)
 
 
 class ComponentSlot(BaseModel):

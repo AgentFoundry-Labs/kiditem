@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Query, Param, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Post, Body, Query, Param, BadRequestException, HttpCode } from '@nestjs/common';
 import { AgentTasksService } from './agent-tasks.service';
 
 const VALID_AGENTS = ['inventory', 'sourcing', 'content', 'listing', 'pricing', 'cs'];
@@ -23,5 +23,11 @@ export class AgentTasksController {
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.agentTasksService.findOne(id);
+  }
+
+  @Post(':id/cancel')
+  @HttpCode(200)
+  cancel(@Param('id') id: string) {
+    return this.agentTasksService.cancel(id);
   }
 }

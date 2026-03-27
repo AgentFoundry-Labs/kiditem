@@ -202,6 +202,36 @@ export class ProductsService {
     };
   }
 
+  async triggerContentDraft(
+    id: string,
+    seed?: { seed_hook_text?: string; seed_hook_title_sub?: string; seed_hero_image?: string },
+  ) {
+    const product = await this.prisma.product.findUnique({ where: { id } });
+    if (!product) {
+      throw new BadRequestException('상품을 찾을 수 없습니다.');
+    }
+
+    const task = await this.prisma.agentTask.create({
+      data: {
+        agentType: 'content',
+        input: {
+          productId: id,
+          generation_mode: 'full',
+          ...(seed?.seed_hook_text && { seed_hook_text: seed.seed_hook_text }),
+          ...(seed?.seed_hook_title_sub && { seed_hook_title_sub: seed.seed_hook_title_sub }),
+          ...(seed?.seed_hero_image && { seed_hero_image: seed.seed_hero_image }),
+        } as any,
+      },
+    });
+
+    await this.prisma.$executeRawUnsafe(
+      `SELECT pg_notify('new_agent_task', $1)`,
+      task.id,
+    );
+
+    return { taskId: task.id };
+  }
+
   async triggerImageGeneration(id: string) {
     const product = await this.prisma.product.findUnique({ where: { id } });
     if (!product) throw new NotFoundException('Product not found');

@@ -28,22 +28,24 @@ services:
       DATABASE_URL: postgresql://kiditem:kiditem@postgres:5432/kiditem
     env_file:
       - apps/server/.env
+    volumes:
+      - product-data:/data
     depends_on:
       postgres:
         condition: service_healthy
     restart: unless-stopped
 
-  langfuse:
-    container_name: kiditem-langfuse
-    image: langfuse/langfuse:2
-    ports:
-      - "3100:3000"
+  agents:
+    container_name: kiditem-agents
+    build:
+      context: ./agents
     environment:
-      DATABASE_URL: postgresql://kiditem:kiditem@postgres:5432/langfuse
-      NEXTAUTH_URL: http://localhost:3100
-      NEXTAUTH_SECRET: kiditem-langfuse-secret
-      SALT: kiditem-langfuse-salt
-      TELEMETRY_ENABLED: "false"
+      DATABASE_URL: postgresql://kiditem:kiditem@postgres:5432/kiditem
+      PYTHONWARNINGS: ignore::UserWarning
+    env_file:
+      - agents/.env
+    volumes:
+      - product-data:/data
     depends_on:
       postgres:
         condition: service_healthy
@@ -51,3 +53,4 @@ services:
 
 volumes:
   pgdata:
+  product-data:

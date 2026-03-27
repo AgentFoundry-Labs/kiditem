@@ -1,7 +1,7 @@
 'use client';
 
 import { API_BASE } from '@/lib/api';
-import grapesjs, { type Asset, type Editor } from 'grapesjs';
+import grapesjs, { type Editor } from 'grapesjs';
 import 'grapesjs/dist/css/grapes.min.css';
 import './grapesjs-editor.css';
 import GjsEditor, {
@@ -24,25 +24,28 @@ import {
   Files,
   Heading1,
   Heading2,
+  Image as ImageIcon,
   ImagePlus,
   Loader2,
+
   Minus,
   MousePointer2,
   PanelLeft,
   PanelRight,
   Redo2,
   Save,
+  Sparkles,
   Square,
   Trash2,
   Type,
   Undo2,
+  Wand2,
   X,
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AIDesignChatPanel } from './AIDesignChatPanel';
 import { AIImageEditPanel } from './AIImageEditPanel';
 import { AITextEditPanel } from './AITextEditPanel';
 import { ImagePickerModal } from './ImagePickerModal';
@@ -51,6 +54,7 @@ interface DetailPageEditorProps {
   html: string;
   templateCss: string;
   productName: string;
+  productId?: string;
   rawImages?: string[];
   processedImages?: string[];
   onSave: (html: string) => void;
@@ -68,10 +72,12 @@ interface ParsedHtml {
 const CANVAS_CSS = `
   html, body {
     overflow-y: auto !important;
+  }
+  *, html, body {
     scrollbar-width: none !important;
     -ms-overflow-style: none !important;
   }
-  html::-webkit-scrollbar, body::-webkit-scrollbar {
+  *::-webkit-scrollbar {
     display: none !important;
   }
   .gjs-selected {
@@ -92,10 +98,16 @@ const CANVAS_CSS = `
 `;
 
 const GJS_THEME_CSS = `
-  .gjs-cv-canvas * {
+  .gjs-cv-canvas,
+  .gjs-cv-canvas *,
+  .gjs-frame-wrapper,
+  .gjs-frame-wrapper * {
     scrollbar-width: none !important;
   }
-  .gjs-cv-canvas *::-webkit-scrollbar {
+  .gjs-cv-canvas::-webkit-scrollbar,
+  .gjs-cv-canvas *::-webkit-scrollbar,
+  .gjs-frame-wrapper::-webkit-scrollbar,
+  .gjs-frame-wrapper *::-webkit-scrollbar {
     display: none !important;
   }
 
@@ -210,6 +222,12 @@ const GRAPESJS_OPTIONS: Parameters<typeof GjsEditor>[0]['options'] = {
         label: '원형',
         category: '도형',
         content: '<div style="width:150px;height:150px;border-radius:50%;border:2px solid #d1d5db;"></div>',
+      },
+      {
+        id: 'image',
+        label: '이미지',
+        category: '기본',
+        content: { type: 'image', style: { width: '100%', 'max-width': '600px', padding: '10px' } },
       },
       {
         id: 'line',
@@ -356,6 +374,8 @@ function getBlockIcon(blockId: string): ReactNode {
       return <Square size={size} />;
     case 'circle-shape':
       return <Circle size={size} />;
+    case 'image':
+      return <ImageIcon size={size} />;
     case 'line':
       return <Minus size={size} />;
     default:
@@ -452,26 +472,28 @@ function EditorToolbar({
     try {
       const htmlStr = editor.getHtml();
       const cssStr = editor.getCss({ avoidProtected: true }) ?? '';
-
       const iframeDoc = editor.Canvas.getFrameEl()?.contentDocument;
       const fontLinks = iframeDoc
         ? Array.from(iframeDoc.head.querySelectorAll('link[rel="stylesheet"]'))
-            .map((l) => l.outerHTML)
-            .join('\n    ')
+            .map((l) => l.outerHTML).join('\n')
+        : '';
+      const styleEls = iframeDoc
+        ? Array.from(iframeDoc.head.querySelectorAll('style'))
+            .map((s) => s.outerHTML).join('\n')
         : '';
 
       const fullHtml = `<!DOCTYPE html>
 <html lang="ko">
 <head>
   <meta charset="UTF-8" />
-  <style>${templateCss}</style>
+  <base href="${API_BASE}/" />
   ${fontLinks}
+  ${styleEls}
+  <style>${templateCss}</style>
   <style>${cssStr}</style>
   <style>body { margin: 0; padding: 0; }</style>
 </head>
-<body>
-  ${htmlStr}
-</body>
+<body>${htmlStr}</body>
 </html>`;
 
       const res = await fetch(`${API_BASE}/api/render-image`, {
@@ -479,7 +501,6 @@ function EditorToolbar({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ html: fullHtml }),
       });
-
       if (!res.ok) throw new Error(`Export failed: ${res.status}`);
 
       const blob = await res.blob();
@@ -491,6 +512,8 @@ function EditorToolbar({
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Export failed:', err);
     } finally {
       setIsExporting(false);
     }
@@ -732,45 +755,95 @@ function EditorToolbar({
   );
 }
 
-function LeftPanel({ onClose }: { onClose?: () => void }) {
+function LeftPanel({ onClose, rawImages = [] }: { onClose?: () => void; rawImages?: string[] }) {
+  const editor = useEditor();
   return (
-    <aside className="w-[200px] bg-white border-r border-gray-200 flex flex-col overflow-hidden shrink-0">
-      <div className="p-3 border-b border-gray-100">
-        <div className="flex items-center justify-between mb-2.5">
-          <h3 className="text-xs font-bold text-gray-700">요소 추가</h3>
-          {onClose && (
-            <button
-              type="button"
-              onClick={onClose}
-              className="p-0.5 text-gray-400 hover:text-gray-600 rounded transition-colors"
-            >
-              <X size={12} />
-            </button>
-          )}
-        </div>
-        <BlocksProvider>
-          {({ blocks, dragStart, dragStop }) => (
-            <div className="grid grid-cols-2 gap-1.5">
-              {blocks.map((block) => (
-                <div
-                  key={block.getId()}
-                  draggable
-                  className="flex flex-col items-center gap-1 p-2.5 bg-gray-50 hover:bg-emerald-50 border border-gray-200 hover:border-emerald-300 rounded-lg cursor-grab active:cursor-grabbing transition-colors group"
-                  onDragStart={(e) => dragStart(block, e.nativeEvent)}
-                  onDragEnd={() => dragStop(false)}
-                >
-                  <span className="text-emerald-500 group-hover:text-emerald-600 transition-colors">
-                    {getBlockIcon(block.getId())}
-                  </span>
-                  <span className="text-[10px] font-medium text-gray-500 group-hover:text-gray-700">
-                    {block.getLabel()}
-                  </span>
+    <aside className="w-[280px] bg-white border-r border-gray-200 flex flex-col overflow-hidden shrink-0">
+      <BlocksProvider>
+        {({ blocks, dragStart, dragStop }) => {
+          const standardBlocks = blocks.filter((b) => !b.getId().startsWith('raw-image-'));
+          const imageBlocks = blocks.filter((b) => b.getId().startsWith('raw-image-'));
+
+          return (
+            <>
+              <div className="p-3 border-b border-gray-100">
+                <div className="flex items-center justify-between mb-2.5">
+                  <h3 className="text-xs font-bold text-gray-700">요소 추가</h3>
+                  {onClose && (
+                    <button
+                      type="button"
+                      onClick={onClose}
+                      className="p-0.5 text-gray-400 hover:text-gray-600 rounded transition-colors"
+                    >
+                      <X size={12} />
+                    </button>
+                  )}
                 </div>
-              ))}
-            </div>
-          )}
-        </BlocksProvider>
-      </div>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {standardBlocks.map((block) => (
+                    <div
+                      key={block.getId()}
+                      draggable
+                      className="flex flex-col items-center gap-1 p-2.5 bg-gray-50 hover:bg-emerald-50 border border-gray-200 hover:border-emerald-300 rounded-lg cursor-grab active:cursor-grabbing transition-colors group"
+                      onDragStart={(e) => dragStart(block, e.nativeEvent)}
+                      onDragEnd={() => dragStop(false)}
+                    >
+                      <span className="text-emerald-500 group-hover:text-emerald-600 transition-colors">
+                        {getBlockIcon(block.getId())}
+                      </span>
+                      <span className="text-[10px] font-medium text-gray-500 group-hover:text-gray-700">
+                        {block.getLabel()}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {imageBlocks.length > 0 && (
+                <div className="border-t border-gray-100 p-3">
+                  <h3 className="text-xs font-bold text-gray-700 mb-2 flex items-center gap-1.5">
+                    <ImageIcon size={12} />
+                    원본 이미지
+                    <span className="text-gray-400 font-normal">({imageBlocks.length})</span>
+                  </h3>
+                  <div className="grid grid-cols-3 gap-1.5 max-h-[320px] overflow-y-auto">
+                    {imageBlocks.map((block) => {
+                      const blockContent = block.get('content') as string;
+                      const srcMatch = blockContent.match(/src="([^"]+)"/);
+                      const thumbUrl = srcMatch?.[1] ?? '';
+
+                      return (
+                        <div
+                          key={block.getId()}
+                          draggable
+                          className="aspect-square rounded border border-gray-200 hover:border-emerald-400 overflow-hidden cursor-grab active:cursor-grabbing transition-colors group"
+                          title="드래그하여 배치 · 클릭하여 선택된 이미지 교체"
+                          onDragStart={(e) => dragStart(block, e.nativeEvent)}
+                          onDragEnd={() => dragStop(false)}
+                          onClick={() => {
+                            const selected = editor.getSelected();
+                            const type = (selected?.get('type') as string) ?? '';
+                            const tag = ((selected?.get('tagName') as string) ?? '').toLowerCase();
+                            if (selected && (type === 'image' || tag === 'img')) {
+                              selected.setAttributes({ src: thumbUrl });
+                            }
+                          }}
+                        >
+                          <img
+                            src={thumbUrl}
+                            alt=""
+                            className="w-full h-full object-cover group-hover:opacity-80 transition-opacity pointer-events-none"
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </>
+          );
+        }}
+      </BlocksProvider>
 
       <div className="flex-1 flex flex-col overflow-hidden">
         <h3 className="text-xs font-bold text-gray-700 px-3 pt-3 pb-2">레이어</h3>
@@ -784,173 +857,299 @@ function LeftPanel({ onClose }: { onClose?: () => void }) {
 
 function RightPanel({
   onClose,
-  getHtml,
-  getCss,
-  onDesignApply,
-  onDesignUndo,
-  canDesignUndo,
   selectedTextComponent,
   isBusy,
   selectedImageSrc,
   onImageEdited,
   onImageReplace,
   onImageClose,
+  productId,
+  onAiFillComplete,
+  onGeneratingChange,
+  rawImages = [],
 }: {
   onClose?: () => void;
-  getHtml: () => string;
-  getCss: () => string;
-  onDesignApply: (html: string) => void;
-  onDesignUndo: () => void;
-  canDesignUndo: boolean;
   selectedTextComponent: any;
   isBusy: React.MutableRefObject<boolean>;
   selectedImageSrc: string | null;
   onImageEdited: (newUrl: string) => void;
   onImageReplace: () => void;
   onImageClose: () => void;
+  productId?: string;
+  onAiFillComplete?: () => void;
+  onGeneratingChange?: (v: boolean) => void;
+  rawImages?: string[];
 }) {
   const editor = useEditor();
+  const [aiFillLoading, setAiFillLoading] = useState(false);
+  const [aiFillStep, setAiFillStep] = useState('');
+  const [aiFillTaskId, setAiFillTaskId] = useState<string | null>(null);
+  const [seedHookText, setSeedHookText] = useState('');
+  const [seedHookTitleSub, setSeedHookTitleSub] = useState('');
+  const [seedHeroImage, setSeedHeroImage] = useState<string | null>(null);
+  const [showHeroPicker, setShowHeroPicker] = useState(false);
+
+  const applyProgressImages = useCallback((imgs: Record<string, unknown>) => {
+    if (!editor) return;
+    const wrapper = editor.getWrapper();
+    if (!wrapper) return;
+
+    const resolve = (url: string) => url.startsWith('/processed/') ? `${API_BASE}${url}` : url;
+
+    const setImg = (field: string, url: string) => {
+      const comps = wrapper.find(`[data-field="${field}"]`);
+      if (comps.length > 0 && url) comps[0].setAttributes({ src: resolve(url) });
+    };
+
+    const fillContainer = (name: string, urls: string[], alt: string) => {
+      const sections = wrapper.find(`[data-section="${name}"]`);
+      if (sections.length === 0 || urls.length === 0) return;
+      sections[0].removeClass('hidden');
+      const containers = wrapper.find(`[data-container="${name}"]`);
+      if (containers.length === 0) return;
+      containers[0].components(
+        urls.map((u) => `<img src="${resolve(u)}" alt="${alt}" class="w-full h-auto rounded-[var(--theme-radius)] shadow-md" />`).join('')
+      );
+    };
+
+    if (typeof imgs.main_image === 'string') setImg('heroImage', imgs.main_image);
+    if (typeof imgs.banner === 'string') setImg('heroBanner', imgs.banner);
+    if (Array.isArray(imgs.size_images)) fillContainer('sizeImages', imgs.size_images, '사이즈 안내');
+    if (Array.isArray(imgs.detail_images)) fillContainer('detailImages', imgs.detail_images, '디테일 이미지');
+  }, [editor]);
+
+  const handleAiFill = useCallback(async () => {
+    console.log('[AI Fill] triggered', { isBusy: isBusy.current, productId, aiFillLoading });
+    if (!productId) return;
+    if (aiFillLoading) return;
+    isBusy.current = true;
+    setAiFillLoading(true);
+    onGeneratingChange?.(true);
+    setAiFillStep('요청 전송 중...');
+    try {
+      const res = await fetch(`${API_BASE}/api/products/${productId}/trigger-content-draft`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          seed_hook_text: seedHookText.trim() || undefined,
+          seed_hook_title_sub: seedHookTitleSub.trim() || undefined,
+          seed_hero_image: seedHeroImage || undefined,
+        }),
+      });
+      if (!res.ok) throw new Error(`API ${res.status}`);
+      const { taskId } = await res.json();
+      setAiFillTaskId(taskId);
+      setAiFillStep('카피 생성 중...');
+
+      let lastStep = '';
+      const maxAttempts = 120;
+      for (let i = 0; i < maxAttempts; i++) {
+        await new Promise(r => setTimeout(r, 2000));
+        const statusRes = await fetch(`${API_BASE}/api/agent-tasks/${taskId}`);
+        if (!statusRes.ok) continue;
+        const task = await statusRes.json();
+
+        if (task.status === 'failed') {
+          throw new Error(task.error || 'AI 생성에 실패했습니다');
+        }
+
+        const output = typeof task.output === 'string' ? JSON.parse(task.output) : task.output;
+        if (output?.step && output.step !== lastStep) {
+          lastStep = output.step;
+          if (output.step === 'content_ready') {
+            setAiFillStep('이미지 생성 중...');
+            onAiFillComplete?.();
+          } else if (output.step === 'image_progress') {
+            const imgs = output.images || {};
+            const done = [imgs.main_image, imgs.banner, ...(imgs.size_images || []), ...(imgs.detail_images || [])].filter(Boolean).length;
+            setAiFillStep(`이미지 생성 중... (${done}장 완료)`);
+            applyProgressImages(imgs);
+          }
+        }
+
+        if (task.status === 'completed') {
+          onAiFillComplete?.();
+          return;
+        }
+      }
+      throw new Error('시간 초과');
+    } catch (err) {
+      console.error('AI generation failed:', err);
+    } finally {
+      isBusy.current = false;
+      setAiFillLoading(false);
+      onGeneratingChange?.(false);
+      setAiFillStep('');
+      setAiFillTaskId(null);
+    }
+  }, [isBusy, productId, aiFillLoading, onAiFillComplete, seedHookText, seedHookTitleSub, seedHeroImage]);
+
+  const handleAiFillCancel = useCallback(async () => {
+    if (!aiFillTaskId) return;
+    try {
+      await fetch(`${API_BASE}/api/agent-tasks/${aiFillTaskId}/cancel`, { method: 'POST' });
+    } catch {
+      void 0;
+    }
+  }, [aiFillTaskId]);
+
+  const selectionType = selectedTextComponent ? 'text' : selectedImageSrc ? 'image' : null;
 
   return (
-    <aside className="w-[260px] bg-white border-l border-gray-200 flex flex-col overflow-hidden shrink-0">
-      {onClose && (
-        <div className="flex justify-end p-1 border-b border-gray-100">
+    <aside className="w-[320px] bg-white border-l border-gray-200 flex flex-col overflow-hidden shrink-0">
+      <div className="flex items-center justify-between px-3 py-2.5 border-b border-gray-200 shrink-0">
+        <div className="flex items-center gap-2 min-w-0">
+          <Sparkles size={14} className="text-emerald-500 shrink-0" />
+          <span className="text-xs font-semibold text-gray-700">AI 어시스턴트</span>
+        </div>
+        {onClose && (
           <button
             type="button"
             onClick={onClose}
-            className="p-1 text-gray-400 hover:text-gray-600 rounded transition-colors"
+            className="p-1 text-gray-400 hover:text-gray-600 rounded transition-colors shrink-0"
             title="패널 닫기"
           >
-            <X size={12} />
+            <X size={14} />
           </button>
-        </div>
-      )}
+        )}
+      </div>
 
-      {selectedTextComponent ? (
-        <AITextEditPanel
-          component={selectedTextComponent}
-          editor={editor}
-          isBusy={isBusy}
-          onClose={() => {/* deselect handled by parent */}}
-        />
-      ) : selectedImageSrc ? (
-        <AIImageEditPanel
-          imageUrl={selectedImageSrc}
-          onEditComplete={onImageEdited}
-          onReplace={onImageReplace}
-          onClose={onImageClose}
-        />
-      ) : (
-        <AIDesignChatPanel
-          getHtml={getHtml}
-          getCss={getCss}
-          onApply={onDesignApply}
-          onUndo={onDesignUndo}
-          canUndo={canDesignUndo}
-        />
-      )}
-    </aside>
-  );
-}
-
-function ImageAssetModal({
-  open,
-  select,
-  close,
-}: {
-  open: boolean;
-  select: (asset: Asset, complete?: boolean) => void;
-  close: () => void;
-}) {
-  const editor = useEditor();
-  const [url, setUrl] = useState('');
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (open) {
-      setUrl('');
-      setTimeout(() => inputRef.current?.focus(), 50);
-    }
-  }, [open]);
-
-  if (!open) return null;
-
-  const handleSubmit = () => {
-    const trimmed = url.trim();
-    if (!trimmed) return;
-    const asset = editor.Assets.add({ type: 'image', src: trimmed });
-    const resolved = Array.isArray(asset) ? asset[0] : asset;
-    if (resolved) select(resolved, true);
-    setUrl('');
-  };
-
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50" onClick={close}>
-      <div
-        className="bg-white rounded-xl shadow-2xl w-[480px] max-w-[90vw] overflow-hidden"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200">
-          <div className="flex items-center gap-2 text-gray-800 font-semibold text-sm">
-            <ImagePlus size={16} />
-            이미지 변경
+      <div className="flex-1 overflow-hidden flex flex-col min-h-0">
+        {selectionType && (
+          <div className="flex items-center gap-1.5 px-3 py-2 border-b border-gray-100 bg-gray-50 shrink-0">
+            {selectionType === 'text' ? <Type size={13} className="text-emerald-500" /> : <ImageIcon size={13} className="text-emerald-500" />}
+            <span className="text-xs font-medium text-gray-600">
+              {selectionType === 'text' ? '텍스트 AI 편집' : '이미지 AI 편집'}
+            </span>
           </div>
-          <button
-            type="button"
-            onClick={close}
-            className="p-1 text-gray-400 hover:text-gray-600 rounded transition-colors"
-          >
-            <X size={16} />
-          </button>
-        </div>
-        <div className="p-5 space-y-4">
-          <div>
-            <label htmlFor="image-url-input" className="block text-xs font-medium text-gray-500 mb-1.5">
-              이미지 URL
-            </label>
-            <input
-              ref={inputRef}
-              id="image-url-input"
-              type="url"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
-              placeholder="https://example.com/image.jpg"
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-            />
-          </div>
-          {url.trim() && (
-            <div className="border border-gray-200 rounded-lg p-2 bg-gray-50">
-              <img
-                src={url.trim()}
-                alt="미리보기"
-                className="max-h-[200px] mx-auto object-contain rounded"
-                onError={(e) => {
-                  (e.target as HTMLImageElement).style.display = 'none';
-                }}
-              />
+        )}
+        {selectedTextComponent ? (
+          <AITextEditPanel
+            component={selectedTextComponent}
+            editor={editor}
+            isBusy={isBusy}
+            onClose={() => {/* deselect handled by parent */}}
+          />
+        ) : selectedImageSrc ? (
+          <AIImageEditPanel
+            imageUrl={selectedImageSrc}
+            isBusy={isBusy}
+            onEditComplete={onImageEdited}
+            onReplace={onImageReplace}
+            onClose={onImageClose}
+          />
+        ) : aiFillLoading ? (
+          <div className="flex-1 flex flex-col items-center justify-center px-6 gap-4">
+            <Loader2 size={32} className="animate-spin text-emerald-500" />
+            <div className="text-center">
+              <p className="text-sm font-semibold text-gray-700">{aiFillStep}</p>
+              <p className="text-[10px] text-gray-400 mt-1">생성이 완료되면 캔버스에 자동 반영됩니다</p>
             </div>
-          )}
-          <div className="flex justify-end gap-2">
             <button
               type="button"
-              onClick={close}
-              className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+              onClick={handleAiFillCancel}
+              className="px-4 py-1.5 text-xs font-medium text-red-500 bg-red-50 hover:bg-red-100 rounded-lg transition-colors"
             >
               취소
             </button>
-            <button
-              type="button"
-              onClick={handleSubmit}
-              disabled={!url.trim()}
-              className="px-4 py-2 text-sm font-medium text-white bg-emerald-500 hover:bg-emerald-600 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              적용
-            </button>
           </div>
-        </div>
+        ) : (
+          <div className="flex-1 overflow-y-auto">
+            <div className="p-3 space-y-4">
+              <div className="space-y-2">
+                <label className="block text-xs font-medium text-gray-600">상품 제목 <span className="text-gray-400 font-normal">(선택)</span></label>
+                <input
+                  type="text"
+                  value={seedHookText}
+                  onChange={(e) => setSeedHookText(e.target.value)}
+                  placeholder="1줄 (예: 쫀득쫀득)"
+                  disabled={aiFillLoading}
+                  className="w-full px-3 py-2 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 placeholder:text-gray-400"
+                />
+                <input
+                  type="text"
+                  value={seedHookTitleSub}
+                  onChange={(e) => setSeedHookTitleSub(e.target.value)}
+                  placeholder="2줄 (예: 쫀득이)"
+                  disabled={aiFillLoading}
+                  className="w-full px-3 py-2 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 placeholder:text-gray-400"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">히어로 사진 <span className="text-gray-400 font-normal">(선택)</span></label>
+                {seedHeroImage ? (
+                  <div className="relative rounded-lg overflow-hidden border border-gray-200 bg-gray-50">
+                    <img src={seedHeroImage} alt="" className="w-full h-[160px] object-contain" />
+                    <div className="absolute top-1.5 right-1.5 flex gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setShowHeroPicker(true)}
+                        disabled={aiFillLoading}
+                        className="p-1 bg-white/80 hover:bg-white rounded-full shadow-sm transition-colors"
+                        title="다른 사진 선택"
+                      >
+                        <ImageIcon size={12} className="text-gray-500" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSeedHeroImage(null)}
+                        className="p-1 bg-white/80 hover:bg-white rounded-full shadow-sm transition-colors"
+                      >
+                        <X size={12} className="text-gray-500" />
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setShowHeroPicker(true)}
+                    disabled={aiFillLoading}
+                    className="w-full h-[120px] flex flex-col items-center justify-center gap-2 border-2 border-dashed border-gray-200 hover:border-emerald-400 rounded-lg bg-gray-50 hover:bg-emerald-50/50 transition-colors"
+                  >
+                    <ImageIcon size={24} className="text-gray-300" />
+                    <span className="text-xs text-gray-400">사진 선택하기</span>
+                  </button>
+                )}
+                <ImagePickerModal
+                  open={showHeroPicker}
+                  rawImages={rawImages}
+                  processedImages={[]}
+                  onSelect={(url) => {
+                    setSeedHeroImage(url);
+                    setShowHeroPicker(false);
+                  }}
+                  onClose={() => setShowHeroPicker(false)}
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={handleAiFill}
+                disabled={aiFillLoading}
+                className="w-full flex items-center justify-center gap-2 py-2.5 text-xs font-semibold text-white bg-emerald-500 hover:bg-emerald-600 rounded-lg shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {aiFillLoading ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin" />
+                    AI 생성 중...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles size={14} />
+                    AI 상세페이지 생성
+                  </>
+                )}
+              </button>
+
+                <p className="text-[10px] text-gray-400 text-center leading-relaxed">
+                입력하면 반영, 비워두면 AI가 전부 자동 생성합니다
+              </p>
+            </div>
+          </div>
+        )}
       </div>
-    </div>
+    </aside>
   );
 }
 
@@ -958,6 +1157,7 @@ export default function DetailPageEditor({
   html,
   templateCss,
   productName,
+  productId,
   rawImages = [],
   processedImages = [],
   onSave,
@@ -966,6 +1166,7 @@ export default function DetailPageEditor({
   const parsed = useMemo(() => parseFullHtml(html), [html]);
   const [selectedImageSrc, setSelectedImageSrc] = useState<string | null>(null);
   const [selectedTextComponent, setSelectedTextComponent] = useState<any>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
   const isBusyRef = useRef(false);
   const [showImagePicker, setShowImagePicker] = useState(false);
   const [editorRef, setEditorRef] = useState<Editor | null>(null);
@@ -982,6 +1183,75 @@ export default function DetailPageEditor({
     };
   }, []);
 
+  const handleAiFillComplete = useCallback(async () => {
+    if (!editorRef || !productId) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/products/${productId}/preview`);
+      if (!res.ok) return;
+      const preview = await res.json();
+      const d = preview.data;
+      if (!d) return;
+
+      const wrapper = editorRef.getWrapper();
+      if (!wrapper) return;
+
+      const resolveUrl = (url: string) =>
+        url.startsWith('/processed/') ? `${API_BASE}${url}` : url;
+
+      const setText = (field: string, value: string) => {
+        const comps = wrapper.find(`[data-field="${field}"]`);
+        if (comps.length > 0 && value) comps[0].components(value);
+      };
+
+      const setImg = (field: string, url: string) => {
+        const comps = wrapper.find(`[data-field="${field}"]`);
+        if (comps.length > 0 && url) comps[0].setAttributes({ src: resolveUrl(url) });
+      };
+
+      setText('hookText', d.hook_text ?? d.hookText ?? '');
+      setText('hookTitleSub', d.hook_title_sub ?? d.hookTitleSub ?? '');
+      setText('sectionName', d.section_name ?? d.sectionName ?? '');
+      setText('sectionTitle', d.section_title ?? d.sectionTitle ?? '');
+      setText('detailText', d.detail_text ?? d.detailText ?? '');
+
+      const desc = d.description ?? [];
+      if (desc.length > 0) {
+        setText('description', desc.join('\n'));
+      }
+
+      const subtitle = d.section_subtitle ?? d.sectionSubtitle ?? [];
+      if (subtitle.length > 0) {
+        setText('sectionSubtitle', subtitle.join('\n'));
+      }
+
+      const images = d.images ?? [];
+      if (images[0]) setImg('heroImage', images[0]);
+
+      const banner = d.hero_banner ?? d.heroBanner ?? '';
+      if (banner) setImg('heroBanner', banner);
+
+      const fillSection = (sectionName: string, urls: string[], alt: string) => {
+        const sections = wrapper.find(`[data-section="${sectionName}"]`);
+        if (sections.length === 0 || urls.length === 0) return;
+        const section = sections[0];
+        section.removeClass('hidden');
+        const containers = wrapper.find(`[data-container="${sectionName}"]`);
+        if (containers.length === 0) return;
+        containers[0].components(
+          urls.map((url) => `<img src="${resolveUrl(url)}" alt="${alt}" class="w-full h-auto rounded-[var(--theme-radius)] shadow-md" />`).join('')
+        );
+      };
+
+      const sizeImgs = d.size_images ?? d.sizeImages ?? [];
+      fillSection('sizeImages', sizeImgs, '사이즈 안내');
+
+      const detailImgs = d.detail_images ?? d.detailImages ?? [];
+      fillSection('detailImages', detailImgs, '디테일 이미지');
+    } catch (err) {
+      console.error('Canvas field update failed:', err);
+    }
+  }, [editorRef, productId]);
+
   const handleEditorInit = useCallback(
     (editor: Editor) => {
       setEditorRef(editor);
@@ -995,13 +1265,24 @@ export default function DetailPageEditor({
         const type = (component.get('type') as string) ?? '';
         const tagName = ((component.get('tagName') as string) ?? '').toLowerCase();
         const TEXT_TAGS = ['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'span', 'li'];
+        const BLOCK_TAGS = new Set(['div', 'section', 'article', 'header', 'footer', 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li', 'table', 'blockquote', 'figure']);
 
         if (type === 'image' || tagName === 'img') {
           setSelectedImageSrc(component.getAttributes().src ?? '');
           setSelectedTextComponent(null);
         } else if (type === 'text' || type === 'text-ext' || TEXT_TAGS.includes(tagName)) {
-          setSelectedTextComponent(component);
-          setSelectedImageSrc(null);
+          const children = component.components();
+          const hasBlockChild = children?.models?.some((child: any) => {
+            const childTag = ((child.get('tagName') as string) ?? '').toLowerCase();
+            return BLOCK_TAGS.has(childTag);
+          });
+          if (hasBlockChild) {
+            setSelectedImageSrc(null);
+            setSelectedTextComponent(null);
+          } else {
+            setSelectedTextComponent(component);
+            setSelectedImageSrc(null);
+          }
         } else {
           setSelectedImageSrc(null);
           setSelectedTextComponent(null);
@@ -1010,6 +1291,54 @@ export default function DetailPageEditor({
       editor.on('component:deselected', () => {
         setSelectedImageSrc(null);
         setSelectedTextComponent(null);
+      });
+
+      const PLACEHOLDER_SRC = 'https://placehold.co/860x860/e2e8f0/94a3b8?text=%5B%EC%9D%B4%EB%AF%B8%EC%A7%80%5D';
+
+      editor.on('canvas:frame:load:body', ({ window: iframeWin }: { window: Window }) => {
+        iframeWin.document.addEventListener('keydown', (e: KeyboardEvent) => {
+          if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+          const sel = editor.getSelected();
+          if (!sel) return;
+          const t = (sel.get('type') as string) ?? '';
+          const tag = ((sel.get('tagName') as string) ?? '').toLowerCase();
+          if (t === 'image' || tag === 'img') {
+            e.preventDefault();
+            e.stopPropagation();
+            sel.setAttributes({ src: PLACEHOLDER_SRC });
+          }
+        }, { capture: true });
+      });
+
+      editor.on('component:add', (component: any) => {
+        if (component.get('type') !== 'image') return;
+        const src = component.getAttributes()?.src;
+        if (!src || src.includes('placehold.co')) return;
+        const parent = component.parent();
+        if (!parent) return;
+        const idx = component.index();
+        const siblings = parent.components();
+        for (let i = Math.max(0, idx - 1); i <= Math.min(siblings.length - 1, idx + 1); i++) {
+          const sibling = siblings.at(i);
+          if (sibling === component) continue;
+          const sibType = (sibling?.get('type') as string) ?? '';
+          const sibTag = ((sibling?.get('tagName') as string) ?? '').toLowerCase();
+          if ((sibType === 'image' || sibTag === 'img') && (sibling.getAttributes()?.src || '').includes('placehold.co')) {
+            sibling.setAttributes({ src });
+            component.remove();
+            editor.select(sibling);
+            return;
+          }
+        }
+      });
+
+      rawImages.forEach((url, i) => {
+        editor.Blocks.add(`raw-image-${i}`, {
+          label: `원본 ${i + 1}`,
+          category: '원본 이미지',
+          content: `<img src="${url}" style="width:100%;max-width:600px;" />`,
+          media: `<img src="${url}" style="width:60px;height:60px;object-fit:cover;" />`,
+        });
       });
 
       const um = editor.UndoManager;
@@ -1029,7 +1358,7 @@ export default function DetailPageEditor({
         });
       }
     },
-    [parsed],
+    [parsed, rawImages],
   );
 
   const handleImageEdited = useCallback(
@@ -1057,46 +1386,6 @@ export default function DetailPageEditor({
     [editorRef],
   );
 
-  const getEditorHtml = useCallback(() => {
-    if (!editorRef) return '';
-    return editorRef.getHtml();
-  }, [editorRef]);
-
-  const getEditorCss = useCallback(() => {
-    if (!editorRef) return '';
-    return editorRef.getCss({ avoidProtected: true }) ?? '';
-  }, [editorRef]);
-
-  const handleDesignApply = useCallback(
-    (newHtml: string) => {
-      if (!editorRef) return;
-      const newParsed = parseFullHtml(newHtml);
-      editorRef.setComponents(newParsed.bodyHtml);
-
-      const iframeEl = editorRef.Canvas.getFrameEl();
-      if (iframeEl?.contentWindow) {
-        injectHeadResources(iframeEl.contentWindow, newParsed);
-      }
-    },
-    [editorRef],
-  );
-
-  const handleDesignUndo = useCallback(() => {
-    if (!editorRef) return;
-    editorRef.UndoManager.undo();
-  }, [editorRef]);
-
-  const [canDesignUndo, setCanDesignUndo] = useState(false);
-
-  useEffect(() => {
-    if (!editorRef) return;
-    const updateUndo = () => setCanDesignUndo(editorRef.UndoManager.hasUndo());
-    editorRef.on('update', updateUndo);
-    return () => {
-      editorRef.off('update', updateUndo);
-    };
-  }, [editorRef]);
-
   const refreshCanvas = useCallback(() => {
     if (editorRef) requestAnimationFrame(() => editorRef.refresh());
   }, [editorRef]);
@@ -1123,11 +1412,14 @@ export default function DetailPageEditor({
         <div className="flex flex-1 overflow-hidden">
           <div className={`h-full ${showLeftPanel ? '' : 'hidden'}`}>
             <WithEditor>
-              <LeftPanel onClose={() => setShowLeftPanel(false)} />
+              <LeftPanel onClose={() => setShowLeftPanel(false)} rawImages={rawImages} />
             </WithEditor>
           </div>
           <div ref={canvasWrapperRef} className="flex-1 overflow-hidden bg-gray-100 relative">
             <Canvas />
+            {isGenerating && (
+              <div className="absolute inset-0 bg-white/30 z-50 cursor-not-allowed" />
+            )}
             {!showLeftPanel && (
               <button
                 type="button"
@@ -1148,10 +1440,11 @@ export default function DetailPageEditor({
                   setShowRightPanel(true);
                   refreshCanvas();
                 }}
-                className="absolute top-2 right-2 z-10 p-1.5 bg-white border border-gray-200 rounded-lg shadow-sm text-gray-500 hover:text-gray-700 transition-colors"
-                title="설정 패널 열기"
+                className="absolute top-2 right-2 z-10 flex items-center gap-1.5 px-2.5 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-medium rounded-lg shadow-md transition-colors"
+                title="AI 패널 열기"
               >
-                <PanelRight size={14} />
+                <Sparkles size={13} />
+                AI
               </button>
             )}
           </div>
@@ -1162,17 +1455,16 @@ export default function DetailPageEditor({
                   setShowRightPanel(false);
                   refreshCanvas();
                 }}
-                getHtml={getEditorHtml}
-                getCss={getEditorCss}
-                onDesignApply={handleDesignApply}
-                onDesignUndo={handleDesignUndo}
-                canDesignUndo={canDesignUndo}
                 selectedTextComponent={selectedTextComponent}
                 isBusy={isBusyRef}
                 selectedImageSrc={selectedImageSrc}
                 onImageEdited={handleImageEdited}
                 onImageReplace={() => setShowImagePicker(true)}
                 onImageClose={() => setSelectedImageSrc(null)}
+                productId={productId}
+                onAiFillComplete={handleAiFillComplete}
+                onGeneratingChange={setIsGenerating}
+                rawImages={rawImages}
               />
             </WithEditor>
           </div>
@@ -1188,7 +1480,20 @@ export default function DetailPageEditor({
       />
 
       <AssetsProvider>
-        {({ open, select, close }) => <ImageAssetModal open={open} select={select} close={close} />}
+        {({ open, select, close }) => (
+          <ImagePickerModal
+            open={open}
+            rawImages={rawImages}
+            processedImages={processedImages}
+            onSelect={(url) => {
+              if (!editorRef) return;
+              const asset = editorRef.Assets.add({ type: 'image', src: url });
+              const resolved = Array.isArray(asset) ? asset[0] : asset;
+              if (resolved) select(resolved, true);
+            }}
+            onClose={close}
+          />
+        )}
       </AssetsProvider>
     </GjsEditor>
   );

@@ -24,6 +24,12 @@
 .gjs-cv-canvas {
     background-color: #1e293b !important;
     overflow: auto !important;
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
+}
+
+.gjs-cv-canvas::-webkit-scrollbar {
+    display: none !important;
 }
 
 .gjs-frame-wrapper {

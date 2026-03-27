@@ -3,8 +3,7 @@
 export { boldVerticalConfig } from './bold-vertical/config';
 // ─── Template Components ────────────────────────────────────────────────────
 export { BoldVertical } from './bold-vertical/index';
-export { oneshotConfig } from './oneshot/config';
-export { Oneshot } from './oneshot/index';
+export { placeholderDetailPageData } from './placeholder';
 export type { TemplateConfig, TemplateId } from './registry';
 // ─── Registry ───────────────────────────────────────────────────────────────
 export { getTemplate, templateIds, templates } from './registry';

@@ -4,10 +4,15 @@ import signal
 import traceback
 from datetime import datetime, timezone
 
+from langfuse import get_client
+
 from src.config import POLL_INTERVAL_SECONDS
+
+_lf = get_client()
 from src.db import get_pool, close_pool
 from src.agents.base import BaseAgent
 from src.agents.content.agent import ContentAgent
+from src.agents.image_edit import ImageEditAgent
 from src.agents.inventory import InventoryAgent
 from src.agents.sourcing.agent import SourcingAgent
 
@@ -15,6 +20,7 @@ AGENTS: dict[str, BaseAgent] = {
     "inventory": InventoryAgent(),
     "sourcing": SourcingAgent(),
     "content": ContentAgent(),
+    "image_edit": ImageEditAgent(),
 }
 
 running = True
@@ -72,10 +78,21 @@ async def fail_task(pool, task_id: str, error: str):
     )
 
 
+async def update_task_progress(pool, task_id: str, progress: dict):
+    await pool.execute(
+        "UPDATE agent_tasks SET output = $1 WHERE id = $2",
+        json.dumps(progress, ensure_ascii=False),
+        task_id,
+    )
+
+
 async def process_task(pool, task):
     task_id = str(task["id"])
     agent_type = task["agent_type"]
     task_input = json.loads(task["input"]) if task["input"] else None
+    if task_input is None:
+        task_input = {}
+    task_input["_task_id"] = task_id
 
     agent = AGENTS.get(agent_type)
     if not agent:
@@ -94,6 +111,8 @@ async def process_task(pool, task):
         await agent.log(pool, task_id, "error", error_msg)
         await fail_task(pool, task_id, str(e))
         print(f"[{agent_type}] ✗ Failed: {e}")
+    finally:
+        _lf.flush()
 
 
 async def drain_pending(pool):
@@ -137,6 +156,7 @@ async def main():
     await drain_pending(pool)
     await listen_loop(pool)
 
+    _lf.shutdown()
     await close_pool()
     print("Agent runner stopped.")
 

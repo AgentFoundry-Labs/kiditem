@@ -130,7 +130,7 @@ export const productsApi = {
 
   async process(
     id: string,
-    opts?: { generation_mode?: 'template' | 'oneshot' }
+    opts?: { generation_mode?: string }
   ): Promise<{ ok: boolean; message: string }> {
     const res = await fetch(`${API_BASE}/api/agent-tasks`, {
       method: 'POST',

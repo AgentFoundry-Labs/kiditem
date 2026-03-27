@@ -2,13 +2,13 @@ import type { DetailPageData } from './types';
 
 /** Placeholder data for template preview — no real content, just structure labels. */
 export const placeholderDetailPageData: DetailPageData = {
-  title: '[메인 제목]',
-  subtitle: '[서브타이틀]',
-  description: ['[상품 설명 첫 번째 줄]', '[상품 설명 두 번째 줄]'],
+  title: '[상품 이름을 입력하세요]',
+  subtitle: '[짧은 소개 문구]',
+  description: ['[상품을 설명하는 첫 번째 문장]', '[상품을 설명하는 두 번째 문장]'],
   badge: 'BEST PICK',
 
-  hookText: '[훅 텍스트]',
-  hookTitleSub: '[훅 서브]',
+  hookText: '[상품 제목 1]',
+  hookTitleSub: '[상품 제목 2]',
   hookSubtext: '',
 
   price: null,
@@ -29,12 +29,12 @@ export const placeholderDetailPageData: DetailPageData = {
   csInfo: null,
 
   colorText: '',
-  detailText: '[디테일 설명 문구]',
+  detailText: '[상세 설명을 입력하세요]',
   notes: [],
 
-  sectionName: '[섹션명]',
-  sectionTitle: '[섹션 타이틀]',
-  sectionSubtitle: ['[섹션 설명]'],
+  sectionName: '[카테고리]',
+  sectionTitle: '[섹션 제목]',
+  sectionSubtitle: ['[섹션에 대한 설명]'],
   detailTitle: 'DETAIL',
   sizeTitle: '사이즈 안내',
   sizeSubtitle: '정확한 사이즈를 확인해보세요',
@@ -50,8 +50,11 @@ export const placeholderDetailPageData: DetailPageData = {
   recycleMaterial: '종이',
 
   productInfo: [
-    { key: '[항목명]', value: '[항목값]' },
-    { key: '[항목명]', value: '[항목값]' },
+    { key: '제품명', value: '[제품명 입력]' },
+    { key: '사이즈', value: '[사이즈 입력]' },
+    { key: '재질', value: '[재질 입력]' },
+    { key: '원산지', value: '[원산지 입력]' },
+    { key: '사용연령', value: '[사용연령 입력]' },
   ],
 
   faqs: [],
