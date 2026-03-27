@@ -172,7 +172,6 @@ agents/src/agents/{name}/
 - **도메인 모듈 자기 완결** → Controller + Service가 한 폴더에.
 - **워크플로우 AI 분석은 실행당 1회만** → 개별 노드에 ai.analyze 넣지 말 것.
 
-<!-- GSD:project-start source:PROJECT.md -->
 ## Project
 
 **KidItem**
@@ -187,9 +186,7 @@ agents/src/agents/{name}/
 - **DB**: Native PG enum 금지 → String + validation
 - **Architecture**: 프론트 → NestJS API → DB 흐름 유지
 - **Frontend**: 'use client' only, 라이트 테마, API_BASE fetch 패턴
-<!-- GSD:project-end -->
 
-<!-- GSD:stack-start source:research/STACK.md -->
 ## Technology Stack
 
 ## Context: What Already Exists (Do Not Re-add)
@@ -263,36 +260,3 @@ agents/src/agents/{name}/
 - `agents/src/agents/content/models.py` — `GeneratedContent` and `DetailPageData` field structure verified from source
 - `agents/src/agents/content/template_pipeline.py` — current pipeline flow verified from source
 - `prisma/schema.prisma` — existing `Product` model and `processed_data: Json?` field verified
-<!-- GSD:stack-end -->
-
-<!-- GSD:conventions-start source:CONVENTIONS.md -->
-## Conventions
-
-Conventions not yet established. Will populate as patterns emerge during development.
-<!-- GSD:conventions-end -->
-
-<!-- GSD:architecture-start source:ARCHITECTURE.md -->
-## Architecture
-
-Architecture not yet mapped. Follow existing patterns found in the codebase.
-<!-- GSD:architecture-end -->
-
-<!-- GSD:workflow-start source:GSD defaults -->
-## GSD Workflow Enforcement
-
-Before using Edit, Write, or other file-changing tools, start work through a GSD command so planning artifacts and execution context stay in sync.
-
-Use these entry points:
-- `/gsd:quick` for small fixes, doc updates, and ad-hoc tasks
-- `/gsd:debug` for investigation and bug fixing
-- `/gsd:execute-phase` for planned phase work
-
-Do not make direct repo edits outside a GSD workflow unless the user explicitly asks to bypass it.
-<!-- GSD:workflow-end -->
-
-<!-- GSD:profile-start -->
-## Developer Profile
-
-> Profile not yet configured. Run `/gsd:profile-user` to generate your developer profile.
-> This section is managed by `generate-claude-profile` -- do not edit manually.
-<!-- GSD:profile-end -->
