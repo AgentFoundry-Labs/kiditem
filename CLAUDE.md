@@ -8,12 +8,25 @@
 git clone https://github.com/AgentFoundry-Labs/kiditem.git
 cd kiditem
 npm install
-cp apps/server/.env.example apps/server/.env   # API 키 설정
-docker compose up -d                           # PostgreSQL + NestJS + Langfuse
+
+# 환경변수 설정
+cp apps/server/.env.example apps/server/.env   # NestJS — DB, Coupang, Gemini 키
+cp agents/.env.example agents/.env             # Python agents — AI 모델 키 (OpenAI, Gemini, fal, Langfuse)
+
+# 인프라 실행
+docker compose up -d                           # PostgreSQL + NestJS + Python Agents
 npm run db:push                                # 스키마 적용
 npm run db:seed                                # 시드 데이터
+
+# 프론트엔드
 npm run dev                                    # Next.js (localhost:3000)
 ```
+
+### 상세페이지 생성 테스트
+
+1. `agents/.env`에 AI 키 설정 필수: `OPENAI_API_KEY`, `GEMINI_API_KEY`, `FAL_KEY`
+2. `docker compose up -d --build` (서버 + 에이전트 모두 실행)
+3. `localhost:3000/sourcing` → 상품 선택 → 에디터 → AI 생성 버튼
 
 ## 협업 규칙
 
@@ -61,13 +74,15 @@ prisma/              — 공유 스키마 (source of truth)
 ## Commands
 
 ```bash
-docker compose up -d              # PostgreSQL + NestJS + Langfuse
-docker compose up -d --build server  # NestJS 코드 변경 후 리빌드
-npm run db:push                   # 스키마 적용
-npm run db:seed                   # 시드 데이터
-npm run dev                       # Next.js 프론트엔드 (localhost:3000)
-npm run dev:server                # NestJS 로컬 개발 (Docker 대신)
-cd agents && .venv/bin/python -m src.runner  # Python agent runner
+docker compose up -d                 # PostgreSQL + NestJS + Python Agents
+docker compose up -d --build         # 코드 변경 후 전체 리빌드
+docker compose up -d --build server  # NestJS만 리빌드
+docker compose up -d --build agents  # Python agents만 리빌드
+docker compose logs -f agents        # Agent 로그 확인
+npm run db:push                      # 스키마 적용
+npm run db:seed                      # 시드 데이터
+npm run dev                          # Next.js 프론트엔드 (localhost:3000)
+npm run dev:server                   # NestJS 로컬 개발 (Docker 대신)
 ```
 
 ## Ports
@@ -76,17 +91,17 @@ cd agents && .venv/bin/python -m src.runner  # Python agent runner
 |---|---|---|
 | Next.js (프론트) | 3000 | ✗ 로컬 |
 | NestJS (백엔드) | 4000 | ✓ |
+| Python Agents | — (워커) | ✓ |
 | PostgreSQL | 5433 | ✓ |
-| Langfuse | 3100 | ✓ |
 
 ## 아키텍처 레이어
 
 ```
 [프론트엔드] Next.js — 화면 표시, 사용자 입력
      ↓ fetch
-[백엔드 API] NestJS — CRUD, 비즈니스 로직, 워크플로우 실행
+[백엔드 API] NestJS — CRUD, 비즈니스 로직, 이미지 렌더링
      ↓ Prisma                    ↓ agent_tasks INSERT
-[DB] PostgreSQL              [Python Agents] — AI 가공, 스크래핑
+[DB] PostgreSQL              [Python Agents] — AI 상세페이지 생성, 이미지 편집
 ```
 
 ### NestJS 백엔드 패턴
@@ -139,10 +154,17 @@ agents/src/agents/{name}/
 └── *.py              — 서비스 로직
 ```
 
-- `agent_tasks` 테이블 LISTEN/NOTIFY → 작업 감지 → 실행 → 결과 기록
+에이전트 종류:
+- `content` — AI 상세페이지 생성 (2-step: 카피 생성 → 이미지 편집)
+- `image_edit` — 개별 이미지 AI 편집
+- `render` — HTML → 이미지 렌더링
+
+환경변수: `agents/.env` (AI 모델 키, Langfuse, DB 등)
+
+- `agent_tasks` 테이블 폴링 → 작업 감지 → 실행 → 결과 기록
 - DB 접근: asyncpg raw SQL (ORM 없음)
 - 트리거: NestJS `POST /api/agent-tasks` → DB insert → Python runner 감지
-- 워크플로우 엔진과 독립. 워크플로우가 AI 작업 필요 시 agent_task 생성으로 위임.
+- Docker 컨테이너로 실행 (`docker compose up -d agents`)
 
 ### 프론트엔드 패턴
 
@@ -187,76 +209,45 @@ agents/src/agents/{name}/
 - **Architecture**: 프론트 → NestJS API → DB 흐름 유지
 - **Frontend**: 'use client' only, 라이트 테마, API_BASE fetch 패턴
 
-## Technology Stack
+## 환경변수
 
-## Context: What Already Exists (Do Not Re-add)
-- `zustand` ^5.0.12 — global state
-- `@radix-ui/react-popover` ^1.1.15 — accessible popover primitive
-- `@radix-ui/react-dialog` ^1.1.15 — modal dialogs
-- `grapesjs` ^0.22.14 + `@grapesjs/react` ^2.0.0 — HTML editor
-- `lucide-react` ^0.577.0 — icons
-- `next` 14.2.35, `react` ^18 — framework
-## Recommended Stack Additions
-### New Frontend Libraries
-| Library | Version | Purpose | Why Recommended |
-|---------|---------|---------|-----------------|
-| `react-colorful` | 5.6.1 | Hex color picker + hex input | 2.8 KB, zero dependencies, ships `HexColorPicker` + `HexColorInput`, React 18 compatible. Last published 4 years ago but stable/complete — no active bugs, no API churn. Alternative `@uiw/react-color` is heavier (20+ KB). |
-### No New Backend Libraries Needed
-- A new `pipeline_step` field on `products` table (String, values: `null | "content_ready" | "awaiting_image_gen"`)
-- Storing intermediate `GeneratedContent` JSON in `processed_data` at Step 1 completion
-- Existing `AgentTask` + `agent_tasks` table for Step 3 image generation trigger
-- Existing polling (3-second frontend interval) for status detection
-### No New Python Agent Libraries Needed
-## Architecture of the Pipeline Split (No New Libraries)
-### State Machine: Product.status + Product.pipelineStep
-| Field | Type | Values |
-|-------|------|--------|
-| `status` | String (existing) | `draft` → `processing` → `draft` (after Step 1) → `processing` (during Step 3) → `processed` |
-| `pipelineStep` | String (NEW, nullable) | `null` (no pipeline started), `content_ready` (Step 1 done, awaiting edit), `images_generating` (Step 3 in progress) |
-### Intermediate Data Storage
-### Editor Side Panel: Structured Form (No Library)
-- Tailwind-styled form with `<input type="text">` for copy fields
-- `react-colorful`'s `HexColorPicker` + `HexColorInput` inside `@radix-ui/react-popover` (already installed) for color fields
-- Existing `ImagePickerModal` for hero image selection
-- State: local `useState` inside the panel (no Zustand store addition needed — this is ephemeral edit state that gets POSTed on confirm)
-## Installation
-# apps/web only — one new package
-## Alternatives Considered
-| Recommended | Alternative | When to Use Alternative |
-|-------------|-------------|-------------------------|
-| `react-colorful` 5.6.1 | `@uiw/react-color` | If you need multi-format pickers (HSL, RGB sliders) in addition to hex. 20+ KB vs 2.8 KB — overkill for theme color selection with 6 hex fields. |
-| `react-colorful` 5.6.1 | Build color swatch inline | Acceptable if only swatches (no freeform hex). For arbitrary theme colors, a picker is better UX. |
-| `zustand` (existing) for pipeline step | `react-hook-form` | Use react-hook-form only if the structured panel grows to 20+ fields with complex validation. For 6–10 fields with simple hex + text types, useState + direct POST is sufficient. |
-| `products.pipelineStep` String column | New `pipeline_runs` table | New table only when one product needs to track multiple concurrent runs. Single-pipeline-per-product: new String column is sufficient. |
-| Polling (existing, 3s) | Server-sent events / WebSocket | SSE is better UX but requires new infrastructure. Polling is already implemented and acceptable for the 20–40 second image generation window. |
-## What NOT to Use
-| Avoid | Why | Use Instead |
-|-------|-----|-------------|
-| `react-color` (casesandberg) | Unmaintained since 2020, 30+ KB, no TypeScript types | `react-colorful` |
-| `react-hook-form` for this editor panel | Adds form library overhead where `useState` suffices. No async validation or complex field arrays needed. | Local `useState` + direct fetch POST |
-| New `pipeline_stages` table | Over-engineering. Adding a `pipelineStep` String to `products` achieves the same result without migration complexity | `products.pipelineStep` column |
-| New Zustand slice for pipeline state | Pipeline state lives in DB, not client. Frontend reads via polling. Client doesn't need to own this state. | Server state via fetch polling |
-| GrapesJS for the structured editor panel | GrapesJS edits raw HTML. The Step 2 structured editor edits `DetailPageData` fields before HTML is even rendered. Wrong tool for the job. | Custom React form panel alongside GrapesJS |
-## Version Compatibility
-| Package | Compatible With | Notes |
-|---------|-----------------|-------|
-| `react-colorful@5.6.1` | `react@18` | Peer dep is `react >= 16.8`. Works with React 18. No issues. |
-| `react-colorful@5.6.1` | `@radix-ui/react-popover@1.1.15` | Not directly coupled — colorful renders inside popover content. Works. |
-| New `pipelineStep` DB column | `prisma@7.5.0` | Standard nullable String field. No native enum. Follows existing patterns. |
-## Stack Patterns by Variant
-- Use local `useState` for the panel fields
-- `react-colorful` inside `@radix-ui/react-popover` for each color
-- On "Confirm", POST `/api/products/{id}/pipeline/step2-confirm` with the edited fields
-- No form library needed
-- Add `react-hook-form` at that point
-- Still use `react-colorful` for color fields via Controller integration
-- Add NestJS SSE endpoint: `GET /api/products/{id}/pipeline/status/stream`
-- No new library needed — NestJS supports SSE natively via `@Sse()` decorator
-## Sources
-- Codebase (`apps/web/package.json`) — existing dependencies verified directly
-- [react-colorful npm](https://www.npmjs.com/package/react-colorful) — version 5.6.1, zero dependencies confirmed (MEDIUM confidence — npm page returned 403, confirmed via search results)
-- [react-colorful GitHub](https://github.com/omgovich/react-colorful) — bundle size 2.8 KB, React 16.8+ peer dep
-- [Radix UI Popover docs](https://www.radix-ui.com/primitives/docs/components/popover) — already in project at ^1.1.15
-- `agents/src/agents/content/models.py` — `GeneratedContent` and `DetailPageData` field structure verified from source
-- `agents/src/agents/content/template_pipeline.py` — current pipeline flow verified from source
-- `prisma/schema.prisma` — existing `Product` model and `processed_data: Json?` field verified
+### apps/server/.env
+
+```
+DATABASE_URL=postgresql://kiditem:kiditem@localhost:5433/kiditem
+COUPANG_ACCESS_KEY=         # 쿠팡 Wing API
+COUPANG_SECRET_KEY=
+COUPANG_VENDOR_ID=
+GEMINI_API_KEY=             # 텍스트 AI (워크플로우 분석)
+AI_TEXT_MODEL=gemini-2.5-flash
+```
+
+### agents/.env
+
+```
+DATABASE_URL=postgresql://kiditem:kiditem@localhost:5433/kiditem
+
+# AI API 키
+AI_MODE=proxy                        # proxy (VectorEngine) 또는 direct
+AI_BASE_URL=https://api.vectorengine.ai/v1
+OPENAI_API_KEY=sk-...
+GEMINI_API_KEY=AI...
+VECTORENGINE_API_KEY=sk-...
+FAL_KEY=...
+
+# AI 모델
+AI_TEXT_MODEL=gemini-2.5-flash                    # 카피 생성
+AI_IMAGE_ANALYSIS_MODEL=gemini-3.1-flash-lite-preview  # 상품 이미지 분석
+AI_IMAGE_MODEL=gemini-3.1-flash-image-preview     # 히어로/배너 이미지 생성
+AI_IMAGE_EDIT_MODEL=fal-ai/flux-2-pro/edit        # 이미지 편집 (fal)
+AI_IMAGE_DETAIL_MODEL=fal-ai/flux-pro/kontext/max # 상세 이미지 편집 (fal)
+AI_IMAGE_EDIT_SIZE_MODEL=gemini-3.1-flash-image-preview  # 사이즈 차트 편집
+
+# Langfuse Cloud
+LANGFUSE_PUBLIC_KEY=pk-lf-...
+LANGFUSE_SECRET_KEY=sk-lf-...
+LANGFUSE_BASE_URL=https://cloud.langfuse.com
+
+# Runner
+POLL_INTERVAL_SECONDS=5
+```
