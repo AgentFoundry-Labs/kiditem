@@ -2,7 +2,7 @@
 import { API_BASE } from "@/lib/api";
 
 import { useEffect, useState } from "react";
-import { MessageSquare, Star } from "lucide-react";
+import { MessageSquare, Star, ChevronLeft, ChevronRight } from "lucide-react";
 import { formatKRW } from "@/lib/utils";
 
 interface ReviewSummary {
@@ -15,6 +15,8 @@ interface ReviewSummary {
 export default function ReviewsPage() {
   const [data, setData] = useState<ReviewSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(0);
+  const PAGE_SIZE = 50;
 
   useEffect(() => {
     fetch(`${API_BASE}/api/reviews`)
@@ -77,7 +79,7 @@ export default function ReviewsPage() {
             </tr>
           </thead>
           <tbody>
-            {data.map((d) => (
+            {data.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE).map((d) => (
               <tr key={d.productId} className={d.avgRating < 3.5 ? "bg-red-50/30" : d.totalReviews < 5 ? "bg-orange-50/30" : ""}>
                 <td className="font-medium text-slate-900">{d.productName}</td>
                 <td className="text-slate-500 text-xs">{d.company}</td>
@@ -101,6 +103,31 @@ export default function ReviewsPage() {
           </tbody>
         </table>
         </div>
+        {Math.ceil(data.length / PAGE_SIZE) > 1 && (
+          <div className="flex items-center justify-between px-4 py-3 border-t border-slate-200">
+            <span className="text-sm text-slate-500">
+              {data.length}건 중 {page * PAGE_SIZE + 1}-{Math.min((page + 1) * PAGE_SIZE, data.length)}
+            </span>
+            <div className="flex items-center gap-1">
+              <button onClick={() => setPage(Math.max(0, page - 1))} disabled={page === 0} className="p-1.5 rounded hover:bg-slate-100 disabled:opacity-30">
+                <ChevronLeft size={16} />
+              </button>
+              {Array.from({ length: Math.min(Math.ceil(data.length / PAGE_SIZE), 7) }, (_, i) => {
+                const totalPages = Math.ceil(data.length / PAGE_SIZE);
+                const pageNum = Math.max(0, Math.min(page - 3, totalPages - 7)) + i;
+                if (pageNum >= totalPages) return null;
+                return (
+                  <button key={pageNum} onClick={() => setPage(pageNum)} className={`w-8 h-8 rounded text-sm ${page === pageNum ? "bg-blue-600 text-white" : "hover:bg-slate-100"}`}>
+                    {pageNum + 1}
+                  </button>
+                );
+              })}
+              <button onClick={() => setPage(Math.min(Math.ceil(data.length / PAGE_SIZE) - 1, page + 1))} disabled={page >= Math.ceil(data.length / PAGE_SIZE) - 1} className="p-1.5 rounded hover:bg-slate-100 disabled:opacity-30">
+                <ChevronRight size={16} />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
       )}
     </div>
