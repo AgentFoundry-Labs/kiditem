@@ -1,9 +1,10 @@
 "use client";
 import { API_BASE } from "@/lib/api";
 
-import { useEffect, useState } from "react";
-import { Trash2, AlertTriangle, MinusCircle, ChevronLeft, ChevronRight } from "lucide-react";
+import { useEffect, useState, useCallback } from "react";
+import { Trash2, AlertTriangle, MinusCircle } from "lucide-react";
 import { formatKRW, formatPercent, getProfitColor, getGradeColor } from "@/lib/utils";
+import { Pagination } from "@/components/ui/Pagination";
 
 interface Product {
   id: string; name: string; sku: string; company: string; abcGrade: string;
@@ -13,26 +14,40 @@ interface Product {
 
 export default function CleanupPage() {
   const [products, setProducts] = useState<Product[]>([]);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState("all");
-  const [page, setPage] = useState(0);
+  const [page, setPage] = useState(1);
   const PAGE_SIZE = 50;
 
+  const fetchProducts = useCallback(async (p = page) => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({
+        maxProfitRate: "3",
+        page: String(p),
+        limit: String(PAGE_SIZE),
+      });
+      const res = await fetch(`${API_BASE}/api/products?${params}`);
+      const data = await res.json();
+      setProducts(data.items);
+      setTotal(data.total);
+    } catch (err) {
+      console.error("정리 대상 데이터 로딩 실패:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, [page]);
+
   useEffect(() => {
-    fetch(`${API_BASE}/api/products`)
-      .then((r) => r.json())
-      .then((data) => {
-        const filtered = data.filter((p: Product) => p.profitRate <= 3);
-        setProducts(filtered);
-      })
-      .catch((err) => console.error("정리 대상 데이터 로딩 실패:", err))
-      .finally(() => setLoading(false));
+    fetchProducts(1);
   }, []);
 
-  const minusProducts = products.filter((p) => p.profitRate < 0);
-  const lowProducts = products.filter((p) => p.profitRate >= 0 && p.profitRate <= 3);
+  useEffect(() => {
+    fetchProducts();
+  }, [page]);
 
-  const filtered = filter === "minus" ? minusProducts : filter === "low" ? lowProducts : products;
+  const minusCount = products.filter((p) => p.profitRate < 0).length;
+  const lowCount = products.filter((p) => p.profitRate >= 0).length;
 
   if (loading) return <div className="flex items-center justify-center h-64 text-slate-500">로딩 중...</div>;
 
@@ -49,17 +64,17 @@ export default function CleanupPage() {
       <div className="grid grid-cols-3 gap-4">
         <div className="bg-red-50 rounded-xl p-5 border border-red-200">
           <div className="flex items-center gap-2 text-red-600"><MinusCircle size={18} /> 적자 상품</div>
-          <div className="text-3xl font-bold text-red-700 mt-2">{minusProducts.length}개</div>
+          <div className="text-3xl font-bold text-red-700 mt-2">{minusCount}개</div>
           <div className="text-xs text-red-500 mt-1">즉시 아웃 검토 필요</div>
         </div>
         <div className="bg-orange-50 rounded-xl p-5 border border-orange-200">
           <div className="flex items-center gap-2 text-orange-600"><AlertTriangle size={18} /> 순이익 0~3%</div>
-          <div className="text-3xl font-bold text-orange-700 mt-2">{lowProducts.length}개</div>
+          <div className="text-3xl font-bold text-orange-700 mt-2">{lowCount}개</div>
           <div className="text-xs text-orange-500 mt-1">개선 또는 정리 판단 필요</div>
         </div>
         <div className="bg-slate-50 rounded-xl p-5 border border-slate-200">
           <div className="text-slate-600">전체 정리 대상</div>
-          <div className="text-3xl font-bold text-slate-900 mt-2">{products.length}개</div>
+          <div className="text-3xl font-bold text-slate-900 mt-2">{total}개</div>
         </div>
       </div>
 
@@ -77,15 +92,8 @@ export default function CleanupPage() {
         </div>
       </div>
 
-      {/* Filter */}
-      <div className="flex gap-2">
-        <button onClick={() => { setFilter("all"); setPage(0); }} className={`px-4 py-2 rounded-lg text-sm font-medium ${filter === "all" ? "bg-blue-600 text-white" : "bg-white border hover:bg-slate-50"}`}>전체 ({products.length})</button>
-        <button onClick={() => { setFilter("minus"); setPage(0); }} className={`px-4 py-2 rounded-lg text-sm font-medium ${filter === "minus" ? "bg-red-600 text-white" : "bg-white border hover:bg-slate-50 text-red-600"}`}>적자 ({minusProducts.length})</button>
-        <button onClick={() => { setFilter("low"); setPage(0); }} className={`px-4 py-2 rounded-lg text-sm font-medium ${filter === "low" ? "bg-orange-600 text-white" : "bg-white border hover:bg-slate-50 text-orange-600"}`}>3%이하 ({lowProducts.length})</button>
-      </div>
-
       {/* Table */}
-      {filtered.length === 0 ? (
+      {products.length === 0 ? (
         <div className="bg-white rounded-xl border border-slate-200 p-12 text-center text-slate-500">
           정리 대상 상품이 없습니다.
         </div>
@@ -109,7 +117,7 @@ export default function CleanupPage() {
             </tr>
           </thead>
           <tbody>
-            {filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE).map((p) => {
+            {products.map((p) => {
               const margin = p.sellPrice > 0 ? ((p.sellPrice - p.costPrice) / p.sellPrice) * 100 : 0;
               let cause = "복합";
               let action = "검토 필요";
@@ -137,31 +145,7 @@ export default function CleanupPage() {
           </tbody>
         </table>
         </div>
-        {Math.ceil(filtered.length / PAGE_SIZE) > 1 && (
-          <div className="flex items-center justify-between px-4 py-3 border-t border-slate-200">
-            <span className="text-sm text-slate-500">
-              {filtered.length}건 중 {page * PAGE_SIZE + 1}-{Math.min((page + 1) * PAGE_SIZE, filtered.length)}
-            </span>
-            <div className="flex items-center gap-1">
-              <button onClick={() => setPage(Math.max(0, page - 1))} disabled={page === 0} className="p-1.5 rounded hover:bg-slate-100 disabled:opacity-30">
-                <ChevronLeft size={16} />
-              </button>
-              {Array.from({ length: Math.min(Math.ceil(filtered.length / PAGE_SIZE), 7) }, (_, i) => {
-                const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
-                const pageNum = Math.max(0, Math.min(page - 3, totalPages - 7)) + i;
-                if (pageNum >= totalPages) return null;
-                return (
-                  <button key={pageNum} onClick={() => setPage(pageNum)} className={`w-8 h-8 rounded text-sm ${page === pageNum ? "bg-blue-600 text-white" : "hover:bg-slate-100"}`}>
-                    {pageNum + 1}
-                  </button>
-                );
-              })}
-              <button onClick={() => setPage(Math.min(Math.ceil(filtered.length / PAGE_SIZE) - 1, page + 1))} disabled={page >= Math.ceil(filtered.length / PAGE_SIZE) - 1} className="p-1.5 rounded hover:bg-slate-100 disabled:opacity-30">
-                <ChevronRight size={16} />
-              </button>
-            </div>
-          </div>
-        )}
+        <Pagination page={page} limit={PAGE_SIZE} total={total} onPageChange={setPage} />
       </div>
       )}
     </div>

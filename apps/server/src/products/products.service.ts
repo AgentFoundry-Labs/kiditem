@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import type { Prisma } from '@prisma/client';
+import { paginationParams, type PaginatedResponse } from '../common/pagination';
 
 @Injectable()
 export class ProductsService {
@@ -16,9 +17,13 @@ export class ProductsService {
     status?: string;
     search?: string;
     company?: string;
-  }) {
+    page?: string;
+    limit?: string;
+    maxProfitRate?: string;
+  }): Promise<PaginatedResponse<Record<string, unknown>>> {
     try {
-      const { grade, status, search, company } = query;
+      const { grade, status, search, company, maxProfitRate } = query;
+      const { page, limit, skip } = paginationParams(query);
 
       const now = new Date();
       const year = now.getFullYear();
@@ -30,7 +35,7 @@ export class ProductsService {
           where: { name: company },
           select: { id: true },
         });
-        if (!comp) return [];
+        if (!comp) return { items: [], total: 0, page, limit };
         companyFilterId = comp.id;
       }
 
@@ -41,18 +46,10 @@ export class ProductsService {
         ...(companyFilterId && { companyId: companyFilterId }),
       };
 
-      const productsData = await this.prisma.product.findMany({
-        where,
-        include: {
-          company: true,
-          inventory: true,
-        },
-        orderBy: { createdAt: 'desc' },
-      });
-
       const monthStart = new Date(year, month - 1, 1);
       const monthEnd = new Date(year, month, 1);
 
+      // Enrichment 쿼리 (전역 집계 — 페이지네이션과 무관)
       const [plData, revenueData, adsAgg, thumbData, reviewCounts] =
         await Promise.all([
           this.prisma.profitLoss.findMany({ where: { year, month } }),
@@ -98,70 +95,107 @@ export class ProductsService {
         reviewCounts.map((r) => [r.productId, r._count]),
       );
 
-      return productsData.map((p) => {
-        const pl = plMap.get(p.id);
-        const orderData = revenueMap.get(p.coupangProductId ?? '');
-        const totalAdSpend = adsMap.get(p.id) ?? 0;
+      // maxProfitRate 필터: 계산 필드이므로 전체 로드 후 필터+페이지네이션
+      if (maxProfitRate !== undefined) {
+        const maxRate = parseFloat(maxProfitRate);
+        const allProducts = await this.prisma.product.findMany({
+          where,
+          include: { company: true, inventory: true },
+          orderBy: { createdAt: 'desc' },
+        });
+        const allEnriched = allProducts.map((p) => this.enrichProduct(p, plMap, revenueMap, adsMap, thumbMap, reviewMap));
+        const filtered = allEnriched.filter((p) => p.profitRate <= maxRate);
+        const total = filtered.length;
+        const items = filtered.slice(skip, skip + limit);
+        return { items, total, page, limit };
+      }
 
-        let revenue: number;
-        let netProfit: number;
-        let orderCount: number;
+      // 일반 경로: count + skip/take
+      const [total, productsData] = await Promise.all([
+        this.prisma.product.count({ where }),
+        this.prisma.product.findMany({
+          where,
+          include: { company: true, inventory: true },
+          orderBy: { createdAt: 'desc' },
+          skip,
+          take: limit,
+        }),
+      ]);
 
-        if (pl) {
-          revenue = pl.revenue;
-          netProfit = pl.netProfit;
-          orderCount = orderData?.orderCount ?? pl.orderCount;
-        } else if (orderData) {
-          revenue = orderData.revenue;
-          orderCount = orderData.orderCount;
-          const comm = Math.round(
-            revenue * (p.commissionRate ? Number(p.commissionRate) : 0.108),
-          );
-          const cogs = p.costCny
-            ? Math.round(Number(p.costCny) * 190 * orderCount)
-            : 0;
-          const ship = (p.shippingCost ?? 0) * orderCount;
-          netProfit = revenue - comm - cogs - ship - totalAdSpend;
-        } else {
-          revenue = 0;
-          netProfit = 0;
-          orderCount = 0;
-        }
-
-        const adRate = revenue > 0 ? (totalAdSpend / revenue) * 100 : 0;
-
-        return {
-          id: p.id,
-          name: p.name,
-          sku: p.coupangProductId ?? null,
-          category: p.category,
-          company: p.company?.name ?? 'N/A',
-          companyId: p.companyId,
-          costPrice: p.costCny ? Number(p.costCny) : 0,
-          sellPrice: p.sellPrice ?? 0,
-          commissionRate: p.commissionRate ? Number(p.commissionRate) : 0,
-          shippingCost: p.shippingCost ?? 0,
-          status: p.status,
-          abcGrade: p.abcGrade,
-          adTier: p.adTier,
-          currentStock: p.inventory?.currentStock ?? 0,
-          reorderPoint: p.inventory?.reorderPoint ?? 0,
-          avgDailySales: p.inventory?.dailySalesAvg ?? 0,
-          revenue,
-          netProfit,
-          profitRate:
-            revenue > 0
-              ? Math.round((netProfit / revenue) * 1000) / 10
-              : 0,
-          adRate: Math.round(adRate * 10) / 10,
-          reviewCount: reviewMap.get(p.id) ?? 0,
-          orderCount,
-          thumbnailCTR: thumbMap.get(p.id) ?? 0,
-        };
-      });
+      const items = productsData.map((p) => this.enrichProduct(p, plMap, revenueMap, adsMap, thumbMap, reviewMap));
+      return { items, total, page, limit };
     } catch {
       throw new InternalServerErrorException('상품 조회 실패');
     }
+  }
+
+  private enrichProduct(
+    p: any,
+    plMap: Map<string, any>,
+    revenueMap: Map<string, { revenue: number; orderCount: number }>,
+    adsMap: Map<string, number>,
+    thumbMap: Map<string, number>,
+    reviewMap: Map<string, number>,
+  ) {
+    const pl = plMap.get(p.id);
+    const orderData = revenueMap.get(p.coupangProductId ?? '');
+    const totalAdSpend = adsMap.get(p.id) ?? 0;
+
+    let revenue: number;
+    let netProfit: number;
+    let orderCount: number;
+
+    if (pl) {
+      revenue = pl.revenue;
+      netProfit = pl.netProfit;
+      orderCount = orderData?.orderCount ?? pl.orderCount;
+    } else if (orderData) {
+      revenue = orderData.revenue;
+      orderCount = orderData.orderCount;
+      const comm = Math.round(
+        revenue * (p.commissionRate ? Number(p.commissionRate) : 0.108),
+      );
+      const cogs = p.costCny
+        ? Math.round(Number(p.costCny) * 190 * orderCount)
+        : 0;
+      const ship = (p.shippingCost ?? 0) * orderCount;
+      netProfit = revenue - comm - cogs - ship - totalAdSpend;
+    } else {
+      revenue = 0;
+      netProfit = 0;
+      orderCount = 0;
+    }
+
+    const adRate = revenue > 0 ? (totalAdSpend / revenue) * 100 : 0;
+
+    return {
+      id: p.id,
+      name: p.name,
+      sku: p.coupangProductId ?? null,
+      category: p.category,
+      company: p.company?.name ?? 'N/A',
+      companyId: p.companyId,
+      costPrice: p.costCny ? Number(p.costCny) : 0,
+      sellPrice: p.sellPrice ?? 0,
+      commissionRate: p.commissionRate ? Number(p.commissionRate) : 0,
+      shippingCost: p.shippingCost ?? 0,
+      status: p.status,
+      abcGrade: p.abcGrade,
+      adTier: p.adTier,
+      currentStock: p.inventory?.currentStock ?? 0,
+      reorderPoint: p.inventory?.reorderPoint ?? 0,
+      avgDailySales: p.inventory?.dailySalesAvg ?? 0,
+      revenue,
+      netProfit,
+      profitRate:
+        revenue > 0
+          ? Math.round((netProfit / revenue) * 1000) / 10
+          : 0,
+      adRate: Math.round(adRate * 10) / 10,
+      reviewCount: reviewMap.get(p.id) ?? 0,
+      orderCount,
+      thumbnailCTR: thumbMap.get(p.id) ?? 0,
+    };
   }
 
   async create(body: Record<string, unknown>) {

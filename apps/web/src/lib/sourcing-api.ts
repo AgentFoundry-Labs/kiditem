@@ -72,14 +72,19 @@ async function handleResponse<T>(res: Response): Promise<T> {
 
 export const productsApi = {
   async list(params?: {
-    skip?: number;
+    page?: number;
     limit?: number;
     status?: string;
     platform?: string;
   }): Promise<ProductListResponse> {
-    const res = await fetch(`${SOURCING_BASE}/extension/products?limit=${params?.limit || 100}`);
-    const raw = await res.json() as any[];
-    const items: ProductListItem[] = raw.map((p: any) => {
+    const qs = new URLSearchParams({
+      page: String(params?.page || 1),
+      limit: String(params?.limit || 50),
+    });
+    if (params?.platform) qs.set('platform', params.platform);
+    const res = await fetch(`${SOURCING_BASE}/extension/products?${qs}`);
+    const data = await res.json() as { items: any[]; total: number; page: number; limit: number };
+    const items: ProductListItem[] = data.items.map((p: any) => {
       const rawData = p.rawData || {};
       const images = rawData.images || [];
       return {
@@ -97,7 +102,7 @@ export const productsApi = {
         updated_at: p.updatedAt || '',
       };
     });
-    return { items, total: items.length };
+    return { items, total: data.total };
   },
 
   async getDetail(id: string): Promise<ProductDetailResponse> {

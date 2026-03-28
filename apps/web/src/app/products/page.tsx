@@ -1,10 +1,11 @@
 "use client";
 import { API_BASE } from "@/lib/api";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Download, Upload, Search, ChevronLeft, ChevronRight } from "lucide-react";
+import { Plus, Download, Upload, Search } from "lucide-react";
 import { formatKRW, formatPercent, getGradeColor, getProfitColor, getProductStatusBadge } from "@/lib/utils";
+import { Pagination } from "@/components/ui/Pagination";
 
 interface Product {
   id: string;
@@ -33,49 +34,69 @@ interface Product {
 export default function ProductsPage() {
   const router = useRouter();
   const [products, setProducts] = useState<Product[]>([]);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [gradeFilter, setGradeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("active");
   const [showModal, setShowModal] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [page, setPage] = useState(0);
+  const [page, setPage] = useState(1);
   const PAGE_SIZE = 50;
 
-  useEffect(() => {
+  const fetchProducts = useCallback(async (p = page) => {
     setLoading(true);
-    setPage(0);
-    fetchProducts();
-  }, [gradeFilter, statusFilter]);
-
-  const fetchProducts = async () => {
     const params = new URLSearchParams();
     if (gradeFilter !== "all") params.set("grade", gradeFilter);
     if (statusFilter !== "all") params.set("status", statusFilter);
     if (search) params.set("search", search);
+    params.set("page", String(p));
+    params.set("limit", String(PAGE_SIZE));
     try {
       const res = await fetch(`${API_BASE}/api/products?${params}`);
       if (!res.ok) throw new Error(`서버 오류: ${res.status}`);
       const data = await res.json();
-      setProducts(data);
+      setProducts(data.items);
+      setTotal(data.total);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "상품 목록을 불러오지 못했습니다.");
     } finally {
       setLoading(false);
     }
-  };
+  }, [gradeFilter, statusFilter, search, page]);
+
+  useEffect(() => {
+    setPage(1);
+    fetchProducts(1);
+  }, [gradeFilter, statusFilter]);
+
+  useEffect(() => {
+    fetchProducts();
+  }, [page]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    setPage(0);
-    fetchProducts();
+    setPage(1);
+    fetchProducts(1);
   };
 
-  const handleExcelDownload = () => {
+  const handlePageChange = (newPage: number) => {
+    setPage(newPage);
+  };
+
+  const handleExcelDownload = async () => {
+    const params = new URLSearchParams();
+    if (gradeFilter !== "all") params.set("grade", gradeFilter);
+    if (statusFilter !== "all") params.set("status", statusFilter);
+    if (search) params.set("search", search);
+    params.set("limit", "10000");
+    const res = await fetch(`${API_BASE}/api/products?${params}`);
+    const data = await res.json();
+    const allProducts: Product[] = data.items;
     import("xlsx").then((XLSX) => {
       const ws = XLSX.utils.json_to_sheet(
-        products.map((p) => ({
+        allProducts.map((p) => ({
           등급: p.abcGrade,
           상품명: p.name,
           SKU: p.sku,
@@ -148,12 +169,7 @@ export default function ProductsPage() {
 
       {/* Summary */}
       <div className="flex gap-4 text-sm">
-        <span className="text-slate-500">전체 <strong className="text-slate-900">{products.length}개</strong></span>
-        <span className="text-blue-600">A: {products.filter(p => p.abcGrade === "A").length}개</span>
-        <span className="text-slate-600">B: {products.filter(p => p.abcGrade === "B").length}개</span>
-        <span className="text-orange-600">C: {products.filter(p => p.abcGrade === "C").length}개</span>
-        <span className="text-red-600">적자: {products.filter(p => p.profitRate < 0).length}개</span>
-        <span className="text-orange-500">3%이하: {products.filter(p => p.profitRate <= 3 && p.profitRate >= 0).length}개</span>
+        <span className="text-slate-500">전체 <strong className="text-slate-900">{total}개</strong></span>
       </div>
 
       {/* Table */}
@@ -182,7 +198,7 @@ export default function ProductsPage() {
               </tr>
             </thead>
             <tbody>
-              {products.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE).map((p) => {
+              {products.map((p) => {
                 const badge = getProductStatusBadge(p.status);
                 return (
                   <tr key={p.id} onClick={() => router.push(`/products/${p.id}`)} className={`cursor-pointer hover:bg-slate-50 ${p.profitRate < 0 ? "bg-red-50/50" : p.profitRate <= 3 ? "bg-orange-50/30" : ""}`}>
@@ -208,31 +224,7 @@ export default function ProductsPage() {
             </tbody>
           </table>
         </div>
-        {Math.ceil(products.length / PAGE_SIZE) > 1 && (
-          <div className="flex items-center justify-between px-4 py-3 border-t border-slate-200">
-            <span className="text-sm text-slate-500">
-              {products.length}건 중 {page * PAGE_SIZE + 1}-{Math.min((page + 1) * PAGE_SIZE, products.length)}
-            </span>
-            <div className="flex items-center gap-1">
-              <button onClick={() => setPage(Math.max(0, page - 1))} disabled={page === 0} className="p-1.5 rounded hover:bg-slate-100 disabled:opacity-30">
-                <ChevronLeft size={16} />
-              </button>
-              {Array.from({ length: Math.min(Math.ceil(products.length / PAGE_SIZE), 7) }, (_, i) => {
-                const totalPages = Math.ceil(products.length / PAGE_SIZE);
-                const pageNum = Math.max(0, Math.min(page - 3, totalPages - 7)) + i;
-                if (pageNum >= totalPages) return null;
-                return (
-                  <button key={pageNum} onClick={() => setPage(pageNum)} className={`w-8 h-8 rounded text-sm ${page === pageNum ? "bg-blue-600 text-white" : "hover:bg-slate-100"}`}>
-                    {pageNum + 1}
-                  </button>
-                );
-              })}
-              <button onClick={() => setPage(Math.min(Math.ceil(products.length / PAGE_SIZE) - 1, page + 1))} disabled={page >= Math.ceil(products.length / PAGE_SIZE) - 1} className="p-1.5 rounded hover:bg-slate-100 disabled:opacity-30">
-                <ChevronRight size={16} />
-              </button>
-            </div>
-          </div>
-        )}
+        <Pagination page={page} limit={PAGE_SIZE} total={total} onPageChange={handlePageChange} />
       </div>
       )}
 

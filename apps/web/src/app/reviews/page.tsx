@@ -1,36 +1,47 @@
 "use client";
 import { API_BASE } from "@/lib/api";
 
-import { useEffect, useState } from "react";
-import { MessageSquare, Star, ChevronLeft, ChevronRight } from "lucide-react";
+import { useEffect, useState, useCallback } from "react";
+import { MessageSquare, Star } from "lucide-react";
 import { formatKRW } from "@/lib/utils";
+import { Pagination } from "@/components/ui/Pagination";
 
 interface ReviewSummary {
   productId: string; productName: string; sku: string; company: string;
   grade: string; totalReviews: number; avgRating: number;
   recentReviews: number; orderCount: number;
-  conversionRate: number; // 리뷰 대비 주문 비율
 }
 
 export default function ReviewsPage() {
   const [data, setData] = useState<ReviewSummary[]>([]);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [page, setPage] = useState(0);
+  const [page, setPage] = useState(1);
   const PAGE_SIZE = 50;
 
+  const fetchReviews = useCallback(async (p = page) => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({
+        page: String(p),
+        limit: String(PAGE_SIZE),
+      });
+      const res = await fetch(`${API_BASE}/api/reviews?${params}`);
+      const json = await res.json();
+      setData(json.items);
+      setTotal(json.total);
+    } catch (err) {
+      console.error("리뷰 데이터 로딩 실패:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, [page]);
+
   useEffect(() => {
-    fetch(`${API_BASE}/api/reviews`)
-      .then((r) => r.json())
-      .then(setData)
-      .catch((err) => console.error("리뷰 데이터 로딩 실패:", err))
-      .finally(() => setLoading(false));
-  }, []);
+    fetchReviews();
+  }, [page]);
 
   if (loading) return <div className="flex items-center justify-center h-64 text-slate-500">로딩 중...</div>;
-
-  const totalReviews = data.reduce((s, d) => s + d.totalReviews, 0);
-  const withReviews = data.filter((d) => d.totalReviews > 0);
-  const avgRating = withReviews.length > 0 ? withReviews.reduce((s, d) => s + d.avgRating, 0) / withReviews.length : 0;
 
   return (
     <div className="space-y-6">
@@ -39,17 +50,10 @@ export default function ReviewsPage() {
         리뷰 관리
       </h1>
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 gap-4">
         <div className="bg-white rounded-xl p-4 border border-slate-200">
-          <div className="text-sm text-slate-500">총 리뷰</div>
-          <div className="text-xl font-bold">{formatKRW(totalReviews)}개</div>
-        </div>
-        <div className="bg-white rounded-xl p-4 border border-slate-200">
-          <div className="text-sm text-slate-500">평균 평점</div>
-          <div className="text-xl font-bold flex items-center gap-1">
-            <Star size={18} className="text-yellow-500 fill-yellow-500" />
-            {avgRating.toFixed(1)}
-          </div>
+          <div className="text-sm text-slate-500">전체 상품</div>
+          <div className="text-xl font-bold">{total}개</div>
         </div>
         <div className="bg-orange-50 rounded-xl p-4 border border-orange-200">
           <div className="text-sm text-orange-600">리뷰 집중 필요</div>
@@ -79,7 +83,7 @@ export default function ReviewsPage() {
             </tr>
           </thead>
           <tbody>
-            {data.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE).map((d) => (
+            {data.map((d) => (
               <tr key={d.productId} className={d.avgRating < 3.5 ? "bg-red-50/30" : d.totalReviews < 5 ? "bg-orange-50/30" : ""}>
                 <td className="font-medium text-slate-900">{d.productName}</td>
                 <td className="text-slate-500 text-xs">{d.company}</td>
@@ -103,31 +107,7 @@ export default function ReviewsPage() {
           </tbody>
         </table>
         </div>
-        {Math.ceil(data.length / PAGE_SIZE) > 1 && (
-          <div className="flex items-center justify-between px-4 py-3 border-t border-slate-200">
-            <span className="text-sm text-slate-500">
-              {data.length}건 중 {page * PAGE_SIZE + 1}-{Math.min((page + 1) * PAGE_SIZE, data.length)}
-            </span>
-            <div className="flex items-center gap-1">
-              <button onClick={() => setPage(Math.max(0, page - 1))} disabled={page === 0} className="p-1.5 rounded hover:bg-slate-100 disabled:opacity-30">
-                <ChevronLeft size={16} />
-              </button>
-              {Array.from({ length: Math.min(Math.ceil(data.length / PAGE_SIZE), 7) }, (_, i) => {
-                const totalPages = Math.ceil(data.length / PAGE_SIZE);
-                const pageNum = Math.max(0, Math.min(page - 3, totalPages - 7)) + i;
-                if (pageNum >= totalPages) return null;
-                return (
-                  <button key={pageNum} onClick={() => setPage(pageNum)} className={`w-8 h-8 rounded text-sm ${page === pageNum ? "bg-blue-600 text-white" : "hover:bg-slate-100"}`}>
-                    {pageNum + 1}
-                  </button>
-                );
-              })}
-              <button onClick={() => setPage(Math.min(Math.ceil(data.length / PAGE_SIZE) - 1, page + 1))} disabled={page >= Math.ceil(data.length / PAGE_SIZE) - 1} className="p-1.5 rounded hover:bg-slate-100 disabled:opacity-30">
-                <ChevronRight size={16} />
-              </button>
-            </div>
-          </div>
-        )}
+        <Pagination page={page} limit={PAGE_SIZE} total={total} onPageChange={setPage} />
       </div>
       )}
     </div>

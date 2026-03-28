@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { paginationParams } from '../common/pagination';
 
 const PLATFORM_MAP: Record<string, string> = {
   '1688': 'ALIBABA_1688',
@@ -75,17 +76,23 @@ export class SourcingService {
     };
   }
 
-  async listProducts(query: { limit?: string; platform?: string }) {
-    const limit = parseInt(query.limit || '50');
-    return this.prisma.product.findMany({
-      where: {
-        status: { in: ['draft', 'processing', 'processed'] },
-        ...(query.platform && {
-          sourcePlatform: PLATFORM_MAP[query.platform.toLowerCase()] || query.platform,
-        }),
-      },
-      orderBy: { createdAt: 'desc' },
-      take: limit,
-    });
+  async listProducts(query: { page?: string; limit?: string; platform?: string }) {
+    const { page, limit, skip } = paginationParams(query);
+    const where = {
+      status: { in: ['draft', 'processing', 'processed'] as string[] },
+      ...(query.platform && {
+        sourcePlatform: PLATFORM_MAP[query.platform.toLowerCase()] || query.platform,
+      }),
+    };
+    const [total, items] = await Promise.all([
+      this.prisma.product.count({ where }),
+      this.prisma.product.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+    ]);
+    return { items, total, page, limit };
   }
 }

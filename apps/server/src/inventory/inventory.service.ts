@@ -1,12 +1,23 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  paginationParams,
+  type PaginatedResponse,
+} from '../common/pagination';
 
 @Injectable()
 export class InventoryService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll() {
+  async findAll(query: {
+    page?: string;
+    limit?: string;
+    status?: string;
+  }): Promise<PaginatedResponse<Record<string, unknown>>> {
     try {
+      const { page, limit, skip } = paginationParams(query);
+      const statusFilter = query.status;
+
       const rows = await this.prisma.inventory.findMany({
         include: {
           product: {
@@ -15,7 +26,7 @@ export class InventoryService {
         },
       });
 
-      return rows.map((inv) => {
+      const enriched = rows.map((inv) => {
         const avgDailySales = inv.dailySalesAvg ?? 0;
         const leadTimeDays = inv.leadTimeDays ?? 14;
         const currentStock = inv.currentStock;
@@ -59,6 +70,22 @@ export class InventoryService {
           status,
         };
       });
+
+      // status는 계산 필드이므로 메모리에서 필터
+      const filtered =
+        statusFilter && statusFilter !== 'all'
+          ? enriched.filter((i) => {
+              if (statusFilter === 'reorder')
+                return i.status === 'critical' || i.status === 'warning';
+              if (statusFilter === 'overstock')
+                return i.status === 'overstock';
+              return i.status === statusFilter;
+            })
+          : enriched;
+
+      const total = filtered.length;
+      const items = filtered.slice(skip, skip + limit);
+      return { items, total, page, limit };
     } catch {
       throw new InternalServerErrorException('재고 데이터 조회 실패');
     }

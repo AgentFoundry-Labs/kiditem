@@ -11,8 +11,11 @@ export class ProductsController {
     @Query('status') status?: string,
     @Query('search') search?: string,
     @Query('company') company?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('maxProfitRate') maxProfitRate?: string,
   ) {
-    return this.productsService.findAll({ grade, status, search, company });
+    return this.productsService.findAll({ grade, status, search, company, page, limit, maxProfitRate });
   }
 
   @Get(':id')

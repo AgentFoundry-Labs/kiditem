@@ -1,4 +1,4 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Query } from '@nestjs/common';
 import { InventoryService } from './inventory.service';
 
 @Controller('inventory')
@@ -6,7 +6,11 @@ export class InventoryController {
   constructor(private readonly inventoryService: InventoryService) {}
 
   @Get()
-  findAll() {
-    return this.inventoryService.findAll();
+  findAll(
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('status') status?: string,
+  ) {
+    return this.inventoryService.findAll({ page, limit, status });
   }
 }

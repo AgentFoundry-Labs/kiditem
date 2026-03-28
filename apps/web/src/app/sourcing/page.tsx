@@ -26,6 +26,7 @@ import {
 } from '@/lib/sourcing-api';
 import StatusBadge from './components/StatusBadge';
 import SkeletonCard from './components/SkeletonCard';
+import { Pagination } from '@/components/ui/Pagination';
 
 function formatKRW(value: number | null): string {
   if (value == null) return '-';
@@ -35,6 +36,9 @@ function formatKRW(value: number | null): string {
 export default function SourcingPage() {
   const router = useRouter();
   const [products, setProducts] = useState<ProductListItem[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 50;
   const [isLoading, setIsLoading] = useState(true);
   const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -46,16 +50,17 @@ export default function SourcingPage() {
   const [scrapeSuccess, setScrapeSuccess] = useState<string | null>(null);
   const scrapeInputRef = useRef<HTMLInputElement>(null);
 
-  const fetchProducts = useCallback(async () => {
+  const fetchProducts = useCallback(async (p = page) => {
     try {
-      const res = await productsApi.list({ limit: 100 });
+      const res = await productsApi.list({ page: p, limit: PAGE_SIZE });
       setProducts(res.items);
+      setTotal(res.total);
     } catch {
       void 0;
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [page]);
 
   useEffect(() => {
     fetchProducts();
@@ -457,6 +462,9 @@ export default function SourcingPage() {
             })}
           </div>
         )}
+        <div className="mt-4">
+          <Pagination page={page} limit={PAGE_SIZE} total={total} onPageChange={(p) => { setPage(p); fetchProducts(p); }} />
+        </div>
       </div>
     </div>
   );
