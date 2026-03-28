@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Package, AlertTriangle, Truck, Download } from "lucide-react";
+import { Package, AlertTriangle, Truck, Download, ChevronLeft, ChevronRight } from "lucide-react";
 import { formatKRW } from "@/lib/utils";
 import { API_BASE } from "@/lib/api";
 
@@ -27,6 +27,8 @@ export default function InventoryPage() {
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("all");
+  const [page, setPage] = useState(0);
+  const PAGE_SIZE = 50;
 
   useEffect(() => {
     fetch(`${API_BASE}/api/inventory`)
@@ -100,7 +102,7 @@ export default function InventoryPage() {
           { key: "reorder", label: `발주 필요 (${needReorder})` },
           { key: "overstock", label: `과재고 (${overstock})` },
         ].map((f) => (
-          <button key={f.key} onClick={() => setFilter(f.key)} className={`px-4 py-2 rounded-lg text-sm font-medium ${filter === f.key ? "bg-blue-600 text-white" : "bg-white border border-slate-200 hover:bg-slate-50"}`}>
+          <button key={f.key} onClick={() => { setFilter(f.key); setPage(0); }} className={`px-4 py-2 rounded-lg text-sm font-medium ${filter === f.key ? "bg-blue-600 text-white" : "bg-white border border-slate-200 hover:bg-slate-50"}`}>
             {f.label}
           </button>
         ))}
@@ -128,7 +130,7 @@ export default function InventoryPage() {
             </tr>
           </thead>
           <tbody>
-            {filtered.map((i) => (
+            {filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE).map((i) => (
               <tr key={i.id} className={i.status === "critical" ? "bg-red-50/50" : i.status === "warning" ? "bg-orange-50/30" : ""}>
                 <td className="font-medium text-slate-900">{i.productName}</td>
                 <td className="text-slate-500 text-xs font-mono">{i.sku}</td>
@@ -151,6 +153,31 @@ export default function InventoryPage() {
             ))}
           </tbody>
         </table>
+        {Math.ceil(filtered.length / PAGE_SIZE) > 1 && (
+          <div className="flex items-center justify-between px-4 py-3 border-t border-slate-200">
+            <span className="text-sm text-slate-500">
+              {filtered.length}건 중 {page * PAGE_SIZE + 1}-{Math.min((page + 1) * PAGE_SIZE, filtered.length)}
+            </span>
+            <div className="flex items-center gap-1">
+              <button onClick={() => setPage(Math.max(0, page - 1))} disabled={page === 0} className="p-1.5 rounded hover:bg-slate-100 disabled:opacity-30">
+                <ChevronLeft size={16} />
+              </button>
+              {Array.from({ length: Math.min(Math.ceil(filtered.length / PAGE_SIZE), 7) }, (_, i) => {
+                const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
+                const pageNum = Math.max(0, Math.min(page - 3, totalPages - 7)) + i;
+                if (pageNum >= totalPages) return null;
+                return (
+                  <button key={pageNum} onClick={() => setPage(pageNum)} className={`w-8 h-8 rounded text-sm ${page === pageNum ? "bg-blue-600 text-white" : "hover:bg-slate-100"}`}>
+                    {pageNum + 1}
+                  </button>
+                );
+              })}
+              <button onClick={() => setPage(Math.min(Math.ceil(filtered.length / PAGE_SIZE) - 1, page + 1))} disabled={page >= Math.ceil(filtered.length / PAGE_SIZE) - 1} className="p-1.5 rounded hover:bg-slate-100 disabled:opacity-30">
+                <ChevronRight size={16} />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
       )}
 
