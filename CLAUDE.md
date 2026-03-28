@@ -16,7 +16,6 @@ cp agents/.env.example agents/.env             # Python agents — AI 모델 키
 # 인프라 실행
 docker compose up -d                           # PostgreSQL + NestJS + Python Agents
 npm run db:push                                # 스키마 적용
-npm run db:seed                                # 시드 데이터
 
 # 프론트엔드
 npm run dev                                    # Next.js (localhost:3000)
@@ -80,7 +79,6 @@ docker compose up -d --build server  # NestJS만 리빌드
 docker compose up -d --build agents  # Python agents만 리빌드
 docker compose logs -f agents        # Agent 로그 확인
 npm run db:push                      # 스키마 적용
-npm run db:seed                      # 시드 데이터
 npm run dev                          # Next.js 프론트엔드 (localhost:3000)
 npm run dev:server                   # NestJS 로컬 개발 (Docker 대신)
 ```

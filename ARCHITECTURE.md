@@ -49,7 +49,7 @@
 kiditem/
 ├── prisma/
 │   ├── schema.prisma              # 통합 스키마 (source of truth)
-│   └── seed.ts                    # 시드 데이터
+│   └── CLAUDE.md                  # Prisma 규칙
 ├── prisma.config.ts               # Prisma v7 설정
 │
 ├── apps/
@@ -190,9 +190,6 @@ npm run db:generate
 # DB 스키마 적용
 export DATABASE_URL="postgresql://kiditem:kiditem@localhost:5433/kiditem"
 npm run db:push
-
-# 시드 데이터
-npm run db:seed
 
 # 개발 서버 (터미널 2개)
 cd apps/server && npm run start:dev   # NestJS → localhost:4000

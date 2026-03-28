@@ -8,7 +8,6 @@
 npm run db:generate   # Prisma 클라이언트 생성
 npm run db:push       # 개발용 — DB에 직접 적용
 npm run db:migrate    # 프로덕션용 — 마이그레이션 파일 생성
-npm run db:seed       # 시드 데이터
 npm run db:studio     # DB 브라우저 (localhost:5555)
 ```
 

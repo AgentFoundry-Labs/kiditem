@@ -11,7 +11,6 @@ npm install
 cp apps/server/.env.example apps/server/.env   # GEMINI_API_KEY 등 설정
 docker compose up -d                           # PostgreSQL + NestJS + Langfuse
 npm run db:push                                # 스키마 적용
-npm run db:seed                                # 시드 데이터
 npm run dev                                    # Next.js 프론트엔드 (별도 터미널)
 ```
 

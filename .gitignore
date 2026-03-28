@@ -12,3 +12,4 @@ __pycache__/
 DASHBOARD_*.md
 MIGRATION_CHECKLIST.md
 .gstack/
+data/
