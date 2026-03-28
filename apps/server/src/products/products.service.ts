@@ -50,30 +50,44 @@ export class ProductsService {
         orderBy: { createdAt: 'desc' },
       });
 
-      const plData = await this.prisma.profitLoss.findMany({
-        where: { year, month },
-      });
+      const monthStart = new Date(year, month - 1, 1);
+      const monthEnd = new Date(year, month, 1);
 
-      const adsAgg = await this.prisma.ad.groupBy({
-        by: ['productId'],
-        _sum: { spend: true },
-      });
-
-      const thumbData = await this.prisma.thumbnail.findMany({
-        select: { productId: true, ctr: true },
-      });
-
-      const reviewCounts = await this.prisma.review.groupBy({
-        by: ['productId'],
-        _count: true,
-      });
-
-      const orderCounts = await this.prisma.coupangOrderItem.groupBy({
-        by: ['sellerProductId'],
-        _count: true,
-      });
+      const [plData, revenueData, adsAgg, thumbData, reviewCounts] =
+        await Promise.all([
+          this.prisma.profitLoss.findMany({ where: { year, month } }),
+          this.prisma.$queryRaw<
+            {
+              seller_product_id: string;
+              revenue: number;
+              order_count: number;
+            }[]
+          >`
+            SELECT
+              coi.seller_product_id,
+              SUM(coi.order_price)::int AS revenue,
+              COUNT(DISTINCT co.id)::int AS order_count
+            FROM coupang_order_items coi
+            JOIN coupang_orders co ON co.id = coi.order_id
+            WHERE coi.seller_product_id IS NOT NULL
+              AND co.ordered_at >= ${monthStart}
+              AND co.ordered_at < ${monthEnd}
+            GROUP BY coi.seller_product_id
+          `,
+          this.prisma.ad.groupBy({ by: ['productId'], _sum: { spend: true } }),
+          this.prisma.thumbnail.findMany({
+            select: { productId: true, ctr: true },
+          }),
+          this.prisma.review.groupBy({ by: ['productId'], _count: true }),
+        ]);
 
       const plMap = new Map(plData.map((pl) => [pl.productId, pl]));
+      const revenueMap = new Map(
+        revenueData.map((r) => [
+          r.seller_product_id,
+          { revenue: Number(r.revenue), orderCount: Number(r.order_count) },
+        ]),
+      );
       const adsMap = new Map(
         adsAgg.map((a) => [a.productId, a._sum.spend ?? 0]),
       );
@@ -83,22 +97,43 @@ export class ProductsService {
       const reviewMap = new Map(
         reviewCounts.map((r) => [r.productId, r._count]),
       );
-      const orderMap = new Map(
-        orderCounts
-          .filter((o) => o.sellerProductId !== null)
-          .map((o) => [o.sellerProductId!, o._count]),
-      );
 
       return productsData.map((p) => {
         const pl = plMap.get(p.id);
+        const orderData = revenueMap.get(p.coupangProductId ?? '');
         const totalAdSpend = adsMap.get(p.id) ?? 0;
-        const plRevenue = pl?.revenue ?? 0;
-        const adRate = plRevenue > 0 ? (totalAdSpend / plRevenue) * 100 : 0;
+
+        let revenue: number;
+        let netProfit: number;
+        let orderCount: number;
+
+        if (pl) {
+          revenue = pl.revenue;
+          netProfit = pl.netProfit;
+          orderCount = orderData?.orderCount ?? pl.orderCount;
+        } else if (orderData) {
+          revenue = orderData.revenue;
+          orderCount = orderData.orderCount;
+          const comm = Math.round(
+            revenue * (p.commissionRate ? Number(p.commissionRate) : 0.108),
+          );
+          const cogs = p.costCny
+            ? Math.round(Number(p.costCny) * 190 * orderCount)
+            : 0;
+          const ship = (p.shippingCost ?? 0) * orderCount;
+          netProfit = revenue - comm - cogs - ship - totalAdSpend;
+        } else {
+          revenue = 0;
+          netProfit = 0;
+          orderCount = 0;
+        }
+
+        const adRate = revenue > 0 ? (totalAdSpend / revenue) * 100 : 0;
 
         return {
           id: p.id,
           name: p.name,
-          sku: null,
+          sku: p.coupangProductId ?? null,
           category: p.category,
           company: p.company?.name ?? 'N/A',
           companyId: p.companyId,
@@ -112,15 +147,15 @@ export class ProductsService {
           currentStock: p.inventory?.currentStock ?? 0,
           reorderPoint: p.inventory?.reorderPoint ?? 0,
           avgDailySales: p.inventory?.dailySalesAvg ?? 0,
-          revenue: plRevenue,
-          netProfit: pl?.netProfit ?? 0,
+          revenue,
+          netProfit,
           profitRate:
-            plRevenue > 0
-              ? Math.round(((pl?.netProfit ?? 0) / plRevenue) * 1000) / 10
+            revenue > 0
+              ? Math.round((netProfit / revenue) * 1000) / 10
               : 0,
           adRate: Math.round(adRate * 10) / 10,
           reviewCount: reviewMap.get(p.id) ?? 0,
-          orderCount: orderMap.get(p.coupangProductId ?? '') ?? 0,
+          orderCount,
           thumbnailCTR: thumbMap.get(p.id) ?? 0,
         };
       });
