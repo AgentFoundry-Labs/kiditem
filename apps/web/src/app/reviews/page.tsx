@@ -27,7 +27,8 @@ export default function ReviewsPage() {
   if (loading) return <div className="flex items-center justify-center h-64 text-slate-500">로딩 중...</div>;
 
   const totalReviews = data.reduce((s, d) => s + d.totalReviews, 0);
-  const avgRating = data.length > 0 ? data.reduce((s, d) => s + d.avgRating, 0) / data.length : 0;
+  const withReviews = data.filter((d) => d.totalReviews > 0);
+  const avgRating = withReviews.length > 0 ? withReviews.reduce((s, d) => s + d.avgRating, 0) / withReviews.length : 0;
 
   return (
     <div className="space-y-6">
