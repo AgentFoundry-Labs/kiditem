@@ -19,7 +19,7 @@ export default function CoreProductsPage() {
   useEffect(() => {
     fetch(`${API_BASE}/api/products?grade=A`)
       .then((r) => r.json())
-      .then(setProducts)
+      .then((data) => setProducts(data.items ?? data))
       .catch((err) => console.error("핵심상품 데이터 로딩 실패:", err))
       .finally(() => setLoading(false));
   }, []);

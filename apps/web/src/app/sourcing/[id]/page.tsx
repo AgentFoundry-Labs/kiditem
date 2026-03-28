@@ -147,9 +147,9 @@ export default function ProductDetailPage() {
         try {
           const parsed = parseDetailPageData(previewRes.data);
           const resolve = (url: string) => url.startsWith('/processed/') ? `${API_BASE}${url}` : url;
-          parsed.images = parsed.images.map(resolve);
-          parsed.sizeImages = parsed.sizeImages.map(resolve);
-          parsed.detailImages = parsed.detailImages.map(resolve);
+          parsed.images = Array.isArray(parsed.images) ? parsed.images.map(resolve) : [];
+          parsed.sizeImages = Array.isArray(parsed.sizeImages) ? parsed.sizeImages.map(resolve) : [];
+          parsed.detailImages = Array.isArray(parsed.detailImages) ? parsed.detailImages.map(resolve) : [];
           if (parsed.heroBanner) parsed.heroBanner = resolve(parsed.heroBanner);
           setDetailPageData(parsed);
         } catch {

@@ -11,40 +11,79 @@ import {
   ShoppingCart
 } from 'lucide-react';
 import { cn, timeAgo } from '@/lib/utils';
+import { API_BASE } from '@/lib/api';
+
+interface SyncResult {
+  synced: number;
+  errors: number;
+  details?: string[];
+}
+
+interface HealthResult {
+  connected: boolean;
+  vendorId: string;
+  error?: string;
+}
 
 export default function SettingsPage() {
-  const [isConnected, setIsConnected] = useState(false);
+  const [healthResult, setHealthResult] = useState<HealthResult | null>(null);
   const [testing, setTesting] = useState(false);
   const [syncingProduct, setSyncingProduct] = useState(false);
   const [syncingOrder, setSyncingOrder] = useState(false);
-  
+  const [productSyncResult, setProductSyncResult] = useState<SyncResult | null>(null);
+  const [orderSyncResult, setOrderSyncResult] = useState<SyncResult | null>(null);
   const [lastProductSync, setLastProductSync] = useState<Date | null>(null);
   const [lastOrderSync, setLastOrderSync] = useState<Date | null>(null);
 
-  const handleTestConnection = () => {
+  const isConnected = healthResult?.connected ?? false;
+
+  const handleTestConnection = async () => {
     setTesting(true);
-    setTimeout(() => {
-      setIsConnected(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/coupang-sync/health`);
+      const data: HealthResult = await res.json();
+      setHealthResult(data);
+    } catch {
+      setHealthResult({ connected: false, vendorId: '', error: '서버 연결 실패' });
+    } finally {
       setTesting(false);
-    }, 1000);
+    }
   };
 
-  const handleSyncProduct = () => {
+  const handleSyncProduct = async () => {
     setSyncingProduct(true);
-    setTimeout(() => {
+    setProductSyncResult(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/coupang-sync/products`, {
+        method: 'POST',
+      });
+      const data: SyncResult = await res.json();
+      setProductSyncResult(data);
       setLastProductSync(new Date());
+    } catch {
+      setProductSyncResult({ synced: 0, errors: 1, details: ['서버 연결 실패'] });
+    } finally {
       setSyncingProduct(false);
-      alert('상품 동기화 완료');
-    }, 2000);
+    }
   };
 
-  const handleSyncOrder = () => {
+  const handleSyncOrder = async () => {
     setSyncingOrder(true);
-    setTimeout(() => {
+    setOrderSyncResult(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/coupang-sync/orders`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const data: SyncResult = await res.json();
+      setOrderSyncResult(data);
       setLastOrderSync(new Date());
+    } catch {
+      setOrderSyncResult({ synced: 0, errors: 1, details: ['서버 연결 실패'] });
+    } finally {
       setSyncingOrder(false);
-      alert('주문 동기화 완료');
-    }, 2000);
+    }
   };
 
   return (
@@ -90,6 +129,16 @@ export default function SettingsPage() {
               </button>
             </div>
           </div>
+          {healthResult && !healthResult.connected && healthResult.error && (
+            <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+              {healthResult.error}
+            </div>
+          )}
+          {healthResult?.connected && healthResult.vendorId && (
+            <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700">
+              Vendor ID: {healthResult.vendorId}
+            </div>
+          )}
         </div>
 
         <div className="p-6 border-b border-gray-200 bg-gray-50/50">
@@ -142,6 +191,17 @@ export default function SettingsPage() {
                   </p>
                 </div>
               </div>
+              {productSyncResult && (
+                <div className={cn(
+                  "mb-3 p-2 rounded text-xs",
+                  productSyncResult.errors > 0
+                    ? "bg-yellow-50 text-yellow-800 border border-yellow-200"
+                    : "bg-green-50 text-green-800 border border-green-200"
+                )}>
+                  동기화 {productSyncResult.synced}건 완료
+                  {productSyncResult.errors > 0 && `, 오류 ${productSyncResult.errors}건`}
+                </div>
+              )}
               <button
                 onClick={handleSyncProduct}
                 disabled={syncingProduct || !isConnected}
@@ -164,6 +224,17 @@ export default function SettingsPage() {
                   </p>
                 </div>
               </div>
+              {orderSyncResult && (
+                <div className={cn(
+                  "mb-3 p-2 rounded text-xs",
+                  orderSyncResult.errors > 0
+                    ? "bg-yellow-50 text-yellow-800 border border-yellow-200"
+                    : "bg-green-50 text-green-800 border border-green-200"
+                )}>
+                  동기화 {orderSyncResult.synced}건 완료
+                  {orderSyncResult.errors > 0 && `, 오류 ${orderSyncResult.errors}건`}
+                </div>
+              )}
               <button
                 onClick={handleSyncOrder}
                 disabled={syncingOrder || !isConnected}

@@ -105,8 +105,8 @@ export default function AdsPage() {
       <div className="grid grid-cols-2 gap-6">
         <div className="bg-white rounded-xl p-6 border border-slate-200">
           <h3 className="font-semibold text-slate-900 mb-4">등급별 광고비 배분 (목표: A등급 80%)</h3>
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={gradeChartData} layout="vertical">
+           <ResponsiveContainer width="100%" height={200} minWidth={0} minHeight={0}>
+             <BarChart data={gradeChartData} layout="vertical">
               <XAxis type="number" domain={[0, 100]} tickFormatter={(v: number) => `${v}%`} fontSize={12} />
               <YAxis type="category" dataKey="name" width={60} fontSize={12} />
               {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}

@@ -1,4 +1,4 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Query } from '@nestjs/common';
 import { AdsService } from './ads.service';
 
 @Controller('ads')
@@ -6,7 +6,10 @@ export class AdsController {
   constructor(private readonly adsService: AdsService) {}
 
   @Get()
-  findAll() {
-    return this.adsService.findAll();
+  findAll(
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.adsService.findAll({ page, limit });
   }
 }

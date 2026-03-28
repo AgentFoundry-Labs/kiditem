@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Download } from "lucide-react";
-import { formatKRW, formatPercent, getGradeColor, getProfitColor } from "@/lib/utils";
+import { formatKRW, formatPercent, getGradeColor, getProfitColor, timeAgo } from "@/lib/utils";
 import { API_BASE } from "@/lib/api";
 
 interface PLData {
@@ -24,10 +24,15 @@ interface PLData {
   orderCount: number;
 }
 
+interface SyncInfo {
+  lastSyncedAt: string | null;
+}
+
 export default function ProfitLossPage() {
   const [data, setData] = useState<PLData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [syncInfo, setSyncInfo] = useState<SyncInfo | null>(null);
 
   // 동적 기간 생성 (최근 6개월)
   const getRecentPeriods = () => {
@@ -44,6 +49,14 @@ export default function ProfitLossPage() {
   const periodOptions = getRecentPeriods();
   const [period, setPeriod] = useState(periodOptions[0].value);
   const [filter, setFilter] = useState("all");
+
+  useEffect(() => {
+    // Fetch sync info
+    fetch(`${API_BASE}/api/coupang-dashboard`)
+      .then(r => r.json())
+      .then(data => setSyncInfo({ lastSyncedAt: data.lastSyncedAt }))
+      .catch(() => setSyncInfo({ lastSyncedAt: null }));
+  }, []);
 
   useEffect(() => {
     setLoading(true);
@@ -89,18 +102,28 @@ export default function ProfitLossPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-900">상품별 손익표</h1>
-        <div className="flex gap-2">
-          <select value={period} onChange={(e) => setPeriod(e.target.value)} className="border rounded-lg px-3 py-2 text-sm">
-            {periodOptions.map((p) => (
-              <option key={p.value} value={p.value}>{p.label}</option>
-            ))}
-          </select>
-          <button onClick={handleExcel} className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-medium">
-            <Download size={16} /> 엑셀 다운로드
-          </button>
+      <div>
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-bold text-slate-900">상품별 손익표</h1>
+          <div className="flex gap-2">
+            <select value={period} onChange={(e) => setPeriod(e.target.value)} className="border rounded-lg px-3 py-2 text-sm">
+              {periodOptions.map((p) => (
+                <option key={p.value} value={p.value}>{p.label}</option>
+              ))}
+            </select>
+            <button onClick={handleExcel} className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-medium">
+              <Download size={16} /> 엑셀 다운로드
+            </button>
+          </div>
         </div>
+        {syncInfo && (
+          <div className="flex items-center gap-2 text-xs text-slate-400 mt-2">
+            <div className={`w-1.5 h-1.5 rounded-full ${syncInfo.lastSyncedAt ? 'bg-green-400' : 'bg-amber-400'}`} />
+            {syncInfo.lastSyncedAt 
+              ? `최근 동기화: ${timeAgo(syncInfo.lastSyncedAt)}`
+              : '동기화 기록 없음 — 설정에서 동기화를 실행하세요'}
+          </div>
+        )}
       </div>
 
       {/* Summary */}

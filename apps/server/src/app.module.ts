@@ -19,6 +19,7 @@ import { CoupangDashboardModule } from './coupang-dashboard/coupang-dashboard.mo
 import { TextAiModule } from './text-ai/text-ai.module';
 import { ImageAiModule } from './image-ai/image-ai.module';
 import { RenderImageModule } from './render-image/render-image.module';
+import { CoupangSyncModule } from './coupang-sync/coupang-sync.module';
 
 @Module({
   imports: [
@@ -42,6 +43,7 @@ import { RenderImageModule } from './render-image/render-image.module';
     TextAiModule,
     ImageAiModule,
     RenderImageModule,
+    CoupangSyncModule,
   ],
 })
 export class AppModule {}

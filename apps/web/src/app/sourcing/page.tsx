@@ -27,11 +27,7 @@ import {
 import StatusBadge from './components/StatusBadge';
 import SkeletonCard from './components/SkeletonCard';
 import { Pagination } from '@/components/ui/Pagination';
-
-function formatKRW(value: number | null): string {
-  if (value == null) return '-';
-  return `₩${value.toLocaleString('ko-KR')}`;
-}
+import { formatKRW } from '@/lib/utils';
 
 export default function SourcingPage() {
   const router = useRouter();
@@ -416,7 +412,7 @@ export default function SourcingPage() {
                     <div className="flex justify-between items-center mb-1">
                       <span className="text-xs text-gray-500">판매가</span>
                       <span className="text-sm font-bold">
-                        {formatKRW(product.price_krw)}
+                        {product.price_krw != null ? `₩${formatKRW(product.price_krw)}` : '-'}
                       </span>
                     </div>
                     <div className="flex justify-between items-center mb-1">

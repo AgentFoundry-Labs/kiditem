@@ -11,7 +11,7 @@ export class CoupangDashboardService {
     const todayStart = kstDayStart(new Date());
     const todayEnd = new Date(todayStart.getTime() + 86400000);
 
-    const [todayOrders, pendingAccept, pendingReturns] = await Promise.all([
+    const [todayOrders, pendingAccept, pendingReturns, lastOrder] = await Promise.all([
       this.prisma.coupangOrder.aggregate({
         _sum: { totalPrice: true },
         _count: true,
@@ -26,6 +26,11 @@ export class CoupangDashboardService {
       this.prisma.coupangReturn.count({
         where: { companyId, receiptStatus: RETURN_STATUSES.UC },
       }),
+      this.prisma.coupangOrder.findFirst({
+        where: { companyId },
+        orderBy: { createdAt: 'desc' },
+        select: { createdAt: true },
+      }),
     ]);
 
     return {
@@ -35,6 +40,7 @@ export class CoupangDashboardService {
       },
       pendingAccept,
       pendingReturns,
+      lastSyncedAt: lastOrder?.createdAt ?? null,
     };
   }
 

@@ -15,14 +15,9 @@ export class ReviewsService {
   }): Promise<PaginatedResponse<Record<string, unknown>>> {
     try {
       const { page, limit, skip } = paginationParams(query);
-
-      const productsData = await this.prisma.product.findMany({
-        where: { status: 'active' },
-        include: { company: true },
-      });
-
       const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000);
 
+      // Aggregate reviews and orders first to get product IDs with data
       const [reviewAgg, recentReviewAgg, orderCounts] = await Promise.all([
         this.prisma.review.groupBy({
           by: ['productId'],
@@ -55,6 +50,27 @@ export class ReviewsService {
           .map((o) => [o.sellerProductId!, o._count]),
       );
 
+      // Get product IDs that have reviews, sorted by review count
+      const productIdsWithReviews = Array.from(reviewMap.keys()).sort(
+        (a, b) =>
+          (reviewMap.get(b)?.total ?? 0) - (reviewMap.get(a)?.total ?? 0),
+      );
+
+      // Paginate the product IDs
+      const paginatedProductIds = productIdsWithReviews.slice(
+        skip,
+        skip + limit,
+      );
+
+      // Load only the paginated products
+      const productsData = await this.prisma.product.findMany({
+        where: {
+          status: 'active',
+          id: { in: paginatedProductIds },
+        },
+        include: { company: true },
+      });
+
       const result = productsData.map((p) => {
         const review = reviewMap.get(p.id);
         return {
@@ -70,11 +86,11 @@ export class ReviewsService {
         };
       });
 
+      // Sort by totalReviews to maintain order
       result.sort((a, b) => b.totalReviews - a.totalReviews);
 
-      const total = result.length;
-      const items = result.slice(skip, skip + limit);
-      return { items, total, page, limit };
+      const total = productIdsWithReviews.length;
+      return { items: result, total, page, limit };
     } catch {
       throw new InternalServerErrorException('리뷰 데이터 조회 실패');
     }

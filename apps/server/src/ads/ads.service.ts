@@ -1,61 +1,96 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  paginationParams,
+  type PaginatedResponse,
+} from '../common/pagination';
 
 @Injectable()
 export class AdsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll() {
+  async findAll(query: {
+    page?: string;
+    limit?: string;
+  }): Promise<PaginatedResponse<Record<string, unknown>>> {
     try {
+      const { page, limit, skip } = paginationParams(query);
       const now = new Date();
       const year = now.getFullYear();
       const month = now.getMonth() + 1;
 
-      const productsData = await this.prisma.product.findMany({
-        where: {
-          adTier: { not: null },
-          status: 'active',
-        },
-        include: { company: true },
-      });
+      // Get paginated products with ad tier
+      const [productsData, totalProducts] = await Promise.all([
+        this.prisma.product.findMany({
+          where: {
+            adTier: { not: null },
+            status: 'active',
+          },
+          include: { company: true },
+          skip,
+          take: limit,
+          orderBy: { createdAt: 'desc' },
+        }),
+        this.prisma.product.count({
+          where: {
+            adTier: { not: null },
+            status: 'active',
+          },
+        }),
+      ]);
+
+      if (productsData.length === 0) {
+        return { items: [], total: totalProducts, page, limit };
+      }
 
       const productIds = productsData.map((p) => p.id);
-      if (productIds.length === 0) {
-        return { products: [], summary: this.emptyAdSummary() };
-      }
 
-      const allAds = await this.prisma.ad.findMany({
-        orderBy: { date: 'desc' },
-      });
+      // Aggregate ads and profit/loss data for these products only
+      const [adsAgg, plData] = await Promise.all([
+        this.prisma.ad.groupBy({
+          by: ['productId'],
+          where: { productId: { in: productIds } },
+          _sum: {
+            spend: true,
+            impressions: true,
+            clicks: true,
+            conversions: true,
+            roas: true,
+          },
+          orderBy: { productId: 'asc' },
+        }),
+        this.prisma.profitLoss.findMany({
+          where: { year, month, productId: { in: productIds } },
+        }),
+      ]);
 
-      const plData = await this.prisma.profitLoss.findMany({
-        where: { year, month },
-      });
-
-      const adsByProduct = new Map<string, typeof allAds>();
-      for (const a of allAds) {
-        const arr = adsByProduct.get(a.productId) ?? [];
-        arr.push(a);
-        adsByProduct.set(a.productId, arr);
-      }
+      const adsMap = new Map(
+        adsAgg.map((a) => [
+          a.productId,
+          {
+            spend: a._sum.spend ?? 0,
+            impressions: a._sum.impressions ?? 0,
+            clicks: a._sum.clicks ?? 0,
+            conversions: a._sum.conversions ?? 0,
+            roas: a._sum.roas ?? 0,
+          },
+        ]),
+      );
       const plByProduct = new Map(plData.map((pl) => [pl.productId, pl]));
 
       const result = productsData.map((p) => {
-        const productAds = (adsByProduct.get(p.id) ?? []).slice(0, 30);
-        const totalSpend = productAds.reduce((s, a) => s + a.spend, 0);
-        const totalImpressions = productAds.reduce(
-          (s, a) => s + a.impressions,
-          0,
-        );
-        const totalClicks = productAds.reduce((s, a) => s + a.clicks, 0);
-        const totalConversions = productAds.reduce(
-          (s, a) => s + a.conversions,
-          0,
-        );
-        const totalAdRevenue = productAds.reduce((s, a) => {
-          const r = a.roas ? Number(a.roas) : 0;
-          return s + Math.round((a.spend * r) / 100);
-        }, 0);
+        const ads = adsMap.get(p.id) || {
+          spend: 0,
+          impressions: 0,
+          clicks: 0,
+          conversions: 0,
+          roas: 0,
+        };
+        const totalSpend = ads.spend;
+        const totalImpressions = ads.impressions;
+        const totalClicks = ads.clicks;
+        const totalConversions = ads.conversions;
+        const totalAdRevenue = Math.round((totalSpend * Number(ads.roas)) / 100);
 
         const ctr =
           totalImpressions > 0
@@ -98,54 +133,7 @@ export class AdsService {
         };
       });
 
-      const totalSpend = result.reduce((s, r) => s + r.spend, 0);
-      const totalAdRevenue = result.reduce((s, r) => s + r.adRevenue, 0);
-      const totalRevenue = result.reduce((s, r) => s + r.revenue, 0);
-
-      const gradeSpend: Record<string, number> = { A: 0, B: 0, C: 0 };
-      result.forEach((r) => {
-        gradeSpend[r.grade] = (gradeSpend[r.grade] ?? 0) + r.spend;
-      });
-
-      const tierSpend: Record<string, number> = {};
-      result.forEach((r) => {
-        if (r.adTier)
-          tierSpend[r.adTier] = (tierSpend[r.adTier] ?? 0) + r.spend;
-      });
-
-      return {
-        products: result,
-        summary: {
-          totalSpend,
-          totalAdRevenue,
-          totalRevenue,
-          overallAdRate:
-            totalRevenue > 0
-              ? Math.round((totalSpend / totalRevenue) * 1000) / 10
-              : 0,
-          overallRoas:
-            totalSpend > 0
-              ? Math.round((totalAdRevenue / totalSpend) * 100)
-              : 0,
-          highAdCount: result.filter((r) => r.adRate > 15).length,
-          gradeSpend,
-          tierSpend,
-          gradeSpendPercent: {
-            A:
-              totalSpend > 0
-                ? Math.round((gradeSpend.A / totalSpend) * 100)
-                : 0,
-            B:
-              totalSpend > 0
-                ? Math.round((gradeSpend.B / totalSpend) * 100)
-                : 0,
-            C:
-              totalSpend > 0
-                ? Math.round((gradeSpend.C / totalSpend) * 100)
-                : 0,
-          },
-        },
-      };
+      return { items: result, total: totalProducts, page, limit };
     } catch {
       throw new InternalServerErrorException('광고 데이터 조회 실패');
     }

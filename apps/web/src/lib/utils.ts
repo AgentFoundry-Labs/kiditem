@@ -13,7 +13,8 @@ export function formatTime(minutes: number): string {
   return `${hours}시간 ${mins}분`;
 }
 
-export function formatNumber(num: number): string {
+export function formatNumber(num: number | null | undefined): string {
+  if (num == null) return '-';
   return new Intl.NumberFormat('ko-KR').format(num);
 }
 
@@ -82,11 +83,13 @@ export function timeAgo(dateString: string): string {
   return date.toLocaleDateString('ko-KR');
 }
 
-export function formatKRW(amount: number): string {
+export function formatKRW(amount: number | null | undefined): string {
+  if (amount == null) return '-';
   return new Intl.NumberFormat('ko-KR').format(Math.round(amount));
 }
 
-export function formatPercent(value: number): string {
+export function formatPercent(value: number | null | undefined): string {
+  if (value == null) return '-';
   return `${value.toFixed(1)}%`;
 }
 
@@ -99,7 +102,8 @@ export function getGradeColor(grade: string): string {
   }
 }
 
-export function getProfitColor(rate: number): string {
+export function getProfitColor(rate: number | null | undefined): string {
+  if (rate == null) return 'text-slate-400';
   if (rate < 0) return 'text-red-600 font-bold';
   if (rate <= 3) return 'text-orange-500 font-semibold';
   return 'text-green-600';

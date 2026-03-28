@@ -4,7 +4,7 @@ import { API_BASE } from "@/lib/api";
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Download, Upload, Search } from "lucide-react";
-import { formatKRW, formatPercent, getGradeColor, getProfitColor, getProductStatusBadge } from "@/lib/utils";
+import { formatKRW, formatPercent, getGradeColor, getProfitColor, getProductStatusBadge, timeAgo } from "@/lib/utils";
 import { Pagination } from "@/components/ui/Pagination";
 
 interface Product {
@@ -31,6 +31,10 @@ interface Product {
   thumbnailCTR: number;
 }
 
+interface SyncInfo {
+  lastSyncedAt: string | null;
+}
+
 export default function ProductsPage() {
   const router = useRouter();
   const [products, setProducts] = useState<Product[]>([]);
@@ -42,6 +46,7 @@ export default function ProductsPage() {
   const [showModal, setShowModal] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
+  const [syncInfo, setSyncInfo] = useState<SyncInfo | null>(null);
   const PAGE_SIZE = 50;
 
   const fetchProducts = useCallback(async (p = page) => {
@@ -65,6 +70,14 @@ export default function ProductsPage() {
       setLoading(false);
     }
   }, [gradeFilter, statusFilter, search, page]);
+
+  useEffect(() => {
+    // Fetch sync info
+    fetch(`${API_BASE}/api/coupang-dashboard`)
+      .then(r => r.json())
+      .then(data => setSyncInfo({ lastSyncedAt: data.lastSyncedAt }))
+      .catch(() => setSyncInfo({ lastSyncedAt: null }));
+  }, []);
 
   useEffect(() => {
     setPage(1);
@@ -125,19 +138,29 @@ export default function ProductsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-900">상품 관리</h1>
-        <div className="flex gap-2">
-          <button onClick={handleExcelDownload} className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-medium">
-            <Download size={16} /> 엑셀 다운로드
-          </button>
-          <button disabled className="flex items-center gap-2 px-4 py-2 bg-slate-100 text-slate-400 rounded-lg text-sm font-medium cursor-not-allowed">
-            <Upload size={16} /> 엑셀 업로드 (준비중)
-          </button>
-          <button onClick={() => setShowModal(true)} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">
-            <Plus size={16} /> 상품 등록
-          </button>
+      <div>
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-bold text-slate-900">상품 관리</h1>
+          <div className="flex gap-2">
+             <button onClick={handleExcelDownload} className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-medium">
+               <Download size={16} /> 엑셀 다운로드
+             </button>
+             <button disabled className="flex items-center gap-2 px-4 py-2 bg-slate-100 text-slate-400 rounded-lg text-sm font-medium cursor-not-allowed">
+               <Upload size={16} /> 엑셀 업로드 (준비중)
+             </button>
+             <button onClick={() => setShowModal(true)} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">
+               <Plus size={16} /> 상품 등록
+             </button>
+           </div>
         </div>
+        {syncInfo && (
+          <div className="flex items-center gap-2 text-xs text-slate-400 mt-2">
+            <div className={`w-1.5 h-1.5 rounded-full ${syncInfo.lastSyncedAt ? 'bg-green-400' : 'bg-amber-400'}`} />
+            {syncInfo.lastSyncedAt 
+              ? `최근 동기화: ${timeAgo(syncInfo.lastSyncedAt)}`
+              : '동기화 기록 없음 — 설정에서 동기화를 실행하세요'}
+          </div>
+        )}
       </div>
 
       {/* Filters */}

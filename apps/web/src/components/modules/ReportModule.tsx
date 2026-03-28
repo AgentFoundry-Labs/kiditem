@@ -103,8 +103,8 @@ export default function ReportModule() {
         {/* Daily Sales Chart */}
         <div className="col-span-2 glass-card p-5">
           <h3 className="text-sm font-semibold text-gray-900 mb-4">일별 매출 추이</h3>
-          <ResponsiveContainer width="100%" height={280}>
-            <AreaChart data={dailySalesData}>
+           <ResponsiveContainer width="100%" height={280} minWidth={0} minHeight={0}>
+             <AreaChart data={dailySalesData}>
               <defs>
                 <linearGradient id="grad1" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.3} />
@@ -125,8 +125,8 @@ export default function ReportModule() {
         {/* Platform Pie */}
         <div className="glass-card p-5">
           <h3 className="text-sm font-semibold text-gray-900 mb-4">플랫폼별 비중</h3>
-          <ResponsiveContainer width="100%" height={180}>
-            <PieChart>
+           <ResponsiveContainer width="100%" height={180} minWidth={0} minHeight={0}>
+             <PieChart>
               <Pie
                 data={platformPieData}
                 cx="50%"

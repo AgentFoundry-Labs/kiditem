@@ -1,6 +1,7 @@
 'use client';
 
 import { Heart, ShoppingCart, Star } from 'lucide-react';
+import { formatKRW } from '@/lib/utils';
 
 interface MobilePreviewProps {
   name: string;
@@ -10,10 +11,6 @@ interface MobilePreviewProps {
   discountRate: number;
   rating: number;
   reviewCount: number;
-}
-
-function formatKRW(value: number): string {
-  return value.toLocaleString('ko-KR');
 }
 
 export default function MobilePreview({

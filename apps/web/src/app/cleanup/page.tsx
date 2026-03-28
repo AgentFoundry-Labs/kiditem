@@ -10,17 +10,20 @@ interface Product {
   id: string; name: string; sku: string; company: string; abcGrade: string;
   revenue: number; netProfit: number; profitRate: number; adRate: number;
   costPrice: number; sellPrice: number; commissionRate: number; shippingCost: number;
+  status?: string;
 }
 
 export default function CleanupPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 50;
 
   const fetchProducts = useCallback(async (p = page) => {
     setLoading(true);
+    setError(null);
     try {
       const params = new URLSearchParams({
         maxProfitRate: "3",
@@ -29,10 +32,12 @@ export default function CleanupPage() {
       });
       const res = await fetch(`${API_BASE}/api/products?${params}`);
       const data = await res.json();
-      setProducts(data.items);
-      setTotal(data.total);
+      // Filter out sourcing products (draft/processing status)
+      const filtered = (data.items || []).filter((p: Product) => p.status !== 'draft' && p.status !== 'processing');
+      setProducts(filtered);
+      setTotal(filtered.length);
     } catch (err) {
-      console.error("정리 대상 데이터 로딩 실패:", err);
+      setError(err instanceof Error ? err.message : "정리 대상 데이터를 불러오지 못했습니다.");
     } finally {
       setLoading(false);
     }
@@ -59,6 +64,8 @@ export default function CleanupPage() {
           정리 대상 (순이익 3% 이하)
         </h1>
       </div>
+
+      {error && <div className="text-center py-8 text-red-500">{error}</div>}
 
       {/* Summary */}
       <div className="grid grid-cols-3 gap-4">
@@ -127,8 +134,13 @@ export default function CleanupPage() {
               if (p.profitRate < -5) { action = "즉시 정리(아웃)"; }
 
               return (
-                <tr key={p.id} className={p.profitRate < 0 ? "bg-red-50/60" : "bg-orange-50/30"}>
-                  <td><span className={`px-2 py-0.5 rounded text-xs font-bold ${getGradeColor(p.abcGrade)}`}>{p.abcGrade}</span></td>
+                <tr key={p.id} className={p.sellPrice === 0 && p.revenue === 0 ? "bg-amber-50/30" : p.profitRate < 0 ? "bg-red-50/60" : "bg-orange-50/30"}>
+                  <td>
+                    <span className={`px-2 py-0.5 rounded text-xs font-bold ${getGradeColor(p.abcGrade)}`}>{p.abcGrade}</span>
+                    {p.sellPrice === 0 && p.revenue === 0 && (
+                      <span className="ml-1 px-2 py-0.5 rounded text-xs bg-amber-100 text-amber-700">데이터 불완전</span>
+                    )}
+                  </td>
                   <td className="font-medium text-slate-900">{p.name}</td>
                   <td className="text-slate-500 text-xs">{p.company}</td>
                   <td className="text-right">{formatKRW(p.sellPrice)}</td>

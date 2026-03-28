@@ -953,7 +953,12 @@ function RightPanel({
           throw new Error(task.error || 'AI 생성에 실패했습니다');
         }
 
-        const output = typeof task.output === 'string' ? JSON.parse(task.output) : task.output;
+        let output: Record<string, unknown> | null = null;
+        try {
+          output = typeof task.output === 'string' ? JSON.parse(task.output) : task.output;
+        } catch {
+          continue;
+        }
         if (output?.step && output.step !== lastStep) {
           lastStep = output.step;
           if (output.step === 'content_ready') {

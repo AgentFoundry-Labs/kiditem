@@ -25,9 +25,9 @@ export function RevenueTrendChart({ data }: RevenueTrendChartProps) {
   return (
     <div className="bg-white rounded-lg border border-gray-200 p-6">
       <h3 className="text-base font-semibold text-gray-900 mb-4">일별 매출 트렌드</h3>
-      <div className="h-[280px]">
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={data} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
+       <div className="h-[280px]">
+         <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+           <LineChart data={data} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
             <XAxis
               dataKey="day"

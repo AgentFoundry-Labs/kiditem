@@ -30,6 +30,22 @@ import {
   timeAgo,
 } from "@/lib/utils";
 
+const categoryNames: Record<string, string> = {
+  '4944': '완구 > 퍼즐',
+  '4943': '완구 > 블록/레고',
+  '4937': '완구 > 인형/피규어',
+  '4938': '완구 > 교육완구',
+  '4939': '완구 > 물놀이/목욕',
+  '4940': '완구 > 자동차/RC',
+  '4941': '완구 > 보드게임',
+  '4942': '완구 > 미술/공예',
+  '4946': '완구 > 악기',
+  '4945': '완구 > 과학/탐구',
+  '4947': '완구 > 스포츠/야외',
+  '65799': '문구/사무 > 학용품',
+  '65800': '문구/사무 > 필기구',
+};
+
 interface Product {
   id: string;
   name: string;
@@ -440,6 +456,12 @@ export default function ProductDetailPage() {
           </span>
         </div>
 
+        {product.sellPrice == null && product.costCny == null && product.marginRate == null && product.commissionRate == null && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-center text-amber-700">
+            쿠팡 동기화를 실행하면 판매 데이터가 표시됩니다{" "}
+            <a href="/settings" className="underline font-medium">설정으로 이동</a>
+          </div>
+        )}
         <div className="grid grid-cols-4 gap-4">
           <MetricCard
             label="판매가"
@@ -480,7 +502,7 @@ export default function ProductDetailPage() {
       <div className="flex gap-6">
         <div className="flex-1 space-y-6 min-w-0">
           <InfoCard title="상품 정보" icon={<Package size={16} />}>
-            <InfoRow label="카테고리" value={product.category ?? "-"} />
+            <InfoRow label="카테고리" value={categoryNames[product.category || ""] || product.category || "-"} />
             <InfoRow label="소싱 플랫폼" value={product.sourcePlatform ?? "-"} />
             {product.sourceUrl && (
               <InfoRow

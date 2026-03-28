@@ -13,13 +13,44 @@ const PLATFORM_MAP: Record<string, string> = {
 export class SourcingService {
   constructor(private readonly prisma: PrismaService) {}
 
+  private extractCostCny(data: any): number | null {
+    // Direct price field
+    if (data.price != null) {
+      const p = typeof data.price === 'number' ? data.price : parseFloat(String(data.price));
+      if (!isNaN(p) && p > 0) return p;
+    }
+    // Price range (e.g., "12.5-18.0" → take minimum)
+    if (typeof data.priceRange === 'string' && data.priceRange.includes('-')) {
+      const min = parseFloat(data.priceRange.split('-')[0]);
+      if (!isNaN(min) && min > 0) return min;
+    }
+    // Nested offer price
+    if (data.offer?.price != null) {
+      const p = parseFloat(String(data.offer.price));
+      if (!isNaN(p) && p > 0) return p;
+    }
+    // SKU prices (take minimum)
+    if (Array.isArray(data.skuProps)) {
+      const prices = data.skuProps
+        .map((s: any) => parseFloat(String(s.price)))
+        .filter((p: number) => !isNaN(p) && p > 0);
+      if (prices.length > 0) return Math.min(...prices);
+    }
+    // Price tiers (take first tier price)
+    if (Array.isArray(data.priceRanges) && data.priceRanges.length > 0) {
+      const p = parseFloat(String(data.priceRanges[0].price));
+      if (!isNaN(p) && p > 0) return p;
+    }
+    return null;
+  }
+
   async receiveExtensionData(data: any, companyId: string) {
     const pageType = data.page_type || 'detail';
     const platform = PLATFORM_MAP[data.source_platform?.toLowerCase()] || 'OTHER';
     const productCount = pageType === 'search' ? (data.total_found || 0) : (data.title ? 1 : 0);
 
     if (pageType === 'detail' && data.title) {
-      const price = data.price ? parseFloat(data.price) : null;
+      const price = this.extractCostCny(data);
       const images: string[] = data.images || [];
       const productData = {
         name: data.title,

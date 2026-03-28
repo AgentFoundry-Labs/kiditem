@@ -178,9 +178,9 @@ export default function HomePage() {
         {/* Chart */}
         <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6 lg:col-span-2">
           <h3 className="text-lg font-bold text-gray-900 mb-4">월별 추이</h3>
-          <div className="h-[300px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={data.monthlyTrend} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+           <div className="h-[300px]">
+             <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+               <BarChart data={data.monthlyTrend} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
                 <XAxis dataKey="period" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#6B7280' }} dy={10} />
                 <YAxis 

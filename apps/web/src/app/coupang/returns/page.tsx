@@ -145,10 +145,10 @@ export default function CoupangReturnsPage() {
       {/* RET-02: Return reason breakdown bar chart */}
       <div className="bg-white rounded-lg border border-gray-200 p-6">
         <h3 className="text-base font-semibold text-gray-900 mb-4">반품 사유 분석</h3>
-        {reasons.length > 0 ? (
-          <div className="h-[300px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart
+         {reasons.length > 0 ? (
+           <div className="h-[300px]">
+             <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+               <BarChart
                 data={reasons}
                 layout="vertical"
                 margin={{ left: 120, right: 20, top: 5, bottom: 5 }}

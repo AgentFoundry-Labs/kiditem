@@ -19,10 +19,13 @@ export default function ReportsPage() {
         fetch(`${API_BASE}/api/ads`),
       ]);
 
-      const products = await productsRes.json();
+      const productsRaw = await productsRes.json();
       const profitLoss = await plRes.json();
-      const inventory = await inventoryRes.json();
+      const inventoryRaw = await inventoryRes.json();
       const adsData = await adsRes.json();
+
+      const products = productsRaw.items ?? productsRaw;
+      const inventory = inventoryRaw.items ?? inventoryRaw;
 
       const wb = XLSX.utils.book_new();
 
