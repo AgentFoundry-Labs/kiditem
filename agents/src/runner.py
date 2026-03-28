@@ -4,10 +4,12 @@ import signal
 import traceback
 from datetime import datetime, timezone
 
+import structlog
 from langfuse import get_client
 
 from src.config import POLL_INTERVAL_SECONDS
 
+logger = structlog.get_logger()
 _lf = get_client()
 from src.db import get_pool, close_pool
 from src.agents.base import BaseAgent
@@ -31,7 +33,7 @@ def handle_shutdown(_sig, _frame):
     global running
     running = False
     task_event.set()
-    print("\nShutting down...")
+    logger.info("shutting_down")
 
 
 async def claim_task(pool):
@@ -99,18 +101,33 @@ async def process_task(pool, task):
         await fail_task(pool, task_id, f"Unknown agent type: {agent_type}")
         return
 
-    print(f"[{agent_type}] Running task {task_id[:8]}...")
+    task_input["_progress_callback"] = lambda progress: update_task_progress(
+        pool, task_id, progress
+    )
+
+    logger.info("task_started", agent_type=agent_type, task_id=task_id[:8])
 
     try:
-        output = await agent.execute(pool, task_input)
+        async with asyncio.timeout(agent.timeout_seconds):
+            output = await agent.execute(pool, task_input)
         await agent.log(pool, task_id, "info", f"Task completed: {json.dumps(output)}")
         await complete_task(pool, task_id, output)
-        print(f"[{agent_type}] ✓ Done: {json.dumps(output, ensure_ascii=False)}")
+        logger.info("task_completed", agent_type=agent_type, task_id=task_id[:8])
+    except TimeoutError:
+        error_msg = f"Agent timed out after {agent.timeout_seconds}s"
+        await agent.log(pool, task_id, "error", error_msg)
+        await fail_task(pool, task_id, error_msg)
+        logger.error(
+            "task_timeout",
+            agent_type=agent_type,
+            task_id=task_id[:8],
+            timeout=agent.timeout_seconds,
+        )
     except Exception as e:
         error_msg = f"{type(e).__name__}: {e}\n{traceback.format_exc()}"
         await agent.log(pool, task_id, "error", error_msg)
         await fail_task(pool, task_id, str(e))
-        print(f"[{agent_type}] ✗ Failed: {e}")
+        logger.error("task_failed", agent_type=agent_type, task_id=task_id[:8], error=str(e))
     finally:
         _lf.flush()
 
@@ -131,7 +148,7 @@ async def listen_loop(pool):
     conn = await pool.acquire()
     try:
         await conn.add_listener("new_agent_task", on_notify)
-        print("LISTEN new_agent_task — waiting for notifications...")
+        logger.info("listen_started", channel="new_agent_task")
 
         while running:
             task_event.clear()
@@ -151,14 +168,14 @@ async def main():
     signal.signal(signal.SIGTERM, handle_shutdown)
 
     pool = await get_pool()
-    print(f"Agent runner started (LISTEN/NOTIFY + fallback poll {POLL_INTERVAL_SECONDS}s)")
+    logger.info("runner_started", poll_interval=POLL_INTERVAL_SECONDS)
 
     await drain_pending(pool)
     await listen_loop(pool)
 
     _lf.shutdown()
     await close_pool()
-    print("Agent runner stopped.")
+    logger.info("runner_stopped")
 
 
 if __name__ == "__main__":

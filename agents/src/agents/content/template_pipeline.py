@@ -87,31 +87,36 @@ def _resolve_banner_mood(category: str) -> str:
 _HERO_BANNER_PROMPT = (
     "Using the provided product photo, replace the background for: {product_context}.\n\n"
     "{banner_mood}\n\n"
-    "Keep the product exactly as-is — do not alter its shape, color, or details. "
-    "Only replace the background. Erase any text, watermarks, or characters in any language."
+    "Keep the product exactly as-is — do not alter its shape, color, details, "
+    "or any text/graphics printed on the product or its packaging. "
+    "Only replace the background. Erase only watermarks or overlay text that is NOT part of the product itself."
 )
 
 _MAIN_STUDIO_PROMPT = (
     "Using the provided product photo, create a professional studio product shot. "
     "Center the product on a clean, seamless white backdrop with softbox lighting, "
     "gentle fill light, and a subtle drop shadow. "
-    "Preserve the product exactly as-is — its shape, color, and every detail must remain unchanged. "
-    "Erase any watermarks, logos, or Chinese characters visible on the product."
+    "Preserve the product exactly as-is — its shape, color, every detail, "
+    "and all text/graphics printed on the product or its packaging must remain unchanged. "
+    "Only erase watermarks or overlay text that is NOT part of the product itself."
 )
 
 _DETAIL_PROMPTS = [
     "Using the provided product photo, create a single front-facing product shot on a clean white backdrop. "
     "Straight-on angle, soft studio lighting. Output exactly ONE product in ONE image. "
-    "Do NOT create collages or multi-panel layouts. Preserve product shape, color, details unchanged. "
-    "Erase any watermarks, logos, or Chinese characters.",
+    "Do NOT create collages or multi-panel layouts. Preserve product shape, color, details, "
+    "and all text/graphics printed on the product or packaging unchanged. "
+    "Only erase watermarks or overlay text that is NOT part of the product itself.",
     "Using the provided product photo, create a single 45-degree angled product shot on a clean white backdrop. "
     "Three-quarter view highlighting depth and dimension. Soft studio lighting. Output exactly ONE product in ONE image. "
-    "Do NOT create collages or multi-panel layouts. Preserve product shape, color, details unchanged. "
-    "Erase any watermarks, logos, or Chinese characters.",
+    "Do NOT create collages or multi-panel layouts. Preserve product shape, color, details, "
+    "and all text/graphics printed on the product or packaging unchanged. "
+    "Only erase watermarks or overlay text that is NOT part of the product itself.",
     "Using the provided product photo, create a single close-up detail shot emphasizing texture and craftsmanship. "
     "Slightly cropped to show material quality. Soft studio lighting. Output exactly ONE product in ONE image. "
-    "Do NOT create collages or multi-panel layouts. Preserve product shape, color, details unchanged. "
-    "Erase any watermarks, logos, or Chinese characters.",
+    "Do NOT create collages or multi-panel layouts. Preserve product shape, color, details, "
+    "and all text/graphics printed on the product or packaging unchanged. "
+    "Only erase watermarks or overlay text that is NOT part of the product itself.",
 ]
 
 _SIZE_CHART_PROMPT = (

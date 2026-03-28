@@ -19,6 +19,7 @@ _lf = get_client()
 
 class ContentAgent(BaseAgent):
     agent_type = "content"
+    timeout_seconds = 600
 
     @observe(name="content-pipeline", capture_input=False)
     async def execute(self, pool: asyncpg.Pool, task_input: dict | None) -> dict:
@@ -98,27 +99,28 @@ class ContentAgent(BaseAgent):
 
             draft_json = json.dumps(draft_data.model_dump(mode="json"), ensure_ascii=False)
 
-            # D-05: Write to draft_content ONLY. D-10: status=draft, pipeline_step=content_ready
-            await pool.execute(
-                """
-                UPDATE products
-                SET draft_content = $1::jsonb,
-                    status = 'draft',
-                    pipeline_step = 'content_ready',
-                    updated_at = NOW()
-                WHERE id = $2
-                """,
-                draft_json,
-                product_id,
-            )
+            async with pool.acquire() as conn:
+                async with conn.transaction():
+                    await conn.execute(
+                        """
+                        UPDATE products
+                        SET draft_content = $1::jsonb,
+                            status = 'draft',
+                            pipeline_step = 'content_ready',
+                            updated_at = NOW()
+                        WHERE id = $2
+                        """,
+                        draft_json,
+                        product_id,
+                    )
 
-            await self._upsert_content_generation(
-                pool,
-                product_id=product_id,
-                company_id=product["company_id"],
-                page_data=draft_data,
-                status="COMPLETED",
-            )
+                    await self._upsert_content_generation(
+                        conn,
+                        product_id=product_id,
+                        company_id=product["company_id"],
+                        page_data=draft_data,
+                        status="COMPLETED",
+                    )
 
             return {
                 "product_id": str(product_id),
@@ -159,9 +161,7 @@ class ContentAgent(BaseAgent):
         product_id: str,
         task_input: dict,
     ) -> dict:
-        from src.runner import update_task_progress
-
-        task_id = task_input.get("_task_id", "")
+        progress_callback = task_input.get("_progress_callback")
 
         product = await pool.fetchrow(
             "SELECT id, company_id, raw_data, status FROM products WHERE id = $1",
@@ -198,26 +198,22 @@ class ContentAgent(BaseAgent):
 
             draft_json = draft_data.model_dump(mode="json")
 
-            if task_id:
-                await update_task_progress(
-                    pool,
-                    task_id,
+            if progress_callback:
+                await progress_callback(
                     {
                         "step": "content_ready",
                         "draft": draft_json,
-                    },
+                    }
                 )
 
             async def on_image_progress(images: dict):
-                if task_id:
-                    await update_task_progress(
-                        pool,
-                        task_id,
+                if progress_callback:
+                    await progress_callback(
                         {
                             "step": "image_progress",
                             "draft": draft_json,
                             "images": images,
-                        },
+                        }
                     )
 
             result = await pipeline.run_step2(
@@ -228,26 +224,28 @@ class ContentAgent(BaseAgent):
 
             result_json = json.dumps(result.model_dump(mode="json"), ensure_ascii=False)
 
-            await pool.execute(
-                """
-                UPDATE products
-                SET processed_data = $1::jsonb,
-                    status = 'processed',
-                    pipeline_step = NULL,
-                    updated_at = NOW()
-                WHERE id = $2
-                """,
-                result_json,
-                product_id,
-            )
+            async with pool.acquire() as conn:
+                async with conn.transaction():
+                    await conn.execute(
+                        """
+                        UPDATE products
+                        SET processed_data = $1::jsonb,
+                            status = 'processed',
+                            pipeline_step = NULL,
+                            updated_at = NOW()
+                        WHERE id = $2
+                        """,
+                        result_json,
+                        product_id,
+                    )
 
-            await self._upsert_content_generation(
-                pool,
-                product_id=product_id,
-                company_id=product["company_id"],
-                page_data=result,
-                status="COMPLETED",
-            )
+                    await self._upsert_content_generation(
+                        conn,
+                        product_id=product_id,
+                        company_id=product["company_id"],
+                        page_data=result,
+                        status="COMPLETED",
+                    )
 
             return {
                 "product_id": str(product_id),
@@ -307,27 +305,28 @@ class ContentAgent(BaseAgent):
 
             processed_json = json.dumps(page_data.model_dump(mode="json"), ensure_ascii=False)
 
-            # D-09: Write to processed_data. D-11: status=draft, pipeline_step=null
-            await pool.execute(
-                """
-                UPDATE products
-                SET processed_data = $1::jsonb,
-                    status = 'draft',
-                    pipeline_step = NULL,
-                    updated_at = NOW()
-                WHERE id = $2
-                """,
-                processed_json,
-                product_id,
-            )
+            async with pool.acquire() as conn:
+                async with conn.transaction():
+                    await conn.execute(
+                        """
+                        UPDATE products
+                        SET processed_data = $1::jsonb,
+                            status = 'draft',
+                            pipeline_step = NULL,
+                            updated_at = NOW()
+                        WHERE id = $2
+                        """,
+                        processed_json,
+                        product_id,
+                    )
 
-            await self._upsert_content_generation(
-                pool,
-                product_id=product_id,
-                company_id=product["company_id"],
-                page_data=page_data,
-                status="COMPLETED",
-            )
+                    await self._upsert_content_generation(
+                        conn,
+                        product_id=product_id,
+                        company_id=product["company_id"],
+                        page_data=page_data,
+                        status="COMPLETED",
+                    )
 
             return {
                 "product_id": str(product_id),
@@ -362,7 +361,7 @@ class ContentAgent(BaseAgent):
 
     async def _upsert_content_generation(
         self,
-        pool: asyncpg.Pool,
+        db: asyncpg.Pool | asyncpg.Connection,
         *,
         product_id: str,
         company_id: str,
@@ -370,7 +369,7 @@ class ContentAgent(BaseAgent):
         status: str = "PENDING",
         error_message: str | None = None,
     ) -> None:
-        existing = await pool.fetchval(
+        existing = await db.fetchval(
             "SELECT id FROM content_generations WHERE product_id = $1",
             product_id,
         )
@@ -387,7 +386,7 @@ class ContentAgent(BaseAgent):
             processed_images = None
 
         if existing:
-            await pool.execute(
+            await db.execute(
                 """
                 UPDATE content_generations
                 SET generated_title = $1,
@@ -408,7 +407,7 @@ class ContentAgent(BaseAgent):
                 product_id,
             )
         else:
-            await pool.execute(
+            await db.execute(
                 """
                 INSERT INTO content_generations
                     (id, company_id, product_id, generated_title, detail_page_html,

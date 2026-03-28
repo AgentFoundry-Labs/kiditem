@@ -62,9 +62,11 @@ export class SourcingService {
     const task = await this.prisma.agentTask.create({
       data: {
         agentType: 'sourcing',
-        input: { action: 'scrape_url', url } as any,
+        input: { action: 'scrape_url', url, company_id: companyId } as any,
       },
     });
+
+    await this.prisma.$executeRawUnsafe(`SELECT pg_notify('new_agent_task', $1)`, task.id);
 
     return {
       ok: true,

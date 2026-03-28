@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -9,10 +8,11 @@ from urllib.parse import quote
 
 import asyncpg
 import httpx
+import structlog
 
 from src import config as cfg
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 _TMAPI_KEYWORD_URL = f"{cfg.TMAPI_BASE_URL}/taobao/search/keyword"
 _TMAPI_IMAGE_URL = f"{cfg.TMAPI_BASE_URL}/taobao/search/image"
@@ -116,6 +116,7 @@ class Matcher1688:
             if scored:
                 best = scored[0]
                 await self._update_match(
+                    self._pool,
                     product_id,
                     "MATCHED",
                     url=best.url,
@@ -125,7 +126,7 @@ class Matcher1688:
                 )
                 matched_count += 1
             else:
-                await self._update_match(product_id, "NO_MATCH")
+                await self._update_match(self._pool, product_id, "NO_MATCH")
 
         return matched_count
 
@@ -157,16 +158,17 @@ class Matcher1688:
         return ""
 
     async def match_via_tmapi(
-        self, product_id: uuid.UUID, product_name: str, image_url: str
+        self, pool: asyncpg.Pool, product_id: uuid.UUID, product_name: str, image_url: str
     ) -> MatchCandidate | None:
         try:
             candidates = await self._tmapi_search_candidates(product_name, image_url)
             if not candidates:
-                await self._update_match(product_id, "NO_MATCH")
+                await self._update_match(pool, product_id, "NO_MATCH")
                 return None
 
             best = max(candidates, key=lambda c: c.score)
             await self._update_match(
+                pool,
                 product_id,
                 "MATCHED",
                 url=best.url,
@@ -176,8 +178,8 @@ class Matcher1688:
             )
             return best
         except Exception:
-            logger.error("TMAPI match failed product_id=%s", product_id, exc_info=True)
-            await self._update_match(product_id, "FAILED")
+            logger.error("tmapi_match_failed", product_id=str(product_id), exc_info=True)
+            await self._update_match(pool, product_id, "FAILED")
             return None
 
     async def _tmapi_search_candidates(self, keyword: str, image_url: str) -> list[MatchCandidate]:
@@ -298,6 +300,7 @@ class Matcher1688:
 
     async def _update_match(
         self,
+        pool: asyncpg.Pool,
         product_id: uuid.UUID,
         status: str,
         *,
@@ -307,7 +310,7 @@ class Matcher1688:
         score: float | None = None,
     ) -> None:
         matched_at = datetime.now(UTC) if status == "MATCHED" else None
-        await self._pool.execute(
+        await pool.execute(
             """
             UPDATE douyin_live_products
             SET match_status = $1,
