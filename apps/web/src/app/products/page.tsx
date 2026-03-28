@@ -3,7 +3,7 @@ import { API_BASE } from "@/lib/api";
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Download, Upload, Search } from "lucide-react";
+import { Plus, Download, Upload, Search, ChevronLeft, ChevronRight } from "lucide-react";
 import { formatKRW, formatPercent, getGradeColor, getProfitColor, getProductStatusBadge } from "@/lib/utils";
 
 interface Product {
@@ -39,9 +39,12 @@ export default function ProductsPage() {
   const [statusFilter, setStatusFilter] = useState("active");
   const [showModal, setShowModal] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [page, setPage] = useState(0);
+  const PAGE_SIZE = 50;
 
   useEffect(() => {
     setLoading(true);
+    setPage(0);
     fetchProducts();
   }, [gradeFilter, statusFilter]);
 
@@ -65,6 +68,7 @@ export default function ProductsPage() {
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
+    setPage(0);
     fetchProducts();
   };
 
@@ -178,7 +182,7 @@ export default function ProductsPage() {
               </tr>
             </thead>
             <tbody>
-              {products.map((p) => {
+              {products.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE).map((p) => {
                 const badge = getProductStatusBadge(p.status);
                 return (
                   <tr key={p.id} onClick={() => router.push(`/products/${p.id}`)} className={`cursor-pointer hover:bg-slate-50 ${p.profitRate < 0 ? "bg-red-50/50" : p.profitRate <= 3 ? "bg-orange-50/30" : ""}`}>
@@ -204,6 +208,31 @@ export default function ProductsPage() {
             </tbody>
           </table>
         </div>
+        {Math.ceil(products.length / PAGE_SIZE) > 1 && (
+          <div className="flex items-center justify-between px-4 py-3 border-t border-slate-200">
+            <span className="text-sm text-slate-500">
+              {products.length}건 중 {page * PAGE_SIZE + 1}-{Math.min((page + 1) * PAGE_SIZE, products.length)}
+            </span>
+            <div className="flex items-center gap-1">
+              <button onClick={() => setPage(Math.max(0, page - 1))} disabled={page === 0} className="p-1.5 rounded hover:bg-slate-100 disabled:opacity-30">
+                <ChevronLeft size={16} />
+              </button>
+              {Array.from({ length: Math.min(Math.ceil(products.length / PAGE_SIZE), 7) }, (_, i) => {
+                const totalPages = Math.ceil(products.length / PAGE_SIZE);
+                const pageNum = Math.max(0, Math.min(page - 3, totalPages - 7)) + i;
+                if (pageNum >= totalPages) return null;
+                return (
+                  <button key={pageNum} onClick={() => setPage(pageNum)} className={`w-8 h-8 rounded text-sm ${page === pageNum ? "bg-blue-600 text-white" : "hover:bg-slate-100"}`}>
+                    {pageNum + 1}
+                  </button>
+                );
+              })}
+              <button onClick={() => setPage(Math.min(Math.ceil(products.length / PAGE_SIZE) - 1, page + 1))} disabled={page >= Math.ceil(products.length / PAGE_SIZE) - 1} className="p-1.5 rounded hover:bg-slate-100 disabled:opacity-30">
+                <ChevronRight size={16} />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
       )}
 
