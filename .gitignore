@@ -11,3 +11,4 @@ __pycache__/
 .claude/
 DASHBOARD_*.md
 MIGRATION_CHECKLIST.md
+.gstack/
