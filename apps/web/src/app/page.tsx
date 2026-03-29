@@ -375,7 +375,7 @@ export default function HomePage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center">
+          <div className="w-9 h-9 rounded-lg bg-blue-600 flex items-center justify-center">
             <Zap size={18} className="text-white" />
           </div>
           <div>

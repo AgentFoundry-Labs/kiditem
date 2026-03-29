@@ -37,9 +37,9 @@ export default function StatsCards() {
       label: '오늘 절감 시간',
       value: formatTime(stats.totalSavedMinutes),
       icon: Clock,
-      color: 'text-violet-400',
-      bgColor: 'from-violet-500/10 to-violet-600/5',
-      borderColor: 'border-violet-500/20',
+      color: 'text-blue-400',
+      bgColor: 'from-blue-500/10 to-blue-600/5',
+      borderColor: 'border-blue-500/20',
       sub: `월 약 ${formatTime(stats.totalSavedMinutes * 22)}`,
     },
   ];
