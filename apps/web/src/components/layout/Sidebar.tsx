@@ -163,7 +163,7 @@ export default function Sidebar() {
         <button
           onClick={toggleSidebar}
           className={cn(
-            'ml-auto p-1.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-500',
+            'ml-auto p-2.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-500',
             !sidebarOpen && 'rotate-180'
           )}
         >
@@ -194,7 +194,7 @@ export default function Sidebar() {
                   href={item.href}
                   title={!sidebarOpen ? item.label : undefined}
                   className={cn(
-                    'flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all duration-200',
+                    'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all duration-200',
                     isActive(item.href)
                       ? 'bg-blue-50 text-blue-600 border border-blue-500/20'
                       : 'text-gray-500 hover:bg-gray-100 hover:text-gray-900 border border-transparent'
