@@ -199,7 +199,7 @@ const alertIcon = (type: string) => {
     ad_high: <Megaphone size={13} className="text-amber-500 shrink-0" />,
     ad_overspend: <DollarSign size={13} className="text-red-500 shrink-0" />,
     stock_low: <Truck size={13} className="text-blue-500 shrink-0" />,
-    thumbnail_drop: <ImageIcon size={13} className="text-purple-500 shrink-0" />,
+    thumbnail_drop: <ImageIcon size={13} className="text-blue-500 shrink-0" />,
     grade_change: <TrendingDown size={13} className="text-orange-500 shrink-0" />,
     defect_found: <PackageX size={13} className="text-red-500 shrink-0" />,
   };
@@ -410,15 +410,15 @@ export default function HomePage() {
         <KpiCard
           label="광고비율" value={String(s.adRate)} unit="%"
           icon={Megaphone}
-          bgColor={s.adRate > 15 ? 'bg-red-50 border-red-200' : 'bg-violet-50 border-violet-200'}
-          accentColor={s.adRate > 15 ? '#dc2626' : '#7c3aed'}
+          bgColor={s.adRate > 15 ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200'}
+          accentColor={s.adRate > 15 ? '#dc2626' : '#6b7280'}
           prevLabel={`${s.prevAdRate}%`}
         />
       </div>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <KpiCard
           label="ROAS" value={String(s.roas)} unit="%"
-          icon={Target} bgColor="bg-purple-50 border-purple-200" accentColor="#9333ea"
+          icon={Target} bgColor="bg-blue-50 border-blue-200" accentColor="#2563eb"
           prevLabel={`${s.prevRoas}%`}
         />
         <KpiCard
@@ -686,19 +686,19 @@ export default function HomePage() {
         </div>
 
         {/* AI 자동 실행 */}
-        <div className="rounded-xl border-2 border-violet-200 bg-violet-50/40 overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-3 bg-violet-100/60 border-b border-violet-200">
+        <div className="rounded-xl border-2 border-blue-200 bg-blue-50/40 overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-3 bg-blue-100/60 border-b border-blue-200">
             <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-lg bg-violet-500 flex items-center justify-center">
+              <div className="w-7 h-7 rounded-lg bg-blue-500 flex items-center justify-center">
                 <Sparkles size={15} className="text-white" />
               </div>
               <h3 className="text-base font-semibold text-blue-900">AI 자동 실행</h3>
-              <span className="text-xs font-semibold text-violet-600 bg-violet-200 px-2 py-0.5 rounded-full">
+              <span className="text-xs font-semibold text-blue-600 bg-blue-200 px-2 py-0.5 rounded-full">
                 {aiActions.filter(a => !completedActions[a.id]).length}건
               </span>
             </div>
           </div>
-          <div className="divide-y divide-violet-100/50 max-h-[400px] overflow-y-auto">
+          <div className="divide-y divide-blue-100/50 max-h-[400px] overflow-y-auto">
             {aiActions.filter(a => !completedActions[a.id]).length === 0 && (
               <div className="py-8 text-center text-sm text-gray-400">모든 자동 액션 완료</div>
             )}
@@ -727,11 +727,11 @@ export default function HomePage() {
                       disabled={isProcessing}
                       className={cn(
                         'shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors',
-                        isProcessing ? 'bg-gray-100 text-gray-400 cursor-wait' : 'bg-violet-100 text-violet-700 hover:bg-violet-200'
+                        isProcessing ? 'bg-gray-100 text-gray-400 cursor-wait' : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
                       )}
                     >
                       {isProcessing ? (
-                        <><span className="animate-spin inline-block w-3 h-3 border-2 border-gray-300 border-t-violet-500 rounded-full" /> 처리중</>
+                        <><span className="animate-spin inline-block w-3 h-3 border-2 border-gray-300 border-t-blue-500 rounded-full" /> 처리중</>
                       ) : (
                         <><Play size={13} /> 실행</>
                       )}
