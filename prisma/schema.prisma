@@ -91,6 +91,9 @@ model Company {
   notificationTemplates  NotificationTemplate[]
   notificationLogs       NotificationLog[]
 
+  // Ontology
+  businessRules  BusinessRule[]
+
   @@map("companies")
 }
 
@@ -162,6 +165,10 @@ model Product {
   images             Json?   @default("[]")
   imageUrl           String? @map("image_url")
   thumbnailStrategy  String  @default("standard") @map("thumbnail_strategy")
+
+  // Health (Ontology Rules Engine)
+  healthScore     Int?      @map("health_score")
+  healthUpdatedAt DateTime? @map("health_updated_at") @db.Timestamptz
 
   // Soft delete
   isDeleted Boolean   @default(false) @map("is_deleted")
@@ -1831,4 +1838,33 @@ model NotificationLog {
 
   @@index([companyId])
   @@map("notification_logs")
+}
+
+// ─── Ontology: Business Rules ─────────────────────────────────────────────────
+
+model BusinessRule {
+  id              String   @id @default(uuid()) @db.Uuid
+  companyId       String   @map("company_id") @db.Uuid
+  name            String                             // "deficit-detection"
+  displayName     String   @map("display_name")      // "적자 상품 감지"
+  description     String?
+  category        String                             // profitability | advertising | inventory | feedback | order
+  severity        String                             // critical | warning | info
+  field           String                             // context field: "profitRate", "currentStock", "adCostRate"
+  operator        String                             // gt | lt | gte | lte | eq | between | custom
+  threshold       Json                               // { value: 0 } or { min: 0, max: 3 }
+  messageTemplate String   @map("message_template")  // "순이익률 {{value}}% — 즉시 검토 필요"
+  actionType      String?  @map("action_type")       // from action catalog: product.stop_ads, etc.
+  autoExecute     Boolean  @default(false) @map("auto_execute")
+  active          Boolean  @default(true)
+  sortOrder       Int      @default(0) @map("sort_order")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, name])
+  @@index([companyId, active])
+  @@index([category])
+  @@map("business_rules")
 }

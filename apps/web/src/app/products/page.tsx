@@ -44,6 +44,7 @@ interface Product {
   coupangProductId?: string | null;
   createdAt?: string | null;
   gradeScore?: number | null;
+  healthScore?: number | null;
 }
 
 interface SyncInfo {
@@ -398,6 +399,13 @@ export default function ProductsPage() {
                         <span className="text-xs text-gray-500">{p.gradeScore}점</span>
                       )}
                     </>
+                  )}
+                  {p.healthScore != null && (
+                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                      p.healthScore >= 70 ? 'bg-green-50 text-green-700' :
+                      p.healthScore >= 40 ? 'bg-amber-50 text-amber-700' :
+                      'bg-red-50 text-red-700'
+                    }`}>{p.healthScore}</span>
                   )}
                   {p.adTier && (
                     <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${

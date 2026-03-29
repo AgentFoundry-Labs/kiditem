@@ -25,6 +25,7 @@ import { StockMovementModule } from './stock-movement/stock-movement.module';
 import { CsModule } from './cs/cs.module';
 import { UnshippedModule } from './unshipped/unshipped.module';
 import { SalesAnalysisModule } from './sales-analysis/sales-analysis.module';
+import { RulesModule } from './rules/rules.module';
 
 @Module({
   imports: [
@@ -54,6 +55,7 @@ import { SalesAnalysisModule } from './sales-analysis/sales-analysis.module';
     CsModule,
     UnshippedModule,
     SalesAnalysisModule,
+    RulesModule,
   ],
 })
 export class AppModule {}
