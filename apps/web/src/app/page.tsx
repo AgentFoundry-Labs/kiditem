@@ -379,7 +379,7 @@ export default function HomePage() {
             <Zap size={18} className="text-white" />
           </div>
           <div>
-            <h1 className="text-lg font-bold text-gray-900 tracking-tight">운영 대시보드</h1>
+            <h1 className="text-xl font-bold text-gray-900 tracking-tight">운영 대시보드</h1>
             <div className="flex items-center gap-3 mt-0.5">
               <span className="text-xs text-gray-400">{s.totalProducts}개 상품</span>
               <span className="text-xs text-gray-400">|</span>
@@ -451,7 +451,7 @@ export default function HomePage() {
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <Activity size={16} className="text-gray-500" />
-              <h3 className="text-sm font-bold text-gray-900">상품 진단 현황</h3>
+              <h3 className="text-base font-semibold text-gray-900">상품 진단 현황</h3>
             </div>
             <div className="flex items-center gap-3">
               {healthSummary.lastEvaluatedAt && (
@@ -556,7 +556,7 @@ export default function HomePage() {
         return (
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-              <h3 className="text-sm font-bold text-gray-900">매출 / 광고비 추이</h3>
+              <h3 className="text-base font-semibold text-gray-900">매출 / 광고비 추이</h3>
               <div className="flex items-center gap-4">
                 <div className="flex items-center rounded-lg border border-gray-200 p-0.5">
                   {rangeOptions.map((opt) => (
@@ -645,7 +645,7 @@ export default function HomePage() {
               <div className="w-7 h-7 rounded-lg bg-orange-500 flex items-center justify-center">
                 <ClipboardList size={15} className="text-white" />
               </div>
-              <h3 className="text-sm font-bold text-orange-900">오늘 할 일</h3>
+              <h3 className="text-base font-semibold text-orange-900">오늘 할 일</h3>
               <span className="text-xs font-semibold text-orange-600 bg-orange-200 px-2 py-0.5 rounded-full">
                 {humanTasks.filter(t => !checkedTasks[t.id]).length}건 남음
               </span>
@@ -692,7 +692,7 @@ export default function HomePage() {
               <div className="w-7 h-7 rounded-lg bg-violet-500 flex items-center justify-center">
                 <Sparkles size={15} className="text-white" />
               </div>
-              <h3 className="text-sm font-bold text-violet-900">AI 자동 실행</h3>
+              <h3 className="text-base font-semibold text-blue-900">AI 자동 실행</h3>
               <span className="text-xs font-semibold text-violet-600 bg-violet-200 px-2 py-0.5 rounded-full">
                 {aiActions.filter(a => !completedActions[a.id]).length}건
               </span>
@@ -750,7 +750,7 @@ export default function HomePage() {
               <div className="w-7 h-7 rounded-lg bg-red-500 flex items-center justify-center">
                 <Bell size={15} className="text-white" />
               </div>
-              <h3 className="text-sm font-bold text-red-900">알림</h3>
+              <h3 className="text-base font-semibold text-red-900">알림</h3>
               <span className="text-xs font-semibold text-white bg-red-500 px-2 py-0.5 rounded-full">{data.alerts.length}</span>
             </div>
           </div>
@@ -824,7 +824,7 @@ export default function HomePage() {
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
           <div className="flex items-center gap-2">
             <BarChart3 size={15} className="text-gray-400" />
-            <h3 className="text-sm font-bold text-gray-900">Top Revenue Products</h3>
+            <h3 className="text-base font-semibold text-gray-900">Top Revenue Products</h3>
           </div>
           <Link href="/products" className="text-xs text-blue-600 font-medium hover:text-blue-700">
             전체 보기 →

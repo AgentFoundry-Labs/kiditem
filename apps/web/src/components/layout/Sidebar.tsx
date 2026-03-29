@@ -151,7 +151,7 @@ export default function Sidebar() {
           </div>
           {sidebarOpen && (
             <div className="min-w-0">
-              <h1 className="text-sm font-bold text-gray-900 truncate">
+              <h1 className="text-base font-bold text-gray-900 truncate">
                 KidItem
               </h1>
               <p className="text-[10px] text-gray-500 truncate">
