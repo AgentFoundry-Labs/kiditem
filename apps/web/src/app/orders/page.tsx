@@ -1,292 +1,434 @@
 "use client";
 import { API_BASE } from "@/lib/api";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import {
-  ShoppingCart,
   CheckCircle,
   Truck,
   Loader2,
   RefreshCw,
+  Package,
+  Clock,
+  MapPin,
+  Zap,
+  Plus,
+  Printer,
+  FileText,
+  Check,
 } from "lucide-react";
 import { formatKRW } from "@/lib/utils";
 
-interface OrderItem {
-  vendorItemId: number;
-  vendorItemName: string;
-  sellerProductId: number;
-  sellerProductName: string;
-  shippingCount: number;
-  salesPrice: number;
-  orderPrice: number;
-}
-
-interface OrderSheet {
-  shipmentBoxId: number;
-  orderId: number;
-  orderedAt: string;
-  paidAt: string;
+interface OrderRow {
+  id: string;
+  orderNumber: string;
+  platform: string;
+  customerName: string;
+  productName: string;
+  quantity: number;
+  unitPrice: number;
+  totalPrice: number;
   status: string;
-  receiver: { name: string; addr1: string; addr2: string; postCode: string; safeNumber: string };
-  orderer: { name: string };
-  orderItems: OrderItem[];
-  deliveryCompanyName?: string;
-  invoiceNumber?: string;
+  orderedAt: string;
+  receiverName: string | null;
+  receiverAddr: string | null;
+  trackingNumber: string | null;
+  shippingCompany: string | null;
 }
 
-interface DeliveryCompany {
-  code: string;
-  name: string;
-}
-
-const STATUS_TABS = [
-  { key: "ACCEPT", label: "신규주문", color: "text-blue-600" },
-  { key: "INSTRUCT", label: "발주확인", color: "text-purple-600" },
-  { key: "DEPARTURE", label: "출고완료", color: "text-orange-600" },
-  { key: "DELIVERING", label: "배송중", color: "text-green-600" },
-  { key: "FINAL_DELIVERY", label: "배송완료", color: "text-slate-600" },
+const ACTIVE_NODES = [
+  { key: "ACCEPT", label: "신규주문", sub: "Order Received", icon: Clock, color: "#3b82f6" },
+  { key: "INSTRUCT", label: "발주확인", sub: "Confirmed", icon: CheckCircle, color: "#8b5cf6" },
+  { key: "DEPARTURE", label: "출고완료", sub: "Shipped", icon: Package, color: "#f59e0b" },
+  { key: "DELIVERING", label: "배송중", sub: "In Transit", icon: Truck, color: "#10b981" },
+];
+const ALL_NODES = [
+  ...ACTIVE_NODES,
+  { key: "FINAL_DELIVERY", label: "배송완료", sub: "Delivered", icon: MapPin, color: "#6b7280" },
 ];
 
+const EDGES = [
+  { from: 0, to: 1 },
+  { from: 1, to: 2 },
+  { from: 2, to: 3 },
+];
+
+const SYNC_HOURS = [9, 12, 15, 18];
+
 export default function OrdersPage() {
-  const [orders, setOrders] = useState<OrderSheet[]>([]);
+  const [pipeline, setPipeline] = useState<Record<string, OrderRow[]>>({});
+  const [counts, setCounts] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState("ACCEPT");
-  const [selected, setSelected] = useState<Set<number>>(new Set());
-  const [deliveryCompanies, setDeliveryCompanies] = useState<DeliveryCompany[]>([]);
-  const [processing, setProcessing] = useState(false);
+  const [activeNode, setActiveNode] = useState("ACCEPT");
+  const [lastUpdated, setLastUpdated] = useState("");
+  const [showCompleted, setShowCompleted] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [selectedOrders, setSelectedOrders] = useState<Record<string, boolean>>({});
 
-  // 송장 입력 모달
-  const [invoiceModal, setInvoiceModal] = useState<{
-    open: boolean;
-    shipmentBoxId: number;
-    orderName: string;
-  } | null>(null);
-  const [invoiceForm, setInvoiceForm] = useState({ deliveryCompanyCode: "CJGLS", invoiceNumber: "" });
-
-  const fetchOrders = async (status: string) => {
+  const fetchAll = useCallback(async () => {
     setLoading(true);
     setError(null);
-    setSelected(new Set());
-    try {
-      const today = new Date().toISOString().slice(0, 10);
-      const weekAgo = new Date(Date.now() - 14 * 86400000).toISOString().slice(0, 10);
-      const res = await fetch(`${API_BASE}/api/orders?status=${status}&from=${weekAgo}&to=${today}`);
-      if (!res.ok) throw new Error("주문 조회 실패");
-      const data = await res.json();
-      setOrders(data.orders || []);
-      if (data.deliveryCompanies) setDeliveryCompanies(data.deliveryCompanies);
-      if (data.offline) setError("오프라인 모드: 저장된 데이터를 표시 중입니다. API 연결 후 실시간 데이터를 확인하세요.");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "오류");
-      setOrders([]);
-    } finally {
-      setLoading(false);
-    }
-  };
+
+    const results = await Promise.all(
+      ALL_NODES.map(async (node) => {
+        try {
+          const res = await fetch(`${API_BASE}/api/orders?status=${node.key}`);
+          if (!res.ok) return { key: node.key, orders: [] as OrderRow[], count: 0 };
+          const data = await res.json();
+          const orders = (data.orders || []) as OrderRow[];
+          return { key: node.key, orders, count: orders.length };
+        } catch {
+          return { key: node.key, orders: [] as OrderRow[], count: 0 };
+        }
+      })
+    );
+
+    const np: Record<string, OrderRow[]> = {};
+    const nc: Record<string, number> = {};
+    results.forEach((r) => {
+      np[r.key] = r.orders;
+      nc[r.key] = r.count;
+    });
+
+    setPipeline(np);
+    setCounts(nc);
+    setLastUpdated(new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
+    setLoading(false);
+  }, []);
 
   useEffect(() => {
-    fetchOrders(activeTab);
-  }, [activeTab]);
+    fetchAll();
+  }, [fetchAll]);
 
-  const handleConfirm = async () => {
-    if (selected.size === 0) return alert("승인할 주문을 선택하세요.");
-    setProcessing(true);
-    try {
-      const res = await fetch(`${API_BASE}/api/orders`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "confirm", shipmentBoxIds: Array.from(selected) }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error || "승인 실패");
-      alert(data.message);
-      fetchOrders(activeTab);
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "처리 실패");
-    } finally {
-      setProcessing(false);
-    }
-  };
+  useEffect(() => {
+    const lastSyncKey = "orders_last_sync_hour";
+    const syncFromCoupang = async () => {
+      const now = new Date();
+      const hour = now.getHours();
+      const lastHour = sessionStorage.getItem(lastSyncKey);
+      if (SYNC_HOURS.includes(hour) && lastHour !== String(hour)) {
+        setSyncing(true);
+        try {
+          const today = now.toISOString().slice(0, 10);
+          const weekAgo = new Date(now.getTime() - 7 * 86400000).toISOString().slice(0, 10);
+          await fetch(`${API_BASE}/api/coupang-sync`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ createdAtFrom: weekAgo, createdAtTo: today }),
+          });
+          sessionStorage.setItem(lastSyncKey, String(hour));
+          fetchAll();
+        } catch {
+        }
+        setSyncing(false);
+      }
+    };
+    syncFromCoupang();
+    const timer = setInterval(syncFromCoupang, 60_000);
+    return () => clearInterval(timer);
+  }, [fetchAll]);
 
-  const handleInvoiceSubmit = async () => {
-    if (!invoiceModal || !invoiceForm.invoiceNumber.trim()) return alert("송장번호를 입력하세요.");
-    setProcessing(true);
-    try {
-      const res = await fetch(`${API_BASE}/api/orders`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "invoice",
-          shipmentBoxId: invoiceModal.shipmentBoxId,
-          ...invoiceForm,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error || "송장 전송 실패");
-      alert(data.message);
-      setInvoiceModal(null);
-      setInvoiceForm({ deliveryCompanyCode: "CJGLS", invoiceNumber: "" });
-      fetchOrders(activeTab);
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "처리 실패");
-    } finally {
-      setProcessing(false);
-    }
-  };
+  useEffect(() => {
+    setSelectedOrders({});
+  }, [activeNode]);
 
-  const toggleSelect = (id: number) => {
-    const next = new Set(selected);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    setSelected(next);
+  const selectedCount = Object.values(selectedOrders).filter(Boolean).length;
+
+  const toggleOrder = (id: string) => {
+    setSelectedOrders((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
   const toggleAll = () => {
-    if (selected.size === orders.length) setSelected(new Set());
-    else setSelected(new Set(orders.map((o) => o.shipmentBoxId)));
+    const orders = pipeline[activeNode] || [];
+    const allSelected = orders.length > 0 && orders.every((o) => selectedOrders[o.id]);
+    if (allSelected) {
+      setSelectedOrders({});
+    } else {
+      const next: Record<string, boolean> = {};
+      orders.forEach((o) => { next[o.id] = true; });
+      setSelectedOrders(next);
+    }
   };
 
-  return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-900">
-          <ShoppingCart size={24} className="inline mr-2" />
-          주문 처리
-        </h1>
-        <button onClick={() => fetchOrders(activeTab)} className="flex items-center gap-2 px-3 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">
-          <RefreshCw size={16} /> 새로고침
-        </button>
-      </div>
+  const handleConfirm = () => {
+    const ids = Object.keys(selectedOrders).filter((id) => selectedOrders[id]);
+    if (ids.length === 0) return;
+    // TODO: POST /api/orders/confirm when API exists
+    console.log("CONFIRM orders:", ids);
+    alert(`${ids.length}건 발주확인 처리 (API 연동 예정)`);
+  };
 
-      {/* Status Tabs */}
-      <div className="flex gap-1 bg-white rounded-xl p-1 border border-slate-200">
-        {STATUS_TABS.map((tab) => (
+  const handlePrintLabel = () => {
+    alert("라벨 출력 기능 준비 중");
+  };
+
+  const handleInvoice = () => {
+    const ids = Object.keys(selectedOrders).filter((id) => selectedOrders[id]);
+    if (ids.length === 0) return;
+    console.log("INVOICE orders:", ids);
+    alert(`${ids.length}건 송장 처리 (API 연동 예정)`);
+  };
+
+  const totalOrders = Object.values(counts).reduce((s, c) => s + c, 0);
+  const activeOrders = pipeline[activeNode] || [];
+  const allChecked = activeOrders.length > 0 && activeOrders.every((o) => selectedOrders[o.id]);
+  const displayNodes = showCompleted ? ALL_NODES : ACTIVE_NODES;
+  const displayEdges = showCompleted ? [...EDGES, { from: 3, to: 4 }] : EDGES;
+
+  const nodeW = 130;
+  const nodeH = 90;
+  const gap = 50;
+  const padX = 30;
+  const svgW = displayNodes.length * nodeW + (displayNodes.length - 1) * gap + padX * 2;
+  const svgH = nodeH + 40;
+  const nodeY = 20;
+  const getNodeX = (i: number) => padX + i * (nodeW + gap);
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <Zap size={18} className="text-blue-500" />
+          <div>
+            <h1 className="text-base font-semibold text-gray-900 uppercase tracking-wide">Order Pipeline</h1>
+            <div className="flex items-center gap-2 mt-0.5">
+              <span className="text-xs text-gray-400 font-mono">{totalOrders} orders</span>
+              {error && <span className="text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded font-mono">ERROR</span>}
+              <span className="text-[10px] text-gray-400 font-mono">{lastUpdated}</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {syncing && <span className="text-[10px] text-blue-600 font-mono animate-pulse">쿠팡 동기화 중...</span>}
+          <span className="text-[10px] text-gray-400 font-mono">자동 동기화: 9/12/15/18시</span>
           <button
-            key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
-            className={`flex-1 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-              activeTab === tab.key
-                ? "bg-blue-600 text-white"
-                : `text-slate-600 hover:bg-slate-50 ${tab.color}`
+            onClick={() => setShowCompleted(!showCompleted)}
+            className={`px-3 py-1.5 text-xs rounded-md font-mono transition-colors ${
+              showCompleted ? "bg-gray-200 text-gray-700" : "bg-gray-100 text-gray-400"
             }`}
           >
-            {tab.label}
+            {showCompleted ? "배송완료 숨기기" : `배송완료 보기 (${counts["FINAL_DELIVERY"] || 0})`}
           </button>
-        ))}
+          <button className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-white bg-blue-600 hover:bg-blue-700 rounded-md font-mono">
+            <Plus size={12} /> 수기주문
+          </button>
+          <button
+            onClick={fetchAll}
+            disabled={loading}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-500 hover:bg-gray-100 rounded-md font-mono"
+          >
+            <RefreshCw size={12} className={loading ? "animate-spin" : ""} /> REFRESH
+          </button>
+        </div>
       </div>
 
-      {/* Action Bar */}
-      {activeTab === "ACCEPT" && orders.length > 0 && (
-        <div className="flex items-center gap-3 bg-blue-50 p-4 rounded-xl border border-blue-200">
-          <span className="text-sm text-blue-800">
-            {selected.size > 0 ? `${selected.size}건 선택됨` : "주문을 선택하세요"}
+      {/* Pipeline Visualization */}
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100">
+          <h3 className="text-xs font-semibold text-gray-900 uppercase tracking-wider">Autonomous Lineage</h3>
+          <span className="text-[10px] text-emerald-600 font-mono flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> LIVE
           </span>
-          <button
-            onClick={handleConfirm}
-            disabled={selected.size === 0 || processing}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium disabled:opacity-50 hover:bg-blue-700"
+        </div>
+        <div className="relative overflow-x-auto bg-gray-50/50 p-4">
+          <svg
+            width="100%"
+            height={svgH}
+            viewBox={`0 0 ${svgW} ${svgH}`}
+            preserveAspectRatio="xMidYMid meet"
+            style={{ minWidth: 700, display: "block" }}
           >
-            {processing ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
-            발주 확인 (승인)
-          </button>
-        </div>
-      )}
+            <defs>
+              <pattern id="dots" width="16" height="16" patternUnits="userSpaceOnUse">
+                <circle cx="8" cy="8" r="0.6" fill="#dde0e5" />
+              </pattern>
+            </defs>
+            <rect width={svgW} height={svgH} fill="url(#dots)" rx="6" />
 
-      {activeTab === "INSTRUCT" && orders.length > 0 && (
-        <div className="bg-purple-50 p-4 rounded-xl border border-purple-200 text-sm text-purple-800">
-          <Truck size={16} className="inline mr-1" />
-          발주확인된 주문입니다. "송장 입력" 버튼을 눌러 배송정보를 전송하세요.
-        </div>
-      )}
+            {displayEdges.map((edge, i) => {
+              const x1 = getNodeX(edge.from) + nodeW;
+              const x2 = getNodeX(edge.to);
+              const y = nodeY + nodeH / 2;
+              const fromCount = counts[displayNodes[edge.from]?.key] || 0;
+              return (
+                <g key={`edge-${i}`}>
+                  <line x1={x1 + 2} y1={y} x2={x2 - 2} y2={y} stroke="#d1d5db" strokeWidth="2" strokeDasharray="5 3" />
+                  <polygon points={`${x2 - 5},${y - 3.5} ${x2},${y} ${x2 - 5},${y + 3.5}`} fill="#c0c5cd" />
+                  {fromCount > 0 && (
+                    <text x={(x1 + x2) / 2} y={y - 8} textAnchor="middle" fontSize="10" fill="#9ca3af" fontFamily="monospace">
+                      {fromCount}
+                    </text>
+                  )}
+                </g>
+              );
+            })}
 
-      {/* Offline Banner */}
-      {error && orders.length > 0 && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-3 text-sm text-yellow-800">
-          {error}
+            {displayNodes.map((node, i) => {
+              const count = counts[node.key] || 0;
+              const isActive = activeNode === node.key;
+              const nx = getNodeX(i);
+              return (
+                <g
+                  key={node.key}
+                  onClick={() => setActiveNode(node.key)}
+                  className="cursor-pointer"
+                >
+                  <rect x={nx + 2} y={nodeY + 2} width={nodeW} height={nodeH} rx="10" fill="black" opacity="0.04" />
+                  <rect
+                    x={nx} y={nodeY} width={nodeW} height={nodeH} rx="10"
+                    fill={isActive ? node.color : "white"}
+                    stroke={isActive ? node.color : "#dde0e5"}
+                    strokeWidth={isActive ? 2 : 1}
+                  />
+                  <text
+                    x={nx + nodeW / 2} y={nodeY + 38} textAnchor="middle"
+                    fontSize="32" fontWeight="800" fontFamily="monospace"
+                    fill={isActive ? "white" : node.color}
+                  >
+                    {count}
+                  </text>
+                  <text
+                    x={nx + nodeW / 2} y={nodeY + 58} textAnchor="middle"
+                    fontSize="13" fontWeight="600"
+                    fill={isActive ? "rgba(255,255,255,0.95)" : "#374151"}
+                  >
+                    {node.label}
+                  </text>
+                  <text
+                    x={nx + nodeW / 2} y={nodeY + 74} textAnchor="middle"
+                    fontSize="10" fontFamily="monospace"
+                    fill={isActive ? "rgba(255,255,255,0.55)" : "#9ca3af"}
+                  >
+                    {node.sub}
+                  </text>
+                  {count > 0 && !isActive && (
+                    <circle cx={nx + nodeW - 10} cy={nodeY + 10} r="4" fill={node.color} opacity="0.8" />
+                  )}
+                </g>
+              );
+            })}
+          </svg>
         </div>
-      )}
+      </div>
 
-      {/* Content */}
-      {loading ? (
-        <div className="flex items-center justify-center h-40 text-slate-500">
-          <Loader2 size={20} className="animate-spin mr-2" /> 주문 조회 중...
+      {/* Detail Panel */}
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100">
+          <div className="flex items-center gap-2">
+            <div
+              className="w-2.5 h-2.5 rounded-full"
+              style={{ backgroundColor: ALL_NODES.find((n) => n.key === activeNode)?.color }}
+            />
+            <span className="text-xs font-semibold text-gray-900 uppercase tracking-wider">
+              {ALL_NODES.find((n) => n.key === activeNode)?.label}
+            </span>
+            <span className="text-[11px] text-gray-400 font-mono">{activeOrders.length} orders</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleConfirm}
+              disabled={selectedCount === 0}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono rounded-full bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              <Check size={12} />
+              CONFIRM ({selectedCount})
+            </button>
+            <button
+              onClick={handlePrintLabel}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono rounded-full bg-gray-200 text-gray-700 hover:bg-gray-300 transition-colors"
+            >
+              <Printer size={12} />
+              PRINT LABEL
+            </button>
+            <button
+              onClick={handleInvoice}
+              disabled={selectedCount === 0}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono rounded-full bg-purple-500 text-white hover:bg-purple-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              <FileText size={12} />
+              INVOICE ({selectedCount})
+            </button>
+          </div>
         </div>
-      ) : error && orders.length === 0 ? (
-        <div className="text-center py-12 text-red-500">{error}</div>
-      ) : orders.length === 0 ? (
-        <div className="text-center py-12 text-slate-400">
-          {STATUS_TABS.find((t) => t.key === activeTab)?.label} 주문이 없습니다.
-        </div>
-      ) : (
-        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+
+        {loading ? (
+          <div className="py-12 text-center text-gray-400 text-xs font-mono flex items-center justify-center gap-2">
+            <Loader2 size={14} className="animate-spin" /> LOADING ORDERS...
+          </div>
+        ) : error && activeOrders.length === 0 ? (
+          <div className="text-center py-12 text-red-500 text-sm">{error}</div>
+        ) : activeOrders.length === 0 ? (
+          <div className="py-12 text-center text-gray-400 text-xs font-mono">
+            NO ORDERS IN THIS STAGE
+          </div>
+        ) : (
           <div className="overflow-x-auto">
             <table>
               <thead>
-                <tr className="bg-slate-50">
-                  {(activeTab === "ACCEPT") && (
-                    <th className="w-10">
-                      <input type="checkbox" checked={selected.size === orders.length && orders.length > 0} onChange={toggleAll} />
-                    </th>
-                  )}
-                  <th>주문번호</th>
-                  <th>주문일시</th>
-                  <th>상품</th>
-                  <th className="text-right">수량</th>
+                <tr className="bg-gray-50">
+                  <th className="w-10">
+                    <input
+                      type="checkbox"
+                      checked={allChecked}
+                      onChange={toggleAll}
+                      className="w-3.5 h-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                    />
+                  </th>
+                  <th>상품명</th>
                   <th className="text-right">금액</th>
-                  <th>수취인</th>
+                  <th>주문자</th>
                   <th>주소</th>
-                  {(activeTab === "INSTRUCT") && <th>액션</th>}
-                  {(activeTab === "DEPARTURE" || activeTab === "DELIVERING") && <th>송장</th>}
+                  <th>주문일</th>
+                  {(activeNode === "DEPARTURE" || activeNode === "DELIVERING") && <th>송장</th>}
                 </tr>
               </thead>
               <tbody>
-                {orders.map((order) => {
-                  const item = order.orderItems?.[0];
-                  const totalQty = order.orderItems?.reduce((s, i) => s + i.shippingCount, 0) || 0;
-                  const totalPrice = order.orderItems?.reduce((s, i) => s + i.orderPrice, 0) || 0;
+                {activeOrders.map((order) => {
+                  const nodeInfo = ALL_NODES.find((n) => n.key === activeNode);
+                  const isSelected = !!selectedOrders[order.id];
+                  const addrDisplay = order.receiverAddr
+                    ? order.receiverAddr.length > 20
+                      ? order.receiverAddr.slice(0, 20) + "…"
+                      : order.receiverAddr
+                    : "-";
                   return (
-                    <tr key={order.shipmentBoxId} className="hover:bg-slate-50">
-                      {activeTab === "ACCEPT" && (
-                        <td>
-                          <input type="checkbox" checked={selected.has(order.shipmentBoxId)} onChange={() => toggleSelect(order.shipmentBoxId)} />
-                        </td>
-                      )}
-                      <td className="text-xs font-mono text-slate-500">{order.shipmentBoxId}</td>
-                      <td className="text-xs text-slate-500">
-                        {new Date(order.orderedAt).toLocaleDateString("ko-KR")}<br />
-                        <span className="text-slate-400">{new Date(order.orderedAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}</span>
+                    <tr key={order.id} className={`hover:bg-gray-50 ${isSelected ? "bg-blue-50/50" : ""}`}>
+                      <td className="w-10">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleOrder(order.id)}
+                          className="w-3.5 h-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                        />
                       </td>
-                      <td className="max-w-[200px]">
-                        <div className="text-sm font-medium text-slate-900 truncate">{item?.vendorItemName || item?.sellerProductName || "-"}</div>
-                        {order.orderItems.length > 1 && (
-                          <span className="text-xs text-slate-400">외 {order.orderItems.length - 1}건</span>
-                        )}
+                      <td className="max-w-[280px]">
+                        <div className="text-sm font-medium text-gray-900 truncate">
+                          {order.productName || "-"}
+                        </div>
+                        <div className="text-[11px] font-mono text-gray-400 mt-0.5">#{order.orderNumber}</div>
                       </td>
-                      <td className="text-right">{totalQty}</td>
-                      <td className="text-right font-medium">{formatKRW(totalPrice)}원</td>
-                      <td className="text-sm">{order.receiver?.name || "-"}</td>
-                      <td className="text-xs text-slate-500 max-w-[200px] truncate">
-                        {order.receiver?.addr1 || "-"}
+                      <td className="text-right">
+                        <div className="font-medium">{formatKRW(order.totalPrice)}원</div>
+                        <div className="text-[11px] text-gray-400 mt-0.5">{order.quantity}개</div>
                       </td>
-                      {activeTab === "INSTRUCT" && (
-                        <td>
-                          <button
-                            onClick={() => setInvoiceModal({
-                              open: true,
-                              shipmentBoxId: order.shipmentBoxId,
-                              orderName: item?.vendorItemName || "",
-                            })}
-                            className="px-3 py-1 bg-purple-600 text-white text-xs rounded hover:bg-purple-700"
-                          >
-                            송장 입력
-                          </button>
-                        </td>
-                      )}
-                      {(activeTab === "DEPARTURE" || activeTab === "DELIVERING") && (
-                        <td className="text-xs text-slate-500">
-                          {order.deliveryCompanyName || "-"}<br />
-                          {order.invoiceNumber || "-"}
+                      <td className="text-xs text-gray-600">{order.customerName || order.receiverName || "-"}</td>
+                      <td className="text-xs text-gray-500 max-w-[160px]" title={order.receiverAddr || undefined}>
+                        {addrDisplay}
+                      </td>
+                      <td className="text-xs text-gray-500">
+                        {new Date(order.orderedAt).toLocaleDateString("ko-KR")}
+                        <br />
+                        <span className="text-gray-400">
+                          {new Date(order.orderedAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}
+                        </span>
+                      </td>
+                      {(activeNode === "DEPARTURE" || activeNode === "DELIVERING") && (
+                        <td className="text-xs text-gray-500">
+                          {order.shippingCompany || "-"}
+                          <br />
+                          {order.trackingNumber || "-"}
                         </td>
                       )}
                     </tr>
@@ -295,58 +437,8 @@ export default function OrdersPage() {
               </tbody>
             </table>
           </div>
-        </div>
-      )}
-
-      {/* Invoice Modal */}
-      {invoiceModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setInvoiceModal(null)}>
-          <div className="bg-white rounded-xl p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
-            <h2 className="text-lg font-bold mb-1">송장 정보 입력</h2>
-            <p className="text-sm text-slate-500 mb-4 truncate">{invoiceModal.orderName}</p>
-
-            <div className="space-y-3">
-              <div>
-                <label className="block text-sm text-slate-600 mb-1">택배사</label>
-                <select
-                  value={invoiceForm.deliveryCompanyCode}
-                  onChange={(e) => setInvoiceForm({ ...invoiceForm, deliveryCompanyCode: e.target.value })}
-                  className="w-full border rounded-lg px-3 py-2 text-sm"
-                >
-                  {deliveryCompanies.map((c) => (
-                    <option key={c.code} value={c.code}>{c.name}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm text-slate-600 mb-1">송장번호</label>
-                <input
-                  type="text"
-                  value={invoiceForm.invoiceNumber}
-                  onChange={(e) => setInvoiceForm({ ...invoiceForm, invoiceNumber: e.target.value })}
-                  placeholder="송장번호 입력"
-                  className="w-full border rounded-lg px-3 py-2 text-sm"
-                  autoFocus
-                />
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-2 mt-5">
-              <button onClick={() => setInvoiceModal(null)} className="px-4 py-2 text-slate-600 border rounded-lg text-sm hover:bg-slate-50">
-                취소
-              </button>
-              <button
-                onClick={handleInvoiceSubmit}
-                disabled={processing || !invoiceForm.invoiceNumber.trim()}
-                className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700 disabled:opacity-50"
-              >
-                {processing ? <Loader2 size={14} className="animate-spin" /> : <Truck size={14} />}
-                송장 전송
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

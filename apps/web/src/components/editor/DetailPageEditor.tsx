@@ -960,15 +960,17 @@ function RightPanel({
           continue;
         }
         if (output?.step && output.step !== lastStep) {
-          lastStep = output.step;
+          lastStep = String(output.step);
           if (output.step === 'content_ready') {
             setAiFillStep('이미지 생성 중...');
             onAiFillComplete?.();
           } else if (output.step === 'image_progress') {
-            const imgs = output.images || {};
-            const done = [imgs.main_image, imgs.banner, ...(imgs.size_images || []), ...(imgs.detail_images || [])].filter(Boolean).length;
+            const imgs = (output.images || {}) as Record<string, unknown>;
+            const sizeImgs = Array.isArray(imgs.size_images) ? imgs.size_images : [];
+            const detailImgs = Array.isArray(imgs.detail_images) ? imgs.detail_images : [];
+            const done = [imgs.main_image, imgs.banner, ...sizeImgs, ...detailImgs].filter(Boolean).length;
             setAiFillStep(`이미지 생성 중... (${done}장 완료)`);
-            applyProgressImages(imgs);
+            applyProgressImages(imgs as Record<string, unknown>);
           }
         }
 

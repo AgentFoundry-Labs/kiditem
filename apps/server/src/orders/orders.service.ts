@@ -11,19 +11,22 @@ export class OrdersService {
   constructor(private readonly prisma: PrismaService) {}
 
   async findAll(query: { from?: string; to?: string; status?: string }) {
-    const from = query.from
-      ? new Date(query.from)
-      : new Date(Date.now() - 14 * 86400000);
-    const to = query.to ? new Date(query.to) : new Date();
-    const status = query.status || 'ACCEPT';
+    const dbStatus = query.status || 'ACCEPT';
 
-    const orders = await this.prisma.coupangOrder.findMany({
+    const orderedAtFilter: Record<string, Date> = {};
+    if (query.from) orderedAtFilter.gte = new Date(query.from);
+    if (query.to) {
+      const toDate = new Date(query.to);
+      toDate.setHours(23, 59, 59, 999);
+      orderedAtFilter.lte = toDate;
+    }
+
+    const orders = await this.prisma.order.findMany({
       where: {
-        status,
-        orderedAt: { gte: from, lte: to },
-      },
-      include: {
-        orderItems: true,
+        status: dbStatus,
+        ...(Object.keys(orderedAtFilter).length > 0 && {
+          orderedAt: orderedAtFilter,
+        }),
       },
       orderBy: { orderedAt: 'desc' },
     });
@@ -37,29 +40,27 @@ export class OrdersService {
   }
 
   async findOne(id: string) {
-    const order = await this.prisma.coupangOrder.findUnique({
+    const order = await this.prisma.order.findUnique({
       where: { id },
-      include: { orderItems: true },
     });
 
     return { success: true, order };
   }
 
   async getStats() {
-    const [total, accept, instruct, delivery, finalDelivery] =
+    const [total, accept, instruct, departure, delivering, finalDelivery] =
       await Promise.all([
-        this.prisma.coupangOrder.count(),
-        this.prisma.coupangOrder.count({ where: { status: 'ACCEPT' } }),
-        this.prisma.coupangOrder.count({ where: { status: 'INSTRUCT' } }),
-        this.prisma.coupangOrder.count({ where: { status: 'DELIVERY' } }),
-        this.prisma.coupangOrder.count({
-          where: { status: 'FINAL_DELIVERY' },
-        }),
+        this.prisma.order.count(),
+        this.prisma.order.count({ where: { status: 'ACCEPT' } }),
+        this.prisma.order.count({ where: { status: 'INSTRUCT' } }),
+        this.prisma.order.count({ where: { status: 'DEPARTURE' } }),
+        this.prisma.order.count({ where: { status: 'DELIVERING' } }),
+        this.prisma.order.count({ where: { status: 'FINAL_DELIVERY' } }),
       ]);
 
     return {
       success: true,
-      stats: { total, accept, instruct, delivery, finalDelivery },
+      stats: { total, accept, instruct, departure, delivering, finalDelivery },
     };
   }
 

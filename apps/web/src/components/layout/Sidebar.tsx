@@ -23,83 +23,118 @@ import {
   Zap,
   Search,
   Sparkles,
+  Truck,
+  TrendingUp,
+  Headphones,
+  AlertTriangle,
+  ClipboardList,
+  ArrowUpDown,
+  Network,
+  type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useStore } from '@/store/useStore';
 import { API_BASE } from '@/lib/api';
 
-const operationsNav = [
-  { href: '/', label: '대시보드', icon: LayoutDashboard },
-  { href: '/coupang/orders', label: '주문 대시보드', icon: BarChart3 },
-  { href: '/coupang/returns', label: '반품 대시보드', icon: RotateCcw },
-  { href: '/orders', label: '주문 처리', icon: ShoppingCart },
-  { href: '/returns', label: '반품/교환', icon: RotateCcw },
-  { href: '/products', label: '상품 관리', icon: Package },
-  { href: '/profit-loss', label: '손익표', icon: BarChart3 },
-  { href: '/inventory', label: '재고/발주', icon: Warehouse },
-  { href: '/thumbnails', label: '썸네일', icon: Image },
-  { href: '/ads', label: '광고 관리', icon: Megaphone },
-  { href: '/core-products', label: '핵심상품', icon: Star },
-  { href: '/cleanup', label: '정리 대상', icon: Trash2 },
-  { href: '/reviews', label: '리뷰', icon: MessageSquare },
-  { href: '/reports', label: '리포트', icon: FileSpreadsheet },
-  { href: '/settings', label: '설정/연동', icon: Settings },
-];
+interface NavItem {
+  href: string;
+  label: string;
+  icon: LucideIcon;
+}
 
-const sourcingNav = [
-  { href: '/sourcing', label: '소싱/수집', icon: Search },
-  { href: '/generate', label: '콘텐츠 생성', icon: Sparkles },
-];
+interface NavSection {
+  title: string;
+  items: NavItem[];
+}
 
-const automationNav = [
-  { href: '/workflows', label: '워크플로우', icon: GitBranch },
-  { href: '/logs', label: '실행 로그', icon: FileText },
+const navSections: NavSection[] = [
+  {
+    title: '소싱',
+    items: [
+      { href: '/sourcing', label: '소싱/수집', icon: Search },
+      { href: '/generate', label: '콘텐츠 생성', icon: Sparkles },
+    ],
+  },
+  {
+    title: '주문',
+    items: [
+      { href: '/', label: '대시보드', icon: LayoutDashboard },
+      { href: '/orders', label: '주문 조회', icon: ShoppingCart },
+      { href: '/cs-management', label: 'CS 관리', icon: Headphones },
+      { href: '/unshipped-items', label: '미배송 조회', icon: AlertTriangle },
+    ],
+  },
+  {
+    title: '상품',
+    items: [
+      { href: '/products', label: '상품 관리', icon: Package },
+      { href: '/core-products', label: '핵심상품', icon: Star },
+      { href: '/cleanup', label: '정리대상', icon: Trash2 },
+    ],
+  },
+  {
+    title: '재고',
+    items: [
+      { href: '/inventory', label: '재고 현황', icon: Warehouse },
+      { href: '/purchase-orders', label: '발주 관리', icon: ClipboardList },
+      { href: '/stock-movement', label: '입출고 현황', icon: ArrowUpDown },
+    ],
+  },
+  {
+    title: '출고',
+    items: [
+      { href: '/returns', label: '반품 관리', icon: RotateCcw },
+    ],
+  },
+  {
+    title: '분석',
+    items: [
+      { href: '/profit-loss', label: '손익 분석', icon: BarChart3 },
+      { href: '/sales-analysis', label: '통합매출분석', icon: TrendingUp },
+      { href: '/ads-hub', label: '광고 대시보드', icon: Megaphone },
+    ],
+  },
+  {
+    title: '운영',
+    items: [
+      { href: '/reviews', label: '리뷰 관리', icon: MessageSquare },
+      { href: '/thumbnails', label: '썸네일 AI', icon: Image },
+      { href: '/ontology', label: 'Ontology', icon: Network },
+      { href: '/reports', label: '리포트', icon: FileSpreadsheet },
+      { href: '/settings', label: '설정', icon: Settings },
+    ],
+  },
+  {
+    title: '자동화',
+    items: [
+      { href: '/workflows', label: '워크플로우', icon: GitBranch },
+      { href: '/logs', label: '실행 로그', icon: FileText },
+    ],
+  },
 ];
 
 export default function Sidebar() {
   const pathname = usePathname();
   const { sidebarOpen, toggleSidebar } = useStore();
-  const [badgeCounts, setBadgeCounts] = useState<{ pendingAccept: number; pendingReturns: number } | null>(null);
+  const [badgeCounts, setBadgeCounts] = useState<{
+    pendingAccept: number;
+    pendingReturns: number;
+  } | null>(null);
 
   useEffect(() => {
     fetch(`${API_BASE}/api/coupang-dashboard`)
       .then((r) => r.json())
       .then((data) =>
-        setBadgeCounts({ pendingAccept: data.pendingAccept, pendingReturns: data.pendingReturns })
+        setBadgeCounts({
+          pendingAccept: data.pendingAccept,
+          pendingReturns: data.pendingReturns,
+        })
       )
-      .catch(() => {}); // silent fail — badge is supplementary
+      .catch(() => {});
   }, []);
 
-  const renderNavItem = (item: (typeof operationsNav)[number]) => {
-    const isActive =
-      item.href === '/' ? pathname === '/' : pathname.startsWith(item.href);
-    return (
-      <Link
-        key={item.href}
-        href={item.href}
-        title={!sidebarOpen ? item.label : undefined}
-        className={cn(
-          'flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all duration-200',
-          isActive
-            ? 'bg-blue-50 text-blue-600 border border-blue-500/20'
-            : 'text-gray-500 hover:bg-gray-100 hover:text-gray-900 border border-transparent'
-        )}
-      >
-        <item.icon className="w-4 h-4 flex-shrink-0" />
-        {sidebarOpen && <span className="truncate">{item.label}</span>}
-        {sidebarOpen && item.href === '/coupang/orders' && badgeCounts && badgeCounts.pendingAccept > 0 && (
-          <span className="ml-auto text-xs font-semibold bg-blue-100 text-blue-700 rounded-full px-1.5 py-0.5 min-w-[18px] text-center">
-            {badgeCounts.pendingAccept}
-          </span>
-        )}
-        {sidebarOpen && item.href === '/coupang/returns' && badgeCounts && badgeCounts.pendingReturns > 0 && (
-          <span className="ml-auto text-xs font-semibold bg-amber-100 text-amber-700 rounded-full px-1.5 py-0.5 min-w-[18px] text-center">
-            {badgeCounts.pendingReturns}
-          </span>
-        )}
-      </Link>
-    );
-  };
+  const isActive = (href: string) =>
+    href === '/' ? pathname === '/' : pathname.startsWith(href);
 
   return (
     <aside
@@ -108,15 +143,20 @@ export default function Sidebar() {
         sidebarOpen ? 'w-60' : 'w-[68px]'
       )}
     >
+      {/* Logo */}
       <div className="flex items-center h-16 px-4 border-b border-gray-200">
         <div className="flex items-center gap-3 min-w-0">
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center flex-shrink-0">
-            <Zap className="w-4 h-4 text-gray-900" />
+            <Zap className="w-4 h-4 text-white" />
           </div>
           {sidebarOpen && (
             <div className="min-w-0">
-              <h1 className="text-sm font-bold text-gray-900 truncate">KidItem</h1>
-              <p className="text-[10px] text-gray-500 truncate">셀러 관리 시스템</p>
+              <h1 className="text-sm font-bold text-gray-900 truncate">
+                KidItem
+              </h1>
+              <p className="text-[10px] text-gray-500 truncate">
+                셀러 관리 시스템
+              </p>
             </div>
           )}
         </div>
@@ -131,40 +171,47 @@ export default function Sidebar() {
         </button>
       </div>
 
+      {/* Navigation */}
       <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-200">
-        <nav className="px-3 py-3 space-y-0.5">
-          {operationsNav.map(renderNavItem)}
-        </nav>
-
-        <div className="px-3 pb-3">
-          {sidebarOpen && (
-            <p className="px-3 mb-2 text-[10px] font-semibold text-gray-600 uppercase tracking-wider">
-              Sourcing
-            </p>
-          )}
-          {!sidebarOpen && (
-            <div className="mx-3 mb-2 border-t border-gray-200" />
-          )}
-          <nav className="space-y-0.5">
-            {sourcingNav.map(renderNavItem)}
-          </nav>
-        </div>
-
-        <div className="px-3 pb-3">
-          {sidebarOpen && (
-            <p className="px-3 mb-2 text-[10px] font-semibold text-gray-600 uppercase tracking-wider">
-              Automation
-            </p>
-          )}
-          {!sidebarOpen && (
-            <div className="mx-3 mb-2 border-t border-gray-200" />
-          )}
-          <nav className="space-y-0.5">
-            {automationNav.map(renderNavItem)}
-          </nav>
-        </div>
+        {navSections.map((section, idx) => (
+          <div key={section.title} className="px-3 pb-1">
+            {sidebarOpen ? (
+              <p
+                className={cn(
+                  'px-3 mb-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wider',
+                  idx === 0 ? 'mt-3' : 'mt-4'
+                )}
+              >
+                {section.title}
+              </p>
+            ) : (
+              idx > 0 && <div className="mx-3 my-2 border-t border-gray-200" />
+            )}
+            <nav className="space-y-0.5">
+              {section.items.map((item) => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  title={!sidebarOpen ? item.label : undefined}
+                  className={cn(
+                    'flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all duration-200',
+                    isActive(item.href)
+                      ? 'bg-blue-50 text-blue-600 border border-blue-500/20'
+                      : 'text-gray-500 hover:bg-gray-100 hover:text-gray-900 border border-transparent'
+                  )}
+                >
+                  <item.icon className="w-4 h-4 flex-shrink-0" />
+                  {sidebarOpen && (
+                    <span className="truncate">{item.label}</span>
+                  )}
+                </Link>
+              ))}
+            </nav>
+          </div>
+        ))}
       </div>
 
+      {/* Status */}
       {sidebarOpen && (
         <div className="px-4 py-4 border-t border-gray-200">
           <div className="flex items-center gap-2 text-[11px] text-gray-600">

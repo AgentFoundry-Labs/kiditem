@@ -1,7 +1,10 @@
 {
   "name": "kiditem",
   "private": true,
-  "workspaces": ["apps/*", "packages/*"],
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "dev": "npm run dev --workspace=apps/web",
     "dev:server": "npm run start:dev --workspace=apps/server",
@@ -9,6 +12,12 @@
     "build": "npm run build --workspace=apps/web && npm run build --workspace=apps/server",
     "db:generate": "prisma generate --schema=prisma/schema.prisma",
     "db:push": "prisma db push",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "migrate:dashboard": "tsx scripts/migrate-dashboard-data.ts"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/pg": "^8.20.0",
+    "better-sqlite3": "^12.8.0"
   }
 }

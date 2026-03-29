@@ -156,23 +156,33 @@ function PointSection({ d }: { d: DetailPageData }) {
         </div>
       </div>
 
-      {/* 색상 섹션 (TODO: 활성화 시 colorImages 데이터 필드 추가 필요)
-      {d.colorText && (
-        <div className="text-center mt-24">
-          <SubSectionBadge label="제품색상" />
-          <p className="mt-6 text-[var(--theme-text-secondary)] font-bold text-lg">
-            {d.colorText}
-          </p>
-          <div className="mt-10 max-w-2xl mx-auto px-6">
-            <img src="" alt="Color Info" className="w-full h-auto rounded-[var(--theme-radius)] shadow-md" />
+      <div data-section="colorImages" className={d.colorImages.length > 0 ? '' : 'hidden'}>
+        <div className="text-center mt-16">
+          <div style={{ width: 384, height: 2 }} className="bg-[#2d3436] opacity-40 mx-auto mb-12" />
+          <SubSectionBadge label="색상 안내" />
+
+          {d.colorSubtitle && (
+            <p className="mt-6 text-[var(--theme-text-secondary)] font-bold text-lg">
+              {d.colorSubtitle}
+            </p>
+          )}
+
+          <div data-container="colorImages" className={`mt-10 flex flex-col gap-6 ${d.colorDisplayMode === 'full' ? 'w-full px-4' : 'max-w-2xl mx-auto px-6'}`}>
+            {d.colorImages.map((cimg, i) => (
+              <img
+                key={i}
+                src={cimg}
+                alt="색상 안내"
+                className="w-full h-auto rounded-[var(--theme-radius)] shadow-md"
+              />
+            ))}
           </div>
         </div>
-      )}
-      */}
+      </div>
 
       <div data-section="detailImages" className={d.detailImages.length > 0 ? '' : 'hidden'}>
         <div className="text-center mt-16">
-          <div style={{ width: 80, height: 2 }} className="bg-[#2d3436] opacity-40 mx-auto mb-12" />
+          <div style={{ width: 384, height: 2 }} className="bg-[#2d3436] opacity-40 mx-auto mb-12" />
           <SubSectionBadge label="DETAIL" />
 
           {d.detailText && (

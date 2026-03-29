@@ -19,6 +19,8 @@ export const placeholderDetailPageData: DetailPageData = {
   heroBanner: 'https://placehold.co/860x370/e2e8f0/94a3b8?text=%5B%ED%9E%88%EC%96%B4%EB%A1%9C+%EB%B0%B0%EB%84%88%5D',
   sizeImages: ['https://placehold.co/860x500/e2e8f0/94a3b8?text=%5B%EC%82%AC%EC%9D%B4%EC%A6%88+%EC%9D%B4%EB%AF%B8%EC%A7%80%5D'],
   sizeDisplayMode: 'normal',
+  colorImages: ['https://placehold.co/860x500/e2e8f0/94a3b8?text=%5B%EC%83%89%EC%83%81+%EC%9D%B4%EB%AF%B8%EC%A7%80%5D'],
+  colorDisplayMode: 'normal',
   detailImages: ['https://placehold.co/860x600/e2e8f0/94a3b8?text=%5B%EB%94%94%ED%85%8C%EC%9D%BC+%EC%9D%B4%EB%AF%B8%EC%A7%80%5D'],
 
   keyPoints: [],
@@ -38,6 +40,8 @@ export const placeholderDetailPageData: DetailPageData = {
   detailTitle: 'DETAIL',
   sizeTitle: '사이즈 안내',
   sizeSubtitle: '정확한 사이즈를 확인해보세요',
+  colorTitle: '색상 안내',
+  colorSubtitle: '다양한 색상을 확인해보세요',
 
   themeColorMain: '#ff8c69',
   themeColorBgLight: '#fffaf0',

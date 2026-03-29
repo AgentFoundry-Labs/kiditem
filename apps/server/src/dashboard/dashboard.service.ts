@@ -15,6 +15,9 @@ export class DashboardService {
       const month = now.getMonth() + 1;
       const monthStart = new Date(year, month - 1, 1);
       const monthEnd = new Date(year, month, 1);
+      const prevMonthDate = new Date(year, month - 2, 1);
+      const prevYear = prevMonthDate.getFullYear();
+      const prevMonthNum = prevMonthDate.getMonth() + 1;
 
       const [
         todayAgg,
@@ -25,6 +28,9 @@ export class DashboardService {
         inventoryReorderCount,
         totalActiveProducts,
         plTrend,
+        adAggCurrentMonth,
+        adAggPrevMonth,
+        prevMonthPL,
       ] = await Promise.all([
         this.prisma.coupangOrder.aggregate({
           _sum: { totalPrice: true },
@@ -62,6 +68,32 @@ export class DashboardService {
           _sum: { revenue: true, netProfit: true, adCost: true },
           orderBy: [{ year: 'asc' }, { month: 'asc' }],
         }),
+        this.prisma.$queryRaw<
+          { spend: number; impressions: number; clicks: number; revenue: number }[]
+        >`
+          SELECT
+            COALESCE(SUM(spend), 0)::int AS spend,
+            COALESCE(SUM(impressions), 0)::int AS impressions,
+            COALESCE(SUM(clicks), 0)::int AS clicks,
+            COALESCE(SUM(revenue), 0)::int AS revenue
+          FROM ads
+          WHERE date >= ${monthStart}::date AND date < ${monthEnd}::date
+        `,
+        this.prisma.$queryRaw<
+          { spend: number; impressions: number; clicks: number; revenue: number }[]
+        >`
+          SELECT
+            COALESCE(SUM(spend), 0)::int AS spend,
+            COALESCE(SUM(impressions), 0)::int AS impressions,
+            COALESCE(SUM(clicks), 0)::int AS clicks,
+            COALESCE(SUM(revenue), 0)::int AS revenue
+          FROM ads
+          WHERE date >= ${prevMonthDate}::date AND date < ${monthStart}::date
+        `,
+        this.prisma.profitLoss.aggregate({
+          _sum: { revenue: true, netProfit: true, adCost: true },
+          where: { year: prevYear, month: prevMonthNum },
+        }),
       ]);
 
       const hasPLData = allPLCurrentMonth.length > 0;
@@ -83,6 +115,33 @@ export class DashboardService {
                   .length,
             )
         : inventoryReorderCount;
+
+      const curAd = adAggCurrentMonth[0] ?? { spend: 0, impressions: 0, clicks: 0, revenue: 0 };
+      const prevAd = adAggPrevMonth[0] ?? { spend: 0, impressions: 0, clicks: 0, revenue: 0 };
+
+      const curRoas = Number(curAd.spend) > 0 ? (Number(curAd.revenue) / Number(curAd.spend)) * 100 : 0;
+      const curCtr = Number(curAd.impressions) > 0 ? (Number(curAd.clicks) / Number(curAd.impressions)) * 100 : 0;
+      const prevRoas = Number(prevAd.spend) > 0 ? (Number(prevAd.revenue) / Number(prevAd.spend)) * 100 : 0;
+      const prevCtr = Number(prevAd.impressions) > 0 ? (Number(prevAd.clicks) / Number(prevAd.impressions)) * 100 : 0;
+
+      const prevPLRevenue = prevMonthPL._sum.revenue ?? 0;
+      const prevPLProfit = prevMonthPL._sum.netProfit ?? 0;
+      const prevPLAdCost = prevMonthPL._sum.adCost ?? 0;
+      const prevAdRateVal = prevPLRevenue > 0 ? (prevPLAdCost / prevPLRevenue) * 100 : 0;
+
+      const adMetrics = {
+        roas: Math.round(curRoas * 100) / 100,
+        ctr: Math.round(curCtr * 100) / 100,
+        adRevenue: Number(curAd.revenue),
+        totalAdSpend: Number(curAd.spend),
+        prevMonthlyRevenue: prevPLRevenue,
+        prevMonthlyProfit: prevPLProfit,
+        prevRoas: Math.round(prevRoas * 100) / 100,
+        prevCtr: Math.round(prevCtr * 100) / 100,
+        prevAdRevenue: Number(prevAd.revenue),
+        prevTotalAdSpend: Number(prevAd.spend),
+        prevAdRate: Math.round(prevAdRateVal * 10) / 10,
+      };
 
       // profitLoss가 비어있으면 coupang_orders에서 실시간 계산
       if (!hasPLData) {
@@ -155,6 +214,7 @@ export class DashboardService {
             monthlyProfit: 0,
             adRate: 0,
             totalProducts: totalActiveProducts,
+            ...adMetrics,
           },
           gradeCount,
           alerts: unreadAlerts,
@@ -243,6 +303,7 @@ export class DashboardService {
           monthlyProfit: monthlyPL._sum.netProfit ?? 0,
           adRate: Math.round(adRate * 10) / 10,
           totalProducts: totalActiveProducts,
+          ...adMetrics,
         },
         gradeCount,
         alerts: unreadAlerts,
@@ -274,5 +335,41 @@ export class DashboardService {
     } catch {
       throw new InternalServerErrorException('서버 오류가 발생했습니다.');
     }
+  }
+
+  async getTrend(range: string) {
+    const days = range === '7d' ? 7 : range === '90d' ? 90 : 30;
+    const since = new Date();
+    since.setDate(since.getDate() - days);
+
+    const [orderRows, adRows] = await Promise.all([
+      this.prisma.$queryRaw<{ date: string; revenue: number }[]>`
+        SELECT
+          TO_CHAR(ordered_at AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD') AS date,
+          COALESCE(SUM(total_price), 0)::int AS revenue
+        FROM orders
+        WHERE ordered_at >= ${since}
+        GROUP BY 1
+        ORDER BY 1
+      `,
+      this.prisma.$queryRaw<{ date: string; ad_cost: number }[]>`
+        SELECT
+          TO_CHAR(date, 'YYYY-MM-DD') AS date,
+          COALESCE(SUM(spend), 0)::int AS ad_cost
+        FROM ads
+        WHERE date >= ${since}::date
+        GROUP BY 1
+        ORDER BY 1
+      `,
+    ]);
+
+    const adMap = new Map(adRows.map((r) => [r.date, Number(r.ad_cost)]));
+
+    return orderRows.map((r) => ({
+      date: r.date,
+      revenue: Number(r.revenue),
+      profit: 0,
+      adCost: adMap.get(r.date) ?? 0,
+    }));
   }
 }

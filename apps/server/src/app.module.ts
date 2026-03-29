@@ -20,6 +20,11 @@ import { TextAiModule } from './text-ai/text-ai.module';
 import { ImageAiModule } from './image-ai/image-ai.module';
 import { RenderImageModule } from './render-image/render-image.module';
 import { CoupangSyncModule } from './coupang-sync/coupang-sync.module';
+import { PurchaseOrdersModule } from './purchase-orders/purchase-orders.module';
+import { StockMovementModule } from './stock-movement/stock-movement.module';
+import { CsModule } from './cs/cs.module';
+import { UnshippedModule } from './unshipped/unshipped.module';
+import { SalesAnalysisModule } from './sales-analysis/sales-analysis.module';
 
 @Module({
   imports: [
@@ -44,6 +49,11 @@ import { CoupangSyncModule } from './coupang-sync/coupang-sync.module';
     ImageAiModule,
     RenderImageModule,
     CoupangSyncModule,
+    PurchaseOrdersModule,
+    StockMovementModule,
+    CsModule,
+    UnshippedModule,
+    SalesAnalysisModule,
   ],
 })
 export class AppModule {}

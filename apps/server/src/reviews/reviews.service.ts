@@ -5,6 +5,28 @@ import {
   type PaginatedResponse,
 } from '../common/pagination';
 
+interface ReviewProductItem {
+  productId: string;
+  productName: string;
+  sku: string | null;
+  company: string;
+  grade: string;
+  totalReviews: number;
+  avgRating: number;
+  recentReviews: number;
+  orderCount: number;
+}
+
+interface ReviewSummary {
+  totalReviewCount: number;
+  weightedAvgRating: number;
+  needsAttentionCount: number;
+}
+
+export interface ReviewsResponse extends PaginatedResponse<ReviewProductItem> {
+  summary: ReviewSummary;
+}
+
 @Injectable()
 export class ReviewsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -12,28 +34,33 @@ export class ReviewsService {
   async findAll(query: {
     page?: string;
     limit?: string;
-  }): Promise<PaginatedResponse<Record<string, unknown>>> {
+  }): Promise<ReviewsResponse> {
     try {
       const { page, limit, skip } = paginationParams(query);
       const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000);
 
-      // Aggregate reviews and orders first to get product IDs with data
-      const [reviewAgg, recentReviewAgg, orderCounts] = await Promise.all([
-        this.prisma.review.groupBy({
-          by: ['productId'],
-          _count: true,
-          _avg: { rating: true },
-        }),
-        this.prisma.review.groupBy({
-          by: ['productId'],
-          _count: true,
-          where: { createdAt: { gte: thirtyDaysAgo } },
-        }),
-        this.prisma.coupangOrderItem.groupBy({
-          by: ['sellerProductId'],
-          _count: true,
-        }),
-      ]);
+      const [allActiveProducts, reviewAgg, recentReviewAgg, orderCounts] =
+        await Promise.all([
+          this.prisma.product.findMany({
+            where: { status: 'active' },
+            include: { company: true },
+            orderBy: { createdAt: 'desc' },
+          }),
+          this.prisma.review.groupBy({
+            by: ['productId'],
+            _count: true,
+            _avg: { rating: true },
+          }),
+          this.prisma.review.groupBy({
+            by: ['productId'],
+            _count: true,
+            where: { createdAt: { gte: thirtyDaysAgo } },
+          }),
+          this.prisma.coupangOrderItem.groupBy({
+            by: ['sellerProductId'],
+            _count: true,
+          }),
+        ]);
 
       const reviewMap = new Map(
         reviewAgg.map((r) => [
@@ -50,28 +77,7 @@ export class ReviewsService {
           .map((o) => [o.sellerProductId!, o._count]),
       );
 
-      // Get product IDs that have reviews, sorted by review count
-      const productIdsWithReviews = Array.from(reviewMap.keys()).sort(
-        (a, b) =>
-          (reviewMap.get(b)?.total ?? 0) - (reviewMap.get(a)?.total ?? 0),
-      );
-
-      // Paginate the product IDs
-      const paginatedProductIds = productIdsWithReviews.slice(
-        skip,
-        skip + limit,
-      );
-
-      // Load only the paginated products
-      const productsData = await this.prisma.product.findMany({
-        where: {
-          status: 'active',
-          id: { in: paginatedProductIds },
-        },
-        include: { company: true },
-      });
-
-      const result = productsData.map((p) => {
+      const allItems: ReviewProductItem[] = allActiveProducts.map((p) => {
         const review = reviewMap.get(p.id);
         return {
           productId: p.id,
@@ -86,11 +92,41 @@ export class ReviewsService {
         };
       });
 
-      // Sort by totalReviews to maintain order
-      result.sort((a, b) => b.totalReviews - a.totalReviews);
+      allItems.sort(
+        (a, b) =>
+          b.totalReviews - a.totalReviews ||
+          a.productName.localeCompare(b.productName),
+      );
 
-      const total = productIdsWithReviews.length;
-      return { items: result, total, page, limit };
+      const totalReviewCount = allItems.reduce(
+        (sum, item) => sum + item.totalReviews,
+        0,
+      );
+      const weightedAvgRating =
+        totalReviewCount > 0
+          ? allItems.reduce(
+              (sum, item) => sum + item.avgRating * item.totalReviews,
+              0,
+            ) / totalReviewCount
+          : 0;
+      const needsAttentionCount = allItems.filter(
+        (item) => item.totalReviews < 5 || item.avgRating < 3.0,
+      ).length;
+
+      const total = allItems.length;
+      const items = allItems.slice(skip, skip + limit);
+
+      return {
+        items,
+        total,
+        page,
+        limit,
+        summary: {
+          totalReviewCount,
+          weightedAvgRating: Math.round(weightedAvgRating * 10) / 10,
+          needsAttentionCount,
+        },
+      };
     } catch {
       throw new InternalServerErrorException('리뷰 데이터 조회 실패');
     }

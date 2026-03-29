@@ -20,6 +20,8 @@ export class ProductsService {
     page?: string;
     limit?: string;
     maxProfitRate?: string;
+    period?: string;
+    orderBy?: string;
   }): Promise<PaginatedResponse<Record<string, unknown>>> {
     try {
       const { grade, status, search, company, maxProfitRate } = query;
@@ -28,6 +30,10 @@ export class ProductsService {
       const now = new Date();
       const year = now.getFullYear();
       const month = now.getMonth() + 1;
+
+      const periodDays = Number(query.period) || 7;
+      const periodStart = new Date();
+      periodStart.setDate(periodStart.getDate() - periodDays);
 
       let companyFilterId: string | undefined;
       if (company && company !== 'all') {
@@ -50,7 +56,7 @@ export class ProductsService {
       const monthEnd = new Date(year, month, 1);
 
       // Enrichment 쿼리 (전역 집계 — 페이지네이션과 무관)
-      const [plData, revenueData, adsAgg, thumbData, reviewCounts] =
+      const [plData, revenueData, adsAgg, thumbData, reviewCounts, trafficAgg, gradeScoreData] =
         await Promise.all([
           this.prisma.profitLoss.findMany({ where: { year, month } }),
           this.prisma.$queryRaw<
@@ -76,6 +82,38 @@ export class ProductsService {
             select: { productId: true, ctr: true },
           }),
           this.prisma.review.groupBy({ by: ['productId'], _count: true }),
+          this.prisma.$queryRaw<
+            {
+              product_id: string;
+              visitors: number;
+              views: number;
+              cart_adds: number;
+              orders: number;
+              sales_qty: number;
+              revenue: number;
+            }[]
+          >`
+            SELECT
+              product_id,
+              SUM(visitors)::int AS visitors,
+              SUM(views)::int AS views,
+              SUM(cart_adds)::int AS cart_adds,
+              SUM(orders)::int AS orders,
+              SUM(sales_qty)::int AS sales_qty,
+              SUM(revenue)::int AS revenue
+            FROM traffic_stats
+            WHERE period_days = ${periodDays}
+              AND date >= ${periodStart}
+            GROUP BY product_id
+          `,
+          this.prisma.$queryRaw<
+            { product_id: string; score: number }[]
+          >`
+            SELECT DISTINCT ON (product_id)
+              product_id, score::float AS score
+            FROM grade_histories
+            ORDER BY product_id, calculated_at DESC
+          `,
         ]);
 
       const plMap = new Map(plData.map((pl) => [pl.productId, pl]));
@@ -94,8 +132,25 @@ export class ProductsService {
       const reviewMap = new Map(
         reviewCounts.map((r) => [r.productId, r._count]),
       );
+      const trafficMap = new Map(
+        trafficAgg.map((t) => [
+          t.product_id,
+          {
+            visitors: Number(t.visitors) || 0,
+            views: Number(t.views) || 0,
+            cartAdds: Number(t.cart_adds) || 0,
+            orders: Number(t.orders) || 0,
+            salesQty: Number(t.sales_qty) || 0,
+            revenue: Number(t.revenue) || 0,
+          },
+        ]),
+      );
+      const gradeScoreMap = new Map(
+        gradeScoreData.map((g) => [g.product_id, Number(g.score)]),
+      );
 
-      // maxProfitRate 필터: 계산 필드이므로 전체 로드 후 필터+페이지네이션
+      const sortByRevenue = !query.orderBy || query.orderBy === 'revenue';
+
       if (maxProfitRate !== undefined) {
         const maxRate = parseFloat(maxProfitRate);
         const allProducts = await this.prisma.product.findMany({
@@ -103,26 +158,78 @@ export class ProductsService {
           include: { company: true, inventory: true },
           orderBy: { createdAt: 'desc' },
         });
-        const allEnriched = allProducts.map((p) => this.enrichProduct(p, plMap, revenueMap, adsMap, thumbMap, reviewMap));
+        const allEnriched = allProducts.map((p) => this.enrichProduct(p, plMap, revenueMap, adsMap, thumbMap, reviewMap, trafficMap, gradeScoreMap));
         const filtered = allEnriched.filter((p) => p.profitRate <= maxRate);
+        if (sortByRevenue) filtered.sort((a, b) => b.revenue - a.revenue);
         const total = filtered.length;
         const items = filtered.slice(skip, skip + limit);
         return { items, total, page, limit };
       }
 
-      // 일반 경로: count + skip/take
-      const [total, productsData] = await Promise.all([
-        this.prisma.product.count({ where }),
-        this.prisma.product.findMany({
+      const total = await this.prisma.product.count({ where });
+
+      let productsData: any[];
+      if (sortByRevenue) {
+        const nowYear = now.getFullYear();
+        const nowMonth = now.getMonth() + 1;
+        const whereConditions: string[] = ['p.is_deleted = false'];
+        const params: unknown[] = [];
+        let paramIdx = 1;
+
+        if (grade) {
+          whereConditions.push(`p.abc_grade = $${paramIdx++}`);
+          params.push(grade);
+        }
+        if (status) {
+          whereConditions.push(`p.status = $${paramIdx++}`);
+          params.push(status);
+        }
+        if (search) {
+          whereConditions.push(`p.name ILIKE $${paramIdx++}`);
+          params.push(`%${search}%`);
+        }
+        if (companyFilterId) {
+          whereConditions.push(`p.company_id = $${paramIdx++}::uuid`);
+          params.push(companyFilterId);
+        }
+
+        const whereClause = whereConditions.join(' AND ');
+
+        const sortedIds = await this.prisma.$queryRawUnsafe<{ id: string }[]>(
+          `SELECT p.id
+           FROM products p
+           LEFT JOIN profit_loss pl ON pl.product_id = p.id AND pl.year = ${nowYear} AND pl.month = ${nowMonth}
+           WHERE ${whereClause}
+           ORDER BY COALESCE(pl.revenue, 0) DESC, p.created_at DESC
+           OFFSET ${skip} LIMIT ${limit}`,
+          ...params,
+        );
+
+        if (sortedIds.length === 0) {
+          return { items: [], total, page, limit };
+        }
+
+        const idList = sortedIds.map((r) => r.id);
+        const products = await this.prisma.product.findMany({
+          where: { id: { in: idList } },
+          include: { company: true, inventory: true },
+        });
+
+        const idOrder = new Map(idList.map((id, i) => [id, i]));
+        productsData = products.sort(
+          (a, b) => (idOrder.get(a.id) ?? 0) - (idOrder.get(b.id) ?? 0),
+        );
+      } else {
+        productsData = await this.prisma.product.findMany({
           where,
           include: { company: true, inventory: true },
           orderBy: { createdAt: 'desc' },
           skip,
           take: limit,
-        }),
-      ]);
+        });
+      }
 
-      const items = productsData.map((p) => this.enrichProduct(p, plMap, revenueMap, adsMap, thumbMap, reviewMap));
+      const items = productsData.map((p) => this.enrichProduct(p, plMap, revenueMap, adsMap, thumbMap, reviewMap, trafficMap, gradeScoreMap));
       return { items, total, page, limit };
     } catch {
       throw new InternalServerErrorException('상품 조회 실패');
@@ -136,6 +243,8 @@ export class ProductsService {
     adsMap: Map<string, number>,
     thumbMap: Map<string, number>,
     reviewMap: Map<string, number>,
+    trafficMap: Map<string, { visitors: number; views: number; cartAdds: number; orders: number; salesQty: number; revenue: number }>,
+    gradeScoreMap: Map<string, number>,
   ) {
     const pl = plMap.get(p.id);
     const orderData = revenueMap.get(p.coupangProductId ?? '');
@@ -195,6 +304,12 @@ export class ProductsService {
       reviewCount: reviewMap.get(p.id) ?? 0,
       orderCount,
       thumbnailCTR: thumbMap.get(p.id) ?? 0,
+      traffic: trafficMap.get(p.id) ?? null,
+      thumbnailUrl: p.thumbnailUrl ?? null,
+      imageUrl: p.imageUrl ?? null,
+      coupangProductId: p.coupangProductId ?? null,
+      createdAt: p.createdAt,
+      gradeScore: gradeScoreMap.get(p.id) ?? null,
     };
   }
 
@@ -299,6 +414,100 @@ export class ProductsService {
     );
 
     return { taskId: task.id };
+  }
+
+  async getPipelineStats(statusFilter?: string) {
+    try {
+      const statusWhere = statusFilter && statusFilter !== 'all'
+        ? `AND p.status = '${statusFilter}'`
+        : '';
+
+      // 1. Grade counts + total
+      const gradeCounts = await this.prisma.$queryRawUnsafe<
+        { abc_grade: string | null; cnt: number }[]
+      >(`
+        SELECT p.abc_grade, COUNT(*)::int AS cnt
+        FROM products p
+        WHERE p.is_deleted = false ${statusWhere}
+        GROUP BY p.abc_grade
+      `);
+
+      let total = 0;
+      let gradeA = 0;
+      let gradeB = 0;
+      let gradeC = 0;
+      for (const row of gradeCounts) {
+        const cnt = Number(row.cnt);
+        total += cnt;
+        if (row.abc_grade === 'A') gradeA = cnt;
+        else if (row.abc_grade === 'B') gradeB = cnt;
+        else if (row.abc_grade === 'C') gradeC = cnt;
+      }
+
+      // 2. 적자 (net_profit < 0) — distinct product count
+      const [minusRow] = await this.prisma.$queryRawUnsafe<{ cnt: number }[]>(`
+        SELECT COUNT(DISTINCT pl.product_id)::int AS cnt
+        FROM profit_loss pl
+        JOIN products p ON p.id = pl.product_id
+        WHERE pl.net_profit < 0
+          AND p.is_deleted = false ${statusWhere}
+      `);
+
+      // 3. 3%이하 (0 <= profit rate <= 3%) — net_profit >= 0, revenue > 0, rate <= 3
+      const [lowRow] = await this.prisma.$queryRawUnsafe<{ cnt: number }[]>(`
+        SELECT COUNT(DISTINCT pl.product_id)::int AS cnt
+        FROM profit_loss pl
+        JOIN products p ON p.id = pl.product_id
+        WHERE pl.net_profit >= 0
+          AND pl.revenue > 0
+          AND (CAST(pl.net_profit AS FLOAT) / pl.revenue * 100) <= 3
+          AND p.is_deleted = false ${statusWhere}
+      `);
+
+      // 4. Grade changes — net change per grade from grade_histories
+      const gradeChanges = await this.prisma.$queryRaw<
+        { grade: string; net_change: number }[]
+      >`
+        SELECT grade, SUM(dir)::int AS net_change
+        FROM (
+          SELECT new_grade AS grade, 1 AS dir FROM grade_histories
+          UNION ALL
+          SELECT old_grade AS grade, -1 AS dir FROM grade_histories WHERE old_grade IS NOT NULL
+        ) sub
+        WHERE grade IS NOT NULL
+        GROUP BY grade
+      `;
+
+      const changeMap: Record<string, number> = {};
+      for (const row of gradeChanges) {
+        changeMap[row.grade] = Number(row.net_change);
+      }
+
+      // 5. Ad counts
+      const [adRow] = await this.prisma.$queryRawUnsafe<{ ad_count: number; no_ad_count: number }[]>(`
+        SELECT
+          COUNT(*) FILTER (WHERE p.ad_tier IS NOT NULL AND p.ad_tier != '')::int AS ad_count,
+          COUNT(*) FILTER (WHERE p.ad_tier IS NULL OR p.ad_tier = '')::int AS no_ad_count
+        FROM products p
+        WHERE p.is_deleted = false ${statusWhere}
+      `);
+
+      return {
+        total,
+        gradeA,
+        gradeB,
+        gradeC,
+        minus: Number(minusRow?.cnt ?? 0),
+        low: Number(lowRow?.cnt ?? 0),
+        gradeChangeA: changeMap['A'] ?? 0,
+        gradeChangeB: changeMap['B'] ?? 0,
+        gradeChangeC: changeMap['C'] ?? 0,
+        adCount: Number(adRow?.ad_count ?? 0),
+        noAdCount: Number(adRow?.no_ad_count ?? 0),
+      };
+    } catch {
+      throw new InternalServerErrorException('파이프라인 통계 조회 실패');
+    }
   }
 
   async triggerImageGeneration(id: string) {

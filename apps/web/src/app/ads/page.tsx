@@ -32,20 +32,38 @@ export default function AdsPage() {
     fetch(`${API_BASE}/api/ads`)
       .then((r) => r.json())
       .then((data) => {
-        setProducts(data.products);
-        setSummary(data.summary);
+        const items: AdProduct[] = data.items || data.products || [];
+        setProducts(items);
+
+        if (data.summary) {
+          setSummary(data.summary);
+        } else {
+          const totalSpend = items.reduce((s, p) => s + p.spend, 0);
+          const totalAdRevenue = items.reduce((s, p) => s + p.adRevenue, 0);
+          const totalRevenue = items.reduce((s, p) => s + p.revenue, 0);
+          const overallAdRate = totalRevenue > 0 ? Math.round((totalSpend / totalRevenue) * 1000) / 10 : 0;
+          const overallRoas = totalSpend > 0 ? Math.round((totalAdRevenue / totalSpend) * 100) : 0;
+          const highAdCount = items.filter((p) => p.adRate > 15).length;
+          const gradeSpend: Record<string, number> = { A: 0, B: 0, C: 0 };
+          const tierSpend: Record<string, number> = {};
+          for (const p of items) {
+            gradeSpend[p.grade] = (gradeSpend[p.grade] || 0) + p.spend;
+            tierSpend[p.adTier] = (tierSpend[p.adTier] || 0) + p.spend;
+          }
+          const gradeSpendPercent: Record<string, number> = {
+            A: totalSpend > 0 ? Math.round((gradeSpend.A / totalSpend) * 100) : 0,
+            B: totalSpend > 0 ? Math.round((gradeSpend.B / totalSpend) * 100) : 0,
+            C: totalSpend > 0 ? Math.round((gradeSpend.C / totalSpend) * 100) : 0,
+          };
+          setSummary({
+            totalSpend, totalAdRevenue, totalRevenue, overallAdRate,
+            overallRoas, highAdCount, gradeSpend, tierSpend, gradeSpendPercent,
+          });
+        }
       })
       .catch((err) => console.error("광고 데이터 로딩 실패:", err))
       .finally(() => setLoading(false));
   }, []);
-
-  const filtered = products.filter((p) => {
-    if (filter === "high") return p.adRate > 15;
-    if (filter === "1차") return p.adTier === "1차";
-    if (filter === "2차") return p.adTier === "2차";
-    if (filter === "3차") return p.adTier === "3차";
-    return true;
-  });
 
   const handleExcel = () => {
     import("xlsx").then((XLSX) => {
@@ -64,6 +82,14 @@ export default function AdsPage() {
   };
 
   if (loading || !summary) return <div className="flex items-center justify-center h-64 text-slate-500">로딩 중...</div>;
+
+  const filtered = products.filter((p) => {
+    if (filter === "high") return p.adRate > 15;
+    if (filter === "1차") return p.adTier === "1차";
+    if (filter === "2차") return p.adTier === "2차";
+    if (filter === "3차") return p.adTier === "3차";
+    return true;
+  });
 
   const gradeChartData = [
     { name: "A등급", value: summary.gradeSpendPercent.A, target: 80, fill: "#3b82f6" },

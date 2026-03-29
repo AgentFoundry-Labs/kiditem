@@ -14,8 +14,15 @@ export class ProductsController {
     @Query('page') page?: string,
     @Query('limit') limit?: string,
     @Query('maxProfitRate') maxProfitRate?: string,
+    @Query('period') period?: string,
+    @Query('orderBy') orderBy?: string,
   ) {
-    return this.productsService.findAll({ grade, status, search, company, page, limit, maxProfitRate });
+    return this.productsService.findAll({ grade, status, search, company, page, limit, maxProfitRate, period, orderBy });
+  }
+
+  @Get('pipeline-stats')
+  getPipelineStats(@Query('status') status?: string) {
+    return this.productsService.getPipelineStats(status);
   }
 
   @Get(':id')

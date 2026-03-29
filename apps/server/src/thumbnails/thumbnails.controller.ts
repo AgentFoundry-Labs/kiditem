@@ -1,12 +1,24 @@
-import { Controller, Get } from '@nestjs/common';
-import { ThumbnailsService } from './thumbnails.service';
+import { Controller, Get, Query } from '@nestjs/common';
+import {
+  ThumbnailsService,
+  type ThumbnailsListResponse,
+  type ThumbnailSummary,
+} from './thumbnails.service';
 
 @Controller('thumbnails')
 export class ThumbnailsController {
   constructor(private readonly thumbnailsService: ThumbnailsService) {}
 
   @Get()
-  findAll() {
-    return this.thumbnailsService.findAll();
+  findAll(
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ): Promise<ThumbnailsListResponse> {
+    return this.thumbnailsService.findAll({ page, limit });
+  }
+
+  @Get('summary')
+  getSummary(): Promise<ThumbnailSummary> {
+    return this.thumbnailsService.getSummary();
   }
 }

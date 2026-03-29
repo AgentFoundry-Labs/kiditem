@@ -1,4 +1,4 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get, Patch, Param, Body, Query } from '@nestjs/common';
 import { InventoryService } from './inventory.service';
 
 @Controller('inventory')
@@ -12,5 +12,18 @@ export class InventoryController {
     @Query('status') status?: string,
   ) {
     return this.inventoryService.findAll({ page, limit, status });
+  }
+
+  @Get('by-product/:productId')
+  findByProductId(@Param('productId') productId: string) {
+    return this.inventoryService.findByProductId(productId);
+  }
+
+  @Patch(':id/receive')
+  receive(
+    @Param('id') id: string,
+    @Body() body: { quantity: number },
+  ) {
+    return this.inventoryService.receiveStock(id, body.quantity);
   }
 }

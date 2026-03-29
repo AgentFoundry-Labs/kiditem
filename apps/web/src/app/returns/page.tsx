@@ -174,7 +174,7 @@ export default function ReturnsPage() {
                      <tr key={r.receiptId}>
                        <td className="text-xs font-mono">{r.receiptId}</td>
                        <td className="text-xs font-mono text-slate-500">{r.orderId}</td>
-                       <td className="text-xs text-slate-500">{new Date(r.createdAt).toLocaleDateString("ko-KR")}</td>
+                        <td className="text-xs text-slate-500">{new Date(r.requestedAt || r.createdAt).toLocaleDateString("ko-KR")}</td>
                        <td className="text-sm">{r.requesterName || "-"}</td>
                        <td className="text-sm max-w-[200px] truncate">{reason}</td>
                        <td><span className={`px-2 py-0.5 rounded text-xs font-medium ${st.color}`}>{st.label}</span></td>

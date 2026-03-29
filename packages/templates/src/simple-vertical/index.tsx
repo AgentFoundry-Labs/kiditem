@@ -161,6 +161,43 @@ function SizeGuideSection({ d }: { d: DetailPageData }) {
   );
 }
 
+// ─── Color Guide Section ────────────────────────────────────────────────────
+
+function ColorGuideSection({ d }: { d: DetailPageData }) {
+  const pointNumber = d.keyPoints.length + 2;
+
+  return (
+    <section className="py-20 px-8 md:px-12 bg-white border-t border-[#f0e6d2]">
+      <div className="flex flex-col items-center text-center mb-12">
+        <div className="w-16 h-16 bg-[var(--theme-badge-2)] rounded-full flex items-center justify-center text-white font-black text-2xl mb-6 shadow-md transform -rotate-6">
+          {String(pointNumber).padStart(2, '0')}
+        </div>
+        <h2 className="text-3xl md:text-4xl font-black text-[var(--theme-text-primary)] mb-4 tracking-tight break-keep">
+          한눈에 보는 색상
+        </h2>
+        <p className="text-[var(--theme-text-secondary)] leading-relaxed font-medium break-keep">
+          {d.colorSubtitle || '다양한 색상을 확인해보세요'}
+        </p>
+      </div>
+
+      <div className="w-full flex flex-col gap-4 px-8 md:px-12">
+        {d.colorImages.map((cimg, i) => (
+          <div
+            key={i}
+            className="bg-[var(--theme-section-bg)] w-full rounded-[24px] overflow-hidden border-2 border-dashed border-[#f0dcd2]"
+          >
+            <img
+              src={cimg}
+              alt="색상 안내"
+              className="w-full h-auto block"
+            />
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 // ─── Detail Images Section ──────────────────────────────────────────────────
 
 function DetailImagesSection({ d }: { d: DetailPageData }) {
@@ -311,6 +348,10 @@ export function SimpleVertical({ data: d }: SimpleVerticalProps) {
 
         {d.sizeImages.length > 0 && !disabled.has('size_guide') && (
           <SizeGuideSection d={d} />
+        )}
+
+        {d.colorImages.length > 0 && !disabled.has('color_guide') && (
+          <ColorGuideSection d={d} />
         )}
 
         {d.detailImages.length > 0 && !disabled.has('detail_images') && (

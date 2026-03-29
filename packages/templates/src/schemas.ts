@@ -87,6 +87,8 @@ export const DetailPageDataSchema = z.object({
   heroBanner: z.string().default(''),
   sizeImages: z.array(z.string()).default([]),
   sizeDisplayMode: z.string().default('normal'),
+  colorImages: z.array(z.string()).default([]),
+  colorDisplayMode: z.string().default('normal'),
   detailImages: z.array(z.string()).default([]),
 
   // Key selling points
@@ -115,6 +117,8 @@ export const DetailPageDataSchema = z.object({
   detailTitle: z.string().default('DETAIL'),
   sizeTitle: z.string().default('사이즈 안내'),
   sizeSubtitle: z.string().default(''),
+  colorTitle: z.string().default('색상 안내'),
+  colorSubtitle: z.string().default(''),
 
   // Theme tokens
   themeColorMain: z.string().default('#ff8c69'),
@@ -155,6 +159,8 @@ const SNAKE_TO_CAMEL: Record<string, string> = {
   hero_banner: 'heroBanner',
   size_images: 'sizeImages',
   size_display_mode: 'sizeDisplayMode',
+  color_images: 'colorImages',
+  color_display_mode: 'colorDisplayMode',
   detail_images: 'detailImages',
   key_points: 'keyPoints',
   bullet_points: 'bulletPoints',
@@ -167,6 +173,8 @@ const SNAKE_TO_CAMEL: Record<string, string> = {
   detail_title: 'detailTitle',
   size_title: 'sizeTitle',
   size_subtitle: 'sizeSubtitle',
+  color_title: 'colorTitle',
+  color_subtitle: 'colorSubtitle',
   theme_color_main: 'themeColorMain',
   theme_color_bg_light: 'themeColorBgLight',
   theme_color_badge_1: 'themeColorBadge1',
