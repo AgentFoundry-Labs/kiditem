@@ -760,7 +760,7 @@ export default function HomePage() {
                 <div className="mt-0.5">{alertIcon(a.type)}</div>
                 <div className="flex-1 min-w-0">
                   <span className="text-sm text-gray-700 leading-relaxed">{a.title || a.message}</span>
-                  {a.title && a.message && (
+                  {a.title && a.message && !/^[a-z_]+\.[a-z_]+/.test(a.message) && (
                     <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{a.message}</p>
                   )}
                 </div>
