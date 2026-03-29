@@ -115,11 +115,23 @@ const navSections: NavSection[] = [
 
 export default function Sidebar() {
   const pathname = usePathname();
-  const { sidebarOpen, toggleSidebar } = useStore();
+  const { sidebarOpen, toggleSidebar, setSidebarOpen } = useStore();
   const [badgeCounts, setBadgeCounts] = useState<{
     pendingAccept: number;
     pendingReturns: number;
   } | null>(null);
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)');
+    if (mq.matches) setSidebarOpen(false);
+    const handler = (e: MediaQueryListEvent) => { if (e.matches) setSidebarOpen(false); };
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, [setSidebarOpen]);
+
+  useEffect(() => {
+    if (window.innerWidth < 768) setSidebarOpen(false);
+  }, [pathname, setSidebarOpen]);
 
   useEffect(() => {
     fetch(`${API_BASE}/api/coupang-dashboard`)
@@ -137,12 +149,21 @@ export default function Sidebar() {
     href === '/' ? pathname === '/' : pathname.startsWith(href);
 
   return (
-    <aside
-      className={cn(
-        'fixed left-0 top-0 z-40 h-screen bg-white border-r border-gray-200 transition-all duration-300 flex flex-col',
-        sidebarOpen ? 'w-60' : 'w-[68px]'
+    <>
+      {/* Mobile overlay */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/30 md:hidden"
+          onClick={toggleSidebar}
+        />
       )}
-    >
+      <aside
+        className={cn(
+          'fixed left-0 top-0 z-50 h-screen bg-white border-r border-gray-200 transition-all duration-300 flex flex-col',
+          sidebarOpen ? 'translate-x-0 w-60' : '-translate-x-full w-60',
+          sidebarOpen ? 'md:translate-x-0 md:w-60' : 'md:translate-x-0 md:w-[68px]'
+        )}
+      >
       {/* Logo */}
       <div className="flex items-center h-16 px-4 border-b border-gray-200">
         <div className="flex items-center gap-3 min-w-0">
@@ -220,6 +241,7 @@ export default function Sidebar() {
           </div>
         </div>
       )}
-    </aside>
+      </aside>
+    </>
   );
 }

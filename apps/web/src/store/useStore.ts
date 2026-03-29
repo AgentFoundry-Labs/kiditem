@@ -328,6 +328,7 @@ interface AppStore {
   // Actions
   setSelectedModule: (module: ModuleCategory | null) => void;
   toggleSidebar: () => void;
+  setSidebarOpen: (open: boolean) => void;
   toggleWorkflow: (workflowId: string) => void;
   toggleModule: (moduleId: ModuleCategory) => void;
   addExecutionLog: (log: ExecutionLog) => void;
@@ -364,6 +365,7 @@ export const useStore = create<AppStore>((set, get) => ({
 
   setSelectedModule: (module) => set({ selectedModule: module }),
   toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
+  setSidebarOpen: (open: boolean) => set({ sidebarOpen: open }),
 
   toggleWorkflow: (workflowId) =>
     set((s) => ({

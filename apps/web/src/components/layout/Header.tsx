@@ -1,9 +1,10 @@
 'use client';
 
-import { Bell, Search, Clock, MinusCircle, AlertTriangle, Megaphone, Truck, TrendingDown } from 'lucide-react';
+import { Bell, Search, Clock, MinusCircle, AlertTriangle, Megaphone, Truck, TrendingDown, Menu } from 'lucide-react';
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { API_BASE } from '@/lib/api';
+import { useStore } from '@/store/useStore';
 
 interface AlertItem {
   id: string;
@@ -45,6 +46,7 @@ export default function Header() {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
+  const { toggleSidebar } = useStore();
 
   useEffect(() => {
     const update = () => {
@@ -106,9 +108,15 @@ export default function Header() {
   const badgeLabel = unreadCount > 99 ? '99+' : String(unreadCount);
 
   return (
-    <header className="h-16 border-b border-gray-200 bg-white flex items-center justify-between px-6 sticky top-0 z-30">
-      <div className="flex items-center gap-4">
-        <div className="relative">
+    <header className="h-16 border-b border-gray-200 bg-white flex items-center justify-between px-4 md:px-6 sticky top-0 z-30">
+      <div className="flex items-center gap-3">
+        <button
+          onClick={toggleSidebar}
+          className="p-2 rounded-lg hover:bg-gray-100 transition-colors text-gray-500 md:hidden"
+        >
+          <Menu className="w-5 h-5" />
+        </button>
+        <div className="relative hidden sm:block">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
            <input
              type="text"

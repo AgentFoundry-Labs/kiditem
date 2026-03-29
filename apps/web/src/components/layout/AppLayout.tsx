@@ -20,7 +20,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <div
         className={cn(
           'transition-all duration-300',
-          sidebarOpen ? 'ml-60' : 'ml-[68px]'
+          sidebarOpen ? 'md:ml-60' : 'md:ml-[68px]'
         )}
       >
         <Header />
