@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { compileRule, computeHealthScore } from './evaluator';
+import { compileRule, computeHealthScore, deduplicateByField } from './evaluator';
 import { buildContext } from './build-context';
 import { CompiledRule, EvaluationResult, ProductEvaluation } from './types';
 import { SEED_RULES } from './seed-rules';
@@ -43,9 +43,10 @@ export class RulesService implements OnModuleInit {
 
     const results: ProductEvaluation[] = products.map((p) => {
       const ctx = buildContext(p);
-      const violations = this.compiledRules
+      const allViolations = this.compiledRules
         .map((rule) => rule.evaluate(ctx))
         .filter((v) => v !== null);
+      const violations = deduplicateByField(allViolations);
       return {
         productId: p.id,
         violations,

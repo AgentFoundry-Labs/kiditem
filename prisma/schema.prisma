@@ -92,7 +92,8 @@ model Company {
   notificationLogs       NotificationLog[]
 
   // Ontology
-  businessRules  BusinessRule[]
+  businessRules   BusinessRule[]
+  systemSettings  SystemSetting[]
 
   @@map("companies")
 }
@@ -1841,6 +1842,20 @@ model NotificationLog {
 }
 
 // ─── Ontology: Business Rules ─────────────────────────────────────────────────
+
+model SystemSetting {
+  id        String   @id @default(uuid()) @db.Uuid
+  companyId String   @map("company_id") @db.Uuid
+  key       String
+  value     String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, key])
+  @@map("system_settings")
+}
 
 model BusinessRule {
   id              String   @id @default(uuid()) @db.Uuid

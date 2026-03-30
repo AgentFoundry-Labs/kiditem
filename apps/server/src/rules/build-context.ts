@@ -40,27 +40,35 @@ function toNumber(val: { toNumber(): number } | number | null | undefined): numb
 
 export function buildContext(product: ProductWithRelations): ProductContext {
   const latestPL = product.profitLoss[0] ?? null;
+  const hasPL = latestPL !== null;
   const costPrice = product.costPrice ?? 0;
   const sellPrice = product.sellPrice ?? 0;
-  const revenue = latestPL?.revenue ?? 0;
-  const netProfit = latestPL?.netProfit ?? 0;
-  const profitRate = toNumber(latestPL?.profitRate) * 100;
-  const adCost = latestPL?.adCost ?? 0;
-  const orderCount = latestPL?.orderCount ?? 0;
-  const returnCount = latestPL?.returnCount ?? 0;
-  const adRate = revenue > 0 ? (adCost / revenue) * 100 : 0;
-  const margin = sellPrice > 0 ? ((sellPrice - costPrice) / sellPrice) * 100 : 0;
-  const costRate = sellPrice > 0 ? (costPrice / sellPrice) * 100 : 0;
-  const cancelRate = orderCount > 0 ? (returnCount / orderCount) * 100 : 0;
+
+  const revenue = hasPL ? (latestPL.revenue ?? 0) : null;
+  const netProfit = hasPL ? (latestPL.netProfit ?? 0) : null;
+  const profitRate = hasPL ? toNumber(latestPL.profitRate) * 100 : null;
+  const adCost = hasPL ? (latestPL.adCost ?? 0) : null;
+  const orderCount = hasPL ? (latestPL.orderCount ?? 0) : null;
+  const returnCount = hasPL ? (latestPL.returnCount ?? 0) : null;
+
+  const adRate = (revenue !== null && revenue > 0 && adCost !== null)
+    ? (adCost / revenue) * 100 : (hasPL ? 0 : null);
+  const margin = sellPrice > 0 ? ((sellPrice - costPrice) / sellPrice) * 100 : null;
+  const costRate = sellPrice > 0 ? (costPrice / sellPrice) * 100 : null;
+  const cancelRate = (orderCount !== null && orderCount > 0 && returnCount !== null)
+    ? (returnCount / orderCount) * 100 : (hasPL ? 0 : null);
 
   const inv = product.inventory;
   const currentStock = inv?.currentStock ?? 0;
   const reorderPoint = inv?.reorderPoint ?? 0;
   const avgDailySales = toNumber(inv?.dailySalesAvg);
-  const daysOfStock = avgDailySales > 0 ? currentStock / avgDailySales : 999;
+  const daysOfStock = currentStock === 0 ? 0
+    : avgDailySales > 0 ? currentStock / avgDailySales
+    : 999;
 
   const reviewCount = product.reviews.length;
-  const thumbnailCTR = toNumber(product.thumbnails?.[0]?.ctr) * 100;
+  const hasThumbnail = (product.thumbnails?.length ?? 0) > 0;
+  const thumbnailCTR = hasThumbnail ? toNumber(product.thumbnails![0].ctr) * 100 : null;
 
   return {
     productId: product.id,

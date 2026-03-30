@@ -50,6 +50,11 @@ src/{domain}/
 | workflows | `/api/workflows/:id/runs` | GET |
 | workflow-runs | `/api/workflow-runs/:runId` | GET |
 | activity-events | `/api/activity-events` | GET (query: objectType, objectId, companyId, eventType) |
+| rules | `/api/rules` | GET, PATCH /:id |
+| rules | `/api/rules/evaluate` | POST |
+| rules | `/api/rules/summary` | GET |
+| rules | `/api/rules/schedule` | GET, PATCH |
+| rules | `/api/rules/reload` | POST |
 
 ## PrismaService
 

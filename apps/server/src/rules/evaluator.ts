@@ -29,6 +29,7 @@ export function compileRule(dbRule: BusinessRule): CompiledRule {
   return {
     id: dbRule.id,
     name: dbRule.displayName,
+    field: dbRule.field,
     severity: dbRule.severity,
     category: dbRule.category,
     actionType: dbRule.actionType,
@@ -44,6 +45,7 @@ export function compileRule(dbRule: BusinessRule): CompiledRule {
       return {
         ruleId: dbRule.id,
         ruleName: dbRule.displayName,
+        field: dbRule.field,
         severity: dbRule.severity,
         category: dbRule.category,
         message: resolveTemplate(dbRule.messageTemplate, { value, ...threshold }),
@@ -53,6 +55,19 @@ export function compileRule(dbRule: BusinessRule): CompiledRule {
       };
     },
   };
+}
+
+const SEVERITY_RANK: Record<string, number> = { critical: 3, warning: 2, info: 1 };
+
+export function deduplicateByField(violations: RuleViolation[]): RuleViolation[] {
+  const byField = new Map<string, RuleViolation>();
+  for (const v of violations) {
+    const existing = byField.get(v.field);
+    if (!existing || (SEVERITY_RANK[v.severity] ?? 0) > (SEVERITY_RANK[existing.severity] ?? 0)) {
+      byField.set(v.field, v);
+    }
+  }
+  return Array.from(byField.values());
 }
 
 export function computeHealthScore(violations: RuleViolation[]): number {

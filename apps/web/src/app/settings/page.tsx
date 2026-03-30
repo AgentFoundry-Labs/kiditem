@@ -507,6 +507,12 @@ interface RuleChange {
   threshold?: Record<string, number>;
 }
 
+interface ScheduleOption {
+  key: string;
+  label: string;
+  crons: string[];
+}
+
 function RulesConfigSection() {
   const [rules, setRules] = useState<BusinessRule[]>([]);
   const [loading, setLoading] = useState(true);
@@ -514,6 +520,9 @@ function RulesConfigSection() {
   const [changes, setChanges] = useState<Record<string, RuleChange>>({});
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  const [schedule, setSchedule] = useState('twice_daily');
+  const [scheduleOptions, setScheduleOptions] = useState<ScheduleOption[]>([]);
+  const [scheduleUpdating, setScheduleUpdating] = useState(false);
 
   useEffect(() => {
     fetch(`${API_BASE}/api/rules`)
@@ -521,7 +530,30 @@ function RulesConfigSection() {
       .then((data: unknown) => setRules(Array.isArray(data) ? data : []))
       .catch(() => {})
       .finally(() => setLoading(false));
+
+    fetch(`${API_BASE}/api/rules/schedule`)
+      .then((r) => r.json())
+      .then((data: { schedule: string; options: ScheduleOption[] }) => {
+        setSchedule(data.schedule);
+        setScheduleOptions(data.options);
+      })
+      .catch(() => {});
   }, []);
+
+  const handleScheduleChange = async (newSchedule: string) => {
+    setScheduleUpdating(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/rules/schedule`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ schedule: newSchedule }),
+      });
+      if (res.ok) {
+        setSchedule(newSchedule);
+      }
+    } catch { /* ignore */ }
+    setScheduleUpdating(false);
+  };
 
   const filteredRules = categoryFilter === 'all'
     ? rules
@@ -598,6 +630,27 @@ function RulesConfigSection() {
 
   return (
     <div className="space-y-4">
+      {scheduleOptions.length > 0 && (
+        <div className="bg-white rounded-lg border border-gray-200 p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h4 className="text-sm font-semibold text-gray-900">자동 평가 스케줄</h4>
+              <p className="text-xs text-gray-500 mt-0.5">설정된 간격으로 전체 상품을 자동 평가합니다</p>
+            </div>
+            <select
+              value={schedule}
+              onChange={(e) => handleScheduleChange(e.target.value)}
+              disabled={scheduleUpdating}
+              className="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-300 disabled:opacity-50"
+            >
+              {scheduleOptions.map((opt) => (
+                <option key={opt.key} value={opt.key}>{opt.label}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 flex-wrap">
           {RULE_CATEGORIES.map((cat) => (

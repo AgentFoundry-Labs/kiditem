@@ -3,17 +3,17 @@ export interface ProductContext {
   productName: string;
   companyId: string;
 
-  profitRate: number;
-  netProfit: number;
-  revenue: number;
+  profitRate: number | null;
+  netProfit: number | null;
+  revenue: number | null;
   costPrice: number;
   sellPrice: number;
-  margin: number;
-  costRate: number;
+  margin: number | null;
+  costRate: number | null;
 
-  adRate: number;
+  adRate: number | null;
   adTier: string | null;
-  adCostRate: number;
+  adCostRate: number | null;
   abcGrade: string | null;
 
   currentStock: number;
@@ -22,16 +22,17 @@ export interface ProductContext {
   daysOfStock: number;
 
   reviewCount: number;
-  thumbnailCTR: number;
+  thumbnailCTR: number | null;
 
-  orderCount: number;
-  cancelRate: number;
-  returnRate: number;
+  orderCount: number | null;
+  cancelRate: number | null;
+  returnRate: number | null;
 }
 
 export interface RuleViolation {
   ruleId: string;
   ruleName: string;
+  field: string;
   severity: string;
   category: string;
   message: string;
@@ -43,6 +44,7 @@ export interface RuleViolation {
 export interface CompiledRule {
   id: string;
   name: string;
+  field: string;
   severity: string;
   category: string;
   actionType: string | null;
