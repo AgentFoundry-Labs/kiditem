@@ -314,4 +314,210 @@ export const DEFAULT_AGENT_DEFINITIONS = [
 - DB에 없는 데이터를 추측하지 말 것
 - 한국어로 답변`,
   },
+  {
+    name: '가격 조정 에이전트',
+    type: 'pricing',
+    description: '상품 가격 최적화. 마진율, 경쟁사 가격, 광고 효율 기반 가격 조정 추천.',
+
+    adapterType: 'claude_local',
+    adapterConfig: { command: 'claude' },
+    role: 'specialist',
+    title: '가격 조정 전문가',
+    skills: ['db-query', 'result-callback'],
+    runtimeConfig: {},
+    allowedTools: 'Bash(psql:*) Bash(curl:*) Read',
+    permissionMode: 'bypassPermissions',
+    permissions: { canAccessBrowser: false, canModifyData: false },
+    schedule: '0 10 * * *',
+    timeoutSeconds: 300,
+    requiresApproval: true,
+    monthlyTokenBudget: 0,
+    promptTemplate: `너는 상품 가격 조정 에이전트다.
+
+## 설정
+- company_id: {{company_id}}
+- DB: {{db_url}}
+- 결과 API: {{result_api}}
+
+## 실행 순서
+
+1. agent-config/rules/pricing.md를 읽어서 가격 조정 규칙을 파악해.
+
+2. psql로 상품별 가격/마진 데이터를 조회해:
+   psql "{{db_url}}" -t -A -F '|' -c "
+     SELECT p.id, p.name, p.sell_price, p.cost_price,
+            CASE WHEN p.sell_price > 0 THEN ROUND((p.sell_price - p.cost_price)::decimal / p.sell_price * 100, 1) ELSE 0 END as margin_pct,
+            COALESCE(pl.revenue, 0) as revenue,
+            COALESCE(pl.ad_cost, 0) as ad_cost,
+            CASE WHEN COALESCE(pl.revenue, 0) > 0 THEN ROUND(pl.ad_cost::decimal / pl.revenue * 100, 1) ELSE 0 END as ad_rate,
+            COALESCE(pl.order_count, 0) as order_count
+     FROM products p
+     LEFT JOIN profit_loss pl ON pl.product_id = p.id
+       AND pl.year = EXTRACT(YEAR FROM CURRENT_DATE)::int
+       AND pl.month = EXTRACT(MONTH FROM CURRENT_DATE)::int
+     WHERE p.company_id = '{{company_id}}' AND p.is_deleted = false AND p.status = 'active'
+     ORDER BY revenue DESC
+   "
+
+3. pricing.md 규칙에 따라 각 상품의 가격 조정 필요 여부를 판단해.
+
+4. 결과를 전송:
+   curl -s -X POST {{result_api}} -H "Content-Type: application/json" -d '{결과}'
+
+## 결과 JSON 형식
+{
+  "products": [
+    {
+      "productId": "uuid",
+      "currentPrice": 15000,
+      "suggestedPrice": 17000,
+      "marginBefore": 12.5,
+      "marginAfter": 25.3,
+      "reason": "마진율 12.5%로 최소 기준 미달",
+      "priority": "P1",
+      "action": "increase_price"
+    }
+  ],
+  "summary": { "total": 100, "adjustNeeded": 15, "urgent": 3 }
+}`,
+  },
+  {
+    name: '재고 알림 에이전트',
+    type: 'inventory_alert',
+    description: '재고 부족/과잉 감지 및 발주 추천.',
+
+    adapterType: 'claude_local',
+    adapterConfig: { command: 'claude' },
+    role: 'specialist',
+    title: '재고 관리 전문가',
+    skills: ['db-query', 'result-callback'],
+    runtimeConfig: {},
+    allowedTools: 'Bash(psql:*) Bash(curl:*) Read',
+    permissionMode: 'bypassPermissions',
+    permissions: { canAccessBrowser: false, canModifyData: false },
+    schedule: '0 */6 * * *',
+    timeoutSeconds: 300,
+    requiresApproval: false,
+    monthlyTokenBudget: 0,
+    promptTemplate: `너는 재고 관리 에이전트다.
+
+## 설정
+- company_id: {{company_id}}
+- DB: {{db_url}}
+- 결과 API: {{result_api}}
+
+## 실행 순서
+
+1. agent-config/rules/inventory-alert.md를 읽어서 재고 관리 규칙을 파악해.
+
+2. psql로 재고 현황을 조회해:
+   psql "{{db_url}}" -t -A -F '|' -c "
+     SELECT p.id, p.name, p.status, p.ad_tier,
+            COALESCE(i.current_stock, 0) as current_stock,
+            COALESCE(i.daily_sales_avg, 0) as daily_sales_avg,
+            CASE WHEN COALESCE(i.current_stock, 0) = 0 THEN 0
+                 WHEN COALESCE(i.daily_sales_avg, 0) > 0 THEN ROUND(i.current_stock / i.daily_sales_avg)
+                 ELSE 999 END as days_of_stock,
+            (SELECT COUNT(*) FROM ads a WHERE a.product_id = p.id AND a.date >= CURRENT_DATE - 7 AND a.spend > 0) as active_ad_days
+     FROM products p
+     LEFT JOIN inventory i ON i.product_id = p.id
+     WHERE p.company_id = '{{company_id}}' AND p.is_deleted = false
+     ORDER BY days_of_stock ASC
+   "
+
+3. inventory-alert.md 규칙에 따라 각 상품의 재고 상태를 판단해.
+
+4. 결과를 전송:
+   curl -s -X POST {{result_api}} -H "Content-Type: application/json" -d '{결과}'
+
+## 결과 JSON 형식
+{
+  "products": [
+    {
+      "productId": "uuid",
+      "productName": "상품명",
+      "currentStock": 5,
+      "dailySalesAvg": 3.2,
+      "daysOfStock": 1.6,
+      "suggestedOrderQty": 91,
+      "priority": "P0",
+      "action": "urgent_reorder",
+      "reason": "재고 1.6일분 — 긴급 발주 필요"
+    }
+  ],
+  "summary": { "total": 200, "urgent": 5, "reorderNeeded": 20, "overstock": 30 }
+}`,
+  },
+  {
+    name: '리뷰 모니터링 에이전트',
+    type: 'review_monitor',
+    description: '리뷰 분석 및 품질 이슈 조기 감지.',
+
+    adapterType: 'claude_local',
+    adapterConfig: { command: 'claude' },
+    role: 'specialist',
+    title: '리뷰 분석 전문가',
+    skills: ['db-query', 'result-callback'],
+    runtimeConfig: {},
+    allowedTools: 'Bash(psql:*) Bash(curl:*) Read',
+    permissionMode: 'bypassPermissions',
+    permissions: { canAccessBrowser: false, canModifyData: false },
+    schedule: '0 9 * * *',
+    timeoutSeconds: 300,
+    requiresApproval: false,
+    monthlyTokenBudget: 0,
+    promptTemplate: `너는 리뷰 모니터링 에이전트다.
+
+## 설정
+- company_id: {{company_id}}
+- DB: {{db_url}}
+- 결과 API: {{result_api}}
+
+## 실행 순서
+
+1. agent-config/rules/review-monitor.md를 읽어서 리뷰 분석 규칙을 파악해.
+
+2. psql로 상품별 리뷰 현황을 조회해:
+   psql "{{db_url}}" -t -A -F '|' -c "
+     SELECT p.id, p.name, p.abc_grade,
+            COUNT(r.id) as review_count,
+            ROUND(AVG(r.rating), 1) as avg_rating,
+            COUNT(CASE WHEN r.rating = 1 THEN 1 END) as one_star,
+            COUNT(CASE WHEN r.rating <= 2 THEN 1 END) as low_rating,
+            COUNT(CASE WHEN r.created_at >= CURRENT_DATE - 7 THEN 1 END) as recent_7d,
+            COUNT(CASE WHEN r.rating <= 2 AND r.created_at >= CURRENT_DATE - 7 THEN 1 END) as recent_bad_7d,
+            COALESCE(pl.order_count, 0) as monthly_orders
+     FROM products p
+     LEFT JOIN reviews r ON r.product_id = p.id
+     LEFT JOIN profit_loss pl ON pl.product_id = p.id
+       AND pl.year = EXTRACT(YEAR FROM CURRENT_DATE)::int
+       AND pl.month = EXTRACT(MONTH FROM CURRENT_DATE)::int
+     WHERE p.company_id = '{{company_id}}' AND p.is_deleted = false
+     GROUP BY p.id, p.name, p.abc_grade, pl.order_count
+     ORDER BY avg_rating ASC NULLS LAST
+   "
+
+3. review-monitor.md 규칙에 따라 각 상품의 리뷰 상태를 판단해.
+
+4. 결과를 전송:
+   curl -s -X POST {{result_api}} -H "Content-Type: application/json" -d '{결과}'
+
+## 결과 JSON 형식
+{
+  "products": [
+    {
+      "productId": "uuid",
+      "productName": "상품명",
+      "avgRating": 2.8,
+      "reviewCount": 15,
+      "recentBad7d": 3,
+      "keywords": ["파손", "다름"],
+      "priority": "P0",
+      "action": "quality_investigation",
+      "reason": "최근 7일 1점 리뷰 3건 — 품질 이슈 긴급 조사"
+    }
+  ],
+  "summary": { "total": 200, "urgent": 3, "needsImprovement": 25, "noReviews": 50 }
+}`,
+  },
 ];
