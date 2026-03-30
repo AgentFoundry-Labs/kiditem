@@ -30,6 +30,7 @@ import {
   ClipboardList,
   ArrowUpDown,
   Network,
+  Bot,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -107,6 +108,7 @@ const navSections: NavSection[] = [
   {
     title: '자동화',
     items: [
+      { href: '/agents', label: '에이전트', icon: Bot },
       { href: '/workflows', label: '워크플로우', icon: GitBranch },
       { href: '/logs', label: '실행 로그', icon: FileText },
     ],
