@@ -119,6 +119,13 @@ _DETAIL_PROMPTS = [
     "Only erase watermarks or overlay text that is NOT part of the product itself.",
 ]
 
+_COLOR_GUIDE_PROMPT = (
+    "Arrange these product photos side by side on a clean white background. "
+    "Keep each product exactly as-is, no modifications to shape, color, or details. "
+    "Equal spacing between items. Professional product catalog layout. "
+    "Do NOT add any text, labels, or decorations."
+)
+
 _SIZE_CHART_PROMPT = (
     "이 이미지들에서 치수(cm/mm) 표시가 있는 부분만 추출하고, "
     "중국어 라벨을 한국어로 번역하여 하나의 세로 이미지로 합쳐주세요.\n\n"
@@ -323,6 +330,7 @@ class TemplatePipeline(PipelineBase):
         original_images = debug_info.get("original_images", [])
 
         size_urls = [original_images[i] for i in size_indices if i < len(original_images)]
+        color_image_urls: list[str] = draft_snapshot.get("color_image_urls") or []
 
         content = GeneratedContent(
             title_ko=draft_snapshot.get("title", ""),
@@ -334,13 +342,20 @@ class TemplatePipeline(PipelineBase):
 
         category = ""
 
-        main_url, size_img_urls = await asyncio.gather(
+        main_url, size_img_urls, color_img_urls = await asyncio.gather(
             self._edit_main_image(hero_image_url),
             self._edit_size_charts(size_urls, product_id),
+            self._edit_color_guide(color_image_urls, product_id),
         )
 
         if on_progress:
-            await on_progress({"main_image": main_url, "size_images": size_img_urls})
+            await on_progress(
+                {
+                    "main_image": main_url,
+                    "size_images": size_img_urls,
+                    "color_images": color_img_urls,
+                }
+            )
 
         hero_banner_url, detail_img_urls = await asyncio.gather(
             self._edit_hero_banner(content, category, main_url),
@@ -354,6 +369,7 @@ class TemplatePipeline(PipelineBase):
                     "banner": hero_banner_url,
                     "size_images": size_img_urls,
                     "detail_images": detail_img_urls,
+                    "color_images": color_img_urls,
                 }
             )
 
@@ -369,6 +385,7 @@ class TemplatePipeline(PipelineBase):
             hero_imgs=[main_url],
             hero_banner=hero_banner_url,
             size_imgs=size_img_urls,
+            color_imgs=color_img_urls,
             detail_imgs=detail_img_urls,
         )
 
@@ -379,6 +396,7 @@ class TemplatePipeline(PipelineBase):
         hero_imgs: list[str],
         hero_banner: str,
         size_imgs: list[str],
+        color_imgs: list[str],
         detail_imgs: list[str],
     ) -> DetailPageData:
         product_info: list[SpecItem] = []
@@ -395,6 +413,7 @@ class TemplatePipeline(PipelineBase):
             hero_banner=hero_banner,
             size_images=size_imgs,
             size_display_mode=draft_snapshot.get("size_display_mode", "normal"),
+            color_images=color_imgs,
             detail_images=detail_imgs,
             price=draft_snapshot.get("price"),
             original_price=draft_snapshot.get("original_price"),
@@ -629,6 +648,38 @@ class TemplatePipeline(PipelineBase):
                 exc_info=True,
             )
             return size_urls
+
+    @observe(name="edit-color-guide", capture_input=False)
+    async def _edit_color_guide(self, color_urls: list[str], product_id: str) -> list[str]:
+        if not color_urls:
+            return []
+        if len(color_urls) == 1:
+            return color_urls
+
+        try:
+            result_bytes = await self._ai.edit_images_multi(
+                image_urls=color_urls,
+                prompt=_COLOR_GUIDE_PROMPT,
+                model=AI_IMAGE_EDIT_SIZE_MODEL,
+            )
+            images_dir = product_images_dir(product_id)
+            output_path = images_dir / "color_guide.png"
+            output_path.write_bytes(result_bytes)
+            logger.info(
+                "Color guide edit succeeded",
+                size_bytes=len(result_bytes),
+                url_count=len(color_urls),
+            )
+            return [to_processed_url(output_path)]
+        except Exception as exc:
+            logger.error(
+                "Color guide edit failed",
+                error_type=type(exc).__name__,
+                error_msg=str(exc)[:500],
+                url_count=len(color_urls),
+                exc_info=True,
+            )
+            return []
 
     def _assemble(
         self,

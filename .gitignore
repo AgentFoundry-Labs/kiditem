@@ -9,6 +9,9 @@ __pycache__/
 *.pyc
 .venv/
 .claude/
+.claude-flow/
+.swarm/
+.mcp.json
 DASHBOARD_*.md
 MIGRATION_CHECKLIST.md
 .gstack/

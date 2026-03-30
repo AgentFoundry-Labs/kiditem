@@ -17,40 +17,42 @@ services:
       timeout: 5s
       retries: 5
 
-  server:
-    container_name: kiditem-server
-    build:
-      context: .
-      dockerfile: apps/server/Dockerfile
-    ports:
-      - "4000:4000"
-    environment:
-      DATABASE_URL: postgresql://kiditem:kiditem@postgres:5432/kiditem
-    env_file:
-      - apps/server/.env
-    volumes:
-      - product-data:/data
-    depends_on:
-      postgres:
-        condition: service_healthy
-    restart: unless-stopped
+  # NestJS 서버는 로컬 실행 (npm run dev:server)
+  # Claude Code CLI 스폰이 필요하므로 Docker에서 분리
+  # server:
+  #   container_name: kiditem-server
+  #   build:
+  #     context: .
+  #     dockerfile: apps/server/Dockerfile
+  #   ports:
+  #     - "4000:4000"
+  #   environment:
+  #     DATABASE_URL: postgresql://kiditem:kiditem@postgres:5432/kiditem
+  #   env_file:
+  #     - apps/server/.env
+  #   volumes:
+  #     - product-data:/data
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #   restart: unless-stopped
 
-  agents:
-    container_name: kiditem-agents
-    build:
-      context: ./agents
-    environment:
-      DATABASE_URL: postgresql://kiditem:kiditem@postgres:5432/kiditem
-      PYTHONWARNINGS: ignore::UserWarning
-    env_file:
-      - agents/.env
-    volumes:
-      - product-data:/data
-    depends_on:
-      postgres:
-        condition: service_healthy
-    restart: unless-stopped
+  # Python agents도 Claude CLI 연동 시 로컬 실행 권장
+  # agents:
+  #   container_name: kiditem-agents
+  #   build:
+  #     context: ./agents
+  #   environment:
+  #     DATABASE_URL: postgresql://kiditem:kiditem@postgres:5432/kiditem
+  #     PYTHONWARNINGS: ignore::UserWarning
+  #   env_file:
+  #     - agents/.env
+  #   volumes:
+  #     - product-data:/data
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #   restart: unless-stopped
 
 volumes:
   pgdata:
-  product-data:

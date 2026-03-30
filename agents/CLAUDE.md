@@ -1,6 +1,7 @@
 # agents — Python Background Workers
 
 백그라운드 에이전트. HTTP 서버 없음. DB 폴링으로 작업 감지.
+생성/처리 작업 전용 (이미지, 콘텐츠, 소싱). 판단/분석 에이전트는 Claude CLI로 이전됨 → `apps/server/src/agent-registry/`.
 
 ## 실행
 
@@ -40,7 +41,9 @@ src/
     ├── base.py            # BaseAgent ABC (execute + log)
     ├── inventory.py       # 재고 부족 감지 → alerts 생성
     ├── sourcing/          # 1688 스크래핑, Douyin, 매칭
-    └── content/           # AI 상세페이지 생성 (2-step pipeline)
+    ├── content/           # AI 상세페이지 생성 (2-step pipeline)
+    ├── image_edit/        # 개별 이미지 AI 편집 (fal)
+    └── ad_strategy/       # 광고 전략 (Python 레거시, Claude CLI로 이전 중)
 ```
 
 ## Agent 추가 방법

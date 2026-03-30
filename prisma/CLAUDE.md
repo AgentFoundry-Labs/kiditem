@@ -36,6 +36,7 @@ npm run db:studio     # DB 브라우저 (localhost:5555)
 | Alert | alerts | 알림 |
 | AgentTask | agent_tasks | Agent 작업 큐 |
 | AgentLog | agent_logs | Agent 실행 로그 |
+| AgentDefinition | agent_definitions | 에이전트 정의 (프롬프트, 예산, 스케줄) |
 | DouyinLiveRoom | douyin_live_rooms | Douyin 라이브 모니터링 |
 | DouyinLiveProduct | douyin_live_products | Douyin 감지 상품 |
 | ContentGeneration | content_generations | AI 콘텐츠 생성 |

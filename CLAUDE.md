@@ -65,8 +65,10 @@ npm workspaces monorepo. PostgreSQL + Prisma + NestJS + Next.js + Python agents.
 apps/web/            — Next.js 14 (프론트엔드 전용, API Routes 없음)
 apps/server/         — NestJS 11 (백엔드 API, 도메인별 모듈)
 agents/              — Python 3.11+ (백그라운드 워커, asyncpg)
+apps/server/agent-config/ — Claude CLI 에이전트 런타임 설정 (규칙, 스킬)
 packages/templates/  — React 상세페이지 템플릿 (bold-vertical, simple-vertical)
 extensions/          — Chrome 익스텐션 (1688/Alibaba 스크래퍼)
+docs/                — 프로젝트 문서 (아키텍처, 리팩토링 계획)
 prisma/              — 공유 스키마 (source of truth)
 ```
 
@@ -97,10 +99,16 @@ npm run dev:server                   # NestJS 로컬 개발 (Docker 대신)
 ```
 [프론트엔드] Next.js — 화면 표시, 사용자 입력
      ↓ fetch
-[백엔드 API] NestJS — CRUD, 비즈니스 로직, 이미지 렌더링
-     ↓ Prisma                    ↓ agent_tasks INSERT
-[DB] PostgreSQL              [Python Agents] — AI 상세페이지 생성, 이미지 편집
+[백엔드 API] NestJS — CRUD, 비즈니스 로직, 에이전트 오케스트레이션
+     ↓ Prisma         ↓ spawn('claude', ...)       ↓ agent_tasks INSERT
+[DB] PostgreSQL    [Claude CLI Agents]          [Python Agents]
+                    판단/분석 에이전트              생성/처리 에이전트
+                    (광고, 건강도 평가)            (이미지, 콘텐츠, 소싱)
 ```
+
+에이전트는 **2개 런타임**으로 나뉨:
+- **Claude CLI agents**: NestJS가 `claude -p`로 spawn. 자연어 규칙 해석/판단 작업. `agent-registry`로 관리.
+- **Python agents**: DB 폴링 기반 백그라운드 워커. 이미지 API, 스크래핑 등 처리 작업. `runner.py`로 관리.
 
 ### NestJS 백엔드 패턴
 
@@ -144,7 +152,56 @@ apps/server/src/activity-events/   — CRUD API
 - `objectType` + `objectId`로 특정 객체의 이력 조회
 - 프론트엔드 상품 상세 페이지에서 세션 카드로 표시
 
-### Python Agent 패턴
+### Agent Platform (Paperclip 패턴)
+
+```
+apps/server/src/agent-registry/     — 에이전트 플랫폼 코어
+├── adapters/                       — 런타임 추상화 (claude-local, process, http)
+│   ├── types.ts                    — AdapterModule 인터페이스
+│   ├── registry.ts                 — adapter type → 구현 매핑
+│   └── claude-local/execute.ts     — Claude CLI spawn 로직
+├── heartbeat.service.ts            — Heartbeat 실행 엔진 + 타이머
+├── wakeup.service.ts               — Wakeup 요청 큐 (coalescing)
+├── skills.service.ts               — Skills 주입 관리 (symlink)
+├── agent-registry.service.ts       — CRUD + run() + receiveResults()
+├── agent-registry.controller.ts    — REST API
+└── seed-agents.ts                  — 기본 에이전트 정의
+
+apps/server/src/ad-agent/           — 광고 전략 (도메인 후처리)
+apps/server/src/rules/              — 건강도 평가 (도메인 후처리)
+```
+
+**핵심 개념 (Paperclip 패턴):**
+- **Adapter**: `claude_local` 등 교체 가능한 실행 런타임. 새 CLI 추가 시 adapter만 작성.
+- **Heartbeat**: 에이전트는 짧은 실행 윈도우(heartbeat) 단위로 동작. Session resume으로 연속성 보장.
+- **Wakeup 4종**: `timer` | `assignment` | `on_demand` | `automation`. Coalescing으로 중복 방지.
+- **Skills**: `agent-config/skills/` 디렉토리의 SKILL.md 파일을 런타임에 symlink 주입.
+- **Hierarchy**: `reportsTo`로 에이전트 간 위임. operator → specialist 계층.
+
+**DB 테이블:**
+- `agent_definitions` — 에이전트 정의 (adapter, hierarchy, skills, permissions, 예산)
+- `heartbeat_runs` — 각 실행의 완전한 기록 (stdout, stderr, 토큰, 세션 ID)
+- `agent_wakeup_requests` — 실행 요청 큐 (source 4종, coalescing, 감사 추적)
+- `agent_runtime_state` — 에이전트별 영속 상태 (sessionId, 누적 토큰/비용)
+
+**에이전트 런타임 설정 (`apps/server/agent-config/`):**
+- `rules/operations.md` — 광고 운영 규칙
+- `rules/health-rules.md` — 건강도 평가 규칙
+- `skills/db-query/` — DB 쿼리 스킬
+- `skills/result-callback/` — 콜백 스킬
+
+에이전트 종류:
+- `ad_strategy` (specialist) — 광고 전략 판단
+- `rules_evaluation` (specialist) — 상품 건강도 평가
+- `rules_suggest` (specialist) — 규칙 임계값 추천
+
+새 에이전트 추가:
+1. `seed-agents.ts`에 정의 추가 (또는 `POST /api/agent-registry`로 동적 등록)
+2. role, adapterType, skills, permissions 설정
+3. `agent-config/skills/` 에 필요한 스킬 추가
+4. 서버 재시작 시 자동 시드
+
+### Python Agent 패턴 (생성/처리)
 
 ```
 agents/src/agents/{name}/
@@ -155,7 +212,8 @@ agents/src/agents/{name}/
 에이전트 종류:
 - `content` — AI 상세페이지 생성 (2-step: 카피 생성 → 이미지 편집)
 - `image_edit` — 개별 이미지 AI 편집
-- `render` — HTML → 이미지 렌더링
+- `sourcing` — 1688 스크래핑, Douyin 라이브
+- `inventory` — 재고 부족 감지
 
 환경변수: `agents/.env` (AI 모델 키, Langfuse, DB 등)
 
@@ -185,7 +243,7 @@ agents/src/agents/{name}/
 
 - **Native PG enum 금지** → `String` + validation. 프로덕션 cast 에러 경험.
 - **Server Components 미사용** → 모든 페이지 `'use client'`.
-- **Agent 간 직접 import 금지** → DB 상태 관찰로만 소통.
+- **Python Agent 간 직접 import 금지** → DB 상태 관찰로만 소통.
 - **Silent model fallback 금지** → `model = model or default` 패턴 금지.
 - **프론트에서 직접 DB 접근 금지** → 반드시 NestJS API 경유.
 - **API 경로에 /v1/ 금지** → `/api/{domain}` 직접 매핑.

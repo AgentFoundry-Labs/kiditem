@@ -202,6 +202,8 @@ class DetailPageData(BaseModel):
     hero_banner: str = ""
     size_images: list[str] = Field(default_factory=list)
     size_display_mode: str = "normal"
+    color_images: list[str] = Field(default_factory=list)
+    color_display_mode: str = "normal"
     detail_images: list[str] = Field(default_factory=list)
 
     key_points: list[KeyPointItem] = Field(default_factory=list)
@@ -224,6 +226,8 @@ class DetailPageData(BaseModel):
     detail_title: str = "DETAIL"
     size_title: str = "사이즈 안내"
     size_subtitle: str = ""
+    color_title: str = "색상 안내"
+    color_subtitle: str = ""
 
     theme_color_main: str = "#ff8c69"
     theme_color_bg_light: str = "#fffaf0"

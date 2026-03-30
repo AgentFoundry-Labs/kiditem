@@ -12,6 +12,7 @@ async function bootstrap() {
       /^http:\/\/localhost:\d+$/,
     ],
   });
+  app.useBodyParser('json', { limit: '5mb' });
   app.setGlobalPrefix('api');
   app.useStaticAssets('/data/products', { prefix: '/processed/' });
   await app.listen(4000);

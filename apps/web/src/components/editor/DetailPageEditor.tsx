@@ -27,6 +27,7 @@ import {
   Image as ImageIcon,
   ImagePlus,
   Loader2,
+  Palette,
 
   Minus,
   MousePointer2,
@@ -867,6 +868,7 @@ function RightPanel({
   onAiFillComplete,
   onGeneratingChange,
   rawImages = [],
+  processedImages = [],
 }: {
   onClose?: () => void;
   selectedTextComponent: any;
@@ -879,6 +881,7 @@ function RightPanel({
   onAiFillComplete?: () => void;
   onGeneratingChange?: (v: boolean) => void;
   rawImages?: string[];
+  processedImages?: string[];
 }) {
   const editor = useEditor();
   const [aiFillLoading, setAiFillLoading] = useState(false);
@@ -888,6 +891,13 @@ function RightPanel({
   const [seedHookTitleSub, setSeedHookTitleSub] = useState('');
   const [seedHeroImage, setSeedHeroImage] = useState<string | null>(null);
   const [showHeroPicker, setShowHeroPicker] = useState(false);
+  const [colorGuideEnabled, setColorGuideEnabled] = useState(false);
+  const [colorImageUrls, setColorImageUrls] = useState<string[]>([]);
+  const [showColorPicker, setShowColorPicker] = useState(false);
+  const [hasGenerated, setHasGenerated] = useState(false);
+  const [colorImagesExist, setColorImagesExist] = useState(false);
+  const [colorGuideLoading, setColorGuideLoading] = useState(false);
+  const [postColorGuideOpen, setPostColorGuideOpen] = useState(false);
 
   const applyProgressImages = useCallback((imgs: Record<string, unknown>) => {
     if (!editor) return;
@@ -916,6 +926,10 @@ function RightPanel({
     if (typeof imgs.banner === 'string') setImg('heroBanner', imgs.banner);
     if (Array.isArray(imgs.size_images)) fillContainer('sizeImages', imgs.size_images, '사이즈 안내');
     if (Array.isArray(imgs.detail_images)) fillContainer('detailImages', imgs.detail_images, '디테일 이미지');
+    if (Array.isArray(imgs.color_images)) {
+      fillContainer('colorImages', imgs.color_images, '색상 안내');
+      setColorImagesExist(true);
+    }
   }, [editor]);
 
   const handleAiFill = useCallback(async () => {
@@ -934,6 +948,7 @@ function RightPanel({
           seed_hook_text: seedHookText.trim() || undefined,
           seed_hook_title_sub: seedHookTitleSub.trim() || undefined,
           seed_hero_image: seedHeroImage || undefined,
+          color_image_urls: colorGuideEnabled && colorImageUrls.length >= 2 ? colorImageUrls : undefined,
         }),
       });
       if (!res.ok) throw new Error(`API ${res.status}`);
@@ -968,13 +983,15 @@ function RightPanel({
             const imgs = (output.images || {}) as Record<string, unknown>;
             const sizeImgs = Array.isArray(imgs.size_images) ? imgs.size_images : [];
             const detailImgs = Array.isArray(imgs.detail_images) ? imgs.detail_images : [];
-            const done = [imgs.main_image, imgs.banner, ...sizeImgs, ...detailImgs].filter(Boolean).length;
+            const colorImgs = Array.isArray(imgs.color_images) ? imgs.color_images : [];
+            const done = [imgs.main_image, imgs.banner, ...sizeImgs, ...detailImgs, ...colorImgs].filter(Boolean).length;
             setAiFillStep(`이미지 생성 중... (${done}장 완료)`);
             applyProgressImages(imgs as Record<string, unknown>);
           }
         }
 
         if (task.status === 'completed') {
+          setHasGenerated(true);
           onAiFillComplete?.();
           return;
         }
@@ -989,7 +1006,7 @@ function RightPanel({
       setAiFillStep('');
       setAiFillTaskId(null);
     }
-  }, [isBusy, productId, aiFillLoading, onAiFillComplete, seedHookText, seedHookTitleSub, seedHeroImage]);
+  }, [isBusy, productId, aiFillLoading, onAiFillComplete, seedHookText, seedHookTitleSub, seedHeroImage, colorGuideEnabled, colorImageUrls]);
 
   const handleAiFillCancel = useCallback(async () => {
     if (!aiFillTaskId) return;
@@ -999,6 +1016,73 @@ function RightPanel({
       void 0;
     }
   }, [aiFillTaskId]);
+
+  const handleColorGuideGenerate = useCallback(async () => {
+    if (!productId || colorImageUrls.length < 2) return;
+    setColorGuideLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/agent-tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agentType: 'image_edit',
+          input: { preset: 'color_guide', image_urls: colorImageUrls, productId },
+        }),
+      });
+      if (!res.ok) throw new Error(`API ${res.status}`);
+      const data = await res.json();
+      const taskId = data.id ?? data.taskId;
+
+      for (let i = 0; i < 120; i++) {
+        await new Promise(r => setTimeout(r, 2000));
+        const statusRes = await fetch(`${API_BASE}/api/agent-tasks/${taskId}`);
+        if (!statusRes.ok) continue;
+        const task = await statusRes.json();
+
+        if (task.status === 'failed') {
+          throw new Error(task.error || '색상 안내 생성 실패');
+        }
+
+        if (task.status === 'completed') {
+          let output: Record<string, unknown> | null = null;
+          try {
+            output = typeof task.output === 'string' ? JSON.parse(task.output) : task.output;
+          } catch {
+            break;
+          }
+
+          if (output && Array.isArray(output.color_images)) {
+            const wrapper = editor.getWrapper();
+            if (wrapper) {
+              const resolveUrl = (url: string) =>
+                url.startsWith('/processed/') ? `${API_BASE}${url}` : url;
+              const sections = wrapper.find('[data-section="colorImages"]');
+              if (sections.length > 0) {
+                sections[0].removeClass('hidden');
+                const containers = wrapper.find('[data-container="colorImages"]');
+                if (containers.length > 0) {
+                  containers[0].components(
+                    (output.color_images as string[])
+                      .map((url) =>
+                        `<img src="${resolveUrl(url)}" alt="색상 안내" class="w-full h-auto rounded-[var(--theme-radius)] shadow-md" />`
+                      )
+                      .join('')
+                  );
+                }
+              }
+            }
+          }
+          setColorImagesExist(true);
+          setPostColorGuideOpen(false);
+          break;
+        }
+      }
+    } catch (err) {
+      console.error('Color guide generation failed:', err);
+    } finally {
+      setColorGuideLoading(false);
+    }
+  }, [productId, colorImageUrls, editor]);
 
   const selectionType = selectedTextComponent ? 'text' : selectedImageSrc ? 'image' : null;
 
@@ -1130,6 +1214,84 @@ function RightPanel({
                 />
               </div>
 
+              <div>
+                <div className="flex items-center justify-between">
+                  <label className="flex items-center gap-1.5 text-xs font-medium text-gray-600">
+                    <Palette size={12} className="text-gray-400" />
+                    색상 안내
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = !colorGuideEnabled;
+                      setColorGuideEnabled(next);
+                      const wrapper = editor.getWrapper();
+                      if (!wrapper) return;
+                      if (next) {
+                        const existing = wrapper.find('[data-section="colorImages"]');
+                        if (existing.length === 0) {
+                          const detailSections = wrapper.find('[data-section="detailImages"]');
+                          const colorHtml = `<div data-section="colorImages"><div class="text-center mt-16"><div style="width:384px;height:2px" class="bg-[#2d3436] opacity-40 mx-auto mb-12"></div><div class="inline-block bg-[#1e2d4d] text-white rounded-full px-12 py-2 font-bold text-xl tracking-widest shadow-md">색상 안내</div><div data-container="colorImages" class="mt-10 flex flex-col gap-6 max-w-2xl mx-auto px-6"><img src="https://placehold.co/860x500/e2e8f0/94a3b8?text=%5B%EC%83%89%EC%83%81+%EC%95%88%EB%82%B4+%EC%9D%B4%EB%AF%B8%EC%A7%80%5D" alt="색상 안내" class="w-full h-auto rounded-[32px] shadow-md" /></div></div></div>`;
+                          if (detailSections.length > 0) {
+                            detailSections[0].parent()?.append(colorHtml, { at: detailSections[0].index() });
+                          } else {
+                            wrapper.append(colorHtml);
+                          }
+                        }
+                      } else {
+                        const sections = wrapper.find('[data-section="colorImages"]');
+                        if (sections.length > 0) sections[0].remove();
+                      }
+                    }}
+                    disabled={aiFillLoading}
+                    className={`relative w-9 h-5 rounded-full transition-colors ${colorGuideEnabled ? 'bg-blue-600' : 'bg-gray-200'}`}
+                  >
+                    <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${colorGuideEnabled ? 'translate-x-4' : ''}`} />
+                  </button>
+                </div>
+                {colorGuideEnabled && (
+                  <div className="mt-2 space-y-2">
+                    {colorImageUrls.length > 0 && (
+                      <div className="grid grid-cols-4 gap-1.5">
+                        {colorImageUrls.map((url, i) => (
+                          <div key={url} className="relative aspect-square rounded-lg overflow-hidden border border-gray-200 group">
+                            <img src={url} alt="" className="w-full h-full object-cover" />
+                            <button
+                              type="button"
+                              onClick={() => setColorImageUrls(prev => prev.filter((_, idx) => idx !== i))}
+                              className="absolute top-0.5 right-0.5 p-0.5 bg-black/50 hover:bg-black/70 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                            >
+                              <X size={10} className="text-white" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setShowColorPicker(true)}
+                      disabled={aiFillLoading || colorImageUrls.length >= 6}
+                      className="w-full py-2 text-xs font-medium text-gray-500 border border-dashed border-gray-300 hover:border-emerald-400 hover:text-emerald-600 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      + 사진 추가
+                    </button>
+                    <p className="text-[10px] text-gray-400 text-center">{colorImageUrls.length}/6장</p>
+                  </div>
+                )}
+                <ImagePickerModal
+                  open={showColorPicker}
+                  rawImages={rawImages}
+                  processedImages={processedImages}
+                  onSelect={(url) => {
+                    if (colorImageUrls.length < 6 && !colorImageUrls.includes(url)) {
+                      setColorImageUrls(prev => [...prev, url]);
+                    }
+                    setShowColorPicker(false);
+                  }}
+                  onClose={() => setShowColorPicker(false)}
+                />
+              </div>
+
               <button
                 type="button"
                 onClick={handleAiFill}
@@ -1152,6 +1314,91 @@ function RightPanel({
                 <p className="text-[10px] text-gray-400 text-center leading-relaxed">
                 입력하면 반영, 비워두면 AI가 전부 자동 생성합니다
               </p>
+
+              {hasGenerated && (
+                <div className="space-y-2">
+                  <div className="h-px bg-gray-100" />
+                  {!postColorGuideOpen ? (
+                    <button
+                      type="button"
+                      onClick={() => setPostColorGuideOpen(true)}
+                      disabled={colorGuideLoading}
+                      className="w-full flex items-center justify-center gap-1.5 py-2 text-xs font-medium text-emerald-600 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-colors disabled:opacity-50"
+                    >
+                      {colorGuideLoading ? (
+                        <>
+                          <Loader2 size={14} className="animate-spin" />
+                          색상 안내 생성 중...
+                        </>
+                      ) : (
+                        <>
+                          <Palette size={14} />
+                          {colorImagesExist ? '색상 안내 다시 만들기' : '+ 색상 안내 추가'}
+                        </>
+                      )}
+                    </button>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-medium text-gray-600 flex items-center gap-1.5">
+                          <Palette size={12} className="text-gray-400" />
+                          색상 안내 이미지
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setPostColorGuideOpen(false)}
+                          className="p-0.5 text-gray-400 hover:text-gray-600 rounded transition-colors"
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                      {colorImageUrls.length > 0 && (
+                        <div className="grid grid-cols-4 gap-1.5">
+                          {colorImageUrls.map((url, i) => (
+                            <div key={url} className="relative aspect-square rounded-lg overflow-hidden border border-gray-200 group">
+                              <img src={url} alt="" className="w-full h-full object-cover" />
+                              <button
+                                type="button"
+                                onClick={() => setColorImageUrls(prev => prev.filter((_, idx) => idx !== i))}
+                                className="absolute top-0.5 right-0.5 p-0.5 bg-black/50 hover:bg-black/70 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                              >
+                                <X size={10} className="text-white" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setShowColorPicker(true)}
+                        disabled={colorImageUrls.length >= 6}
+                        className="w-full py-2 text-xs font-medium text-gray-500 border border-dashed border-gray-300 hover:border-emerald-400 hover:text-emerald-600 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        + 사진 추가
+                      </button>
+                      <p className="text-[10px] text-gray-400 text-center">{colorImageUrls.length}/6장</p>
+                      <button
+                        type="button"
+                        onClick={handleColorGuideGenerate}
+                        disabled={colorGuideLoading || colorImageUrls.length < 2}
+                        className="w-full flex items-center justify-center gap-2 py-2 text-xs font-semibold text-white bg-emerald-500 hover:bg-emerald-600 rounded-lg shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {colorGuideLoading ? (
+                          <>
+                            <Loader2 size={14} className="animate-spin" />
+                            생성 중...
+                          </>
+                        ) : (
+                          <>
+                            <Wand2 size={14} />
+                            색상 안내 생성
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -1254,6 +1501,9 @@ export default function DetailPageEditor({
 
       const detailImgs = d.detail_images ?? d.detailImages ?? [];
       fillSection('detailImages', detailImgs, '디테일 이미지');
+
+      const colorImgs = d.color_images ?? d.colorImages ?? [];
+      fillSection('colorImages', colorImgs, '색상 안내');
     } catch (err) {
       console.error('Canvas field update failed:', err);
     }
@@ -1472,6 +1722,7 @@ export default function DetailPageEditor({
                 onAiFillComplete={handleAiFillComplete}
                 onGeneratingChange={setIsGenerating}
                 rawImages={rawImages}
+                processedImages={processedImages}
               />
             </WithEditor>
           </div>

@@ -198,6 +198,10 @@ class ContentAgent(BaseAgent):
 
             draft_json = draft_data.model_dump(mode="json")
 
+            color_image_urls = task_input.get("color_image_urls") or []
+            if color_image_urls:
+                draft_json["color_image_urls"] = color_image_urls
+
             if progress_callback:
                 await progress_callback(
                     {

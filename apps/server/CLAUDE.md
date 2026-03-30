@@ -55,6 +55,16 @@ src/{domain}/
 | rules | `/api/rules/summary` | GET |
 | rules | `/api/rules/schedule` | GET, PATCH |
 | rules | `/api/rules/reload` | POST |
+| ad-agent | `/api/ad-agent/run` | POST (body: { companyId?, dryRun?, dailyBudgetLimit? }) |
+| ad-agent | `/api/ad-agent/results/:taskId` | POST (Claude CLI 콜백) |
+| ad-agent | `/api/ad-agent/status/:taskId` | GET |
+| ad-agent | `/api/ad-agent/latest` | GET (query: companyId) |
+| ad-agent | `/api/ad-agent/runs` | GET (query: companyId, limit) |
+| agent-registry | `/api/agent-registry` | GET, POST, PATCH /:id, DELETE /:id |
+| agent-registry | `/api/agent-registry/:id/run` | POST (body: { companyId?, dryRun?, extra? }) |
+| agent-registry | `/api/agent-registry/results/:taskId` | POST (Claude CLI 콜백) |
+| agent-registry | `/api/agent-registry/sync-schedules` | POST |
+| agent-registry | `/api/agent-registry/reset-budgets` | POST |
 
 ## PrismaService
 
@@ -75,9 +85,23 @@ await this.prisma.product.findMany({ where: { status: 'active' } });
 `src/coupang/client.ts` — HMAC-SHA256 인증.
 orders, returns 도메인에서 사용.
 
+## Claude CLI Agent 관리
+
+```
+src/agent-registry/          — 범용 에이전트 오케스트레이션 (Paperclip 패턴)
+src/ad-agent/                — 광고 전략 (레거시, agent-registry로 통합 예정)
+src/rules/                   — 건강도 평가 + 스케줄러
+```
+
+- `agent_definitions` 테이블: 에이전트 정의 (프롬프트, 권한, 예산, cron 스케줄)
+- `agent-registry` API: `GET/POST/PATCH/DELETE /api/agent-registry`, `POST /api/agent-registry/:id/run`
+- 실행: `child_process.spawn('claude', ['-p', prompt])` → 결과 curl 콜백
+- 운영 규칙 문서: `agent-config/rules/operations.md` (광고), `agent-config/rules/health-rules.md` (건강도)
+
 ## 규칙
 
 - API 경로에 `/v1/` 금지 → `/api/{domain}` 직접 매핑
 - 도메인 모듈 자기 완결 — 다른 도메인 Service 직접 import 금지
 - PrismaService만 공유 의존성
-- Agent 트리거: `agent_tasks` 테이블에 INSERT → Python runner가 감지
+- Python Agent 트리거: `agent_tasks` 테이블에 INSERT → Python runner가 감지
+- Claude CLI Agent 트리거: `agent-registry`의 `run()` → `spawn('claude', ...)` → 결과 콜백
