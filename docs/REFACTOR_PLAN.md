@@ -159,7 +159,7 @@ apps/server/src/
 - [x] E2E: ad-agent 콜백, rules 콜백, pause/resume API
 - [x] TSC: 0 errors
 
-## Phase 3: 범용 manager 에이전트
+## Phase 3: 범용 manager 에이전트 ✅
 
 ### 3-1. manager 에이전트 정의
 
@@ -187,11 +187,11 @@ manager가 specialist를 wakeup으로 트리거:
 POST /api/agent-registry/{ad_strategy_id}/run  (manager가 curl로 호출)
 ```
 
-### 3-3. Skills 추가
+### 3-3. Skills 추가 ✅
 
-- [ ] `agent-config/skills/kiditem-api/SKILL.md` — KidItem 내부 API 사용법
-- [ ] `agent-config/skills/data-analysis/SKILL.md` — 데이터 분석 패턴
-- [ ] `agent-config/skills/coupang-browse/SKILL.md` — 쿠팡 대시보드 브라우저 조작
+- [x] `agent-config/skills/kiditem-api/SKILL.md` — KidItem 내부 API 사용법
+- [x] `agent-config/skills/data-analysis/SKILL.md` — 데이터 분석 패턴
+- [x] `agent-config/skills/coupang-browse/SKILL.md` — 쿠팡 대시보드 브라우저 조작
 
 ### 3-4. manager 실행 API
 
@@ -200,41 +200,22 @@ POST /api/agent-registry/manager/ask
 Body: { companyId, request: "이 상품 왜 안 팔려?", productId?: "..." }
 ```
 
-## Phase 4: 프론트엔드 에이전트 관리 UI
+## Phase 4: 프론트엔드 에이전트 관리 UI ✅
 
-API 준비 완료 — 프론트 구현만 필요:
+- [x] `/agents` 페이지: manager/specialist 섹션 구분 카드 UI
+- [x] 에이전트 카드: 상태, role, adapter, skills, 토큰 사용량
+- [x] 실행 이력: heartbeat runs 타임라인
+- [x] 런타임 상태: session ID, 누적 토큰, 마지막 에러
+- [x] 액션 버튼: 실행, 일시정지/재개, 세션 리셋
+- [x] 사이드바 메뉴 추가 (자동화 > 에이전트)
+- [ ] 실시간 로그 스트리밍 (SSE) — 미구현, Phase 6에서
 
-- [ ] 에이전트 목록 (`GET /api/agent-registry`)
-- [ ] 에이전트 상세 + 실행 이력 (`GET /api/agent-registry/:id/runs`)
-- [ ] 런타임 상태 모니터링 (`GET /api/agent-registry/:id/runtime-state`)
-- [ ] Pause/Resume 토글 (`POST /api/agent-registry/:id/pause`, `/resume`)
-- [ ] 세션 리셋 (`POST /api/agent-registry/:id/reset-session`)
-- [ ] 수동 실행 트리거 (`POST /api/agent-registry/:id/run`)
-- [ ] 실시간 로그 스트리밍 (SSE)
+## Phase 5: 전용 에이전트 추가 ✅
 
-## Phase 5: 전용 에이전트 추가
-
-### 5-1. pricing 에이전트
-
-```
-type: 'pricing', role: 'specialist'
-규칙: agent-config/rules/pricing.md (신규)
-스케줄: '0 10 * * *'
-```
-
-### 5-2. inventory_alert 에이전트
-
-```
-type: 'inventory_alert', role: 'specialist'
-스케줄: '0 */6 * * *'
-```
-
-### 5-3. review_monitor 에이전트
-
-```
-type: 'review_monitor', role: 'specialist'
-스케줄: '0 9 * * *'
-```
+- [x] pricing (매일 10시) — 마진율/광고비율 기반 가격 조정 추천
+- [x] inventory_alert (6시간마다) — 재고 부족/과잉 감지, 발주 추천
+- [x] review_monitor (매일 9시) — 리뷰 평점 하락/악성 리뷰 감지
+- [x] 규칙 문서: pricing.md, inventory-alert.md, review-monitor.md
 
 ## Phase 6: SaaS 대비 (장기)
 
