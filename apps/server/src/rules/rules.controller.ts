@@ -46,6 +46,11 @@ export class RulesController {
     return { schedule, options };
   }
 
+  @Get('suggest-thresholds')
+  async suggestThresholds(@Query('companyId') companyId?: string) {
+    return this.rulesService.suggestThresholds(await this.resolveCompanyId(companyId));
+  }
+
   @Patch('schedule')
   updateSchedule(@Body() body: { schedule: string }) {
     return this.schedulerService.setSchedule(body.schedule);

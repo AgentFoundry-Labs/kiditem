@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { Prisma } from '@prisma/client';
 import { compileRule, computeHealthScore, deduplicateByField } from './evaluator';
 import { buildContext } from './build-context';
 import { CompiledRule, EvaluationResult, ProductEvaluation } from './types';
@@ -184,6 +185,96 @@ export class RulesService implements OnModuleInit {
     });
     await this.reloadRules();
     return updated;
+  }
+
+  async suggestThresholds(companyId: string) {
+    const queries: Record<string, string> = {
+      profitRate: `
+        SELECT percentile_cont(ARRAY[0.10, 0.25, 0.50, 0.75, 0.90]) WITHIN GROUP (ORDER BY pl.profit_rate * 100) as pcts
+        FROM profit_loss pl
+        JOIN products p ON p.id = pl.product_id
+        WHERE p.company_id = '${companyId}' AND p.is_deleted = false
+        AND pl.profit_rate IS NOT NULL
+      `,
+      adRate: `
+        SELECT percentile_cont(ARRAY[0.10, 0.25, 0.50, 0.75, 0.90]) WITHIN GROUP (ORDER BY CASE WHEN pl.revenue > 0 THEN (pl.ad_cost::float / pl.revenue * 100) ELSE 0 END) as pcts
+        FROM profit_loss pl
+        JOIN products p ON p.id = pl.product_id
+        WHERE p.company_id = '${companyId}' AND p.is_deleted = false
+        AND pl.revenue > 0
+      `,
+      currentStock: `
+        SELECT percentile_cont(ARRAY[0.10, 0.25, 0.50, 0.75, 0.90]) WITHIN GROUP (ORDER BY i.current_stock) as pcts
+        FROM inventory i
+        JOIN products p ON p.id = i.product_id
+        WHERE p.company_id = '${companyId}' AND p.is_deleted = false
+      `,
+      thumbnailCTR: `
+        SELECT percentile_cont(ARRAY[0.10, 0.25, 0.50, 0.75, 0.90]) WITHIN GROUP (ORDER BY t.ctr * 100) as pcts
+        FROM thumbnails t
+        JOIN products p ON p.id = t.product_id
+        WHERE p.company_id = '${companyId}' AND p.is_deleted = false
+        AND t.ctr IS NOT NULL
+        AND t.measured_at = (SELECT MAX(t2.measured_at) FROM thumbnails t2 WHERE t2.product_id = t.product_id)
+      `,
+      reviewCount: `
+        SELECT percentile_cont(ARRAY[0.10, 0.25, 0.50, 0.75, 0.90]) WITHIN GROUP (ORDER BY cnt) as pcts
+        FROM (
+          SELECT p.id, count(r.id) as cnt
+          FROM products p
+          LEFT JOIN reviews r ON r.product_id = p.id
+          WHERE p.company_id = '${companyId}' AND p.is_deleted = false
+          GROUP BY p.id
+        ) sub
+      `,
+      orderCount: `
+        SELECT percentile_cont(ARRAY[0.10, 0.25, 0.50, 0.75, 0.90]) WITHIN GROUP (ORDER BY pl.order_count) as pcts
+        FROM profit_loss pl
+        JOIN products p ON p.id = pl.product_id
+        WHERE p.company_id = '${companyId}' AND p.is_deleted = false
+        AND pl.order_count IS NOT NULL
+      `,
+    };
+
+    const results: Record<string, { p10: number; p25: number; p50: number; p75: number; p90: number }> = {};
+
+    for (const [field, sql] of Object.entries(queries)) {
+      try {
+        const rows = await this.prisma.$queryRawUnsafe<Array<{ pcts: number[] }>>(sql);
+        if (rows.length > 0 && rows[0].pcts) {
+          const p = rows[0].pcts.map((v: number) => Math.round(v * 10) / 10);
+          results[field] = { p10: p[0], p25: p[1], p50: p[2], p75: p[3], p90: p[4] };
+        }
+      } catch {
+        this.logger.warn(`Failed to compute percentiles for ${field}`);
+      }
+    }
+
+    const rules = await this.prisma.businessRule.findMany({
+      where: { companyId, active: true, conditions: { equals: Prisma.DbNull } },
+      select: { id: true, field: true, operator: true, threshold: true, displayName: true, severity: true },
+    });
+
+    const suggestions = rules
+      .filter((r) => results[r.field])
+      .map((r) => {
+        const dist = results[r.field];
+        const current = (r.threshold as { value?: number })?.value;
+        const suggested = r.severity === 'critical' ? dist.p10
+          : r.severity === 'warning' ? dist.p25
+          : dist.p50;
+        return {
+          ruleId: r.id,
+          displayName: r.displayName,
+          field: r.field,
+          severity: r.severity,
+          currentThreshold: current ?? null,
+          suggestedThreshold: suggested,
+          distribution: dist,
+        };
+      });
+
+    return { distributions: results, suggestions };
   }
 
   private async seedRulesIfEmpty() {

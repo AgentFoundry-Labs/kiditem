@@ -523,6 +523,8 @@ function RulesConfigSection() {
   const [schedule, setSchedule] = useState('twice_daily');
   const [scheduleOptions, setScheduleOptions] = useState<ScheduleOption[]>([]);
   const [scheduleUpdating, setScheduleUpdating] = useState(false);
+  const [suggestions, setSuggestions] = useState<Record<string, { currentThreshold: number | null; suggestedThreshold: number; ruleId: string }>>({});
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
 
   useEffect(() => {
     fetch(`${API_BASE}/api/rules`)
@@ -553,6 +555,29 @@ function RulesConfigSection() {
       }
     } catch { /* ignore */ }
     setScheduleUpdating(false);
+  };
+
+  const handleLoadSuggestions = async () => {
+    setSuggestionsLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/rules/suggest-thresholds`);
+      if (res.ok) {
+        const data = await res.json();
+        const map: typeof suggestions = {};
+        for (const s of data.suggestions ?? []) {
+          map[s.ruleId] = { currentThreshold: s.currentThreshold, suggestedThreshold: s.suggestedThreshold, ruleId: s.ruleId };
+        }
+        setSuggestions(map);
+      }
+    } catch { /* ignore */ }
+    setSuggestionsLoading(false);
+  };
+
+  const handleApplySuggestion = (ruleId: string, suggested: number) => {
+    setChanges((prev) => ({
+      ...prev,
+      [ruleId]: { ...prev[ruleId], threshold: { value: suggested } },
+    }));
   };
 
   const filteredRules = categoryFilter === 'all'
@@ -678,6 +703,13 @@ function RulesConfigSection() {
             </span>
           )}
           <button
+            onClick={handleLoadSuggestions}
+            disabled={suggestionsLoading}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors disabled:opacity-50"
+          >
+            {suggestionsLoading ? '분석 중...' : '추천 임계값'}
+          </button>
+          <button
             onClick={handleSave}
             disabled={!hasChanges || saving}
             className={cn(
@@ -755,6 +787,14 @@ function RulesConfigSection() {
                               className="w-14 text-center border-b border-gray-300 text-xs py-0.5 bg-transparent focus:border-blue-500 focus:outline-none"
                             />
                           </div>
+                        )}
+                        {suggestions[rule.id] && suggestions[rule.id].suggestedThreshold !== suggestions[rule.id].currentThreshold && (
+                          <button
+                            onClick={() => handleApplySuggestion(rule.id, suggestions[rule.id].suggestedThreshold)}
+                            className="px-1.5 py-0.5 text-xs font-medium bg-blue-50 text-blue-600 rounded hover:bg-blue-100 transition-colors"
+                          >
+                            추천: {suggestions[rule.id].suggestedThreshold}
+                          </button>
                         )}
                       </div>
                     </div>

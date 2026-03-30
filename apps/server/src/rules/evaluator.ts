@@ -22,25 +22,76 @@ function resolveTemplate(
   });
 }
 
+interface Condition {
+  field: string;
+  op: string;
+  value: number | string;
+}
+
+function evaluateCondition(ctx: ProductContext, cond: Condition): boolean {
+  const ctxValue = ctx[cond.field as keyof ProductContext];
+  if (ctxValue === undefined || ctxValue === null) return false;
+
+  if (typeof ctxValue === 'string') {
+    return cond.op === 'eq' && ctxValue === String(cond.value);
+  }
+  if (typeof ctxValue !== 'number') return false;
+
+  const op = OPERATORS[cond.op];
+  return op ? op(ctxValue, { value: Number(cond.value) }) : false;
+}
+
+function hasNullField(ctx: ProductContext, conditions: Condition[]): boolean {
+  return conditions.some((c) => {
+    const v = ctx[c.field as keyof ProductContext];
+    return v === undefined || v === null;
+  });
+}
+
 export function compileRule(dbRule: BusinessRule): CompiledRule {
   const threshold = dbRule.threshold as { value?: number; min?: number; max?: number };
-  const op = OPERATORS[dbRule.operator];
+  const conditions = dbRule.conditions as Condition[] | null;
+  const isCompound = Array.isArray(conditions) && conditions.length > 0;
 
   return {
     id: dbRule.id,
     name: dbRule.displayName,
-    field: dbRule.field,
+    field: isCompound ? `compound:${dbRule.name}` : dbRule.field,
     severity: dbRule.severity,
     category: dbRule.category,
     actionType: dbRule.actionType,
     evaluate: (ctx: ProductContext): RuleViolation | null => {
+      if (isCompound) {
+        if (hasNullField(ctx, conditions)) return null;
+        const allPass = conditions.every((c) => evaluateCondition(ctx, c));
+        if (!allPass) return null;
+
+        const firstValue = ctx[conditions[0].field as keyof ProductContext];
+        const vars: Record<string, unknown> = { ...threshold, value: firstValue };
+        conditions.forEach((c, i) => {
+          if (i > 0) vars[`value${i + 1}`] = ctx[c.field as keyof ProductContext];
+        });
+
+        return {
+          ruleId: dbRule.id,
+          ruleName: dbRule.displayName,
+          field: `compound:${dbRule.name}`,
+          severity: dbRule.severity,
+          category: dbRule.category,
+          message: resolveTemplate(dbRule.messageTemplate, vars),
+          actionType: dbRule.actionType,
+          value: typeof firstValue === 'number' ? firstValue : 0,
+          threshold: threshold.value ?? threshold,
+        };
+      }
+
       const value = ctx[dbRule.field as keyof ProductContext];
       if (value === undefined || value === null) return null;
       if (typeof value !== 'number') return null;
 
+      const op = OPERATORS[dbRule.operator];
       if (!op) return null;
-      const triggered = op(value, threshold);
-      if (!triggered) return null;
+      if (!op(value, threshold)) return null;
 
       return {
         ruleId: dbRule.id,

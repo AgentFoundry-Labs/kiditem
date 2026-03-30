@@ -1870,6 +1870,7 @@ model BusinessRule {
   threshold       Json                               // { value: 0 } or { min: 0, max: 3 }
   messageTemplate String   @map("message_template")  // "순이익률 {{value}}% — 즉시 검토 필요"
   actionType      String?  @map("action_type")       // from action catalog: product.stop_ads, etc.
+  conditions      Json?                              // [{field, op, value}] — compound AND. null = legacy single-field
   autoExecute     Boolean  @default(false) @map("auto_execute")
   active          Boolean  @default(true)
   sortOrder       Int      @default(0) @map("sort_order")
