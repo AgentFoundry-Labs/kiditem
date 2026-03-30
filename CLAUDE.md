@@ -176,7 +176,7 @@ apps/server/src/rules/              — 건강도 평가 (도메인 후처리)
 - **Heartbeat**: 에이전트는 짧은 실행 윈도우(heartbeat) 단위로 동작. Session resume으로 연속성 보장.
 - **Wakeup 4종**: `timer` | `assignment` | `on_demand` | `automation`. Coalescing으로 중복 방지.
 - **Skills**: `agent-config/skills/` 디렉토리의 SKILL.md 파일을 런타임에 symlink 주입.
-- **Hierarchy**: `reportsTo`로 에이전트 간 위임. operator → specialist 계층.
+- **Hierarchy**: `reportsTo`로 에이전트 간 위임. manager → specialist 계층.
 
 **DB 테이블:**
 - `agent_definitions` — 에이전트 정의 (adapter, hierarchy, skills, permissions, 예산)

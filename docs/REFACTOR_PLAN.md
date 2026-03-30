@@ -21,8 +21,8 @@ KIDITEM은 이커머스 셀러 운영 자동화 플랫폼. 현재 "대시보드"
 │   ├── pricing            — 가격 조정 (신규)
 │   └── inventory_alert    — 재고 알림 (신규)
 │
-└── operator (사용자 요청/비정형 작업)
-    └── operator           — 셀러의 자유 질문/요청 처리, 하위 에이전트 위임
+└── manager (사용자 요청/비정형 작업)
+    └── manager           — 셀러의 자유 질문/요청 처리, 하위 에이전트 위임
 
 [개발 도구]
 └── Claude Code            — 코드 생성, 리뷰, 테스트 (gstack 워크플로우)
@@ -56,7 +56,7 @@ agent-registry/
 - **Heartbeat**: 짧은 실행 윈도우 단위 동작, session resume으로 연속성 보장
 - **Wakeup 4종**: `timer` | `assignment` | `on_demand` | `automation` (coalescing)
 - **Skills**: `agent-config/skills/` SKILL.md 파일을 런타임에 symlink 주입
-- **Hierarchy**: `reportsTo`로 에이전트 간 위임 (operator → specialist)
+- **Hierarchy**: `reportsTo`로 에이전트 간 위임 (manager → specialist)
 
 **DB 테이블:**
 - `agent_definitions` — 에이전트 정의 (adapter, hierarchy, skills, permissions, 예산)
@@ -159,17 +159,17 @@ apps/server/src/
 - [x] E2E: ad-agent 콜백, rules 콜백, pause/resume API
 - [x] TSC: 0 errors
 
-## Phase 3: 범용 operator 에이전트
+## Phase 3: 범용 manager 에이전트
 
-### 3-1. operator 에이전트 정의
+### 3-1. manager 에이전트 정의
 
 `seed-agents.ts`에 추가:
 
 ```typescript
 {
   name: '셀러 운영 어시스턴트',
-  type: 'operator',
-  role: 'operator',
+  type: 'manager',
+  role: 'manager',
   adapterType: 'claude_local',
   skills: ['db-query', 'kiditem-api', 'data-analysis', 'result-callback'],
   permissions: { canSpawnSubAgents: true, canAccessBrowser: true },
@@ -181,10 +181,10 @@ apps/server/src/
 
 ### 3-2. 하위 에이전트 위임
 
-operator가 specialist를 wakeup으로 트리거:
+manager가 specialist를 wakeup으로 트리거:
 
 ```
-POST /api/agent-registry/{ad_strategy_id}/run  (operator가 curl로 호출)
+POST /api/agent-registry/{ad_strategy_id}/run  (manager가 curl로 호출)
 ```
 
 ### 3-3. Skills 추가
@@ -193,10 +193,10 @@ POST /api/agent-registry/{ad_strategy_id}/run  (operator가 curl로 호출)
 - [ ] `agent-config/skills/data-analysis/SKILL.md` — 데이터 분석 패턴
 - [ ] `agent-config/skills/coupang-browse/SKILL.md` — 쿠팡 대시보드 브라우저 조작
 
-### 3-4. operator 실행 API
+### 3-4. manager 실행 API
 
 ```
-POST /api/agent-registry/operator/ask
+POST /api/agent-registry/manager/ask
 Body: { companyId, request: "이 상품 왜 안 팔려?", productId?: "..." }
 ```
 
