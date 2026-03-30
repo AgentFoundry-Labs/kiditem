@@ -14,35 +14,80 @@ KIDITEM은 이커머스 셀러 운영 자동화 플랫폼. 현재 "대시보드"
 
 ```
 [프로덕션 에이전트]
-├── 전용 에이전트 (스케줄, 정형 작업)
-│   ├── ad_strategy     — 광고 전략 (agent-config/rules/operations.md 규칙)
-│   ├── rules_evaluation — 건강도 평가 (agent-config/rules/health-rules.md 규칙)
-│   ├── pricing          — 가격 조정 (신규)
-│   └── inventory_alert  — 재고 알림 (신규)
+├── specialist (스케줄/정형 작업)
+│   ├── ad_strategy        — 광고 전략 판단
+│   ├── rules_evaluation   — 건강도 평가
+│   ├── rules_suggest      — 임계값 추천
+│   ├── pricing            — 가격 조정 (신규)
+│   └── inventory_alert    — 재고 알림 (신규)
 │
-└── 범용 operator (사용자 요청, 비정형 작업)
-    └── operator         — 셀러의 자유 질문/요청 처리
+└── operator (사용자 요청/비정형 작업)
+    └── operator           — 셀러의 자유 질문/요청 처리, 하위 에이전트 위임
 
 [개발 도구]
-└── Claude Code          — 코드 생성, 리뷰, 테스트 (gstack 워크플로우)
+└── Claude Code            — 코드 생성, 리뷰, 테스트 (gstack 워크플로우)
 ```
 
 ### 런타임 구분
 
 | 런타임 | 용도 | 관리 |
 |--------|------|------|
-| Claude CLI (`claude -p`) | 판단/분석 에이전트 | agent-registry (NestJS) |
-| Python (asyncpg 폴링) | 생성/처리 에이전트 | runner.py |
+| Claude CLI (`claude -p`) | 판단/분석 에이전트 | agent-registry (Paperclip 패턴) |
+| Python (asyncpg 폴링) | 생성/처리 에이전트 (content, image_edit, sourcing, inventory) | runner.py |
 
-### 관리 구조 (Paperclip 패턴 내재화)
+### Agent Platform (Paperclip 패턴)
 
-- `agent_definitions` 테이블: 에이전트 정의 (프롬프트 템플릿, 권한, 예산, 스케줄)
-- `agent-registry` NestJS 모듈: CRUD + spawn + 예산 체크 + 하트비트
-- 운영 규칙 문서: `agent-config/rules/operations.md`, `agent-config/rules/health-rules.md` (에이전트가 읽는 규칙)
+```
+agent-registry/
+├── adapters/              — 런타임 추상화 (claude-local, process, http)
+├── heartbeat/             — Heartbeat 실행 엔진 + 타이머
+├── wakeup/                — Wakeup 요청 큐 (coalescing)
+├── skills/                — Skills 주입 관리 (symlink)
+├── domains/               — 에이전트별 도메인 후처리
+│   └── ad-strategy/       — 광고 전략 콜백
+├── __tests__/
+├── agent-registry.service.ts — CRUD + run() + completeTask() + receiveResults()
+├── agent-registry.controller.ts — REST API (CRUD + run + pause/resume + runs/state)
+└── seed-agents.ts         — 기본 에이전트 시드
+```
+
+**핵심 개념:**
+- **Adapter**: `claude_local` 등 교체 가능한 실행 런타임
+- **Heartbeat**: 짧은 실행 윈도우 단위 동작, session resume으로 연속성 보장
+- **Wakeup 4종**: `timer` | `assignment` | `on_demand` | `automation` (coalescing)
+- **Skills**: `agent-config/skills/` SKILL.md 파일을 런타임에 symlink 주입
+- **Hierarchy**: `reportsTo`로 에이전트 간 위임 (operator → specialist)
+
+**DB 테이블:**
+- `agent_definitions` — 에이전트 정의 (adapter, hierarchy, skills, permissions, 예산)
+- `heartbeat_runs` — 각 실행의 완전한 기록 (stdout, stderr, 토큰, 세션 ID)
+- `agent_wakeup_requests` — 실행 요청 큐 (source 4종, coalescing, 감사 추적)
+- `agent_runtime_state` — 에이전트별 영속 상태 (sessionId, 누적 토큰/비용)
+
+### 백엔드 모듈 구조 (15개)
+
+```
+apps/server/src/
+├── agent-registry/    — 에이전트 플랫폼 코어 (adapters, heartbeat, wakeup, skills, domains)
+├── products/          — 상품 + 썸네일 + 리뷰 + 광고 (controllers/ + services/)
+├── orders/            — 주문 + 반품 + CS (controllers/ + services/)
+├── coupang/           — 쿠팡 API + 동기화 + 대시보드 (controllers/ + services/ + client libs)
+├── inventory/         — 재고 + 재고이동 + 발주 + 미출고 (controllers/ + services/)
+├── rules/             — 건강도 + 알림 + 스케줄러 (controllers/ + services/)
+├── workflows/         — 워크플로우 엔진 (executors/ + actions/)
+├── ai/                — AI 프록시 (controllers/ + services/)
+├── finance/           — 손익 + 매출분석 (controllers/ + services/)
+├── companies/         — 회사 + 에이전트 태스크
+├── dashboard/         — 대시보드 집계 뷰
+├── activity-events/   — 활동 이력 (공유 조회)
+├── sourcing/          — 소싱
+├── common/            — 유틸리티 (kst, pagination)
+└── prisma/            — DB
+```
 
 ---
 
-## Phase 1: agent-registry 안정화 (완료)
+## Phase 1: agent-registry 안정화 ✅
 
 - [x] Prisma `AgentDefinition` 모델 추가
 - [x] `agent-registry` NestJS 모듈 (CRUD + spawn + 하트비트)
@@ -50,37 +95,69 @@ KIDITEM은 이커머스 셀러 운영 자동화 플랫폼. 현재 "대시보드"
 - [x] `app.module.ts` 등록
 - [x] CLAUDE.md 업데이트
 
-## Phase 2: 기존 에이전트 통합
+## Phase 2: 기존 에이전트 통합 ✅
 
-### 2-1. AdAgentService → agent-registry 이전
+### 2-1. AdAgentService → agent-registry 이전 ✅
 
-**현재**: `apps/server/src/ad-agent/ad-agent.service.ts`가 독자적으로 spawn
-**목표**: `agent-registry`의 `run()`을 통해 실행
+- [x] `AgentRegistryService.run()` 호출하도록 위임
+- [x] `buildPrompt()`, `spawnClaudeAgent()`, `parseClaudeOutput()`, `failTask()` 제거
+- [x] `receiveResults()` → 2-stage callback (completeTask + 도메인 후처리 with try/catch)
+- [x] 하위 호환: `/api/ad-agent/*` 라우트 유지
+- [x] ad-agent/ → agent-registry/domains/ad-strategy/ 흡수
 
-작업:
-- [ ] `AdAgentController`의 `run()`이 내부적으로 `AgentRegistryService.run('ad_strategy_def_id', ...)` 호출하도록 변경
-- [ ] `AdAgentService.buildPrompt()` 제거 → `seed-agents.ts`의 promptTemplate 사용
-- [ ] `AdAgentService.spawnClaudeAgent()` 제거 → `AgentRegistryService`의 범용 spawner 사용
-- [ ] `AdAgentService.receiveResults()` → `AgentRegistryService.receiveResults()` 위임
-- [ ] 하위 호환: `/api/ad-agent/*` 라우트는 유지 (내부만 위임)
+### 2-2. RulesService → agent-registry 이전 ✅
 
-### 2-2. RulesService → agent-registry 이전
+- [x] `seed-agents.ts`에 rules_evaluation, rules_suggest 정의 추가
+- [x] `RulesService.evaluateAll()`이 `AgentRegistryService.run()` 호출
+- [x] `spawnClaudeAgent()` 제거
+- [x] `receiveResults()` 도메인 후처리 유지 (healthScore bulk update + alert 생성)
+- [x] `suggestThresholds()`도 agent-registry 경유
+- [x] 하위 호환: `/api/rules/*` 라우트 유지
 
-**현재**: `apps/server/src/rules/rules.service.ts`가 독자적으로 spawn
-**목표**: rules_evaluation 에이전트를 `agent_definitions`에 등록
+### 2-3. Python ad_strategy 레거시 정리 ✅
 
-작업:
-- [ ] `seed-agents.ts`에 rules_evaluation 정의 추가 (현재 `buildEvaluationPrompt()` 내용 이전)
-- [ ] `RulesService.evaluateAll()`이 `AgentRegistryService.run()` 호출
-- [ ] `RulesService.spawnClaudeAgent()` 제거
-- [ ] 결과 수신: `receiveResults()`에서 healthScore 업데이트 + alert 생성 로직 유지
-- [ ] 하위 호환: `/api/rules/evaluate` 라우트 유지
+- [x] `agents/src/agents/ad_strategy/` 삭제
+- [x] `runner.py`의 AGENTS에서 `ad_strategy` 삭제
+- [x] 관련 테스트 삭제
 
-### 2-3. Python ad_strategy 레거시 정리
+## Phase 2+: Paperclip 패턴 전면 적용 + 모듈 통합 ✅
 
-- [ ] `agents/src/agents/ad_strategy/` Python 에이전트 제거
-- [ ] `runner.py`의 AGENTS에서 `ad_strategy` 삭제
-- [ ] 관련 테스트 제거
+### Agent Platform 구축 ✅
+
+- [x] Adapter 추상화: `AdapterModule` 인터페이스 + `claude-local` adapter
+- [x] Heartbeat 서비스: 4종 wakeup + session resume + timer 스케줄러
+- [x] Wakeup Queue: coalescing + 감사 추적
+- [x] Skills 시스템: `agent-config/skills/` SKILL.md → symlink 주입
+- [x] DB 스키마 확장: AgentDefinition +14 fields + 3 new tables
+- [x] Agent hierarchy: reportsTo, role, permissions
+- [x] pause/resume, resetSession, runHistory API
+
+### 백엔드 모듈 통합 (30→15) ✅
+
+- [x] products/ ← thumbnails + reviews + ads
+- [x] orders/ ← returns + cs
+- [x] coupang/ ← coupang-sync + coupang-dashboard
+- [x] inventory/ ← stock-movement + purchase-orders + unshipped
+- [x] ai/ ← text-ai + image-ai + render-image
+- [x] finance/ ← profit-loss + sales-analysis
+- [x] rules/ ← alerts
+- [x] companies/ ← agent-tasks
+- [x] ad-agent/ → agent-registry/domains/ad-strategy/
+- [x] 6개 핵심 모듈 controllers/ + services/ 하위 구조화
+
+### 디렉토리 정리 ✅
+
+- [x] agent-config/ → apps/server/agent-config/
+- [x] OPERATIONS.md, RULES.md → agent-config/rules/
+- [x] REFACTOR_PLAN.md, ARCHITECTURE.md, TODOS.md → docs/
+- [x] 불필요 파일 삭제 (.claude-flow/, .swarm/, .mcp.json, openclaw/)
+- [x] .gitignore 업데이트
+
+### 테스트 ✅
+
+- [x] Unit tests: 32개 (agent-registry, heartbeat, wakeup, ad-strategy, rules)
+- [x] E2E: ad-agent 콜백, rules 콜백, pause/resume API
+- [x] TSC: 0 errors
 
 ## Phase 3: 범용 operator 에이전트
 
@@ -88,87 +165,76 @@ KIDITEM은 이커머스 셀러 운영 자동화 플랫폼. 현재 "대시보드"
 
 `seed-agents.ts`에 추가:
 
+```typescript
+{
+  name: '셀러 운영 어시스턴트',
+  type: 'operator',
+  role: 'operator',
+  adapterType: 'claude_local',
+  skills: ['db-query', 'kiditem-api', 'data-analysis', 'result-callback'],
+  permissions: { canSpawnSubAgents: true, canAccessBrowser: true },
+  reportsTo: null,  // 최상위
+  requiresApproval: false,
+  timeoutSeconds: 300,
+}
 ```
-name: '셀러 운영 어시스턴트'
-type: 'operator'
-allowedTools: 'Bash(psql:*) Bash(curl:*) Read Browse'
-requiresApproval: false
-timeoutSeconds: 300
+
+### 3-2. 하위 에이전트 위임
+
+operator가 specialist를 wakeup으로 트리거:
+
+```
+POST /api/agent-registry/{ad_strategy_id}/run  (operator가 curl로 호출)
 ```
 
-### 3-2. operator 프롬프트에 포함할 컨텍스트
+### 3-3. Skills 추가
 
-| 컨텍스트 | 전달 방식 | 내용 |
-|----------|-----------|------|
-| DB 스키마 요약 | 프롬프트에 포함 | 주요 테이블 + 컬럼 (products, ads, inventory, orders, profit_loss, reviews) |
-| NestJS API 목록 | 프롬프트에 포함 | `apps/server/CLAUDE.md`의 라우팅 테이블 |
-| 운영 규칙 | "agent-config/rules/operations.md, agent-config/rules/health-rules.md 읽어라" | 파일 경로만 전달 |
-| 셀러 정보 | 프롬프트 변수 `{{company_id}}` | 실행 시 주입 |
-| 사용자 요청 | 프롬프트 변수 `{{user_request}}` | "이 상품 왜 안 팔려?" 등 |
-| 결과 API | 프롬프트 변수 `{{result_api}}` | 콜백 URL |
+- [ ] `agent-config/skills/kiditem-api/SKILL.md` — KidItem 내부 API 사용법
+- [ ] `agent-config/skills/data-analysis/SKILL.md` — 데이터 분석 패턴
+- [ ] `agent-config/skills/coupang-browse/SKILL.md` — 쿠팡 대시보드 브라우저 조작
 
-### 3-3. operator 실행 API
+### 3-4. operator 실행 API
 
 ```
 POST /api/agent-registry/operator/ask
 Body: { companyId, request: "이 상품 왜 안 팔려?", productId?: "..." }
 ```
 
-AgentRegistryController에 추가. 내부적으로 operator 정의를 찾아서 run().
+## Phase 4: 프론트엔드 에이전트 관리 UI
 
-### 3-4. Browse 도구 연동
+API 준비 완료 — 프론트 구현만 필요:
 
-- [ ] `--allowedTools`에 Browse 추가 (쿠팡 대시보드 조작)
-- [ ] `CLAUDE_AD_AGENT.md`의 브라우저 네비게이션 가이드를 operator 프롬프트에 통합
-- [ ] 세션 만료 감지 로직
+- [ ] 에이전트 목록 (`GET /api/agent-registry`)
+- [ ] 에이전트 상세 + 실행 이력 (`GET /api/agent-registry/:id/runs`)
+- [ ] 런타임 상태 모니터링 (`GET /api/agent-registry/:id/runtime-state`)
+- [ ] Pause/Resume 토글 (`POST /api/agent-registry/:id/pause`, `/resume`)
+- [ ] 세션 리셋 (`POST /api/agent-registry/:id/reset-session`)
+- [ ] 수동 실행 트리거 (`POST /api/agent-registry/:id/run`)
+- [ ] 실시간 로그 스트리밍 (SSE)
 
-## Phase 4: 전용 에이전트 추가
+## Phase 5: 전용 에이전트 추가
 
-### 4-1. pricing 에이전트
-
-```
-type: 'pricing'
-규칙 문서: PRICING_agent-config/rules/health-rules.md (신규 작성)
-스케줄: '0 10 * * *' (매일 오전 10시)
-판단 기준:
-  - 마진율 < 30% → 가격 인상 추천
-  - 원가율 > 70% → 소싱처 변경 추천
-  - 경쟁사 대비 20% 이상 고가 → 가격 인하 추천
-```
-
-### 4-2. inventory_alert 에이전트
+### 5-1. pricing 에이전트
 
 ```
-type: 'inventory_alert'
-스케줄: '0 */6 * * *' (6시간마다)
-판단 기준:
-  - 재고 < 안전재고 → 발주 추천
-  - 재고 0 + 판매 진행 중 → 긴급 알림
-  - 입고 예정일 > 3일 + 재고 부족 → 대체 공급사 추천
+type: 'pricing', role: 'specialist'
+규칙: agent-config/rules/pricing.md (신규)
+스케줄: '0 10 * * *'
 ```
 
-### 4-3. review_monitor 에이전트
+### 5-2. inventory_alert 에이전트
 
 ```
-type: 'review_monitor'
-스케줄: '0 9 * * *' (매일 오전 9시)
-판단 기준:
-  - 평점 < 3.5 → 리스팅 개선 추천
-  - 최근 1주 악성 리뷰 급증 → 긴급 알림
-  - 키워드 분석 → 개선 포인트 추출
+type: 'inventory_alert', role: 'specialist'
+스케줄: '0 */6 * * *'
 ```
 
-## Phase 5: CLAUDE.md 최종 정리
+### 5-3. review_monitor 에이전트
 
-Phase 2~4 완료 후 전체 문서 동기화:
-
-- [ ] 루트 `CLAUDE.md` — 에이전트 아키텍처 최종 반영
-- [ ] `apps/server/CLAUDE.md` — agent-registry 라우트 완성
-- [ ] `agents/CLAUDE.md` — Python 에이전트만 남은 상태 반영
-- [ ] `prisma/CLAUDE.md` — 모델 목록 업데이트
-- [ ] `CLAUDE_AD_AGENT.md` — 삭제 또는 operator 프롬프트 가이드로 통합
-- [ ] `agent-config/rules/operations.md` — pricing, inventory 규칙 추가
-- [ ] `agent-config/rules/health-rules.md` — 현행 유지
+```
+type: 'review_monitor', role: 'specialist'
+스케줄: '0 9 * * *'
+```
 
 ## Phase 6: SaaS 대비 (장기)
 
@@ -176,33 +242,23 @@ Phase 2~4 완료 후 전체 문서 동기화:
 - [ ] Tier 2 배치 AI: 규칙 벗어나는 케이스만 AI 배치 분석
 - [ ] Tier 3 Claude CLI: 사용자 요청/브라우저 조작만
 - [ ] 셀러별 `monthlyTokenBudget` 과금 체계
-- [ ] `agent_definitions`를 셀러가 직접 커스텀 (프롬프트 수정, 규칙 추가)
+- [ ] `agent_definitions`를 셀러가 직접 커스텀
 
 ---
 
 ## 규칙 (작업 시 반드시 준수)
 
 1. **기존 API 하위 호환 유지** — 라우트 삭제 금지, 내부만 위임
-2. **NestJS 도메인 모듈 패턴 준수** — Controller + Service + Module 한 폴더
+2. **도메인 모듈 패턴** — 큰 모듈은 controllers/ + services/ 하위 구조
 3. **Native PG enum 금지** → String + validation
-4. **Python 에이전트 (content, image_edit, sourcing) 건드리지 않음** — 별도 런타임
+4. **Python 에이전트 (content, image_edit, sourcing, inventory) 건드리지 않음**
 5. **agent_definitions.type은 unique** — 중복 타입 등록 금지
 6. **프롬프트 템플릿에 DB URL 하드코딩 금지** → `{{db_url}}` 변수 사용
-7. **CLAUDE.md 변경 시 해당 Phase 완료 후에만** — 중간 상태로 문서 수정 금지
+7. **도메인 후처리 예외 시 try/catch + logging** — silent failure 방지
+8. **새 에이전트 추가 = seed-agents.ts + skills + 도메인 콜백(필요 시)**
 
-## GSTACK REVIEW REPORT
+## Review History
 
-| Review | Trigger | Why | Runs | Status | Findings |
-|--------|---------|-----|------|--------|----------|
-| CEO Review | `/plan-ceo-review` | Scope & strategy | 0 | — | — |
-| Codex Review | `/codex review` | Independent 2nd opinion | 0 | — | — |
-| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | CLEAR | 3 issues, 1 critical gap |
-| Design Review | `/plan-design-review` | UI/UX gaps | 0 | — | — |
-
-**ENG REVIEW FINDINGS (Phase 2):**
-- Issue 1: receiveResults() 후처리 → 2단계 콜백 (agent-registry 공통 + 도메인 후처리) ✅
-- Issue 2: promptTemplate 정본 → seed-agents.ts ✅ (ad-agent buildPrompt() 제거)
-- Issue 3: rules-scheduler → 유지하되 실행만 agent-registry.run() 위임 ✅
-- Critical gap: 도메인 후처리 예외 시 silent failure → try/catch + logging 필수
-
-**VERDICT:** ENG CLEARED — ready to implement Phase 2.
+| Review | Trigger | Runs | Status | Findings |
+|--------|---------|------|--------|----------|
+| Eng Review | `/plan-eng-review` | 1 | CLEARED | 3 issues resolved, 1 critical gap fixed |
