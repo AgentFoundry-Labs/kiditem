@@ -2,6 +2,7 @@ import { Controller, Get, NotFoundException, Query } from '@nestjs/common';
 import { CoupangDashboardService } from '../services/coupang-dashboard.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { kstDayStart } from '../../common/kst';
+import { CoupangDateRangeQueryDto } from '../dto';
 
 @Controller('coupang-dashboard')
 export class CoupangDashboardController {
@@ -22,10 +23,8 @@ export class CoupangDashboardController {
   }
 
   @Get('trend')
-  async getRevenueTrend(
-    @Query('from') fromStr?: string,
-    @Query('to') toStr?: string,
-  ) {
+  async getRevenueTrend(@Query() query: CoupangDateRangeQueryDto) {
+    const { from: fromStr, to: toStr } = query;
     const company = await this.prisma.company.findFirst({
       orderBy: { createdAt: 'asc' },
     });
@@ -43,10 +42,8 @@ export class CoupangDashboardController {
   }
 
   @Get('ranking')
-  async getProductRanking(
-    @Query('from') fromStr?: string,
-    @Query('to') toStr?: string,
-  ) {
+  async getProductRanking(@Query() query: CoupangDateRangeQueryDto) {
+    const { from: fromStr, to: toStr } = query;
     const company = await this.prisma.company.findFirst({
       orderBy: { createdAt: 'asc' },
     });
@@ -64,10 +61,8 @@ export class CoupangDashboardController {
   }
 
   @Get('return-summary')
-  async getReturnSummary(
-    @Query('from') fromStr?: string,
-    @Query('to') toStr?: string,
-  ) {
+  async getReturnSummary(@Query() query: CoupangDateRangeQueryDto) {
+    const { from: fromStr, to: toStr } = query;
     const company = await this.prisma.company.findFirst({
       orderBy: { createdAt: 'asc' },
     });
@@ -85,10 +80,8 @@ export class CoupangDashboardController {
   }
 
   @Get('return-reasons')
-  async getReturnReasonBreakdown(
-    @Query('from') fromStr?: string,
-    @Query('to') toStr?: string,
-  ) {
+  async getReturnReasonBreakdown(@Query() query: CoupangDateRangeQueryDto) {
+    const { from: fromStr, to: toStr } = query;
     const company = await this.prisma.company.findFirst({
       orderBy: { createdAt: 'asc' },
     });
@@ -106,10 +99,8 @@ export class CoupangDashboardController {
   }
 
   @Get('return-fault-split')
-  async getReturnFaultSplit(
-    @Query('from') fromStr?: string,
-    @Query('to') toStr?: string,
-  ) {
+  async getReturnFaultSplit(@Query() query: CoupangDateRangeQueryDto) {
+    const { from: fromStr, to: toStr } = query;
     const company = await this.prisma.company.findFirst({
       orderBy: { createdAt: 'asc' },
     });

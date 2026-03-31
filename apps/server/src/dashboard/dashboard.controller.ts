@@ -1,5 +1,6 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { DashboardService } from './dashboard.service';
+import { DashboardTrendQueryDto } from './dto';
 
 @Controller('dashboard')
 export class DashboardController {
@@ -11,7 +12,7 @@ export class DashboardController {
   }
 
   @Get('trend')
-  getTrend(@Query('range') range: string) {
-    return this.dashboardService.getTrend(range || '30d');
+  getTrend(@Query() query: DashboardTrendQueryDto) {
+    return this.dashboardService.getTrend(query.range);
   }
 }

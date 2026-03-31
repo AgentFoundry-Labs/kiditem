@@ -1,17 +1,23 @@
-import { Controller, Get, Post, Patch, Delete, Body, Query, Param, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Query, Param } from '@nestjs/common';
 import { AgentRegistryService } from './agent-registry.service';
+import {
+  ListAgentsQueryDto,
+  CostAnalyticsQueryDto,
+  CreateAgentBodyDto,
+  UpdateAgentBodyDto,
+  RunAgentBodyDto,
+  ReceiveResultsBodyDto,
+  PauseAgentBodyDto,
+  RunHistoryQueryDto,
+} from './dto';
 
 @Controller('agent-registry')
 export class AgentRegistryController {
   constructor(private readonly service: AgentRegistryService) {}
 
   @Get()
-  list(
-    @Query('companyId') companyId: string,
-    @Query('isActive') isActive?: string,
-  ) {
-    if (!companyId) throw new BadRequestException('companyId is required');
-    return this.service.list({ companyId, isActive });
+  list(@Query() query: ListAgentsQueryDto) {
+    return this.service.list(query);
   }
 
   @Get('org')
@@ -20,12 +26,8 @@ export class AgentRegistryController {
   }
 
   @Get('cost-analytics')
-  getCostAnalytics(
-    @Query('from') from?: string,
-    @Query('to') to?: string,
-    @Query('agentId') agentId?: string,
-  ) {
-    return this.service.getCostAnalytics({ from, to, agentId });
+  getCostAnalytics(@Query() query: CostAnalyticsQueryDto) {
+    return this.service.getCostAnalytics(query);
   }
 
   @Get(':id')
@@ -34,26 +36,12 @@ export class AgentRegistryController {
   }
 
   @Post()
-  create(
-    @Body() body: {
-      companyId?: string;
-      name: string;
-      type: string;
-      description?: string;
-      promptTemplate: string;
-      allowedTools?: string;
-      permissionMode?: string;
-      monthlyTokenBudget?: number;
-      schedule?: string;
-      timeoutSeconds?: number;
-      requiresApproval?: boolean;
-    },
-  ) {
+  create(@Body() body: CreateAgentBodyDto) {
     return this.service.create(body);
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() body: Record<string, unknown>) {
+  update(@Param('id') id: string, @Body() body: UpdateAgentBodyDto) {
     return this.service.update(id, body as any);
   }
 
@@ -65,22 +53,12 @@ export class AgentRegistryController {
   // ── 실행 ──
 
   @Post(':id/run')
-  run(
-    @Param('id') id: string,
-    @Body() body: {
-      companyId?: string;
-      dryRun?: boolean;
-      extra?: Record<string, unknown>;
-    },
-  ) {
+  run(@Param('id') id: string, @Body() body: RunAgentBodyDto) {
     return this.service.run(id, body);
   }
 
   @Post('results/:taskId')
-  receiveResults(
-    @Param('taskId') taskId: string,
-    @Body() body: { actions?: unknown[]; summary?: Record<string, unknown>; tokensUsed?: number },
-  ) {
+  receiveResults(@Param('taskId') taskId: string, @Body() body: ReceiveResultsBodyDto) {
     return this.service.receiveResults(taskId, body);
   }
 
@@ -88,7 +66,6 @@ export class AgentRegistryController {
 
   @Post('sync-timers')
   syncTimers() {
-    // HeartbeatService가 내부에서 호출됨 — 수동 트리거용
     return this.service.onModuleInit();
   }
 
@@ -98,7 +75,7 @@ export class AgentRegistryController {
   }
 
   @Post(':id/pause')
-  pause(@Param('id') id: string, @Body() body: { reason?: string }) {
+  pause(@Param('id') id: string, @Body() body: PauseAgentBodyDto) {
     return this.service.pauseAgent(id, body.reason);
   }
 
@@ -113,8 +90,8 @@ export class AgentRegistryController {
   }
 
   @Get(':id/runs')
-  getRunHistory(@Param('id') id: string, @Query('limit') limit?: string) {
-    return this.service.getRunHistory(id, limit ? parseInt(limit) : undefined);
+  getRunHistory(@Param('id') id: string, @Query() query: RunHistoryQueryDto) {
+    return this.service.getRunHistory(id, query.limit);
   }
 
   @Get(':id/runtime-state')

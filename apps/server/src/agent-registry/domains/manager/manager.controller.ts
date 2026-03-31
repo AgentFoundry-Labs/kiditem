@@ -1,44 +1,23 @@
 import { Controller, Post, Get, Body, Query, Param } from '@nestjs/common';
 import { ManagerService } from './manager.service';
+import { ManagerAskBodyDto, ReceiveManagerResultsBodyDto, ListConversationsQueryDto } from './dto';
 
 @Controller('manager')
 export class ManagerController {
   constructor(private readonly managerService: ManagerService) {}
 
   @Post('ask')
-  ask(
-    @Body()
-    body: {
-      companyId: string;
-      request: string;
-      productId?: string;
-      context?: Record<string, unknown>;
-    },
-  ) {
+  ask(@Body() body: ManagerAskBodyDto) {
     return this.managerService.ask(body);
   }
 
   @Post('results/:taskId')
-  receiveResults(
-    @Param('taskId') taskId: string,
-    @Body() body: {
-      answer?: string;
-      data?: Record<string, unknown>;
-      recommendations?: any[];
-      tokensUsed?: number;
-    },
-  ) {
+  receiveResults(@Param('taskId') taskId: string, @Body() body: ReceiveManagerResultsBodyDto) {
     return this.managerService.receiveResults(taskId, body);
   }
 
   @Get('conversations')
-  getConversations(
-    @Query('companyId') companyId: string,
-    @Query('limit') limit?: string,
-  ) {
-    return this.managerService.getConversations(
-      companyId,
-      limit ? parseInt(limit) : undefined,
-    );
+  getConversations(@Query() query: ListConversationsQueryDto) {
+    return this.managerService.getConversations(query.companyId, query.limit);
   }
 }

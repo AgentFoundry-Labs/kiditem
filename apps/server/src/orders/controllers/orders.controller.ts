@@ -1,12 +1,13 @@
-import { Controller, Get, Post, Body, Param, Query, BadRequestException, ServiceUnavailableException } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Query, ServiceUnavailableException } from '@nestjs/common';
 import { OrdersService } from '../services/orders.service';
+import { ListOrdersQueryDto, OrderActionBodyDto } from '../dto';
 
 @Controller('orders')
 export class OrdersController {
   constructor(private readonly ordersService: OrdersService) {}
 
   @Get()
-  findAll(@Query() query: { from?: string; to?: string; status?: string }) {
+  findAll(@Query() query: ListOrdersQueryDto) {
     return this.ordersService.findAll(query);
   }
 
@@ -21,29 +22,21 @@ export class OrdersController {
   }
 
   @Post()
-  async handleAction(@Body() body: { action?: string; shipmentBoxIds?: number[]; shipmentBoxId?: number; deliveryCompanyCode?: string; invoiceNumber?: string }) {
+  async handleAction(@Body() body: OrderActionBodyDto) {
     if (body.action === 'confirm') {
-      if (!body.shipmentBoxIds?.length) {
-        throw new BadRequestException('승인할 주문을 선택하세요.');
-      }
       try {
-        return await this.ordersService.confirm(body.shipmentBoxIds);
+        return await this.ordersService.confirm(body.shipmentBoxIds!);
       } catch {
         throw new ServiceUnavailableException('쿠팡 API가 연결되지 않았습니다.');
       }
     }
 
     if (body.action === 'invoice') {
-      if (!body.shipmentBoxId || !body.deliveryCompanyCode || !body.invoiceNumber) {
-        throw new BadRequestException('배송정보를 모두 입력하세요.');
-      }
       try {
-        return await this.ordersService.uploadInvoice(body.shipmentBoxId, body.deliveryCompanyCode, body.invoiceNumber);
+        return await this.ordersService.uploadInvoice(body.shipmentBoxId!, body.deliveryCompanyCode!, body.invoiceNumber!);
       } catch {
         throw new ServiceUnavailableException('쿠팡 API가 연결되지 않았습니다.');
       }
     }
-
-    throw new BadRequestException('알 수 없는 액션');
   }
 }

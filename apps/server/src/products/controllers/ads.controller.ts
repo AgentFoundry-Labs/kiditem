@@ -1,5 +1,6 @@
 import { Controller, Get, Patch, Param, Body, Query } from '@nestjs/common';
 import { AdsService } from '../services/ads.service';
+import { ListAdsQueryDto, ChangeAdTierBodyDto } from '../dto';
 
 @Controller('ads')
 export class AdsController {
@@ -13,16 +14,13 @@ export class AdsController {
   @Patch(':id/tier')
   changeTier(
     @Param('id') id: string,
-    @Body('adTier') adTier: string,
+    @Body() body: ChangeAdTierBodyDto,
   ) {
-    return this.adsService.changeTier(id, adTier);
+    return this.adsService.changeTier(id, body.adTier);
   }
 
   @Get()
-  findAll(
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-  ) {
-    return this.adsService.findAll({ page, limit });
+  findAll(@Query() query: ListAdsQueryDto) {
+    return this.adsService.findAll(query as any);
   }
 }

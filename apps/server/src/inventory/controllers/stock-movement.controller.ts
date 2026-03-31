@@ -1,31 +1,18 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { StockMovementService } from '../services/stock-movement.service';
+import { ListStockMovementQueryDto, StockMovementSummaryQueryDto } from '../dto';
 
 @Controller('stock-movement')
 export class StockMovementController {
   constructor(private readonly stockMovementService: StockMovementService) {}
 
   @Get()
-  findAll(
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-    @Query('type') type?: string,
-    @Query('from') from?: string,
-    @Query('groupBy') groupBy?: string,
-  ) {
-    return this.stockMovementService.findAll({
-      page: page ? parseInt(page, 10) : 1,
-      limit: limit ? parseInt(limit, 10) : 20,
-      type,
-      from,
-      groupBy,
-    });
+  findAll(@Query() query: ListStockMovementQueryDto) {
+    return this.stockMovementService.findAll(query as any);
   }
 
   @Get('summary')
-  getSummary(@Query('days') days?: string) {
-    return this.stockMovementService.getSummary(
-      days ? parseInt(days, 10) : 30,
-    );
+  getSummary(@Query() query: StockMovementSummaryQueryDto) {
+    return this.stockMovementService.getSummary(query.days!);
   }
 }

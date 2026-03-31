@@ -3,6 +3,7 @@ import { Response } from 'express';
 import * as fs from 'fs';
 import * as path from 'path';
 import puppeteer from 'puppeteer';
+import { RenderImageBodyDto } from '../dto';
 
 const STATIC_ROOT = '/data/products';
 const PROCESSED_PREFIX = '/processed/';
@@ -74,7 +75,7 @@ export class RenderImageController {
 
   @Post()
   @HttpCode(200)
-  async render(@Body() body: { html: string }, @Res() res: Response) {
+  async render(@Body() body: RenderImageBodyDto, @Res() res: Response): Promise<void> {
     const browser = await puppeteer.launch({
       headless: true,
       executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,

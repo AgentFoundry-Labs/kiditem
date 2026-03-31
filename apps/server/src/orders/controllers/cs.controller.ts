@@ -1,31 +1,18 @@
 import { Controller, Get, Post, Body, Query } from '@nestjs/common';
 import { CsService } from '../services/cs.service';
+import { ListCsQueryDto, CreateCsBodyDto } from '../dto';
 
 @Controller('cs')
 export class CsController {
   constructor(private readonly csService: CsService) {}
 
   @Get()
-  findAll(
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-    @Query('csStatus') csStatus?: string,
-  ) {
-    return this.csService.findAll({ page, limit, csStatus });
+  findAll(@Query() query: ListCsQueryDto) {
+    return this.csService.findAll(query as any);
   }
 
   @Post()
-  create(
-    @Body()
-    body: {
-      csType: string;
-      content: string;
-      priority?: string;
-      assignee?: string;
-      orderId?: string;
-      productId?: string;
-    },
-  ) {
+  create(@Body() body: CreateCsBodyDto) {
     return this.csService.create(body);
   }
 }

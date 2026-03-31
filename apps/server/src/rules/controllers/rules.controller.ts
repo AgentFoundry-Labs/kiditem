@@ -2,6 +2,13 @@ import { Controller, Get, Post, Patch, Param, Query, Body } from '@nestjs/common
 import { RulesService } from '../services/rules.service';
 import { RulesSchedulerService } from '../services/rules-scheduler.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import {
+  ListRulesQueryDto,
+  EvaluateRulesQueryDto,
+  ReceiveRuleResultsBodyDto,
+  UpdateRuleBodyDto,
+  UpdateScheduleBodyDto,
+} from '../dto';
 
 @Controller('rules')
 export class RulesController {
@@ -19,15 +26,12 @@ export class RulesController {
   }
 
   @Post('evaluate')
-  async evaluate(@Query('companyId') companyId?: string) {
-    return this.rulesService.evaluateAll(await this.resolveCompanyId(companyId));
+  async evaluate(@Query() query: EvaluateRulesQueryDto) {
+    return this.rulesService.evaluateAll(await this.resolveCompanyId(query.companyId));
   }
 
   @Post('results/:taskId')
-  receiveResults(
-    @Param('taskId') taskId: string,
-    @Body() body: { products?: any[]; summary?: Record<string, unknown> },
-  ) {
+  receiveResults(@Param('taskId') taskId: string, @Body() body: ReceiveRuleResultsBodyDto) {
     return this.rulesService.receiveResults(taskId, body);
   }
 
@@ -42,13 +46,10 @@ export class RulesController {
   }
 
   @Get()
-  async findAll(
-    @Query('companyId') companyId?: string,
-    @Query('category') category?: string,
-  ) {
+  async findAll(@Query() query: ListRulesQueryDto) {
     return this.rulesService.findAllRules(
-      await this.resolveCompanyId(companyId),
-      category,
+      await this.resolveCompanyId(query.companyId),
+      query.category,
     );
   }
 
@@ -65,15 +66,12 @@ export class RulesController {
   }
 
   @Patch('schedule')
-  updateSchedule(@Body() body: { schedule: string }) {
+  updateSchedule(@Body() body: UpdateScheduleBodyDto) {
     return this.schedulerService.setSchedule(body.schedule);
   }
 
   @Patch(':id')
-  update(
-    @Param('id') id: string,
-    @Body() body: { threshold?: unknown; active?: boolean; autoExecute?: boolean },
-  ) {
+  update(@Param('id') id: string, @Body() body: UpdateRuleBodyDto) {
     return this.rulesService.updateRule(id, body);
   }
 }

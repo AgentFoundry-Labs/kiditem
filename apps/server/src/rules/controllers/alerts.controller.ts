@@ -1,13 +1,14 @@
 import { Controller, Get, Patch, Param, Query } from '@nestjs/common';
 import { AlertsService } from '../services/alerts.service';
+import { ListAlertsQueryDto } from '../dto';
 
 @Controller('alerts')
 export class AlertsController {
   constructor(private readonly alertsService: AlertsService) {}
 
   @Get()
-  findAll(@Query('limit') limit?: string) {
-    return this.alertsService.findAll(limit ? parseInt(limit, 10) : undefined);
+  findAll(@Query() query: ListAlertsQueryDto) {
+    return this.alertsService.findAll(query.limit);
   }
 
   @Patch('read-all')

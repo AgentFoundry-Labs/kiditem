@@ -1,17 +1,14 @@
 import { Controller, Get, Patch, Param, Body, Query } from '@nestjs/common';
 import { InventoryService } from '../services/inventory.service';
+import { ListInventoryQueryDto, ReceiveStockBodyDto } from '../dto';
 
 @Controller('inventory')
 export class InventoryController {
   constructor(private readonly inventoryService: InventoryService) {}
 
   @Get()
-  findAll(
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-    @Query('status') status?: string,
-  ) {
-    return this.inventoryService.findAll({ page, limit, status });
+  findAll(@Query() query: ListInventoryQueryDto) {
+    return this.inventoryService.findAll(query as any);
   }
 
   @Get('by-product/:productId')
@@ -22,7 +19,7 @@ export class InventoryController {
   @Patch(':id/receive')
   receive(
     @Param('id') id: string,
-    @Body() body: { quantity: number },
+    @Body() body: ReceiveStockBodyDto,
   ) {
     return this.inventoryService.receiveStock(id, body.quantity);
   }

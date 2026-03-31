@@ -1,27 +1,18 @@
 import { Controller, Post, Get, Body, Query, Param } from '@nestjs/common';
 import { AdStrategyService } from './ad-strategy.service';
+import { RunAdStrategyBodyDto, ReceiveAdResultsBodyDto, ListAdRunsQueryDto } from './dto';
 
 @Controller('ad-agent')
 export class AdStrategyController {
   constructor(private readonly adStrategyService: AdStrategyService) {}
 
   @Post('run')
-  run(
-    @Body()
-    body: {
-      companyId?: string;
-      dryRun?: boolean;
-      dailyBudgetLimit?: number;
-    },
-  ) {
+  run(@Body() body: RunAdStrategyBodyDto) {
     return this.adStrategyService.run(body);
   }
 
   @Post('results/:taskId')
-  receiveResults(
-    @Param('taskId') taskId: string,
-    @Body() body: { actions?: unknown[]; summary?: Record<string, unknown> },
-  ) {
+  receiveResults(@Param('taskId') taskId: string, @Body() body: ReceiveAdResultsBodyDto) {
     return this.adStrategyService.receiveResults(taskId, body);
   }
 
@@ -36,10 +27,7 @@ export class AdStrategyController {
   }
 
   @Get('runs')
-  getRuns(
-    @Query('companyId') companyId?: string,
-    @Query('limit') limit?: string,
-  ) {
-    return this.adStrategyService.getRuns({ companyId, limit });
+  getRuns(@Query() query: ListAdRunsQueryDto) {
+    return this.adStrategyService.getRuns(query as any);
   }
 }

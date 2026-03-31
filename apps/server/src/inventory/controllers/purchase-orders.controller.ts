@@ -1,12 +1,6 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Query,
-  Body,
-  BadRequestException,
-} from '@nestjs/common';
+import { Controller, Get, Post, Query, Body } from '@nestjs/common';
 import { PurchaseOrdersService } from '../services/purchase-orders.service';
+import { ListPurchaseOrdersQueryDto, PurchaseOrderActionBodyDto } from '../dto';
 
 @Controller('purchase-orders')
 export class PurchaseOrdersController {
@@ -15,35 +9,20 @@ export class PurchaseOrdersController {
   ) {}
 
   @Get()
-  findAll(
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-    @Query('status') status?: string,
-  ) {
-    return this.purchaseOrdersService.findAll({
-      page: page ? parseInt(page, 10) : 1,
-      limit: limit ? parseInt(limit, 10) : 20,
-      status,
-    });
+  findAll(@Query() query: ListPurchaseOrdersQueryDto) {
+    return this.purchaseOrdersService.findAll(query as any);
   }
 
   @Post()
-  async handleAction(@Body() body: Record<string, unknown>) {
-    const { action, ...data } = body;
-    switch (action) {
-      case 'create':
-        return this.purchaseOrdersService.create(
-          data as Parameters<PurchaseOrdersService['create']>[0],
-        );
-      case 'updateStatus':
-        return this.purchaseOrdersService.updateStatus(
-          data.id as string,
-          data.status as string,
-        );
-      case 'delete':
-        return this.purchaseOrdersService.delete(data.id as string);
-      default:
-        throw new BadRequestException('Unknown action');
+  async handleAction(@Body() body: PurchaseOrderActionBodyDto) {
+    if (body.action === 'create') {
+      return this.purchaseOrdersService.create(body as any);
+    }
+    if (body.action === 'updateStatus') {
+      return this.purchaseOrdersService.updateStatus(body.id!, body.status!);
+    }
+    if (body.action === 'delete') {
+      return this.purchaseOrdersService.delete(body.id!);
     }
   }
 }

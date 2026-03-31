@@ -4,17 +4,15 @@ import {
   type ThumbnailsListResponse,
   type ThumbnailSummary,
 } from '../services/thumbnails.service';
+import { ListThumbnailsQueryDto } from '../dto';
 
 @Controller('thumbnails')
 export class ThumbnailsController {
   constructor(private readonly thumbnailsService: ThumbnailsService) {}
 
   @Get()
-  findAll(
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-  ): Promise<ThumbnailsListResponse> {
-    return this.thumbnailsService.findAll({ page, limit });
+  findAll(@Query() query: ListThumbnailsQueryDto): Promise<ThumbnailsListResponse> {
+    return this.thumbnailsService.findAll(query as any);
   }
 
   @Get('summary')

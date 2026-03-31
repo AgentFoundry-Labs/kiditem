@@ -1,23 +1,19 @@
-import { Controller, Get, Post, Body, Query, Param, BadRequestException, HttpCode } from '@nestjs/common';
+import { Controller, Get, Post, Body, Query, Param, HttpCode } from '@nestjs/common';
 import { AgentTasksService } from './agent-tasks.service';
-
-const VALID_AGENTS = ['inventory', 'sourcing', 'content', 'listing', 'pricing', 'cs', 'ad_strategy'];
+import { CreateAgentTaskBodyDto, ListAgentTasksQueryDto } from './dto';
 
 @Controller('agent-tasks')
 export class AgentTasksController {
   constructor(private readonly agentTasksService: AgentTasksService) {}
 
   @Post()
-  create(@Body() body: { agentType: string; input?: Record<string, unknown> }) {
-    if (!body.agentType || !VALID_AGENTS.includes(body.agentType)) {
-      throw new BadRequestException(`Invalid agent type. Valid: ${VALID_AGENTS.join(', ')}`);
-    }
+  create(@Body() body: CreateAgentTaskBodyDto) {
     return this.agentTasksService.create(body.agentType, body.input);
   }
 
   @Get()
-  findAll(@Query() query: { status?: string; agentType?: string; limit?: string }) {
-    return this.agentTasksService.findAll(query);
+  findAll(@Query() query: ListAgentTasksQueryDto) {
+    return this.agentTasksService.findAll(query as any);
   }
 
   @Get(':id')

@@ -1,28 +1,25 @@
 import { Controller, Get, Post, Put, Delete, Body, Param, Query, HttpCode, NotFoundException } from '@nestjs/common';
 import { ProductsService } from '../services/products.service';
+import {
+  ListProductsQueryDto,
+  PipelineStatsQueryDto,
+  CreateProductBodyDto,
+  type UpdateDraftContentBody,
+  TriggerContentDraftBodyDto,
+} from '../dto';
 
 @Controller('products')
 export class ProductsController {
   constructor(private readonly productsService: ProductsService) {}
 
   @Get()
-  findAll(
-    @Query('grade') grade?: string,
-    @Query('status') status?: string,
-    @Query('search') search?: string,
-    @Query('company') company?: string,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-    @Query('maxProfitRate') maxProfitRate?: string,
-    @Query('period') period?: string,
-    @Query('orderBy') orderBy?: string,
-  ) {
-    return this.productsService.findAll({ grade, status, search, company, page, limit, maxProfitRate, period, orderBy });
+  findAll(@Query() query: ListProductsQueryDto) {
+    return this.productsService.findAll(query as any);
   }
 
   @Get('pipeline-stats')
-  getPipelineStats(@Query('status') status?: string) {
-    return this.productsService.getPipelineStats(status);
+  getPipelineStats(@Query() query: PipelineStatsQueryDto) {
+    return this.productsService.getPipelineStats(query.status);
   }
 
   @Get(':id')
@@ -53,15 +50,15 @@ export class ProductsController {
   @Post(':id/trigger-content-draft')
   async triggerContentDraft(
     @Param('id') id: string,
-    @Body() body: { seed_hook_text?: string; seed_hook_title_sub?: string; seed_hero_image?: string; color_image_urls?: string[] },
+    @Body() body: TriggerContentDraftBodyDto,
   ) {
     return this.productsService.triggerContentDraft(id, body);
   }
 
   @Post()
   @HttpCode(201)
-  create(@Body() body: Record<string, unknown>) {
-    return this.productsService.create(body);
+  create(@Body() body: CreateProductBodyDto) {
+    return this.productsService.create(body as any);
   }
 
   @Delete(':id')

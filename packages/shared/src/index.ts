@@ -69,6 +69,51 @@ export {
 } from './schemas/marketplace.js';
 export type { ConfigurableParam, WorkflowCatalogItem, AgentCatalogItem } from './schemas/marketplace.js';
 
+// Dashboard
+export {
+  DashboardSummarySchema,
+  DashboardTrendItemSchema,
+} from './schemas/dashboard.js';
+export type { DashboardSummary, DashboardTrendItem } from './schemas/dashboard.js';
+
+// Reviews
+export {
+  ReviewListItemSchema,
+} from './schemas/reviews.js';
+export type { ReviewListItem } from './schemas/reviews.js';
+
+// Thumbnails
+export {
+  ThumbnailListItemSchema,
+  ThumbnailSummarySchema,
+} from './schemas/thumbnails.js';
+export type { ThumbnailListItem, ThumbnailSummary } from './schemas/thumbnails.js';
+
+// Ads
+export {
+  AdsListItemSchema,
+  AdsHubDataSchema,
+} from './schemas/ads.js';
+export type { AdsListItem, AdsHubData } from './schemas/ads.js';
+
+// Alerts
+export {
+  AlertItemSchema,
+} from './schemas/alerts.js';
+export type { AlertItem } from './schemas/alerts.js';
+
+// Rules
+export {
+  RuleItemSchema,
+} from './schemas/rules.js';
+export type { RuleItem } from './schemas/rules.js';
+
+// Agent Tasks
+export {
+  AgentTaskItemSchema,
+} from './schemas/agent-tasks.js';
+export type { AgentTaskItem } from './schemas/agent-tasks.js';
+
 // Errors
 export { ErrorCodes } from './errors/codes.js';
 export { AppException } from './errors/app-exception.js';

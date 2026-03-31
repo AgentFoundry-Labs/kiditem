@@ -1,5 +1,6 @@
-import { BadRequestException, Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get, Query } from '@nestjs/common';
 import { OntologyService } from './ontology.service';
+import { OntologyProductsQueryDto } from './dto';
 
 @Controller('ontology')
 export class OntologyController {
@@ -11,11 +12,7 @@ export class OntologyController {
   }
 
   @Get('products')
-  getProducts(
-    @Query('category') category: string,
-    @Query('brand') brand?: string,
-  ) {
-    if (!category) throw new BadRequestException('category is required');
-    return this.ontologyService.getProducts(category, brand);
+  getProducts(@Query() query: OntologyProductsQueryDto) {
+    return this.ontologyService.getProducts(query.category, query.brand);
   }
 }
