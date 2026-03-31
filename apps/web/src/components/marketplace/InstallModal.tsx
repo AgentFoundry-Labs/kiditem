@@ -56,7 +56,7 @@ export function InstallModal({
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
           <div>
             <h2 className="text-base font-semibold text-gray-900">
-              {type === 'workflow' ? '워크플로우 설치' : '에이전트 활성화'}
+              {type === 'workflow' ? '워크플로우 설치' : '에이전트 고용'}
             </h2>
             <p className="text-xs text-gray-500 mt-0.5">{title}</p>
           </div>
@@ -101,7 +101,7 @@ export function InstallModal({
             disabled={installing}
             className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors disabled:opacity-50"
           >
-            {installing ? '설치 중...' : type === 'workflow' ? '설치' : '활성화'}
+            {installing ? '설치 중...' : type === 'workflow' ? '설치' : '고용'}
           </button>
         </div>
       </div>

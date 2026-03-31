@@ -91,7 +91,7 @@ export function MarketplaceCard({ item, type, onInstall }: MarketplaceCardProps)
         className="mt-3 w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors"
       >
         <Download size={12} />
-        {type === 'workflow' ? '설치' : '활성화'}
+        {type === 'workflow' ? '설치' : '고용'}
       </button>
     </div>
   );
