@@ -1,12 +1,6 @@
 'use client';
 
-export type { Agent, HeartbeatRun, AgentRuntimeState, DailyCost, AgentCostSummary, CostAnalytics } from '@kiditem/shared';
-
-export type AgentStatus = 'idle' | 'running' | 'paused' | 'error' | 'terminated' | 'active';
-export type AgentRole = 'specialist' | 'manager' | 'ceo';
-export type AdapterType = 'claude_local' | 'codex_local' | 'process' | 'http';
-export type WakeupSource = 'timer' | 'assignment' | 'on_demand' | 'automation';
-export type RunStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'timed_out' | 'cancelled';
+export type { Agent, HeartbeatRun, AgentRuntimeState, DailyCost, CostAnalytics } from '@kiditem/shared';
 
 export const ROLE_LABELS: Record<string, string> = {
   specialist: 'Specialist',

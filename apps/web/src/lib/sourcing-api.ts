@@ -19,7 +19,7 @@ export interface ProductListItem {
   updated_at: string;
 }
 
-export interface ProductListResponse {
+interface ProductListResponse {
   items: ProductListItem[];
   total: number;
 }
@@ -41,14 +41,14 @@ export interface ProductDetailResponse {
   updated_at: string;
 }
 
-export interface StatusResponse {
+interface StatusResponse {
   id: string;
   status: ProductStatus;
   is_processed: boolean;
   error?: string;
 }
 
-export interface ScrapeUrlResponse {
+interface ScrapeUrlResponse {
   ok: boolean;
   message: string;
   product_id: string | null;

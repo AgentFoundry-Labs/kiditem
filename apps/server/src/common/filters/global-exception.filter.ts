@@ -6,7 +6,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
-import { AppException } from '@kiditem/shared';
+import { AppException, ErrorCodes } from '@kiditem/shared';
 
 @Catch()
 export class GlobalExceptionFilter implements ExceptionFilter {
@@ -18,7 +18,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     const request = ctx.getRequest<Request>();
 
     let statusCode = 500;
-    let error = 'COMMON_INTERNAL_ERROR';
+    let error: string = ErrorCodes.COMMON.INTERNAL;
     let message = 'Internal server error';
 
     if (exception instanceof AppException) {
@@ -50,15 +50,15 @@ export class GlobalExceptionFilter implements ExceptionFilter {
 
       if (code === 'P2025') {
         statusCode = 404;
-        error = 'COMMON_NOT_FOUND';
+        error = ErrorCodes.COMMON.NOT_FOUND;
         message = lastLine;
       } else if (code === 'P2002') {
         statusCode = 409;
-        error = 'COMMON_BAD_REQUEST';
+        error = ErrorCodes.COMMON.BAD_REQUEST;
         message = lastLine;
       } else {
         statusCode = 500;
-        error = 'COMMON_DB_ERROR';
+        error = ErrorCodes.COMMON.DB_ERROR;
         message = lastLine;
       }
     } else if (exception instanceof Error) {
