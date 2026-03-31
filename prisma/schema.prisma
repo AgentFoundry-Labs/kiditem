@@ -798,8 +798,11 @@ model AgentDefinition {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
+  marketplaceId String? @map("marketplace_id") @db.Uuid
+
   // Relations
   company        Company?          @relation(fields: [companyId], references: [id])
+  marketplace    AgentMarketplace? @relation(fields: [marketplaceId], references: [id])
   parent         AgentDefinition?  @relation("AgentHierarchy", fields: [reportsTo], references: [id])
   children       AgentDefinition[] @relation("AgentHierarchy")
   runtimeState   AgentRuntimeState?
@@ -811,6 +814,7 @@ model AgentDefinition {
   @@index([isActive])
   @@index([companyId, status])
   @@index([companyId, reportsTo])
+  @@index([marketplaceId])
   @@map("agent_definitions")
 }
 
@@ -1048,12 +1052,16 @@ model WorkflowTemplate {
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  company Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  runs    WorkflowRun[]
+  marketplaceId String? @map("marketplace_id") @db.Uuid
+
+  company     Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  marketplace WorkflowMarketplace?  @relation(fields: [marketplaceId], references: [id])
+  runs        WorkflowRun[]
 
   @@index([companyId])
   @@index([isActive])
   @@index([module])
+  @@index([marketplaceId])
   @@map("workflow_templates")
 }
 
@@ -2054,4 +2062,56 @@ model BusinessRule {
   @@index([companyId, active])
   @@index([category])
   @@map("business_rules")
+}
+
+// ─── Marketplace ──────────────────────────────────────────────────────────────
+
+model WorkflowMarketplace {
+  id                 String   @id @default(uuid()) @db.Uuid
+  name               String
+  description        String   @default("")
+  module             String   @default("order")
+  category           String   @default("automation") // automation, monitoring, reporting
+  icon               String?
+  nodesJson          Json     @map("nodes_json")
+  edgesJson          Json     @map("edges_json")
+  configurableParams Json     @default("[]") @map("configurable_params") // ConfigurableParam[]
+  version            Int      @default(1)
+  installCount       Int      @default(0) @map("install_count")
+  isPublished        Boolean  @default(true) @map("is_published")
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt          DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  installedWorkflows WorkflowTemplate[]
+
+  @@index([module])
+  @@index([category])
+  @@index([isPublished])
+  @@map("workflow_marketplace")
+}
+
+model AgentMarketplace {
+  id                 String   @id @default(uuid()) @db.Uuid
+  name               String
+  description        String   @default("")
+  role               String   @default("specialist")
+  category           String   @default("operations") // operations, analytics, monitoring
+  icon               String?
+  adapterType        String   @default("claude_local") @map("adapter_type")
+  promptTemplate     String   @map("prompt_template") @db.Text
+  skills             String[] @default([])
+  permissions        Json     @default("{}") @db.JsonB
+  configurableParams Json     @default("[]") @map("configurable_params") // ConfigurableParam[]
+  version            Int      @default(1)
+  installCount       Int      @default(0) @map("install_count")
+  isPublished        Boolean  @default(true) @map("is_published")
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt          DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  installedAgents AgentDefinition[]
+
+  @@index([role])
+  @@index([category])
+  @@index([isPublished])
+  @@map("agent_marketplace")
 }

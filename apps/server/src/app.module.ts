@@ -14,6 +14,7 @@ import { FinanceModule } from './finance/finance.module';
 import { RulesModule } from './rules/rules.module';
 import { AgentRegistryModule } from './agent-registry/agent-registry.module';
 import { OntologyModule } from './ontology/ontology.module';
+import { MarketplaceModule } from './marketplace/marketplace.module';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { OntologyModule } from './ontology/ontology.module';
     RulesModule,
     AgentRegistryModule,
     OntologyModule,
+    MarketplaceModule,
   ],
 })
 export class AppModule {}
