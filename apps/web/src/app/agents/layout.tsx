@@ -17,8 +17,8 @@ export default function AgentsLayout({ children }: { children: React.ReactNode }
 
   return (
     <div>
-      <div className="px-8 border-b border-gray-200">
-        <div className="flex gap-0 max-w-5xl">
+      <div className="px-4 sm:px-8 border-b border-gray-200">
+        <div className="flex gap-0">
           {NAV_TABS.map((tab) => {
             const isActive =
               tab.href === '/agents'

@@ -114,7 +114,7 @@ export default function OrgPage() {
   }, []);
 
   return (
-    <div className="p-8 max-w-5xl">
+    <div className="p-4 sm:p-8">
       {/* Content */}
       {loading && (
         <div className="flex items-center justify-center py-32 text-sm text-gray-400">

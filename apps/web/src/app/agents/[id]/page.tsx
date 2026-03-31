@@ -135,7 +135,7 @@ export default function AgentDetailPage() {
 
   if (loading) {
     return (
-      <div className="p-8 max-w-5xl">
+      <div className="p-4 sm:p-8">
         <div className="animate-pulse space-y-4">
           <div className="h-4 w-32 bg-gray-100 rounded" />
           <div className="h-16 bg-gray-100 rounded" />
@@ -148,7 +148,7 @@ export default function AgentDetailPage() {
 
   if (!agent) {
     return (
-      <div className="p-8 max-w-5xl">
+      <div className="p-4 sm:p-8">
         <button
           className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900 mb-4 transition-colors"
           onClick={() => router.push('/agents')}
@@ -163,7 +163,7 @@ export default function AgentDetailPage() {
   const showConfigBar = (activeTab === 'configuration' || activeTab === 'instructions') && configDirty;
 
   return (
-    <div className={cn('p-8 max-w-5xl', showConfigBar && 'pb-24')}>
+    <div className={cn('p-4 sm:p-8', showConfigBar && 'pb-24')}>
       {/* Breadcrumb */}
       <nav className="flex items-center gap-1.5 text-sm text-gray-500 mb-5">
         <Link href="/agents" className="hover:text-gray-900 transition-colors">에이전트</Link>
@@ -285,7 +285,7 @@ export default function AgentDetailPage() {
       {/* Floating save/cancel bar */}
       {showConfigBar && (
         <div className="fixed inset-x-0 bottom-0 z-30 border-t border-gray-200 bg-white/95 backdrop-blur-sm">
-          <div className="max-w-5xl mx-auto flex items-center justify-end gap-2 px-8 py-3">
+          <div className="flex items-center justify-end gap-2 px-4 sm:px-8 py-3">
             <span className="text-sm text-gray-500 mr-auto">저장되지 않은 변경사항이 있습니다.</span>
             <button
               className="px-4 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"

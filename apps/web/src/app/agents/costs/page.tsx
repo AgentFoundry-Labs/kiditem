@@ -65,7 +65,7 @@ export default function CostsPage() {
 
   if (loading) {
     return (
-      <div className="p-8 max-w-5xl">
+      <div className="p-4 sm:p-8">
         <div className="animate-pulse space-y-3">
           <div className="h-6 w-24 bg-gray-100 rounded" />
           <div className="flex gap-3">
@@ -78,7 +78,7 @@ export default function CostsPage() {
   }
 
   return (
-    <div className="p-8 max-w-5xl">
+    <div className="p-4 sm:p-8">
       {/* Header */}
       <div className="flex items-center justify-end mb-6">
         <button

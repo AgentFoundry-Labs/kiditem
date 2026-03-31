@@ -82,7 +82,7 @@ export default function SkillsPage() {
 
   if (loading) {
     return (
-      <div className="p-8 max-w-4xl">
+      <div className="p-4 sm:p-8">
         <div className="animate-pulse space-y-4">
           <div className="h-6 w-24 bg-gray-100 rounded" />
           <div className="h-9 bg-gray-100 rounded-lg" />
@@ -95,7 +95,7 @@ export default function SkillsPage() {
   }
 
   return (
-    <div className="p-8 max-w-4xl">
+    <div className="p-4 sm:p-8">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <p className="text-xs text-gray-400">{skills.length}개 스킬 · {agents.length}개 에이전트</p>

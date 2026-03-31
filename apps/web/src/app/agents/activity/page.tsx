@@ -125,7 +125,7 @@ export default function ActivityPage() {
 
   if (loading) {
     return (
-      <div className="p-8 max-w-3xl">
+      <div className="p-4 sm:p-8">
         <div className="animate-pulse space-y-4">
           <div className="h-6 w-24 bg-gray-100 rounded" />
           {[1, 2, 3, 4, 5].map((i) => (
@@ -143,7 +143,7 @@ export default function ActivityPage() {
   }
 
   return (
-    <div className="p-8 max-w-3xl">
+    <div className="p-4 sm:p-8">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <p className="text-xs text-gray-400">
