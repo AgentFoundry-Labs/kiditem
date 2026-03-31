@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, Activity } from 'lucide-react';
+import { RefreshCw, Activity, Filter, ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { agentApi } from '@/lib/agent-api';
 import { relativeTime } from '@/lib/agent-utils';
@@ -79,13 +79,18 @@ export default function ActivityPage() {
   const [runs, setRuns] = useState<RunWithAgent[]>([]);
   const [loading, setLoading] = useState(true);
   const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
+  const [agentFilter, setAgentFilter] = useState<string>('all');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [timeRange, setTimeRange] = useState<string>('all');
+  const [page, setPage] = useState(0);
+  const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
 
   const fetchAll = useCallback(async () => {
     try {
       const agents: Agent[] = await agentApi.list();
       const allRuns = await Promise.all(
         agents.map(async (a) => {
-          const agentRuns = await agentApi.getRuns(a.id, 30).catch(() => [] as HeartbeatRun[]);
+          const agentRuns = await agentApi.getRuns(a.id, 50).catch(() => [] as HeartbeatRun[]);
           return agentRuns.map((r) => ({
             ...r,
             agentName: a.name,
@@ -111,9 +116,30 @@ export default function ActivityPage() {
     return () => clearInterval(interval);
   }, [fetchAll]);
 
+  // Unique agent names for dropdown
+  const agentNames = Array.from(new Set(runs.map((r) => r.agentName))).sort();
+
+  // Filter runs
+  const filteredRuns = runs.filter((run) => {
+    if (agentFilter !== 'all' && run.agentName !== agentFilter) return false;
+    if (statusFilter !== 'all' && run.status !== statusFilter) return false;
+    if (timeRange !== 'all') {
+      const now = Date.now();
+      const todayStart = new Date().setHours(0, 0, 0, 0);
+      const cutoff = timeRange === '오늘' ? todayStart : timeRange === '7일' ? now - 7 * 86400_000 : now - 30 * 86400_000;
+      if (new Date(run.createdAt).getTime() < cutoff) return false;
+    }
+    return true;
+  });
+
+  // Pagination
+  const PAGE_SIZE = 20;
+  const totalPages = Math.ceil(filteredRuns.length / PAGE_SIZE);
+  const pagedRuns = filteredRuns.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+
   // Group runs by date label
   const grouped: { label: string; runs: RunWithAgent[] }[] = [];
-  for (const run of runs) {
+  for (const run of pagedRuns) {
     const label = groupLabel(run.createdAt);
     const existing = grouped.find((g) => g.label === label);
     if (existing) {
@@ -158,8 +184,69 @@ export default function ActivityPage() {
         </button>
       </div>
 
+      {/* Filters */}
+      <div className="flex items-center gap-4 mb-4 flex-wrap">
+        <Filter className="w-4 h-4 text-gray-600 shrink-0" />
+        <select
+          value={agentFilter}
+          onChange={(e) => { setAgentFilter(e.target.value); setPage(0); }}
+          className="px-3 py-1.5 rounded-lg text-xs border border-gray-200 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-gray-300"
+        >
+          <option value="all">전체 에이전트</option>
+          {agentNames.map((name) => (
+            <option key={name} value={name}>{name}</option>
+          ))}
+        </select>
+        <div className="h-4 w-px bg-gray-200" />
+        <div className="flex gap-1">
+          {([
+            { key: 'all', label: '전체' },
+            { key: 'succeeded', label: '완료' },
+            { key: 'failed', label: '실패' },
+            { key: 'timed_out', label: '시간초과' },
+            { key: 'running', label: '실행중' },
+          ] as const).map((s) => (
+            <button
+              key={s.key}
+              onClick={() => { setStatusFilter(s.key); setPage(0); }}
+              className={cn(
+                'px-3 py-1.5 rounded-lg text-xs transition-colors border',
+                statusFilter === s.key
+                  ? 'bg-white text-gray-900 border-gray-200'
+                  : 'text-gray-600 hover:text-gray-500 border-transparent'
+              )}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+        <div className="h-4 w-px bg-gray-200" />
+        <div className="flex gap-1">
+          {([
+            { key: 'all', label: '전체' },
+            { key: '오늘', label: '오늘' },
+            { key: '7일', label: '7일' },
+            { key: '30일', label: '30일' },
+          ] as const).map((t) => (
+            <button
+              key={t.key}
+              onClick={() => { setTimeRange(t.key); setPage(0); }}
+              className={cn(
+                'px-3 py-1.5 rounded-lg text-xs transition-colors border',
+                timeRange === t.key
+                  ? 'bg-white text-gray-900 border-gray-200'
+                  : 'text-gray-600 hover:text-gray-500 border-transparent'
+              )}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <p className="text-xs text-gray-400 mb-4">{filteredRuns.length}건</p>
+
       {/* Empty state */}
-      {runs.length === 0 && (
+      {filteredRuns.length === 0 && (
         <div className="flex flex-col items-center justify-center py-16 text-gray-400 border border-gray-200 rounded-lg">
           <Activity className="w-8 h-8 mb-2" />
           <p className="text-sm">아직 활동이 없습니다.</p>
@@ -183,73 +270,151 @@ export default function ActivityPage() {
               const srcColor = SOURCE_COLORS[run.invocationSource] ?? 'bg-gray-100 text-gray-600';
               const badgeClass = statusBadge[run.status] ?? statusBadgeDefault;
               const isLast = idx === group.runs.length - 1;
+              const hasError = (run.status === 'failed' || run.status === 'timed_out') && (run.error || run.stderrExcerpt);
+              const isExpanded = expandedRunId === run.id;
 
               return (
-                <div
-                  key={run.id}
-                  className={cn(
-                    'flex items-start gap-3 px-3 py-2.5 rounded-lg hover:bg-gray-50 transition-colors',
-                    !isLast && 'border-b border-gray-50',
-                  )}
-                >
-                  {/* Agent avatar */}
+                <div key={run.id}>
                   <div
+                    onClick={() => {
+                      if (hasError) setExpandedRunId(isExpanded ? null : run.id);
+                    }}
                     className={cn(
-                      'w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-xs font-semibold mt-0.5',
-                      colorClass,
+                      'flex items-start gap-3 px-3 py-2.5 rounded-lg hover:bg-gray-50 transition-colors cursor-default',
+                      !isLast && !isExpanded && 'border-b border-gray-50',
+                      hasError && 'cursor-pointer',
                     )}
                   >
-                    {run.agentIcon ?? initials}
-                  </div>
+                    {/* Agent avatar */}
+                    <div
+                      className={cn(
+                        'w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-xs font-semibold mt-0.5',
+                        colorClass,
+                      )}
+                    >
+                      {run.agentIcon ?? initials}
+                    </div>
 
-                  {/* Content */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-start gap-2 flex-wrap">
-                      <span className="text-sm font-medium text-gray-900">{run.agentName}</span>
-                      <span className="text-sm text-gray-500 truncate flex-1 min-w-0">
-                        {runDescription(run)}
+                    {/* Content */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start gap-2 flex-wrap">
+                        <span className="text-sm font-medium text-gray-900">{run.agentName}</span>
+                        <span className="text-sm text-gray-500 truncate flex-1 min-w-0">
+                          {runDescription(run)}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                        {/* Status badge */}
+                        <span
+                          className={cn(
+                            'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium',
+                            badgeClass,
+                          )}
+                        >
+                          {statusLabel(run)}
+                        </span>
+
+                        {/* Source badge */}
+                        <span
+                          className={cn(
+                            'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium',
+                            srcColor,
+                          )}
+                        >
+                          {SOURCE_LABELS[run.invocationSource] ?? run.invocationSource}
+                        </span>
+
+                        {/* Error preview */}
+                        {run.error && !isExpanded && (
+                          <span className="text-[10px] text-red-500 truncate max-w-xs" title={run.error}>
+                            {run.error.slice(0, 60)}{run.error.length > 60 ? '...' : ''}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Expand indicator + time */}
+                    <div className="flex items-center gap-1.5 shrink-0 mt-0.5">
+                      {hasError && (
+                        <ChevronDown className={cn('w-3 h-3 text-gray-400 transition-transform', isExpanded && 'rotate-180')} />
+                      )}
+                      <span className="text-xs text-gray-400">
+                        {relativeTime(run.createdAt)}
                       </span>
                     </div>
-                    <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                      {/* Status badge */}
-                      <span
-                        className={cn(
-                          'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium',
-                          badgeClass,
-                        )}
-                      >
-                        {statusLabel(run)}
-                      </span>
+                  </div>
 
-                      {/* Source badge */}
-                      <span
-                        className={cn(
-                          'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium',
-                          srcColor,
-                        )}
-                      >
-                        {SOURCE_LABELS[run.invocationSource] ?? run.invocationSource}
-                      </span>
-
-                      {/* Error */}
+                  {/* Error expansion panel */}
+                  {isExpanded && hasError && (
+                    <div className="ml-11 mt-1 mb-2 p-3 bg-red-50 border border-red-100 rounded-lg">
                       {run.error && (
-                        <span className="text-[10px] text-red-500 truncate max-w-xs" title={run.error}>
-                          {run.error.slice(0, 60)}{run.error.length > 60 ? '…' : ''}
-                        </span>
+                        <div className="mb-2">
+                          <span className="text-[10px] font-medium text-red-600 block mb-1">에러</span>
+                          <pre className="text-[11px] text-red-700 whitespace-pre-wrap break-all font-mono">
+                            {run.error}
+                          </pre>
+                        </div>
+                      )}
+                      {run.stderrExcerpt && (
+                        <div>
+                          <span className="text-[10px] font-medium text-red-600 block mb-1">stderr</span>
+                          <pre className="text-[11px] text-red-700 whitespace-pre-wrap break-all font-mono max-h-40 overflow-y-auto">
+                            {run.stderrExcerpt}
+                          </pre>
+                        </div>
                       )}
                     </div>
-                  </div>
-
-                  {/* Relative time */}
-                  <span className="text-xs text-gray-400 shrink-0 mt-0.5">
-                    {relativeTime(run.createdAt)}
-                  </span>
+                  )}
                 </div>
               );
             })}
           </div>
         </div>
       ))}
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between mt-6">
+          <span className="text-xs text-gray-400">
+            {filteredRuns.length}건 중 {page * PAGE_SIZE + 1}-{Math.min((page + 1) * PAGE_SIZE, filteredRuns.length)}
+          </span>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+              disabled={page === 0}
+              className="p-1.5 rounded-lg hover:bg-gray-50 disabled:opacity-30 text-gray-500"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+              const start = Math.max(0, Math.min(page - 2, totalPages - 5));
+              const pageNum = start + i;
+              if (pageNum >= totalPages) return null;
+              return (
+                <button
+                  key={pageNum}
+                  onClick={() => setPage(pageNum)}
+                  className={cn(
+                    'w-8 h-8 rounded-lg text-xs transition-colors',
+                    page === pageNum
+                      ? 'bg-gray-900 text-white'
+                      : 'text-gray-500 hover:bg-gray-50'
+                  )}
+                >
+                  {pageNum + 1}
+                </button>
+              );
+            })}
+            <button
+              onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+              disabled={page >= totalPages - 1}
+              className="p-1.5 rounded-lg hover:bg-gray-50 disabled:opacity-30 text-gray-500"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

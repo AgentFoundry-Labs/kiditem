@@ -146,7 +146,7 @@ export default function OrgPage() {
       {!loading && roots.length > 0 && (
         <div className="mt-4 flex items-center gap-4 text-[11px] text-gray-500">
           <div className="flex items-center gap-1.5">
-            <span className="inline-flex h-2 w-2 rounded-full bg-cyan-400 animate-pulse" />
+            <span className="inline-flex h-2 w-2 rounded-full bg-blue-400 animate-pulse" />
             <span>실행 중</span>
           </div>
           <div className="flex items-center gap-1.5">
@@ -154,16 +154,16 @@ export default function OrgPage() {
             <span>활성</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="inline-flex h-2 w-2 rounded-full bg-yellow-400" />
-            <span>유휴/일시정지</span>
+            <span className="inline-flex h-2 w-2 rounded-full bg-gray-400" />
+            <span>유휴</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="inline-flex h-2 w-2 rounded-full bg-orange-400" />
+            <span>일시정지</span>
           </div>
           <div className="flex items-center gap-1.5">
             <span className="inline-flex h-2 w-2 rounded-full bg-red-400" />
             <span>오류</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="inline-flex h-2 w-2 rounded-full bg-gray-400" />
-            <span>알 수 없음</span>
           </div>
         </div>
       )}

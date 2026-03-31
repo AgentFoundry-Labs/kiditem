@@ -15,24 +15,45 @@ interface ParsedClaudeOutput {
 
 function parseClaudeOutput(raw: string): ParsedClaudeOutput {
   // Claude CLI --output-format json outputs a single JSON line with type:"result"
-  try {
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === 'object') {
-      const usageObj = parsed.usage || {};
-      return {
-        sessionId: parsed.session_id || null,
-        model: parsed.modelUsage ? Object.keys(parsed.modelUsage)[0] : null,
-        costUsd: typeof parsed.total_cost_usd === 'number' ? parsed.total_cost_usd : null,
-        usage: {
-          inputTokens: usageObj.input_tokens || 0,
-          cachedInputTokens: usageObj.cache_read_input_tokens || 0,
-          outputTokens: usageObj.output_tokens || 0,
-        },
-        summary: parsed.result || '',
-        resultJson: parsed,
-      };
-    }
-  } catch { /* not valid JSON */ }
+  // Multi-line output: scan from last line to find the result JSON
+  let parsed: any = null;
+
+  const lines = raw.trim().split('\n');
+  for (let i = lines.length - 1; i >= 0; i--) {
+    try {
+      const candidate = JSON.parse(lines[i]);
+      if (candidate && typeof candidate === 'object') {
+        parsed = candidate;
+        break;
+      }
+    } catch { continue; }
+  }
+
+  // Fallback: try parsing entire raw as single JSON
+  if (!parsed) {
+    try {
+      const whole = JSON.parse(raw);
+      if (whole && typeof whole === 'object') parsed = whole;
+    } catch { /* not valid JSON */ }
+  }
+
+  if (parsed && typeof parsed === 'object') {
+    const usageObj = parsed.usage || {};
+    return {
+      sessionId: parsed.session_id || null,
+      model: parsed.model || (parsed.modelUsage ? Object.keys(parsed.modelUsage)[0] : null),
+      costUsd: typeof parsed.total_cost_usd === 'number' ? parsed.total_cost_usd
+             : typeof parsed.cost_usd === 'number' ? parsed.cost_usd
+             : null,
+      usage: {
+        inputTokens: usageObj.input_tokens || 0,
+        cachedInputTokens: usageObj.cache_read_input_tokens || usageObj.cache_creation_input_tokens || 0,
+        outputTokens: usageObj.output_tokens || 0,
+      },
+      summary: parsed.result || '',
+      resultJson: parsed,
+    };
+  }
 
   // Fallback: try to extract JSON block
   const match = raw.match(/```json\n([\s\S]*?)\n```/);
@@ -115,6 +136,10 @@ async function execute(ctx: ExecutionContext): Promise<ExecutionResult> {
 
       // Parse Claude output for session, usage, cost
       const parsed = parseClaudeOutput(stdout);
+      logger.debug(`Claude output parsed: session=${parsed.sessionId}, cost=${parsed.costUsd}, usage=${JSON.stringify(parsed.usage)}`);
+      if (!parsed.costUsd && !parsed.usage?.inputTokens) {
+        logger.warn(`No usage/cost data extracted from Claude output (${stdout.length} bytes)`);
+      }
 
       resolve({
         exitCode: code,

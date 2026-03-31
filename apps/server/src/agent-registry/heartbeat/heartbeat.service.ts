@@ -180,6 +180,12 @@ export class HeartbeatService {
     // Cleanup skills
     if (skillsDir) this.skillsService.cleanup(skillsDir);
 
+    // 결과 로깅
+    this.logger.debug(`Heartbeat result: agent=${agent.name}, exit=${result.exitCode}, usage=${JSON.stringify(result.usage)}`);
+    if (result.usage?.costCents) {
+      this.logger.log(`Cost recorded: agent=${agent.name}, cost=${result.usage.costCents}cents, tokens=${(result.usage.inputTokens ?? 0) + (result.usage.outputTokens ?? 0)}`);
+    }
+
     // 결과 저장
     const status = result.timedOut ? 'timed_out'
       : result.exitCode === 0 ? 'succeeded'
