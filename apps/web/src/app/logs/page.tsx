@@ -14,6 +14,7 @@ import DataTable, { Column } from '@/components/ui/DataTable';
 import StatusBadge from '@/components/ui/StatusBadge';
 import MetricCard from '@/components/ui/MetricCard';
 import { cn, getModuleColor, timeAgo, formatNumber } from '@/lib/utils';
+import PageSkeleton from '@/components/ui/PageSkeleton';
 import { workflowApi } from '@/lib/workflow-api';
 import type { WorkflowTemplate, WorkflowRun } from '@/lib/workflow-types';
 import type { ExecutionLog, ModuleCategory } from '@/types';
@@ -192,11 +193,7 @@ export default function LogsPage() {
   ];
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="w-6 h-6 text-gray-400 animate-spin" />
-      </div>
-    );
+    return <PageSkeleton variant="table" />;
   }
 
   if (error) {

@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
+import PageSkeleton from '@/components/ui/PageSkeleton';
 import {
   ArrowLeft,
   Play,
@@ -136,12 +137,7 @@ export default function AgentDetailPage() {
   if (loading) {
     return (
       <div className="p-4 sm:p-8">
-        <div className="animate-pulse space-y-4">
-          <div className="h-4 w-32 bg-gray-100 rounded" />
-          <div className="h-16 bg-gray-100 rounded" />
-          <div className="h-8 bg-gray-100 rounded w-2/3" />
-          <div className="h-64 bg-gray-100 rounded" />
-        </div>
+        <PageSkeleton variant="detail" />
       </div>
     );
   }

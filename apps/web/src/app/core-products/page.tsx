@@ -4,6 +4,7 @@ import { API_BASE } from "@/lib/api";
 import { useEffect, useState } from "react";
 import { Star } from "lucide-react";
 import { formatKRW, formatPercent, getProfitColor } from "@/lib/utils";
+import PageSkeleton from "@/components/ui/PageSkeleton";
 
 interface Product {
   id: string; name: string; sku: string; company: string; abcGrade: string;
@@ -24,7 +25,7 @@ export default function CoreProductsPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  if (loading) return <div className="flex items-center justify-center h-64 text-slate-500">로딩 중...</div>;
+  if (loading) return <PageSkeleton variant="cards" />;
 
   const totalRevenue = products.reduce((s, p) => s + p.revenue, 0);
   const totalProfit = products.reduce((s, p) => s + p.netProfit, 0);

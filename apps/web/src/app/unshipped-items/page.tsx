@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { API_BASE } from "@/lib/api";
 import { Truck, AlertTriangle, RefreshCw } from "lucide-react";
+import PageSkeleton from "@/components/ui/PageSkeleton";
 
 interface UnshippedItem {
   id: string;
@@ -42,11 +43,7 @@ export default function UnshippedItemsPage() {
   }, [fetchData]);
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64 text-gray-500">
-        로딩 중...
-      </div>
-    );
+    return <PageSkeleton variant="table" />;
   }
 
   if (error) {

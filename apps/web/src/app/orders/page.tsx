@@ -354,8 +354,10 @@ export default function OrdersPage() {
         </div>
 
         {loading ? (
-          <div className="py-12 text-center text-gray-400 text-xs font-mono flex items-center justify-center gap-2">
-            <Loader2 size={14} className="animate-spin" /> LOADING ORDERS...
+          <div className="animate-pulse space-y-2 py-4">
+            {[1, 2, 3, 4, 5].map((i) => (
+              <div key={i} className="h-12 bg-gray-100 rounded" />
+            ))}
           </div>
         ) : error && activeOrders.length === 0 ? (
           <div className="text-center py-12 text-red-500 text-sm">{error}</div>

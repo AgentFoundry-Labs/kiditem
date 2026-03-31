@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { cn, timeAgo } from '@/lib/utils';
 import { API_BASE } from '@/lib/api';
+import PageSkeleton from '@/components/ui/PageSkeleton';
 
 interface SyncResult {
   synced: number;
@@ -193,11 +194,7 @@ function CompanyInfoSection({
   loading: boolean;
 }) {
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-32 text-gray-500">
-        로딩 중...
-      </div>
-    );
+    return <PageSkeleton variant="table" />;
   }
 
   const fields: { label: string; value: string | null | undefined }[] = [
@@ -641,16 +638,7 @@ function RulesConfigSection() {
   };
 
   if (loading) {
-    return (
-      <div className="space-y-3">
-        {[1, 2, 3].map((i) => (
-          <div key={i} className="bg-white rounded-lg border border-gray-200 p-4 animate-pulse">
-            <div className="h-5 bg-gray-200 rounded w-48 mb-2" />
-            <div className="h-4 bg-gray-100 rounded w-full" />
-          </div>
-        ))}
-      </div>
-    );
+    return <PageSkeleton variant="cards" />;
   }
 
   return (

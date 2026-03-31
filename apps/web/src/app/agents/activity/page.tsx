@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { RefreshCw, Activity, Filter, ChevronLeft, ChevronRight, ChevronDown, List, BarChart3 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import PageSkeleton from '@/components/ui/PageSkeleton';
 import { agentApi } from '@/lib/agent-api';
 import { relativeTime } from '@/lib/agent-utils';
 import { statusBadge, statusBadgeDefault } from '@/lib/status-colors';
@@ -153,18 +154,7 @@ export default function ActivityPage() {
   if (loading) {
     return (
       <div className="p-4 sm:p-8">
-        <div className="animate-pulse space-y-4">
-          <div className="h-6 w-24 bg-gray-100 rounded" />
-          {[1, 2, 3, 4, 5].map((i) => (
-            <div key={i} className="flex items-start gap-3">
-              <div className="w-8 h-8 rounded-full bg-gray-100 shrink-0" />
-              <div className="flex-1 space-y-1.5">
-                <div className="h-3.5 bg-gray-100 rounded w-2/3" />
-                <div className="h-3 bg-gray-100 rounded w-1/3" />
-              </div>
-            </div>
-          ))}
-        </div>
+        <PageSkeleton variant="table" />
       </div>
     );
   }

@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { API_BASE } from "@/lib/api";
 import { formatKRW, formatPercent, getGradeColor, getProfitColor } from "@/lib/utils";
+import PageSkeleton from "@/components/ui/PageSkeleton";
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from "recharts";
@@ -259,12 +260,7 @@ export default function AdsHubPage() {
   }, [adData]);
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <RefreshCw className="animate-spin text-gray-400" size={24} />
-        <span className="ml-2 text-sm text-gray-500">데이터 로딩 중...</span>
-      </div>
-    );
+    return <PageSkeleton variant="dashboard" />;
   }
 
   return (

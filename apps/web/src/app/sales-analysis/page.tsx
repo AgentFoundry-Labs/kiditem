@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { API_BASE } from "@/lib/api";
 import { BarChart3, RefreshCw } from "lucide-react";
 import { formatKRW, formatPercent } from "@/lib/utils";
+import PageSkeleton from "@/components/ui/PageSkeleton";
 
 interface ChannelRow {
   channelName: string;
@@ -68,11 +69,7 @@ export default function SalesAnalysisPage() {
   })();
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64 text-gray-500">
-        로딩 중...
-      </div>
-    );
+    return <PageSkeleton variant="table" />;
   }
 
   if (error) {

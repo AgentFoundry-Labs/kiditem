@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import { Puzzle, RefreshCw, Search, Bot } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import PageSkeleton from '@/components/ui/PageSkeleton';
 import { agentApi } from '@/lib/agent-api';
 import { ROLE_LABELS, SKILL_DESCRIPTIONS } from '@/lib/agent-types';
 import type { Agent } from '@/lib/agent-types';
@@ -75,13 +76,7 @@ export default function SkillsPage() {
   if (loading) {
     return (
       <div className="p-4 sm:p-8">
-        <div className="animate-pulse space-y-4">
-          <div className="h-6 w-24 bg-gray-100 rounded" />
-          <div className="h-9 bg-gray-100 rounded-lg" />
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {[1, 2, 3, 4].map((i) => <div key={i} className="h-32 bg-gray-100 rounded-lg" />)}
-          </div>
-        </div>
+        <PageSkeleton variant="cards" />
       </div>
     );
   }

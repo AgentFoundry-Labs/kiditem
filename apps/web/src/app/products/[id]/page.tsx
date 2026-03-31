@@ -1,6 +1,7 @@
 "use client";
 
 import { API_BASE } from "@/lib/api";
+import PageSkeleton from "@/components/ui/PageSkeleton";
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
@@ -370,11 +371,7 @@ export default function ProductDetailPage() {
   };
 
   if (loading)
-    return (
-      <div className="flex items-center justify-center h-64 text-slate-500">
-        로딩 중...
-      </div>
-    );
+    return <PageSkeleton variant="detail" />;
   if (error || !product)
     return (
       <div className="flex items-center justify-center h-64 text-red-500">

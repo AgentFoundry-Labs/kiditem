@@ -103,7 +103,6 @@ export class WorkflowsService {
     this.runner
       .runBatch(
         runs.map((r) => ({ runId: r.id, templateId: r.templateId })),
-        context,
       )
       .catch((err: Error) => {
         this.logger.error(`Batch run failed: ${err.message}`);

@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { List, GitBranch, RefreshCw, SlidersHorizontal, Plus, Bot } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import PageSkeleton from '@/components/ui/PageSkeleton';
 import { agentApi } from '@/lib/agent-api';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { agentStatusDot, agentStatusDotDefault } from '@/lib/status-colors';
@@ -82,11 +83,7 @@ export default function AgentsPage() {
   if (loading) {
     return (
       <div className="p-4 sm:p-8">
-        <div className="animate-pulse space-y-3">
-          {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="h-14 bg-gray-100 rounded" />
-          ))}
-        </div>
+        <PageSkeleton variant="list" />
       </div>
     );
   }

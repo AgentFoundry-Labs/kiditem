@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { API_BASE } from "@/lib/api";
+import PageSkeleton from "@/components/ui/PageSkeleton";
 import {
   MessageSquare,
   Plus,
@@ -103,11 +104,7 @@ export default function CSManagementPage() {
   };
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64 text-gray-500">
-        로딩 중...
-      </div>
-    );
+    return <PageSkeleton variant="table" />;
   }
 
   if (error) {

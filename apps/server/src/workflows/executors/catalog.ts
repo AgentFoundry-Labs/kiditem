@@ -10,7 +10,6 @@ const NOTIFICATION_COLOR = '#f97316';
 const INTERNAL_COLOR = '#64748b';
 const EXPORT_COLOR = '#10b981';
 const AGENT_COLOR = '#a855f7';
-const AI_COLOR = '#ec4899';
 
 export const NODE_CATALOG: NodeDefinition[] = [
   // ─── trigger ───
@@ -594,24 +593,6 @@ export const NODE_CATALOG: NodeDefinition[] = [
     outputSchema: [
       { key: 'taskId', type: 'string', description: '생성된 태스크 ID' },
       { key: 'agentType', type: 'string', description: '에이전트 유형' },
-    ],
-  },
-  {
-    type: 'ai.analyze',
-    category: 'ai',
-    label: 'AI 분석 + 액션 추천',
-    description: '워크플로우 실행 결과를 LLM이 분석하고, 액션 카탈로그에서 다음 추천 액션을 structured JSON으로 반환합니다.',
-    icon: 'Sparkles',
-    color: AI_COLOR,
-    configSchema: [
-      { key: 'source_nodes', label: '분석 대상 노드 ID 목록', type: 'json', required: true },
-      { key: 'workflow_name', label: '워크플로우 이름', type: 'text', required: true },
-    ],
-    outputSchema: [
-      { key: 'summary', type: 'string', description: '1-2문장 핵심 요약' },
-      { key: 'actions', type: 'AnalysisAction[]', description: '추천 액션 목록 (type, label, reason, params)' },
-      { key: 'analysis', type: 'string', description: 'LLM 원본 응답 JSON' },
-      { key: 'model', type: 'string', description: '사용된 모델명' },
     ],
   },
 ];

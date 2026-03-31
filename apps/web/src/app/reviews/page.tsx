@@ -147,8 +147,10 @@ export default function ReviewsPage() {
       </div>
 
       {loading ? (
-        <div className="flex items-center justify-center h-64 text-gray-500">
-          로딩 중...
+        <div className="animate-pulse space-y-2 py-4">
+          {[1, 2, 3, 4, 5].map((i) => (
+            <div key={i} className="h-12 bg-gray-100 rounded" />
+          ))}
         </div>
       ) : filteredData.length === 0 ? (
         <div className="bg-white rounded-xl border border-gray-200 p-12 text-center text-gray-500">

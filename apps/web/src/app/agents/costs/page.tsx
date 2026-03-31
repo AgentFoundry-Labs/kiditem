@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { DollarSign, Cpu, Bot, Activity, RefreshCw, Hash } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import PageSkeleton from '@/components/ui/PageSkeleton';
 import { agentApi } from '@/lib/agent-api';
 import { formatTokens, formatCost } from '@/lib/agent-utils';
 import type { Agent, CostAnalytics } from '@/lib/agent-types';
@@ -63,15 +64,7 @@ export default function CostsPage() {
   if (loading) {
     return (
       <div className="p-4 sm:p-8">
-        <div className="animate-pulse space-y-3">
-          <div className="h-6 w-24 bg-gray-100 rounded" />
-          <div className="flex gap-3">
-            {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="h-24 flex-1 bg-gray-100 rounded-lg" />
-            ))}
-          </div>
-          <div className="h-48 bg-gray-100 rounded-lg" />
-        </div>
+        <PageSkeleton variant="dashboard" />
       </div>
     );
   }

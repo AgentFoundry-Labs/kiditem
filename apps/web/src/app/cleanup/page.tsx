@@ -4,6 +4,7 @@ import { API_BASE } from "@/lib/api";
 import { useEffect, useState, useCallback } from "react";
 import { Trash2, AlertTriangle, MinusCircle } from "lucide-react";
 import { formatKRW, formatPercent, getProfitColor, getGradeColor } from "@/lib/utils";
+import PageSkeleton from "@/components/ui/PageSkeleton";
 import { Pagination } from "@/components/ui/Pagination";
 
 interface Product {
@@ -54,7 +55,7 @@ export default function CleanupPage() {
   const minusCount = products.filter((p) => p.profitRate < 0).length;
   const lowCount = products.filter((p) => p.profitRate >= 0).length;
 
-  if (loading) return <div className="flex items-center justify-center h-64 text-slate-500">로딩 중...</div>;
+  if (loading) return <PageSkeleton variant="table" />;
 
   return (
     <div className="space-y-6">

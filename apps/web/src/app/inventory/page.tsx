@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { Package, AlertTriangle, Truck, Download, RefreshCw, ClipboardCheck, Barcode } from "lucide-react";
 import { API_BASE } from "@/lib/api";
+import PageSkeleton from "@/components/ui/PageSkeleton";
 import { timeAgo } from "@/lib/utils";
 import { Pagination } from "@/components/ui/Pagination";
 
@@ -248,7 +249,7 @@ ${barcodeItems.join('')}
 
 
 
-  if (loading) return <div className="flex items-center justify-center h-64 text-slate-500">로딩 중...</div>;
+  if (loading) return <PageSkeleton variant="table" />;
 
   return (
     <div className="space-y-6">

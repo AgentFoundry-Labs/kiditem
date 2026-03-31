@@ -4,6 +4,7 @@ import { API_BASE } from "@/lib/api";
 import { useEffect, useState } from "react";
 import { Megaphone, TrendingDown, AlertTriangle, Download } from "lucide-react";
 import { formatKRW, formatPercent, getGradeColor } from "@/lib/utils";
+import PageSkeleton from "@/components/ui/PageSkeleton";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
 
 interface AdProduct {
@@ -81,7 +82,7 @@ export default function AdsPage() {
     });
   };
 
-  if (loading || !summary) return <div className="flex items-center justify-center h-64 text-slate-500">로딩 중...</div>;
+  if (loading || !summary) return <PageSkeleton variant="table" />;
 
   const filtered = products.filter((p) => {
     if (filter === "high") return p.adRate > 15;

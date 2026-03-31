@@ -243,7 +243,11 @@ export default function PurchaseOrdersPage() {
       </div>
 
       {loading ? (
-        <div className="py-20 text-center text-gray-400 text-sm">로딩 중...</div>
+        <div className="animate-pulse space-y-2 py-4">
+          {[1, 2, 3, 4, 5].map((i) => (
+            <div key={i} className="h-12 bg-gray-100 rounded" />
+          ))}
+        </div>
       ) : orders.length === 0 ? (
         <div className="py-20 text-center">
           <Package size={40} className="mx-auto text-gray-300 mb-3" />

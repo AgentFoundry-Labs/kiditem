@@ -1,4 +1,4 @@
-import { registerNode, recordActivity } from './index';
+import { registerNode, getExecutor, recordActivity } from './index';
 
 registerNode('trigger.manual', async () => {
   return { triggeredAt: new Date().toISOString() };
@@ -126,4 +126,139 @@ registerNode('agent_task.create', async (prisma, config) => {
   );
 
   return { taskId: task.id, agentType: config.agent_type };
+});
+
+// ─── trigger 위임 ───
+
+registerNode('trigger', async () => ({ triggeredAt: new Date().toISOString() }));
+
+registerNode('trigger.event', async (_prisma, config) => ({
+  triggeredAt: new Date().toISOString(),
+  event: (config.event as string) ?? 'unknown',
+}));
+
+// ─── condition / notification 위임 ───
+
+const conditionExecutor = getExecutor('condition.evaluate');
+if (conditionExecutor) registerNode('condition', conditionExecutor);
+
+const notificationExecutor = getExecutor('notification.alert');
+if (notificationExecutor) registerNode('notification', notificationExecutor);
+
+// ─── api_call ───
+
+registerNode('api_call', async (_prisma, config, context) => {
+  const url = context.resolve((config.url ?? config.endpoint ?? '') as string);
+  const method = ((config.method as string) ?? 'GET').toUpperCase();
+  const headers = (config.headers as Record<string, string>) ?? { 'Content-Type': 'application/json' };
+  const timeout = Number(config.timeout) || 30000;
+  const body = config.body ? JSON.stringify(context.resolveConfig(config.body as Record<string, any>)) : undefined;
+
+  if (!url) {
+    return { stub: true, message: `API 호출 미설정 (${(config.api as string) ?? 'unknown'})`, data: {} };
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
+  try {
+    const res = await fetch(url, { method, headers, body, signal: controller.signal });
+    clearTimeout(timer);
+    if (!res.ok) throw new Error(`API 응답 에러: ${res.status} ${res.statusText}`);
+    const data = await res.json();
+    return { data, status: res.status };
+  } catch (err) {
+    clearTimeout(timer);
+    throw new Error(`API 호출 실패: ${err instanceof Error ? err.message : err}`);
+  }
+});
+
+// ─── data_transform ───
+
+registerNode('data_transform', async (_prisma, config, context) => {
+  const sourceNodes = ((config.source_nodes ?? [config.source_node]) as string[]).filter(Boolean);
+  const operation = ((config.operation as string) ?? 'merge');
+
+  const allRows: any[] = [];
+  for (const nodeId of sourceNodes) {
+    const output = context.getOutput(nodeId) ?? {};
+    const arrayKey = Object.keys(output).find((k) => Array.isArray(output[k]));
+    const items = arrayKey ? (output[arrayKey] as any[]) : output.data ? [output.data] : [];
+    allRows.push(...items);
+  }
+
+  if (operation === 'deduplicate') {
+    const field = (config.dedup_field as string) ?? 'id';
+    const seen = new Set<any>();
+    const deduped = allRows.filter((r) => {
+      const v = r[field];
+      if (seen.has(v)) return false;
+      seen.add(v);
+      return true;
+    });
+    return { rows: deduped, count: deduped.length };
+  }
+
+  if (operation === 'pick') {
+    const fields = (config.fields as string[]) ?? [];
+    const picked = allRows.map((r) => {
+      const o: Record<string, any> = {};
+      fields.forEach((f) => { if (r[f] !== undefined) o[f] = r[f]; });
+      return o;
+    });
+    return { rows: picked, count: picked.length };
+  }
+
+  return { rows: allRows, count: allRows.length };
+});
+
+// ─── action ───
+
+registerNode('action', async (_prisma, config) => {
+  const actionType = ((config.action ?? config.action_type) as string) ?? 'log';
+  const params = (config.params as Record<string, any>) ?? {};
+
+  return {
+    executed: true,
+    actionType,
+    params,
+    message: `액션 실행: ${actionType}`,
+    timestamp: new Date().toISOString(),
+  };
+});
+
+// ─── ai_process ───
+
+registerNode('ai_process', async (_prisma, config, context) => {
+  const GEMINI_API_KEY = process.env.GEMINI_API_KEY ?? '';
+  const GEMINI_MODEL = process.env.AI_TEXT_MODEL ?? 'gemini-2.5-flash';
+
+  if (!GEMINI_API_KEY) {
+    return { stub: true, message: 'GEMINI_API_KEY 미설정', result: '' };
+  }
+
+  const sourceNodes = (config.source_nodes as string[]) ?? [];
+  const sourceData: Record<string, any> = {};
+  for (const nodeId of sourceNodes) {
+    const output = context.getOutput(nodeId);
+    if (output) sourceData[nodeId] = output;
+  }
+
+  const promptTemplate = ((config.prompt_template ?? config.prompt) as string) ?? '다음 데이터를 분석하고 요약해주세요:\n{{data}}';
+  const prompt = promptTemplate.replace('{{data}}', JSON.stringify(sourceData, null, 2));
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.3 },
+    }),
+  });
+
+  if (!res.ok) throw new Error(`AI 처리 실패: ${res.status}`);
+  const data = await res.json();
+  const result = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+
+  return { result, model: GEMINI_MODEL };
 });

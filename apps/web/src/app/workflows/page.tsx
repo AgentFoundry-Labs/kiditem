@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Plus, Filter, Loader2, AlertCircle } from 'lucide-react';
+import { Plus, Filter, AlertCircle } from 'lucide-react';
+import PageSkeleton from '@/components/ui/PageSkeleton';
 import { workflowApi } from '@/lib/workflow-api';
 import type { WorkflowTemplate } from '@/lib/workflow-types';
 import WorkflowList from '@/components/workflows/WorkflowList';
@@ -37,11 +38,7 @@ export default function WorkflowsPage() {
       : templates.filter((t) => t.module === filter);
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="w-6 h-6 text-gray-400 animate-spin" />
-      </div>
-    );
+    return <PageSkeleton variant="table" />;
   }
 
   if (error) {

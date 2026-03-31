@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { Network, Package, Tag, Layers, Search, List } from 'lucide-react';
 import { API_BASE } from '@/lib/api';
+import PageSkeleton from '@/components/ui/PageSkeleton';
 import { cn } from '@/lib/utils';
 import OntologyGraph from '@/components/ontology/OntologyGraph';
 
@@ -88,11 +89,7 @@ export default function OntologyPage() {
   }, [products]);
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64 text-gray-500">
-        로딩 중...
-      </div>
-    );
+    return <PageSkeleton variant="cards" />;
   }
 
   return (

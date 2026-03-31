@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Plus, Download, Search, BarChart3 } from "lucide-react";
 import { formatKRW, formatPercent, getProfitColor, getProductStatusBadge, timeAgo } from "@/lib/utils";
 import { Pagination } from "@/components/ui/Pagination";
+import PageSkeleton from "@/components/ui/PageSkeleton";
 
 interface TrafficData {
   visitors: number;
@@ -223,7 +224,7 @@ export default function ProductsPage() {
       ? products.filter(p => p.adTier)
       : products.filter(p => !p.adTier);
 
-  if (loading) return <div className="flex items-center justify-center h-64 text-slate-500">로딩 중...</div>;
+  if (loading) return <PageSkeleton variant="table" />;
   if (error) return <div className="flex items-center justify-center h-64 text-red-500">{error}</div>;
 
   return (
