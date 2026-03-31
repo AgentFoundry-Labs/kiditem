@@ -1,6 +1,6 @@
 'use client';
 
-import { Download } from 'lucide-react';
+import { Download, CheckCircle } from 'lucide-react';
 
 interface MarketplaceCardProps {
   item: {
@@ -14,6 +14,7 @@ interface MarketplaceCardProps {
     role?: string;
   };
   type: 'workflow' | 'agent';
+  installed?: boolean;
   onInstall: (id: string) => void;
 }
 
@@ -38,7 +39,7 @@ const ROLE_LABELS: Record<string, string> = {
   manager: 'Manager',
 };
 
-export function MarketplaceCard({ item, type, onInstall }: MarketplaceCardProps) {
+export function MarketplaceCard({ item, type, installed, onInstall }: MarketplaceCardProps) {
   return (
     <div className="bg-white border border-gray-200 rounded-lg p-4 hover:border-blue-300 hover:shadow-sm transition-all cursor-pointer">
       <div className="flex items-start gap-3">
@@ -83,16 +84,23 @@ export function MarketplaceCard({ item, type, onInstall }: MarketplaceCardProps)
       </div>
 
       {/* Install button */}
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          onInstall(item.id);
-        }}
-        className="mt-3 w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors"
-      >
-        <Download size={12} />
-        {type === 'workflow' ? '설치' : '고용'}
-      </button>
+      {installed ? (
+        <div className="mt-3 w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium text-green-600 bg-green-50 rounded-md">
+          <CheckCircle size={12} />
+          {type === 'workflow' ? '설치됨' : '고용됨'}
+        </div>
+      ) : (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onInstall(item.id);
+          }}
+          className="mt-3 w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors"
+        >
+          <Download size={12} />
+          {type === 'workflow' ? '설치' : '고용'}
+        </button>
+      )}
     </div>
   );
 }

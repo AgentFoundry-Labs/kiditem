@@ -92,6 +92,10 @@ export default function AgentsPage() {
     }
   }, [pageTab]);
 
+  const installedMarketplaceIds = new Set(
+    agents.map((a) => (a as any).marketplaceId).filter(Boolean),
+  );
+
   const filteredCatalog =
     categoryFilter === 'all'
       ? catalog
@@ -201,6 +205,7 @@ export default function AgentsPage() {
                   key={item.id}
                   item={item}
                   type="agent"
+                  installed={installedMarketplaceIds.has(item.id)}
                   onInstall={() => setInstallTarget(item)}
                 />
               ))}

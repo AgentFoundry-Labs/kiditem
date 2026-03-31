@@ -43,27 +43,24 @@ export default function WorkflowsPage() {
   const [installing, setInstalling] = useState(false);
 
   useEffect(() => {
-    if (tab === 'my') {
-      setLoading(true);
-      workflowApi
-        .list()
-        .then(setTemplates)
-        .catch((err) => setError(err.message))
-        .finally(() => setLoading(false));
-    } else {
-      setLoading(true);
-      marketplaceApi
-        .listWorkflows()
-        .then(setCatalog)
-        .catch((err) => setError(err.message))
-        .finally(() => setLoading(false));
-    }
+    setLoading(true);
+    Promise.all([
+      workflowApi.list().catch(() => [] as WorkflowTemplate[]),
+      marketplaceApi.listWorkflows().catch(() => [] as WorkflowCatalogItem[]),
+    ])
+      .then(([t, c]) => { setTemplates(t); setCatalog(c); })
+      .catch((err) => setError(err.message))
+      .finally(() => setLoading(false));
   }, [tab]);
 
   const filteredTemplates =
     filter === 'all'
       ? templates
       : templates.filter((t) => t.module === filter);
+
+  const installedMarketplaceIds = new Set(
+    templates.map((t) => (t as any).marketplaceId).filter(Boolean),
+  );
 
   const filteredCatalog =
     categoryFilter === 'all'
@@ -202,6 +199,7 @@ export default function WorkflowsPage() {
                   key={item.id}
                   item={item}
                   type="workflow"
+                  installed={installedMarketplaceIds.has(item.id)}
                   onInstall={() => setInstallTarget(item)}
                 />
               ))}
