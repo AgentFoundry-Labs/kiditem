@@ -110,6 +110,17 @@ npm run dev:server                   # NestJS 로컬 개발 (Docker 대신)
 - **Claude CLI agents**: NestJS가 `claude -p`로 spawn. 자연어 규칙 해석/판단 작업. `agent-registry`로 관리.
 - **Python agents**: DB 폴링 기반 백그라운드 워커. 이미지 API, 스크래핑 등 처리 작업. `runner.py`로 관리.
 
+### 워크플로우 vs 에이전트 경계
+
+| | 워크플로우 | 에이전트 |
+|---|---|---|
+| **역할** | 데이터 파이프라인 (수집→변환→필터→알림) | AI 판단/분석 (규칙 해석, 전략 결정) |
+| **실행** | 고정 DAG 순회, 결정적 | 자연어 프롬프트, 비결정적 |
+| **AI 사용** | 금지 — AI 필요 시 `agent_task.create`로 위임 | 핵심 역할 |
+| **예시** | DB 조회 → 재고 부족 필터 → 알림 | "이 상품 ROAS 고려해서 광고 중단 판단" |
+
+**원칙: 워크플로우에서 직접 LLM을 호출하지 않는다.** AI 판단이 필요하면 `agent_task.create` 노드로 에이전트에게 위임한다.
+
 ### NestJS 백엔드 패턴
 
 ```

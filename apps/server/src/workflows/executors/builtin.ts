@@ -248,39 +248,23 @@ registerNode('action', async (_prisma, config) => {
   };
 });
 
-// ─── ai_process ───
+// ─── ai_process → agent_task.create 위임 ───
+// AI 판단/분석은 에이전트 영역. 워크플로우에서 AI가 필요하면 agent_task.create를 사용.
+// ai_process 노드 타입은 하위 호환을 위해 agent_task.create로 위임.
 
-registerNode('ai_process', async (_prisma, config, context) => {
-  const GEMINI_API_KEY = process.env.GEMINI_API_KEY ?? '';
-  const GEMINI_MODEL = process.env.AI_TEXT_MODEL ?? 'gemini-2.5-flash';
-
-  if (!GEMINI_API_KEY) {
-    return { stub: true, message: 'GEMINI_API_KEY 미설정', result: '' };
-  }
-
-  const sourceNodes = (config.source_nodes as string[]) ?? [];
-  const sourceData: Record<string, any> = {};
-  for (const nodeId of sourceNodes) {
-    const output = context.getOutput(nodeId);
-    if (output) sourceData[nodeId] = output;
-  }
-
-  const promptTemplate = ((config.prompt_template ?? config.prompt) as string) ?? '다음 데이터를 분석하고 요약해주세요:\n{{data}}';
-  const prompt = promptTemplate.replace('{{data}}', JSON.stringify(sourceData, null, 2));
-
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.3 },
-    }),
+registerNode('ai_process', async (prisma, config) => {
+  const agentType = (config.agent_type as string) ?? 'rules_evaluation';
+  const task = await prisma.agentTask.create({
+    data: {
+      agentType,
+      input: { prompt: config.prompt_template ?? config.prompt ?? '', model: config.model },
+    },
   });
 
-  if (!res.ok) throw new Error(`AI 처리 실패: ${res.status}`);
-  const data = await res.json();
-  const result = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+  await (prisma as any).$executeRawUnsafe(
+    `SELECT pg_notify('new_agent_task', $1)`,
+    task.id,
+  );
 
-  return { result, model: GEMINI_MODEL };
+  return { delegated: true, taskId: task.id, agentType };
 });
