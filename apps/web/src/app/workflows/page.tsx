@@ -1,12 +1,12 @@
 'use client';
 
-import { useState } from 'react';
-import { Plus, Filter } from 'lucide-react';
-import { useStore } from '@/store/useStore';
+import { useState, useEffect } from 'react';
+import { Plus, Filter, Loader2, AlertCircle } from 'lucide-react';
+import { workflowApi } from '@/lib/workflow-api';
+import type { WorkflowTemplate } from '@/lib/workflow-types';
 import WorkflowList from '@/components/workflows/WorkflowList';
-import type { ModuleCategory } from '@/types';
 
-const moduleFilters: { id: ModuleCategory | 'all'; label: string }[] = [
+const moduleFilters: { id: string; label: string }[] = [
   { id: 'all', label: '전체' },
   { id: 'order', label: '주문관리' },
   { id: 'accounting', label: '회계/경리' },
@@ -18,12 +18,40 @@ const moduleFilters: { id: ModuleCategory | 'all'; label: string }[] = [
 ];
 
 export default function WorkflowsPage() {
-  const { workflows } = useStore();
-  const [filter, setFilter] = useState<ModuleCategory | 'all'>('all');
+  const [templates, setTemplates] = useState<WorkflowTemplate[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState<string>('all');
 
-  const filtered = filter === 'all'
-    ? workflows
-    : workflows.filter((w) => w.module === filter);
+  useEffect(() => {
+    workflowApi
+      .list()
+      .then(setTemplates)
+      .catch((err) => setError(err.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const filtered =
+    filter === 'all'
+      ? templates
+      : templates.filter((t) => t.module === filter);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="w-6 h-6 text-gray-400 animate-spin" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-64 gap-2 text-red-500">
+        <AlertCircle className="w-5 h-5" />
+        <span className="text-sm">{error}</span>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 max-w-[1200px]">
@@ -31,7 +59,7 @@ export default function WorkflowsPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Workflows</h1>
           <p className="text-sm text-gray-500 mt-1">
-            {workflows.length}개 워크플로우 ({workflows.filter((w) => w.isActive).length}개 활성)
+            {templates.length}개 워크플로우 ({templates.filter((t) => t.isActive).length}개 활성)
           </p>
         </div>
         <button className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium transition-colors">
@@ -61,7 +89,7 @@ export default function WorkflowsPage() {
       </div>
 
       {/* Workflow List */}
-      <WorkflowList workflows={filtered} />
+      <WorkflowList templates={filtered} />
     </div>
   );
 }

@@ -122,6 +122,34 @@ export const SKILL_DESCRIPTIONS: Record<string, string> = {
   'data-analysis': '이커머스 데이터 분석 패턴. 성과 진단 및 액션 추천.',
 };
 
+export interface DailyCost {
+  date: string;
+  totalCostCents: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  runCount: number;
+}
+
+export interface AgentCostSummary {
+  agentId: string;
+  agentName: string;
+  totalCostCents: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  runCount: number;
+}
+
+export interface CostAnalytics {
+  daily: DailyCost[];
+  byAgent: AgentCostSummary[];
+  summary: {
+    totalCostCents: number;
+    totalInputTokens: number;
+    totalOutputTokens: number;
+    totalRuns: number;
+  };
+}
+
 export type FilterTab = 'all' | 'active' | 'paused' | 'error';
 export type ViewMode = 'list' | 'org';
 export type AgentDetailTab = 'dashboard' | 'instructions' | 'skills' | 'configuration' | 'runs' | 'budget';

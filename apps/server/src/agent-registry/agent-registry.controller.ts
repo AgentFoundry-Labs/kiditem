@@ -18,6 +18,15 @@ export class AgentRegistryController {
     return this.service.getOrgTree();
   }
 
+  @Get('cost-analytics')
+  getCostAnalytics(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('agentId') agentId?: string,
+  ) {
+    return this.service.getCostAnalytics({ from, to, agentId });
+  }
+
   @Get(':id')
   getById(@Param('id') id: string) {
     return this.service.getById(id);

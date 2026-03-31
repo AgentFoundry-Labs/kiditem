@@ -1,7 +1,7 @@
 'use client';
 
 import { API_BASE } from '@/lib/api';
-import type { Agent, OrgNode, HeartbeatRun, AgentRuntimeState } from '@/lib/agent-types';
+import type { Agent, OrgNode, HeartbeatRun, AgentRuntimeState, CostAnalytics } from '@/lib/agent-types';
 
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, init);
@@ -31,4 +31,12 @@ export const agentApi = {
     fetchJson<HeartbeatRun[]>(`/api/agent-registry/${id}/runs?limit=${limit}`),
   getRuntimeState: (id: string) =>
     fetchJson<AgentRuntimeState | null>(`/api/agent-registry/${id}/runtime-state`),
+  getCostAnalytics: (params?: { from?: string; to?: string; agentId?: string }) => {
+    const qs = new URLSearchParams();
+    if (params?.from) qs.set('from', params.from);
+    if (params?.to) qs.set('to', params.to);
+    if (params?.agentId) qs.set('agentId', params.agentId);
+    const query = qs.toString();
+    return fetchJson<CostAnalytics>(`/api/agent-registry/cost-analytics${query ? `?${query}` : ''}`);
+  },
 };

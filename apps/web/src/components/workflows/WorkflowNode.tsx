@@ -1,6 +1,6 @@
 'use client';
 
-import { memo } from 'react';
+import { memo, useCallback } from 'react';
 import { Handle, Position, NodeProps } from 'reactflow';
 import {
   Clock, Zap, GitBranch, Timer, Repeat, Globe,
@@ -22,19 +22,25 @@ const nodeTypeIcons: Record<NodeType, any> = {
 };
 
 const statusConfig = {
-  idle: { color: 'border-gray-700', icon: null, glow: '' },
+  idle: { color: 'border-gray-300', icon: null, glow: '' },
   running: { color: 'border-blue-500', icon: Loader2, glow: 'shadow-blue-500/20 shadow-lg' },
   success: { color: 'border-emerald-500/50', icon: CheckCircle, glow: '' },
   error: { color: 'border-red-500', icon: XCircle, glow: 'shadow-red-500/20 shadow-lg' },
-  disabled: { color: 'border-gray-800', icon: null, glow: '' },
+  disabled: { color: 'border-gray-200', icon: null, glow: '' },
 };
 
-function WorkflowNode({ data }: NodeProps) {
-  const { label, nodeType, module, status, config } = data;
+function WorkflowNode({ data, id }: NodeProps) {
+  const { label, nodeType, module, status, config, onNodeClick } = data;
   const Icon = nodeTypeIcons[nodeType as NodeType] || Zap;
   const moduleColor = getModuleColor(module);
   const statusCfg = statusConfig[status as keyof typeof statusConfig] || statusConfig.idle;
   const StatusIcon = statusCfg.icon;
+
+  const handleClick = useCallback(() => {
+    if (onNodeClick) {
+      onNodeClick(id);
+    }
+  }, [onNodeClick, id]);
 
   return (
     <>
@@ -45,11 +51,13 @@ function WorkflowNode({ data }: NodeProps) {
       />
 
       <div
+        onClick={handleClick}
         className={cn(
           'bg-white border-2 rounded-xl px-4 py-3 min-w-[160px] max-w-[220px] transition-all duration-300',
           statusCfg.color,
           statusCfg.glow,
-          status === 'disabled' && 'opacity-40'
+          status === 'disabled' && 'opacity-40',
+          onNodeClick && 'cursor-pointer hover:shadow-md',
         )}
       >
         {/* Header */}
@@ -76,7 +84,7 @@ function WorkflowNode({ data }: NodeProps) {
         </div>
 
         {/* Label */}
-        <p className="text-xs font-medium text-gray-200 leading-relaxed">{label}</p>
+        <p className="text-xs font-medium text-gray-800 leading-relaxed">{label}</p>
 
         {/* Config hint */}
         {config?.api && (

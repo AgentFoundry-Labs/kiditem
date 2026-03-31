@@ -13,6 +13,7 @@ import { AiModule } from './ai/ai.module';
 import { FinanceModule } from './finance/finance.module';
 import { RulesModule } from './rules/rules.module';
 import { AgentRegistryModule } from './agent-registry/agent-registry.module';
+import { OntologyModule } from './ontology/ontology.module';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { AgentRegistryModule } from './agent-registry/agent-registry.module';
     FinanceModule,
     RulesModule,
     AgentRegistryModule,
+    OntologyModule,
   ],
 })
 export class AppModule {}

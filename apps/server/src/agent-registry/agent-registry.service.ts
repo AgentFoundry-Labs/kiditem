@@ -269,6 +269,101 @@ export class AgentRegistryService implements OnModuleInit {
     return { ok: true };
   }
 
+  // ── Cost Analytics ──
+
+  async getCostAnalytics(query: { from?: string; to?: string; agentId?: string }) {
+    const from = query.from ? new Date(query.from) : new Date('2020-01-01');
+    const to = query.to ? new Date(query.to) : new Date();
+
+    // daily 집계
+    const dailyParams: unknown[] = [from, to];
+    let dailyAgentFilter = '';
+    if (query.agentId) {
+      dailyParams.push(query.agentId);
+      dailyAgentFilter = `AND agent_id = $${dailyParams.length}`;
+    }
+
+    const daily: Array<{
+      date: Date | string;
+      total_cost_cents: bigint | number;
+      total_input_tokens: bigint | number;
+      total_output_tokens: bigint | number;
+      run_count: bigint | number;
+    }> = await this.prisma.$queryRawUnsafe(
+      `SELECT DATE(started_at) as date,
+        COALESCE(SUM((usage_json->>'costCents')::int), 0) as total_cost_cents,
+        COALESCE(SUM((usage_json->>'inputTokens')::int), 0) as total_input_tokens,
+        COALESCE(SUM((usage_json->>'outputTokens')::int), 0) as total_output_tokens,
+        COUNT(*)::int as run_count
+      FROM heartbeat_runs
+      WHERE started_at >= $1 AND started_at <= $2
+        AND status IN ('succeeded', 'failed', 'timed_out')
+        AND usage_json IS NOT NULL
+        ${dailyAgentFilter}
+      GROUP BY DATE(started_at) ORDER BY date ASC`,
+      ...dailyParams,
+    );
+
+    // byAgent 집계
+    const agentParams: unknown[] = [from, to];
+    let agentFilter = '';
+    if (query.agentId) {
+      agentParams.push(query.agentId);
+      agentFilter = `AND h.agent_id = $${agentParams.length}`;
+    }
+
+    const byAgent: Array<{
+      agent_id: string;
+      agent_name: string | null;
+      total_cost_cents: bigint | number;
+      total_input_tokens: bigint | number;
+      total_output_tokens: bigint | number;
+      run_count: bigint | number;
+    }> = await this.prisma.$queryRawUnsafe(
+      `SELECT h.agent_id, d.name as agent_name,
+        COALESCE(SUM((h.usage_json->>'costCents')::int), 0) as total_cost_cents,
+        COALESCE(SUM((h.usage_json->>'inputTokens')::int), 0) as total_input_tokens,
+        COALESCE(SUM((h.usage_json->>'outputTokens')::int), 0) as total_output_tokens,
+        COUNT(*)::int as run_count
+      FROM heartbeat_runs h
+      LEFT JOIN agent_definitions d ON h.agent_id = d.id
+      WHERE h.started_at >= $1 AND h.started_at <= $2
+        AND h.status IN ('succeeded', 'failed', 'timed_out')
+        AND h.usage_json IS NOT NULL
+        ${agentFilter}
+      GROUP BY h.agent_id, d.name ORDER BY total_cost_cents DESC`,
+      ...agentParams,
+    );
+
+    // 결과 변환 (BigInt → Number, Date → string)
+    const dailyResult = daily.map((row) => ({
+      date: row.date instanceof Date ? row.date.toISOString().split('T')[0] : String(row.date),
+      totalCostCents: Number(row.total_cost_cents),
+      totalInputTokens: Number(row.total_input_tokens),
+      totalOutputTokens: Number(row.total_output_tokens),
+      runCount: Number(row.run_count),
+    }));
+
+    const byAgentResult = byAgent.map((row) => ({
+      agentId: row.agent_id,
+      agentName: row.agent_name ?? 'Unknown',
+      totalCostCents: Number(row.total_cost_cents),
+      totalInputTokens: Number(row.total_input_tokens),
+      totalOutputTokens: Number(row.total_output_tokens),
+      runCount: Number(row.run_count),
+    }));
+
+    // summary
+    const summary = {
+      totalCostCents: dailyResult.reduce((s, r) => s + r.totalCostCents, 0),
+      totalInputTokens: dailyResult.reduce((s, r) => s + r.totalInputTokens, 0),
+      totalOutputTokens: dailyResult.reduce((s, r) => s + r.totalOutputTokens, 0),
+      totalRuns: dailyResult.reduce((s, r) => s + r.runCount, 0),
+    };
+
+    return { daily: dailyResult, byAgent: byAgentResult, summary };
+  }
+
   // ── Org Chart ──
 
   async getOrgTree() {

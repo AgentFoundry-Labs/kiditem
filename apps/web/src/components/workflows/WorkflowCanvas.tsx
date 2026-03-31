@@ -12,48 +12,77 @@ import ReactFlow, {
   ConnectionMode,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
-import type { Workflow } from '@/types';
+import type { WorkflowTemplate, StepStatusInfo } from '@/lib/workflow-types';
 import WorkflowNode from './WorkflowNode';
 
 interface WorkflowCanvasProps {
-  workflow: Workflow;
+  template: WorkflowTemplate;
+  stepStatusMap?: Map<string, StepStatusInfo>;
+  onNodeClick?: (nodeId: string) => void;
 }
 
-export default function WorkflowCanvas({ workflow }: WorkflowCanvasProps) {
-  const nodeTypes: NodeTypes = useMemo(() => ({
-    custom: WorkflowNode,
-  }), []);
-
-  const nodes: Node[] = useMemo(() =>
-    workflow.nodes.map((n) => ({
-      id: n.id,
-      type: 'custom',
-      position: n.position,
-      data: {
-        label: n.label,
-        nodeType: n.type,
-        module: n.module,
-        status: n.status,
-        config: n.config,
-      },
-    })),
-    [workflow.nodes]
+export default function WorkflowCanvas({
+  template,
+  stepStatusMap,
+  onNodeClick,
+}: WorkflowCanvasProps) {
+  const nodeTypes: NodeTypes = useMemo(
+    () => ({
+      custom: WorkflowNode,
+    }),
+    [],
   );
 
-  const edges: Edge[] = useMemo(() =>
-    workflow.edges.map((e) => ({
-      id: e.id,
-      source: e.source,
-      target: e.target,
-      label: e.label,
-      animated: true,
-      style: { stroke: '#2a2d48', strokeWidth: 2 },
-      labelStyle: { fill: '#64748b', fontSize: 10 },
-      labelBgStyle: { fill: '#111318', fillOpacity: 0.9 },
-      labelBgPadding: [6, 3] as [number, number],
-      labelBgBorderRadius: 4,
-    })),
-    [workflow.edges]
+  const rawNodes: any[] = useMemo(() => {
+    if (!template.nodesJson) return [];
+    return Array.isArray(template.nodesJson)
+      ? template.nodesJson
+      : [];
+  }, [template.nodesJson]);
+
+  const rawEdges: any[] = useMemo(() => {
+    if (!template.edgesJson) return [];
+    return Array.isArray(template.edgesJson)
+      ? template.edgesJson
+      : [];
+  }, [template.edgesJson]);
+
+  const nodes: Node[] = useMemo(
+    () =>
+      rawNodes.map((n: any) => {
+        const stepInfo = stepStatusMap?.get(n.id);
+        return {
+          id: n.id,
+          type: 'custom',
+          position: n.position ?? { x: 0, y: 0 },
+          data: {
+            label: n.label,
+            nodeType: n.type,
+            module: n.module,
+            status: stepInfo?.status ?? n.status ?? 'idle',
+            config: n.config,
+            onNodeClick,
+          },
+        };
+      }),
+    [rawNodes, stepStatusMap, onNodeClick],
+  );
+
+  const edges: Edge[] = useMemo(
+    () =>
+      rawEdges.map((e: any) => ({
+        id: e.id,
+        source: e.source,
+        target: e.target,
+        label: e.label,
+        animated: true,
+        style: { stroke: '#9ca3af', strokeWidth: 2 },
+        labelStyle: { fill: '#64748b', fontSize: 10 },
+        labelBgStyle: { fill: '#f9fafb', fillOpacity: 0.9 },
+        labelBgPadding: [6, 3] as [number, number],
+        labelBgBorderRadius: 4,
+      })),
+    [rawEdges],
   );
 
   return (
@@ -73,7 +102,7 @@ export default function WorkflowCanvas({ workflow }: WorkflowCanvasProps) {
           variant={BackgroundVariant.Dots}
           gap={20}
           size={1}
-          color="#1a1d26"
+          color="#e5e7eb"
         />
         <Controls />
         <MiniMap
@@ -82,9 +111,9 @@ export default function WorkflowCanvas({ workflow }: WorkflowCanvasProps) {
             if (status === 'success') return '#10b981';
             if (status === 'error') return '#ef4444';
             if (status === 'running') return '#3b82f6';
-            return '#374151';
+            return '#9ca3af';
           }}
-          maskColor="rgba(0, 0, 0, 0.7)"
+          maskColor="rgba(255, 255, 255, 0.7)"
         />
       </ReactFlow>
     </div>

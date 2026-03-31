@@ -282,6 +282,7 @@ export class ProductsService {
       name: p.name,
       sku: p.coupangProductId ?? null,
       category: p.category,
+      brand: p.brand ?? null,
       company: p.company?.name ?? 'N/A',
       companyId: p.companyId,
       costPrice: p.costCny ? Number(p.costCny) : 0,

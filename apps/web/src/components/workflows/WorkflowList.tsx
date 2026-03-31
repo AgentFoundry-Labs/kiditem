@@ -2,55 +2,165 @@
 
 import { useState } from 'react';
 import {
-  Play, Pause, Clock, CheckCircle, XCircle, Loader2,
-  ChevronDown, ChevronUp, MoreHorizontal,
+  Play,
+  Pause,
+  Clock,
+  CheckCircle,
+  XCircle,
+  Loader2,
+  ChevronDown,
+  ChevronUp,
+  ArrowLeft,
 } from 'lucide-react';
-import { useStore } from '@/store/useStore';
 import { cn, getModuleColor, timeAgo } from '@/lib/utils';
+import { workflowApi } from '@/lib/workflow-api';
+import type {
+  WorkflowTemplate,
+  WorkflowRun,
+  WorkflowRunWithSteps,
+} from '@/lib/workflow-types';
 import type { Workflow } from '@/types';
 import WorkflowCanvas from './WorkflowCanvas';
+import WorkflowRunView from './WorkflowRunView';
+
+/** Convert legacy Workflow to WorkflowTemplate shape */
+function legacyToTemplate(wf: Workflow): WorkflowTemplate {
+  return {
+    id: wf.id,
+    companyId: null,
+    name: wf.name,
+    description: wf.description,
+    module: wf.module,
+    isActive: wf.isActive,
+    triggerType: 'manual',
+    schedule: wf.schedule ?? null,
+    nodesJson: wf.nodes,
+    edgesJson: wf.edges,
+    version: null,
+    createdAt: wf.createdAt,
+    updatedAt: wf.updatedAt,
+  };
+}
 
 interface WorkflowListProps {
+  templates?: WorkflowTemplate[];
+  /** @deprecated Use templates instead */
   workflows?: Workflow[];
   showModule?: boolean;
 }
 
-const statusIcons = {
-  success: CheckCircle,
-  error: XCircle,
+const runStatusIcons: Record<string, any> = {
+  completed: CheckCircle,
+  failed: XCircle,
   running: Loader2,
+  pending: Clock,
 };
 
-const statusLabels = {
-  success: '성공',
-  error: '오류',
+const runStatusLabels: Record<string, string> = {
+  completed: '성공',
+  failed: '오류',
   running: '실행중',
+  pending: '대기',
 };
 
-export default function WorkflowList({ workflows: propWorkflows, showModule = true }: WorkflowListProps) {
-  const { workflows: storeWorkflows, toggleWorkflow } = useStore();
-  const workflows = propWorkflows || storeWorkflows;
+const runStatusColors: Record<string, string> = {
+  completed: 'text-green-600',
+  failed: 'text-red-500',
+  running: 'text-blue-600',
+  pending: 'text-gray-500',
+};
+
+function formatDuration(startedAt: string | null, completedAt: string | null): string {
+  if (!startedAt) return '-';
+  const start = Date.parse(startedAt);
+  const end = completedAt ? Date.parse(completedAt) : Date.now();
+  const diffMs = end - start;
+  if (diffMs < 1000) return `${diffMs}ms`;
+  return `${(diffMs / 1000).toFixed(1)}s`;
+}
+
+export default function WorkflowList({
+  templates: propTemplates,
+  workflows: legacyWorkflows,
+  showModule = true,
+}: WorkflowListProps) {
+  const templates = propTemplates ?? legacyWorkflows?.map(legacyToTemplate) ?? [];
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [runsMap, setRunsMap] = useState<Record<string, WorkflowRun[]>>({});
+  const [loadingRuns, setLoadingRuns] = useState<string | null>(null);
+  const [selectedRun, setSelectedRun] = useState<WorkflowRunWithSteps | null>(
+    null,
+  );
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(
+    null,
+  );
+  const [loadingDetail, setLoadingDetail] = useState(false);
+
+  async function handleExpand(wfId: string) {
+    if (expandedId === wfId) {
+      setExpandedId(null);
+      setSelectedRun(null);
+      setSelectedTemplateId(null);
+      return;
+    }
+
+    setExpandedId(wfId);
+    setSelectedRun(null);
+    setSelectedTemplateId(null);
+
+    if (!runsMap[wfId]) {
+      setLoadingRuns(wfId);
+      try {
+        const runs = await workflowApi.getRuns(wfId);
+        setRunsMap((prev) => ({ ...prev, [wfId]: runs }));
+      } catch {
+        setRunsMap((prev) => ({ ...prev, [wfId]: [] }));
+      } finally {
+        setLoadingRuns(null);
+      }
+    }
+  }
+
+  async function handleSelectRun(templateId: string, runId: string) {
+    setLoadingDetail(true);
+    try {
+      const detail = await workflowApi.getRunDetail(runId);
+      setSelectedRun(detail);
+      setSelectedTemplateId(templateId);
+    } catch {
+      setSelectedRun(null);
+    } finally {
+      setLoadingDetail(false);
+    }
+  }
+
+  function handleBackToTemplate() {
+    setSelectedRun(null);
+    setSelectedTemplateId(null);
+  }
 
   return (
     <div className="space-y-3">
-      {workflows.map((wf) => {
+      {templates.map((wf) => {
         const isExpanded = expandedId === wf.id;
         const color = getModuleColor(wf.module);
-        const StatusIcon = wf.lastStatus ? statusIcons[wf.lastStatus] : null;
+        const runs = runsMap[wf.id] ?? [];
+        const lastRun = runs[0];
+        const lastStatus = lastRun?.status;
+        const StatusIcon = lastStatus ? runStatusIcons[lastStatus] : null;
 
         return (
-          <div key={wf.id} className="glass-card overflow-hidden">
+          <div key={wf.id} className="bg-white border border-gray-200 rounded-xl overflow-hidden">
             {/* Header row */}
             <div
               className="flex items-center gap-4 px-5 py-4 cursor-pointer hover:bg-gray-50 transition-colors"
-              onClick={() => setExpandedId(isExpanded ? null : wf.id)}
+              onClick={() => handleExpand(wf.id)}
             >
               {/* Active indicator */}
               <div
                 className={cn(
                   'w-1.5 h-10 rounded-full flex-shrink-0 transition-colors',
-                  wf.isActive ? 'bg-emerald-500' : 'bg-gray-700'
+                  wf.isActive ? 'bg-emerald-500' : 'bg-gray-300',
                 )}
               />
 
@@ -65,7 +175,9 @@ export default function WorkflowList({ workflows: propWorkflows, showModule = tr
               {/* Info */}
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  <h3 className="text-sm font-medium text-gray-900 truncate">{wf.name}</h3>
+                  <h3 className="text-sm font-medium text-gray-900 truncate">
+                    {wf.name}
+                  </h3>
                   {wf.schedule && (
                     <span className="inline-flex items-center gap-1 text-[10px] text-gray-600 bg-gray-100 px-1.5 py-0.5 rounded">
                       <Clock className="w-2.5 h-2.5" />
@@ -73,53 +185,35 @@ export default function WorkflowList({ workflows: propWorkflows, showModule = tr
                     </span>
                   )}
                 </div>
-                <p className="text-[11px] text-gray-600 truncate mt-0.5">{wf.description}</p>
+                <p className="text-[11px] text-gray-600 truncate mt-0.5">
+                  {wf.description}
+                </p>
               </div>
 
               {/* Status */}
               <div className="flex items-center gap-4 flex-shrink-0">
-                {wf.lastStatus && StatusIcon && (
+                {lastStatus && StatusIcon && (
                   <div className="flex items-center gap-1.5">
                     <StatusIcon
                       className={cn(
                         'w-3.5 h-3.5',
-                        wf.lastStatus === 'success' && 'text-green-600',
-                        wf.lastStatus === 'error' && 'text-red-400',
-                        wf.lastStatus === 'running' && 'text-blue-600 animate-spin'
+                        runStatusColors[lastStatus],
+                        lastStatus === 'running' && 'animate-spin',
                       )}
                     />
-                    <span className={cn(
-                      'text-[10px]',
-                      wf.lastStatus === 'success' && 'text-green-600',
-                      wf.lastStatus === 'error' && 'text-red-400',
-                      wf.lastStatus === 'running' && 'text-blue-600'
-                    )}>
-                      {statusLabels[wf.lastStatus]}
+                    <span
+                      className={cn('text-[10px]', runStatusColors[lastStatus])}
+                    >
+                      {runStatusLabels[lastStatus]}
                     </span>
                   </div>
                 )}
 
-                {wf.lastRun && (
+                {lastRun?.startedAt && (
                   <span className="text-[10px] text-gray-600 w-16 text-right">
-                    {timeAgo(wf.lastRun)}
+                    {timeAgo(lastRun.startedAt)}
                   </span>
                 )}
-
-                {/* Toggle */}
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    toggleWorkflow(wf.id);
-                  }}
-                  className={cn(
-                    'p-1.5 rounded-lg transition-colors',
-                    wf.isActive
-                      ? 'text-green-600 hover:bg-green-50'
-                      : 'text-gray-600 hover:bg-gray-600/10'
-                  )}
-                >
-                  {wf.isActive ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-                </button>
 
                 {/* Expand */}
                 {isExpanded ? (
@@ -130,32 +224,76 @@ export default function WorkflowList({ workflows: propWorkflows, showModule = tr
               </div>
             </div>
 
-            {/* Expanded content - Workflow Canvas */}
+            {/* Expanded content */}
             {isExpanded && (
-              <div className="border-t border-gray-200 p-4">
-                <WorkflowCanvas workflow={wf} />
-
-                {/* Node details */}
-                <div className="mt-4 grid grid-cols-2 lg:grid-cols-4 gap-3">
-                  {wf.nodes.map((node) => (
-                    <div
-                      key={node.id}
-                      className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-gray-200"
-                    >
-                      <div
-                        className={cn(
-                          'w-2 h-2 rounded-full flex-shrink-0',
-                          node.status === 'success' && 'bg-emerald-500',
-                          node.status === 'error' && 'bg-red-500',
-                          node.status === 'running' && 'bg-blue-500 pulse-dot',
-                          node.status === 'idle' && 'bg-gray-600',
-                          node.status === 'disabled' && 'bg-gray-200'
-                        )}
-                      />
-                      <span className="text-[10px] text-gray-500 truncate">{node.label}</span>
+              <div className="border-t border-gray-200 p-4 space-y-4">
+                {/* Run history bar */}
+                {loadingRuns === wf.id ? (
+                  <div className="flex items-center gap-2 text-sm text-gray-400">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    실행 이력 로딩...
+                  </div>
+                ) : runs.length > 0 ? (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        실행 이력
+                      </h4>
+                      {selectedRun && (
+                        <button
+                          onClick={handleBackToTemplate}
+                          className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700"
+                        >
+                          <ArrowLeft className="w-3 h-3" />
+                          템플릿 보기
+                        </button>
+                      )}
                     </div>
-                  ))}
-                </div>
+                    <div className="flex gap-2 overflow-x-auto pb-1">
+                      {runs.slice(0, 10).map((r) => {
+                        const Icon = runStatusIcons[r.status] ?? Clock;
+                        const isSelected = selectedRun?.id === r.id;
+                        return (
+                          <button
+                            key={r.id}
+                            onClick={() => handleSelectRun(wf.id, r.id)}
+                            className={cn(
+                              'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border transition-colors whitespace-nowrap',
+                              isSelected
+                                ? 'bg-blue-50 border-blue-200 text-blue-700'
+                                : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50',
+                            )}
+                          >
+                            <Icon
+                              className={cn(
+                                'w-3 h-3',
+                                runStatusColors[r.status],
+                                r.status === 'running' && 'animate-spin',
+                              )}
+                            />
+                            <span>{r.startedAt ? timeAgo(r.startedAt) : '대기'}</span>
+                            <span className="text-gray-400">
+                              {formatDuration(r.startedAt, r.completedAt)}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-xs text-gray-400">실행 이력이 없습니다.</p>
+                )}
+
+                {/* Canvas or RunView */}
+                {loadingDetail ? (
+                  <div className="flex items-center justify-center h-[300px]">
+                    <Loader2 className="w-6 h-6 text-gray-400 animate-spin" />
+                  </div>
+                ) : selectedRun && selectedTemplateId === wf.id ? (
+                  <WorkflowRunView template={wf} run={selectedRun} />
+                ) : (
+                  <WorkflowCanvas template={wf} />
+                )}
               </div>
             )}
           </div>
