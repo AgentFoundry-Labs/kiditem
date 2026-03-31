@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { List, GitBranch, RefreshCw, SlidersHorizontal, Plus, Bot, Store, Filter } from 'lucide-react';
+import { List, GitBranch, RefreshCw, SlidersHorizontal, Plus, Bot, Store, Filter, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { agentApi } from '@/lib/agent-api';
@@ -92,10 +92,6 @@ export default function AgentsPage() {
     }
   }, [pageTab]);
 
-  const installedMarketplaceIds = new Set(
-    agents.map((a) => (a as any).marketplaceId).filter(Boolean),
-  );
-
   const filteredCatalog =
     categoryFilter === 'all'
       ? catalog
@@ -108,11 +104,35 @@ export default function AgentsPage() {
       await marketplaceApi.installAgent(installTarget.id, { params });
       setInstallTarget(null);
       setPageTab('my');
+      const updatedCatalog = await marketplaceApi.listAgents();
+      setCatalog(updatedCatalog);
       await fetchAll();
     } catch (err) {
       console.error('Failed to install agent:', err);
     } finally {
       setInstalling(false);
+    }
+  };
+
+  const handleUninstallAgent = async (marketplaceId: string) => {
+    if (!confirm('이 에이전트를 삭제하시겠습니까?')) return;
+    try {
+      await marketplaceApi.uninstallAgent(marketplaceId);
+      const updatedCatalog = await marketplaceApi.listAgents();
+      setCatalog(updatedCatalog);
+      await fetchAll();
+    } catch (err) {
+      console.error('Failed to uninstall agent:', err);
+    }
+  };
+
+  const handleDeleteAgent = async (id: string) => {
+    if (!confirm('이 에이전트를 삭제하시겠습니까?')) return;
+    try {
+      await agentApi.delete(id);
+      await fetchAll();
+    } catch (err) {
+      console.error('Failed to delete agent:', err);
     }
   };
 
@@ -154,7 +174,7 @@ export default function AgentsPage() {
               : 'border-transparent text-gray-500 hover:text-gray-700'
           }`}
         >
-          목록
+          내 에이전트
         </button>
         <button
           onClick={() => setPageTab('marketplace')}
@@ -205,8 +225,9 @@ export default function AgentsPage() {
                   key={item.id}
                   item={item}
                   type="agent"
-                  installed={installedMarketplaceIds.has(item.id)}
+                  installed={item.installed}
                   onInstall={() => setInstallTarget(item)}
+                  onUninstall={handleUninstallAgent}
                 />
               ))}
             </div>
@@ -360,6 +381,7 @@ export default function AgentsPage() {
               key={agent.id}
               agent={agent}
               onClick={() => router.push(`/agents/${agent.id}`)}
+              onDelete={handleDeleteAgent}
             />
           ))}
         </div>
@@ -397,7 +419,7 @@ export default function AgentsPage() {
 
 /* ---- List row ---- */
 
-function AgentListRow({ agent, onClick }: { agent: Agent; onClick: () => void }) {
+function AgentListRow({ agent, onClick, onDelete }: { agent: Agent; onClick: () => void; onDelete?: (id: string) => void }) {
   const dotClass = agentStatusDot[agent.status] ?? agentStatusDotDefault;
   const isLive = agent.status === 'running';
 
@@ -453,6 +475,20 @@ function AgentListRow({ agent, onClick }: { agent: Agent; onClick: () => void })
         <span className="w-20 flex justify-end">
           <StatusBadge status={agent.status} />
         </span>
+        {onDelete && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              if (confirm('이 에이전트를 삭제하시겠습니까?')) {
+                onDelete(agent.id);
+              }
+            }}
+            className="p-1 text-gray-400 hover:text-red-500 transition-colors"
+            title="삭제"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        )}
       </div>
     </div>
   );

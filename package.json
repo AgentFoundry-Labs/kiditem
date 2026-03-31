@@ -8,7 +8,8 @@
   "scripts": {
     "dev": "npm run dev --workspace=apps/web",
     "dev:server": "npm run start:dev --workspace=apps/server",
-    "dev:all": "npm run dev --workspace=apps/web & npm run start:dev --workspace=apps/server",
+    "dev:agents": "cd agents && .venv/bin/python -m src.runner",
+    "dev:all": "concurrently -n web,server,agents -c blue,green,yellow \"npm run dev\" \"npm run dev:server\" \"npm run dev:agents\"",
     "build": "npm run build --workspace=apps/web && npm run build --workspace=apps/server",
     "db:generate": "prisma generate --schema=prisma/schema.prisma",
     "db:push": "prisma db push",
@@ -18,6 +19,7 @@
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
     "@types/pg": "^8.20.0",
-    "better-sqlite3": "^12.8.0"
+    "better-sqlite3": "^12.8.0",
+    "concurrently": "^9.2.1"
   }
 }

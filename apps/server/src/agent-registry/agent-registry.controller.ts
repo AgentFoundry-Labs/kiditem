@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Body, Query, Param } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Query, Param, BadRequestException } from '@nestjs/common';
 import { AgentRegistryService } from './agent-registry.service';
 
 @Controller('agent-registry')
@@ -7,9 +7,10 @@ export class AgentRegistryController {
 
   @Get()
   list(
-    @Query('companyId') companyId?: string,
+    @Query('companyId') companyId: string,
     @Query('isActive') isActive?: string,
   ) {
+    if (!companyId) throw new BadRequestException('companyId is required');
     return this.service.list({ companyId, isActive });
   }
 

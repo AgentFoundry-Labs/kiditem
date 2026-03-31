@@ -1,6 +1,6 @@
 'use client';
 
-import { API_BASE } from '@/lib/api';
+import { API_BASE, getCompanyId } from '@/lib/api';
 import type { Agent, OrgNode, HeartbeatRun, AgentRuntimeState, CostAnalytics } from '@/lib/agent-types';
 
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
@@ -10,7 +10,10 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const agentApi = {
-  list: () => fetchJson<Agent[]>('/api/agent-registry'),
+  list: async () => {
+    const companyId = await getCompanyId();
+    return fetchJson<Agent[]>(`/api/agent-registry?companyId=${companyId}`);
+  },
   org: () => fetchJson<OrgNode[]>('/api/agent-registry/org'),
   get: (id: string) => fetchJson<Agent>(`/api/agent-registry/${id}`),
   update: (id: string, data: Record<string, unknown>) =>
@@ -25,6 +28,8 @@ export const agentApi = {
     fetchJson<{ ok: boolean }>(`/api/agent-registry/${id}/pause`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason }) }),
   resume: (id: string) =>
     fetchJson<{ ok: boolean }>(`/api/agent-registry/${id}/resume`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }),
+  delete: (id: string) =>
+    fetchJson<{ ok: boolean }>(`/api/agent-registry/${id}`, { method: 'DELETE' }),
   resetSession: (id: string) =>
     fetchJson<{ ok: boolean }>(`/api/agent-registry/${id}/reset-session`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }),
   getRuns: (id: string, limit = 20) =>

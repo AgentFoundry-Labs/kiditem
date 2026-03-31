@@ -11,6 +11,7 @@ import {
   ChevronDown,
   ChevronUp,
   ArrowLeft,
+  Trash2,
 } from 'lucide-react';
 import { cn, getModuleColor, timeAgo } from '@/lib/utils';
 import { workflowApi } from '@/lib/workflow-api';
@@ -47,6 +48,8 @@ interface WorkflowListProps {
   /** @deprecated Use templates instead */
   workflows?: Workflow[];
   showModule?: boolean;
+  onToggleActive?: (id: string, isActive: boolean) => void;
+  onDelete?: (id: string) => void;
 }
 
 const runStatusIcons: Record<string, any> = {
@@ -83,6 +86,8 @@ export default function WorkflowList({
   templates: propTemplates,
   workflows: legacyWorkflows,
   showModule = true,
+  onToggleActive,
+  onDelete,
 }: WorkflowListProps) {
   const templates = propTemplates ?? legacyWorkflows?.map(legacyToTemplate) ?? [];
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -156,13 +161,27 @@ export default function WorkflowList({
               className="flex items-center gap-4 px-5 py-4 cursor-pointer hover:bg-gray-50 transition-colors"
               onClick={() => handleExpand(wf.id)}
             >
-              {/* Active indicator */}
-              <div
-                className={cn(
-                  'w-1.5 h-10 rounded-full flex-shrink-0 transition-colors',
-                  wf.isActive ? 'bg-emerald-500' : 'bg-gray-300',
-                )}
-              />
+              {/* Active indicator / toggle */}
+              {onToggleActive ? (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onToggleActive(wf.id, !wf.isActive);
+                  }}
+                  className={cn(
+                    'w-1.5 h-10 rounded-full flex-shrink-0 transition-colors cursor-pointer',
+                    wf.isActive ? 'bg-emerald-500 hover:bg-emerald-600' : 'bg-gray-300 hover:bg-gray-400',
+                  )}
+                  title={wf.isActive ? '비활성화' : '활성화'}
+                />
+              ) : (
+                <div
+                  className={cn(
+                    'w-1.5 h-10 rounded-full flex-shrink-0 transition-colors',
+                    wf.isActive ? 'bg-emerald-500' : 'bg-gray-300',
+                  )}
+                />
+              )}
 
               {/* Module color dot */}
               {showModule && (
@@ -213,6 +232,22 @@ export default function WorkflowList({
                   <span className="text-[10px] text-gray-600 w-16 text-right">
                     {timeAgo(lastRun.startedAt)}
                   </span>
+                )}
+
+                {/* Delete */}
+                {onDelete && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (confirm('이 워크플로우를 삭제하시겠습니까?')) {
+                        onDelete(wf.id);
+                      }
+                    }}
+                    className="p-1 text-gray-400 hover:text-red-500 transition-colors"
+                    title="삭제"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
                 )}
 
                 {/* Expand */}

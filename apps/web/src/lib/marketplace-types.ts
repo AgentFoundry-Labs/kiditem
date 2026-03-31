@@ -23,6 +23,7 @@ export interface WorkflowCatalogItem {
   version: number;
   installCount: number;
   isPublished: boolean;
+  installed: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -42,6 +43,7 @@ export interface AgentCatalogItem {
   version: number;
   installCount: number;
   isPublished: boolean;
+  installed: boolean;
   createdAt: string;
   updatedAt: string;
 }

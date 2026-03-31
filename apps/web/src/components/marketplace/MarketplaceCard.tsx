@@ -16,6 +16,7 @@ interface MarketplaceCardProps {
   type: 'workflow' | 'agent';
   installed?: boolean;
   onInstall: (id: string) => void;
+  onUninstall?: (id: string) => void;
 }
 
 const MODULE_LABELS: Record<string, string> = {
@@ -39,7 +40,7 @@ const ROLE_LABELS: Record<string, string> = {
   manager: 'Manager',
 };
 
-export function MarketplaceCard({ item, type, installed, onInstall }: MarketplaceCardProps) {
+export function MarketplaceCard({ item, type, installed, onInstall, onUninstall }: MarketplaceCardProps) {
   return (
     <div className="bg-white border border-gray-200 rounded-lg p-4 hover:border-blue-300 hover:shadow-sm transition-all cursor-pointer">
       <div className="flex items-start gap-3">
@@ -85,9 +86,22 @@ export function MarketplaceCard({ item, type, installed, onInstall }: Marketplac
 
       {/* Install button */}
       {installed ? (
-        <div className="mt-3 w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium text-green-600 bg-green-50 rounded-md">
-          <CheckCircle size={12} />
-          {type === 'workflow' ? '설치됨' : '고용됨'}
+        <div className="mt-3 flex gap-2">
+          <div className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium text-green-600 bg-green-50 rounded-md">
+            <CheckCircle size={12} />
+            {type === 'workflow' ? '설치됨' : '고용됨'}
+          </div>
+          {onUninstall && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onUninstall(item.id);
+              }}
+              className="px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-md transition-colors"
+            >
+              삭제
+            </button>
+          )}
         </div>
       ) : (
         <button

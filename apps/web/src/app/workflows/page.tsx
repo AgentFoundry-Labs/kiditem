@@ -58,14 +58,19 @@ export default function WorkflowsPage() {
       ? templates
       : templates.filter((t) => t.module === filter);
 
-  const installedMarketplaceIds = new Set(
-    templates.map((t) => (t as any).marketplaceId).filter(Boolean),
-  );
-
   const filteredCatalog =
     categoryFilter === 'all'
       ? catalog
       : catalog.filter((c) => c.category === categoryFilter);
+
+  const reloadAll = async () => {
+    const [updated, updatedCatalog] = await Promise.all([
+      workflowApi.list(),
+      marketplaceApi.listWorkflows(),
+    ]);
+    setTemplates(updated);
+    setCatalog(updatedCatalog);
+  };
 
   const handleInstall = async (params: Record<string, any>) => {
     if (!installTarget) return;
@@ -74,13 +79,39 @@ export default function WorkflowsPage() {
       await marketplaceApi.installWorkflow(installTarget.id, { params });
       setInstallTarget(null);
       setTab('my');
-      // Reload my workflows
-      const updated = await workflowApi.list();
-      setTemplates(updated);
+      await reloadAll();
     } catch (err: any) {
       setError(err.message);
     } finally {
       setInstalling(false);
+    }
+  };
+
+  const handleUninstall = async (marketplaceId: string) => {
+    if (!confirm('이 워크플로우를 삭제하시겠습니까?')) return;
+    try {
+      await marketplaceApi.uninstallWorkflow(marketplaceId);
+      await reloadAll();
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
+  const handleToggleActive = async (id: string, isActive: boolean) => {
+    try {
+      await workflowApi.toggleActive(id, isActive);
+      await reloadAll();
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      await workflowApi.delete(id);
+      await reloadAll();
+    } catch (err: any) {
+      setError(err.message);
     }
   };
 
@@ -162,7 +193,11 @@ export default function WorkflowsPage() {
               ))}
             </div>
           </div>
-          <WorkflowList templates={filteredTemplates} />
+          <WorkflowList
+            templates={filteredTemplates}
+            onToggleActive={handleToggleActive}
+            onDelete={handleDelete}
+          />
         </>
       ) : (
         <>
@@ -199,8 +234,9 @@ export default function WorkflowsPage() {
                   key={item.id}
                   item={item}
                   type="workflow"
-                  installed={installedMarketplaceIds.has(item.id)}
+                  installed={item.installed}
                   onInstall={() => setInstallTarget(item)}
+                  onUninstall={handleUninstall}
                 />
               ))}
             </div>

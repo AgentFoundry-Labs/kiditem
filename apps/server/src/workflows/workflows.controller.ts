@@ -14,8 +14,13 @@ export class WorkflowsController {
   }
 
   @Get()
-  findAll(@Query() query: { companyId?: string; module?: string; isActive?: string }) {
-    return this.workflowsService.findAll(query);
+  findAll(
+    @Query('companyId') companyId: string,
+    @Query('module') module?: string,
+    @Query('isActive') isActive?: string,
+  ) {
+    if (!companyId) throw new BadRequestException('companyId is required');
+    return this.workflowsService.findAll({ companyId, module, isActive });
   }
 
   @Get(':id')

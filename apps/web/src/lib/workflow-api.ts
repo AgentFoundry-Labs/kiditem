@@ -1,6 +1,6 @@
 'use client';
 
-import { API_BASE } from '@/lib/api';
+import { API_BASE, getCompanyId } from '@/lib/api';
 import type {
   WorkflowTemplate,
   WorkflowRun,
@@ -14,7 +14,10 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const workflowApi = {
-  list: () => fetchJson<WorkflowTemplate[]>('/api/workflows'),
+  list: async () => {
+    const companyId = await getCompanyId();
+    return fetchJson<WorkflowTemplate[]>(`/api/workflows?companyId=${companyId}`);
+  },
 
   get: (id: string) => fetchJson<WorkflowTemplate>(`/api/workflows/${id}`),
 
@@ -29,5 +32,15 @@ export const workflowApi = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(context ?? {}),
+    }),
+
+  delete: (id: string) =>
+    fetchJson<void>(`/api/workflows/${id}`, { method: 'DELETE' }),
+
+  toggleActive: (id: string, isActive: boolean) =>
+    fetchJson<WorkflowTemplate>(`/api/workflows/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ isActive }),
     }),
 };
