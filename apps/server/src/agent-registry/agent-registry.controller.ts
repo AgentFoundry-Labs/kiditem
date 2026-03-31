@@ -13,6 +13,11 @@ export class AgentRegistryController {
     return this.service.list({ companyId, isActive });
   }
 
+  @Get('org')
+  getOrgTree() {
+    return this.service.getOrgTree();
+  }
+
   @Get(':id')
   getById(@Param('id') id: string) {
     return this.service.getById(id);

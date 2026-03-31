@@ -4,16 +4,45 @@ import type { AdapterModule, ExecutionContext, ExecutionResult, EnvironmentTestR
 
 const logger = new Logger('ClaudeLocalAdapter');
 
-function parseClaudeOutput(raw: string): Record<string, unknown> {
+interface ParsedClaudeOutput {
+  sessionId: string | null;
+  model: string | null;
+  costUsd: number | null;
+  usage: { inputTokens: number; cachedInputTokens: number; outputTokens: number } | null;
+  summary: string;
+  resultJson: Record<string, unknown> | null;
+}
+
+function parseClaudeOutput(raw: string): ParsedClaudeOutput {
+  // Claude CLI --output-format json outputs a single JSON line with type:"result"
   try {
-    return JSON.parse(raw);
-  } catch {
-    const match = raw.match(/```json\n([\s\S]*?)\n```/);
-    if (match) return JSON.parse(match[1]);
-    const jsonMatch = raw.match(/\{[\s\S]*"task_id"[\s\S]*\}/);
-    if (jsonMatch) return JSON.parse(jsonMatch[0]);
-    return { raw_output: raw.slice(0, 2000) };
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object') {
+      const usageObj = parsed.usage || {};
+      return {
+        sessionId: parsed.session_id || null,
+        model: parsed.modelUsage ? Object.keys(parsed.modelUsage)[0] : null,
+        costUsd: typeof parsed.total_cost_usd === 'number' ? parsed.total_cost_usd : null,
+        usage: {
+          inputTokens: usageObj.input_tokens || 0,
+          cachedInputTokens: usageObj.cache_read_input_tokens || 0,
+          outputTokens: usageObj.output_tokens || 0,
+        },
+        summary: parsed.result || '',
+        resultJson: parsed,
+      };
+    }
+  } catch { /* not valid JSON */ }
+
+  // Fallback: try to extract JSON block
+  const match = raw.match(/```json\n([\s\S]*?)\n```/);
+  if (match) {
+    try {
+      return { sessionId: null, model: null, costUsd: null, usage: null, summary: '', resultJson: JSON.parse(match[1]) };
+    } catch { /* ignore */ }
   }
+
+  return { sessionId: null, model: null, costUsd: null, usage: null, summary: raw.slice(0, 2000), resultJson: null };
 }
 
 async function execute(ctx: ExecutionContext): Promise<ExecutionResult> {
@@ -21,6 +50,8 @@ async function execute(ctx: ExecutionContext): Promise<ExecutionResult> {
   const extraArgs = (ctx.config.extraArgs as string[]) || [];
   const timeoutMs = ctx.timeoutSec * 1000;
   const graceMs = ctx.graceSec * 1000;
+
+  const model = (ctx.config.model as string) || '';
 
   const args = [
     '-p', ctx.prompt,
@@ -30,8 +61,13 @@ async function execute(ctx: ExecutionContext): Promise<ExecutionResult> {
     ...extraArgs,
   ];
 
-  // Session resume
-  if (ctx.sessionId) {
+  // Model selection
+  if (model) {
+    args.push('--model', model);
+  }
+
+  // Session resume — skip if agent is already running (session in use)
+  if (ctx.sessionId && !ctx.config._skipSessionResume) {
     args.push('--session-id', ctx.sessionId);
   }
 
@@ -77,12 +113,8 @@ async function execute(ctx: ExecutionContext): Promise<ExecutionResult> {
       clearTimeout(timeout);
       killed = true;
 
-      // Extract session ID from Claude output if available
-      let sessionIdAfter: string | undefined;
-      try {
-        const parsed = JSON.parse(stdout);
-        if (parsed?.session_id) sessionIdAfter = parsed.session_id;
-      } catch { /* ignore */ }
+      // Parse Claude output for session, usage, cost
+      const parsed = parseClaudeOutput(stdout);
 
       resolve({
         exitCode: code,
@@ -90,7 +122,12 @@ async function execute(ctx: ExecutionContext): Promise<ExecutionResult> {
         timedOut,
         stdout,
         stderr: stderr.slice(0, 2000),
-        sessionIdAfter,
+        sessionIdAfter: parsed.sessionId ?? undefined,
+        usage: parsed.usage ? {
+          inputTokens: parsed.usage.inputTokens + parsed.usage.cachedInputTokens,
+          outputTokens: parsed.usage.outputTokens,
+          costCents: parsed.costUsd ? Math.round(parsed.costUsd * 100) : undefined,
+        } : undefined,
       });
     });
 

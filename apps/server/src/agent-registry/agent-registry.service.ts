@@ -3,6 +3,18 @@ import { PrismaService } from '../prisma/prisma.service';
 import { HeartbeatService } from './heartbeat/heartbeat.service';
 import { DEFAULT_AGENT_DEFINITIONS } from './seed-agents';
 
+export interface OrgNode {
+  id: string;
+  name: string;
+  type: string;
+  role: string;
+  title: string | null;
+  status: string;
+  adapterType: string;
+  lastHeartbeatAt: string | null;
+  reports: OrgNode[];
+}
+
 @Injectable()
 export class AgentRegistryService implements OnModuleInit {
   private readonly logger = new Logger(AgentRegistryService.name);
@@ -254,5 +266,40 @@ export class AgentRegistryService implements OnModuleInit {
       data: { status: 'idle', pauseReason: null, pausedAt: null },
     });
     return { ok: true };
+  }
+
+  // ── Org Chart ──
+
+  async getOrgTree() {
+    const agents = await this.prisma.agentDefinition.findMany({
+      where: { isActive: true },
+      orderBy: { name: 'asc' },
+    });
+
+    const agentMap = new Map(agents.map(a => [a.id, a]));
+    const childMap = new Map<string | null, typeof agents>();
+
+    for (const agent of agents) {
+      const parentId = agent.reportsTo || null;
+      if (!childMap.has(parentId)) childMap.set(parentId, []);
+      childMap.get(parentId)!.push(agent);
+    }
+
+    function buildTree(parentId: string | null): OrgNode[] {
+      const children = childMap.get(parentId) || [];
+      return children.map(a => ({
+        id: a.id,
+        name: a.name,
+        type: a.type,
+        role: a.role,
+        title: a.title,
+        status: a.status,
+        adapterType: a.adapterType,
+        lastHeartbeatAt: a.lastHeartbeatAt?.toISOString() ?? null,
+        reports: buildTree(a.id),
+      }));
+    }
+
+    return buildTree(null);
   }
 }

@@ -159,6 +159,14 @@ export class HeartbeatService {
     let result;
     try {
       result = await adapter.execute(ctx);
+
+      // Session conflict retry — "session already in use" → retry without session
+      if (result.exitCode !== 0 && result.stderr.includes('already in use') && ctx.sessionId) {
+        this.logger.warn(`Session conflict for ${agent.name}, retrying without session resume`);
+        ctx.sessionId = undefined;
+        ctx.config = { ...ctx.config, _skipSessionResume: true };
+        result = await adapter.execute(ctx);
+      }
     } catch (err: any) {
       result = {
         exitCode: 1,
@@ -231,6 +239,22 @@ export class HeartbeatService {
 
     // Wakeup 완료
     await this.wakeupService.finish(wakeup.id, run.id, errorCode ? result.stderr.slice(0, 500) : undefined);
+
+    // Legacy AgentTask 동기화 — run() 경유로 생성된 task가 있으면 업데이트
+    const payload = wakeup.payload as Record<string, unknown> | null;
+    const legacyTaskId = payload?._legacy_task_id as string | undefined;
+    if (legacyTaskId) {
+      try {
+        await this.prisma.agentTask.update({
+          where: { id: legacyTaskId },
+          data: {
+            status: status === 'succeeded' ? 'completed' : 'failed',
+            error: errorCode ? result.stderr.slice(0, 1000) : null,
+            completedAt: new Date(),
+          },
+        });
+      } catch { /* task might not exist or already updated by callback */ }
+    }
 
     this.logger.log(`Heartbeat finished: ${agent.name} (run=${run.id}, status=${status})`);
 

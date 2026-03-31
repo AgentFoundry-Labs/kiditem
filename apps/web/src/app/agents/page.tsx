@@ -1,108 +1,53 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
-import {
-  Bot,
-  Play,
-  Pause,
-  RotateCcw,
-  Clock,
-  CheckCircle2,
-  XCircle,
-  AlertTriangle,
-  Timer,
-  Activity,
-  ChevronDown,
-  ChevronUp,
-  Zap,
-  Shield,
-} from 'lucide-react';
-import { API_BASE } from '@/lib/api';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
+import { List, GitBranch, RefreshCw, SlidersHorizontal, Plus, Bot } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { agentApi } from '@/lib/agent-api';
+import { StatusBadge } from '@/components/ui/StatusBadge';
+import { agentStatusDot, agentStatusDotDefault } from '@/lib/status-colors';
+import { relativeTime } from '@/lib/agent-utils';
+import { ADAPTER_LABELS, ROLE_LABELS } from '@/lib/agent-types';
+import type { Agent, OrgNode, FilterTab, ViewMode } from '@/lib/agent-types';
 
-interface AgentDefinition {
-  id: string;
-  name: string;
-  type: string;
-  description: string;
-  role: string;
-  title: string;
-  status: string;
-  adapterType: string;
-  skills: string[];
-  schedule: string | null;
-  timeoutSeconds: number;
-  isActive: boolean;
-  monthlyTokenBudget: number;
-  tokensUsed: number;
-  lastHeartbeatAt: string | null;
-  pauseReason: string | null;
+function matchesFilter(status: string, tab: FilterTab, showTerminated: boolean): boolean {
+  if (status === 'terminated') return showTerminated;
+  if (tab === 'all') return true;
+  if (tab === 'active') return status === 'active' || status === 'running' || status === 'idle';
+  if (tab === 'paused') return status === 'paused';
+  if (tab === 'error') return status === 'error';
+  return true;
 }
 
-interface HeartbeatRun {
-  id: string;
-  invocationSource: string;
-  status: string;
-  startedAt: string | null;
-  finishedAt: string | null;
-  exitCode: number | null;
-  errorCode: string | null;
-  error: string | null;
-  usageJson: { inputTokens?: number; outputTokens?: number } | null;
-}
-
-interface RuntimeState {
-  sessionId: string | null;
-  lastRunStatus: string | null;
-  totalInputTokens: number;
-  totalOutputTokens: number;
-  totalCostCents: number;
-  lastError: string | null;
-}
-
-const STATUS_CONFIG: Record<string, { color: string; icon: typeof CheckCircle2; label: string }> = {
-  idle: { color: 'text-gray-500 bg-gray-50', icon: Clock, label: '대기' },
-  running: { color: 'text-blue-600 bg-blue-50', icon: Activity, label: '실행 중' },
-  paused: { color: 'text-yellow-600 bg-yellow-50', icon: Pause, label: '일시정지' },
-  disabled: { color: 'text-red-500 bg-red-50', icon: XCircle, label: '비활성' },
-};
-
-const RUN_STATUS_CONFIG: Record<string, { color: string; label: string }> = {
-  queued: { color: 'text-gray-500', label: '대기' },
-  running: { color: 'text-blue-600', label: '실행 중' },
-  succeeded: { color: 'text-green-600', label: '성공' },
-  failed: { color: 'text-red-500', label: '실패' },
-  timed_out: { color: 'text-orange-500', label: '타임아웃' },
-  cancelled: { color: 'text-gray-400', label: '취소' },
-};
-
-const ROLE_BADGE: Record<string, string> = {
-  manager: 'bg-indigo-100 text-indigo-700',
-  specialist: 'bg-gray-100 text-gray-700',
-};
-
-function timeAgo(date: string | null): string {
-  if (!date) return '-';
-  const diff = Date.now() - new Date(date).getTime();
-  if (diff < 60_000) return '방금 전';
-  if (diff < 3600_000) return `${Math.floor(diff / 60_000)}분 전`;
-  if (diff < 86400_000) return `${Math.floor(diff / 3600_000)}시간 전`;
-  return `${Math.floor(diff / 86400_000)}일 전`;
+function filterOrgTree(nodes: OrgNode[], tab: FilterTab, showTerminated: boolean): OrgNode[] {
+  return nodes.reduce<OrgNode[]>((acc, node) => {
+    const filteredReports = filterOrgTree(node.reports, tab, showTerminated);
+    if (matchesFilter(node.status, tab, showTerminated) || filteredReports.length > 0) {
+      acc.push({ ...node, reports: filteredReports });
+    }
+    return acc;
+  }, []);
 }
 
 export default function AgentsPage() {
-  const [agents, setAgents] = useState<AgentDefinition[]>([]);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [runs, setRuns] = useState<Record<string, HeartbeatRun[]>>({});
-  const [runtimeStates, setRuntimeStates] = useState<Record<string, RuntimeState>>({});
+  const router = useRouter();
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [orgTree, setOrgTree] = useState<OrgNode[]>([]);
+  const [view, setView] = useState<ViewMode>('list');
+  const [filter, setFilter] = useState<FilterTab>('all');
   const [loading, setLoading] = useState(true);
-  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [showTerminated, setShowTerminated] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
-  const fetchAgents = useCallback(async () => {
+  const fetchAll = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/agent-registry`);
-      const data = await res.json();
-      setAgents(data);
+      const [agentList, org] = await Promise.all([
+        agentApi.list(),
+        agentApi.org(),
+      ]);
+      setAgents(agentList);
+      setOrgTree(org);
     } catch (err) {
       console.error('Failed to fetch agents:', err);
     } finally {
@@ -110,320 +55,350 @@ export default function AgentsPage() {
     }
   }, []);
 
-  useEffect(() => { fetchAgents(); }, [fetchAgents]);
+  useEffect(() => {
+    fetchAll();
+    const interval = setInterval(fetchAll, 15_000);
+    return () => clearInterval(interval);
+  }, [fetchAll]);
 
-  const fetchRuns = async (agentId: string) => {
-    try {
-      const res = await fetch(`${API_BASE}/api/agent-registry/${agentId}/runs?limit=10`);
-      const data = await res.json();
-      setRuns(prev => ({ ...prev, [agentId]: data }));
-    } catch (err) {
-      console.error('Failed to fetch runs:', err);
-    }
-  };
+  const filtered = useMemo(
+    () => agents
+      .filter((a) => matchesFilter(a.status, filter, showTerminated))
+      .sort((a, b) => a.name.localeCompare(b.name)),
+    [agents, filter, showTerminated],
+  );
 
-  const fetchRuntimeState = async (agentId: string) => {
-    try {
-      const res = await fetch(`${API_BASE}/api/agent-registry/${agentId}/runtime-state`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data) setRuntimeStates(prev => ({ ...prev, [agentId]: data }));
-      }
-    } catch (err) {
-      console.error('Failed to fetch runtime state:', err);
-    }
-  };
+  const filteredOrg = useMemo(
+    () => filterOrgTree(orgTree, filter, showTerminated),
+    [orgTree, filter, showTerminated],
+  );
 
-  const toggleExpand = (agentId: string) => {
-    if (expandedId === agentId) {
-      setExpandedId(null);
-    } else {
-      setExpandedId(agentId);
-      fetchRuns(agentId);
-      fetchRuntimeState(agentId);
-    }
-  };
-
-  const handleAction = async (agentId: string, action: 'pause' | 'resume' | 'reset-session' | 'run') => {
-    setActionLoading(`${agentId}-${action}`);
-    try {
-      const url = action === 'run'
-        ? `${API_BASE}/api/agent-registry/${agentId}/run`
-        : `${API_BASE}/api/agent-registry/${agentId}/${action}`;
-      await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-      await fetchAgents();
-      if (expandedId === agentId) {
-        fetchRuns(agentId);
-        fetchRuntimeState(agentId);
-      }
-    } catch (err) {
-      console.error(`Action ${action} failed:`, err);
-    } finally {
-      setActionLoading(null);
-    }
-  };
+  const agentMap = useMemo(() => {
+    const map = new Map<string, Agent>();
+    for (const a of agents) map.set(a.id, a);
+    return map;
+  }, [agents]);
 
   if (loading) {
     return (
-      <div className="p-8">
-        <div className="animate-pulse space-y-4">
-          {[1, 2, 3].map(i => <div key={i} className="h-24 bg-gray-100 rounded-lg" />)}
+      <div className="p-8 max-w-5xl">
+        <div className="animate-pulse space-y-3">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="h-14 bg-gray-100 rounded" />
+          ))}
         </div>
       </div>
     );
   }
 
-  const managers = agents.filter(a => a.role === 'manager');
-  const specialists = agents.filter(a => a.role !== 'manager');
-
   return (
-    <div className="p-8 max-w-5xl">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">에이전트 관리</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            {agents.length}개 에이전트 · {agents.filter(a => a.status === 'running').length}개 실행 중
-          </p>
+    <div className="p-4 sm:p-8 max-w-5xl">
+      {/* Header */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-5">
+        {/* Filter tabs */}
+        <div className="flex gap-0 border-b border-gray-200 overflow-x-auto">
+          {(['all', 'active', 'paused', 'error'] as FilterTab[]).map((tab) => (
+            <button
+              key={tab}
+              className={cn(
+                'px-4 py-2.5 text-sm -mb-px border-b-2 transition-colors whitespace-nowrap',
+                filter === tab
+                  ? 'border-gray-900 text-gray-900 font-medium'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300',
+              )}
+              onClick={() => setFilter(tab)}
+            >
+              {{ all: '전체', active: '활성', paused: '일시정지', error: '에러' }[tab]}
+            </button>
+          ))}
+        </div>
+
+        {/* Actions */}
+        <div className="flex items-center gap-2 shrink-0">
+          {/* Filters dropdown */}
+          <div className="relative">
+            <button
+              className={cn(
+                'flex items-center gap-1.5 px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg transition-colors',
+                filtersOpen || showTerminated
+                  ? 'bg-gray-100 text-gray-900'
+                  : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900',
+              )}
+              onClick={() => setFiltersOpen(!filtersOpen)}
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5" />
+              Filters
+              {showTerminated && (
+                <span className="ml-0.5 px-1 bg-gray-900 text-white rounded text-[10px]">1</span>
+              )}
+            </button>
+            {filtersOpen && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setFiltersOpen(false)} />
+                <div className="absolute right-0 top-full mt-1 z-20 w-48 bg-white border border-gray-200 rounded-lg shadow-lg p-1">
+                  <button
+                    className="flex items-center gap-2 w-full px-2 py-1.5 text-xs text-left rounded-md hover:bg-gray-50 transition-colors"
+                    onClick={() => setShowTerminated(!showTerminated)}
+                  >
+                    <span className={cn(
+                      'flex items-center justify-center w-3.5 h-3.5 border rounded-sm transition-colors',
+                      showTerminated ? 'bg-gray-900 border-gray-900' : 'border-gray-300',
+                    )}>
+                      {showTerminated && <span className="text-white text-[9px] leading-none">✓</span>}
+                    </span>
+                    종료된 에이전트 표시
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* View toggle */}
+          <div className="flex items-center border border-gray-200 rounded-lg overflow-hidden">
+            <button
+              className={cn(
+                'p-1.5 transition-colors',
+                view === 'list' ? 'bg-gray-100 text-gray-900' : 'text-gray-400 hover:bg-gray-50 hover:text-gray-700',
+              )}
+              onClick={() => setView('list')}
+              title="리스트"
+            >
+              <List className="w-3.5 h-3.5" />
+            </button>
+            <button
+              className={cn(
+                'p-1.5 transition-colors',
+                view === 'org' ? 'bg-gray-100 text-gray-900' : 'text-gray-400 hover:bg-gray-50 hover:text-gray-700',
+              )}
+              onClick={() => setView('org')}
+              title="조직도"
+            >
+              <GitBranch className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          <button
+            onClick={fetchAll}
+            className="p-1.5 text-gray-400 hover:text-gray-600 border border-gray-200 rounded-lg transition-colors"
+            title="새로고침"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+          </button>
+
+          {/* New Agent — placeholder */}
+          <button
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-gray-700"
+            title="새 에이전트 (준비 중)"
+            disabled
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">새 에이전트</span>
+          </button>
         </div>
       </div>
 
-      {/* Manager Section */}
-      {managers.length > 0 && (
-        <div className="mb-8">
-          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Manager</h2>
-          <div className="space-y-3">
-            {managers.map(agent => (
-              <AgentCard
-                key={agent.id}
-                agent={agent}
-                expanded={expandedId === agent.id}
-                runs={runs[agent.id]}
-                runtimeState={runtimeStates[agent.id]}
-                actionLoading={actionLoading}
-                onToggle={() => toggleExpand(agent.id)}
-                onAction={(action) => handleAction(agent.id, action)}
-              />
-            ))}
+      {/* Agent count */}
+      {filtered.length > 0 && (
+        <p className="text-xs text-gray-400 mb-3">
+          {filtered.length}개 에이전트
+          {agents.filter(a => a.status === 'running').length > 0 && (
+            <> · <span className="text-cyan-600">{agents.filter(a => a.status === 'running').length}개 실행 중</span></>
+          )}
+        </p>
+      )}
+
+      {/* Empty state */}
+      {agents.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-16 text-gray-400 border border-gray-200 rounded-lg">
+          <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center mb-3">
+            <Bot className="w-6 h-6 text-gray-400" />
           </div>
+          <p className="text-sm font-medium text-gray-600">등록된 에이전트가 없습니다.</p>
+          <p className="text-xs text-gray-400 mt-1">서버에서 에이전트를 시드하거나 API로 추가하세요.</p>
         </div>
       )}
 
-      {/* Specialist Section */}
-      <div>
-        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Specialists</h2>
-        <div className="space-y-3">
-          {specialists.map(agent => (
-            <AgentCard
+      {/* List view */}
+      {view === 'list' && filtered.length > 0 && (
+        <div className="border border-gray-200 rounded-lg overflow-hidden">
+          {filtered.map((agent) => (
+            <AgentListRow
               key={agent.id}
               agent={agent}
-              expanded={expandedId === agent.id}
-              runs={runs[agent.id]}
-              runtimeState={runtimeStates[agent.id]}
-              actionLoading={actionLoading}
-              onToggle={() => toggleExpand(agent.id)}
-              onAction={(action) => handleAction(agent.id, action)}
+              onClick={() => router.push(`/agents/${agent.id}`)}
             />
           ))}
         </div>
+      )}
+
+      {view === 'list' && agents.length > 0 && filtered.length === 0 && (
+        <p className="text-sm text-gray-400 text-center py-8">필터에 맞는 에이전트가 없습니다.</p>
+      )}
+
+      {/* Org view */}
+      {view === 'org' && (
+        <div className="border border-gray-200 rounded-lg overflow-hidden">
+          {filteredOrg.length === 0 ? (
+            <p className="text-sm text-gray-400 text-center py-8">
+              {orgTree.length === 0 ? '조직 구조가 정의되지 않았습니다.' : '필터에 맞는 에이전트가 없습니다.'}
+            </p>
+          ) : (
+            filteredOrg.map((node) => (
+              <OrgTreeNode
+                key={node.id}
+                node={node}
+                depth={0}
+                agentMap={agentMap}
+                onNavigate={(id) => router.push(`/agents/${id}`)}
+              />
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---- List row ---- */
+
+function AgentListRow({ agent, onClick }: { agent: Agent; onClick: () => void }) {
+  const dotClass = agentStatusDot[agent.status] ?? agentStatusDotDefault;
+  const isLive = agent.status === 'running';
+
+  return (
+    <div
+      className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-0 transition-colors"
+      onClick={onClick}
+    >
+      {/* Status dot */}
+      <span className="relative flex h-2.5 w-2.5 shrink-0">
+        <span className={cn('absolute inline-flex h-full w-full rounded-full', dotClass)} />
+      </span>
+
+      {/* Icon placeholder */}
+      <div className="w-6 h-6 sm:w-8 sm:h-8 rounded-lg bg-gray-100 flex items-center justify-center shrink-0 text-sm font-semibold text-gray-500">
+        {agent.icon ?? agent.name.charAt(0).toUpperCase()}
+      </div>
+
+      {/* Name + meta */}
+      <div className="flex-1 min-w-0">
+        <span className="text-sm font-medium text-gray-900">{agent.name}</span>
+        <span className="hidden sm:inline text-xs text-gray-500 ml-2">
+          {ROLE_LABELS[agent.role] ?? agent.role}
+          {agent.title ? ` · ${agent.title}` : ''}
+        </span>
+        {agent.description && (
+          <p className="text-xs text-gray-400 truncate mt-0.5">{agent.description}</p>
+        )}
+      </div>
+
+      {/* Trailing info */}
+      <div className="hidden sm:flex items-center gap-3 shrink-0">
+        {isLive && (
+          <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 text-[11px] font-medium">
+            <span className="relative flex h-1.5 w-1.5">
+              <span className="animate-pulse absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-blue-500" />
+            </span>
+            Live
+          </span>
+        )}
+        <span className="text-xs text-gray-400 font-mono w-14 text-right">
+          {ADAPTER_LABELS[agent.adapterType] ?? agent.adapterType}
+        </span>
+        <span className="text-xs text-gray-400 w-16 text-right">
+          {relativeTime(agent.lastHeartbeatAt)}
+        </span>
+        <span className="w-20 flex justify-end">
+          <StatusBadge status={agent.status} />
+        </span>
       </div>
     </div>
   );
 }
 
-function AgentCard({
-  agent,
-  expanded,
-  runs,
-  runtimeState,
-  actionLoading,
-  onToggle,
-  onAction,
+/* ---- Org tree node ---- */
+
+function OrgTreeNode({
+  node,
+  depth,
+  agentMap,
+  onNavigate,
 }: {
-  agent: AgentDefinition;
-  expanded: boolean;
-  runs?: HeartbeatRun[];
-  runtimeState?: RuntimeState;
-  actionLoading: string | null;
-  onToggle: () => void;
-  onAction: (action: 'pause' | 'resume' | 'reset-session' | 'run') => void;
+  node: OrgNode;
+  depth: number;
+  agentMap: Map<string, Agent>;
+  onNavigate: (id: string) => void;
 }) {
-  const statusCfg = STATUS_CONFIG[agent.status] || STATUS_CONFIG.idle;
-  const StatusIcon = statusCfg.icon;
+  const agent = agentMap.get(node.id);
+  const dotClass = agentStatusDot[node.status] ?? agentStatusDotDefault;
+  const isLive = node.status === 'running';
 
   return (
-    <div className="border border-gray-200 rounded-lg bg-white">
-      {/* Header */}
+    <div style={{ paddingLeft: depth * 24 }}>
       <div
-        className="flex items-center gap-4 p-4 cursor-pointer hover:bg-gray-50"
-        onClick={onToggle}
+        className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-0 transition-colors"
+        onClick={() => onNavigate(node.id)}
       >
-        <div className={cn('w-10 h-10 rounded-lg flex items-center justify-center', statusCfg.color)}>
-          <Bot className="w-5 h-5" />
+        {/* Status dot */}
+        <span className="relative flex h-2.5 w-2.5 shrink-0">
+          <span className={cn('absolute inline-flex h-full w-full rounded-full', dotClass)} />
+        </span>
+
+        {/* Agent icon */}
+        <div className="w-7 h-7 rounded-md bg-gray-100 flex items-center justify-center shrink-0 text-xs font-semibold text-gray-500">
+          {node.name.charAt(0).toUpperCase()}
         </div>
 
+        {/* Name + meta */}
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <h3 className="font-semibold text-gray-900">{agent.name}</h3>
-            <span className={cn('px-2 py-0.5 text-xs rounded-full font-medium', ROLE_BADGE[agent.role] || ROLE_BADGE.specialist)}>
-              {agent.role}
-            </span>
-            <span className={cn('px-2 py-0.5 text-xs rounded-full', statusCfg.color)}>
-              {statusCfg.label}
-            </span>
-          </div>
-          <p className="text-sm text-gray-500 truncate">{agent.description}</p>
+          <span className="text-sm font-medium text-gray-900">{node.name}</span>
+          <span className="text-xs text-gray-500 ml-2">
+            {ROLE_LABELS[node.role] ?? node.role}
+            {node.title ? ` · ${node.title}` : ''}
+          </span>
         </div>
 
-        <div className="flex items-center gap-2 text-sm text-gray-500">
-          {agent.schedule && (
-            <span className="flex items-center gap-1">
-              <Timer className="w-3.5 h-3.5" />
-              {agent.schedule}
+        {/* Trailing info */}
+        <div className="hidden sm:flex items-center gap-3 shrink-0">
+          {isLive && (
+            <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 text-[11px] font-medium">
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="animate-pulse absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-blue-500" />
+              </span>
+              Live
             </span>
           )}
-          {agent.lastHeartbeatAt && (
-            <span className="flex items-center gap-1">
-              <Zap className="w-3.5 h-3.5" />
-              {timeAgo(agent.lastHeartbeatAt)}
+          {agent && (
+            <span className="text-xs text-gray-400 font-mono w-14 text-right">
+              {ADAPTER_LABELS[agent.adapterType] ?? agent.adapterType}
             </span>
           )}
+          <span className="text-xs text-gray-400 w-16 text-right">
+            {relativeTime(node.lastHeartbeatAt)}
+          </span>
+          <span className="w-20 flex justify-end">
+            <StatusBadge status={node.status} />
+          </span>
         </div>
-
-        {expanded ? <ChevronUp className="w-5 h-5 text-gray-400" /> : <ChevronDown className="w-5 h-5 text-gray-400" />}
+        <div className="flex sm:hidden">
+          <StatusBadge status={node.status} />
+        </div>
       </div>
 
-      {/* Expanded */}
-      {expanded && (
-        <div className="border-t border-gray-100 p-4 space-y-4">
-          {/* Actions */}
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => onAction('run')}
-              disabled={actionLoading === `${agent.id}-run`}
-              className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1"
-            >
-              <Play className="w-3.5 h-3.5" /> 실행
-            </button>
-            {agent.status === 'paused' ? (
-              <button
-                onClick={() => onAction('resume')}
-                disabled={actionLoading === `${agent.id}-resume`}
-                className="px-3 py-1.5 text-sm border border-gray-300 rounded-md hover:bg-gray-50 flex items-center gap-1"
-              >
-                <Play className="w-3.5 h-3.5" /> 재개
-              </button>
-            ) : (
-              <button
-                onClick={() => onAction('pause')}
-                disabled={actionLoading === `${agent.id}-pause`}
-                className="px-3 py-1.5 text-sm border border-gray-300 rounded-md hover:bg-gray-50 flex items-center gap-1"
-              >
-                <Pause className="w-3.5 h-3.5" /> 일시정지
-              </button>
-            )}
-            <button
-              onClick={() => onAction('reset-session')}
-              disabled={actionLoading === `${agent.id}-reset-session`}
-              className="px-3 py-1.5 text-sm border border-gray-300 rounded-md hover:bg-gray-50 flex items-center gap-1"
-            >
-              <RotateCcw className="w-3.5 h-3.5" /> 세션 리셋
-            </button>
-          </div>
-
-          {/* Info Grid */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-            <div>
-              <span className="text-gray-500">Adapter</span>
-              <p className="font-medium">{agent.adapterType}</p>
-            </div>
-            <div>
-              <span className="text-gray-500">Timeout</span>
-              <p className="font-medium">{agent.timeoutSeconds}초</p>
-            </div>
-            <div>
-              <span className="text-gray-500">Skills</span>
-              <p className="font-medium">{agent.skills?.length > 0 ? agent.skills.join(', ') : '-'}</p>
-            </div>
-            <div>
-              <span className="text-gray-500">토큰 사용량</span>
-              <p className="font-medium">
-                {agent.tokensUsed.toLocaleString()}
-                {agent.monthlyTokenBudget > 0 && ` / ${agent.monthlyTokenBudget.toLocaleString()}`}
-              </p>
-            </div>
-          </div>
-
-          {/* Runtime State */}
-          {runtimeState && (
-            <div className="bg-gray-50 rounded-md p-3 text-sm">
-              <h4 className="font-medium text-gray-700 mb-2 flex items-center gap-1">
-                <Shield className="w-3.5 h-3.5" /> Runtime State
-              </h4>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <div>
-                  <span className="text-gray-500">Session</span>
-                  <p className="font-mono text-xs">{runtimeState.sessionId?.slice(0, 12) || '-'}</p>
-                </div>
-                <div>
-                  <span className="text-gray-500">마지막 상태</span>
-                  <p>{runtimeState.lastRunStatus || '-'}</p>
-                </div>
-                <div>
-                  <span className="text-gray-500">총 Input 토큰</span>
-                  <p>{runtimeState.totalInputTokens.toLocaleString()}</p>
-                </div>
-                <div>
-                  <span className="text-gray-500">총 Output 토큰</span>
-                  <p>{runtimeState.totalOutputTokens.toLocaleString()}</p>
-                </div>
-              </div>
-              {runtimeState.lastError && (
-                <div className="mt-2 p-2 bg-red-50 rounded text-red-700 text-xs">
-                  {runtimeState.lastError}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Run History */}
-          <div>
-            <h4 className="font-medium text-gray-700 mb-2">실행 이력</h4>
-            {!runs || runs.length === 0 ? (
-              <p className="text-sm text-gray-400">실행 이력 없음</p>
-            ) : (
-              <div className="space-y-1">
-                {runs.map(run => {
-                  const cfg = RUN_STATUS_CONFIG[run.status] || RUN_STATUS_CONFIG.failed;
-                  return (
-                    <div key={run.id} className="flex items-center gap-3 text-sm py-1.5 border-b border-gray-50 last:border-0">
-                      <span className={cn('w-16', cfg.color)}>{cfg.label}</span>
-                      <span className="text-gray-500">{run.invocationSource}</span>
-                      <span className="text-gray-400 text-xs">
-                        {run.startedAt ? new Date(run.startedAt).toLocaleString('ko-KR') : '-'}
-                      </span>
-                      {run.finishedAt && run.startedAt && (
-                        <span className="text-gray-400 text-xs">
-                          ({Math.round((new Date(run.finishedAt).getTime() - new Date(run.startedAt).getTime()) / 1000)}초)
-                        </span>
-                      )}
-                      {run.error && (
-                        <span className="text-red-400 text-xs truncate max-w-40" title={run.error}>
-                          {run.error}
-                        </span>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          {agent.pauseReason && (
-            <div className="flex items-center gap-2 text-sm text-yellow-700 bg-yellow-50 rounded-md p-2">
-              <AlertTriangle className="w-4 h-4" />
-              일시정지 사유: {agent.pauseReason}
-            </div>
-          )}
+      {/* Children with border-left connector */}
+      {node.reports && node.reports.length > 0 && (
+        <div className="border-l border-gray-200 ml-8">
+          {node.reports.map((child) => (
+            <OrgTreeNode
+              key={child.id}
+              node={child}
+              depth={depth + 1}
+              agentMap={agentMap}
+              onNavigate={onNavigate}
+            />
+          ))}
         </div>
       )}
     </div>

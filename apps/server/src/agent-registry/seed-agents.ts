@@ -27,7 +27,7 @@ export const DEFAULT_AGENT_DEFINITIONS = [
     permissions: { canAccessBrowser: false, canModifyData: false },
 
     // Budget & Schedule
-    timeoutSeconds: 300,
+    timeoutSeconds: 600,
     requiresApproval: true,
     monthlyTokenBudget: 0,
     promptTemplate: `너는 쿠팡 광고 전략 에이전트다. 아래 순서대로 실행해.
@@ -120,7 +120,7 @@ export const DEFAULT_AGENT_DEFINITIONS = [
     permissions: { canAccessBrowser: false, canModifyData: false },
 
     // Budget & Schedule
-    timeoutSeconds: 300,
+    timeoutSeconds: 600,
     requiresApproval: false,
     monthlyTokenBudget: 0,
     promptTemplate: `너는 상품 건강도 평가 에이전트다.
@@ -260,7 +260,7 @@ export const DEFAULT_AGENT_DEFINITIONS = [
     permissions: { canSpawnSubAgents: true, canAccessBrowser: false, canModifyData: false },
 
     // Budget & Schedule
-    timeoutSeconds: 300,
+    timeoutSeconds: 600,
     requiresApproval: false,
     monthlyTokenBudget: 0,
     promptTemplate: `너는 KidItem 셀러 운영 매니저다. 셀러의 질문과 요청에 답하는 게 네 역할.
