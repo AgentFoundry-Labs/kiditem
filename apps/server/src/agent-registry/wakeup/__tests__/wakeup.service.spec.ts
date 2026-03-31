@@ -33,7 +33,8 @@ describe('WakeupService', () => {
       expect(result.id).toBe('w-1');
       expect(prisma.agentWakeupRequest.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
-          agentId: 'agent-1',
+          agent: { connect: { id: 'agent-1' } },
+          company: { connect: { id: 'c-1' } },
           source: 'on_demand',
           status: 'queued',
         }),

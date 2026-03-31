@@ -134,6 +134,7 @@ export class AgentRegistryService implements OnModuleInit {
     // Heartbeat wakeup으로 위임
     await this.heartbeat.wakeAgent({
       agentId: def.id,
+      companyId: input?.companyId ?? def.companyId ?? undefined,
       source: 'on_demand',
       reason: `run() call for ${def.type}`,
       payload: {

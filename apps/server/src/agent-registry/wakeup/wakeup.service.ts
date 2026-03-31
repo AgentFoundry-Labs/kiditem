@@ -46,8 +46,8 @@ export class WakeupService {
 
     const request = await this.prisma.agentWakeupRequest.create({
       data: {
-        agentId: input.agentId,
-        companyId: input.companyId,
+        agent: { connect: { id: input.agentId } },
+        company: { connect: { id: input.companyId } },
         source: input.source,
         reason: input.reason,
         payload: input.payload as any,

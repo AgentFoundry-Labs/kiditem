@@ -27,6 +27,7 @@ export class HeartbeatService {
    */
   async wakeAgent(input: {
     agentId: string;
+    companyId?: string;
     source: WakeupSource;
     reason?: string;
     payload?: Record<string, unknown>;
@@ -39,6 +40,9 @@ export class HeartbeatService {
       return { ok: false, error: 'agent_paused', agentId: input.agentId };
     }
 
+    const companyId = input.companyId || agent.companyId;
+    if (!companyId) throw new Error(`No companyId for agent ${agent.name}`);
+
     // 예산 체크
     if (agent.monthlyTokenBudget > 0 && agent.tokensUsed >= agent.monthlyTokenBudget) {
       return { ok: false, error: 'budget_exceeded', agentId: input.agentId };
@@ -46,7 +50,7 @@ export class HeartbeatService {
 
     const wakeup = await this.wakeupService.requestWakeup({
       agentId: input.agentId,
-      companyId: agent.companyId!,
+      companyId,
       source: input.source,
       reason: input.reason,
       payload: input.payload,
@@ -86,20 +90,22 @@ export class HeartbeatService {
     const wakeup = await this.wakeupService.claimNext(agentId);
     if (!wakeup) return;
 
+    const companyId = wakeup.companyId;
+
     // Runtime state (session resume)
     const runtimeState = await this.prisma.agentRuntimeState.findUnique({ where: { agentId } });
 
     // HeartbeatRun 생성
     const run = await this.prisma.heartbeatRun.create({
       data: {
-        companyId: agent.companyId!,
-        agentId,
+        agent: { connect: { id: agentId } },
+        company: { connect: { id: companyId } },
         invocationSource: wakeup.source,
         triggerDetail: wakeup.triggerDetail,
         status: 'running',
         startedAt: new Date(),
         sessionIdBefore: runtimeState?.sessionId,
-        wakeupRequestId: wakeup.id,
+        wakeupRequest: { connect: { id: wakeup.id } },
       },
     });
 
@@ -140,7 +146,7 @@ export class HeartbeatService {
       graceSec: 10,
       env: {
         KIDITEM_AGENT_ID: agent.id,
-        KIDITEM_COMPANY_ID: agent.companyId || '',
+        KIDITEM_COMPANY_ID: companyId,
         KIDITEM_RUN_ID: run.id,
       },
       cwd: (adapterConfig.cwd as string) || process.cwd(),
@@ -204,8 +210,8 @@ export class HeartbeatService {
         totalCostCents: { increment: result.usage?.costCents ?? 0 },
       },
       create: {
-        agentId,
-        companyId: agent.companyId!,
+        agent: { connect: { id: agentId } },
+        company: { connect: { id: companyId } },
         adapterType: agent.adapterType,
         sessionId: result.sessionIdAfter,
         lastRunId: run.id,
@@ -250,7 +256,7 @@ export class HeartbeatService {
           const jobName = `heartbeat-timer-${agent.id}`;
           const job = new CronJob(
             agent.schedule,
-            () => this.onTimerFire(agent.id, agent.companyId!),
+            () => this.onTimerFire(agent.id, agent.companyId),
             null, true, 'Asia/Seoul',
           );
           this.schedulerRegistry.addCronJob(jobName, job);
@@ -264,7 +270,7 @@ export class HeartbeatService {
       if (intervalSec > 0 && !agent.schedule) {
         const jobName = `heartbeat-interval-${agent.id}`;
         const interval = setInterval(
-          () => this.onTimerFire(agent.id, agent.companyId!),
+          () => this.onTimerFire(agent.id, agent.companyId),
           intervalSec * 1000,
         );
         this.schedulerRegistry.addInterval(jobName, interval);
@@ -291,10 +297,11 @@ export class HeartbeatService {
     } catch { /* no intervals */ }
   }
 
-  private async onTimerFire(agentId: string, companyId: string) {
+  private async onTimerFire(agentId: string, companyId: string | null) {
     try {
       await this.wakeAgent({
         agentId,
+        companyId: companyId ?? undefined,
         source: 'timer',
         reason: 'Scheduled heartbeat',
       });
