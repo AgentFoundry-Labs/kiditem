@@ -34,6 +34,7 @@ import {
   getProductStatusBadge,
   timeAgo,
 } from "@/lib/utils";
+import type { ProductDetail as Product } from '@kiditem/shared';
 
 const categoryNames: Record<string, string> = {
   '4944': '완구 > 퍼즐',
@@ -50,30 +51,6 @@ const categoryNames: Record<string, string> = {
   '65799': '문구/사무 > 학용품',
   '65800': '문구/사무 > 필기구',
 };
-
-interface Product {
-  id: string;
-  name: string;
-  description: string;
-  status: string;
-  category: string | null;
-  companyId: string;
-  thumbnailUrl: string | null;
-  sourceUrl: string | null;
-  sourcePlatform: string | null;
-  costCny: number | null;
-  marginRate: number | null;
-  sellPrice: number | null;
-  commissionRate: number | null;
-  shippingCost: number | null;
-  abcGrade: string | null;
-  adTier: string | null;
-  coupangProductId: string | null;
-  detailPageUrl: string | null;
-  createdAt: string;
-  healthScore: number | null;
-  healthUpdatedAt: string | null;
-}
 
 interface InventoryData {
   currentStock: number;

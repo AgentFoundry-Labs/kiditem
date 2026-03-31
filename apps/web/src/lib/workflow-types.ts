@@ -2,48 +2,8 @@
 // Workflow API Types (backend DTO mapping)
 // ============================================
 
-export interface WorkflowTemplate {
-  id: string;
-  companyId: string | null;
-  name: string;
-  description: string;
-  module: string;
-  isActive: boolean;
-  triggerType: string;
-  schedule: string | null;
-  nodesJson: any;
-  edgesJson: any;
-  version: number | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface WorkflowRun {
-  id: string;
-  companyId: string | null;
-  templateId: string;
-  status: 'pending' | 'running' | 'completed' | 'failed';
-  triggeredBy: string;
-  contextData: Record<string, any> | null;
-  error: string | null;
-  startedAt: string | null;
-  completedAt: string | null;
-  createdAt: string;
-}
-
-export interface WorkflowStepRun {
-  id: string;
-  runId: string;
-  nodeId: string;
-  nodeType: string;
-  nodeLabel: string;
-  status: 'pending' | 'running' | 'completed' | 'failed';
-  inputData: Record<string, any> | null;
-  outputData: Record<string, any> | null;
-  error: string | null;
-  startedAt: string | null;
-  completedAt: string | null;
-}
+export type { WorkflowTemplate, WorkflowRun, WorkflowStepRun } from '@kiditem/shared';
+import type { WorkflowRun, WorkflowStepRun } from '@kiditem/shared';
 
 export interface StepStatusInfo {
   status: 'idle' | 'running' | 'success' | 'error';

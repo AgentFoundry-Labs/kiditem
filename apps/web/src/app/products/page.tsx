@@ -1,5 +1,6 @@
 "use client";
 import { API_BASE } from "@/lib/api";
+import type { ProductListItem as Product, TrafficData, SyncInfo, PipelineCounts } from '@kiditem/shared';
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
@@ -7,64 +8,6 @@ import { Plus, Download, Search, BarChart3 } from "lucide-react";
 import { formatKRW, formatPercent, getProfitColor, getProductStatusBadge, timeAgo } from "@/lib/utils";
 import { Pagination } from "@/components/ui/Pagination";
 import PageSkeleton from "@/components/ui/PageSkeleton";
-
-interface TrafficData {
-  visitors: number;
-  views: number;
-  cartAdds: number;
-  orders: number;
-  salesQty: number;
-  revenue: number;
-}
-
-interface Product {
-  id: string;
-  name: string;
-  sku: string;
-  category: string;
-  company: string;
-  costPrice: number;
-  sellPrice: number;
-  commissionRate: number;
-  shippingCost: number;
-  status: string;
-  abcGrade: string;
-  adTier: string | null;
-  currentStock: number;
-  reorderPoint: number;
-  revenue: number;
-  netProfit: number;
-  profitRate: number;
-  adRate: number;
-  reviewCount: number;
-  orderCount: number;
-  thumbnailCTR: number;
-  traffic?: TrafficData | null;
-  thumbnailUrl?: string | null;
-  imageUrl?: string | null;
-  coupangProductId?: string | null;
-  createdAt?: string | null;
-  gradeScore?: number | null;
-  healthScore?: number | null;
-}
-
-interface SyncInfo {
-  lastSyncedAt: string | null;
-}
-
-interface PipelineCounts {
-  total: number;
-  A: number;
-  B: number;
-  C: number;
-  minus: number;
-  low: number;
-  gradeChangeA: number;
-  gradeChangeB: number;
-  gradeChangeC: number;
-  adCount: number;
-  noAdCount: number;
-}
 
 export default function ProductsPage() {
   const router = useRouter();

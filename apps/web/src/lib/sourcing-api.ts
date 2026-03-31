@@ -1,4 +1,6 @@
 import { API_BASE } from './api';
+import { apiClient } from './api-client';
+import { ApiError } from './api-error';
 
 export type ProductStatus = 'DRAFT' | 'PROCESSING' | 'LISTED' | 'DISCONTINUED';
 
@@ -55,21 +57,6 @@ export interface ScrapeUrlResponse {
 const PRODUCTS_BASE = `${API_BASE}/api/products`;
 const SOURCING_BASE = `${API_BASE}/api/sourcing`;
 
-async function handleResponse<T>(res: Response): Promise<T> {
-  if (!res.ok) {
-    const body = await res.text();
-    let message: string;
-    try {
-      const parsed = JSON.parse(body) as { detail?: string };
-      message = parsed.detail ?? body;
-    } catch {
-      message = body;
-    }
-    throw new Error(`API ${res.status}: ${message}`);
-  }
-  return res.json() as Promise<T>;
-}
-
 export const productsApi = {
   async list(params?: {
     page?: number;
@@ -107,7 +94,15 @@ export const productsApi = {
 
   async getDetail(id: string): Promise<ProductDetailResponse> {
     const res = await fetch(`${PRODUCTS_BASE}/${id}`);
-    const p = await handleResponse<any>(res);
+    if (!res.ok) {
+      let detail = `API error: ${res.status}`;
+      try {
+        const body = await res.json();
+        detail = typeof body.message === 'string' ? body.message : body.detail ?? detail;
+      } catch { /* text body or empty */ }
+      throw new ApiError(res.status, null, detail);
+    }
+    const p = await res.json();
     const rawData = p.rawData || p.raw_data || {};
     const images = rawData.images || [];
     return {
@@ -129,23 +124,17 @@ export const productsApi = {
   },
 
   async delete(id: string): Promise<{ ok: boolean }> {
-    const res = await fetch(`${PRODUCTS_BASE}/${id}`, { method: 'DELETE' });
-    return handleResponse<{ ok: boolean }>(res);
+    return apiClient.delete<{ ok: boolean }>(`/api/products/${id}`);
   },
 
   async process(
     id: string,
     opts?: { generation_mode?: string }
   ): Promise<{ ok: boolean; message: string }> {
-    const res = await fetch(`${API_BASE}/api/agent-tasks`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        agentType: 'content',
-        input: { productId: id, ...(opts || {}) },
-      }),
+    await apiClient.post<any>('/api/agent-tasks', {
+      agentType: 'content',
+      input: { productId: id, ...(opts || {}) },
     });
-    await handleResponse<any>(res);
     return { ok: true, message: 'AI 가공 작업이 시작되었습니다.' };
   },
 
@@ -163,18 +152,12 @@ export const productsApi = {
   },
 
   async loadSample(): Promise<{ ok: boolean; message: string }> {
-    const res = await fetch(`${PRODUCTS_BASE}/sample`, { method: 'POST' });
-    return handleResponse<{ ok: boolean; message: string }>(res);
+    return apiClient.post<{ ok: boolean; message: string }>(`/api/products/sample`);
   },
 };
 
 export const sourcingApi = {
   async scrapeUrl(url: string): Promise<ScrapeUrlResponse> {
-    const res = await fetch(`${SOURCING_BASE}/scrape-url`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url }),
-    });
-    return handleResponse<ScrapeUrlResponse>(res);
+    return apiClient.post<ScrapeUrlResponse>(`/api/sourcing/scrape-url`, { url });
   },
 };

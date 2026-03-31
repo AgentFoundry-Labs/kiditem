@@ -1,46 +1,30 @@
 'use client';
 
-import { API_BASE, getCompanyId } from '@/lib/api';
-import type {
-  WorkflowTemplate,
-  WorkflowRun,
-  WorkflowRunWithSteps,
-} from '@/lib/workflow-types';
-
-async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, init);
-  if (!res.ok) throw new Error(`API error: ${res.status}`);
-  return res.json();
-}
+import { getCompanyId } from '@/lib/api';
+import { apiClient } from '@/lib/api-client';
+import type { WorkflowTemplate, WorkflowRun } from '@kiditem/shared';
+import type { WorkflowRunWithSteps } from '@/lib/workflow-types';
 
 export const workflowApi = {
   list: async () => {
     const companyId = await getCompanyId();
-    return fetchJson<WorkflowTemplate[]>(`/api/workflows?companyId=${companyId}`);
+    return apiClient.get<WorkflowTemplate[]>(`/api/workflows?companyId=${companyId}`);
   },
 
-  get: (id: string) => fetchJson<WorkflowTemplate>(`/api/workflows/${id}`),
+  get: (id: string) => apiClient.get<WorkflowTemplate>(`/api/workflows/${id}`),
 
   getRuns: (id: string) =>
-    fetchJson<WorkflowRun[]>(`/api/workflows/${id}/runs`),
+    apiClient.get<WorkflowRun[]>(`/api/workflows/${id}/runs`),
 
   getRunDetail: (runId: string) =>
-    fetchJson<WorkflowRunWithSteps>(`/api/workflow-runs/${runId}`),
+    apiClient.get<WorkflowRunWithSteps>(`/api/workflow-runs/${runId}`),
 
   triggerRun: (id: string, context?: Record<string, any>) =>
-    fetchJson<WorkflowRun>(`/api/workflows/${id}/run`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(context ?? {}),
-    }),
+    apiClient.post<WorkflowRun>(`/api/workflows/${id}/run`, context ?? {}),
 
   delete: (id: string) =>
-    fetchJson<void>(`/api/workflows/${id}`, { method: 'DELETE' }),
+    apiClient.delete<void>(`/api/workflows/${id}`),
 
   toggleActive: (id: string, isActive: boolean) =>
-    fetchJson<WorkflowTemplate>(`/api/workflows/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ isActive }),
-    }),
+    apiClient.put<WorkflowTemplate>(`/api/workflows/${id}`, { isActive }),
 };

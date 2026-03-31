@@ -6,16 +6,7 @@ import { API_BASE } from '@/lib/api';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { cn } from '@/lib/utils';
 import OntologyGraph from '@/components/ontology/OntologyGraph';
-
-interface Product {
-  id: string;
-  name: string;
-  category: string | null;
-  brand: string | null;
-  status: string;
-  abcGrade: string | null;
-  thumbnailUrl: string | null;
-}
+import type { ProductListItem as Product } from '@kiditem/shared';
 
 interface CategoryGroup {
   category: string;

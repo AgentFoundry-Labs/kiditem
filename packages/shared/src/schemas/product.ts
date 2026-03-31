@@ -1,0 +1,142 @@
+import { z } from 'zod';
+
+export const TrafficDataSchema = z.object({
+  visitors: z.number(),
+  views: z.number(),
+  cartAdds: z.number(),
+  orders: z.number(),
+  salesQty: z.number(),
+  revenue: z.number(),
+});
+
+// GET /api/products 응답의 각 item (enrichProduct 반환값)
+// 출처: products.service.ts enrichProduct() line 280-314
+export const ProductListItemSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  sku: z.string().nullable(),
+  category: z.string().nullable(),
+  brand: z.string().nullable(),
+  company: z.string(),
+  companyId: z.string(),
+  costPrice: z.number(),
+  sellPrice: z.number(),
+  commissionRate: z.number(),
+  shippingCost: z.number(),
+  status: z.string(),
+  abcGrade: z.string().nullable(),
+  adTier: z.string().nullable(),
+  currentStock: z.number(),
+  reorderPoint: z.number(),
+  avgDailySales: z.number(),
+  revenue: z.number(),
+  netProfit: z.number(),
+  profitRate: z.number(),
+  adRate: z.number(),
+  reviewCount: z.number(),
+  orderCount: z.number(),
+  thumbnailCTR: z.number(),
+  traffic: TrafficDataSchema.nullable(),
+  thumbnailUrl: z.string().nullable(),
+  imageUrl: z.string().nullable(),
+  coupangProductId: z.string().nullable(),
+  createdAt: z.string(),
+  gradeScore: z.number().nullable(),
+  healthScore: z.number().nullable().optional(),
+});
+
+// GET /api/products/:id 응답 (Prisma Product + company + inventory)
+// 출처: products.service.ts findOne() → prisma.product.findUnique({ include: { company, inventory } })
+export const ProductDetailSchema = z.object({
+  id: z.string(),
+  companyId: z.string(),
+  name: z.string(),
+  description: z.string(),
+  sku: z.string().nullable(),
+  barcode: z.string().nullable(),
+  status: z.string(),
+  category: z.string().nullable(),
+  brand: z.string().nullable(),
+  tags: z.unknown(),
+  thumbnailUrl: z.string().nullable(),
+  // Sourcing
+  sourceUrl: z.string().nullable(),
+  sourcePlatform: z.string().nullable(),
+  costCny: z.unknown().nullable(),
+  marginRate: z.unknown().nullable(),
+  rawData: z.unknown().nullable(),
+  processedData: z.unknown().nullable(),
+  draftContent: z.unknown().nullable(),
+  pipelineStep: z.string().nullable(),
+  detailPageUrl: z.string().nullable(),
+  // Pricing
+  costPrice: z.number().nullable(),
+  sellPrice: z.number().nullable(),
+  commissionRate: z.unknown().nullable(),
+  shippingCost: z.number().nullable(),
+  otherCost: z.number().nullable(),
+  abcGrade: z.string().nullable(),
+  adTier: z.string().nullable(),
+  adBudgetLimit: z.number().nullable(),
+  // Coupang
+  coupangProductId: z.string().nullable(),
+  // Delivery
+  deliveryChargeType: z.string().nullable(),
+  freeShipOverAmount: z.number().nullable(),
+  returnCharge: z.number().nullable(),
+  deliveryInfo: z.unknown().nullable(),
+  images: z.unknown().nullable(),
+  imageUrl: z.string().nullable(),
+  thumbnailStrategy: z.string(),
+  // Health
+  healthScore: z.number().nullable(),
+  healthUpdatedAt: z.string().nullable(),
+  // Meta
+  isDeleted: z.boolean(),
+  deletedAt: z.string().nullable(),
+  memo: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  // Include relations (optional)
+  company: z.object({
+    id: z.string(),
+    name: z.string(),
+    slug: z.string(),
+    businessNumber: z.string().nullable().optional(),
+    isActive: z.boolean().optional(),
+  }).optional(),
+  inventory: z.object({
+    id: z.string(),
+    companyId: z.string(),
+    productId: z.string(),
+    currentStock: z.number(),
+    reservedStock: z.number(),
+    safetyStock: z.number(),
+    reorderPoint: z.number(),
+    reorderQuantity: z.number(),
+    leadTimeDays: z.number().nullable(),
+    dailySalesAvg: z.unknown(),
+  }).nullable().optional(),
+});
+
+// GET /api/products/pipeline-stats 응답
+// 출처: products/page.tsx:55-66
+export const PipelineCountsSchema = z.object({
+  total: z.number(),
+  A: z.number(),
+  B: z.number(),
+  C: z.number(),
+  minus: z.number(),
+  low: z.number(),
+  gradeChangeA: z.number(),
+  gradeChangeB: z.number(),
+  gradeChangeC: z.number(),
+  adCount: z.number(),
+  noAdCount: z.number(),
+});
+
+// 타입 export
+export type TrafficData = z.infer<typeof TrafficDataSchema>;
+export type ProductListItem = z.infer<typeof ProductListItemSchema>;
+export type ProductDetail = z.infer<typeof ProductDetailSchema>;
+export type PipelineCounts = z.infer<typeof PipelineCountsSchema>;

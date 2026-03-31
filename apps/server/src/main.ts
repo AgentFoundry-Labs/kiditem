@@ -6,6 +6,7 @@ config({ path: resolve(__dirname, '..', '..', '..', '.env') });
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
+import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -19,6 +20,7 @@ async function bootstrap() {
   });
   app.useBodyParser('json', { limit: '5mb' });
   app.setGlobalPrefix('api');
+  app.useGlobalFilters(new GlobalExceptionFilter());
   app.useStaticAssets('/data/products', { prefix: '/processed/' });
   await app.listen(4000);
   console.log('Server running on http://localhost:4000');

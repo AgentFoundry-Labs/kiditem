@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@grapesjs/react": "^2.0.0",
+    "@kiditem/shared": "*",
     "@kiditem/templates": "*",
     "@prisma/adapter-pg": "^7.5.0",
     "@prisma/client": "^7.5.0",

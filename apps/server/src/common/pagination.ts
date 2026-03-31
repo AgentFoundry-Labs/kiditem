@@ -1,9 +1,4 @@
-export interface PaginatedResponse<T> {
-  items: T[];
-  total: number;
-  page: number;
-  limit: number;
-}
+export type { PaginatedResponse } from '@kiditem/shared';
 
 export function paginationParams(query: {
   page?: string;

@@ -1,17 +1,11 @@
 "use client";
 import { API_BASE } from "@/lib/api";
+import type { ProductListItem as Product } from '@kiditem/shared';
 
 import { useEffect, useState } from "react";
 import { Star } from "lucide-react";
 import { formatKRW, formatPercent, getProfitColor } from "@/lib/utils";
 import PageSkeleton from "@/components/ui/PageSkeleton";
-
-interface Product {
-  id: string; name: string; sku: string; company: string; abcGrade: string;
-  adTier: string | null; revenue: number; netProfit: number; profitRate: number;
-  adRate: number; currentStock: number; reviewCount: number; thumbnailCTR: number;
-  sellPrice: number; costPrice: number;
-}
 
 export default function CoreProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);

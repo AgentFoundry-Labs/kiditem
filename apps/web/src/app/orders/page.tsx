@@ -1,5 +1,6 @@
 "use client";
 import { API_BASE } from "@/lib/api";
+import type { OrderRow } from '@kiditem/shared';
 
 import { useEffect, useState, useCallback } from "react";
 import {
@@ -17,23 +18,6 @@ import {
   Check,
 } from "lucide-react";
 import { formatKRW } from "@/lib/utils";
-
-interface OrderRow {
-  id: string;
-  orderNumber: string;
-  platform: string;
-  customerName: string;
-  productName: string;
-  quantity: number;
-  unitPrice: number;
-  totalPrice: number;
-  status: string;
-  orderedAt: string;
-  receiverName: string | null;
-  receiverAddr: string | null;
-  trackingNumber: string | null;
-  shippingCompany: string | null;
-}
 
 const ACTIVE_NODES = [
   { key: "ACCEPT", label: "신규주문", sub: "Order Received", icon: Clock, color: "#3b82f6" },

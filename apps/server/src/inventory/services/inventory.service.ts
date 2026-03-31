@@ -6,14 +6,9 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { paginationParams } from '../../common/pagination';
+import type { InventorySummary } from '@kiditem/shared';
 
-export interface InventorySummary {
-  total: number;
-  reorderCount: number;
-  outOfStockCount: number;
-  unsyncedCount: number;
-  overstockCount: number;
-}
+export type { InventorySummary } from '@kiditem/shared';
 
 @Injectable()
 export class InventoryService {

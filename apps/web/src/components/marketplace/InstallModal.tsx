@@ -163,7 +163,7 @@ function renderField(
           onChange={(e) => onChange(e.target.value)}
         >
           {param.options?.map((opt) => (
-            <option key={opt.value} value={opt.value}>
+            <option key={String(opt.value)} value={String(opt.value)}>
               {opt.label}
             </option>
           ))}

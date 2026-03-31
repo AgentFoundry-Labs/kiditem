@@ -1,18 +1,12 @@
 "use client";
 import { API_BASE } from "@/lib/api";
+import type { ProductListItem as Product } from '@kiditem/shared';
 
 import { useEffect, useState, useCallback } from "react";
 import { Trash2, AlertTriangle, MinusCircle } from "lucide-react";
 import { formatKRW, formatPercent, getProfitColor, getGradeColor } from "@/lib/utils";
 import PageSkeleton from "@/components/ui/PageSkeleton";
 import { Pagination } from "@/components/ui/Pagination";
-
-interface Product {
-  id: string; name: string; sku: string; company: string; abcGrade: string;
-  revenue: number; netProfit: number; profitRate: number; adRate: number;
-  costPrice: number; sellPrice: number; commissionRate: number; shippingCost: number;
-  status?: string;
-}
 
 export default function CleanupPage() {
   const [products, setProducts] = useState<Product[]>([]);
@@ -137,7 +131,7 @@ export default function CleanupPage() {
               return (
                 <tr key={p.id} className={p.sellPrice === 0 && p.revenue === 0 ? "bg-amber-50/30" : p.profitRate < 0 ? "bg-red-50/60" : "bg-orange-50/30"}>
                   <td>
-                    <span className={`px-2 py-0.5 rounded text-xs font-bold ${getGradeColor(p.abcGrade)}`}>{p.abcGrade}</span>
+                    <span className={`px-2 py-0.5 rounded text-xs font-bold ${getGradeColor(p.abcGrade ?? '')}`}>{p.abcGrade}</span>
                     {p.sellPrice === 0 && p.revenue === 0 && (
                       <span className="ml-1 px-2 py-0.5 rounded text-xs bg-amber-100 text-amber-700">데이터 불완전</span>
                     )}

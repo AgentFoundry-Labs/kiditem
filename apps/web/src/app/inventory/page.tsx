@@ -6,39 +6,10 @@ import { API_BASE } from "@/lib/api";
 import PageSkeleton from "@/components/ui/PageSkeleton";
 import { timeAgo } from "@/lib/utils";
 import { Pagination } from "@/components/ui/Pagination";
+import type { InventoryItem, InventorySummary, SyncInfo } from '@kiditem/shared';
 
 function isUnsynced(item: InventoryItem): boolean {
   return item.currentStock === 0 && item.avgDailySales === 0 && item.optimalStock <= item.safetyStock;
-}
-
-interface InventorySummary {
-  total: number;
-  reorderCount: number;
-  outOfStockCount: number;
-  unsyncedCount: number;
-  overstockCount: number;
-}
-
-interface InventoryItem {
-  id: string;
-  productId: string;
-  productName: string;
-  sku: string;
-  company: string;
-  grade: string;
-  currentStock: number;
-  safetyStock: number;
-  reorderPoint: number;
-  leadTimeDays: number;
-  avgDailySales: number;
-  optimalStock: number;
-  daysRemaining: number;
-  recommendedOrder: number;
-  status: string;
-}
-
-interface SyncInfo {
-  lastSyncedAt: string | null;
 }
 
 export default function InventoryPage() {

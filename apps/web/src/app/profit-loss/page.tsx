@@ -5,29 +5,7 @@ import { Download } from "lucide-react";
 import { formatKRW, formatPercent, getGradeColor, getProfitColor, timeAgo } from "@/lib/utils";
 import { API_BASE } from "@/lib/api";
 import PageSkeleton from "@/components/ui/PageSkeleton";
-
-interface PLData {
-  id: string;
-  productId: string;
-  productName: string;
-  sku: string;
-  company: string;
-  grade: string;
-  period: string;
-  revenue: number;
-  costOfGoods: number;
-  commission: number;
-  shippingCost: number;
-  adCost: number;
-  otherCost: number;
-  netProfit: number;
-  profitRate: number;
-  orderCount: number;
-}
-
-interface SyncInfo {
-  lastSyncedAt: string | null;
-}
+import type { PLData, SyncInfo } from '@kiditem/shared';
 
 export default function ProfitLossPage() {
   const [data, setData] = useState<PLData[]>([]);
