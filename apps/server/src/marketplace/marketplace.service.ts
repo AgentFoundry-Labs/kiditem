@@ -1,8 +1,11 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { WORKFLOW_CATALOG, AGENT_CATALOG } from './seed-marketplace';
-
-const DEFAULT_COMPANY_ID = '00000000-0000-0000-0000-000000000001';
+import {
+  agentCategory,
+  workflowCategory,
+  defaultAgentParams,
+  defaultWorkflowParams,
+} from './seed-marketplace';
 
 @Injectable()
 export class MarketplaceService {
@@ -11,34 +14,97 @@ export class MarketplaceService {
   constructor(private readonly prisma: PrismaService) {}
 
   async onModuleInit() {
-    await this.seedCatalog();
+    await this.syncFromDb();
   }
 
-  private async seedCatalog() {
-    // Seed workflow catalog
-    for (const wf of WORKFLOW_CATALOG) {
+  /**
+   * 기존 DB의 agent_definitions / workflow_templates에서
+   * 마켓플레이스 카탈로그를 자동 생성한다.
+   * marketplaceId가 없는 기존 레코드 → 마켓플레이스 항목으로 등록.
+   */
+  private async syncFromDb() {
+    // 에이전트: marketplaceId가 없는 기존 정의 → 마켓플레이스로 등록
+    const agents = await this.prisma.agentDefinition.findMany({
+      where: { marketplaceId: null },
+    });
+
+    for (const agent of agents) {
+      const existing = await this.prisma.agentMarketplace.findFirst({
+        where: { name: agent.name },
+      });
+      if (existing) {
+        // 이미 마켓플레이스에 있으면 FK만 연결
+        await this.prisma.agentDefinition.update({
+          where: { id: agent.id },
+          data: { marketplaceId: existing.id },
+        });
+        continue;
+      }
+
+      const catalog = await this.prisma.agentMarketplace.create({
+        data: {
+          name: agent.name,
+          description: agent.description ?? '',
+          role: agent.role,
+          category: agentCategory(agent.type),
+          icon: agent.icon,
+          adapterType: agent.adapterType,
+          promptTemplate: agent.promptTemplate,
+          skills: agent.skills,
+          permissions: agent.permissions as any,
+          configurableParams: defaultAgentParams(),
+          installCount: 1,
+        },
+      });
+
+      await this.prisma.agentDefinition.update({
+        where: { id: agent.id },
+        data: { marketplaceId: catalog.id },
+      });
+
+      this.logger.log(`Synced agent to marketplace: ${agent.name}`);
+    }
+
+    // 워크플로우: marketplaceId가 없는 기존 템플릿 → 마켓플레이스로 등록
+    const workflows = await this.prisma.workflowTemplate.findMany({
+      where: { marketplaceId: null },
+    });
+
+    for (const wf of workflows) {
       const existing = await this.prisma.workflowMarketplace.findFirst({
         where: { name: wf.name },
       });
-      if (!existing) {
-        await this.prisma.workflowMarketplace.create({ data: wf });
-        this.logger.log(`Seeded workflow catalog: ${wf.name}`);
+      if (existing) {
+        await this.prisma.workflowTemplate.update({
+          where: { id: wf.id },
+          data: { marketplaceId: existing.id },
+        });
+        continue;
       }
-    }
 
-    // Seed agent catalog
-    for (const ag of AGENT_CATALOG) {
-      const existing = await this.prisma.agentMarketplace.findFirst({
-        where: { name: ag.name },
+      const catalog = await this.prisma.workflowMarketplace.create({
+        data: {
+          name: wf.name,
+          description: wf.description,
+          module: wf.module,
+          category: workflowCategory(wf.module),
+          nodesJson: wf.nodesJson as any,
+          edgesJson: wf.edgesJson as any,
+          configurableParams: defaultWorkflowParams(),
+          installCount: 1,
+        },
       });
-      if (!existing) {
-        await this.prisma.agentMarketplace.create({ data: ag });
-        this.logger.log(`Seeded agent catalog: ${ag.name}`);
-      }
+
+      await this.prisma.workflowTemplate.update({
+        where: { id: wf.id },
+        data: { marketplaceId: catalog.id },
+      });
+
+      this.logger.log(`Synced workflow to marketplace: ${wf.name}`);
     }
   }
 
-  // ─── Workflow Catalog ───────────────────────────────────────────────────────
+  // ─── Workflow Catalog ───
 
   async listWorkflows(query: { module?: string; category?: string }) {
     return this.prisma.workflowMarketplace.findMany({
@@ -57,7 +123,7 @@ export class MarketplaceService {
 
   async installWorkflow(
     marketplaceId: string,
-    companyId?: string,
+    companyId: string,
     params?: Record<string, any>,
   ) {
     const catalog = await this.prisma.workflowMarketplace.findUnique({
@@ -65,7 +131,6 @@ export class MarketplaceService {
     });
     if (!catalog) throw new NotFoundException('Workflow catalog item not found');
 
-    // Apply param overrides to nodesJson
     let nodesJson = catalog.nodesJson as any[];
     if (params && Array.isArray(catalog.configurableParams)) {
       const configurableParams = catalog.configurableParams as any[];
@@ -82,12 +147,13 @@ export class MarketplaceService {
 
     const template = await this.prisma.workflowTemplate.create({
       data: {
-        companyId: companyId || DEFAULT_COMPANY_ID,
+        companyId,
         name: catalog.name,
         description: catalog.description,
         module: catalog.module,
         isActive: true,
-        triggerType: 'scheduled',
+        triggerType: params?.schedule ? 'scheduled' : 'manual',
+        schedule: params?.schedule ?? null,
         nodesJson,
         edgesJson: catalog.edgesJson as any,
         marketplaceId,
@@ -102,7 +168,7 @@ export class MarketplaceService {
     return template;
   }
 
-  // ─── Agent Catalog ──────────────────────────────────────────────────────────
+  // ─── Agent Catalog ───
 
   async listAgents(query: { role?: string; category?: string }) {
     return this.prisma.agentMarketplace.findMany({
@@ -121,7 +187,7 @@ export class MarketplaceService {
 
   async installAgent(
     marketplaceId: string,
-    companyId?: string,
+    companyId: string,
     params?: Record<string, any>,
   ) {
     const catalog = await this.prisma.agentMarketplace.findUnique({
@@ -129,9 +195,8 @@ export class MarketplaceService {
     });
     if (!catalog) throw new NotFoundException('Agent catalog item not found');
 
-    // Build agent definition data
     const data: any = {
-      companyId: companyId || DEFAULT_COMPANY_ID,
+      companyId,
       name: catalog.name,
       type: `${catalog.name.replace(/\s/g, '_').toLowerCase()}_${Date.now()}`,
       description: catalog.description,
@@ -149,7 +214,6 @@ export class MarketplaceService {
       isActive: true,
     };
 
-    // Apply param overrides
     if (params) {
       if (params.schedule !== undefined) data.schedule = params.schedule;
       if (params.monthlyTokenBudget !== undefined) data.monthlyTokenBudget = params.monthlyTokenBudget;

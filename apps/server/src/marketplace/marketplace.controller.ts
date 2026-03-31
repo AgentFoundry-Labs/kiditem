@@ -27,7 +27,7 @@ export class MarketplaceController {
     @Param('id') id: string,
     @Body() body: { companyId?: string; params?: Record<string, any> },
   ) {
-    return this.service.installWorkflow(id, body.companyId, body.params);
+    return this.service.installWorkflow(id, body.companyId ?? '', body.params);
   }
 
   // ─── Agents ───────────────────────────────────────────────────────────────
@@ -52,6 +52,6 @@ export class MarketplaceController {
     @Param('id') id: string,
     @Body() body: { companyId?: string; params?: Record<string, any> },
   ) {
-    return this.service.installAgent(id, body.companyId, body.params);
+    return this.service.installAgent(id, body.companyId ?? '', body.params);
   }
 }
