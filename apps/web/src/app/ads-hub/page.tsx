@@ -5,7 +5,7 @@ import {
   Megaphone, RefreshCw, TrendingUp, TrendingDown,
   ExternalLink, Check,
 } from "lucide-react";
-import { API_BASE } from "@/lib/api";
+import { apiClient } from "@/lib/api-client";
 import { formatKRW, formatPercent, getGradeColor, getProfitColor } from "@/lib/utils";
 import PageSkeleton from "@/components/ui/PageSkeleton";
 import {
@@ -147,8 +147,7 @@ export default function AdsHubPage() {
 
   const fetchAll = () => {
     setLoading(true);
-    fetch(`${API_BASE}/api/ads/hub`)
-      .then((r) => r.json())
+    apiClient.get<{ products: AdProduct[]; summary: AdSummary }>('/api/ads/hub')
       .then((data) => setAdData(data))
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -161,11 +160,7 @@ export default function AdsHubPage() {
   const changeTier = async (productId: string, newTier: string) => {
     setTierUpdating(productId);
     try {
-      await fetch(`${API_BASE}/api/ads/${productId}/tier`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ adTier: newTier }),
-      });
+      await apiClient.patch(`/api/ads/${productId}/tier`, { adTier: newTier });
       setAdData((prev) =>
         prev
           ? {

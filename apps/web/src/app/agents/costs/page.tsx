@@ -5,6 +5,7 @@ import { DollarSign, Cpu, Bot, Activity, RefreshCw, Hash } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { agentApi } from '@/lib/agent-api';
+import { isApiError } from '@/lib/api-error';
 import { formatTokens, formatCost } from '@/lib/agent-utils';
 import type { Agent, CostAnalytics } from '@/lib/agent-types';
 import CostTrendChart from './CostTrendChart';
@@ -35,6 +36,7 @@ export default function CostsPage() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [analytics, setAnalytics] = useState<CostAnalytics | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchAll = useCallback(async (p: Period) => {
     setLoading(true);
@@ -46,8 +48,9 @@ export default function CostsPage() {
       ]);
       setAgents(agentList);
       setAnalytics(costData);
+      setError(null);
     } catch (err) {
-      console.error('Failed to fetch costs:', err);
+      setError(isApiError(err) ? err.detail : '비용 데이터를 불러오는데 실패했습니다.');
     } finally {
       setLoading(false);
     }
@@ -79,6 +82,12 @@ export default function CostsPage() {
 
   return (
     <div className="p-4 sm:p-8">
+      {error && (
+        <div className="mb-4 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <span>{error}</span>
+          <button onClick={() => setError(null)} className="ml-auto text-red-400 hover:text-red-600">&times;</button>
+        </div>
+      )}
       {/* Header */}
       <div className="flex items-center justify-end mb-6">
         <button

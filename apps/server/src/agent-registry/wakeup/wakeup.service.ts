@@ -84,7 +84,7 @@ export class WakeupService {
   /**
    * Wakeup 완료 처리.
    */
-  async finish(requestId: string, runId: string, error?: string) {
+  async finish(requestId: string, runId: string, error?: string): Promise<void> {
     await this.prisma.agentWakeupRequest.update({
       where: { id: requestId },
       data: {

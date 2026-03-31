@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { API_BASE } from "@/lib/api";
+import { apiClient } from "@/lib/api-client";
+import { isApiError } from "@/lib/api-error";
 import { Truck, AlertTriangle, RefreshCw } from "lucide-react";
 import PageSkeleton from "@/components/ui/PageSkeleton";
 
@@ -27,12 +28,10 @@ export default function UnshippedItemsPage() {
     try {
       const params = new URLSearchParams();
       if (minDays > 0) params.set("minDays", String(minDays));
-      const res = await fetch(`${API_BASE}/api/unshipped?${params}`);
-      if (!res.ok) throw new Error("서버 오류");
-      const data = await res.json();
+      const data = await apiClient.get<{ items: UnshippedItem[] }>(`/api/unshipped?${params}`);
       setItems(data.items || []);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "미배송 조회 실패");
+      setError(isApiError(e) ? e.detail : "미배송 조회 실패");
     } finally {
       setLoading(false);
     }

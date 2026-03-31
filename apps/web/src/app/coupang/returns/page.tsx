@@ -13,7 +13,7 @@ import {
   CartesianGrid,
 } from 'recharts';
 import { RotateCcw, TrendingDown, Users, Package } from 'lucide-react';
-import { API_BASE } from '@/lib/api';
+import { apiClient } from '@/lib/api-client';
 import { formatPercent, cn } from '@/lib/utils';
 import { DateRangePicker } from '@/components/ui/DateRangePicker';
 
@@ -57,15 +57,9 @@ export default function CoupangReturnsPage() {
     const from = toParam(dateRange.from);
     const to = toParam(dateRange.to);
     Promise.all([
-      fetch(`${API_BASE}/api/coupang-dashboard/return-summary?from=${from}&to=${to}`).then((r) =>
-        r.json()
-      ),
-      fetch(`${API_BASE}/api/coupang-dashboard/return-reasons?from=${from}&to=${to}`).then((r) =>
-        r.json()
-      ),
-      fetch(`${API_BASE}/api/coupang-dashboard/return-fault-split?from=${from}&to=${to}`).then(
-        (r) => r.json()
-      ),
+      apiClient.get<ReturnSummary>(`/api/coupang-dashboard/return-summary?from=${from}&to=${to}`),
+      apiClient.get<ReasonRow[]>(`/api/coupang-dashboard/return-reasons?from=${from}&to=${to}`),
+      apiClient.get<FaultSplit>(`/api/coupang-dashboard/return-fault-split?from=${from}&to=${to}`),
     ])
       .then(([summaryData, reasonsData, faultData]) => {
         setSummary(summaryData);

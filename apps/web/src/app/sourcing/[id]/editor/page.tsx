@@ -4,6 +4,8 @@ import type { DetailPageData } from '@kiditem/templates';
 import { getTemplate, parseDetailPageData, placeholderDetailPageData } from '@kiditem/templates';
 import DetailPageEditor from '@/components/editor/DetailPageEditor';
 import { API_BASE } from '@/lib/api';
+import { apiClient } from '@/lib/api-client';
+import { isApiError } from '@/lib/api-error';
 import { renderTemplateToHtml } from '@/lib/template-html';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import { useParams, useRouter } from 'next/navigation';
@@ -57,17 +59,11 @@ export default function EditorPage() {
     setIsLoading(true);
     setError(null);
     try {
-      const [detailRes, previewRes, cssRes] = await Promise.all([
-        fetch(`${API_BASE}/api/products/${productId}`),
-        fetch(`${API_BASE}/api/products/${productId}/preview`),
+      const [detail, preview, cssRes] = await Promise.all([
+        apiClient.get<ProductDetail>(`/api/products/${productId}`),
+        apiClient.get<PreviewResponse>(`/api/products/${productId}/preview`),
         fetch('/templates-styles.css').then((r) => (r.ok ? r.text() : '')).catch(() => ''),
       ]);
-
-      if (!detailRes.ok) throw new Error(`Failed to load product: ${detailRes.status}`);
-      if (!previewRes.ok) throw new Error(`Failed to load preview: ${previewRes.status}`);
-
-      const detail = (await detailRes.json()) as ProductDetail;
-      const preview = (await previewRes.json()) as PreviewResponse;
 
       const rawDataValue = detail.rawData ?? detail.raw_data ?? null;
       const processedDataValue = detail.processedData ?? detail.processed_data ?? null;
@@ -98,7 +94,7 @@ export default function EditorPage() {
       setTemplateConfig(getTemplate(templateId));
       setPreviewData(parsed);
     } catch (err) {
-      setError(err instanceof Error ? err.message : '에디터 데이터를 불러올 수 없습니다.');
+      setError(isApiError(err) ? err.detail : '에디터 데이터를 불러올 수 없습니다.');
     } finally {
       setIsLoading(false);
     }

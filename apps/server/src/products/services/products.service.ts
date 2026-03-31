@@ -314,7 +314,7 @@ export class ProductsService {
     };
   }
 
-  async create(body: Record<string, unknown>) {
+  async create(body: Record<string, unknown>): Promise<any> {
     const name = body.name as string | undefined;
     const companyId = body.companyId as string | undefined;
     if (!name || !companyId) {
@@ -353,18 +353,18 @@ export class ProductsService {
     }
   }
 
-  async findOne(id: string) {
+  async findOne(id: string): Promise<any> {
     return this.prisma.product.findUnique({
       where: { id },
       include: { company: true, inventory: true },
     });
   }
 
-  async remove(id: string) {
+  async remove(id: string): Promise<any> {
     return this.prisma.product.delete({ where: { id } });
   }
 
-  async updateDraftContent(id: string, body: Record<string, unknown>) {
+  async updateDraftContent(id: string, body: Record<string, unknown>): Promise<any> {
     const product = await this.prisma.product.findUnique({ where: { id } });
     if (!product) throw new NotFoundException('Product not found');
     return this.prisma.product.update({
@@ -373,7 +373,7 @@ export class ProductsService {
     });
   }
 
-  async getPreview(id: string) {
+  async getPreview(id: string): Promise<{ template: string | null; data: unknown; images: unknown }> {
     const product = await this.prisma.product.findUnique({ where: { id } });
     if (!product) throw new NotFoundException('Product not found');
     const rawData = (product.rawData as Record<string, unknown>) || {};
@@ -390,7 +390,7 @@ export class ProductsService {
   async triggerContentDraft(
     id: string,
     seed?: { seed_hook_text?: string; seed_hook_title_sub?: string; seed_hero_image?: string; color_image_urls?: string[] },
-  ) {
+  ): Promise<{ taskId: string }> {
     const product = await this.prisma.product.findUnique({ where: { id } });
     if (!product) {
       throw new BadRequestException('상품을 찾을 수 없습니다.');
@@ -418,7 +418,19 @@ export class ProductsService {
     return { taskId: task.id };
   }
 
-  async getPipelineStats(statusFilter?: string) {
+  async getPipelineStats(statusFilter?: string): Promise<{
+    total: number;
+    gradeA: number;
+    gradeB: number;
+    gradeC: number;
+    minus: number;
+    low: number;
+    gradeChangeA: number;
+    gradeChangeB: number;
+    gradeChangeC: number;
+    adCount: number;
+    noAdCount: number;
+  }> {
     try {
       const statusWhere = statusFilter && statusFilter !== 'all'
         ? `AND p.status = '${statusFilter}'`
@@ -512,7 +524,7 @@ export class ProductsService {
     }
   }
 
-  async triggerImageGeneration(id: string) {
+  async triggerImageGeneration(id: string): Promise<{ taskId: string }> {
     const product = await this.prisma.product.findUnique({ where: { id } });
     if (!product) throw new NotFoundException('Product not found');
     if (!product.draftContent) {

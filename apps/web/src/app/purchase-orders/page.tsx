@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { Package, RefreshCw, Plus, Trash2, X } from 'lucide-react';
-import { API_BASE } from '@/lib/api';
+import { apiClient } from '@/lib/api-client';
+import { isApiError } from '@/lib/api-error';
 import { formatKRW } from '@/lib/utils';
 import { Pagination } from '@/components/ui/Pagination';
 
@@ -76,6 +77,7 @@ export default function PurchaseOrdersPage() {
   const [filter, setFilter] = useState('all');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const PAGE_SIZE = 20;
 
   const fetchOrders = useCallback(async (p: number, f: string) => {
@@ -88,8 +90,11 @@ export default function PurchaseOrdersPage() {
       const backendStatus = f === 'all' || f === 'waiting' ? undefined : f;
       if (backendStatus) params.set('status', backendStatus);
 
-      const res = await fetch(`${API_BASE}/api/purchase-orders?${params}`);
-      const data = await res.json();
+      const data = await apiClient.get<{
+        items: PurchaseOrder[];
+        counts?: Counts;
+        total?: number;
+      }>(`/api/purchase-orders?${params}`);
       let fetchedItems: PurchaseOrder[] = data.items || [];
 
       if (f === 'waiting') {
@@ -103,8 +108,9 @@ export default function PurchaseOrdersPage() {
 
       const waitingTotal = (data.counts?.draft || 0) + (data.counts?.pending || 0);
       setTotal(f === 'waiting' ? waitingTotal : (data.total || 0));
-    } catch {
-      console.error('발주 데이터 로딩 실패');
+      setError(null);
+    } catch (err) {
+      setError(isApiError(err) ? err.detail : '발주 데이터를 불러오는데 실패했습니다.');
     } finally {
       setLoading(false);
     }
@@ -120,16 +126,7 @@ export default function PurchaseOrdersPage() {
   }, [page, fetchOrders, filter]);
 
   const postAction = async (body: Record<string, unknown>) => {
-    const res = await fetch(`${API_BASE}/api/purchase-orders`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-      const errBody = await res.json().catch(() => ({}));
-      throw new Error(errBody.message || '요청 실패');
-    }
-    return res.json();
+    return apiClient.post<unknown>('/api/purchase-orders', body);
   };
 
   const handleStatusChange = async (id: string, newStatus: string) => {
@@ -138,7 +135,7 @@ export default function PurchaseOrdersPage() {
       await postAction({ action: 'updateStatus', id, status: newStatus });
       fetchOrders(page, filter);
     } catch (err) {
-      alert(err instanceof Error ? err.message : '상태 변경 실패');
+      alert(isApiError(err) ? err.detail : '상태 변경에 실패했습니다.');
     } finally {
       setActionLoading(null);
     }
@@ -151,7 +148,7 @@ export default function PurchaseOrdersPage() {
       await postAction({ action: 'delete', id });
       fetchOrders(page, filter);
     } catch (err) {
-      alert(err instanceof Error ? err.message : '삭제 실패');
+      alert(isApiError(err) ? err.detail : '삭제에 실패했습니다.');
     } finally {
       setActionLoading(null);
     }
@@ -183,6 +180,12 @@ export default function PurchaseOrdersPage() {
 
   return (
     <div className="space-y-4">
+      {error && (
+        <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <span>{error}</span>
+          <button onClick={() => setError(null)} className="ml-auto text-red-400 hover:text-red-600">&times;</button>
+        </div>
+      )}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Package size={20} className="text-purple-500" />
@@ -411,28 +414,20 @@ function CreateModal({
 
     setSubmitting(true);
     try {
-      const res = await fetch(`${API_BASE}/api/purchase-orders`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'create',
-          companyId: '00000000-0000-0000-0000-000000000000',
-          supplierName: supplierName.trim(),
-          expectedDeliveryDate: expectedDate || undefined,
-          items: validItems.map((i) => ({
-            productName: i.productName.trim(),
-            quantity: Number(i.quantity),
-            unitPriceCny: parseFloat(i.unitPriceCny),
-          })),
-        }),
+      await apiClient.post('/api/purchase-orders', {
+        action: 'create',
+        companyId: '00000000-0000-0000-0000-000000000000',
+        supplierName: supplierName.trim(),
+        expectedDeliveryDate: expectedDate || undefined,
+        items: validItems.map((i) => ({
+          productName: i.productName.trim(),
+          quantity: Number(i.quantity),
+          unitPriceCny: parseFloat(i.unitPriceCny),
+        })),
       });
-      if (!res.ok) {
-        const errBody = await res.json().catch(() => ({}));
-        throw new Error(errBody.message || '생성 실패');
-      }
       onCreated();
     } catch (err) {
-      setError(err instanceof Error ? err.message : '생성 실패');
+      setError(isApiError(err) ? err.detail : '발주 생성에 실패했습니다.');
     } finally {
       setSubmitting(false);
     }

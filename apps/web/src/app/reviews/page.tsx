@@ -1,6 +1,7 @@
 'use client';
 
-import { API_BASE } from '@/lib/api';
+import { apiClient } from '@/lib/api-client';
+import { isApiError } from '@/lib/api-error';
 import { useEffect, useState, useCallback } from 'react';
 import { MessageSquare, Star, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -49,13 +50,12 @@ export default function ReviewsPage() {
         page: String(p),
         limit: String(PAGE_SIZE),
       });
-      const res = await fetch(`${API_BASE}/api/reviews?${params}`);
-      const json = await res.json();
+      const json = await apiClient.get<{ items: ReviewProduct[]; total: number; summary?: ReviewSummaryData }>(`/api/reviews?${params}`);
       setData(json.items ?? []);
       setTotal(json.total ?? 0);
       if (json.summary) setSummary(json.summary);
     } catch (err) {
-      console.error('리뷰 데이터 로딩 실패:', err);
+      console.error('리뷰 데이터 로딩 실패:', isApiError(err) ? err.detail : err);
     } finally {
       setLoading(false);
     }

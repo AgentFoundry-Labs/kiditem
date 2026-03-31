@@ -26,7 +26,7 @@ export class AlertsService {
     });
   }
 
-  async markAllAsRead() {
+  async markAllAsRead(): Promise<{ updated: number }> {
     const result = await this.prisma.alert.updateMany({
       where: { isRead: false },
       data: { isRead: true },

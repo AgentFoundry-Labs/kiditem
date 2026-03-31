@@ -1,11 +1,30 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 
+export interface PLRow {
+  id: string;
+  productId: string;
+  productName: string;
+  sku: string | null;
+  company: string;
+  grade: string;
+  period: string;
+  revenue: number;
+  costOfGoods: number;
+  commission: number;
+  shippingCost: number;
+  adCost: number;
+  otherCost: number;
+  netProfit: number;
+  profitRate: number;
+  orderCount: number;
+}
+
 @Injectable()
 export class ProfitLossService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll(period?: string) {
+  async findAll(period?: string): Promise<PLRow[]> {
     try {
       const { year, month } = period
         ? this.parsePeriod(period)

@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { Package, AlertTriangle, Truck, Download, RefreshCw, ClipboardCheck, Barcode } from "lucide-react";
-import { API_BASE } from "@/lib/api";
+import { apiClient } from '@/lib/api-client';
+import { isApiError } from '@/lib/api-error';
 import PageSkeleton from "@/components/ui/PageSkeleton";
 import { timeAgo } from "@/lib/utils";
 import { Pagination } from "@/components/ui/Pagination";
@@ -32,13 +33,12 @@ export default function InventoryPage() {
         limit: String(PAGE_SIZE),
       });
       if (f !== "all") params.set("status", f);
-      const res = await fetch(`${API_BASE}/api/inventory?${params}`);
-      const data = await res.json();
+      const data = await apiClient.get<{ items: InventoryItem[]; total: number; summary?: InventorySummary }>(`/api/inventory?${params}`);
       setItems(data.items);
       setTotal(data.total);
       if (data.summary) setSummary(data.summary);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "재고 데이터를 불러오지 못했습니다.");
+      setError(isApiError(err) ? err.detail : "재고 데이터를 불러오지 못했습니다.");
     } finally {
       setLoading(false);
     }
@@ -46,8 +46,7 @@ export default function InventoryPage() {
 
   useEffect(() => {
     // Fetch sync info
-    fetch(`${API_BASE}/api/coupang-dashboard`)
-      .then(r => r.json())
+    apiClient.get<{ lastSyncedAt: string | null }>(`/api/coupang-dashboard`)
       .then(data => setSyncInfo({ lastSyncedAt: data.lastSyncedAt }))
       .catch(() => setSyncInfo({ lastSyncedAt: null }));
   }, []);
@@ -66,8 +65,7 @@ export default function InventoryPage() {
   const handleExcel = async () => {
     const params = new URLSearchParams({ limit: "10000" });
     if (filter !== "all") params.set("status", filter);
-    const res = await fetch(`${API_BASE}/api/inventory?${params}`);
-    const data = await res.json();
+    const data = await apiClient.get<{ items: InventoryItem[] }>(`/api/inventory?${params}`);
     import("xlsx").then((XLSX) => {
       const ws = XLSX.utils.json_to_sheet(
         data.items.map((d: InventoryItem) => ({
@@ -85,14 +83,13 @@ export default function InventoryPage() {
 
   const handleStockCheck = async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/inventory?status=reorder&limit=1`);
-      const data = await res.json();
+      const data = await apiClient.get<{ total: number }>(`/api/inventory?status=reorder&limit=1`);
       alert(`재고 부족 상품: ${data.total}건\n발주가 필요한 상품을 확인하세요.`);
       if (data.total > 0) {
         setFilter("reorder");
       }
-    } catch {
-      alert("재고 부족 체크에 실패했습니다.");
+    } catch (err) {
+      alert(isApiError(err) ? err.detail : "재고 부족 체크에 실패했습니다.");
     }
   };
 
@@ -101,8 +98,7 @@ export default function InventoryPage() {
     if (!term) return;
 
     try {
-      const res = await fetch(`${API_BASE}/api/products?search=${encodeURIComponent(term)}&limit=5&status=active`);
-      const data = await res.json();
+      const data = await apiClient.get<{ items: { id: string; name: string; sku: string | null; currentStock: number }[] }>(`/api/products?search=${encodeURIComponent(term)}&limit=5&status=active`);
       const products: { id: string; name: string; sku: string | null; currentStock: number }[] = data.items ?? [];
 
       if (products.length === 0) {
@@ -131,30 +127,19 @@ export default function InventoryPage() {
         return;
       }
 
-      const invRes = await fetch(`${API_BASE}/api/inventory/by-product/${selectedProduct.id}`);
-      if (!invRes.ok) {
+      let invData;
+      try {
+        invData = await apiClient.get<{ id: string }>(`/api/inventory/by-product/${selectedProduct.id}`);
+      } catch {
         alert('해당 상품의 재고 항목이 없습니다.');
         return;
       }
-      const invData = await invRes.json();
 
-      const patchRes = await fetch(`${API_BASE}/api/inventory/${invData.id}/receive`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ quantity: qty }),
-      });
-
-      if (!patchRes.ok) {
-        const err = await patchRes.json();
-        alert(`입고 실패: ${err.message ?? '알 수 없는 오류'}`);
-        return;
-      }
-
-      const result = await patchRes.json();
-      alert(`✅ 입고 완료\n상품: ${result.productName}\n입고 수량: ${result.received}개\n현재고: ${result.currentStock}개`);
+      const result = await apiClient.patch<{ productName: string; received: number; currentStock: number }>(`/api/inventory/${invData.id}/receive`, { quantity: qty });
+      alert(`입고 완료\n상품: ${result.productName}\n입고 수량: ${result.received}개\n현재고: ${result.currentStock}개`);
       fetchInventory();
-    } catch {
-      alert('입고 처리 중 오류가 발생했습니다.');
+    } catch (err) {
+      alert(isApiError(err) ? err.detail : '입고 처리 중 오류가 발생했습니다.');
     }
   };
 
@@ -206,13 +191,11 @@ ${barcodeItems.join('')}
     if (syncing) return;
     setSyncing(true);
     try {
-      const res = await fetch(`${API_BASE}/api/coupang-sync/products`, { method: "POST" });
-      if (!res.ok) throw new Error("동기화 실패");
-      const data = await res.json();
+      const data = await apiClient.post<{ synced?: number }>(`/api/coupang-sync/products`);
       alert(`쿠팡 동기화 완료: ${data.synced ?? 0}건 동기화됨`);
       fetchInventory();
-    } catch {
-      alert("쿠팡 동기화에 실패했습니다. 설정을 확인하세요.");
+    } catch (err) {
+      alert(isApiError(err) ? err.detail : "쿠팡 동기화에 실패했습니다. 설정을 확인하세요.");
     } finally {
       setSyncing(false);
     }

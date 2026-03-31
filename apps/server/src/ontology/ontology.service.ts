@@ -5,7 +5,11 @@ import { PrismaService } from '../prisma/prisma.service';
 export class OntologyService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async getGraph() {
+  async getGraph(): Promise<{
+    nodes: { id: string; type: string; label: string; productCount: number; brandCount?: number; category?: string }[];
+    edges: { id: string; source: string; target: string }[];
+    stats: { totalProducts: number; totalCategories: number; totalBrands: number };
+  }> {
     const rows: any[] = await this.prisma.$queryRaw`
       SELECT
         COALESCE(category, '미분류') AS category,

@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { API_BASE } from "@/lib/api";
+import { apiClient } from "@/lib/api-client";
+import { isApiError } from "@/lib/api-error";
 import { BarChart3, RefreshCw } from "lucide-react";
 import { formatKRW, formatPercent } from "@/lib/utils";
 import PageSkeleton from "@/components/ui/PageSkeleton";
@@ -41,12 +42,10 @@ export default function SalesAnalysisPage() {
     try {
       const params = new URLSearchParams();
       if (period) params.set("period", period);
-      const res = await fetch(`${API_BASE}/api/sales-analysis?${params}`);
-      if (!res.ok) throw new Error("서버 오류");
-      const json: SalesAnalysisData = await res.json();
+      const json = await apiClient.get<SalesAnalysisData>(`/api/sales-analysis?${params}`);
       setData(json);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "매출분석 조회 실패");
+      setError(isApiError(e) ? e.detail : "매출분석 조회 실패");
     } finally {
       setLoading(false);
     }

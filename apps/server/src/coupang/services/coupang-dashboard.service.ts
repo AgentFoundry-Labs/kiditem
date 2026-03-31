@@ -7,7 +7,12 @@ import { ORDER_STATUSES, RETURN_STATUSES } from '../constants';
 export class CoupangDashboardService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async getSummary(companyId: string) {
+  async getSummary(companyId: string): Promise<{
+    todayOrders: { count: number; revenue: number };
+    pendingAccept: number;
+    pendingReturns: number;
+    lastSyncedAt: Date | null;
+  }> {
     const todayStart = kstDayStart(new Date());
     const todayEnd = new Date(todayStart.getTime() + 86400000);
 
@@ -44,7 +49,7 @@ export class CoupangDashboardService {
     };
   }
 
-  async getRevenueTrend(companyId: string, from: Date, to: Date) {
+  async getRevenueTrend(companyId: string, from: Date, to: Date): Promise<{ day: string; revenue: number; orderCount: number }[]> {
     const rows = await this.prisma.$queryRaw<
       { day: Date; revenue: number; order_count: number }[]
     >`
@@ -67,7 +72,12 @@ export class CoupangDashboardService {
     }));
   }
 
-  async getProductRanking(companyId: string, from: Date, to: Date) {
+  async getProductRanking(companyId: string, from: Date, to: Date): Promise<{
+    sellerProductId: string;
+    sellerProductName: string;
+    revenue: number;
+    orderCount: number;
+  }[]> {
     const rows = await this.prisma.$queryRaw<
       {
         seller_product_id: string | null;
@@ -100,7 +110,7 @@ export class CoupangDashboardService {
     }));
   }
 
-  async getReturnSummary(companyId: string, from: Date, to: Date) {
+  async getReturnSummary(companyId: string, from: Date, to: Date): Promise<{ returnCount: number; orderCount: number; returnRate: number }> {
     const [returnRows, orderRows] = await Promise.all([
       this.prisma.$queryRaw<{ count: number }[]>`
         SELECT COUNT(*)::int AS count
@@ -128,7 +138,7 @@ export class CoupangDashboardService {
     return { returnCount, orderCount, returnRate };
   }
 
-  async getReturnReasonBreakdown(companyId: string, from: Date, to: Date) {
+  async getReturnReasonBreakdown(companyId: string, from: Date, to: Date): Promise<{ reason: string; count: number }[]> {
     const rows = await this.prisma.$queryRaw<
       { reason: string | null; count: number }[]
     >`
@@ -149,7 +159,7 @@ export class CoupangDashboardService {
     }));
   }
 
-  async getReturnFaultSplit(companyId: string, from: Date, to: Date) {
+  async getReturnFaultSplit(companyId: string, from: Date, to: Date): Promise<{ customer: number; vendor: number }> {
     const rows = await this.prisma.$queryRaw<
       { fault_type: string; count: number }[]
     >`

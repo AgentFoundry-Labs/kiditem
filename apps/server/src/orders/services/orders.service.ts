@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import type { Order } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   confirmOrderSheets,
@@ -10,7 +11,12 @@ import {
 export class OrdersService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll(query: { from?: string; to?: string; status?: string }) {
+  async findAll(query: { from?: string; to?: string; status?: string }): Promise<{
+    success: boolean;
+    orders: Order[];
+    count: number;
+    deliveryCompanies: typeof DELIVERY_COMPANIES;
+  }> {
     const dbStatus = query.status || 'ACCEPT';
 
     const orderedAtFilter: Record<string, Date> = {};
@@ -39,7 +45,7 @@ export class OrdersService {
     };
   }
 
-  async findOne(id: string) {
+  async findOne(id: string): Promise<{ success: boolean; order: Order | null }> {
     const order = await this.prisma.order.findUnique({
       where: { id },
     });
@@ -47,7 +53,10 @@ export class OrdersService {
     return { success: true, order };
   }
 
-  async getStats() {
+  async getStats(): Promise<{
+    success: boolean;
+    stats: { total: number; accept: number; instruct: number; departure: number; delivering: number; finalDelivery: number };
+  }> {
     const [total, accept, instruct, departure, delivering, finalDelivery] =
       await Promise.all([
         this.prisma.order.count(),
@@ -64,7 +73,7 @@ export class OrdersService {
     };
   }
 
-  async confirm(shipmentBoxIds: number[]) {
+  async confirm(shipmentBoxIds: number[]): Promise<{ success: boolean; message: string; data: unknown }> {
     const result = await confirmOrderSheets(shipmentBoxIds);
     return {
       success: true,
@@ -77,7 +86,7 @@ export class OrdersService {
     shipmentBoxId: number,
     deliveryCompanyCode: string,
     invoiceNumber: string,
-  ) {
+  ): Promise<{ success: boolean; message: string; data: unknown }> {
     const result = await uploadInvoice(shipmentBoxId, {
       deliveryCompanyCode,
       invoiceNumber,

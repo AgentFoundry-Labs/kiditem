@@ -1,6 +1,7 @@
 "use client";
 
-import { API_BASE } from "@/lib/api";
+import { apiClient } from '@/lib/api-client';
+import { isApiError } from '@/lib/api-error';
 import PageSkeleton from "@/components/ui/PageSkeleton";
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
@@ -110,12 +111,8 @@ export default function ProductDetailPage() {
 
     setLoading(true);
     Promise.all([
-      fetch(`${API_BASE}/api/products/${productId}`).then((r) =>
-        r.ok ? r.json() : null
-      ),
-      fetch(`${API_BASE}/api/inventory?productId=${productId}`)
-        .then((r) => (r.ok ? r.json() : null))
-        .catch(() => null),
+      apiClient.get<Product>(`/api/products/${productId}`).catch(() => null),
+      apiClient.get<InventoryData[] | InventoryData>(`/api/inventory?productId=${productId}`).catch(() => null),
     ])
       .then(([prod, inv]) => {
         if (!prod) {
@@ -136,8 +133,7 @@ export default function ProductDetailPage() {
   }, [productId]);
 
   useEffect(() => {
-    fetch(`${API_BASE}/api/workflows?isActive=true`)
-      .then((r) => (r.ok ? r.json() : []))
+    apiClient.get<Workflow[]>(`/api/workflows?isActive=true`)
       .then((wfs) => setWorkflows(Array.isArray(wfs) ? wfs : []))
       .catch(() => {});
   }, []);
@@ -150,8 +146,8 @@ export default function ProductDetailPage() {
 
   const loadActivities = useCallback((pid: string, companyId: string) => {
     Promise.all([
-      fetch(`${API_BASE}/api/activity-events?objectType=product&objectId=${pid}&eventType=workflow_analysis`).then((r) => (r.ok ? r.json() : [])).catch(() => []),
-      fetch(`${API_BASE}/api/activity-events?objectType=company&objectId=${companyId}&eventType=workflow_analysis&limit=10`).then((r) => (r.ok ? r.json() : [])).catch(() => []),
+      apiClient.get<ActivityEvent[]>(`/api/activity-events?objectType=product&objectId=${pid}&eventType=workflow_analysis`).catch(() => []),
+      apiClient.get<ActivityEvent[]>(`/api/activity-events?objectType=company&objectId=${companyId}&eventType=workflow_analysis&limit=10`).catch(() => []),
     ]).then(([productEvents, companyEvents]) => {
       const all = [...(productEvents || []), ...(companyEvents || [])];
       all.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -160,8 +156,7 @@ export default function ProductDetailPage() {
   }, []);
 
   const loadViolations = useCallback((pid: string) => {
-    fetch(`${API_BASE}/api/activity-events?objectType=product&objectId=${pid}&eventType=rule_violation&limit=20`)
-      .then((r) => (r.ok ? r.json() : []))
+    apiClient.get<ActivityEvent[]>(`/api/activity-events?objectType=product&objectId=${pid}&eventType=rule_violation&limit=20`)
       .then((data) => setViolations(Array.isArray(data) ? data : []))
       .catch(() => {});
   }, []);
@@ -169,10 +164,9 @@ export default function ProductDetailPage() {
   const handleEvaluateHealth = async () => {
     setEvaluatingHealth(true);
     try {
-      await fetch(`${API_BASE}/api/rules/evaluate`, { method: 'POST' });
-      const res = await fetch(`${API_BASE}/api/products/${productId}`);
-      if (res.ok) {
-        const prod = await res.json();
+      await apiClient.post(`/api/rules/evaluate`);
+      const prod = await apiClient.get<Product>(`/api/products/${productId}`).catch(() => null);
+      if (prod) {
         setProduct(prod);
       }
       loadViolations(productId);
@@ -206,24 +200,17 @@ export default function ProductDetailPage() {
     showToast(`${wf.name} 실행 중...`, "loading");
 
     try {
-      const res = await fetch(`${API_BASE}/api/workflows/${wf.id}/run`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ context: { productId } }),
-      });
-      if (!res.ok) throw new Error("실행 실패");
-      const run = await res.json();
+      const run = await apiClient.post<{ id: string }>(`/api/workflows/${wf.id}/run`, { context: { productId } });
 
       showToast(`${wf.name} 완료, AI 분석 중...`, "loading");
 
       pollRef.current = setInterval(async () => {
         const companyId = product?.companyId;
         if (!companyId) return;
-        const eventsRes = await fetch(
-          `${API_BASE}/api/activity-events?objectType=product&objectId=${productId}&eventType=workflow_analysis&limit=1`
-        );
-        if (!eventsRes.ok) return;
-        const events = await eventsRes.json();
+        const events = await apiClient.get<ActivityEvent[]>(
+          `/api/activity-events?objectType=product&objectId=${productId}&eventType=workflow_analysis&limit=1`
+        ).catch(() => null);
+        if (!events) return;
         if (Array.isArray(events) && events.length > 0) {
           const latest = events[0];
           const eventTime = new Date(latest.createdAt).getTime();
@@ -237,9 +224,8 @@ export default function ProductDetailPage() {
           }
         }
 
-        const r = await fetch(`${API_BASE}/api/workflow-runs/${run.id}`);
-        if (!r.ok) return;
-        const detail: WorkflowRunStatus = await r.json();
+        const detail = await apiClient.get<WorkflowRunStatus>(`/api/workflow-runs/${run.id}`).catch(() => null);
+        if (!detail) return;
 
         if (detail.status === "failed") {
           if (pollRef.current) clearInterval(pollRef.current);
@@ -248,8 +234,8 @@ export default function ProductDetailPage() {
           refreshActivities();
         }
       }, 1500);
-    } catch {
-      showToast("워크플로우 실행에 실패했습니다.", "error", { duration: 5000 });
+    } catch (err) {
+      showToast(isApiError(err) ? err.detail : "워크플로우 실행에 실패했습니다.", "error", { duration: 5000 });
     }
   };
 
@@ -258,18 +244,12 @@ export default function ProductDetailPage() {
     showToast("전체 종합 점검 실행 중...", "loading");
 
     try {
-      const res = await fetch(`${API_BASE}/api/workflows/batch-run`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ workflowIds: workflows.map((w) => w.id), context: { productId } }),
-      });
-      if (!res.ok) throw new Error("배치 실행 실패");
-      const runs = await res.json();
+      const runs = await apiClient.post<{ id: string }[]>(`/api/workflows/batch-run`, { workflowIds: workflows.map((w) => w.id), context: { productId } });
 
       const checkAll = async () => {
         const details = await Promise.all(
           (runs as any[]).map((r: any) =>
-            fetch(`${API_BASE}/api/workflow-runs/${r.id}`).then((res) => res.ok ? res.json() : null)
+            apiClient.get<WorkflowRunStatus>(`/api/workflow-runs/${r.id}`).catch(() => null)
           )
         );
         return details.every((d: any) => d?.status === "completed" || d?.status === "failed");
@@ -290,11 +270,10 @@ export default function ProductDetailPage() {
 
         const companyId = product?.companyId;
         if (!companyId) return;
-        const eventsRes = await fetch(
-          `${API_BASE}/api/activity-events?objectType=company&objectId=${companyId}&eventType=workflow_analysis&limit=1`
-        );
-        if (!eventsRes.ok) return;
-        const events = await eventsRes.json();
+        const events = await apiClient.get<ActivityEvent[]>(
+          `/api/activity-events?objectType=company&objectId=${companyId}&eventType=workflow_analysis&limit=1`
+        ).catch(() => null);
+        if (!events) return;
         if (Array.isArray(events) && events.length > 0) {
           const latest = events[0];
           const eventTime = new Date(latest.createdAt).getTime();
@@ -307,8 +286,8 @@ export default function ProductDetailPage() {
           }
         }
       }, 1500);
-    } catch {
-      showToast("전체 종합 점검 실패", "error", { duration: 5000 });
+    } catch (err) {
+      showToast(isApiError(err) ? err.detail : "전체 종합 점검 실패", "error", { duration: 5000 });
     }
   };
 
@@ -322,23 +301,17 @@ export default function ProductDetailPage() {
     } else if (type === 'product.view_detail') {
       window.location.href = `/products/${params.productId}`;
     } else if (type.startsWith('product.') && params.productId) {
-      fetch(`${API_BASE}/api/products/${params.productId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(
-          type === 'product.adjust_price' ? { sellPrice: params.newPrice } :
-          type === 'product.stop_ads' ? { adTier: null } :
-          type === 'product.discontinue' ? { status: 'discontinued' } :
-          type === 'product.change_grade' ? { abcGrade: params.grade } :
-          {}
-        ),
-      }).then((r) => {
-        if (r.ok) {
-          showToast(`${action.label} 완료`, "success", { duration: 3000 });
-          refreshActivities();
-        } else {
-          showToast(`${action.label} 실패`, "error", { duration: 5000 });
-        }
+      apiClient.put(`/api/products/${params.productId}`,
+        type === 'product.adjust_price' ? { sellPrice: params.newPrice } :
+        type === 'product.stop_ads' ? { adTier: null } :
+        type === 'product.discontinue' ? { status: 'discontinued' } :
+        type === 'product.change_grade' ? { abcGrade: params.grade } :
+        {}
+      ).then(() => {
+        showToast(`${action.label} 완료`, "success", { duration: 3000 });
+        refreshActivities();
+      }).catch(() => {
+        showToast(`${action.label} 실패`, "error", { duration: 5000 });
       });
     } else if (type === 'inventory.create_purchase_order') {
       window.location.href = `/purchase-orders/new?productId=${params.productId}&quantity=${params.quantity ?? ''}`;

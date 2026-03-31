@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { Download } from "lucide-react";
 import { formatKRW, formatPercent, getGradeColor, getProfitColor, timeAgo } from "@/lib/utils";
-import { API_BASE } from "@/lib/api";
+import { apiClient } from "@/lib/api-client";
+import { isApiError } from "@/lib/api-error";
 import PageSkeleton from "@/components/ui/PageSkeleton";
 import type { PLData, SyncInfo } from '@kiditem/shared';
 
@@ -31,8 +32,7 @@ export default function ProfitLossPage() {
 
   useEffect(() => {
     // Fetch sync info
-    fetch(`${API_BASE}/api/coupang-dashboard`)
-      .then(r => r.json())
+    apiClient.get<{ lastSyncedAt: string | null }>('/api/coupang-dashboard')
       .then(data => setSyncInfo({ lastSyncedAt: data.lastSyncedAt }))
       .catch(() => setSyncInfo({ lastSyncedAt: null }));
   }, []);
@@ -40,10 +40,9 @@ export default function ProfitLossPage() {
   useEffect(() => {
     setLoading(true);
     setError(null);
-    fetch(`${API_BASE}/api/profit-loss?period=${period}`)
-      .then((r) => { if (!r.ok) throw new Error("조회 실패"); return r.json(); })
+    apiClient.get<PLData[]>(`/api/profit-loss?period=${period}`)
       .then((d) => { if (Array.isArray(d)) setData(d); else throw new Error("데이터 형식 오류"); })
-      .catch((e) => setError(e.message))
+      .catch((e) => setError(isApiError(e) ? e.detail : e instanceof Error ? e.message : "조회 실패"))
       .finally(() => setLoading(false));
   }, [period]);
 

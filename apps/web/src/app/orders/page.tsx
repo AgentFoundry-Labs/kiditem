@@ -1,5 +1,5 @@
 "use client";
-import { API_BASE } from "@/lib/api";
+import { apiClient } from "@/lib/api-client";
 import type { OrderRow } from '@kiditem/shared';
 
 import { useEffect, useState, useCallback } from "react";
@@ -56,9 +56,7 @@ export default function OrdersPage() {
     const results = await Promise.all(
       ALL_NODES.map(async (node) => {
         try {
-          const res = await fetch(`${API_BASE}/api/orders?status=${node.key}`);
-          if (!res.ok) return { key: node.key, orders: [] as OrderRow[], count: 0 };
-          const data = await res.json();
+          const data = await apiClient.get<{ orders: OrderRow[] }>(`/api/orders?status=${node.key}`);
           const orders = (data.orders || []) as OrderRow[];
           return { key: node.key, orders, count: orders.length };
         } catch {
@@ -95,11 +93,7 @@ export default function OrdersPage() {
         try {
           const today = now.toISOString().slice(0, 10);
           const weekAgo = new Date(now.getTime() - 7 * 86400000).toISOString().slice(0, 10);
-          await fetch(`${API_BASE}/api/coupang-sync`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ createdAtFrom: weekAgo, createdAtTo: today }),
-          });
+          await apiClient.post('/api/coupang-sync', { createdAtFrom: weekAgo, createdAtTo: today });
           sessionStorage.setItem(lastSyncKey, String(hour));
           fetchAll();
         } catch {

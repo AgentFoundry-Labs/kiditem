@@ -38,4 +38,6 @@ export const apiClient = {
     }),
   delete: <T>(path: string) =>
     request<T>(path, { method: 'DELETE' }),
+  upload: <T>(path: string, formData: FormData) =>
+    request<T>(path, { method: 'POST', body: formData }),
 };

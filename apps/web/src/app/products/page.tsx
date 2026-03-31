@@ -1,5 +1,6 @@
 "use client";
-import { API_BASE } from "@/lib/api";
+import { apiClient } from '@/lib/api-client';
+import { isApiError } from '@/lib/api-error';
 import type { ProductListItem as Product, TrafficData, SyncInfo, PipelineCounts } from '@kiditem/shared';
 
 import { useEffect, useState, useCallback, useRef } from "react";
@@ -38,14 +39,12 @@ export default function ProductsPage() {
     params.set("limit", String(PAGE_SIZE));
     params.set("period", String(period));
     try {
-      const res = await fetch(`${API_BASE}/api/products?${params}`);
-      if (!res.ok) throw new Error(`서버 오류: ${res.status}`);
-      const data = await res.json();
+      const data = await apiClient.get<{ items: Product[]; total: number }>(`/api/products?${params}`);
       setProducts(data.items);
       setTotal(data.total);
       setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "상품 목록을 불러오지 못했습니다.");
+    } catch (err) {
+      setError(isApiError(err) ? err.detail : "상품 목록을 불러오지 못했습니다.");
     } finally {
       setLoading(false);
     }
@@ -54,8 +53,7 @@ export default function ProductsPage() {
   const fetchPipelineCounts = useCallback(async () => {
     const statusParam = statusFilter !== "all" ? `?status=${statusFilter}` : "";
     try {
-      const res = await fetch(`${API_BASE}/api/products/pipeline-stats${statusParam}`);
-      const data = await res.json();
+      const data = await apiClient.get<Record<string, number>>(`/api/products/pipeline-stats${statusParam}`);
       setPipelineCounts({
         total: data.total || 0,
         A: data.gradeA || 0,
@@ -76,8 +74,7 @@ export default function ProductsPage() {
 
   useEffect(() => {
     fetchPipelineCounts();
-    fetch(`${API_BASE}/api/coupang-dashboard`)
-      .then(r => r.json())
+    apiClient.get<{ lastSyncedAt: string | null }>(`/api/coupang-dashboard`)
       .then(data => setSyncInfo({ lastSyncedAt: data.lastSyncedAt }))
       .catch(() => setSyncInfo({ lastSyncedAt: null }));
   }, [fetchPipelineCounts]);
@@ -109,8 +106,7 @@ export default function ProductsPage() {
     if (statusFilter !== "all") params.set("status", statusFilter);
     if (search) params.set("search", search);
     params.set("limit", "10000");
-    const res = await fetch(`${API_BASE}/api/products?${params}`);
-    const data = await res.json();
+    const data = await apiClient.get<{ items: Product[] }>(`/api/products?${params}`);
     const allProducts: Product[] = data.items;
     import("xlsx").then((XLSX) => {
       const ws = XLSX.utils.json_to_sheet(
@@ -146,16 +142,15 @@ export default function ProductsPage() {
       const fd = new FormData();
       fd.append("file", file);
       fd.append("period", String(period));
-      const res = await fetch(`${API_BASE}/api/traffic/upload`, { method: "POST", body: fd });
-      const data = await res.json();
+      const data = await apiClient.upload<{ success: boolean; upserted?: number; error?: string }>(`/api/traffic/upload`, fd);
       if (data.success) {
         setTrafficMsg(`${data.upserted}개 상품 트래픽 업데이트 완료`);
         fetchProducts();
       } else {
         setTrafficMsg(`오류: ${data.error}`);
       }
-    } catch (_e) {
-      setTrafficMsg("업로드 실패");
+    } catch (err) {
+      setTrafficMsg(isApiError(err) ? err.detail : "업로드 실패");
     }
     if (trafficRef.current) trafficRef.current.value = "";
     setTimeout(() => setTrafficMsg(""), 5000);
@@ -516,25 +511,16 @@ function AddProductModal({ onClose, onSaved }: { onClose: () => void; onSaved: (
   const [companies, setCompanies] = useState<{ id: string; name: string }[]>([]);
 
   useEffect(() => {
-    fetch(`${API_BASE}/api/companies`).then(r => r.json()).then(setCompanies).catch(() => {});
+    apiClient.get<{ id: string; name: string }[]>(`/api/companies`).then(setCompanies).catch(() => {});
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const res = await fetch(`${API_BASE}/api/products`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
-      });
-      if (!res.ok) {
-        const msg = await res.text().catch(() => "");
-        alert(`상품 등록 실패: ${res.status} ${msg}`);
-        return;
-      }
+      await apiClient.post(`/api/products`, form);
       onSaved();
-    } catch (_err) {
-      alert("상품 등록 중 오류가 발생했습니다.");
+    } catch (err) {
+      alert(isApiError(err) ? err.detail : "상품 등록 중 오류가 발생했습니다.");
     }
   };
 

@@ -71,7 +71,7 @@ export class HeartbeatService {
 
   // ── Heartbeat 실행 ──
 
-  private async executeHeartbeatAsync(agentId: string) {
+  private async executeHeartbeatAsync(agentId: string): Promise<void> {
     if (this.runningAgents.has(agentId)) return;
     this.runningAgents.add(agentId);
 
@@ -269,7 +269,7 @@ export class HeartbeatService {
 
   // ── Timer 스케줄러 ──
 
-  async syncTimers() {
+  async syncTimers(): Promise<void> {
     this.clearTimerJobs();
 
     const agents = await this.prisma.agentDefinition.findMany({
@@ -327,7 +327,7 @@ export class HeartbeatService {
     } catch { /* no intervals */ }
   }
 
-  private async onTimerFire(agentId: string, companyId: string | null) {
+  private async onTimerFire(agentId: string, companyId: string | null): Promise<void> {
     try {
       await this.wakeAgent({
         agentId,

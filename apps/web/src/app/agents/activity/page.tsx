@@ -5,6 +5,7 @@ import { RefreshCw, Activity, Filter, ChevronLeft, ChevronRight, ChevronDown, Li
 import { cn } from '@/lib/utils';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { agentApi } from '@/lib/agent-api';
+import { isApiError } from '@/lib/api-error';
 import { relativeTime } from '@/lib/agent-utils';
 import { statusBadge, statusBadgeDefault } from '@/lib/status-colors';
 import { SOURCE_LABELS } from '@/lib/agent-types';
@@ -79,6 +80,7 @@ function groupLabel(dateStr: string): string {
 export default function ActivityPage() {
   const [runs, setRuns] = useState<RunWithAgent[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
   const [agentFilter, setAgentFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -105,8 +107,9 @@ export default function ActivityPage() {
         .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       setRuns(merged);
       setLastRefreshed(new Date());
+      setError(null);
     } catch (err) {
-      console.error('Failed to fetch activity:', err);
+      setError(isApiError(err) ? err.detail : '활동 이력을 불러오는데 실패했습니다.');
     } finally {
       setLoading(false);
     }
@@ -161,6 +164,12 @@ export default function ActivityPage() {
 
   return (
     <div className="p-4 sm:p-8">
+      {error && (
+        <div className="mb-4 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <span>{error}</span>
+          <button onClick={() => setError(null)} className="ml-auto text-red-400 hover:text-red-600">&times;</button>
+        </div>
+      )}
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <p className="text-xs text-gray-400">

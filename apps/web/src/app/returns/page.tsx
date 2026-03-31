@@ -1,7 +1,8 @@
 "use client";
-import { API_BASE } from "@/lib/api";
 
 import { useEffect, useState } from "react";
+import { apiClient } from "@/lib/api-client";
+import { isApiError } from "@/lib/api-error";
 import { RotateCcw, RefreshCw, Loader2, CheckCircle } from "lucide-react";
 import { formatKRW } from "@/lib/utils";
 
@@ -20,21 +21,15 @@ export default function ReturnsPage() {
     setLoading(true);
     setError(null);
     try {
-      const [retRes, exRes] = await Promise.all([
-        fetch(`${API_BASE}/api/returns?type=return`),
-        fetch(`${API_BASE}/api/returns?type=exchange`),
+      const [retResult, exResult] = await Promise.allSettled([
+        apiClient.get<{ data: ReturnItem[] }>('/api/returns?type=return'),
+        apiClient.get<{ data: ReturnItem[] }>('/api/returns?type=exchange'),
       ]);
 
-      if (retRes.ok) {
-        const retData = await retRes.json();
-        setReturns(retData.data || []);
-      }
-      if (exRes.ok) {
-        const exData = await exRes.json();
-        setExchanges(exData.data || []);
-      }
+      if (retResult.status === 'fulfilled') setReturns(retResult.value.data || []);
+      if (exResult.status === 'fulfilled') setExchanges(exResult.value.data || []);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "조회 실패");
+      setError(isApiError(e) ? e.detail : "조회 실패");
     } finally {
       setLoading(false);
     }
@@ -48,17 +43,12 @@ export default function ReturnsPage() {
     if (!confirm("이 반품을 승인하시겠습니까?")) return;
     setProcessing(receiptId);
     try {
-      const res = await fetch(`${API_BASE}/api/returns`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "approve", receiptId }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error || "승인 실패");
+      const data = await apiClient.post<{ success: boolean; message: string; error?: string }>('/api/returns', { action: "approve", receiptId });
+      if (!data.success) throw new Error(data.error || "승인 실패");
       alert(data.message);
       fetchData();
     } catch (e) {
-      alert(e instanceof Error ? e.message : "처리 실패");
+      alert(isApiError(e) ? e.detail : e instanceof Error ? e.message : "처리 실패");
     } finally {
       setProcessing(null);
     }

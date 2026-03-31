@@ -14,7 +14,8 @@ import {
   Loader2,
   ArrowLeft,
 } from 'lucide-react';
-import { API_BASE } from '@/lib/api';
+import { apiClient } from '@/lib/api-client';
+import { isApiError } from '@/lib/api-error';
 
 const PRODUCT_CATEGORIES = [
   {
@@ -184,23 +185,12 @@ export default function GeneratePage() {
         body.imageBase64s = images;
       }
 
-      const res = await fetch(`${API_BASE}/api/content/analyze-product`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`AI 분석 실패 (${res.status}): ${text}`);
-      }
-
-      const data = await res.json();
+      const data = await apiClient.post<Record<string, unknown>>('/api/content/analyze-product', body);
       setResult(data);
     } catch (err) {
       setError(
-        err instanceof Error
-          ? err.message
+        isApiError(err)
+          ? err.detail
           : '상세페이지 생성 중 오류가 발생했습니다.'
       );
     } finally {

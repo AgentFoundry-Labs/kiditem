@@ -14,7 +14,13 @@ export type { InventorySummary } from '@kiditem/shared';
 export class InventoryService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll(query: { page?: string; limit?: string; status?: string }) {
+  async findAll(query: { page?: string; limit?: string; status?: string }): Promise<{
+    items: Record<string, unknown>[];
+    total: number;
+    page: number;
+    limit: number;
+    summary: InventorySummary;
+  }> {
     try {
       const { page, limit, skip } = paginationParams(query);
       const statusFilter = query.status;
@@ -114,7 +120,13 @@ export class InventoryService {
     }
   }
 
-  async receiveStock(id: string, quantity: number) {
+  async receiveStock(id: string, quantity: number): Promise<{
+    id: string;
+    productId: string;
+    productName: string;
+    currentStock: number;
+    received: number;
+  }> {
     if (!quantity || quantity <= 0) {
       throw new BadRequestException('수량은 1 이상이어야 합니다.');
     }
@@ -155,7 +167,7 @@ export class InventoryService {
     };
   }
 
-  async findByProductId(productId: string) {
+  async findByProductId(productId: string): Promise<{ id: string; productId: string; productName: string }> {
     const inv = await this.prisma.inventory.findUnique({
       where: { productId },
       include: { product: true },

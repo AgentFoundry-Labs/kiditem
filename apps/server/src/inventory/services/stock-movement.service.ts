@@ -88,7 +88,7 @@ export class StockMovementService {
     };
   }
 
-  async getSummary(days: number) {
+  async getSummary(days: number): Promise<{ inQty: number; outQty: number; inAmount: number; outAmount: number }> {
     const from = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
     const result = await this.findAll({
       page: 1,

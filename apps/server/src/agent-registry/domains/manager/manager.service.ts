@@ -51,7 +51,7 @@ export class ManagerService {
       }>;
       tokensUsed?: number;
     },
-  ) {
+  ): Promise<{ ok: boolean }> {
     const task = await this.agentRegistry.completeTask(taskId, body);
 
     try {

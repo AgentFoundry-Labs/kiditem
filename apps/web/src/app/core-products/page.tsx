@@ -1,5 +1,5 @@
 "use client";
-import { API_BASE } from "@/lib/api";
+import { apiClient } from "@/lib/api-client";
 import type { ProductListItem as Product } from '@kiditem/shared';
 
 import { useEffect, useState } from "react";
@@ -12,9 +12,8 @@ export default function CoreProductsPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch(`${API_BASE}/api/products?grade=A`)
-      .then((r) => r.json())
-      .then((data) => setProducts(data.items ?? data))
+    apiClient.get<{ items: Product[] }>('/api/products?grade=A')
+      .then((data) => setProducts(data.items ?? []))
       .catch((err) => console.error("핵심상품 데이터 로딩 실패:", err))
       .finally(() => setLoading(false));
   }, []);

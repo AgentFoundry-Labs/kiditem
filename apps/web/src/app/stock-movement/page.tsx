@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { ArrowUpDown, RefreshCw, TrendingUp, TrendingDown } from 'lucide-react';
-import { API_BASE } from '@/lib/api';
+import { apiClient } from '@/lib/api-client';
+import { isApiError } from '@/lib/api-error';
 import { formatKRW } from '@/lib/utils';
 
 interface Summary {
@@ -54,6 +55,7 @@ export default function StockMovementPage() {
   const [grouped, setGrouped] = useState<GroupedRow[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [groupBy, setGroupBy] = useState<string>('product');
   const [dateRange, setDateRange] = useState('30');
 
@@ -63,15 +65,15 @@ export default function StockMovementPage() {
       const daysMap: Record<string, number> = { '1': 1, '7': 7, '30': 30, '90': 90 };
       const days = daysMap[dateRange] || 7;
       const from = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
-      const res = await fetch(
-        `${API_BASE}/api/stock-movement?from=${from}&groupBy=${groupBy}&limit=500`,
+      const data = await apiClient.get<{ total: number; grouped: any[]; summary: Summary }>(
+        `/api/stock-movement?from=${from}&groupBy=${groupBy}&limit=500`,
       );
-      const data = await res.json();
       setTotal(data.total || 0);
       setGrouped(data.grouped || []);
       setSummary(data.summary || { inQty: 0, outQty: 0, inAmount: 0, outAmount: 0 });
-    } catch {
-      console.error('입출고 데이터 로딩 실패');
+      setError(null);
+    } catch (err) {
+      setError(isApiError(err) ? err.detail : '입출고 데이터를 불러오는데 실패했습니다.');
     } finally {
       setLoading(false);
     }
@@ -88,6 +90,12 @@ export default function StockMovementPage() {
 
   return (
     <div className="space-y-4">
+      {error && (
+        <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <span>{error}</span>
+          <button onClick={() => setError(null)} className="ml-auto text-red-400 hover:text-red-600">&times;</button>
+        </div>
+      )}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <ArrowUpDown size={20} className="text-indigo-500" />

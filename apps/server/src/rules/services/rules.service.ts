@@ -36,7 +36,7 @@ export class RulesService implements OnModuleInit {
     private readonly agentRegistry: AgentRegistryService,
   ) {}
 
-  async onModuleInit() {
+  async onModuleInit(): Promise<void> {
     await this.seedRulesIfEmpty();
   }
 
@@ -56,7 +56,14 @@ export class RulesService implements OnModuleInit {
   async receiveResults(
     taskId: string,
     body: { products?: ProductEvalResult[]; summary?: Record<string, unknown>; tokensUsed?: number },
-  ) {
+  ): Promise<{
+    ok: boolean;
+    total: number;
+    healthy: number;
+    warning: number;
+    critical: number;
+    violationCount: number;
+  }> {
     // Stage 1: 공통 처리 (task 완료 + 토큰 추적)
     const task = await this.agentRegistry.completeTask(taskId, body);
 
@@ -145,7 +152,15 @@ export class RulesService implements OnModuleInit {
     });
   }
 
-  async getSummary(companyId: string) {
+  async getSummary(companyId: string): Promise<{
+    total: number;
+    healthy: number;
+    warning: number;
+    critical: number;
+    notEvaluated: number;
+    lastEvaluatedAt: Date | null;
+    topCritical: { id: string; name: string; healthScore: number | null; abcGrade: string | null }[];
+  }> {
     const [healthy, warning, critical, total, lastEval] = await Promise.all([
       this.prisma.product.count({
         where: { companyId, isDeleted: false, healthScore: { gte: 70 } },
@@ -207,7 +222,7 @@ export class RulesService implements OnModuleInit {
     });
   }
 
-  async suggestThresholds(companyId: string) {
+  async suggestThresholds(companyId: string): Promise<{ taskId: string | undefined; status: string }> {
     const def = await this.agentRegistry.findByType('rules_suggest');
 
     const result = await this.agentRegistry.run(def.id, {
@@ -221,7 +236,7 @@ export class RulesService implements OnModuleInit {
 
   // ── Private ──
 
-  private async seedRulesIfEmpty() {
+  private async seedRulesIfEmpty(): Promise<void> {
     const firstCompany = await this.prisma.company.findFirst();
     if (!firstCompany) return;
 

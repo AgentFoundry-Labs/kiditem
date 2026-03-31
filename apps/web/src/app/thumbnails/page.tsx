@@ -1,6 +1,7 @@
 'use client';
 
-import { API_BASE } from '@/lib/api';
+import { apiClient } from '@/lib/api-client';
+import { isApiError } from '@/lib/api-error';
 import { useEffect, useState, useCallback } from 'react';
 import {
   ImageIcon,
@@ -86,15 +87,14 @@ export default function ThumbnailsPage() {
     setLoading(true);
     try {
       const params = new URLSearchParams({ page: String(p), limit: String(PAGE_SIZE) });
-      const res = await fetch(`${API_BASE}/api/thumbnails?${params}`);
-      const json = await res.json();
+      const json = await apiClient.get<{ items: ThumbnailItem[]; total: number; summary?: { gradeDistribution: GradeDistribution } }>(`/api/thumbnails?${params}`);
       setItems(json.items ?? []);
       setTotal(json.total ?? 0);
       if (json.summary?.gradeDistribution) {
         setGradeDistribution(json.summary.gradeDistribution);
       }
     } catch (err) {
-      console.error('썸네일 데이터 로딩 실패:', err);
+      console.error('썸네일 데이터 로딩 실패:', isApiError(err) ? err.detail : err);
     } finally {
       setLoading(false);
     }

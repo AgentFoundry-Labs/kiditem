@@ -30,7 +30,7 @@ export class AdStrategyService {
   async receiveResults(
     taskId: string,
     body: { actions?: unknown[]; summary?: Record<string, unknown>; tokensUsed?: number },
-  ) {
+  ): Promise<{ ok: boolean }> {
     const task = await this.agentRegistry.completeTask(taskId, body);
 
     try {

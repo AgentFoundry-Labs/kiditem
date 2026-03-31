@@ -6,6 +6,7 @@ import { List, GitBranch, RefreshCw, SlidersHorizontal, Plus, Bot, Store, Filter
 import { cn } from '@/lib/utils';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { agentApi } from '@/lib/agent-api';
+import { isApiError } from '@/lib/api-error';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { agentStatusDot, agentStatusDotDefault } from '@/lib/status-colors';
 import { relativeTime, formatCost } from '@/lib/agent-utils';
@@ -59,6 +60,7 @@ export default function AgentsPage() {
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [installTarget, setInstallTarget] = useState<AgentCatalogItem | null>(null);
   const [installing, setInstalling] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchAll = useCallback(async () => {
     try {
@@ -68,8 +70,9 @@ export default function AgentsPage() {
       ]);
       setAgents(agentList);
       setOrgTree(org);
+      setError(null);
     } catch (err) {
-      console.error('Failed to fetch agents:', err);
+      setError(isApiError(err) ? err.detail : '에이전트를 불러오는데 실패했습니다.');
     } finally {
       setLoading(false);
     }
@@ -108,7 +111,7 @@ export default function AgentsPage() {
       setCatalog(updatedCatalog);
       await fetchAll();
     } catch (err) {
-      console.error('Failed to install agent:', err);
+      alert(isApiError(err) ? err.detail : '에이전트 설치에 실패했습니다.');
     } finally {
       setInstalling(false);
     }
@@ -122,7 +125,7 @@ export default function AgentsPage() {
       setCatalog(updatedCatalog);
       await fetchAll();
     } catch (err) {
-      console.error('Failed to uninstall agent:', err);
+      alert(isApiError(err) ? err.detail : '에이전트 제거에 실패했습니다.');
     }
   };
 
@@ -132,7 +135,7 @@ export default function AgentsPage() {
       await agentApi.delete(id);
       await fetchAll();
     } catch (err) {
-      console.error('Failed to delete agent:', err);
+      alert(isApiError(err) ? err.detail : '에이전트 삭제에 실패했습니다.');
     }
   };
 
@@ -164,6 +167,12 @@ export default function AgentsPage() {
 
   return (
     <div className="p-4 sm:p-8">
+      {error && (
+        <div className="mb-4 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <span>{error}</span>
+          <button onClick={() => setError(null)} className="ml-auto text-red-400 hover:text-red-600">&times;</button>
+        </div>
+      )}
       {/* Tabs */}
       <div className="flex items-center gap-1 border-b border-gray-200 mb-5">
         <button

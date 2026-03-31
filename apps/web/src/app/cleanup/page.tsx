@@ -1,5 +1,6 @@
 "use client";
-import { API_BASE } from "@/lib/api";
+import { apiClient } from "@/lib/api-client";
+import { isApiError } from "@/lib/api-error";
 import type { ProductListItem as Product } from '@kiditem/shared';
 
 import { useEffect, useState, useCallback } from "react";
@@ -25,14 +26,13 @@ export default function CleanupPage() {
         page: String(p),
         limit: String(PAGE_SIZE),
       });
-      const res = await fetch(`${API_BASE}/api/products?${params}`);
-      const data = await res.json();
+      const data = await apiClient.get<{ items: Product[] }>(`/api/products?${params}`);
       // Filter out sourcing products (draft/processing status)
       const filtered = (data.items || []).filter((p: Product) => p.status !== 'draft' && p.status !== 'processing');
       setProducts(filtered);
       setTotal(filtered.length);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "정리 대상 데이터를 불러오지 못했습니다.");
+      setError(isApiError(err) ? err.detail : "정리 대상 데이터를 불러오지 못했습니다.");
     } finally {
       setLoading(false);
     }

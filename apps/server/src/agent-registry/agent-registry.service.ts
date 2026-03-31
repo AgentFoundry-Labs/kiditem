@@ -25,12 +25,12 @@ export class AgentRegistryService implements OnModuleInit {
     private readonly heartbeat: HeartbeatService,
   ) {}
 
-  async onModuleInit() {
+  async onModuleInit(): Promise<void> {
     await this.seedDefaults();
     await this.heartbeat.syncTimers();
   }
 
-  private async seedDefaults() {
+  private async seedDefaults(): Promise<void> {
     for (const def of DEFAULT_AGENT_DEFINITIONS) {
       const existing = await this.prisma.agentDefinition.findUnique({
         where: { type: def.type },
@@ -105,7 +105,7 @@ export class AgentRegistryService implements OnModuleInit {
     return updated;
   }
 
-  async delete(id: string) {
+  async delete(id: string): Promise<{ ok: boolean }> {
     await this.prisma.agentDefinition.delete({ where: { id } });
     await this.heartbeat.syncTimers();
     return { ok: true };
@@ -201,7 +201,7 @@ export class AgentRegistryService implements OnModuleInit {
   async receiveResults(
     taskId: string,
     body: { actions?: unknown[]; summary?: Record<string, unknown>; tokensUsed?: number },
-  ) {
+  ): Promise<{ ok: boolean }> {
     const task = await this.completeTask(taskId, body);
 
     if (task.companyId) {
@@ -223,7 +223,7 @@ export class AgentRegistryService implements OnModuleInit {
 
   // ── 월간 예산 리셋 ──
 
-  async resetMonthlyBudgets() {
+  async resetMonthlyBudgets(): Promise<void> {
     await this.prisma.agentDefinition.updateMany({
       where: { monthlyTokenBudget: { gt: 0 } },
       data: { tokensUsed: 0, budgetResetAt: new Date() },
@@ -245,7 +245,7 @@ export class AgentRegistryService implements OnModuleInit {
     return this.prisma.agentRuntimeState.findUnique({ where: { agentId } });
   }
 
-  async resetSession(agentId: string) {
+  async resetSession(agentId: string): Promise<{ ok: boolean }> {
     await this.prisma.agentRuntimeState.update({
       where: { agentId },
       data: { sessionId: null },
@@ -253,7 +253,7 @@ export class AgentRegistryService implements OnModuleInit {
     return { ok: true };
   }
 
-  async pauseAgent(agentId: string, reason?: string) {
+  async pauseAgent(agentId: string, reason?: string): Promise<{ ok: boolean }> {
     await this.prisma.agentDefinition.update({
       where: { id: agentId },
       data: { status: 'paused', pauseReason: reason, pausedAt: new Date() },
@@ -261,7 +261,7 @@ export class AgentRegistryService implements OnModuleInit {
     return { ok: true };
   }
 
-  async resumeAgent(agentId: string) {
+  async resumeAgent(agentId: string): Promise<{ ok: boolean }> {
     await this.prisma.agentDefinition.update({
       where: { id: agentId },
       data: { status: 'idle', pauseReason: null, pausedAt: null },
@@ -366,7 +366,7 @@ export class AgentRegistryService implements OnModuleInit {
 
   // ── Org Chart ──
 
-  async getOrgTree() {
+  async getOrgTree(): Promise<OrgNode[]> {
     const agents = await this.prisma.agentDefinition.findMany({
       where: { isActive: true },
       orderBy: { name: 'asc' },

@@ -162,7 +162,7 @@ export class MarketplaceService {
 
   // ─── Uninstall ───
 
-  async uninstallWorkflow(marketplaceId: string, companyId: string) {
+  async uninstallWorkflow(marketplaceId: string, companyId: string): Promise<{ ok: boolean }> {
     const installed = await this.prisma.workflowTemplate.findFirst({
       where: { marketplaceId, companyId },
     });
@@ -183,7 +183,7 @@ export class MarketplaceService {
     return { ok: true };
   }
 
-  async uninstallAgent(marketplaceId: string, companyId: string) {
+  async uninstallAgent(marketplaceId: string, companyId: string): Promise<{ ok: boolean }> {
     const installed = await this.prisma.agentDefinition.findFirst({
       where: { marketplaceId, companyId },
     });

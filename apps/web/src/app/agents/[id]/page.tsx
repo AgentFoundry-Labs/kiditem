@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { agentApi } from '@/lib/agent-api';
+import { isApiError } from '@/lib/api-error';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { relativeTime, formatTokens, formatCost, formatDuration } from '@/lib/agent-utils';
 import { ADAPTER_LABELS, ROLE_LABELS, SOURCE_LABELS, SKILL_DESCRIPTIONS } from '@/lib/agent-types';
@@ -81,6 +82,7 @@ export default function AgentDetailPage() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // config dirty/saving state for floating save bar
   const [configDirty, setConfigDirty] = useState(false);
@@ -99,8 +101,9 @@ export default function AgentDetailPage() {
       setAgent(agentData);
       setRuns(Array.isArray(runsData) ? runsData : []);
       setRuntimeState(stateData);
+      setError(null);
     } catch (err) {
-      console.error('Failed to fetch agent detail:', err);
+      setError(isApiError(err) ? err.detail : '에이전트 정보를 불러오는데 실패했습니다.');
     } finally {
       setLoading(false);
     }
@@ -128,7 +131,7 @@ export default function AgentDetailPage() {
       else if (action === 'reset-session') await agentApi.resetSession(agent.id);
       await fetchData();
     } catch (err) {
-      console.error(`Action ${action} failed:`, err);
+      alert(isApiError(err) ? err.detail : `작업(${action})에 실패했습니다.`);
     } finally {
       setActionLoading(null);
     }
@@ -160,6 +163,12 @@ export default function AgentDetailPage() {
 
   return (
     <div className={cn('p-4 sm:p-8', showConfigBar && 'pb-24')}>
+      {error && (
+        <div className="mb-4 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <span>{error}</span>
+          <button onClick={() => setError(null)} className="ml-auto text-red-400 hover:text-red-600">&times;</button>
+        </div>
+      )}
       {/* Breadcrumb */}
       <nav className="flex items-center gap-1.5 text-sm text-gray-500 mb-5">
         <Link href="/agents" className="hover:text-gray-900 transition-colors">에이전트</Link>
@@ -622,7 +631,7 @@ function InstructionsTab({
           onSaved();
           onDirtyChange(false);
         } catch (err) {
-          console.error('Failed to save instructions:', err);
+          alert(isApiError(err) ? err.detail : '인스트럭션 저장에 실패했습니다.');
         } finally {
           onSavingChange(false);
         }
@@ -798,7 +807,7 @@ function ConfigurationTab({
           onSaved();
           onDirtyChange(false);
         } catch (err) {
-          console.error('Failed to save configuration:', err);
+          alert(isApiError(err) ? err.detail : '설정 저장에 실패했습니다.');
         } finally {
           onSavingChange(false);
         }
@@ -1201,7 +1210,7 @@ function BudgetTab({
       setSavedMsg(true);
       setTimeout(() => setSavedMsg(false), 3000);
     } catch (err) {
-      console.error('Failed to set budget:', err);
+      alert(isApiError(err) ? err.detail : '예산 설정에 실패했습니다.');
     } finally {
       setSaving(false);
     }

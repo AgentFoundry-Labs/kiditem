@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { format, subDays } from 'date-fns';
 import { type DateRange } from 'react-day-picker';
-import { API_BASE } from '@/lib/api';
+import { apiClient } from '@/lib/api-client';
 import { formatKRW, cn } from '@/lib/utils';
 import { KpiBar } from '@/components/ui/KpiBar';
 import { RevenueTrendChart } from '@/components/ui/RevenueTrendChart';
@@ -52,9 +52,9 @@ export default function CoupangOrdersPage() {
     const from = toParam(dateRange.from);
     const to = toParam(dateRange.to);
     Promise.all([
-      fetch(`${API_BASE}/api/coupang-dashboard`).then((r) => r.json()),
-      fetch(`${API_BASE}/api/coupang-dashboard/trend?from=${from}&to=${to}`).then((r) => r.json()),
-      fetch(`${API_BASE}/api/coupang-dashboard/ranking?from=${from}&to=${to}`).then((r) => r.json()),
+      apiClient.get<KpiData>('/api/coupang-dashboard'),
+      apiClient.get<TrendRow[]>(`/api/coupang-dashboard/trend?from=${from}&to=${to}`),
+      apiClient.get<RankingRow[]>(`/api/coupang-dashboard/ranking?from=${from}&to=${to}`),
     ])
       .then(([kpiData, trendData, rankingData]) => {
         setKpis(kpiData);

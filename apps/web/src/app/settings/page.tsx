@@ -16,7 +16,8 @@ import {
   Save,
 } from 'lucide-react';
 import { cn, timeAgo } from '@/lib/utils';
-import { API_BASE } from '@/lib/api';
+import { apiClient } from '@/lib/api-client';
+import { isApiError } from '@/lib/api-error';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 
 interface SyncResult {
@@ -61,8 +62,7 @@ export default function SettingsPage() {
   useEffect(() => {
     if (activeTab === 'company') {
       setCompanyLoading(true);
-      fetch(`${API_BASE}/api/companies`)
-        .then((r) => r.json())
+      apiClient.get<CompanyInfo[] | { items: CompanyInfo[] }>(`/api/companies`)
         .then((data) => {
           const items = Array.isArray(data) ? data : data.items ?? [];
           if (items.length > 0) setCompanyInfo(items[0]);
@@ -75,11 +75,10 @@ export default function SettingsPage() {
   const handleTestConnection = async () => {
     setTesting(true);
     try {
-      const res = await fetch(`${API_BASE}/api/coupang-sync/health`);
-      const data: HealthResult = await res.json();
+      const data = await apiClient.get<HealthResult>(`/api/coupang-sync/health`);
       setHealthResult(data);
-    } catch {
-      setHealthResult({ connected: false, vendorId: '', error: '서버 연결 실패' });
+    } catch (err) {
+      setHealthResult({ connected: false, vendorId: '', error: isApiError(err) ? err.detail : '서버 연결 실패' });
     } finally {
       setTesting(false);
     }
@@ -89,14 +88,11 @@ export default function SettingsPage() {
     setSyncingProduct(true);
     setProductSyncResult(null);
     try {
-      const res = await fetch(`${API_BASE}/api/coupang-sync/products`, {
-        method: 'POST',
-      });
-      const data: SyncResult = await res.json();
+      const data = await apiClient.post<SyncResult>(`/api/coupang-sync/products`);
       setProductSyncResult(data);
       setLastProductSync(new Date());
-    } catch {
-      setProductSyncResult({ synced: 0, errors: 1, details: ['서버 연결 실패'] });
+    } catch (err) {
+      setProductSyncResult({ synced: 0, errors: 1, details: [isApiError(err) ? err.detail : '서버 연결 실패'] });
     } finally {
       setSyncingProduct(false);
     }
@@ -106,16 +102,11 @@ export default function SettingsPage() {
     setSyncingOrder(true);
     setOrderSyncResult(null);
     try {
-      const res = await fetch(`${API_BASE}/api/coupang-sync/orders`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-      const data: SyncResult = await res.json();
+      const data = await apiClient.post<SyncResult>(`/api/coupang-sync/orders`, {});
       setOrderSyncResult(data);
       setLastOrderSync(new Date());
-    } catch {
-      setOrderSyncResult({ synced: 0, errors: 1, details: ['서버 연결 실패'] });
+    } catch (err) {
+      setOrderSyncResult({ synced: 0, errors: 1, details: [isApiError(err) ? err.detail : '서버 연결 실패'] });
     } finally {
       setSyncingOrder(false);
     }
@@ -524,15 +515,13 @@ function RulesConfigSection() {
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
 
   useEffect(() => {
-    fetch(`${API_BASE}/api/rules`)
-      .then((r) => r.json())
+    apiClient.get<BusinessRule[]>(`/api/rules`)
       .then((data: unknown) => setRules(Array.isArray(data) ? data : []))
       .catch(() => {})
       .finally(() => setLoading(false));
 
-    fetch(`${API_BASE}/api/rules/schedule`)
-      .then((r) => r.json())
-      .then((data: { schedule: string; options: ScheduleOption[] }) => {
+    apiClient.get<{ schedule: string; options: ScheduleOption[] }>(`/api/rules/schedule`)
+      .then((data) => {
         setSchedule(data.schedule);
         setScheduleOptions(data.options);
       })
@@ -542,14 +531,8 @@ function RulesConfigSection() {
   const handleScheduleChange = async (newSchedule: string) => {
     setScheduleUpdating(true);
     try {
-      const res = await fetch(`${API_BASE}/api/rules/schedule`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ schedule: newSchedule }),
-      });
-      if (res.ok) {
-        setSchedule(newSchedule);
-      }
+      await apiClient.patch(`/api/rules/schedule`, { schedule: newSchedule });
+      setSchedule(newSchedule);
     } catch { /* ignore */ }
     setScheduleUpdating(false);
   };
@@ -557,15 +540,12 @@ function RulesConfigSection() {
   const handleLoadSuggestions = async () => {
     setSuggestionsLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/rules/suggest-thresholds`);
-      if (res.ok) {
-        const data = await res.json();
-        const map: typeof suggestions = {};
-        for (const s of data.suggestions ?? []) {
-          map[s.ruleId] = { currentThreshold: s.currentThreshold, suggestedThreshold: s.suggestedThreshold, ruleId: s.ruleId };
-        }
-        setSuggestions(map);
+      const data = await apiClient.get<{ suggestions: { currentThreshold: number | null; suggestedThreshold: number; ruleId: string }[] }>(`/api/rules/suggest-thresholds`);
+      const map: typeof suggestions = {};
+      for (const s of data.suggestions ?? []) {
+        map[s.ruleId] = { currentThreshold: s.currentThreshold, suggestedThreshold: s.suggestedThreshold, ruleId: s.ruleId };
       }
+      setSuggestions(map);
     } catch { /* ignore */ }
     setSuggestionsLoading(false);
   };
@@ -617,21 +597,16 @@ function RulesConfigSection() {
     setSaveMsg(null);
     try {
       for (const [id, patch] of Object.entries(changes)) {
-        await fetch(`${API_BASE}/api/rules/${id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(patch),
-        });
+        await apiClient.patch(`/api/rules/${id}`, patch);
       }
-      await fetch(`${API_BASE}/api/rules/reload`, { method: 'POST' });
-      const res = await fetch(`${API_BASE}/api/rules`);
-      const data: unknown = await res.json();
+      await apiClient.post(`/api/rules/reload`);
+      const data: unknown = await apiClient.get(`/api/rules`);
       setRules(Array.isArray(data) ? data : []);
       setChanges({});
       setSaveMsg({ text: '저장 완료', type: 'success' });
       setTimeout(() => setSaveMsg(null), 3000);
-    } catch {
-      setSaveMsg({ text: '저장 실패', type: 'error' });
+    } catch (err) {
+      setSaveMsg({ text: isApiError(err) ? err.detail : '저장 실패', type: 'error' });
     } finally {
       setSaving(false);
     }

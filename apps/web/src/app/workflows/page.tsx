@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Plus, Filter, AlertCircle, Store } from 'lucide-react';
 import PageSkeleton from '@/components/ui/PageSkeleton';
+import { isApiError } from '@/lib/api-error';
 import { workflowApi } from '@/lib/workflow-api';
 import type { WorkflowTemplate } from '@/lib/workflow-types';
 import WorkflowList from '@/components/workflows/WorkflowList';
@@ -49,7 +50,7 @@ export default function WorkflowsPage() {
       marketplaceApi.listWorkflows().catch(() => [] as WorkflowCatalogItem[]),
     ])
       .then(([t, c]) => { setTemplates(t); setCatalog(c); })
-      .catch((err) => setError(err.message))
+      .catch((err) => setError(isApiError(err) ? err.detail : '워크플로우를 불러오는데 실패했습니다.'))
       .finally(() => setLoading(false));
   }, [tab]);
 
@@ -80,8 +81,8 @@ export default function WorkflowsPage() {
       setInstallTarget(null);
       setTab('my');
       await reloadAll();
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err) {
+      setError(isApiError(err) ? err.detail : '워크플로우 설치에 실패했습니다.');
     } finally {
       setInstalling(false);
     }
@@ -92,8 +93,8 @@ export default function WorkflowsPage() {
     try {
       await marketplaceApi.uninstallWorkflow(marketplaceId);
       await reloadAll();
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err) {
+      setError(isApiError(err) ? err.detail : '워크플로우 제거에 실패했습니다.');
     }
   };
 
@@ -101,8 +102,8 @@ export default function WorkflowsPage() {
     try {
       await workflowApi.toggleActive(id, isActive);
       await reloadAll();
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err) {
+      setError(isApiError(err) ? err.detail : '워크플로우 상태 변경에 실패했습니다.');
     }
   };
 
@@ -110,8 +111,8 @@ export default function WorkflowsPage() {
     try {
       await workflowApi.delete(id);
       await reloadAll();
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err) {
+      setError(isApiError(err) ? err.detail : '워크플로우 삭제에 실패했습니다.');
     }
   };
 

@@ -12,7 +12,13 @@ const VALID_TRANSITIONS: Record<string, string> = {
 export class PurchaseOrdersService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll(query: { page: number; limit: number; status?: string }) {
+  async findAll(query: { page: number; limit: number; status?: string }): Promise<{
+    items: unknown[];
+    total: number;
+    page: number;
+    limit: number;
+    counts: { all: number; draft: number; pending: number; ordered: number; shipped: number; received: number; cancelled: number };
+  }> {
     const { page, limit, status } = query;
     const skip = (page - 1) * limit;
 

@@ -15,6 +15,7 @@ import StatusBadge from '@/components/ui/StatusBadge';
 import MetricCard from '@/components/ui/MetricCard';
 import { cn, getModuleColor, timeAgo, formatNumber } from '@/lib/utils';
 import PageSkeleton from '@/components/ui/PageSkeleton';
+import { isApiError } from '@/lib/api-error';
 import { workflowApi } from '@/lib/workflow-api';
 import type { WorkflowTemplate, WorkflowRun } from '@/lib/workflow-types';
 import type { ExecutionLog, ModuleCategory } from '@/types';
@@ -73,8 +74,8 @@ export default function LogsPage() {
           );
 
         setLogs(allLogs);
-      } catch (err: any) {
-        setError(err.message);
+      } catch (err) {
+        setError(isApiError(err) ? err.detail : '실행 로그를 불러오는데 실패했습니다.');
       } finally {
         setLoading(false);
       }

@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { API_BASE } from "@/lib/api";
+import { apiClient } from "@/lib/api-client";
+import { isApiError } from "@/lib/api-error";
 import PageSkeleton from "@/components/ui/PageSkeleton";
 import {
   MessageSquare,
@@ -63,15 +64,13 @@ export default function CSManagementPage() {
     try {
       const params = new URLSearchParams();
       if (filter !== "all") params.set("csStatus", filter);
-      const res = await fetch(`${API_BASE}/api/cs?${params}`);
-      if (!res.ok) throw new Error("서버 오류");
-      const data = await res.json();
+      const data = await apiClient.get<{ items: CSRecord[]; summary: CSSummary }>(`/api/cs?${params}`);
       setRecords(data.items || []);
       setSummary(
         data.summary || { total: 0, 접수: 0, 처리중: 0, 완료: 0 }
       );
     } catch (e) {
-      setError(e instanceof Error ? e.message : "CS 조회 실패");
+      setError(isApiError(e) ? e.detail : "CS 데이터를 불러오는데 실패했습니다.");
     } finally {
       setLoading(false);
     }
@@ -88,18 +87,13 @@ export default function CSManagementPage() {
     assignee: string;
     orderId: string;
   }) => {
-    const res = await fetch(`${API_BASE}/api/cs`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        csType: form.csType,
-        content: form.content,
-        priority: form.priority,
-        assignee: form.assignee || null,
-        orderId: form.orderId || null,
-      }),
+    await apiClient.post('/api/cs', {
+      csType: form.csType,
+      content: form.content,
+      priority: form.priority,
+      assignee: form.assignee || null,
+      orderId: form.orderId || null,
     });
-    if (!res.ok) throw new Error("등록 실패");
     fetchData();
   };
 
@@ -327,7 +321,7 @@ function CreateCSModal({
     try {
       await onCreated(form);
     } catch (e) {
-      alert(e instanceof Error ? e.message : "오류");
+      alert(isApiError(e) ? e.detail : "CS 등록에 실패했습니다.");
     } finally {
       setSubmitting(false);
     }

@@ -18,6 +18,8 @@ import {
 import type { DetailPageData } from '@kiditem/templates';
 import { getTemplate, parseDetailPageData, placeholderDetailPageData } from '@kiditem/templates';
 import { API_BASE } from '@/lib/api';
+import { apiClient } from '@/lib/api-client';
+import { isApiError } from '@/lib/api-error';
 import { renderTemplateToHtml } from '@/lib/template-html';
 import MobilePreview from '../components/MobilePreview';
 import ProductEditHeader from '../components/ProductEditHeader';
@@ -133,9 +135,8 @@ export default function ProductDetailPage() {
     try {
       const [data, previewRes, css] = await Promise.all([
         productsApi.getDetail(productId),
-        fetch(`${API_BASE}/api/products/${productId}/preview`)
-          .then((r) => (r.ok ? r.json() : null))
-          .catch(() => null) as Promise<{ template: string | null; data: Record<string, unknown> } | null>,
+        apiClient.get<{ template: string | null; data: Record<string, unknown> }>(`/api/products/${productId}/preview`)
+          .catch(() => null),
         fetch('/templates-styles.css')
           .then((r) => (r.ok ? r.text() : ''))
           .catch(() => ''),
@@ -171,8 +172,8 @@ export default function ProductDetailPage() {
       }
     } catch (err) {
       setLoadError(
-        err instanceof Error
-          ? err.message
+        isApiError(err)
+          ? err.detail
           : '상품 정보를 불러올 수 없습니다.'
       );
     } finally {

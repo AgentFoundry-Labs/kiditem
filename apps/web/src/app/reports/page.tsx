@@ -1,5 +1,6 @@
 "use client";
-import { API_BASE } from "@/lib/api";
+import { apiClient } from "@/lib/api-client";
+import { isApiError } from "@/lib/api-error";
 
 import { useState } from "react";
 import { FileSpreadsheet, Download } from "lucide-react";
@@ -12,17 +13,12 @@ export default function ReportsPage() {
     try {
       const XLSX = await import("xlsx");
 
-      const [productsRes, plRes, inventoryRes, adsRes] = await Promise.all([
-        fetch(`${API_BASE}/api/products`),
-        fetch(`${API_BASE}/api/profit-loss`),
-        fetch(`${API_BASE}/api/inventory`),
-        fetch(`${API_BASE}/api/ads`),
+      const [productsRaw, profitLoss, inventoryRaw, adsData] = await Promise.all([
+        apiClient.get<any>('/api/products'),
+        apiClient.get<any>('/api/profit-loss'),
+        apiClient.get<any>('/api/inventory'),
+        apiClient.get<any>('/api/ads'),
       ]);
-
-      const productsRaw = await productsRes.json();
-      const profitLoss = await plRes.json();
-      const inventoryRaw = await inventoryRes.json();
-      const adsData = await adsRes.json();
 
       const products = productsRaw.items ?? productsRaw;
       const inventory = inventoryRaw.items ?? inventoryRaw;
@@ -78,8 +74,7 @@ export default function ReportsPage() {
 
       XLSX.writeFile(wb, fileName);
     } catch (e) {
-      console.error(e);
-      alert("리포트 생성 중 오류가 발생했습니다. 다시 시도해주세요.");
+      alert(isApiError(e) ? e.detail : "리포트 생성 중 오류가 발생했습니다. 다시 시도해주세요.");
     } finally {
       setGenerating(null);
     }

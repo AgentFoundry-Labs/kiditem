@@ -33,7 +33,8 @@ import {
   Activity,
 } from 'lucide-react';
 import { formatKRW, formatPercent, getGradeColor, getProfitColor, cn, timeAgo } from '@/lib/utils';
-import { API_BASE } from '@/lib/api';
+import { apiClient } from '@/lib/api-client';
+import { isApiError } from '@/lib/api-error';
 
 interface DashboardData {
   summary: {
@@ -171,7 +172,7 @@ function generateTasksAndActions(d: DashboardData): { tasks: HumanTask[]; action
   actions.push({
     id: 'recalc-grade', label: 'ABC 등급 재계산', desc: '최신 매출/마진/판매속도 기반 등급 재산정',
     priority: 'medium',
-    apiCall: { url: `${API_BASE}/api/products/calculate-grades`, method: 'POST' },
+    apiCall: { url: '/api/products/calculate-grades', method: 'POST' },
   });
   if (w.minusProducts > 0 || w.lowProfitProducts > 0) {
     actions.push({
@@ -242,16 +243,13 @@ export default function HomePage() {
 
   const fetchDashboard = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/dashboard`);
-      if (res.ok) {
-        const json = await res.json();
-        setData(json);
-        const { tasks, actions } = generateTasksAndActions(json);
-        setHumanTasks(tasks);
-        setAiActions(actions);
-      }
+      const json = await apiClient.get<DashboardData>('/api/dashboard');
+      setData(json);
+      const { tasks, actions } = generateTasksAndActions(json);
+      setHumanTasks(tasks);
+      setAiActions(actions);
     } catch (err) {
-      console.error('Error fetching dashboard', err);
+      console.error('Error fetching dashboard', isApiError(err) ? err.detail : err);
     } finally {
       setLoading(false);
     }
@@ -260,13 +258,10 @@ export default function HomePage() {
   const fetchTrend = useCallback(async (range: TrendRange) => {
     setTrendLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/dashboard/trend?range=${range}`);
-      if (res.ok) {
-        const json: TrendPoint[] = await res.json();
-        setTrendData(json);
-      }
+      const json = await apiClient.get<TrendPoint[]>(`/api/dashboard/trend?range=${range}`);
+      setTrendData(json);
     } catch (err) {
-      console.error('Error fetching trend', err);
+      console.error('Error fetching trend', isApiError(err) ? err.detail : err);
     } finally {
       setTrendLoading(false);
     }
@@ -282,13 +277,10 @@ export default function HomePage() {
 
   const fetchHealthSummary = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/rules/summary`);
-      if (res.ok) {
-        const json = await res.json();
-        setHealthSummary(json);
-      }
+      const json = await apiClient.get<HealthSummary>('/api/rules/summary');
+      setHealthSummary(json);
     } catch (err) {
-      console.error('Error fetching health summary', err);
+      console.error('Error fetching health summary', isApiError(err) ? err.detail : err);
     } finally {
       setHealthLoading(false);
     }
@@ -301,10 +293,10 @@ export default function HomePage() {
   const handleEvaluate = async () => {
     setEvaluating(true);
     try {
-      await fetch(`${API_BASE}/api/rules/evaluate`, { method: 'POST' });
+      await apiClient.post('/api/rules/evaluate');
       await fetchHealthSummary();
     } catch (err) {
-      console.error('Error evaluating', err);
+      console.error('Error evaluating', isApiError(err) ? err.detail : err);
     } finally {
       setEvaluating(false);
     }
@@ -333,12 +325,10 @@ export default function HomePage() {
       }
       setProcessingAction(action.id);
       try {
-        const res = await fetch(action.apiCall.url, {
-          method: action.apiCall.method,
-          headers: { 'Content-Type': 'application/json' },
-          body: action.apiCall.body ? JSON.stringify(action.apiCall.body) : undefined,
-        });
-        const json = await res.json();
+        const json = await apiClient.post<{ success?: boolean; updatedCount?: number; error?: string }>(
+          action.apiCall.url,
+          action.apiCall.body,
+        );
         if (json.success || json.updatedCount !== undefined) {
           markActionCompleted(action.id);
           fetchDashboard();
@@ -346,7 +336,7 @@ export default function HomePage() {
           alert(`실행 실패: ${json.error}`);
         }
       } catch (e) {
-        alert(`네트워크 오류: ${e instanceof Error ? e.message : '알 수 없는 오류'}`);
+        alert(isApiError(e) ? e.detail : '알 수 없는 오류가 발생했습니다.');
       } finally {
         setProcessingAction(null);
       }

@@ -1,5 +1,5 @@
 "use client";
-import { API_BASE } from "@/lib/api";
+import { apiClient } from "@/lib/api-client";
 
 import { useEffect, useState } from "react";
 import { Megaphone, TrendingDown, AlertTriangle, Download } from "lucide-react";
@@ -30,8 +30,7 @@ export default function AdsPage() {
   const [filter, setFilter] = useState("all");
 
   useEffect(() => {
-    fetch(`${API_BASE}/api/ads`)
-      .then((r) => r.json())
+    apiClient.get<{ items?: AdProduct[]; products?: AdProduct[]; summary?: AdSummary }>('/api/ads')
       .then((data) => {
         const items: AdProduct[] = data.items || data.products || [];
         setProducts(items);

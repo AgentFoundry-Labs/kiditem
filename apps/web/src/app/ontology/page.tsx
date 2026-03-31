@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo } from 'react';
 import { Network, Package, Tag, Layers, Search, List } from 'lucide-react';
-import { API_BASE } from '@/lib/api';
+import { apiClient } from '@/lib/api-client';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { cn } from '@/lib/utils';
 import OntologyGraph from '@/components/ontology/OntologyGraph';
@@ -25,8 +25,7 @@ export default function OntologyPage() {
     const fetchProducts = async () => {
       setLoading(true);
       try {
-        const res = await fetch(`${API_BASE}/api/products?limit=500`);
-        const json = await res.json();
+        const json = await apiClient.get<{ items: Product[] } | Product[]>('/api/products?limit=500');
         const items = Array.isArray(json) ? json : json.items ?? [];
         setProducts(items);
       } catch (err) {

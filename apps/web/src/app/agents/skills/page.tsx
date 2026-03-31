@@ -6,6 +6,7 @@ import { Puzzle, RefreshCw, Search, Bot } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { agentApi } from '@/lib/agent-api';
+import { isApiError } from '@/lib/api-error';
 import { ROLE_LABELS, SKILL_DESCRIPTIONS } from '@/lib/agent-types';
 import type { Agent } from '@/lib/agent-types';
 
@@ -27,14 +28,16 @@ interface SkillEntry {
 export default function SkillsPage() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
 
   const fetchAll = useCallback(async () => {
     try {
       const data = await agentApi.list();
       setAgents(data);
+      setError(null);
     } catch (err) {
-      console.error('Failed to fetch agents:', err);
+      setError(isApiError(err) ? err.detail : '스킬 정보를 불러오는데 실패했습니다.');
     } finally {
       setLoading(false);
     }
@@ -83,6 +86,12 @@ export default function SkillsPage() {
 
   return (
     <div className="p-4 sm:p-8">
+      {error && (
+        <div className="mb-4 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <span>{error}</span>
+          <button onClick={() => setError(null)} className="ml-auto text-red-400 hover:text-red-600">&times;</button>
+        </div>
+      )}
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <p className="text-xs text-gray-400">{skills.length}개 스킬 · {agents.length}개 에이전트</p>
