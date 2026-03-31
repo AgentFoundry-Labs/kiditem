@@ -2,6 +2,7 @@
 
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
+import type { ThumbnailListItem as ThumbnailItem, ThumbnailSummary } from '@kiditem/shared';
 import { useEffect, useState, useCallback } from 'react';
 import {
   ImageIcon,
@@ -20,31 +21,6 @@ interface ThumbnailIssue {
   type: string;
   severity: 'critical' | 'warning' | 'info';
   message: string;
-}
-
-interface ThumbnailItem {
-  id: string;
-  productId: string;
-  productName: string;
-  company: string;
-  imageUrl: string;
-  ctr: number;
-  prevCtr: number;
-  impressions: number;
-  clicks: number;
-  status: string;
-  strategy: string;
-  grade: 'S' | 'A' | 'B' | 'C' | 'F';
-  issues: ThumbnailIssue[];
-  suggestions: string[];
-}
-
-interface GradeDistribution {
-  S: number;
-  A: number;
-  B: number;
-  C: number;
-  F: number;
 }
 
 type FilterKey = 'all' | 'critical' | 'good';
@@ -76,7 +52,7 @@ const BADGE_COLORS: Record<string, string> = {
 export default function ThumbnailsPage() {
   const [items, setItems] = useState<ThumbnailItem[]>([]);
   const [total, setTotal] = useState(0);
-  const [gradeDistribution, setGradeDistribution] = useState<GradeDistribution>({ S: 0, A: 0, B: 0, C: 0, F: 0 });
+  const [summary, setSummary] = useState<ThumbnailSummary>({ total: 0, gradeDistribution: { S: 0, A: 0, B: 0, C: 0, F: 0 } });
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<FilterKey | string>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -87,11 +63,11 @@ export default function ThumbnailsPage() {
     setLoading(true);
     try {
       const params = new URLSearchParams({ page: String(p), limit: String(PAGE_SIZE) });
-      const json = await apiClient.get<{ items: ThumbnailItem[]; total: number; summary?: { gradeDistribution: GradeDistribution } }>(`/api/thumbnails?${params}`);
+      const json = await apiClient.get<{ items: ThumbnailItem[]; total: number; summary?: ThumbnailSummary }>(`/api/thumbnails?${params}`);
       setItems(json.items ?? []);
       setTotal(json.total ?? 0);
-      if (json.summary?.gradeDistribution) {
-        setGradeDistribution(json.summary.gradeDistribution);
+      if (json.summary) {
+        setSummary(json.summary);
       }
     } catch (err) {
       console.error('썸네일 데이터 로딩 실패:', isApiError(err) ? err.detail : err);
@@ -156,7 +132,7 @@ export default function ThumbnailsPage() {
             <div className="px-3 py-2.5 text-center">
               <div className={cn('text-2xl font-black', GRADE_COLORS[g])}>{g}</div>
               <div className="text-lg font-bold text-gray-900 tabular-nums">
-                {gradeDistribution[g] || 0}
+                {summary.gradeDistribution[g as keyof typeof summary.gradeDistribution] || 0}
               </div>
               <div className="text-[9px] text-gray-400 font-mono">{GRADE_LABELS[g]}</div>
             </div>

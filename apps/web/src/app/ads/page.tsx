@@ -1,27 +1,12 @@
 "use client";
 import { apiClient } from "@/lib/api-client";
+import type { AdsListItem as AdProduct, AdsSummary as AdSummary } from '@kiditem/shared';
 
 import { useEffect, useState } from "react";
 import { Megaphone, TrendingDown, AlertTriangle, Download } from "lucide-react";
 import { formatKRW, formatPercent, getGradeColor } from "@/lib/utils";
 import PageSkeleton from "@/components/ui/PageSkeleton";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
-
-interface AdProduct {
-  id: string; name: string; sku: string; company: string; grade: string;
-  adTier: string; spend: number; impressions: number; clicks: number;
-  conversions: number; adRevenue: number; ctr: number; convRate: number;
-  roas: number; acos: number; adRate: number; revenue: number;
-  netProfit: number; profitRate: number;
-}
-
-interface AdSummary {
-  totalSpend: number; totalAdRevenue: number; totalRevenue: number;
-  overallAdRate: number; overallRoas: number; highAdCount: number;
-  gradeSpend: Record<string, number>;
-  tierSpend: Record<string, number>;
-  gradeSpendPercent: Record<string, number>;
-}
 
 export default function AdsPage() {
   const [products, setProducts] = useState<AdProduct[]>([]);
@@ -48,7 +33,8 @@ export default function AdsPage() {
           const tierSpend: Record<string, number> = {};
           for (const p of items) {
             gradeSpend[p.grade] = (gradeSpend[p.grade] || 0) + p.spend;
-            tierSpend[p.adTier] = (tierSpend[p.adTier] || 0) + p.spend;
+            const tier = p.adTier ?? 'none';
+            tierSpend[tier] = (tierSpend[tier] || 0) + p.spend;
           }
           const gradeSpendPercent: Record<string, number> = {
             A: totalSpend > 0 ? Math.round((gradeSpend.A / totalSpend) * 100) : 0,

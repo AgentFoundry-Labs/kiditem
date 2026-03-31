@@ -2,22 +2,11 @@
 
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
+import type { ReviewListItem as ReviewProduct } from '@kiditem/shared';
 import { useEffect, useState, useCallback } from 'react';
 import { MessageSquare, Star, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Pagination } from '@/components/ui/Pagination';
-
-interface ReviewProduct {
-  productId: string;
-  productName: string;
-  sku: string;
-  company: string;
-  grade: string;
-  totalReviews: number;
-  avgRating: number;
-  recentReviews: number;
-  orderCount: number;
-}
 
 interface ReviewSummaryData {
   totalReviewCount: number;

@@ -41,3 +41,4 @@ export const AdsHubDataSchema = z.object({
 
 export type AdsListItem = z.infer<typeof AdsListItemSchema>;
 export type AdsHubData = z.infer<typeof AdsHubDataSchema>;
+export type AdsSummary = AdsHubData['summary'];

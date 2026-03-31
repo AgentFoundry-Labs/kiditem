@@ -58,7 +58,7 @@ export type { ThumbnailListItem, ThumbnailSummary } from './schemas/thumbnails.j
 
 // Ads
 export { AdsListItemSchema, AdsHubDataSchema } from './schemas/ads.js';
-export type { AdsListItem, AdsHubData } from './schemas/ads.js';
+export type { AdsListItem, AdsHubData, AdsSummary } from './schemas/ads.js';
 
 // Alerts
 export { AlertItemSchema } from './schemas/alerts.js';

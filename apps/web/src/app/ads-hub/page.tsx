@@ -6,45 +6,12 @@ import {
   ExternalLink, Check,
 } from "lucide-react";
 import { apiClient } from "@/lib/api-client";
+import type { AdsListItem as AdProduct, AdsSummary as AdSummary } from '@kiditem/shared';
 import { formatKRW, formatPercent, getGradeColor, getProfitColor } from "@/lib/utils";
 import PageSkeleton from "@/components/ui/PageSkeleton";
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from "recharts";
-
-interface AdProduct {
-  id: string;
-  name: string;
-  sku: string | null;
-  company: string;
-  grade: string;
-  adTier: string | null;
-  spend: number;
-  impressions: number;
-  clicks: number;
-  conversions: number;
-  adRevenue: number;
-  ctr: number;
-  convRate: number;
-  roas: number;
-  acos: number;
-  adRate: number;
-  revenue: number;
-  netProfit: number;
-  profitRate: number;
-}
-
-interface AdSummary {
-  totalSpend: number;
-  totalAdRevenue: number;
-  totalRevenue: number;
-  overallAdRate: number;
-  overallRoas: number;
-  highAdCount: number;
-  gradeSpend: Record<string, number>;
-  tierSpend: Record<string, number>;
-  gradeSpendPercent: Record<string, number>;
-}
 
 interface ActionItem {
   productId: string;

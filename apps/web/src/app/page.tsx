@@ -35,58 +35,7 @@ import {
 import { formatKRW, formatPercent, getGradeColor, getProfitColor, cn, timeAgo } from '@/lib/utils';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
-
-interface DashboardData {
-  summary: {
-    todayRevenue: number;
-    todayOrders: number;
-    monthlyRevenue: number;
-    monthlyProfit: number;
-    adRate: number;
-    totalProducts: number;
-    roas: number;
-    ctr: number;
-    adRevenue: number;
-    totalAdSpend: number;
-    prevMonthlyRevenue: number;
-    prevMonthlyProfit: number;
-    prevRoas: number;
-    prevCtr: number;
-    prevAdRevenue: number;
-    prevTotalAdSpend: number;
-    prevAdRate: number;
-  };
-  gradeCount: { A: number; B: number; C: number };
-  alerts: Array<{ id: string; type: string; severity: string; title: string; message: string; createdAt: string }>;
-  warnings: {
-    minusProducts: number;
-    lowProfitProducts: number;
-    highAdProducts: number;
-    needReorder: number;
-  };
-  topProducts: Array<{
-    id: string;
-    name: string;
-    company: string;
-    grade: string;
-    revenue: number;
-    netProfit: number;
-    profitRate: number;
-  }>;
-  monthlyTrend: Array<{
-    period: string;
-    revenue: number;
-    profit: number;
-    adCost: number;
-  }>;
-}
-
-interface TrendPoint {
-  date: string;
-  revenue: number;
-  profit: number;
-  adCost: number;
-}
+import type { DashboardSummary as DashboardData, DashboardTrendItem as TrendPoint } from '@kiditem/shared';
 
 type TrendRange = '7d' | '30d' | '90d';
 
