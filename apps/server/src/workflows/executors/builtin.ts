@@ -139,11 +139,33 @@ registerNode('trigger.event', async (_prisma, config) => ({
 
 // ─── condition / notification 위임 ───
 
-const conditionExecutor = getExecutor('condition.evaluate');
-if (conditionExecutor) registerNode('condition', conditionExecutor);
+registerNode('condition', async (_prisma, config, context) => {
+  const field = config.field as string | undefined;
+  if (!field) {
+    // field 미설정 시 기본 통과 (true branch)
+    const branch = (config.true_label as string) ?? 'true';
+    return { result: true, branch, message: `조건 체크: ${config.check ?? 'default'}` };
+  }
+  // field 있으면 condition.evaluate 로직
+  const resolved = context.resolve(field);
+  const actual = Number(resolved) || 0;
+  const operator = (config.operator as string) ?? 'gt';
+  const threshold = Number(config.value) || 0;
+  const ops: Record<string, boolean> = {
+    lt: actual < threshold, gt: actual > threshold, eq: actual === threshold,
+    gte: actual >= threshold, lte: actual <= threshold,
+  };
+  const result = ops[operator] ?? false;
+  const branch = result ? (config.true_label as string) ?? 'true' : (config.false_label as string) ?? 'false';
+  return { result, branch, actual, threshold };
+});
 
-const notificationExecutor = getExecutor('notification.alert');
-if (notificationExecutor) registerNode('notification', notificationExecutor);
+registerNode('notification', async (_prisma, config, context) => {
+  const channel = (config.channel as string) ?? 'default';
+  const title = config.title ? context.resolve(config.title as string) : `알림 (${channel})`;
+  const message = config.message ? context.resolve(config.message as string) : '';
+  return { sent: true, channel, title, message, timestamp: new Date().toISOString() };
+});
 
 // ─── api_call ───
 
@@ -154,7 +176,7 @@ registerNode('api_call', async (_prisma, config, context) => {
   const timeout = Number(config.timeout) || 30000;
   const body = config.body ? JSON.stringify(context.resolveConfig(config.body as Record<string, any>)) : undefined;
 
-  if (!url) {
+  if (!url || !url.startsWith('http')) {
     return { stub: true, message: `API 호출 미설정 (${(config.api as string) ?? 'unknown'})`, data: {} };
   }
 
