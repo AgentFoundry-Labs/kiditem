@@ -58,6 +58,7 @@ export interface Agent {
   metadata: Record<string, unknown> | null;
   createdAt: string;
   updatedAt: string;
+  runtimeState?: AgentRuntimeState | null;
 }
 
 export interface OrgNode {
@@ -112,6 +113,14 @@ export interface AgentRuntimeState {
   createdAt: string;
   updatedAt: string;
 }
+
+export const SKILL_DESCRIPTIONS: Record<string, string> = {
+  'db-query': 'PostgreSQL 쿼리 실행 패턴. psql CLI로 KidItem DB 조회.',
+  'result-callback': '작업 완료 후 NestJS API로 결과를 전송하는 규칙.',
+  'coupang-browse': '쿠팡 Wing 대시보드 브라우저 조작 가이드.',
+  'kiditem-api': 'KidItem NestJS 백엔드 API 사용법.',
+  'data-analysis': '이커머스 데이터 분석 패턴. 성과 진단 및 액션 추천.',
+};
 
 export type FilterTab = 'all' | 'active' | 'paused' | 'error';
 export type ViewMode = 'list' | 'org';

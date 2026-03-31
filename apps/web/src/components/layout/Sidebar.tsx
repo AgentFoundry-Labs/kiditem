@@ -143,13 +143,13 @@ export default function Sidebar() {
       )}
       <aside
         className={cn(
-          'fixed left-0 top-0 z-50 h-screen bg-white border-r border-gray-200 transition-all duration-300 flex flex-col',
+          'fixed left-0 top-0 z-50 h-screen bg-gray-50/80 border-r border-gray-100 transition-all duration-300 flex flex-col',
           sidebarOpen ? 'translate-x-0 w-60' : '-translate-x-full w-60',
           sidebarOpen ? 'md:translate-x-0 md:w-60' : 'md:translate-x-0 md:w-[68px]'
         )}
       >
         {/* Logo */}
-        <div className="flex items-center h-16 px-4 border-b border-gray-200">
+        <div className="flex items-center h-16 px-4 border-b border-gray-100">
           <div className="flex items-center gap-3 min-w-0">
             <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center flex-shrink-0">
               <Zap className="w-4 h-4 text-white" />
@@ -191,7 +191,7 @@ export default function Sidebar() {
                   {section.title}
                 </p>
               ) : (
-                idx > 0 && <div className="mx-3 my-2 border-t border-gray-200" />
+                idx > 0 && <div className="mx-3 my-2 border-t border-gray-100" />
               )}
               <nav className="space-y-0.5">
                 {section.items.map((item) => (
@@ -202,8 +202,8 @@ export default function Sidebar() {
                     className={cn(
                       'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all duration-200',
                       isActive(item.href)
-                        ? 'bg-blue-50 text-blue-600 border border-blue-500/20'
-                        : 'text-gray-500 hover:bg-gray-100 hover:text-gray-900 border border-transparent'
+                        ? 'bg-white text-gray-900 border border-gray-200 shadow-sm'
+                        : 'text-gray-500 hover:bg-gray-100/70 hover:text-gray-700 border border-transparent'
                     )}
                   >
                     <item.icon className="w-4 h-4 flex-shrink-0" />
@@ -220,7 +220,7 @@ export default function Sidebar() {
 
         {/* Status */}
         {sidebarOpen && (
-          <div className="px-4 py-4 border-t border-gray-200">
+          <div className="px-4 py-4 border-t border-gray-100">
             <div className="flex items-center gap-2 text-[11px] text-gray-600">
               <div className="w-2 h-2 rounded-full bg-emerald-500 pulse-dot" />
               <span>시스템 정상 운영중</span>

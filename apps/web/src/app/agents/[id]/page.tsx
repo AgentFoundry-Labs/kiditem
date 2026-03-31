@@ -33,7 +33,7 @@ import { cn } from '@/lib/utils';
 import { agentApi } from '@/lib/agent-api';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { relativeTime, formatTokens, formatCost, formatDuration } from '@/lib/agent-utils';
-import { ADAPTER_LABELS, ROLE_LABELS, SOURCE_LABELS } from '@/lib/agent-types';
+import { ADAPTER_LABELS, ROLE_LABELS, SOURCE_LABELS, SKILL_DESCRIPTIONS } from '@/lib/agent-types';
 import type { Agent, HeartbeatRun, AgentRuntimeState, AgentDetailTab } from '@/lib/agent-types';
 
 /* ---------- constants ---------- */
@@ -674,9 +674,9 @@ function SkillsTab({ agent }: { agent: Agent }) {
           <h3 className="text-sm font-medium text-gray-900">에이전트 스킬</h3>
           <p className="text-xs text-gray-500 mt-0.5">이 에이전트에 할당된 스킬 목록입니다.</p>
         </div>
-        <button className="text-xs text-blue-600 hover:text-blue-800 transition-colors">
+        <Link href="/agents/skills" className="text-xs text-blue-600 hover:text-blue-800 transition-colors">
           스킬 라이브러리 보기 →
-        </button>
+        </Link>
       </div>
 
       {skills.length === 0 ? (
@@ -702,6 +702,9 @@ function SkillsTab({ agent }: { agent: Agent }) {
               </div>
               <div className="flex-1 min-w-0">
                 <span className="text-sm font-medium text-gray-900 font-mono">{skill}</span>
+                {SKILL_DESCRIPTIONS[skill] && (
+                  <p className="text-xs text-gray-500 mt-0.5">{SKILL_DESCRIPTIONS[skill]}</p>
+                )}
               </div>
               <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-medium">
                 활성

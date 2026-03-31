@@ -1,20 +1,12 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import Link from 'next/link';
 import { Puzzle, RefreshCw, Search, Bot } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { agentApi } from '@/lib/agent-api';
-import { ROLE_LABELS } from '@/lib/agent-types';
+import { ROLE_LABELS, SKILL_DESCRIPTIONS } from '@/lib/agent-types';
 import type { Agent } from '@/lib/agent-types';
-
-// Skill descriptions derived from known server-side skills
-const SKILL_DESCRIPTIONS: Record<string, string> = {
-  'db-query': 'PostgreSQL 쿼리 실행 패턴. psql CLI로 KidItem DB 조회.',
-  'result-callback': '작업 완료 후 NestJS API로 결과를 전송하는 규칙.',
-  'coupang-browse': '쿠팡 Wing 대시보드 브라우저 조작 가이드.',
-  'kiditem-api': 'KidItem NestJS 백엔드 API 사용법.',
-  'data-analysis': '이커머스 데이터 분석 패턴. 성과 진단 및 액션 추천.',
-};
 
 const SKILL_COLORS: Record<string, string> = {
   'db-query': 'bg-blue-50 text-blue-600 border-blue-100',
@@ -161,14 +153,15 @@ export default function SkillsPage() {
                     사용 에이전트
                   </span>
                   {skill.agents.map((agent) => (
-                    <span
+                    <Link
                       key={agent.id}
-                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-gray-100 text-gray-600 text-[11px]"
+                      href={`/agents/${agent.id}`}
+                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-gray-100 text-gray-600 text-[11px] hover:bg-gray-200 hover:text-gray-900 transition-colors"
                       title={ROLE_LABELS[agent.role] ?? agent.role}
                     >
                       <Bot className="w-2.5 h-2.5" />
                       {agent.name}
-                    </span>
+                    </Link>
                   ))}
                 </div>
               </div>

@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils';
 import { agentApi } from '@/lib/agent-api';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { agentStatusDot, agentStatusDotDefault } from '@/lib/status-colors';
-import { relativeTime } from '@/lib/agent-utils';
+import { relativeTime, formatCost } from '@/lib/agent-utils';
 import { ADAPTER_LABELS, ROLE_LABELS } from '@/lib/agent-types';
 import type { Agent, OrgNode, FilterTab, ViewMode } from '@/lib/agent-types';
 
@@ -303,6 +303,11 @@ function AgentListRow({ agent, onClick }: { agent: Agent; onClick: () => void })
             Live
           </span>
         )}
+        {agent.runtimeState && agent.runtimeState.totalCostCents > 0 && (
+          <span className="text-xs text-gray-400 font-mono text-right">
+            {formatCost(agent.runtimeState.totalCostCents)}
+          </span>
+        )}
         <span className="text-xs text-gray-400 font-mono w-14 text-right">
           {ADAPTER_LABELS[agent.adapterType] ?? agent.adapterType}
         </span>
@@ -368,6 +373,11 @@ function OrgTreeNode({
                 <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-blue-500" />
               </span>
               Live
+            </span>
+          )}
+          {agent?.runtimeState && agent.runtimeState.totalCostCents > 0 && (
+            <span className="text-xs text-gray-400 font-mono text-right">
+              {formatCost(agent.runtimeState.totalCostCents)}
             </span>
           )}
           {agent && (

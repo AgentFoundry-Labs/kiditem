@@ -60,6 +60,7 @@ export class AgentRegistryService implements OnModuleInit {
         ...(query.companyId && { companyId: query.companyId }),
         ...(query.isActive !== undefined && { isActive: query.isActive === 'true' }),
       },
+      include: { runtimeState: true },
       orderBy: { createdAt: 'desc' },
     });
   }
