@@ -1,18 +1,16 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
-import { Network, Package, Tag, Layers, Search } from 'lucide-react';
-import { API_BASE } from '@/lib/api';
-
-interface Product {
-  id: string;
-  name: string;
-  category: string | null;
-  brand: string | null;
-  status: string;
-  grade: string | null;
-  thumbnailUrl: string | null;
-}
+import { useState, useMemo } from 'react';
+import { queryKeys } from '@/lib/query-keys';
+import { useQuery } from '@tanstack/react-query';
+import { Network } from 'lucide-react';
+import { apiClient } from '@/lib/api-client';
+import PageSkeleton from '@/components/ui/PageSkeleton';
+import OntologyGraph from './components/OntologyGraph';
+import type { ProductListItem as Product } from '@kiditem/shared';
+import { OntologyStats } from './components/OntologyStats';
+import { OntologyViewToggle } from './components/OntologyViewToggle';
+import { CategoryList } from './components/CategoryList';
 
 interface CategoryGroup {
   category: string;
@@ -21,27 +19,17 @@ interface CategoryGroup {
 }
 
 export default function OntologyPage() {
-  const [products, setProducts] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'graph' | 'list'>('graph');
 
-  useEffect(() => {
-    const fetchProducts = async () => {
-      setLoading(true);
-      try {
-        const res = await fetch(`${API_BASE}/api/products?limit=500`);
-        const json = await res.json();
-        const items = Array.isArray(json) ? json : json.items ?? [];
-        setProducts(items);
-      } catch (err) {
-        console.error('상품 데이터 로딩 실패:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchProducts();
-  }, []);
+  const { data: products = [], isLoading: loading } = useQuery({
+    queryKey: queryKeys.ontology.products(),
+    queryFn: async () => {
+      const json = await apiClient.get<{ items: Product[] } | Product[]>('/api/products?limit=500');
+      return Array.isArray(json) ? json : json.items ?? [];
+    },
+  });
 
   const categoryGroups = useMemo(() => {
     const filtered = products.filter((p) => {
@@ -84,13 +72,7 @@ export default function OntologyPage() {
     return Object.keys(brandSet).length;
   }, [products]);
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64 text-gray-500">
-        로딩 중...
-      </div>
-    );
-  }
+  if (loading) return <PageSkeleton variant="cards" />;
 
   return (
     <div className="space-y-6">
@@ -103,164 +85,22 @@ export default function OntologyPage() {
           상품 카테고리와 브랜드 관계를 시각화합니다.
         </p>
       </div>
-
-      <div className="grid grid-cols-3 gap-4">
-        <div className="bg-white rounded-xl p-4 border border-gray-200">
-          <div className="flex items-center gap-2 text-sm text-gray-500">
-            <Package className="w-4 h-4" />
-            전체 상품
-          </div>
-          <div className="text-2xl font-bold text-gray-900 mt-1">
-            {products.length}
-          </div>
-        </div>
-        <div className="bg-white rounded-xl p-4 border border-gray-200">
-          <div className="flex items-center gap-2 text-sm text-gray-500">
-            <Layers className="w-4 h-4" />
-            카테고리
-          </div>
-          <div className="text-2xl font-bold text-gray-900 mt-1">
-            {totalCategories}
-          </div>
-        </div>
-        <div className="bg-white rounded-xl p-4 border border-gray-200">
-          <div className="flex items-center gap-2 text-sm text-gray-500">
-            <Tag className="w-4 h-4" />
-            브랜드
-          </div>
-          <div className="text-2xl font-bold text-gray-900 mt-1">
-            {totalBrands}
-          </div>
-        </div>
-      </div>
-
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-        <input
-          type="text"
-          placeholder="상품명, 카테고리, 브랜드 검색..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-400"
-        />
-      </div>
-
-      {categoryGroups.length === 0 ? (
-        <div className="bg-white rounded-xl border border-gray-200 p-12 text-center text-gray-500">
-          {searchQuery ? '검색 결과가 없습니다.' : '상품 데이터가 없습니다.'}
-        </div>
+      <OntologyStats
+        productCount={products.length}
+        totalCategories={totalCategories}
+        totalBrands={totalBrands}
+      />
+      <OntologyViewToggle viewMode={viewMode} onChange={setViewMode} />
+      {viewMode === 'graph' ? (
+        <OntologyGraph />
       ) : (
-        <div className="space-y-4">
-          {categoryGroups.map((group) => (
-            <div
-              key={group.category}
-              className="bg-white rounded-xl border border-gray-200 overflow-hidden"
-            >
-              <button
-                onClick={() =>
-                  setSelectedCategory(
-                    selectedCategory === group.category
-                      ? null
-                      : group.category
-                  )
-                }
-                className="w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors text-left"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-violet-50 flex items-center justify-center">
-                    <Layers className="w-4 h-4 text-violet-600" />
-                  </div>
-                  <div>
-                    <h3 className="font-medium text-gray-900">
-                      {group.category}
-                    </h3>
-                    <p className="text-xs text-gray-500">
-                      {group.products.length}개 상품
-                      {group.brands.length > 0 &&
-                        ` / ${group.brands.length}개 브랜드`}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  {group.brands.slice(0, 3).map((brand) => (
-                    <span
-                      key={brand}
-                      className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-600"
-                    >
-                      {brand}
-                    </span>
-                  ))}
-                  {group.brands.length > 3 && (
-                    <span className="text-xs text-gray-400">
-                      +{group.brands.length - 3}
-                    </span>
-                  )}
-                </div>
-              </button>
-
-              {selectedCategory === group.category && (
-                <div className="border-t border-gray-200 p-4">
-                  <div className="overflow-x-auto">
-                    <table>
-                      <thead>
-                        <tr className="bg-gray-50">
-                          <th>상품명</th>
-                          <th>브랜드</th>
-                          <th>등급</th>
-                          <th>상태</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {group.products.map((product) => (
-                          <tr key={product.id}>
-                            <td className="font-medium text-gray-900">
-                              {product.name}
-                            </td>
-                            <td className="text-gray-500 text-xs">
-                              {product.brand || '-'}
-                            </td>
-                            <td>
-                              {product.grade ? (
-                                <span
-                                  className={`px-2 py-0.5 rounded text-xs font-medium ${
-                                    product.grade === 'A'
-                                      ? 'bg-green-100 text-green-800'
-                                      : product.grade === 'B'
-                                        ? 'bg-blue-100 text-blue-800'
-                                        : product.grade === 'C'
-                                          ? 'bg-yellow-100 text-yellow-800'
-                                          : 'bg-gray-100 text-gray-600'
-                                  }`}
-                                >
-                                  {product.grade}
-                                </span>
-                              ) : (
-                                <span className="text-gray-400 text-xs">-</span>
-                              )}
-                            </td>
-                            <td>
-                              <span
-                                className={`px-2 py-0.5 rounded text-xs font-medium ${
-                                  product.status === 'active'
-                                    ? 'bg-green-100 text-green-800'
-                                    : product.status === 'draft'
-                                      ? 'bg-gray-100 text-gray-600'
-                                      : 'bg-yellow-100 text-yellow-800'
-                                }`}
-                              >
-                                {product.status}
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
+        <CategoryList
+          categoryGroups={categoryGroups}
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          selectedCategory={selectedCategory}
+          onCategorySelect={setSelectedCategory}
+        />
       )}
     </div>
   );

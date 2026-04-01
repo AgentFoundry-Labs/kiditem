@@ -1,28 +1,20 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { ActivityEventsService } from './activity-events.service';
+import { ListActivityEventsQueryDto } from './dto';
 
 @Controller('activity-events')
 export class ActivityEventsController {
   constructor(private readonly activityEventsService: ActivityEventsService) {}
 
   @Get()
-  findAll(
-    @Query()
-    query: {
-      objectType?: string;
-      objectId?: string;
-      companyId?: string;
-      eventType?: string;
-      limit?: string;
-    },
-  ) {
+  findAll(@Query() query: ListActivityEventsQueryDto) {
     if (query.objectType && query.objectId) {
       return this.activityEventsService.findByObject(
         query.objectType,
         query.objectId,
         {
           eventType: query.eventType,
-          limit: query.limit ? parseInt(query.limit) : undefined,
+          limit: query.limit,
         },
       );
     }
@@ -31,7 +23,7 @@ export class ActivityEventsController {
       return this.activityEventsService.findByCompany(query.companyId, {
         objectType: query.objectType,
         eventType: query.eventType,
-        limit: query.limit ? parseInt(query.limit) : undefined,
+        limit: query.limit,
       });
     }
 

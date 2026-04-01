@@ -1,12 +1,14 @@
 import { Module } from '@nestjs/common';
-import { ScheduleModule } from '@nestjs/schedule';
-import { RulesController } from './rules.controller';
-import { RulesService } from './rules.service';
-import { RulesSchedulerService } from './rules-scheduler.service';
+import { RulesController } from './controllers/rules.controller';
+import { AlertsController } from './controllers/alerts.controller';
+import { RulesService } from './services/rules.service';
+import { RulesSchedulerService } from './services/rules-scheduler.service';
+import { AlertsService } from './services/alerts.service';
+import { AgentRegistryModule } from '../agent-registry/agent-registry.module';
 
 @Module({
-  imports: [ScheduleModule.forRoot()],
-  controllers: [RulesController],
-  providers: [RulesService, RulesSchedulerService],
+  imports: [AgentRegistryModule],
+  controllers: [RulesController, AlertsController],
+  providers: [RulesService, RulesSchedulerService, AlertsService],
 })
 export class RulesModule {}

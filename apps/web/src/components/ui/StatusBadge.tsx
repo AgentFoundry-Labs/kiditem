@@ -1,6 +1,24 @@
 'use client';
 
 import { cn } from '@/lib/utils';
+import { statusBadge, statusBadgeDefault } from '@/lib/status-colors';
+
+const STATUS_LABELS: Record<string, string> = {
+  active: '활성',
+  running: '실행 중',
+  idle: '유휴',
+  paused: '일시정지',
+  error: '오류',
+  terminated: '종료',
+};
+
+export function StatusBadge({ status, className }: { status: string; className?: string }) {
+  return (
+    <span className={cn('inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium', statusBadge[status] || statusBadgeDefault, className)}>
+      {STATUS_LABELS[status] ?? status}
+    </span>
+  );
+}
 
 type BadgeVariant = 'success' | 'error' | 'warning' | 'info' | 'default' | 'processing';
 
@@ -29,7 +47,7 @@ const dotColors: Record<BadgeVariant, string> = {
   default: 'bg-gray-400',
 };
 
-export default function StatusBadge({ variant, children, dot = false, className }: StatusBadgeProps) {
+export default function VariantStatusBadge({ variant, children, dot = false, className }: StatusBadgeProps) {
   return (
     <span
       className={cn(

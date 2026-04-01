@@ -1,69 +1,56 @@
 "use client";
-import { API_BASE } from "@/lib/api";
+import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { apiClient } from "@/lib/api-client";
+import type { AdsListItem as AdProduct, AdsSummary as AdSummary } from '@kiditem/shared';
 
-import { useEffect, useState } from "react";
 import { Megaphone, TrendingDown, AlertTriangle, Download } from "lucide-react";
-import { formatKRW, formatPercent, getGradeColor } from "@/lib/utils";
+import { formatKRW } from "@/lib/utils";
+import { AdsTable } from "./components/AdsTable";
+import PageSkeleton from "@/components/ui/PageSkeleton";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
-
-interface AdProduct {
-  id: string; name: string; sku: string; company: string; grade: string;
-  adTier: string; spend: number; impressions: number; clicks: number;
-  conversions: number; adRevenue: number; ctr: number; convRate: number;
-  roas: number; acos: number; adRate: number; revenue: number;
-  netProfit: number; profitRate: number;
-}
-
-interface AdSummary {
-  totalSpend: number; totalAdRevenue: number; totalRevenue: number;
-  overallAdRate: number; overallRoas: number; highAdCount: number;
-  gradeSpend: Record<string, number>;
-  tierSpend: Record<string, number>;
-  gradeSpendPercent: Record<string, number>;
-}
+import { queryKeys } from "@/lib/query-keys";
 
 export default function AdsPage() {
-  const [products, setProducts] = useState<AdProduct[]>([]);
-  const [summary, setSummary] = useState<AdSummary | null>(null);
-  const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("all");
 
-  useEffect(() => {
-    fetch(`${API_BASE}/api/ads`)
-      .then((r) => r.json())
-      .then((data) => {
-        const items: AdProduct[] = data.items || data.products || [];
-        setProducts(items);
+  const { data: rawData, isLoading: loading } = useQuery({
+    queryKey: queryKeys.ads.list(),
+    queryFn: () => apiClient.get<{ items?: AdProduct[]; products?: AdProduct[]; summary?: AdSummary }>('/api/ads'),
+  });
 
-        if (data.summary) {
-          setSummary(data.summary);
-        } else {
-          const totalSpend = items.reduce((s, p) => s + p.spend, 0);
-          const totalAdRevenue = items.reduce((s, p) => s + p.adRevenue, 0);
-          const totalRevenue = items.reduce((s, p) => s + p.revenue, 0);
-          const overallAdRate = totalRevenue > 0 ? Math.round((totalSpend / totalRevenue) * 1000) / 10 : 0;
-          const overallRoas = totalSpend > 0 ? Math.round((totalAdRevenue / totalSpend) * 100) : 0;
-          const highAdCount = items.filter((p) => p.adRate > 15).length;
-          const gradeSpend: Record<string, number> = { A: 0, B: 0, C: 0 };
-          const tierSpend: Record<string, number> = {};
-          for (const p of items) {
-            gradeSpend[p.grade] = (gradeSpend[p.grade] || 0) + p.spend;
-            tierSpend[p.adTier] = (tierSpend[p.adTier] || 0) + p.spend;
-          }
-          const gradeSpendPercent: Record<string, number> = {
-            A: totalSpend > 0 ? Math.round((gradeSpend.A / totalSpend) * 100) : 0,
-            B: totalSpend > 0 ? Math.round((gradeSpend.B / totalSpend) * 100) : 0,
-            C: totalSpend > 0 ? Math.round((gradeSpend.C / totalSpend) * 100) : 0,
-          };
-          setSummary({
-            totalSpend, totalAdRevenue, totalRevenue, overallAdRate,
-            overallRoas, highAdCount, gradeSpend, tierSpend, gradeSpendPercent,
-          });
-        }
-      })
-      .catch((err) => console.error("광고 데이터 로딩 실패:", err))
-      .finally(() => setLoading(false));
-  }, []);
+  const products = useMemo(() => {
+    if (!rawData) return [];
+    return rawData.items || rawData.products || [];
+  }, [rawData]);
+
+  const summary = useMemo<AdSummary | null>(() => {
+    if (!rawData) return null;
+    if (rawData.summary) return rawData.summary;
+    const items = rawData.items || rawData.products || [];
+    const totalSpend = items.reduce((s, p) => s + p.spend, 0);
+    const totalAdRevenue = items.reduce((s, p) => s + p.adRevenue, 0);
+    const totalRevenue = items.reduce((s, p) => s + p.revenue, 0);
+    const overallAdRate = totalRevenue > 0 ? Math.round((totalSpend / totalRevenue) * 1000) / 10 : 0;
+    const overallRoas = totalSpend > 0 ? Math.round((totalAdRevenue / totalSpend) * 100) : 0;
+    const highAdCount = items.filter((p) => p.adRate > 15).length;
+    const gradeSpend: Record<string, number> = { A: 0, B: 0, C: 0 };
+    const tierSpend: Record<string, number> = {};
+    for (const p of items) {
+      gradeSpend[p.grade] = (gradeSpend[p.grade] || 0) + p.spend;
+      const tier = p.adTier ?? 'none';
+      tierSpend[tier] = (tierSpend[tier] || 0) + p.spend;
+    }
+    const gradeSpendPercent: Record<string, number> = {
+      A: totalSpend > 0 ? Math.round((gradeSpend.A / totalSpend) * 100) : 0,
+      B: totalSpend > 0 ? Math.round((gradeSpend.B / totalSpend) * 100) : 0,
+      C: totalSpend > 0 ? Math.round((gradeSpend.C / totalSpend) * 100) : 0,
+    };
+    return {
+      totalSpend, totalAdRevenue, totalRevenue, overallAdRate,
+      overallRoas, highAdCount, gradeSpend, tierSpend, gradeSpendPercent,
+    };
+  }, [rawData]);
 
   const handleExcel = () => {
     import("xlsx").then((XLSX) => {
@@ -81,7 +68,7 @@ export default function AdsPage() {
     });
   };
 
-  if (loading || !summary) return <div className="flex items-center justify-center h-64 text-slate-500">로딩 중...</div>;
+  if (loading || !summary) return <PageSkeleton variant="table" />;
 
   const filtered = products.filter((p) => {
     if (filter === "high") return p.adRate > 15;
@@ -189,51 +176,7 @@ export default function AdsPage() {
       </div>
 
       {/* Table */}
-      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table>
-            <thead>
-              <tr className="bg-slate-50">
-                <th>등급</th>
-                <th>광고</th>
-                <th>상품명</th>
-                <th className="text-right">광고비</th>
-                <th className="text-right">광고매출</th>
-                <th className="text-right">ROAS</th>
-                <th className="text-right">CTR</th>
-                <th className="text-right">전환율</th>
-                <th className="text-right">광고비율</th>
-                <th className="text-right">순이익률</th>
-                <th>상태</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.length === 0 && (
-                <tr><td colSpan={11} className="text-center py-12 text-slate-500">광고 데이터가 없습니다.</td></tr>
-              )}
-              {filtered.map((p) => (
-                <tr key={p.id} className={p.adRate > 15 ? "bg-red-50/50" : ""}>
-                  <td><span className={`px-2 py-0.5 rounded text-xs font-bold ${getGradeColor(p.grade)}`}>{p.grade}</span></td>
-                  <td><span className="px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800">{p.adTier}</span></td>
-                  <td className="font-medium text-slate-900">{p.name}</td>
-                  <td className="text-right">{formatKRW(p.spend)}</td>
-                  <td className="text-right">{formatKRW(p.adRevenue)}</td>
-                  <td className={`text-right font-semibold ${p.roas >= 300 ? "text-green-600" : p.roas >= 200 ? "text-orange-500" : "text-red-600"}`}>{p.roas}%</td>
-                  <td className="text-right">{p.ctr}%</td>
-                  <td className="text-right">{p.convRate}%</td>
-                  <td className={`text-right font-semibold ${p.adRate > 15 ? "text-red-600" : "text-slate-600"}`}>{formatPercent(p.adRate)}</td>
-                  <td className={`text-right ${p.profitRate < 0 ? "text-red-600 font-bold" : p.profitRate <= 3 ? "text-orange-500" : "text-green-600"}`}>{formatPercent(p.profitRate)}</td>
-                  <td>
-                    {p.adRate > 15 && <span className="px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">점검필요</span>}
-                    {p.roas < 200 && p.adRate <= 15 && <span className="px-2 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-800">효율낮음</span>}
-                    {p.adRate <= 15 && p.roas >= 200 && <span className="px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">정상</span>}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <AdsTable filtered={filtered} />
 
       {/* Rules */}
       <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">

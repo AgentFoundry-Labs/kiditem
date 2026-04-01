@@ -1,8 +1,12 @@
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
 
-load_dotenv()
+# Load root .env (monorepo 루트), then local fallback
+_root_env = Path(__file__).resolve().parent.parent.parent / '.env'
+load_dotenv(_root_env)
+load_dotenv()  # local agents/.env fallback (won't overwrite)
 
 # ── DB & Runner ─────────────────────────────────────────────────────────────
 DATABASE_URL = os.environ["DATABASE_URL"]

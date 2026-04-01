@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useState, useEffect } from 'react';
+import { useEffect } from 'react';
 import {
   LayoutDashboard,
   ShoppingCart,
@@ -23,18 +23,17 @@ import {
   Zap,
   Search,
   Sparkles,
-  Truck,
   TrendingUp,
   Headphones,
   AlertTriangle,
   ClipboardList,
   ArrowUpDown,
   Network,
+  Bot,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useStore } from '@/store/useStore';
-import { API_BASE } from '@/lib/api';
 
 interface NavItem {
   href: string;
@@ -109,6 +108,7 @@ const navSections: NavSection[] = [
     items: [
       { href: '/workflows', label: '워크플로우', icon: GitBranch },
       { href: '/logs', label: '실행 로그', icon: FileText },
+      { href: '/agents', label: '에이전트', icon: Bot },
     ],
   },
 ];
@@ -116,10 +116,6 @@ const navSections: NavSection[] = [
 export default function Sidebar() {
   const pathname = usePathname();
   const { sidebarOpen, toggleSidebar, setSidebarOpen } = useStore();
-  const [badgeCounts, setBadgeCounts] = useState<{
-    pendingAccept: number;
-    pendingReturns: number;
-  } | null>(null);
 
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 767px)');
@@ -132,18 +128,6 @@ export default function Sidebar() {
   useEffect(() => {
     if (window.innerWidth < 768) setSidebarOpen(false);
   }, [pathname, setSidebarOpen]);
-
-  useEffect(() => {
-    fetch(`${API_BASE}/api/coupang-dashboard`)
-      .then((r) => r.json())
-      .then((data) =>
-        setBadgeCounts({
-          pendingAccept: data.pendingAccept,
-          pendingReturns: data.pendingReturns,
-        })
-      )
-      .catch(() => {});
-  }, []);
 
   const isActive = (href: string) =>
     href === '/' ? pathname === '/' : pathname.startsWith(href);
@@ -159,88 +143,90 @@ export default function Sidebar() {
       )}
       <aside
         className={cn(
-          'fixed left-0 top-0 z-50 h-screen bg-white border-r border-gray-200 transition-all duration-300 flex flex-col',
+          'fixed left-0 top-0 z-50 h-screen bg-gray-50/80 border-r border-gray-100 transition-all duration-300 flex flex-col',
           sidebarOpen ? 'translate-x-0 w-60' : '-translate-x-full w-60',
           sidebarOpen ? 'md:translate-x-0 md:w-60' : 'md:translate-x-0 md:w-[68px]'
         )}
       >
-      {/* Logo */}
-      <div className="flex items-center h-16 px-4 border-b border-gray-200">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center flex-shrink-0">
-            <Zap className="w-4 h-4 text-white" />
-          </div>
-          {sidebarOpen && (
-            <div className="min-w-0">
-              <h1 className="text-base font-bold text-gray-900 truncate">
-                KidItem
-              </h1>
-              <p className="text-[10px] text-gray-500 truncate">
-                셀러 관리 시스템
-              </p>
+        {/* Logo */}
+        <div className="flex items-center h-16 px-4 border-b border-gray-100">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center flex-shrink-0">
+              <Zap className="w-4 h-4 text-white" />
             </div>
-          )}
-        </div>
-        <button
-          onClick={toggleSidebar}
-          className={cn(
-            'ml-auto p-2.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-500',
-            !sidebarOpen && 'rotate-180'
-          )}
-        >
-          <ChevronLeft className="w-4 h-4" />
-        </button>
-      </div>
-
-      {/* Navigation */}
-      <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-200">
-        {navSections.map((section, idx) => (
-          <div key={section.title} className="px-3 pb-1">
-            {sidebarOpen ? (
-              <p
-                className={cn(
-                  'px-3 mb-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wider',
-                  idx === 0 ? 'mt-3' : 'mt-4'
-                )}
-              >
-                {section.title}
-              </p>
-            ) : (
-              idx > 0 && <div className="mx-3 my-2 border-t border-gray-200" />
+            {sidebarOpen && (
+              <div className="min-w-0">
+                <h1 className="text-base font-bold text-gray-900 truncate">
+                  KidItem
+                </h1>
+                <p className="text-[10px] text-gray-500 truncate">
+                  셀러 관리 시스템
+                </p>
+              </div>
             )}
-            <nav className="space-y-0.5">
-              {section.items.map((item) => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  title={!sidebarOpen ? item.label : undefined}
+          </div>
+          <button
+            onClick={toggleSidebar}
+            className={cn(
+              'ml-auto p-2.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-500',
+              !sidebarOpen && 'rotate-180'
+            )}
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Navigation */}
+        <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-200">
+          {/* Standard nav sections */}
+          {navSections.map((section, idx) => (
+            <div key={section.title} className="px-3 pb-1">
+              {sidebarOpen ? (
+                <p
                   className={cn(
-                    'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all duration-200',
-                    isActive(item.href)
-                      ? 'bg-blue-50 text-blue-600 border border-blue-500/20'
-                      : 'text-gray-500 hover:bg-gray-100 hover:text-gray-900 border border-transparent'
+                    'px-3 mb-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wider',
+                    idx === 0 ? 'mt-3' : 'mt-4'
                   )}
                 >
-                  <item.icon className="w-4 h-4 flex-shrink-0" />
-                  {sidebarOpen && (
-                    <span className="truncate">{item.label}</span>
-                  )}
-                </Link>
-              ))}
-            </nav>
-          </div>
-        ))}
-      </div>
+                  {section.title}
+                </p>
+              ) : (
+                idx > 0 && <div className="mx-3 my-2 border-t border-gray-100" />
+              )}
+              <nav className="space-y-0.5">
+                {section.items.map((item) => (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    title={!sidebarOpen ? item.label : undefined}
+                    className={cn(
+                      'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all duration-200',
+                      isActive(item.href)
+                        ? 'bg-white text-gray-900 border border-gray-200 shadow-sm'
+                        : 'text-gray-500 hover:bg-gray-100/70 hover:text-gray-700 border border-transparent'
+                    )}
+                  >
+                    <item.icon className="w-4 h-4 flex-shrink-0" />
+                    {sidebarOpen && (
+                      <span className="truncate">{item.label}</span>
+                    )}
+                  </Link>
+                ))}
+              </nav>
+            </div>
+          ))}
 
-      {/* Status */}
-      {sidebarOpen && (
-        <div className="px-4 py-4 border-t border-gray-200">
-          <div className="flex items-center gap-2 text-[11px] text-gray-600">
-            <div className="w-2 h-2 rounded-full bg-emerald-500 pulse-dot" />
-            <span>시스템 정상 운영중</span>
-          </div>
         </div>
-      )}
+
+        {/* Status */}
+        {sidebarOpen && (
+          <div className="px-4 py-4 border-t border-gray-100">
+            <div className="flex items-center gap-2 text-[11px] text-gray-600">
+              <div className="w-2 h-2 rounded-full bg-emerald-500 pulse-dot" />
+              <span>시스템 정상 운영중</span>
+            </div>
+          </div>
+        )}
       </aside>
     </>
   );

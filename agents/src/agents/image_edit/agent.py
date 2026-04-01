@@ -1,7 +1,7 @@
 import json
 from src.agents.base import BaseAgent
 from src.core.ai_client import AIClient
-from src.config import AI_IMAGE_EDIT_MODEL
+from src.config import AI_IMAGE_EDIT_MODEL, AI_IMAGE_EDIT_SIZE_MODEL
 
 PRESET_PROMPTS = {
     "remove_background": "Remove the background completely, keep only the main subject on a transparent/white background",
@@ -21,8 +21,12 @@ class ImageEditAgent(BaseAgent):
         if not task_input:
             raise ValueError("task_input is required")
 
-        image_url = task_input.get("image_url")
         preset = task_input.get("preset", "custom")
+
+        if preset == "color_guide":
+            return await self._execute_color_guide(task_input)
+
+        image_url = task_input.get("image_url")
         user_prompt = task_input.get("user_prompt", "")
 
         if not image_url:
@@ -49,3 +53,27 @@ class ImageEditAgent(BaseAgent):
         )
 
         return {"image_url": result_url}
+
+    async def _execute_color_guide(self, task_input: dict) -> dict:
+        image_urls = task_input.get("image_urls") or []
+        if len(image_urls) < 2:
+            raise ValueError("color_guide requires at least 2 image_urls")
+
+        prompt = (
+            "Arrange these product photos side by side on a clean white background. "
+            "Keep each product exactly as-is, no modifications to shape, color, or details. "
+            "Equal spacing between items. Professional product catalog layout. "
+            "Do NOT add any text, labels, or decorations."
+        )
+
+        ai = AIClient()
+        result_bytes = await ai.edit_images_multi(
+            image_urls=image_urls,
+            prompt=prompt,
+            model=AI_IMAGE_EDIT_SIZE_MODEL,
+        )
+
+        import base64
+
+        b64 = base64.b64encode(result_bytes).decode()
+        return {"image_url": f"data:image/png;base64,{b64}"}

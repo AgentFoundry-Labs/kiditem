@@ -1,20 +1,24 @@
-import { Controller, Get, Post, Put, Delete, Body, Query, Param, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Query, Param } from '@nestjs/common';
 import { WorkflowsService } from './workflows.service';
+import {
+  CreateWorkflowBodyDto,
+  ListWorkflowsQueryDto,
+  UpdateWorkflowBodyDto,
+  RunWorkflowBodyDto,
+  BatchRunWorkflowBodyDto,
+} from './dto';
 
 @Controller('workflows')
 export class WorkflowsController {
   constructor(private readonly workflowsService: WorkflowsService) {}
 
   @Post()
-  create(@Body() body: Record<string, any>) {
-    if (!body.name || !body.companyId || !body.nodesJson || !body.edgesJson) {
-      throw new BadRequestException('name, companyId, nodesJson, edgesJson are required');
-    }
+  create(@Body() body: CreateWorkflowBodyDto) {
     return this.workflowsService.create(body as any);
   }
 
   @Get()
-  findAll(@Query() query: { companyId?: string; module?: string; isActive?: string }) {
+  findAll(@Query() query: ListWorkflowsQueryDto) {
     return this.workflowsService.findAll(query);
   }
 
@@ -24,7 +28,7 @@ export class WorkflowsController {
   }
 
   @Put(':id')
-  update(@Param('id') id: string, @Body() body: Record<string, any>) {
+  update(@Param('id') id: string, @Body() body: UpdateWorkflowBodyDto) {
     return this.workflowsService.update(id, body);
   }
 
@@ -34,15 +38,12 @@ export class WorkflowsController {
   }
 
   @Post('batch-run')
-  batchRun(@Body() body: { workflowIds: string[]; triggeredBy?: string; context?: Record<string, any> }) {
-    if (!body.workflowIds?.length) {
-      throw new BadRequestException('workflowIds is required');
-    }
+  batchRun(@Body() body: BatchRunWorkflowBodyDto) {
     return this.workflowsService.batchRun(body.workflowIds, body.triggeredBy, body.context);
   }
 
   @Post(':id/run')
-  triggerRun(@Param('id') id: string, @Body() body: { triggeredBy?: string; context?: Record<string, any> }) {
+  triggerRun(@Param('id') id: string, @Body() body: RunWorkflowBodyDto) {
     return this.workflowsService.triggerRun(id, body.triggeredBy, body.context);
   }
 

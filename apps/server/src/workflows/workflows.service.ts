@@ -35,10 +35,10 @@ export class WorkflowsService {
     });
   }
 
-  async findAll(query: { companyId?: string; module?: string; isActive?: string }) {
+  async findAll(query: { companyId: string; module?: string; isActive?: string }) {
     return this.prisma.workflowTemplate.findMany({
       where: {
-        ...(query.companyId && { companyId: query.companyId }),
+        companyId: query.companyId,
         ...(query.module && { module: query.module }),
         ...(query.isActive !== undefined && { isActive: query.isActive === 'true' }),
       },
@@ -103,7 +103,6 @@ export class WorkflowsService {
     this.runner
       .runBatch(
         runs.map((r) => ({ runId: r.id, templateId: r.templateId })),
-        context,
       )
       .catch((err: Error) => {
         this.logger.error(`Batch run failed: ${err.message}`);

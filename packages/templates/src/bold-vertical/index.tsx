@@ -156,29 +156,31 @@ function PointSection({ d }: { d: DetailPageData }) {
         </div>
       </div>
 
-      <div data-section="colorImages" className={d.colorImages.length > 0 ? '' : 'hidden'}>
-        <div className="text-center mt-16">
-          <div style={{ width: 384, height: 2 }} className="bg-[#2d3436] opacity-40 mx-auto mb-12" />
-          <SubSectionBadge label="색상 안내" />
+      {d.colorImages.length > 0 && (
+        <div data-section="colorImages">
+          <div className="text-center mt-16">
+            <div style={{ width: 384, height: 2 }} className="bg-[#2d3436] opacity-40 mx-auto mb-12" />
+            <SubSectionBadge label="색상 안내" />
 
-          {d.colorSubtitle && (
-            <p className="mt-6 text-[var(--theme-text-secondary)] font-bold text-lg">
-              {d.colorSubtitle}
-            </p>
-          )}
+            {d.colorSubtitle && (
+              <p className="mt-6 text-[var(--theme-text-secondary)] font-bold text-lg">
+                {d.colorSubtitle}
+              </p>
+            )}
 
-          <div data-container="colorImages" className={`mt-10 flex flex-col gap-6 ${d.colorDisplayMode === 'full' ? 'w-full px-4' : 'max-w-2xl mx-auto px-6'}`}>
-            {d.colorImages.map((cimg, i) => (
-              <img
-                key={i}
-                src={cimg}
-                alt="색상 안내"
-                className="w-full h-auto rounded-[var(--theme-radius)] shadow-md"
-              />
-            ))}
+            <div data-container="colorImages" className={`mt-10 flex flex-col gap-6 ${d.colorDisplayMode === 'full' ? 'w-full px-4' : 'max-w-2xl mx-auto px-6'}`}>
+              {d.colorImages.map((cimg, i) => (
+                <img
+                  key={i}
+                  src={cimg}
+                  alt="색상 안내"
+                  className="w-full h-auto rounded-[var(--theme-radius)] shadow-md"
+                />
+              ))}
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       <div data-section="detailImages" className={d.detailImages.length > 0 ? '' : 'hidden'}>
         <div className="text-center mt-16">
@@ -398,7 +400,7 @@ function CSRefundSection({ d }: { d: DetailPageData }) {
 export function BoldVertical({ data: d }: BoldVerticalProps) {
   const disabled = getDisabledSections(d);
 
-  const hasPointContent = d.sectionName || d.sectionTitle || d.sizeImages.length > 0 || d.detailImages.length > 0;
+  const hasPointContent = d.sectionName || d.sectionTitle || d.sizeImages.length > 0 || d.colorImages.length > 0 || d.detailImages.length > 0;
 
   return (
     <div

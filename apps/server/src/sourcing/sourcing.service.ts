@@ -44,7 +44,11 @@ export class SourcingService {
     return null;
   }
 
-  async receiveExtensionData(data: any, companyId: string) {
+  async receiveExtensionData(data: any, companyId: string): Promise<{
+    ok: boolean;
+    message: string;
+    product_count: number;
+  }> {
     const pageType = data.page_type || 'detail';
     const platform = PLATFORM_MAP[data.source_platform?.toLowerCase()] || 'OTHER';
     const productCount = pageType === 'search' ? (data.total_found || 0) : (data.title ? 1 : 0);
@@ -90,7 +94,7 @@ export class SourcingService {
     };
   }
 
-  async scrapeUrl(url: string, companyId: string) {
+  async scrapeUrl(url: string, companyId: string): Promise<{ ok: boolean; message: string; taskId: string }> {
     const task = await this.prisma.agentTask.create({
       data: {
         agentType: 'sourcing',

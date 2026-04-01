@@ -1,39 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Download } from "lucide-react";
-import { formatKRW, formatPercent, getGradeColor, getProfitColor, timeAgo } from "@/lib/utils";
-import { API_BASE } from "@/lib/api";
-
-interface PLData {
-  id: string;
-  productId: string;
-  productName: string;
-  sku: string;
-  company: string;
-  grade: string;
-  period: string;
-  revenue: number;
-  costOfGoods: number;
-  commission: number;
-  shippingCost: number;
-  adCost: number;
-  otherCost: number;
-  netProfit: number;
-  profitRate: number;
-  orderCount: number;
-}
-
-interface SyncInfo {
-  lastSyncedAt: string | null;
-}
+import { timeAgo } from "@/lib/utils";
+import { apiClient } from "@/lib/api-client";
+import { isApiError } from "@/lib/api-error";
+import { queryKeys } from "@/lib/query-keys";
+import { useQuery } from "@tanstack/react-query";
+import PageSkeleton from "@/components/ui/PageSkeleton";
+import type { PLData, SyncInfo } from '@kiditem/shared';
+import ProfitLossSummaryCards from "./components/ProfitLossSummaryCards";
+import ProfitLossTable from "./components/ProfitLossTable";
 
 export default function ProfitLossPage() {
-  const [data, setData] = useState<PLData[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [syncInfo, setSyncInfo] = useState<SyncInfo | null>(null);
-
   // 동적 기간 생성 (최근 6개월)
   const getRecentPeriods = () => {
     const periods = [];
@@ -50,23 +29,27 @@ export default function ProfitLossPage() {
   const [period, setPeriod] = useState(periodOptions[0].value);
   const [filter, setFilter] = useState("all");
 
-  useEffect(() => {
-    // Fetch sync info
-    fetch(`${API_BASE}/api/coupang-dashboard`)
-      .then(r => r.json())
-      .then(data => setSyncInfo({ lastSyncedAt: data.lastSyncedAt }))
-      .catch(() => setSyncInfo({ lastSyncedAt: null }));
-  }, []);
+  const { data: syncInfo } = useQuery({
+    queryKey: queryKeys.syncInfo(),
+    queryFn: async () => {
+      try {
+        const data = await apiClient.get<{ lastSyncedAt: string | null }>('/api/coupang-dashboard');
+        return { lastSyncedAt: data.lastSyncedAt } as SyncInfo;
+      } catch {
+        return { lastSyncedAt: null } as SyncInfo;
+      }
+    },
+  });
 
-  useEffect(() => {
-    setLoading(true);
-    setError(null);
-    fetch(`${API_BASE}/api/profit-loss?period=${period}`)
-      .then((r) => { if (!r.ok) throw new Error("조회 실패"); return r.json(); })
-      .then((d) => { if (Array.isArray(d)) setData(d); else throw new Error("데이터 형식 오류"); })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
-  }, [period]);
+  const { data = [], isLoading: loading, error: queryError } = useQuery({
+    queryKey: queryKeys.profitLoss.list(period),
+    queryFn: async () => {
+      const d = await apiClient.get<PLData[]>(`/api/profit-loss?period=${period}`);
+      if (!Array.isArray(d)) throw new Error("데이터 형식 오류");
+      return d;
+    },
+  });
+  const error = queryError ? (isApiError(queryError) ? queryError.detail : queryError instanceof Error ? queryError.message : "조회 실패") : null;
 
   const filtered = data.filter((d) => {
     if (filter === "minus") return d.profitRate < 0;
@@ -96,7 +79,7 @@ export default function ProfitLossPage() {
     });
   };
 
-  if (loading) return <div className="flex items-center justify-center h-64 text-slate-500">로딩 중...</div>;
+  if (loading) return <PageSkeleton variant="table" />;
   if (error) return <div className="flex items-center justify-center h-64 text-red-500">{error}</div>;
   if (data.length === 0) return <div className="flex items-center justify-center h-64 text-slate-400">해당 기간 데이터가 없습니다.</div>;
 
@@ -126,80 +109,14 @@ export default function ProfitLossPage() {
         )}
       </div>
 
-      {/* Summary */}
-      <div className="grid grid-cols-4 gap-4">
-        <div className="bg-white rounded-xl p-4 border border-slate-200">
-          <div className="text-sm text-slate-500">총 매출</div>
-          <div className="text-xl font-bold text-slate-900 mt-1">{formatKRW(totalRevenue)}원</div>
-        </div>
-        <div className="bg-white rounded-xl p-4 border border-slate-200">
-          <div className="text-sm text-slate-500">총 순이익</div>
-          <div className={`text-xl font-bold mt-1 ${getProfitColor(overallRate)}`}>{formatKRW(totalProfit)}원</div>
-        </div>
-        <div className="bg-white rounded-xl p-4 border border-slate-200">
-          <div className="text-sm text-slate-500">평균 이익률</div>
-          <div className={`text-xl font-bold mt-1 ${getProfitColor(overallRate)}`}>{formatPercent(overallRate)}</div>
-        </div>
-        <div className="bg-white rounded-xl p-4 border border-slate-200">
-          <div className="text-sm text-slate-500">총 광고비</div>
-          <div className="text-xl font-bold text-orange-600 mt-1">{formatKRW(totalAdCost)}원</div>
-          <div className="text-xs text-slate-400">{totalRevenue > 0 ? formatPercent((totalAdCost / totalRevenue) * 100) : "0%"} of 매출</div>
-        </div>
-      </div>
+      <ProfitLossSummaryCards
+        totalRevenue={totalRevenue}
+        totalProfit={totalProfit}
+        totalAdCost={totalAdCost}
+        overallRate={overallRate}
+      />
 
-      {/* Filter */}
-      <div className="flex gap-2">
-        {[
-          { key: "all", label: `전체 (${data.length})` },
-          { key: "minus", label: `적자 (${data.filter(d => d.profitRate < 0).length})`, color: "text-red-600" },
-          { key: "low", label: `3%이하 (${data.filter(d => d.profitRate >= 0 && d.profitRate <= 3).length})`, color: "text-orange-600" },
-          { key: "normal", label: `정상 (${data.filter(d => d.profitRate > 3).length})`, color: "text-green-600" },
-        ].map((f) => (
-          <button key={f.key} onClick={() => setFilter(f.key)} className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${filter === f.key ? "bg-blue-600 text-white" : `bg-white border border-slate-200 hover:bg-slate-50 ${f.color || "text-slate-700"}`}`}>
-            {f.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Table */}
-      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table>
-            <thead>
-              <tr className="bg-slate-50">
-                <th>등급</th>
-                <th>상품명</th>
-                <th>회사</th>
-                <th className="text-right">매출</th>
-                <th className="text-right">매입원가</th>
-                <th className="text-right">수수료</th>
-                <th className="text-right">배송비</th>
-                <th className="text-right">광고비</th>
-                <th className="text-right">순이익</th>
-                <th className="text-right">이익률</th>
-                <th className="text-right">주문수</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((d) => (
-                <tr key={d.id} className={d.profitRate < 0 ? "bg-red-50/50" : d.profitRate <= 3 ? "bg-orange-50/30" : ""}>
-                  <td><span className={`px-2 py-0.5 rounded text-xs font-bold ${getGradeColor(d.grade)}`}>{d.grade}</span></td>
-                  <td className="font-medium text-slate-900">{d.productName}</td>
-                  <td className="text-slate-500 text-xs">{d.company}</td>
-                  <td className="text-right">{formatKRW(d.revenue)}</td>
-                  <td className="text-right text-slate-500">{formatKRW(d.costOfGoods)}</td>
-                  <td className="text-right text-slate-500">{formatKRW(d.commission)}</td>
-                  <td className="text-right text-slate-500">{formatKRW(d.shippingCost)}</td>
-                  <td className="text-right text-orange-600">{formatKRW(d.adCost)}</td>
-                  <td className={`text-right font-semibold ${getProfitColor(d.profitRate)}`}>{formatKRW(d.netProfit)}</td>
-                  <td className={`text-right font-semibold ${getProfitColor(d.profitRate)}`}>{formatPercent(d.profitRate)}</td>
-                  <td className="text-right text-slate-600">{d.orderCount}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <ProfitLossTable data={data} filtered={filtered} filter={filter} onFilter={setFilter} />
     </div>
   );
 }

@@ -1,8 +1,11 @@
 "use client";
-import { API_BASE } from "@/lib/api";
+import { apiClient } from "@/lib/api-client";
+import { isApiError } from "@/lib/api-error";
+import { toast } from 'sonner';
 
 import { useState } from "react";
-import { FileSpreadsheet, Download } from "lucide-react";
+import { FileSpreadsheet } from "lucide-react";
+import ReportList from "./components/ReportList";
 
 export default function ReportsPage() {
   const [generating, setGenerating] = useState<string | null>(null);
@@ -12,17 +15,12 @@ export default function ReportsPage() {
     try {
       const XLSX = await import("xlsx");
 
-      const [productsRes, plRes, inventoryRes, adsRes] = await Promise.all([
-        fetch(`${API_BASE}/api/products`),
-        fetch(`${API_BASE}/api/profit-loss`),
-        fetch(`${API_BASE}/api/inventory`),
-        fetch(`${API_BASE}/api/ads`),
+      const [productsRaw, profitLoss, inventoryRaw, adsData] = await Promise.all([
+        apiClient.get<any>('/api/products'),
+        apiClient.get<any>('/api/profit-loss'),
+        apiClient.get<any>('/api/inventory'),
+        apiClient.get<any>('/api/ads'),
       ]);
-
-      const productsRaw = await productsRes.json();
-      const profitLoss = await plRes.json();
-      const inventoryRaw = await inventoryRes.json();
-      const adsData = await adsRes.json();
 
       const products = productsRaw.items ?? productsRaw;
       const inventory = inventoryRaw.items ?? inventoryRaw;
@@ -78,8 +76,7 @@ export default function ReportsPage() {
 
       XLSX.writeFile(wb, fileName);
     } catch (e) {
-      console.error(e);
-      alert("리포트 생성 중 오류가 발생했습니다. 다시 시도해주세요.");
+      toast.error(isApiError(e) ? e.detail : "리포트 생성 중 오류가 발생했습니다. 다시 시도해주세요.");
     } finally {
       setGenerating(null);
     }
@@ -104,24 +101,7 @@ export default function ReportsPage() {
         회사별(거영/해피프렌즈) 분리 출력은 각 페이지에서 회사 필터 적용 후 다운로드하세요.
       </div>
 
-      <div className="grid grid-cols-1 gap-4">
-        {reports.map((r) => (
-          <div key={r.type} className="bg-white rounded-xl p-5 border border-slate-200 flex items-center justify-between hover:shadow-md transition-shadow">
-            <div>
-              <h3 className="font-semibold text-slate-900">{r.title}</h3>
-              <p className="text-sm text-slate-500 mt-1">{r.desc}</p>
-            </div>
-            <button
-              onClick={() => generateReport(r.type)}
-              disabled={generating !== null}
-              className={`flex items-center gap-2 px-5 py-2.5 text-white rounded-lg text-sm font-medium ${r.color} disabled:opacity-50`}
-            >
-              <Download size={16} />
-              {generating === r.type ? "생성 중..." : "다운로드"}
-            </button>
-          </div>
-        ))}
-      </div>
+      <ReportList reports={reports} generating={generating} onGenerate={generateReport} />
 
       <div className="bg-slate-50 rounded-xl p-4 border border-slate-200 text-sm text-slate-600">
         <strong>자동 리포트:</strong> 매월 1일, 전월 통합 리포트가 자동 생성됩니다. (서버 배포 후 활성화)
