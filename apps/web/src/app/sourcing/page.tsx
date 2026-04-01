@@ -27,6 +27,7 @@ import {
 } from '@/lib/sourcing-api';
 import { queryKeys } from '@/lib/query-keys';
 import { isApiError } from '@/lib/api-error';
+import { toast } from 'sonner';
 import StatusBadge from './components/StatusBadge';
 import SkeletonCard from './components/SkeletonCard';
 import { Pagination } from '@/components/ui/Pagination';
@@ -123,7 +124,7 @@ export default function SourcingPage() {
     mutationFn: (id: string) => productsApi.delete(id),
     onMutate: (id) => setDeletingId(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.all }),
-    onError: (err) => console.error('Failed to delete product:', err),
+    onError: (err) => toast.error(isApiError(err) ? err.detail : '상품 삭제에 실패했습니다.'),
     onSettled: () => setDeletingId(null),
   });
 
@@ -151,7 +152,7 @@ export default function SourcingPage() {
     try {
       await productsApi.cancel(id);
     } catch (err) {
-      console.error('Failed to cancel processing:', err);
+      toast.error(isApiError(err) ? err.detail : '가공 취소에 실패했습니다.');
     } finally {
       setProcessingIds((prev) => {
         const next = new Set(prev);

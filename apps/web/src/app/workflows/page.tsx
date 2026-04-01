@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Plus, Filter, AlertCircle, Store } from 'lucide-react';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { isApiError } from '@/lib/api-error';
+import { toast } from 'sonner';
 import { useWorkflows, useToggleWorkflow, useDeleteWorkflow } from '@/hooks/use-workflows';
 import { useMarketplaceWorkflows, useInstallWorkflow, useUninstallWorkflow } from '@/hooks/use-marketplace';
 import type { WorkflowCatalogItem, MarketplaceTab } from '@/lib/marketplace-types';
@@ -66,7 +67,7 @@ export default function WorkflowsPage() {
       setInstallTarget(null);
       setTab('my');
     } catch (err) {
-      alert(isApiError(err) ? err.detail : '워크플로우 설치에 실패했습니다.');
+      toast.error(isApiError(err) ? err.detail : '워크플로우 설치에 실패했습니다.');
     }
   };
 
@@ -75,7 +76,7 @@ export default function WorkflowsPage() {
     try {
       await uninstallWorkflow.mutateAsync(marketplaceId);
     } catch (err) {
-      alert(isApiError(err) ? err.detail : '워크플로우 제거에 실패했습니다.');
+      toast.error(isApiError(err) ? err.detail : '워크플로우 제거에 실패했습니다.');
     }
   };
 
@@ -83,7 +84,7 @@ export default function WorkflowsPage() {
     try {
       await toggleWorkflow.mutateAsync({ id, isActive });
     } catch (err) {
-      alert(isApiError(err) ? err.detail : '워크플로우 상태 변경에 실패했습니다.');
+      toast.error(isApiError(err) ? err.detail : '워크플로우 상태 변경에 실패했습니다.');
     }
   };
 
@@ -91,7 +92,7 @@ export default function WorkflowsPage() {
     try {
       await deleteWorkflow.mutateAsync(id);
     } catch (err) {
-      alert(isApiError(err) ? err.detail : '워크플로우 삭제에 실패했습니다.');
+      toast.error(isApiError(err) ? err.detail : '워크플로우 삭제에 실패했습니다.');
     }
   };
 

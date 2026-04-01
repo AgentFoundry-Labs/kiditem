@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from "@/lib/api-client";
 import { isApiError } from "@/lib/api-error";
+import { toast } from 'sonner';
 import { queryKeys } from '@/lib/query-keys';
 import { RotateCcw, RefreshCw, Loader2, CheckCircle } from "lucide-react";
 import { formatKRW } from "@/lib/utils";
@@ -42,10 +43,10 @@ export default function ReturnsPage() {
     },
     onMutate: (receiptId) => setProcessing(receiptId),
     onSuccess: (data) => {
-      alert(data.message);
+      toast.success(data.message);
       queryClient.invalidateQueries({ queryKey: queryKeys.returns.all });
     },
-    onError: (e) => alert(isApiError(e) ? e.detail : e instanceof Error ? e.message : "처리 실패"),
+    onError: (e) => toast.error(isApiError(e) ? e.detail : e instanceof Error ? e.message : "처리 실패"),
     onSettled: () => setProcessing(null),
   });
 

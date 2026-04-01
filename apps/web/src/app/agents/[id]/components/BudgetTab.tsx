@@ -10,6 +10,7 @@ import {
 import { cn } from '@/lib/utils';
 import { agentApi } from '@/lib/agent-api';
 import { isApiError } from '@/lib/api-error';
+import { toast } from 'sonner';
 import { formatTokens, formatCost } from '@/lib/agent-utils';
 import type { Agent, AgentRuntimeState } from '@/lib/agent-types';
 
@@ -46,7 +47,7 @@ export function BudgetTab({
       setSavedMsg(true);
       setTimeout(() => setSavedMsg(false), 3000);
     } catch (err) {
-      alert(isApiError(err) ? err.detail : '예산 설정에 실패했습니다.');
+      toast.error(isApiError(err) ? err.detail : '예산 설정에 실패했습니다.');
     } finally {
       setSaving(false);
     }

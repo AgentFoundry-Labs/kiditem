@@ -1,6 +1,6 @@
 'use client';
 
-import { API_BASE } from '@/lib/api';
+import { apiClient } from '@/lib/api-client';
 import { Loader2, Send, Undo2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
@@ -30,17 +30,8 @@ export function AIDesignChatPanel({ getHtml, getCss, onApply, onUndo, canUndo }:
   });
 
   const modifyTemplate = useMutation({
-    mutationFn: async ({ html, prompt }: { html: string; prompt: string }) => {
-      const res = await fetch(`${API_BASE}/api/templates/modify`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ html, prompt }),
-      });
-      if (!res.ok) {
-        throw new Error(`API ${res.status}: ${await res.text()}`);
-      }
-      return (await res.json()) as { html: string };
-    },
+    mutationFn: ({ html, prompt }: { html: string; prompt: string }) =>
+      apiClient.post<{ html: string }>('/api/templates/modify', { html, prompt }),
     onSuccess: (result, { prompt }) => {
       onApply(result.html);
       setMessages((prev) => [...prev, { role: 'ai', content: `수정 완료: "${prompt}"`, timestamp: Date.now() }]);

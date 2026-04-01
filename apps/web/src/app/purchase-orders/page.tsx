@@ -5,6 +5,7 @@ import { Package, RefreshCw, Plus, Trash2 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
+import { toast } from 'sonner';
 import { queryKeys } from '@/lib/query-keys';
 import { formatKRW } from '@/lib/utils';
 import { Pagination } from '@/components/ui/Pagination';
@@ -116,7 +117,7 @@ export default function PurchaseOrdersPage() {
       apiClient.post<unknown>('/api/purchase-orders', { action: 'updateStatus', id: vars.id, status: vars.status }),
     onMutate: (vars) => setActionLoading(vars.id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.purchaseOrders.all }),
-    onError: (err) => alert(isApiError(err) ? err.detail : '상태 변경에 실패했습니다.'),
+    onError: (err) => toast.error(isApiError(err) ? err.detail : '상태 변경에 실패했습니다.'),
     onSettled: () => setActionLoading(null),
   });
 
@@ -125,7 +126,7 @@ export default function PurchaseOrdersPage() {
       apiClient.post<unknown>('/api/purchase-orders', { action: 'delete', id }),
     onMutate: (id) => setActionLoading(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.purchaseOrders.all }),
-    onError: (err) => alert(isApiError(err) ? err.detail : '삭제에 실패했습니다.'),
+    onError: (err) => toast.error(isApiError(err) ? err.detail : '삭제에 실패했습니다.'),
     onSettled: () => setActionLoading(null),
   });
 

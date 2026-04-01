@@ -4,7 +4,7 @@ import { Bell, Search, Clock, MinusCircle, AlertTriangle, Megaphone, Truck, Tren
 import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { API_BASE } from '@/lib/api';
+import { apiClient } from '@/lib/api-client';
 import { useStore } from '@/store/useStore';
 
 interface AlertItem {
@@ -50,11 +50,7 @@ export default function Header() {
 
   const { data: alerts = [] } = useQuery({
     queryKey: ['alerts'],
-    queryFn: async () => {
-      const res = await fetch(`${API_BASE}/api/alerts?limit=10`);
-      if (!res.ok) return [];
-      return res.json() as Promise<AlertItem[]>;
-    },
+    queryFn: () => apiClient.get<AlertItem[]>('/api/alerts?limit=10'),
   });
   const unreadCount = alerts.length;
 
@@ -76,14 +72,14 @@ export default function Header() {
   }, []);
 
   const markAsReadMutation = useMutation({
-    mutationFn: (id: string) => fetch(`${API_BASE}/api/alerts/${id}/read`, { method: 'PATCH' }),
+    mutationFn: (id: string) => apiClient.patch(`/api/alerts/${id}/read`, {}),
     onSuccess: (_, id) => {
       qc.setQueryData<AlertItem[]>(['alerts'], (old) => old?.filter(a => a.id !== id) ?? []);
     },
   });
 
   const markAllAsReadMutation = useMutation({
-    mutationFn: () => fetch(`${API_BASE}/api/alerts/read-all`, { method: 'PATCH' }),
+    mutationFn: () => apiClient.patch('/api/alerts/read-all', {}),
     onSuccess: () => {
       qc.setQueryData<AlertItem[]>(['alerts'], []);
     },

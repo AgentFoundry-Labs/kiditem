@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
+import { toast } from 'sonner';
 import { queryKeys } from '@/lib/query-keys';
 
 interface AddProductModalProps {
@@ -23,7 +24,7 @@ export default function AddProductModal({ onClose, onSaved }: AddProductModalPro
   const createProduct = useMutation({
     mutationFn: () => apiClient.post('/api/products', form),
     onSuccess: () => onSaved(),
-    onError: (err) => alert(isApiError(err) ? err.detail : "상품 등록 중 오류가 발생했습니다."),
+    onError: (err) => toast.error(isApiError(err) ? err.detail : "상품 등록 중 오류가 발생했습니다."),
   });
 
   const handleSubmit = (e: React.FormEvent) => {

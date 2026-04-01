@@ -40,4 +40,7 @@ export const apiClient = {
     request<T>(path, { method: 'DELETE' }),
   upload: <T>(path: string, formData: FormData) =>
     request<T>(path, { method: 'POST', body: formData }),
+  /** Response 객체 직접 반환 (blob, stream 등 non-JSON 응답용) */
+  fetchRaw: (path: string, init?: RequestInit): Promise<Response> =>
+    fetch(`${API_BASE}${path}`, init),
 };

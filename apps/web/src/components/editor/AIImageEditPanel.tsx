@@ -1,6 +1,6 @@
 'use client';
 
-import { API_BASE } from '@/lib/api';
+import { apiClient } from '@/lib/api-client';
 import {
   Eraser,
   Loader2,
@@ -57,22 +57,14 @@ async function submitImageEdit(params: {
   preset: string;
   user_prompt: string;
 }): Promise<{ taskId: string }> {
-  const res = await fetch(`${API_BASE}/api/image-ai/edit`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(params),
-  });
-  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
-  return res.json();
+  return apiClient.post<{ taskId: string }>('/api/image-ai/edit', params);
 }
 
 async function pollTaskResult(taskId: string): Promise<{ image_url: string }> {
   const maxAttempts = 60; // 60 * 2s = 120s max
   for (let i = 0; i < maxAttempts; i++) {
     await new Promise(r => setTimeout(r, 2000));
-    const res = await fetch(`${API_BASE}/api/agent-tasks/${taskId}`);
-    if (!res.ok) throw new Error(`Poll failed: ${res.status}`);
-    const task = await res.json();
+    const task = await apiClient.get<{ status: string; output: unknown; error?: string }>(`/api/agent-tasks/${taskId}`);
     if (task.status === 'completed') {
       const output = typeof task.output === 'string' ? JSON.parse(task.output) : task.output;
       if (!output?.image_url) throw new Error('결과 이미지가 없습니다');

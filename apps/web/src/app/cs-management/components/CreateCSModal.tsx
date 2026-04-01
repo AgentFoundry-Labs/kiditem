@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { isApiError } from '@/lib/api-error';
+import { toast } from 'sonner';
 
 export const CS_TYPE_LABELS: Record<string, string> = {
   as: "A/S",
@@ -45,7 +46,7 @@ export default function CreateCSModal({ onClose, onCreated }: CreateCSModalProps
     try {
       await onCreated(form);
     } catch (e) {
-      alert(isApiError(e) ? e.detail : "CS 등록에 실패했습니다.");
+      toast.error(isApiError(e) ? e.detail : "CS 등록에 실패했습니다.");
     } finally {
       setSubmitting(false);
     }

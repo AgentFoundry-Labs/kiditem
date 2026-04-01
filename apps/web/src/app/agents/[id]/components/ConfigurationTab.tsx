@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { isApiError } from '@/lib/api-error';
+import { toast } from 'sonner';
 import { ADAPTER_LABELS, ROLE_LABELS } from '@/lib/agent-types';
 import type { Agent } from '@/lib/agent-types';
 import { useUpdateAgent } from '@/hooks/use-agents';
@@ -103,7 +104,7 @@ export function ConfigurationTab({
           onSaved();
           onDirtyChange(false);
         } catch (err) {
-          alert(isApiError(err) ? err.detail : '설정 저장에 실패했습니다.');
+          toast.error(isApiError(err) ? err.detail : '설정 저장에 실패했습니다.');
         } finally {
           onSavingChange(false);
         }

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Package, AlertTriangle, Truck, Download, RefreshCw, ClipboardCheck, Barcode } from "lucide-react";
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
+import { toast } from 'sonner';
 import { queryKeys } from '@/lib/query-keys';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import PageSkeleton from "@/components/ui/PageSkeleton";
@@ -72,13 +73,13 @@ export default function InventoryPage() {
   const handleStockCheck = async () => {
     try {
       const data = await apiClient.get<{ total: number }>(`/api/inventory?status=reorder&limit=1`);
-      alert(`재고 부족 상품: ${data.total}건\n발주가 필요한 상품을 확인하세요.`);
+      toast.info(`재고 부족 상품: ${data.total}건 — 발주가 필요한 상품을 확인하세요.`);
       if (data.total > 0) {
         setFilter("reorder");
         setPage(1);
       }
     } catch (err) {
-      alert(isApiError(err) ? err.detail : "재고 부족 체크에 실패했습니다.");
+      toast.error(isApiError(err) ? err.detail : "재고 부족 체크에 실패했습니다.");
     }
   };
 
@@ -125,10 +126,10 @@ export default function InventoryPage() {
       }
 
       const result = await apiClient.patch<{ productName: string; received: number; currentStock: number }>(`/api/inventory/${invData.id}/receive`, { quantity: qty });
-      alert(`입고 완료\n상품: ${result.productName}\n입고 수량: ${result.received}개\n현재고: ${result.currentStock}개`);
+      toast.success(`입고 완료 — ${result.productName}: ${result.received}개 입고, 현재고 ${result.currentStock}개`);
       queryClient.invalidateQueries({ queryKey: queryKeys.inventory.all });
     } catch (err) {
-      alert(isApiError(err) ? err.detail : '입고 처리 중 오류가 발생했습니다.');
+      toast.error(isApiError(err) ? err.detail : '입고 처리 중 오류가 발생했습니다.');
     }
   };
 
@@ -179,11 +180,11 @@ ${barcodeItems.join('')}
   const coupangSync = useMutation({
     mutationFn: () => apiClient.post<{ synced?: number }>(`/api/coupang-sync/products`),
     onSuccess: (data) => {
-      alert(`쿠팡 동기화 완료: ${data.synced ?? 0}건 동기화됨`);
+      toast.success(`쿠팡 동기화 완료: ${data.synced ?? 0}건 동기화됨`);
       queryClient.invalidateQueries({ queryKey: queryKeys.inventory.all });
     },
     onError: (err) => {
-      alert(isApiError(err) ? err.detail : "쿠팡 동기화에 실패했습니다. 설정을 확인하세요.");
+      toast.error(isApiError(err) ? err.detail : "쿠팡 동기화에 실패했습니다. 설정을 확인하세요.");
     },
   });
   const syncing = coupangSync.isPending;

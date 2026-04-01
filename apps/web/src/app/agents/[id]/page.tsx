@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { isApiError } from '@/lib/api-error';
+import { toast } from 'sonner';
 import { queryKeys } from '@/lib/query-keys';
 import { useAgent, useAgentRuns, useAgentRuntimeState, useInvokeAgent, usePauseAgent, useResumeAgent, useResetAgentSession } from '@/hooks/use-agents';
 import { StatusBadge } from '@/components/ui/StatusBadge';
@@ -85,7 +86,7 @@ export default function AgentDetailPage() {
       else if (action === 'resume') await resumeAgent.mutateAsync(agent.id);
       else if (action === 'reset-session') await resetSession.mutateAsync(agent.id);
     } catch (err) {
-      alert(isApiError(err) ? err.detail : `작업(${action})에 실패했습니다.`);
+      toast.error(isApiError(err) ? err.detail : `작업(${action})에 실패했습니다.`);
     }
   };
 

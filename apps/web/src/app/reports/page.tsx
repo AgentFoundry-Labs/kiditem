@@ -1,6 +1,7 @@
 "use client";
 import { apiClient } from "@/lib/api-client";
 import { isApiError } from "@/lib/api-error";
+import { toast } from 'sonner';
 
 import { useState } from "react";
 import { FileSpreadsheet, Download } from "lucide-react";
@@ -74,7 +75,7 @@ export default function ReportsPage() {
 
       XLSX.writeFile(wb, fileName);
     } catch (e) {
-      alert(isApiError(e) ? e.detail : "리포트 생성 중 오류가 발생했습니다. 다시 시도해주세요.");
+      toast.error(isApiError(e) ? e.detail : "리포트 생성 중 오류가 발생했습니다. 다시 시도해주세요.");
     } finally {
       setGenerating(null);
     }

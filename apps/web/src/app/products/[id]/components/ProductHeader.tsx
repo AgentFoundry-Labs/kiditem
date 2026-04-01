@@ -6,41 +6,25 @@ import {
   Play,
   ChevronDown,
   BarChart3,
-  Loader2,
-  CheckCircle2,
-  XCircle,
-  X,
 } from 'lucide-react';
 import type { Workflow } from '../page';
-
-interface Toast {
-  message: string;
-  type: 'loading' | 'success' | 'error';
-  actions?: { type: string; label: string; reason?: string; params?: Record<string, any> }[];
-}
 
 interface ProductHeaderProps {
   workflows: Workflow[];
   showWfMenu: boolean;
-  toast: Toast | null;
   onToggleWfMenu: () => void;
   onCloseWfMenu: () => void;
   onRunWorkflow: (wf: Workflow) => void;
   onRunBatch: () => void;
-  onCloseToast: () => void;
-  onAction: (action: any) => void;
 }
 
 export default function ProductHeader({
   workflows,
   showWfMenu,
-  toast,
   onToggleWfMenu,
   onCloseWfMenu,
   onRunWorkflow,
   onRunBatch,
-  onCloseToast,
-  onAction,
 }: ProductHeaderProps) {
   return (
     <>
@@ -92,39 +76,6 @@ export default function ProductHeader({
           )}
         </div>
       </div>
-
-      {toast && (
-        <div className="fixed top-4 right-4 z-50 max-w-sm">
-          <div className={`flex items-center gap-2 px-4 py-2.5 rounded-t-lg text-sm font-medium ${
-            toast.type === "loading" ? "bg-blue-600 text-white" :
-            toast.type === "success" ? "bg-green-600 text-white" :
-            "bg-red-600 text-white"
-          } ${!toast.actions?.length ? "rounded-b-lg" : ""}`}>
-            {toast.type === "loading" && <Loader2 size={14} className="animate-spin" />}
-            {toast.type === "success" && <CheckCircle2 size={14} />}
-            {toast.type === "error" && <XCircle size={14} />}
-            {toast.message}
-            <button onClick={onCloseToast} className="ml-auto opacity-70 hover:opacity-100">
-              <X size={14} />
-            </button>
-          </div>
-          {toast.actions && toast.actions.length > 0 && (
-            <div className="bg-white border border-t-0 border-slate-200 rounded-b-lg shadow-lg p-2 space-y-1">
-              <p className="text-xs text-slate-400 px-2 pt-1">다음 액션</p>
-              {toast.actions.map((action, i) => (
-                <button
-                  key={i}
-                  onClick={() => { onCloseToast(); onAction(action); }}
-                  className="w-full text-left px-2 py-1.5 text-sm text-slate-700 hover:bg-slate-50 rounded flex items-center gap-1.5"
-                >
-                  <Play size={12} className="text-blue-500" />
-                  {action.label}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
     </>
   );
 }

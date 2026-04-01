@@ -1,6 +1,8 @@
 'use client';
 
 import { API_BASE } from '@/lib/api';
+import { apiClient } from '@/lib/api-client';
+import { toast } from 'sonner';
 import grapesjs, { type Editor } from 'grapesjs';
 import 'grapesjs/dist/css/grapes.min.css';
 import './grapesjs-editor.css';
@@ -497,7 +499,7 @@ function EditorToolbar({
 <body>${htmlStr}</body>
 </html>`;
 
-      const res = await fetch(`${API_BASE}/api/render-image`, {
+      const res = await apiClient.fetchRaw('/api/render-image', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ html: fullHtml }),
@@ -514,7 +516,7 @@ function EditorToolbar({
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch (err) {
-      console.error('Export failed:', err);
+      toast.error('이미지 내보내기에 실패했습니다.');
     } finally {
       setIsExporting(false);
     }
@@ -941,18 +943,12 @@ function RightPanel({
     onGeneratingChange?.(true);
     setAiFillStep('요청 전송 중...');
     try {
-      const res = await fetch(`${API_BASE}/api/products/${productId}/trigger-content-draft`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          seed_hook_text: seedHookText.trim() || undefined,
-          seed_hook_title_sub: seedHookTitleSub.trim() || undefined,
-          seed_hero_image: seedHeroImage || undefined,
-          color_image_urls: colorGuideEnabled && colorImageUrls.length >= 2 ? colorImageUrls : undefined,
-        }),
+      const { taskId } = await apiClient.post<{ taskId: string }>(`/api/products/${productId}/trigger-content-draft`, {
+        seed_hook_text: seedHookText.trim() || undefined,
+        seed_hook_title_sub: seedHookTitleSub.trim() || undefined,
+        seed_hero_image: seedHeroImage || undefined,
+        color_image_urls: colorGuideEnabled && colorImageUrls.length >= 2 ? colorImageUrls : undefined,
       });
-      if (!res.ok) throw new Error(`API ${res.status}`);
-      const { taskId } = await res.json();
       setAiFillTaskId(taskId);
       setAiFillStep('카피 생성 중...');
 
@@ -960,9 +956,10 @@ function RightPanel({
       const maxAttempts = 120;
       for (let i = 0; i < maxAttempts; i++) {
         await new Promise(r => setTimeout(r, 2000));
-        const statusRes = await fetch(`${API_BASE}/api/agent-tasks/${taskId}`);
-        if (!statusRes.ok) continue;
-        const task = await statusRes.json();
+        let task: any;
+        try {
+          task = await apiClient.get(`/api/agent-tasks/${taskId}`);
+        } catch { continue; }
 
         if (task.status === 'failed') {
           throw new Error(task.error || 'AI 생성에 실패했습니다');
@@ -998,7 +995,7 @@ function RightPanel({
       }
       throw new Error('시간 초과');
     } catch (err) {
-      console.error('AI generation failed:', err);
+      toast.error('AI 생성에 실패했습니다.');
     } finally {
       isBusy.current = false;
       setAiFillLoading(false);
@@ -1011,9 +1008,9 @@ function RightPanel({
   const handleAiFillCancel = useCallback(async () => {
     if (!aiFillTaskId) return;
     try {
-      await fetch(`${API_BASE}/api/agent-tasks/${aiFillTaskId}/cancel`, { method: 'POST' });
+      await apiClient.post(`/api/agent-tasks/${aiFillTaskId}/cancel`);
     } catch (err) {
-      console.error('Failed to cancel AI fill task:', err);
+      toast.error('AI 작업 취소에 실패했습니다.');
     }
   }, [aiFillTaskId]);
 
@@ -1021,23 +1018,18 @@ function RightPanel({
     if (!productId || colorImageUrls.length < 2) return;
     setColorGuideLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/agent-tasks`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          agentType: 'image_edit',
-          input: { preset: 'color_guide', image_urls: colorImageUrls, productId },
-        }),
+      const data = await apiClient.post<{ id?: string; taskId?: string }>('/api/agent-tasks', {
+        agentType: 'image_edit',
+        input: { preset: 'color_guide', image_urls: colorImageUrls, productId },
       });
-      if (!res.ok) throw new Error(`API ${res.status}`);
-      const data = await res.json();
       const taskId = data.id ?? data.taskId;
 
       for (let i = 0; i < 120; i++) {
         await new Promise(r => setTimeout(r, 2000));
-        const statusRes = await fetch(`${API_BASE}/api/agent-tasks/${taskId}`);
-        if (!statusRes.ok) continue;
-        const task = await statusRes.json();
+        let task: any;
+        try {
+          task = await apiClient.get(`/api/agent-tasks/${taskId}`);
+        } catch { continue; }
 
         if (task.status === 'failed') {
           throw new Error(task.error || '색상 안내 생성 실패');
@@ -1078,7 +1070,7 @@ function RightPanel({
         }
       }
     } catch (err) {
-      console.error('Color guide generation failed:', err);
+      toast.error('색상 가이드 생성에 실패했습니다.');
     } finally {
       setColorGuideLoading(false);
     }
@@ -1440,9 +1432,7 @@ export default function DetailPageEditor({
   const handleAiFillComplete = useCallback(async () => {
     if (!editorRef || !productId) return;
     try {
-      const res = await fetch(`${API_BASE}/api/products/${productId}/preview`);
-      if (!res.ok) return;
-      const preview = await res.json();
+      const preview = await apiClient.get<{ data: any }>(`/api/products/${productId}/preview`);
       const d = preview.data;
       if (!d) return;
 
@@ -1505,7 +1495,7 @@ export default function DetailPageEditor({
       const colorImgs = d.color_images ?? d.colorImages ?? [];
       fillSection('colorImages', colorImgs, '색상 안내');
     } catch (err) {
-      console.error('Canvas field update failed:', err);
+      toast.error('캔버스 필드 업데이트에 실패했습니다.');
     }
   }, [editorRef, productId]);
 

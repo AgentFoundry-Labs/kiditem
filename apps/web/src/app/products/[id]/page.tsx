@@ -2,6 +2,7 @@
 
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
+import { toast } from 'sonner';
 import PageSkeleton from "@/components/ui/PageSkeleton";
 import { useState, useRef, useEffect } from "react";
 import { useParams } from "next/navigation";
@@ -53,13 +54,7 @@ export default function ProductDetailPage() {
   const queryClient = useQueryClient();
 
   const [showWfMenu, setShowWfMenu] = useState(false);
-  const [toast, setToast] = useState<{
-    message: string;
-    type: "loading" | "success" | "error";
-    actions?: { type: string; label: string; reason?: string; params?: Record<string, any> }[];
-  } | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Main product + inventory fetch
   const { data: productData, isLoading: loading, error: productError } = useQuery({
@@ -145,26 +140,14 @@ export default function ProductDetailPage() {
     };
   }, []);
 
-  const showToast = (
-    message: string,
-    type: "loading" | "success" | "error",
-    opts?: { duration?: number; actions?: { type: string; label: string; reason?: string; params?: Record<string, any> }[] },
-  ) => {
-    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-    setToast({ message, type, actions: opts?.actions });
-    if (opts?.duration) {
-      toastTimerRef.current = setTimeout(() => setToast(null), opts.duration);
-    }
-  };
-
   const runWorkflow = async (wf: Workflow) => {
     setShowWfMenu(false);
-    showToast(`${wf.name} 실행 중...`, "loading");
+    const toastId = toast.loading(`${wf.name} 실행 중...`);
 
     try {
       const run = await apiClient.post<{ id: string }>(`/api/workflows/${wf.id}/run`, { context: { productId } });
 
-      showToast(`${wf.name} 완료, AI 분석 중...`, "loading");
+      toast.loading(`${wf.name} 완료, AI 분석 중...`, { id: toastId });
 
       pollRef.current = setInterval(async () => {
         const companyId = product?.companyId;
@@ -180,7 +163,7 @@ export default function ProductDetailPage() {
           if (eventTime > runStartTime) {
             if (pollRef.current) clearInterval(pollRef.current);
             pollRef.current = null;
-            showToast(`${wf.name} 분석 완료`, "success", { duration: 3000 });
+            toast.success(`${wf.name} 분석 완료`, { id: toastId, duration: 3000 });
             refreshActivities();
             return;
           }
@@ -192,18 +175,18 @@ export default function ProductDetailPage() {
         if (detail.status === "failed") {
           if (pollRef.current) clearInterval(pollRef.current);
           pollRef.current = null;
-          showToast(detail.error ?? `${wf.name} 실패`, "error", { duration: 5000 });
+          toast.error(detail.error ?? `${wf.name} 실패`, { id: toastId, duration: 5000 });
           refreshActivities();
         }
       }, 1500);
     } catch (err) {
-      showToast(isApiError(err) ? err.detail : "워크플로우 실행에 실패했습니다.", "error", { duration: 5000 });
+      toast.error(isApiError(err) ? err.detail : "워크플로우 실행에 실패했습니다.", { id: toastId, duration: 5000 });
     }
   };
 
   const runBatchWorkflows = async () => {
     setShowWfMenu(false);
-    showToast("전체 종합 점검 실행 중...", "loading");
+    const toastId = toast.loading("전체 종합 점검 실행 중...");
 
     try {
       const runs = await apiClient.post<{ id: string }[]>(`/api/workflows/batch-run`, { workflowIds: workflows.map((w) => w.id), context: { productId } });
@@ -224,7 +207,7 @@ export default function ProductDetailPage() {
           const done = await checkAll();
           if (done) {
             runsCompleted = true;
-            showToast("워크플로우 완료, AI 종합 분석 중...", "loading");
+            toast.loading("워크플로우 완료, AI 종합 분석 중...", { id: toastId });
             refreshActivities();
           }
           return;
@@ -243,13 +226,13 @@ export default function ProductDetailPage() {
           if (eventTime > batchStartTime) {
             if (pollRef.current) clearInterval(pollRef.current);
             pollRef.current = null;
-            showToast("전체 종합 점검 완료", "success", { duration: 5000 });
+            toast.success("전체 종합 점검 완료", { id: toastId, duration: 5000 });
             refreshActivities();
           }
         }
       }, 1500);
     } catch (err) {
-      showToast(isApiError(err) ? err.detail : "전체 종합 점검 실패", "error", { duration: 5000 });
+      toast.error(isApiError(err) ? err.detail : "전체 종합 점검 실패", { id: toastId, duration: 5000 });
     }
   };
 
@@ -270,15 +253,15 @@ export default function ProductDetailPage() {
         type === 'product.change_grade' ? { abcGrade: params.grade } :
         {}
       ).then(() => {
-        showToast(`${action.label} 완료`, "success", { duration: 3000 });
+        toast.success(`${action.label} 완료`, { duration: 3000 });
         refreshActivities();
       }).catch(() => {
-        showToast(`${action.label} 실패`, "error", { duration: 5000 });
+        toast.error(`${action.label} 실패`, { duration: 5000 });
       });
     } else if (type === 'inventory.create_purchase_order') {
       window.location.href = `/purchase-orders/new?productId=${params.productId}&quantity=${params.quantity ?? ''}`;
     } else if (type === 'report.export_excel') {
-      showToast("엑셀 다운로드 준비 중...", "loading");
+      toast.loading("엑셀 다운로드 준비 중...");
     }
   };
 
@@ -303,13 +286,10 @@ export default function ProductDetailPage() {
       <ProductHeader
         workflows={workflows}
         showWfMenu={showWfMenu}
-        toast={toast}
         onToggleWfMenu={() => setShowWfMenu((v) => !v)}
         onCloseWfMenu={() => setShowWfMenu(false)}
         onRunWorkflow={runWorkflow}
         onRunBatch={runBatchWorkflows}
-        onCloseToast={() => setToast(null)}
-        onAction={handleAction}
       />
 
       <ProductMetrics product={product} />

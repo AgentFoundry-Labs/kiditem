@@ -5,6 +5,7 @@ import { Zap } from 'lucide-react';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
+import { toast } from 'sonner';
 import { queryKeys } from '@/lib/query-keys';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { DashboardSummary as DashboardData, DashboardTrendItem as TrendPoint } from '@kiditem/shared';
@@ -180,10 +181,10 @@ export default function HomePage() {
           markActionCompleted(action.id);
           queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
         } else if (json.error) {
-          alert(`실행 실패: ${json.error}`);
+          toast.error(`실행 실패: ${json.error}`);
         }
       } catch (e) {
-        alert(isApiError(e) ? e.detail : '알 수 없는 오류가 발생했습니다.');
+        toast.error(isApiError(e) ? e.detail : '알 수 없는 오류가 발생했습니다.');
       } finally {
         setProcessingAction(null);
       }

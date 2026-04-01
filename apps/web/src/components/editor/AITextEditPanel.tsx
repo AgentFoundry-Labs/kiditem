@@ -1,6 +1,6 @@
 'use client';
 
-import { API_BASE } from '@/lib/api';
+import { apiClient } from '@/lib/api-client';
 import {
   AlignLeft,
   Check,
@@ -24,15 +24,7 @@ async function transformText(params: {
   preset: 'rewrite' | 'translate' | 'shorten' | 'custom';
   custom_prompt?: string;
 }): Promise<{ result: string }> {
-  const res = await fetch(`${API_BASE}/api/text-ai/transform`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(params),
-  });
-  if (!res.ok) {
-    throw new Error(`API ${res.status}: ${await res.text()}`);
-  }
-  return res.json();
+  return apiClient.post<{ result: string }>('/api/text-ai/transform', params);
 }
 
 function applyTextToComponent(component: any, newText: string): void {

@@ -7,6 +7,7 @@ import { List, GitBranch, RefreshCw, SlidersHorizontal, Plus, Bot, Store } from 
 import { cn } from '@/lib/utils';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { isApiError } from '@/lib/api-error';
+import { toast } from 'sonner';
 import { queryKeys } from '@/lib/query-keys';
 import { useAgents, useAgentOrg, useDeleteAgent } from '@/hooks/use-agents';
 import { useMarketplaceAgents, useInstallAgent, useUninstallAgent } from '@/hooks/use-marketplace';
@@ -73,7 +74,7 @@ export default function AgentsPage() {
       setInstallTarget(null);
       setPageTab('my');
     } catch (err) {
-      alert(isApiError(err) ? err.detail : '에이전트 설치에 실패했습니다.');
+      toast.error(isApiError(err) ? err.detail : '에이전트 설치에 실패했습니다.');
     }
   };
 
@@ -82,7 +83,7 @@ export default function AgentsPage() {
     try {
       await uninstallAgent.mutateAsync(marketplaceId);
     } catch (err) {
-      alert(isApiError(err) ? err.detail : '에이전트 제거에 실패했습니다.');
+      toast.error(isApiError(err) ? err.detail : '에이전트 제거에 실패했습니다.');
     }
   };
 
@@ -91,7 +92,7 @@ export default function AgentsPage() {
     try {
       await deleteAgent.mutateAsync(id);
     } catch (err) {
-      alert(isApiError(err) ? err.detail : '에이전트 삭제에 실패했습니다.');
+      toast.error(isApiError(err) ? err.detail : '에이전트 삭제에 실패했습니다.');
     }
   };
 
