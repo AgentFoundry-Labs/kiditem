@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { useQueryClient } from '@tanstack/react-query';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import {
   ArrowLeft,
@@ -17,11 +18,12 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { agentApi } from '@/lib/agent-api';
 import { isApiError } from '@/lib/api-error';
+import { queryKeys } from '@/lib/query-keys';
+import { useAgent, useAgentRuns, useAgentRuntimeState, useInvokeAgent, usePauseAgent, useResumeAgent, useResetAgentSession } from '@/hooks/use-agents';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { ROLE_LABELS } from '@/lib/agent-types';
-import type { Agent, HeartbeatRun, AgentRuntimeState, AgentDetailTab } from '@/lib/agent-types';
+import type { AgentDetailTab } from '@/lib/agent-types';
 
 import { DashboardTab } from './components/DashboardTab';
 import { InstructionsTab } from './components/InstructionsTab';
@@ -48,17 +50,12 @@ const TAB_LABELS: Record<AgentDetailTab, string> = {
 export default function AgentDetailPage() {
   const params = useParams();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const id = typeof params?.id === 'string' ? params.id : '';
 
-  const [agent, setAgent] = useState<Agent | null>(null);
-  const [runs, setRuns] = useState<HeartbeatRun[]>([]);
-  const [runtimeState, setRuntimeState] = useState<AgentRuntimeState | null>(null);
   const [activeTab, setActiveTab] = useState<AgentDetailTab>('dashboard');
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
-  const [actionLoading, setActionLoading] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
   const [moreOpen, setMoreOpen] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   // config dirty/saving state for floating save bar
   const [configDirty, setConfigDirty] = useState(false);
@@ -66,30 +63,37 @@ export default function AgentDetailPage() {
   const saveConfigRef = useRef<(() => void) | null>(null);
   const cancelConfigRef = useRef<(() => void) | null>(null);
 
-  const fetchData = useCallback(async () => {
-    if (!id) return;
-    try {
-      const [agentData, runsData, stateData] = await Promise.all([
-        agentApi.get(id),
-        agentApi.getRuns(id, 30),
-        agentApi.getRuntimeState(id).catch(() => null),
-      ]);
-      setAgent(agentData);
-      setRuns(Array.isArray(runsData) ? runsData : []);
-      setRuntimeState(stateData);
-      setError(null);
-    } catch (err) {
-      setError(isApiError(err) ? err.detail : '에이전트 정보를 불러오는데 실패했습니다.');
-    } finally {
-      setLoading(false);
-    }
-  }, [id]);
+  // Queries
+  const { data: agent, isLoading: agentLoading, error: agentError } = useAgent(id, { refetchInterval: 15_000 });
+  const { data: runsData, isLoading: runsLoading } = useAgentRuns(id, 30, { refetchInterval: 15_000 });
+  const { data: runtimeState = null } = useAgentRuntimeState(id, { refetchInterval: 15_000 });
+  const runs = Array.isArray(runsData) ? runsData : [];
+  const loading = agentLoading || runsLoading;
+  const error = agentError ? (isApiError(agentError) ? agentError.detail : '에이전트 정보를 불러오는데 실패했습니다.') : null;
 
-  useEffect(() => {
-    fetchData();
-    const interval = setInterval(fetchData, 15_000);
-    return () => clearInterval(interval);
-  }, [fetchData]);
+  // Mutations
+  const invokeAgent = useInvokeAgent();
+  const pauseAgent = usePauseAgent();
+  const resumeAgent = useResumeAgent();
+  const resetSession = useResetAgentSession();
+
+  const handleAction = async (action: string) => {
+    if (!agent) return;
+    try {
+      if (action === 'run') await invokeAgent.mutateAsync(agent.id);
+      else if (action === 'pause') await pauseAgent.mutateAsync({ id: agent.id });
+      else if (action === 'resume') await resumeAgent.mutateAsync(agent.id);
+      else if (action === 'reset-session') await resetSession.mutateAsync(agent.id);
+    } catch (err) {
+      alert(isApiError(err) ? err.detail : `작업(${action})에 실패했습니다.`);
+    }
+  };
+
+  const actionLoading = invokeAgent.isPending ? 'run'
+    : pauseAgent.isPending ? 'pause'
+    : resumeAgent.isPending ? 'resume'
+    : resetSession.isPending ? 'reset-session'
+    : null;
 
   // reset dirty on tab switch
   useEffect(() => {
@@ -97,21 +101,7 @@ export default function AgentDetailPage() {
     setConfigSaving(false);
   }, [activeTab]);
 
-  const handleAction = async (action: string) => {
-    if (!agent) return;
-    setActionLoading(action);
-    try {
-      if (action === 'run') await agentApi.invoke(agent.id);
-      else if (action === 'pause') await agentApi.pause(agent.id);
-      else if (action === 'resume') await agentApi.resume(agent.id);
-      else if (action === 'reset-session') await agentApi.resetSession(agent.id);
-      await fetchData();
-    } catch (err) {
-      alert(isApiError(err) ? err.detail : `작업(${action})에 실패했습니다.`);
-    } finally {
-      setActionLoading(null);
-    }
-  };
+  const invalidateAgent = () => queryClient.invalidateQueries({ queryKey: queryKeys.agents.detail(id) });
 
   if (loading) {
     return (
@@ -142,7 +132,6 @@ export default function AgentDetailPage() {
       {error && (
         <div className="mb-4 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           <span>{error}</span>
-          <button onClick={() => setError(null)} className="ml-auto text-red-400 hover:text-red-600">&times;</button>
         </div>
       )}
       {/* Breadcrumb */}
@@ -298,7 +287,7 @@ export default function AgentDetailPage() {
           onSaveAction={(fn) => { saveConfigRef.current = fn; }}
           onCancelAction={(fn) => { cancelConfigRef.current = fn; }}
           onSavingChange={setConfigSaving}
-          onSaved={fetchData}
+          onSaved={invalidateAgent}
         />
       )}
       {activeTab === 'skills' && (
@@ -311,14 +300,14 @@ export default function AgentDetailPage() {
           onSaveAction={(fn) => { saveConfigRef.current = fn; }}
           onCancelAction={(fn) => { cancelConfigRef.current = fn; }}
           onSavingChange={setConfigSaving}
-          onSaved={fetchData}
+          onSaved={invalidateAgent}
         />
       )}
       {activeTab === 'runs' && (
         <RunsTab runs={runs} selectedRunId={selectedRunId} onSelectRun={setSelectedRunId} />
       )}
       {activeTab === 'budget' && (
-        <BudgetTab agent={agent} runtimeState={runtimeState} onSaved={fetchData} />
+        <BudgetTab agent={agent} runtimeState={runtimeState} onSaved={invalidateAgent} />
       )}
     </div>
   );

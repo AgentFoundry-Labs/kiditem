@@ -1,14 +1,13 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Plus, Filter, AlertCircle, Store } from 'lucide-react';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { isApiError } from '@/lib/api-error';
-import { workflowApi } from '@/lib/workflow-api';
-import type { WorkflowTemplate } from '@/lib/workflow-types';
-import WorkflowList from '@/components/workflows/WorkflowList';
-import { marketplaceApi } from '@/lib/marketplace-api';
+import { useWorkflows, useToggleWorkflow, useDeleteWorkflow } from '@/hooks/use-workflows';
+import { useMarketplaceWorkflows, useInstallWorkflow, useUninstallWorkflow } from '@/hooks/use-marketplace';
 import type { WorkflowCatalogItem, MarketplaceTab } from '@/lib/marketplace-types';
+import WorkflowList from '@/components/workflows/WorkflowList';
 import { MarketplaceCard } from '@/components/marketplace/MarketplaceCard';
 import { InstallModal } from '@/components/marketplace/InstallModal';
 
@@ -32,27 +31,23 @@ const categoryFilters: { id: string; label: string }[] = [
 
 export default function WorkflowsPage() {
   const [tab, setTab] = useState<MarketplaceTab>('my');
-  const [templates, setTemplates] = useState<WorkflowTemplate[]>([]);
-  const [catalog, setCatalog] = useState<WorkflowCatalogItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<string>('all');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
-
-  // Install modal
   const [installTarget, setInstallTarget] = useState<WorkflowCatalogItem | null>(null);
-  const [installing, setInstalling] = useState(false);
 
-  useEffect(() => {
-    setLoading(true);
-    Promise.all([
-      workflowApi.list().catch(() => [] as WorkflowTemplate[]),
-      marketplaceApi.listWorkflows().catch(() => [] as WorkflowCatalogItem[]),
-    ])
-      .then(([t, c]) => { setTemplates(t); setCatalog(c); })
-      .catch((err) => setError(isApiError(err) ? err.detail : '워크플로우를 불러오는데 실패했습니다.'))
-      .finally(() => setLoading(false));
-  }, [tab]);
+  // Queries
+  const { data: templates = [], isLoading: templatesLoading, error: templatesError } = useWorkflows();
+  const { data: catalog = [], isLoading: catalogLoading } = useMarketplaceWorkflows();
+
+  const loading = templatesLoading || catalogLoading;
+  const error = templatesError ? (isApiError(templatesError) ? templatesError.detail : '워크플로우를 불러오는데 실패했습니다.') : null;
+
+  // Mutations
+  const installWorkflow = useInstallWorkflow();
+  const uninstallWorkflow = useUninstallWorkflow();
+  const toggleWorkflow = useToggleWorkflow();
+  const deleteWorkflow = useDeleteWorkflow();
+  const installing = installWorkflow.isPending;
 
   const filteredTemplates =
     filter === 'all'
@@ -64,55 +59,39 @@ export default function WorkflowsPage() {
       ? catalog
       : catalog.filter((c) => c.category === categoryFilter);
 
-  const reloadAll = async () => {
-    const [updated, updatedCatalog] = await Promise.all([
-      workflowApi.list(),
-      marketplaceApi.listWorkflows(),
-    ]);
-    setTemplates(updated);
-    setCatalog(updatedCatalog);
-  };
-
   const handleInstall = async (params: Record<string, any>) => {
     if (!installTarget) return;
-    setInstalling(true);
     try {
-      await marketplaceApi.installWorkflow(installTarget.id, { params });
+      await installWorkflow.mutateAsync({ id: installTarget.id, params });
       setInstallTarget(null);
       setTab('my');
-      await reloadAll();
     } catch (err) {
-      setError(isApiError(err) ? err.detail : '워크플로우 설치에 실패했습니다.');
-    } finally {
-      setInstalling(false);
+      alert(isApiError(err) ? err.detail : '워크플로우 설치에 실패했습니다.');
     }
   };
 
   const handleUninstall = async (marketplaceId: string) => {
     if (!confirm('이 워크플로우를 삭제하시겠습니까?')) return;
     try {
-      await marketplaceApi.uninstallWorkflow(marketplaceId);
-      await reloadAll();
+      await uninstallWorkflow.mutateAsync(marketplaceId);
     } catch (err) {
-      setError(isApiError(err) ? err.detail : '워크플로우 제거에 실패했습니다.');
+      alert(isApiError(err) ? err.detail : '워크플로우 제거에 실패했습니다.');
     }
   };
 
   const handleToggleActive = async (id: string, isActive: boolean) => {
     try {
-      await workflowApi.toggleActive(id, isActive);
-      await reloadAll();
+      await toggleWorkflow.mutateAsync({ id, isActive });
     } catch (err) {
-      setError(isApiError(err) ? err.detail : '워크플로우 상태 변경에 실패했습니다.');
+      alert(isApiError(err) ? err.detail : '워크플로우 상태 변경에 실패했습니다.');
     }
   };
 
   const handleDelete = async (id: string) => {
     try {
-      await workflowApi.delete(id);
-      await reloadAll();
+      await deleteWorkflow.mutateAsync(id);
     } catch (err) {
-      setError(isApiError(err) ? err.detail : '워크플로우 삭제에 실패했습니다.');
+      alert(isApiError(err) ? err.detail : '워크플로우 삭제에 실패했습니다.');
     }
   };
 

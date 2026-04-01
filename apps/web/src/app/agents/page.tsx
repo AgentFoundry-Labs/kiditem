@@ -1,14 +1,16 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
 import { List, GitBranch, RefreshCw, SlidersHorizontal, Plus, Bot, Store } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import PageSkeleton from '@/components/ui/PageSkeleton';
-import { agentApi } from '@/lib/agent-api';
 import { isApiError } from '@/lib/api-error';
+import { queryKeys } from '@/lib/query-keys';
+import { useAgents, useAgentOrg, useDeleteAgent } from '@/hooks/use-agents';
+import { useMarketplaceAgents, useInstallAgent, useUninstallAgent } from '@/hooks/use-marketplace';
 import type { Agent, OrgNode, FilterTab, ViewMode } from '@/lib/agent-types';
-import { marketplaceApi } from '@/lib/marketplace-api';
 import type { AgentCatalogItem, MarketplaceTab } from '@/lib/marketplace-types';
 import { AgentListRow } from './components/AgentListRow';
 import { OrgTreeNode } from './components/OrgTreeNode';
@@ -35,55 +37,29 @@ function filterOrgTree(nodes: OrgNode[], tab: FilterTab, showTerminated: boolean
 
 export default function AgentsPage() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [pageTab, setPageTab] = useState<MarketplaceTab>('my');
-  const [agents, setAgents] = useState<Agent[]>([]);
-  const [orgTree, setOrgTree] = useState<OrgNode[]>([]);
   const [view, setView] = useState<ViewMode>('list');
   const [filter, setFilter] = useState<FilterTab>('all');
-  const [loading, setLoading] = useState(true);
   const [showTerminated, setShowTerminated] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
-
-  // Marketplace state
-  const [catalog, setCatalog] = useState<AgentCatalogItem[]>([]);
-  const [catalogLoading, setCatalogLoading] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [installTarget, setInstallTarget] = useState<AgentCatalogItem | null>(null);
-  const [installing, setInstalling] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
-  const fetchAll = useCallback(async () => {
-    try {
-      const [agentList, org] = await Promise.all([
-        agentApi.list(),
-        agentApi.org(),
-      ]);
-      setAgents(agentList);
-      setOrgTree(org);
-      setError(null);
-    } catch (err) {
-      setError(isApiError(err) ? err.detail : '에이전트를 불러오는데 실패했습니다.');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  // Queries
+  const { data: agents = [], isLoading: loading, error: agentsError } = useAgents({ refetchInterval: 15_000 });
+  const { data: orgTree = [] } = useAgentOrg({ refetchInterval: 15_000 });
+  const { data: catalog = [], isLoading: catalogLoading } = useMarketplaceAgents(undefined, {
+    enabled: pageTab === 'marketplace',
+  });
 
-  useEffect(() => {
-    fetchAll();
-    const interval = setInterval(fetchAll, 15_000);
-    return () => clearInterval(interval);
-  }, [fetchAll]);
+  const error = agentsError ? (isApiError(agentsError) ? agentsError.detail : '에이전트를 불러오는데 실패했습니다.') : null;
 
-  useEffect(() => {
-    if (pageTab === 'marketplace') {
-      setCatalogLoading(true);
-      marketplaceApi
-        .listAgents()
-        .then(setCatalog)
-        .catch((err) => console.error('Failed to fetch agent catalog:', err))
-        .finally(() => setCatalogLoading(false));
-    }
-  }, [pageTab]);
+  // Mutations
+  const installAgent = useInstallAgent();
+  const uninstallAgent = useUninstallAgent();
+  const deleteAgent = useDeleteAgent();
+  const installing = installAgent.isPending;
 
   const filteredCatalog =
     categoryFilter === 'all'
@@ -92,28 +68,19 @@ export default function AgentsPage() {
 
   const handleInstallAgent = async (params: Record<string, any>) => {
     if (!installTarget) return;
-    setInstalling(true);
     try {
-      await marketplaceApi.installAgent(installTarget.id, { params });
+      await installAgent.mutateAsync({ id: installTarget.id, params });
       setInstallTarget(null);
       setPageTab('my');
-      const updatedCatalog = await marketplaceApi.listAgents();
-      setCatalog(updatedCatalog);
-      await fetchAll();
     } catch (err) {
       alert(isApiError(err) ? err.detail : '에이전트 설치에 실패했습니다.');
-    } finally {
-      setInstalling(false);
     }
   };
 
   const handleUninstallAgent = async (marketplaceId: string) => {
     if (!confirm('이 에이전트를 삭제하시겠습니까?')) return;
     try {
-      await marketplaceApi.uninstallAgent(marketplaceId);
-      const updatedCatalog = await marketplaceApi.listAgents();
-      setCatalog(updatedCatalog);
-      await fetchAll();
+      await uninstallAgent.mutateAsync(marketplaceId);
     } catch (err) {
       alert(isApiError(err) ? err.detail : '에이전트 제거에 실패했습니다.');
     }
@@ -122,8 +89,7 @@ export default function AgentsPage() {
   const handleDeleteAgent = async (id: string) => {
     if (!confirm('이 에이전트를 삭제하시겠습니까?')) return;
     try {
-      await agentApi.delete(id);
-      await fetchAll();
+      await deleteAgent.mutateAsync(id);
     } catch (err) {
       alert(isApiError(err) ? err.detail : '에이전트 삭제에 실패했습니다.');
     }
@@ -160,7 +126,6 @@ export default function AgentsPage() {
       {error && (
         <div className="mb-4 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           <span>{error}</span>
-          <button onClick={() => setError(null)} className="ml-auto text-red-400 hover:text-red-600">&times;</button>
         </div>
       )}
       {/* Tabs */}
@@ -288,7 +253,10 @@ export default function AgentsPage() {
           </div>
 
           <button
-            onClick={fetchAll}
+            onClick={() => {
+              queryClient.invalidateQueries({ queryKey: queryKeys.agents.all });
+              queryClient.invalidateQueries({ queryKey: queryKeys.marketplace.agents() });
+            }}
             className="p-1.5 text-gray-400 hover:text-gray-600 border border-gray-200 rounded-lg transition-colors"
             title="새로고침"
           >

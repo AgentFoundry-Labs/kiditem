@@ -1,10 +1,12 @@
 'use client'
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Zap } from 'lucide-react';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
+import { queryKeys } from '@/lib/query-keys';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { DashboardSummary as DashboardData, DashboardTrendItem as TrendPoint } from '@kiditem/shared';
 import KpiCards from '@/components/dashboard/KpiCards';
 import HealthSummaryCard from '@/components/dashboard/HealthSummaryCard';
@@ -88,13 +90,8 @@ function generateTasksAndActions(d: DashboardData): { tasks: HumanTask[]; action
 }
 
 export default function HomePage() {
-  const [data, setData] = useState<DashboardData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [humanTasks, setHumanTasks] = useState<HumanTask[]>([]);
-  const [aiActions, setAiActions] = useState<AiAction[]>([]);
+  const queryClient = useQueryClient();
   const [trendRange, setTrendRange] = useState<TrendRange>('30d');
-  const [trendData, setTrendData] = useState<TrendPoint[]>([]);
-  const [trendLoading, setTrendLoading] = useState(false);
   const [processingAction, setProcessingAction] = useState<string | null>(null);
   const [completedActions, setCompletedActions] = useState<Record<string, boolean>>({});
   const [checkedTasks, setCheckedTasks] = useState<Record<string, boolean>>(() => {
@@ -109,10 +106,8 @@ export default function HomePage() {
       return {};
     } catch { return {}; }
   });
-  const [healthSummary, setHealthSummary] = useState<HealthSummary | null>(null);
-  const [healthLoading, setHealthLoading] = useState(true);
-  const [evaluating, setEvaluating] = useState(false);
 
+  // Persist checked tasks to localStorage
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const ids = Object.keys(checkedTasks).filter(k => checkedTasks[k]);
@@ -120,66 +115,39 @@ export default function HomePage() {
     }
   }, [checkedTasks]);
 
-  const fetchDashboard = useCallback(async () => {
-    try {
-      const json = await apiClient.get<DashboardData>('/api/dashboard');
-      setData(json);
-      const { tasks, actions } = generateTasksAndActions(json);
-      setHumanTasks(tasks);
-      setAiActions(actions);
-    } catch (err) {
-      console.error('Error fetching dashboard', isApiError(err) ? err.detail : err);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  // Dashboard summary query
+  const { data, isLoading: loading } = useQuery({
+    queryKey: queryKeys.dashboard.summary(),
+    queryFn: () => apiClient.get<DashboardData>('/api/dashboard'),
+  });
 
-  const fetchTrend = useCallback(async (range: TrendRange) => {
-    setTrendLoading(true);
-    try {
-      const json = await apiClient.get<TrendPoint[]>(`/api/dashboard/trend?range=${range}`);
-      setTrendData(json);
-    } catch (err) {
-      console.error('Error fetching trend', isApiError(err) ? err.detail : err);
-    } finally {
-      setTrendLoading(false);
-    }
-  }, []);
+  // Trend query
+  const { data: trendData = [], isLoading: trendLoading } = useQuery({
+    queryKey: queryKeys.dashboard.trend(trendRange),
+    queryFn: () => apiClient.get<TrendPoint[]>(`/api/dashboard/trend?range=${trendRange}`),
+  });
 
-  useEffect(() => {
-    fetchDashboard();
-  }, [fetchDashboard]);
+  // Health summary query
+  const { data: healthSummary = null, isLoading: healthLoading } = useQuery({
+    queryKey: queryKeys.dashboard.health(),
+    queryFn: () => apiClient.get<HealthSummary>('/api/rules/summary'),
+  });
 
-  useEffect(() => {
-    fetchTrend(trendRange);
-  }, [trendRange, fetchTrend]);
+  // Derived state from dashboard data
+  const { tasks: humanTasks, actions: aiActions } = useMemo(
+    () => data ? generateTasksAndActions(data) : { tasks: [] as HumanTask[], actions: [] as AiAction[] },
+    [data],
+  );
 
-  const fetchHealthSummary = useCallback(async () => {
-    try {
-      const json = await apiClient.get<HealthSummary>('/api/rules/summary');
-      setHealthSummary(json);
-    } catch (err) {
-      console.error('Error fetching health summary', isApiError(err) ? err.detail : err);
-    } finally {
-      setHealthLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchHealthSummary();
-  }, [fetchHealthSummary]);
-
-  const handleEvaluate = async () => {
-    setEvaluating(true);
-    try {
-      await apiClient.post('/api/rules/evaluate');
-      await fetchHealthSummary();
-    } catch (err) {
-      console.error('Error evaluating', isApiError(err) ? err.detail : err);
-    } finally {
-      setEvaluating(false);
-    }
-  };
+  // Evaluate mutation
+  const evaluateMutation = useMutation({
+    mutationFn: () => apiClient.post('/api/rules/evaluate'),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.health() });
+    },
+  });
+  const evaluating = evaluateMutation.isPending;
+  const handleEvaluate = () => evaluateMutation.mutate();
 
   const toggleTask = (id: string) => {
     setCheckedTasks(prev => {
@@ -210,7 +178,7 @@ export default function HomePage() {
         );
         if (json.success || json.updatedCount !== undefined) {
           markActionCompleted(action.id);
-          fetchDashboard();
+          queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
         } else if (json.error) {
           alert(`실행 실패: ${json.error}`);
         }

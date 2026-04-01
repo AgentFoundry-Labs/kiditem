@@ -1,66 +1,54 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useState } from "react";
 import { Package, AlertTriangle, Truck, Download, RefreshCw, ClipboardCheck, Barcode } from "lucide-react";
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
+import { queryKeys } from '@/lib/query-keys';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import PageSkeleton from "@/components/ui/PageSkeleton";
 import { timeAgo } from "@/lib/utils";
 import { Pagination } from "@/components/ui/Pagination";
 import type { InventoryItem, InventorySummary, SyncInfo } from '@kiditem/shared';
+
+const DEFAULT_SUMMARY: InventorySummary = { total: 0, reorderCount: 0, outOfStockCount: 0, unsyncedCount: 0, overstockCount: 0 };
 
 function isUnsynced(item: InventoryItem): boolean {
   return item.currentStock === 0 && item.avgDailySales === 0 && item.optimalStock <= item.safetyStock;
 }
 
 export default function InventoryPage() {
-  const [items, setItems] = useState<InventoryItem[]>([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
   const [filter, setFilter] = useState("all");
   const [page, setPage] = useState(1);
-  const [syncInfo, setSyncInfo] = useState<SyncInfo | null>(null);
-  const [summary, setSummary] = useState<InventorySummary>({ total: 0, reorderCount: 0, outOfStockCount: 0, unsyncedCount: 0, overstockCount: 0 });
   const PAGE_SIZE = 50;
 
-  const fetchInventory = useCallback(async (p = page, f = filter) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const params = new URLSearchParams({
-        page: String(p),
-        limit: String(PAGE_SIZE),
-      });
-      if (f !== "all") params.set("status", f);
-      const data = await apiClient.get<{ items: InventoryItem[]; total: number; summary?: InventorySummary }>(`/api/inventory?${params}`);
-      setItems(data.items);
-      setTotal(data.total);
-      if (data.summary) setSummary(data.summary);
-    } catch (err) {
-      setError(isApiError(err) ? err.detail : "재고 데이터를 불러오지 못했습니다.");
-    } finally {
-      setLoading(false);
-    }
-  }, [page, filter]);
+  // Inventory list query
+  const { data: inventoryData, isLoading: loading, error: inventoryError } = useQuery({
+    queryKey: queryKeys.inventory.list({ filter, page: String(page) }),
+    queryFn: () => {
+      const params = new URLSearchParams({ page: String(page), limit: String(PAGE_SIZE) });
+      if (filter !== "all") params.set("status", filter);
+      return apiClient.get<{ items: InventoryItem[]; total: number; summary?: InventorySummary }>(`/api/inventory?${params}`);
+    },
+  });
+  const items = inventoryData?.items ?? [];
+  const total = inventoryData?.total ?? 0;
+  const summary = inventoryData?.summary ?? DEFAULT_SUMMARY;
+  const error = inventoryError ? (isApiError(inventoryError) ? inventoryError.detail : "재고 데이터를 불러오지 못했습니다.") : null;
 
-  useEffect(() => {
-    // Fetch sync info
-    apiClient.get<{ lastSyncedAt: string | null }>(`/api/coupang-dashboard`)
-      .then(data => setSyncInfo({ lastSyncedAt: data.lastSyncedAt }))
-      .catch(() => setSyncInfo({ lastSyncedAt: null }));
-  }, []);
-
-  useEffect(() => {
-    fetchInventory(1, filter);
-    setPage(1);
-  }, [filter]);
-
-  useEffect(() => {
-    fetchInventory();
-  }, [page]);
-
-  const [syncing, setSyncing] = useState(false);
+  // Sync info query (shared with products page)
+  const { data: syncInfo } = useQuery({
+    queryKey: queryKeys.syncInfo(),
+    queryFn: async () => {
+      try {
+        const data = await apiClient.get<{ lastSyncedAt: string | null }>(`/api/coupang-dashboard`);
+        return { lastSyncedAt: data.lastSyncedAt } as SyncInfo;
+      } catch {
+        return { lastSyncedAt: null } as SyncInfo;
+      }
+    },
+  });
 
   const handleExcel = async () => {
     const params = new URLSearchParams({ limit: "10000" });
@@ -87,6 +75,7 @@ export default function InventoryPage() {
       alert(`재고 부족 상품: ${data.total}건\n발주가 필요한 상품을 확인하세요.`);
       if (data.total > 0) {
         setFilter("reorder");
+        setPage(1);
       }
     } catch (err) {
       alert(isApiError(err) ? err.detail : "재고 부족 체크에 실패했습니다.");
@@ -137,7 +126,7 @@ export default function InventoryPage() {
 
       const result = await apiClient.patch<{ productName: string; received: number; currentStock: number }>(`/api/inventory/${invData.id}/receive`, { quantity: qty });
       alert(`입고 완료\n상품: ${result.productName}\n입고 수량: ${result.received}개\n현재고: ${result.currentStock}개`);
-      fetchInventory();
+      queryClient.invalidateQueries({ queryKey: queryKeys.inventory.all });
     } catch (err) {
       alert(isApiError(err) ? err.detail : '입고 처리 중 오류가 발생했습니다.');
     }
@@ -187,18 +176,21 @@ ${barcodeItems.join('')}
     }
   };
 
-  const handleCoupangSync = async () => {
-    if (syncing) return;
-    setSyncing(true);
-    try {
-      const data = await apiClient.post<{ synced?: number }>(`/api/coupang-sync/products`);
+  const coupangSync = useMutation({
+    mutationFn: () => apiClient.post<{ synced?: number }>(`/api/coupang-sync/products`),
+    onSuccess: (data) => {
       alert(`쿠팡 동기화 완료: ${data.synced ?? 0}건 동기화됨`);
-      fetchInventory();
-    } catch (err) {
+      queryClient.invalidateQueries({ queryKey: queryKeys.inventory.all });
+    },
+    onError: (err) => {
       alert(isApiError(err) ? err.detail : "쿠팡 동기화에 실패했습니다. 설정을 확인하세요.");
-    } finally {
-      setSyncing(false);
-    }
+    },
+  });
+  const syncing = coupangSync.isPending;
+
+  const handleCoupangSync = () => {
+    if (syncing) return;
+    coupangSync.mutate();
   };
 
 
@@ -270,7 +262,7 @@ ${barcodeItems.join('')}
           { key: "reorder", label: "발주 필요", count: summary.reorderCount },
           { key: "overstock", label: "과재고", count: summary.overstockCount },
         ].map((f) => (
-          <button key={f.key} onClick={() => setFilter(f.key)} className={`px-4 py-2 rounded-lg text-sm font-medium ${filter === f.key ? "bg-blue-600 text-white" : "bg-white border border-slate-200 hover:bg-slate-50"}`}>
+          <button key={f.key} onClick={() => { setFilter(f.key); setPage(1); }} className={`px-4 py-2 rounded-lg text-sm font-medium ${filter === f.key ? "bg-blue-600 text-white" : "bg-white border border-slate-200 hover:bg-slate-50"}`}>
             {f.label} ({f.count.toLocaleString('ko-KR')})
           </button>
         ))}

@@ -2,8 +2,10 @@
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
 import type { ProductListItem as Product, SyncInfo, PipelineCounts } from '@kiditem/shared';
+import { queryKeys } from '@/lib/query-keys';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useState, useRef } from "react";
 import { Plus, Download, Search, BarChart3 } from "lucide-react";
 import { timeAgo } from "@/lib/utils";
 import { Pagination } from "@/components/ui/Pagination";
@@ -12,77 +14,66 @@ import ProductPipeline from "./components/ProductPipeline";
 import AddProductModal from "./components/AddProductModal";
 import ProductListItem from "./components/ProductListItem";
 
+const DEFAULT_PIPELINE: PipelineCounts = { total: 0, gradeA: 0, gradeB: 0, gradeC: 0, minus: 0, low: 0, gradeChangeA: 0, gradeChangeB: 0, gradeChangeC: 0, adCount: 0, noAdCount: 0 };
+
 export default function ProductsPage() {
-  const [products, setProducts] = useState<Product[]>([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
+  const [submittedSearch, setSubmittedSearch] = useState("");
   const [gradeFilter, setGradeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("active");
   const [adFilter, setAdFilter] = useState("all");
   const [showModal, setShowModal] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
-  const [syncInfo, setSyncInfo] = useState<SyncInfo | null>(null);
   const [period, setPeriod] = useState(7);
-  const [pipelineCounts, setPipelineCounts] = useState<PipelineCounts>({ total: 0, gradeA: 0, gradeB: 0, gradeC: 0, minus: 0, low: 0, gradeChangeA: 0, gradeChangeB: 0, gradeChangeC: 0, adCount: 0, noAdCount: 0 });
   const [trafficMsg, setTrafficMsg] = useState("");
   const trafficRef = useRef<HTMLInputElement>(null);
   const PAGE_SIZE = 50;
 
-  const fetchProducts = useCallback(async (p = page) => {
-    setLoading(true);
-    const params = new URLSearchParams();
-    if (gradeFilter !== "all") params.set("grade", gradeFilter);
-    if (statusFilter !== "all") params.set("status", statusFilter);
-    if (search) params.set("search", search);
-    params.set("page", String(p));
-    params.set("limit", String(PAGE_SIZE));
-    params.set("period", String(period));
-    try {
-      const data = await apiClient.get<{ items: Product[]; total: number }>(`/api/products?${params}`);
-      setProducts(data.items);
-      setTotal(data.total);
-      setError(null);
-    } catch (err) {
-      setError(isApiError(err) ? err.detail : "상품 목록을 불러오지 못했습니다.");
-    } finally {
-      setLoading(false);
-    }
-  }, [gradeFilter, statusFilter, search, page, period]);
+  // Products query
+  const queryParams: Record<string, string> = {
+    page: String(page), limit: String(PAGE_SIZE), period: String(period),
+    ...(gradeFilter !== "all" && { grade: gradeFilter }),
+    ...(statusFilter !== "all" && { status: statusFilter }),
+    ...(submittedSearch && { search: submittedSearch }),
+  };
+  const { data: productsData, isLoading: loading, error: productsError } = useQuery({
+    queryKey: queryKeys.products.list(queryParams),
+    queryFn: () => {
+      const params = new URLSearchParams(queryParams);
+      return apiClient.get<{ items: Product[]; total: number }>(`/api/products?${params}`);
+    },
+  });
+  const products = productsData?.items ?? [];
+  const total = productsData?.total ?? 0;
+  const error = productsError ? (isApiError(productsError) ? productsError.detail : "상품 목록을 불러오지 못했습니다.") : null;
 
-  const fetchPipelineCounts = useCallback(async () => {
-    const statusParam = statusFilter !== "all" ? `?status=${statusFilter}` : "";
-    try {
-      const data = await apiClient.get<PipelineCounts>(`/api/products/pipeline-stats${statusParam}`);
-      setPipelineCounts(data);
-    } catch (_e) {
-      // pipeline counts are non-critical
-    }
-  }, [statusFilter]);
+  // Pipeline stats query
+  const { data: pipelineCounts = DEFAULT_PIPELINE } = useQuery({
+    queryKey: queryKeys.products.pipelineStats(statusFilter !== "all" ? statusFilter : undefined),
+    queryFn: () => {
+      const statusParam = statusFilter !== "all" ? `?status=${statusFilter}` : "";
+      return apiClient.get<PipelineCounts>(`/api/products/pipeline-stats${statusParam}`);
+    },
+  });
 
-  useEffect(() => {
-    fetchPipelineCounts();
-    apiClient.get<{ lastSyncedAt: string | null }>(`/api/coupang-dashboard`)
-      .then(data => setSyncInfo({ lastSyncedAt: data.lastSyncedAt }))
-      .catch(() => setSyncInfo({ lastSyncedAt: null }));
-  }, [fetchPipelineCounts]);
-
-  useEffect(() => {
-    setPage(1);
-    fetchProducts(1);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gradeFilter, statusFilter, period]);
-
-  useEffect(() => {
-    fetchProducts();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page]);
+  // Sync info query
+  const { data: syncInfo } = useQuery({
+    queryKey: queryKeys.syncInfo(),
+    queryFn: async () => {
+      try {
+        const data = await apiClient.get<{ lastSyncedAt: string | null }>(`/api/coupang-dashboard`);
+        return { lastSyncedAt: data.lastSyncedAt } as SyncInfo;
+      } catch {
+        return { lastSyncedAt: null } as SyncInfo;
+      }
+    },
+  });
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     setPage(1);
-    fetchProducts(1);
+    setSubmittedSearch(search);
   };
 
   const handlePageChange = (newPage: number) => {
@@ -123,26 +114,35 @@ export default function ProductsPage() {
     });
   };
 
-  const handleTrafficUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setTrafficMsg("업로드 중...");
-    try {
+  const trafficUpload = useMutation({
+    mutationFn: (file: File) => {
       const fd = new FormData();
       fd.append("file", file);
       fd.append("period", String(period));
-      const data = await apiClient.upload<{ success: boolean; upserted?: number; error?: string }>(`/api/traffic/upload`, fd);
+      return apiClient.upload<{ success: boolean; upserted?: number; error?: string }>(`/api/traffic/upload`, fd);
+    },
+    onSuccess: (data) => {
       if (data.success) {
         setTrafficMsg(`${data.upserted}개 상품 트래픽 업데이트 완료`);
-        fetchProducts();
+        queryClient.invalidateQueries({ queryKey: queryKeys.products.all });
       } else {
         setTrafficMsg(`오류: ${data.error}`);
       }
-    } catch (err) {
+    },
+    onError: (err) => {
       setTrafficMsg(isApiError(err) ? err.detail : "업로드 실패");
-    }
-    if (trafficRef.current) trafficRef.current.value = "";
-    setTimeout(() => setTrafficMsg(""), 5000);
+    },
+    onSettled: () => {
+      if (trafficRef.current) trafficRef.current.value = "";
+      setTimeout(() => setTrafficMsg(""), 5000);
+    },
+  });
+
+  const handleTrafficUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setTrafficMsg("업로드 중...");
+    trafficUpload.mutate(file);
   };
 
   const displayProducts = adFilter === "all"
@@ -168,7 +168,7 @@ export default function ProductsPage() {
               { days: 30, label: "30일" },
               { days: 365, label: "연간" },
             ].map((p) => (
-              <button key={p.days} onClick={() => setPeriod(p.days)}
+              <button key={p.days} onClick={() => { setPeriod(p.days); setPage(1); }}
                 className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${period === p.days ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
                 {p.label}
               </button>
@@ -227,7 +227,7 @@ export default function ProductsPage() {
             {f.label}
           </button>
         ))}
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="h-9 px-3 border border-slate-300 rounded-lg text-sm bg-white">
+        <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }} className="h-9 px-3 border border-slate-300 rounded-lg text-sm bg-white">
           <option value="all">전체 상태</option>
           <option value="active">판매중</option>
           <option value="inactive">중지</option>
@@ -281,7 +281,7 @@ export default function ProductsPage() {
       </div>
       )}
 
-      {showModal && <AddProductModal onClose={() => setShowModal(false)} onSaved={() => { setShowModal(false); fetchProducts(); }} />}
+      {showModal && <AddProductModal onClose={() => setShowModal(false)} onSaved={() => { setShowModal(false); queryClient.invalidateQueries({ queryKey: queryKeys.products.all }); }} />}
     </div>
   );
 }
