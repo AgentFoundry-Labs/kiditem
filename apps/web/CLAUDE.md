@@ -16,93 +16,79 @@ npx vitest run # 테스트 실행
 
 ```
 src/
-├── app/                    # 페이지 (Next.js App Router)
-│   ├── page.tsx            # 운영 대시보드
-│   ├── sourcing/           # 소싱 파이프라인 (수집, 편집, 에디터)
-│   ├── generate/           # AI 콘텐츠 생성
-│   ├── products/           # 상품 관리 (운영)
-│   ├── products/[id]/      # 상품 상세 (Object View — 메트릭+재고+활동이력+액션)
-│   ├── orders/             # 주문 조회
-│   ├── cs-management/      # CS 관리 (Phase 2)
-│   ├── unshipped-items/    # 미배송 조회 (Phase 2)
-│   ├── core-products/      # 핵심상품 (A등급 전용)
-│   ├── cleanup/            # 정리 대상 (순이익 3% 이하)
-│   ├── inventory/          # 재고 현황
-│   ├── purchase-orders/    # 발주 관리 (Phase 2)
-│   ├── stock-movement/     # 입출고 현황 (Phase 2)
-│   ├── returns/            # 반품 관리
-│   ├── profit-loss/        # 손익 분석
-│   ├── sales-analysis/     # 통합매출분석 (Phase 2)
-│   ├── ads-hub/            # 광고 대시보드 (Phase 2)
-│   ├── reviews/            # 리뷰 관리 (Phase 1 — 필터 탭, 통계 카드)
-│   ├── thumbnails/         # 썸네일 AI (CTR 추적)
-│   ├── ontology/           # Ontology (Phase 1 — 상품 카테고리/브랜드 시각화)
-│   ├── reports/            # 리포트/엑셀 출력
-│   ├── settings/           # 설정 (Phase 1 — 회사정보, 쿠팡연동, 공통코드)
-│   ├── workflows/          # 워크플로우 관리
-│   └── logs/               # 실행 로그
+├── app/                        # 페이지 (Next.js App Router)
+│   ├── page.tsx                # 운영 대시보드
+│   ├── sourcing/               # 소싱 (수집, 편집, 에디터) + components/
+│   ├── generate/               # AI 콘텐츠 생성 + components/
+│   ├── products/               # 상품 관리 + components/
+│   ├── products/[id]/          # 상품 상세 + components/
+│   ├── orders/                 # 주문 조회
+│   ├── agents/                 # 에이전트 + [id]/ + activity/ + costs/ + org/ + skills/
+│   ├── workflows/              # 워크플로우 관리
+│   ├── settings/               # 설정 + components/ (탭별)
+│   └── ...                     # 기타 도메인별 페이지
 ├── components/
-│   ├── layout/             # AppLayout, Sidebar, Header
-│   ├── ui/                 # DataTable, MetricCard, StatusBadge, Pagination
-│   └── editor/             # GrapesJS 에디터 (DetailPageEditor, AI 패널)
-├── store/                  # Zustand (useStore.ts)
+│   ├── layout/                 # AppLayout, Sidebar, Header
+│   ├── ui/                     # DataTable, MetricCard, StatusBadge, Pagination
+│   ├── providers/              # QueryProvider (TanStack React Query)
+│   ├── dashboard/              # 대시보드 섹션 컴포넌트 7개
+│   ├── workflows/              # WorkflowCanvas, WorkflowList 등
+│   ├── marketplace/            # MarketplaceCard, InstallModal
+│   ├── ontology/               # OntologyGraph, BrandNode 등
+│   └── editor/                 # GrapesJS 에디터 (DetailPageEditor, AI 패널)
+├── hooks/                      # React Query 커스텀 훅
+│   ├── use-agents.ts           # 12 훅 (6 query + 6 mutation)
+│   ├── use-workflows.ts        # 7 훅 (4 query + 3 mutation)
+│   └── use-marketplace.ts      # 6 훅 (2 query + 4 mutation)
+├── store/                      # Zustand (sidebar 상태만)
 └── lib/
-    ├── api.ts              # API_BASE 상수 + apiFetch
-    ├── sourcing-api.ts     # productsApi, sourcingApi (소싱 전용)
-    └── utils.ts            # formatKRW, formatPercent, cn 등
+    ├── api-client.ts           # 통합 API 클라이언트 (get/post/patch/put/delete/fetchRaw)
+    ├── api-error.ts            # ApiError 클래스 + isApiError 타입 가드
+    ├── api.ts                  # API_BASE 상수 + getCompanyId (URL resolve용)
+    ├── query-client.ts         # QueryClient 팩토리 (staleTime 1분, gcTime 5분)
+    ├── query-keys.ts           # Query Key Factory (22개 도메인)
+    ├── agent-api.ts            # 에이전트 API (agentApi 객체)
+    ├── workflow-api.ts         # 워크플로우 API (workflowApi 객체)
+    ├── marketplace-api.ts      # 마켓플레이스 API (marketplaceApi 객체)
+    ├── sourcing-api.ts         # 소싱 API (productsApi, sourcingApi)
+    ├── agent-types.ts          # @kiditem/shared re-export + UI 상수
+    ├── workflow-types.ts       # @kiditem/shared re-export + 헬퍼
+    ├── marketplace-types.ts    # @kiditem/shared re-export + UI 타입
+    └── utils.ts                # formatKRW, formatPercent, cn 등
 ```
-
-## 사이드바 구조 (8 섹션, 23 항목)
-
-| 섹션 | 항목 | 경로 | 상태 |
-|---|---|---|---|
-| 소싱 | 소싱/수집 | `/sourcing` | 구현됨 |
-| 소싱 | 콘텐츠 생성 | `/generate` | 구현됨 |
-| 주문 | 대시보드 | `/` | 구현됨 |
-| 주문 | 주문 조회 | `/orders` | 구현됨 |
-| 주문 | CS 관리 | `/cs-management` | Phase 2 |
-| 주문 | 미배송 조회 | `/unshipped-items` | Phase 2 |
-| 상품 | 상품 관리 | `/products` | 구현됨 |
-| 상품 | 핵심상품 | `/core-products` | 구현됨 |
-| 상품 | 정리대상 | `/cleanup` | 구현됨 |
-| 재고 | 재고 현황 | `/inventory` | 구현됨 |
-| 재고 | 발주 관리 | `/purchase-orders` | Phase 2 |
-| 재고 | 입출고 현황 | `/stock-movement` | Phase 2 |
-| 출고 | 반품 관리 | `/returns` | 구현됨 |
-| 분석 | 손익 분석 | `/profit-loss` | 구현됨 |
-| 분석 | 통합매출분석 | `/sales-analysis` | Phase 2 |
-| 분석 | 광고 대시보드 | `/ads-hub` | Phase 2 |
-| 운영 | 리뷰 관리 | `/reviews` | Phase 1 강화 |
-| 운영 | 썸네일 AI | `/thumbnails` | 구현됨 |
-| 운영 | Ontology | `/ontology` | Phase 1 신규 |
-| 운영 | 리포트 | `/reports` | 구현됨 |
-| 운영 | 설정 | `/settings` | Phase 1 강화 |
-| 자동화 | 워크플로우 | `/workflows` | 구현됨 |
-| 자동화 | 실행 로그 | `/logs` | 구현됨 |
 
 ## 규칙
 
+### API 호출
+- **`apiClient.get/post/patch/delete`** from `@/lib/api-client` 사용 (raw fetch 금지)
+- blob 응답: `apiClient.fetchRaw()` 사용
+- `API_BASE` 직접 사용은 이미지 URL resolve 등 비-fetch 용도만 허용
+
+### 데이터 패칭
+- **`useQuery` / `useMutation`** from `@tanstack/react-query` 사용 (useState+useEffect+fetch 금지)
+- 커스텀 훅 있으면 사용 (`useAgents()`, `useWorkflows()`, `useMarketplaceAgents()`)
+- 커스텀 훅 없는 도메인은 inline `useQuery` + `queryKeys.*`
+- 폴링: `refetchInterval` 옵션 사용 (setInterval 금지)
+- mutation 후: `queryClient.invalidateQueries({ queryKey: queryKeys.xxx.all })`
+
+### 타입
+- API 응답 타입: `@kiditem/shared`에서 import (`import type { ProductListItem } from '@kiditem/shared'`)
+- 1개 페이지 전용 타입: 인라인 허용 (Novu 패턴)
+- Props: 컴포넌트 파일에 인라인 (export 안 함)
+- 2-3개 컴포넌트 공유: 부모에서 export → 자식에서 import
+
+### 에러 처리
+- `isApiError(err)` from `@/lib/api-error`로 분기
+- 사용자 알림: `toast.error/success` from `sonner` (alert() 금지, prompt/confirm 제외)
+- 글로벌 에러: QueryCache onError에서 자동 toast
+
+### UI
 - 모든 페이지 `'use client'` (Server Components 미사용)
-- API 호출: `fetch(\`${API_BASE}/api/...\`)` — 절대 `/api/` 직접 호출 금지
 - 라이트 테마: `bg-white`, `bg-gray-50`, `border-gray-200`, `text-gray-900`
-- 테이블 스타일: `globals.css`의 `@layer base`에 정의됨 (별도 클래스 불필요)
+- 테이블 스타일: `globals.css`의 `@layer base`에 정의됨
 - 소싱 페이지: `draft`/`processing`/`processed` 상품만 표시
-- 운영 페이지 (products, orders 등): `active` 상품 표시
-
-## 소싱 vs 운영 페이지
-
-| 소싱 (`/sourcing`) | 운영 (`/products`) |
-|---|---|
-| 수집된 상품 (draft) | 등록된 상품 (active) |
-| `productsApi` from `sourcing-api.ts` | `fetch(\`${API_BASE}/api/products\`)` |
-| 중국어 원본 데이터 | 한국어 가공 데이터 |
-| AI 가공 버튼 | 매출/손익 분석 |
-
-## API 응답 매핑
-
-NestJS는 camelCase, 프론트는 snake_case 타입 사용:
-- `sourcing-api.ts`의 `getDetail()`, `list()`에서 매핑 처리
-- `p.thumbnailUrl` → `thumbnail_url`, `p.rawData` → `raw_data`
+- 운영 페이지: `active` 상품 표시
+- 페이지 컴포넌트: 200줄 이하 목표 → 초과 시 components/ 폴더로 분리
 
 ## 테스트
 
@@ -111,3 +97,4 @@ NestJS는 camelCase, 프론트는 snake_case 타입 사용:
 - 셋업: `test/setup.ts` (@testing-library/jest-dom)
 - 실행: `npx vitest run` (apps/web 디렉토리에서)
 - 테스트 파일: `test/*.test.{ts,tsx}`
+- 인프라 핵심만 테스트: api-client, api-error (구현 세부사항 테스트 금지)

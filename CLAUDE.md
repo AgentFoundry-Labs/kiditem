@@ -43,6 +43,7 @@ feat: 기능 추가
 fix: 버그 수정
 refactor: 리팩토링 (기능 변경 없음)
 docs: 문서 변경
+test: 테스트 추가/수정
 ```
 
 ### PR
@@ -66,6 +67,7 @@ apps/web/            — Next.js 14 (프론트엔드 전용, API Routes 없음)
 apps/server/         — NestJS 11 (백엔드 API, 도메인별 모듈)
 agents/              — Python 3.11+ (백그라운드 워커, asyncpg)
 apps/server/agent-config/ — Claude CLI 에이전트 런타임 설정 (규칙, 스킬)
+packages/shared/     — @kiditem/shared (Zod 스키마 + TypeScript 타입 + 에러 코드)
 packages/templates/  — React 상세페이지 템플릿 (bold-vertical, simple-vertical)
 extensions/          — Chrome 익스텐션 (1688/Alibaba 스크래퍼)
 docs/                — 프로젝트 문서 (아키텍처, 리팩토링 계획)
@@ -98,8 +100,8 @@ npm run dev:server                   # NestJS 로컬 개발 (Docker 대신)
 
 ```
 [프론트엔드] Next.js — 화면 표시, 사용자 입력
-     ↓ fetch
-[백엔드 API] NestJS — CRUD, 비즈니스 로직, 에이전트 오케스트레이션
+     ↓ apiClient (TanStack Query)
+[백엔드 API] NestJS — ValidationPipe + DTO → 비즈니스 로직 → GlobalExceptionFilter
      ↓ Prisma         ↓ spawn('claude', ...)       ↓ agent_tasks INSERT
 [DB] PostgreSQL    [Claude CLI Agents]          [Python Agents]
                     판단/분석 에이전트              생성/처리 에이전트
@@ -109,6 +111,23 @@ npm run dev:server                   # NestJS 로컬 개발 (Docker 대신)
 에이전트는 **2개 런타임**으로 나뉨:
 - **Claude CLI agents**: NestJS가 `claude -p`로 spawn. 자연어 규칙 해석/판단 작업. `agent-registry`로 관리.
 - **Python agents**: DB 폴링 기반 백그라운드 워커. 이미지 API, 스크래핑 등 처리 작업. `runner.py`로 관리.
+
+### @kiditem/shared 패키지
+
+프론트-백엔드 공유 타입 패키지. Zod 스키마 → `z.infer<>` 타입 추론.
+
+```
+packages/shared/
+├── src/schemas/     — 도메인별 Zod 스키마 (product, order, inventory 등)
+├── src/errors/      — ErrorCodes (12 도메인) + AppException
+├── src/types/       — z.infer 기반 타입 re-export
+└── src/index.ts     — barrel export
+```
+
+- **Subpath exports**: `@kiditem/shared`, `@kiditem/shared/schemas`, `@kiditem/shared/errors`
+- **Dual format**: ESM (프론트) + CJS (백엔드)
+- **satisfies 패턴**: 서비스 17곳에서 `satisfies z.infer<typeof Schema>`로 Prisma-Zod drift 감지
+- 새 타입 추가 시: `schemas/` 에 Zod 스키마 정의 → `index.ts`에 export → `npm run build`
 
 ### 워크플로우 vs 에이전트 경계
 
@@ -126,13 +145,55 @@ npm run dev:server                   # NestJS 로컬 개발 (Docker 대신)
 ```
 apps/server/src/{domain}/
 ├── {domain}.module.ts
-├── {domain}.controller.ts
-└── {domain}.service.ts
+├── {domain}.controller.ts   — @Controller + class-validator DTO
+├── {domain}.service.ts      — 비즈니스 로직 + Prisma
+└── dto/                     — Request/Response DTO (class-validator)
+    ├── {operation}.dto.ts
+    └── index.ts
 ```
 
-- `app.setGlobalPrefix('api')` → 모든 라우트 `/api/*`
+- `ValidationPipe({ whitelist: true, transform: true })` — 글로벌 자동 검증
+- `GlobalExceptionFilter` — 모든 에러를 `{ statusCode, error, message, timestamp, path }` 형태로 통일
+- `ErrorCodes` — `@kiditem/shared`에서 import. 12개 도메인 에러 코드.
 - `PrismaModule`이 `@Global()` → 모든 Service에서 `PrismaService` 주입
 - 도메인 모듈 간 직접 import 금지 → PrismaService만 공유
+
+### 프론트엔드 패턴
+
+- 모든 페이지 `'use client'` (Server Components 미사용)
+- **API 호출**: `apiClient.get/post/patch/delete` from `@/lib/api-client` (raw fetch 금지)
+- **데이터 패칭**: TanStack React Query (`useQuery` / `useMutation`)
+- **커스텀 훅**: `hooks/use-agents.ts`, `use-workflows.ts`, `use-marketplace.ts`
+- **Query Keys**: `lib/query-keys.ts` (22개 도메인 키 팩토리)
+- **에러 처리**: `ApiError` + `isApiError()` from `@/lib/api-error`
+- **토스트**: `toast.error/success` from `sonner` (QueryCache 글로벌 에러 연동)
+- **타입**: `@kiditem/shared`에서 import. 1개 페이지 전용 타입은 인라인 (Novu 패턴).
+- 라이트 테마: `bg-white`, `border-gray-200`, `text-gray-900`
+- 상세 규칙: `apps/web/CLAUDE.md`
+
+### 백엔드 도메인 모듈
+
+```
+apps/server/src/
+├── products/          — 상품 CRUD + 리뷰 + 썸네일
+├── advertising/       — 광고 관리 (products에서 분리)
+├── orders/            — 주문 + 반품 + CS
+├── inventory/         — 재고 + 입출고
+├── procurement/       — 발주 관리 (inventory에서 분리)
+├── channels/          — 채널 통합 (adapters/coupang/)
+├── workflows/         — 워크플로우 엔진
+├── agent-registry/    — 에이전트 플랫폼 (Paperclip 패턴)
+├── marketplace/       — 에이전트/워크플로우 카탈로그
+├── rules/             — 비즈니스 규칙 + 알림
+├── finance/           — 손익 + 매출 분석
+├── sourcing/          — 1688 소싱
+├── ai/                — AI 서비스 (텍스트, 이미지)
+├── dashboard/         — 대시보드 집계
+├── activity-events/   — 활동 이력
+├── ontology/          — 데이터 온톨로지
+├── companies/         — 멀티테넌트
+└── common/            — 공유 (pagination, dto, filters)
+```
 
 ### 워크플로우 엔진
 
@@ -148,69 +209,37 @@ apps/server/src/workflows/actions/   — 액션 카탈로그 (AI 추천용)
 - 데이터 플로우: `{{nodes.X.output.Y}}` 템플릿으로 노드 간 데이터 참조.
 - AI 분석: 워크플로우 완료 후 자동 1회 (Gemini + responseSchema → structured JSON).
 - 외부 API 데이터는 `StandardOrder`, `StandardProduct` 등 표준 타입으로 변환 필수.
-- Executor 추가: `types.ts → catalog.ts → executor 구현 → registerNode() → 프론트 동기화`.
 - 상세 규칙: `apps/server/src/workflows/CLAUDE.md`.
 
-### ActivityEvent 시스템
-
-워크플로우 실행 결과를 객체 단위로 기록. 팔란티어 스타일 Object View의 활동 이력.
-
-```
-apps/server/src/activity-events/   — CRUD API
-```
-
-- 워크플로우 완료 시 자동 생성 (AI 분석 결과 + 추천 액션 포함)
-- `objectType` + `objectId`로 특정 객체의 이력 조회
-- 프론트엔드 상품 상세 페이지에서 세션 카드로 표시
-
-### Agent Platform (Paperclip 패턴)
+### Agent Platform (Paperclip + Claude Code 패턴)
 
 ```
 apps/server/src/agent-registry/     — 에이전트 플랫폼 코어
-├── adapters/                       — 런타임 추상화 (claude-local, process, http)
-│   ├── types.ts                    — AdapterModule 인터페이스
-│   ├── registry.ts                 — adapter type → 구현 매핑
-│   └── claude-local/execute.ts     — Claude CLI spawn 로직
-├── heartbeat.service.ts            — Heartbeat 실행 엔진 + 타이머
-├── wakeup.service.ts               — Wakeup 요청 큐 (coalescing)
-├── skills.service.ts               — Skills 주입 관리 (symlink)
-├── agent-registry.service.ts       — CRUD + run() + receiveResults()
-├── agent-registry.controller.ts    — REST API
+├── adapters/                       — 런타임 추상화 (Strategy 패턴)
+│   └── claude-local/               — Claude CLI spawn 구현
+├── heartbeat/                      — Heartbeat 실행 엔진 + 에러 캐스케이드
+├── wakeup/                         — Wakeup 요청 큐 (coalescing)
+├── events/                         — EventEmitter2 + SSE (Observer 패턴)
+├── schemas/                        — Structured Output Zod 검증
+├── skills/                         — Skills 주입 (symlink)
+├── domains/                        — 도메인별 후처리
+│   ├── ad-strategy/                — 광고 전략
+│   └── manager/                    — 매니저 + 워크플로우 (Async Generator 패턴)
+├── dto/                            — class-validator DTO
 └── seed-agents.ts                  — 기본 에이전트 정의
 
-apps/server/src/ad-agent/           — 광고 전략 (도메인 후처리)
+apps/server/src/feature-gate/       — 피처 게이트 (@Global, DB 기반)
 apps/server/src/rules/              — 건강도 평가 (도메인 후처리)
 ```
 
-**핵심 개념 (Paperclip 패턴):**
-- **Adapter**: `claude_local` 등 교체 가능한 실행 런타임. 새 CLI 추가 시 adapter만 작성.
-- **Heartbeat**: 에이전트는 짧은 실행 윈도우(heartbeat) 단위로 동작. Session resume으로 연속성 보장.
-- **Wakeup 4종**: `timer` | `assignment` | `on_demand` | `automation`. Coalescing으로 중복 방지.
-- **Skills**: `agent-config/skills/` 디렉토리의 SKILL.md 파일을 런타임에 symlink 주입.
-- **Hierarchy**: `reportsTo`로 에이전트 간 위임. manager → specialist 계층.
+- **상세 규칙: `apps/server/src/agent-registry/CLAUDE.md`**
 
-**DB 테이블:**
-- `agent_definitions` — 에이전트 정의 (adapter, hierarchy, skills, permissions, 예산)
-- `heartbeat_runs` — 각 실행의 완전한 기록 (stdout, stderr, 토큰, 세션 ID)
-- `agent_wakeup_requests` — 실행 요청 큐 (source 4종, coalescing, 감사 추적)
-- `agent_runtime_state` — 에이전트별 영속 상태 (sessionId, 누적 토큰/비용)
-
-**에이전트 런타임 설정 (`apps/server/agent-config/`):**
-- `rules/operations.md` — 광고 운영 규칙
-- `rules/health-rules.md` — 건강도 평가 규칙
-- `skills/db-query/` — DB 쿼리 스킬
-- `skills/result-callback/` — 콜백 스킬
-
-에이전트 종류:
-- `ad_strategy` (specialist) — 광고 전략 판단
-- `rules_evaluation` (specialist) — 상품 건강도 평가
-- `rules_suggest` (specialist) — 규칙 임계값 추천
-
-새 에이전트 추가:
-1. `seed-agents.ts`에 정의 추가 (또는 `POST /api/agent-registry`로 동적 등록)
-2. role, adapterType, skills, permissions 설정
-3. `agent-config/skills/` 에 필요한 스킬 추가
-4. 서버 재시작 시 자동 시드
+**적용된 Claude Code 패턴 5개:**
+1. **Strategy** — AdapterModule 인터페이스 (새 런타임 추가 시 adapter만 구현)
+2. **Observer/Pub-Sub** — EventEmitter2 + SSE (에이전트 상태 실시간 알림)
+3. **Async Generator** — 매니저 워크플로우 (Human-in-the-loop 승인)
+4. **피처 게이트** — DB 기반 런타임 게이트 (멀티테넌트 점진 롤아웃)
+5. **Immutable Context** — Readonly + Object.freeze (실행 컨텍스트 변조 방지)
 
 ### Python Agent 패턴 (생성/처리)
 
@@ -226,21 +255,6 @@ agents/src/agents/{name}/
 - `sourcing` — 1688 스크래핑, Douyin 라이브
 - `inventory` — 재고 부족 감지
 
-환경변수: `agents/.env` (AI 모델 키, Langfuse, DB 등)
-
-- `agent_tasks` 테이블 폴링 → 작업 감지 → 실행 → 결과 기록
-- DB 접근: asyncpg raw SQL (ORM 없음)
-- 트리거: NestJS `POST /api/agent-tasks` → DB insert → Python runner 감지
-- Docker 컨테이너로 실행 (`docker compose up -d agents`)
-
-### 프론트엔드 패턴
-
-- 모든 페이지 `'use client'` (Server Components 미사용)
-- API 호출: `API_BASE` from `@/lib/api` → `fetch(\`${API_BASE}/api/...\`)`
-- 소싱 페이지: `productsApi` / `sourcingApi` from `@/lib/sourcing-api`
-- 라이트 테마: `bg-white`, `border-gray-200`, `text-gray-900`
-- 상세 규칙: `apps/web/CLAUDE.md`
-
 ## Prisma 규칙
 
 - 스키마: `prisma/schema.prisma` (루트)
@@ -249,6 +263,7 @@ agents/src/agents/{name}/
 - Native PG enum 금지 → `String` 필드 + app-level validation
 - UUID PK: `@default(uuid()) @db.Uuid`
 - 스키마 수정 후 반드시 `npm run db:push` + `npx prisma generate`
+- Zod 스키마와 동기화: 서비스에서 `satisfies z.infer<typeof Schema>` 패턴 사용
 
 ## Overrides
 
@@ -258,8 +273,24 @@ agents/src/agents/{name}/
 - **Silent model fallback 금지** → `model = model or default` 패턴 금지.
 - **프론트에서 직접 DB 접근 금지** → 반드시 NestJS API 경유.
 - **API 경로에 /v1/ 금지** → `/api/{domain}` 직접 매핑.
-- **도메인 모듈 자기 완결** → Controller + Service가 한 폴더에.
+- **도메인 모듈 자기 완결** → Controller + Service + DTO가 한 폴더에.
 - **워크플로우 AI 분석은 실행당 1회만** → 개별 노드에 ai.analyze 넣지 말 것.
+- **raw fetch 금지** → `apiClient.get/post/patch/delete` 사용. blob은 `apiClient.fetchRaw`.
+- **useState+useEffect fetch 금지** → `useQuery` / `useMutation` 사용.
+- **alert() 금지** → `toast.error/success` from `sonner` 사용 (prompt/confirm 제외).
+- **200 응답에 ok: false 금지** → 실패 시 반드시 HttpException throw.
+
+## 테스트
+
+```bash
+cd apps/server && npx vitest run    # 백엔드 테스트
+cd apps/web && npx vitest run       # 프론트엔드 테스트
+```
+
+- 프레임워크: Vitest
+- 백엔드: `src/**/__tests__/*.spec.ts` (GlobalExceptionFilter, DTO 검증, 도메인 서비스)
+- 프론트: `test/*.test.{ts,tsx}` (apiClient, ApiError)
+- 인프라 핵심 테스트만 유지 — 구현 세부사항(배선) 테스트 금지 (TkDodo 권고)
 
 ## Project
 
@@ -274,7 +305,9 @@ agents/src/agents/{name}/
 - **Tech stack**: 기존 스택 유지 (NestJS + Next.js + Prisma + PostgreSQL)
 - **DB**: Native PG enum 금지 → String + validation
 - **Architecture**: 프론트 → NestJS API → DB 흐름 유지
-- **Frontend**: 'use client' only, 라이트 테마, API_BASE fetch 패턴
+- **Frontend**: 'use client' only, apiClient + useQuery, Sonner 토스트, 라이트 테마
+- **Backend**: class-validator DTO + ValidationPipe, GlobalExceptionFilter, @kiditem/shared 타입
+- **Types**: @kiditem/shared가 single source of truth. 프론트 인라인 타입은 1개 페이지 전용만 허용.
 
 ## 환경변수
 
