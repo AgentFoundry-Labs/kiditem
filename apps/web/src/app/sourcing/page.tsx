@@ -28,6 +28,7 @@ import StatusBadge from './components/StatusBadge';
 import SkeletonCard from './components/SkeletonCard';
 import { Pagination } from '@/components/ui/Pagination';
 import { formatKRW } from '@/lib/utils';
+import { isApiError } from '@/lib/api-error';
 
 export default function SourcingPage() {
   const router = useRouter();
@@ -36,6 +37,7 @@ export default function SourcingPage() {
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 50;
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
@@ -51,8 +53,9 @@ export default function SourcingPage() {
       const res = await productsApi.list({ page: p, limit: PAGE_SIZE });
       setProducts(res.items);
       setTotal(res.total);
-    } catch {
-      void 0;
+      setError(null);
+    } catch (err) {
+      setError(isApiError(err) ? err.detail : '소싱 상품을 불러오는데 실패했습니다.');
     } finally {
       setIsLoading(false);
     }
@@ -132,8 +135,8 @@ export default function SourcingPage() {
     try {
       await productsApi.delete(id);
       fetchProducts();
-    } catch {
-      void 0;
+    } catch (err) {
+      console.error('Failed to delete product:', err);
     } finally {
       setDeletingId(null);
     }
@@ -158,8 +161,8 @@ export default function SourcingPage() {
   const handleCancel = async (id: string) => {
     try {
       await productsApi.cancel(id);
-    } catch {
-      void 0;
+    } catch (err) {
+      console.error('Failed to cancel processing:', err);
     } finally {
       setProcessingIds((prev) => {
         const next = new Set(prev);

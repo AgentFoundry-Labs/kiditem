@@ -1012,8 +1012,8 @@ function RightPanel({
     if (!aiFillTaskId) return;
     try {
       await fetch(`${API_BASE}/api/agent-tasks/${aiFillTaskId}/cancel`, { method: 'POST' });
-    } catch {
-      void 0;
+    } catch (err) {
+      console.error('Failed to cancel AI fill task:', err);
     }
   }, [aiFillTaskId]);
 
