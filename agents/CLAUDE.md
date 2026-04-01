@@ -1,9 +1,9 @@
 # agents — Python Background Workers
 
-백그라운드 에이전트. HTTP 서버 없음. DB 폴링으로 작업 감지.
-생성/처리 작업 전용 (이미지, 콘텐츠, 소싱). 판단/분석 에이전트는 Claude CLI로 이전됨 → `apps/server/src/agent-registry/`.
+Background agents. No HTTP server. Task detection via DB polling.
+For generation/processing tasks only (images, content, sourcing). Judgment/analysis runs on Claude CLI → `apps/server/src/agent-registry/`.
 
-## 실행
+## Run
 
 ```bash
 cd agents
@@ -12,62 +12,42 @@ pip install asyncpg python-dotenv httpx openai pydantic websockets structlog
 DATABASE_URL="..." python -m src.runner
 ```
 
-환경변수: `.env` (`.env.example` 참조)
+Env: `.env` (see `.env.example`)
 
-## 아키텍처
+## Architecture
 
 ```
-NestJS POST /api/agent-tasks → agent_tasks 테이블 INSERT
+NestJS POST /api/agent-tasks → agent_tasks table INSERT
                                      ↓
-Python runner (폴링) → claim task (FOR UPDATE SKIP LOCKED)
+Python runner (polling) → claim task (FOR UPDATE SKIP LOCKED)
                                      ↓
-Agent.execute() → DB 읽기/쓰기 → 결과 기록
+Agent.execute() → DB read/write → record result
                                      ↓
 agent_tasks.status = completed/failed
 ```
 
-## 디렉토리
+## Adding an Agent
 
-```
-src/
-├── runner.py              # 메인 루프 — 폴링 + 태스크 분배
-├── db.py                  # asyncpg 커넥션 풀
-├── config.py              # 환경변수 로드
-├── core/
-│   ├── ai_client.py       # AIClient (OpenAI/Gemini 통합)
-│   ├── ai_cost.py         # 비용 추적
-│   └── providers.py       # AI 프로바이더 설정
-└── agents/
-    ├── base.py            # BaseAgent ABC (execute + log)
-    ├── inventory.py       # 재고 부족 감지 → alerts 생성
-    ├── sourcing/          # 1688 스크래핑, Douyin, 매칭
-    ├── content/           # AI 상세페이지 생성 (2-step pipeline)
-    ├── image_edit/        # 개별 이미지 AI 편집 (fal)
-    └── ad_strategy/       # 광고 전략 (Python 레거시, Claude CLI로 이전 중)
-```
+1. Create `BaseAgent` subclass in `src/agents/{name}.py` (or `{name}/`)
+2. Define `agent_type` class variable
+3. Implement `async execute(pool, task_input) -> dict`
+4. Register in `AGENTS` dict in `src/runner.py`
 
-## Agent 추가 방법
+## DB Access
 
-1. `src/agents/{name}.py`에 `BaseAgent` 상속 클래스 생성
-2. `agent_type` 클래스 변수 정의
-3. `async execute(pool, task_input) -> dict` 구현
-4. `src/runner.py`의 `AGENTS` 딕셔너리에 등록
-
-## DB 접근
-
-asyncpg raw SQL만 사용 (ORM 없음):
+asyncpg raw SQL only (no ORM):
 
 ```python
 row = await pool.fetchrow("SELECT * FROM products WHERE id = $1", product_id)
 await pool.execute("UPDATE products SET status = $1 WHERE id = $2", 'listed', product_id)
 ```
 
-테이블명/컬럼명: snake_case (Prisma `@@map` 매핑된 DB 이름 사용).
+Table/column names: snake_case (Prisma `@@map` mapped DB names).
 
-## 규칙
+## Rules
 
-- SQLAlchemy 금지 — asyncpg raw SQL만
-- HTTP 서버 금지 — 순수 백그라운드 워커
-- Agent 간 직접 import 금지 — DB 상태 관찰로만 소통
-- `app.` import 금지 — 모든 import는 `src.`
-- Langfuse `@observe` 사용 — content pipeline에 연동됨 (SDK v4, `from langfuse import observe`)
+- No SQLAlchemy — asyncpg raw SQL only
+- No HTTP server — pure background worker
+- No direct imports between agents — communicate via DB state only
+- No `app.` imports — all imports use `src.`
+- Use Langfuse `@observe` — integrated with content pipeline (SDK v4, `from langfuse import observe`)

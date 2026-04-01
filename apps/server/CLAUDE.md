@@ -1,158 +1,73 @@
 # apps/server — NestJS Backend
 
-백엔드 API. Docker로 실행. 포트 4000.
+Backend API. Runs in Docker. Port 4000.
 
-## 실행
+## Run
 
 ```bash
-npm run start:dev       # 로컬 개발 (watch mode)
-npm run build           # 프로덕션 빌드
-docker compose up -d    # Docker로 실행 (루트에서)
+npm run start:dev       # Local dev (watch mode)
+npm run build           # Production build
+docker compose up -d    # Run via Docker (from root)
 ```
 
-환경변수: `.env` → `DATABASE_URL`, `COUPANG_*`
+Env: `.env` → `DATABASE_URL`, `COUPANG_*`, `GEMINI_API_KEY`
 
-## 도메인 모듈 패턴
+## Domain Module Pattern
 
 ```
 src/{domain}/
-├── {domain}.module.ts       # @Module — Controller + Service 등록
-├── {domain}.controller.ts   # @Controller — class-validator DTO 타입 사용
-├── {domain}.service.ts      # @Injectable — 비즈니스 로직 + Prisma
-└── dto/                     # Request/Response DTO
-    ├── {operation}.dto.ts   # class-validator 데코레이터
-    └── index.ts             # barrel export
+├── {domain}.module.ts       # @Module — register Controller + Service
+├── {domain}.controller.ts   # @Controller — use class-validator DTOs
+├── {domain}.service.ts      # @Injectable — business logic + Prisma
+└── dto/                     # Request/Response DTOs (class-validator decorators)
+    ├── {operation}.dto.ts
+    └── index.ts
 ```
 
-새 도메인 추가 시: module + controller + service + dto/ 생성 → `app.module.ts`에 import 등록.
+Adding a new domain: create module + controller + service + dto/ → register in `app.module.ts`.
 
-**글로벌 인프라 (main.ts):**
-- `ValidationPipe({ whitelist: true, transform: true })` — DTO 자동 검증
-- `GlobalExceptionFilter` — 에러 응답 통일 `{ statusCode, error, message, timestamp, path }`
-- `ErrorCodes` from `@kiditem/shared` — 12개 도메인 에러 코드
+## Global Infrastructure (main.ts)
 
-## 라우팅
+- `app.setGlobalPrefix('api')` → `@Controller('products')` = `GET /api/products`
+- `ValidationPipe({ whitelist: true, transform: true })` — automatic DTO validation
+- `GlobalExceptionFilter` — unified error response `{ statusCode, error, message, timestamp, path }`
+- `ErrorCodes` from `@kiditem/shared` — domain-specific error codes
+- `PrismaModule` is `@Global()` → `PrismaService` injectable in all services
+- CORS: allows `localhost:*` pattern
 
-`app.setGlobalPrefix('api')` → `@Controller('products')` = `GET /api/products`
+## API Response Conventions
 
-| 도메인 | Route | Method |
+| Pattern | Shape | When |
 |---|---|---|
-| dashboard | `/api/dashboard` | GET |
-| products | `/api/products` | GET, POST, GET /:id, DELETE /:id, GET /:id/preview |
-| sourcing | `/api/sourcing/extension/product-data` | POST |
-| sourcing | `/api/sourcing/extension/products` | GET |
-| sourcing | `/api/sourcing/scrape-url` | POST |
-| agent-tasks | `/api/agent-tasks` | GET, POST, GET /:id |
-| orders | `/api/orders` | GET, POST |
-| returns | `/api/returns` | GET, POST |
-| inventory | `/api/inventory` | GET |
-| profit-loss | `/api/profit-loss` | GET |
-| ads | `/api/ads` | GET |
-| reviews | `/api/reviews` | GET |
-| thumbnails | `/api/thumbnails` | GET |
-| companies | `/api/companies` | GET |
-| alerts | `/api/alerts` | GET |
-| workflows | `/api/workflows` | GET, POST, GET /:id, PUT /:id, DELETE /:id |
-| workflows | `/api/workflows/:id/run` | POST (body: { context? }) |
-| workflows | `/api/workflows/batch-run` | POST (body: { workflowIds, context? }) |
-| workflows | `/api/workflows/:id/runs` | GET |
-| workflow-runs | `/api/workflow-runs/:runId` | GET |
-| activity-events | `/api/activity-events` | GET (query: objectType, objectId, companyId, eventType) |
-| rules | `/api/rules` | GET, PATCH /:id |
-| rules | `/api/rules/evaluate` | POST |
-| rules | `/api/rules/summary` | GET |
-| rules | `/api/rules/schedule` | GET, PATCH |
-| rules | `/api/rules/reload` | POST |
-| ad-agent | `/api/ad-agent/run` | POST (body: { companyId?, dryRun?, dailyBudgetLimit? }) |
-| ad-agent | `/api/ad-agent/results/:taskId` | POST (Claude CLI 콜백) |
-| ad-agent | `/api/ad-agent/status/:taskId` | GET |
-| ad-agent | `/api/ad-agent/latest` | GET (query: companyId) |
-| ad-agent | `/api/ad-agent/runs` | GET (query: companyId, limit) |
-| agent-registry | `/api/agent-registry` | GET, POST, PATCH /:id, DELETE /:id |
-| agent-registry | `/api/agent-registry/:id/run` | POST (body: { companyId?, dryRun?, extra? }) |
-| agent-registry | `/api/agent-registry/results/:taskId` | POST (Claude CLI 콜백) |
-| agent-registry | `/api/agent-registry/sync-schedules` | POST |
-| agent-registry | `/api/agent-registry/reset-budgets` | POST |
+| Paginated list | `{ items: T[], total, page, limit }` | Large datasets |
+| Small list (under 100) | `T[]` | Bare array |
+| Single resource GET | `T` | Direct object return |
+| Create/Update | `T` | Return created/updated object |
+| Delete/Command | `{ ok: true }` | — |
+| Analytics/Dashboard | Domain-specific | Must define shared type |
+| Error (unified) | `{ statusCode, error, message, timestamp, path }` | GlobalExceptionFilter |
 
-## PrismaService
+## Rules
 
-`@Global()` 모듈. 모든 Service에서 주입:
+- No `/v1/` in API paths → `/api/{domain}` direct mapping
+- Self-contained domain modules — no direct imports of other domain Services
+- Only shared dependency: PrismaService
+- New endpoints → class-validator DTO required (no manual if + BadRequestException)
+- Errors → throw HttpException (no `ok: false` in 200 responses)
+- Types → import from `@kiditem/shared`, use `satisfies` pattern in services
+- Python agent trigger: INSERT into `agent_tasks` table → Python runner picks up
+- Claude CLI agent trigger: `agent-registry` `run()` → `spawn('claude', ...)` → result callback
 
-```typescript
-constructor(private readonly prisma: PrismaService) {}
+## Domain Guides
 
-await this.prisma.product.findMany({ where: { status: 'active' } });
-```
+- **Workflows**: see `src/workflows/CLAUDE.md`
+- **Agent Platform**: see `src/agent-registry/CLAUDE.md`
 
-## CORS
-
-`main.ts`에서 `localhost:*` 패턴 허용 (정규식).
-
-## 도메인 모듈
-
-```
-src/products/          — 상품 CRUD + 리뷰 + 썸네일
-src/advertising/       — 광고 관리 (products에서 분리, @Controller('ads'))
-src/orders/            — 주문 + 반품 + CS
-src/inventory/         — 재고 + 입출고
-src/procurement/       — 발주 관리 (inventory에서 분리, @Controller('purchase-orders'))
-src/channels/          — 채널 통합 (adapters/coupang/ — HMAC-SHA256 인증)
-src/workflows/         — 워크플로우 엔진
-src/agent-registry/    — 에이전트 플랫폼 (Paperclip 패턴)
-src/marketplace/       — 에이전트/워크플로우 카탈로그
-src/rules/             — 비즈니스 규칙 + 알림
-src/finance/           — 손익 + 매출 분석
-src/sourcing/          — 1688 소싱
-src/ai/                — AI 서비스 (텍스트, 이미지)
-src/dashboard/         — 대시보드 집계
-src/activity-events/   — 활동 이력
-src/ontology/          — 데이터 온톨로지
-src/companies/         — 멀티테넌트
-src/common/            — 공유 (pagination, dto, filters)
-```
-
-- `agent_definitions` 테이블: 에이전트 정의 (프롬프트, 권한, 예산, cron 스케줄)
-- `agent-registry` API: `GET/POST/PATCH/DELETE /api/agent-registry`, `POST /api/agent-registry/:id/run`
-- 실행: `child_process.spawn('claude', ['-p', prompt])` → 결과 curl 콜백
-- 운영 규칙 문서: `agent-config/rules/operations.md` (광고), `agent-config/rules/health-rules.md` (건강도)
-
-## API 응답 규약
-
-| 패턴 | 형태 | 사용처 |
-|---|---|---|
-| 페이지네이션 리스트 | `{ items: T[], total, page, limit }` | products, ads, reviews, thumbnails, inventory |
-| 페이지네이션 + 요약 | 위 + `summary: {...}` | reviews, inventory |
-| Bare 배열/객체 | `T[]` 또는 `T` | workflows, agent-registry, marketplace, companies |
-| 커맨드 응답 | `{ ok: true }` (선택: taskId 등) | DELETE, trigger, pause/resume |
-| 도메인 분석 | 도메인별 고유 형태 | dashboard, finance, cost-analytics |
-| 에러 (전체 통일) | `{ statusCode, error, message, timestamp, path }` | GlobalExceptionFilter |
-
-**새 엔드포인트 규칙:**
-- 페이지네이션 필요 → `{ items, total, page, limit }` + `PaginationQueryDto`
-- 소규모 리스트 (100건 이하) → bare `T[]`
-- 단일 리소스 GET → `T` (객체 직접 반환)
-- Create/Update → `T` (생성/수정된 객체 반환)
-- Delete/Command → `{ ok: true }`
-- 분석/대시보드 → 도메인별 고유 (shared 타입 정의 필수)
-- **200 응답에 `ok: false` 금지** → 실패 시 반드시 HttpException throw
-
-## 테스트
+## Tests
 
 ```bash
-npx vitest run    # 전체 테스트
+npx vitest run
 ```
 
-- 위치: `src/**/__tests__/*.spec.ts`
-- 핵심: GlobalExceptionFilter(9), DTO 검증(18), 도메인 서비스(37)
-- 구현 세부사항(배선) 테스트 금지 — 행동 검증만
-
-## 규칙
-
-- API 경로에 `/v1/` 금지 → `/api/{domain}` 직접 매핑
-- 도메인 모듈 자기 완결 — 다른 도메인 Service 직접 import 금지
-- PrismaService만 공유 의존성
-- 새 엔드포인트 → class-validator DTO 필수 (수동 if + BadRequestException 금지)
-- 에러 → HttpException throw (200에 ok:false 금지)
-- 타입 → `@kiditem/shared`에서 import, 서비스에서 `satisfies` 패턴 사용
-- Python Agent 트리거: `agent_tasks` 테이블에 INSERT → Python runner가 감지
-- Claude CLI Agent 트리거: `agent-registry`의 `run()` → `spawn('claude', ...)` → 결과 콜백
+- Location: `src/**/__tests__/*.spec.ts`
+- Behavior verification only — no implementation detail (wiring) tests
