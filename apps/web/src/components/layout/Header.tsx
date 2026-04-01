@@ -1,8 +1,9 @@
 'use client';
 
 import { Bell, Search, Clock, MinusCircle, AlertTriangle, Megaphone, Truck, TrendingDown, Menu } from 'lucide-react';
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { API_BASE } from '@/lib/api';
 import { useStore } from '@/store/useStore';
 
@@ -41,12 +42,21 @@ function timeAgoShort(dateStr: string): string {
 
 export default function Header() {
   const [now, setNow] = useState('');
-  const [alerts, setAlerts] = useState<AlertItem[]>([]);
-  const [unreadCount, setUnreadCount] = useState(0);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const { toggleSidebar } = useStore();
+  const qc = useQueryClient();
+
+  const { data: alerts = [] } = useQuery({
+    queryKey: ['alerts'],
+    queryFn: async () => {
+      const res = await fetch(`${API_BASE}/api/alerts?limit=10`);
+      if (!res.ok) return [];
+      return res.json() as Promise<AlertItem[]>;
+    },
+  });
+  const unreadCount = alerts.length;
 
   useEffect(() => {
     const update = () => {
@@ -65,22 +75,19 @@ export default function Header() {
     return () => clearInterval(interval);
   }, []);
 
-  const fetchAlerts = useCallback(() => {
-    fetch(`${API_BASE}/api/alerts?limit=10`)
-      .then((r) => r.json())
-      .then((data: AlertItem[]) => {
-        setAlerts(data);
-        setUnreadCount(data.length);
-      })
-      .catch(() => {
-        setAlerts([]);
-        setUnreadCount(0);
-      });
-  }, []);
+  const markAsReadMutation = useMutation({
+    mutationFn: (id: string) => fetch(`${API_BASE}/api/alerts/${id}/read`, { method: 'PATCH' }),
+    onSuccess: (_, id) => {
+      qc.setQueryData<AlertItem[]>(['alerts'], (old) => old?.filter(a => a.id !== id) ?? []);
+    },
+  });
 
-  useEffect(() => {
-    fetchAlerts();
-  }, [fetchAlerts]);
+  const markAllAsReadMutation = useMutation({
+    mutationFn: () => fetch(`${API_BASE}/api/alerts/read-all`, { method: 'PATCH' }),
+    onSuccess: () => {
+      qc.setQueryData<AlertItem[]>(['alerts'], []);
+    },
+  });
 
   useEffect(() => {
     if (!dropdownOpen) return;
@@ -93,17 +100,8 @@ export default function Header() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [dropdownOpen]);
 
-  const markAsRead = async (id: string) => {
-    await fetch(`${API_BASE}/api/alerts/${id}/read`, { method: 'PATCH' });
-    setAlerts((prev) => prev.filter((a) => a.id !== id));
-    setUnreadCount((prev) => Math.max(0, prev - 1));
-  };
-
-  const markAllAsRead = async () => {
-    await fetch(`${API_BASE}/api/alerts/read-all`, { method: 'PATCH' });
-    setAlerts([]);
-    setUnreadCount(0);
-  };
+  const markAsRead = (id: string) => markAsReadMutation.mutate(id);
+  const markAllAsRead = () => markAllAsReadMutation.mutate();
 
   const badgeLabel = unreadCount > 99 ? '99+' : String(unreadCount);
 

@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Shield, Save } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { apiClient } from '@/lib/api-client';
@@ -52,53 +53,47 @@ interface ScheduleOption {
 }
 
 export default function RulesConfigTab() {
-  const [rules, setRules] = useState<BusinessRule[]>([]);
-  const [loading, setLoading] = useState(true);
+  const qc = useQueryClient();
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [changes, setChanges] = useState<Record<string, RuleChange>>({});
-  const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
-  const [schedule, setSchedule] = useState('twice_daily');
-  const [scheduleOptions, setScheduleOptions] = useState<ScheduleOption[]>([]);
-  const [scheduleUpdating, setScheduleUpdating] = useState(false);
-  const [suggestions, setSuggestions] = useState<Record<string, { currentThreshold: number | null; suggestedThreshold: number; ruleId: string }>>({});
-  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
 
-  useEffect(() => {
-    apiClient.get<BusinessRule[]>(`/api/rules`)
-      .then((data: unknown) => setRules(Array.isArray(data) ? data : []))
-      .catch(() => {})
-      .finally(() => setLoading(false));
+  const { data: rules = [], isLoading: loading } = useQuery({
+    queryKey: ['rules'],
+    queryFn: async () => {
+      const data: unknown = await apiClient.get('/api/rules');
+      return Array.isArray(data) ? data as BusinessRule[] : [];
+    },
+  });
 
-    apiClient.get<{ schedule: string; options: ScheduleOption[] }>(`/api/rules/schedule`)
-      .then((data) => {
-        setSchedule(data.schedule);
-        setScheduleOptions(data.options);
-      })
-      .catch(() => {});
-  }, []);
+  const { data: scheduleData } = useQuery({
+    queryKey: ['rules', 'schedule'],
+    queryFn: () => apiClient.get<{ schedule: string; options: ScheduleOption[] }>('/api/rules/schedule'),
+  });
+  const schedule = scheduleData?.schedule ?? 'twice_daily';
+  const scheduleOptions = scheduleData?.options ?? [];
 
-  const handleScheduleChange = async (newSchedule: string) => {
-    setScheduleUpdating(true);
-    try {
-      await apiClient.patch(`/api/rules/schedule`, { schedule: newSchedule });
-      setSchedule(newSchedule);
-    } catch { /* ignore */ }
-    setScheduleUpdating(false);
-  };
+  const updateScheduleMutation = useMutation({
+    mutationFn: (newSchedule: string) => apiClient.patch('/api/rules/schedule', { schedule: newSchedule }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['rules', 'schedule'] }),
+  });
+  const handleScheduleChange = (newSchedule: string) => updateScheduleMutation.mutate(newSchedule);
+  const scheduleUpdating = updateScheduleMutation.isPending;
 
-  const handleLoadSuggestions = async () => {
-    setSuggestionsLoading(true);
-    try {
-      const data = await apiClient.get<{ suggestions: { currentThreshold: number | null; suggestedThreshold: number; ruleId: string }[] }>(`/api/rules/suggest-thresholds`);
-      const map: typeof suggestions = {};
+  const { data: suggestionsData, isFetching: suggestionsLoading, refetch: loadSuggestions } = useQuery({
+    queryKey: ['rules', 'suggestions'],
+    queryFn: async () => {
+      const data = await apiClient.get<{ suggestions: { currentThreshold: number | null; suggestedThreshold: number; ruleId: string }[] }>('/api/rules/suggest-thresholds');
+      const map: Record<string, { currentThreshold: number | null; suggestedThreshold: number; ruleId: string }> = {};
       for (const s of data.suggestions ?? []) {
         map[s.ruleId] = { currentThreshold: s.currentThreshold, suggestedThreshold: s.suggestedThreshold, ruleId: s.ruleId };
       }
-      setSuggestions(map);
-    } catch { /* ignore */ }
-    setSuggestionsLoading(false);
-  };
+      return map;
+    },
+    enabled: false,
+  });
+  const suggestions = suggestionsData ?? {};
+  const handleLoadSuggestions = () => { loadSuggestions(); };
 
   const handleApplySuggestion = (ruleId: string, suggested: number) => {
     setChanges((prev) => ({
@@ -142,24 +137,28 @@ export default function RulesConfigTab() {
 
   const hasChanges = Object.keys(changes).length > 0;
 
-  const handleSave = async () => {
-    setSaving(true);
-    setSaveMsg(null);
-    try {
-      for (const [id, patch] of Object.entries(changes)) {
+  const saveRulesMutation = useMutation({
+    mutationFn: async (pendingChanges: Record<string, RuleChange>) => {
+      for (const [id, patch] of Object.entries(pendingChanges)) {
         await apiClient.patch(`/api/rules/${id}`, patch);
       }
-      await apiClient.post(`/api/rules/reload`);
-      const data: unknown = await apiClient.get(`/api/rules`);
-      setRules(Array.isArray(data) ? data : []);
+      await apiClient.post('/api/rules/reload');
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['rules'] });
       setChanges({});
       setSaveMsg({ text: '저장 완료', type: 'success' });
       setTimeout(() => setSaveMsg(null), 3000);
-    } catch (err) {
+    },
+    onError: (err) => {
       setSaveMsg({ text: isApiError(err) ? err.detail : '저장 실패', type: 'error' });
-    } finally {
-      setSaving(false);
-    }
+    },
+  });
+  const saving = saveRulesMutation.isPending;
+
+  const handleSave = () => {
+    setSaveMsg(null);
+    saveRulesMutation.mutate(changes);
   };
 
   if (loading) {

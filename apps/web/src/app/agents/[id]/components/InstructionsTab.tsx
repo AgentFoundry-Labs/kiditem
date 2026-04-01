@@ -1,9 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { agentApi } from '@/lib/agent-api';
 import { isApiError } from '@/lib/api-error';
 import type { Agent } from '@/lib/agent-types';
+import { useUpdateAgent } from '@/hooks/use-agents';
 
 export function InstructionsTab({
   agent,
@@ -20,6 +20,7 @@ export function InstructionsTab({
   onSavingChange: (saving: boolean) => void;
   onSaved: () => void;
 }) {
+  const updateAgent = useUpdateAgent();
   const [draft, setDraft] = useState(agent.promptTemplate ?? '');
   const original = agent.promptTemplate ?? '';
 
@@ -35,7 +36,7 @@ export function InstructionsTab({
       onSaveAction(async () => {
         onSavingChange(true);
         try {
-          await agentApi.update(agent.id, { promptTemplate: draft });
+          await updateAgent.mutateAsync({ id: agent.id, data: { promptTemplate: draft } });
           onSaved();
           onDirtyChange(false);
         } catch (err) {

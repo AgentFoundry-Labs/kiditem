@@ -1,10 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { agentApi } from '@/lib/agent-api';
 import { isApiError } from '@/lib/api-error';
 import { ADAPTER_LABELS, ROLE_LABELS } from '@/lib/agent-types';
 import type { Agent } from '@/lib/agent-types';
+import { useUpdateAgent } from '@/hooks/use-agents';
 
 type ConfigForm = {
   name: string;
@@ -50,6 +50,8 @@ export function ConfigurationTab({
   onSavingChange: (saving: boolean) => void;
   onSaved: () => void;
 }) {
+  const updateAgent = useUpdateAgent();
+
   const originalForm: ConfigForm = {
     name: agent.name,
     title: agent.title ?? '',
@@ -87,13 +89,16 @@ export function ConfigurationTab({
       onSaveAction(async () => {
         onSavingChange(true);
         try {
-          await agentApi.update(agent.id, {
-            name: form.name,
-            title: form.title || null,
-            description: form.description || null,
-            timeoutSeconds: form.timeoutSeconds,
-            schedule: form.schedule || null,
-            monthlyTokenBudget: form.monthlyTokenBudget,
+          await updateAgent.mutateAsync({
+            id: agent.id,
+            data: {
+              name: form.name,
+              title: form.title || null,
+              description: form.description || null,
+              timeoutSeconds: form.timeoutSeconds,
+              schedule: form.schedule || null,
+              monthlyTokenBudget: form.monthlyTokenBudget,
+            },
           });
           onSaved();
           onDirtyChange(false);

@@ -1,6 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import ReactFlow, {
   Node,
   Edge,
@@ -62,8 +63,6 @@ const edgeStyle = { stroke: '#9ca3af', strokeWidth: 1.5 };
 export default function OntologyGraph() {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const expandedBrands = useRef(new Set<string>());
   const needsLayout = useRef(false);
 
@@ -117,52 +116,43 @@ export default function OntologyGraph() {
     [setNodes, setEdges],
   );
 
-  // Fetch graph data on mount
+  const { data: graphData, isLoading: loading, error: fetchError } = useQuery({
+    queryKey: ['ontology', 'graph'],
+    queryFn: async () => {
+      const res = await fetch(`${API_BASE}/api/ontology/graph`);
+      if (!res.ok) throw new Error('그래프 데이터 로딩 실패');
+      return res.json() as Promise<GraphData>;
+    },
+  });
+
+  const error = fetchError ? (fetchError as Error).message ?? '그래프 데이터 로딩 실패' : null;
+
   useEffect(() => {
-    let cancelled = false;
+    if (!graphData) return;
 
-    async function fetchGraph() {
-      try {
-        const res = await fetch(`${API_BASE}/api/ontology/graph`);
-        if (!res.ok) throw new Error('그래프 데이터 로딩 실패');
-        const data: GraphData = await res.json();
+    const rfNodes: Node[] = graphData.nodes.map((n) => ({
+      id: n.id,
+      type: n.type as string,
+      position: { x: 0, y: 0 },
+      data: {
+        label: n.label,
+        productCount: n.productCount,
+        ...(n.type === 'category' ? { brandCount: n.brandCount } : {}),
+        ...(n.type === 'brand' ? { category: n.category, onNodeClick: handleBrandClick } : {}),
+      },
+    }));
 
-        if (cancelled) return;
+    const rfEdges: Edge[] = graphData.edges.map((e) => ({
+      id: e.id,
+      source: e.source,
+      target: e.target,
+      style: edgeStyle,
+    }));
 
-        const rfNodes: Node[] = data.nodes.map((n) => ({
-          id: n.id,
-          type: n.type as string,
-          position: { x: 0, y: 0 },
-          data: {
-            label: n.label,
-            productCount: n.productCount,
-            ...(n.type === 'category' ? { brandCount: n.brandCount } : {}),
-            ...(n.type === 'brand' ? { category: n.category, onNodeClick: handleBrandClick } : {}),
-          },
-        }));
-
-        const rfEdges: Edge[] = data.edges.map((e) => ({
-          id: e.id,
-          source: e.source,
-          target: e.target,
-          style: edgeStyle,
-        }));
-
-        const laidOut = layoutGraph(rfNodes, rfEdges);
-        setNodes(laidOut);
-        setEdges(rfEdges);
-      } catch (err: any) {
-        if (!cancelled) setError(err.message || '그래프 데이터 로딩 실패');
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    fetchGraph();
-    return () => {
-      cancelled = true;
-    };
-  }, [handleBrandClick, setNodes, setEdges]);
+    const laidOut = layoutGraph(rfNodes, rfEdges);
+    setNodes(laidOut);
+    setEdges(rfEdges);
+  }, [graphData, handleBrandClick, setNodes, setEdges]);
 
   // Re-layout after brand expand adds new nodes/edges
   useEffect(() => {

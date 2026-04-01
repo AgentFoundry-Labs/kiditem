@@ -1,8 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useQuery, useMutation } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
+import { queryKeys } from '@/lib/query-keys';
 
 interface AddProductModalProps {
   onClose: () => void;
@@ -13,20 +15,20 @@ export default function AddProductModal({ onClose, onSaved }: AddProductModalPro
   const [form, setForm] = useState({
     name: "", sku: "", category: "", costPrice: 0, sellPrice: 0, commissionRate: 10, shippingCost: 3000, companyId: "", currentStock: 0,
   });
-  const [companies, setCompanies] = useState<{ id: string; name: string }[]>([]);
+  const { data: companies = [] } = useQuery({
+    queryKey: queryKeys.companies.list(),
+    queryFn: () => apiClient.get<{ id: string; name: string }[]>('/api/companies'),
+  });
 
-  useEffect(() => {
-    apiClient.get<{ id: string; name: string }[]>(`/api/companies`).then(setCompanies).catch(() => {});
-  }, []);
+  const createProduct = useMutation({
+    mutationFn: () => apiClient.post('/api/products', form),
+    onSuccess: () => onSaved(),
+    onError: (err) => alert(isApiError(err) ? err.detail : "상품 등록 중 오류가 발생했습니다."),
+  });
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    try {
-      await apiClient.post(`/api/products`, form);
-      onSaved();
-    } catch (err) {
-      alert(isApiError(err) ? err.detail : "상품 등록 중 오류가 발생했습니다.");
-    }
+    createProduct.mutate();
   };
 
   return (

@@ -2,7 +2,8 @@
 
 import { API_BASE } from '@/lib/api';
 import { Loader2, Send, Undo2 } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useMutation } from '@tanstack/react-query';
 
 interface ChatMessage {
   role: 'user' | 'ai';
@@ -21,7 +22,6 @@ interface AIDesignChatPanelProps {
 export function AIDesignChatPanel({ getHtml, getCss, onApply, onUndo, canUndo }: AIDesignChatPanelProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
-  const [loading, setLoading] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -29,40 +29,45 @@ export function AIDesignChatPanel({ getHtml, getCss, onApply, onUndo, canUndo }:
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   });
 
-  const handleSubmit = useCallback(async () => {
+  const modifyTemplate = useMutation({
+    mutationFn: async ({ html, prompt }: { html: string; prompt: string }) => {
+      const res = await fetch(`${API_BASE}/api/templates/modify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ html, prompt }),
+      });
+      if (!res.ok) {
+        throw new Error(`API ${res.status}: ${await res.text()}`);
+      }
+      return (await res.json()) as { html: string };
+    },
+    onSuccess: (result, { prompt }) => {
+      onApply(result.html);
+      setMessages((prev) => [...prev, { role: 'ai', content: `수정 완료: "${prompt}"`, timestamp: Date.now() }]);
+    },
+    onError: (err) => {
+      const msg = err instanceof Error ? err.message : '수정에 실패했습니다';
+      setMessages((prev) => [...prev, { role: 'ai', content: `오류: ${msg}`, timestamp: Date.now() }]);
+    },
+    onSettled: () => {
+      inputRef.current?.focus();
+    },
+  });
+
+  const loading = modifyTemplate.isPending;
+
+  const handleSubmit = () => {
     const prompt = input.trim();
     if (!prompt || loading) return;
 
     setInput('');
     setMessages((prev) => [...prev, { role: 'user', content: prompt, timestamp: Date.now() }]);
-    setLoading(true);
 
-    try {
-      const currentHtml = getHtml();
-      const currentCss = getCss();
-      const fullHtml = currentCss ? `${currentHtml}\n<style>${currentCss}</style>` : currentHtml;
-
-      const res = await fetch(`${API_BASE}/api/templates/modify`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ html: fullHtml, prompt }),
-      });
-
-      if (!res.ok) {
-        throw new Error(`API ${res.status}: ${await res.text()}`);
-      }
-
-      const result = (await res.json()) as { html: string };
-      onApply(result.html);
-      setMessages((prev) => [...prev, { role: 'ai', content: `수정 완료: "${prompt}"`, timestamp: Date.now() }]);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : '수정에 실패했습니다';
-      setMessages((prev) => [...prev, { role: 'ai', content: `오류: ${msg}`, timestamp: Date.now() }]);
-    } finally {
-      setLoading(false);
-      inputRef.current?.focus();
-    }
-  }, [input, loading, getHtml, getCss, onApply]);
+    const currentHtml = getHtml();
+    const currentCss = getCss();
+    const fullHtml = currentCss ? `${currentHtml}\n<style>${currentCss}</style>` : currentHtml;
+    modifyTemplate.mutate({ html: fullHtml, prompt });
+  };
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden min-h-0">
