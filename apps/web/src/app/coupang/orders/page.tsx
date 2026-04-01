@@ -7,6 +7,7 @@ import { apiClient } from '@/lib/api-client';
 import { formatKRW, cn } from '@/lib/utils';
 import { KpiBar } from '@/components/ui/KpiBar';
 import { RevenueTrendChart } from '@/components/ui/RevenueTrendChart';
+import type { TrendRow } from '@/components/ui/RevenueTrendChart';
 import { DateRangePicker } from '@/components/ui/DateRangePicker';
 
 function toParam(d: Date) {
@@ -23,12 +24,6 @@ interface KpiData {
   todayOrders: { count: number; revenue: number };
   pendingAccept: number;
   pendingReturns: number;
-}
-
-interface TrendRow {
-  day: string;
-  revenue: number;
-  orderCount: number;
 }
 
 interface RankingRow {

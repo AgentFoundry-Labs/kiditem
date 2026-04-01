@@ -11,7 +11,7 @@ import {
 } from 'recharts';
 import { formatKRW } from '@/lib/utils';
 
-interface TrendRow {
+export interface TrendRow {
   day: string;
   revenue: number;
   orderCount: number;

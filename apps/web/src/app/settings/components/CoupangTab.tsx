@@ -10,18 +10,7 @@ import {
   ShoppingCart,
 } from 'lucide-react';
 import { cn, timeAgo } from '@/lib/utils';
-
-interface SyncResult {
-  synced: number;
-  errors: number;
-  details?: string[];
-}
-
-interface HealthResult {
-  connected: boolean;
-  vendorId: string;
-  error?: string;
-}
+import type { SyncResult, HealthResult } from '../page';
 
 interface CoupangTabProps {
   healthResult: HealthResult | null;

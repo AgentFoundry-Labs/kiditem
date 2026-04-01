@@ -24,7 +24,7 @@ interface InventoryData {
   leadTimeDays: number | null;
 }
 
-interface ActivityEvent {
+export interface ActivityEvent {
   id: string;
   eventType: string;
   source: string;
@@ -33,7 +33,7 @@ interface ActivityEvent {
   createdAt: string;
 }
 
-interface Workflow {
+export interface Workflow {
   id: string;
   name: string;
   module: string;

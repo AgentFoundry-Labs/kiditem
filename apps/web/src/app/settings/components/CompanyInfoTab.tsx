@@ -2,16 +2,7 @@
 
 import { Building2 } from 'lucide-react';
 import PageSkeleton from '@/components/ui/PageSkeleton';
-
-interface CompanyInfo {
-  id: string;
-  name: string;
-  businessNumber: string | null;
-  representative: string | null;
-  address: string | null;
-  phone: string | null;
-  email: string | null;
-}
+import type { CompanyInfo } from '../page';
 
 interface CompanyInfoTabProps {
   companyInfo: CompanyInfo | null;

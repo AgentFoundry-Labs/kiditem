@@ -11,13 +11,7 @@ import {
   XCircle,
   X,
 } from 'lucide-react';
-
-interface Workflow {
-  id: string;
-  name: string;
-  module: string;
-  isActive: boolean;
-}
+import type { Workflow } from '../page';
 
 interface Toast {
   message: string;

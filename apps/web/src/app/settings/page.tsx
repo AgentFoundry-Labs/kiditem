@@ -16,19 +16,19 @@ import CoupangTab from './components/CoupangTab';
 import CommonCodesTab from './components/CommonCodesTab';
 import RulesConfigTab from './components/RulesConfigTab';
 
-interface SyncResult {
+export interface SyncResult {
   synced: number;
   errors: number;
   details?: string[];
 }
 
-interface HealthResult {
+export interface HealthResult {
   connected: boolean;
   vendorId: string;
   error?: string;
 }
 
-interface CompanyInfo {
+export interface CompanyInfo {
   id: string;
   name: string;
   businessNumber: string | null;

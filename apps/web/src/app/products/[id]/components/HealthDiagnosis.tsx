@@ -9,15 +9,7 @@ import {
 } from 'lucide-react';
 import { timeAgo } from '@/lib/utils';
 import type { ProductDetail as Product } from '@kiditem/shared';
-
-interface ActivityEvent {
-  id: string;
-  eventType: string;
-  source: string;
-  title: string;
-  data: Record<string, any> | null;
-  createdAt: string;
-}
+import type { ActivityEvent } from '../page';
 
 interface HealthDiagnosisProps {
   product: Product;
