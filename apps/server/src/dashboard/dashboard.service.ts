@@ -1,65 +1,13 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
-import type { Alert } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { kstDayStart } from '../common/kst';
-
-export interface DashboardSummaryResult {
-  summary: {
-    todayRevenue: number;
-    todayOrders: number;
-    monthlyRevenue: number;
-    monthlyProfit: number;
-    adRate: number;
-    totalProducts: number;
-    roas: number;
-    ctr: number;
-    adRevenue: number;
-    totalAdSpend: number;
-    prevMonthlyRevenue: number;
-    prevMonthlyProfit: number;
-    prevRoas: number;
-    prevCtr: number;
-    prevAdRevenue: number;
-    prevTotalAdSpend: number;
-    prevAdRate: number;
-  };
-  gradeCount: Record<string, number>;
-  alerts: Alert[];
-  warnings: {
-    minusProducts: number;
-    lowProfitProducts: number;
-    highAdProducts: number;
-    needReorder: number;
-  };
-  topProducts: {
-    id: string;
-    name: string;
-    company: string;
-    grade: string;
-    revenue: number;
-    netProfit: number;
-    profitRate: number;
-  }[];
-  monthlyTrend: {
-    period: string;
-    revenue: number;
-    profit: number;
-    adCost: number;
-  }[];
-}
-
-export interface TrendItem {
-  date: string;
-  revenue: number;
-  profit: number;
-  adCost: number;
-}
+import type { DashboardSummary, DashboardTrendItem } from '@kiditem/shared';
 
 @Injectable()
 export class DashboardService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async getSummary(): Promise<DashboardSummaryResult> {
+  async getSummary(): Promise<DashboardSummary> {
     try {
       const now = new Date();
       const todayStart = kstDayStart(now);
@@ -311,7 +259,7 @@ export class DashboardService {
               adCost: 0,
             };
           }),
-        };
+        } satisfies DashboardSummary;
       }
 
       // profitLoss 데이터가 있는 경우 (기존 로직)
@@ -384,13 +332,13 @@ export class DashboardService {
           profit: m._sum.netProfit ?? 0,
           adCost: m._sum.adCost ?? 0,
         })),
-      };
+      } satisfies DashboardSummary;
     } catch {
       throw new InternalServerErrorException('서버 오류가 발생했습니다.');
     }
   }
 
-  async getTrend(range: string): Promise<TrendItem[]> {
+  async getTrend(range: string): Promise<DashboardTrendItem[]> {
     const days = range === '7d' ? 7 : range === '90d' ? 90 : 30;
     const since = new Date();
     since.setDate(since.getDate() - days);
@@ -423,6 +371,6 @@ export class DashboardService {
       revenue: Number(r.revenue),
       profit: 0,
       adCost: adMap.get(r.date) ?? 0,
-    }));
+    } satisfies DashboardTrendItem));
   }
 }

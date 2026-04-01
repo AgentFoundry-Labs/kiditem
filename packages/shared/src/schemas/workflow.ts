@@ -1,7 +1,9 @@
 import { z } from 'zod';
 
 // WorkflowStepRun — WorkflowRun의 steps[] 내 각 item
-// 출처: Prisma WorkflowStepRun 모델 (schema.prisma:1090-1107)
+// 출처: workflows.service.ts — Prisma WorkflowStepRun 직접 반환
+// ⚠️ Date fields: startedAt, completedAt — Prisma Date → JSON string 자동 변환
+// satisfies 미적용: Prisma 모델 직접 반환 (Date ≠ string 불일치)
 export const WorkflowStepRunSchema = z.object({
   id: z.string(),
   runId: z.string(),
@@ -17,7 +19,9 @@ export const WorkflowStepRunSchema = z.object({
 });
 
 // GET /api/workflows 응답의 각 item
-// 출처: Prisma WorkflowTemplate 모델 (schema.prisma:1040-1065)
+// 출처: workflows.service.ts findAll() — Prisma WorkflowTemplate 직접 반환
+// ⚠️ Date fields: createdAt, updatedAt — Prisma Date → JSON string 자동 변환
+// satisfies 미적용: Prisma 모델 직접 반환 (Date ≠ string 불일치)
 export const WorkflowTemplateSchema = z.object({
   id: z.string(),
   companyId: z.string().nullable(),
@@ -36,7 +40,9 @@ export const WorkflowTemplateSchema = z.object({
 });
 
 // GET /api/workflows/:id/runs, GET /api/workflow-runs/:runId 응답
-// 출처: Prisma WorkflowRun 모델 (schema.prisma:1068-1087)
+// 출처: workflows.service.ts getRuns() — Prisma WorkflowRun 직접 반환
+// ⚠️ Date fields: startedAt, completedAt, createdAt — Prisma Date → JSON string 자동 변환
+// satisfies 미적용: Prisma 모델 직접 반환 (Date ≠ string 불일치)
 export const WorkflowRunSchema = z.object({
   id: z.string(),
   companyId: z.string().nullable(),

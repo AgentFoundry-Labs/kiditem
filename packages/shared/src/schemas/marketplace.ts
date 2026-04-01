@@ -16,7 +16,9 @@ export const ConfigurableParamSchema = z.object({
 });
 
 // GET /api/marketplace/workflows 응답의 각 item
-// 출처: Prisma WorkflowMarketplace + computed fields
+// 출처: marketplace.service.ts — Prisma WorkflowMarketplace + computed fields
+// ⚠️ Date fields: createdAt, updatedAt — Prisma Date → JSON string 자동 변환
+// satisfies 미적용: Prisma 모델 직접 반환 (Date ≠ string 불일치)
 export const WorkflowCatalogItemSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -36,7 +38,9 @@ export const WorkflowCatalogItemSchema = z.object({
 });
 
 // GET /api/marketplace/agents 응답의 각 item
-// 출처: Prisma AgentMarketplace + computed fields
+// 출처: marketplace.service.ts — Prisma AgentMarketplace + computed fields
+// ⚠️ Date fields: createdAt, updatedAt — Prisma Date → JSON string 자동 변환
+// satisfies 미적용: Prisma 모델 직접 반환 (Date ≠ string 불일치)
 export const AgentCatalogItemSchema = z.object({
   id: z.string(),
   name: z.string(),

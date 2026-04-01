@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleInit, NotFoundException, Inject, forwardRef
 import { PrismaService } from '../prisma/prisma.service';
 import { HeartbeatService } from './heartbeat/heartbeat.service';
 import { DEFAULT_AGENT_DEFINITIONS } from './seed-agents';
+import type { DailyCost, AgentCostSummary, CostAnalytics } from '@kiditem/shared';
 
 export interface OrgNode {
   id: string;
@@ -342,7 +343,7 @@ export class AgentRegistryService implements OnModuleInit {
       totalInputTokens: Number(row.total_input_tokens),
       totalOutputTokens: Number(row.total_output_tokens),
       runCount: Number(row.run_count),
-    }));
+    } satisfies DailyCost));
 
     const byAgentResult = byAgent.map((row) => ({
       agentId: row.agent_id,
@@ -351,7 +352,7 @@ export class AgentRegistryService implements OnModuleInit {
       totalInputTokens: Number(row.total_input_tokens),
       totalOutputTokens: Number(row.total_output_tokens),
       runCount: Number(row.run_count),
-    }));
+    } satisfies AgentCostSummary));
 
     // summary
     const summary = {
@@ -359,9 +360,9 @@ export class AgentRegistryService implements OnModuleInit {
       totalInputTokens: dailyResult.reduce((s, r) => s + r.totalInputTokens, 0),
       totalOutputTokens: dailyResult.reduce((s, r) => s + r.totalOutputTokens, 0),
       totalRuns: dailyResult.reduce((s, r) => s + r.runCount, 0),
-    };
+    } satisfies CostAnalytics['summary'];
 
-    return { daily: dailyResult, byAgent: byAgentResult, summary };
+    return { daily: dailyResult, byAgent: byAgentResult, summary } satisfies CostAnalytics;
   }
 
   // ── Org Chart ──

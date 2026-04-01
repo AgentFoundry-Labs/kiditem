@@ -4,18 +4,7 @@ import {
   paginationParams,
   type PaginatedResponse,
 } from '../../common/pagination';
-
-interface ReviewProductItem {
-  productId: string;
-  productName: string;
-  sku: string | null;
-  company: string;
-  grade: string;
-  totalReviews: number;
-  avgRating: number;
-  recentReviews: number;
-  orderCount: number;
-}
+import type { ReviewListItem } from '@kiditem/shared';
 
 interface ReviewSummary {
   totalReviewCount: number;
@@ -23,7 +12,7 @@ interface ReviewSummary {
   needsAttentionCount: number;
 }
 
-export interface ReviewsResponse extends PaginatedResponse<ReviewProductItem> {
+export interface ReviewsResponse extends PaginatedResponse<ReviewListItem> {
   summary: ReviewSummary;
 }
 
@@ -77,7 +66,7 @@ export class ReviewsService {
           .map((o) => [o.sellerProductId!, o._count]),
       );
 
-      const allItems: ReviewProductItem[] = allActiveProducts.map((p) => {
+      const allItems = allActiveProducts.map((p) => {
         const review = reviewMap.get(p.id);
         return {
           productId: p.id,
@@ -89,7 +78,7 @@ export class ReviewsService {
           avgRating: Math.round((review?.avgRating ?? 0) * 10) / 10,
           recentReviews: recentMap.get(p.id) ?? 0,
           orderCount: orderCountMap.get(p.coupangProductId ?? '') ?? 0,
-        };
+        } satisfies ReviewListItem;
       });
 
       allItems.sort(

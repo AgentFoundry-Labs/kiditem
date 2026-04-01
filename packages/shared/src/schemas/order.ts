@@ -1,7 +1,9 @@
 import { z } from 'zod';
 
 // GET /api/orders 응답의 orders[] 각 item
-// 출처: Prisma Order 모델 직접 반환 (orders.service.ts:24-36)
+// 출처: orders.service.ts findAll() — Prisma Order 직접 반환
+// ⚠️ Date fields: orderedAt, shippedAt, deliveredAt, createdAt, updatedAt — Prisma Date → JSON string 자동 변환
+// satisfies 미적용: Prisma 모델 직접 반환 (Date ≠ string 불일치)
 export const OrderRowSchema = z.object({
   id: z.string(),
   companyId: z.string(),

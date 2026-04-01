@@ -10,16 +10,16 @@ import {
 
 // ── Helpers ──
 
-async function expectValid(DtoClass: any, plain: object) {
+async function expectValid<T>(DtoClass: new () => T, plain: object): Promise<T> {
   const dto = plainToInstance(DtoClass, plain);
-  const errors = await validate(dto);
+  const errors = await validate(dto as object);
   expect(errors).toHaveLength(0);
   return dto;
 }
 
-async function expectInvalid(DtoClass: any, plain: object, count?: number) {
+async function expectInvalid(DtoClass: new () => any, plain: object, count?: number) {
   const dto = plainToInstance(DtoClass, plain);
-  const errors = await validate(dto);
+  const errors = await validate(dto as object);
   expect(errors.length).toBeGreaterThan(0);
   if (count !== undefined) expect(errors).toHaveLength(count);
   return errors;

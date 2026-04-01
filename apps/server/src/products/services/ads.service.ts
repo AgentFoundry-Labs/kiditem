@@ -9,28 +9,7 @@ import {
   paginationParams,
   type PaginatedResponse,
 } from '../../common/pagination';
-
-export interface AdProductItem {
-  id: string;
-  name: string;
-  sku: string | null;
-  company: string;
-  grade: string;
-  adTier: string | null;
-  spend: number;
-  impressions: number;
-  clicks: number;
-  conversions: number;
-  adRevenue: number;
-  ctr: number;
-  convRate: number;
-  roas: number;
-  acos: number;
-  adRate: number;
-  revenue: number;
-  netProfit: number;
-  profitRate: number;
-}
+import type { AdsListItem, AdsHubData } from '@kiditem/shared';
 
 @Injectable()
 export class AdsService {
@@ -39,7 +18,7 @@ export class AdsService {
   async findAll(query: {
     page?: string;
     limit?: string;
-  }): Promise<PaginatedResponse<AdProductItem>> {
+  }): Promise<PaginatedResponse<AdsListItem>> {
     try {
       const { page, limit, skip } = paginationParams(query);
       const items = await this.buildAdProducts({ skip, take: limit });
@@ -53,20 +32,7 @@ export class AdsService {
     }
   }
 
-  async getHubData(): Promise<{
-    products: AdProductItem[];
-    summary: {
-      totalSpend: number;
-      totalAdRevenue: number;
-      totalRevenue: number;
-      overallAdRate: number;
-      overallRoas: number;
-      highAdCount: number;
-      gradeSpend: Record<string, number>;
-      tierSpend: Record<string, number>;
-      gradeSpendPercent: Record<string, number>;
-    };
-  }> {
+  async getHubData(): Promise<AdsHubData> {
     try {
       const products = await this.buildAdProducts({});
 
@@ -108,7 +74,7 @@ export class AdsService {
           tierSpend,
           gradeSpendPercent,
         },
-      };
+      } satisfies AdsHubData;
     } catch {
       throw new InternalServerErrorException('광고 허브 데이터 조회 실패');
     }
@@ -139,7 +105,7 @@ export class AdsService {
   private async buildAdProducts(opts: {
     skip?: number;
     take?: number;
-  }): Promise<AdProductItem[]> {
+  }): Promise<AdsListItem[]> {
     const now = new Date();
     const year = now.getFullYear();
     const month = now.getMonth() + 1;
@@ -242,7 +208,7 @@ export class AdsService {
           plRevenue > 0
             ? Math.round(((pl?.netProfit ?? 0) / plRevenue) * 1000) / 10
             : 0,
-      };
+      } satisfies AdsListItem;
     });
   }
 }

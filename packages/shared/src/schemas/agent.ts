@@ -1,7 +1,9 @@
 import { z } from 'zod';
 
 // AgentRuntimeState — 에이전트 누적 상태
-// 출처: Prisma AgentRuntimeState 모델 (schema.prisma:823-843)
+// 출처: agent-registry.service.ts — Prisma AgentRuntimeState 직접 반환
+// ⚠️ Date fields: createdAt, updatedAt — Prisma Date → JSON string 자동 변환
+// satisfies 미적용: Prisma 모델 직접 반환 (Date ≠ string 불일치)
 export const AgentRuntimeStateSchema = z.object({
   agentId: z.string(),
   companyId: z.string(),
@@ -19,7 +21,9 @@ export const AgentRuntimeStateSchema = z.object({
 });
 
 // GET /api/agent-registry 응답의 각 item
-// 출처: Prisma AgentDefinition 모델 (schema.prisma:749-818)
+// 출처: agent-registry.service.ts findAll() — Prisma AgentDefinition 직접 반환
+// ⚠️ Date fields: pausedAt, budgetResetAt, lastHeartbeatAt, createdAt, updatedAt — Prisma Date → JSON string 자동 변환
+// satisfies 미적용: Prisma 모델 직접 반환 (Date ≠ string 불일치)
 export const AgentSchema = z.object({
   id: z.string(),
   companyId: z.string().nullable(),
@@ -57,7 +61,9 @@ export const AgentSchema = z.object({
 });
 
 // HeartbeatRun — 에이전트 실행 기록
-// 출처: Prisma HeartbeatRun 모델 (schema.prisma:848-879)
+// 출처: agent-registry.service.ts — Prisma HeartbeatRun 직접 반환
+// ⚠️ Date fields: startedAt, finishedAt, createdAt, updatedAt — Prisma Date → JSON string 자동 변환
+// satisfies 미적용: Prisma 모델 직접 반환 (Date ≠ string 불일치)
 export const HeartbeatRunSchema = z.object({
   id: z.string(),
   companyId: z.string(),

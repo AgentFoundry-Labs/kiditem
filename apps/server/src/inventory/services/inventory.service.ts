@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { paginationParams } from '../../common/pagination';
-import type { InventorySummary } from '@kiditem/shared';
+import type { InventoryItem, InventorySummary } from '@kiditem/shared';
 
 export type { InventorySummary } from '@kiditem/shared';
 
@@ -75,16 +75,16 @@ export class InventoryService {
           daysRemaining,
           recommendedOrder,
           status,
-        };
+        } satisfies InventoryItem;
       });
 
-      const summary: InventorySummary = {
+      const summary = {
         total: enriched.length,
         reorderCount: 0,
         outOfStockCount: 0,
         unsyncedCount: 0,
         overstockCount: 0,
-      };
+      } satisfies InventorySummary;
       for (const item of enriched) {
         const unsynced =
           item.currentStock === 0 &&

@@ -46,7 +46,9 @@ export const ProductListItemSchema = z.object({
 });
 
 // GET /api/products/:id 응답 (Prisma Product + company + inventory)
-// 출처: products.service.ts findOne() → prisma.product.findUnique({ include: { company, inventory } })
+// 출처: products.service.ts findOne() — Prisma Product 직접 반환
+// ⚠️ Date fields: healthUpdatedAt, deletedAt, createdAt, updatedAt — Prisma Date → JSON string 자동 변환
+// satisfies 미적용: Prisma 모델 직접 반환 (Date ≠ string 불일치)
 export const ProductDetailSchema = z.object({
   id: z.string(),
   companyId: z.string(),
@@ -120,12 +122,12 @@ export const ProductDetailSchema = z.object({
 });
 
 // GET /api/products/pipeline-stats 응답
-// 출처: products/page.tsx:55-66
+// 출처: products.service.ts getPipelineStats() — gradeA/gradeB/gradeC 키로 반환
 export const PipelineCountsSchema = z.object({
   total: z.number(),
-  A: z.number(),
-  B: z.number(),
-  C: z.number(),
+  gradeA: z.number(),
+  gradeB: z.number(),
+  gradeC: z.number(),
   minus: z.number(),
   low: z.number(),
   gradeChangeA: z.number(),

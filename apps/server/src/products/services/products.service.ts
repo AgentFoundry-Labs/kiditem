@@ -7,6 +7,7 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import type { Prisma } from '@prisma/client';
 import { paginationParams, type PaginatedResponse } from '../../common/pagination';
+import type { ProductListItem } from '@kiditem/shared';
 
 @Injectable()
 export class ProductsService {
@@ -309,9 +310,9 @@ export class ProductsService {
       thumbnailUrl: p.thumbnailUrl ?? null,
       imageUrl: p.imageUrl ?? null,
       coupangProductId: p.coupangProductId ?? null,
-      createdAt: p.createdAt,
+      createdAt: p.createdAt instanceof Date ? p.createdAt.toISOString() : p.createdAt,
       gradeScore: gradeScoreMap.get(p.id) ?? null,
-    };
+    } satisfies ProductListItem;
   }
 
   async create(body: Record<string, unknown>): Promise<any> {

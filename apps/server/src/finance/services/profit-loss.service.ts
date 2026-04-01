@@ -1,30 +1,12 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-
-export interface PLRow {
-  id: string;
-  productId: string;
-  productName: string;
-  sku: string | null;
-  company: string;
-  grade: string;
-  period: string;
-  revenue: number;
-  costOfGoods: number;
-  commission: number;
-  shippingCost: number;
-  adCost: number;
-  otherCost: number;
-  netProfit: number;
-  profitRate: number;
-  orderCount: number;
-}
+import type { PLData } from '@kiditem/shared';
 
 @Injectable()
 export class ProfitLossService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll(period?: string): Promise<PLRow[]> {
+  async findAll(period?: string): Promise<PLData[]> {
     try {
       const { year, month } = period
         ? this.parsePeriod(period)
@@ -61,7 +43,7 @@ export class ProfitLossService {
             ? Math.round((d.netProfit / d.revenue) * 1000) / 10
             : 0,
         orderCount: d.orderCount,
-      }));
+      } satisfies PLData));
 
       const monthStart = new Date(year, month - 1, 1);
       const monthEnd = new Date(year, month, 1);
@@ -132,7 +114,7 @@ export class ProfitLossService {
             profitRate:
               rev > 0 ? Math.round((net / rev) * 1000) / 10 : 0,
             orderCount: cnt,
-          };
+          } satisfies PLData;
         });
 
       return [...plResults, ...extraRows].sort(

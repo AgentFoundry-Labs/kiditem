@@ -4,25 +4,11 @@ import {
   paginationParams,
   type PaginatedResponse,
 } from '../../common/pagination';
+import type { ThumbnailListItem, ThumbnailSummary } from '@kiditem/shared';
+
+export type { ThumbnailSummary } from '@kiditem/shared';
 
 type ThumbnailGrade = 'S' | 'A' | 'B' | 'C' | 'F';
-
-interface ThumbnailItem {
-  id: string;
-  productId: string;
-  productName: string;
-  company: string;
-  imageUrl: string;
-  ctr: number;
-  prevCtr: number;
-  impressions: number;
-  clicks: number;
-  status: string;
-  strategy: string;
-  grade: ThumbnailGrade;
-  issues: { type: string; severity: 'critical' | 'warning' | 'info'; message: string }[];
-  suggestions: string[];
-}
 
 export interface GradeDistribution {
   S: number;
@@ -32,12 +18,7 @@ export interface GradeDistribution {
   F: number;
 }
 
-export interface ThumbnailSummary {
-  total: number;
-  gradeDistribution: GradeDistribution;
-}
-
-export interface ThumbnailsListResponse extends PaginatedResponse<ThumbnailItem> {
+export interface ThumbnailsListResponse extends PaginatedResponse<ThumbnailListItem> {
   summary: ThumbnailSummary;
 }
 
@@ -114,7 +95,7 @@ export class ThumbnailsService {
     status: string;
     strategy: string;
     product: { name: string; company: { name: string } | null } | null;
-  } & Record<string, unknown>): ThumbnailItem {
+  } & Record<string, unknown>): ThumbnailListItem {
     const ctr = t.ctr ? Number(t.ctr) : 0;
     const prevCtr = t['prevClickRate'] ? Number(t['prevClickRate']) : 0;
     const grade = assignGrade(ctr);
@@ -133,7 +114,7 @@ export class ThumbnailsService {
       grade,
       issues: buildIssues(ctr, t.impressions),
       suggestions: buildSuggestions(ctr, grade),
-    };
+    } satisfies ThumbnailListItem;
   }
 
   async findAll(query: {
@@ -157,7 +138,7 @@ export class ThumbnailsService {
 
       const gradeDistribution: GradeDistribution = { S: 0, A: 0, B: 0, C: 0, F: 0 };
       for (const item of allMapped) {
-        gradeDistribution[item.grade]++;
+        gradeDistribution[item.grade as ThumbnailGrade]++;
       }
 
       const items = allMapped.slice(skip, skip + limit);
@@ -189,7 +170,7 @@ export class ThumbnailsService {
         gradeDistribution[assignGrade(ctr)]++;
       }
 
-      return { total: allData.length, gradeDistribution };
+      return { total: allData.length, gradeDistribution } satisfies ThumbnailSummary;
     } catch {
       throw new InternalServerErrorException('썸네일 요약 조회 실패');
     }

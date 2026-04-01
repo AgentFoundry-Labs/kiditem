@@ -25,7 +25,7 @@ export default function ProductsPage() {
   const [page, setPage] = useState(1);
   const [syncInfo, setSyncInfo] = useState<SyncInfo | null>(null);
   const [period, setPeriod] = useState(7);
-  const [pipelineCounts, setPipelineCounts] = useState<PipelineCounts>({ total: 0, A: 0, B: 0, C: 0, minus: 0, low: 0, gradeChangeA: 0, gradeChangeB: 0, gradeChangeC: 0, adCount: 0, noAdCount: 0 });
+  const [pipelineCounts, setPipelineCounts] = useState<PipelineCounts>({ total: 0, gradeA: 0, gradeB: 0, gradeC: 0, minus: 0, low: 0, gradeChangeA: 0, gradeChangeB: 0, gradeChangeC: 0, adCount: 0, noAdCount: 0 });
   const [trafficMsg, setTrafficMsg] = useState("");
   const trafficRef = useRef<HTMLInputElement>(null);
   const PAGE_SIZE = 50;
@@ -54,20 +54,8 @@ export default function ProductsPage() {
   const fetchPipelineCounts = useCallback(async () => {
     const statusParam = statusFilter !== "all" ? `?status=${statusFilter}` : "";
     try {
-      const data = await apiClient.get<Record<string, number>>(`/api/products/pipeline-stats${statusParam}`);
-      setPipelineCounts({
-        total: data.total || 0,
-        A: data.gradeA || 0,
-        B: data.gradeB || 0,
-        C: data.gradeC || 0,
-        minus: data.minus || 0,
-        low: data.low || 0,
-        gradeChangeA: data.gradeChangeA || 0,
-        gradeChangeB: data.gradeChangeB || 0,
-        gradeChangeC: data.gradeChangeC || 0,
-        adCount: data.adCount || 0,
-        noAdCount: data.noAdCount || 0,
-      });
+      const data = await apiClient.get<PipelineCounts>(`/api/products/pipeline-stats${statusParam}`);
+      setPipelineCounts(data);
     } catch (_e) {
       // pipeline counts are non-critical
     }
@@ -211,9 +199,9 @@ export default function ProductsPage() {
 
       <ProductPipeline
         total={pipelineCounts.total}
-        aCount={pipelineCounts.A}
-        bCount={pipelineCounts.B}
-        cCount={pipelineCounts.C}
+        aCount={pipelineCounts.gradeA}
+        bCount={pipelineCounts.gradeB}
+        cCount={pipelineCounts.gradeC}
         minusCount={pipelineCounts.minus}
         lowCount={pipelineCounts.low}
         gradeChangeA={pipelineCounts.gradeChangeA}
@@ -230,9 +218,9 @@ export default function ProductsPage() {
         </form>
         {[
           { key: "all", label: "전체", color: "bg-slate-900 text-white" },
-          { key: "A", label: `A등급 (${pipelineCounts.A})`, color: "bg-green-100 text-green-700" },
-          { key: "B", label: `B등급 (${pipelineCounts.B})`, color: "bg-blue-100 text-blue-700" },
-          { key: "C", label: `C등급 (${pipelineCounts.C})`, color: "bg-orange-100 text-orange-700" },
+          { key: "A", label: `A등급 (${pipelineCounts.gradeA})`, color: "bg-green-100 text-green-700" },
+          { key: "B", label: `B등급 (${pipelineCounts.gradeB})`, color: "bg-blue-100 text-blue-700" },
+          { key: "C", label: `C등급 (${pipelineCounts.gradeC})`, color: "bg-orange-100 text-orange-700" },
         ].map((f) => (
           <button key={f.key} onClick={() => { setGradeFilter(f.key); setPage(1); }}
             className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${gradeFilter === f.key ? f.color : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}>
