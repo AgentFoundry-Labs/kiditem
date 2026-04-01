@@ -17,7 +17,7 @@ import ReactFlow, {
 import 'reactflow/dist/style.css';
 import dagre from 'dagre';
 import { Loader2 } from 'lucide-react';
-import { API_BASE } from '@/lib/api';
+import { apiClient } from '@/lib/api-client';
 import CategoryNode from './CategoryNode';
 import BrandNode from './BrandNode';
 import ProductNode from './ProductNode';
@@ -82,11 +82,9 @@ export default function OntologyGraph() {
       expandedBrands.current.add(brandId);
 
       try {
-        const res = await fetch(
-          `${API_BASE}/api/ontology/products?category=${encodeURIComponent(brandData.category)}&brand=${encodeURIComponent(brandData.label)}`,
+        const products = await apiClient.get<any[]>(
+          `/api/ontology/products?category=${encodeURIComponent(brandData.category)}&brand=${encodeURIComponent(brandData.label)}`,
         );
-        if (!res.ok) return;
-        const products = await res.json();
 
         const newNodes: Node[] = products.map((p: any) => ({
           id: `prod-${p.id}`,
@@ -118,11 +116,7 @@ export default function OntologyGraph() {
 
   const { data: graphData, isLoading: loading, error: fetchError } = useQuery({
     queryKey: ['ontology', 'graph'],
-    queryFn: async () => {
-      const res = await fetch(`${API_BASE}/api/ontology/graph`);
-      if (!res.ok) throw new Error('그래프 데이터 로딩 실패');
-      return res.json() as Promise<GraphData>;
-    },
+    queryFn: () => apiClient.get<GraphData>('/api/ontology/graph'),
   });
 
   const error = fetchError ? (fetchError as Error).message ?? '그래프 데이터 로딩 실패' : null;
