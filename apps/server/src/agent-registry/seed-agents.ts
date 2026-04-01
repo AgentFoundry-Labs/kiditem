@@ -314,9 +314,11 @@ export const DEFAULT_AGENT_DEFINITIONS = [
 - DB에 없는 데이터를 추측하지 말 것
 - 한국어로 답변`,
   },
+  // 비활성: 전용 서비스 미구현. 활성화 시 isActive: true로 변경.
   {
     name: '가격 조정 에이전트',
     type: 'pricing',
+    isActive: false,
     description: '상품 가격 최적화. 마진율, 경쟁사 가격, 광고 효율 기반 가격 조정 추천.',
 
     adapterType: 'claude_local',
@@ -381,9 +383,11 @@ export const DEFAULT_AGENT_DEFINITIONS = [
   "summary": { "total": 100, "adjustNeeded": 15, "urgent": 3 }
 }`,
   },
+  // 비활성: 전용 서비스 미구현. 활성화 시 isActive: true로 변경.
   {
     name: '재고 알림 에이전트',
     type: 'inventory_alert',
+    isActive: false,
     description: '재고 부족/과잉 감지 및 발주 추천.',
 
     adapterType: 'claude_local',
@@ -448,9 +452,11 @@ export const DEFAULT_AGENT_DEFINITIONS = [
   "summary": { "total": 200, "urgent": 5, "reorderNeeded": 20, "overstock": 30 }
 }`,
   },
+  // 비활성: 전용 서비스 미구현. 활성화 시 isActive: true로 변경.
   {
     name: '리뷰 모니터링 에이전트',
     type: 'review_monitor',
+    isActive: false,
     description: '리뷰 분석 및 품질 이슈 조기 감지.',
 
     adapterType: 'claude_local',

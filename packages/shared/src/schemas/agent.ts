@@ -16,6 +16,8 @@ export const AgentRuntimeStateSchema = z.object({
   totalOutputTokens: z.number(),
   totalCostCents: z.number(),
   lastError: z.string().nullable(),
+  consecutiveFailCount: z.number(),
+  lastFailedAt: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

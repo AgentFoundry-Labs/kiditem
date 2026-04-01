@@ -17,10 +17,12 @@ import { OntologyModule } from './ontology/ontology.module';
 import { MarketplaceModule } from './marketplace/marketplace.module';
 import { AdvertisingModule } from './advertising/advertising.module';
 import { ProcurementModule } from './procurement/procurement.module';
+import { FeatureGateModule } from './feature-gate/feature-gate.module';
 
 @Module({
   imports: [
     PrismaModule,
+    FeatureGateModule,
     ProductsModule,
     OrdersModule,
     InventoryModule,

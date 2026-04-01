@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AgentRegistryService } from '../agent-registry.service';
-import { NotFoundException } from '@nestjs/common';
+import { NotFoundException, BadRequestException } from '@nestjs/common';
 
 // ── Mocks ──
 
@@ -20,7 +20,10 @@ function makePrisma() {
       update: vi.fn(),
     },
     activityEvent: { create: vi.fn() },
-    agentRuntimeState: { findUnique: vi.fn() },
+    agentRuntimeState: {
+      findUnique: vi.fn(),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+    },
     heartbeatRun: { findMany: vi.fn().mockResolvedValue([]) },
   };
 }
@@ -117,7 +120,7 @@ describe('AgentRegistryService', () => {
       );
     });
 
-    it('rejects when monthly budget exceeded', async () => {
+    it('throws BadRequestException when monthly budget exceeded', async () => {
       const { service, prisma, heartbeat } = makeService();
       prisma.agentDefinition.findUnique.mockResolvedValue({
         ...MOCK_DEF,
@@ -125,9 +128,7 @@ describe('AgentRegistryService', () => {
         tokensUsed: 1500,
       });
 
-      const result = await service.run('def-1');
-
-      expect(result).toEqual(expect.objectContaining({ ok: false, error: 'monthly_budget_exceeded' }));
+      await expect(service.run('def-1')).rejects.toThrow(BadRequestException);
       expect(heartbeat.wakeAgent).not.toHaveBeenCalled();
     });
   });
@@ -208,7 +209,7 @@ describe('AgentRegistryService', () => {
       });
     });
 
-    it('resumes agent', async () => {
+    it('resumes agent and resets consecutive fail count', async () => {
       const { service, prisma } = makeService();
       prisma.agentDefinition.update.mockResolvedValue({});
 
@@ -217,6 +218,10 @@ describe('AgentRegistryService', () => {
       expect(prisma.agentDefinition.update).toHaveBeenCalledWith({
         where: { id: 'def-1' },
         data: expect.objectContaining({ status: 'idle', pauseReason: null }),
+      });
+      expect(prisma.agentRuntimeState.updateMany).toHaveBeenCalledWith({
+        where: { agentId: 'def-1' },
+        data: { consecutiveFailCount: 0, lastFailedAt: null },
       });
     });
   });

@@ -12,7 +12,5 @@ __pycache__/
 .claude-flow/
 .swarm/
 .mcp.json
-DASHBOARD_*.md
-MIGRATION_CHECKLIST.md
 .gstack/
 data/

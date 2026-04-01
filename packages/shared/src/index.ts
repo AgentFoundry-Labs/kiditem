@@ -72,6 +72,14 @@ export type { RuleItem } from './schemas/rules.js';
 export { AgentTaskItemSchema } from './schemas/agent-tasks.js';
 export type { AgentTaskItem } from './schemas/agent-tasks.js';
 
+// Feature Gate
+export { FeatureGateSchema } from './schemas/feature-gate.js';
+export type { FeatureGate } from './schemas/feature-gate.js';
+
+// Agent Workflow
+export { WorkflowStepSchema, AgentWorkflowSchema, WorkflowYieldSchema } from './schemas/agent-workflow.js';
+export type { WorkflowStep, AgentWorkflow, WorkflowYield } from './schemas/agent-workflow.js';
+
 // Errors
 export { ErrorCodes } from './errors/codes.js';
 export { AppException } from './errors/app-exception.js';

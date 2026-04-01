@@ -1,5 +1,7 @@
-import { Controller, Get, Post, Patch, Delete, Body, Query, Param } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Query, Param, Sse } from '@nestjs/common';
+import { Observable } from 'rxjs';
 import { AgentRegistryService } from './agent-registry.service';
+import { AgentSseService } from './events/agent-sse.service';
 import {
   ListAgentsQueryDto,
   CostAnalyticsQueryDto,
@@ -13,7 +15,10 @@ import {
 
 @Controller('agent-registry')
 export class AgentRegistryController {
-  constructor(private readonly service: AgentRegistryService) {}
+  constructor(
+    private readonly service: AgentRegistryService,
+    private readonly sseService: AgentSseService,
+  ) {}
 
   @Get()
   list(@Query() query: ListAgentsQueryDto) {
@@ -23,6 +28,11 @@ export class AgentRegistryController {
   @Get('org')
   getOrgTree() {
     return this.service.getOrgTree();
+  }
+
+  @Sse('events')
+  agentEvents(): Observable<MessageEvent> {
+    return this.sseService.getStream();
   }
 
   @Get('cost-analytics')

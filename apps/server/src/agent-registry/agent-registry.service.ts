@@ -123,10 +123,18 @@ export class AgentRegistryService implements OnModuleInit {
     const def = await this.getById(id);
     const dryRun = input?.dryRun ?? def.requiresApproval;
 
-    // 예산 체크 (task 생성 전)
-    if (def.monthlyTokenBudget > 0 && def.tokensUsed >= def.monthlyTokenBudget) {
-      this.logger.warn(`Agent ${def.name} budget exceeded: ${def.tokensUsed}/${def.monthlyTokenBudget}`);
-      throw new BadRequestException(`월간 토큰 예산 초과 (${def.tokensUsed}/${def.monthlyTokenBudget})`);
+    // 예산 체크 (task 생성 전) — 4단계 비용 경고
+    if (def.monthlyTokenBudget > 0) {
+      const usageRatio = def.tokensUsed / def.monthlyTokenBudget;
+      if (usageRatio >= 1.0) {
+        this.logger.error(`Agent ${def.name} budget exceeded: ${def.tokensUsed}/${def.monthlyTokenBudget}`);
+        throw new BadRequestException(`월간 토큰 예산 초과 (${def.tokensUsed}/${def.monthlyTokenBudget})`);
+      }
+      if (usageRatio >= 0.95) {
+        this.logger.error(`Agent ${def.name} budget critical: ${Math.round(usageRatio * 100)}% used`);
+      } else if (usageRatio >= 0.80) {
+        this.logger.warn(`Agent ${def.name} budget warning: ${Math.round(usageRatio * 100)}% used`);
+      }
     }
 
     // AgentTask 생성 (기존 도메인 콜백 호환)
@@ -266,6 +274,11 @@ export class AgentRegistryService implements OnModuleInit {
     await this.prisma.agentDefinition.update({
       where: { id: agentId },
       data: { status: 'idle', pauseReason: null, pausedAt: null },
+    });
+    // 에러 복구 캐스케이드: resume 시 연속 실패 카운터 리셋
+    await this.prisma.agentRuntimeState.updateMany({
+      where: { agentId },
+      data: { consecutiveFailCount: 0, lastFailedAt: null },
     });
     return { ok: true };
   }

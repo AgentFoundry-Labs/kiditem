@@ -100,6 +100,7 @@ model Company {
   agentRuntimeStates AgentRuntimeState[]
   heartbeatRuns      HeartbeatRun[]
   agentWakeupRequests AgentWakeupRequest[]
+  agentWorkflows     AgentWorkflow[]
 
   @@map("companies")
 }
@@ -808,6 +809,7 @@ model AgentDefinition {
   runtimeState   AgentRuntimeState?
   heartbeatRuns  HeartbeatRun[]
   wakeupRequests AgentWakeupRequest[]
+  workflows      AgentWorkflow[]
 
   @@index([companyId])
   @@index([type])
@@ -832,6 +834,10 @@ model AgentRuntimeState {
   totalOutputTokens Int    @default(0) @map("total_output_tokens")
   totalCostCents    Int    @default(0) @map("total_cost_cents")
   lastError         String? @map("last_error")
+
+  // 에러 복구 캐스케이드: 연속 실패 추적 → 3회 시 auto-pause
+  consecutiveFailCount Int       @default(0) @map("consecutive_fail_count")
+  lastFailedAt         DateTime? @map("last_failed_at") @db.Timestamptz
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
@@ -877,6 +883,48 @@ model HeartbeatRun {
   @@index([companyId, agentId, startedAt])
   @@index([status])
   @@map("heartbeat_runs")
+}
+
+// ─── Feature Gates (Claude Code 피처 게이트 패턴) ────────────────────────────
+
+model FeatureGate {
+  id               String   @id @default(uuid()) @db.Uuid
+  name             String   @unique
+  description      String?
+  enabled          Boolean  @default(false)
+  allowedCompanies String[] @map("allowed_companies")
+  metadata         Json?    @db.JsonB
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("feature_gates")
+}
+
+// ─── Agent Workflows (Async Generator 패턴) ─────────────────────────────────
+
+model AgentWorkflow {
+  id          String   @id @default(uuid()) @db.Uuid
+  agentId     String   @map("agent_id") @db.Uuid
+  companyId   String   @map("company_id") @db.Uuid
+  type        String
+  status      String   @default("running")
+  currentStep Int      @default(0) @map("current_step")
+  state       Json     @default("{}") @db.JsonB
+  steps       Json     @default("[]") @db.JsonB
+  input       Json?    @db.JsonB
+  output      Json?    @db.JsonB
+  error       String?
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  agent   AgentDefinition @relation(fields: [agentId], references: [id])
+  company Company         @relation(fields: [companyId], references: [id])
+
+  @@index([companyId, status])
+  @@index([agentId])
+  @@map("agent_workflows")
 }
 
 // ─── Agent Wakeup Requests ───────────────────────────────────────────────────

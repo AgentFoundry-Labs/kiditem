@@ -45,17 +45,36 @@ function makeScheduler() {
   };
 }
 
+function makeEventEmitter() {
+  return {
+    emit: vi.fn(),
+  };
+}
+
+function makeFeatureGate() {
+  return {
+    isEnabled: vi.fn().mockResolvedValue(true),
+  };
+}
+
 function makeService() {
   const prisma = makePrisma();
   const wakeup = makeWakeup();
   const skills = makeSkills();
   const scheduler = makeScheduler();
+  const eventEmitter = makeEventEmitter();
+  const featureGate = makeFeatureGate();
   return {
-    service: new HeartbeatService(prisma as any, wakeup as any, skills as any, scheduler as any),
+    service: new HeartbeatService(
+      prisma as any, wakeup as any, skills as any, scheduler as any,
+      eventEmitter as any, featureGate as any,
+    ),
     prisma,
     wakeup,
     skills,
     scheduler,
+    eventEmitter,
+    featureGate,
   };
 }
 
