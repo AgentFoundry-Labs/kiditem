@@ -13,18 +13,21 @@ npm install
 cp apps/server/.env.example apps/server/.env   # NestJS — DB, Coupang, Gemini keys
 cp agents/.env.example agents/.env             # Python agents — AI model keys (OpenAI, Gemini, fal, Langfuse)
 
-# Infrastructure
-docker compose up -d                           # PostgreSQL + NestJS + Python Agents
+# Python venv (required for agents)
+cd agents && python -m venv .venv && .venv/bin/pip install -r requirements.txt && cd ..
+
+# DB + schema
+docker compose up -d                           # PostgreSQL only (Docker)
 npm run db:push                                # Apply schema
 
-# Frontend
-npm run dev                                    # Next.js (localhost:3000)
+# Run all at once
+npm run dev:all                                # Next.js + NestJS + Python Agents (concurrently)
 ```
 
 ### Detail Page Generation Test
 
 1. Set AI keys in `agents/.env`: `OPENAI_API_KEY`, `GEMINI_API_KEY`, `FAL_KEY`
-2. `docker compose up -d --build` (server + agents)
+2. `npm run dev:all`
 3. `localhost:3000/sourcing` → select product → editor → AI generate button
 
 ## Structure
@@ -44,22 +47,21 @@ extensions/          — Chrome extension (1688/Alibaba scraper)
 ## Commands
 
 ```bash
-docker compose up -d                 # PostgreSQL + NestJS + Python Agents
-docker compose up -d --build         # Full rebuild after code changes
-docker compose up -d --build server  # Rebuild NestJS only
-docker compose up -d --build agents  # Rebuild Python agents only
-docker compose logs -f agents        # Agent logs
+docker compose up -d                 # PostgreSQL (Docker)
+npm run dev:all                      # Next.js + NestJS + Python Agents (all at once)
+npm run dev                          # Next.js frontend only (localhost:3000)
+npm run dev:server                   # NestJS backend only (localhost:4000)
+npm run dev:agents                   # Python Agents only
 npm run db:push                      # Apply schema
-npm run dev                          # Next.js frontend (localhost:3000)
-npm run dev:server                   # NestJS local dev (instead of Docker)
+npm run db:studio                    # Prisma Studio (DB GUI)
 ```
 
-| Service | Port | Docker |
+| Service | Port | Runtime |
 |---|---|---|
-| Next.js | 3000 | No (local) |
-| NestJS | 4000 | Yes |
-| Python Agents | — (worker) | Yes |
-| PostgreSQL | 5433 | Yes |
+| Next.js | 3000 | Local (`npm run dev`) |
+| NestJS | 4000 | Local (`npm run dev:server`) |
+| Python Agents | — (worker) | Local (`npm run dev:agents`) |
+| PostgreSQL | 5433 | Docker |
 
 ## Architecture
 

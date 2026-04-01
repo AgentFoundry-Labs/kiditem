@@ -8,64 +8,108 @@
 git clone https://github.com/AgentFoundry-Labs/kiditem.git
 cd kiditem
 npm install
-cp apps/server/.env.example apps/server/.env   # GEMINI_API_KEY 등 설정
-docker compose up -d                           # PostgreSQL + NestJS + Langfuse
+
+# 환경 변수
+cp apps/server/.env.example apps/server/.env   # NestJS — DB, Coupang, Gemini 키
+cp agents/.env.example agents/.env             # Python agents — AI 모델 키 (OpenAI, Gemini, fal, Langfuse)
+
+# Python 가상환경 (agents 실행 시 필요)
+cd agents && python -m venv .venv && .venv/bin/pip install -r requirements.txt && cd ..
+
+# DB 실행 + 스키마 적용
+docker compose up -d                           # PostgreSQL만 (Docker)
 npm run db:push                                # 스키마 적용
-npm run dev                                    # Next.js 프론트엔드 (별도 터미널)
+
+# 전체 실행 (한번에)
+npm run dev:all                                # Next.js + NestJS + Python Agents 동시 실행
 ```
 
-NestJS 코드 변경 시: `docker compose up -d --build server`
+### 개별 실행
+
+```bash
+npm run dev                          # Next.js 프론트엔드만 (localhost:3000)
+npm run dev:server                   # NestJS 백엔드만 (localhost:4000)
+npm run dev:agents                   # Python Agents만
+```
+
+### 상세페이지 생성 테스트
+
+1. `agents/.env`에 AI 키 설정: `OPENAI_API_KEY`, `GEMINI_API_KEY`, `FAL_KEY`
+2. `npm run dev:all`
+3. `localhost:3000/sourcing` → 상품 선택 → 에디터 → AI 생성 버튼
 
 ## 포트
 
 | 서비스 | URL | 실행 방식 |
 |---|---|---|
 | Next.js | http://localhost:3000 | 로컬 (`npm run dev`) |
-| NestJS API | http://localhost:4000/api | Docker |
+| NestJS API | http://localhost:4000/api | 로컬 (`npm run dev:server`) |
+| Python Agents | — (워커) | 로컬 (`npm run dev:agents`) |
 | PostgreSQL | localhost:5433 | Docker |
-| Langfuse | http://localhost:3100 | Docker |
 
 ## 구조
 
 ```
 apps/web/            — Next.js 14 프론트엔드
 apps/server/         — NestJS 11 백엔드 API
-agents/              — Python 3.11+ AI 에이전트
+agents/              — Python 3.11+ AI 에이전트 (백그라운드 워커)
+packages/shared/     — @kiditem/shared (Zod 스키마 + TypeScript 타입 + 에러 코드)
 packages/templates/  — 상세페이지 React 템플릿
-extensions/          — Chrome 익스텐션 (1688 스크래퍼)
 prisma/              — DB 스키마 (source of truth)
+extensions/          — Chrome 익스텐션 (1688/Alibaba 스크래퍼)
 ```
 
 ## 기술 스택
 
 | 레이어 | 기술 |
 |---|---|
-| 프론트엔드 | Next.js 14, Tailwind CSS, ReactFlow |
-| 백엔드 | NestJS 11, TypeScript |
+| 프론트엔드 | Next.js 14, Tailwind CSS, TanStack React Query, Zustand, Sonner |
+| 백엔드 | NestJS 11, TypeScript, class-validator DTO |
 | DB | PostgreSQL 17, Prisma v7 |
-| AI | Python (OpenAI/Gemini), Gemini structured output |
-| 인프라 | Docker Compose, Langfuse |
+| 공유 | Zod 스키마 (@kiditem/shared), ESM + CJS dual format |
+| AI | Python (OpenAI/Gemini/fal), Claude CLI agents |
+| 인프라 | Docker Compose |
 
 ## 환경 변수
 
-`apps/server/.env`:
+### apps/server/.env
 
 ```
 DATABASE_URL=postgresql://kiditem:kiditem@localhost:5433/kiditem
-GEMINI_API_KEY=          # 워크플로우 AI 분석
+COUPANG_ACCESS_KEY=         # Coupang Wing API
+COUPANG_SECRET_KEY=
+COUPANG_VENDOR_ID=
+GEMINI_API_KEY=             # 워크플로우 AI 분석
 AI_TEXT_MODEL=gemini-2.5-flash
-COUPANG_ACCESS_KEY=      # 선택
-COUPANG_SECRET_KEY=      # 선택
-COUPANG_VENDOR_ID=       # 선택
 ```
 
-`agents/.env`:
+### agents/.env
 
 ```
 DATABASE_URL=postgresql://kiditem:kiditem@localhost:5433/kiditem
-OPENAI_API_KEY=          # AI 콘텐츠 생성
-GEMINI_API_KEY=          # AI 분석
+
+# AI API 키
+OPENAI_API_KEY=sk-...
+GEMINI_API_KEY=AI...
+FAL_KEY=...
+
+# AI 모델
 AI_TEXT_MODEL=gemini-2.5-flash
+AI_IMAGE_ANALYSIS_MODEL=gemini-3.1-flash-lite-preview
+AI_IMAGE_MODEL=gemini-3.1-flash-image-preview
+AI_IMAGE_EDIT_MODEL=fal-ai/flux-2-pro/edit
+
+# Langfuse (선택)
+LANGFUSE_PUBLIC_KEY=pk-lf-...
+LANGFUSE_SECRET_KEY=sk-lf-...
+LANGFUSE_BASE_URL=https://cloud.langfuse.com
+```
+
+## 테스트
+
+```bash
+cd apps/server && npx vitest run    # 백엔드
+cd apps/web && npx vitest run       # 프론트엔드
 ```
 
 ## License
