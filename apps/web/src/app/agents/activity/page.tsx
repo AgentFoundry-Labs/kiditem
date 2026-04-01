@@ -1,81 +1,17 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, Activity, Filter, ChevronLeft, ChevronRight, ChevronDown, List, BarChart3 } from 'lucide-react';
+import { RefreshCw, Activity, ChevronLeft, ChevronRight, List, BarChart3 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { agentApi } from '@/lib/agent-api';
 import { isApiError } from '@/lib/api-error';
-import { relativeTime } from '@/lib/agent-utils';
-import { statusBadge, statusBadgeDefault } from '@/lib/status-colors';
-import { SOURCE_LABELS } from '@/lib/agent-types';
 import type { Agent, HeartbeatRun } from '@/lib/agent-types';
-
-interface RunWithAgent extends HeartbeatRun {
-  agentName: string;
-  agentIcon: string | null;
-}
-
-const SOURCE_COLORS: Record<string, string> = {
-  timer: 'bg-blue-100 text-blue-700',
-  assignment: 'bg-violet-100 text-violet-700',
-  on_demand: 'bg-cyan-100 text-cyan-700',
-  automation: 'bg-amber-100 text-amber-700',
-};
-
-const AGENT_COLORS = [
-  'bg-blue-100 text-blue-700',
-  'bg-violet-100 text-violet-700',
-  'bg-green-100 text-green-700',
-  'bg-amber-100 text-amber-700',
-  'bg-cyan-100 text-cyan-700',
-  'bg-rose-100 text-rose-700',
-  'bg-indigo-100 text-indigo-700',
-  'bg-orange-100 text-orange-700',
-];
-
-function agentColor(name: string): string {
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
-  return AGENT_COLORS[Math.abs(hash) % AGENT_COLORS.length];
-}
-
-function agentInitials(name: string): string {
-  const words = name.trim().split(/\s+/);
-  if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();
-  return name.slice(0, 2).toUpperCase();
-}
-
-function statusLabel(run: HeartbeatRun): string {
-  const labels: Record<string, string> = {
-    succeeded: '완료',
-    failed: '실패',
-    running: '실행 중',
-    queued: '대기 중',
-    timed_out: '시간 초과',
-    cancelled: '취소됨',
-  };
-  return labels[run.status] ?? run.status;
-}
-
-function runDescription(run: RunWithAgent): string {
-  const src = SOURCE_LABELS[run.invocationSource] ?? run.invocationSource;
-  const stat = statusLabel(run);
-  return `하트비트 실행 ${stat} (${src})`;
-}
-
-function groupLabel(dateStr: string): string {
-  const today = new Date();
-  const d = new Date(dateStr);
-  const todayMid = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  const dMid = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  const diffDays = Math.round((todayMid.getTime() - dMid.getTime()) / 86400_000);
-  if (diffDays === 0) return '오늘';
-  if (diffDays === 1) return '어제';
-  if (diffDays < 7) return '이번 주';
-  if (diffDays < 30) return '이번 달';
-  return d.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long' });
-}
+import { groupLabel } from './components/activity-utils';
+import type { RunWithAgent } from './components/activity-utils';
+import { TimelineView } from './components/TimelineView';
+import { ActivityFeed } from './components/ActivityFeed';
+import { ActivityFilters } from './components/ActivityFilters';
 
 export default function ActivityPage() {
   const [runs, setRuns] = useState<RunWithAgent[]>([]);
@@ -209,65 +145,17 @@ export default function ActivityPage() {
       </div>
 
       {/* Filters */}
-      <div className="flex items-center gap-4 mb-4 flex-wrap">
-        <Filter className="w-4 h-4 text-gray-600 shrink-0" />
-        <select
-          value={agentFilter}
-          onChange={(e) => { setAgentFilter(e.target.value); setPage(0); }}
-          className="px-3 py-1.5 rounded-lg text-xs border border-gray-200 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-gray-300"
-        >
-          <option value="all">전체 에이전트</option>
-          {agentNames.map((name) => (
-            <option key={name} value={name}>{name}</option>
-          ))}
-        </select>
-        <div className="h-4 w-px bg-gray-200" />
-        <div className="flex gap-1">
-          {([
-            { key: 'all', label: '전체' },
-            { key: 'succeeded', label: '완료' },
-            { key: 'failed', label: '실패' },
-            { key: 'timed_out', label: '시간초과' },
-            { key: 'running', label: '실행중' },
-          ] as const).map((s) => (
-            <button
-              key={s.key}
-              onClick={() => { setStatusFilter(s.key); setPage(0); }}
-              className={cn(
-                'px-3 py-1.5 rounded-lg text-xs transition-colors border',
-                statusFilter === s.key
-                  ? 'bg-white text-gray-900 border-gray-200'
-                  : 'text-gray-600 hover:text-gray-500 border-transparent'
-              )}
-            >
-              {s.label}
-            </button>
-          ))}
-        </div>
-        <div className="h-4 w-px bg-gray-200" />
-        <div className="flex gap-1">
-          {([
-            { key: 'all', label: '전체' },
-            { key: '오늘', label: '오늘' },
-            { key: '7일', label: '7일' },
-            { key: '30일', label: '30일' },
-          ] as const).map((t) => (
-            <button
-              key={t.key}
-              onClick={() => { setTimeRange(t.key); setPage(0); }}
-              className={cn(
-                'px-3 py-1.5 rounded-lg text-xs transition-colors border',
-                timeRange === t.key
-                  ? 'bg-white text-gray-900 border-gray-200'
-                  : 'text-gray-600 hover:text-gray-500 border-transparent'
-              )}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-      </div>
-      <p className="text-xs text-gray-400 mb-4">{filteredRuns.length}건</p>
+      <ActivityFilters
+        agentFilter={agentFilter}
+        setAgentFilter={setAgentFilter}
+        statusFilter={statusFilter}
+        setStatusFilter={setStatusFilter}
+        timeRange={timeRange}
+        setTimeRange={setTimeRange}
+        agentNames={agentNames}
+        setPage={setPage}
+        filteredCount={filteredRuns.length}
+      />
 
       {/* Empty state */}
       {filteredRuns.length === 0 && (
@@ -283,123 +171,13 @@ export default function ActivityPage() {
       )}
 
       {/* Feed */}
-      {viewMode === 'feed' && grouped.map((group) => (
-        <div key={group.label} className="mb-6">
-          {/* Date group header */}
-          <div className="flex items-center gap-2 mb-3">
-            <span className="text-xs font-medium text-gray-500">{group.label}</span>
-            <div className="flex-1 h-px bg-gray-100" />
-          </div>
-
-          {/* Runs */}
-          <div className="space-y-1">
-            {group.runs.map((run, idx) => {
-              const colorClass = agentColor(run.agentName);
-              const initials = agentInitials(run.agentName);
-              const srcColor = SOURCE_COLORS[run.invocationSource] ?? 'bg-gray-100 text-gray-600';
-              const badgeClass = statusBadge[run.status] ?? statusBadgeDefault;
-              const isLast = idx === group.runs.length - 1;
-              const hasError = (run.status === 'failed' || run.status === 'timed_out') && (run.error || run.stderrExcerpt);
-              const isExpanded = expandedRunId === run.id;
-
-              return (
-                <div key={run.id}>
-                  <div
-                    onClick={() => {
-                      if (hasError) setExpandedRunId(isExpanded ? null : run.id);
-                    }}
-                    className={cn(
-                      'flex items-start gap-3 px-3 py-2.5 rounded-lg hover:bg-gray-50 transition-colors cursor-default',
-                      !isLast && !isExpanded && 'border-b border-gray-50',
-                      hasError && 'cursor-pointer',
-                    )}
-                  >
-                    {/* Agent avatar */}
-                    <div
-                      className={cn(
-                        'w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-xs font-semibold mt-0.5',
-                        colorClass,
-                      )}
-                    >
-                      {run.agentIcon ?? initials}
-                    </div>
-
-                    {/* Content */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-start gap-2 flex-wrap">
-                        <span className="text-sm font-medium text-gray-900">{run.agentName}</span>
-                        <span className="text-sm text-gray-500 truncate flex-1 min-w-0">
-                          {runDescription(run)}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                        {/* Status badge */}
-                        <span
-                          className={cn(
-                            'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium',
-                            badgeClass,
-                          )}
-                        >
-                          {statusLabel(run)}
-                        </span>
-
-                        {/* Source badge */}
-                        <span
-                          className={cn(
-                            'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium',
-                            srcColor,
-                          )}
-                        >
-                          {SOURCE_LABELS[run.invocationSource] ?? run.invocationSource}
-                        </span>
-
-                        {/* Error preview */}
-                        {run.error && !isExpanded && (
-                          <span className="text-[10px] text-red-500 truncate max-w-xs" title={run.error}>
-                            {run.error.slice(0, 60)}{run.error.length > 60 ? '...' : ''}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Expand indicator + time */}
-                    <div className="flex items-center gap-1.5 shrink-0 mt-0.5">
-                      {hasError && (
-                        <ChevronDown className={cn('w-3 h-3 text-gray-400 transition-transform', isExpanded && 'rotate-180')} />
-                      )}
-                      <span className="text-xs text-gray-400">
-                        {relativeTime(run.createdAt)}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Error expansion panel */}
-                  {isExpanded && hasError && (
-                    <div className="ml-11 mt-1 mb-2 p-3 bg-red-50 border border-red-100 rounded-lg">
-                      {run.error && (
-                        <div className="mb-2">
-                          <span className="text-[10px] font-medium text-red-600 block mb-1">에러</span>
-                          <pre className="text-[11px] text-red-700 whitespace-pre-wrap break-all font-mono">
-                            {run.error}
-                          </pre>
-                        </div>
-                      )}
-                      {run.stderrExcerpt && (
-                        <div>
-                          <span className="text-[10px] font-medium text-red-600 block mb-1">stderr</span>
-                          <pre className="text-[11px] text-red-700 whitespace-pre-wrap break-all font-mono max-h-40 overflow-y-auto">
-                            {run.stderrExcerpt}
-                          </pre>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      ))}
+      {viewMode === 'feed' && (
+        <ActivityFeed
+          grouped={grouped}
+          expandedRunId={expandedRunId}
+          setExpandedRunId={setExpandedRunId}
+        />
+      )}
 
       {/* Pagination (feed only) */}
       {viewMode === 'feed' && totalPages > 1 && (
@@ -441,191 +219,6 @@ export default function ActivityPage() {
             >
               <ChevronRight className="w-4 h-4" />
             </button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ---- Timeline view ---- */
-
-const TIMELINE_BLOCK_COLORS: Record<string, string> = {
-  succeeded: 'bg-green-400',
-  failed: 'bg-red-400',
-  running: 'bg-blue-400 animate-pulse',
-  timed_out: 'bg-orange-400',
-  queued: 'bg-violet-400',
-  cancelled: 'bg-gray-300',
-};
-const TIMELINE_BLOCK_DEFAULT = 'bg-gray-300';
-
-function getTimeRange(timeRange: string): { start: number; end: number; tickCount: number; tickLabel: (i: number) => string } {
-  const now = new Date();
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const todayEnd = todayStart + 24 * 3600_000;
-
-  if (timeRange === '오늘') {
-    return {
-      start: todayStart,
-      end: todayEnd,
-      tickCount: 12,
-      tickLabel: (i) => `${i * 2}시`,
-    };
-  }
-  if (timeRange === '7일') {
-    const start = todayEnd - 7 * 86400_000;
-    return {
-      start,
-      end: todayEnd,
-      tickCount: 7,
-      tickLabel: (i) => {
-        const d = new Date(start + i * 86400_000);
-        return `${d.getMonth() + 1}/${d.getDate()}`;
-      },
-    };
-  }
-  // 30일 or all
-  const start = todayEnd - 30 * 86400_000;
-  return {
-    start,
-    end: todayEnd,
-    tickCount: 10,
-    tickLabel: (i) => {
-      const d = new Date(start + i * 3 * 86400_000);
-      return `${d.getMonth() + 1}/${d.getDate()}`;
-    },
-  };
-}
-
-function TimelineView({ runs, timeRange }: { runs: RunWithAgent[]; timeRange: string }) {
-  const [hoveredRun, setHoveredRun] = useState<{ run: RunWithAgent; x: number; y: number } | null>(null);
-
-  const range = getTimeRange(timeRange);
-  const span = range.end - range.start;
-
-  // Group by agent
-  const agentGroups = new Map<string, RunWithAgent[]>();
-  for (const run of runs) {
-    const existing = agentGroups.get(run.agentName);
-    if (existing) existing.push(run);
-    else agentGroups.set(run.agentName, [run]);
-  }
-  const agents = Array.from(agentGroups.keys()).sort();
-
-  return (
-    <div className="border border-gray-200 rounded-lg overflow-hidden">
-      {/* Time axis header */}
-      <div className="flex border-b border-gray-100">
-        <div className="w-36 shrink-0 px-3 py-2 text-[10px] text-gray-400 font-medium border-r border-gray-100">
-          에이전트
-        </div>
-        <div className="flex-1 relative h-8">
-          {Array.from({ length: range.tickCount }, (_, i) => {
-            const pct = (i / range.tickCount) * 100;
-            return (
-              <span
-                key={i}
-                className="absolute top-2 text-[10px] text-gray-400 -translate-x-1/2"
-                style={{ left: `${pct}%` }}
-              >
-                {range.tickLabel(i)}
-              </span>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Agent rows */}
-      {agents.map((agentName) => {
-        const agentRuns = agentGroups.get(agentName)!;
-        const colorClass = agentColor(agentName);
-        const initials = agentInitials(agentName);
-
-        return (
-          <div key={agentName} className="flex border-b border-gray-50 last:border-0">
-            {/* Agent label */}
-            <div className="w-36 shrink-0 px-3 py-2 flex items-center gap-2 border-r border-gray-100">
-              <div
-                className={cn(
-                  'w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-semibold shrink-0',
-                  colorClass,
-                )}
-              >
-                {initials}
-              </div>
-              <span className="text-xs text-gray-700 truncate">{agentName}</span>
-            </div>
-
-            {/* Timeline bar */}
-            <div className="flex-1 relative h-10 bg-gray-50/50">
-              {/* Grid lines */}
-              {Array.from({ length: range.tickCount }, (_, i) => (
-                <div
-                  key={i}
-                  className="absolute top-0 bottom-0 w-px bg-gray-100"
-                  style={{ left: `${(i / range.tickCount) * 100}%` }}
-                />
-              ))}
-
-              {/* Run blocks */}
-              {agentRuns.map((run) => {
-                const runStart = new Date(run.startedAt ?? run.createdAt).getTime();
-                const runEnd = run.finishedAt
-                  ? new Date(run.finishedAt).getTime()
-                  : run.status === 'running'
-                    ? Date.now()
-                    : runStart + 60_000;
-                const leftPct = Math.max(0, ((runStart - range.start) / span) * 100);
-                const widthPct = Math.max(0.5, ((runEnd - runStart) / span) * 100);
-                const blockColor = TIMELINE_BLOCK_COLORS[run.status] ?? TIMELINE_BLOCK_DEFAULT;
-
-                if (leftPct > 100) return null;
-
-                return (
-                  <div
-                    key={run.id}
-                    className={cn(
-                      'absolute top-2 h-6 rounded-sm cursor-pointer hover:opacity-80 transition-opacity',
-                      blockColor,
-                    )}
-                    style={{
-                      left: `${leftPct}%`,
-                      width: `${Math.min(widthPct, 100 - leftPct)}%`,
-                      minWidth: '4px',
-                    }}
-                    onMouseEnter={(e) => setHoveredRun({ run, x: e.clientX, y: e.clientY })}
-                    onMouseLeave={() => setHoveredRun(null)}
-                  />
-                );
-              })}
-            </div>
-          </div>
-        );
-      })}
-
-      {/* Empty state */}
-      {agents.length === 0 && (
-        <div className="flex items-center justify-center py-12 text-gray-400 text-sm">
-          표시할 데이터가 없습니다.
-        </div>
-      )}
-
-      {/* Hover tooltip */}
-      {hoveredRun && (
-        <div
-          className="fixed z-50 px-3 py-2 bg-gray-900 text-white rounded-lg shadow-lg text-xs pointer-events-none"
-          style={{ left: hoveredRun.x + 12, top: hoveredRun.y - 8 }}
-        >
-          <div className="font-medium">{hoveredRun.run.agentName}</div>
-          <div className="text-gray-300 mt-0.5">
-            {statusLabel(hoveredRun.run)} · {SOURCE_LABELS[hoveredRun.run.invocationSource] ?? hoveredRun.run.invocationSource}
-          </div>
-          <div className="text-gray-400 mt-0.5">
-            {new Date(hoveredRun.run.startedAt ?? hoveredRun.run.createdAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}
-            {hoveredRun.run.finishedAt && (
-              <> → {new Date(hoveredRun.run.finishedAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</>
-            )}
           </div>
         </div>
       )}

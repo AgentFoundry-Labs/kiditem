@@ -2,20 +2,17 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { List, GitBranch, RefreshCw, SlidersHorizontal, Plus, Bot, Store, Filter, Trash2 } from 'lucide-react';
+import { List, GitBranch, RefreshCw, SlidersHorizontal, Plus, Bot, Store } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { agentApi } from '@/lib/agent-api';
 import { isApiError } from '@/lib/api-error';
-import { StatusBadge } from '@/components/ui/StatusBadge';
-import { agentStatusDot, agentStatusDotDefault } from '@/lib/status-colors';
-import { relativeTime, formatCost } from '@/lib/agent-utils';
-import { ADAPTER_LABELS, ROLE_LABELS } from '@/lib/agent-types';
 import type { Agent, OrgNode, FilterTab, ViewMode } from '@/lib/agent-types';
 import { marketplaceApi } from '@/lib/marketplace-api';
 import type { AgentCatalogItem, MarketplaceTab } from '@/lib/marketplace-types';
-import { MarketplaceCard } from '@/components/marketplace/MarketplaceCard';
-import { InstallModal } from '@/components/marketplace/InstallModal';
+import { AgentListRow } from './components/AgentListRow';
+import { OrgTreeNode } from './components/OrgTreeNode';
+import { AgentMarketplace } from './components/AgentMarketplace';
 
 function matchesFilter(status: string, tab: FilterTab, showTerminated: boolean): boolean {
   if (status === 'terminated') return showTerminated;
@@ -35,13 +32,6 @@ function filterOrgTree(nodes: OrgNode[], tab: FilterTab, showTerminated: boolean
     return acc;
   }, []);
 }
-
-const agentCategoryFilters: { id: string; label: string }[] = [
-  { id: 'all', label: '전체' },
-  { id: 'operations', label: '운영' },
-  { id: 'analytics', label: '분석' },
-  { id: 'monitoring', label: '모니터링' },
-];
 
 export default function AgentsPage() {
   const router = useRouter();
@@ -199,62 +189,18 @@ export default function AgentsPage() {
       </div>
 
       {pageTab === 'marketplace' ? (
-        <>
-          {/* Category filters */}
-          <div className="flex items-center gap-2 mb-4">
-            <Filter className="w-4 h-4 text-gray-600" />
-            <div className="flex gap-1">
-              {agentCategoryFilters.map((f) => (
-                <button
-                  key={f.id}
-                  onClick={() => setCategoryFilter(f.id)}
-                  className={`px-3 py-1.5 rounded-lg text-xs transition-colors ${
-                    categoryFilter === f.id
-                      ? 'bg-white text-gray-900 border border-gray-200'
-                      : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50 border border-transparent'
-                  }`}
-                >
-                  {f.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {catalogLoading ? (
-            <PageSkeleton variant="list" />
-          ) : filteredCatalog.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 text-gray-400">
-              <Store size={40} className="mb-3" />
-              <p className="text-sm">카탈로그가 비어 있습니다</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {filteredCatalog.map((item) => (
-                <MarketplaceCard
-                  key={item.id}
-                  item={item}
-                  type="agent"
-                  installed={item.installed}
-                  onInstall={() => setInstallTarget(item)}
-                  onUninstall={handleUninstallAgent}
-                />
-              ))}
-            </div>
-          )}
-
-          {installTarget && (
-            <InstallModal
-              open={!!installTarget}
-              onClose={() => setInstallTarget(null)}
-              onInstall={handleInstallAgent}
-              title={installTarget.name}
-              description={installTarget.description}
-              configurableParams={installTarget.configurableParams}
-              type="agent"
-              installing={installing}
-            />
-          )}
-        </>
+        <AgentMarketplace
+          catalog={catalog}
+          catalogLoading={catalogLoading}
+          categoryFilter={categoryFilter}
+          setCategoryFilter={setCategoryFilter}
+          filteredCatalog={filteredCatalog}
+          installTarget={installTarget}
+          setInstallTarget={setInstallTarget}
+          handleInstallAgent={handleInstallAgent}
+          handleUninstallAgent={handleUninstallAgent}
+          installing={installing}
+        />
       ) : (
       <>
       {/* Header */}
@@ -421,176 +367,6 @@ export default function AgentsPage() {
         </div>
       )}
       </>
-      )}
-    </div>
-  );
-}
-
-/* ---- List row ---- */
-
-function AgentListRow({ agent, onClick, onDelete }: { agent: Agent; onClick: () => void; onDelete?: (id: string) => void }) {
-  const dotClass = agentStatusDot[agent.status] ?? agentStatusDotDefault;
-  const isLive = agent.status === 'running';
-
-  return (
-    <div
-      className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-0 transition-colors"
-      onClick={onClick}
-    >
-      {/* Status dot */}
-      <span className="relative flex h-2.5 w-2.5 shrink-0">
-        <span className={cn('absolute inline-flex h-full w-full rounded-full', dotClass)} />
-      </span>
-
-      {/* Icon placeholder */}
-      <div className="w-6 h-6 sm:w-8 sm:h-8 rounded-lg bg-gray-100 flex items-center justify-center shrink-0 text-sm font-semibold text-gray-500">
-        {agent.icon ?? agent.name.charAt(0).toUpperCase()}
-      </div>
-
-      {/* Name + meta */}
-      <div className="flex-1 min-w-0">
-        <span className="text-sm font-medium text-gray-900">{agent.name}</span>
-        <span className="hidden sm:inline text-xs text-gray-500 ml-2">
-          {ROLE_LABELS[agent.role] ?? agent.role}
-          {agent.title ? ` · ${agent.title}` : ''}
-        </span>
-        {agent.description && (
-          <p className="text-xs text-gray-400 truncate mt-0.5">{agent.description}</p>
-        )}
-      </div>
-
-      {/* Trailing info */}
-      <div className="hidden sm:flex items-center gap-3 shrink-0">
-        {isLive && (
-          <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 text-[11px] font-medium">
-            <span className="relative flex h-1.5 w-1.5">
-              <span className="animate-pulse absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-blue-500" />
-            </span>
-            Live
-          </span>
-        )}
-        {agent.runtimeState && agent.runtimeState.totalCostCents > 0 && (
-          <span className="text-xs text-gray-400 font-mono text-right">
-            {formatCost(agent.runtimeState.totalCostCents)}
-          </span>
-        )}
-        <span className="text-xs text-gray-400 font-mono w-14 text-right">
-          {ADAPTER_LABELS[agent.adapterType] ?? agent.adapterType}
-        </span>
-        <span className="text-xs text-gray-400 w-16 text-right">
-          {relativeTime(agent.lastHeartbeatAt)}
-        </span>
-        <span className="w-20 flex justify-end">
-          <StatusBadge status={agent.status} />
-        </span>
-        {onDelete && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              if (confirm('이 에이전트를 삭제하시겠습니까?')) {
-                onDelete(agent.id);
-              }
-            }}
-            className="p-1 text-gray-400 hover:text-red-500 transition-colors"
-            title="삭제"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/* ---- Org tree node ---- */
-
-function OrgTreeNode({
-  node,
-  depth,
-  agentMap,
-  onNavigate,
-}: {
-  node: OrgNode;
-  depth: number;
-  agentMap: Map<string, Agent>;
-  onNavigate: (id: string) => void;
-}) {
-  const agent = agentMap.get(node.id);
-  const dotClass = agentStatusDot[node.status] ?? agentStatusDotDefault;
-  const isLive = node.status === 'running';
-
-  return (
-    <div style={{ paddingLeft: depth * 24 }}>
-      <div
-        className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-0 transition-colors"
-        onClick={() => onNavigate(node.id)}
-      >
-        {/* Status dot */}
-        <span className="relative flex h-2.5 w-2.5 shrink-0">
-          <span className={cn('absolute inline-flex h-full w-full rounded-full', dotClass)} />
-        </span>
-
-        {/* Agent icon */}
-        <div className="w-7 h-7 rounded-md bg-gray-100 flex items-center justify-center shrink-0 text-xs font-semibold text-gray-500">
-          {node.name.charAt(0).toUpperCase()}
-        </div>
-
-        {/* Name + meta */}
-        <div className="flex-1 min-w-0">
-          <span className="text-sm font-medium text-gray-900">{node.name}</span>
-          <span className="text-xs text-gray-500 ml-2">
-            {ROLE_LABELS[node.role] ?? node.role}
-            {node.title ? ` · ${node.title}` : ''}
-          </span>
-        </div>
-
-        {/* Trailing info */}
-        <div className="hidden sm:flex items-center gap-3 shrink-0">
-          {isLive && (
-            <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 text-[11px] font-medium">
-              <span className="relative flex h-1.5 w-1.5">
-                <span className="animate-pulse absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-blue-500" />
-              </span>
-              Live
-            </span>
-          )}
-          {agent?.runtimeState && agent.runtimeState.totalCostCents > 0 && (
-            <span className="text-xs text-gray-400 font-mono text-right">
-              {formatCost(agent.runtimeState.totalCostCents)}
-            </span>
-          )}
-          {agent && (
-            <span className="text-xs text-gray-400 font-mono w-14 text-right">
-              {ADAPTER_LABELS[agent.adapterType] ?? agent.adapterType}
-            </span>
-          )}
-          <span className="text-xs text-gray-400 w-16 text-right">
-            {relativeTime(node.lastHeartbeatAt)}
-          </span>
-          <span className="w-20 flex justify-end">
-            <StatusBadge status={node.status} />
-          </span>
-        </div>
-        <div className="flex sm:hidden">
-          <StatusBadge status={node.status} />
-        </div>
-      </div>
-
-      {/* Children with border-left connector */}
-      {node.reports && node.reports.length > 0 && (
-        <div className="border-l border-gray-200 ml-8">
-          {node.reports.map((child) => (
-            <OrgTreeNode
-              key={child.id}
-              node={child}
-              depth={depth + 1}
-              agentMap={agentMap}
-              onNavigate={onNavigate}
-            />
-          ))}
-        </div>
       )}
     </div>
   );
