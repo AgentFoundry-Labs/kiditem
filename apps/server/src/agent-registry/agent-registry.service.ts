@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit, NotFoundException, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, NotFoundException, BadRequestException, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { HeartbeatService } from './heartbeat/heartbeat.service';
 import { DEFAULT_AGENT_DEFINITIONS } from './seed-agents';
@@ -126,7 +126,7 @@ export class AgentRegistryService implements OnModuleInit {
     // 예산 체크 (task 생성 전)
     if (def.monthlyTokenBudget > 0 && def.tokensUsed >= def.monthlyTokenBudget) {
       this.logger.warn(`Agent ${def.name} budget exceeded: ${def.tokensUsed}/${def.monthlyTokenBudget}`);
-      return { ok: false, error: 'monthly_budget_exceeded', tokensUsed: def.tokensUsed, budget: def.monthlyTokenBudget };
+      throw new BadRequestException(`월간 토큰 예산 초과 (${def.tokensUsed}/${def.monthlyTokenBudget})`);
     }
 
     // AgentTask 생성 (기존 도메인 콜백 호환)

@@ -98,6 +98,26 @@ src/rules/                   — 건강도 평가 + 스케줄러
 - 실행: `child_process.spawn('claude', ['-p', prompt])` → 결과 curl 콜백
 - 운영 규칙 문서: `agent-config/rules/operations.md` (광고), `agent-config/rules/health-rules.md` (건강도)
 
+## API 응답 규약
+
+| 패턴 | 형태 | 사용처 |
+|---|---|---|
+| 페이지네이션 리스트 | `{ items: T[], total, page, limit }` | products, ads, reviews, thumbnails, inventory |
+| 페이지네이션 + 요약 | 위 + `summary: {...}` | reviews, inventory |
+| Bare 배열/객체 | `T[]` 또는 `T` | workflows, agent-registry, marketplace, companies |
+| 커맨드 응답 | `{ ok: true }` (선택: taskId 등) | DELETE, trigger, pause/resume |
+| 도메인 분석 | 도메인별 고유 형태 | dashboard, finance, cost-analytics |
+| 에러 (전체 통일) | `{ statusCode, error, message, timestamp, path }` | GlobalExceptionFilter |
+
+**새 엔드포인트 규칙:**
+- 페이지네이션 필요 → `{ items, total, page, limit }` + `PaginationQueryDto`
+- 소규모 리스트 (100건 이하) → bare `T[]`
+- 단일 리소스 GET → `T` (객체 직접 반환)
+- Create/Update → `T` (생성/수정된 객체 반환)
+- Delete/Command → `{ ok: true }`
+- 분석/대시보드 → 도메인별 고유 (shared 타입 정의 필수)
+- **200 응답에 `ok: false` 금지** → 실패 시 반드시 HttpException throw
+
 ## 규칙
 
 - API 경로에 `/v1/` 금지 → `/api/{domain}` 직접 매핑

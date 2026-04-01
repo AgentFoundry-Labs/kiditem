@@ -391,7 +391,7 @@ export class ProductsService {
   async triggerContentDraft(
     id: string,
     seed?: { seed_hook_text?: string; seed_hook_title_sub?: string; seed_hero_image?: string; color_image_urls?: string[] },
-  ): Promise<{ taskId: string }> {
+  ): Promise<{ ok: true; taskId: string }> {
     const product = await this.prisma.product.findUnique({ where: { id } });
     if (!product) {
       throw new BadRequestException('상품을 찾을 수 없습니다.');
@@ -416,7 +416,7 @@ export class ProductsService {
       task.id,
     );
 
-    return { taskId: task.id };
+    return { ok: true, taskId: task.id };
   }
 
   async getPipelineStats(statusFilter?: string): Promise<{
@@ -525,7 +525,7 @@ export class ProductsService {
     }
   }
 
-  async triggerImageGeneration(id: string): Promise<{ taskId: string }> {
+  async triggerImageGeneration(id: string): Promise<{ ok: true; taskId: string }> {
     const product = await this.prisma.product.findUnique({ where: { id } });
     if (!product) throw new NotFoundException('Product not found');
     if (!product.draftContent) {
@@ -551,6 +551,6 @@ export class ProductsService {
       where: { id },
       data: { pipelineStep: 'images_generating' },
     });
-    return { taskId: task.id };
+    return { ok: true, taskId: task.id };
   }
 }
