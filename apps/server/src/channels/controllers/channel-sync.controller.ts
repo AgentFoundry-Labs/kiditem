@@ -1,10 +1,10 @@
 import { Controller, Get, Post, Body } from '@nestjs/common';
-import { CoupangSyncService } from '../services/coupang-sync.service';
+import { ChannelSyncService } from '../services/channel-sync.service';
 import { SyncOrdersBodyDto } from '../dto';
 
 @Controller('coupang-sync')
-export class CoupangSyncController {
-  constructor(private readonly syncService: CoupangSyncService) {}
+export class ChannelSyncController {
+  constructor(private readonly syncService: ChannelSyncService) {}
 
   @Get('health')
   async checkHealth() {

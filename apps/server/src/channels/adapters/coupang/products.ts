@@ -1,4 +1,4 @@
-import { coupangRequest, getVendorId } from './client';
+import { coupangRequest, getVendorId } from './coupang-client';
 
 export async function getSellerProducts(params?: {
   vendorId?: string;

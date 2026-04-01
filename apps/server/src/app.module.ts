@@ -8,13 +8,15 @@ import { DashboardModule } from './dashboard/dashboard.module';
 import { SourcingModule } from './sourcing/sourcing.module';
 import { WorkflowsModule } from './workflows/workflows.module';
 import { ActivityEventsModule } from './activity-events/activity-events.module';
-import { CoupangModule } from './coupang/coupang.module';
+import { ChannelsModule } from './channels/channels.module';
 import { AiModule } from './ai/ai.module';
 import { FinanceModule } from './finance/finance.module';
 import { RulesModule } from './rules/rules.module';
 import { AgentRegistryModule } from './agent-registry/agent-registry.module';
 import { OntologyModule } from './ontology/ontology.module';
 import { MarketplaceModule } from './marketplace/marketplace.module';
+import { AdvertisingModule } from './advertising/advertising.module';
+import { ProcurementModule } from './procurement/procurement.module';
 
 @Module({
   imports: [
@@ -27,13 +29,15 @@ import { MarketplaceModule } from './marketplace/marketplace.module';
     SourcingModule,
     WorkflowsModule,
     ActivityEventsModule,
-    CoupangModule,
+    ChannelsModule,
     AiModule,
     FinanceModule,
     RulesModule,
     AgentRegistryModule,
     OntologyModule,
     MarketplaceModule,
+    AdvertisingModule,
+    ProcurementModule,
   ],
 })
 export class AppModule {}

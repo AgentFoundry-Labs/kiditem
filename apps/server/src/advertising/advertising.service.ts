@@ -4,15 +4,15 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService } from '../prisma/prisma.service';
 import {
   paginationParams,
   type PaginatedResponse,
-} from '../../common/pagination';
+} from '../common/pagination';
 import type { AdsListItem, AdsHubData } from '@kiditem/shared';
 
 @Injectable()
-export class AdsService {
+export class AdvertisingService {
   constructor(private readonly prisma: PrismaService) {}
 
   async findAll(query: {

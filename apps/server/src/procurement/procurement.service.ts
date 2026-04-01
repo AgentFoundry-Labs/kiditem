@@ -1,5 +1,5 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService } from '../prisma/prisma.service';
 
 const VALID_TRANSITIONS: Record<string, string> = {
   draft: 'pending',
@@ -9,7 +9,7 @@ const VALID_TRANSITIONS: Record<string, string> = {
 };
 
 @Injectable()
-export class PurchaseOrdersService {
+export class ProcurementService {
   constructor(private readonly prisma: PrismaService) {}
 
   async findAll(query: { page: number; limit: number; status?: string }): Promise<{

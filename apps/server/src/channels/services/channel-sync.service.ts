@@ -1,9 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { getSellerProducts, getSellerProduct } from '../products';
-import { getOrderSheets } from '../orders';
-import { getVendorId } from '../client';
+import { getSellerProducts, getSellerProduct } from '../adapters/coupang/products';
+import { getOrderSheets } from '../adapters/coupang/orders';
+import { getVendorId } from '../adapters/coupang/coupang-client';
 
 export interface SyncResult {
   synced: number;
@@ -117,8 +117,8 @@ const COUPANG_STATUS_MAP: Record<string, string> = {
 };
 
 @Injectable()
-export class CoupangSyncService {
-  private readonly logger = new Logger(CoupangSyncService.name);
+export class ChannelSyncService {
+  private readonly logger = new Logger(ChannelSyncService.name);
 
   constructor(private readonly prisma: PrismaService) {}
 

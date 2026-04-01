@@ -1,13 +1,13 @@
 import { Controller, Get, NotFoundException, Query } from '@nestjs/common';
-import { CoupangDashboardService } from '../services/coupang-dashboard.service';
+import { ChannelDashboardService } from '../services/channel-dashboard.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { kstDayStart } from '../../common/kst';
 import { CoupangDateRangeQueryDto } from '../dto';
 
 @Controller('coupang-dashboard')
-export class CoupangDashboardController {
+export class ChannelDashboardController {
   constructor(
-    private readonly service: CoupangDashboardService,
+    private readonly service: ChannelDashboardService,
     private readonly prisma: PrismaService,
   ) {}
 

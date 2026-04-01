@@ -1,10 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { kstDayStart } from '../../common/kst';
-import { ORDER_STATUSES, RETURN_STATUSES } from '../constants';
+import { ORDER_STATUSES, RETURN_STATUSES } from '../adapters/coupang/constants';
 
 @Injectable()
-export class CoupangDashboardService {
+export class ChannelDashboardService {
   constructor(private readonly prisma: PrismaService) {}
 
   async getSummary(companyId: string): Promise<{

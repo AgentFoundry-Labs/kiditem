@@ -5,7 +5,7 @@ import {
   confirmOrderSheets,
   uploadInvoice,
   DELIVERY_COMPANIES,
-} from '../../coupang/orders';
+} from '../../channels/adapters/coupang/orders';
 
 @Injectable()
 export class OrdersService {

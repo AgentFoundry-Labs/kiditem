@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { CoupangReturn, CoupangReturnItem } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { approveReturn } from '../../coupang/orders';
+import { approveReturn } from '../../channels/adapters/coupang/orders';
 
 type CoupangReturnWithItems = CoupangReturn & { returnItems: CoupangReturnItem[] };
 
