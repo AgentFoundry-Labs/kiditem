@@ -2,8 +2,10 @@
 
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
+import { queryKeys } from '@/lib/query-keys';
+import { useQuery } from '@tanstack/react-query';
 import type { ThumbnailListItem as ThumbnailItem, ThumbnailSummary } from '@kiditem/shared';
-import { useEffect, useState, useCallback } from 'react';
+import { useState } from 'react';
 import {
   ImageIcon,
   RefreshCw,
@@ -50,35 +52,22 @@ const BADGE_COLORS: Record<string, string> = {
 };
 
 export default function ThumbnailsPage() {
-  const [items, setItems] = useState<ThumbnailItem[]>([]);
-  const [total, setTotal] = useState(0);
-  const [summary, setSummary] = useState<ThumbnailSummary>({ total: 0, gradeDistribution: { S: 0, A: 0, B: 0, C: 0, F: 0 } });
-  const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<FilterKey | string>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 50;
 
-  const fetchData = useCallback(async (p = page) => {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams({ page: String(p), limit: String(PAGE_SIZE) });
-      const json = await apiClient.get<{ items: ThumbnailItem[]; total: number; summary?: ThumbnailSummary }>(`/api/thumbnails?${params}`);
-      setItems(json.items ?? []);
-      setTotal(json.total ?? 0);
-      if (json.summary) {
-        setSummary(json.summary);
-      }
-    } catch (err) {
-      console.error('썸네일 데이터 로딩 실패:', isApiError(err) ? err.detail : err);
-    } finally {
-      setLoading(false);
-    }
-  }, [page]);
+  const { data: thumbData, isLoading: loading, refetch } = useQuery({
+    queryKey: queryKeys.thumbnails.list({ page: String(page), limit: String(PAGE_SIZE) }),
+    queryFn: () => {
+      const params = new URLSearchParams({ page: String(page), limit: String(PAGE_SIZE) });
+      return apiClient.get<{ items: ThumbnailItem[]; total: number; summary?: ThumbnailSummary }>(`/api/thumbnails?${params}`);
+    },
+  });
 
-  useEffect(() => {
-    fetchData();
-  }, [page, fetchData]);
+  const items = thumbData?.items ?? [];
+  const total = thumbData?.total ?? 0;
+  const summary = thumbData?.summary ?? { total: 0, gradeDistribution: { S: 0, A: 0, B: 0, C: 0, F: 0 } };
 
   const criticalCount = items.filter((i) => i.issues.some((iss) => iss.severity === 'critical')).length;
   const goodCount = items.filter((i) => i.grade === 'S' || i.grade === 'A').length;
@@ -111,7 +100,7 @@ export default function ThumbnailsPage() {
           </div>
         </div>
         <button
-          onClick={() => fetchData(page)}
+          onClick={() => refetch()}
           disabled={loading}
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-500 hover:bg-gray-100 rounded-md font-mono"
         >

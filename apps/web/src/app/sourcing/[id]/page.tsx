@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -11,6 +11,7 @@ import {
   Pencil,
   Settings,
 } from 'lucide-react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   productsApi,
   type ProductDetailResponse,
@@ -20,6 +21,7 @@ import { getTemplate, parseDetailPageData, placeholderDetailPageData } from '@ki
 import { API_BASE } from '@/lib/api';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
+import { queryKeys } from '@/lib/query-keys';
 import { renderTemplateToHtml } from '@/lib/template-html';
 import MobilePreview from '../components/MobilePreview';
 import ProductEditHeader from '../components/ProductEditHeader';
@@ -112,27 +114,20 @@ const CATEGORIES = [
 export default function ProductDetailPage() {
   const params = useParams();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const productId = params.id as string;
 
-  const [product, setProduct] = useState<ProductDetailResponse | null>(
-    null
-  );
-  const [isLoadingProduct, setIsLoadingProduct] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<EditTabType>('basic');
   const [isEditComplete, setIsEditComplete] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
   const [editData, setEditData] =
     useState<ProductEditState>(PLACEHOLDER_DATA);
-  const [templateCss, setTemplateCss] = useState('');
-  const [detailPageData, setDetailPageData] = useState<DetailPageData>(placeholderDetailPageData);
 
   const goBack = () => router.push('/sourcing');
 
-  const fetchProduct = useCallback(async () => {
-    setIsLoadingProduct(true);
-    setLoadError(null);
-    try {
+  const { data: fetchedData, isLoading: isLoadingProduct, error: queryError } = useQuery({
+    queryKey: queryKeys.sourcing.detail(productId),
+    queryFn: async () => {
       const [data, previewRes, css] = await Promise.all([
         productsApi.getDetail(productId),
         apiClient.get<{ template: string | null; data: Record<string, unknown> }>(`/api/products/${productId}/preview`)
@@ -141,9 +136,8 @@ export default function ProductDetailPage() {
           .then((r) => (r.ok ? r.text() : ''))
           .catch(() => ''),
       ]);
-      setProduct(data);
-      setTemplateCss(css);
 
+      let detailPageData: DetailPageData = placeholderDetailPageData;
       if (previewRes?.template && previewRes?.data) {
         try {
           const parsed = parseDetailPageData(previewRes.data);
@@ -152,38 +146,36 @@ export default function ProductDetailPage() {
           parsed.sizeImages = Array.isArray(parsed.sizeImages) ? parsed.sizeImages.map(resolve) : [];
           parsed.detailImages = Array.isArray(parsed.detailImages) ? parsed.detailImages.map(resolve) : [];
           if (parsed.heroBanner) parsed.heroBanner = resolve(parsed.heroBanner);
-          setDetailPageData(parsed);
+          detailPageData = parsed;
         } catch {
-          setDetailPageData(placeholderDetailPageData);
+          // keep placeholder
         }
-      } else {
-        setDetailPageData(placeholderDetailPageData);
       }
 
-      if (data.processed_data) {
-        setEditData(mapProcessedData(data.processed_data));
-      } else {
-        setEditData({
-          ...PLACEHOLDER_DATA,
-          name: data.name,
-          salePrice: data.price_krw ?? 0,
-          thumbnails: data.thumbnail_url ? [data.thumbnail_url] : [],
-        });
-      }
-    } catch (err) {
-      setLoadError(
-        isApiError(err)
-          ? err.detail
-          : '상품 정보를 불러올 수 없습니다.'
-      );
-    } finally {
-      setIsLoadingProduct(false);
-    }
-  }, [productId]);
+      const editState = data.processed_data
+        ? mapProcessedData(data.processed_data)
+        : {
+            ...PLACEHOLDER_DATA,
+            name: data.name,
+            salePrice: data.price_krw ?? 0,
+            thumbnails: data.thumbnail_url ? [data.thumbnail_url] : [],
+          };
 
-  useEffect(() => {
-    fetchProduct();
-  }, [fetchProduct]);
+      return { product: data, detailPageData, templateCss: css, editState };
+    },
+  });
+
+  const product = fetchedData?.product ?? null;
+  const detailPageData = fetchedData?.detailPageData ?? placeholderDetailPageData;
+  const templateCss = fetchedData?.templateCss ?? '';
+  const loadError = queryError ? (isApiError(queryError) ? queryError.detail : '상품 정보를 불러올 수 없습니다.') : null;
+
+  // editData를 query 결과로 초기화 (최초 1회)
+  const [editInitialized, setEditInitialized] = useState(false);
+  if (fetchedData && !editInitialized) {
+    setEditData(fetchedData.editState);
+    setEditInitialized(true);
+  }
 
   const updateField = <K extends keyof ProductEditState>(
     field: K,
@@ -243,7 +235,7 @@ export default function ProductDetailPage() {
             <AlertCircle size={32} className="text-red-400" />
             <p className="text-sm font-medium">{loadError}</p>
             <button
-              onClick={fetchProduct}
+              onClick={() => queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.detail(productId) })}
               className="mt-2 px-4 py-2 bg-emerald-500 text-white text-sm font-bold rounded-lg hover:bg-emerald-600 transition-colors"
             >
               다시 시도

@@ -1,55 +1,55 @@
 "use client";
+import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api-client";
 import type { AdsListItem as AdProduct, AdsSummary as AdSummary } from '@kiditem/shared';
 
-import { useEffect, useState } from "react";
 import { Megaphone, TrendingDown, AlertTriangle, Download } from "lucide-react";
 import { formatKRW, formatPercent, getGradeColor } from "@/lib/utils";
 import PageSkeleton from "@/components/ui/PageSkeleton";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
+import { queryKeys } from "@/lib/query-keys";
 
 export default function AdsPage() {
-  const [products, setProducts] = useState<AdProduct[]>([]);
-  const [summary, setSummary] = useState<AdSummary | null>(null);
-  const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("all");
 
-  useEffect(() => {
-    apiClient.get<{ items?: AdProduct[]; products?: AdProduct[]; summary?: AdSummary }>('/api/ads')
-      .then((data) => {
-        const items: AdProduct[] = data.items || data.products || [];
-        setProducts(items);
+  const { data: rawData, isLoading: loading } = useQuery({
+    queryKey: queryKeys.ads.list(),
+    queryFn: () => apiClient.get<{ items?: AdProduct[]; products?: AdProduct[]; summary?: AdSummary }>('/api/ads'),
+  });
 
-        if (data.summary) {
-          setSummary(data.summary);
-        } else {
-          const totalSpend = items.reduce((s, p) => s + p.spend, 0);
-          const totalAdRevenue = items.reduce((s, p) => s + p.adRevenue, 0);
-          const totalRevenue = items.reduce((s, p) => s + p.revenue, 0);
-          const overallAdRate = totalRevenue > 0 ? Math.round((totalSpend / totalRevenue) * 1000) / 10 : 0;
-          const overallRoas = totalSpend > 0 ? Math.round((totalAdRevenue / totalSpend) * 100) : 0;
-          const highAdCount = items.filter((p) => p.adRate > 15).length;
-          const gradeSpend: Record<string, number> = { A: 0, B: 0, C: 0 };
-          const tierSpend: Record<string, number> = {};
-          for (const p of items) {
-            gradeSpend[p.grade] = (gradeSpend[p.grade] || 0) + p.spend;
-            const tier = p.adTier ?? 'none';
-            tierSpend[tier] = (tierSpend[tier] || 0) + p.spend;
-          }
-          const gradeSpendPercent: Record<string, number> = {
-            A: totalSpend > 0 ? Math.round((gradeSpend.A / totalSpend) * 100) : 0,
-            B: totalSpend > 0 ? Math.round((gradeSpend.B / totalSpend) * 100) : 0,
-            C: totalSpend > 0 ? Math.round((gradeSpend.C / totalSpend) * 100) : 0,
-          };
-          setSummary({
-            totalSpend, totalAdRevenue, totalRevenue, overallAdRate,
-            overallRoas, highAdCount, gradeSpend, tierSpend, gradeSpendPercent,
-          });
-        }
-      })
-      .catch((err) => console.error("광고 데이터 로딩 실패:", err))
-      .finally(() => setLoading(false));
-  }, []);
+  const products = useMemo(() => {
+    if (!rawData) return [];
+    return rawData.items || rawData.products || [];
+  }, [rawData]);
+
+  const summary = useMemo<AdSummary | null>(() => {
+    if (!rawData) return null;
+    if (rawData.summary) return rawData.summary;
+    const items = rawData.items || rawData.products || [];
+    const totalSpend = items.reduce((s, p) => s + p.spend, 0);
+    const totalAdRevenue = items.reduce((s, p) => s + p.adRevenue, 0);
+    const totalRevenue = items.reduce((s, p) => s + p.revenue, 0);
+    const overallAdRate = totalRevenue > 0 ? Math.round((totalSpend / totalRevenue) * 1000) / 10 : 0;
+    const overallRoas = totalSpend > 0 ? Math.round((totalAdRevenue / totalSpend) * 100) : 0;
+    const highAdCount = items.filter((p) => p.adRate > 15).length;
+    const gradeSpend: Record<string, number> = { A: 0, B: 0, C: 0 };
+    const tierSpend: Record<string, number> = {};
+    for (const p of items) {
+      gradeSpend[p.grade] = (gradeSpend[p.grade] || 0) + p.spend;
+      const tier = p.adTier ?? 'none';
+      tierSpend[tier] = (tierSpend[tier] || 0) + p.spend;
+    }
+    const gradeSpendPercent: Record<string, number> = {
+      A: totalSpend > 0 ? Math.round((gradeSpend.A / totalSpend) * 100) : 0,
+      B: totalSpend > 0 ? Math.round((gradeSpend.B / totalSpend) * 100) : 0,
+      C: totalSpend > 0 ? Math.round((gradeSpend.C / totalSpend) * 100) : 0,
+    };
+    return {
+      totalSpend, totalAdRevenue, totalRevenue, overallAdRate,
+      overallRoas, highAdCount, gradeSpend, tierSpend, gradeSpendPercent,
+    };
+  }, [rawData]);
 
   const handleExcel = () => {
     import("xlsx").then((XLSX) => {

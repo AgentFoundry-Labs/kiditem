@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from "@/lib/api-client";
 import { isApiError } from "@/lib/api-error";
+import { queryKeys } from '@/lib/query-keys';
 import { RotateCcw, RefreshCw, Loader2, CheckCircle } from "lucide-react";
 import { formatKRW } from "@/lib/utils";
 
@@ -10,48 +12,46 @@ import { formatKRW } from "@/lib/utils";
 type ReturnItem = any;
 
 export default function ReturnsPage() {
-  const [returns, setReturns] = useState<ReturnItem[]>([]);
-  const [exchanges, setExchanges] = useState<ReturnItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
   const [tab, setTab] = useState<"return" | "exchange">("return");
   const [processing, setProcessing] = useState<number | null>(null);
 
-  const fetchData = async () => {
-    setLoading(true);
-    setError(null);
-    try {
+  const { data: returnsData, isLoading: loading, error: queryError } = useQuery({
+    queryKey: queryKeys.returns.list(),
+    queryFn: async () => {
       const [retResult, exResult] = await Promise.allSettled([
         apiClient.get<{ data: ReturnItem[] }>('/api/returns?type=return'),
         apiClient.get<{ data: ReturnItem[] }>('/api/returns?type=exchange'),
       ]);
+      return {
+        returns: retResult.status === 'fulfilled' ? (retResult.value.data || []) : [],
+        exchanges: exResult.status === 'fulfilled' ? (exResult.value.data || []) : [],
+      };
+    },
+  });
 
-      if (retResult.status === 'fulfilled') setReturns(retResult.value.data || []);
-      if (exResult.status === 'fulfilled') setExchanges(exResult.value.data || []);
-    } catch (e) {
-      setError(isApiError(e) ? e.detail : "조회 실패");
-    } finally {
-      setLoading(false);
-    }
-  };
+  const returns = returnsData?.returns ?? [];
+  const exchanges = returnsData?.exchanges ?? [];
+  const error = queryError ? (isApiError(queryError) ? queryError.detail : "조회 실패") : null;
 
-  useEffect(() => {
-    fetchData();
-  }, []);
-
-  const handleApproveReturn = async (receiptId: number) => {
-    if (!confirm("이 반품을 승인하시겠습니까?")) return;
-    setProcessing(receiptId);
-    try {
+  const approveMutation = useMutation({
+    mutationFn: async (receiptId: number) => {
       const data = await apiClient.post<{ success: boolean; message: string; error?: string }>('/api/returns', { action: "approve", receiptId });
       if (!data.success) throw new Error(data.error || "승인 실패");
+      return data;
+    },
+    onMutate: (receiptId) => setProcessing(receiptId),
+    onSuccess: (data) => {
       alert(data.message);
-      fetchData();
-    } catch (e) {
-      alert(isApiError(e) ? e.detail : e instanceof Error ? e.message : "처리 실패");
-    } finally {
-      setProcessing(null);
-    }
+      queryClient.invalidateQueries({ queryKey: queryKeys.returns.all });
+    },
+    onError: (e) => alert(isApiError(e) ? e.detail : e instanceof Error ? e.message : "처리 실패"),
+    onSettled: () => setProcessing(null),
+  });
+
+  const handleApproveReturn = (receiptId: number) => {
+    if (!confirm("이 반품을 승인하시겠습니까?")) return;
+    approveMutation.mutate(receiptId);
   };
 
   const currentData = tab === "return" ? returns : exchanges;
@@ -111,7 +111,7 @@ export default function ReturnsPage() {
           <RotateCcw size={24} className="inline mr-2" />
           반품/교환 관리
         </h1>
-        <button onClick={fetchData} className="flex items-center gap-2 px-3 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">
+        <button onClick={() => queryClient.invalidateQueries({ queryKey: queryKeys.returns.all })} className="flex items-center gap-2 px-3 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">
           <RefreshCw size={16} /> 새로고침
         </button>
       </div>

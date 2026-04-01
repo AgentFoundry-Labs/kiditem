@@ -1,13 +1,13 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useMemo } from 'react';
 import { DollarSign, Cpu, Bot, Activity, RefreshCw, Hash } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import PageSkeleton from '@/components/ui/PageSkeleton';
-import { agentApi } from '@/lib/agent-api';
-import { isApiError } from '@/lib/api-error';
 import { formatTokens, formatCost } from '@/lib/agent-utils';
-import type { Agent, CostAnalytics } from '@/lib/agent-types';
+import { useAgents, useAgentCostAnalytics } from '@/hooks/use-agents';
+import { useQueryClient } from '@tanstack/react-query';
+import { queryKeys } from '@/lib/query-keys';
 import CostTrendChart from './CostTrendChart';
 import BudgetGauge from './BudgetGauge';
 
@@ -32,33 +32,15 @@ function periodRange(period: Period): { from?: string; to?: string } {
 }
 
 export default function CostsPage() {
+  const queryClient = useQueryClient();
   const [period, setPeriod] = useState<Period>('전체');
-  const [agents, setAgents] = useState<Agent[]>([]);
-  const [analytics, setAnalytics] = useState<CostAnalytics | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
-  const fetchAll = useCallback(async (p: Period) => {
-    setLoading(true);
-    try {
-      const range = periodRange(p);
-      const [agentList, costData] = await Promise.all([
-        agentApi.list(),
-        agentApi.getCostAnalytics({ from: range.from, to: range.to }),
-      ]);
-      setAgents(agentList);
-      setAnalytics(costData);
-      setError(null);
-    } catch (err) {
-      setError(isApiError(err) ? err.detail : '비용 데이터를 불러오는데 실패했습니다.');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const range = useMemo(() => periodRange(period), [period]);
+  const costParams = useMemo(() => ({ from: range.from, to: range.to }), [range]);
 
-  useEffect(() => {
-    fetchAll(period);
-  }, [fetchAll, period]);
+  const { data: agents = [] } = useAgents();
+  const { data: analytics = null, isLoading: loading, error: queryError } = useAgentCostAnalytics(costParams);
+  const error = queryError ? '비용 데이터를 불러오는데 실패했습니다.' : null;
 
   const handlePeriodChange = (p: Period) => {
     setPeriod(p);
@@ -83,15 +65,14 @@ export default function CostsPage() {
   return (
     <div className="p-4 sm:p-8">
       {error && (
-        <div className="mb-4 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          <span>{error}</span>
-          <button onClick={() => setError(null)} className="ml-auto text-red-400 hover:text-red-600">&times;</button>
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
         </div>
       )}
       {/* Header */}
       <div className="flex items-center justify-end mb-6">
         <button
-          onClick={() => fetchAll(period)}
+          onClick={() => queryClient.invalidateQueries({ queryKey: queryKeys.agents.all })}
           className="p-1.5 text-gray-400 hover:text-gray-600 border border-gray-200 rounded-lg transition-colors"
           title="새로고침"
         >

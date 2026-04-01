@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useState } from "react";
 import { apiClient } from "@/lib/api-client";
 import { isApiError } from "@/lib/api-error";
+import { queryKeys } from "@/lib/query-keys";
+import { useQuery } from "@tanstack/react-query";
 import { BarChart3, RefreshCw } from "lucide-react";
 import { formatKRW, formatPercent } from "@/lib/utils";
 import PageSkeleton from "@/components/ui/PageSkeleton";
@@ -31,29 +33,17 @@ interface SalesAnalysisData {
 }
 
 export default function SalesAnalysisPage() {
-  const [data, setData] = useState<SalesAnalysisData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [period, setPeriod] = useState("");
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
+  const { data, isLoading: loading, error: queryError, refetch } = useQuery({
+    queryKey: queryKeys.salesAnalysis.data(period),
+    queryFn: () => {
       const params = new URLSearchParams();
       if (period) params.set("period", period);
-      const json = await apiClient.get<SalesAnalysisData>(`/api/sales-analysis?${params}`);
-      setData(json);
-    } catch (e) {
-      setError(isApiError(e) ? e.detail : "매출분석 조회 실패");
-    } finally {
-      setLoading(false);
-    }
-  }, [period]);
-
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+      return apiClient.get<SalesAnalysisData>(`/api/sales-analysis?${params}`);
+    },
+  });
+  const error = queryError ? (isApiError(queryError) ? queryError.detail : "매출분석 조회 실패") : null;
 
   const periodOptions = (() => {
     const opts: string[] = [];
@@ -76,7 +66,7 @@ export default function SalesAnalysisPage() {
       <div className="flex flex-col items-center justify-center h-64 gap-3">
         <p className="text-red-500">{error}</p>
         <button
-          onClick={fetchData}
+          onClick={() => refetch()}
           className="px-4 py-2 text-sm bg-gray-900 text-white rounded-lg hover:bg-gray-800"
         >
           다시 시도
@@ -115,7 +105,7 @@ export default function SalesAnalysisPage() {
             ))}
           </select>
           <button
-            onClick={fetchData}
+            onClick={() => refetch()}
             className="flex items-center gap-1.5 px-3 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50"
           >
             <RefreshCw size={14} /> 새로고침

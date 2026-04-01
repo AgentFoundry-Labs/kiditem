@@ -1,39 +1,34 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useMemo } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Megaphone, RefreshCw } from "lucide-react";
 import { apiClient } from "@/lib/api-client";
 import type { AdsListItem as AdProduct, AdsSummary as AdSummary } from '@kiditem/shared';
 import { formatKRW } from "@/lib/utils";
 import PageSkeleton from "@/components/ui/PageSkeleton";
+import { queryKeys } from "@/lib/query-keys";
 
 import { AdsOverviewTab } from "./components/AdsOverviewTab";
 import { AdsStrategyTab, buildActions } from "./components/AdsStrategyTab";
 
 export default function AdsHubPage() {
-  const [adData, setAdData] = useState<{ products: AdProduct[]; summary: AdSummary } | null>(null);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
   const [activeGrade, setActiveGrade] = useState<"A" | "B" | "C">("A");
   const [activeTab, setActiveTab] = useState<"overview" | "strategy">("overview");
   const [tierUpdating, setTierUpdating] = useState<string | null>(null);
 
-  const fetchAll = () => {
-    setLoading(true);
-    apiClient.get<{ products: AdProduct[]; summary: AdSummary }>('/api/ads/hub')
-      .then((data) => setAdData(data))
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  };
+  const { data: adData = null, isLoading: loading } = useQuery({
+    queryKey: queryKeys.ads.hub(),
+    queryFn: () => apiClient.get<{ products: AdProduct[]; summary: AdSummary }>('/api/ads/hub'),
+  });
 
-  useEffect(() => {
-    fetchAll();
-  }, []);
-
-  const changeTier = async (productId: string, newTier: string) => {
-    setTierUpdating(productId);
-    try {
-      await apiClient.patch(`/api/ads/${productId}/tier`, { adTier: newTier });
-      setAdData((prev) =>
+  const tierMutation = useMutation({
+    mutationFn: ({ productId, newTier }: { productId: string; newTier: string }) =>
+      apiClient.patch(`/api/ads/${productId}/tier`, { adTier: newTier }),
+    onMutate: ({ productId }) => setTierUpdating(productId),
+    onSuccess: (_data, { productId, newTier }) => {
+      queryClient.setQueryData(queryKeys.ads.hub(), (prev: { products: AdProduct[]; summary: AdSummary } | undefined) =>
         prev
           ? {
               ...prev,
@@ -43,9 +38,12 @@ export default function AdsHubPage() {
             }
           : prev
       );
-    } catch { /* noop */ } finally {
-      setTierUpdating(null);
-    }
+    },
+    onSettled: () => setTierUpdating(null),
+  });
+
+  const changeTier = (productId: string, newTier: string) => {
+    tierMutation.mutate({ productId, newTier });
   };
 
   const gradeProducts = useMemo(() => {
@@ -161,7 +159,7 @@ export default function AdsHubPage() {
             </button>
           </div>
           <button
-            onClick={fetchAll}
+            onClick={() => queryClient.invalidateQueries({ queryKey: queryKeys.ads.hub() })}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg text-xs transition-colors"
           >
             <RefreshCw size={12} /> 새로고침

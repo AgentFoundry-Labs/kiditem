@@ -1,9 +1,11 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useState } from 'react';
 import { ArrowUpDown, RefreshCw, TrendingUp, TrendingDown } from 'lucide-react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
+import { queryKeys } from '@/lib/query-keys';
 import { formatKRW } from '@/lib/utils';
 
 interface Summary {
@@ -51,37 +53,26 @@ const GROUP_COLUMN_LABEL: Record<string, string> = {
 };
 
 export default function StockMovementPage() {
-  const [summary, setSummary] = useState<Summary>({ inQty: 0, outQty: 0, inAmount: 0, outAmount: 0 });
-  const [grouped, setGrouped] = useState<GroupedRow[]>([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
   const [groupBy, setGroupBy] = useState<string>('product');
   const [dateRange, setDateRange] = useState('30');
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
-    try {
+  const { data: stockData, isLoading: loading, error: queryError } = useQuery({
+    queryKey: queryKeys.stockMovement.data({ dateRange, groupBy }),
+    queryFn: async () => {
       const daysMap: Record<string, number> = { '1': 1, '7': 7, '30': 30, '90': 90 };
       const days = daysMap[dateRange] || 7;
       const from = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
-      const data = await apiClient.get<{ total: number; grouped: any[]; summary: Summary }>(
+      return apiClient.get<{ total: number; grouped: GroupedRow[]; summary: Summary }>(
         `/api/stock-movement?from=${from}&groupBy=${groupBy}&limit=500`,
       );
-      setTotal(data.total || 0);
-      setGrouped(data.grouped || []);
-      setSummary(data.summary || { inQty: 0, outQty: 0, inAmount: 0, outAmount: 0 });
-      setError(null);
-    } catch (err) {
-      setError(isApiError(err) ? err.detail : '입출고 데이터를 불러오는데 실패했습니다.');
-    } finally {
-      setLoading(false);
-    }
-  }, [dateRange, groupBy]);
+    },
+  });
 
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+  const total = stockData?.total ?? 0;
+  const grouped = stockData?.grouped ?? [];
+  const summary = stockData?.summary ?? { inQty: 0, outQty: 0, inAmount: 0, outAmount: 0 };
+  const error = queryError ? (isApiError(queryError) ? queryError.detail : '입출고 데이터를 불러오는데 실패했습니다.') : null;
 
   const formatGroupKey = (key: string) => {
     if (groupBy === 'type') return TYPE_LABEL[key] || key;
@@ -93,7 +84,7 @@ export default function StockMovementPage() {
       {error && (
         <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           <span>{error}</span>
-          <button onClick={() => setError(null)} className="ml-auto text-red-400 hover:text-red-600">&times;</button>
+          <button onClick={() => queryClient.invalidateQueries({ queryKey: queryKeys.stockMovement.all })} className="ml-auto text-red-400 hover:text-red-600">&times;</button>
         </div>
       )}
       <div className="flex items-center justify-between">
@@ -121,7 +112,7 @@ export default function StockMovementPage() {
             ))}
           </div>
           <button
-            onClick={fetchData}
+            onClick={() => queryClient.invalidateQueries({ queryKey: queryKeys.stockMovement.all })}
             className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-lg border border-gray-200"
           >
             <RefreshCw size={14} />

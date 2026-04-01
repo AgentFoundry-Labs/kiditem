@@ -1,22 +1,18 @@
 "use client";
+import { useQuery } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api-client";
 import type { ProductListItem as Product } from '@kiditem/shared';
 
-import { useEffect, useState } from "react";
 import { Star } from "lucide-react";
 import { formatKRW, formatPercent, getProfitColor } from "@/lib/utils";
 import PageSkeleton from "@/components/ui/PageSkeleton";
+import { queryKeys } from "@/lib/query-keys";
 
 export default function CoreProductsPage() {
-  const [products, setProducts] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    apiClient.get<{ items: Product[] }>('/api/products?grade=A')
-      .then((data) => setProducts(data.items ?? []))
-      .catch((err) => console.error("핵심상품 데이터 로딩 실패:", err))
-      .finally(() => setLoading(false));
-  }, []);
+  const { data: products = [], isLoading: loading } = useQuery({
+    queryKey: queryKeys.products.list({ grade: 'A' }),
+    queryFn: () => apiClient.get<{ items: Product[] }>('/api/products?grade=A').then((d) => d.items ?? []),
+  });
 
   if (loading) return <PageSkeleton variant="cards" />;
 

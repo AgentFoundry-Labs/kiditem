@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   Link as LinkIcon,
   Settings,
@@ -8,9 +8,11 @@ import {
   ListChecks,
   Shield,
 } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
+import { queryKeys } from '@/lib/query-keys';
 import CompanyInfoTab from './components/CompanyInfoTab';
 import CoupangTab from './components/CoupangTab';
 import CommonCodesTab from './components/CommonCodesTab';
@@ -50,23 +52,17 @@ export default function SettingsPage() {
   const [orderSyncResult, setOrderSyncResult] = useState<SyncResult | null>(null);
   const [lastProductSync, setLastProductSync] = useState<Date | null>(null);
   const [lastOrderSync, setLastOrderSync] = useState<Date | null>(null);
-  const [companyInfo, setCompanyInfo] = useState<CompanyInfo | null>(null);
-  const [companyLoading, setCompanyLoading] = useState(false);
-
   const isConnected = healthResult?.connected ?? false;
 
-  useEffect(() => {
-    if (activeTab === 'company') {
-      setCompanyLoading(true);
-      apiClient.get<CompanyInfo[] | { items: CompanyInfo[] }>(`/api/companies`)
-        .then((data) => {
-          const items = Array.isArray(data) ? data : data.items ?? [];
-          if (items.length > 0) setCompanyInfo(items[0]);
-        })
-        .catch(() => {})
-        .finally(() => setCompanyLoading(false));
-    }
-  }, [activeTab]);
+  const { data: companyInfo = null, isLoading: companyLoading } = useQuery({
+    queryKey: queryKeys.companies.list(),
+    queryFn: async () => {
+      const data = await apiClient.get<CompanyInfo[] | { items: CompanyInfo[] }>(`/api/companies`);
+      const items = Array.isArray(data) ? data : data.items ?? [];
+      return items.length > 0 ? items[0] : null;
+    },
+    enabled: activeTab === 'company',
+  });
 
   const handleTestConnection = async () => {
     setTesting(true);

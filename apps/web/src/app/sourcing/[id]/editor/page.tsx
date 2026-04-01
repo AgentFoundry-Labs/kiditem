@@ -9,7 +9,9 @@ import { isApiError } from '@/lib/api-error';
 import { renderTemplateToHtml } from '@/lib/template-html';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import { useParams, useRouter } from 'next/navigation';
-import { Suspense, useCallback, useEffect, useState } from 'react';
+import { Suspense } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { queryKeys } from '@/lib/query-keys';
 
 function extractImageUrls(data: Record<string, unknown> | null | undefined): string[] {
   if (!data) return [];
@@ -43,22 +45,12 @@ interface PreviewResponse {
 export default function EditorPage() {
   const params = useParams();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const productId = params.id as string;
 
-  const [productName, setProductName] = useState('');
-  const [previewData, setPreviewData] = useState<DetailPageData | null>(null);
-  const [rawImages, setRawImages] = useState<string[]>([]);
-  const [processedImages, setProcessedImages] = useState<string[]>([]);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [templateConfig, setTemplateConfig] = useState<any>(null);
-  const [templateCss, setTemplateCss] = useState('');
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchData = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
+  const { data: editorData, isLoading, error: queryError } = useQuery({
+    queryKey: queryKeys.sourcing.preview(productId),
+    queryFn: async () => {
       const [detail, preview, cssRes] = await Promise.all([
         apiClient.get<ProductDetail>(`/api/products/${productId}`),
         apiClient.get<PreviewResponse>(`/api/products/${productId}/preview`),
@@ -68,41 +60,41 @@ export default function EditorPage() {
       const rawDataValue = detail.rawData ?? detail.raw_data ?? null;
       const processedDataValue = detail.processedData ?? detail.processed_data ?? null;
 
-      const name =
+      const productName =
         processedDataValue && typeof processedDataValue.title === 'string'
           ? processedDataValue.title
           : '상품명 미지정';
-      setProductName(name);
-      setTemplateCss(cssRes);
 
-      setRawImages(extractImageUrls(rawDataValue));
-      setProcessedImages(extractImageUrls(processedDataValue));
+      const rawImages = extractImageUrls(rawDataValue);
+      const processedImages = extractImageUrls(processedDataValue);
 
-      if (preview.template === null || !preview.data) {
-        setTemplateConfig(getTemplate('bold-vertical'));
-        setPreviewData(placeholderDetailPageData);
-        return;
+      let previewData: DetailPageData = placeholderDetailPageData;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let templateConfig: any = getTemplate('bold-vertical');
+
+      if (preview.template !== null && preview.data) {
+        const parsed = parseDetailPageData(preview.data);
+        const resolve = (url: string) => url.startsWith('/processed/') ? `${API_BASE}${url}` : url;
+        parsed.images = parsed.images.map(resolve);
+        parsed.sizeImages = parsed.sizeImages.map(resolve);
+        parsed.detailImages = parsed.detailImages.map(resolve);
+        if (parsed.heroBanner) parsed.heroBanner = resolve(parsed.heroBanner);
+        const templateId = preview.template.replace(/_/g, '-');
+        templateConfig = getTemplate(templateId);
+        previewData = parsed;
       }
 
-      const parsed = parseDetailPageData(preview.data);
-      const resolve = (url: string) => url.startsWith('/processed/') ? `${API_BASE}${url}` : url;
-      parsed.images = parsed.images.map(resolve);
-      parsed.sizeImages = parsed.sizeImages.map(resolve);
-      parsed.detailImages = parsed.detailImages.map(resolve);
-      if (parsed.heroBanner) parsed.heroBanner = resolve(parsed.heroBanner);
-      const templateId = preview.template.replace(/_/g, '-');
-      setTemplateConfig(getTemplate(templateId));
-      setPreviewData(parsed);
-    } catch (err) {
-      setError(isApiError(err) ? err.detail : '에디터 데이터를 불러올 수 없습니다.');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [productId]);
+      return { productName, previewData, rawImages, processedImages, templateConfig, templateCss: cssRes };
+    },
+  });
 
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+  const productName = editorData?.productName ?? '';
+  const previewData = editorData?.previewData ?? null;
+  const rawImages = editorData?.rawImages ?? [];
+  const processedImages = editorData?.processedImages ?? [];
+  const templateConfig = editorData?.templateConfig ?? null;
+  const templateCss = editorData?.templateCss ?? '';
+  const error = queryError ? (isApiError(queryError) ? queryError.detail : '에디터 데이터를 불러올 수 없습니다.') : null;
 
   const handleClose = () => router.push(`/sourcing/${productId}`);
   const handleSave = (_html: string) => router.push(`/sourcing/${productId}`);
@@ -126,7 +118,7 @@ export default function EditorPage() {
           <p className="text-sm font-medium">{error ?? '상세페이지 데이터가 없습니다.'}</p>
           <div className="flex gap-2 mt-2">
             <button
-              onClick={fetchData}
+              onClick={() => queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.preview(productId) })}
               className="px-4 py-2 bg-emerald-500 text-white text-sm font-bold rounded-lg hover:bg-emerald-600 transition-colors"
             >
               다시 시도

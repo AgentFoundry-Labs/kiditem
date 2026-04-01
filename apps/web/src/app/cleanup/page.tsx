@@ -1,50 +1,40 @@
 "use client";
+import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api-client";
-import { isApiError } from "@/lib/api-error";
 import type { ProductListItem as Product } from '@kiditem/shared';
 
-import { useEffect, useState, useCallback } from "react";
 import { Trash2, AlertTriangle, MinusCircle } from "lucide-react";
 import { formatKRW, formatPercent, getProfitColor, getGradeColor } from "@/lib/utils";
 import PageSkeleton from "@/components/ui/PageSkeleton";
 import { Pagination } from "@/components/ui/Pagination";
+import { queryKeys } from "@/lib/query-keys";
 
 export default function CleanupPage() {
-  const [products, setProducts] = useState<Product[]>([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 50;
 
-  const fetchProducts = useCallback(async (p = page) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const params = new URLSearchParams({
-        maxProfitRate: "3",
-        page: String(p),
-        limit: String(PAGE_SIZE),
-      });
-      const data = await apiClient.get<{ items: Product[] }>(`/api/products?${params}`);
-      // Filter out sourcing products (draft/processing status)
-      const filtered = (data.items || []).filter((p: Product) => p.status !== 'draft' && p.status !== 'processing');
-      setProducts(filtered);
-      setTotal(filtered.length);
-    } catch (err) {
-      setError(isApiError(err) ? err.detail : "정리 대상 데이터를 불러오지 못했습니다.");
-    } finally {
-      setLoading(false);
-    }
-  }, [page]);
+  const queryParams = useMemo(() => ({
+    maxProfitRate: '3',
+    page: String(page),
+    limit: String(PAGE_SIZE),
+  }), [page]);
 
-  useEffect(() => {
-    fetchProducts(1);
-  }, []);
+  const { data, isLoading: loading, error: queryError } = useQuery({
+    queryKey: queryKeys.products.list(queryParams),
+    queryFn: () => {
+      const params = new URLSearchParams(queryParams);
+      return apiClient.get<{ items: Product[] }>(`/api/products?${params}`);
+    },
+  });
 
-  useEffect(() => {
-    fetchProducts();
-  }, [page]);
+  const products = useMemo(() => {
+    if (!data) return [];
+    return (data.items || []).filter((p: Product) => p.status !== 'draft' && p.status !== 'processing');
+  }, [data]);
+
+  const total = products.length;
+  const error = queryError ? "정리 대상 데이터를 불러오지 못했습니다." : null;
 
   const minusCount = products.filter((p) => p.profitRate < 0).length;
   const lowCount = products.filter((p) => p.profitRate >= 0).length;

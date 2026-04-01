@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -19,52 +19,46 @@ import {
   X,
   Zap,
 } from 'lucide-react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   productsApi,
   sourcingApi,
   type ProductListItem,
 } from '@/lib/sourcing-api';
+import { queryKeys } from '@/lib/query-keys';
+import { isApiError } from '@/lib/api-error';
 import StatusBadge from './components/StatusBadge';
 import SkeletonCard from './components/SkeletonCard';
 import { Pagination } from '@/components/ui/Pagination';
 import { formatKRW } from '@/lib/utils';
-import { isApiError } from '@/lib/api-error';
 
 export default function SourcingPage() {
   const router = useRouter();
-  const [products, setProducts] = useState<ProductListItem[]>([]);
-  const [total, setTotal] = useState(0);
+  const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 50;
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const [showScrapeInput, setShowScrapeInput] = useState(false);
   const [scrapeUrl, setScrapeUrl] = useState('');
-  const [scrapeLoading, setScrapeLoading] = useState(false);
   const [scrapeError, setScrapeError] = useState<string | null>(null);
   const [scrapeSuccess, setScrapeSuccess] = useState<string | null>(null);
   const scrapeInputRef = useRef<HTMLInputElement>(null);
 
-  const fetchProducts = useCallback(async (p = page) => {
-    try {
-      const res = await productsApi.list({ page: p, limit: PAGE_SIZE });
-      setProducts(res.items);
-      setTotal(res.total);
-      setError(null);
-    } catch (err) {
-      setError(isApiError(err) ? err.detail : '소싱 상품을 불러오는데 실패했습니다.');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [page]);
+  const hasProcessing = processingIds.size > 0;
 
-  useEffect(() => {
-    fetchProducts();
-  }, [fetchProducts]);
+  const { data: productData, isLoading, error: queryError } = useQuery({
+    queryKey: queryKeys.sourcing.list({ page: String(page) }),
+    queryFn: () => productsApi.list({ page, limit: PAGE_SIZE }),
+    refetchInterval: hasProcessing ? 3000 : false,
+  });
 
+  const products = productData?.items ?? [];
+  const total = productData?.total ?? 0;
+  const error = queryError ? (isApiError(queryError) ? queryError.detail : '소싱 상품을 불러오는데 실패했습니다.') : null;
+
+  // processing 완료된 항목 자동 해제
   useEffect(() => {
     setProcessingIds((prev) => {
       if (prev.size === 0) return prev;
@@ -82,45 +76,40 @@ export default function SourcingPage() {
     });
   }, [products]);
 
-  const hasProcessing = processingIds.size > 0;
-  useEffect(() => {
-    if (!hasProcessing) return;
-    const timer = setTimeout(() => fetchProducts(), 3000);
-    return () => clearTimeout(timer);
-  }, [hasProcessing, fetchProducts]);
-
   useEffect(() => {
     if (showScrapeInput && scrapeInputRef.current) {
       scrapeInputRef.current.focus();
     }
   }, [showScrapeInput]);
 
-  const handleScrapeUrl = async () => {
-    if (!scrapeUrl.trim()) return;
-    setScrapeError(null);
-    setScrapeSuccess(null);
-    setScrapeLoading(true);
-    try {
-      const response = await sourcingApi.scrapeUrl(scrapeUrl.trim());
+  const scrapeMutation = useMutation({
+    mutationFn: (url: string) => sourcingApi.scrapeUrl(url),
+    onSuccess: (response) => {
       setScrapeSuccess(response.message);
       setScrapeUrl('');
       setTimeout(() => {
         setShowScrapeInput(false);
         setScrapeSuccess(null);
       }, 2000);
-      fetchProducts();
-    } catch (error) {
+      queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.all });
+    },
+    onError: (err) => {
       setScrapeError(
-        error instanceof Error ? error.message : '알 수 없는 오류가 발생했습니다.'
+        err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.'
       );
       setTimeout(() => setScrapeError(null), 3000);
-    } finally {
-      setScrapeLoading(false);
-    }
+    },
+  });
+
+  const handleScrapeUrl = () => {
+    if (!scrapeUrl.trim()) return;
+    setScrapeError(null);
+    setScrapeSuccess(null);
+    scrapeMutation.mutate(scrapeUrl.trim());
   };
 
   const handleScrapeKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && !scrapeLoading) {
+    if (e.key === 'Enter' && !scrapeMutation.isPending) {
       handleScrapeUrl();
     } else if (e.key === 'Escape') {
       setShowScrapeInput(false);
@@ -130,16 +119,16 @@ export default function SourcingPage() {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    setDeletingId(id);
-    try {
-      await productsApi.delete(id);
-      fetchProducts();
-    } catch (err) {
-      console.error('Failed to delete product:', err);
-    } finally {
-      setDeletingId(null);
-    }
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => productsApi.delete(id),
+    onMutate: (id) => setDeletingId(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.all }),
+    onError: (err) => console.error('Failed to delete product:', err),
+    onSettled: () => setDeletingId(null),
+  });
+
+  const handleDelete = (id: string) => {
+    deleteMutation.mutate(id);
   };
 
   const handleProcess = async (
@@ -277,14 +266,14 @@ export default function SourcingPage() {
                 onKeyDown={handleScrapeKeyDown}
                 placeholder="1688.com 또는 alibaba.com 상품 URL 입력"
                 className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 bg-white"
-                disabled={scrapeLoading}
+                disabled={scrapeMutation.isPending}
               />
               <button
                 onClick={handleScrapeUrl}
-                disabled={scrapeLoading || !scrapeUrl.trim()}
+                disabled={scrapeMutation.isPending || !scrapeUrl.trim()}
                 className="px-4 py-2 bg-emerald-500 text-white text-sm font-medium rounded-lg hover:bg-emerald-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
               >
-                {scrapeLoading ? (
+                {scrapeMutation.isPending ? (
                   <Loader2 size={16} className="animate-spin" />
                 ) : (
                   '수집'
@@ -297,7 +286,7 @@ export default function SourcingPage() {
                   setScrapeError(null);
                   setScrapeSuccess(null);
                 }}
-                disabled={scrapeLoading}
+                disabled={scrapeMutation.isPending}
                 className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg disabled:opacity-50 transition-colors"
               >
                 <X size={16} />
@@ -462,7 +451,7 @@ export default function SourcingPage() {
           </div>
         )}
         <div className="mt-4">
-          <Pagination page={page} limit={PAGE_SIZE} total={total} onPageChange={(p) => { setPage(p); fetchProducts(p); }} />
+          <Pagination page={page} limit={PAGE_SIZE} total={total} onPageChange={setPage} />
         </div>
       </div>
     </div>

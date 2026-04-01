@@ -1,6 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
+import { queryKeys } from '@/lib/query-keys';
+import { useQuery } from '@tanstack/react-query';
 import {
   CheckCircle,
   XCircle,
@@ -21,68 +23,57 @@ import type { WorkflowTemplate, WorkflowRun } from '@/lib/workflow-types';
 import type { ExecutionLog, ModuleCategory } from '@/types';
 
 export default function LogsPage() {
-  const [logs, setLogs] = useState<ExecutionLog[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [moduleFilter, setModuleFilter] = useState<ModuleCategory | 'all'>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
 
-  useEffect(() => {
-    async function load() {
-      try {
-        const templates = await workflowApi.list();
-        const runsArrays = await Promise.all(
-          templates.map((t) => workflowApi.getRuns(t.id).catch(() => [] as WorkflowRun[])),
+  const { data: logs = [], isLoading: loading, error: queryError } = useQuery({
+    queryKey: queryKeys.logs.list(),
+    queryFn: async () => {
+      const templates = await workflowApi.list();
+      const runsArrays = await Promise.all(
+        templates.map((t) => workflowApi.getRuns(t.id).catch(() => [] as WorkflowRun[])),
+      );
+
+      const templateMap = new Map<string, WorkflowTemplate>(
+        templates.map((t) => [t.id, t]),
+      );
+
+      const allLogs: ExecutionLog[] = runsArrays
+        .flat()
+        .map((run) => {
+          const tpl = templateMap.get(run.templateId);
+          const status: 'success' | 'error' | 'running' =
+            run.status === 'completed'
+              ? 'success'
+              : run.status === 'failed'
+                ? 'error'
+                : 'running';
+          const duration =
+            run.completedAt && run.startedAt
+              ? Date.parse(run.completedAt) - Date.parse(run.startedAt)
+              : undefined;
+
+          return {
+            id: run.id,
+            workflowId: run.templateId,
+            workflowName: tpl?.name ?? 'Unknown',
+            module: (tpl?.module ?? 'order') as ModuleCategory,
+            status,
+            startedAt: run.startedAt ?? run.createdAt,
+            completedAt: run.completedAt ?? undefined,
+            duration,
+            message: run.error || '',
+          };
+        })
+        .sort(
+          (a, b) =>
+            new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime(),
         );
 
-        // Build a lookup for template info
-        const templateMap = new Map<string, WorkflowTemplate>(
-          templates.map((t) => [t.id, t]),
-        );
-
-        // Flatten all runs into ExecutionLog format
-        const allLogs: ExecutionLog[] = runsArrays
-          .flat()
-          .map((run) => {
-            const tpl = templateMap.get(run.templateId);
-            const status: 'success' | 'error' | 'running' =
-              run.status === 'completed'
-                ? 'success'
-                : run.status === 'failed'
-                  ? 'error'
-                  : 'running';
-            const duration =
-              run.completedAt && run.startedAt
-                ? Date.parse(run.completedAt) - Date.parse(run.startedAt)
-                : undefined;
-
-            return {
-              id: run.id,
-              workflowId: run.templateId,
-              workflowName: tpl?.name ?? 'Unknown',
-              module: (tpl?.module ?? 'order') as ModuleCategory,
-              status,
-              startedAt: run.startedAt ?? run.createdAt,
-              completedAt: run.completedAt ?? undefined,
-              duration,
-              message: run.error || '',
-            };
-          })
-          .sort(
-            (a, b) =>
-              new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime(),
-          );
-
-        setLogs(allLogs);
-      } catch (err) {
-        setError(isApiError(err) ? err.detail : '실행 로그를 불러오는데 실패했습니다.');
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    load();
-  }, []);
+      return allLogs;
+    },
+  });
+  const error = queryError ? (isApiError(queryError) ? queryError.detail : '실행 로그를 불러오는데 실패했습니다.') : null;
 
   const filtered = logs.filter((log) => {
     if (moduleFilter !== 'all' && log.module !== moduleFilter) return false;

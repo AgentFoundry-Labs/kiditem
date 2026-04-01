@@ -1,11 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { agentApi } from '@/lib/agent-api';
 import { ADAPTER_LABELS, ROLE_LABELS, type OrgNode } from '@/lib/agent-types';
 import { agentStatusDot, agentStatusDotDefault } from '@/lib/status-colors';
 import { cn } from '@/lib/utils';
+import { useAgentOrg } from '@/hooks/use-agents';
 
 function AgentCard({ node, onClick }: { node: OrgNode; onClick: () => void }) {
   const dotClass = agentStatusDot[node.status] ?? agentStatusDotDefault;
@@ -102,16 +101,8 @@ function OrgTree({ nodes, router }: { nodes: OrgNode[]; router: ReturnType<typeo
 
 export default function OrgPage() {
   const router = useRouter();
-  const [roots, setRoots] = useState<OrgNode[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    agentApi.org()
-      .then(setRoots)
-      .catch(() => setError('조직도를 불러오지 못했습니다.'))
-      .finally(() => setLoading(false));
-  }, []);
+  const { data: roots = [], isLoading: loading, error: queryError } = useAgentOrg();
+  const error = queryError ? '조직도를 불러오지 못했습니다.' : null;
 
   return (
     <div className="p-4 sm:p-8">

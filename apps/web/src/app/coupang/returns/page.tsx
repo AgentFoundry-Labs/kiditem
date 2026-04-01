@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { format, subDays } from 'date-fns';
 import { type DateRange } from 'react-day-picker';
 import {
@@ -14,6 +14,8 @@ import {
 } from 'recharts';
 import { RotateCcw, TrendingDown, Users, Package } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
+import { queryKeys } from '@/lib/query-keys';
+import { useQuery } from '@tanstack/react-query';
 import { formatPercent, cn } from '@/lib/utils';
 import { DateRangePicker } from '@/components/ui/DateRangePicker';
 
@@ -45,29 +47,28 @@ interface FaultSplit {
 
 export default function CoupangReturnsPage() {
   const [dateRange, setDateRange] = useState<DateRange>(getPreset(30));
-  const [summary, setSummary] = useState<ReturnSummary | null>(null);
-  const [reasons, setReasons] = useState<ReasonRow[]>([]);
-  const [faultSplit, setFaultSplit] = useState<FaultSplit | null>(null);
-  const [loading, setLoading] = useState(true);
   const [activePreset, setActivePreset] = useState<number>(30);
 
-  useEffect(() => {
-    if (!dateRange.from || !dateRange.to) return;
-    setLoading(true);
-    const from = toParam(dateRange.from);
-    const to = toParam(dateRange.to);
-    Promise.all([
-      apiClient.get<ReturnSummary>(`/api/coupang-dashboard/return-summary?from=${from}&to=${to}`),
-      apiClient.get<ReasonRow[]>(`/api/coupang-dashboard/return-reasons?from=${from}&to=${to}`),
-      apiClient.get<FaultSplit>(`/api/coupang-dashboard/return-fault-split?from=${from}&to=${to}`),
-    ])
-      .then(([summaryData, reasonsData, faultData]) => {
-        setSummary(summaryData);
-        setReasons(reasonsData);
-        setFaultSplit(faultData);
-      })
-      .finally(() => setLoading(false));
-  }, [dateRange]);
+  const from = dateRange.from ? toParam(dateRange.from) : '';
+  const to = dateRange.to ? toParam(dateRange.to) : '';
+
+  const { data: summary } = useQuery({
+    queryKey: queryKeys.coupangDashboard.returnSummary({ from, to }),
+    queryFn: () => apiClient.get<ReturnSummary>(`/api/coupang-dashboard/return-summary?from=${from}&to=${to}`),
+    enabled: !!from && !!to,
+  });
+
+  const { data: reasons = [], isLoading: loading } = useQuery({
+    queryKey: queryKeys.coupangDashboard.returnReasons({ from, to }),
+    queryFn: () => apiClient.get<ReasonRow[]>(`/api/coupang-dashboard/return-reasons?from=${from}&to=${to}`),
+    enabled: !!from && !!to,
+  });
+
+  const { data: faultSplit } = useQuery({
+    queryKey: queryKeys.coupangDashboard.returnFaultSplit({ from, to }),
+    queryFn: () => apiClient.get<FaultSplit>(`/api/coupang-dashboard/return-fault-split?from=${from}&to=${to}`),
+    enabled: !!from && !!to,
+  });
 
   function handlePreset(days: number) {
     setActivePreset(days);

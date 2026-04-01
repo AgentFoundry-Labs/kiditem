@@ -1,6 +1,8 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
+import { queryKeys } from '@/lib/query-keys';
+import { useQuery } from '@tanstack/react-query';
 import { Network, Package, Tag, Layers, Search, List } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import PageSkeleton from '@/components/ui/PageSkeleton';
@@ -15,27 +17,17 @@ interface CategoryGroup {
 }
 
 export default function OntologyPage() {
-  const [products, setProducts] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'graph' | 'list'>('graph');
 
-  useEffect(() => {
-    const fetchProducts = async () => {
-      setLoading(true);
-      try {
-        const json = await apiClient.get<{ items: Product[] } | Product[]>('/api/products?limit=500');
-        const items = Array.isArray(json) ? json : json.items ?? [];
-        setProducts(items);
-      } catch (err) {
-        console.error('상품 데이터 로딩 실패:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchProducts();
-  }, []);
+  const { data: products = [], isLoading: loading } = useQuery({
+    queryKey: queryKeys.ontology.products(),
+    queryFn: async () => {
+      const json = await apiClient.get<{ items: Product[] } | Product[]>('/api/products?limit=500');
+      return Array.isArray(json) ? json : json.items ?? [];
+    },
+  });
 
   const categoryGroups = useMemo(() => {
     const filtered = products.filter((p) => {

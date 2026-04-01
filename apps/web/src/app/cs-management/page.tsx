@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from "@/lib/api-client";
 import { isApiError } from "@/lib/api-error";
+import { queryKeys } from '@/lib/query-keys';
 import PageSkeleton from "@/components/ui/PageSkeleton";
 import {
   MessageSquare,
@@ -36,56 +38,39 @@ interface CSSummary {
 }
 
 export default function CSManagementPage() {
-  const [records, setRecords] = useState<CSRecord[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
   const [filter, setFilter] = useState("all");
-  const [summary, setSummary] = useState<CSSummary>({
-    total: 0,
-    접수: 0,
-    처리중: 0,
-    완료: 0,
-  });
   const [showModal, setShowModal] = useState(false);
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
+  const { data: csData, isLoading: loading, error: queryError } = useQuery({
+    queryKey: queryKeys.cs.list({ csStatus: filter }),
+    queryFn: async () => {
       const params = new URLSearchParams();
       if (filter !== "all") params.set("csStatus", filter);
-      const data = await apiClient.get<{ items: CSRecord[]; summary: CSSummary }>(`/api/cs?${params}`);
-      setRecords(data.items || []);
-      setSummary(
-        data.summary || { total: 0, 접수: 0, 처리중: 0, 완료: 0 }
-      );
-    } catch (e) {
-      setError(isApiError(e) ? e.detail : "CS 데이터를 불러오는데 실패했습니다.");
-    } finally {
-      setLoading(false);
-    }
-  }, [filter]);
+      return apiClient.get<{ items: CSRecord[]; summary: CSSummary }>(`/api/cs?${params}`);
+    },
+  });
 
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+  const records = csData?.items ?? [];
+  const summary = csData?.summary ?? { total: 0, 접수: 0, 처리중: 0, 완료: 0 };
+  const error = queryError ? (isApiError(queryError) ? queryError.detail : "CS 데이터를 불러오는데 실패했습니다.") : null;
 
-  const handleCreate = async (form: {
-    csType: string;
-    content: string;
-    priority: string;
-    assignee: string;
-    orderId: string;
-  }) => {
-    await apiClient.post('/api/cs', {
+  const createMutation = useMutation({
+    mutationFn: (form: {
+      csType: string;
+      content: string;
+      priority: string;
+      assignee: string;
+      orderId: string;
+    }) => apiClient.post('/api/cs', {
       csType: form.csType,
       content: form.content,
       priority: form.priority,
       assignee: form.assignee || null,
       orderId: form.orderId || null,
-    });
-    fetchData();
-  };
+    }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.cs.all }),
+  });
 
   if (loading) {
     return <PageSkeleton variant="table" />;
@@ -96,7 +81,7 @@ export default function CSManagementPage() {
       <div className="flex flex-col items-center justify-center h-64 gap-3">
         <p className="text-red-500">{error}</p>
         <button
-          onClick={fetchData}
+          onClick={() => queryClient.invalidateQueries({ queryKey: queryKeys.cs.all })}
           className="px-4 py-2 text-sm bg-gray-900 text-white rounded-lg hover:bg-gray-800"
         >
           다시 시도
@@ -127,7 +112,7 @@ export default function CSManagementPage() {
         </div>
         <div className="flex gap-2">
           <button
-            onClick={fetchData}
+            onClick={() => queryClient.invalidateQueries({ queryKey: queryKeys.cs.all })}
             className="flex items-center gap-1.5 px-3 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50"
           >
             <RefreshCw size={14} /> 새로고침
@@ -271,7 +256,7 @@ export default function CSManagementPage() {
         <CreateCSModal
           onClose={() => setShowModal(false)}
           onCreated={async (form) => {
-            await handleCreate(form);
+            await createMutation.mutateAsync(form);
             setShowModal(false);
           }}
         />

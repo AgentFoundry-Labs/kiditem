@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useState } from "react";
 import { apiClient } from "@/lib/api-client";
 import { isApiError } from "@/lib/api-error";
+import { queryKeys } from "@/lib/query-keys";
+import { useQuery } from "@tanstack/react-query";
 import { Truck, AlertTriangle, RefreshCw } from "lucide-react";
 import PageSkeleton from "@/components/ui/PageSkeleton";
 
@@ -17,29 +19,19 @@ interface UnshippedItem {
 }
 
 export default function UnshippedItemsPage() {
-  const [items, setItems] = useState<UnshippedItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [minDays, setMinDays] = useState(0);
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
+  const { data, isLoading: loading, error: queryError, refetch } = useQuery({
+    queryKey: queryKeys.unshipped.list(minDays > 0 ? { minDays: String(minDays) } : undefined),
+    queryFn: async () => {
       const params = new URLSearchParams();
       if (minDays > 0) params.set("minDays", String(minDays));
-      const data = await apiClient.get<{ items: UnshippedItem[] }>(`/api/unshipped?${params}`);
-      setItems(data.items || []);
-    } catch (e) {
-      setError(isApiError(e) ? e.detail : "미배송 조회 실패");
-    } finally {
-      setLoading(false);
-    }
-  }, [minDays]);
+      return apiClient.get<{ items: UnshippedItem[] }>(`/api/unshipped?${params}`);
+    },
+  });
 
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+  const items = data?.items ?? [];
+  const error = queryError ? (isApiError(queryError) ? queryError.detail : "미배송 조회 실패") : null;
 
   if (loading) {
     return <PageSkeleton variant="table" />;
@@ -50,7 +42,7 @@ export default function UnshippedItemsPage() {
       <div className="flex flex-col items-center justify-center h-64 gap-3">
         <p className="text-red-500">{error}</p>
         <button
-          onClick={fetchData}
+          onClick={() => refetch()}
           className="px-4 py-2 text-sm bg-gray-900 text-white rounded-lg hover:bg-gray-800"
         >
           다시 시도
@@ -87,7 +79,7 @@ export default function UnshippedItemsPage() {
             <option value={7}>7일 이상</option>
           </select>
           <button
-            onClick={fetchData}
+            onClick={() => refetch()}
             className="flex items-center gap-1.5 px-3 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50"
           >
             <RefreshCw size={14} /> 새로고침

@@ -1,8 +1,10 @@
 "use client";
 import { apiClient } from "@/lib/api-client";
+import { queryKeys } from "@/lib/query-keys";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { OrderRow } from '@kiditem/shared';
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import {
   CheckCircle,
   Truck,
@@ -39,48 +41,44 @@ const EDGES = [
 const SYNC_HOURS = [9, 12, 15, 18];
 
 export default function OrdersPage() {
-  const [pipeline, setPipeline] = useState<Record<string, OrderRow[]>>({});
-  const [counts, setCounts] = useState<Record<string, number>>({});
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
   const [activeNode, setActiveNode] = useState("ACCEPT");
-  const [lastUpdated, setLastUpdated] = useState("");
   const [showCompleted, setShowCompleted] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [selectedOrders, setSelectedOrders] = useState<Record<string, boolean>>({});
 
-  const fetchAll = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  const { data: pipelineData, isLoading: loading, error: queryError, dataUpdatedAt } = useQuery({
+    queryKey: queryKeys.orders.pipeline(),
+    queryFn: async () => {
+      const results = await Promise.all(
+        ALL_NODES.map(async (node) => {
+          try {
+            const data = await apiClient.get<{ orders: OrderRow[] }>(`/api/orders?status=${node.key}`);
+            const orders = (data.orders || []) as OrderRow[];
+            return { key: node.key, orders, count: orders.length };
+          } catch {
+            return { key: node.key, orders: [] as OrderRow[], count: 0 };
+          }
+        })
+      );
+      const pipeline: Record<string, OrderRow[]> = {};
+      const counts: Record<string, number> = {};
+      results.forEach((r) => {
+        pipeline[r.key] = r.orders;
+        counts[r.key] = r.count;
+      });
+      return { pipeline, counts };
+    },
+  });
 
-    const results = await Promise.all(
-      ALL_NODES.map(async (node) => {
-        try {
-          const data = await apiClient.get<{ orders: OrderRow[] }>(`/api/orders?status=${node.key}`);
-          const orders = (data.orders || []) as OrderRow[];
-          return { key: node.key, orders, count: orders.length };
-        } catch {
-          return { key: node.key, orders: [] as OrderRow[], count: 0 };
-        }
-      })
-    );
+  const pipeline = pipelineData?.pipeline ?? {};
+  const counts = pipelineData?.counts ?? {};
+  const error = queryError ? "주문 조회 실패" : null;
+  const lastUpdated = dataUpdatedAt
+    ? new Date(dataUpdatedAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+    : "";
 
-    const np: Record<string, OrderRow[]> = {};
-    const nc: Record<string, number> = {};
-    results.forEach((r) => {
-      np[r.key] = r.orders;
-      nc[r.key] = r.count;
-    });
-
-    setPipeline(np);
-    setCounts(nc);
-    setLastUpdated(new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
-    setLoading(false);
-  }, []);
-
-  useEffect(() => {
-    fetchAll();
-  }, [fetchAll]);
+  const refetch = () => queryClient.invalidateQueries({ queryKey: queryKeys.orders.all });
 
   useEffect(() => {
     const lastSyncKey = "orders_last_sync_hour";
@@ -95,7 +93,7 @@ export default function OrdersPage() {
           const weekAgo = new Date(now.getTime() - 7 * 86400000).toISOString().slice(0, 10);
           await apiClient.post('/api/coupang-sync', { createdAtFrom: weekAgo, createdAtTo: today });
           sessionStorage.setItem(lastSyncKey, String(hour));
-          fetchAll();
+          refetch();
         } catch {
         }
         setSyncing(false);
@@ -104,7 +102,8 @@ export default function OrdersPage() {
     syncFromCoupang();
     const timer = setInterval(syncFromCoupang, 60_000);
     return () => clearInterval(timer);
-  }, [fetchAll]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     setSelectedOrders({});
@@ -193,7 +192,7 @@ export default function OrdersPage() {
             <Plus size={12} /> 수기주문
           </button>
           <button
-            onClick={fetchAll}
+            onClick={refetch}
             disabled={loading}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-500 hover:bg-gray-100 rounded-md font-mono"
           >

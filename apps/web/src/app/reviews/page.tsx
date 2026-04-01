@@ -2,8 +2,10 @@
 
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
+import { queryKeys } from '@/lib/query-keys';
+import { useQuery } from '@tanstack/react-query';
 import type { ReviewListItem as ReviewProduct } from '@kiditem/shared';
-import { useEffect, useState, useCallback } from 'react';
+import { useState } from 'react';
 import { MessageSquare, Star, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Pagination } from '@/components/ui/Pagination';
@@ -24,35 +26,24 @@ function getReviewStatus(d: ReviewProduct): string {
 }
 
 export default function ReviewsPage() {
-  const [data, setData] = useState<ReviewProduct[]>([]);
-  const [summary, setSummary] = useState<ReviewSummaryData | null>(null);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [activeFilter, setActiveFilter] = useState<FilterTab>('all');
   const PAGE_SIZE = 50;
 
-  const fetchReviews = useCallback(async (p = page) => {
-    setLoading(true);
-    try {
+  const { data: reviewData, isLoading: loading, refetch } = useQuery({
+    queryKey: queryKeys.reviews.list({ page: String(page), limit: String(PAGE_SIZE) }),
+    queryFn: () => {
       const params = new URLSearchParams({
-        page: String(p),
+        page: String(page),
         limit: String(PAGE_SIZE),
       });
-      const json = await apiClient.get<{ items: ReviewProduct[]; total: number; summary?: ReviewSummaryData }>(`/api/reviews?${params}`);
-      setData(json.items ?? []);
-      setTotal(json.total ?? 0);
-      if (json.summary) setSummary(json.summary);
-    } catch (err) {
-      console.error('리뷰 데이터 로딩 실패:', isApiError(err) ? err.detail : err);
-    } finally {
-      setLoading(false);
-    }
-  }, [page]);
+      return apiClient.get<{ items: ReviewProduct[]; total: number; summary?: ReviewSummaryData }>(`/api/reviews?${params}`);
+    },
+  });
 
-  useEffect(() => {
-    fetchReviews();
-  }, [page, fetchReviews]);
+  const data = reviewData?.items ?? [];
+  const total = reviewData?.total ?? 0;
+  const summary = reviewData?.summary ?? null;
 
   const filteredData = data.filter((d) => {
     if (activeFilter === 'new') return d.totalReviews < 5;
@@ -78,7 +69,7 @@ export default function ReviewsPage() {
           리뷰 관리
         </h1>
         <button
-          onClick={() => fetchReviews(page)}
+          onClick={() => refetch()}
           disabled={loading}
           className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50"
         >

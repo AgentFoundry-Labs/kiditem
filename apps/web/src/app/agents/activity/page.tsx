@@ -1,23 +1,38 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { RefreshCw, Activity, ChevronLeft, ChevronRight, List, BarChart3 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { agentApi } from '@/lib/agent-api';
-import { isApiError } from '@/lib/api-error';
 import type { Agent, HeartbeatRun } from '@/lib/agent-types';
+import { queryKeys } from '@/lib/query-keys';
 import { groupLabel } from './components/activity-utils';
 import type { RunWithAgent } from './components/activity-utils';
 import { TimelineView } from './components/TimelineView';
 import { ActivityFeed } from './components/ActivityFeed';
 import { ActivityFilters } from './components/ActivityFilters';
 
+async function fetchAllActivity(): Promise<RunWithAgent[]> {
+  const agents: Agent[] = await agentApi.list();
+  const allRuns = await Promise.all(
+    agents.map(async (a) => {
+      const agentRuns = await agentApi.getRuns(a.id, 50).catch(() => [] as HeartbeatRun[]);
+      return agentRuns.map((r) => ({
+        ...r,
+        agentName: a.name,
+        agentIcon: a.icon ?? null,
+      }));
+    }),
+  );
+  return allRuns
+    .flat()
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+}
+
 export default function ActivityPage() {
-  const [runs, setRuns] = useState<RunWithAgent[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
+  const queryClient = useQueryClient();
   const [agentFilter, setAgentFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [timeRange, setTimeRange] = useState<string>('all');
@@ -25,37 +40,14 @@ export default function ActivityPage() {
   const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'feed' | 'timeline'>('feed');
 
-  const fetchAll = useCallback(async () => {
-    try {
-      const agents: Agent[] = await agentApi.list();
-      const allRuns = await Promise.all(
-        agents.map(async (a) => {
-          const agentRuns = await agentApi.getRuns(a.id, 50).catch(() => [] as HeartbeatRun[]);
-          return agentRuns.map((r) => ({
-            ...r,
-            agentName: a.name,
-            agentIcon: a.icon ?? null,
-          }));
-        }),
-      );
-      const merged = allRuns
-        .flat()
-        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-      setRuns(merged);
-      setLastRefreshed(new Date());
-      setError(null);
-    } catch (err) {
-      setError(isApiError(err) ? err.detail : '활동 이력을 불러오는데 실패했습니다.');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const { data: runs = [], isLoading: loading, error: queryError, dataUpdatedAt } = useQuery({
+    queryKey: [...queryKeys.agents.all, 'activity'],
+    queryFn: fetchAllActivity,
+    refetchInterval: 30_000,
+  });
 
-  useEffect(() => {
-    fetchAll();
-    const interval = setInterval(fetchAll, 30_000);
-    return () => clearInterval(interval);
-  }, [fetchAll]);
+  const error = queryError ? '활동 이력을 불러오는데 실패했습니다.' : null;
+  const lastRefreshed = new Date(dataUpdatedAt || Date.now());
 
   // Unique agent names for dropdown
   const agentNames = Array.from(new Set(runs.map((r) => r.agentName))).sort();
@@ -101,9 +93,8 @@ export default function ActivityPage() {
   return (
     <div className="p-4 sm:p-8">
       {error && (
-        <div className="mb-4 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          <span>{error}</span>
-          <button onClick={() => setError(null)} className="ml-auto text-red-400 hover:text-red-600">&times;</button>
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
         </div>
       )}
       {/* Header */}
@@ -135,7 +126,7 @@ export default function ActivityPage() {
             </button>
           </div>
           <button
-            onClick={fetchAll}
+            onClick={() => queryClient.invalidateQueries({ queryKey: [...queryKeys.agents.all, 'activity'] })}
             className="p-1.5 text-gray-400 hover:text-gray-600 border border-gray-200 rounded-lg transition-colors"
             title="새로고침"
           >

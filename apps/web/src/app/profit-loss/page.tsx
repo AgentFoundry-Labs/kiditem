@@ -1,19 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Download } from "lucide-react";
 import { formatKRW, formatPercent, getGradeColor, getProfitColor, timeAgo } from "@/lib/utils";
 import { apiClient } from "@/lib/api-client";
 import { isApiError } from "@/lib/api-error";
+import { queryKeys } from "@/lib/query-keys";
+import { useQuery } from "@tanstack/react-query";
 import PageSkeleton from "@/components/ui/PageSkeleton";
 import type { PLData, SyncInfo } from '@kiditem/shared';
 
 export default function ProfitLossPage() {
-  const [data, setData] = useState<PLData[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [syncInfo, setSyncInfo] = useState<SyncInfo | null>(null);
-
   // 동적 기간 생성 (최근 6개월)
   const getRecentPeriods = () => {
     const periods = [];
@@ -30,21 +27,27 @@ export default function ProfitLossPage() {
   const [period, setPeriod] = useState(periodOptions[0].value);
   const [filter, setFilter] = useState("all");
 
-  useEffect(() => {
-    // Fetch sync info
-    apiClient.get<{ lastSyncedAt: string | null }>('/api/coupang-dashboard')
-      .then(data => setSyncInfo({ lastSyncedAt: data.lastSyncedAt }))
-      .catch(() => setSyncInfo({ lastSyncedAt: null }));
-  }, []);
+  const { data: syncInfo } = useQuery({
+    queryKey: queryKeys.syncInfo(),
+    queryFn: async () => {
+      try {
+        const data = await apiClient.get<{ lastSyncedAt: string | null }>('/api/coupang-dashboard');
+        return { lastSyncedAt: data.lastSyncedAt } as SyncInfo;
+      } catch {
+        return { lastSyncedAt: null } as SyncInfo;
+      }
+    },
+  });
 
-  useEffect(() => {
-    setLoading(true);
-    setError(null);
-    apiClient.get<PLData[]>(`/api/profit-loss?period=${period}`)
-      .then((d) => { if (Array.isArray(d)) setData(d); else throw new Error("데이터 형식 오류"); })
-      .catch((e) => setError(isApiError(e) ? e.detail : e instanceof Error ? e.message : "조회 실패"))
-      .finally(() => setLoading(false));
-  }, [period]);
+  const { data = [], isLoading: loading, error: queryError } = useQuery({
+    queryKey: queryKeys.profitLoss.list(period),
+    queryFn: async () => {
+      const d = await apiClient.get<PLData[]>(`/api/profit-loss?period=${period}`);
+      if (!Array.isArray(d)) throw new Error("데이터 형식 오류");
+      return d;
+    },
+  });
+  const error = queryError ? (isApiError(queryError) ? queryError.detail : queryError instanceof Error ? queryError.message : "조회 실패") : null;
 
   const filtered = data.filter((d) => {
     if (filter === "minus") return d.profitRate < 0;

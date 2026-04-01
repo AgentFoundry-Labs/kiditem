@@ -3,12 +3,13 @@
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
 import PageSkeleton from "@/components/ui/PageSkeleton";
-import { useEffect, useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useParams } from "next/navigation";
-import { useCallback, useRef } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Package, Box, ExternalLink } from "lucide-react";
 import { formatKRW } from "@/lib/utils";
 import type { ProductDetail as Product } from '@kiditem/shared';
+import { queryKeys } from "@/lib/query-keys";
 import ProductHeader from "./components/ProductHeader";
 import ProductMetrics, { categoryNames } from "./components/ProductMetrics";
 import HealthDiagnosis from "./components/HealthDiagnosis";
@@ -49,16 +50,8 @@ interface WorkflowRunStatus {
 export default function ProductDetailPage() {
   const params = useParams();
   const productId = params.id as string;
+  const queryClient = useQueryClient();
 
-  const [product, setProduct] = useState<Product | null>(null);
-  const [inventory, setInventory] = useState<InventoryData | null>(null);
-  const [activities, setActivities] = useState<ActivityEvent[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [violations, setViolations] = useState<ActivityEvent[]>([]);
-  const [evaluatingHealth, setEvaluatingHealth] = useState(false);
-
-  const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [showWfMenu, setShowWfMenu] = useState(false);
   const [toast, setToast] = useState<{
     message: string;
@@ -68,82 +61,89 @@ export default function ProductDetailPage() {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => {
-    if (!productId) return;
+  // Main product + inventory fetch
+  const { data: productData, isLoading: loading, error: productError } = useQuery({
+    queryKey: queryKeys.products.detail(productId),
+    queryFn: async () => {
+      const [prod, inv] = await Promise.all([
+        apiClient.get<Product>(`/api/products/${productId}`).catch(() => null),
+        apiClient.get<InventoryData[] | InventoryData>(`/api/inventory?productId=${productId}`).catch(() => null),
+      ]);
+      let inventory: InventoryData | null = null;
+      if (Array.isArray(inv) && inv.length > 0) {
+        inventory = inv[0];
+      } else if (inv && !Array.isArray(inv)) {
+        inventory = inv;
+      }
+      return { product: prod, inventory };
+    },
+    enabled: !!productId,
+  });
 
-    setLoading(true);
-    Promise.all([
-      apiClient.get<Product>(`/api/products/${productId}`).catch(() => null),
-      apiClient.get<InventoryData[] | InventoryData>(`/api/inventory?productId=${productId}`).catch(() => null),
-    ])
-      .then(([prod, inv]) => {
-        if (!prod) {
-          setError("상품을 찾을 수 없습니다.");
-          return;
-        }
-        setProduct(prod);
-        if (Array.isArray(inv) && inv.length > 0) {
-          setInventory(inv[0]);
-        } else if (inv && !Array.isArray(inv)) {
-          setInventory(inv);
-        }
-        loadActivities(productId, prod.companyId);
-        loadViolations(productId);
-      })
-      .catch(() => setError("데이터를 불러오지 못했습니다."))
-      .finally(() => setLoading(false));
-  }, [productId]);
+  const product = productData?.product ?? null;
+  const inventory = productData?.inventory ?? null;
+  const error = productError ? "데이터를 불러오지 못했습니다." : !loading && !product ? "상품을 찾을 수 없습니다." : null;
 
-  useEffect(() => {
-    apiClient.get<Workflow[]>(`/api/workflows?isActive=true`)
-      .then((wfs) => setWorkflows(Array.isArray(wfs) ? wfs : []))
-      .catch(() => {});
-  }, []);
+  // Activities fetch
+  const { data: activities = [] } = useQuery({
+    queryKey: [...queryKeys.products.detail(productId), 'activities'],
+    queryFn: async () => {
+      const companyId = product?.companyId;
+      if (!companyId) return [];
+      const [productEvents, companyEvents] = await Promise.all([
+        apiClient.get<ActivityEvent[]>(`/api/activity-events?objectType=product&objectId=${productId}&eventType=workflow_analysis`).catch(() => []),
+        apiClient.get<ActivityEvent[]>(`/api/activity-events?objectType=company&objectId=${companyId}&eventType=workflow_analysis&limit=10`).catch(() => []),
+      ]);
+      const all = [...(productEvents || []), ...(companyEvents || [])];
+      all.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      return all;
+    },
+    enabled: !!product?.companyId,
+  });
 
+  // Violations fetch
+  const { data: violations = [] } = useQuery({
+    queryKey: [...queryKeys.products.detail(productId), 'violations'],
+    queryFn: async () => {
+      const data = await apiClient.get<ActivityEvent[]>(`/api/activity-events?objectType=product&objectId=${productId}&eventType=rule_violation&limit=20`);
+      return Array.isArray(data) ? data : [];
+    },
+    enabled: !!productId,
+  });
+
+  // Workflows fetch
+  const { data: workflows = [] } = useQuery({
+    queryKey: [...queryKeys.workflows.list(), 'active'],
+    queryFn: async () => {
+      const wfs = await apiClient.get<Workflow[]>(`/api/workflows?isActive=true`);
+      return Array.isArray(wfs) ? wfs : [];
+    },
+  });
+
+  // Health evaluation mutation
+  const evaluateHealthMutation = useMutation({
+    mutationFn: async () => {
+      await apiClient.post(`/api/rules/evaluate`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.products.detail(productId) });
+      queryClient.invalidateQueries({ queryKey: [...queryKeys.products.detail(productId), 'violations'] });
+    },
+  });
+
+  const evaluatingHealth = evaluateHealthMutation.isPending;
+  const handleEvaluateHealth = () => evaluateHealthMutation.mutate();
+
+  const refreshActivities = () => {
+    queryClient.invalidateQueries({ queryKey: [...queryKeys.products.detail(productId), 'activities'] });
+  };
+
+  // Cleanup polling on unmount
   useEffect(() => {
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
   }, []);
-
-  const loadActivities = useCallback((pid: string, companyId: string) => {
-    Promise.all([
-      apiClient.get<ActivityEvent[]>(`/api/activity-events?objectType=product&objectId=${pid}&eventType=workflow_analysis`).catch(() => []),
-      apiClient.get<ActivityEvent[]>(`/api/activity-events?objectType=company&objectId=${companyId}&eventType=workflow_analysis&limit=10`).catch(() => []),
-    ]).then(([productEvents, companyEvents]) => {
-      const all = [...(productEvents || []), ...(companyEvents || [])];
-      all.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-      setActivities(all);
-    }).catch(() => {});
-  }, []);
-
-  const loadViolations = useCallback((pid: string) => {
-    apiClient.get<ActivityEvent[]>(`/api/activity-events?objectType=product&objectId=${pid}&eventType=rule_violation&limit=20`)
-      .then((data) => setViolations(Array.isArray(data) ? data : []))
-      .catch(() => {});
-  }, []);
-
-  const handleEvaluateHealth = async () => {
-    setEvaluatingHealth(true);
-    try {
-      await apiClient.post(`/api/rules/evaluate`);
-      const prod = await apiClient.get<Product>(`/api/products/${productId}`).catch(() => null);
-      if (prod) {
-        setProduct(prod);
-      }
-      loadViolations(productId);
-    } catch {
-      // silently fail
-    } finally {
-      setEvaluatingHealth(false);
-    }
-  };
-
-  const refreshActivities = useCallback(() => {
-    if (product) {
-      loadActivities(productId, product.companyId);
-    }
-  }, [productId, product, loadActivities]);
 
   const showToast = (
     message: string,

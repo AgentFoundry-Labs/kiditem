@@ -1,9 +1,11 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useState } from 'react';
 import { Package, RefreshCw, Plus, Trash2 } from 'lucide-react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
+import { queryKeys } from '@/lib/query-keys';
 import { formatKRW } from '@/lib/utils';
 import { Pagination } from '@/components/ui/Pagination';
 import CreateOrderModal from './components/CreateOrderModal';
@@ -66,27 +68,21 @@ const NEXT_STATUS: Record<string, string> = {
 };
 
 export default function PurchaseOrdersPage() {
-  const [orders, setOrders] = useState<PurchaseOrder[]>([]);
-  const [total, setTotal] = useState(0);
-  const [counts, setCounts] = useState<Counts>({
-    all: 0, draft: 0, pending: 0, ordered: 0, shipped: 0, received: 0, cancelled: 0,
-  });
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
   const [filter, setFilter] = useState('all');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const PAGE_SIZE = 20;
 
-  const fetchOrders = useCallback(async (p: number, f: string) => {
-    setLoading(true);
-    try {
+  const { data: orderData, isLoading: loading, error: queryError } = useQuery({
+    queryKey: queryKeys.purchaseOrders.list({ page: String(page), filter }),
+    queryFn: async () => {
       const params = new URLSearchParams({
-        page: String(p),
+        page: String(page),
         limit: String(PAGE_SIZE),
       });
-      const backendStatus = f === 'all' || f === 'waiting' ? undefined : f;
+      const backendStatus = filter === 'all' || filter === 'waiting' ? undefined : filter;
       if (backendStatus) params.set('status', backendStatus);
 
       const data = await apiClient.get<{
@@ -96,61 +92,50 @@ export default function PurchaseOrdersPage() {
       }>(`/api/purchase-orders?${params}`);
       let fetchedItems: PurchaseOrder[] = data.items || [];
 
-      if (f === 'waiting') {
+      if (filter === 'waiting') {
         fetchedItems = fetchedItems.filter(
           (o) => o.status === 'draft' || o.status === 'pending',
         );
       }
 
-      setOrders(fetchedItems);
-      if (data.counts) setCounts(data.counts);
+      const counts = data.counts || { all: 0, draft: 0, pending: 0, ordered: 0, shipped: 0, received: 0, cancelled: 0 };
+      const waitingTotal = (counts.draft || 0) + (counts.pending || 0);
+      const total = filter === 'waiting' ? waitingTotal : (data.total || 0);
 
-      const waitingTotal = (data.counts?.draft || 0) + (data.counts?.pending || 0);
-      setTotal(f === 'waiting' ? waitingTotal : (data.total || 0));
-      setError(null);
-    } catch (err) {
-      setError(isApiError(err) ? err.detail : '발주 데이터를 불러오는데 실패했습니다.');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+      return { items: fetchedItems, counts, total };
+    },
+  });
 
-  useEffect(() => {
-    setPage(1);
-    fetchOrders(1, filter);
-  }, [filter, fetchOrders]);
+  const orders = orderData?.items ?? [];
+  const total = orderData?.total ?? 0;
+  const counts = orderData?.counts ?? { all: 0, draft: 0, pending: 0, ordered: 0, shipped: 0, received: 0, cancelled: 0 };
+  const error = queryError ? (isApiError(queryError) ? queryError.detail : '발주 데이터를 불러오는데 실패했습니다.') : null;
 
-  useEffect(() => {
-    fetchOrders(page, filter);
-  }, [page, fetchOrders, filter]);
+  const statusMutation = useMutation({
+    mutationFn: (vars: { id: string; status: string }) =>
+      apiClient.post<unknown>('/api/purchase-orders', { action: 'updateStatus', id: vars.id, status: vars.status }),
+    onMutate: (vars) => setActionLoading(vars.id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.purchaseOrders.all }),
+    onError: (err) => alert(isApiError(err) ? err.detail : '상태 변경에 실패했습니다.'),
+    onSettled: () => setActionLoading(null),
+  });
 
-  const postAction = async (body: Record<string, unknown>) => {
-    return apiClient.post<unknown>('/api/purchase-orders', body);
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) =>
+      apiClient.post<unknown>('/api/purchase-orders', { action: 'delete', id }),
+    onMutate: (id) => setActionLoading(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.purchaseOrders.all }),
+    onError: (err) => alert(isApiError(err) ? err.detail : '삭제에 실패했습니다.'),
+    onSettled: () => setActionLoading(null),
+  });
+
+  const handleStatusChange = (id: string, newStatus: string) => {
+    statusMutation.mutate({ id, status: newStatus });
   };
 
-  const handleStatusChange = async (id: string, newStatus: string) => {
-    setActionLoading(id);
-    try {
-      await postAction({ action: 'updateStatus', id, status: newStatus });
-      fetchOrders(page, filter);
-    } catch (err) {
-      alert(isApiError(err) ? err.detail : '상태 변경에 실패했습니다.');
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
-  const handleDelete = async (id: string) => {
+  const handleDelete = (id: string) => {
     if (!confirm('이 발주를 삭제하시겠습니까?')) return;
-    setActionLoading(id);
-    try {
-      await postAction({ action: 'delete', id });
-      fetchOrders(page, filter);
-    } catch (err) {
-      alert(isApiError(err) ? err.detail : '삭제에 실패했습니다.');
-    } finally {
-      setActionLoading(null);
-    }
+    deleteMutation.mutate(id);
   };
 
   const totalAmount = orders.reduce(
@@ -175,14 +160,14 @@ export default function PurchaseOrdersPage() {
     { key: 'received', label: '입고완료', count: counts.received },
   ];
 
-  const refreshData = () => fetchOrders(page, filter);
+  const refreshData = () => queryClient.invalidateQueries({ queryKey: queryKeys.purchaseOrders.all });
 
   return (
     <div className="space-y-4">
       {error && (
         <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           <span>{error}</span>
-          <button onClick={() => setError(null)} className="ml-auto text-red-400 hover:text-red-600">&times;</button>
+          <button onClick={refreshData} className="ml-auto text-red-400 hover:text-red-600">&times;</button>
         </div>
       )}
       <div className="flex items-center justify-between">
