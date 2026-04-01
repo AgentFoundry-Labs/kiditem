@@ -2,17 +2,20 @@
 
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { RefreshCw, Activity, ChevronLeft, ChevronRight, List, BarChart3 } from 'lucide-react';
+import { RefreshCw, Activity, List, BarChart3 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import PageSkeleton from '@/components/ui/PageSkeleton';
-import { agentApi } from '@/lib/agent-api';
-import type { Agent, HeartbeatRun } from '@/lib/agent-types';
+import { agentApi } from '../lib/agent-api';
+import type { Agent, HeartbeatRun } from '../lib/agent-types';
 import { queryKeys } from '@/lib/query-keys';
-import { groupLabel } from './components/activity-utils';
-import type { RunWithAgent } from './components/activity-utils';
+import { groupLabel } from './lib/activity-utils';
+import type { RunWithAgent } from './lib/activity-utils';
 import { TimelineView } from './components/TimelineView';
 import { ActivityFeed } from './components/ActivityFeed';
 import { ActivityFilters } from './components/ActivityFilters';
+import { ActivityPagination } from './components/ActivityPagination';
+
+const PAGE_SIZE = 20;
 
 async function fetchAllActivity(): Promise<RunWithAgent[]> {
   const agents: Agent[] = await agentApi.list();
@@ -49,10 +52,8 @@ export default function ActivityPage() {
   const error = queryError ? '활동 이력을 불러오는데 실패했습니다.' : null;
   const lastRefreshed = new Date(dataUpdatedAt || Date.now());
 
-  // Unique agent names for dropdown
   const agentNames = Array.from(new Set(runs.map((r) => r.agentName))).sort();
 
-  // Filter runs
   const filteredRuns = runs.filter((run) => {
     if (agentFilter !== 'all' && run.agentName !== agentFilter) return false;
     if (statusFilter !== 'all' && run.status !== statusFilter) return false;
@@ -65,12 +66,9 @@ export default function ActivityPage() {
     return true;
   });
 
-  // Pagination
-  const PAGE_SIZE = 20;
   const totalPages = Math.ceil(filteredRuns.length / PAGE_SIZE);
   const pagedRuns = filteredRuns.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
-  // Group runs by date label
   const grouped: { label: string; runs: RunWithAgent[] }[] = [];
   for (const run of pagedRuns) {
     const label = groupLabel(run.createdAt);
@@ -170,48 +168,14 @@ export default function ActivityPage() {
         />
       )}
 
-      {/* Pagination (feed only) */}
-      {viewMode === 'feed' && totalPages > 1 && (
-        <div className="flex items-center justify-between mt-6">
-          <span className="text-xs text-gray-400">
-            {filteredRuns.length}건 중 {page * PAGE_SIZE + 1}-{Math.min((page + 1) * PAGE_SIZE, filteredRuns.length)}
-          </span>
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => setPage((p) => Math.max(0, p - 1))}
-              disabled={page === 0}
-              className="p-1.5 rounded-lg hover:bg-gray-50 disabled:opacity-30 text-gray-500"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-            {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
-              const start = Math.max(0, Math.min(page - 2, totalPages - 5));
-              const pageNum = start + i;
-              if (pageNum >= totalPages) return null;
-              return (
-                <button
-                  key={pageNum}
-                  onClick={() => setPage(pageNum)}
-                  className={cn(
-                    'w-8 h-8 rounded-lg text-xs transition-colors',
-                    page === pageNum
-                      ? 'bg-gray-900 text-white'
-                      : 'text-gray-500 hover:bg-gray-50'
-                  )}
-                >
-                  {pageNum + 1}
-                </button>
-              );
-            })}
-            <button
-              onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
-              disabled={page >= totalPages - 1}
-              className="p-1.5 rounded-lg hover:bg-gray-50 disabled:opacity-30 text-gray-500"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
+      {viewMode === 'feed' && (
+        <ActivityPagination
+          totalPages={totalPages}
+          page={page}
+          setPage={setPage}
+          filteredCount={filteredRuns.length}
+          pageSize={PAGE_SIZE}
+        />
       )}
     </div>
   );

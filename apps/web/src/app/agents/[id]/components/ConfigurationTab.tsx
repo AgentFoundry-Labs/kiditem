@@ -3,9 +3,9 @@
 import { useState, useEffect } from 'react';
 import { isApiError } from '@/lib/api-error';
 import { toast } from 'sonner';
-import { ADAPTER_LABELS, ROLE_LABELS } from '@/lib/agent-types';
-import type { Agent } from '@/lib/agent-types';
-import { useUpdateAgent } from '@/hooks/use-agents';
+import { ADAPTER_LABELS, ROLE_LABELS } from '../../lib/agent-types';
+import type { Agent } from '../../lib/agent-types';
+import { useUpdateAgent } from '../../hooks/useAgents';
 
 type ConfigForm = {
   name: string;

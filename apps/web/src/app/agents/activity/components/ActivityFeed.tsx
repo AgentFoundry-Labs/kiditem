@@ -3,10 +3,10 @@
 import { ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { statusBadge, statusBadgeDefault } from '@/lib/status-colors';
-import { relativeTime } from '@/lib/agent-utils';
-import { SOURCE_LABELS } from '@/lib/agent-types';
-import { agentColor, agentInitials, statusLabel, runDescription, SOURCE_COLORS } from './activity-utils';
-import type { RunWithAgent } from './activity-utils';
+import { relativeTime } from '../../lib/agent-utils';
+import { SOURCE_LABELS } from '../../lib/agent-types';
+import { agentColor, agentInitials, statusLabel, runDescription, SOURCE_COLORS } from '../lib/activity-utils';
+import type { RunWithAgent } from '../lib/activity-utils';
 
 export function ActivityFeed({
   grouped,

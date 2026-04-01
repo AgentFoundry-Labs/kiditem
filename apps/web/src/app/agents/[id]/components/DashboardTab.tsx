@@ -12,10 +12,10 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { StatusBadge } from '@/components/ui/StatusBadge';
-import { relativeTime, formatTokens, formatCost, formatDuration } from '@/lib/agent-utils';
-import { SOURCE_LABELS } from '@/lib/agent-types';
-import type { Agent, HeartbeatRun, AgentRuntimeState } from '@/lib/agent-types';
-import { RUN_STATUS_ICONS, SOURCE_BADGE_COLORS } from './constants';
+import { relativeTime, formatTokens, formatCost, formatDuration } from '../../lib/agent-utils';
+import { SOURCE_LABELS } from '../../lib/agent-types';
+import type { Agent, HeartbeatRun, AgentRuntimeState } from '../../lib/agent-types';
+import { RUN_STATUS_ICONS, SOURCE_BADGE_COLORS } from '../lib/constants';
 
 function buildRunActivity(runs: HeartbeatRun[], days: number) {
   const today = new Date();

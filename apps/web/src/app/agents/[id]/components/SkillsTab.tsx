@@ -3,8 +3,8 @@
 import Link from 'next/link';
 import { Zap } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { SKILL_DESCRIPTIONS } from '@/lib/agent-types';
-import type { Agent } from '@/lib/agent-types';
+import { SKILL_DESCRIPTIONS } from '../../lib/agent-types';
+import type { Agent } from '../../lib/agent-types';
 
 export function SkillsTab({ agent }: { agent: Agent }) {
   const skills = agent.skills ?? [];

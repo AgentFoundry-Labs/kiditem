@@ -4,10 +4,10 @@ import { useState } from 'react';
 import { Clock, ChevronRight, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { StatusBadge } from '@/components/ui/StatusBadge';
-import { relativeTime, formatTokens, formatCost, formatDuration } from '@/lib/agent-utils';
-import { SOURCE_LABELS } from '@/lib/agent-types';
-import type { HeartbeatRun } from '@/lib/agent-types';
-import { RUN_STATUS_ICONS, SOURCE_BADGE_COLORS } from './constants';
+import { relativeTime, formatTokens, formatCost, formatDuration } from '../../lib/agent-utils';
+import { SOURCE_LABELS } from '../../lib/agent-types';
+import type { HeartbeatRun } from '../../lib/agent-types';
+import { RUN_STATUS_ICONS, SOURCE_BADGE_COLORS } from '../lib/constants';
 
 function RunDetail({ run }: { run: HeartbeatRun }) {
   const inputTokens = (run.usageJson?.inputTokens as number | undefined) ?? 0;

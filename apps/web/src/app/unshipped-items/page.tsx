@@ -5,10 +5,12 @@ import { apiClient } from "@/lib/api-client";
 import { isApiError } from "@/lib/api-error";
 import { queryKeys } from "@/lib/query-keys";
 import { useQuery } from "@tanstack/react-query";
-import { Truck, AlertTriangle, RefreshCw } from "lucide-react";
+import { Truck, RefreshCw } from "lucide-react";
 import PageSkeleton from "@/components/ui/PageSkeleton";
+import UnshippedSummaryCards from "./components/UnshippedSummaryCards";
+import UnshippedItemsTable from "./components/UnshippedItemsTable";
 
-interface UnshippedItem {
+export interface UnshippedItem {
   id: string;
   orderId: string;
   productName: string;
@@ -87,95 +89,9 @@ export default function UnshippedItemsPage() {
         </div>
       </div>
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-3 gap-4">
-        <div className="bg-white rounded-xl p-4 border border-gray-200">
-          <div className="text-sm text-gray-500">전체</div>
-          <div className="text-2xl font-bold text-gray-900 mt-1">
-            {items.length}
-          </div>
-        </div>
-        <div className="bg-orange-50 rounded-xl p-4 border border-orange-200">
-          <div className="text-sm text-orange-600">주의 (1-2일)</div>
-          <div className="text-2xl font-bold text-orange-600 mt-1">
-            {warning.length}
-          </div>
-        </div>
-        <div className="bg-red-50 rounded-xl p-4 border border-red-200">
-          <div className="flex items-center gap-1.5 text-sm text-red-600">
-            <AlertTriangle size={14} /> 긴급 (3일+)
-          </div>
-          <div className="text-2xl font-bold text-red-600 mt-1">
-            {critical.length}
-          </div>
-        </div>
-      </div>
+      <UnshippedSummaryCards total={items.length} warning={warning.length} critical={critical.length} />
 
-      {/* Table */}
-      {items.length === 0 ? (
-        <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
-          <Truck size={48} className="mx-auto text-gray-300 mb-4" />
-          <p className="text-gray-500">미배송 건이 없습니다</p>
-        </div>
-      ) : (
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table>
-              <thead>
-                <tr className="bg-gray-50">
-                  <th>지연일수</th>
-                  <th>주문번호</th>
-                  <th>상품명</th>
-                  <th className="text-right">수량</th>
-                  <th>주문일</th>
-                  <th>사유</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((item) => (
-                  <tr
-                    key={item.id}
-                    className={
-                      item.delayDays >= 3
-                        ? "bg-red-50/50"
-                        : item.delayDays >= 1
-                          ? "bg-orange-50/30"
-                          : ""
-                    }
-                  >
-                    <td
-                      className={`text-center font-bold tabular-nums ${
-                        item.delayDays >= 3
-                          ? "text-red-600"
-                          : item.delayDays >= 1
-                            ? "text-orange-500"
-                            : "text-gray-400"
-                      }`}
-                    >
-                      {item.delayDays}일
-                    </td>
-                    <td className="text-sm text-gray-500 font-mono">
-                      {item.orderId}
-                    </td>
-                    <td className="font-medium text-gray-900 max-w-[250px] truncate">
-                      {item.productName}
-                    </td>
-                    <td className="text-right tabular-nums">
-                      {item.quantity}
-                    </td>
-                    <td className="text-sm text-gray-400 tabular-nums">
-                      {new Date(item.orderDate).toLocaleDateString("ko-KR")}
-                    </td>
-                    <td className="text-sm text-gray-500">
-                      {item.reason || "-"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+      <UnshippedItemsTable items={items} />
     </div>
   );
 }

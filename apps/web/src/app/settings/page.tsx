@@ -9,11 +9,11 @@ import {
   Shield,
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
-import { cn } from '@/lib/utils';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
 import CompanyInfoTab from './components/CompanyInfoTab';
+import SettingsTabNav from './components/SettingsTabNav';
 import CoupangTab from './components/CoupangTab';
 import CommonCodesTab from './components/CommonCodesTab';
 import RulesConfigTab from './components/RulesConfigTab';
@@ -40,7 +40,7 @@ export interface CompanyInfo {
   email: string | null;
 }
 
-type SettingsTab = 'company' | 'coupang' | 'codes' | 'rules';
+export type SettingsTab = 'company' | 'coupang' | 'codes' | 'rules';
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<SettingsTab>('company');
@@ -121,23 +121,7 @@ export default function SettingsPage() {
         <p className="text-gray-500 mt-1">회사 정보, API 연동, 공통 코드를 관리합니다.</p>
       </div>
 
-      <div className="flex gap-1 border-b border-gray-200">
-        {tabs.map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
-            className={cn(
-              'flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors',
-              activeTab === tab.key
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
-            )}
-          >
-            {tab.icon}
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      <SettingsTabNav tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab} />
 
       {activeTab === 'company' && (
         <CompanyInfoTab

@@ -1,30 +1,16 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import Link from 'next/link';
-import { Puzzle, RefreshCw, Search, Bot } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { Puzzle, RefreshCw, Search } from 'lucide-react';
 import PageSkeleton from '@/components/ui/PageSkeleton';
-import { ROLE_LABELS, SKILL_DESCRIPTIONS } from '@/lib/agent-types';
-import type { Agent } from '@/lib/agent-types';
-import { useAgents } from '@/hooks/use-agents';
+import { SKILL_DESCRIPTIONS } from '../lib/agent-types';
+import type { Agent } from '../lib/agent-types';
+import { useAgents } from '../hooks/useAgents';
 import { useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
-
-const SKILL_COLORS: Record<string, string> = {
-  'db-query': 'bg-blue-50 text-blue-600 border-blue-100',
-  'result-callback': 'bg-green-50 text-green-600 border-green-100',
-  'coupang-browse': 'bg-amber-50 text-amber-600 border-amber-100',
-  'kiditem-api': 'bg-violet-50 text-violet-600 border-violet-100',
-  'data-analysis': 'bg-cyan-50 text-cyan-600 border-cyan-100',
-};
-const DEFAULT_SKILL_COLOR = 'bg-gray-50 text-gray-600 border-gray-200';
-
-interface SkillEntry {
-  name: string;
-  description: string;
-  agents: Agent[];
-}
+import SkillCardGrid from './components/SkillCardGrid';
+import type { SkillEntry } from './components/SkillCardGrid';
+import NoSkillAgentsList from './components/NoSkillAgentsList';
 
 export default function SkillsPage() {
   const queryClient = useQueryClient();
@@ -115,71 +101,10 @@ export default function SkillsPage() {
       )}
 
       {/* Skill cards grid */}
-      {filtered.length > 0 && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
-          {filtered.map((skill) => {
-            const colorClass = SKILL_COLORS[skill.name] ?? DEFAULT_SKILL_COLOR;
-            return (
-              <div
-                key={skill.name}
-                className="border border-gray-200 rounded-lg p-4 hover:shadow-sm transition-shadow"
-              >
-                <div className="flex items-start gap-3 mb-3">
-                  <div className={cn('w-8 h-8 rounded-lg flex items-center justify-center shrink-0 border', colorClass)}>
-                    <Puzzle className="w-4 h-4" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-gray-900 font-mono">{skill.name}</p>
-                    {skill.description && (
-                      <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{skill.description}</p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wide mr-1">
-                    사용 에이전트
-                  </span>
-                  {skill.agents.map((agent) => (
-                    <Link
-                      key={agent.id}
-                      href={`/agents/${agent.id}`}
-                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-gray-100 text-gray-600 text-[11px] hover:bg-gray-200 hover:text-gray-900 transition-colors"
-                      title={ROLE_LABELS[agent.role] ?? agent.role}
-                    >
-                      <Bot className="w-2.5 h-2.5" />
-                      {agent.name}
-                    </Link>
-                  ))}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
+      {filtered.length > 0 && <SkillCardGrid skills={filtered} />}
 
       {/* Agents without skills */}
-      {noSkillAgents.length > 0 && !query && (
-        <div className="mt-2">
-          <div className="flex items-center gap-2 mb-3">
-            <span className="text-xs font-medium text-gray-400">스킬 없는 에이전트</span>
-            <div className="flex-1 h-px bg-gray-100" />
-          </div>
-          <div className="flex gap-2 flex-wrap">
-            {noSkillAgents.map((agent) => (
-              <span
-                key={agent.id}
-                className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-gray-50 border border-gray-200 text-xs text-gray-500"
-              >
-                <span className="w-5 h-5 rounded bg-gray-200 flex items-center justify-center text-[10px] font-semibold text-gray-600">
-                  {agent.name.charAt(0).toUpperCase()}
-                </span>
-                {agent.name}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
+      {noSkillAgents.length > 0 && !query && <NoSkillAgentsList agents={noSkillAgents} />}
     </div>
   );
 }

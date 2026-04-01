@@ -4,9 +4,9 @@ import { Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { agentStatusDot, agentStatusDotDefault } from '@/lib/status-colors';
-import { relativeTime, formatCost } from '@/lib/agent-utils';
-import { ADAPTER_LABELS, ROLE_LABELS } from '@/lib/agent-types';
-import type { Agent } from '@/lib/agent-types';
+import { relativeTime, formatCost } from '../lib/agent-utils';
+import { ADAPTER_LABELS, ROLE_LABELS } from '../lib/agent-types';
+import type { Agent } from '../lib/agent-types';
 
 export function AgentListRow({ agent, onClick, onDelete }: { agent: Agent; onClick: () => void; onDelete?: (id: string) => void }) {
   const dotClass = agentStatusDot[agent.status] ?? agentStatusDotDefault;

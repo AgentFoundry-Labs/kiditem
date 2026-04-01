@@ -3,8 +3,8 @@
 import { useState, useEffect } from 'react';
 import { isApiError } from '@/lib/api-error';
 import { toast } from 'sonner';
-import type { Agent } from '@/lib/agent-types';
-import { useUpdateAgent } from '@/hooks/use-agents';
+import type { Agent } from '../../lib/agent-types';
+import { useUpdateAgent } from '../../hooks/useAgents';
 
 export function InstructionsTab({
   agent,

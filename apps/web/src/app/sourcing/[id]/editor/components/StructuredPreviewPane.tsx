@@ -1,6 +1,6 @@
 'use client';
 
-import { renderTemplateToHtml } from '@/lib/template-html';
+import { renderTemplateToHtml } from '../../../lib/template-html';
 import { type DetailPageData } from '@kiditem/templates';
 import { useMemo } from 'react';
 

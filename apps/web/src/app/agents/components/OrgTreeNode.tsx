@@ -3,9 +3,9 @@
 import { cn } from '@/lib/utils';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { agentStatusDot, agentStatusDotDefault } from '@/lib/status-colors';
-import { relativeTime, formatCost } from '@/lib/agent-utils';
-import { ADAPTER_LABELS, ROLE_LABELS } from '@/lib/agent-types';
-import type { Agent, OrgNode } from '@/lib/agent-types';
+import { relativeTime, formatCost } from '../lib/agent-utils';
+import { ADAPTER_LABELS, ROLE_LABELS } from '../lib/agent-types';
+import type { Agent, OrgNode } from '../lib/agent-types';
 
 export function OrgTreeNode({
   node,

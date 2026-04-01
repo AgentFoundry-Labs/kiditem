@@ -6,15 +6,11 @@ import { apiClient } from "@/lib/api-client";
 import { isApiError } from "@/lib/api-error";
 import { queryKeys } from '@/lib/query-keys';
 import PageSkeleton from "@/components/ui/PageSkeleton";
-import {
-  MessageSquare,
-  Plus,
-  RefreshCw,
-  CheckCircle,
-  Clock,
-  AlertTriangle,
-} from "lucide-react";
-import CreateCSModal, { CS_TYPE_LABELS } from "./components/CreateCSModal";
+import CreateCSModal from "./components/CreateCSModal";
+import { CSHeader } from "./components/CSHeader";
+import { CSSummaryCards } from "./components/CSSummaryCards";
+import { CSFilterTabs } from "./components/CSFilterTabs";
+import { CSTable } from "./components/CSTable";
 
 interface CSRecord {
   id: string;
@@ -53,7 +49,11 @@ export default function CSManagementPage() {
 
   const records = csData?.items ?? [];
   const summary = csData?.summary ?? { total: 0, 접수: 0, 처리중: 0, 완료: 0 };
-  const error = queryError ? (isApiError(queryError) ? queryError.detail : "CS 데이터를 불러오는데 실패했습니다.") : null;
+  const error = queryError
+    ? isApiError(queryError)
+      ? queryError.detail
+      : "CS 데이터를 불러오는데 실패했습니다."
+    : null;
 
   const createMutation = useMutation({
     mutationFn: (form: {
@@ -72,9 +72,7 @@ export default function CSManagementPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.cs.all }),
   });
 
-  if (loading) {
-    return <PageSkeleton variant="table" />;
-  }
+  if (loading) return <PageSkeleton variant="table" />;
 
   if (error) {
     return (
@@ -99,159 +97,14 @@ export default function CSManagementPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <MessageSquare size={20} className="text-blue-600" />
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">CS 관리</h1>
-            <span className="text-sm text-gray-500">
-              {summary.total}건 | 접수 {summary.접수}건
-            </span>
-          </div>
-        </div>
-        <div className="flex gap-2">
-          <button
-            onClick={() => queryClient.invalidateQueries({ queryKey: queryKeys.cs.all })}
-            className="flex items-center gap-1.5 px-3 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50"
-          >
-            <RefreshCw size={14} /> 새로고침
-          </button>
-          <button
-            onClick={() => setShowModal(true)}
-            className="flex items-center gap-1.5 px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium"
-          >
-            <Plus size={14} /> CS 등록
-          </button>
-        </div>
-      </div>
-
-      {/* Summary Cards */}
-      <div className="grid grid-cols-4 gap-4">
-        {[
-          { label: "전체", value: summary.total, color: "text-gray-900", bg: "bg-white" },
-          { label: "접수", value: summary.접수, color: "text-yellow-600", bg: "bg-yellow-50" },
-          { label: "처리중", value: summary.처리중, color: "text-blue-600", bg: "bg-blue-50" },
-          { label: "완료", value: summary.완료, color: "text-green-600", bg: "bg-green-50" },
-        ].map((card) => (
-          <div
-            key={card.label}
-            className={`${card.bg} rounded-xl p-4 border border-gray-200`}
-          >
-            <div className="text-sm text-gray-500">{card.label}</div>
-            <div className={`text-2xl font-bold mt-1 ${card.color}`}>
-              {card.value}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Filter Tabs */}
-      <div className="flex gap-2">
-        {statusTabs.map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => setFilter(tab.key)}
-            className={`px-4 py-2 rounded-lg text-sm font-medium ${
-              filter === tab.key
-                ? "bg-blue-600 text-white"
-                : "bg-white border border-gray-200 text-gray-700 hover:bg-gray-50"
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Table */}
-      {records.length === 0 ? (
-        <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
-          <MessageSquare
-            size={48}
-            className="mx-auto text-gray-300 mb-4"
-          />
-          <p className="text-gray-500 mb-4">CS 데이터가 없습니다</p>
-          <button
-            onClick={() => setShowModal(true)}
-            className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-          >
-            CS 등록
-          </button>
-        </div>
-      ) : (
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table>
-              <thead>
-                <tr className="bg-gray-50">
-                  <th>CS유형</th>
-                  <th>상태</th>
-                  <th>우선순위</th>
-                  <th>내용</th>
-                  <th>담당자</th>
-                  <th>등록일</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {records.map((r) => (
-                  <tr
-                    key={r.id}
-                    className={
-                      r.priority === "urgent" ? "bg-red-50/50" : ""
-                    }
-                  >
-                    <td>
-                      <span className="px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
-                        {CS_TYPE_LABELS[r.csType] || r.csType}
-                      </span>
-                    </td>
-                    <td>
-                      <span
-                        className={`px-2 py-0.5 rounded text-xs font-medium ${
-                          r.csStatus === "접수"
-                            ? "bg-yellow-100 text-yellow-800"
-                            : r.csStatus === "처리중"
-                              ? "bg-blue-100 text-blue-800"
-                              : "bg-green-100 text-green-800"
-                        }`}
-                      >
-                        {r.csStatus}
-                      </span>
-                    </td>
-                    <td>
-                      {r.priority === "urgent" ? (
-                        <AlertTriangle size={14} className="text-red-500" />
-                      ) : (
-                        <Clock size={14} className="text-gray-400" />
-                      )}
-                    </td>
-                    <td className="max-w-[300px] truncate text-gray-700">
-                      {r.content}
-                    </td>
-                    <td className="text-sm text-gray-500">
-                      {r.assignee || "-"}
-                    </td>
-                    <td className="text-sm text-gray-400 tabular-nums">
-                      {new Date(r.createdAt).toLocaleDateString("ko-KR")}
-                    </td>
-                    <td>
-                      {r.csStatus === "완료" ? (
-                        <CheckCircle
-                          size={14}
-                          className="text-green-500"
-                        />
-                      ) : null}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* Create Modal */}
+      <CSHeader
+        summary={summary}
+        onRefresh={() => queryClient.invalidateQueries({ queryKey: queryKeys.cs.all })}
+        onRegister={() => setShowModal(true)}
+      />
+      <CSSummaryCards summary={summary} />
+      <CSFilterTabs statusTabs={statusTabs} filter={filter} onChange={setFilter} />
+      <CSTable records={records} onRegisterClick={() => setShowModal(true)} />
       {showModal && (
         <CreateCSModal
           onClose={() => setShowModal(false)}

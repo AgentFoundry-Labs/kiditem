@@ -1,6 +1,6 @@
 'use client';
 
-import { ImagePickerModal } from '@/components/editor/ImagePickerModal';
+import { ImagePickerModal } from './ImagePickerModal';
 import { type DetailPageData } from '@kiditem/templates';
 import { ImagePlus, Palette, Type } from 'lucide-react';
 import { useState } from 'react';

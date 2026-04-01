@@ -1,34 +1,16 @@
 'use client';
 
 import { useState } from 'react';
-import { Plus, Filter, AlertCircle, Store } from 'lucide-react';
+import { Plus, AlertCircle, Store } from 'lucide-react';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { isApiError } from '@/lib/api-error';
 import { toast } from 'sonner';
-import { useWorkflows, useToggleWorkflow, useDeleteWorkflow } from '@/hooks/use-workflows';
-import { useMarketplaceWorkflows, useInstallWorkflow, useUninstallWorkflow } from '@/hooks/use-marketplace';
+import { useWorkflows, useToggleWorkflow, useDeleteWorkflow } from './hooks/useWorkflows';
+import { useMarketplaceWorkflows, useInstallWorkflow, useUninstallWorkflow } from '@/hooks/useMarketplace';
 import type { WorkflowCatalogItem, MarketplaceTab } from '@/lib/marketplace-types';
-import WorkflowList from '@/components/workflows/WorkflowList';
-import { MarketplaceCard } from '@/components/marketplace/MarketplaceCard';
 import { InstallModal } from '@/components/marketplace/InstallModal';
-
-const moduleFilters: { id: string; label: string }[] = [
-  { id: 'all', label: '전체' },
-  { id: 'order', label: '주문관리' },
-  { id: 'accounting', label: '회계/경리' },
-  { id: 'inventory', label: '재고관리' },
-  { id: 'cs', label: 'CS관리' },
-  { id: 'report', label: '보고서' },
-  { id: 'product', label: '상품관리' },
-  { id: 'marketing', label: '마케팅' },
-];
-
-const categoryFilters: { id: string; label: string }[] = [
-  { id: 'all', label: '전체' },
-  { id: 'automation', label: '자동화' },
-  { id: 'monitoring', label: '모니터링' },
-  { id: 'reporting', label: '리포팅' },
-];
+import { MyWorkflowsSection } from './components/MyWorkflowsSection';
+import { MarketplaceCatalogSection } from './components/MarketplaceCatalogSection';
 
 export default function WorkflowsPage() {
   const [tab, setTab] = useState<MarketplaceTab>('my');
@@ -49,16 +31,6 @@ export default function WorkflowsPage() {
   const toggleWorkflow = useToggleWorkflow();
   const deleteWorkflow = useDeleteWorkflow();
   const installing = installWorkflow.isPending;
-
-  const filteredTemplates =
-    filter === 'all'
-      ? templates
-      : templates.filter((t) => t.module === filter);
-
-  const filteredCatalog =
-    categoryFilter === 'all'
-      ? catalog
-      : catalog.filter((c) => c.category === categoryFilter);
 
   const handleInstall = async (params: Record<string, any>) => {
     if (!installTarget) return;
@@ -154,75 +126,21 @@ export default function WorkflowsPage() {
       </div>
 
       {tab === 'my' ? (
-        <>
-          {/* Module filters */}
-          <div className="flex items-center gap-2">
-            <Filter className="w-4 h-4 text-gray-600" />
-            <div className="flex gap-1">
-              {moduleFilters.map((f) => (
-                <button
-                  key={f.id}
-                  onClick={() => setFilter(f.id)}
-                  className={`px-3 py-1.5 rounded-lg text-xs transition-colors ${
-                    filter === f.id
-                      ? 'bg-white text-gray-900 border border-gray-200'
-                      : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50 border border-transparent'
-                  }`}
-                >
-                  {f.label}
-                </button>
-              ))}
-            </div>
-          </div>
-          <WorkflowList
-            templates={filteredTemplates}
-            onToggleActive={handleToggleActive}
-            onDelete={handleDelete}
-          />
-        </>
+        <MyWorkflowsSection
+          templates={templates}
+          filter={filter}
+          setFilter={setFilter}
+          onToggleActive={handleToggleActive}
+          onDelete={handleDelete}
+        />
       ) : (
-        <>
-          {/* Category filters */}
-          <div className="flex items-center gap-2">
-            <Filter className="w-4 h-4 text-gray-600" />
-            <div className="flex gap-1">
-              {categoryFilters.map((f) => (
-                <button
-                  key={f.id}
-                  onClick={() => setCategoryFilter(f.id)}
-                  className={`px-3 py-1.5 rounded-lg text-xs transition-colors ${
-                    categoryFilter === f.id
-                      ? 'bg-white text-gray-900 border border-gray-200'
-                      : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50 border border-transparent'
-                  }`}
-                >
-                  {f.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Catalog grid */}
-          {filteredCatalog.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 text-gray-400">
-              <Store size={40} className="mb-3" />
-              <p className="text-sm">카탈로그가 비어 있습니다</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {filteredCatalog.map((item) => (
-                <MarketplaceCard
-                  key={item.id}
-                  item={item}
-                  type="workflow"
-                  installed={item.installed}
-                  onInstall={() => setInstallTarget(item)}
-                  onUninstall={handleUninstall}
-                />
-              ))}
-            </div>
-          )}
-        </>
+        <MarketplaceCatalogSection
+          catalog={catalog}
+          categoryFilter={categoryFilter}
+          setCategoryFilter={setCategoryFilter}
+          onInstall={setInstallTarget}
+          onUninstall={handleUninstall}
+        />
       )}
 
       {/* Install Modal */}

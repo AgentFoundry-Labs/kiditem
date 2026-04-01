@@ -1,20 +1,19 @@
 "use client";
-import { apiClient } from '@/lib/api-client';
-import { isApiError } from '@/lib/api-error';
-import type { ProductListItem as Product, SyncInfo, PipelineCounts } from '@kiditem/shared';
-import { queryKeys } from '@/lib/query-keys';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-
+import { apiClient } from "@/lib/api-client";
+import { isApiError } from "@/lib/api-error";
+import type { ProductListItem as Product, SyncInfo, PipelineCounts } from "@kiditem/shared";
+import { queryKeys } from "@/lib/query-keys";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, useRef } from "react";
-import { Plus, Download, Search, BarChart3 } from "lucide-react";
-import { timeAgo } from "@/lib/utils";
-import { Pagination } from "@/components/ui/Pagination";
 import PageSkeleton from "@/components/ui/PageSkeleton";
 import ProductPipeline from "./components/ProductPipeline";
 import AddProductModal from "./components/AddProductModal";
-import ProductListItem from "./components/ProductListItem";
+import ProductPageHeader from "./components/ProductPageHeader";
+import ProductFilterBar from "./components/ProductFilterBar";
+import ProductListTable from "./components/ProductListTable";
 
 const DEFAULT_PIPELINE: PipelineCounts = { total: 0, gradeA: 0, gradeB: 0, gradeC: 0, minus: 0, low: 0, gradeChangeA: 0, gradeChangeB: 0, gradeChangeC: 0, adCount: 0, noAdCount: 0 };
+const PAGE_SIZE = 50;
 
 export default function ProductsPage() {
   const queryClient = useQueryClient();
@@ -28,9 +27,7 @@ export default function ProductsPage() {
   const [period, setPeriod] = useState(7);
   const [trafficMsg, setTrafficMsg] = useState("");
   const trafficRef = useRef<HTMLInputElement>(null);
-  const PAGE_SIZE = 50;
 
-  // Products query
   const queryParams: Record<string, string> = {
     page: String(page), limit: String(PAGE_SIZE), period: String(period),
     ...(gradeFilter !== "all" && { grade: gradeFilter }),
@@ -48,7 +45,6 @@ export default function ProductsPage() {
   const total = productsData?.total ?? 0;
   const error = productsError ? (isApiError(productsError) ? productsError.detail : "상품 목록을 불러오지 못했습니다.") : null;
 
-  // Pipeline stats query
   const { data: pipelineCounts = DEFAULT_PIPELINE } = useQuery({
     queryKey: queryKeys.products.pipelineStats(statusFilter !== "all" ? statusFilter : undefined),
     queryFn: () => {
@@ -57,7 +53,6 @@ export default function ProductsPage() {
     },
   });
 
-  // Sync info query
   const { data: syncInfo } = useQuery({
     queryKey: queryKeys.syncInfo(),
     queryFn: async () => {
@@ -76,10 +71,6 @@ export default function ProductsPage() {
     setSubmittedSearch(search);
   };
 
-  const handlePageChange = (newPage: number) => {
-    setPage(newPage);
-  };
-
   const handleExcelDownload = async () => {
     const params = new URLSearchParams();
     if (gradeFilter !== "all") params.set("grade", gradeFilter);
@@ -91,19 +82,10 @@ export default function ProductsPage() {
     import("xlsx").then((XLSX) => {
       const ws = XLSX.utils.json_to_sheet(
         allProducts.map((p) => ({
-          등급: p.abcGrade,
-          상품명: p.name,
-          SKU: p.sku,
-          카테고리: p.category,
-          회사: p.company,
-          매입가: p.costPrice,
-          판매가: p.sellPrice,
-          수수료율: p.commissionRate,
-          배송비: p.shippingCost,
-          매출: p.revenue,
-          순이익: p.netProfit,
-          이익률: p.profitRate,
-          광고비율: p.adRate,
+          등급: p.abcGrade, 상품명: p.name, SKU: p.sku, 카테고리: p.category,
+          회사: p.company, 매입가: p.costPrice, 판매가: p.sellPrice,
+          수수료율: p.commissionRate, 배송비: p.shippingCost, 매출: p.revenue,
+          순이익: p.netProfit, 이익률: p.profitRate, 광고비율: p.adRate,
           재고: p.currentStock,
           상태: p.status === "active" ? "판매중" : p.status === "inactive" ? "중지" : "정리",
         }))
@@ -129,9 +111,7 @@ export default function ProductsPage() {
         setTrafficMsg(`오류: ${data.error}`);
       }
     },
-    onError: (err) => {
-      setTrafficMsg(isApiError(err) ? err.detail : "업로드 실패");
-    },
+    onError: (err) => { setTrafficMsg(isApiError(err) ? err.detail : "업로드 실패"); },
     onSettled: () => {
       if (trafficRef.current) trafficRef.current.value = "";
       setTimeout(() => setTrafficMsg(""), 5000);
@@ -148,55 +128,25 @@ export default function ProductsPage() {
   const displayProducts = adFilter === "all"
     ? products
     : adFilter === "ad"
-      ? products.filter(p => p.adTier)
-      : products.filter(p => !p.adTier);
+      ? products.filter((p) => p.adTier)
+      : products.filter((p) => !p.adTier);
 
   if (loading) return <PageSkeleton variant="table" />;
   if (error) return <div className="flex items-center justify-center h-64 text-red-500">{error}</div>;
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-900">
-          상품 관리 <span className="text-slate-400 font-normal">(총 <strong className="text-slate-900">{total}</strong>)</span>
-        </h1>
-        <div className="flex items-center gap-2">
-          <div className="flex items-center bg-slate-100 rounded-lg p-0.5">
-            {[
-              { days: 7, label: "7일" },
-              { days: 14, label: "14일" },
-              { days: 30, label: "30일" },
-              { days: 365, label: "연간" },
-            ].map((p) => (
-              <button key={p.days} onClick={() => { setPeriod(p.days); setPage(1); }}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${period === p.days ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
-                {p.label}
-              </button>
-            ))}
-          </div>
-          <input ref={trafficRef} type="file" accept=".xlsx,.xls,.csv" onChange={handleTrafficUpload} className="hidden" />
-          <button onClick={() => trafficRef.current?.click()} className="flex items-center gap-1.5 h-9 px-4 border border-cyan-400 text-cyan-700 rounded-lg text-sm hover:bg-cyan-50 bg-white">
-            <BarChart3 size={14} /> {period}일 트래픽 업로드
-          </button>
-          {trafficMsg && <span className="text-xs text-cyan-600">{trafficMsg}</span>}
-          <button onClick={handleExcelDownload} className="flex items-center gap-1.5 h-9 px-4 border border-slate-300 rounded-lg text-sm hover:bg-slate-50 bg-white">
-            <Download size={14} /> 엑셀 다운로드
-          </button>
-          <button onClick={() => setShowModal(true)} className="flex items-center gap-1.5 h-9 px-4 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">
-            <Plus size={14} /> 상품 등록
-          </button>
-        </div>
-      </div>
-
-      {syncInfo && (
-        <div className="flex items-center gap-2 text-xs text-slate-400">
-          <div className={`w-1.5 h-1.5 rounded-full ${syncInfo.lastSyncedAt ? 'bg-green-400' : 'bg-amber-400'}`} />
-          {syncInfo.lastSyncedAt
-            ? `최근 동기화: ${timeAgo(syncInfo.lastSyncedAt)}`
-            : '동기화 기록 없음 — 설정에서 동기화를 실행하세요'}
-        </div>
-      )}
-
+      <ProductPageHeader
+        total={total}
+        period={period}
+        onPeriodChange={(days) => { setPeriod(days); setPage(1); }}
+        trafficRef={trafficRef}
+        onTrafficUpload={handleTrafficUpload}
+        trafficMsg={trafficMsg}
+        onExcelDownload={handleExcelDownload}
+        onAddProduct={() => setShowModal(true)}
+        syncInfo={syncInfo}
+      />
       <ProductPipeline
         total={pipelineCounts.total}
         aCount={pipelineCounts.gradeA}
@@ -209,79 +159,31 @@ export default function ProductsPage() {
         gradeChangeC={pipelineCounts.gradeChangeC}
         onGradeClick={(g) => { setGradeFilter(g); setPage(1); }}
       />
-
-      <div className="flex items-center gap-3 flex-wrap">
-        <form onSubmit={handleSearch} className="relative flex-1 max-w-xs">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="상품명/SKU 검색"
-            className="h-9 pl-8 pr-3 text-sm border border-slate-300 rounded-lg w-full bg-white" />
-        </form>
-        {[
-          { key: "all", label: "전체", color: "bg-slate-900 text-white" },
-          { key: "A", label: `A등급 (${pipelineCounts.gradeA})`, color: "bg-green-100 text-green-700" },
-          { key: "B", label: `B등급 (${pipelineCounts.gradeB})`, color: "bg-blue-100 text-blue-700" },
-          { key: "C", label: `C등급 (${pipelineCounts.gradeC})`, color: "bg-orange-100 text-orange-700" },
-        ].map((f) => (
-          <button key={f.key} onClick={() => { setGradeFilter(f.key); setPage(1); }}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${gradeFilter === f.key ? f.color : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}>
-            {f.label}
-          </button>
-        ))}
-        <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }} className="h-9 px-3 border border-slate-300 rounded-lg text-sm bg-white">
-          <option value="all">전체 상태</option>
-          <option value="active">판매중</option>
-          <option value="inactive">중지</option>
-          <option value="discontinued">정리</option>
-        </select>
-        <div className="flex items-center bg-blue-50 rounded-lg p-0.5">
-          {[
-            { key: "all", label: "전체 상품" },
-            { key: "ad", label: `광고중(${pipelineCounts.adCount})` },
-            { key: "noad", label: `광고없음(${pipelineCounts.noAdCount})` },
-          ].map((f) => (
-            <button key={f.key} onClick={() => setAdFilter(f.key)}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${adFilter === f.key ? "bg-white text-blue-700 shadow-sm" : "text-blue-400 hover:text-blue-600"}`}>
-              {f.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {displayProducts.length === 0 ? (
-        <div className="bg-white rounded-xl border border-slate-200 p-12 text-center text-slate-500">
-          등록된 상품이 없습니다.
-        </div>
-      ) : (
-      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-        <div className="flex items-center px-5 py-2.5 border-b border-gray-200 bg-gray-50">
-          <div className="flex items-center gap-3 shrink-0">
-            <div className="w-8" />
-            <div className="w-[60px]" />
-          </div>
-          <div className="flex-1 min-w-0 ml-4" />
-          <div className="flex items-center shrink-0">
-            <div className="w-[72px] text-right text-xs font-medium text-gray-400">옵션</div>
-            <div className="w-[80px] text-right text-xs font-medium text-gray-400">방문자▼</div>
-            <div className="w-[72px] text-right text-xs font-medium text-gray-400">조회▼</div>
-            <div className="w-[80px] text-right text-xs font-medium text-gray-400">장바구니▼</div>
-            <div className="w-[72px] text-right text-xs font-medium text-gray-400">주문▼</div>
-            <div className="w-[88px] text-right text-xs font-medium text-gray-400">판매량</div>
-            <div className="w-[120px] text-right text-xs font-medium text-gray-400">매출 (원) ▼</div>
-          </div>
-        </div>
-
-        {displayProducts.map((p, index) => (
-          <ProductListItem
-            key={p.id}
-            product={p}
-            rank={(page - 1) * PAGE_SIZE + index + 1}
-          />
-        ))}
-        <Pagination page={page} limit={PAGE_SIZE} total={total} onPageChange={handlePageChange} />
-      </div>
+      <ProductFilterBar
+        search={search}
+        onSearchChange={setSearch}
+        onSearchSubmit={handleSearch}
+        gradeFilter={gradeFilter}
+        onGradeChange={(g) => { setGradeFilter(g); setPage(1); }}
+        statusFilter={statusFilter}
+        onStatusChange={(s) => { setStatusFilter(s); setPage(1); }}
+        adFilter={adFilter}
+        onAdFilterChange={setAdFilter}
+        pipelineCounts={pipelineCounts}
+      />
+      <ProductListTable
+        displayProducts={displayProducts}
+        page={page}
+        pageSize={PAGE_SIZE}
+        total={total}
+        onPageChange={setPage}
+      />
+      {showModal && (
+        <AddProductModal
+          onClose={() => setShowModal(false)}
+          onSaved={() => { setShowModal(false); queryClient.invalidateQueries({ queryKey: queryKeys.products.all }); }}
+        />
       )}
-
-      {showModal && <AddProductModal onClose={() => setShowModal(false)} onSaved={() => { setShowModal(false); queryClient.invalidateQueries({ queryKey: queryKeys.products.all }); }} />}
     </div>
   );
 }

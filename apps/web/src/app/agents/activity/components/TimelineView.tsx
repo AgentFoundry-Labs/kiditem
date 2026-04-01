@@ -2,9 +2,9 @@
 
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
-import { SOURCE_LABELS } from '@/lib/agent-types';
-import { agentColor, agentInitials, statusLabel } from './activity-utils';
-import type { RunWithAgent } from './activity-utils';
+import { SOURCE_LABELS } from '../../lib/agent-types';
+import { agentColor, agentInitials, statusLabel } from '../lib/activity-utils';
+import type { RunWithAgent } from '../lib/activity-utils';
 
 const TIMELINE_BLOCK_COLORS: Record<string, string> = {
   succeeded: 'bg-green-400',

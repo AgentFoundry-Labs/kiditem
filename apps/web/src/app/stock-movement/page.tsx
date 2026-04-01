@@ -7,6 +7,8 @@ import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
 import { formatKRW } from '@/lib/utils';
+import { StockMovementSummaryCard } from './components/StockMovementSummaryCard';
+import { StockMovementTable, type GroupedRow } from './components/StockMovementTable';
 
 interface Summary {
   inQty: number;
@@ -14,24 +16,6 @@ interface Summary {
   inAmount: number;
   outAmount: number;
 }
-
-interface GroupedRow {
-  key: string;
-  inQty: number;
-  outQty: number;
-  inAmt: number;
-  outAmt: number;
-}
-
-const TYPE_LABEL: Record<string, string> = {
-  in: '입고',
-  out: '출고',
-  purchase: '매입입고',
-  return_in: '반품입고',
-  sale: '판매출고',
-  adjustment: '조정',
-  unknown: '기타',
-};
 
 const GROUP_TABS = [
   { key: 'product', label: '상품별' },
@@ -45,12 +29,6 @@ const PERIOD_OPTIONS = [
   { value: '30', label: '30일' },
   { value: '90', label: '90일' },
 ] as const;
-
-const GROUP_COLUMN_LABEL: Record<string, string> = {
-  product: '상품',
-  date: '날짜',
-  type: '유형',
-};
 
 export default function StockMovementPage() {
   const queryClient = useQueryClient();
@@ -73,11 +51,6 @@ export default function StockMovementPage() {
   const grouped = stockData?.grouped ?? [];
   const summary = stockData?.summary ?? { inQty: 0, outQty: 0, inAmount: 0, outAmount: 0 };
   const error = queryError ? (isApiError(queryError) ? queryError.detail : '입출고 데이터를 불러오는데 실패했습니다.') : null;
-
-  const formatGroupKey = (key: string) => {
-    if (groupBy === 'type') return TYPE_LABEL[key] || key;
-    return key;
-  };
 
   return (
     <div className="space-y-4">
@@ -122,25 +95,25 @@ export default function StockMovementPage() {
       </div>
 
       <div className="grid grid-cols-4 gap-3">
-        <SummaryCard
+        <StockMovementSummaryCard
           icon={<TrendingUp size={14} className="text-green-500" />}
           label="입고 수량"
           value={formatKRW(summary.inQty)}
           color="text-green-700"
         />
-        <SummaryCard
+        <StockMovementSummaryCard
           icon={<TrendingDown size={14} className="text-red-500" />}
           label="출고 수량"
           value={formatKRW(summary.outQty)}
           color="text-red-600"
         />
-        <SummaryCard
+        <StockMovementSummaryCard
           icon={<TrendingUp size={14} className="text-green-500" />}
           label="입고 금액"
           value={`${formatKRW(summary.inAmount)}원`}
           color="text-green-700"
         />
-        <SummaryCard
+        <StockMovementSummaryCard
           icon={<TrendingDown size={14} className="text-red-500" />}
           label="출고 금액"
           value={`${formatKRW(summary.outAmount)}원`}
@@ -164,86 +137,8 @@ export default function StockMovementPage() {
         ))}
       </div>
 
-      {loading ? (
-        <div className="animate-pulse space-y-2 py-4">
-          {[1, 2, 3, 4, 5].map((i) => (
-            <div key={i} className="h-12 bg-gray-100 rounded" />
-          ))}
-        </div>
-      ) : grouped.length === 0 ? (
-        <div className="py-20 text-center">
-          <ArrowUpDown size={40} className="mx-auto text-gray-300 mb-3" />
-          <p className="text-gray-500">입출고 이력이 없습니다</p>
-        </div>
-      ) : (
-        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table>
-              <thead>
-                <tr>
-                  <th>{GROUP_COLUMN_LABEL[groupBy]}</th>
-                  <th className="text-right">입고수량</th>
-                  <th className="text-right">출고수량</th>
-                  <th className="text-right">입고금액</th>
-                  <th className="text-right">출고금액</th>
-                  <th className="text-right">순증감</th>
-                </tr>
-              </thead>
-              <tbody>
-                {grouped.map((row) => {
-                  const net = row.inQty - row.outQty;
-                  return (
-                    <tr key={row.key}>
-                      <td className="font-medium text-gray-900 max-w-[250px] truncate">
-                        {formatGroupKey(row.key)}
-                      </td>
-                      <td className="text-right tabular-nums text-green-600">
-                        +{formatKRW(row.inQty)}
-                      </td>
-                      <td className="text-right tabular-nums text-red-600">
-                        -{formatKRW(row.outQty)}
-                      </td>
-                      <td className="text-right tabular-nums text-gray-700">
-                        {formatKRW(row.inAmt)}원
-                      </td>
-                      <td className="text-right tabular-nums text-gray-700">
-                        {formatKRW(row.outAmt)}원
-                      </td>
-                      <td className={`text-right tabular-nums font-semibold ${
-                        net > 0 ? 'text-green-600' : net < 0 ? 'text-red-600' : 'text-gray-500'
-                      }`}>
-                        {net > 0 ? '+' : ''}{formatKRW(net)}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+      <StockMovementTable grouped={grouped} loading={loading} groupBy={groupBy} />
     </div>
   );
 }
 
-function SummaryCard({
-  icon,
-  label,
-  value,
-  color,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-  color: string;
-}) {
-  return (
-    <div className="bg-white rounded-lg border border-gray-200 p-4">
-      <div className="flex items-center gap-1.5 mb-1">
-        {icon}
-        <span className="text-xs text-gray-500">{label}</span>
-      </div>
-      <div className={`text-lg font-bold tabular-nums ${color}`}>{value}</div>
-    </div>
-  );
-}
