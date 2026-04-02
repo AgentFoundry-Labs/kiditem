@@ -11,6 +11,7 @@ export const ReviewListItemSchema = z.object({
   avgRating: z.number(),
   recentReviews: z.number(),
   orderCount: z.number(),
+  lastReviewAt: z.string().nullable(),
 });
 
 export type ReviewListItem = z.infer<typeof ReviewListItemSchema>;

@@ -28,7 +28,7 @@ export class ReviewsService {
       const { page, limit, skip } = paginationParams(query);
       const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000);
 
-      const [allActiveProducts, reviewAgg, recentReviewAgg, orderCounts] =
+      const [allActiveProducts, reviewAgg, recentReviewAgg, orderCounts, lastReviewAgg] =
         await Promise.all([
           this.prisma.product.findMany({
             where: { status: 'active' },
@@ -49,6 +49,10 @@ export class ReviewsService {
             by: ['sellerProductId'],
             _count: true,
           }),
+          this.prisma.review.groupBy({
+            by: ['productId'],
+            _max: { reviewedAt: true },
+          }),
         ]);
 
       const reviewMap = new Map(
@@ -65,6 +69,12 @@ export class ReviewsService {
           .filter((o) => o.sellerProductId !== null)
           .map((o) => [o.sellerProductId!, o._count]),
       );
+      const lastReviewMap = new Map(
+        lastReviewAgg.map((r) => [
+          r.productId,
+          r._max.reviewedAt ? r._max.reviewedAt.toISOString() : null,
+        ]),
+      );
 
       const allItems = allActiveProducts.map((p) => {
         const review = reviewMap.get(p.id);
@@ -78,6 +88,7 @@ export class ReviewsService {
           avgRating: Math.round((review?.avgRating ?? 0) * 10) / 10,
           recentReviews: recentMap.get(p.id) ?? 0,
           orderCount: orderCountMap.get(p.coupangProductId ?? '') ?? 0,
+          lastReviewAt: lastReviewMap.get(p.id) ?? null,
         } satisfies ReviewListItem;
       });
 

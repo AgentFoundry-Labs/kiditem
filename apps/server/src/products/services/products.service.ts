@@ -312,6 +312,7 @@ export class ProductsService {
       coupangProductId: p.coupangProductId ?? null,
       createdAt: p.createdAt instanceof Date ? p.createdAt.toISOString() : p.createdAt,
       gradeScore: gradeScoreMap.get(p.id) ?? null,
+      healthScore: p.healthScore ?? null,
     } satisfies ProductListItem;
   }
 

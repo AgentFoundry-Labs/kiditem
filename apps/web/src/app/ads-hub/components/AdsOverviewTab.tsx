@@ -119,6 +119,11 @@ export function AdsOverviewTab({
                   <th className="text-right px-3 py-2 font-medium">매출</th>
                   <th className="text-right px-3 py-2 font-medium">이익률</th>
                   <th className="text-right px-3 py-2 font-medium">광고비</th>
+                  <th className="text-right px-3 py-2 font-medium">노출</th>
+                  <th className="text-right px-3 py-2 font-medium">클릭</th>
+                  <th className="text-right px-3 py-2 font-medium">CTR</th>
+                  <th className="text-right px-3 py-2 font-medium">전환율</th>
+                  <th className="text-right px-3 py-2 font-medium">ACOS</th>
                   <th className="text-right px-3 py-2 font-medium">ROAS</th>
                   <th className="text-center px-3 py-2 font-medium">상태</th>
                   <th className="text-center px-3 py-2 font-medium">티어</th>
@@ -140,6 +145,25 @@ export function AdsOverviewTab({
                         {formatPercent(p.profitRate)}
                       </td>
                       <td className="text-right px-3 py-2.5 tabular-nums">₩{formatKRW(p.spend)}</td>
+                      <td className="text-right px-3 py-2.5 tabular-nums text-gray-600">
+                        {p.impressions.toLocaleString()}
+                      </td>
+                      <td className="text-right px-3 py-2.5 tabular-nums text-gray-600">
+                        {p.clicks.toLocaleString()}
+                      </td>
+                      <td className="text-right px-3 py-2.5 tabular-nums text-gray-600">
+                        {formatPercent(p.ctr)}
+                      </td>
+                      <td className="text-right px-3 py-2.5 tabular-nums text-gray-600">
+                        {formatPercent(p.convRate)}
+                      </td>
+                      <td
+                        className={`text-right px-3 py-2.5 tabular-nums ${
+                          p.acos > 30 ? 'text-red-500' : p.acos > 20 ? 'text-orange-500' : 'text-gray-600'
+                        }`}
+                      >
+                        {formatPercent(p.acos)}
+                      </td>
                       <td
                         className={`text-right px-3 py-2.5 tabular-nums font-medium ${
                           p.roas >= 300 ? 'text-green-600' : p.roas >= 200 ? 'text-orange-500' : 'text-red-500'

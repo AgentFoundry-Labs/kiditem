@@ -39,7 +39,7 @@ export default function CreateCSModal({ onClose, onCreated }: CreateCSModalProps
 
   const handleSubmit = async () => {
     if (!form.content.trim()) {
-      alert("내용을 입력해주세요.");
+      toast.error("내용을 입력해주세요.");
       return;
     }
     setSubmitting(true);

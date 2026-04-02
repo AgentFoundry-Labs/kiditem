@@ -125,7 +125,14 @@ export default function OrderTable({
                       <div className="text-sm font-medium text-gray-900 truncate">
                         {order.productName || "-"}
                       </div>
-                      <div className="text-[11px] font-mono text-gray-400 mt-0.5">#{order.orderNumber}</div>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <span className="text-[11px] font-mono text-gray-400">#{order.orderNumber}</span>
+                        {order.platform && (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-50 text-indigo-600">
+                            {order.platform}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="text-right">
                       <div className="font-medium">{formatKRW(order.totalPrice)}원</div>
@@ -134,6 +141,11 @@ export default function OrderTable({
                     <td className="text-xs text-gray-600">{order.customerName || order.receiverName || "-"}</td>
                     <td className="text-xs text-gray-500 max-w-[160px]" title={order.receiverAddr || undefined}>
                       {addrDisplay}
+                      {order.memo && (
+                        <div className="text-[11px] text-amber-600 mt-0.5 truncate max-w-[160px]" title={order.memo}>
+                          {order.memo}
+                        </div>
+                      )}
                     </td>
                     <td className="text-xs text-gray-500">
                       {new Date(order.orderedAt).toLocaleDateString("ko-KR")}
@@ -141,6 +153,16 @@ export default function OrderTable({
                       <span className="text-gray-400">
                         {new Date(order.orderedAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}
                       </span>
+                      {(activeNode === "DEPARTURE" || activeNode === "DELIVERING") && order.shippedAt && (
+                        <div className="text-[11px] text-blue-500 mt-1">
+                          출고 {new Date(order.shippedAt).toLocaleDateString("ko-KR")}
+                        </div>
+                      )}
+                      {activeNode === "FINAL_DELIVERY" && order.deliveredAt && (
+                        <div className="text-[11px] text-green-600 mt-1">
+                          배송완료 {new Date(order.deliveredAt).toLocaleDateString("ko-KR")}
+                        </div>
+                      )}
                     </td>
                     {(activeNode === "DEPARTURE" || activeNode === "DELIVERING") && (
                       <td className="text-xs text-gray-500">

@@ -44,11 +44,12 @@ export function InventoryTable({ items, page, pageSize, total, onPageChange }: I
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-      <table>
+      <table className="table-fixed w-full">
         <thead>
           <tr className="bg-slate-50">
-            <th>상품명</th>
+            <th className="w-[240px] min-w-[180px]">상품명</th>
             <th>SKU</th>
+            <th>등급</th>
             <th>회사</th>
             <th className="text-right">현재고</th>
             <th className="text-right">적정재고</th>
@@ -64,8 +65,17 @@ export function InventoryTable({ items, page, pageSize, total, onPageChange }: I
             const rowStatus = unsynced ? 'unsynced' : i.status;
             return (
               <tr key={i.id} className={unsynced ? 'bg-amber-50/30' : i.status === 'critical' ? 'bg-red-50/50' : i.status === 'warning' ? 'bg-orange-50/30' : ''}>
-                <td className="font-medium text-slate-900">{i.productName}</td>
+                <td className="font-medium text-slate-900 max-w-[240px] truncate" title={i.productName}>{i.productName}</td>
                 <td className="text-slate-500 text-xs font-mono">{i.sku}</td>
+                <td>
+                  {i.grade && (
+                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                      i.grade === 'A' ? 'bg-green-100 text-green-700' :
+                      i.grade === 'B' ? 'bg-blue-100 text-blue-700' :
+                      'bg-red-100 text-red-700'
+                    }`}>{i.grade}</span>
+                  )}
+                </td>
                 <td className="text-slate-500 text-xs">{i.company}</td>
                 <td className={`text-right font-semibold ${unsynced ? 'text-amber-600' : i.currentStock === 0 ? 'text-red-600' : i.currentStock <= i.reorderPoint ? 'text-orange-600' : ''}`}>
                   {i.currentStock.toLocaleString('ko-KR')}

@@ -19,6 +19,7 @@ export const PLDataSchema = z.object({
   netProfit: z.number(),
   profitRate: z.number(),
   orderCount: z.number(),
+  returnCount: z.number(),
 });
 
 // 타입 export

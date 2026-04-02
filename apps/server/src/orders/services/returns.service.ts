@@ -10,9 +10,8 @@ export class ReturnsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async findAll(query: { from?: string; to?: string; type?: string }): Promise<{
-    success: boolean;
-    data: CoupangReturnWithItems[];
-    count: number;
+    items: CoupangReturnWithItems[];
+    total: number;
     type: string;
   }> {
     const type = query.type || 'return';
@@ -36,24 +35,20 @@ export class ReturnsService {
     });
 
     return {
-      success: true,
-      data,
-      count: data.length,
+      items: data,
+      total: data.length,
       type,
     };
   }
 
-  async findOne(id: string): Promise<{ success: boolean; data: CoupangReturnWithItems | null }> {
-    const returnRecord = await this.prisma.coupangReturn.findUnique({
+  async findOne(id: string): Promise<CoupangReturnWithItems | null> {
+    return this.prisma.coupangReturn.findUnique({
       where: { id },
       include: { returnItems: true },
     });
-
-    return { success: true, data: returnRecord };
   }
 
   async getStats(): Promise<{
-    success: boolean;
     stats: { total: number; uc: number; rc: number; completed: number };
   }> {
     const [total, uc, rc, completed, returnsCompleted] = await Promise.all([
@@ -69,13 +64,12 @@ export class ReturnsService {
     ]);
 
     return {
-      success: true,
       stats: { total, uc, rc, completed: completed + returnsCompleted },
     };
   }
 
-  async approve(receiptId: number): Promise<{ success: boolean; message: string; data: unknown }> {
+  async approve(receiptId: number): Promise<{ message: string; data: unknown }> {
     const result = await approveReturn(receiptId);
-    return { success: true, message: '반품 승인 완료', data: result };
+    return { message: '반품 승인 완료', data: result };
   }
 }

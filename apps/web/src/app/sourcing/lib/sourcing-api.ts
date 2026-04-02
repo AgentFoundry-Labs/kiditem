@@ -1,6 +1,4 @@
-import { API_BASE } from '@/lib/api';
 import { apiClient } from '@/lib/api-client';
-import { ApiError } from '@/lib/api-error';
 
 export type ProductStatus = 'DRAFT' | 'PROCESSING' | 'LISTED' | 'DISCONTINUED';
 
@@ -54,8 +52,6 @@ interface ScrapeUrlResponse {
   product_id: string | null;
 }
 
-const PRODUCTS_BASE = `${API_BASE}/api/products`;
-const SOURCING_BASE = `${API_BASE}/api/sourcing`;
 
 export const productsApi = {
   async list(params?: {
@@ -69,8 +65,9 @@ export const productsApi = {
       limit: String(params?.limit || 50),
     });
     if (params?.platform) qs.set('platform', params.platform);
-    const res = await fetch(`${SOURCING_BASE}/extension/products?${qs}`);
-    const data = await res.json() as { items: any[]; total: number; page: number; limit: number };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data = await apiClient.get<{ items: any[]; total: number; page: number; limit: number }>(`/api/sourcing/extension/products?${qs}`);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const items: ProductListItem[] = data.items.map((p: any) => {
       const rawData = p.rawData || {};
       const images = rawData.images || [];
@@ -93,16 +90,8 @@ export const productsApi = {
   },
 
   async getDetail(id: string): Promise<ProductDetailResponse> {
-    const res = await fetch(`${PRODUCTS_BASE}/${id}`);
-    if (!res.ok) {
-      let detail = `API error: ${res.status}`;
-      try {
-        const body = await res.json();
-        detail = typeof body.message === 'string' ? body.message : body.detail ?? detail;
-      } catch { /* text body or empty */ }
-      throw new ApiError(res.status, null, detail);
-    }
-    const p = await res.json();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const p = await apiClient.get<any>(`/api/products/${id}`);
     const rawData = p.rawData || p.raw_data || {};
     const images = rawData.images || [];
     return {

@@ -208,6 +208,7 @@ export class AdvertisingService {
           plRevenue > 0
             ? Math.round(((pl?.netProfit ?? 0) / plRevenue) * 1000) / 10
             : 0,
+        adBudgetLimit: p.adBudgetLimit ?? 0,
       } satisfies AdsListItem;
     });
   }

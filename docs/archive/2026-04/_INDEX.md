@@ -3,3 +3,4 @@
 | Feature | Match Rate | Duration | Archived |
 |---------|:---------:|----------|----------|
 | [agent-os](agent-os/) | 98.4% | 1 session | 2026-04-02 |
+| [business-safety](business-safety/) | 97.2% | 1 session | 2026-04-02 |

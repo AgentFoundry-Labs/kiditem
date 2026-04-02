@@ -2,20 +2,7 @@
 
 import { MessageSquare, CheckCircle, Clock, AlertTriangle } from 'lucide-react';
 import { CS_TYPE_LABELS } from './CreateCSModal';
-
-interface CSRecord {
-  id: string;
-  orderId: string | null;
-  productId: string | null;
-  csType: string;
-  csStatus: string;
-  priority: string;
-  assignee: string | null;
-  content: string;
-  resolution: string | null;
-  createdBy: string | null;
-  createdAt: string;
-}
+import type { CSRecord } from '../lib/cs-types';
 
 interface Props {
   records: CSRecord[];
@@ -48,6 +35,7 @@ export function CSTable({ records, onRegisterClick }: Props) {
               <th>상태</th>
               <th>우선순위</th>
               <th>내용</th>
+              <th>처리결과</th>
               <th>담당자</th>
               <th>등록일</th>
               <th></th>
@@ -82,6 +70,9 @@ export function CSTable({ records, onRegisterClick }: Props) {
                   )}
                 </td>
                 <td className="max-w-[300px] truncate text-gray-700">{r.content}</td>
+                <td className="max-w-[200px] truncate text-sm text-gray-500" title={r.resolution || ''}>
+                  {r.csStatus === '완료' ? (r.resolution || '-') : '-'}
+                </td>
                 <td className="text-sm text-gray-500">{r.assignee || '-'}</td>
                 <td className="text-sm text-gray-400 tabular-nums">
                   {new Date(r.createdAt).toLocaleDateString('ko-KR')}

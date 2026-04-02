@@ -9,8 +9,25 @@ import { queryKeys } from '@/lib/query-keys';
 import { RotateCcw, RefreshCw, Loader2 } from "lucide-react";
 import { ReturnsTable, ExchangesTable } from "./components/ReturnsTables";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type ReturnItem = any;
+interface ReturnItem {
+  id: string;
+  receiptId: number;
+  orderId: string;
+  requesterName: string;
+  receiptStatus: string;
+  receiptType: string;
+  faultByType: string;
+  cancelReason: string;
+  cancelReasonCategory1: string;
+  cancelReasonCategory2: string;
+  reasonCodeText: string;
+  enclosePrice: number;
+  requestedAt: string;
+  completedAt: string | null;
+  createdAt: string;
+  status?: string;
+  returnItems?: { id: string; vendorItemName: string; sellerProductName: string; purchaseCount: number; cancelCount: number }[];
+}
 
 export default function ReturnsPage() {
   const queryClient = useQueryClient();
@@ -21,12 +38,12 @@ export default function ReturnsPage() {
     queryKey: queryKeys.returns.list(),
     queryFn: async () => {
       const [retResult, exResult] = await Promise.allSettled([
-        apiClient.get<{ data: ReturnItem[] }>('/api/returns?type=return'),
-        apiClient.get<{ data: ReturnItem[] }>('/api/returns?type=exchange'),
+        apiClient.get<{ items: ReturnItem[] }>('/api/returns?type=return'),
+        apiClient.get<{ items: ReturnItem[] }>('/api/returns?type=exchange'),
       ]);
       return {
-        returns: retResult.status === 'fulfilled' ? (retResult.value.data || []) : [],
-        exchanges: exResult.status === 'fulfilled' ? (exResult.value.data || []) : [],
+        returns: retResult.status === 'fulfilled' ? (retResult.value.items || []) : [],
+        exchanges: exResult.status === 'fulfilled' ? (exResult.value.items || []) : [],
       };
     },
   });
@@ -37,9 +54,7 @@ export default function ReturnsPage() {
 
   const approveMutation = useMutation({
     mutationFn: async (receiptId: number) => {
-      const data = await apiClient.post<{ success: boolean; message: string; error?: string }>('/api/returns', { action: "approve", receiptId });
-      if (!data.success) throw new Error(data.error || "승인 실패");
-      return data;
+      return apiClient.post<{ message: string }>('/api/returns', { action: "approve", receiptId });
     },
     onMutate: (receiptId) => setProcessing(receiptId),
     onSuccess: (data) => {

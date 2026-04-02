@@ -12,13 +12,10 @@ import {
   Warehouse,
   Image,
   Megaphone,
-  Star,
-  Trash2,
   MessageSquare,
   FileSpreadsheet,
   Settings,
   GitBranch,
-  FileText,
   ChevronLeft,
   Zap,
   Search,
@@ -26,10 +23,13 @@ import {
   TrendingUp,
   Headphones,
   AlertTriangle,
-  ClipboardList,
-  ArrowUpDown,
-  Network,
   Bot,
+  Target,
+  LineChart,
+  Activity,
+  Coins,
+  BookOpen,
+  Store,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -46,72 +46,64 @@ interface NavSection {
   items: NavItem[];
 }
 
+// Design Ref: §3.1 — Option C: dashboardItem + navSections + bottomItem 3변수 분리
+const dashboardItem: NavItem = {
+  href: '/', label: '대시보드', icon: LayoutDashboard,
+};
+
 const navSections: NavSection[] = [
   {
-    title: '소싱',
+    title: '상품 파이프라인',
     items: [
       { href: '/sourcing', label: '소싱/수집', icon: Search },
       { href: '/generate', label: '콘텐츠 생성', icon: Sparkles },
+      { href: '/products', label: '상품 관리', icon: Package },
+      { href: '/thumbnails', label: '썸네일 AI', icon: Image },
     ],
   },
   {
-    title: '주문',
+    title: '주문·물류',
     items: [
-      { href: '/', label: '대시보드', icon: LayoutDashboard },
       { href: '/orders', label: '주문 조회', icon: ShoppingCart },
       { href: '/cs-management', label: 'CS 관리', icon: Headphones },
       { href: '/unshipped-items', label: '미배송 조회', icon: AlertTriangle },
-    ],
-  },
-  {
-    title: '상품',
-    items: [
-      { href: '/products', label: '상품 관리', icon: Package },
-      { href: '/core-products', label: '핵심상품', icon: Star },
-      { href: '/cleanup', label: '정리대상', icon: Trash2 },
-    ],
-  },
-  {
-    title: '재고',
-    items: [
-      { href: '/inventory', label: '재고 현황', icon: Warehouse },
-      { href: '/purchase-orders', label: '발주 관리', icon: ClipboardList },
-      { href: '/stock-movement', label: '입출고 현황', icon: ArrowUpDown },
-    ],
-  },
-  {
-    title: '출고',
-    items: [
       { href: '/returns', label: '반품 관리', icon: RotateCcw },
+      { href: '/inventory', label: '재고 현황', icon: Warehouse },
+      { href: '/reviews', label: '리뷰 관리', icon: MessageSquare },
+    ],
+  },
+  {
+    title: '광고 전략',
+    items: [
+      { href: '/ads/strategy', label: '광고 전략 AI', icon: Target },
+      { href: '/ads/benchmark', label: '업계 진단', icon: BarChart3 },
+      { href: '/ads-hub', label: '광고 대시보드', icon: Megaphone },
     ],
   },
   {
     title: '분석',
     items: [
-      { href: '/profit-loss', label: '손익 분석', icon: BarChart3 },
-      { href: '/sales-analysis', label: '통합매출분석', icon: TrendingUp },
-      { href: '/ads-hub', label: '광고 대시보드', icon: Megaphone },
-    ],
-  },
-  {
-    title: '운영',
-    items: [
-      { href: '/reviews', label: '리뷰 관리', icon: MessageSquare },
-      { href: '/thumbnails', label: '썸네일 AI', icon: Image },
-      { href: '/ontology', label: 'Ontology', icon: Network },
+      { href: '/profit-loss', label: '손익 분석', icon: TrendingUp },
+      { href: '/sales-analysis', label: '통합매출분석', icon: LineChart },
       { href: '/reports', label: '리포트', icon: FileSpreadsheet },
-      { href: '/settings', label: '설정', icon: Settings },
     ],
   },
   {
-    title: '자동화',
+    title: '에이전트',
     items: [
+      { href: '/agents', label: '에이전트 관리', icon: Bot },
       { href: '/workflows', label: '워크플로우', icon: GitBranch },
-      { href: '/logs', label: '실행 로그', icon: FileText },
-      { href: '/agents', label: '에이전트', icon: Bot },
+      { href: '/marketplace', label: '마켓플레이스', icon: Store },
+      { href: '/agents/activity', label: '활동 로그', icon: Activity },
+      { href: '/agents/costs', label: '비용 분석', icon: Coins },
+      { href: '/agents/skills', label: '스킬 카탈로그', icon: BookOpen },
     ],
   },
 ];
+
+const bottomItem: NavItem = {
+  href: '/settings', label: '설정', icon: Settings,
+};
 
 export default function Sidebar() {
   const pathname = usePathname();
@@ -129,8 +121,17 @@ export default function Sidebar() {
     if (window.innerWidth < 768) setSidebarOpen(false);
   }, [pathname, setSidebarOpen]);
 
-  const isActive = (href: string) =>
-    href === '/' ? pathname === '/' : pathname.startsWith(href);
+  // Design Ref: §6 — 에이전트 서브페이지 활성 표시를 위한 정확 매칭
+  const agentSubPaths = ['/agents/activity', '/agents/costs', '/agents/skills'];
+  const isActive = (href: string) => {
+    if (href === '/') return pathname === '/';
+    if (href === '/agents') {
+      return pathname === '/agents' ||
+        (pathname.startsWith('/agents/') &&
+         !agentSubPaths.some(sub => pathname.startsWith(sub)));
+    }
+    return pathname.startsWith(href);
+  };
 
   return (
     <>
@@ -160,7 +161,7 @@ export default function Sidebar() {
                   KidItem
                 </h1>
                 <p className="text-[10px] text-gray-500 truncate">
-                  셀러 관리 시스템
+                  Agent OS
                 </p>
               </div>
             )}
@@ -176,22 +177,42 @@ export default function Sidebar() {
           </button>
         </div>
 
-        {/* Navigation */}
+        {/* Dashboard — 섹션 밖 단독 */}
+        <div className="px-3 pt-3 pb-1">
+          <nav>
+            <Link
+              href={dashboardItem.href}
+              title={!sidebarOpen ? dashboardItem.label : undefined}
+              className={cn(
+                'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all duration-200',
+                isActive(dashboardItem.href)
+                  ? 'bg-white text-gray-900 border border-gray-200 shadow-sm'
+                  : 'text-gray-500 hover:bg-gray-100/70 hover:text-gray-700 border border-transparent'
+              )}
+            >
+              <dashboardItem.icon className="w-4 h-4 flex-shrink-0" />
+              {sidebarOpen && (
+                <span className="truncate">{dashboardItem.label}</span>
+              )}
+            </Link>
+          </nav>
+        </div>
+
+        {/* Sections — 스크롤 영역 */}
         <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-200">
-          {/* Standard nav sections */}
           {navSections.map((section, idx) => (
             <div key={section.title} className="px-3 pb-1">
               {sidebarOpen ? (
                 <p
                   className={cn(
                     'px-3 mb-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wider',
-                    idx === 0 ? 'mt-3' : 'mt-4'
+                    idx === 0 ? 'mt-2' : 'mt-4'
                   )}
                 >
                   {section.title}
                 </p>
               ) : (
-                idx > 0 && <div className="mx-3 my-2 border-t border-gray-100" />
+                <div className="mx-3 my-2 border-t border-gray-100" />
               )}
               <nav className="space-y-0.5">
                 {section.items.map((item) => (
@@ -215,18 +236,34 @@ export default function Sidebar() {
               </nav>
             </div>
           ))}
-
         </div>
 
-        {/* Status */}
-        {sidebarOpen && (
-          <div className="px-4 py-4 border-t border-gray-100">
-            <div className="flex items-center gap-2 text-[11px] text-gray-600">
+        {/* Bottom — 설정 하단 고정 */}
+        <div className="border-t border-gray-100 px-3 py-2">
+          <nav>
+            <Link
+              href={bottomItem.href}
+              title={!sidebarOpen ? bottomItem.label : undefined}
+              className={cn(
+                'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all duration-200',
+                isActive(bottomItem.href)
+                  ? 'bg-white text-gray-900 border border-gray-200 shadow-sm'
+                  : 'text-gray-500 hover:bg-gray-100/70 hover:text-gray-700 border border-transparent'
+              )}
+            >
+              <bottomItem.icon className="w-4 h-4 flex-shrink-0" />
+              {sidebarOpen && (
+                <span className="truncate">{bottomItem.label}</span>
+              )}
+            </Link>
+          </nav>
+          {sidebarOpen && (
+            <div className="flex items-center gap-2 text-[11px] text-gray-600 px-3 pt-2 pb-1">
               <div className="w-2 h-2 rounded-full bg-emerald-500 pulse-dot" />
               <span>시스템 정상 운영중</span>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </aside>
     </>
   );

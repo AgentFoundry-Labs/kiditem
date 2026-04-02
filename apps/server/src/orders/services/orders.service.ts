@@ -12,7 +12,6 @@ export class OrdersService {
   constructor(private readonly prisma: PrismaService) {}
 
   async findAll(query: { from?: string; to?: string; status?: string }): Promise<{
-    success: boolean;
     orders: Order[];
     count: number;
     deliveryCompanies: typeof DELIVERY_COMPANIES;
@@ -38,23 +37,21 @@ export class OrdersService {
     });
 
     return {
-      success: true,
       orders,
       count: orders.length,
       deliveryCompanies: DELIVERY_COMPANIES,
     };
   }
 
-  async findOne(id: string): Promise<{ success: boolean; order: Order | null }> {
+  async findOne(id: string): Promise<{ order: Order | null }> {
     const order = await this.prisma.order.findUnique({
       where: { id },
     });
 
-    return { success: true, order };
+    return { order };
   }
 
   async getStats(): Promise<{
-    success: boolean;
     stats: { total: number; accept: number; instruct: number; departure: number; delivering: number; finalDelivery: number };
   }> {
     const [total, accept, instruct, departure, delivering, finalDelivery] =
@@ -68,15 +65,13 @@ export class OrdersService {
       ]);
 
     return {
-      success: true,
       stats: { total, accept, instruct, departure, delivering, finalDelivery },
     };
   }
 
-  async confirm(shipmentBoxIds: number[]): Promise<{ success: boolean; message: string; data: unknown }> {
+  async confirm(shipmentBoxIds: number[]): Promise<{ message: string; data: unknown }> {
     const result = await confirmOrderSheets(shipmentBoxIds);
     return {
-      success: true,
       message: `${shipmentBoxIds.length}건 승인 완료`,
       data: result,
     };
@@ -86,11 +81,11 @@ export class OrdersService {
     shipmentBoxId: number,
     deliveryCompanyCode: string,
     invoiceNumber: string,
-  ): Promise<{ success: boolean; message: string; data: unknown }> {
+  ): Promise<{ message: string; data: unknown }> {
     const result = await uploadInvoice(shipmentBoxId, {
       deliveryCompanyCode,
       invoiceNumber,
     });
-    return { success: true, message: '송장 전송 완료', data: result };
+    return { message: '송장 전송 완료', data: result };
   }
 }

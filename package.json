@@ -14,6 +14,7 @@
     "db:generate": "prisma generate --schema=prisma/schema.prisma",
     "db:push": "prisma db push",
     "db:studio": "prisma studio",
+    "db:seed": "npx tsx prisma/seed.ts",
     "migrate:dashboard": "tsx scripts/migrate-dashboard-data.ts"
   },
   "devDependencies": {

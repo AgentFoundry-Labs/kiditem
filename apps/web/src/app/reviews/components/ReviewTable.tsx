@@ -2,6 +2,7 @@
 import type { ReviewListItem as ReviewProduct } from '@kiditem/shared';
 import { Star } from 'lucide-react';
 import { Pagination } from '@/components/ui/Pagination';
+import { getGradeColor } from '@/lib/utils';
 
 export type FilterTab = 'all' | 'new' | 'needs-response';
 
@@ -47,6 +48,7 @@ export function ReviewTable({ filteredData, loading, activeFilter, page, total, 
         <table>
           <thead>
             <tr className="bg-gray-50">
+              <th>등급</th>
               <th>상품명</th>
               <th>회사</th>
               <th className="text-right">리뷰 수</th>
@@ -70,6 +72,11 @@ export function ReviewTable({ filteredData, loading, activeFilter, page, total, 
                         : ''
                   }
                 >
+                  <td>
+                    <span className={`px-2 py-0.5 rounded text-xs font-bold ${getGradeColor(d.grade)}`}>
+                      {d.grade}
+                    </span>
+                  </td>
                   <td className="font-medium text-gray-900">{d.productName}</td>
                   <td className="text-gray-500 text-xs">{d.company}</td>
                   <td className="text-right tabular-nums">{d.totalReviews}</td>

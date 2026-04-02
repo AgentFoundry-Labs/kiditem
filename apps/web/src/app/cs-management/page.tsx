@@ -11,27 +11,7 @@ import { CSHeader } from "./components/CSHeader";
 import { CSSummaryCards } from "./components/CSSummaryCards";
 import { CSFilterTabs } from "./components/CSFilterTabs";
 import { CSTable } from "./components/CSTable";
-
-interface CSRecord {
-  id: string;
-  orderId: string | null;
-  productId: string | null;
-  csType: string;
-  csStatus: string;
-  priority: string;
-  assignee: string | null;
-  content: string;
-  resolution: string | null;
-  createdBy: string | null;
-  createdAt: string;
-}
-
-interface CSSummary {
-  total: number;
-  접수: number;
-  처리중: number;
-  완료: number;
-}
+import type { CSRecord, CSSummary } from "./lib/cs-types";
 
 export default function CSManagementPage() {
   const queryClient = useQueryClient();

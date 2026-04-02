@@ -2,8 +2,25 @@
 import { Loader2, CheckCircle } from 'lucide-react';
 import { formatKRW } from '@/lib/utils';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type ReturnItem = any;
+interface ReturnItem {
+  id: string;
+  receiptId: number;
+  orderId: string;
+  requesterName: string;
+  receiptStatus: string;
+  receiptType: string;
+  faultByType: string;
+  cancelReason: string;
+  cancelReasonCategory1: string;
+  cancelReasonCategory2: string;
+  reasonCodeText: string;
+  enclosePrice: number;
+  requestedAt: string;
+  completedAt: string | null;
+  createdAt: string;
+  status?: string;
+  returnItems?: { id: string; vendorItemName: string; sellerProductName: string; purchaseCount: number; cancelCount: number }[];
+}
 
 const reasonLabels: Record<string, string> = {
   CHANGE_MIND: '고객변심',
@@ -60,6 +77,7 @@ export function ReturnsTable({ returns, processing, onApprove }: ReturnsTablePro
             <tr className="bg-slate-50">
               <th>접수번호</th>
               <th>주문번호</th>
+              <th>상품명</th>
               <th>요청일</th>
               <th>요청자</th>
               <th>반품사유</th>
@@ -76,6 +94,9 @@ export function ReturnsTable({ returns, processing, onApprove }: ReturnsTablePro
                 <tr key={r.receiptId}>
                   <td className="text-xs font-mono">{r.receiptId}</td>
                   <td className="text-xs font-mono text-slate-500">{r.orderId}</td>
+                  <td className="text-sm max-w-[200px] truncate" title={r.returnItems?.[0]?.sellerProductName || r.returnItems?.[0]?.vendorItemName || ''}>
+                    {r.returnItems?.[0]?.sellerProductName || r.returnItems?.[0]?.vendorItemName || '-'}
+                  </td>
                   <td className="text-xs text-slate-500">{new Date(r.requestedAt || r.createdAt).toLocaleDateString('ko-KR')}</td>
                   <td className="text-sm">{r.requesterName || '-'}</td>
                   <td className="text-sm max-w-[200px] truncate">{reason}</td>
@@ -112,6 +133,7 @@ export function ExchangesTable({ exchanges }: { exchanges: ReturnItem[] }) {
             <tr className="bg-slate-50">
               <th>접수번호</th>
               <th>주문번호</th>
+              <th>상품명</th>
               <th>요청일</th>
               <th>상태</th>
               <th>사유</th>
@@ -125,6 +147,9 @@ export function ExchangesTable({ exchanges }: { exchanges: ReturnItem[] }) {
                 <tr key={e.receiptId || i}>
                   <td className="text-xs font-mono">{e.receiptId || '-'}</td>
                   <td className="text-xs font-mono text-slate-500">{e.orderId || '-'}</td>
+                  <td className="text-sm max-w-[200px] truncate" title={e.returnItems?.[0]?.sellerProductName || e.returnItems?.[0]?.vendorItemName || ''}>
+                    {e.returnItems?.[0]?.sellerProductName || e.returnItems?.[0]?.vendorItemName || '-'}
+                  </td>
                   <td className="text-xs text-slate-500">{e.createdAt ? new Date(e.createdAt).toLocaleDateString('ko-KR') : '-'}</td>
                   <td><span className={`px-2 py-0.5 rounded text-xs font-medium ${st.color}`}>{st.label}</span></td>
                   <td className="text-sm max-w-[250px] truncate">{reason}</td>

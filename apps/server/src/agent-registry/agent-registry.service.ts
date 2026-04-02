@@ -1,7 +1,6 @@
 import { Injectable, Logger, OnModuleInit, NotFoundException, BadRequestException, Inject, forwardRef, Optional } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { HeartbeatService } from './heartbeat/heartbeat.service';
-import { DEFAULT_AGENT_DEFINITIONS } from './seed-agents';
 import type { DailyCost, AgentCostSummary, CostAnalytics } from '@kiditem/shared';
 import { validateAllowedTools } from './safety/dangerous-patterns';
 import { SafetyPipelineService } from './business-safety/safety-pipeline.service';
@@ -32,20 +31,7 @@ export class AgentRegistryService implements OnModuleInit {
   ) {}
 
   async onModuleInit(): Promise<void> {
-    await this.seedDefaults();
     await this.heartbeat.syncTimers();
-  }
-
-  private async seedDefaults(): Promise<void> {
-    for (const def of DEFAULT_AGENT_DEFINITIONS) {
-      const existing = await this.prisma.agentDefinition.findUnique({
-        where: { type: def.type },
-      });
-      if (!existing) {
-        await this.prisma.agentDefinition.create({ data: def });
-        this.logger.log(`Seeded agent definition: ${def.name}`);
-      }
-    }
   }
 
   // ── 조회 ──
@@ -66,13 +52,17 @@ export class AgentRegistryService implements OnModuleInit {
         OR: [{ companyId: query.companyId }, { companyId: null }],
         ...(query.isActive !== undefined && { isActive: query.isActive === 'true' }),
       },
+      omit: { promptTemplate: true },
       include: { runtimeState: true },
       orderBy: { createdAt: 'desc' },
     });
   }
 
   async getById(id: string) {
-    const def = await this.prisma.agentDefinition.findUnique({ where: { id } });
+    const def = await this.prisma.agentDefinition.findUnique({
+      where: { id },
+      include: { runtimeState: true },
+    });
     if (!def) throw new NotFoundException(`Agent definition ${id} not found`);
     return def;
   }

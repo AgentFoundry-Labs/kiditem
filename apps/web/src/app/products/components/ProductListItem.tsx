@@ -80,6 +80,15 @@ export default function ProductListItem({ product: p, rank }: ProductListItemPro
               'bg-gray-100 text-gray-500'
             }`}>{p.adTier} 광고</span>
           )}
+          {p.reviewCount > 0 && (
+            <span className="text-[11px] text-gray-500">리뷰 {p.reviewCount.toLocaleString()}건</span>
+          )}
+          {p.orderCount > 0 && (
+            <span className="text-[11px] text-gray-500">주문 {p.orderCount.toLocaleString()}건</span>
+          )}
+          {p.thumbnailCTR > 0 && (
+            <span className="text-[11px] text-gray-500">CTR {p.thumbnailCTR.toFixed(1)}%</span>
+          )}
         </div>
         <p className={`text-xs mt-0.5 ${
           p.abcGrade === 'A' ? 'text-green-600' :

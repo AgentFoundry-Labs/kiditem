@@ -66,6 +66,16 @@ export function ThumbnailCard({ item, isExpanded, onToggle }: Props) {
 
         <div className="flex items-center gap-2 text-xs text-gray-500 flex-shrink-0">
           <span className="font-mono tabular-nums">CTR {item.ctr.toFixed(2)}%</span>
+          {item.prevCtr > 0 && (
+            <span className="font-mono tabular-nums text-[10px]">
+              {item.ctr >= item.prevCtr ? (
+                <span className="text-green-600">▲ {(item.ctr - item.prevCtr).toFixed(2)}%</span>
+              ) : (
+                <span className="text-red-500">▼ {(item.prevCtr - item.ctr).toFixed(2)}%</span>
+              )}
+              <span className="text-gray-400 ml-1">(이전 {item.prevCtr.toFixed(2)}%)</span>
+            </span>
+          )}
         </div>
 
         <div className="flex items-center gap-3 flex-shrink-0">

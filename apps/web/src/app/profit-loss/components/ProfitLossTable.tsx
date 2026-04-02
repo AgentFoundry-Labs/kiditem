@@ -43,6 +43,7 @@ export default function ProfitLossTable({ data, filtered, filter, onFilter }: Pr
                 <th className="text-right">수수료</th>
                 <th className="text-right">배송비</th>
                 <th className="text-right">광고비</th>
+                <th className="text-right">기타비용</th>
                 <th className="text-right">순이익</th>
                 <th className="text-right">이익률</th>
                 <th className="text-right">주문수</th>
@@ -59,6 +60,7 @@ export default function ProfitLossTable({ data, filtered, filter, onFilter }: Pr
                   <td className="text-right text-slate-500">{formatKRW(d.commission)}</td>
                   <td className="text-right text-slate-500">{formatKRW(d.shippingCost)}</td>
                   <td className="text-right text-orange-600">{formatKRW(d.adCost)}</td>
+                  <td className="text-right text-slate-500">{formatKRW(d.otherCost)}</td>
                   <td className={`text-right font-semibold ${getProfitColor(d.profitRate)}`}>{formatKRW(d.netProfit)}</td>
                   <td className={`text-right font-semibold ${getProfitColor(d.profitRate)}`}>{formatPercent(d.profitRate)}</td>
                   <td className="text-right text-slate-600">{d.orderCount}</td>

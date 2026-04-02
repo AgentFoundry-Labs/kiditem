@@ -21,6 +21,7 @@ export const AdsListItemSchema = z.object({
   revenue: z.number(),
   netProfit: z.number(),
   profitRate: z.number(),
+  adBudgetLimit: z.number(),
 });
 
 // GET /api/ads/hub 응답

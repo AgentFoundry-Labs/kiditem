@@ -4,6 +4,7 @@ import { DryRunGateService } from './dry-run-gate.service';
 import { SnapshotService } from './snapshot.service';
 import { PostVerificationService } from './post-verification.service';
 import { SafetyPipelineService } from './safety-pipeline.service';
+import { WakeupService } from '../wakeup/wakeup.service';
 
 @Module({
   providers: [
@@ -12,6 +13,7 @@ import { SafetyPipelineService } from './safety-pipeline.service';
     SnapshotService,
     PostVerificationService,
     SafetyPipelineService,
+    WakeupService,
   ],
   exports: [SafetyPipelineService, DryRunGateService, SnapshotService],
 })

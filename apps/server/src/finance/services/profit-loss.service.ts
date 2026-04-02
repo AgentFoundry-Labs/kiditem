@@ -43,6 +43,7 @@ export class ProfitLossService {
             ? Math.round((d.netProfit / d.revenue) * 1000) / 10
             : 0,
         orderCount: d.orderCount,
+        returnCount: d.returnCount,
       } satisfies PLData));
 
       const monthStart = new Date(year, month - 1, 1);
@@ -114,6 +115,7 @@ export class ProfitLossService {
             profitRate:
               rev > 0 ? Math.round((net / rev) * 1000) / 10 : 0,
             orderCount: cnt,
+            returnCount: 0,
           } satisfies PLData;
         });
 

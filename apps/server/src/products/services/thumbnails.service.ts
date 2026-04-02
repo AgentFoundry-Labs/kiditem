@@ -94,7 +94,7 @@ export class ThumbnailsService {
     clicks: number;
     status: string;
     strategy: string;
-    product: { name: string; company: { name: string } | null } | null;
+    product: { name: string; thumbnailUrl: string | null; imageUrl: string | null; company: { name: string } | null } | null;
   } & Record<string, unknown>): ThumbnailListItem {
     const ctr = t.ctr ? Number(t.ctr) : 0;
     const prevCtr = t['prevClickRate'] ? Number(t['prevClickRate']) : 0;
@@ -104,7 +104,7 @@ export class ThumbnailsService {
       productId: t.productId,
       productName: t.product?.name ?? 'N/A',
       company: t.product?.company?.name ?? 'N/A',
-      imageUrl: t.imageUrl,
+      imageUrl: t.product?.thumbnailUrl ?? t.product?.imageUrl ?? t.imageUrl,
       ctr,
       prevCtr,
       impressions: t.impressions,

@@ -63,7 +63,7 @@ export class InventoryService {
           id: inv.id,
           productId: inv.productId,
           productName: inv.product?.name ?? 'N/A',
-          sku: null,
+          sku: inv.product?.coupangProductId ?? inv.product?.sku ?? null,
           company: inv.product?.company?.name ?? 'N/A',
           grade: inv.product?.abcGrade ?? 'C',
           currentStock,
