@@ -50,17 +50,6 @@ export default function AdsCampaignsPage() {
   const campaigns = data?.campaigns ?? [];
   const kpi = data?.totalKpi ?? {};
 
-  if (campaigns.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[40vh] text-slate-500">
-        <p className="text-sm mb-2">캠페인 스냅샷 데이터가 없습니다.</p>
-        <Link href="/ads/collect" className="text-sm text-blue-600 hover:text-blue-700">
-          데이터 수집 페이지에서 먼저 수집해주세요 →
-        </Link>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6">
       {/* Header + Period Toggle */}
@@ -79,8 +68,18 @@ export default function AdsCampaignsPage() {
         </div>
       </div>
 
+      {campaigns.length === 0 ? (
+        <div className="flex flex-col items-center justify-center min-h-[40vh] text-slate-500">
+          <p className="text-sm mb-2">캠페인 스냅샷 데이터가 없습니다.</p>
+          <Link href="/ads/collect" className="text-sm text-blue-600 hover:text-blue-700">
+            데이터 수집 페이지에서 먼저 수집해주세요 →
+          </Link>
+        </div>
+      ) : (
+        <>
+
       {/* KPI Cards */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-white rounded-xl p-4 border border-slate-200">
           <div className="text-sm text-slate-500">총 광고비</div>
           <div className="text-xl font-bold text-slate-900 mt-1">{formatKRW(kpi.adSpend)}원</div>
@@ -113,6 +112,8 @@ export default function AdsCampaignsPage() {
       {/* Product Drilldown */}
       {selectedCampaign && (
         <ProductDrilldown campaignName={selectedCampaign} period={period} />
+      )}
+      </>
       )}
     </div>
   );

@@ -55,7 +55,7 @@ export default function AdsStrategyPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-slate-900">광고 전략 AI</h1>
+      <h1 className="text-2xl font-bold text-slate-900">ABC 전략</h1>
 
       {/* Plan Summary */}
       {planData && <PlanSummary plan={planData} />}
