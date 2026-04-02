@@ -92,8 +92,8 @@ export function MetricCard({ comparison: c, isExpanded, onToggle }: Props) {
       </div>
 
       {/* Gap */}
-      <div className={`text-xs mt-1 ${c.gap >= 0 ? 'text-green-600' : 'text-red-500'}`}>
-        업계 평균 대비 {c.gap >= 0 ? '+' : ''}{c.gapPercent.toFixed(1)}%
+      <div className={`text-xs mt-1 ${c.gapPercent >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+        업계 평균 대비 {c.gapPercent >= 0 ? '+' : ''}{c.gapPercent.toFixed(1)}%
       </div>
 
       {/* Expanded strategy + actions */}
