@@ -134,4 +134,5 @@ export interface NodeDefinition {
   color: string;
   configSchema: ConfigField[];
   outputSchema: OutputField[];
+  isConcurrencySafe?: boolean;
 }

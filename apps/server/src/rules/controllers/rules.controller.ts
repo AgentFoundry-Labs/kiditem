@@ -1,6 +1,7 @@
 import { Controller, Get, Post, Patch, Param, Query, Body } from '@nestjs/common';
 import { RulesService } from '../services/rules.service';
-import { RulesSchedulerService } from '../services/rules-scheduler.service';
+import { AgentRegistryService } from '../../agent-registry/agent-registry.service';
+import { HeartbeatService } from '../../agent-registry/heartbeat/heartbeat.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   ListRulesQueryDto,
@@ -10,11 +11,14 @@ import {
   UpdateScheduleBodyDto,
 } from '../dto';
 
+// Design Ref: §5.3 — RulesScheduler → Heartbeat 통합 후 controller 전환
+
 @Controller('rules')
 export class RulesController {
   constructor(
     private readonly rulesService: RulesService,
-    private readonly schedulerService: RulesSchedulerService,
+    private readonly agentRegistry: AgentRegistryService,
+    private readonly heartbeat: HeartbeatService,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -55,9 +59,16 @@ export class RulesController {
 
   @Get('schedule')
   async getSchedule() {
-    const schedule = await this.schedulerService.getSchedule();
-    const options = this.schedulerService.getScheduleOptions();
-    return { schedule, options };
+    const agent = await this.agentRegistry.findByType('rules_evaluation');
+    return {
+      schedule: agent.schedule ?? 'disabled',
+      options: [
+        { key: '0 9 * * *', label: '1회/일 (오전 9시)' },
+        { key: '0 9,18 * * *', label: '2회/일 (오전 9시, 오후 6시)' },
+        { key: '0 */6 * * *', label: '4회/일 (6시간 간격)' },
+        { key: 'disabled', label: '비활성화 (수동 실행만)' },
+      ],
+    };
   }
 
   @Get('suggest-thresholds')
@@ -66,8 +77,12 @@ export class RulesController {
   }
 
   @Patch('schedule')
-  updateSchedule(@Body() body: UpdateScheduleBodyDto) {
-    return this.schedulerService.setSchedule(body.schedule);
+  async updateSchedule(@Body() body: UpdateScheduleBodyDto) {
+    const agent = await this.agentRegistry.findByType('rules_evaluation');
+    const schedule = body.schedule === 'disabled' ? null : body.schedule;
+    await this.agentRegistry.update(agent.id, { schedule });
+    await this.heartbeat.syncTimers();
+    return { ok: true, schedule: body.schedule };
   }
 
   @Patch(':id')

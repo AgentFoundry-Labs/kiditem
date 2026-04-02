@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Body, Query, Param, Sse } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Query, Param, Sse, Optional } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { AgentRegistryService } from './agent-registry.service';
 import { AgentSseService } from './events/agent-sse.service';
@@ -11,13 +11,18 @@ import {
   ReceiveResultsBodyDto,
   PauseAgentBodyDto,
   RunHistoryQueryDto,
+  DelegateAgentBodyDto,
 } from './dto';
+import { DelegationService } from './delegation/delegation.service';
+import { DenialTrackerService } from './safety/denial-tracker.service';
 
 @Controller('agent-registry')
 export class AgentRegistryController {
   constructor(
     private readonly service: AgentRegistryService,
     private readonly sseService: AgentSseService,
+    @Optional() private readonly delegationService?: DelegationService,
+    @Optional() private readonly denialTracker?: DenialTrackerService,
   ) {}
 
   @Get()
@@ -38,6 +43,12 @@ export class AgentRegistryController {
   @Get('cost-analytics')
   getCostAnalytics(@Query() query: CostAnalyticsQueryDto) {
     return this.service.getCostAnalytics(query);
+  }
+
+  @Get('denials/summary')
+  getDenialsSummary(@Query('companyId') companyId: string) {
+    if (!this.denialTracker) return { total: 0, byCategory: {} };
+    return this.denialTracker.getSummary(companyId);
   }
 
   @Get(':id')
@@ -107,5 +118,31 @@ export class AgentRegistryController {
   @Get(':id/runtime-state')
   getRuntimeState(@Param('id') id: string) {
     return this.service.getRuntimeState(id);
+  }
+
+  // ── Delegation (#14) ──
+
+  @Post(':parentId/delegate')
+  delegate(
+    @Param('parentId') parentId: string,
+    @Body() body: DelegateAgentBodyDto,
+  ) {
+    if (!this.delegationService) return { ok: false, error: 'delegation_not_available' };
+    return this.delegationService.delegate({
+      parentAgentId: parentId,
+      childAgentType: body.childAgentType,
+      parentRunId: body.parentRunId,
+      companyId: body.companyId,
+      payload: body.payload,
+      reason: body.reason,
+    });
+  }
+
+  // ── Permission Denials (#22) ──
+
+  @Get(':id/denials')
+  getDenials(@Param('id') id: string) {
+    if (!this.denialTracker) return [];
+    return this.denialTracker.listDenials(id);
   }
 }

@@ -2,10 +2,10 @@ export class WorkflowContext {
   private outputs: Map<string, Record<string, any>> = new Map();
 
   setOutput(nodeId: string, data: Record<string, any>): void {
-    this.outputs.set(nodeId, data);
+    this.outputs.set(nodeId, Object.freeze({ ...data }));
   }
 
-  getOutput(nodeId: string): Record<string, any> | undefined {
+  getOutput(nodeId: string): Readonly<Record<string, any>> | undefined {
     return this.outputs.get(nodeId);
   }
 

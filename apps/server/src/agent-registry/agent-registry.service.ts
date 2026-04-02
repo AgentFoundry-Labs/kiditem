@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { HeartbeatService } from './heartbeat/heartbeat.service';
 import { DEFAULT_AGENT_DEFINITIONS } from './seed-agents';
 import type { DailyCost, AgentCostSummary, CostAnalytics } from '@kiditem/shared';
+import { validateAllowedTools } from './safety/dangerous-patterns';
 
 export interface OrgNode {
   id: string;
@@ -92,12 +93,28 @@ export class AgentRegistryService implements OnModuleInit {
     permissions?: Record<string, unknown>;
     runtimeConfig?: Record<string, unknown>;
   }) {
+    // #13 Dangerous Pattern Detection — validate on create
+    if (data.allowedTools) {
+      const toolCheck = validateAllowedTools(data.allowedTools);
+      if (!toolCheck.valid) {
+        throw new BadRequestException(`Blocked tool patterns: ${toolCheck.blocked.join(', ')}`);
+      }
+    }
+
     const created = await this.prisma.agentDefinition.create({ data: data as any });
     await this.heartbeat.syncTimers();
     return created;
   }
 
   async update(id: string, data: Record<string, unknown>) {
+    // #13 Dangerous Pattern Detection — validate on update
+    if (typeof data.allowedTools === 'string') {
+      const toolCheck = validateAllowedTools(data.allowedTools);
+      if (!toolCheck.valid) {
+        throw new BadRequestException(`Blocked tool patterns: ${toolCheck.blocked.join(', ')}`);
+      }
+    }
+
     const updated = await this.prisma.agentDefinition.update({
       where: { id },
       data: data as any,

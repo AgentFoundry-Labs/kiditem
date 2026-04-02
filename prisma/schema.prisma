@@ -97,10 +97,11 @@ model Company {
   systemSettings  SystemSetting[]
 
   // Agent Platform
-  agentRuntimeStates AgentRuntimeState[]
-  heartbeatRuns      HeartbeatRun[]
-  agentWakeupRequests AgentWakeupRequest[]
-  agentWorkflows     AgentWorkflow[]
+  agentRuntimeStates    AgentRuntimeState[]
+  heartbeatRuns         HeartbeatRun[]
+  agentWakeupRequests   AgentWakeupRequest[]
+  agentWorkflows        AgentWorkflow[]
+  agentPermissionDenials AgentPermissionDenial[]
 
   @@map("companies")
 }
@@ -773,8 +774,9 @@ model AgentDefinition {
   pausedAt    DateTime? @map("paused_at") @db.Timestamptz
 
   // Permissions & Skills
-  permissions Json     @default("{}") @db.JsonB
-  skills      String[] @default([])
+  permissions  Json     @default("{}") @db.JsonB
+  skills       String[] @default([])
+  deniedSkills String[] @default([]) @map("denied_skills")
 
   // Prompt & Tools (기존)
   promptTemplate String @map("prompt_template") @db.Text
@@ -810,6 +812,7 @@ model AgentDefinition {
   heartbeatRuns  HeartbeatRun[]
   wakeupRequests AgentWakeupRequest[]
   workflows      AgentWorkflow[]
+  permissionDenials AgentPermissionDenial[]
 
   @@index([companyId])
   @@index([type])
@@ -957,6 +960,25 @@ model AgentWakeupRequest {
   @@index([companyId, agentId, status])
   @@index([agentId, requestedAt])
   @@map("agent_wakeup_requests")
+}
+
+// ─── Agent Permission Denials ─────────────────────────────────────────────────
+
+model AgentPermissionDenial {
+  id        String   @id @default(uuid()) @db.Uuid
+  companyId String   @map("company_id") @db.Uuid
+  agentId   String   @map("agent_id") @db.Uuid
+  runId     String?  @map("run_id") @db.Uuid
+  category  String                                    // dangerous_tool | budget_exceeded | feature_gate | skill_denied
+  detail    String
+  action    String   @default("blocked")              // blocked | warned
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  agent   AgentDefinition @relation(fields: [agentId], references: [id])
+  company Company         @relation(fields: [companyId], references: [id])
+
+  @@index([companyId, agentId, createdAt])
+  @@map("agent_permission_denials")
 }
 
 // ─── Sourcing: Douyin ─────────────────────────────────────────────────────────

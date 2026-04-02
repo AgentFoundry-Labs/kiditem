@@ -22,6 +22,7 @@ _PLATFORM_MAP = {
 
 class SourcingAgent(BaseAgent):
     agent_type = "sourcing"
+    timeout_seconds = 120
 
     def __init__(self) -> None:
         self._matcher = Matcher1688()
@@ -109,10 +110,10 @@ class SourcingAgent(BaseAgent):
                     product_id = row["id"]
 
         logger.info(
-            "scrape_url_saved product_id=%s title=%s images=%d",
-            product_id,
-            title[:80],
-            len(images),
+            "scrape_url_saved",
+            product_id=str(product_id),
+            title=title[:80],
+            images=len(images),
         )
 
         return {

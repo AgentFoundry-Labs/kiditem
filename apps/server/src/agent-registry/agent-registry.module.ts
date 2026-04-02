@@ -12,9 +12,23 @@ import { AdStrategyService } from './domains/ad-strategy/ad-strategy.service';
 import { ManagerController } from './domains/manager/manager.controller';
 import { ManagerService } from './domains/manager/manager.service';
 import { ManagerWorkflowService } from './domains/manager/manager-workflow.service';
+// Agent OS modules
+import { SafetyModule } from './safety/safety.module';
+import { LifecycleModule } from './lifecycle/lifecycle.module';
+import { DelegationModule } from './delegation/delegation.module';
+import { SkillFilterService } from './safety/skill-filter.service';
+import { RetryService } from './lifecycle/retry.service';
+import { TranscriptService } from './lifecycle/transcript.service';
+import { DelegationService } from './delegation/delegation.service';
 
 @Module({
-  imports: [ScheduleModule.forRoot(), EventEmitterModule.forRoot()],
+  imports: [
+    ScheduleModule.forRoot(),
+    EventEmitterModule.forRoot(),
+    SafetyModule,
+    LifecycleModule,
+    DelegationModule,
+  ],
   controllers: [AgentRegistryController, AdStrategyController, ManagerController],
   providers: [
     AgentRegistryService,
@@ -26,6 +40,6 @@ import { ManagerWorkflowService } from './domains/manager/manager-workflow.servi
     ManagerService,
     ManagerWorkflowService,
   ],
-  exports: [AgentRegistryService],
+  exports: [AgentRegistryService, HeartbeatService],
 })
 export class AgentRegistryModule {}

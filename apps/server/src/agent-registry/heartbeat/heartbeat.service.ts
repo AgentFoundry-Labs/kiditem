@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject, Optional } from '@nestjs/common';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { CronJob } from 'cron';
@@ -15,6 +15,10 @@ import {
 } from '../events/agent-events';
 import { FeatureGateService } from '../../feature-gate/feature-gate.service';
 import { validateAgentOutput, extractResultJsonFromStdout } from '../schemas/validate-output';
+// Agent OS modules
+import { SkillFilterService } from '../safety/skill-filter.service';
+import { RetryService } from '../lifecycle/retry.service';
+import { TRANSCRIPT_EVENT } from '../lifecycle/transcript.service';
 
 @Injectable()
 export class HeartbeatService {
@@ -28,6 +32,8 @@ export class HeartbeatService {
     private readonly schedulerRegistry: SchedulerRegistry,
     private readonly eventEmitter: EventEmitter2,
     private readonly featureGateService: FeatureGateService,
+    @Optional() private readonly skillFilterService?: SkillFilterService,
+    @Optional() private readonly retryService?: RetryService,
   ) {}
 
   // ── Wakeup 처리 ──
@@ -138,8 +144,23 @@ export class HeartbeatService {
 
     const companyId = wakeup.companyId;
 
-    // Runtime state (session resume)
-    const runtimeState = await this.prisma.agentRuntimeState.findUnique({ where: { agentId } });
+    // #24 Prefetch + Harvest — parallel preparation
+    const buildSkillsPromise = (async () => {
+      try {
+        const filteredSkills = this.skillFilterService
+          ? this.skillFilterService.filterAndSort(agent.skills, (agent as any).deniedSkills ?? [])
+          : [...agent.skills].sort();
+        return await this.skillsService.buildSkillsDir(filteredSkills);
+      } catch (err) {
+        this.logger.warn(`Failed to build skills dir: ${err}`);
+        return null;
+      }
+    })();
+
+    const [runtimeState, skillsDir] = await Promise.all([
+      this.prisma.agentRuntimeState.findUnique({ where: { agentId } }),
+      buildSkillsPromise,
+    ]);
 
     // HeartbeatRun 생성
     const run = await this.prisma.heartbeatRun.create({
@@ -166,13 +187,7 @@ export class HeartbeatService {
       new AgentStatusChangedEvent(agent.id, agent.name, 'running', run.id),
     );
 
-    // Skills 준비
-    let skillsDir: string | null = null;
-    try {
-      skillsDir = await this.skillsService.buildSkillsDir(agent.skills);
-    } catch (err) {
-      this.logger.warn(`Failed to build skills dir: ${err}`);
-    }
+    // Skills already built in prefetch above
 
     // Prompt 빌드
     const prompt = this.buildPrompt(agent, run.id, wakeup.payload as Record<string, unknown>);
@@ -249,23 +264,52 @@ export class HeartbeatService {
       : result.exitCode !== 0 ? 'process_error'
       : null;
 
-    // Structured Output 검증: stdout에서 결과 JSON 추출 → Zod 스키마 검증
+    // Structured Output 검증 + #19 Validation Retry
     let resultJson: Record<string, unknown> | null = null;
     if (status === 'succeeded') {
       resultJson = extractResultJsonFromStdout(result.stdout);
       if (resultJson) {
         const validation = validateAgentOutput(agent.type, resultJson);
         if (!validation.valid) {
-          this.logger.warn(
-            `Agent ${agent.name} output validation failed: ${validation.errors?.join('; ')}`,
+          // #19 Validation Retry — 1회 재시도
+          const retryPrompt = this.retryService?.buildRetryPrompt(
+            ctx.prompt, validation.errors ?? [], 0,
           );
-          errorCode = 'validation_failed';
+          if (retryPrompt) {
+            this.logger.warn(`Agent ${agent.name} validation failed, retrying once`);
+            this.eventEmitter.emit(AGENT_EVENTS.VALIDATION_RETRY, { agentId: agent.id, runId: run.id });
+            const retryCtx: ExecutionContext = Object.freeze({
+              ...ctx,
+              prompt: retryPrompt,
+              sessionId: result.sessionIdAfter ?? ctx.sessionId,
+            });
+            const retryResult = await adapter.execute(retryCtx);
+            const retryJson = extractResultJsonFromStdout(retryResult.stdout);
+            if (retryJson) {
+              const retryValidation = validateAgentOutput(agent.type, retryJson);
+              if (retryValidation.valid) {
+                result = retryResult;
+                resultJson = retryValidation.data as Record<string, unknown>;
+                errorCode = null;
+              } else {
+                errorCode = 'validation_failed';
+              }
+            } else {
+              errorCode = 'validation_failed';
+            }
+          } else {
+            this.logger.warn(
+              `Agent ${agent.name} output validation failed: ${validation.errors?.join('; ')}`,
+            );
+            errorCode = 'validation_failed';
+          }
         } else {
           resultJson = validation.data as Record<string, unknown>;
         }
       }
     }
 
+    // #17 Async Transcript — Step 1: Blocking save (critical fields only)
     await this.prisma.heartbeatRun.update({
       where: { id: run.id },
       data: {
@@ -273,14 +317,19 @@ export class HeartbeatService {
         finishedAt: new Date(),
         exitCode: result.exitCode,
         signal: result.signal,
-        stdoutExcerpt: result.stdout.slice(0, 5000),
-        stderrExcerpt: result.stderr.slice(0, 2000),
         errorCode,
         error: errorCode ? result.stderr.slice(0, 1000) : null,
-        sessionIdAfter: result.sessionIdAfter,
-        usageJson: result.usage as any,
         resultJson: resultJson as any,
       },
+    });
+
+    // #17 Async Transcript — Step 2: Fire-and-forget (non-critical fields)
+    this.eventEmitter.emit(TRANSCRIPT_EVENT, {
+      runId: run.id,
+      stdoutExcerpt: result.stdout.slice(0, 5000),
+      stderrExcerpt: result.stderr.slice(0, 2000),
+      usageJson: result.usage ?? null,
+      sessionIdAfter: result.sessionIdAfter,
     });
 
     // Runtime state 업데이트 (에러 복구 캐스케이드 포함)

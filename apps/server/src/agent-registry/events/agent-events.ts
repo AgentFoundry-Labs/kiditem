@@ -28,9 +28,29 @@ export class AgentAutoPausedEvent {
   ) {}
 }
 
+export class AgentPermissionDeniedEvent {
+  constructor(
+    public readonly agentId: string,
+    public readonly agentName: string,
+    public readonly category: string,
+    public readonly detail: string,
+  ) {}
+}
+
+export class AgentDelegationEvent {
+  constructor(
+    public readonly parentAgentId: string,
+    public readonly childAgentId: string,
+    public readonly reason: string,
+  ) {}
+}
+
 // 이벤트 이름 상수
 export const AGENT_EVENTS = {
   STATUS_CHANGED: 'agent.status.changed',
   BUDGET_WARNING: 'agent.budget.warning',
   AUTO_PAUSED: 'agent.auto.paused',
+  PERMISSION_DENIED: 'agent.permission.denied',
+  DELEGATION_REQUESTED: 'agent.delegation.requested',
+  VALIDATION_RETRY: 'agent.validation.retry',
 } as const;

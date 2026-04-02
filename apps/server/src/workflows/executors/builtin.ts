@@ -2,11 +2,11 @@ import { registerNode, getExecutor, recordActivity } from './index';
 
 registerNode('trigger.manual', async () => {
   return { triggeredAt: new Date().toISOString() };
-});
+}, undefined, true);
 
 registerNode('trigger.schedule', async () => {
   return { triggeredAt: new Date().toISOString() };
-});
+}, undefined, true);
 
 registerNode('condition.evaluate', async (_prisma, config, context) => {
   const rawField = config.field as string;
@@ -29,7 +29,7 @@ registerNode('condition.evaluate', async (_prisma, config, context) => {
     : (config.false_label as string) ?? 'false';
 
   return { result, branch, actual, threshold };
-});
+}, undefined, true);
 
 registerNode('data.filter', async (_prisma, config, context) => {
   const sourceNode = config.source_node as string;
@@ -55,7 +55,7 @@ registerNode('data.filter', async (_prisma, config, context) => {
     count: filtered.length,
     filteredOut: items.length - filtered.length,
   };
-});
+}, undefined, true);
 
 registerNode('notification.alert', async (prisma, config, context) => {
   const title = context.resolve((config.title as string) ?? '');

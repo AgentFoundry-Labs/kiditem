@@ -95,14 +95,16 @@ export class SourcingService {
   }
 
   async scrapeUrl(url: string, companyId: string): Promise<{ ok: boolean; message: string; taskId: string }> {
-    const task = await this.prisma.agentTask.create({
-      data: {
-        agentType: 'sourcing',
-        input: { action: 'scrape_url', url, company_id: companyId } as any,
-      },
+    const task = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.agentTask.create({
+        data: {
+          agentType: 'sourcing',
+          input: { action: 'scrape_url', url, company_id: companyId } as any,
+        },
+      });
+      await tx.$executeRawUnsafe(`SELECT pg_notify('new_agent_task', $1)`, created.id);
+      return created;
     });
-
-    await this.prisma.$executeRawUnsafe(`SELECT pg_notify('new_agent_task', $1)`, task.id);
 
     return {
       ok: true,

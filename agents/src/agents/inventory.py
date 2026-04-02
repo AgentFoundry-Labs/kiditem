@@ -1,8 +1,11 @@
 from datetime import datetime, timezone
 
 import asyncpg
+import structlog
 
 from src.agents.base import BaseAgent
+
+logger = structlog.get_logger()
 
 
 class InventoryAgent(BaseAgent):
@@ -31,20 +34,15 @@ class InventoryAgent(BaseAgent):
                     """
                 )
 
-                alerts_created = 0
                 now = datetime.now(timezone.utc)
+                alert_args = []
                 for row in rows:
                     days_remaining = (
                         int(row["current_stock"] / row["daily_sales_avg"])
                         if row["daily_sales_avg"] > 0
                         else 999
                     )
-
-                    await conn.execute(
-                        """
-                        INSERT INTO alerts (id, company_id, product_id, type, severity, title, message, is_read, created_at)
-                        VALUES (gen_random_uuid(), $1, $2, 'stock_low', $3, $4, $5, false, $6)
-                        """,
+                    alert_args.append((
                         row["company_id"],
                         row["product_id"],
                         "critical" if days_remaining <= 7 else "warning",
@@ -52,8 +50,23 @@ class InventoryAgent(BaseAgent):
                         f"현재고 {row['current_stock']}개, 발주점 {row['reorder_point']}개 이하. "
                         f"예상 소진일 {days_remaining}일. 추천 발주량 {row['reorder_quantity']}개.",
                         now,
+                    ))
+
+                if alert_args:
+                    await conn.executemany(
+                        """
+                        INSERT INTO alerts (id, company_id, product_id, type, severity, title, message, is_read, created_at)
+                        VALUES (gen_random_uuid(), $1, $2, 'stock_low', $3, $4, $5, false, $6)
+                        """,
+                        alert_args,
                     )
-                    alerts_created += 1
+                alerts_created = len(alert_args)
+
+        logger.info(
+            "inventory_check_completed",
+            checked=len(rows),
+            alerts_created=alerts_created,
+        )
 
         return {
             "checked": len(rows),

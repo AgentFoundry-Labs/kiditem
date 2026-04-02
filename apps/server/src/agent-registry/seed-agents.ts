@@ -4,6 +4,22 @@
  * 또는 서버 시작 시 AgentRegistryService.seedDefaults()로 호출.
  */
 
+// Design Ref: §6 — role별 권한 매트릭스 (#14 Coordinator Privilege Separation)
+const ROLE_PERMISSIONS = {
+  manager: {
+    allowedTools: 'Read Bash(curl:*)',
+    permissions: { canSpawnSubAgents: true, canAccessBrowser: false, canModifyData: false },
+  },
+  operator: {
+    allowedTools: 'Read Bash(curl:*)',
+    permissions: { canSpawnSubAgents: true, canAccessBrowser: false, canModifyData: false },
+  },
+  specialist: {
+    allowedTools: 'Bash(psql:*) Bash(curl:*) Read',
+    permissions: { canSpawnSubAgents: false, canAccessBrowser: false, canModifyData: false },
+  },
+} as const;
+
 export const DEFAULT_AGENT_DEFINITIONS = [
   {
     name: '광고 전략 에이전트',
@@ -115,11 +131,12 @@ export const DEFAULT_AGENT_DEFINITIONS = [
     runtimeConfig: { intervalSec: 0, wakeOnAssignment: false, wakeOnOnDemand: true },
 
     // Tools & Permissions
-    allowedTools: 'Bash(psql:*) Bash(curl:*) Read',
+    allowedTools: ROLE_PERMISSIONS.specialist.allowedTools,
     permissionMode: 'bypassPermissions',
-    permissions: { canAccessBrowser: false, canModifyData: false },
+    permissions: ROLE_PERMISSIONS.specialist.permissions,
 
     // Budget & Schedule
+    schedule: '0 9,18 * * *',  // Design Ref: §5.2 — 기존 twice_daily 기본값 명시
     timeoutSeconds: 600,
     requiresApproval: false,
     monthlyTokenBudget: 0,
@@ -248,16 +265,16 @@ export const DEFAULT_AGENT_DEFINITIONS = [
     title: '운영 매니저',
     // reportsTo: null (default)
 
-    // Skills
-    skills: ['db-query', 'kiditem-api', 'data-analysis', 'result-callback'],
+    // Skills — Manager는 delegation API로 specialist에게 위임
+    skills: ['kiditem-api', 'result-callback'],
 
     // Runtime
     runtimeConfig: { intervalSec: 0, wakeOnAssignment: true, wakeOnOnDemand: true },
 
-    // Tools & Permissions
-    allowedTools: 'Bash(psql:*) Bash(curl:*) Read',
+    // Tools & Permissions — Design Ref: §6 Manager는 DB 직접 접근 불가
+    allowedTools: ROLE_PERMISSIONS.manager.allowedTools,
     permissionMode: 'bypassPermissions',
-    permissions: { canSpawnSubAgents: true, canAccessBrowser: false, canModifyData: false },
+    permissions: ROLE_PERMISSIONS.manager.permissions,
 
     // Budget & Schedule
     timeoutSeconds: 600,

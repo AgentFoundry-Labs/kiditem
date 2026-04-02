@@ -69,8 +69,9 @@ class Matcher1688:
                     logger.warning("Matcher worker still failing count=%d", consecutive_errors)
             await asyncio.sleep(self._poll_interval)
 
-    async def _enqueue_pending_products(self) -> None:
-        rows = await self._pool.fetch(
+    async def _enqueue_pending_products(self, pool: asyncpg.Pool | None = None) -> None:
+        pool = pool or self._pool
+        rows = await pool.fetch(
             """
             SELECT id, promotion_id, product_name, image_url
             FROM douyin_live_products
@@ -96,7 +97,10 @@ class Matcher1688:
     def _build_1688_search_url(self, product_name: str) -> str:
         return f"{_1688_SEARCH_BASE}?keywords={quote(product_name)}"
 
-    async def process_extension_results(self, source_url: str, items: list[dict]) -> int:
+    async def process_extension_results(
+        self, source_url: str, items: list[dict], pool: asyncpg.Pool | None = None
+    ) -> int:
+        pool = pool or self._pool
         product_ids = self._pending_jobs.pop(source_url, [])
         if not product_ids:
             for pending_url in list(self._pending_jobs.keys()):
@@ -116,7 +120,7 @@ class Matcher1688:
             if scored:
                 best = scored[0]
                 await self._update_match(
-                    self._pool,
+                    pool,
                     product_id,
                     "MATCHED",
                     url=best.url,
@@ -126,7 +130,7 @@ class Matcher1688:
                 )
                 matched_count += 1
             else:
-                await self._update_match(self._pool, product_id, "NO_MATCH")
+                await self._update_match(pool, product_id, "NO_MATCH")
 
         return matched_count
 
