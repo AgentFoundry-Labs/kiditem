@@ -2,10 +2,15 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { WorkflowContext } from '../context';
 import type { NodeDefinition } from './types';
 
+export interface ExecutorServices {
+  agentRegistry?: import('../../agent-registry/agent-registry.service').AgentRegistryService;
+}
+
 export type NodeExecutorFn = (
   prisma: PrismaService,
   config: Record<string, any>,
   context: WorkflowContext,
+  services?: ExecutorServices,
 ) => Promise<Record<string, any>>;
 
 const EXECUTOR_REGISTRY: Map<string, NodeExecutorFn> = new Map();

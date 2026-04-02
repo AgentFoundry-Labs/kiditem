@@ -60,7 +60,7 @@ npm run db:studio                    # Prisma Studio (DB GUI)
 |---|---|---|
 | Next.js | 3000 | Local (`npm run dev`) |
 | NestJS | 4000 | Local (`npm run dev:server`) |
-| Python Agents | — (worker) | Local (`npm run dev:agents`) |
+| Python Agents | 8001 | Local (`npm run dev:agents`) |
 | PostgreSQL | 5433 | Docker |
 
 ## Architecture
@@ -183,7 +183,4 @@ AI_IMAGE_EDIT_SIZE_MODEL=gemini-3.1-flash-image-preview  # Size chart editing
 LANGFUSE_PUBLIC_KEY=pk-lf-...
 LANGFUSE_SECRET_KEY=sk-lf-...
 LANGFUSE_BASE_URL=https://cloud.langfuse.com
-
-# Runner
-POLL_INTERVAL_SECONDS=5
 ```

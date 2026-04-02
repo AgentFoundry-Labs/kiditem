@@ -109,7 +109,20 @@ registerNode('internal.db_query', async (prisma, config) => {
   return { rows, count: rows.length };
 });
 
-registerNode('agent_task.create', async (prisma, config) => {
+registerNode('agent_task.create', async (prisma, config, _context, services) => {
+  if (services?.agentRegistry) {
+    const result = await services.agentRegistry.runByType(config.agent_type as string, {
+      extra: {
+        ...(config.input as any) ?? {},
+        _workflow_run_id: config._workflow_run_id,
+        _workflow_node_id: config._workflow_node_id,
+        source_data_id: config.source_data_id,
+      },
+    });
+    return { taskId: result.taskId, agentType: config.agent_type };
+  }
+
+  // Fallback: legacy path (AgentRegistryService unavailable)
   const task = await prisma.agentTask.create({
     data: {
       agentType: config.agent_type as string,
@@ -119,12 +132,10 @@ registerNode('agent_task.create', async (prisma, config) => {
       sourceDataId: (config.source_data_id as string) ?? null,
     },
   });
-
   await (prisma as any).$executeRawUnsafe(
     `SELECT pg_notify('new_agent_task', $1)`,
     task.id,
   );
-
   return { taskId: task.id, agentType: config.agent_type };
 });
 
@@ -252,19 +263,26 @@ registerNode('action', async (_prisma, config) => {
 // AI 판단/분석은 에이전트 영역. 워크플로우에서 AI가 필요하면 agent_task.create를 사용.
 // ai_process 노드 타입은 하위 호환을 위해 agent_task.create로 위임.
 
-registerNode('ai_process', async (prisma, config) => {
+registerNode('ai_process', async (prisma, config, _context, services) => {
   const agentType = (config.agent_type as string) ?? 'rules_evaluation';
+
+  if (services?.agentRegistry) {
+    const result = await services.agentRegistry.runByType(agentType, {
+      extra: { prompt: config.prompt_template ?? config.prompt ?? '', model: config.model },
+    });
+    return { delegated: true, taskId: result.taskId, agentType };
+  }
+
+  // Fallback: legacy path
   const task = await prisma.agentTask.create({
     data: {
       agentType,
       input: { prompt: config.prompt_template ?? config.prompt ?? '', model: config.model },
     },
   });
-
   await (prisma as any).$executeRawUnsafe(
     `SELECT pg_notify('new_agent_task', $1)`,
     task.id,
   );
-
   return { delegated: true, taskId: task.id, agentType };
 });

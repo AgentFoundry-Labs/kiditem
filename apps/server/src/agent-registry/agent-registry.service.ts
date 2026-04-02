@@ -125,6 +125,20 @@ export class AgentRegistryService implements OnModuleInit {
 
   // ── 실행 (하위 호환 — heartbeat 위임) ──
 
+  /**
+   * Type 기반 실행. 도메인 서비스에서 agentType만 알 때 사용.
+   * findByType + run 을 합친 편의 메서드.
+   */
+  async runByType(type: string, input?: {
+    companyId?: string;
+    dryRun?: boolean;
+    extra?: Record<string, unknown>;
+    resultApiBase?: string;
+  }) {
+    const def = await this.findByType(type);
+    return this.run(def.id, input);
+  }
+
   async run(id: string, input?: {
     companyId?: string;
     dryRun?: boolean;
@@ -165,19 +179,27 @@ export class AgentRegistryService implements OnModuleInit {
     });
 
     // Heartbeat wakeup으로 위임
-    await this.heartbeat.wakeAgent({
-      agentId: def.id,
-      companyId: input?.companyId ?? def.companyId ?? undefined,
-      source: 'on_demand',
-      reason: `run() call for ${def.type}`,
-      payload: {
-        dry_run: dryRun,
-        result_api_base: input?.resultApiBase,
-        _legacy_task_id: task.id,
-        ...input?.extra,
-      },
-      requestedByType: 'system',
-    });
+    try {
+      await this.heartbeat.wakeAgent({
+        agentId: def.id,
+        companyId: input?.companyId ?? def.companyId ?? undefined,
+        source: 'on_demand',
+        reason: `run() call for ${def.type}`,
+        payload: {
+          dry_run: dryRun,
+          result_api_base: input?.resultApiBase,
+          _legacy_task_id: task.id,
+          ...input?.extra,
+        },
+        requestedByType: 'system',
+      });
+    } catch (err) {
+      await this.prisma.agentTask.update({
+        where: { id: task.id },
+        data: { status: 'failed', error: `Wakeup failed: ${err instanceof Error ? err.message : err}`, completedAt: new Date() },
+      });
+      throw err;
+    }
 
     this.logger.log(`Agent wakeup: ${def.name} (task=${task.id}), dry_run=${dryRun}`);
     return { ok: true, taskId: task.id, agentType: def.type, dryRun };

@@ -1,7 +1,8 @@
 import { IsIn, IsOptional, IsObject } from 'class-validator';
 
 const VALID_AGENTS = [
-  'inventory', 'sourcing', 'content', 'listing', 'pricing', 'cs', 'ad_strategy',
+  'inventory_check', 'sourcing_scraper', 'content', 'image_edit',
+  'listing', 'pricing', 'cs', 'ad_strategy', 'rules_evaluation',
 ] as const;
 
 export class CreateAgentTaskBodyDto {

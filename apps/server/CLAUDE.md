@@ -55,8 +55,7 @@ Adding a new domain: create module + controller + service + dto/ → register in
 - New endpoints → class-validator DTO required (no manual if + BadRequestException)
 - Errors → throw HttpException (no `ok: false` in 200 responses)
 - Types → import from `@kiditem/shared`, use `satisfies` pattern in services
-- Python agent trigger: INSERT into `agent_tasks` table → Python runner picks up
-- Claude CLI agent trigger: `agent-registry` `run()` → `spawn('claude', ...)` → result callback
+- Agent trigger: `AgentRegistryService.runByType()` → HeartbeatService → adapter execution (Claude CLI or Python HTTP)
 
 ## Domain Guides
 

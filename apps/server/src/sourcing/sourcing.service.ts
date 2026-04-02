@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { AgentRegistryService } from '../agent-registry/agent-registry.service';
 import { paginationParams } from '../common/pagination';
 
 const PLATFORM_MAP: Record<string, string> = {
@@ -11,7 +12,10 @@ const PLATFORM_MAP: Record<string, string> = {
 
 @Injectable()
 export class SourcingService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly agentRegistry: AgentRegistryService,
+  ) {}
 
   private extractCostCny(data: any): number | null {
     // Direct price field
@@ -95,21 +99,15 @@ export class SourcingService {
   }
 
   async scrapeUrl(url: string, companyId: string): Promise<{ ok: boolean; message: string; taskId: string }> {
-    const task = await this.prisma.$transaction(async (tx) => {
-      const created = await tx.agentTask.create({
-        data: {
-          agentType: 'sourcing',
-          input: { action: 'scrape_url', url, company_id: companyId } as any,
-        },
-      });
-      await tx.$executeRawUnsafe(`SELECT pg_notify('new_agent_task', $1)`, created.id);
-      return created;
+    const result = await this.agentRegistry.runByType('sourcing_scraper', {
+      companyId,
+      extra: { action: 'scrape_url', url, company_id: companyId },
     });
 
     return {
       ok: true,
       message: `스크래핑 작업이 대기열에 등록되었습니다.`,
-      taskId: task.id,
+      taskId: result.taskId,
     };
   }
 

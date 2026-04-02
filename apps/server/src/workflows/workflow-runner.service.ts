@@ -1,15 +1,22 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { AgentRegistryService } from '../agent-registry/agent-registry.service';
 import { DAG } from './dag';
 import { WorkflowContext } from './context';
-import { getExecutor, isConcurrencySafe } from './executors/index';
+import { getExecutor, isConcurrencySafe, type ExecutorServices } from './executors/index';
 import './executors/builtin';
 
 @Injectable()
 export class WorkflowRunnerService {
   private readonly logger = new Logger(WorkflowRunnerService.name);
+  private readonly executorServices: ExecutorServices;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly agentRegistry?: AgentRegistryService,
+  ) {
+    this.executorServices = { agentRegistry: this.agentRegistry };
+  }
 
   async runWorkflow(runId: string, templateId: string): Promise<void> {
     const template = await this.prisma.workflowTemplate.findUnique({
@@ -155,7 +162,7 @@ export class WorkflowRunnerService {
         company_id: template.companyId,
         _context: runContext,
       });
-      const output = await executor(this.prisma, resolvedConfig, context);
+      const output = await executor(this.prisma, resolvedConfig, context, this.executorServices);
       context.setOutput(nodeId, output);
 
       await this.prisma.workflowStepRun.update({

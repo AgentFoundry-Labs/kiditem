@@ -8,9 +8,8 @@ _root_env = Path(__file__).resolve().parent.parent.parent / '.env'
 load_dotenv(_root_env)
 load_dotenv()  # local agents/.env fallback (won't overwrite)
 
-# ── DB & Runner ─────────────────────────────────────────────────────────────
+# ── DB ──────────────────────────────────────────────────────────────────────
 DATABASE_URL = os.environ["DATABASE_URL"]
-POLL_INTERVAL_SECONDS = int(os.getenv("POLL_INTERVAL_SECONDS", "5"))
 
 # ── AI ──────────────────────────────────────────────────────────────────────
 AI_MODE = os.getenv("AI_MODE", "proxy")

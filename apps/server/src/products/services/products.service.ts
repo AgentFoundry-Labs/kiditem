@@ -5,13 +5,17 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AgentRegistryService } from '../../agent-registry/agent-registry.service';
 import type { Prisma } from '@prisma/client';
 import { paginationParams, type PaginatedResponse } from '../../common/pagination';
 import type { ProductListItem } from '@kiditem/shared';
 
 @Injectable()
 export class ProductsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly agentRegistry: AgentRegistryService,
+  ) {}
 
   async findAll(query: {
     grade?: string;
@@ -398,26 +402,18 @@ export class ProductsService {
       throw new BadRequestException('상품을 찾을 수 없습니다.');
     }
 
-    const task = await this.prisma.agentTask.create({
-      data: {
-        agentType: 'content',
-        input: {
-          productId: id,
-          generation_mode: 'full',
-          ...(seed?.seed_hook_text && { seed_hook_text: seed.seed_hook_text }),
-          ...(seed?.seed_hook_title_sub && { seed_hook_title_sub: seed.seed_hook_title_sub }),
-          ...(seed?.seed_hero_image && { seed_hero_image: seed.seed_hero_image }),
-          ...(seed?.color_image_urls?.length && { color_image_urls: seed.color_image_urls }),
-        } as any,
+    const result = await this.agentRegistry.runByType('content', {
+      extra: {
+        productId: id,
+        generation_mode: 'full',
+        ...(seed?.seed_hook_text && { seed_hook_text: seed.seed_hook_text }),
+        ...(seed?.seed_hook_title_sub && { seed_hook_title_sub: seed.seed_hook_title_sub }),
+        ...(seed?.seed_hero_image && { seed_hero_image: seed.seed_hero_image }),
+        ...(seed?.color_image_urls?.length && { color_image_urls: seed.color_image_urls }),
       },
     });
 
-    await this.prisma.$executeRawUnsafe(
-      `SELECT pg_notify('new_agent_task', $1)`,
-      task.id,
-    );
-
-    return { ok: true, taskId: task.id };
+    return { ok: true, taskId: result.taskId };
   }
 
   async getPipelineStats(statusFilter?: string): Promise<{
@@ -534,24 +530,17 @@ export class ProductsService {
         'draftContent가 없습니다. 먼저 AI 재가공을 실행하세요.',
       );
     }
-    const task = await this.prisma.agentTask.create({
-      data: {
-        agentType: 'content',
-        input: {
-          productId: id,
-          generation_mode: 'image',
-          draftContent: product.draftContent,
-        } as any,
+    const result = await this.agentRegistry.runByType('content', {
+      extra: {
+        productId: id,
+        generation_mode: 'image',
+        draftContent: product.draftContent,
       },
     });
-    await this.prisma.$executeRawUnsafe(
-      `SELECT pg_notify('new_agent_task', $1)`,
-      task.id,
-    );
     await this.prisma.product.update({
       where: { id },
       data: { pipelineStep: 'images_generating' },
     });
-    return { ok: true, taskId: task.id };
+    return { ok: true, taskId: result.taskId };
   }
 }
