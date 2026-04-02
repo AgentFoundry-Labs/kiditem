@@ -56,7 +56,7 @@ function formatChangeValue(key: string, value: number): string {
 
 export function TrendsComparison({ daily, comparison, budgetAllocation }: Props) {
   return (
-    <div className="grid grid-cols-2 gap-6">
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       {/* Trend Chart + Comparison */}
       <div className="bg-white rounded-xl p-6 border border-slate-200">
         <h3 className="font-semibold text-slate-900 mb-4">전반기 vs 후반기 비교</h3>

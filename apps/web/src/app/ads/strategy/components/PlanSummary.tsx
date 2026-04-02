@@ -36,7 +36,7 @@ export function PlanSummary({ plan }: { plan: PlanData }) {
       </div>
 
       {/* Action summary */}
-      <div className="grid grid-cols-5 gap-3 mb-4">
+      <div className="grid grid-cols-3 md:grid-cols-5 gap-3 mb-4">
         {cards.map((c) => (
           <div key={c.label} className={`rounded-lg p-3 border text-center ${c.color}`}>
             <div className="text-2xl font-bold">{c.value}</div>

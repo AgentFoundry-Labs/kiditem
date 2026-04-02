@@ -61,7 +61,7 @@ export function GradeCards({ budgetAllocation, rules }: Props) {
   return (
     <div className="space-y-4">
       <h3 className="font-semibold text-slate-900">ABC 등급 전략</h3>
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {GRADE_CONFIGS.map((cfg) => {
           const currentPct = budgetAllocation?.find((b) => b.grade === cfg.grade)?.currentPercent ?? 0;
           const gradeRules = (rules ?? []).filter((r) => r.grade === cfg.grade);
