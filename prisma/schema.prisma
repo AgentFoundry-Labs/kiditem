@@ -104,6 +104,10 @@ model Company {
   agentPermissionDenials AgentPermissionDenial[]
   agentActionSnapshots   AgentActionSnapshot[]
 
+  // Ad Snapshots
+  adCampaignSnapshots  AdCampaignSnapshot[]
+  adProductSnapshots   AdProductSnapshot[]
+
   @@map("companies")
 }
 
@@ -2213,4 +2217,63 @@ model AgentMarketplace {
   @@index([category])
   @@index([isPublished])
   @@map("agent_marketplace")
+}
+
+// ─── Ad Snapshots ─────────────────────────────────────────────────────────────
+
+model AdCampaignSnapshot {
+  id            String   @id @default(uuid()) @db.Uuid
+  companyId     String   @map("company_id") @db.Uuid
+  campaignName  String   @map("campaign_name")
+  period        String   // "7d" | "month" | "yesterday"
+  date          DateTime @db.Date
+  onOff         String?  @map("on_off")
+  status        String?
+  adSpend       Int      @default(0) @map("ad_spend")
+  adRevenue     Int      @default(0) @map("ad_revenue")
+  totalRevenue  Int      @default(0) @map("total_revenue")
+  impressions   Int      @default(0)
+  clicks        Int      @default(0)
+  ctr           Decimal? @db.Decimal(8, 4)
+  conversions   Int      @default(0)
+  orders        Int      @default(0)
+  roas          Decimal? @db.Decimal(10, 2)
+  conversionRate Decimal? @map("conversion_rate") @db.Decimal(8, 4)
+  budget        Int?
+  todaySpend    Int?     @map("today_spend")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, date])
+  @@index([campaignName, period])
+  @@map("ad_campaign_snapshots")
+}
+
+model AdProductSnapshot {
+  id            String   @id @default(uuid()) @db.Uuid
+  companyId     String   @map("company_id") @db.Uuid
+  campaignName  String   @map("campaign_name")
+  period        String
+  date          DateTime @db.Date
+  productName   String   @map("product_name")
+  vendorItemId  String?  @map("vendor_item_id")
+  onOff         String?  @map("on_off")
+  status        String?
+  keyword       String?
+  adSpend       Int      @default(0) @map("ad_spend")
+  adRevenue     Int      @default(0) @map("ad_revenue")
+  impressions   Int      @default(0)
+  clicks        Int      @default(0)
+  ctr           Decimal? @db.Decimal(8, 4)
+  adConversions Int      @default(0) @map("ad_conversions")
+  conversionRate Decimal? @map("conversion_rate") @db.Decimal(8, 4)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, date])
+  @@index([campaignName, period])
+  @@index([vendorItemId])
+  @@map("ad_product_snapshots")
 }

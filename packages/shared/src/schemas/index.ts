@@ -57,8 +57,8 @@ export { ThumbnailListItemSchema, ThumbnailSummarySchema } from './thumbnails.js
 export type { ThumbnailListItem, ThumbnailSummary } from './thumbnails.js';
 
 // Ads
-export { AdsListItemSchema, AdsHubDataSchema } from './ads.js';
-export type { AdsListItem, AdsHubData, AdsSummary } from './ads.js';
+export { AdsListItemSchema, AdsHubDataSchema, AdCampaignSnapshotSchema, AdProductSnapshotSchema, AdBenchmarkDataSchema, AdTrendsDataSchema, AdStrategyPlanSchema, AdRulesDataSchema } from './ads.js';
+export type { AdsListItem, AdsHubData, AdsSummary, AdCampaignSnapshot, AdProductSnapshot, AdBenchmarkData, AdTrendsData, AdStrategyPlan, AdRulesData } from './ads.js';
 
 // Alerts
 export { AlertItemSchema } from './alerts.js';

@@ -43,3 +43,114 @@ export const AdsHubDataSchema = z.object({
 export type AdsListItem = z.infer<typeof AdsListItemSchema>;
 export type AdsHubData = z.infer<typeof AdsHubDataSchema>;
 export type AdsSummary = AdsHubData['summary'];
+
+// ─── Ad Campaign Snapshot ─────────────────────────────────────────────────────
+
+export const AdCampaignSnapshotSchema = z.object({
+  id: z.string(),
+  companyId: z.string(),
+  campaignName: z.string(),
+  period: z.string(),
+  date: z.string(),
+  onOff: z.string().nullable(),
+  status: z.string().nullable(),
+  adSpend: z.number(),
+  adRevenue: z.number(),
+  totalRevenue: z.number(),
+  impressions: z.number(),
+  clicks: z.number(),
+  ctr: z.number().nullable(),
+  conversions: z.number(),
+  orders: z.number(),
+  roas: z.number().nullable(),
+  conversionRate: z.number().nullable(),
+  budget: z.number().nullable(),
+  todaySpend: z.number().nullable(),
+  createdAt: z.string(),
+});
+
+export type AdCampaignSnapshot = z.infer<typeof AdCampaignSnapshotSchema>;
+
+// ─── Ad Product Snapshot ──────────────────────────────────────────────────────
+
+export const AdProductSnapshotSchema = z.object({
+  id: z.string(),
+  companyId: z.string(),
+  campaignName: z.string(),
+  period: z.string(),
+  date: z.string(),
+  productName: z.string(),
+  vendorItemId: z.string().nullable(),
+  onOff: z.string().nullable(),
+  status: z.string().nullable(),
+  keyword: z.string().nullable(),
+  adSpend: z.number(),
+  adRevenue: z.number(),
+  impressions: z.number(),
+  clicks: z.number(),
+  ctr: z.number().nullable(),
+  adConversions: z.number(),
+  conversionRate: z.number().nullable(),
+  createdAt: z.string(),
+});
+
+export type AdProductSnapshot = z.infer<typeof AdProductSnapshotSchema>;
+
+// ─── Ad Benchmark Data ────────────────────────────────────────────────────────
+
+export const AdBenchmarkDataSchema = z.object({
+  metrics: z.array(z.object({
+    name: z.string(),
+    label: z.string(),
+    myValue: z.number(),
+    industryAvg: z.number(),
+    unit: z.string(),
+    status: z.enum(['excellent', 'good', 'average', 'below', 'poor']),
+  })),
+  overallGrade: z.string(),
+  priorityActions: z.array(z.string()),
+});
+
+export type AdBenchmarkData = z.infer<typeof AdBenchmarkDataSchema>;
+
+// ─── Ad Trends Data ───────────────────────────────────────────────────────────
+
+export const AdTrendsDataSchema = z.object({
+  labels: z.array(z.string()),
+  datasets: z.object({
+    adSpend: z.array(z.number()),
+    adRevenue: z.array(z.number()),
+    roas: z.array(z.number()),
+  }),
+});
+
+export type AdTrendsData = z.infer<typeof AdTrendsDataSchema>;
+
+// ─── Ad Strategy Plan ─────────────────────────────────────────────────────────
+
+export const AdStrategyPlanSchema = z.object({
+  grade: z.string(),
+  title: z.string(),
+  description: z.string(),
+  actions: z.array(z.object({
+    action: z.string(),
+    priority: z.enum(['urgent', 'high', 'medium', 'low']),
+  })),
+});
+
+export type AdStrategyPlan = z.infer<typeof AdStrategyPlanSchema>;
+
+// ─── Ad Rules Data ────────────────────────────────────────────────────────────
+
+export const AdRulesDataSchema = z.object({
+  rules: z.array(z.object({
+    id: z.string(),
+    name: z.string(),
+    condition: z.string(),
+    grade: z.string(),
+    priority: z.enum(['urgent', 'high', 'medium', 'low']),
+    action: z.string(),
+  })),
+});
+
+export type AdRulesData = z.infer<typeof AdRulesDataSchema>;

@@ -1,5 +1,6 @@
 import type { AdapterModule } from './types';
 import { claudeLocalAdapter } from './claude-local/execute';
+import { pythonHttpAdapter } from './python-http/execute';
 
 /**
  * Adapter Registry — type → 구현체 매핑.
@@ -7,6 +8,7 @@ import { claudeLocalAdapter } from './claude-local/execute';
  */
 const adaptersByType = new Map<string, AdapterModule>([
   [claudeLocalAdapter.type, claudeLocalAdapter],
+  [pythonHttpAdapter.type, pythonHttpAdapter],
 ]);
 
 export function getAdapter(type: string): AdapterModule {

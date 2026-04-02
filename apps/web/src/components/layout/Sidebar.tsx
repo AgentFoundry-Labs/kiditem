@@ -27,6 +27,7 @@ import {
   Target,
   LineChart,
   Activity,
+  Download,
   Coins,
   BookOpen,
   Store,
@@ -73,11 +74,13 @@ const navSections: NavSection[] = [
     ],
   },
   {
-    title: '광고 전략',
+    title: '광고 관리',
     items: [
-      { href: '/ads/strategy', label: '광고 전략 AI', icon: Target },
-      { href: '/ads/benchmark', label: '업계 진단', icon: BarChart3 },
-      { href: '/ads-hub', label: '광고 대시보드', icon: Megaphone },
+      { href: '/ads', label: '광고 대시보드', icon: Megaphone },
+      { href: '/ads/campaigns', label: '캠페인 분석', icon: BarChart3 },
+      { href: '/ads/strategy', label: 'ABC 전략', icon: Target },
+      { href: '/ads/benchmark', label: '업계 벤치마크', icon: Activity },
+      { href: '/ads/collect', label: '데이터 수집', icon: Download },
     ],
   },
   {
@@ -123,12 +126,18 @@ export default function Sidebar() {
 
   // Design Ref: §6 — 에이전트 서브페이지 활성 표시를 위한 정확 매칭
   const agentSubPaths = ['/agents/activity', '/agents/costs', '/agents/skills'];
+  const adsSubPaths = ['/ads/campaigns', '/ads/strategy', '/ads/benchmark', '/ads/collect'];
   const isActive = (href: string) => {
     if (href === '/') return pathname === '/';
     if (href === '/agents') {
       return pathname === '/agents' ||
         (pathname.startsWith('/agents/') &&
          !agentSubPaths.some(sub => pathname.startsWith(sub)));
+    }
+    if (href === '/ads') {
+      return pathname === '/ads' ||
+        (pathname.startsWith('/ads/') &&
+         !adsSubPaths.some(sub => pathname.startsWith(sub)));
     }
     return pathname.startsWith(href);
   };

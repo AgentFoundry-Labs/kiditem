@@ -1,15 +1,14 @@
-# agents — Python Background Workers
+# agents — Python Agent Server
 
-Background agents. No HTTP server. Task detection via DB polling.
-For generation/processing tasks only (images, content, sourcing). Judgment/analysis runs on Claude CLI → `apps/server/src/agent-registry/`.
+FastAPI HTTP 서버. NestJS python_http adapter가 호출. content, image_edit 에이전트 실행.
 
 ## Run
 
 ```bash
 cd agents
 python -m venv .venv && source .venv/bin/activate
-pip install asyncpg python-dotenv httpx openai pydantic websockets structlog
-DATABASE_URL="..." python -m src.runner
+pip install -r requirements.txt   # or: pip install -e .
+uvicorn src.server:app --host 0.0.0.0 --port 8001 --reload
 ```
 
 Env: `.env` (see `.env.example`)
@@ -17,13 +16,11 @@ Env: `.env` (see `.env.example`)
 ## Architecture
 
 ```
-NestJS POST /api/agent-tasks → agent_tasks table INSERT
-                                     ↓
-Python runner (polling) → claim task (FOR UPDATE SKIP LOCKED)
-                                     ↓
-Agent.execute() → DB read/write → record result
-                                     ↓
-agent_tasks.status = completed/failed
+NestJS HeartbeatService → python_http adapter
+  → POST http://localhost:8001/run { agent_type, input, run_id }
+    → FastAPI server → Agent.execute(pool, input)
+    → JSON response { output: {...} }
+  → HeartbeatRun 기록 (Safety Pipeline 적용)
 ```
 
 ## Adding an Agent
@@ -31,7 +28,8 @@ agent_tasks.status = completed/failed
 1. Create `BaseAgent` subclass in `src/agents/{name}.py` (or `{name}/`)
 2. Define `agent_type` class variable
 3. Implement `async execute(pool, task_input) -> dict`
-4. Register in `AGENTS` dict in `src/runner.py`
+4. Register in `AGENTS` dict in `src/server.py`
+5. DB에 AgentDefinition 등록 (`adapterType: 'python_http'`)
 
 ## DB Access
 
@@ -47,7 +45,6 @@ Table/column names: snake_case (Prisma `@@map` mapped DB names).
 ## Rules
 
 - No SQLAlchemy — asyncpg raw SQL only
-- No HTTP server — pure background worker
 - No direct imports between agents — communicate via DB state only
 - No `app.` imports — all imports use `src.`
 - Use Langfuse `@observe` — integrated with content pipeline (SDK v4, `from langfuse import observe`)

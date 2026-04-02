@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "npm run dev --workspace=apps/web",
     "dev:server": "npm run start:dev --workspace=apps/server",
-    "dev:agents": "cd agents && .venv/bin/python -m src.runner",
+    "dev:agents": "cd agents && .venv/bin/uvicorn src.server:app --host 0.0.0.0 --port 8001 --reload",
     "dev:all": "concurrently -n web,server,agents -c blue,green,yellow \"npm run dev\" \"npm run dev:server\" \"npm run dev:agents\"",
     "build": "npm run build --workspace=apps/web && npm run build --workspace=apps/server",
     "db:generate": "prisma generate --schema=prisma/schema.prisma",
