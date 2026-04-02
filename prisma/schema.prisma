@@ -102,6 +102,7 @@ model Company {
   agentWakeupRequests   AgentWakeupRequest[]
   agentWorkflows        AgentWorkflow[]
   agentPermissionDenials AgentPermissionDenial[]
+  agentActionSnapshots   AgentActionSnapshot[]
 
   @@map("companies")
 }
@@ -778,6 +779,10 @@ model AgentDefinition {
   skills       String[] @default([])
   deniedSkills String[] @default([]) @map("denied_skills")
 
+  // Business Safety
+  actionCap  Json @default("{}") @map("action_cap") @db.JsonB
+  trustLevel Int  @default(0) @map("trust_level")
+
   // Prompt & Tools (기존)
   promptTemplate String @map("prompt_template") @db.Text
   allowedTools   String @default("Bash(psql:*) Bash(curl:*) Read") @map("allowed_tools")
@@ -813,6 +818,7 @@ model AgentDefinition {
   wakeupRequests AgentWakeupRequest[]
   workflows      AgentWorkflow[]
   permissionDenials AgentPermissionDenial[]
+  actionSnapshots   AgentActionSnapshot[]
 
   @@index([companyId])
   @@index([type])
@@ -979,6 +985,29 @@ model AgentPermissionDenial {
 
   @@index([companyId, agentId, createdAt])
   @@map("agent_permission_denials")
+}
+
+// ─── Agent Action Snapshots (Business Safety) ────────────────────────────────
+
+model AgentActionSnapshot {
+  id          String    @id @default(uuid()) @db.Uuid
+  companyId   String    @map("company_id") @db.Uuid
+  runId       String    @map("run_id") @db.Uuid
+  agentId     String    @map("agent_id") @db.Uuid
+  tableName   String    @map("table_name")
+  recordId    String    @map("record_id")
+  fieldName   String    @map("field_name")
+  valueBefore Json      @map("value_before")
+  valueAfter  Json      @map("value_after")
+  restoredAt  DateTime? @map("restored_at") @db.Timestamptz
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  agent   AgentDefinition @relation(fields: [agentId], references: [id])
+  company Company         @relation(fields: [companyId], references: [id])
+
+  @@index([runId])
+  @@index([agentId, createdAt])
+  @@map("agent_action_snapshots")
 }
 
 // ─── Sourcing: Douyin ─────────────────────────────────────────────────────────

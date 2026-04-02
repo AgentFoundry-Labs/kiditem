@@ -26,6 +26,14 @@ export const DEFAULT_AGENT_DEFINITIONS = [
     type: 'ad_strategy',
     description: 'agent-config/rules/operations.md 규칙 기반 쿠팡 광고 판단 및 조정',
 
+    // Business Safety
+    trustLevel: 2,  // 기존 운영 중 → 신뢰됨
+    actionCap: {
+      maxBudgetChangePct: 30,
+      maxAffectedProducts: 50,
+      dailySpendLimit: 500000,
+    },
+
     // Adapter
     adapterType: 'claude_local',
     adapterConfig: { command: 'claude' },
@@ -114,6 +122,8 @@ export const DEFAULT_AGENT_DEFINITIONS = [
   {
     name: '건강도 평가 에이전트',
     type: 'rules_evaluation',
+    trustLevel: 2,
+    actionCap: {},
     description: 'agent-config/rules/health-rules.md 기반 상품 건강도 평가 및 위반사항 감지',
 
     // Adapter
@@ -210,6 +220,8 @@ export const DEFAULT_AGENT_DEFINITIONS = [
   {
     name: '규칙 임계값 추천 에이전트',
     type: 'rules_suggest',
+    trustLevel: 2,
+    actionCap: {},
     description: '상품 데이터 분포 기반 규칙 임계값 자동 추천',
 
     // Adapter
@@ -254,6 +266,8 @@ export const DEFAULT_AGENT_DEFINITIONS = [
   {
     name: '운영 매니저',
     type: 'manager',
+    trustLevel: 2,
+    actionCap: {},
     description: '셀러 운영 총괄. 셀러의 자유 질문에 답하고, 필요 시 specialist 에이전트에게 위임.',
 
     // Adapter
@@ -336,6 +350,8 @@ export const DEFAULT_AGENT_DEFINITIONS = [
     name: '가격 조정 에이전트',
     type: 'pricing',
     isActive: false,
+    trustLevel: 0,  // 비활성 → 신규 → dry-run 강제
+    actionCap: { maxPriceChangePct: 20, maxAffectedProducts: 30 },
     description: '상품 가격 최적화. 마진율, 경쟁사 가격, 광고 효율 기반 가격 조정 추천.',
 
     adapterType: 'claude_local',
@@ -405,6 +421,8 @@ export const DEFAULT_AGENT_DEFINITIONS = [
     name: '재고 알림 에이전트',
     type: 'inventory_alert',
     isActive: false,
+    trustLevel: 0,
+    actionCap: { maxAffectedProducts: 50, maxOrderAmount: 1000000 },
     description: '재고 부족/과잉 감지 및 발주 추천.',
 
     adapterType: 'claude_local',
@@ -474,6 +492,8 @@ export const DEFAULT_AGENT_DEFINITIONS = [
     name: '리뷰 모니터링 에이전트',
     type: 'review_monitor',
     isActive: false,
+    trustLevel: 0,
+    actionCap: {},
     description: '리뷰 분석 및 품질 이슈 조기 감지.',
 
     adapterType: 'claude_local',

@@ -53,4 +53,9 @@ export const AGENT_EVENTS = {
   PERMISSION_DENIED: 'agent.permission.denied',
   DELEGATION_REQUESTED: 'agent.delegation.requested',
   VALIDATION_RETRY: 'agent.validation.retry',
+  ACTION_CAP_VIOLATED: 'agent.action_cap.violated',
+  TRUST_LEVEL_CHANGED: 'agent.trust_level.changed',
+  DRY_RUN_FORCED: 'agent.dry_run.forced',
+  SNAPSHOT_CREATED: 'agent.snapshot.created',
+  ROLLBACK_EXECUTED: 'agent.rollback.executed',
 } as const;

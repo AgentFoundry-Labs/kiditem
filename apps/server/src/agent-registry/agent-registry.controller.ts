@@ -15,6 +15,7 @@ import {
 } from './dto';
 import { DelegationService } from './delegation/delegation.service';
 import { DenialTrackerService } from './safety/denial-tracker.service';
+import { SnapshotService } from './business-safety/snapshot.service';
 
 @Controller('agent-registry')
 export class AgentRegistryController {
@@ -23,6 +24,7 @@ export class AgentRegistryController {
     private readonly sseService: AgentSseService,
     @Optional() private readonly delegationService?: DelegationService,
     @Optional() private readonly denialTracker?: DenialTrackerService,
+    @Optional() private readonly snapshotService?: SnapshotService,
   ) {}
 
   @Get()
@@ -144,5 +146,24 @@ export class AgentRegistryController {
   getDenials(@Param('id') id: string) {
     if (!this.denialTracker) return [];
     return this.denialTracker.listDenials(id);
+  }
+
+  // ── Business Safety: Snapshots + Rollback ──
+
+  @Get('runs/:runId/snapshots')
+  getSnapshots(@Param('runId') runId: string) {
+    if (!this.snapshotService) return [];
+    return this.snapshotService.getSnapshots(runId);
+  }
+
+  @Post('runs/:runId/rollback')
+  rollback(@Param('runId') runId: string) {
+    if (!this.snapshotService) return { restored: 0 };
+    return this.snapshotService.rollback(runId);
+  }
+
+  @Patch(':id/trust-level')
+  async updateTrustLevel(@Param('id') id: string, @Body() body: { trustLevel: number }) {
+    return this.service.update(id, { trustLevel: body.trustLevel });
   }
 }

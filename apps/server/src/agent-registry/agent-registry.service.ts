@@ -1,9 +1,11 @@
-import { Injectable, Logger, OnModuleInit, NotFoundException, BadRequestException, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, NotFoundException, BadRequestException, Inject, forwardRef, Optional } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { HeartbeatService } from './heartbeat/heartbeat.service';
 import { DEFAULT_AGENT_DEFINITIONS } from './seed-agents';
 import type { DailyCost, AgentCostSummary, CostAnalytics } from '@kiditem/shared';
 import { validateAllowedTools } from './safety/dangerous-patterns';
+import { SafetyPipelineService } from './business-safety/safety-pipeline.service';
+import { DryRunGateService } from './business-safety/dry-run-gate.service';
 
 export interface OrgNode {
   id: string;
@@ -25,6 +27,8 @@ export class AgentRegistryService implements OnModuleInit {
     private readonly prisma: PrismaService,
     @Inject(forwardRef(() => HeartbeatService))
     private readonly heartbeat: HeartbeatService,
+    @Optional() private readonly safetyPipeline?: SafetyPipelineService,
+    @Optional() private readonly dryRunGate?: DryRunGateService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -222,13 +226,47 @@ export class AgentRegistryService implements OnModuleInit {
   }
 
   /**
-   * 범용 결과 수신: completeTask + activity_event.
+   * 범용 결과 수신: Safety Pipeline → completeTask → activity_event.
    */
   async receiveResults(
     taskId: string,
-    body: { actions?: unknown[]; summary?: Record<string, unknown>; tokensUsed?: number },
+    body: { actions?: unknown[]; summary?: Record<string, unknown>; tokensUsed?: number; dry_run?: boolean },
   ): Promise<{ ok: boolean }> {
-    const task = await this.completeTask(taskId, body);
+    const task = await this.prisma.agentTask.findUnique({ where: { id: taskId } });
+    if (!task) throw new NotFoundException(`Task ${taskId} not found`);
+
+    const input = task.input as any;
+    const agentDef = input?.definitionId
+      ? await this.prisma.agentDefinition.findUnique({ where: { id: input.definitionId } })
+      : null;
+
+    // ── Business Safety Pipeline ──
+    if (agentDef && this.safetyPipeline) {
+      const safety = await this.safetyPipeline.validate({
+        agentId: agentDef.id,
+        trustLevel: (agentDef as any).trustLevel ?? 0,
+        actionCap: (agentDef as any).actionCap ?? {},
+        runId: input?._run_id ?? taskId,
+        companyId: task.companyId ?? '',
+        body: body as any,
+      });
+
+      if (!safety.allowed) {
+        await this.prisma.agentTask.update({
+          where: { id: taskId },
+          data: { status: 'failed', error: `ActionCap: ${safety.blockedActions.map(b => b.reason).join(', ')}` },
+        });
+        this.logger.warn(`Task ${taskId} blocked by ActionCap: ${safety.blockedActions.length} violations`);
+        return { ok: false } as any;
+      }
+
+      if (safety.dryRunForced) {
+        (body as any).dry_run = true;
+      }
+    }
+
+    // 기존 흐름
+    await this.completeTask(taskId, body);
 
     if (task.companyId) {
       await this.prisma.activityEvent.create({
@@ -242,6 +280,21 @@ export class AgentRegistryService implements OnModuleInit {
           data: body as any,
         },
       });
+    }
+
+    // ── PostVerification 예약 ──
+    if (agentDef && this.safetyPipeline && !(body as any).dry_run) {
+      await this.safetyPipeline.scheduleVerification({
+        agentId: agentDef.id,
+        runId: input?._run_id ?? taskId,
+        companyId: task.companyId ?? '',
+        trustLevel: (agentDef as any).trustLevel ?? 0,
+      });
+    }
+
+    // ── TrustLevel 조정 ──
+    if (agentDef && this.dryRunGate) {
+      await this.dryRunGate.adjustTrust(agentDef.id, true);
     }
 
     return { ok: true };
