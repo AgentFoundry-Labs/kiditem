@@ -254,7 +254,7 @@ export class AgentRegistryService implements OnModuleInit {
       if (!safety.allowed) {
         await this.prisma.agentTask.update({
           where: { id: taskId },
-          data: { status: 'failed', error: `ActionCap: ${safety.blockedActions.map(b => b.reason).join(', ')}` },
+          data: { status: 'blocked', error: `ActionCap: ${safety.blockedActions.map(b => b.reason).join(', ')}` },
         });
         this.logger.warn(`Task ${taskId} blocked by ActionCap: ${safety.blockedActions.length} violations`);
         return { ok: false } as any;
@@ -311,6 +311,10 @@ export class AgentRegistryService implements OnModuleInit {
   }
 
   // ── Heartbeat 관리 API ──
+
+  async getRunById(runId: string) {
+    return this.prisma.heartbeatRun.findUnique({ where: { id: runId } });
+  }
 
   async getRunHistory(agentId: string, limit = 20) {
     return this.prisma.heartbeatRun.findMany({

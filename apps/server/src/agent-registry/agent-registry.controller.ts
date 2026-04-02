@@ -156,6 +156,20 @@ export class AgentRegistryController {
     return this.snapshotService.getSnapshots(runId);
   }
 
+  @Get('runs/:runId/reasoning')
+  async getReasoning(@Param('runId') runId: string) {
+    const run = await this.service.getRunById(runId);
+    if (!run?.resultJson) return { actions: [] };
+    const result = run.resultJson as any;
+    const actions = (result.actions || []).map((a: any) => ({
+      product_id: a.product_id,
+      action: a.action,
+      reason: a.reason,
+      reasoning: a.reasoning ?? null,
+    }));
+    return { actions };
+  }
+
   @Post('runs/:runId/rollback')
   rollback(@Param('runId') runId: string) {
     if (!this.snapshotService) return { restored: 0 };
