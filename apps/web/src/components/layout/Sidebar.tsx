@@ -68,6 +68,7 @@ const navSections: NavSection[] = [
       { href: '/orders', label: '주문 조회', icon: ShoppingCart },
       { href: '/cs-management', label: 'CS 관리', icon: Headphones },
       { href: '/unshipped-items', label: '미배송 조회', icon: AlertTriangle },
+      { href: '/purchase-orders', label: '발주 관리', icon: Package },
       { href: '/returns', label: '반품 관리', icon: RotateCcw },
       { href: '/inventory', label: '재고 현황', icon: Warehouse },
       { href: '/reviews', label: '리뷰 관리', icon: MessageSquare },

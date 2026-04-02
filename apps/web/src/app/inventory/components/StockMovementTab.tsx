@@ -7,8 +7,8 @@ import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
 import { formatKRW } from '@/lib/utils';
-import { StockMovementSummaryCard } from './components/StockMovementSummaryCard';
-import { StockMovementTable, type GroupedRow } from './components/StockMovementTable';
+import { StockMovementSummaryCard } from './StockMovementSummaryCard';
+import { StockMovementTable, type GroupedRow } from './StockMovementTable';
 
 interface Summary {
   inQty: number;
@@ -30,7 +30,7 @@ const PERIOD_OPTIONS = [
   { value: '90', label: '90일' },
 ] as const;
 
-export default function StockMovementPage() {
+export function StockMovementTab() {
   const queryClient = useQueryClient();
   const [groupBy, setGroupBy] = useState<string>('product');
   const [dateRange, setDateRange] = useState('30');
@@ -64,7 +64,6 @@ export default function StockMovementPage() {
         <div className="flex items-center gap-3">
           <ArrowUpDown size={20} className="text-indigo-500" />
           <div>
-            <h1 className="text-lg font-bold text-gray-900">입출고 현황</h1>
             <p className="text-sm text-gray-500">{total}건 거래 내역</p>
           </div>
         </div>
@@ -95,30 +94,10 @@ export default function StockMovementPage() {
       </div>
 
       <div className="grid grid-cols-4 gap-3">
-        <StockMovementSummaryCard
-          icon={<TrendingUp size={14} className="text-green-500" />}
-          label="입고 수량"
-          value={formatKRW(summary.inQty)}
-          color="text-green-700"
-        />
-        <StockMovementSummaryCard
-          icon={<TrendingDown size={14} className="text-red-500" />}
-          label="출고 수량"
-          value={formatKRW(summary.outQty)}
-          color="text-red-600"
-        />
-        <StockMovementSummaryCard
-          icon={<TrendingUp size={14} className="text-green-500" />}
-          label="입고 금액"
-          value={`${formatKRW(summary.inAmount)}원`}
-          color="text-green-700"
-        />
-        <StockMovementSummaryCard
-          icon={<TrendingDown size={14} className="text-red-500" />}
-          label="출고 금액"
-          value={`${formatKRW(summary.outAmount)}원`}
-          color="text-red-600"
-        />
+        <StockMovementSummaryCard icon={<TrendingUp size={14} className="text-green-500" />} label="입고 수량" value={formatKRW(summary.inQty)} color="text-green-700" />
+        <StockMovementSummaryCard icon={<TrendingDown size={14} className="text-red-500" />} label="출고 수량" value={formatKRW(summary.outQty)} color="text-red-600" />
+        <StockMovementSummaryCard icon={<TrendingUp size={14} className="text-green-500" />} label="입고 금액" value={`${formatKRW(summary.inAmount)}원`} color="text-green-700" />
+        <StockMovementSummaryCard icon={<TrendingDown size={14} className="text-red-500" />} label="출고 금액" value={`${formatKRW(summary.outAmount)}원`} color="text-red-600" />
       </div>
 
       <div className="flex gap-1 border-b border-gray-200">
@@ -127,9 +106,7 @@ export default function StockMovementPage() {
             key={tab.key}
             onClick={() => setGroupBy(tab.key)}
             className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-              groupBy === tab.key
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
+              groupBy === tab.key ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'
             }`}
           >
             {tab.label}
@@ -141,4 +118,3 @@ export default function StockMovementPage() {
     </div>
   );
 }
-

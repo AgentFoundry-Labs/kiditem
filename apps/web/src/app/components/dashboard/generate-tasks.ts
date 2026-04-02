@@ -17,12 +17,12 @@ export function generateTasksAndActions(d: DashboardData): { tasks: HumanTask[];
     tasks.push({
       id: 'h-minus-ad-stop', label: `적자 상품 ${w.minusProducts}개 — 광고 중단 처리`,
       detail: '쿠팡 광고센터에서 적자 상품 캠페인 OFF 처리',
-      where: '쿠팡 광고센터', priority: 'urgent', href: '/cleanup',
+      where: '쿠팡 광고센터', priority: 'urgent', href: '/products?grade=C',
     });
     tasks.push({
       id: 'h-minus-price', label: `적자 상품 ${w.minusProducts}개 — 판매가 인상 검토`,
       detail: '경쟁사 가격 확인 후 마진 확보 가능한 상품 가격 조정',
-      where: '쿠팡 윙', priority: 'high', href: '/cleanup',
+      where: '쿠팡 윙', priority: 'high', href: '/products?grade=C',
     });
   }
   if (w.needReorder > 0) {
@@ -43,7 +43,7 @@ export function generateTasksAndActions(d: DashboardData): { tasks: HumanTask[];
     tasks.push({
       id: 'h-low-profit', label: `저이익 ${w.lowProfitProducts}개 — 소싱처/수수료 재검토`,
       detail: '원가 절감 가능한 소싱처 확인, 카테고리 수수료율 점검',
-      where: '소싱처/쿠팡 윙', priority: 'medium', href: '/cleanup',
+      where: '소싱처/쿠팡 윙', priority: 'medium', href: '/products?grade=C',
     });
   }
 
@@ -55,7 +55,7 @@ export function generateTasksAndActions(d: DashboardData): { tasks: HumanTask[];
   if (w.minusProducts > 0 || w.lowProfitProducts > 0) {
     actions.push({
       id: 'view-cleanup', label: '정리대상 상품 분석 보기', desc: `적자 ${w.minusProducts}개 + 저이익 ${w.lowProfitProducts}개 원인 분석`,
-      priority: 'high', href: '/cleanup',
+      priority: 'high', href: '/products?grade=C',
     });
   }
   if (w.highAdProducts > 0) {

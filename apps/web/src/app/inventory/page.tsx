@@ -12,12 +12,14 @@ import { InventoryToolbar } from './components/InventoryToolbar';
 import { InventorySummaryCards } from './components/InventorySummaryCards';
 import { InventoryFilterTabs } from './components/InventoryFilterTabs';
 import { InventoryTable } from './components/InventoryTable';
+import { StockMovementTab } from './components/StockMovementTab';
 import { printBarcodeWindow } from './lib/barcode-print';
 
 const DEFAULT_SUMMARY: InventorySummary = { total: 0, reorderCount: 0, outOfStockCount: 0, unsyncedCount: 0, overstockCount: 0 };
 
 export default function InventoryPage() {
   const queryClient = useQueryClient();
+  const [activeTab, setActiveTab] = useState<'stock' | 'movement'>('stock');
   const [filter, setFilter] = useState("all");
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 50;
@@ -158,6 +160,26 @@ export default function InventoryPage() {
 
   return (
     <div className="space-y-6">
+      {/* Tab Toggle */}
+      <div className="flex gap-1 border-b border-gray-200">
+        <button
+          onClick={() => setActiveTab('stock')}
+          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab === 'stock' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+        >
+          재고 현황
+        </button>
+        <button
+          onClick={() => setActiveTab('movement')}
+          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab === 'movement' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+        >
+          입출고 현황
+        </button>
+      </div>
+
+      {activeTab === 'movement' ? (
+        <StockMovementTab />
+      ) : (
+      <>
       <InventoryToolbar
         syncing={syncing}
         syncInfo={syncInfo}
@@ -178,6 +200,8 @@ export default function InventoryPage() {
       <div className="bg-blue-50 rounded-xl p-4 border border-blue-200 text-sm text-blue-800">
         다음 정기 재고 점검: <strong>2개월 주기</strong> | 적정재고 = 일평균판매량 x (리드타임 + 안전일수7일)
       </div>
+      </>
+      )}
     </div>
   );
 }

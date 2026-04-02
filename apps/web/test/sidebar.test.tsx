@@ -31,43 +31,45 @@ beforeEach(() => {
 import Sidebar from '@/components/layout/Sidebar';
 
 const EXPECTED_SECTIONS = [
-  '소싱',
-  '주문',
-  '상품',
-  '재고',
-  '출고',
+  '상품 파이프라인',
+  '주문·물류',
+  '광고 관리',
   '분석',
-  '운영',
-  '자동화',
+  '에이전트',
 ];
 
 const EXPECTED_NAV_ITEMS: { label: string; href: string }[] = [
+  { label: '대시보드', href: '/' },
   { label: '소싱/수집', href: '/sourcing' },
   { label: '콘텐츠 생성', href: '/generate' },
-  { label: '대시보드', href: '/' },
+  { label: '상품 관리', href: '/products' },
+  { label: '썸네일 AI', href: '/thumbnails' },
   { label: '주문 조회', href: '/orders' },
   { label: 'CS 관리', href: '/cs-management' },
   { label: '미배송 조회', href: '/unshipped-items' },
-  { label: '상품 관리', href: '/products' },
-  { label: '핵심상품', href: '/core-products' },
-  { label: '정리대상', href: '/cleanup' },
-  { label: '재고 현황', href: '/inventory' },
   { label: '발주 관리', href: '/purchase-orders' },
-  { label: '입출고 현황', href: '/stock-movement' },
   { label: '반품 관리', href: '/returns' },
+  { label: '재고 현황', href: '/inventory' },
+  { label: '리뷰 관리', href: '/reviews' },
+  { label: '광고 대시보드', href: '/ads' },
+  { label: '캠페인 분석', href: '/ads/campaigns' },
+  { label: 'ABC 전략', href: '/ads/strategy' },
+  { label: '업계 벤치마크', href: '/ads/benchmark' },
+  { label: '데이터 수집', href: '/ads/collect' },
   { label: '손익 분석', href: '/profit-loss' },
   { label: '통합매출분석', href: '/sales-analysis' },
-  { label: '리뷰 관리', href: '/reviews' },
-  { label: '썸네일 AI', href: '/thumbnails' },
-  { label: 'Ontology', href: '/ontology' },
   { label: '리포트', href: '/reports' },
-  { label: '설정', href: '/settings' },
+  { label: '에이전트 관리', href: '/agents' },
   { label: '워크플로우', href: '/workflows' },
-  { label: '실행 로그', href: '/logs' },
+  { label: '마켓플레이스', href: '/marketplace' },
+  { label: '활동 로그', href: '/agents/activity' },
+  { label: '비용 분석', href: '/agents/costs' },
+  { label: '스킬 카탈로그', href: '/agents/skills' },
+  { label: '설정', href: '/settings' },
 ];
 
 describe('Sidebar', () => {
-  it('renders all 8 section titles', () => {
+  it('renders all 5 section titles', () => {
     render(<Sidebar />);
     for (const section of EXPECTED_SECTIONS) {
       expect(screen.getByText(section)).toBeInTheDocument();
