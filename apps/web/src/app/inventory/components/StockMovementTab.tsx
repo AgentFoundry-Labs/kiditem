@@ -42,7 +42,7 @@ export function StockMovementTab() {
       const days = daysMap[dateRange] || 7;
       const from = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
       return apiClient.get<{ total: number; grouped: GroupedRow[]; summary: Summary }>(
-        `/api/stock-movement?from=${from}&groupBy=${groupBy}&limit=500`,
+        `/api/stock-movement?from=${from}&groupBy=${groupBy}&limit=200`,
       );
     },
   });
