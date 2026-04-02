@@ -42,7 +42,6 @@ export const queryKeys = {
   ads: {
     all: ['ads'] as const,
     list: () => [...queryKeys.ads.all, 'list'] as const,
-    hub: () => [...queryKeys.ads.all, 'hub'] as const,
     campaigns: (period?: string) => [...queryKeys.ads.all, 'campaigns', period] as const,
     campaignProducts: (name: string, period?: string) => [...queryKeys.ads.all, 'campaigns', name, period] as const,
     trends: (days?: number) => [...queryKeys.ads.all, 'trends', days] as const,

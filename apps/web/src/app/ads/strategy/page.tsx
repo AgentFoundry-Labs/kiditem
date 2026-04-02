@@ -1,13 +1,82 @@
 'use client';
 
-import { Target } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { apiClient } from '@/lib/api-client';
+import { queryKeys } from '@/lib/query-keys';
+import PageSkeleton from '@/components/ui/PageSkeleton';
+import { PlanSummary } from './components/PlanSummary';
+import { GradeCards } from './components/GradeCards';
+import { RecommendCards } from './components/RecommendCards';
+import { TrendsComparison } from './components/TrendsComparison';
 
 export default function AdsStrategyPage() {
+  const { data: rulesData, isLoading: rulesLoading } = useQuery({
+    queryKey: queryKeys.ads.rules(),
+    queryFn: () => apiClient.get<{
+      summary: Record<string, number>;
+      recommendations: Array<{ rule: string; grade?: string; priority?: string; action?: string }>;
+    }>('/api/ads/strategy/rules'),
+  });
+
+  const { data: planData } = useQuery({
+    queryKey: queryKeys.ads.plan(),
+    queryFn: () => apiClient.get<{
+      generatedAt: string;
+      totalProducts: number;
+      summary: { scaleUp: number; optimize: number; reduce: number; stop: number; newStart: number };
+      budgetAllocation: Array<{ grade: string; currentPercent: number; targetPercent: number; gap: number }>;
+      keyMetrics: { totalAdSpend: number; totalAdRevenue: number; overallRoas: number };
+    }>('/api/ads/strategy/plan'),
+  });
+
+  const { data: recommendData } = useQuery({
+    queryKey: queryKeys.ads.recommend(),
+    queryFn: () => apiClient.get<{
+      cards: Array<{
+        title: string;
+        icon: string;
+        color: string;
+        items: Array<{ text: string; productName?: string; value?: string; priority: string }>;
+      }>;
+      keyMetrics: { totalAdSpend: number; totalAdRevenue: number; overallRoas: number };
+    }>('/api/ads/strategy/recommend'),
+  });
+
+  const { data: trendsData } = useQuery({
+    queryKey: queryKeys.ads.trends(14),
+    queryFn: () => apiClient.get<{
+      daily: Array<{ date: string; adSpend: number; adRevenue: number; roas: number }>;
+      comparison: Record<string, { before: number; after: number; change: number }>;
+      budgetAllocation: Array<{ grade: string; spend: number; revenue: number; pct: number; target: number; roas: number }>;
+    }>('/api/ads/campaigns/trends?days=14'),
+  });
+
+  if (rulesLoading) return <PageSkeleton variant="table" />;
+
   return (
-    <div className="flex flex-col items-center justify-center min-h-[60vh] text-gray-400">
-      <Target className="w-12 h-12 mb-4" />
-      <h1 className="text-lg font-semibold text-gray-600">광고 전략 AI</h1>
-      <p className="text-sm mt-1">실시간 데이터 기반 ABC 등급 분석 · 자동 전략 제안</p>
+    <div className="space-y-6">
+      <h1 className="text-2xl font-bold text-slate-900">광고 전략 AI</h1>
+
+      {/* Plan Summary */}
+      {planData && <PlanSummary plan={planData} />}
+
+      {/* ABC Grade Cards */}
+      <GradeCards
+        budgetAllocation={planData?.budgetAllocation}
+        rules={rulesData?.recommendations}
+      />
+
+      {/* AI Recommend Cards */}
+      {recommendData?.cards && <RecommendCards cards={recommendData.cards} />}
+
+      {/* Trends + Budget Pie */}
+      {trendsData?.daily && trendsData.comparison && trendsData.budgetAllocation && (
+        <TrendsComparison
+          daily={trendsData.daily}
+          comparison={trendsData.comparison}
+          budgetAllocation={trendsData.budgetAllocation}
+        />
+      )}
     </div>
   );
 }

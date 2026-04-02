@@ -7,6 +7,7 @@ import type { AdsListItem as AdProduct, AdsSummary as AdSummary } from '@kiditem
 import { Megaphone, TrendingDown, AlertTriangle, Download } from "lucide-react";
 import { formatKRW } from "@/lib/utils";
 import { AdsTable } from "./components/AdsTable";
+import { CampaignList } from "./components/CampaignList";
 import PageSkeleton from "@/components/ui/PageSkeleton";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { queryKeys } from "@/lib/query-keys";
@@ -17,6 +18,19 @@ export default function AdsPage() {
   const { data: rawData, isLoading: loading } = useQuery({
     queryKey: queryKeys.ads.list(),
     queryFn: () => apiClient.get<{ items?: AdProduct[]; products?: AdProduct[]; summary?: AdSummary }>('/api/ads'),
+  });
+
+  const { data: campaignData } = useQuery({
+    queryKey: queryKeys.ads.campaigns(),
+    queryFn: () => apiClient.get<{
+      totalKpi: Record<string, number>;
+      campaigns: Array<{
+        campaignName: string; adSpend: number; adRevenue: number;
+        impressions: number; clicks: number; ctr: number;
+        conversions: number; roas: number; conversionRate: number;
+        budget: number | null; todaySpend: number | null;
+      }>;
+    }>('/api/ads/campaigns'),
   });
 
   const products = useMemo(() => {
@@ -159,6 +173,11 @@ export default function AdsPage() {
           </div>
         </div>
       </div>
+
+      {/* Campaign List */}
+      {campaignData?.campaigns && campaignData.campaigns.length > 0 && (
+        <CampaignList campaigns={campaignData.campaigns} />
+      )}
 
       {/* Filter */}
       <div className="flex gap-2">

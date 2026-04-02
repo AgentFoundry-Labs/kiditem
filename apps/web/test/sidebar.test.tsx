@@ -57,7 +57,6 @@ const EXPECTED_NAV_ITEMS: { label: string; href: string }[] = [
   { label: '반품 관리', href: '/returns' },
   { label: '손익 분석', href: '/profit-loss' },
   { label: '통합매출분석', href: '/sales-analysis' },
-  { label: '광고 대시보드', href: '/ads-hub' },
   { label: '리뷰 관리', href: '/reviews' },
   { label: '썸네일 AI', href: '/thumbnails' },
   { label: 'Ontology', href: '/ontology' },

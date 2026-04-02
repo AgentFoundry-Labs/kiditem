@@ -1,0 +1,54 @@
+import {
+  Injectable,
+  BadRequestException,
+  InternalServerErrorException,
+} from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
+
+@Injectable()
+export class AdCollectService {
+  constructor(private readonly prisma: PrismaService) {}
+
+  private async getDefaultCompanyId(): Promise<string> {
+    const company = await this.prisma.company.findFirst({
+      where: { isActive: true },
+      select: { id: true },
+    });
+    if (!company) throw new InternalServerErrorException('회사 정보를 찾을 수 없습니다');
+    return company.id;
+  }
+
+  async startCollection(period?: string) {
+    throw new BadRequestException('데이터 수집 기능은 준비 중입니다.');
+  }
+
+  async getStatus() {
+    try {
+      const companyId = await this.getDefaultCompanyId();
+
+      const [lastCampaign, lastProduct, campaignCount, productCount] = await Promise.all([
+        this.prisma.adCampaignSnapshot.findFirst({
+          where: { companyId },
+          orderBy: { createdAt: 'desc' },
+          select: { createdAt: true },
+        }),
+        this.prisma.adProductSnapshot.findFirst({
+          where: { companyId },
+          orderBy: { createdAt: 'desc' },
+          select: { createdAt: true },
+        }),
+        this.prisma.adCampaignSnapshot.count({ where: { companyId } }),
+        this.prisma.adProductSnapshot.count({ where: { companyId } }),
+      ]);
+
+      return {
+        lastCollectedAt: lastCampaign?.createdAt ?? lastProduct?.createdAt ?? null,
+        campaignSnapshotCount: campaignCount,
+        productSnapshotCount: productCount,
+      };
+    } catch (e) {
+      if (e instanceof InternalServerErrorException) throw e;
+      throw new InternalServerErrorException('수집 상태 조회 실패');
+    }
+  }
+}
