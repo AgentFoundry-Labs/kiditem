@@ -537,7 +537,7 @@ export class AdStrategyService {
       const topCats = [...catMap.entries()].sort((a, b) => b[1].totalRev - a[1].totalRev).slice(0, 5);
       if (topCats.length > 0) {
         cards.push({
-          title: '카테고리별 매출 — 집중 투자 대상', icon: 'package', color: 'from-purple-50 to-violet-50 border-purple-300',
+          title: '카테고리별 매출 — 집중 투자 대상', icon: 'package', color: 'from-slate-50 to-gray-50 border-slate-300',
           items: topCats.map(([cat, data]) => ({ text: `${data.count}개 상품, 14일 매출 ${Math.round(data.totalRev).toLocaleString()}원`, productName: cat, value: data.totalSpend > 0 ? `광고비 ${Math.round(data.totalSpend).toLocaleString()}원` : '광고 미집행', priority: 'medium' })),
         });
       }
