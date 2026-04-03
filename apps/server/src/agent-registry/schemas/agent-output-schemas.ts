@@ -10,6 +10,47 @@ export const AdStrategyOutputSchema = z.object({
     action: z.enum(['stop_ad', 'increase_budget', 'decrease_budget', 'minimize_budget']),
     reason: z.string(),
   })),
+  // 등급별 규칙 추천 (getRules 대체)
+  recommendations: z.array(z.object({
+    productId: z.string().optional(),
+    name: z.string(),
+    grade: z.string(),
+    rule: z.string(),
+    action: z.string(),
+    priority: z.enum(['urgent', 'high', 'medium', 'low']),
+    roas: z.number().optional(),
+    spend: z.number().optional(),
+  })).optional(),
+
+  // AI 추천 카드 (getRecommendations 대체)
+  cards: z.array(z.object({
+    title: z.string(),
+    icon: z.string(),
+    color: z.string(),
+    items: z.array(z.object({
+      text: z.string(),
+      productName: z.string().optional(),
+      value: z.string().optional(),
+      priority: z.enum(['urgent', 'high', 'medium', 'low']),
+    })),
+  })).optional(),
+
+  // 주간 플랜 요약 (getWeeklyPlan 대체)
+  plan: z.object({
+    summary: z.object({
+      scaleUp: z.number(),
+      optimize: z.number(),
+      reduce: z.number(),
+      stop: z.number(),
+      newStart: z.number(),
+    }),
+    keyMetrics: z.object({
+      totalAdSpend: z.number(),
+      totalAdRevenue: z.number(),
+      overallRoas: z.number(),
+    }),
+  }).optional(),
+
   summary: z.object({
     total: z.number(),
     stop: z.number().optional(),

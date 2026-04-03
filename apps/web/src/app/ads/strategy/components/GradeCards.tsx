@@ -13,12 +13,6 @@ const GRADE_STYLES: Record<string, { border: string; bg: string; pillBg: string;
   C: { border: 'border-red-300', bg: 'bg-gradient-to-br from-red-50 to-pink-50/50', pillBg: 'bg-red-100 text-red-700', moreColor: 'text-red-600', ring: 'ring-red-400', headerGrad: 'from-red-500 to-pink-500' },
 };
 
-const FALLBACK_STRATEGY: Record<string, { title: string; subtitle: string; pills: string[]; budgetTarget: number }> = {
-  A: { title: '핵심 상품', subtitle: '공격 확장', pills: ['일예산 20%↑', '1차 키워드 승격', '입찰가 인상'], budgetTarget: 60 },
-  B: { title: '성장 후보', subtitle: '최적화 집중', pills: ['전환0 키워드 OFF', '입찰가 15%↓', '롱테일 확장'], budgetTarget: 30 },
-  C: { title: '정리 대상', subtitle: '손절 · 재구성', pills: ['일예산 축소', '캠페인 OFF', '가격 재검토'], budgetTarget: 10 },
-};
-
 interface RuleItem {
   rule: string;
   grade?: string;
@@ -55,8 +49,12 @@ export function GradeCards({ budgetAllocation, rules }: Props) {
 
   const totalSpend = (rules ?? []).reduce((s, r) => s + (r.spend || 0), 0);
 
+  if (!adsConfig?.gradeStrategy) {
+    return <div className="text-sm text-slate-400">설정 로딩 중...</div>;
+  }
+
   const gradeData = ['A', 'B', 'C'].map((grade) => {
-    const strategy = adsConfig?.gradeStrategy?.[grade] ?? FALLBACK_STRATEGY[grade];
+    const strategy = adsConfig.gradeStrategy[grade];
     const style = GRADE_STYLES[grade];
     const gradeRules = (rules ?? []).filter((r) => r.grade === grade);
     const gradeSpend = gradeRules.reduce((s, r) => s + (r.spend || 0), 0);
