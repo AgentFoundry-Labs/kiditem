@@ -23,7 +23,22 @@ interface PlanData {
   };
 }
 
-export function PlanSummary({ plan }: { plan: PlanData }) {
+export function PlanSummary({ plan }: { plan?: PlanData }) {
+  if (!plan) {
+    return (
+      <div className="bg-white rounded-xl p-6 border border-slate-200">
+        <h3 className="font-semibold text-slate-900 mb-4">주간 액션 플랜</h3>
+        <div className="grid grid-cols-3 md:grid-cols-5 gap-3">
+          {['확대', '최적화', '축소', '중단', '신규'].map((label) => (
+            <div key={label} className="rounded-lg p-3 border text-center bg-slate-50 border-slate-200 text-slate-400">
+              <div className="text-2xl font-bold">-</div>
+              <div className="text-xs font-medium mt-1">{label}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
   const { data: adsConfig } = useQuery({
     queryKey: queryKeys.ads.config(),
     queryFn: () => apiClient.get<{ roas: { thresholds: { excellent: number; warning: number; poor: number } } }>('/api/ads/config'),

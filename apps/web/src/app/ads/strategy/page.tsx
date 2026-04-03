@@ -65,50 +65,47 @@ export default function AdsStrategyPage() {
 
   if (rulesLoading) return <PageSkeleton variant="table" />;
 
-  const isEmpty = !rulesData?.recommendations?.length && !planData && !recommendData?.cards?.length;
+  const hasAgentData = !!(rulesData?.recommendations?.length || recommendData?.cards?.length);
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-slate-900">ABC 전략</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-slate-900">ABC 전략</h1>
+        <button
+          onClick={() => runAnalysis.mutate()}
+          disabled={runAnalysis.isPending}
+          className="flex items-center gap-2 px-4 py-2 bg-violet-600 text-white text-sm font-medium rounded-lg hover:bg-violet-700 disabled:opacity-50"
+        >
+          <Sparkles size={14} />
+          {runAnalysis.isPending ? '분석 중...' : 'AI 분석 실행'}
+        </button>
+      </div>
 
-      {isEmpty ? (
-        <div className="bg-white rounded-xl border border-slate-200 p-8 text-center">
-          <div className="text-slate-400 mb-3">
-            <Sparkles size={32} className="mx-auto mb-2 text-violet-400" />
-            <p className="text-sm">에이전트 분석 결과가 없습니다.</p>
-            <p className="text-xs text-slate-300 mt-1">AI가 광고 데이터를 분석하여 전략을 제안합니다.</p>
-          </div>
-          <button
-            onClick={() => runAnalysis.mutate()}
-            disabled={runAnalysis.isPending}
-            className="mt-3 px-4 py-2 bg-violet-600 text-white text-sm font-medium rounded-lg hover:bg-violet-700 disabled:opacity-50"
-          >
-            {runAnalysis.isPending ? '분석 중...' : 'AI 분석 실행'}
-          </button>
+      {!hasAgentData && (
+        <div className="bg-violet-50 border border-violet-200 rounded-xl px-4 py-3 text-sm text-violet-700">
+          에이전트 분석 결과가 없습니다. AI 분석을 실행하면 데이터가 채워집니다.
         </div>
-      ) : (
-        <>
-          {/* Plan Summary */}
-          {planData && <PlanSummary plan={planData} />}
+      )}
 
-          {/* ABC Grade Cards */}
-          <GradeCards
-            budgetAllocation={planData?.budgetAllocation}
-            rules={rulesData?.recommendations}
-          />
+      {/* Plan Summary — 항상 표시 */}
+      <PlanSummary plan={planData ?? undefined} />
 
-          {/* AI Recommend Cards */}
-          {recommendData?.cards && <RecommendCards cards={recommendData.cards} />}
+      {/* ABC Grade Cards — 항상 표시 */}
+      <GradeCards
+        budgetAllocation={planData?.budgetAllocation}
+        rules={rulesData?.recommendations}
+      />
 
-          {/* Trends + Budget Pie */}
-          {trendsData?.daily && trendsData.comparison && trendsData.budgetAllocation && (
-            <TrendsComparison
-              daily={trendsData.daily}
-              comparison={trendsData.comparison}
-              budgetAllocation={trendsData.budgetAllocation}
-            />
-          )}
-        </>
+      {/* AI Recommend Cards — 항상 표시 */}
+      <RecommendCards cards={recommendData?.cards ?? []} />
+
+      {/* Trends + Budget Pie — 항상 표시 */}
+      {trendsData?.daily && trendsData.comparison && trendsData.budgetAllocation && (
+        <TrendsComparison
+          daily={trendsData.daily}
+          comparison={trendsData.comparison}
+          budgetAllocation={trendsData.budgetAllocation}
+        />
       )}
     </div>
   );
