@@ -141,6 +141,19 @@ export default function AdsPage() {
         </div>
       </div>
 
+      {/* Rules */}
+      <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
+        <h4 className="font-semibold text-sm text-slate-700 mb-2"><TrendingDown size={16} className="inline mr-1" />자동 규칙</h4>
+        <div className="grid grid-cols-3 gap-3 text-xs text-slate-600">
+          <div className="bg-white p-3 rounded-lg border">광고비율 &gt; {adRateT.warning}% &rarr; <strong className="text-red-600">점검 알림</strong></div>
+          <div className="bg-white p-3 rounded-lg border">ROAS &lt; {roasT.warning}% &rarr; <strong className="text-orange-600">효율 낮음 알림</strong></div>
+          <div className="bg-white p-3 rounded-lg border">7일 연속 적자 &rarr; <strong className="text-red-600">광고 중단 추천</strong></div>
+          <div className="bg-white p-3 rounded-lg border">A등급 광고비 &lt; 80% &rarr; <strong className="text-blue-600">재배분 추천</strong></div>
+          <div className="bg-white p-3 rounded-lg border">전환율 &lt; 평균50% &rarr; <strong className="text-orange-600">개선 필요</strong></div>
+          <div className="bg-white p-3 rounded-lg border">예산 배분 기준 &rarr; <strong className="text-purple-600">1차/2차/3차 등급별</strong></div>
+        </div>
+      </div>
+
       {/* Budget Allocation */}
       <div className="grid grid-cols-2 gap-6">
         <div className="bg-white rounded-xl p-6 border border-slate-200">
@@ -210,18 +223,6 @@ export default function AdsPage() {
       {/* Table */}
       <AdsTable filtered={filtered} />
 
-      {/* Rules */}
-      <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
-        <h4 className="font-semibold text-sm text-slate-700 mb-2"><TrendingDown size={16} className="inline mr-1" />자동 규칙</h4>
-        <div className="grid grid-cols-3 gap-3 text-xs text-slate-600">
-          <div className="bg-white p-3 rounded-lg border">광고비율 &gt; 15% &rarr; <strong className="text-red-600">점검 알림</strong></div>
-          <div className="bg-white p-3 rounded-lg border">ROAS &lt; 200% &rarr; <strong className="text-orange-600">효율 낮음 알림</strong></div>
-          <div className="bg-white p-3 rounded-lg border">7일 연속 적자 &rarr; <strong className="text-red-600">광고 중단 추천</strong></div>
-          <div className="bg-white p-3 rounded-lg border">A등급 광고비 &lt; 80% &rarr; <strong className="text-blue-600">재배분 추천</strong></div>
-          <div className="bg-white p-3 rounded-lg border">전환율 &lt; 평균50% &rarr; <strong className="text-orange-600">개선 필요</strong></div>
-          <div className="bg-white p-3 rounded-lg border">예산: 1차 15 / 2차 10 / 3차 5 <strong className="text-purple-600">배분 기준</strong></div>
-        </div>
-      </div>
     </div>
   );
 }
