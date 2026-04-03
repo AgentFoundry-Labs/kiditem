@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
-// GET /api/ads 응답의 각 item + GET /api/ads/hub의 products 각 item
+// ─── GET /api/ads — 상품별 광고 현황 ─────────────────────────────────────────
+
 export const AdsListItemSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -24,7 +25,6 @@ export const AdsListItemSchema = z.object({
   adBudgetLimit: z.number(),
 });
 
-// GET /api/ads/hub 응답
 export const AdsHubDataSchema = z.object({
   products: z.array(AdsListItemSchema),
   summary: z.object({
@@ -44,7 +44,7 @@ export type AdsListItem = z.infer<typeof AdsListItemSchema>;
 export type AdsHubData = z.infer<typeof AdsHubDataSchema>;
 export type AdsSummary = AdsHubData['summary'];
 
-// ─── Ad Campaign Snapshot ─────────────────────────────────────────────────────
+// ─── Ad Campaign Snapshot ────────────────────────────────────────────────────
 
 export const AdCampaignSnapshotSchema = z.object({
   id: z.string(),
@@ -71,7 +71,7 @@ export const AdCampaignSnapshotSchema = z.object({
 
 export type AdCampaignSnapshot = z.infer<typeof AdCampaignSnapshotSchema>;
 
-// ─── Ad Product Snapshot ──────────────────────────────────────────────────────
+// ─── Ad Product Snapshot ─────────────────────────────────────────────────────
 
 export const AdProductSnapshotSchema = z.object({
   id: z.string(),
@@ -96,60 +96,140 @@ export const AdProductSnapshotSchema = z.object({
 
 export type AdProductSnapshot = z.infer<typeof AdProductSnapshotSchema>;
 
-// ─── Ad Benchmark Data ────────────────────────────────────────────────────────
+// ─── GET /api/ads/benchmark — 업계 벤치마크 진단 ─────────────────────────────
 
 export const AdBenchmarkDataSchema = z.object({
-  metrics: z.array(z.object({
-    name: z.string(),
+  myMetrics: z.object({
+    roas: z.number(),
+    ctr: z.number(),
+    cvr: z.number(),
+    cpc: z.number(),
+    adRate: z.number(),
+    acos: z.number(),
+  }),
+  industryBenchmark: z.record(z.object({
+    avg: z.number(),
+    good: z.number(),
+    excellent: z.number(),
+    poor: z.number(),
+    label: z.string(),
+  })),
+  comparisons: z.array(z.object({
+    metric: z.string(),
     label: z.string(),
     myValue: z.number(),
     industryAvg: z.number(),
-    unit: z.string(),
+    industryGood: z.number(),
+    industryExcellent: z.number(),
+    industryPoor: z.number(),
     status: z.enum(['excellent', 'good', 'average', 'below', 'poor']),
+    gap: z.number(),
+    gapPercent: z.number(),
+    strategy: z.string(),
+    actions: z.array(z.string()),
   })),
-  overallGrade: z.string(),
-  priorityActions: z.array(z.string()),
+  diagnosis: z.object({
+    overallGrade: z.string(),
+    overallMessage: z.string(),
+    statusCounts: z.record(z.number()),
+    priorityImprovements: z.array(z.object({
+      metric: z.string(),
+      label: z.string(),
+      gap: z.number(),
+      strategy: z.string(),
+    })),
+    strengths: z.array(z.object({
+      metric: z.string(),
+      label: z.string(),
+      status: z.string(),
+    })),
+  }),
+  dataInfo: z.object({
+    period: z.string(),
+    adRecords: z.number(),
+    totalSpend: z.number(),
+    totalAdRevenue: z.number(),
+    totalRevenue: z.number(),
+  }),
 });
 
 export type AdBenchmarkData = z.infer<typeof AdBenchmarkDataSchema>;
 
-// ─── Ad Trends Data ───────────────────────────────────────────────────────────
+// ─── GET /api/ads/campaigns/trends — 트렌드 분석 ─────────────────────────────
 
 export const AdTrendsDataSchema = z.object({
-  labels: z.array(z.string()),
-  datasets: z.object({
-    adSpend: z.array(z.number()),
-    adRevenue: z.array(z.number()),
-    roas: z.array(z.number()),
-  }),
+  daily: z.array(z.object({
+    date: z.string(),
+    label: z.string(),
+    spend: z.number(),
+    revenue: z.number(),
+    roas: z.number(),
+    clicks: z.number(),
+    impressions: z.number(),
+    conversions: z.number(),
+    ctr: z.number(),
+    cvr: z.number(),
+  })),
+  comparison: z.record(z.object({
+    before: z.number(),
+    after: z.number(),
+    change: z.number(),
+  })),
+  budgetAllocation: z.array(z.object({
+    grade: z.string(),
+    spend: z.number(),
+    revenue: z.number(),
+    pct: z.number(),
+    target: z.number(),
+    roas: z.number(),
+  })),
+  days: z.number(),
 });
 
 export type AdTrendsData = z.infer<typeof AdTrendsDataSchema>;
 
-// ─── Ad Strategy Plan ─────────────────────────────────────────────────────────
+// ─── GET /api/ads/strategy/plan — 주간 액션 플랜 ─────────────────────────────
 
 export const AdStrategyPlanSchema = z.object({
-  grade: z.string(),
-  title: z.string(),
-  description: z.string(),
-  actions: z.array(z.object({
-    action: z.string(),
-    priority: z.enum(['urgent', 'high', 'medium', 'low']),
+  generatedAt: z.string(),
+  totalProducts: z.number(),
+  summary: z.object({
+    scaleUp: z.number(),
+    optimize: z.number(),
+    reduce: z.number(),
+    stop: z.number(),
+    newStart: z.number(),
+  }),
+  budgetAllocation: z.array(z.object({
+    grade: z.string(),
+    currentPercent: z.number(),
+    targetPercent: z.number(),
+    gap: z.number(),
   })),
+  keyMetrics: z.object({
+    totalAdSpend: z.number(),
+    totalAdRevenue: z.number(),
+    overallRoas: z.number(),
+  }),
 });
 
 export type AdStrategyPlan = z.infer<typeof AdStrategyPlanSchema>;
 
-// ─── Ad Rules Data ────────────────────────────────────────────────────────────
+// ─── GET /api/ads/strategy/rules — 광고 규칙/추천 ────────────────────────────
 
 export const AdRulesDataSchema = z.object({
-  rules: z.array(z.object({
-    id: z.string(),
+  summary: z.record(z.number()),
+  recommendations: z.array(z.object({
+    productId: z.string(),
     name: z.string(),
-    condition: z.string(),
-    grade: z.string(),
-    priority: z.enum(['urgent', 'high', 'medium', 'low']),
+    grade: z.string().nullable(),
+    adTier: z.string().nullable(),
+    spend: z.number(),
+    revenue: z.number(),
+    roas: z.number(),
+    rule: z.string(),
     action: z.string(),
+    priority: z.string(),
   })),
 });
 

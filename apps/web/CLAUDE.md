@@ -38,11 +38,20 @@ Env: `.env.local` → `NEXT_PUBLIC_API_URL=http://localhost:4000`
 - User notifications: `toast.error/success` from `sonner` (no alert(), except prompt/confirm)
 - Global errors: auto-toast via QueryCache onError
 
-### UI
-- All pages `'use client'` (no Server Components)
+### Styling
+- **Tailwind CSS** + `cn()` utility from `@/lib/utils` (clsx + tailwind-merge)
 - Light theme: `bg-white`, `bg-gray-50`, `border-gray-200`, `text-gray-900`
 - Table styles: defined in `globals.css` `@layer base`
-- Page components: target under 200 lines → extract to co-located `components/` folder
+- Icons: **Lucide React** only (`import { Icon } from 'lucide-react'`). No other icon libraries.
+
+### Formatting Utilities (`@/lib/utils`)
+- `formatNumber()` — locale-aware number (`Intl.NumberFormat('ko-KR')`)
+- `formatCurrency()` / `formatKRW()` — KRW currency. No direct `toLocaleString()`.
+- `formatPercent()` — percentage (1 decimal)
+
+### UI
+- `'use client'`: 훅(useState, useQuery 등)이나 브라우저 API를 쓰는 파일에 필수. 순수 레이아웃은 예외.
+- Radix UI primitives: Popover, Select, Tabs, DropdownMenu
 
 ### Directory Structure
 
@@ -66,6 +75,14 @@ Shared directories (`src/components/`, `src/hooks/`, `src/lib/`) contain ONLY cr
 - Components: **PascalCase.tsx** (`ProductCard.tsx`)
 - Hooks: **camelCase** (`useAgents.ts`) — must start with `use`
 - Utilities, constants, types: **kebab-case.ts** (`barcode-print.ts`, `query-keys.ts`)
+
+### Import Order
+1. `'use client'` directive
+2. React imports (`import { useState } from 'react'`)
+3. Third-party libraries (tanstack, lucide-react, sonner, etc.)
+4. Local absolute imports (`@/lib/*`, `@/components/*`)
+5. Relative imports (`./components/*`, `../lib/*`)
+6. Type imports (`import type { ... }`)
 
 ### State Management
 - Zustand: sidebar state only (`store/`)

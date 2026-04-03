@@ -50,6 +50,8 @@ export const queryKeys = {
     recommend: () => [...queryKeys.ads.all, 'recommend'] as const,
     benchmark: () => [...queryKeys.ads.all, 'benchmark'] as const,
     collectStatus: () => [...queryKeys.ads.all, 'collect', 'status'] as const,
+    scrapeTargets: () => [...queryKeys.ads.all, 'scrapeTargets'] as const,
+    extensionStatus: () => [...queryKeys.ads.all, 'extension', 'status'] as const,
   },
   orders: {
     all: ['orders'] as const,

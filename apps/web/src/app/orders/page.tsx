@@ -4,6 +4,7 @@ import { queryKeys } from "@/lib/query-keys";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { OrderRow } from "@kiditem/shared";
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { CheckCircle, Truck, Package, Clock, MapPin } from "lucide-react";
 import OrderHeader from "./components/OrderHeader";
 import PipelineVisualization from "./components/PipelineVisualization";
@@ -117,18 +118,18 @@ export default function OrdersPage() {
     if (ids.length === 0) return;
     // TODO: POST /api/orders/confirm when API exists
     console.log("CONFIRM orders:", ids);
-    alert(`${ids.length}건 발주확인 처리 (API 연동 예정)`);
+    toast.info(`${ids.length}건 발주확인 처리 (API 연동 예정)`);
   };
 
   const handlePrintLabel = () => {
-    alert("라벨 출력 기능 준비 중");
+    toast.info("라벨 출력 기능 준비 중");
   };
 
   const handleInvoice = () => {
     const ids = Object.keys(selectedOrders).filter((id) => selectedOrders[id]);
     if (ids.length === 0) return;
     console.log("INVOICE orders:", ids);
-    alert(`${ids.length}건 송장 처리 (API 연동 예정)`);
+    toast.info(`${ids.length}건 송장 처리 (API 연동 예정)`);
   };
 
   const totalOrders = Object.values(counts).reduce((s, c) => s + c, 0);

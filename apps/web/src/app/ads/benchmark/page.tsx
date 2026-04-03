@@ -67,7 +67,7 @@ export default function AdsBenchmarkPage() {
       <DiagnosisCard diagnosis={data.diagnosis} dataInfo={data.dataInfo} />
 
       {/* Metric Cards Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
         {data.comparisons.map((c) => (
           <MetricCard
             key={c.metric}

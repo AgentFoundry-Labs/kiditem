@@ -1,6 +1,5 @@
 import {
   Injectable,
-  BadRequestException,
   InternalServerErrorException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
@@ -19,7 +18,10 @@ export class AdCollectService {
   }
 
   async startCollection(period?: string) {
-    throw new BadRequestException('데이터 수집 기능은 준비 중입니다.');
+    return {
+      status: 'extension_required',
+      message: '크롬 익스텐션의 정보 수집 버튼을 사용하세요.',
+    };
   }
 
   async getStatus() {

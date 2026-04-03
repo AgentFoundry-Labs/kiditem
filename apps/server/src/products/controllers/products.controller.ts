@@ -4,7 +4,7 @@ import {
   ListProductsQueryDto,
   PipelineStatsQueryDto,
   CreateProductBodyDto,
-  type UpdateDraftContentBody,
+  UpdateDraftContentBodyDto,
   TriggerContentDraftBodyDto,
 } from '../dto';
 
@@ -37,9 +37,9 @@ export class ProductsController {
   @Put(':id/draft-content')
   async updateDraftContent(
     @Param('id') id: string,
-    @Body() body: Record<string, unknown>,
+    @Body() body: UpdateDraftContentBodyDto,
   ) {
-    return this.productsService.updateDraftContent(id, body);
+    return this.productsService.updateDraftContent(id, body.draftContent);
   }
 
   @Post(':id/trigger-image-generation')

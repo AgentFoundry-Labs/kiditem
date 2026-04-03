@@ -41,7 +41,7 @@ agents/              — Python 3.11+ background workers (see agents/CLAUDE.md)
 packages/shared/     — @kiditem/shared (Zod schemas + TypeScript types + error codes)
 packages/templates/  — React detail page templates (see packages/templates/CLAUDE.md)
 prisma/              — DB schema source of truth (see prisma/CLAUDE.md)
-extensions/          — Chrome extension (1688/Alibaba scraper)
+extensions/          — Chrome extensions (product-scraper: 1688/Alibaba, coupang-ads-scraper: 쿠팡 광고센터+Wing)
 ```
 
 ## Commands
@@ -60,7 +60,7 @@ npm run db:studio                    # Prisma Studio (DB GUI)
 |---|---|---|
 | Next.js | 3000 | Local (`npm run dev`) |
 | NestJS | 4000 | Local (`npm run dev:server`) |
-| Python Agents | 8001 | Local (`npm run dev:agents`) |
+| Python Agents | — (worker) | Local (`npm run dev:agents`) |
 | PostgreSQL | 5433 | Docker |
 
 ## Architecture
@@ -84,7 +84,7 @@ Shared Zod schemas between frontend and backend. `z.infer<>` for type inference.
 
 - Subpath exports: `@kiditem/shared`, `@kiditem/shared/schemas`, `@kiditem/shared/errors`
 - Dual format: ESM (frontend) + CJS (backend)
-- `satisfies z.infer<typeof Schema>` pattern in services to detect Prisma-Zod drift
+- `satisfies` pattern in services to detect Prisma-Shared type drift (e.g., `satisfies ProductListItem`)
 - Adding types: define Zod schema in `packages/shared/src/schemas/` → export in `index.ts` → `npm run build`
 
 ### Workflow vs Agent Boundary
@@ -96,6 +96,10 @@ Shared Zod schemas between frontend and backend. `z.infer<>` for type inference.
 | AI usage | Prohibited — delegate via `agent_task.create` node | Core role |
 
 **Principle: Workflows must never call LLMs directly.** Delegate to agents via `agent_task.create` when AI judgment is needed.
+
+### Advertising Module
+
+광고 관리 도메인. See `apps/server/src/advertising/CLAUDE.md` for details.
 
 ## Collaboration
 
@@ -124,17 +128,17 @@ Shared Zod schemas between frontend and backend. `z.infer<>` for type inference.
 ## Overrides (Decision Records)
 
 - **No native PG enums** → `String` + app-level validation. Production cast error experience.
-- **No Server Components** → all pages `'use client'`.
+- **`'use client'` 필수** → 훅(useState, useQuery 등)이나 브라우저 API를 쓰는 파일에 명시. 순수 레이아웃 컴포넌트는 예외.
 - **No direct imports between Python agents** → communicate via DB state only.
 - **No silent model fallback** → `model = model or default` pattern prohibited.
 - **No direct DB access from frontend** → must go through NestJS API.
 - **No `/v1/` in API paths** → `/api/{domain}` direct mapping.
 - **Self-contained domain modules** → Controller + Service + DTO in one folder.
 - **Workflow AI analysis once per run only** → no `ai.analyze` in individual nodes.
-- **No raw fetch** → use `apiClient.get/post/patch/delete`. For blobs: `apiClient.fetchRaw`.
-- **No useState+useEffect fetch** → use `useQuery` / `useMutation`.
+- **No raw fetch for API calls** → use `apiClient.get/post/patch/delete`. For blobs: `apiClient.fetchRaw`. Exception: static asset loading (`fetch('/file.css')`) is allowed.
+- **No useState+useEffect for data fetching** → use `useQuery` / `useMutation`. Exception: DOM events (resize, focus), local state sync, static asset text loading are `useEffect` allowed.
 - **No alert()** → use `toast.error/success` from `sonner` (prompt/confirm excluded).
-- **No `ok: false` in 200 responses** → throw HttpException on failure.
+- **No `ok: false` in HTTP responses** → throw HttpException on failure. Exception: agent-registry internal result objects (`{ ok: false, error }`) are non-HTTP internal protocol, allowed.
 
 ## Tests
 

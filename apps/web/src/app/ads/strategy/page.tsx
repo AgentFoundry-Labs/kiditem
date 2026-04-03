@@ -45,7 +45,7 @@ export default function AdsStrategyPage() {
   const { data: trendsData } = useQuery({
     queryKey: queryKeys.ads.trends(14),
     queryFn: () => apiClient.get<{
-      daily: Array<{ date: string; adSpend: number; adRevenue: number; roas: number }>;
+      daily: Array<{ date: string; spend: number; revenue: number; roas: number }>;
       comparison: Record<string, { before: number; after: number; change: number }>;
       budgetAllocation: Array<{ grade: string; spend: number; revenue: number; pct: number; target: number; roas: number }>;
     }>('/api/ads/campaigns/trends?days=14'),

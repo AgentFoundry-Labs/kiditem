@@ -90,7 +90,7 @@ export default function InventoryPage() {
       const products: { id: string; name: string; sku: string | null; currentStock: number }[] = data.items ?? [];
 
       if (products.length === 0) {
-        alert('검색 결과가 없습니다.');
+        toast.warning('검색 결과가 없습니다.');
         return;
       }
 
@@ -101,7 +101,7 @@ export default function InventoryPage() {
         if (!choice) return;
         const idx = parseInt(choice, 10) - 1;
         if (isNaN(idx) || idx < 0 || idx >= products.length) {
-          alert('잘못된 선택입니다.');
+          toast.warning('잘못된 선택입니다.');
           return;
         }
         selectedProduct = products[idx];
@@ -111,7 +111,7 @@ export default function InventoryPage() {
       if (!qtyStr) return;
       const qty = parseInt(qtyStr, 10);
       if (isNaN(qty) || qty <= 0) {
-        alert('수량은 1 이상의 숫자를 입력하세요.');
+        toast.warning('수량은 1 이상의 숫자를 입력하세요.');
         return;
       }
 
@@ -119,7 +119,7 @@ export default function InventoryPage() {
       try {
         invData = await apiClient.get<{ id: string }>(`/api/inventory/by-product/${selectedProduct.id}`);
       } catch {
-        alert('해당 상품의 재고 항목이 없습니다.');
+        toast.warning('해당 상품의 재고 항목이 없습니다.');
         return;
       }
 
@@ -133,7 +133,7 @@ export default function InventoryPage() {
 
   const handleBarcodePrint = () => {
     if (items.length === 0) {
-      alert('출력할 상품이 없습니다.');
+      toast.warning('출력할 상품이 없습니다.');
       return;
     }
     printBarcodeWindow(items);

@@ -107,6 +107,13 @@ model Company {
   // Ad Snapshots
   adCampaignSnapshots  AdCampaignSnapshot[]
   adProductSnapshots   AdProductSnapshot[]
+  scrapeTargets        ScrapeTarget[]
+  adSnapshots          AdSnapshot[]
+  itemWinners          ItemWinner[]
+
+  // Ad Execution
+  adActions            AdAction[]
+  executionWorkers     ExecutionWorker[]
 
   @@map("companies")
 }
@@ -233,6 +240,9 @@ model Product {
   // Analytics
   gradeHistory   GradeHistory[]
   trafficStats   TrafficStats[]
+  adSnapshots    AdSnapshot[]
+  itemWinners    ItemWinner[]
+  adActions      AdAction[]
 
   @@unique([companyId, sku])
   @@index([companyId])
@@ -2241,10 +2251,12 @@ model AdCampaignSnapshot {
   conversionRate Decimal? @map("conversion_rate") @db.Decimal(8, 4)
   budget        Int?
   todaySpend    Int?     @map("today_spend")
+  collectedAt   DateTime? @map("collected_at") @db.Timestamptz
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
+  @@unique([companyId, campaignName, date, period])
   @@index([companyId, date])
   @@index([campaignName, period])
   @@map("ad_campaign_snapshots")
@@ -2268,6 +2280,7 @@ model AdProductSnapshot {
   ctr           Decimal? @db.Decimal(8, 4)
   adConversions Int      @default(0) @map("ad_conversions")
   conversionRate Decimal? @map("conversion_rate") @db.Decimal(8, 4)
+  collectedAt   DateTime? @map("collected_at") @db.Timestamptz
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -2276,4 +2289,183 @@ model AdProductSnapshot {
   @@index([campaignName, period])
   @@index([vendorItemId])
   @@map("ad_product_snapshots")
+}
+
+// ─── Scrape Targets ──────────────────────────────────────────────────────────
+
+model ScrapeTarget {
+  id            String    @id @default(uuid()) @db.Uuid
+  companyId     String    @map("company_id") @db.Uuid
+  url           String
+  label         String
+  category      String    @default("advertising")
+  isActive      Boolean   @default(true) @map("is_active")
+  lastScrapedAt DateTime? @map("last_scraped_at") @db.Timestamptz
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  company       Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, isActive])
+  @@map("scrape_targets")
+}
+
+// ─── Ad Snapshots (Raw) ──────────────────────────────────────────────────────
+
+model AdSnapshot {
+  id           String   @id @default(uuid()) @db.Uuid
+  companyId    String   @map("company_id") @db.Uuid
+  productId    String?  @map("product_id") @db.Uuid
+  source       String   // "advertising" | "wing"
+  pageType     String   @map("page_type") // "campaign" | "keyword" | "product"
+  externalId   String?  @map("external_id")
+  campaignName String?  @map("campaign_name")
+  keyword      String?
+  productName  String?  @map("product_name")
+  status       String?
+  currentBid   Int?     @map("current_bid")
+  dailyBudget  Int?     @map("daily_budget")
+  impressions  Int      @default(0)
+  clicks       Int      @default(0)
+  conversions  Int      @default(0)
+  spend        Int      @default(0)
+  revenue      Int      @default(0)
+  roas         Decimal? @db.Decimal(10, 2)
+  ctr          Decimal? @db.Decimal(8, 4)
+  rawJson      Json?    @map("raw_json")
+  capturedAt   DateTime @default(now()) @map("captured_at") @db.Timestamptz
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  product      Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  adActions    AdAction[]
+
+  @@index([companyId, source])
+  @@index([capturedAt])
+  @@map("ad_snapshots")
+}
+
+// ─── Item Winners ────────────────────────────────────────────────────────────
+
+model ItemWinner {
+  id           String   @id @default(uuid()) @db.Uuid
+  companyId    String   @map("company_id") @db.Uuid
+  productId    String?  @map("product_id") @db.Uuid
+  productName  String?  @map("product_name")
+  isWinner     Boolean  @default(false) @map("is_winner")
+  myPrice      Int?     @map("my_price")
+  winnerPrice  Int?     @map("winner_price")
+  checkedAt    DateTime @default(now()) @map("checked_at") @db.Timestamptz
+
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  product      Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([companyId])
+  @@index([productId])
+  @@map("item_winners")
+}
+
+// ─── Ad Actions (광고 액션 추천/승인/실행) ───────────────────────────────────
+
+model AdAction {
+  id              String    @id @default(uuid()) @db.Uuid
+  companyId       String    @map("company_id") @db.Uuid
+  productId       String?   @map("product_id") @db.Uuid
+  snapshotId      String?   @map("snapshot_id") @db.Uuid
+  actionType      String    @map("action_type")
+  targetType      String    @map("target_type")
+  externalId      String?   @map("external_id")
+  targetLabel     String    @map("target_label")
+  reason          String
+  priority        String    @default("medium")
+  currentValue    Int?      @map("current_value")
+  proposedValue   Int?      @map("proposed_value")
+  payload         Json?
+  approvalStatus  String    @default("pending_review") @map("approval_status")
+  executeStatus   String    @default("queued") @map("execute_status")
+  beforeJson      Json?     @map("before_json")
+  afterJson       Json?     @map("after_json")
+  errorMessage    String?   @map("error_message")
+  approvedAt      DateTime? @map("approved_at") @db.Timestamptz
+  executedAt      DateTime? @map("executed_at") @db.Timestamptz
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  company         Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  product         Product?    @relation(fields: [productId], references: [id], onDelete: SetNull)
+  snapshot        AdSnapshot? @relation(fields: [snapshotId], references: [id], onDelete: SetNull)
+  executionTasks  ExecutionTask[]
+
+  @@index([companyId, approvalStatus])
+  @@index([executeStatus])
+  @@index([externalId])
+  @@index([createdAt])
+  @@map("ad_actions")
+}
+
+// ─── Execution Workers ──────────────────────────────────────────────────────
+
+model ExecutionWorker {
+  id              String    @id @default(uuid()) @db.Uuid
+  companyId       String    @map("company_id") @db.Uuid
+  workerKey       String    @unique @map("worker_key")
+  label           String?
+  status          String    @default("online")
+  currentTaskRef  String?   @map("current_task_ref")
+  currentUrl      String?   @map("current_url")
+  currentPageType String?   @map("current_page_type")
+  metaJson        Json?     @map("meta_json")
+  lastHeartbeatAt DateTime  @default(now()) @map("last_heartbeat_at") @db.Timestamptz
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  company         Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  tasks           ExecutionTask[]
+
+  @@index([status])
+  @@index([lastHeartbeatAt])
+  @@map("execution_workers")
+}
+
+// ─── Execution Tasks ────────────────────────────────────────────────────────
+
+model ExecutionTask {
+  id             String    @id @default(uuid()) @db.Uuid
+  actionId       String    @map("action_id") @db.Uuid
+  workerId       String?   @map("worker_id") @db.Uuid
+  status         String    @default("queued")
+  leasedAt       DateTime? @map("leased_at") @db.Timestamptz
+  startedAt      DateTime? @map("started_at") @db.Timestamptz
+  finishedAt     DateTime? @map("finished_at") @db.Timestamptz
+  attempt        Int       @default(0)
+  beforeJson     Json?     @map("before_json")
+  afterJson      Json?     @map("after_json")
+  errorMessage   String?   @map("error_message")
+  screenshotPath String?   @map("screenshot_path")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  action         AdAction          @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  worker         ExecutionWorker?  @relation(fields: [workerId], references: [id], onDelete: SetNull)
+  logs           ExecutionLog[]
+
+  @@index([actionId])
+  @@index([workerId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("execution_tasks")
+}
+
+// ─── Execution Logs ─────────────────────────────────────────────────────────
+
+model ExecutionLog {
+  id          String   @id @default(uuid()) @db.Uuid
+  taskId      String   @map("task_id") @db.Uuid
+  level       String   @default("info")
+  step        String
+  message     String
+  payloadJson Json?    @map("payload_json")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  task        ExecutionTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@index([createdAt])
+  @@map("execution_logs")
 }
