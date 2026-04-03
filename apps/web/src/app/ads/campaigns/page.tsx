@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import { formatKRW } from '@/lib/utils';
+import { roasColor } from '../lib/status-colors';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { CampaignTable } from './components/CampaignTable';
 import { ProductDrilldown } from './components/ProductDrilldown';
@@ -44,6 +45,12 @@ export default function AdsCampaignsPage() {
     queryKey: queryKeys.ads.campaigns(period),
     queryFn: () => apiClient.get<CampaignsResponse>(`/api/ads/campaigns?period=${period}`),
   });
+
+  const { data: adsConfig } = useQuery({
+    queryKey: queryKeys.ads.config(),
+    queryFn: () => apiClient.get<{ roas: { thresholds: { excellent: number; warning: number; poor: number } } }>('/api/ads/config'),
+  });
+  const roasT = adsConfig?.roas?.thresholds ?? { excellent: 300, warning: 200, poor: 100 };
 
   if (isLoading) return <PageSkeleton variant="table" />;
 
@@ -90,7 +97,7 @@ export default function AdsCampaignsPage() {
         </div>
         <div className="bg-white rounded-xl p-4 border border-slate-200">
           <div className="text-sm text-slate-500">ROAS</div>
-          <div className={`text-xl font-bold mt-1 ${(kpi.roas ?? 0) >= 300 ? 'text-green-600' : (kpi.roas ?? 0) >= 200 ? 'text-orange-500' : 'text-red-600'}`}>
+          <div className={`text-xl font-bold mt-1 ${roasColor(kpi.roas ?? 0, roasT)}`}>
             {kpi.roas ?? 0}%
           </div>
         </div>

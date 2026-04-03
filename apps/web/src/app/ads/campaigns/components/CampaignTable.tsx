@@ -1,6 +1,10 @@
 'use client';
 
+import { useQuery } from '@tanstack/react-query';
+import { apiClient } from '@/lib/api-client';
+import { queryKeys } from '@/lib/query-keys';
 import { formatKRW } from '@/lib/utils';
+import { roasColor } from '../../lib/status-colors';
 
 interface CampaignItem {
   campaignName: string;
@@ -26,6 +30,12 @@ interface Props {
 }
 
 export function CampaignTable({ campaigns, sortBy, onSortChange, selectedCampaign, onSelectCampaign }: Props) {
+  const { data: adsConfig } = useQuery({
+    queryKey: queryKeys.ads.config(),
+    queryFn: () => apiClient.get<{ roas: { thresholds: { excellent: number; warning: number; poor: number } } }>('/api/ads/config'),
+  });
+  const roasT = adsConfig?.roas?.thresholds ?? { excellent: 300, warning: 200, poor: 100 };
+
   const sorted = [...campaigns].sort((a, b) =>
     sortBy === 'revenue' ? b.adRevenue - a.adRevenue : (b.roas ?? 0) - (a.roas ?? 0),
   );
@@ -76,7 +86,7 @@ export function CampaignTable({ campaigns, sortBy, onSortChange, selectedCampaig
                 <td className="font-medium text-slate-900 max-w-[240px] truncate">{c.campaignName}</td>
                 <td className="text-right">{formatKRW(c.adSpend)}</td>
                 <td className="text-right">{formatKRW(c.adRevenue)}</td>
-                <td className={`text-right font-semibold ${(c.roas ?? 0) >= 300 ? 'text-green-600' : (c.roas ?? 0) >= 200 ? 'text-orange-500' : 'text-red-600'}`}>
+                <td className={`text-right font-semibold ${roasColor(c.roas ?? 0, roasT)}`}>
                   {c.roas ?? 0}%
                 </td>
                 <td className="text-right">{(c.impressions ?? 0).toLocaleString()}</td>

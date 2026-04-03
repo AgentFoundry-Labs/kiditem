@@ -3,12 +3,7 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-
-// ===== 상수 =====
-const TARGET_ROAS_BY_GRADE: Record<string, number> = { A: 300, B: 400, C: 500 };
-const TARGET_AD_RATE: Record<string, number> = { A: 12, B: 8, C: 5 };
-const BUDGET_ALLOCATION = { A: 80, B: 15, C: 5 };
-const TIER_DAILY_BUDGET: Record<string, number> = { '1차': 150000, '2차': 100000, '3차': 50000 };
+import { AdConfigService, type AdsConfig } from './ad-config.service';
 
 // ===== 타입 =====
 interface ProductAdData {
@@ -59,14 +54,14 @@ function calculateDailyBudget(sellPrice: number, targetDailySales = 5, targetAdR
   return Math.round(dailyRevenue * targetAdRate);
 }
 
-function analyzeProduct(p: ProductAdData): AdRecommendation {
+function analyzeProduct(p: ProductAdData, config: AdsConfig): AdRecommendation {
   const ctr = p.impressions > 0 ? (p.clicks / p.impressions) * 100 : 0;
   const cvr = p.clicks > 0 ? (p.conversions / p.clicks) * 100 : 0;
   const roas = p.adSpend > 0 ? (p.adRevenue / p.adSpend) * 100 : 0;
   const acos = p.adRevenue > 0 ? (p.adSpend / p.adRevenue) * 100 : 0;
   const adRate = p.revenue > 0 ? (p.adSpend / p.revenue) * 100 : 0;
 
-  const targetRoas = TARGET_ROAS_BY_GRADE[p.abcGrade] || 300;
+  const targetRoas = config.roasTargetByGrade[p.abcGrade] || 300;
   const maxBid = calculateMaxBid(p.sellPrice, p.costPrice);
   const dailyBudget = calculateDailyBudget(p.sellPrice);
 
@@ -115,8 +110,8 @@ function analyzeProduct(p: ProductAdData): AdRecommendation {
     priority = 'medium';
     category = 'creative';
     reason = `클릭 대비 구매 전환 부족. 상세페이지 품질, 가격, 리뷰(현재 ${p.reviewCount}개) 점검.`;
-  } else if (adRate > 15 && p.adSpend > 0) {
-    action = `광고비율 ${adRate.toFixed(1)}% — 15% 이하로 절감`;
+  } else if (adRate > config.adRate.thresholds.warning && p.adSpend > 0) {
+    action = `광고비율 ${adRate.toFixed(1)}% — ${config.adRate.thresholds.warning}% 이하로 절감`;
     priority = 'high';
     category = 'reduce';
     reason = '매출 대비 광고비 과다. 입찰가 하향 + 네거티브 키워드 정리 필요.';
@@ -144,7 +139,10 @@ function analyzeProduct(p: ProductAdData): AdRecommendation {
 
 @Injectable()
 export class AdStrategyService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly adConfigService: AdConfigService,
+  ) {}
 
   private async getDefaultCompanyId(): Promise<string> {
     const company = await this.prisma.company.findFirst({
@@ -347,6 +345,8 @@ export class AdStrategyService {
       });
       const adMap = new Map(adAgg.map((a) => [a.productId, a._sum]));
 
+      const config = await this.adConfigService.getConfig(companyId);
+
       const productAdData: ProductAdData[] = productsData.map((p) => {
         const ad = adMap.get(p.id);
         const pl = p.profitLoss?.[0];
@@ -368,7 +368,7 @@ export class AdStrategyService {
         };
       });
 
-      const actions = productAdData.map(analyzeProduct);
+      const actions = productAdData.map((p) => analyzeProduct(p, config));
       const priorityOrder: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 };
       actions.sort((a, b) => priorityOrder[a.actionPriority] - priorityOrder[b.actionPriority]);
 
@@ -386,12 +386,13 @@ export class AdStrategyService {
         gradeSpend[p.abcGrade] = (gradeSpend[p.abcGrade] || 0) + p.adSpend;
       });
 
+      const allocation = config.budget.allocation;
       const budgetAllocation = ['A', 'B', 'C'].map((g) => ({
         grade: g,
         currentPercent: totalSpend > 0 ? Math.round((gradeSpend[g] / totalSpend) * 100) : 0,
-        targetPercent: BUDGET_ALLOCATION[g as keyof typeof BUDGET_ALLOCATION],
+        targetPercent: allocation[g] || 0,
         gap: totalSpend > 0
-          ? Math.round((gradeSpend[g] / totalSpend) * 100) - BUDGET_ALLOCATION[g as keyof typeof BUDGET_ALLOCATION]
+          ? Math.round((gradeSpend[g] / totalSpend) * 100) - (allocation[g] || 0)
           : 0,
       }));
 
@@ -409,7 +410,7 @@ export class AdStrategyService {
           tierCount[p.adTier]++;
         }
       });
-      const tierAnalysis = Object.entries(TIER_DAILY_BUDGET).map(([tier, target]) => ({
+      const tierAnalysis = Object.entries(config.tier.dailyBudget).map(([tier, target]) => ({
         tier,
         count: tierCount[tier] || 0,
         currentSpend: Math.round(tierSpend[tier] || 0),

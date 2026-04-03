@@ -51,6 +51,7 @@ export const queryKeys = {
     benchmark: () => [...queryKeys.ads.all, 'benchmark'] as const,
     collectStatus: () => [...queryKeys.ads.all, 'collect', 'status'] as const,
     scrapeTargets: () => [...queryKeys.ads.all, 'scrapeTargets'] as const,
+    config: () => [...queryKeys.ads.all, 'config'] as const,
     extensionStatus: () => [...queryKeys.ads.all, 'extension', 'status'] as const,
   },
   orders: {

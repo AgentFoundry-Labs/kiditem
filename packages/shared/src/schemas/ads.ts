@@ -23,6 +23,9 @@ export const AdsListItemSchema = z.object({
   netProfit: z.number(),
   profitRate: z.number(),
   adBudgetLimit: z.number(),
+  roasStatus: z.enum(['excellent', 'good', 'warning', 'poor']),
+  adRateStatus: z.enum(['ok', 'warning', 'critical']),
+  adRateOverLimit: z.boolean(),
 });
 
 export const AdsHubDataSchema = z.object({
@@ -37,6 +40,8 @@ export const AdsHubDataSchema = z.object({
     gradeSpend: z.record(z.number()),
     tierSpend: z.record(z.number()),
     gradeSpendPercent: z.record(z.number()),
+    overallRoasStatus: z.enum(['excellent', 'good', 'warning', 'poor']),
+    overallAdRateStatus: z.enum(['ok', 'warning', 'critical']),
   }),
 });
 
@@ -112,7 +117,6 @@ export const AdBenchmarkDataSchema = z.object({
     good: z.number(),
     excellent: z.number(),
     poor: z.number(),
-    label: z.string(),
   })),
   comparisons: z.array(z.object({
     metric: z.string(),

@@ -1,6 +1,10 @@
 'use client';
 
+import { useQuery } from '@tanstack/react-query';
+import { apiClient } from '@/lib/api-client';
+import { queryKeys } from '@/lib/query-keys';
 import { formatKRW } from '@/lib/utils';
+import { roasColor } from '../../lib/status-colors';
 
 interface PlanData {
   generatedAt: string;
@@ -20,6 +24,11 @@ interface PlanData {
 }
 
 export function PlanSummary({ plan }: { plan: PlanData }) {
+  const { data: adsConfig } = useQuery({
+    queryKey: queryKeys.ads.config(),
+    queryFn: () => apiClient.get<{ roas: { thresholds: { excellent: number; warning: number; poor: number } } }>('/api/ads/config'),
+  });
+  const roasT = adsConfig?.roas?.thresholds ?? { excellent: 300, warning: 200, poor: 100 };
   const cards = [
     { label: '확대', value: plan.summary.scaleUp, color: 'text-emerald-600 bg-emerald-50 border-emerald-200' },
     { label: '최적화', value: plan.summary.optimize, color: 'text-blue-600 bg-blue-50 border-blue-200' },
@@ -57,7 +66,7 @@ export function PlanSummary({ plan }: { plan: PlanData }) {
         </div>
         <div>
           <span className="text-slate-500">ROAS:</span>{' '}
-          <strong className={plan.keyMetrics.overallRoas >= 300 ? 'text-green-600' : plan.keyMetrics.overallRoas >= 200 ? 'text-orange-500' : 'text-red-600'}>
+          <strong className={roasColor(plan.keyMetrics.overallRoas, roasT)}>
             {plan.keyMetrics.overallRoas}%
           </strong>
         </div>

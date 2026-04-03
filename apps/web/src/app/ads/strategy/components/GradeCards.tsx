@@ -1,37 +1,23 @@
 'use client';
 
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { apiClient } from '@/lib/api-client';
+import { queryKeys } from '@/lib/query-keys';
 import { Sparkles, AlertTriangle, ChevronDown } from 'lucide-react';
+import { roasColor } from '../../lib/status-colors';
 
-const GRADE_CONFIGS = [
-  {
-    grade: 'A', title: '핵심 상품', subtitle: '공격 확장',
-    desc: '예산 증액, 키워드 확장, 입찰가 인상',
-    pills: ['일예산 20%↑', '1차 키워드 승격', '입찰가 인상'],
-    border: 'border-emerald-300', bg: 'bg-gradient-to-br from-emerald-50 to-green-50/50',
-    pillBg: 'bg-emerald-100 text-emerald-700',
-    moreColor: 'text-emerald-600', target: 60, ring: 'ring-emerald-400',
-    headerGrad: 'from-emerald-600 to-green-600',
-  },
-  {
-    grade: 'B', title: '성장 후보', subtitle: '최적화 집중',
-    desc: '키워드 정리, 입찰 조정, 썸네일 테스트',
-    pills: ['전환0 키워드 OFF', '입찰가 15%↓', '롱테일 확장'],
-    border: 'border-amber-300', bg: 'bg-gradient-to-br from-amber-50 to-yellow-50/50',
-    pillBg: 'bg-amber-100 text-amber-700',
-    moreColor: 'text-amber-600', target: 30, ring: 'ring-amber-400',
-    headerGrad: 'from-amber-500 to-yellow-500',
-  },
-  {
-    grade: 'C', title: '정리 대상', subtitle: '손절 · 재구성',
-    desc: '예산 축소, 캠페인 OFF, 가격 재검토',
-    pills: ['일예산 축소', '캠페인 OFF', '가격 재검토'],
-    border: 'border-red-300', bg: 'bg-gradient-to-br from-red-50 to-pink-50/50',
-    pillBg: 'bg-red-100 text-red-700',
-    moreColor: 'text-red-600', target: 10, ring: 'ring-red-400',
-    headerGrad: 'from-red-500 to-pink-500',
-  },
-];
+const GRADE_STYLES: Record<string, { border: string; bg: string; pillBg: string; moreColor: string; ring: string; headerGrad: string }> = {
+  A: { border: 'border-emerald-300', bg: 'bg-gradient-to-br from-emerald-50 to-green-50/50', pillBg: 'bg-emerald-100 text-emerald-700', moreColor: 'text-emerald-600', ring: 'ring-emerald-400', headerGrad: 'from-emerald-600 to-green-600' },
+  B: { border: 'border-amber-300', bg: 'bg-gradient-to-br from-amber-50 to-yellow-50/50', pillBg: 'bg-amber-100 text-amber-700', moreColor: 'text-amber-600', ring: 'ring-amber-400', headerGrad: 'from-amber-500 to-yellow-500' },
+  C: { border: 'border-red-300', bg: 'bg-gradient-to-br from-red-50 to-pink-50/50', pillBg: 'bg-red-100 text-red-700', moreColor: 'text-red-600', ring: 'ring-red-400', headerGrad: 'from-red-500 to-pink-500' },
+};
+
+const FALLBACK_STRATEGY: Record<string, { title: string; subtitle: string; pills: string[]; budgetTarget: number }> = {
+  A: { title: '핵심 상품', subtitle: '공격 확장', pills: ['일예산 20%↑', '1차 키워드 승격', '입찰가 인상'], budgetTarget: 60 },
+  B: { title: '성장 후보', subtitle: '최적화 집중', pills: ['전환0 키워드 OFF', '입찰가 15%↓', '롱테일 확장'], budgetTarget: 30 },
+  C: { title: '정리 대상', subtitle: '손절 · 재구성', pills: ['일예산 축소', '캠페인 OFF', '가격 재검토'], budgetTarget: 10 },
+};
 
 interface RuleItem {
   rule: string;
@@ -58,14 +44,35 @@ interface Props {
 export function GradeCards({ budgetAllocation, rules }: Props) {
   const [selectedGrade, setSelectedGrade] = useState<string | null>(null);
 
+  const { data: adsConfig } = useQuery({
+    queryKey: queryKeys.ads.config(),
+    queryFn: () => apiClient.get<{
+      roas: { thresholds: { excellent: number; warning: number; poor: number } };
+      gradeStrategy: Record<string, { title: string; subtitle: string; pills: string[]; budgetTarget: number }>;
+    }>('/api/ads/config'),
+  });
+  const roasT = adsConfig?.roas?.thresholds ?? { excellent: 300, warning: 200, poor: 100 };
+
   const totalSpend = (rules ?? []).reduce((s, r) => s + (r.spend || 0), 0);
 
-  const gradeData = GRADE_CONFIGS.map((cfg) => {
-    const gradeRules = (rules ?? []).filter((r) => r.grade === cfg.grade);
+  const gradeData = ['A', 'B', 'C'].map((grade) => {
+    const strategy = adsConfig?.gradeStrategy?.[grade] ?? FALLBACK_STRATEGY[grade];
+    const style = GRADE_STYLES[grade];
+    const gradeRules = (rules ?? []).filter((r) => r.grade === grade);
     const gradeSpend = gradeRules.reduce((s, r) => s + (r.spend || 0), 0);
-    const pct = budgetAllocation?.find((b) => b.grade === cfg.grade)?.currentPercent
+    const pct = budgetAllocation?.find((b) => b.grade === grade)?.currentPercent
       ?? (totalSpend > 0 ? Math.round((gradeSpend / totalSpend) * 100) : 0);
-    return { ...cfg, rules: gradeRules, pct };
+    return {
+      grade,
+      title: strategy.title,
+      subtitle: strategy.subtitle,
+      desc: strategy.pills.join(', '),
+      pills: strategy.pills,
+      target: strategy.budgetTarget,
+      ...style,
+      rules: gradeRules,
+      pct,
+    };
   });
 
   return (
@@ -208,9 +215,7 @@ export function GradeCards({ budgetAllocation, rules }: Props) {
                     <div className="text-[12px] text-slate-500 mt-0.5">{r.action}</div>
                   </div>
                   {r.roas !== undefined && (
-                    <span className={`shrink-0 text-[12px] font-bold tabular-nums ${
-                      r.roas >= 300 ? 'text-emerald-600' : r.roas >= 100 ? 'text-amber-600' : 'text-red-500'
-                    }`}>
+                    <span className={`shrink-0 text-[12px] font-bold tabular-nums ${roasColor(r.roas, roasT)}`}>
                       ROAS {r.roas}%
                     </span>
                   )}

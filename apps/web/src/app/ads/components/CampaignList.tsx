@@ -1,7 +1,11 @@
 'use client';
 
 import Link from 'next/link';
+import { useQuery } from '@tanstack/react-query';
+import { apiClient } from '@/lib/api-client';
+import { queryKeys } from '@/lib/query-keys';
 import { formatKRW } from '@/lib/utils';
+import { roasColor } from '../lib/status-colors';
 
 interface CampaignItem {
   campaignName: string;
@@ -18,6 +22,12 @@ interface CampaignItem {
 }
 
 export function CampaignList({ campaigns }: { campaigns: CampaignItem[] }) {
+  const { data: adsConfig } = useQuery({
+    queryKey: queryKeys.ads.config(),
+    queryFn: () => apiClient.get<{ roas: { thresholds: { excellent: number; warning: number; poor: number } } }>('/api/ads/config'),
+  });
+  const roasT = adsConfig?.roas?.thresholds ?? { excellent: 300, warning: 200, poor: 100 };
+
   if (campaigns.length === 0) return null;
 
   return (
@@ -43,7 +53,7 @@ export function CampaignList({ campaigns }: { campaigns: CampaignItem[] }) {
             </div>
             <div className="text-right">
               <div className="text-sm font-semibold">{formatKRW(c.adRevenue)}원</div>
-              <div className={`text-xs font-medium ${c.roas >= 300 ? 'text-green-600' : c.roas >= 200 ? 'text-orange-500' : 'text-red-500'}`}>
+              <div className={`text-xs font-medium ${roasColor(c.roas, roasT)}`}>
                 ROAS {c.roas}%
               </div>
             </div>

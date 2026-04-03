@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import { formatKRW } from '@/lib/utils';
+import { roasColor } from '../../lib/status-colors';
 
 interface ProductItem {
   imageUrl: string | null;
@@ -33,6 +34,12 @@ const PAGE_SIZES = [10, 20, 50, 100] as const;
 export function ProductDrilldown({ campaignName, period }: Props) {
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState<number>(20);
+
+  const { data: adsConfig } = useQuery({
+    queryKey: queryKeys.ads.config(),
+    queryFn: () => apiClient.get<{ roas: { thresholds: { excellent: number; warning: number; poor: number } } }>('/api/ads/config'),
+  });
+  const roasT = adsConfig?.roas?.thresholds ?? { excellent: 300, warning: 200, poor: 100 };
 
   const { data } = useQuery({
     queryKey: queryKeys.ads.campaignProducts(campaignName, period),
@@ -111,7 +118,7 @@ export function ProductDrilldown({ campaignName, period }: Props) {
                     <td className="text-right">{(p.ctr ?? 0).toFixed(1)}%</td>
                     <td className="text-right">{p.adConversions ?? 0}</td>
                     <td className="text-right">{(p.conversionRate ?? 0).toFixed(1)}%</td>
-                    <td className={`text-right font-semibold ${p.roas >= 300 ? 'text-green-600' : p.roas >= 200 ? 'text-orange-500' : 'text-red-600'}`}>
+                    <td className={`text-right font-semibold ${roasColor(p.roas, roasT)}`}>
                       {p.roas}%
                     </td>
                   </tr>

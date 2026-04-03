@@ -6,3 +6,4 @@ export { ExtensionSyncDto } from './extension-sync.dto';
 export { CreateScrapeTargetDto, MarkScrapedDto } from './scrape-target.dto';
 export { AdActionQueryDto, AdActionCommandDto } from './ad-action.dto';
 export { LeaseDto, HeartbeatDto, ReportDto } from './execution.dto';
+export { UpdateAdConfigDto } from './ad-config.dto';

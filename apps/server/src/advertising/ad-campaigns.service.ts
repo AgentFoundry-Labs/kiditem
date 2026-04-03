@@ -3,10 +3,14 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { AdConfigService } from './ad-config.service';
 
 @Injectable()
 export class AdCampaignsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly adConfigService: AdConfigService,
+  ) {}
 
   private async getDefaultCompanyId(): Promise<string> {
     const company = await this.prisma.company.findFirst({
@@ -259,11 +263,14 @@ export class AdCampaignsService {
         }
       }
 
+      const config = await this.adConfigService.getConfig(companyId);
+      const allocation = config.budget.allocation;
+
       const totalGradeSpend = gradeDist.A.spend + gradeDist.B.spend + gradeDist.C.spend;
       const budgetAllocation = [
-        { grade: 'A', spend: Math.round(gradeDist.A.spend), revenue: Math.round(gradeDist.A.revenue), pct: totalGradeSpend > 0 ? Math.round((gradeDist.A.spend / totalGradeSpend) * 100) : 0, target: 60, roas: gradeDist.A.spend > 0 ? Math.round((gradeDist.A.revenue / gradeDist.A.spend) * 100) : 0 },
-        { grade: 'B', spend: Math.round(gradeDist.B.spend), revenue: Math.round(gradeDist.B.revenue), pct: totalGradeSpend > 0 ? Math.round((gradeDist.B.spend / totalGradeSpend) * 100) : 0, target: 30, roas: gradeDist.B.spend > 0 ? Math.round((gradeDist.B.revenue / gradeDist.B.spend) * 100) : 0 },
-        { grade: 'C', spend: Math.round(gradeDist.C.spend), revenue: Math.round(gradeDist.C.revenue), pct: totalGradeSpend > 0 ? Math.round((gradeDist.C.spend / totalGradeSpend) * 100) : 0, target: 10, roas: gradeDist.C.spend > 0 ? Math.round((gradeDist.C.revenue / gradeDist.C.spend) * 100) : 0 },
+        { grade: 'A', spend: Math.round(gradeDist.A.spend), revenue: Math.round(gradeDist.A.revenue), pct: totalGradeSpend > 0 ? Math.round((gradeDist.A.spend / totalGradeSpend) * 100) : 0, target: allocation.A || 60, roas: gradeDist.A.spend > 0 ? Math.round((gradeDist.A.revenue / gradeDist.A.spend) * 100) : 0 },
+        { grade: 'B', spend: Math.round(gradeDist.B.spend), revenue: Math.round(gradeDist.B.revenue), pct: totalGradeSpend > 0 ? Math.round((gradeDist.B.spend / totalGradeSpend) * 100) : 0, target: allocation.B || 30, roas: gradeDist.B.spend > 0 ? Math.round((gradeDist.B.revenue / gradeDist.B.spend) * 100) : 0 },
+        { grade: 'C', spend: Math.round(gradeDist.C.spend), revenue: Math.round(gradeDist.C.revenue), pct: totalGradeSpend > 0 ? Math.round((gradeDist.C.spend / totalGradeSpend) * 100) : 0, target: allocation.C || 10, roas: gradeDist.C.spend > 0 ? Math.round((gradeDist.C.revenue / gradeDist.C.spend) * 100) : 0 },
       ];
 
       return { daily, comparison, budgetAllocation, days: d };

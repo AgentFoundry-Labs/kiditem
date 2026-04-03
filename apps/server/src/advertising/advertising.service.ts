@@ -5,6 +5,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { AdConfigService, type AdsConfig } from './ad-config.service';
 import {
   paginationParams,
   type PaginatedResponse,
@@ -13,15 +14,19 @@ import type { AdsListItem, AdsHubData } from '@kiditem/shared';
 
 @Injectable()
 export class AdvertisingService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly adConfigService: AdConfigService,
+  ) {}
 
   async findAll(query: {
     page?: string;
     limit?: string;
   }): Promise<PaginatedResponse<AdsListItem>> {
     try {
+      const config = await this.adConfigService.getConfig();
       const { page, limit, skip } = paginationParams(query);
-      const items = await this.buildAdProducts({ skip, take: limit });
+      const items = await this.buildAdProducts({ skip, take: limit }, config);
       const total = await this.prisma.product.count({
         where: { adTier: { not: null }, status: 'active' },
       });
@@ -34,7 +39,8 @@ export class AdvertisingService {
 
   async getHubData(): Promise<AdsHubData> {
     try {
-      const products = await this.buildAdProducts({});
+      const config = await this.adConfigService.getConfig();
+      const products = await this.buildAdProducts({}, config);
 
       const totalSpend = products.reduce((s, p) => s + p.spend, 0);
       const totalAdRevenue = products.reduce((s, p) => s + p.adRevenue, 0);
@@ -45,7 +51,7 @@ export class AdvertisingService {
           : 0;
       const overallRoas =
         totalSpend > 0 ? Math.round((totalAdRevenue / totalSpend) * 100) : 0;
-      const highAdCount = products.filter((p) => p.adRate > 15).length;
+      const highAdCount = products.filter((p) => p.adRate > config.adRate.thresholds.warning).length;
 
       const gradeSpend: Record<string, number> = { A: 0, B: 0, C: 0 };
       const tierSpend: Record<string, number> = {};
@@ -61,6 +67,9 @@ export class AdvertisingService {
         C: totalSpend > 0 ? Math.round((gradeSpend.C / totalSpend) * 100) : 0,
       };
 
+      const roasT = config.roas.thresholds;
+      const adRateT = config.adRate.thresholds;
+
       return {
         products,
         summary: {
@@ -73,6 +82,13 @@ export class AdvertisingService {
           gradeSpend,
           tierSpend,
           gradeSpendPercent,
+          overallRoasStatus: overallRoas >= roasT.excellent ? 'excellent' as const
+            : overallRoas >= roasT.warning ? 'good' as const
+            : overallRoas >= roasT.poor ? 'warning' as const
+            : 'poor' as const,
+          overallAdRateStatus: overallAdRate <= adRateT.warning ? 'ok' as const
+            : overallAdRate <= adRateT.critical ? 'warning' as const
+            : 'critical' as const,
         },
       } satisfies AdsHubData;
     } catch {
@@ -105,7 +121,7 @@ export class AdvertisingService {
   private async buildAdProducts(opts: {
     skip?: number;
     take?: number;
-  }): Promise<AdsListItem[]> {
+  }, config: AdsConfig): Promise<AdsListItem[]> {
     const now = new Date();
     const year = now.getFullYear();
     const month = now.getMonth() + 1;
@@ -209,6 +225,14 @@ export class AdvertisingService {
             ? Math.round(((pl?.netProfit ?? 0) / plRevenue) * 1000) / 10
             : 0,
         adBudgetLimit: p.adBudgetLimit ?? 0,
+        roasStatus: roas >= config.roas.thresholds.excellent ? 'excellent' as const
+          : roas >= config.roas.thresholds.warning ? 'good' as const
+          : roas >= config.roas.thresholds.poor ? 'warning' as const
+          : 'poor' as const,
+        adRateStatus: adRate <= config.adRate.thresholds.warning ? 'ok' as const
+          : adRate <= config.adRate.thresholds.critical ? 'warning' as const
+          : 'critical' as const,
+        adRateOverLimit: adRate > config.adRate.thresholds.warning,
       } satisfies AdsListItem;
     });
   }

@@ -11,6 +11,7 @@ import { CampaignList } from "./components/CampaignList";
 import PageSkeleton from "@/components/ui/PageSkeleton";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { queryKeys } from "@/lib/query-keys";
+import { ROAS_STATUS_COLOR, AD_RATE_STATUS_STYLE, AD_RATE_STATUS_TEXT_COLOR } from "./lib/status-colors";
 
 export default function AdsPage() {
   const [filter, setFilter] = useState("all");
@@ -19,6 +20,16 @@ export default function AdsPage() {
     queryKey: queryKeys.ads.list(),
     queryFn: () => apiClient.get<{ items?: AdProduct[]; products?: AdProduct[]; summary?: AdSummary }>('/api/ads'),
   });
+
+  const { data: adsConfig } = useQuery({
+    queryKey: queryKeys.ads.config(),
+    queryFn: () => apiClient.get<{
+      roas: { thresholds: { excellent: number; warning: number; poor: number } };
+      adRate: { thresholds: { warning: number; critical: number } };
+    }>('/api/ads/config'),
+  });
+  const roasT = adsConfig?.roas?.thresholds ?? { excellent: 300, warning: 200, poor: 100 };
+  const adRateT = adsConfig?.adRate?.thresholds ?? { warning: 15, critical: 20 };
 
   const { data: campaignData } = useQuery({
     queryKey: queryKeys.ads.campaigns(),
@@ -47,7 +58,7 @@ export default function AdsPage() {
     const totalRevenue = items.reduce((s, p) => s + p.revenue, 0);
     const overallAdRate = totalRevenue > 0 ? Math.round((totalSpend / totalRevenue) * 1000) / 10 : 0;
     const overallRoas = totalSpend > 0 ? Math.round((totalAdRevenue / totalSpend) * 100) : 0;
-    const highAdCount = items.filter((p) => p.adRate > 15).length;
+    const highAdCount = items.filter((p) => p.adRateOverLimit).length;
     const gradeSpend: Record<string, number> = { A: 0, B: 0, C: 0 };
     const tierSpend: Record<string, number> = {};
     for (const p of items) {
@@ -63,8 +74,10 @@ export default function AdsPage() {
     return {
       totalSpend, totalAdRevenue, totalRevenue, overallAdRate,
       overallRoas, highAdCount, gradeSpend, tierSpend, gradeSpendPercent,
+      overallRoasStatus: overallRoas >= roasT.excellent ? 'excellent' as const : overallRoas >= roasT.warning ? 'good' as const : overallRoas >= roasT.poor ? 'warning' as const : 'poor' as const,
+      overallAdRateStatus: overallAdRate <= adRateT.warning ? 'ok' as const : overallAdRate <= adRateT.critical ? 'warning' as const : 'critical' as const,
     };
-  }, [rawData]);
+  }, [rawData, roasT, adRateT]);
 
   const handleExcel = () => {
     import("xlsx").then((XLSX) => {
@@ -85,7 +98,7 @@ export default function AdsPage() {
   if (loading || !summary) return <PageSkeleton variant="table" />;
 
   const filtered = products.filter((p) => {
-    if (filter === "high") return p.adRate > 15;
+    if (filter === "high") return p.adRateOverLimit;
     if (filter === "1차") return p.adTier === "1차";
     if (filter === "2차") return p.adTier === "2차";
     if (filter === "3차") return p.adTier === "3차";
@@ -115,15 +128,15 @@ export default function AdsPage() {
         </div>
         <div className="bg-white rounded-xl p-4 border border-slate-200">
           <div className="text-sm text-slate-500">ROAS</div>
-          <div className={`text-xl font-bold mt-1 ${summary.overallRoas >= 300 ? "text-green-600" : summary.overallRoas >= 200 ? "text-orange-500" : "text-red-600"}`}>{summary.overallRoas}%</div>
+          <div className={`text-xl font-bold mt-1 ${ROAS_STATUS_COLOR[summary.overallRoasStatus]}`}>{summary.overallRoas}%</div>
         </div>
-        <div className={`rounded-xl p-4 border ${summary.overallAdRate > 20 ? "bg-red-50 border-red-200" : summary.overallAdRate > 15 ? "bg-orange-50 border-orange-200" : "bg-green-50 border-green-200"}`}>
+        <div className={`rounded-xl p-4 border ${AD_RATE_STATUS_STYLE[summary.overallAdRateStatus]}`}>
           <div className="text-sm text-slate-500">광고비율</div>
-          <div className={`text-xl font-bold mt-1 ${summary.overallAdRate > 20 ? "text-red-700" : summary.overallAdRate > 15 ? "text-orange-700" : "text-green-700"}`}>{summary.overallAdRate}%</div>
+          <div className={`text-xl font-bold mt-1 ${AD_RATE_STATUS_TEXT_COLOR[summary.overallAdRateStatus]}`}>{summary.overallAdRate}%</div>
           <div className="text-xs text-slate-500 mt-1">목표: 업계평균</div>
         </div>
         <div className="bg-red-50 rounded-xl p-4 border border-red-200">
-          <div className="flex items-center gap-2 text-sm text-red-600"><AlertTriangle size={16} /> 15% 초과</div>
+          <div className="flex items-center gap-2 text-sm text-red-600"><AlertTriangle size={16} /> {adRateT.warning}% 초과</div>
           <div className="text-xl font-bold text-red-700 mt-1">{summary.highAdCount}개</div>
         </div>
       </div>
@@ -183,7 +196,7 @@ export default function AdsPage() {
       <div className="flex gap-2">
         {[
           { key: "all", label: "전체" },
-          { key: "high", label: `15% 초과 (${products.filter(p => p.adRate > 15).length})` },
+          { key: "high", label: `${adRateT.warning}% 초과 (${products.filter(p => p.adRateOverLimit).length})` },
           { key: "1차", label: "1차 (핵심)" },
           { key: "2차", label: "2차 (성장)" },
           { key: "3차", label: "3차 (테스트)" },

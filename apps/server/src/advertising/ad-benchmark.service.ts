@@ -3,18 +3,13 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { AdConfigService, type AdsConfig } from './ad-config.service';
 
-// ===== 업계 평균 벤치마크 (2025~2026 쿠팡 기준) =====
-export const INDUSTRY_BENCHMARK = {
-  roas: { avg: 350, good: 500, excellent: 700, poor: 200, breakeven: 300, label: 'ROAS' },
-  ctr: { avg: 0.3, good: 0.5, excellent: 1.0, poor: 0.15, label: 'CTR' },
-  cvr: { avg: 8, good: 12, excellent: 15, poor: 5, label: 'CVR' },
-  cpc: { avg: 250, good: 150, excellent: 100, poor: 500, label: 'CPC' },
-  adRate: { avg: 15, good: 10, excellent: 5, poor: 25, label: '광고비율' },
-  acos: { avg: 25, good: 15, excellent: 10, poor: 40, label: 'ACoS' },
-} as const;
+const BENCHMARK_LABELS: Record<string, string> = {
+  roas: 'ROAS', ctr: 'CTR', cvr: 'CVR', cpc: 'CPC', adRate: '광고비율', acos: 'ACoS',
+};
 
-type BenchmarkKey = keyof typeof INDUSTRY_BENCHMARK;
+type BenchmarkKey = 'roas' | 'ctr' | 'cvr' | 'cpc' | 'adRate' | 'acos';
 
 export interface BenchmarkComparison {
   metric: string;
@@ -85,12 +80,13 @@ function getBenchmarkStrategy(
   return strategies[metric]?.[status] || { strategy: '데이터 확인 필요', actions: ['추가 데이터 수집 후 판단'] };
 }
 
-function compareToBenchmark(metrics: {
-  roas: number; ctr: number; cvr: number; cpc: number; adRate: number; acos: number;
-}): BenchmarkComparison[] {
+function compareToBenchmark(
+  metrics: { roas: number; ctr: number; cvr: number; cpc: number; adRate: number; acos: number },
+  benchmark: AdsConfig['benchmark'],
+): BenchmarkComparison[] {
   const results: BenchmarkComparison[] = [];
 
-  for (const [key, bench] of Object.entries(INDUSTRY_BENCHMARK)) {
+  for (const [key, bench] of Object.entries(benchmark)) {
     const myValue = metrics[key as BenchmarkKey] ?? 0;
     const isLowerBetter = key === 'cpc' || key === 'adRate' || key === 'acos';
 
@@ -116,7 +112,7 @@ function compareToBenchmark(metrics: {
 
     results.push({
       metric: key,
-      label: bench.label,
+      label: BENCHMARK_LABELS[key] || key,
       myValue: Math.round(myValue * 10) / 10,
       industryAvg: bench.avg,
       industryGood: bench.good,
@@ -135,7 +131,10 @@ function compareToBenchmark(metrics: {
 
 @Injectable()
 export class AdBenchmarkService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly adConfigService: AdConfigService,
+  ) {}
 
   private async getDefaultCompanyId(): Promise<string> {
     const company = await this.prisma.company.findFirst({
@@ -149,6 +148,7 @@ export class AdBenchmarkService {
   async getDiagnosis() {
     try {
       const companyId = await this.getDefaultCompanyId();
+      const config = await this.adConfigService.getConfig(companyId);
 
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
@@ -181,7 +181,7 @@ export class AdBenchmarkService {
         acos: totalRevenue > 0 ? (totalSpend / totalRevenue) * 100 : 0,
       };
 
-      const comparisons = compareToBenchmark(myMetrics);
+      const comparisons = compareToBenchmark(myMetrics, config.benchmark);
 
       // 종합 진단
       const statusCounts = { excellent: 0, good: 0, average: 0, below: 0, poor: 0 };
@@ -222,7 +222,7 @@ export class AdBenchmarkService {
           adRate: Math.round(myMetrics.adRate * 10) / 10,
           acos: Math.round(myMetrics.acos * 10) / 10,
         },
-        industryBenchmark: INDUSTRY_BENCHMARK,
+        industryBenchmark: config.benchmark,
         comparisons,
         diagnosis: {
           overallGrade,

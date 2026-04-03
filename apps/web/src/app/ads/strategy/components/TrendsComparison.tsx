@@ -1,6 +1,10 @@
 'use client';
 
+import { useQuery } from '@tanstack/react-query';
+import { apiClient } from '@/lib/api-client';
+import { queryKeys } from '@/lib/query-keys';
 import { formatKRW } from '@/lib/utils';
+import { roasColor } from '../../lib/status-colors';
 import {
   ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
   PieChart, Pie, Cell,
@@ -53,6 +57,11 @@ function fmtVal(key: string, v: number, isMoney: boolean): string {
 }
 
 export function TrendsComparison({ daily, comparison, budgetAllocation }: Props) {
+  const { data: adsConfig } = useQuery({
+    queryKey: queryKeys.ads.config(),
+    queryFn: () => apiClient.get<{ roas: { thresholds: { excellent: number; warning: number; poor: number } } }>('/api/ads/config'),
+  });
+  const roasT = adsConfig?.roas?.thresholds ?? { excellent: 300, warning: 200, poor: 100 };
   return (
     <div className="space-y-4">
       {/* 전반 vs 후반 비교 — 6칼럼 카드 그리드 */}
@@ -163,9 +172,7 @@ export function TrendsComparison({ daily, comparison, budgetAllocation }: Props)
                         </td>
                         <td className="text-right">{item.pct}%</td>
                         <td className="text-right text-slate-400">{item.target}%</td>
-                        <td className={`text-right font-medium ${
-                          item.roas >= 300 ? 'text-green-600' : item.roas >= 200 ? 'text-orange-500' : 'text-red-500'
-                        }`}>
+                        <td className={`text-right font-medium ${roasColor(item.roas, roasT)}`}>
                           {item.roas}%
                         </td>
                       </tr>

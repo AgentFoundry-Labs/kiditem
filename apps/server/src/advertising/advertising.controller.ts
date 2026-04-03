@@ -7,10 +7,12 @@ import { AdCollectService } from './ad-collect.service';
 import { AdSyncService } from './ad-sync.service';
 import { AdActionService } from './ad-action.service';
 import { AdExecutionService } from './ad-execution.service';
+import { AdConfigService } from './ad-config.service';
 import {
   ListAdsQueryDto, ChangeAdTierBodyDto, CampaignQueryDto, TrendsQueryDto,
   CollectAdsDto, ExtensionSyncDto, CreateScrapeTargetDto, MarkScrapedDto,
   AdActionQueryDto, AdActionCommandDto, LeaseDto, HeartbeatDto, ReportDto,
+  UpdateAdConfigDto,
 } from './dto';
 
 @Controller('ads')
@@ -24,7 +26,23 @@ export class AdvertisingController {
     private readonly adSyncService: AdSyncService,
     private readonly adActionService: AdActionService,
     private readonly adExecutionService: AdExecutionService,
+    private readonly adConfigService: AdConfigService,
   ) {}
+
+  // === 설정 (config — catch-all 위에 배치) ===
+
+  @Get('config')
+  getConfig() {
+    return this.adConfigService.getConfig();
+  }
+
+  @Patch('config/:key')
+  updateConfig(
+    @Param('key') key: string,
+    @Body() body: UpdateAdConfigDto,
+  ) {
+    return this.adConfigService.updateConfig(undefined, `ads.${key}`, body.value);
+  }
 
   // === 기존 엔드포인트 ===
 
