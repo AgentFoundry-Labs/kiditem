@@ -1,6 +1,7 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Sparkles } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import PageSkeleton from '@/components/ui/PageSkeleton';
@@ -10,6 +11,8 @@ import { RecommendCards } from './components/RecommendCards';
 import { TrendsComparison } from './components/TrendsComparison';
 
 export default function AdsStrategyPage() {
+  const queryClient = useQueryClient();
+
   const { data: rulesData, isLoading: rulesLoading } = useQuery({
     queryKey: queryKeys.ads.rules(),
     queryFn: () => apiClient.get<{
@@ -51,31 +54,61 @@ export default function AdsStrategyPage() {
     }>('/api/ads/campaigns/trends?days=14'),
   });
 
+  const runAnalysis = useMutation({
+    mutationFn: () => apiClient.post('/api/ad-agent/run', {}),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.ads.rules() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.ads.plan() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.ads.recommend() });
+    },
+  });
+
   if (rulesLoading) return <PageSkeleton variant="table" />;
+
+  const isEmpty = !rulesData?.recommendations?.length && !planData && !recommendData?.cards?.length;
 
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-slate-900">ABC 전략</h1>
 
-      {/* Plan Summary */}
-      {planData && <PlanSummary plan={planData} />}
+      {isEmpty ? (
+        <div className="bg-white rounded-xl border border-slate-200 p-8 text-center">
+          <div className="text-slate-400 mb-3">
+            <Sparkles size={32} className="mx-auto mb-2 text-violet-400" />
+            <p className="text-sm">에이전트 분석 결과가 없습니다.</p>
+            <p className="text-xs text-slate-300 mt-1">AI가 광고 데이터를 분석하여 전략을 제안합니다.</p>
+          </div>
+          <button
+            onClick={() => runAnalysis.mutate()}
+            disabled={runAnalysis.isPending}
+            className="mt-3 px-4 py-2 bg-violet-600 text-white text-sm font-medium rounded-lg hover:bg-violet-700 disabled:opacity-50"
+          >
+            {runAnalysis.isPending ? '분석 중...' : 'AI 분석 실행'}
+          </button>
+        </div>
+      ) : (
+        <>
+          {/* Plan Summary */}
+          {planData && <PlanSummary plan={planData} />}
 
-      {/* ABC Grade Cards */}
-      <GradeCards
-        budgetAllocation={planData?.budgetAllocation}
-        rules={rulesData?.recommendations}
-      />
+          {/* ABC Grade Cards */}
+          <GradeCards
+            budgetAllocation={planData?.budgetAllocation}
+            rules={rulesData?.recommendations}
+          />
 
-      {/* AI Recommend Cards */}
-      {recommendData?.cards && <RecommendCards cards={recommendData.cards} />}
+          {/* AI Recommend Cards */}
+          {recommendData?.cards && <RecommendCards cards={recommendData.cards} />}
 
-      {/* Trends + Budget Pie */}
-      {trendsData?.daily && trendsData.comparison && trendsData.budgetAllocation && (
-        <TrendsComparison
-          daily={trendsData.daily}
-          comparison={trendsData.comparison}
-          budgetAllocation={trendsData.budgetAllocation}
-        />
+          {/* Trends + Budget Pie */}
+          {trendsData?.daily && trendsData.comparison && trendsData.budgetAllocation && (
+            <TrendsComparison
+              daily={trendsData.daily}
+              comparison={trendsData.comparison}
+              budgetAllocation={trendsData.budgetAllocation}
+            />
+          )}
+        </>
       )}
     </div>
   );
