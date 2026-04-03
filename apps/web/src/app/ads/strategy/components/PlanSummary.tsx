@@ -24,6 +24,12 @@ interface PlanData {
 }
 
 export function PlanSummary({ plan }: { plan?: PlanData }) {
+  const { data: adsConfig } = useQuery({
+    queryKey: queryKeys.ads.config(),
+    queryFn: () => apiClient.get<{ roas: { thresholds: { excellent: number; warning: number; poor: number } } }>('/api/ads/config'),
+  });
+  const roasT = adsConfig?.roas?.thresholds ?? { excellent: 300, warning: 200, poor: 100 };
+
   if (!plan) {
     return (
       <div className="bg-white rounded-xl p-6 border border-slate-200">
@@ -39,11 +45,7 @@ export function PlanSummary({ plan }: { plan?: PlanData }) {
       </div>
     );
   }
-  const { data: adsConfig } = useQuery({
-    queryKey: queryKeys.ads.config(),
-    queryFn: () => apiClient.get<{ roas: { thresholds: { excellent: number; warning: number; poor: number } } }>('/api/ads/config'),
-  });
-  const roasT = adsConfig?.roas?.thresholds ?? { excellent: 300, warning: 200, poor: 100 };
+
   const cards = [
     { label: '확대', value: plan.summary.scaleUp, color: 'text-emerald-600 bg-emerald-50 border-emerald-200' },
     { label: '최적화', value: plan.summary.optimize, color: 'text-blue-600 bg-blue-50 border-blue-200' },
@@ -59,7 +61,6 @@ export function PlanSummary({ plan }: { plan?: PlanData }) {
         <span className="text-xs text-slate-400">{plan.totalProducts}개 상품 분석</span>
       </div>
 
-      {/* Action summary */}
       <div className="grid grid-cols-3 md:grid-cols-5 gap-3 mb-4">
         {cards.map((c) => (
           <div key={c.label} className={`rounded-lg p-3 border text-center ${c.color}`}>
@@ -69,7 +70,6 @@ export function PlanSummary({ plan }: { plan?: PlanData }) {
         ))}
       </div>
 
-      {/* Key metrics */}
       <div className="flex gap-6 pt-3 border-t border-slate-100 text-sm">
         <div>
           <span className="text-slate-500">총 광고비:</span>{' '}
