@@ -87,7 +87,16 @@ export class AdStrategyService {
 
   async getWeeklyPlan() {
     const latest = await this.getLatestAgentResult();
-    if (!latest?.plan) return null;
+    if (!latest?.plan) {
+      const budgetAllocation = await this.calcBudgetAllocation();
+      return {
+        generatedAt: null,
+        totalProducts: 0,
+        summary: { scaleUp: 0, optimize: 0, reduce: 0, stop: 0, newStart: 0 },
+        budgetAllocation,
+        keyMetrics: { totalAdSpend: 0, totalAdRevenue: 0, overallRoas: 0 },
+      };
+    }
     const budgetAllocation = await this.calcBudgetAllocation();
     return { ...latest.plan, budgetAllocation, generatedAt: latest.generatedAt };
   }
