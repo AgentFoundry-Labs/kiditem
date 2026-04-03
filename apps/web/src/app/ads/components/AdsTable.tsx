@@ -16,7 +16,7 @@ export function AdsTable({ filtered }: Props) {
             <tr className="bg-slate-50">
               <th>등급</th>
               <th>광고</th>
-              <th>상품명</th>
+              <th className="min-w-[200px] max-w-[300px]">상품명</th>
               <th className="text-right">광고비</th>
               <th className="text-right">광고매출</th>
               <th className="text-right">ROAS</th>
@@ -35,7 +35,7 @@ export function AdsTable({ filtered }: Props) {
               <tr key={p.id} className={p.adRateOverLimit ? "bg-red-50/50" : ""}>
                 <td><span className={`px-2 py-0.5 rounded text-xs font-bold ${getGradeColor(p.grade)}`}>{p.grade}</span></td>
                 <td><span className="px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800">{p.adTier}</span></td>
-                <td className="font-medium text-slate-900">{p.name}</td>
+                <td className="font-medium text-slate-900 max-w-[300px] truncate" title={p.name}>{p.name}</td>
                 <td className="text-right">{formatKRW(p.spend)}</td>
                 <td className="text-right">{formatKRW(p.adRevenue)}</td>
                 <td className={`text-right font-semibold ${ROAS_STATUS_COLOR[p.roasStatus]}`}>{p.roas}%</td>
