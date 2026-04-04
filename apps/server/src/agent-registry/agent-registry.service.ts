@@ -49,7 +49,7 @@ export class AgentRegistryService implements OnModuleInit {
   async list(query: { companyId: string; isActive?: string }) {
     return this.prisma.agentDefinition.findMany({
       where: {
-        OR: [{ companyId: query.companyId }, { companyId: null }],
+        companyId: query.companyId,
         ...(query.isActive !== undefined && { isActive: query.isActive === 'true' }),
       },
       omit: { promptTemplate: true },
@@ -68,7 +68,7 @@ export class AgentRegistryService implements OnModuleInit {
   }
 
   async create(data: {
-    companyId?: string;
+    companyId: string;
     name: string;
     type: string;
     description?: string;

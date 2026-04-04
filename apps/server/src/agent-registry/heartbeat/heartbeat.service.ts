@@ -441,6 +441,7 @@ export class HeartbeatService {
     });
 
     for (const agent of agents) {
+      if (!agent.companyId) continue;
       const runtime = (agent.runtimeConfig as Record<string, unknown>) || {};
       const intervalSec = (runtime.intervalSec as number) || 0;
 

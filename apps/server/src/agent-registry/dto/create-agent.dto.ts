@@ -1,7 +1,7 @@
 import { IsString, IsOptional, IsNumber, IsBoolean, IsUUID, MinLength } from 'class-validator';
 
 export class CreateAgentBodyDto {
-  @IsUUID() @IsOptional() companyId?: string;
+  @IsUUID() companyId: string;
   @IsString() @MinLength(1) name: string;
   @IsString() type: string;
   @IsString() @IsOptional() description?: string;
