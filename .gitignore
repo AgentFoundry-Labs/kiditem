@@ -4,6 +4,7 @@ node_modules/
 .env.local
 *.db
 dist/
+*.tsbuildinfo
 .DS_Store
 __pycache__/
 *.pyc
