@@ -91,7 +91,7 @@ export default function SkillsPage() {
         <div className="flex flex-col items-center justify-center py-16 text-gray-400 border border-gray-200 rounded-lg">
           <Puzzle className="w-8 h-8 mb-2" />
           <p className="text-sm">등록된 스킬이 없습니다.</p>
-          <p className="text-xs text-gray-400 mt-1">에이전트에 스킬을 할당하거나 agent-config/skills/에 스킬을 추가하세요.</p>
+          <p className="text-xs text-gray-400 mt-1">마켓플레이스에서 에이전트를 설치하면 스킬이 자동으로 등록됩니다.</p>
         </div>
       )}
 

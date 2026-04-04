@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { Plus, AlertCircle } from 'lucide-react';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { isApiError } from '@/lib/api-error';
@@ -56,10 +57,10 @@ export default function WorkflowsPage() {
             {templates.length}개 워크플로우 ({templates.filter((t) => t.isActive).length}개 활성)
           </p>
         </div>
-        <button className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium transition-colors">
+        <Link href="/marketplace" className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium transition-colors">
           <Plus className="w-4 h-4" />
-          새 워크플로우
-        </button>
+          워크플로우 설치
+        </Link>
       </div>
 
       <MyWorkflowsSection

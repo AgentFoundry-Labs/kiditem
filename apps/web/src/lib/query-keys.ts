@@ -57,6 +57,11 @@ export const queryKeys = {
   orders: {
     all: ['orders'] as const,
     pipeline: () => [...queryKeys.orders.all, 'pipeline'] as const,
+    list: (params: Record<string, string>) => [...queryKeys.orders.all, 'list', params] as const,
+    stats: () => [...queryKeys.orders.all, 'stats'] as const,
+    search: (params: Record<string, string>) => [...queryKeys.orders.all, 'search', params] as const,
+    compare: (params: Record<string, string>) => [...queryKeys.orders.all, 'compare', params] as const,
+    sync: (params: Record<string, string>) => [...queryKeys.orders.all, 'sync', params] as const,
   },
   coupangDashboard: {
     all: ['coupangDashboard'] as const,
@@ -106,6 +111,7 @@ export const queryKeys = {
   stockMovement: {
     all: ['stockMovement'] as const,
     data: (params: Record<string, string>) => [...queryKeys.stockMovement.all, 'data', params] as const,
+    summary: (params: Record<string, string>) => [...queryKeys.stockMovement.all, 'summary', params] as const,
   },
   unshipped: {
     all: ['unshipped'] as const,
@@ -120,6 +126,10 @@ export const queryKeys = {
   companies: {
     all: ['companies'] as const,
     list: () => [...queryKeys.companies.all, 'list'] as const,
+  },
+  suppliers: {
+    all: ['suppliers'] as const,
+    list: () => [...queryKeys.suppliers.all, 'list'] as const,
   },
   syncInfo: () => ['syncInfo'] as const,
 } as const;

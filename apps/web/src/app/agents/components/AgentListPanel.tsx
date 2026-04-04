@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { Bot } from 'lucide-react';
 import type { Agent, OrgNode, ViewMode } from '../lib/agent-types';
 import { AgentListRow } from './AgentListRow';
@@ -45,7 +46,9 @@ export function AgentListPanel({
             <Bot className="w-6 h-6 text-gray-400" />
           </div>
           <p className="text-sm font-medium text-gray-600">등록된 에이전트가 없습니다.</p>
-          <p className="text-xs text-gray-400 mt-1">서버에서 에이전트를 시드하거나 API로 추가하세요.</p>
+          <Link href="/marketplace" className="text-xs text-blue-500 hover:text-blue-600 mt-1">
+            마켓플레이스에서 에이전트를 설치하세요 →
+          </Link>
         </div>
       )}
 

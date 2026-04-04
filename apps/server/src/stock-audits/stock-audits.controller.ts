@@ -1,0 +1,23 @@
+import { Controller, Get, Post, Patch, Param, Query, Body } from '@nestjs/common';
+import { StockAuditsService } from './stock-audits.service';
+import { CreateStockAuditDto, UpdateStockAuditDto } from './dto';
+
+@Controller('stock-audits')
+export class StockAuditsController {
+  constructor(private readonly stockAuditsService: StockAuditsService) {}
+
+  @Get()
+  findAll(@Query('companyId') companyId?: string) {
+    return this.stockAuditsService.findAll(companyId);
+  }
+
+  @Post()
+  create(@Body() dto: CreateStockAuditDto) {
+    return this.stockAuditsService.create(dto);
+  }
+
+  @Patch(':id')
+  update(@Param('id') id: string, @Body() dto: UpdateStockAuditDto) {
+    return this.stockAuditsService.update(id, dto);
+  }
+}

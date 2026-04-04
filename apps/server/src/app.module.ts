@@ -18,6 +18,23 @@ import { MarketplaceModule } from './marketplace/marketplace.module';
 import { AdvertisingModule } from './advertising/advertising.module';
 import { ProcurementModule } from './procurement/procurement.module';
 import { FeatureGateModule } from './feature-gate/feature-gate.module';
+import { WarehousesModule } from './warehouses/warehouses.module';
+import { OptionMastersModule } from './option-masters/option-masters.module';
+import { CategoriesModule } from './categories/categories.module';
+import { ManualLedgerModule } from './manual-ledger/manual-ledger.module';
+import { StockAuditsModule } from './stock-audits/stock-audits.module';
+import { StockTransfersModule } from './stock-transfers/stock-transfers.module';
+import { ProductMemosModule } from './product-memos/product-memos.module';
+import { ReturnTransfersModule } from './return-transfers/return-transfers.module';
+import { BundleProductsModule } from './bundle-products/bundle-products.module';
+import { SuppliersModule } from './suppliers/suppliers.module';
+import { SupplierStatsModule } from './supplier-stats/supplier-stats.module';
+import { SupplierPaymentsModule } from './supplier-payments/supplier-payments.module';
+import { SettlementsModule } from './settlements/settlements.module';
+import { PickingModule } from './picking/picking.module';
+import { ProcessingCostsModule } from './processing-costs/processing-costs.module';
+import { SalesPlansModule } from './sales-plans/sales-plans.module';
+import { StatisticsModule } from './statistics/statistics.module';
 
 @Module({
   imports: [
@@ -40,6 +57,23 @@ import { FeatureGateModule } from './feature-gate/feature-gate.module';
     MarketplaceModule,
     AdvertisingModule,
     ProcurementModule,
+    WarehousesModule,
+    OptionMastersModule,
+    CategoriesModule,
+    ManualLedgerModule,
+    StockAuditsModule,
+    StockTransfersModule,
+    ProductMemosModule,
+    ReturnTransfersModule,
+    BundleProductsModule,
+    SuppliersModule,
+    SupplierStatsModule,
+    SupplierPaymentsModule,
+    SettlementsModule,
+    PickingModule,
+    ProcessingCostsModule,
+    SalesPlansModule,
+    StatisticsModule,
   ],
 })
 export class AppModule {}

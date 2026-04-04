@@ -1,0 +1,253 @@
+import { Injectable } from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
+
+@Injectable()
+export class StatisticsService {
+  constructor(private readonly prisma: PrismaService) {}
+
+  private buildPeriodFilter(period?: string) {
+    if (!period) return {};
+    const [year, month] = period.split('-').map(Number);
+    return {
+      orderedAt: {
+        gte: new Date(year, month - 1, 1),
+        lt: new Date(year, month, 1),
+      },
+    };
+  }
+
+  private buildPlPeriodFilter(period?: string) {
+    if (!period) return {};
+    const [year, month] = period.split('-').map(Number);
+    return { year, month };
+  }
+
+  async overview(companyId: string, period?: string) {
+    const plWhere = { companyId, ...this.buildPlPeriodFilter(period) };
+
+    const agg = await this.prisma.profitLoss.aggregate({
+      where: plWhere,
+      _sum: {
+        revenue: true,
+        netProfit: true,
+        orderCount: true,
+      },
+    });
+
+    const totalRevenue = agg._sum.revenue ?? 0;
+    const totalProfit = agg._sum.netProfit ?? 0;
+    const totalOrders = agg._sum.orderCount ?? 0;
+    const avgMargin = totalRevenue > 0 ? totalProfit / totalRevenue : 0;
+
+    return {
+      totalRevenue,
+      totalOrders,
+      totalProfit,
+      avgMargin: Math.round(avgMargin * 10000) / 10000,
+    };
+  }
+
+  async products(companyId: string, period?: string) {
+    const plWhere = { companyId, ...this.buildPlPeriodFilter(period) };
+
+    const records = await this.prisma.profitLoss.findMany({
+      where: plWhere,
+      include: {
+        product: {
+          select: {
+            id: true,
+            name: true,
+            category: true,
+            abcGrade: true,
+            thumbnailUrl: true,
+          },
+        },
+      },
+      orderBy: { revenue: 'desc' },
+    });
+
+    return records.map((r) => ({
+      productId: r.productId,
+      productName: r.product.name,
+      category: r.product.category,
+      grade: r.product.abcGrade,
+      thumbnailUrl: r.product.thumbnailUrl,
+      revenue: r.revenue,
+      netProfit: r.netProfit,
+      orderCount: r.orderCount,
+      margin: r.revenue > 0
+        ? Math.round((r.netProfit / r.revenue) * 10000) / 10000
+        : 0,
+    }));
+  }
+
+  async categories(companyId: string, period?: string) {
+    const plWhere = { companyId, ...this.buildPlPeriodFilter(period) };
+
+    const records = await this.prisma.profitLoss.findMany({
+      where: plWhere,
+      include: {
+        product: { select: { category: true } },
+      },
+    });
+
+    const categoryMap = new Map<string, { revenue: number; orders: number; profit: number }>();
+
+    for (const r of records) {
+      const cat = r.product.category ?? '미분류';
+      const entry = categoryMap.get(cat) ?? { revenue: 0, orders: 0, profit: 0 };
+      entry.revenue += r.revenue;
+      entry.orders += r.orderCount;
+      entry.profit += r.netProfit;
+      categoryMap.set(cat, entry);
+    }
+
+    return Array.from(categoryMap.entries())
+      .map(([category, data]) => ({ category, ...data }))
+      .sort((a, b) => b.revenue - a.revenue);
+  }
+
+  async delivery(companyId: string, period?: string) {
+    const where: Record<string, unknown> = { companyId };
+
+    if (period) {
+      const [year, month] = period.split('-').map(Number);
+      where.shippedAt = {
+        gte: new Date(year, month - 1, 1),
+        lt: new Date(year, month, 1),
+      };
+    }
+
+    const shipments = await this.prisma.shipment.findMany({
+      where,
+      select: {
+        deliveryDays: true,
+        courierName: true,
+      },
+    });
+
+    // Average delivery days
+    const withDays = shipments.filter((s) => s.deliveryDays != null);
+    const avgDeliveryDays = withDays.length > 0
+      ? Math.round(
+          (withDays.reduce((sum, s) => sum + s.deliveryDays!, 0) / withDays.length) * 10,
+        ) / 10
+      : 0;
+
+    // Courier distribution
+    const courierMap = new Map<string, number>();
+    for (const s of shipments) {
+      const name = s.courierName ?? '미지정';
+      courierMap.set(name, (courierMap.get(name) ?? 0) + 1);
+    }
+
+    const courierDistribution = Array.from(courierMap.entries())
+      .map(([courier, count]) => ({ courier, count }))
+      .sort((a, b) => b.count - a.count);
+
+    return {
+      totalShipments: shipments.length,
+      avgDeliveryDays,
+      courierDistribution,
+    };
+  }
+
+  async grades(companyId: string, period?: string) {
+    const plWhere = { companyId, ...this.buildPlPeriodFilter(period) };
+
+    const records = await this.prisma.profitLoss.findMany({
+      where: plWhere,
+      include: {
+        product: { select: { abcGrade: true } },
+      },
+    });
+
+    const gradeMap = new Map<string, { revenue: number; profit: number; productCount: number }>();
+
+    for (const r of records) {
+      const grade = r.product.abcGrade ?? 'N/A';
+      const entry = gradeMap.get(grade) ?? { revenue: 0, profit: 0, productCount: 0 };
+      entry.revenue += r.revenue;
+      entry.profit += r.netProfit;
+      entry.productCount += 1;
+      gradeMap.set(grade, entry);
+    }
+
+    return Array.from(gradeMap.entries())
+      .map(([grade, data]) => ({ grade, ...data }))
+      .sort((a, b) => b.revenue - a.revenue);
+  }
+
+  async pareto(companyId: string, period?: string) {
+    const plWhere = { companyId, ...this.buildPlPeriodFilter(period) };
+
+    const records = await this.prisma.profitLoss.findMany({
+      where: plWhere,
+      include: {
+        product: { select: { id: true, name: true } },
+      },
+      orderBy: { revenue: 'desc' },
+    });
+
+    const totalRevenue = records.reduce((sum, r) => sum + r.revenue, 0);
+    const top20Count = Math.max(1, Math.ceil(records.length * 0.2));
+    const top20Records = records.slice(0, top20Count);
+    const top20Revenue = top20Records.reduce((sum, r) => sum + r.revenue, 0);
+
+    return {
+      totalProducts: records.length,
+      top20Count,
+      totalRevenue,
+      top20Revenue,
+      top20RevenueRatio: totalRevenue > 0
+        ? Math.round((top20Revenue / totalRevenue) * 10000) / 10000
+        : 0,
+      top20Products: top20Records.map((r) => ({
+        productId: r.productId,
+        productName: r.product.name,
+        revenue: r.revenue,
+      })),
+    };
+  }
+
+  async repurchase(companyId: string, period?: string) {
+    const where: Record<string, unknown> = { companyId };
+
+    if (period) {
+      const [year, month] = period.split('-').map(Number);
+      where.orderedAt = {
+        gte: new Date(year, month - 1, 1),
+        lt: new Date(year, month, 1),
+      };
+    }
+
+    const orders = await this.prisma.order.findMany({
+      where: {
+        ...where,
+        status: { notIn: ['cancelled', 'returned'] },
+      },
+      select: { receiverName: true },
+    });
+
+    // Count orders per receiver
+    const receiverMap = new Map<string, number>();
+    for (const o of orders) {
+      const name = o.receiverName ?? '';
+      if (!name) continue;
+      receiverMap.set(name, (receiverMap.get(name) ?? 0) + 1);
+    }
+
+    const totalCustomers = receiverMap.size;
+    const repeatCustomers = Array.from(receiverMap.values()).filter((c) => c >= 2).length;
+    const repurchaseRate = totalCustomers > 0
+      ? Math.round((repeatCustomers / totalCustomers) * 10000) / 10000
+      : 0;
+
+    return {
+      totalCustomers,
+      repeatCustomers,
+      repurchaseRate,
+      totalOrders: orders.length,
+    };
+  }
+}

@@ -1,0 +1,48 @@
+import { Injectable, BadRequestException } from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
+import { CreateOptionMasterDto, UpdateOptionMasterDto } from './dto';
+
+@Injectable()
+export class OptionMastersService {
+  constructor(private readonly prisma: PrismaService) {}
+
+  async findAll(companyId: string) {
+    return this.prisma.optionMaster.findMany({
+      where: { companyId },
+      orderBy: { name: 'asc' },
+    });
+  }
+
+  async create(dto: CreateOptionMasterDto) {
+    return this.prisma.optionMaster.create({
+      data: {
+        companyId: dto.companyId,
+        name: dto.name,
+        values: dto.values,
+        isActive: dto.isActive ?? true,
+      },
+    });
+  }
+
+  async update(id: string, dto: UpdateOptionMasterDto) {
+    const existing = await this.prisma.optionMaster.findUnique({ where: { id } });
+    if (!existing) {
+      throw new BadRequestException('옵션 마스터를 찾을 수 없습니다');
+    }
+
+    return this.prisma.optionMaster.update({
+      where: { id },
+      data: dto,
+    });
+  }
+
+  async delete(id: string) {
+    const existing = await this.prisma.optionMaster.findUnique({ where: { id } });
+    if (!existing) {
+      throw new BadRequestException('옵션 마스터를 찾을 수 없습니다');
+    }
+
+    await this.prisma.optionMaster.delete({ where: { id } });
+    return { ok: true };
+  }
+}

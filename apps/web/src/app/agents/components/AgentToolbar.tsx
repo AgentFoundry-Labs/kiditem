@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { List, GitBranch, RefreshCw, SlidersHorizontal, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { FilterTab, ViewMode } from '../lib/agent-types';
@@ -119,15 +120,14 @@ export function AgentToolbar({
           <RefreshCw className="w-3.5 h-3.5" />
         </button>
 
-        {/* New Agent — placeholder */}
-        <button
+        {/* 마켓플레이스에서 에이전트 설치 */}
+        <Link
+          href="/marketplace"
           className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-gray-700"
-          title="새 에이전트 (준비 중)"
-          disabled
         >
           <Plus className="w-3.5 h-3.5" />
-          <span className="hidden sm:inline">새 에이전트</span>
-        </button>
+          <span className="hidden sm:inline">에이전트 설치</span>
+        </Link>
       </div>
     </div>
   );
