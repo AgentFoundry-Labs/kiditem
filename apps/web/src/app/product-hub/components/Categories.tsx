@@ -27,7 +27,7 @@ export default function Categories() {
   // Internal categories derived from products, not a separate API
   const { data: productsData } = useQuery({
     queryKey: ['products', 'categories'],
-    queryFn: () => apiClient.get<{ items: { id: string; category: string | null }[] }>('/api/products?limit=500'),
+    queryFn: () => apiClient.get<{ items: { id: string; category: string | null }[] }>('/api/products?limit=200'),
   });
 
   const categories = useMemo(() => {

@@ -58,7 +58,7 @@ export default function StockLedger() {
     queryKey: queryKeys.stockMovement.data({ period, action: 'ledger' }),
     queryFn: () =>
       apiClient.get<{ items: StockTransaction[]; summary: { inQty: number; outQty: number; inAmount: number; outAmount: number } }>(
-        `/api/stock-movement?from=${period}-01&limit=10000`
+        `/api/stock-movement?from=${period}-01&limit=200`
       ),
   });
 
