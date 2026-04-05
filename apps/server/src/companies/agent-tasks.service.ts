@@ -1,4 +1,4 @@
-import { Injectable, Optional, InternalServerErrorException } from '@nestjs/common';
+import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AgentRegistryService } from '../agent-registry/agent-registry.service';
 
@@ -6,30 +6,15 @@ import { AgentRegistryService } from '../agent-registry/agent-registry.service';
 export class AgentTasksService {
   constructor(
     private readonly prisma: PrismaService,
-    @Optional() private readonly agentRegistry?: AgentRegistryService,
+    private readonly agentRegistry: AgentRegistryService,
   ) {}
 
   async create(agentType: string, input?: Record<string, unknown>) {
-    if (this.agentRegistry) {
-      const result = await this.agentRegistry.runByType(agentType, {
-        extra: input,
-      });
-      const task = await this.prisma.agentTask.findUnique({ where: { id: result.taskId } });
-      if (!task) throw new InternalServerErrorException('Failed to retrieve created task');
-      return task;
-    }
-
-    // Fallback: legacy path
-    const task = await this.prisma.agentTask.create({
-      data: {
-        agentType,
-        ...(input && { input: input as any }),
-      },
+    const result = await this.agentRegistry.runByType(agentType, {
+      extra: input,
     });
-    await this.prisma.$executeRawUnsafe(
-      `SELECT pg_notify('new_agent_task', $1)`,
-      task.id,
-    );
+    const task = await this.prisma.agentTask.findUnique({ where: { id: result.taskId } });
+    if (!task) throw new InternalServerErrorException('Failed to retrieve created task');
     return task;
   }
 

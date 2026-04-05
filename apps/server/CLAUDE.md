@@ -51,7 +51,7 @@ Adding a new domain: create module + controller + service + dto/ → register in
 
 - No `/v1/` in API paths → `/api/{domain}` direct mapping
 - Self-contained domain modules — no direct imports of other domain Services
-- Only shared dependency: PrismaService
+- Global infrastructure: PrismaService, AgentRegistryService (both `@Global()`, injectable everywhere)
 - New endpoints → class-validator DTO required (no manual if + BadRequestException)
 - Errors → throw HttpException (no `ok: false` in 200 responses)
 - Types → import from `@kiditem/shared`, use `satisfies` pattern in services

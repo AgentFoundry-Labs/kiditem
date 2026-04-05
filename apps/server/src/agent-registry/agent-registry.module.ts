@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Global, Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { AgentRegistryController } from './agent-registry.controller';
@@ -22,6 +22,7 @@ import { TranscriptService } from './lifecycle/transcript.service';
 import { DelegationService } from './delegation/delegation.service';
 import { BusinessSafetyModule } from './business-safety/business-safety.module';
 
+@Global()
 @Module({
   imports: [
     ScheduleModule.forRoot(),
