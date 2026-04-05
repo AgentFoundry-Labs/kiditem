@@ -26,8 +26,8 @@ export default function OntologyPage() {
   const { data: products = [], isLoading: loading } = useQuery({
     queryKey: queryKeys.ontology.products(),
     queryFn: async () => {
-      const json = await apiClient.get<{ items: Product[] } | Product[]>('/api/products?limit=200');
-      return Array.isArray(json) ? json : json.items ?? [];
+      const json = await apiClient.get<{ items: Product[]; total: number }>('/api/products?limit=200');
+      return json.items;
     },
   });
 

@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { PackageX, ShoppingCart, Truck, BarChart3 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
+import { getGradeColor } from '@/lib/utils';
 
 interface OutOfStockItem {
   id: string;
@@ -29,12 +30,6 @@ export default function OutOfStock() {
   });
 
   const items = data?.items ?? [];
-
-  const gradeColors: Record<string, string> = {
-    A: 'bg-green-100 text-green-700',
-    B: 'bg-yellow-100 text-yellow-700',
-    C: 'bg-red-100 text-red-700',
-  };
 
   const aGradeCount = items.filter((i) => i.grade === 'A').length;
   const bGradeCount = items.filter((i) => i.grade === 'B').length;
@@ -140,7 +135,7 @@ export default function OutOfStock() {
                     </td>
                     <td className="py-2 px-3 text-center">
                       <span
-                        className={`px-2 py-0.5 rounded text-xs font-bold ${gradeColors[item.grade] || 'bg-gray-100 text-gray-600'}`}
+                        className={`px-2 py-0.5 rounded text-xs font-bold ${getGradeColor(item.grade)}`}
                       >
                         {item.grade}
                       </span>

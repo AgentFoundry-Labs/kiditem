@@ -1,5 +1,5 @@
 import KpiCard from './KpiCard';
-import { formatKRW } from '@/lib/utils';
+import { formatKRW, formatNumber } from '@/lib/utils';
 import {
   Wallet,
   TrendingUp,
@@ -32,7 +32,7 @@ export default function KpiCards({ summary: s }: KpiCardsProps) {
         <KpiCard
           label="오늘 매출" value={formatKRW(s.todayRevenue)} unit="원"
           icon={DollarSign} bgColor="bg-amber-50 border-amber-200" accentColor="#d97706"
-          subValue={`주문 ${formatKRW(s.todayOrders)}건`}
+          subValue={`주문 ${formatNumber(s.todayOrders)}건`}
         />
         <KpiCard
           label="광고비율" value={String(s.adRate)} unit="%"

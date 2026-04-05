@@ -6,7 +6,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
-import { formatKRW } from '@/lib/utils';
+import { formatKRW, formatNumber } from '@/lib/utils';
 import { StockMovementSummaryCard } from './StockMovementSummaryCard';
 import { StockMovementTable, type GroupedRow } from './StockMovementTable';
 
@@ -94,8 +94,8 @@ export function StockMovementTab() {
       </div>
 
       <div className="grid grid-cols-4 gap-3">
-        <StockMovementSummaryCard icon={<TrendingUp size={14} className="text-green-500" />} label="입고 수량" value={formatKRW(summary.inQty)} color="text-green-700" />
-        <StockMovementSummaryCard icon={<TrendingDown size={14} className="text-red-500" />} label="출고 수량" value={formatKRW(summary.outQty)} color="text-red-600" />
+        <StockMovementSummaryCard icon={<TrendingUp size={14} className="text-green-500" />} label="입고 수량" value={formatNumber(summary.inQty)} color="text-green-700" />
+        <StockMovementSummaryCard icon={<TrendingDown size={14} className="text-red-500" />} label="출고 수량" value={formatNumber(summary.outQty)} color="text-red-600" />
         <StockMovementSummaryCard icon={<TrendingUp size={14} className="text-green-500" />} label="입고 금액" value={`${formatKRW(summary.inAmount)}원`} color="text-green-700" />
         <StockMovementSummaryCard icon={<TrendingDown size={14} className="text-red-500" />} label="출고 금액" value={`${formatKRW(summary.outAmount)}원`} color="text-red-600" />
       </div>

@@ -82,7 +82,7 @@ export default function ProductMetrics({ product }: ProductMetricsProps) {
       <div className="grid grid-cols-4 gap-4">
         <MetricCard
           label="판매가"
-          value={product.sellPrice ? `₩${formatKRW(product.sellPrice)}` : "-"}
+          value={product.sellPrice ? `${formatKRW(product.sellPrice)}원` : "-"}
           icon={<Package size={16} className="text-blue-500" />}
         />
         <MetricCard

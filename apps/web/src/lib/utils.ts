@@ -95,9 +95,9 @@ export function formatPercent(value: number | null | undefined): string {
 
 export function getGradeColor(grade: string): string {
   switch (grade) {
-    case 'A': return 'bg-blue-100 text-blue-800';
-    case 'B': return 'bg-gray-100 text-gray-800';
-    case 'C': return 'bg-orange-100 text-orange-800';
+    case 'A': return 'bg-green-100 text-green-700';
+    case 'B': return 'bg-yellow-100 text-yellow-700';
+    case 'C': return 'bg-red-100 text-red-700';
     default: return 'bg-gray-100 text-gray-800';
   }
 }

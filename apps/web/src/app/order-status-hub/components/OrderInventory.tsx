@@ -60,11 +60,11 @@ export default function OrderInventory() {
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'critical':
-        return { label: '재고없음', color: 'bg-red-100 text-red-800' };
+        return { label: '긴급발주', color: 'bg-red-100 text-red-800' };
       case 'warning':
-        return { label: '부족', color: 'bg-amber-100 text-amber-800' };
+        return { label: '발주필요', color: 'bg-amber-100 text-amber-800' };
       case 'overstock':
-        return { label: '과잉', color: 'bg-blue-100 text-blue-800' };
+        return { label: '과재고', color: 'bg-blue-100 text-blue-800' };
       default:
         return { label: '정상', color: 'bg-green-100 text-green-800' };
     }
@@ -117,7 +117,7 @@ export default function OrderInventory() {
         <div className="bg-white rounded-xl border border-slate-200">
           <div className="p-4">
             <div className="flex items-center gap-2 text-sm text-red-500">
-              <AlertTriangle size={14} /> 재고없음
+              <AlertTriangle size={14} /> 긴급발주
             </div>
             <div className="text-2xl font-bold text-red-600 mt-1">
               {isLoading ? '-' : `${criticalCount}건`}
@@ -127,7 +127,7 @@ export default function OrderInventory() {
         <div className="bg-white rounded-xl border border-slate-200">
           <div className="p-4">
             <div className="flex items-center gap-2 text-sm text-amber-500">
-              <TrendingDown size={14} /> 재고부족
+              <TrendingDown size={14} /> 발주필요
             </div>
             <div className="text-2xl font-bold text-amber-600 mt-1">
               {isLoading ? '-' : `${warningCount}건`}
@@ -140,10 +140,10 @@ export default function OrderInventory() {
       <div className="flex gap-2">
         {[
           { key: 'all', label: '전체' },
-          { key: 'critical', label: '재고없음' },
-          { key: 'warning', label: '부족' },
+          { key: 'critical', label: '긴급발주' },
+          { key: 'warning', label: '발주필요' },
           { key: 'normal', label: '정상' },
-          { key: 'overstock', label: '과잉' },
+          { key: 'overstock', label: '과재고' },
         ].map((f) => (
           <button
             key={f.key}

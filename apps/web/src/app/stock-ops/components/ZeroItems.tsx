@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ShoppingCart, PackageX } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import { formatNumber } from '@/lib/utils';
+import { formatNumber, getGradeColor } from '@/lib/utils';
 
 interface ProductItem {
   id: string;
@@ -49,12 +49,6 @@ export default function ZeroItems() {
   const isLoading = loadingProducts || loadingInventory;
   const zeroSalesItems = productsData?.items?.filter((p) => p.orderCount === 0) ?? [];
   const zeroStockItems = inventoryData?.items?.filter((i) => i.currentStock === 0) ?? [];
-
-  const gradeColors: Record<string, string> = {
-    A: 'bg-green-100 text-green-700',
-    B: 'bg-yellow-100 text-yellow-700',
-    C: 'bg-red-100 text-red-700',
-  };
 
   return (
     <div className="space-y-6">
@@ -154,7 +148,7 @@ export default function ZeroItems() {
                       </td>
                       <td className="py-2 px-3 text-center">
                         <span
-                          className={`px-2 py-0.5 rounded text-xs font-bold ${gradeColors[item.abcGrade] || 'bg-gray-100 text-gray-600'}`}
+                          className={`px-2 py-0.5 rounded text-xs font-bold ${getGradeColor(item.abcGrade)}`}
                         >
                           {item.abcGrade}
                         </span>
@@ -232,7 +226,7 @@ export default function ZeroItems() {
                       </td>
                       <td className="py-2 px-3 text-center">
                         <span
-                          className={`px-2 py-0.5 rounded text-xs font-bold ${gradeColors[item.grade] || 'bg-gray-100 text-gray-600'}`}
+                          className={`px-2 py-0.5 rounded text-xs font-bold ${getGradeColor(item.grade)}`}
                         >
                           {item.grade}
                         </span>

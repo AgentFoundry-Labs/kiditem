@@ -23,7 +23,7 @@ export function KpiBar({ todayOrderCount, todayRevenue, pendingConfirmCount }: K
         <DollarSign className="w-6 h-6 text-emerald-500 flex-shrink-0" />
         <div>
           <p className="text-xs text-gray-500">오늘 매출</p>
-          <p className="text-xl font-bold text-gray-900">₩{formatKRW(todayRevenue)}</p>
+          <p className="text-xl font-bold text-gray-900">{formatKRW(todayRevenue)}원</p>
         </div>
       </div>
       <div className="bg-white rounded-lg border border-gray-200 p-4 flex items-center gap-3">

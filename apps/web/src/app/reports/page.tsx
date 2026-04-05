@@ -15,15 +15,15 @@ export default function ReportsPage() {
     try {
       const XLSX = await import("xlsx");
 
-      const [productsRaw, profitLoss, inventoryRaw, adsData] = await Promise.all([
-        apiClient.get<any>('/api/products'),
+      const [productsRes, profitLoss, inventoryRes, adsData] = await Promise.all([
+        apiClient.get<{ items: any[]; total: number }>('/api/products'),
         apiClient.get<any>('/api/profit-loss'),
-        apiClient.get<any>('/api/inventory'),
+        apiClient.get<{ items: any[]; total: number }>('/api/inventory'),
         apiClient.get<any>('/api/ads'),
       ]);
 
-      const products = productsRaw.items ?? productsRaw;
-      const inventory = inventoryRaw.items ?? inventoryRaw;
+      const products = productsRes.items;
+      const inventory = inventoryRes.items;
 
       const wb = XLSX.utils.book_new();
 

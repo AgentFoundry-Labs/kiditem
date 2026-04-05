@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import { formatKRW } from '@/lib/utils';
+import { formatNumber } from '@/lib/utils';
 
 interface OrderItem {
   id: string;
@@ -140,7 +140,7 @@ export default function SyncCheck() {
                       <Cloud size={14} /> 쿠팡 API
                     </div>
                     <div className="text-2xl font-bold text-blue-600 mt-1">
-                      {formatKRW(totalApi)}건
+                      {formatNumber(totalApi)}건
                     </div>
                   </div>
                 </div>
@@ -150,7 +150,7 @@ export default function SyncCheck() {
                       <Database size={14} /> 내부 DB
                     </div>
                     <div className="text-2xl font-bold text-slate-900 mt-1">
-                      {formatKRW(totalDb)}건
+                      {formatNumber(totalDb)}건
                     </div>
                   </div>
                 </div>

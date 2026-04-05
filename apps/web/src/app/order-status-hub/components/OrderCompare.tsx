@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import { formatKRW } from '@/lib/utils';
+import { formatKRW, formatNumber } from '@/lib/utils';
 
 interface CompareResult {
   date: string;
@@ -121,7 +121,7 @@ export default function OrderCompare() {
                   <div className="p-4 text-center">
                     <div className="text-sm text-slate-500">쿠팡 주문</div>
                     <div className="text-2xl font-bold text-blue-600">
-                      {formatKRW(summary.totalCoupang)}건
+                      {formatNumber(summary.totalCoupang)}건
                     </div>
                   </div>
                 </div>
@@ -129,7 +129,7 @@ export default function OrderCompare() {
                   <div className="p-4 text-center">
                     <div className="text-sm text-slate-500">DB 주문</div>
                     <div className="text-2xl font-bold text-slate-900">
-                      {formatKRW(summary.totalDb)}건
+                      {formatNumber(summary.totalDb)}건
                     </div>
                   </div>
                 </div>

@@ -54,10 +54,10 @@ export default function TopProductsTable({ products }: TopProductsTableProps) {
                   {product.company && <p className="text-xs text-gray-500">{product.company}</p>}
                 </td>
                 <td className="px-4 py-3 whitespace-nowrap text-right font-medium text-gray-900 tabular-nums">
-                  ₩{formatKRW(product.revenue)}
+                  {formatKRW(product.revenue)}원
                 </td>
                 <td className={cn('px-4 py-3 whitespace-nowrap text-right font-medium tabular-nums', getProfitColor(product.profitRate))}>
-                  ₩{formatKRW(product.netProfit)}
+                  {formatKRW(product.netProfit)}원
                 </td>
                 <td className={cn('px-4 py-3 whitespace-nowrap text-right font-semibold tabular-nums', getProfitColor(product.profitRate))}>
                   {formatPercent(product.profitRate)}

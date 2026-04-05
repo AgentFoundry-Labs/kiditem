@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { AlertTriangle, DollarSign, Clock } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import { formatNumber } from '@/lib/utils';
+import { formatNumber, getGradeColor } from '@/lib/utils';
 
 interface InventoryItem {
   id: string;
@@ -35,12 +35,6 @@ export default function DeadStock() {
 
   const totalDeadStock = items.reduce((s, i) => s + i.currentStock, 0);
   const totalStorageCost = items.reduce((s, i) => s + i.currentStock * STORAGE_COST_PER_UNIT, 0);
-
-  const gradeColors: Record<string, string> = {
-    A: 'bg-green-100 text-green-700',
-    B: 'bg-yellow-100 text-yellow-700',
-    C: 'bg-red-100 text-red-700',
-  };
 
   return (
     <div className="space-y-6">
@@ -125,7 +119,7 @@ export default function DeadStock() {
                     </td>
                     <td className="py-2 px-3 text-center">
                       <span
-                        className={`px-2 py-0.5 rounded text-xs font-bold ${gradeColors[item.grade] || 'bg-gray-100 text-gray-600'}`}
+                        className={`px-2 py-0.5 rounded text-xs font-bold ${getGradeColor(item.grade)}`}
                       >
                         {item.grade}
                       </span>

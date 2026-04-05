@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { BarChart3, TrendingUp, Package, Truck, Download, PieChart, Users } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
-import { formatKRW, getGradeColor } from '@/lib/utils';
+import { formatKRW, formatNumber, getGradeColor } from '@/lib/utils';
 
 interface OverviewStats {
   totalProducts: number;
@@ -146,7 +146,7 @@ export default function Statistics() {
                 <StatBox label="전체 상품" value={data.overview.totalProducts} unit="개" />
                 <StatBox label="전체 주문" value={data.overview.totalOrders} unit="건" />
                 <StatBox label="총 매출" value={formatKRW(data.overview.totalRevenue)} unit="원" />
-                <StatBox label="총 수량" value={formatKRW(data.overview.totalQuantity)} unit="개" />
+                <StatBox label="총 수량" value={formatNumber(data.overview.totalQuantity)} unit="개" />
               </div>
               <div className="grid grid-cols-3 gap-3">
                 <div className="agent-card"><div className="px-4 py-3">

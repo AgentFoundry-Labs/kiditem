@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { BarChart3, TrendingDown, Package, Percent, Loader2, RefreshCw } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import { formatNumber } from '@/lib/utils';
+import { formatNumber, getGradeColor } from '@/lib/utils';
 
 interface PurchaseOrder {
   id: string;
@@ -97,12 +97,6 @@ export default function StockRetention() {
   const avgRetention = totalInbound > 0 ? ((totalCurrentStock / totalInbound) * 100).toFixed(1) : '0';
   const highRetention = items.filter((i) => i.retentionRate > 80).length;
 
-  const gradeColors: Record<string, string> = {
-    A: 'bg-green-100 text-green-700',
-    B: 'bg-yellow-100 text-yellow-700',
-    C: 'bg-red-100 text-red-700',
-  };
-
   const getRetentionColor = (rate: number) => {
     if (rate > 80) return 'text-red-600';
     if (rate > 50) return 'text-orange-600';
@@ -185,7 +179,7 @@ export default function StockRetention() {
                   <td className="py-2 px-3 font-medium max-w-[180px] truncate">{item.productName}</td>
                   <td className="py-2 px-3 text-xs text-slate-500 font-mono">{item.sku || '-'}</td>
                   <td className="py-2 px-3 text-center">
-                    <span className={`px-2 py-0.5 rounded text-xs font-bold ${gradeColors[item.grade] || 'bg-gray-100 text-gray-600'}`}>{item.grade}</span>
+                    <span className={`px-2 py-0.5 rounded text-xs font-bold ${getGradeColor(item.grade)}`}>{item.grade}</span>
                   </td>
                   <td className="py-2 px-3 text-right">{formatNumber(item.totalInbound)}개</td>
                   <td className="py-2 px-3 text-right text-green-600">{formatNumber(item.soldQuantity)}개</td>
