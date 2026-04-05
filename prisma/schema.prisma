@@ -30,13 +30,10 @@ model Company {
   alerts         Alert[]
 
   // Sourcing & Content
-  douyinLiveRooms    DouyinLiveRoom[]
   contentGenerations ContentGeneration[]
-  coupangListings    CoupangListing[]
 
   // Workflow & Agent
   workflowTemplates WorkflowTemplate[]
-  credentials       Credential[]
   activityEvents    ActivityEvent[]
   agentDefinitions  AgentDefinition[]
 
@@ -53,44 +50,30 @@ model Company {
   stockTransfers       StockTransfer[]
   stockTransactions    StockTransaction[]
   stockAudits          StockAudit[]
-  stockAllocations     StockAllocation[]
-  stockMovementSummaries StockMovementSummary[]
 
   // Logistics
   shipments    Shipment[]
-  packGroups   PackGroup[]
   unshippedItems UnshippedItem[]
-  deliveryRules  DeliveryRule[]
   pickingLists   PickingList[]
   returnTransfers ReturnTransfer[]
 
   // Product Extensions
   bundleProducts      BundleProduct[]
-  productSamples      ProductSample[]
   processingCosts     ProcessingCost[]
 
   // Finance
   settlements    Settlement[]
   manualLedgers  ManualLedger[]
-  commissionRates CommissionRate[]
 
   // Operations & Config
   csRecords          CSRecord[]
-  companyInfo        CompanyInfo[]
-  giftRules          GiftRule[]
   categoryMappings   CategoryMapping[]
   commonCodes        CommonCode[]
   optionMasters      OptionMaster[]
-  productTemplates   ProductTemplate[]
-  filterPresets      FilterPreset[]
 
-  // Analytics & Notifications
+  // Analytics
   salesPlans             SalesPlan[]
-  salesAnalyses          SalesAnalysis[]
   auditLogs              AuditLog[]
-  announcements          Announcement[]
-  notificationTemplates  NotificationTemplate[]
-  notificationLogs       NotificationLog[]
 
   // Ontology
   businessRules   BusinessRule[]
@@ -210,20 +193,16 @@ model Product {
   reviews    Review[]
   alerts     Alert[]
   purchaseOrderItems PurchaseOrderItem[]
-  douyinLiveProducts DouyinLiveProduct[]
   contentGenerations ContentGeneration[]
-  coupangListings    CoupangListing[]
   productItems       ProductItem[]
 
   // Supplier & Procurement
   supplierProducts SupplierProduct[]
 
   // Warehouse & Inventory Ops
-  productLocation   ProductLocation?
   stockTransfers    StockTransfer[]
   stockTransactions StockTransaction[]
   returnTransfers   ReturnTransfer[]
-  stockAllocations  StockAllocation[]
 
   // Logistics
   shipments      Shipment[]
@@ -231,10 +210,7 @@ model Product {
 
   // Product Extensions
   bundleItems      BundleItem[]
-  priceHistories   PriceHistory[]
-  nameMappings     ProductNameMapping[]
   productMemos     ProductMemo[]
-  productSamples   ProductSample[]
   processingCosts  ProcessingCost[]
 
   // Analytics
@@ -1024,59 +1000,6 @@ model AgentActionSnapshot {
   @@map("agent_action_snapshots")
 }
 
-// ─── Sourcing: Douyin ─────────────────────────────────────────────────────────
-
-model DouyinLiveRoom {
-  id            String   @id @default(uuid()) @db.Uuid
-  companyId     String   @map("company_id") @db.Uuid
-  roomId        String   @unique @map("room_id")
-  webRoomId     String   @map("web_room_id")
-  streamerName  String   @default("") @map("streamer_name")
-  liveUrl       String   @default("") @map("live_url")
-  status        String   @default("PAUSED")
-  viewerCount   Int      @default(0) @map("viewer_count")
-  productCount  Int      @default(0) @map("product_count")
-  lastConnectedAt DateTime? @map("last_connected_at") @db.Timestamptz
-  errorMessage  String?  @map("error_message")
-  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  company  Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  products DouyinLiveProduct[]
-
-  @@index([companyId])
-  @@map("douyin_live_rooms")
-}
-
-model DouyinLiveProduct {
-  id             String   @id @default(uuid()) @db.Uuid
-  liveRoomId     String   @map("live_room_id") @db.Uuid
-  productId      String?  @map("product_id") @db.Uuid
-  promotionId    BigInt   @map("promotion_id")
-  productName    String   @default("") @map("product_name")
-  price          Decimal  @default(0) @db.Decimal(12, 2)
-  imageUrl       String   @default("") @map("image_url")
-  productUrl     String   @default("") @map("product_url")
-  indexInList    Int      @default(0) @map("index_in_list")
-  extraData      Json?    @map("extra_data")
-  detectedAt     DateTime @default(now()) @map("detected_at") @db.Timestamptz
-
-  matchStatus      String   @default("PENDING") @map("match_status")
-  matched1688Url   String?  @map("matched_1688_url")
-  matched1688Price Decimal? @map("matched_1688_price") @db.Decimal(12, 2)
-  matched1688Title String?  @map("matched_1688_title")
-  matchScore       Decimal? @map("match_score") @db.Decimal(5, 4)
-  matchedAt        DateTime? @map("matched_at") @db.Timestamptz
-
-  liveRoom DouyinLiveRoom @relation(fields: [liveRoomId], references: [id], onDelete: Cascade)
-  product  Product?       @relation(fields: [productId], references: [id], onDelete: SetNull)
-
-  @@index([liveRoomId])
-  @@index([productId])
-  @@index([promotionId])
-  @@map("douyin_live_products")
-}
-
 // ─── Content ──────────────────────────────────────────────────────────────────
 
 model ContentGeneration {
@@ -1102,50 +1025,6 @@ model ContentGeneration {
   @@index([productId])
   @@index([status])
   @@map("content_generations")
-}
-
-// ─── Listing ──────────────────────────────────────────────────────────────────
-
-model CoupangListing {
-  id               String   @id @default(uuid()) @db.Uuid
-  companyId        String   @map("company_id") @db.Uuid
-  productId        String   @map("product_id") @db.Uuid
-  coupangProductId String   @map("coupang_product_id")
-  listingUrl       String   @map("listing_url")
-  status           String   @default("ACTIVE")
-  currentPrice     Int      @map("current_price")
-  viewsCount       Int      @default(0) @map("views_count")
-  conversionRate   Decimal  @default(0) @map("conversion_rate") @db.Decimal(5, 4)
-  adSpend          Decimal? @map("ad_spend") @db.Decimal(12, 2)
-  adRoas           Decimal? @map("ad_roas") @db.Decimal(10, 2)
-  listedAt         DateTime @default(now()) @map("listed_at") @db.Timestamptz
-  updatedAt        DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  company      Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  product      Product              @relation(fields: [productId], references: [id], onDelete: Cascade)
-  performances ProductPerformance[]
-
-  @@index([companyId])
-  @@index([productId])
-  @@map("coupang_listings")
-}
-
-model ProductPerformance {
-  id           String   @id @default(uuid()) @db.Uuid
-  listingId    String   @map("listing_id") @db.Uuid
-  date         DateTime @db.Date
-  views        Int      @default(0)
-  clicks       Int      @default(0)
-  orders       Int      @default(0)
-  revenue      Int      @default(0)
-  adSpendDaily Decimal  @default(0) @map("ad_spend_daily") @db.Decimal(12, 2)
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
-
-  listing CoupangListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
-
-  @@index([listingId])
-  @@index([date])
-  @@map("product_performances")
 }
 
 // ─── Workflow Engine ──────────────────────────────────────────────────────────
@@ -1218,24 +1097,6 @@ model WorkflowStepRun {
   @@index([runId])
   @@index([nodeId])
   @@map("workflow_step_runs")
-}
-
-model Credential {
-  id             String    @id @default(uuid()) @db.Uuid
-  companyId      String    @map("company_id") @db.Uuid
-  provider       String
-  name           String
-  encryptedData  String    @map("encrypted_data")
-  status         String    @default("active")
-  lastVerifiedAt DateTime? @map("last_verified_at") @db.Timestamptz
-  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  @@index([companyId])
-  @@index([provider])
-  @@map("credentials")
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1332,29 +1193,11 @@ model Warehouse {
   stockTransfersFrom     StockTransfer[]      @relation("TransferFromWarehouse")
   stockTransfersTo       StockTransfer[]      @relation("TransferToWarehouse")
   stockTransactions      StockTransaction[]
-  stockAllocations       StockAllocation[]
-  stockMovementSummaries StockMovementSummary[]
-  deliveryRules          DeliveryRule[]
   shipments              Shipment[]
 
   @@unique([companyId, code])
   @@index([companyId])
   @@map("warehouses")
-}
-
-model ProductLocation {
-  id        String   @id @default(uuid()) @db.Uuid
-  productId String   @unique @map("product_id") @db.Uuid
-  zone      String?
-  rack      String?
-  shelf     String?
-  binCode   String?  @map("bin_code")
-  notes     String?
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
-
-  @@map("product_locations")
 }
 
 model StockTransfer {
@@ -1431,51 +1274,6 @@ model StockAudit {
   @@map("stock_audits")
 }
 
-model StockAllocation {
-  id          String    @id @default(uuid()) @db.Uuid
-  companyId   String    @map("company_id") @db.Uuid
-  orderId     String    @map("order_id")
-  productId   String    @map("product_id") @db.Uuid
-  quantity    Int
-  warehouseId String?   @map("warehouse_id") @db.Uuid
-  status      String    @default("allocated")
-  allocatedAt DateTime  @default(now()) @map("allocated_at") @db.Timestamptz
-  shippedAt   DateTime? @map("shipped_at") @db.Timestamptz
-
-  company   Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  product   Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
-  warehouse Warehouse? @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
-
-  @@index([companyId])
-  @@index([orderId])
-  @@index([productId])
-  @@index([status])
-  @@map("stock_allocations")
-}
-
-model StockMovementSummary {
-  id          String   @id @default(uuid()) @db.Uuid
-  companyId   String   @map("company_id") @db.Uuid
-  date        DateTime @db.Date
-  productId   String   @map("product_id") @db.Uuid
-  productName String?  @map("product_name")
-  warehouseId String?  @map("warehouse_id") @db.Uuid
-  inQty       Int      @default(0) @map("in_qty")
-  outQty      Int      @default(0) @map("out_qty")
-  inAmount    Int      @default(0) @map("in_amount")
-  outAmount   Int      @default(0) @map("out_amount")
-  type        String?
-
-  company   Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  warehouse Warehouse? @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
-
-  @@index([companyId])
-  @@index([date])
-  @@index([productId])
-  @@index([productId, date])
-  @@map("stock_movement_summaries")
-}
-
 // ─── Logistics & Shipping ─────────────────────────────────────────────────────
 
 model Shipment {
@@ -1505,27 +1303,6 @@ model Shipment {
   @@map("shipments")
 }
 
-model PackGroup {
-  id           String    @id @default(uuid()) @db.Uuid
-  companyId    String    @map("company_id") @db.Uuid
-  groupNumber  String    @map("group_number")
-  receiverName String?   @map("receiver_name")
-  receiverAddr String?   @map("receiver_addr")
-  orderCount   Int       @default(0) @map("order_count")
-  itemCount    Int       @default(0) @map("item_count")
-  trackingNo   String?   @map("tracking_no")
-  courierName  String?   @map("courier_name")
-  status       String    @default("pending")
-  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  shippedAt    DateTime? @map("shipped_at") @db.Timestamptz
-
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  @@unique([companyId, groupNumber])
-  @@index([companyId])
-  @@map("pack_groups")
-}
-
 model UnshippedItem {
   id          String    @id @default(uuid()) @db.Uuid
   companyId   String    @map("company_id") @db.Uuid
@@ -1547,26 +1324,6 @@ model UnshippedItem {
   @@index([delayDays])
   @@index([isNotified])
   @@map("unshipped_items")
-}
-
-model DeliveryRule {
-  id             String   @id @default(uuid()) @db.Uuid
-  companyId      String   @map("company_id") @db.Uuid
-  name           String
-  priority       Int      @default(0)
-  conditionType  String   @map("condition_type")
-  conditionValue String?  @map("condition_value")
-  courierCode    String?  @map("courier_code")
-  courierName    String?  @map("courier_name")
-  warehouseId    String?  @map("warehouse_id") @db.Uuid
-  isActive       Boolean  @default(true) @map("is_active")
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
-
-  company   Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  warehouse Warehouse? @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
-
-  @@index([companyId])
-  @@map("delivery_rules")
 }
 
 model PickingList {
@@ -1671,36 +1428,6 @@ model BundleItem {
   @@map("bundle_items")
 }
 
-model ProductNameMapping {
-  id              String   @id @default(uuid()) @db.Uuid
-  productId       String   @map("product_id") @db.Uuid
-  marketplace     String   @default("coupang")
-  marketplaceName String   @map("marketplace_name")
-  internalName    String   @map("internal_name")
-  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
-
-  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
-
-  @@unique([productId, marketplace])
-  @@map("product_name_mappings")
-}
-
-model PriceHistory {
-  id        String   @id @default(uuid()) @db.Uuid
-  productId String   @map("product_id") @db.Uuid
-  type      String
-  oldPrice  Int      @map("old_price")
-  newPrice  Int      @map("new_price")
-  reason    String?
-  changedBy String?  @map("changed_by")
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-
-  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
-
-  @@index([productId])
-  @@map("price_histories")
-}
-
 model ProductMemo {
   id         String   @id @default(uuid()) @db.Uuid
   productId  String   @map("product_id") @db.Uuid
@@ -1714,29 +1441,6 @@ model ProductMemo {
 
   @@index([productId])
   @@map("product_memos")
-}
-
-model ProductSample {
-  id            String   @id @default(uuid()) @db.Uuid
-  companyId     String   @map("company_id") @db.Uuid
-  name          String
-  supplier      String?
-  costPrice     Int      @default(0) @map("cost_price")
-  expectedPrice Int      @default(0) @map("expected_price")
-  category      String?
-  status        String   @default("reviewing")
-  notes         String?
-  imageUrl      String?  @map("image_url")
-  productId     String?  @map("product_id") @db.Uuid
-  reviewedBy    String?  @map("reviewed_by")
-  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  company Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
-
-  @@index([companyId])
-  @@map("product_samples")
 }
 
 model ProcessingCost {
@@ -1808,21 +1512,6 @@ model ManualLedger {
   @@map("manual_ledgers")
 }
 
-model CommissionRate {
-  id          String   @id @default(uuid()) @db.Uuid
-  companyId   String   @map("company_id") @db.Uuid
-  category    String
-  rate        Decimal  @default(0) @db.Decimal(5, 4)
-  marketplace String   @default("coupang")
-  notes       String?
-  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  @@unique([companyId, category, marketplace])
-  @@map("commission_rates")
-}
-
 // ─── Operations & Config ──────────────────────────────────────────────────────
 
 model CSRecord {
@@ -1849,47 +1538,6 @@ model CSRecord {
   @@index([csStatus])
   @@index([createdAt])
   @@map("cs_records")
-}
-
-model CompanyInfo {
-  id              String   @id @default(uuid()) @db.Uuid
-  companyId       String   @map("company_id") @db.Uuid
-  companyName     String   @map("company_name")
-  ceoName         String?  @map("ceo_name")
-  phone           String?
-  fax             String?
-  businessNumber  String?  @map("business_number")
-  businessType    String?  @map("business_type")
-  businessItem    String?  @map("business_item")
-  zipCode         String?  @map("zip_code")
-  address         String?
-  addressDetail   String?  @map("address_detail")
-  logoUrl         String?  @map("logo_url")
-  defaultOptions  String?  @map("default_options")
-  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  @@unique([companyId])
-  @@map("company_info")
-}
-
-model GiftRule {
-  id            String   @id @default(uuid()) @db.Uuid
-  companyId     String   @map("company_id") @db.Uuid
-  ruleType      String   @map("rule_type")
-  condition     String
-  giftProductId String?  @map("gift_product_id")
-  giftName      String   @map("gift_name")
-  quantity      Int      @default(1)
-  isActive      Boolean  @default(true) @map("is_active")
-  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  @@index([companyId])
-  @@map("gift_rules")
 }
 
 model CategoryMapping {
@@ -1942,38 +1590,6 @@ model OptionMaster {
   @@map("option_masters")
 }
 
-model ProductTemplate {
-  id        String   @id @default(uuid()) @db.Uuid
-  companyId String   @map("company_id") @db.Uuid
-  name      String
-  html      String
-  category  String?
-  isDefault Boolean  @default(false) @map("is_default")
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  @@index([companyId])
-  @@map("product_templates")
-}
-
-model FilterPreset {
-  id         String   @id @default(uuid()) @db.Uuid
-  companyId  String   @map("company_id") @db.Uuid
-  name       String
-  page       String
-  conditions String
-  isPinned   Boolean  @default(false) @map("is_pinned")
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  @@index([companyId])
-  @@map("filter_presets")
-}
-
 // ─── Analytics & Notifications ────────────────────────────────────────────────
 
 model SalesPlan {
@@ -1994,30 +1610,6 @@ model SalesPlan {
 
   @@unique([companyId, period])
   @@map("sales_plans")
-}
-
-model SalesAnalysis {
-  id            String   @id @default(uuid()) @db.Uuid
-  companyId     String   @map("company_id") @db.Uuid
-  period        String
-  channelName   String   @map("channel_name")
-  channelType   String   @default("online") @map("channel_type")
-  totalOrders   Int      @default(0) @map("total_orders")
-  totalQty      Int      @default(0) @map("total_qty")
-  totalRevenue  Int      @default(0) @map("total_revenue")
-  totalCost     Int      @default(0) @map("total_cost")
-  totalProfit   Int      @default(0) @map("total_profit")
-  returnCount   Int      @default(0) @map("return_count")
-  returnRate    Decimal  @default(0) @map("return_rate") @db.Decimal(5, 4)
-  avgOrderValue Int      @default(0) @map("avg_order_value")
-  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
-
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  @@unique([companyId, period, channelName])
-  @@index([companyId])
-  @@index([period])
-  @@map("sales_analyses")
 }
 
 model TrafficStats {
@@ -2080,57 +1672,6 @@ model AuditLog {
   @@index([createdAt])
   @@index([resource])
   @@map("audit_logs")
-}
-
-model Announcement {
-  id        String   @id @default(uuid()) @db.Uuid
-  companyId String   @map("company_id") @db.Uuid
-  title     String
-  content   String
-  author    String?
-  isPinned  Boolean  @default(false) @map("is_pinned")
-  isActive  Boolean  @default(true) @map("is_active")
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  @@index([companyId])
-  @@map("announcements")
-}
-
-model NotificationTemplate {
-  id        String   @id @default(uuid()) @db.Uuid
-  companyId String   @map("company_id") @db.Uuid
-  name      String
-  type      String
-  trigger   String
-  template  String
-  isActive  Boolean  @default(true) @map("is_active")
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  @@index([companyId])
-  @@map("notification_templates")
-}
-
-model NotificationLog {
-  id        String   @id @default(uuid()) @db.Uuid
-  companyId String   @map("company_id") @db.Uuid
-  type      String
-  recipient String?
-  title     String?
-  message   String
-  orderId   String?  @map("order_id")
-  productId String?  @map("product_id")
-  status    String   @default("sent")
-  sentAt    DateTime @default(now()) @map("sent_at") @db.Timestamptz
-
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  @@index([companyId])
-  @@map("notification_logs")
 }
 
 // ─── Ontology: Business Rules ─────────────────────────────────────────────────
