@@ -12,12 +12,29 @@ import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import { formatNumber, getGradeColor } from '@/lib/utils';
 
-interface StockAssetItem {
+interface InventoryItem {
   id: string;
+  productId: string;
   productName: string;
   sku: string | null;
   grade: string;
   currentStock: number;
+}
+
+interface ProductItem {
+  id: string;
+  costPrice: number;
+  sellPrice: number;
+}
+
+interface StockAssetItem {
+  id: string;
+  productId: string;
+  productName: string;
+  sku: string | null;
+  grade: string;
+  currentStock: number;
+  costPrice: number;
   stockValue: number;
 }
 
@@ -36,13 +53,39 @@ export default function StockAssets() {
   >('stockValue');
   const [sortAsc, setSortAsc] = useState(false);
 
-  const { data, isLoading } = useQuery({
-    queryKey: queryKeys.inventory.list({}),
+  const { data: invData, isLoading: invLoading } = useQuery({
+    queryKey: queryKeys.inventory.list({ limit: '200' }),
     queryFn: () =>
-      apiClient.get<{ items: StockAssetItem[]; total: number }>('/api/inventory'),
+      apiClient.get<{ items: InventoryItem[]; total: number }>('/api/inventory?limit=200'),
   });
 
-  const items = data?.items ?? [];
+  const { data: prodData, isLoading: prodLoading } = useQuery({
+    queryKey: queryKeys.products.list({ limit: '200' }),
+    queryFn: () =>
+      apiClient.get<{ items: ProductItem[]; total: number }>('/api/products?limit=200'),
+  });
+
+  const isLoading = invLoading || prodLoading;
+
+  const items: StockAssetItem[] = useMemo(() => {
+    const invItems = invData?.items ?? [];
+    const prodItems = prodData?.items ?? [];
+    const costMap = new Map<string, number>();
+    for (const p of prodItems) {
+      costMap.set(p.id, Number(p.costPrice) || 0);
+    }
+    return invItems.map((inv) => {
+      const costPrice = costMap.get(inv.productId) ?? 0;
+      const currentStock = Number(inv.currentStock) || 0;
+      return {
+        ...inv,
+        productId: inv.productId,
+        costPrice,
+        currentStock,
+        stockValue: currentStock * costPrice,
+      };
+    });
+  }, [invData, prodData]);
 
   // useMemo로 자산 계산
   const { byGrade, totalValue, totalStock, totalProducts } = useMemo(() => {
