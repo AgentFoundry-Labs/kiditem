@@ -15,6 +15,7 @@ interface AgentToolbarProps {
   view: ViewMode;
   setView: (v: ViewMode) => void;
   onRefresh: () => void;
+  onAddAgent?: () => void;
 }
 
 export function AgentToolbar({
@@ -27,6 +28,7 @@ export function AgentToolbar({
   view,
   setView,
   onRefresh,
+  onAddAgent,
 }: AgentToolbarProps) {
   return (
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-5">
@@ -121,13 +123,23 @@ export function AgentToolbar({
         </button>
 
         {/* 마켓플레이스에서 에이전트 설치 */}
-        <Link
-          href="/marketplace"
-          className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-gray-700"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          <span className="hidden sm:inline">에이전트 설치</span>
-        </Link>
+        {onAddAgent ? (
+          <button
+            onClick={onAddAgent}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-gray-700"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">에이전트 설치</span>
+          </button>
+        ) : (
+          <Link
+            href="/marketplace"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-gray-700"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">에이전트 설치</span>
+          </Link>
+        )}
       </div>
     </div>
   );

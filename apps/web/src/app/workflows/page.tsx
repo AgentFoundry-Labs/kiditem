@@ -9,7 +9,7 @@ import { toast } from 'sonner';
 import { useWorkflows, useToggleWorkflow, useDeleteWorkflow } from './hooks/useWorkflows';
 import { MyWorkflowsSection } from './components/MyWorkflowsSection';
 
-export default function WorkflowsPage() {
+export default function WorkflowsPage({ onAddWorkflow }: { onAddWorkflow?: () => void } = {}) {
   const [filter, setFilter] = useState<string>('all');
 
   const { data: templates = [], isLoading: loading, error: templatesError } = useWorkflows();
@@ -57,10 +57,17 @@ export default function WorkflowsPage() {
             {templates.length}개 워크플로우 ({templates.filter((t) => t.isActive).length}개 활성)
           </p>
         </div>
-        <Link href="/marketplace" className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium transition-colors">
-          <Plus className="w-4 h-4" />
-          워크플로우 설치
-        </Link>
+        {onAddWorkflow ? (
+          <button onClick={onAddWorkflow} className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium transition-colors">
+            <Plus className="w-4 h-4" />
+            워크플로우 설치
+          </button>
+        ) : (
+          <Link href="/marketplace" className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium transition-colors">
+            <Plus className="w-4 h-4" />
+            워크플로우 설치
+          </Link>
+        )}
       </div>
 
       <MyWorkflowsSection

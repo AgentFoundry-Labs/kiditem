@@ -33,7 +33,7 @@ function filterOrgTree(nodes: OrgNode[], tab: FilterTab, showTerminated: boolean
   }, []);
 }
 
-export default function AgentOverview() {
+export default function AgentOverview({ onAddAgent }: { onAddAgent?: () => void }) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [pageTab, setPageTab] = useState<'my' | 'org'>('my');
@@ -145,6 +145,7 @@ export default function AgentOverview() {
             onRefresh={() => {
               queryClient.invalidateQueries({ queryKey: queryKeys.agents.all });
             }}
+            onAddAgent={onAddAgent}
           />
 
           <AgentListPanel

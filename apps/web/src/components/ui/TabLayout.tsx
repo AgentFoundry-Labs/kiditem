@@ -15,13 +15,22 @@ export default function TabLayout({
   titleIcon: TitleIcon,
   tabs,
   defaultTab,
+  activeTab: controlledTab,
+  onTabChange,
 }: {
   title: string;
   titleIcon?: LucideIcon;
   tabs: Tab[];
   defaultTab?: string;
+  activeTab?: string;
+  onTabChange?: (tabId: string) => void;
 }) {
-  const [activeTab, setActiveTab] = useState(defaultTab || tabs[0]?.id || "");
+  const [internalTab, setInternalTab] = useState(defaultTab || tabs[0]?.id || "");
+  const activeTab = controlledTab ?? internalTab;
+  const setActiveTab = (id: string) => {
+    setInternalTab(id);
+    onTabChange?.(id);
+  };
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const scroll = (dir: "left" | "right") => {

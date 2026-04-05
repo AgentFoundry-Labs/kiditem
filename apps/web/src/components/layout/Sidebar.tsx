@@ -219,7 +219,7 @@ export default function Sidebar() {
       )}
       <aside
         className={cn(
-          'fixed left-0 top-0 z-50 h-screen bg-white border-r border-gray-200 transition-all duration-300 flex flex-col',
+          'fixed left-0 top-0 z-50 h-screen bg-white border-r border-gray-200 transition-all duration-300 flex flex-col font-sans',
           sidebarOpen
             ? 'translate-x-0 w-60 md:translate-x-0 md:w-60'
             : '-translate-x-full w-60 md:translate-x-0 md:w-[68px]'
@@ -274,8 +274,8 @@ export default function Sidebar() {
                     className="w-full flex items-center justify-between px-5 pt-5 pb-1.5 group transition-colors"
                   >
                     <span className={cn(
-                      'text-[12px] font-bold uppercase tracking-[0.08em] transition-colors',
-                      hasActiveChild ? 'text-violet-500' : 'text-gray-400 group-hover:text-gray-500'
+                      'text-[14px] font-medium transition-colors',
+                      hasActiveChild ? 'text-violet-500' : 'text-gray-700 group-hover:text-gray-900'
                     )}>
                       {section.label}
                     </span>
