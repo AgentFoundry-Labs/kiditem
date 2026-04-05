@@ -68,9 +68,6 @@ export type { AlertItem } from './schemas/alerts.js';
 export { RuleItemSchema } from './schemas/rules.js';
 export type { RuleItem } from './schemas/rules.js';
 
-// Agent Tasks
-export { AgentTaskItemSchema } from './schemas/agent-tasks.js';
-export type { AgentTaskItem } from './schemas/agent-tasks.js';
 
 // Feature Gate
 export { FeatureGateSchema } from './schemas/feature-gate.js';

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 
 vi.mock('next/navigation', () => ({
@@ -19,64 +19,64 @@ vi.mock('@/store/useStore', () => ({
   useStore: () => ({
     sidebarOpen: true,
     toggleSidebar: vi.fn(),
+    setSidebarOpen: vi.fn(),
   }),
 }));
-
-beforeEach(() => {
-  global.fetch = vi.fn().mockResolvedValue({
-    json: () => Promise.resolve({ pendingAccept: 0, pendingReturns: 0 }),
-  }) as unknown as typeof fetch;
-});
 
 import Sidebar from '@/components/layout/Sidebar';
 
 const EXPECTED_SECTIONS = [
   '상품 파이프라인',
-  '주문·물류',
-  '광고 관리',
-  '분석',
-  '에이전트',
+  '상품관리',
+  '주문관리',
+  '재고관리',
+  '출고/반품',
+  '거래처',
+  '광고관리',
+  '재무/분석',
 ];
 
 const EXPECTED_NAV_ITEMS: { label: string; href: string }[] = [
   { label: '대시보드', href: '/' },
   { label: '소싱/수집', href: '/sourcing' },
   { label: '콘텐츠 생성', href: '/generate' },
-  { label: '상품 관리', href: '/products' },
-  { label: '썸네일 AI', href: '/thumbnails' },
-  { label: '주문 조회', href: '/orders' },
-  { label: 'CS 관리', href: '/cs-management' },
-  { label: '미배송 조회', href: '/unshipped-items' },
-  { label: '발주 관리', href: '/purchase-orders' },
-  { label: '반품 관리', href: '/returns' },
-  { label: '재고 현황', href: '/inventory' },
+  { label: '상품 관리', href: '/product-hub' },
   { label: '리뷰 관리', href: '/reviews' },
+  { label: '옵션 마스터', href: '/option-masters' },
+  { label: '온톨로지', href: '/ontology' },
+  { label: '주문 처리', href: '/order-hub' },
+  { label: 'CS 관리', href: '/cs-management' },
+  { label: '주문 현황', href: '/order-status-hub' },
+  { label: '미배송 조회', href: '/unshipped-items' },
+  { label: '재고 관리', href: '/inventory-hub' },
+  { label: '재고 분석', href: '/stock-ops' },
+  { label: '창고 관리', href: '/warehouses' },
+  { label: '출고 현황', href: '/outbound' },
+  { label: '반품 관리', href: '/returns' },
+  { label: '반품 스캔', href: '/return-scan' },
+  { label: '거래처 관리', href: '/supplier-hub' },
+  { label: '거래처 목록', href: '/suppliers' },
   { label: '광고 대시보드', href: '/ads' },
   { label: '캠페인 분석', href: '/ads/campaigns' },
   { label: 'ABC 전략', href: '/ads/strategy' },
   { label: '업계 벤치마크', href: '/ads/benchmark' },
   { label: '데이터 수집', href: '/ads/collect' },
   { label: '손익 분석', href: '/profit-loss' },
-  { label: '통합매출분석', href: '/sales-analysis' },
-  { label: '리포트', href: '/reports' },
-  { label: '에이전트 관리', href: '/agents' },
-  { label: '워크플로우', href: '/workflows' },
-  { label: '마켓플레이스', href: '/marketplace' },
-  { label: '활동 로그', href: '/agents/activity' },
-  { label: '비용 분석', href: '/agents/costs' },
-  { label: '스킬 카탈로그', href: '/agents/skills' },
+  { label: '매출 분석', href: '/sales-analysis' },
+  { label: '정산 관리', href: '/finance-hub' },
+  { label: 'Agent OS', href: '/agents' },
   { label: '설정', href: '/settings' },
 ];
 
 describe('Sidebar', () => {
-  it('renders all 5 section titles', () => {
+  it('renders all 8 section titles', () => {
     render(<Sidebar />);
     for (const section of EXPECTED_SECTIONS) {
       expect(screen.getByText(section)).toBeInTheDocument();
     }
   });
 
-  it('renders all 23 nav items with correct labels', () => {
+  it('renders all nav items with correct labels', () => {
     render(<Sidebar />);
     for (const item of EXPECTED_NAV_ITEMS) {
       expect(screen.getByText(item.label)).toBeInTheDocument();
@@ -94,30 +94,31 @@ describe('Sidebar', () => {
   it('highlights the active route (dashboard at /)', () => {
     render(<Sidebar />);
     const dashboardLink = screen.getByText('대시보드').closest('a');
-    expect(dashboardLink?.className).toContain('bg-blue-50');
-    expect(dashboardLink?.className).toContain('text-blue-600');
+    expect(dashboardLink?.className).toContain('bg-violet-50');
+    expect(dashboardLink?.className).toContain('text-gray-900');
   });
 
   it('does not highlight inactive routes', () => {
     render(<Sidebar />);
     const settingsLink = screen.getByText('설정').closest('a');
-    expect(settingsLink?.className).not.toContain('bg-blue-50');
+    expect(settingsLink?.className).not.toContain('bg-violet-50');
     expect(settingsLink?.className).toContain('text-gray-500');
   });
 
-  it('shows KidItem branding', () => {
+  it('shows Kiditem branding', () => {
     render(<Sidebar />);
-    expect(screen.getByText('KidItem')).toBeInTheDocument();
+    expect(screen.getByText('Kiditem')).toBeInTheDocument();
   });
 
   it('shows system status when sidebar is open', () => {
     render(<Sidebar />);
-    expect(screen.getByText('시스템 정상 운영중')).toBeInTheDocument();
+    expect(screen.getByText('SYSTEM ONLINE')).toBeInTheDocument();
   });
 
-  it('has exactly 23 navigation links', () => {
+  it('has correct number of navigation links', () => {
     render(<Sidebar />);
     const links = screen.getAllByRole('link');
-    expect(links.length).toBe(EXPECTED_NAV_ITEMS.length);
+    // 29 nav items + 1 brand logo link
+    expect(links.length).toBe(EXPECTED_NAV_ITEMS.length + 1);
   });
 });

@@ -3,10 +3,10 @@
 import { Eye, Loader2, MoreVertical, Sparkles, Trash2 } from 'lucide-react';
 import SourcingStatusBadge from './SourcingStatusBadge';
 import { formatKRW } from '@/lib/utils';
-import type { ProductListItem } from '../lib/sourcing-api';
+import type { SourcedProduct } from '../lib/sourcing-api';
 
 interface Props {
-  product: ProductListItem;
+  product: SourcedProduct;
   isProcessing: boolean;
   isDeleting: boolean;
   onDelete: (id: string) => void;

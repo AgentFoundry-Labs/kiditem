@@ -2,7 +2,7 @@ import { apiClient } from '@/lib/api-client';
 
 export type ProductStatus = 'DRAFT' | 'PROCESSING' | 'LISTED' | 'DISCONTINUED';
 
-export interface ProductListItem {
+export interface SourcedProduct {
   id: string;
   name: string;
   status: ProductStatus;
@@ -18,7 +18,7 @@ export interface ProductListItem {
 }
 
 interface ProductListResponse {
-  items: ProductListItem[];
+  items: SourcedProduct[];
   total: number;
 }
 
@@ -68,7 +68,7 @@ export const productsApi = {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data = await apiClient.get<{ items: any[]; total: number; page: number; limit: number }>(`/api/sourcing/extension/products?${qs}`);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const items: ProductListItem[] = data.items.map((p: any) => {
+    const items: SourcedProduct[] = data.items.map((p: any) => {
       const rawData = p.rawData || {};
       const images = rawData.images || [];
       return {

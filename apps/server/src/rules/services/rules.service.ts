@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AgentRegistryService } from '../../agent-registry/agent-registry.service';
+import type { RuleItem } from '@kiditem/shared';
 
 export interface EvaluationResult {
   taskId?: string;
@@ -202,13 +203,33 @@ export class RulesService implements OnModuleInit {
   }
 
   async findAllRules(companyId: string, category?: string) {
-    return this.prisma.businessRule.findMany({
+    const rows = await this.prisma.businessRule.findMany({
       where: {
         companyId,
         ...(category ? { category } : {}),
       },
       orderBy: { sortOrder: 'asc' },
     });
+    return rows.map((r) => ({
+      id: r.id,
+      companyId: r.companyId,
+      name: r.name,
+      displayName: r.displayName,
+      description: r.description,
+      category: r.category,
+      severity: r.severity,
+      field: r.field,
+      operator: r.operator,
+      threshold: r.threshold as Record<string, unknown>,
+      messageTemplate: r.messageTemplate,
+      actionType: r.actionType,
+      conditions: r.conditions as Record<string, unknown> | null,
+      autoExecute: r.autoExecute,
+      active: r.active,
+      sortOrder: r.sortOrder,
+      createdAt: r.createdAt instanceof Date ? r.createdAt.toISOString() : r.createdAt,
+      updatedAt: r.updatedAt instanceof Date ? r.updatedAt.toISOString() : r.updatedAt,
+    } satisfies RuleItem));
   }
 
   async updateRule(id: string, data: { threshold?: unknown; active?: boolean; autoExecute?: boolean }) {

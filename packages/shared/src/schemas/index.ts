@@ -57,8 +57,8 @@ export { ThumbnailListItemSchema, ThumbnailSummarySchema } from './thumbnails.js
 export type { ThumbnailListItem, ThumbnailSummary } from './thumbnails.js';
 
 // Ads
-export { AdsListItemSchema, AdsHubDataSchema, AdCampaignSnapshotSchema, AdProductSnapshotSchema, AdBenchmarkDataSchema, AdTrendsDataSchema, AdStrategyPlanSchema, AdRulesDataSchema } from './ads.js';
-export type { AdsListItem, AdsHubData, AdsSummary, AdCampaignSnapshot, AdProductSnapshot, AdBenchmarkData, AdTrendsData, AdStrategyPlan, AdRulesData } from './ads.js';
+export { AdsListItemSchema, AdsHubDataSchema, AdCampaignSnapshotSchema, AdProductSnapshotSchema } from './ads.js';
+export type { AdsListItem, AdsHubData, AdsSummary, AdCampaignSnapshot, AdProductSnapshot } from './ads.js';
 
 // Alerts
 export { AlertItemSchema } from './alerts.js';
@@ -67,7 +67,3 @@ export type { AlertItem } from './alerts.js';
 // Rules
 export { RuleItemSchema } from './rules.js';
 export type { RuleItem } from './rules.js';
-
-// Agent Tasks
-export { AgentTaskItemSchema } from './agent-tasks.js';
-export type { AgentTaskItem } from './agent-tasks.js';

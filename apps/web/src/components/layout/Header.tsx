@@ -6,16 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import { useStore } from '@/store/useStore';
-
-interface AlertItem {
-  id: string;
-  type: string;
-  title: string;
-  message: string | null;
-  severity: string;
-  isRead: boolean;
-  createdAt: string;
-}
+import type { AlertItem } from '@kiditem/shared';
 
 function alertTypeIcon(type: string) {
   switch (type) {

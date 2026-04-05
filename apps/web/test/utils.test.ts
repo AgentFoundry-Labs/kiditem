@@ -6,8 +6,6 @@ import {
   formatKRW,
   formatPercent,
   getModuleColor,
-  getStatusColor,
-  getStatusBg,
   timeAgo,
   getProfitColor,
   getProductStatusBadge,
@@ -72,30 +70,6 @@ describe('getModuleColor', () => {
   })
 })
 
-describe('getStatusColor', () => {
-  it('returns emerald for success', () => {
-    expect(getStatusColor('success')).toBe('text-emerald-400')
-  })
-
-  it('returns red for error', () => {
-    expect(getStatusColor('error')).toBe('text-red-400')
-  })
-
-  it('returns gray for unknown status', () => {
-    expect(getStatusColor('whatever')).toBe('text-gray-500')
-  })
-})
-
-describe('getStatusBg', () => {
-  it('returns emerald bg for success', () => {
-    expect(getStatusBg('success')).toContain('emerald')
-  })
-
-  it('returns gray bg for unknown', () => {
-    expect(getStatusBg('whatever')).toContain('gray')
-  })
-})
-
 describe('timeAgo', () => {
   beforeEach(() => {
     vi.useFakeTimers()
@@ -154,12 +128,12 @@ describe('getProductStatusBadge', () => {
 })
 
 describe('getGradeColor', () => {
-  it('returns blue for grade A', () => {
-    expect(getGradeColor('A')).toContain('blue')
+  it('returns green for grade A', () => {
+    expect(getGradeColor('A')).toContain('green')
   })
 
-  it('returns orange for grade C', () => {
-    expect(getGradeColor('C')).toContain('orange')
+  it('returns red for grade C', () => {
+    expect(getGradeColor('C')).toContain('red')
   })
 
   it('returns gray for unknown grade', () => {

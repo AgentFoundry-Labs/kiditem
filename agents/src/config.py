@@ -31,14 +31,6 @@ DETAIL_PAGE_TEMPLATE = os.getenv("DETAIL_PAGE_TEMPLATE", "bold_vertical")
 TMAPI_TOKEN = os.getenv("TMAPI_TOKEN", "")
 TMAPI_BASE_URL = os.getenv("TMAPI_BASE_URL", "https://api.tmapi.top")
 
-# ── Douyin live monitoring ──────────────────────────────────────────────────
-DOUYIN_WS_URL = os.getenv(
-    "DOUYIN_WS_URL", "wss://webcast5-ws-web-lf.douyin.com/webcast/im/push/v2/"
-)
-DOUYIN_HEARTBEAT_INTERVAL = int(os.getenv("DOUYIN_HEARTBEAT_INTERVAL", "5"))
-DOUYIN_RECONNECT_DELAY = float(os.getenv("DOUYIN_RECONNECT_DELAY", "3.0"))
-DOUYIN_MAX_ROOMS = int(os.getenv("DOUYIN_MAX_ROOMS", "100"))
-
 # ── Langfuse ────────────────────────────────────────────────────────────────
 # SDK v4 reads LANGFUSE_BASE_URL; map legacy LANGFUSE_HOST if present.
 _langfuse_host = os.getenv("LANGFUSE_HOST", "")

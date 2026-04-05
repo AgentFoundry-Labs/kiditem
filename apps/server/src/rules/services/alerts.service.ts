@@ -1,5 +1,6 @@
 import { Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import type { AlertItem } from '@kiditem/shared';
 
 @Injectable()
 export class AlertsService {
@@ -7,11 +8,26 @@ export class AlertsService {
 
   async findAll(limit?: number) {
     try {
-      return await this.prisma.alert.findMany({
+      const rows = await this.prisma.alert.findMany({
         where: { isRead: false },
         orderBy: { createdAt: 'desc' },
         ...(limit ? { take: limit } : {}),
+        select: {
+          id: true,
+          companyId: true,
+          productId: true,
+          type: true,
+          severity: true,
+          title: true,
+          message: true,
+          isRead: true,
+          createdAt: true,
+        },
       });
+      return rows.map((r) => ({
+        ...r,
+        createdAt: r.createdAt instanceof Date ? r.createdAt.toISOString() : r.createdAt,
+      } satisfies AlertItem));
     } catch {
       throw new InternalServerErrorException('알림 데이터 조회 실패');
     }

@@ -8,17 +8,17 @@ Source: `/plan-eng-review` on `agents/` directory, `main` branch.
 
 구현 결정은 완료. 별도 구현 세션에서 작업.
 
-| # | Task | Files | Est (CC) |
-|---|------|-------|----------|
-| 1 | RenderAgent 삭제 | `agents/src/agents/render/` | ~30초 |
-| 2 | agent별 transaction 추가 | `inventory.py`, `sourcing/agent.py`, `content/agent.py` | ~5분 |
-| 3 | agent별 timeout (BaseAgent.timeout_seconds) | `base.py`, `runner.py` | ~5분 |
-| 4 | 순환 의존성 해소 (callback 주입) | `content/agent.py`, `runner.py` | ~3분 |
-| 5 | SourcingAgent 에러 패턴 통일 (raise) | `sourcing/agent.py` | ~2분 |
-| 6 | 로깅 structlog 통일 | `runner.py`, `sourcing/agent.py`, `inventory.py` | ~5분 |
-| 7 | Matcher1688 pool 메서드 파라미터화 | `sourcing/agent.py`, `matcher_1688.py` | ~2분 |
-| 8 | NestJS pg_notify 누락 수정 | `apps/server/src/sourcing/sourcing.service.ts` | ~30초 |
-| 9 | InventoryAgent N+1 쿼리 최적화 | `inventory.py` | ~3분 |
+| # | Task | Files | Status |
+|---|------|-------|--------|
+| 1 | ~~RenderAgent 삭제~~ | ~~`agents/src/agents/render/`~~ | ✅ 완료 |
+| 2 | agent별 transaction 추가 | `content/agent.py`, `image_edit/agent.py` | 미완 |
+| 3 | ~~agent별 timeout (BaseAgent.timeout_seconds)~~ | ~~`base.py`~~ | ✅ 완료 |
+| 4 | ~~순환 의존성 해소~~ | ~~runner.py → server.py 전환으로 해소~~ | ✅ 완료 |
+| 5 | SourcingAgent 에러 패턴 통일 (raise) | `sourcing/agent.py` | 미완 |
+| 6 | 로깅 structlog 통일 | `server.py`, `sourcing/agent.py` | 미완 |
+| 7 | Matcher1688 pool 메서드 파라미터화 | `sourcing/agent.py`, `matcher_1688.py` | 미완 |
+| 8 | NestJS pg_notify 누락 수정 | `apps/server/src/sourcing/sourcing.service.ts` | 미완 |
+| 9 | InventoryAgent N+1 쿼리 최적화 | — | 미완 (InventoryAgent 현재 미등록) |
 
 ### Short-term (다음 PR)
 

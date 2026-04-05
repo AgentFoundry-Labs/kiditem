@@ -1,19 +1,23 @@
 import { z } from 'zod';
 
 // GET /api/rules 응답의 각 item
-// 출처: rules.service.ts findAllRules() — Prisma HealthRule 직접 반환
-// ⚠️ Date fields: createdAt, updatedAt — Prisma Date → JSON string 자동 변환
-// satisfies 미적용: Prisma 모델 직접 반환 (Date ≠ string 불일치)
+// 출처: rules.service.ts findAllRules() — Prisma BusinessRule 모델 기반
 export const RuleItemSchema = z.object({
   id: z.string(),
   companyId: z.string(),
-  category: z.string(),
-  ruleName: z.string(),
+  name: z.string(),
+  displayName: z.string(),
   description: z.string().nullable(),
-  threshold: z.unknown(),
+  category: z.string(),
   severity: z.string(),
-  active: z.boolean(),
+  field: z.string(),
+  operator: z.string(),
+  threshold: z.record(z.unknown()),
+  messageTemplate: z.string(),
+  actionType: z.string().nullable(),
+  conditions: z.record(z.unknown()).nullable(),
   autoExecute: z.boolean(),
+  active: z.boolean(),
   sortOrder: z.number(),
   createdAt: z.string(),
   updatedAt: z.string(),

@@ -13,7 +13,7 @@ const GRADE_STYLES: Record<string, { border: string; bg: string; pillBg: string;
   C: { border: 'border-red-300', bg: 'bg-gradient-to-br from-red-50 to-pink-50/50', pillBg: 'bg-red-100 text-red-700', moreColor: 'text-red-600', ring: 'ring-red-400', headerGrad: 'from-red-500 to-pink-500' },
 };
 
-interface RuleItem {
+interface StrategyRule {
   rule: string;
   grade?: string;
   priority?: string;
@@ -32,7 +32,7 @@ interface BudgetAllocationItem {
 
 interface Props {
   budgetAllocation?: BudgetAllocationItem[];
-  rules?: RuleItem[];
+  rules?: StrategyRule[];
 }
 
 export function GradeCards({ budgetAllocation, rules }: Props) {

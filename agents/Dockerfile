@@ -10,7 +10,7 @@ RUN pip install --no-cache-dir uv
 
 COPY pyproject.toml .
 RUN uv pip install --system --no-cache -p 3.11 \
-    asyncpg python-dotenv httpx openai pydantic websockets \
+    asyncpg python-dotenv httpx openai pydantic \
     rebrowser-playwright fal-client structlog numpy Pillow \
     "langfuse>=4.0.0" \
     "paddlepaddle>=3.0.0,<3.3.0" "paddleocr>=2.9.0,<3.0"
@@ -26,4 +26,4 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY src/ src/
 
-CMD ["python", "-m", "src.runner"]
+CMD ["python", "-m", "src.server"]

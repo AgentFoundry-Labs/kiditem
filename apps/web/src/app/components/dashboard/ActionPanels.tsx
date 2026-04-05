@@ -36,7 +36,7 @@ export interface AiAction {
   href?: string;
 }
 
-interface AlertItem {
+interface DashboardAlertItem {
   id: string;
   type: string;
   title?: string;
@@ -47,7 +47,7 @@ interface AlertItem {
 interface ActionPanelsProps {
   humanTasks: HumanTask[];
   aiActions: AiAction[];
-  alerts: AlertItem[];
+  alerts: DashboardAlertItem[];
   checkedTasks: Record<string, boolean>;
   completedActions: Record<string, boolean>;
   processingAction: string | null;

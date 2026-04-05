@@ -35,39 +35,6 @@ export function getModuleColor(module: string): string {
   return colors[module] || '#6B7280';
 }
 
-export function getModuleGradient(module: string): string {
-  const gradients: Record<string, string> = {
-    order: 'from-blue-500/20 to-blue-600/5',
-    accounting: 'from-emerald-500/20 to-emerald-600/5',
-    inventory: 'from-amber-500/20 to-amber-600/5',
-    cs: 'from-red-500/20 to-red-600/5',
-    report: 'from-violet-500/20 to-violet-600/5',
-    product: 'from-pink-500/20 to-pink-600/5',
-    marketing: 'from-cyan-500/20 to-cyan-600/5',
-  };
-  return gradients[module] || 'from-gray-500/20 to-gray-600/5';
-}
-
-export function getStatusColor(status: string): string {
-  switch (status) {
-    case 'success': return 'text-emerald-400';
-    case 'error': return 'text-red-400';
-    case 'running': return 'text-blue-400';
-    case 'idle': return 'text-gray-500';
-    case 'disabled': return 'text-gray-600';
-    default: return 'text-gray-500';
-  }
-}
-
-export function getStatusBg(status: string): string {
-  switch (status) {
-    case 'success': return 'bg-emerald-400/10 border-emerald-400/30';
-    case 'error': return 'bg-red-400/10 border-red-400/30';
-    case 'running': return 'bg-blue-400/10 border-blue-400/30';
-    default: return 'bg-gray-400/10 border-gray-400/30';
-  }
-}
-
 export function timeAgo(dateString: string): string {
   const date = new Date(dateString);
   const now = new Date();
