@@ -12,6 +12,7 @@ interface OutOfStockItem {
   sku: string | null;
   currentStock: number;
   avgDailySales: number;
+  daysRemaining: number;
   grade: string;
   status: string;
   safetyStock: number;

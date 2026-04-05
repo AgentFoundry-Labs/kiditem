@@ -12,6 +12,7 @@ import {
   X,
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
+import { formatKRW, formatNumber } from '@/lib/utils';
 
 interface SalesPlan {
   id: string;
@@ -65,9 +66,6 @@ export default function SalesPlans() {
   });
 
   const syncing = syncMutation.isPending ? (syncMutation.variables ?? null) : null;
-
-  const formatCurrency = (n: number) => '\u20A9' + n.toLocaleString('ko-KR');
-  const formatNumber = (n: number) => n.toLocaleString('ko-KR');
 
   const getAchievementRate = (actual: number, target: number) => {
     if (target === 0) return 0;
@@ -177,8 +175,8 @@ export default function SalesPlans() {
                 <div className="space-y-3">
                   <ProgressRow
                     label="매출"
-                    target={formatCurrency(plan.targetRevenue)}
-                    actual={formatCurrency(plan.actualRevenue)}
+                    target={formatKRW(plan.targetRevenue)}
+                    actual={formatKRW(plan.actualRevenue)}
                     rate={revenueRate}
                     color={getProgressColor(revenueRate)}
                   />
@@ -191,8 +189,8 @@ export default function SalesPlans() {
                   />
                   <ProgressRow
                     label="순이익"
-                    target={formatCurrency(plan.targetProfit)}
-                    actual={formatCurrency(plan.actualProfit)}
+                    target={formatKRW(plan.targetProfit)}
+                    actual={formatKRW(plan.actualProfit)}
                     rate={profitRate}
                     color={getProgressColor(profitRate)}
                   />

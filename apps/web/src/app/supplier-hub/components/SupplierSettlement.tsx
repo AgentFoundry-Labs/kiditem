@@ -5,16 +5,14 @@ import { Scale, CheckCircle, AlertTriangle, ArrowDown, ArrowUp, Minus } from 'lu
 import { apiClient } from '@/lib/api-client';
 import { formatKRW } from '@/lib/utils';
 
-interface SupplierSummary {
+interface SupplierPayment {
+  id: string;
   supplierId: string;
-  supplierName: string;
+  amount: number;
+  paidAmount: number;
   status: string;
-  orderCount: number;
-  totalOrdered: number;
-  totalReceived: number;
-  totalPaid: number;
-  unpaid: number;
-  monthly: { month: string; amount: number }[];
+  dueDate: string;
+  supplier: { id: string; name: string };
 }
 
 interface PaymentSummary {
@@ -26,10 +24,10 @@ interface PaymentSummary {
 export default function SupplierSettlement() {
   const { data: settlementData } = useQuery({
     queryKey: ['supplier-payments', 'settlement'],
-    queryFn: () => apiClient.get<SupplierSummary[]>('/api/supplier-payments'),
+    queryFn: () => apiClient.get<SupplierPayment[]>('/api/supplier-payments'),
   });
 
-  const summaries = (settlementData ?? []).map((p: any) => ({
+  const summaries = (settlementData ?? []).map((p: SupplierPayment) => ({
     supplierId: p.supplierId,
     supplierName: p.supplier?.name ?? '-',
     totalOrdered: p.amount ?? 0,
@@ -39,10 +37,10 @@ export default function SupplierSettlement() {
     receivedCount: p.status === 'paid' ? 1 : 0,
     status: p.status,
   }));
-  const paymentSummary = {
-    totalAmount: summaries.reduce((s: number, sm: any) => s + sm.totalOrdered, 0),
-    totalPaid: summaries.reduce((s: number, sm: any) => s + sm.totalPaid, 0),
-    totalUnpaid: summaries.reduce((s: number, sm: any) => s + sm.unpaid, 0),
+  const paymentSummary: PaymentSummary = {
+    totalAmount: summaries.reduce((s, sm) => s + sm.totalOrdered, 0),
+    totalPaid: summaries.reduce((s, sm) => s + sm.totalPaid, 0),
+    totalUnpaid: summaries.reduce((s, sm) => s + sm.unpaid, 0),
   };
 
   const totalReceived = summaries.reduce((s, sm) => s + sm.totalOrdered, 0);

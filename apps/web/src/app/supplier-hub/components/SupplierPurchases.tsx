@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import { formatKRW } from '@/lib/utils';
+import { formatKRW, formatNumber } from '@/lib/utils';
 
 interface Supplier {
   id: string;
@@ -115,7 +115,7 @@ export default function SupplierPurchases() {
                 <Package size={12} className="text-blue-500" />
                 <span className="text-[10px] text-gray-500 font-mono uppercase">발주 수량 합계</span>
               </div>
-              <div className="text-xl font-bold text-blue-600 tabular-nums">{loadingOrders ? '-' : `${totalQty.toLocaleString()}개`}</div>
+              <div className="text-xl font-bold text-blue-600 tabular-nums">{loadingOrders ? '-' : `${formatNumber(totalQty)}개`}</div>
             </div>
           </div>
           <div className="bg-white rounded-xl border border-slate-200">
@@ -193,7 +193,7 @@ export default function SupplierPurchases() {
                 <tfoot>
                   <tr className="bg-gray-50 font-semibold">
                     <td colSpan={3}>합계</td>
-                    <td className="text-right tabular-nums">{totalQty.toLocaleString()}</td>
+                    <td className="text-right tabular-nums">{formatNumber(totalQty)}</td>
                     <td></td>
                     <td className="text-right tabular-nums">{formatKRW(totalAmount)}원</td>
                     <td colSpan={3}></td>

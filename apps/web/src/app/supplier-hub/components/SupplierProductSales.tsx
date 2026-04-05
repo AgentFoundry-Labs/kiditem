@@ -99,14 +99,10 @@ export default function SupplierProductSales() {
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr>
                 <th className="text-left px-4 py-3 font-medium text-slate-600">상품명</th>
-                <th className="text-left px-4 py-3 font-medium text-slate-600">SKU</th>
-                <th className="text-left px-4 py-3 font-medium text-slate-600">카테고리</th>
                 <th className="text-right px-4 py-3 font-medium text-slate-600">공급가</th>
-                <th className="text-right px-4 py-3 font-medium text-slate-600">매입원가</th>
                 <th className="text-right px-4 py-3 font-medium text-slate-600">매출</th>
-                <th className="text-right px-4 py-3 font-medium text-slate-600">이익</th>
-                <th className="text-right px-4 py-3 font-medium text-slate-600">이익률</th>
-                <th className="text-right px-4 py-3 font-medium text-slate-600">주문수</th>
+                <th className="text-right px-4 py-3 font-medium text-slate-600">주문건</th>
+                <th className="text-right px-4 py-3 font-medium text-slate-600">수량</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -121,11 +117,10 @@ export default function SupplierProductSales() {
               ))}
               {/* 합계 */}
               <tr className="bg-slate-50 font-semibold border-t-2 border-slate-300">
-                <td className="px-4 py-3 text-slate-900" colSpan={5}>합계</td>
+                <td className="px-4 py-3 text-slate-900" colSpan={2}>합계</td>
                 <td className="px-4 py-3 text-right tabular-nums">{formatKRW(totalRevenue)}</td>
-                <td className={`px-4 py-3 text-right tabular-nums ${totalProfit >= 0 ? 'text-green-700' : 'text-red-700'}`}>{formatKRW(totalProfit)}</td>
-                <td className="px-4 py-3 text-right tabular-nums">{totalRevenue > 0 ? ((totalProfit / totalRevenue) * 100).toFixed(1) : '0.0'}%</td>
-                <td className="px-4 py-3 text-right tabular-nums">{totalOrders}</td>
+                <td className="px-4 py-3 text-right tabular-nums">{totalOrders}건</td>
+                <td className="px-4 py-3 text-right tabular-nums">{products.reduce((s, p) => s + p.totalQuantity, 0)}개</td>
               </tr>
             </tbody>
           </table>

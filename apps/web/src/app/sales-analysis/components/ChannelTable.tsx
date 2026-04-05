@@ -1,6 +1,6 @@
 'use client';
 import { BarChart3 } from 'lucide-react';
-import { formatKRW, formatPercent } from '@/lib/utils';
+import { formatKRW, formatNumber, formatPercent } from '@/lib/utils';
 
 interface ChannelRow {
   channelName: string;
@@ -54,13 +54,13 @@ export function ChannelTable({ channels }: Props) {
                   </span>
                 </td>
                 <td className="text-sm text-gray-700">{row.channelType}</td>
-                <td className="text-right tabular-nums">{row.totalOrders.toLocaleString()}</td>
+                <td className="text-right tabular-nums">{formatNumber(row.totalOrders)}</td>
                 <td className="text-right tabular-nums">{formatKRW(row.totalRevenue)}</td>
                 <td className="text-right tabular-nums">{formatKRW(row.totalCost)}</td>
                 <td className={`text-right tabular-nums font-medium ${row.totalProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                   {formatKRW(row.totalProfit)}
                 </td>
-                <td className="text-right tabular-nums">{row.returnCount.toLocaleString()}</td>
+                <td className="text-right tabular-nums">{formatNumber(row.returnCount)}</td>
                 <td className="text-right tabular-nums">{formatPercent(row.returnRate)}</td>
                 <td className="text-right tabular-nums">{formatKRW(row.avgOrderValue)}</td>
               </tr>

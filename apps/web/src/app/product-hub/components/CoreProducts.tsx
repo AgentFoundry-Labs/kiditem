@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { RefreshCw } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import { formatKRW, formatPercent, getProfitColor, getGradeColor } from '@/lib/utils';
+import { formatKRW, formatNumber, formatPercent, getProfitColor, getGradeColor } from '@/lib/utils';
 
 interface Product {
   id: string; name: string; sku: string; company: string; abcGrade: string;
@@ -183,7 +183,7 @@ export default function CoreProducts() {
               {/* 숫자 영역 */}
               <div className="flex items-start shrink-0 gap-6">
                 <div className="text-center">
-                  <div className="text-xl font-bold text-slate-900 tabular-nums">{p.t14?.salesQty?.toLocaleString() || '-'}</div>
+                  <div className="text-xl font-bold text-slate-900 tabular-nums">{p.t14?.salesQty ? formatNumber(p.t14.salesQty) : '-'}</div>
                   <div className="text-[10px] text-slate-400 mt-0.5">판매량</div>
                   <div className={`text-[10px] font-medium ${getProfitColor(p.profitRate ?? 0)}`}>이익률 {formatPercent(p.profitRate ?? 0)}</div>
                 </div>

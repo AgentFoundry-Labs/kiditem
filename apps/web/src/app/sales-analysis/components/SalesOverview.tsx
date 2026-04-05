@@ -1,14 +1,14 @@
 "use client";
 
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { BarChart3, RefreshCw } from "lucide-react";
 import { apiClient } from "@/lib/api-client";
 import { isApiError } from "@/lib/api-error";
 import { queryKeys } from "@/lib/query-keys";
-import { useQuery } from "@tanstack/react-query";
-import { BarChart3, RefreshCw } from "lucide-react";
 import { formatKRW, formatPercent } from "@/lib/utils";
-import { ChannelTable } from "./ChannelTable";
 import PageSkeleton from "@/components/ui/PageSkeleton";
+import { ChannelTable } from "./ChannelTable";
 
 interface ChannelRow {
   channelName: string;
