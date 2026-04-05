@@ -33,7 +33,7 @@ export default function ZeroItems() {
   const [tab, setTab] = useState<'zero_sales' | 'zero_stock'>('zero_sales');
 
   const { data: productsData, isLoading: loadingProducts } = useQuery({
-    queryKey: queryKeys.products.list({ limit: '500' }),
+    queryKey: queryKeys.products.list({ limit: '200', orderCount: '0' }),
     queryFn: () =>
       apiClient.get<{ items: ProductItem[]; total: number }>(
         '/api/products?limit=200'
@@ -41,14 +41,14 @@ export default function ZeroItems() {
   });
 
   const { data: inventoryData, isLoading: loadingInventory } = useQuery({
-    queryKey: queryKeys.inventory.list({}),
+    queryKey: queryKeys.inventory.list({ status: 'zero_stock' }),
     queryFn: () =>
-      apiClient.get<{ items: InventoryItem[]; total: number }>('/api/inventory'),
+      apiClient.get<{ items: InventoryItem[]; total: number }>('/api/inventory?status=zero_stock&limit=200'),
   });
 
   const isLoading = loadingProducts || loadingInventory;
   const zeroSalesItems = productsData?.items?.filter((p) => p.orderCount === 0) ?? [];
-  const zeroStockItems = inventoryData?.items?.filter((i) => i.currentStock === 0) ?? [];
+  const zeroStockItems = inventoryData?.items ?? [];
 
   return (
     <div className="space-y-6">

@@ -108,6 +108,12 @@ export class InventoryService {
                 return i.status === 'critical' || i.status === 'warning';
               if (statusFilter === 'overstock')
                 return i.status === 'overstock';
+              if (statusFilter === 'dead_stock')
+                return i.avgDailySales === 0 && i.currentStock > 0;
+              if (statusFilter === 'zero_stock')
+                return i.currentStock === 0;
+              if (statusFilter === 'zero_sales')
+                return i.avgDailySales === 0;
               return i.status === statusFilter;
             })
           : enriched;

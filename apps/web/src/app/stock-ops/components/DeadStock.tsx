@@ -1,6 +1,5 @@
 'use client';
 
-import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { AlertTriangle, DollarSign, Clock } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
@@ -23,15 +22,12 @@ const STORAGE_COST_PER_UNIT = 100;
 
 export default function DeadStock() {
   const { data, isLoading } = useQuery({
-    queryKey: queryKeys.inventory.list({ limit: '500' }),
+    queryKey: queryKeys.inventory.list({ status: 'dead_stock' }),
     queryFn: () =>
-      apiClient.get<{ items: InventoryItem[]; total: number }>('/api/inventory?limit=200'),
+      apiClient.get<{ items: InventoryItem[]; total: number }>('/api/inventory?status=dead_stock&limit=200'),
   });
 
-  const items = useMemo(() => {
-    const all = data?.items ?? [];
-    return all.filter((i) => i.avgDailySales === 0 && i.currentStock > 0);
-  }, [data]);
+  const items = data?.items ?? [];
 
   const totalDeadStock = items.reduce((s, i) => s + i.currentStock, 0);
   const totalStorageCost = items.reduce((s, i) => s + i.currentStock * STORAGE_COST_PER_UNIT, 0);
