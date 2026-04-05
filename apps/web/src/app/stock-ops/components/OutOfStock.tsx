@@ -20,10 +20,10 @@ interface OutOfStockItem {
 
 export default function OutOfStock() {
   const { data, isLoading } = useQuery({
-    queryKey: queryKeys.inventory.list({ status: 'out_of_stock' }),
+    queryKey: queryKeys.inventory.list({ status: 'critical' }),
     queryFn: () =>
       apiClient.get<{ items: OutOfStockItem[]; total: number }>(
-        '/api/inventory?status=out_of_stock'
+        '/api/inventory?status=critical'
       ),
   });
 

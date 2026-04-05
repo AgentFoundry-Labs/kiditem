@@ -13,9 +13,8 @@ interface Supplier {
 
 interface TimelineItem {
   id: string;
-  type: 'order' | 'received' | 'payment';
+  type: string;
   date: string;
-  label: string;
   description: string;
   amount: number;
   status: string;
@@ -48,12 +47,19 @@ export default function SupplierHistory() {
 
   const { data: historyData } = useQuery({
     queryKey: ['supplier-stats', 'history', selectedId],
-    queryFn: () => apiClient.get<{ timeline: TimelineItem[]; summary: Summary }>(`/api/supplier-stats?type=history&supplierId=${selectedId}`),
+    queryFn: () => apiClient.get<TimelineItem[]>(`/api/supplier-stats?type=history&supplierId=${selectedId}`),
     enabled: !!selectedId,
   });
 
-  const timeline = historyData?.timeline ?? [];
-  const summary = historyData?.summary ?? null;
+  const timeline = historyData ?? [];
+  const summary: Summary | null = timeline.length > 0 ? {
+    totalOrdered: timeline.filter(t => t.type === 'purchaseOrder').reduce((s, t) => s + t.amount, 0),
+    totalReceived: 0,
+    totalPaid: timeline.filter(t => t.type === 'payment').reduce((s, t) => s + t.amount, 0),
+    unpaid: 0,
+    orderCount: timeline.filter(t => t.type === 'purchaseOrder').length,
+    paymentCount: timeline.filter(t => t.type === 'payment').length,
+  } : null;
 
   return (
     <div className="space-y-6">
@@ -138,8 +144,7 @@ export default function SupplierHistory() {
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <Icon size={14} className="text-gray-500" />
-                          <span className="text-sm font-medium text-gray-900">{item.label}</span>
-                          <span className="text-[11px] text-gray-500 font-mono">{item.description}</span>
+                          <span className="text-sm font-medium text-gray-900">{item.description}</span>
                         </div>
                         <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${st.color}`}>{st.label}</span>
                       </div>

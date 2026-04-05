@@ -15,9 +15,9 @@ import { queryKeys } from '@/lib/query-keys';
 import { formatKRW } from '@/lib/utils';
 
 interface StatsOverview {
+  stats: { total: number; accept: number; [key: string]: number };
   today: { orders: number; revenue: number };
   week: { orders: number; revenue: number };
-  month: { orders: number; revenue: number };
 }
 
 interface ProductOrderCount {

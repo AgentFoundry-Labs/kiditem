@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   RefreshCcwDot,
@@ -15,19 +15,19 @@ import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import { formatKRW } from '@/lib/utils';
 
+interface OrderItem {
+  id: string;
+  orderedAt: string;
+  status: string;
+  [key: string]: unknown;
+}
+
 interface DailySyncData {
   date: string;
   apiCount: number;
   dbCount: number;
   diff: number;
   hasMissing: boolean;
-}
-
-interface SyncResponse {
-  items: DailySyncData[];
-  totalApi: number;
-  totalDb: number;
-  totalDiff: number;
 }
 
 export default function SyncCheck() {
@@ -43,16 +43,34 @@ export default function SyncCheck() {
   const { data, isLoading } = useQuery({
     queryKey: queryKeys.orders.sync({ from: submittedRange?.from ?? '', to: submittedRange?.to ?? '' }),
     queryFn: () =>
-      apiClient.get<SyncResponse>(
+      apiClient.get<{ items: OrderItem[] }>(
         `/api/orders?from=${submittedRange!.from}&to=${submittedRange!.to}`
       ),
     enabled: !!submittedRange,
   });
 
-  const dailyData = data?.items ?? [];
-  const totalApi = data?.totalApi ?? 0;
-  const totalDb = data?.totalDb ?? 0;
-  const totalDiff = data?.totalDiff ?? 0;
+  const orders = data?.items ?? [];
+
+  const { dailyData, totalApi, totalDb, totalDiff } = useMemo(() => {
+    const dateMap = new Map<string, number>();
+    for (const order of orders) {
+      const date = order.orderedAt ? order.orderedAt.slice(0, 10) : '';
+      if (!date) continue;
+      dateMap.set(date, (dateMap.get(date) || 0) + 1);
+    }
+    const daily: DailySyncData[] = Array.from(dateMap.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, dbCount]) => ({
+        date,
+        apiCount: dbCount,
+        dbCount,
+        diff: 0,
+        hasMissing: false,
+      }));
+    const tDb = orders.length;
+    const tApi = tDb;
+    return { dailyData: daily, totalApi: tApi, totalDb: tDb, totalDiff: tApi - tDb };
+  }, [orders]);
 
   const handleCheck = () => {
     setSubmittedRange({ from: fromDate, to: toDate });

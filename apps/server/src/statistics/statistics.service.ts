@@ -25,14 +25,17 @@ export class StatisticsService {
   async overview(companyId: string, period?: string) {
     const plWhere = { companyId, ...this.buildPlPeriodFilter(period) };
 
-    const agg = await this.prisma.profitLoss.aggregate({
-      where: plWhere,
-      _sum: {
-        revenue: true,
-        netProfit: true,
-        orderCount: true,
-      },
-    });
+    const [agg, totalProducts] = await Promise.all([
+      this.prisma.profitLoss.aggregate({
+        where: plWhere,
+        _sum: {
+          revenue: true,
+          netProfit: true,
+          orderCount: true,
+        },
+      }),
+      this.prisma.product.count({ where: { companyId } }),
+    ]);
 
     const totalRevenue = agg._sum.revenue ?? 0;
     const totalProfit = agg._sum.netProfit ?? 0;
@@ -44,6 +47,7 @@ export class StatisticsService {
       totalOrders,
       totalProfit,
       avgMargin: Math.round(avgMargin * 10000) / 10000,
+      totalProducts,
     };
   }
 
@@ -72,9 +76,12 @@ export class StatisticsService {
       category: r.product.category,
       grade: r.product.abcGrade,
       thumbnailUrl: r.product.thumbnailUrl,
-      revenue: r.revenue,
+      totalRevenue: r.revenue,
       netProfit: r.netProfit,
       orderCount: r.orderCount,
+      profitRate: r.revenue > 0
+        ? Math.round((r.netProfit / r.revenue) * 10000) / 10000
+        : 0,
       margin: r.revenue > 0
         ? Math.round((r.netProfit / r.revenue) * 10000) / 10000
         : 0,
@@ -103,7 +110,12 @@ export class StatisticsService {
     }
 
     return Array.from(categoryMap.entries())
-      .map(([category, data]) => ({ category, ...data }))
+      .map(([category, data]) => ({
+        category,
+        name: category,
+        ...data,
+        count: data.orders,
+      }))
       .sort((a, b) => b.revenue - a.revenue);
   }
 
@@ -145,10 +157,37 @@ export class StatisticsService {
       .map(([courier, count]) => ({ courier, count }))
       .sort((a, b) => b.count - a.count);
 
+    // Daily shipment counts (last 30 days)
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 86400000);
+    const dailyShipments = await this.prisma.shipment.findMany({
+      where: {
+        companyId,
+        shippedAt: { gte: thirtyDaysAgo, lte: now },
+      },
+      select: { shippedAt: true },
+    });
+
+    const dailyMap = new Map<string, number>();
+    for (let i = 0; i < 30; i++) {
+      const d = new Date(now.getTime() - (29 - i) * 86400000);
+      dailyMap.set(d.toISOString().slice(0, 10), 0);
+    }
+    for (const s of dailyShipments) {
+      if (s.shippedAt) {
+        const key = s.shippedAt.toISOString().slice(0, 10);
+        if (dailyMap.has(key)) {
+          dailyMap.set(key, (dailyMap.get(key) ?? 0) + 1);
+        }
+      }
+    }
+    const daily = Array.from(dailyMap.entries()).map(([date, count]) => ({ date, count }));
+
     return {
       totalShipments: shipments.length,
       avgDeliveryDays,
       courierDistribution,
+      daily,
     };
   }
 
@@ -174,7 +213,14 @@ export class StatisticsService {
     }
 
     return Array.from(gradeMap.entries())
-      .map(([grade, data]) => ({ grade, ...data }))
+      .map(([grade, data]) => ({
+        grade,
+        revenue: data.revenue,
+        profit: data.profit,
+        count: data.productCount,
+        productCount: data.productCount,
+        adCost: 0,
+      }))
       .sort((a, b) => b.revenue - a.revenue);
   }
 
@@ -184,7 +230,7 @@ export class StatisticsService {
     const records = await this.prisma.profitLoss.findMany({
       where: plWhere,
       include: {
-        product: { select: { id: true, name: true } },
+        product: { select: { id: true, name: true, abcGrade: true } },
       },
       orderBy: { revenue: 'desc' },
     });
@@ -194,6 +240,25 @@ export class StatisticsService {
     const top20Records = records.slice(0, top20Count);
     const top20Revenue = top20Records.reduce((sum, r) => sum + r.revenue, 0);
 
+    // Grade distribution
+    const gradeMap = new Map<string, { count: number; revenue: number }>();
+    for (const r of records) {
+      const grade = r.product.abcGrade ?? 'N/A';
+      const entry = gradeMap.get(grade) ?? { count: 0, revenue: 0 };
+      entry.count += 1;
+      entry.revenue += r.revenue;
+      gradeMap.set(grade, entry);
+    }
+    const gradeDistribution = Array.from(gradeMap.entries())
+      .map(([grade, data]) => ({ grade, ...data }))
+      .sort((a, b) => b.revenue - a.revenue);
+
+    const top20Products = top20Records.map((r) => ({
+      productId: r.productId,
+      productName: r.product.name,
+      revenue: r.revenue,
+    }));
+
     return {
       totalProducts: records.length,
       top20Count,
@@ -202,11 +267,9 @@ export class StatisticsService {
       top20RevenueRatio: totalRevenue > 0
         ? Math.round((top20Revenue / totalRevenue) * 10000) / 10000
         : 0,
-      top20Products: top20Records.map((r) => ({
-        productId: r.productId,
-        productName: r.product.name,
-        revenue: r.revenue,
-      })),
+      top20Products,
+      data: top20Products,
+      gradeDistribution,
     };
   }
 
@@ -245,9 +308,12 @@ export class StatisticsService {
 
     return {
       totalCustomers,
-      repeatCustomers,
+      repeatCustomers: repeatCustomers as number,
       repurchaseRate,
       totalOrders: orders.length,
+      repeatCount: repeatCustomers,
+      repeatProducts: [] as string[],
+      repeatCustomersList: [] as string[],
     };
   }
 }

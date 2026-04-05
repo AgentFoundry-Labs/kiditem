@@ -7,15 +7,18 @@ import { apiClient } from '@/lib/api-client';
 import { formatKRW } from '@/lib/utils';
 
 interface SupplierSale {
-  id: string;
-  name: string;
-  contactName: string | null;
-  phone: string | null;
+  supplierId: string;
+  supplierName: string;
+  id?: string;
+  name?: string;
+  contactName?: string | null;
+  phone?: string | null;
   productCount: number;
   totalRevenue: number;
-  totalProfit: number;
+  totalProfit?: number;
   totalOrders: number;
-  profitRate: number;
+  totalQuantity?: number;
+  profitRate?: number;
 }
 
 interface ProductSale {
@@ -35,11 +38,14 @@ interface ProductSale {
 export default function SupplierSales() {
   const { data: salesData } = useQuery({
     queryKey: ['supplier-stats', 'sales'],
-    queryFn: () => apiClient.get<{ suppliers: SupplierSale[]; products: ProductSale[] }>('/api/supplier-stats?type=sales'),
+    queryFn: () => apiClient.get<SupplierSale[]>('/api/supplier-stats?type=sales'),
   });
 
-  const suppliers = salesData?.suppliers ?? [];
-  const products = salesData?.products ?? [];
+  const suppliers = (salesData ?? []).map((s) => ({
+    ...s, id: s.supplierId ?? s.id, name: s.supplierName ?? s.name,
+    totalProfit: 0, profitRate: 0, contactName: null, phone: null,
+  }));
+  const products: ProductSale[] = [];
   const [selectedSupplier, setSelectedSupplier] = useState<string | null>(null);
 
   const totalRevenue = suppliers.reduce((s, sup) => s + sup.totalRevenue, 0);

@@ -26,11 +26,24 @@ interface PaymentSummary {
 export default function SupplierSettlement() {
   const { data: settlementData } = useQuery({
     queryKey: ['supplier-payments', 'settlement'],
-    queryFn: () => apiClient.get<{ summaries: SupplierSummary[]; paymentSummary: PaymentSummary }>('/api/supplier-payments?type=settlement'),
+    queryFn: () => apiClient.get<SupplierSummary[]>('/api/supplier-payments'),
   });
 
-  const summaries = settlementData?.summaries ?? [];
-  const paymentSummary = settlementData?.paymentSummary ?? { totalAmount: 0, totalPaid: 0, totalUnpaid: 0 };
+  const summaries = (settlementData ?? []).map((p: any) => ({
+    supplierId: p.supplierId,
+    supplierName: p.supplier?.name ?? '-',
+    totalOrdered: p.amount ?? 0,
+    totalPaid: p.paidAmount ?? 0,
+    unpaid: (p.amount ?? 0) - (p.paidAmount ?? 0),
+    orderCount: 1,
+    receivedCount: p.status === 'paid' ? 1 : 0,
+    status: p.status,
+  }));
+  const paymentSummary = {
+    totalAmount: summaries.reduce((s: number, sm: any) => s + sm.totalOrdered, 0),
+    totalPaid: summaries.reduce((s: number, sm: any) => s + sm.totalPaid, 0),
+    totalUnpaid: summaries.reduce((s: number, sm: any) => s + sm.unpaid, 0),
+  };
 
   const totalReceived = summaries.reduce((s, sm) => s + sm.totalOrdered, 0);
   const totalPaid = paymentSummary.totalPaid;
@@ -106,7 +119,7 @@ export default function SupplierSettlement() {
                   <tr key={sm.supplierId}>
                     <td className="font-medium text-gray-900">{sm.supplierName}</td>
                     <td className="text-right tabular-nums">{sm.orderCount}</td>
-                    <td className="text-right tabular-nums">{formatKRW(sm.totalReceived)}원</td>
+                    <td className="text-right tabular-nums">{formatKRW(sm.totalOrdered)}원</td>
                     <td className="text-right tabular-nums font-semibold">{formatKRW(sm.totalOrdered)}원</td>
                     <td className="text-right tabular-nums text-green-600">{formatKRW(sm.totalPaid)}원</td>
                     <td className={`text-right tabular-nums font-semibold ${sm.unpaid > 0 ? 'text-red-600' : 'text-gray-400'}`}>
@@ -141,7 +154,7 @@ export default function SupplierSettlement() {
                 <tr className="bg-gray-50 font-semibold">
                   <td>합계</td>
                   <td className="text-right tabular-nums">{summaries.reduce((s, sm) => s + sm.orderCount, 0)}</td>
-                  <td className="text-right tabular-nums">{formatKRW(summaries.reduce((s, sm) => s + sm.totalReceived, 0))}원</td>
+                  <td className="text-right tabular-nums">{formatKRW(summaries.reduce((s, sm) => s + sm.totalOrdered, 0))}원</td>
                   <td className="text-right tabular-nums">{formatKRW(totalReceived)}원</td>
                   <td className="text-right tabular-nums text-green-600">{formatKRW(totalPaid)}원</td>
                   <td className={`text-right tabular-nums ${paymentSummary.totalUnpaid > 0 ? 'text-red-600' : 'text-gray-400'}`}>

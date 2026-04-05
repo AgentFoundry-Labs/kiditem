@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   BookOpen,
@@ -11,6 +11,18 @@ import {
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import { formatNumber } from '@/lib/utils';
+
+interface StockTransaction {
+  id: string;
+  productId: string;
+  productName: string | null;
+  type: string;
+  quantity: number;
+  unitCost: number;
+  totalCost: number;
+  createdAt: string;
+  product?: { id: string; name: string } | null;
+}
 
 interface LedgerItem {
   productId: string;
@@ -33,6 +45,9 @@ interface Totals {
   endStock: number;
 }
 
+const IN_TYPES = new Set(['in', 'purchase', 'return_in', 'inbound']);
+const OUT_TYPES = new Set(['out', 'sale', 'outbound']);
+
 export default function StockLedger() {
   const [period, setPeriod] = useState(() => {
     const now = new Date();
@@ -40,15 +55,54 @@ export default function StockLedger() {
   });
 
   const { data, isLoading } = useQuery({
-    queryKey: queryKeys.stockMovement.summary({ period }),
+    queryKey: queryKeys.stockMovement.data({ period, action: 'ledger' }),
     queryFn: () =>
-      apiClient.get<{ items: LedgerItem[]; totals: Totals }>(
-        `/api/stock-movement/summary?period=${period}`
+      apiClient.get<{ items: StockTransaction[]; summary: { inQty: number; outQty: number; inAmount: number; outAmount: number } }>(
+        `/api/stock-movement?from=${period}-01&limit=10000`
       ),
   });
 
-  const ledger = data?.items ?? [];
-  const totals = data?.totals ?? null;
+  // 트랜잭션을 상품별로 그룹핑하여 수불부 생성
+  const { ledger, totals } = useMemo(() => {
+    const txs = data?.items ?? [];
+    const map = new Map<string, { name: string; inQty: number; outQty: number; adjustQty: number }>();
+
+    for (const tx of txs) {
+      const key = tx.productId;
+      if (!map.has(key)) {
+        map.set(key, { name: tx.product?.name || tx.productName || key, inQty: 0, outQty: 0, adjustQty: 0 });
+      }
+      const entry = map.get(key)!;
+      if (IN_TYPES.has(tx.type)) entry.inQty += tx.quantity;
+      else if (OUT_TYPES.has(tx.type)) entry.outQty += tx.quantity;
+      else entry.adjustQty += tx.quantity;
+    }
+
+    let totalIn = 0, totalOut = 0, totalAdj = 0;
+    const items: LedgerItem[] = Array.from(map.entries()).map(([pid, v]) => {
+      totalIn += v.inQty;
+      totalOut += v.outQty;
+      totalAdj += v.adjustQty;
+      const endStock = v.inQty - v.outQty + v.adjustQty;
+      return {
+        productId: pid,
+        productName: v.name,
+        sku: null,
+        category: '-',
+        beginStock: 0,
+        inbound: v.inQty,
+        outbound: v.outQty,
+        adjust: v.adjustQty,
+        endStock,
+        currentStock: endStock,
+      };
+    });
+
+    return {
+      ledger: items,
+      totals: items.length > 0 ? { beginStock: 0, inbound: totalIn, outbound: totalOut, adjust: totalAdj, endStock: totalIn - totalOut + totalAdj } as Totals : null,
+    };
+  }, [data]);
 
   return (
     <div className="space-y-6">

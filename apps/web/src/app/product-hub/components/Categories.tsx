@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { FolderTree, Plus, Save, Trash2, RefreshCw } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
@@ -24,10 +24,21 @@ export default function Categories() {
     queryFn: () => apiClient.get<CategoryMapping[]>('/api/categories'),
   });
 
-  const { data: categories = [] } = useQuery({
-    queryKey: ['categories', 'internal'],
-    queryFn: () => apiClient.get<InternalCategory[]>('/api/categories?type=internal'),
+  // Internal categories derived from products, not a separate API
+  const { data: productsData } = useQuery({
+    queryKey: ['products', 'categories'],
+    queryFn: () => apiClient.get<{ items: { id: string; category: string | null }[] }>('/api/products?limit=500'),
   });
+
+  const categories = useMemo(() => {
+    const items = productsData?.items ?? [];
+    const catMap = new Map<string, number>();
+    for (const p of items) {
+      const cat = p.category || '미분류';
+      catMap.set(cat, (catMap.get(cat) || 0) + 1);
+    }
+    return Array.from(catMap.entries()).map(([name, count]) => ({ name, count }));
+  }, [productsData]);
 
   const [editForm, setEditForm] = useState({ internalCategory: '', coupangCategoryId: '', coupangCategoryName: '', keywords: '' });
   const [showAdd, setShowAdd] = useState(false);

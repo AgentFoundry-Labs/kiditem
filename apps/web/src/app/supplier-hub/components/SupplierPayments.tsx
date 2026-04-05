@@ -52,12 +52,21 @@ export default function SupplierPayments() {
 
   const { data: paymentsData } = useQuery({
     queryKey: ['supplier-payments'],
-    queryFn: () => apiClient.get<{ payments: Payment[]; summary: Summary; counts: Counts }>('/api/supplier-payments'),
+    queryFn: () => apiClient.get<Payment[]>('/api/supplier-payments'),
   });
 
-  const payments = paymentsData?.payments ?? [];
-  const summary = paymentsData?.summary ?? { totalAmount: 0, totalPaid: 0, totalUnpaid: 0 };
-  const counts = paymentsData?.counts ?? { all: 0, unpaid: 0, partial: 0, paid: 0 };
+  const payments = paymentsData ?? [];
+  const summary = {
+    totalAmount: payments.reduce((s, p) => s + (p.amount ?? 0), 0),
+    totalPaid: payments.reduce((s, p) => s + (p.paidAmount ?? 0), 0),
+    totalUnpaid: payments.reduce((s, p) => s + ((p.amount ?? 0) - (p.paidAmount ?? 0)), 0),
+  };
+  const counts = {
+    all: payments.length,
+    unpaid: payments.filter(p => p.status === 'unpaid').length,
+    partial: payments.filter(p => p.status === 'partial').length,
+    paid: payments.filter(p => p.status === 'paid').length,
+  };
 
   const [tab, setTab] = useState('unpaid');
   const [showPayModal, setShowPayModal] = useState(false);

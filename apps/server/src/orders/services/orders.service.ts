@@ -12,7 +12,7 @@ export class OrdersService {
   constructor(private readonly prisma: PrismaService) {}
 
   async findAll(query: { from?: string; to?: string; status?: string }): Promise<{
-    orders: Order[];
+    items: Order[];
     count: number;
     deliveryCompanies: typeof DELIVERY_COMPANIES;
   }> {
@@ -37,7 +37,7 @@ export class OrdersService {
     });
 
     return {
-      orders,
+      items: orders,
       count: orders.length,
       deliveryCompanies: DELIVERY_COMPANIES,
     };
@@ -53,8 +53,15 @@ export class OrdersService {
 
   async getStats(): Promise<{
     stats: { total: number; accept: number; instruct: number; departure: number; delivering: number; finalDelivery: number };
+    today: { orders: number; revenue: number };
+    week: { orders: number; revenue: number };
   }> {
-    const [total, accept, instruct, departure, delivering, finalDelivery] =
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const dayOfWeek = now.getDay();
+    const weekStart = new Date(todayStart.getTime() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1) * 86400000);
+
+    const [total, accept, instruct, departure, delivering, finalDelivery, todayAgg, weekAgg] =
       await Promise.all([
         this.prisma.order.count(),
         this.prisma.order.count({ where: { status: 'ACCEPT' } }),
@@ -62,10 +69,28 @@ export class OrdersService {
         this.prisma.order.count({ where: { status: 'DEPARTURE' } }),
         this.prisma.order.count({ where: { status: 'DELIVERING' } }),
         this.prisma.order.count({ where: { status: 'FINAL_DELIVERY' } }),
+        this.prisma.order.aggregate({
+          where: { orderedAt: { gte: todayStart } },
+          _count: true,
+          _sum: { totalPrice: true },
+        }),
+        this.prisma.order.aggregate({
+          where: { orderedAt: { gte: weekStart } },
+          _count: true,
+          _sum: { totalPrice: true },
+        }),
       ]);
 
     return {
       stats: { total, accept, instruct, departure, delivering, finalDelivery },
+      today: {
+        orders: todayAgg._count,
+        revenue: todayAgg._sum.totalPrice ?? 0,
+      },
+      week: {
+        orders: weekAgg._count,
+        revenue: weekAgg._sum.totalPrice ?? 0,
+      },
     };
   }
 

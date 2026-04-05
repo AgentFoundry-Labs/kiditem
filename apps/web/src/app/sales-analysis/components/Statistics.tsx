@@ -6,8 +6,85 @@ import { BarChart3, TrendingUp, Package, Truck, Download, PieChart, Users } from
 import { apiClient } from '@/lib/api-client';
 import { formatKRW, getGradeColor } from '@/lib/utils';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Stats = any;
+interface OverviewStats {
+  totalProducts: number;
+  totalOrders: number;
+  totalRevenue: number;
+  totalQuantity: number;
+  today: { orders: number; revenue: number };
+  week: { orders: number; revenue: number };
+  month: { orders: number; revenue: number };
+}
+
+interface ProductStat {
+  id: string;
+  name: string;
+  grade: string;
+  orderCount: number;
+  totalRevenue: number;
+  totalQuantity: number;
+  netProfit: number;
+  profitRate: number;
+}
+
+interface CategoryStat {
+  name: string;
+  count: number;
+  revenue: number;
+  profit: number;
+}
+
+interface DailyStat {
+  date: string;
+  orders: number;
+  revenue: number;
+  qty: number;
+}
+
+interface GradeStat {
+  grade: string;
+  count: number;
+  revenue: number;
+  profit: number;
+  adCost: number;
+}
+
+interface ParetoItem {
+  id: string;
+  rank: number;
+  name: string;
+  currentGrade: string;
+  suggestedGrade: string;
+  gradeMatch: boolean;
+  revenue: number;
+  revenuePercent: number;
+  cumulativePercent: number;
+}
+
+interface ParetoData {
+  totalRevenue: number;
+  gradeDistribution: { A: number; B: number; C?: number };
+  mismatchCount: number;
+  data: ParetoItem[];
+}
+
+interface RepurchaseData {
+  totalCustomers: number;
+  repeatCount: number;
+  repurchaseRate: number;
+  repeatProducts?: { productId: string; productName: string; category: string; orderCount: number }[];
+  repeatCustomers?: { name: string; count: number; totalAmount: number; lastOrder: string | null }[];
+}
+
+interface Stats {
+  overview?: OverviewStats;
+  products?: ProductStat[];
+  categories?: CategoryStat[];
+  daily?: DailyStat[];
+  grades?: GradeStat[];
+  pareto?: ParetoData;
+  repurchase?: RepurchaseData;
+}
 
 export default function Statistics() {
   const [tab, setTab] = useState('overview');
@@ -102,8 +179,7 @@ export default function Statistics() {
                     <th className="text-right">순이익</th><th className="text-right">이익률</th>
                   </tr></thead>
                   <tbody>
-                    {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-                    {data.products.slice(0, 50).map((p: any, i: number) => (
+                    {data.products.slice(0, 50).map((p, i) => (
                       <tr key={p.id}>
                         <td className="text-gray-400 tabular-nums">{i + 1}</td>
                         <td><span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${getGradeColor(p.grade)}`}>{p.grade}</span></td>
@@ -128,8 +204,7 @@ export default function Statistics() {
                 <table>
                   <thead><tr><th>카테고리</th><th className="text-right">상품수</th><th className="text-right">매출</th><th className="text-right">순이익</th></tr></thead>
                   <tbody>
-                    {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-                    {data.categories.map((c: any, i: number) => (
+                    {data.categories.map((c, i) => (
                       <tr key={i}>
                         <td className="font-medium text-gray-900">{c.name}</td>
                         <td className="text-right tabular-nums">{c.count}개</td>
@@ -157,8 +232,7 @@ export default function Statistics() {
                   <table>
                     <thead><tr><th>날짜</th><th className="text-right">주문수</th><th className="text-right">매출</th><th className="text-right">수량</th></tr></thead>
                     <tbody>
-                      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-                      {data.daily.slice(-30).reverse().map((d: any) => (
+                      {data.daily.slice(-30).reverse().map((d) => (
                         <tr key={d.date}>
                           <td className="font-mono text-gray-600">{d.date}</td>
                           <td className="text-right tabular-nums">{d.orders}건</td>
@@ -176,8 +250,7 @@ export default function Statistics() {
           {/* Grades */}
           {tab === 'grades' && data.grades && (
             <div className="grid grid-cols-3 gap-3">
-              {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-              {data.grades.sort((a: any, b: any) => a.grade.localeCompare(b.grade)).map((g: any) => (
+              {[...data.grades].sort((a, b) => a.grade.localeCompare(b.grade)).map((g) => (
                 <div key={g.grade} className="agent-card">
                   <div className="px-4 py-4">
                     <div className={`text-2xl font-bold ${getGradeTextColor(g.grade)}`}>{g.grade}등급</div>
@@ -220,8 +293,7 @@ export default function Statistics() {
                       <th className="text-right">매출</th><th className="text-right">매출비율</th><th className="text-right">누적비율</th>
                     </tr></thead>
                     <tbody>
-                      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-                      {data.pareto.data.map((p: any) => (
+                      {data.pareto.data.map((p) => (
                         <tr key={p.id} className={!p.gradeMatch ? 'bg-yellow-50/50' : ''}>
                           <td className="text-gray-400 tabular-nums">{p.rank}</td>
                           <td className="font-medium text-gray-900 max-w-[200px] truncate">{p.name}</td>
@@ -262,8 +334,7 @@ export default function Statistics() {
                       <th>#</th><th>상품명</th><th>카테고리</th><th className="text-right">주문횟수</th>
                     </tr></thead>
                     <tbody>
-                      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-                      {data.repurchase.repeatProducts?.map((p: any, i: number) => (
+                      {data.repurchase.repeatProducts?.map((p, i) => (
                         <tr key={p.productId}>
                           <td className="text-gray-400 tabular-nums">{i + 1}</td>
                           <td className="font-medium text-gray-900 max-w-[200px] truncate">{p.productName}</td>
@@ -277,7 +348,7 @@ export default function Statistics() {
               </div>
 
               {/* 재구매 고객 */}
-              {data.repurchase.repeatCustomers?.length > 0 && (
+              {(data.repurchase.repeatCustomers?.length ?? 0) > 0 && (
                 <div className="agent-card overflow-hidden">
                   <div className="agent-card-header"><h3>Repeat Customers</h3></div>
                   <div className="overflow-x-auto max-h-[300px] overflow-y-auto">
@@ -286,8 +357,7 @@ export default function Statistics() {
                         <th>고객명</th><th className="text-right">주문횟수</th><th className="text-right">총 주문금액</th><th>마지막 주문</th>
                       </tr></thead>
                       <tbody>
-                        {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-                        {data.repurchase.repeatCustomers.map((c: any) => (
+                        {data.repurchase.repeatCustomers!.map((c) => (
                           <tr key={c.name}>
                             <td className="font-medium text-gray-900">{c.name}</td>
                             <td className="text-right tabular-nums font-semibold text-blue-600">{c.count}회</td>

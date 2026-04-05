@@ -7,10 +7,20 @@ export class WarehousesService {
   constructor(private readonly prisma: PrismaService) {}
 
   async findAll(companyId: string) {
-    return this.prisma.warehouse.findMany({
+    const warehouses = await this.prisma.warehouse.findMany({
       where: { companyId },
+      include: {
+        _count: {
+          select: { shipments: true },
+        },
+      },
       orderBy: { name: 'asc' },
     });
+
+    return warehouses.map(({ _count, ...rest }) => ({
+      ...rest,
+      shipmentCount: _count.shipments,
+    }));
   }
 
   async create(dto: CreateWarehouseDto) {

@@ -2,61 +2,47 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMemo } from 'react';
 import {
-  Layers, Plus, Trash2, Package, DollarSign, AlertTriangle,
-  CheckCircle, TrendingDown, ChevronDown, ArrowRight, Link2,
-  RefreshCw, Zap, Ban, ShoppingCart,
+  Layers, Plus, Trash2, Package, DollarSign,
+  ChevronDown,
+  RefreshCw,
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { formatKRW } from '@/lib/utils';
 
 /* --- Types --- */
-interface AnalysisItem {
-  productId: string; productName: string; grade: string;
-  costPrice: number; sellPrice: number; quantity: number; costContribution: number;
+interface BundleItem {
+  productId: string;
+  quantity: number;
+  product: { name: string; costCny: number; sellPrice: number } | null;
 }
-interface BundleAnalysis {
-  bundleId: string; bundleName: string; sku: string | null;
-  sellPrice: number; status: string;
-  componentCost: number; bundleMargin: number; bundleProfit: number;
-  items: AnalysisItem[];
-  individualTotalPrice: number; bundleDiscount: number; individualMargin: number;
-  linkedProductId: string | null;
-  orderCount: number; revenue: number; netProfit: number; profitRate: number;
-  verdict: 'profitable' | 'marginal' | 'unprofitable' | 'no_sales' | 'unlinked';
-  issues: { severity: 'critical' | 'warning' | 'info'; message: string }[];
-  recommendations: { priority: 'urgent' | 'high' | 'medium'; action: string; reason: string }[];
+interface BundleProduct {
+  id: string;
+  name: string;
+  sku: string | null;
+  sellPrice: number;
+  items: BundleItem[];
+  totalItemCost: number;
+  profit: number;
+  marginRate: number;
 }
-interface Summary {
-  totalBundles: number; activeBundles: number; linkedBundles: number;
-  avgMargin: number; unprofitable: number; noSales: number;
-  totalRevenue: number; totalProfit: number; totalActions: number;
-}
-
-const VERDICT_CONFIG = {
-  profitable: { label: '수익', bg: 'bg-green-50 border-green-200', badge: 'bg-green-100 text-green-800', icon: CheckCircle, iconColor: 'text-green-500' },
-  marginal: { label: '위험', bg: 'bg-amber-50 border-amber-200', badge: 'bg-amber-100 text-amber-800', icon: AlertTriangle, iconColor: 'text-amber-500' },
-  unprofitable: { label: '적자', bg: 'bg-red-50 border-red-200', badge: 'bg-red-100 text-red-800', icon: TrendingDown, iconColor: 'text-red-500' },
-  no_sales: { label: '무판매', bg: 'bg-slate-50 border-slate-200', badge: 'bg-slate-100 text-slate-600', icon: Ban, iconColor: 'text-slate-400' },
-  unlinked: { label: '미연결', bg: 'bg-purple-50 border-purple-200', badge: 'bg-purple-100 text-purple-700', icon: Link2, iconColor: 'text-purple-500' },
-};
-const GRADE_COLOR: Record<string, string> = { A: 'bg-blue-100 text-blue-800', B: 'bg-slate-100 text-slate-700', C: 'bg-gray-100 text-gray-500' };
-const PRI_DOT: Record<string, string> = { urgent: 'bg-red-500', high: 'bg-orange-500', medium: 'bg-blue-500' };
 
 export default function BundleProducts() {
   const queryClient = useQueryClient();
 
-  const { data: analyzeData, isLoading } = useQuery({
+  const { data: bundles = [], isLoading } = useQuery({
     queryKey: ['bundle-products', 'analyze'],
-    queryFn: () => apiClient.get<{ summary: Summary; analyses: BundleAnalysis[] }>('/api/bundle-products/analyze'),
+    queryFn: () => apiClient.get<BundleProduct[]>('/api/bundle-products/analyze'),
   });
 
-  const summary = analyzeData?.summary ?? {
-    totalBundles: 0, activeBundles: 0, linkedBundles: 0,
-    avgMargin: 0, unprofitable: 0, noSales: 0,
-    totalRevenue: 0, totalProfit: 0, totalActions: 0,
-  };
-  const analyses = analyzeData?.analyses ?? [];
+  const summary = useMemo(() => {
+    const totalBundles = bundles.length;
+    const totalProfit = bundles.reduce((s, b) => s + b.profit, 0);
+    const avgMargin = totalBundles > 0 ? Math.round(bundles.reduce((s, b) => s + b.marginRate, 0) / totalBundles) : 0;
+    const unprofitable = bundles.filter(b => b.profit < 0).length;
+    return { totalBundles, totalProfit, avgMargin, unprofitable };
+  }, [bundles]);
 
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
@@ -105,23 +91,13 @@ export default function BundleProducts() {
         </div>
       </div>
 
-      {/* AI 요약 */}
+      {/* 요약 */}
       <div className="bg-white rounded-xl border border-slate-200 p-5">
-        <div className="flex items-start gap-4 mb-4">
-          <div className="w-10 h-10 rounded-xl bg-purple-50 flex items-center justify-center shrink-0">
-            <Zap size={20} className="text-purple-600" />
-          </div>
-          <div>
-            <h2 className="text-[15px] font-bold text-slate-900">묶음 AI 종합 진단</h2>
-            <p className="text-[13px] text-slate-500 mt-0.5">
-              총 {summary.totalBundles}개 · 활성 {summary.activeBundles}개 · 연결 {summary.linkedBundles}개 · 평균 마진 {summary.avgMargin}%
-            </p>
-          </div>
-        </div>
-        <div className="grid grid-cols-5 gap-3">
+        <h2 className="text-[15px] font-bold text-slate-900 mb-3">묶음 상품 요약</h2>
+        <div className="grid grid-cols-4 gap-3">
           <div className="bg-slate-50 rounded-lg p-3">
-            <div className="text-[10px] text-slate-400">총 매출</div>
-            <div className="text-[17px] font-bold text-slate-900">{formatKRW(summary.totalRevenue)}</div>
+            <div className="text-[10px] text-slate-400">총 묶음</div>
+            <div className="text-[17px] font-bold text-slate-900">{summary.totalBundles}</div>
           </div>
           <div className="bg-slate-50 rounded-lg p-3">
             <div className="text-[10px] text-slate-400">총 이익</div>
@@ -134,10 +110,6 @@ export default function BundleProducts() {
           <div className="bg-red-50 rounded-lg p-3">
             <div className="text-[10px] text-red-500">적자 묶음</div>
             <div className="text-[17px] font-bold text-red-700">{summary.unprofitable}</div>
-          </div>
-          <div className="bg-amber-50 rounded-lg p-3">
-            <div className="text-[10px] text-amber-500">조치 필요</div>
-            <div className="text-[17px] font-bold text-amber-700">{summary.totalActions}</div>
           </div>
         </div>
       </div>
@@ -176,173 +148,85 @@ export default function BundleProducts() {
 
       {/* 묶음별 카드 */}
       <div className="space-y-2">
-        {analyses.length === 0 ? (
+        {bundles.length === 0 ? (
           <div className="text-center py-16 text-slate-400 bg-white rounded-xl border border-slate-200">묶음 상품이 없습니다.</div>
-        ) : analyses.map((a) => {
-          const cfg = VERDICT_CONFIG[a.verdict];
-          const VIcon = cfg.icon;
-          const isExpanded = expandedId === a.bundleId;
+        ) : bundles.map((b) => {
+          const isExpanded = expandedId === b.id;
 
           return (
-            <div key={a.bundleId} className={`bg-white rounded-xl border ${isExpanded ? cfg.bg.split(' ')[1] : 'border-slate-200'} overflow-hidden transition-all`}>
+            <div key={b.id} className={`bg-white rounded-xl border ${isExpanded ? 'border-purple-200' : 'border-slate-200'} overflow-hidden transition-all`}>
               {/* 요약 행 */}
-              <button onClick={() => setExpandedId(isExpanded ? null : a.bundleId)}
+              <button onClick={() => setExpandedId(isExpanded ? null : b.id)}
                 className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-slate-50/50 transition-colors">
-                <VIcon size={16} className={`${cfg.iconColor} shrink-0`} />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="text-[14px] font-medium text-slate-900 truncate">{a.bundleName}</span>
-                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${cfg.badge}`}>{cfg.label}</span>
-                    {!a.linkedProductId && <span className="px-1.5 py-0.5 rounded text-[10px] bg-purple-100 text-purple-700">미연결</span>}
+                    <span className="text-[14px] font-medium text-slate-900 truncate">{b.name}</span>
+                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${b.profit >= 0 ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                      {b.profit >= 0 ? '수익' : '적자'}
+                    </span>
                   </div>
-                  {a.sku && <span className="text-[11px] text-slate-400 font-mono">{a.sku}</span>}
+                  {b.sku && <span className="text-[11px] text-slate-400 font-mono">{b.sku}</span>}
                 </div>
                 <div className="flex items-center gap-5 shrink-0 text-[13px]">
                   <div className="text-center">
                     <div className="text-slate-400 text-[10px]">판매가</div>
-                    <div className="font-semibold">{formatKRW(a.sellPrice)}</div>
+                    <div className="font-semibold">{formatKRW(b.sellPrice)}</div>
                   </div>
                   <div className="text-center">
                     <div className="text-slate-400 text-[10px]">원가</div>
-                    <div className="font-semibold">{formatKRW(a.componentCost)}</div>
+                    <div className="font-semibold">{formatKRW(b.totalItemCost)}</div>
                   </div>
                   <div className="text-center">
                     <div className="text-slate-400 text-[10px]">마진</div>
-                    <div className={`font-semibold ${a.bundleMargin < 0 ? 'text-red-600' : a.bundleMargin < 10 ? 'text-amber-600' : 'text-green-600'}`}>{a.bundleMargin}%</div>
+                    <div className={`font-semibold ${b.marginRate < 0 ? 'text-red-600' : b.marginRate < 10 ? 'text-amber-600' : 'text-green-600'}`}>{b.marginRate}%</div>
                   </div>
                   <div className="text-center">
-                    <div className="text-slate-400 text-[10px]">주문</div>
-                    <div className="font-semibold">{a.orderCount}</div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-slate-400 text-[10px]">이슈</div>
-                    <div className={`font-semibold ${a.issues.length > 0 ? 'text-red-600' : 'text-green-600'}`}>{a.issues.length}</div>
+                    <div className="text-slate-400 text-[10px]">이익</div>
+                    <div className={`font-semibold ${b.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatKRW(b.profit)}</div>
                   </div>
                 </div>
                 <ChevronDown size={16} className={`text-slate-400 transition-transform shrink-0 ${isExpanded ? 'rotate-180' : ''}`} />
               </button>
 
-              {/* 펼침: 상세 분석 */}
+              {/* 펼침: 구성품 원가 */}
               {isExpanded && (
-                <div className={`px-4 pb-4 border-t ${cfg.bg}`}>
-                  <div className="grid grid-cols-3 gap-4 pt-4">
-                    {/* 좌: 구성품 브레이크다운 */}
-                    <div>
-                      <h3 className="text-[13px] font-bold text-slate-700 flex items-center gap-1.5 mb-2">
-                        <Package size={13} /> 구성품 원가
-                      </h3>
-                      <div className="space-y-1.5">
-                        {a.items.map((item, i) => (
-                          <div key={i} className="bg-white/70 rounded-lg p-2 flex items-center justify-between text-[12px]">
-                            <div className="flex items-center gap-1.5">
-                              <span className={`px-1 py-0.5 rounded text-[9px] font-medium ${GRADE_COLOR[item.grade] || GRADE_COLOR.C}`}>{item.grade}</span>
-                              <span className="text-slate-700 truncate max-w-[120px]">{item.productName}</span>
-                              <span className="text-slate-400">x{item.quantity}</span>
-                            </div>
-                            <div className="text-right">
-                              <span className="font-semibold">{formatKRW(item.costPrice * item.quantity)}</span>
-                              <span className="text-slate-400 ml-1">({item.costContribution}%)</span>
-                            </div>
+                <div className="px-4 pb-4 border-t border-slate-100">
+                  <div className="pt-4">
+                    <h3 className="text-[13px] font-bold text-slate-700 flex items-center gap-1.5 mb-2">
+                      <Package size={13} /> 구성품 원가
+                    </h3>
+                    <div className="space-y-1.5">
+                      {b.items.map((item, i) => (
+                        <div key={i} className="bg-slate-50 rounded-lg p-2 flex items-center justify-between text-[12px]">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-slate-700 truncate max-w-[200px]">{item.product?.name ?? '-'}</span>
+                            <span className="text-slate-400">x{item.quantity}</span>
                           </div>
-                        ))}
-                      </div>
-                      {/* 원가 기여도 바 */}
-                      <div className="flex h-2 rounded-full overflow-hidden mt-2 bg-gray-200">
-                        {a.items.map((item, i) => (
-                          <div key={i} className={`${i % 3 === 0 ? 'bg-blue-400' : i % 3 === 1 ? 'bg-purple-400' : 'bg-amber-400'}`}
-                            style={{ width: `${item.costContribution}%` }} title={`${item.productName}: ${item.costContribution}%`} />
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* 중: 개별 vs 묶음 비교 + 진단 */}
-                    <div>
-                      <h3 className="text-[13px] font-bold text-slate-700 flex items-center gap-1.5 mb-2">
-                        <DollarSign size={13} /> 개별 vs 묶음 비교
-                      </h3>
-                      <div className="bg-white/70 rounded-lg p-3 space-y-2 text-[12px] mb-3">
-                        <div className="flex justify-between">
-                          <span className="text-slate-500">개별 판매가 합</span>
-                          <span className="font-semibold">{formatKRW(a.individualTotalPrice)}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-slate-500">묶음 판매가</span>
-                          <span className="font-semibold text-purple-700">{formatKRW(a.sellPrice)}</span>
-                        </div>
-                        <div className="flex justify-between border-t pt-1">
-                          <span className="text-slate-500">묶음 할인율</span>
-                          <span className={`font-semibold ${a.bundleDiscount > 20 ? 'text-red-600' : 'text-slate-900'}`}>{a.bundleDiscount}%</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-slate-500">개별 마진 vs 묶음 마진</span>
-                          <span className={`font-semibold ${a.bundleMargin < a.individualMargin ? 'text-red-600' : 'text-green-600'}`}>
-                            {a.individualMargin}% → {a.bundleMargin}%
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* 문제 진단 */}
-                      <h3 className="text-[13px] font-bold text-slate-700 flex items-center gap-1.5 mb-2">
-                        <AlertTriangle size={13} /> 진단
-                      </h3>
-                      {a.issues.length === 0 ? (
-                        <p className="text-[12px] text-green-600 flex items-center gap-1"><CheckCircle size={12} /> 문제 없음</p>
-                      ) : a.issues.map((issue, i) => (
-                        <div key={i} className="flex items-start gap-2 text-[12px] mb-1">
-                          <span className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${issue.severity === 'critical' ? 'bg-red-500' : issue.severity === 'warning' ? 'bg-amber-500' : 'bg-blue-400'}`} />
-                          <span className="text-slate-700">{issue.message}</span>
+                          <div className="text-right">
+                            <span className="font-semibold">{formatKRW((item.product?.costCny ?? 0) * item.quantity)}</span>
+                          </div>
                         </div>
                       ))}
                     </div>
 
-                    {/* 우: 판매 실적 + 해결 방안 */}
-                    <div>
-                      <h3 className="text-[13px] font-bold text-slate-700 flex items-center gap-1.5 mb-2">
-                        <ShoppingCart size={13} /> 판매 실적
-                      </h3>
-                      <div className="grid grid-cols-2 gap-2 mb-3 text-[12px]">
-                        <div className="bg-white/70 rounded-lg p-2">
-                          <div className="text-slate-400 text-[10px]">주문</div>
-                          <div className="font-semibold">{a.orderCount}건</div>
-                        </div>
-                        <div className="bg-white/70 rounded-lg p-2">
-                          <div className="text-slate-400 text-[10px]">매출</div>
-                          <div className="font-semibold">{formatKRW(a.revenue)}</div>
-                        </div>
-                        <div className="bg-white/70 rounded-lg p-2">
-                          <div className="text-slate-400 text-[10px]">순이익</div>
-                          <div className={`font-semibold ${a.netProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatKRW(a.netProfit)}</div>
-                        </div>
-                        <div className="bg-white/70 rounded-lg p-2">
-                          <div className="text-slate-400 text-[10px]">이익률</div>
-                          <div className={`font-semibold ${a.profitRate >= 0 ? 'text-green-600' : 'text-red-600'}`}>{a.profitRate}%</div>
-                        </div>
+                    <div className="flex justify-between mt-3 text-[12px] border-t pt-2">
+                      <div className="flex items-center gap-1.5">
+                        <DollarSign size={13} className="text-slate-500" />
+                        <span className="text-slate-500">판매가</span>
+                        <span className="font-semibold text-purple-700">{formatKRW(b.sellPrice)}</span>
                       </div>
-
-                      {a.recommendations.length > 0 && (
-                        <>
-                          <h3 className="text-[13px] font-bold text-slate-700 flex items-center gap-1.5 mb-2">
-                            <ArrowRight size={13} /> 해결 방안
-                          </h3>
-                          {a.recommendations.map((rec, i) => (
-                            <div key={i} className="bg-white/70 rounded-lg p-2 mb-1.5">
-                              <div className="flex items-center gap-1.5 text-[12px]">
-                                <span className={`w-2 h-2 rounded-full ${PRI_DOT[rec.priority] || 'bg-gray-400'}`} />
-                                <span className="font-semibold text-slate-800">{rec.action}</span>
-                              </div>
-                              <p className="text-[11px] text-slate-500 pl-3.5 mt-0.5">{rec.reason}</p>
-                            </div>
-                          ))}
-                        </>
-                      )}
-
-                      <button
-                        onClick={() => deleteMutation.mutate(a.bundleId)}
-                        disabled={deleteMutation.isPending}
-                        className="mt-3 w-full text-center text-[12px] text-red-400 hover:text-red-600 py-1.5 rounded-lg hover:bg-red-50 transition-colors flex items-center justify-center gap-1 disabled:opacity-50">
-                        <Trash2 size={12} /> 묶음 삭제
-                      </button>
+                      <div>
+                        <span className="text-slate-500">원가합</span>
+                        <span className="font-semibold ml-1">{formatKRW(b.totalItemCost)}</span>
+                      </div>
                     </div>
+
+                    <button
+                      onClick={() => deleteMutation.mutate(b.id)}
+                      disabled={deleteMutation.isPending}
+                      className="mt-3 w-full text-center text-[12px] text-red-400 hover:text-red-600 py-1.5 rounded-lg hover:bg-red-50 transition-colors flex items-center justify-center gap-1 disabled:opacity-50">
+                      <Trash2 size={12} /> 묶음 삭제
+                    </button>
                   </div>
                 </div>
               )}

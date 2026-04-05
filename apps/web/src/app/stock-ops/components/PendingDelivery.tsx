@@ -1,24 +1,37 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { AlertTriangle, Clock, Package, Truck } from 'lucide-react';
+import { AlertTriangle, Clock, Package } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import { formatNumber } from '@/lib/utils';
 
-interface PendingOrder {
-  id: string;
+interface PurchaseOrderItem {
+  productId: string;
   productName: string;
-  sku: string | null;
   quantity: number;
-  unitCost: number;
-  totalCost: number;
+  unitPriceCny: number;
+}
+
+interface PurchaseOrder {
+  id: string;
+  supplierName: string | null;
+  status: string;
+  orderDate: string | null;
+  expectedDeliveryDate: string | null;
+  items: PurchaseOrderItem[];
+}
+
+interface FlatOrder {
+  key: string;
+  productName: string;
   supplier: string | null;
   status: string;
+  quantity: number;
+  totalCost: number;
   orderedAt: string;
   expectedAt: string | null;
-  currentStock: number;
 }
 
 const statusLabels: Record<string, { text: string; color: string }> = {
@@ -27,25 +40,41 @@ const statusLabels: Record<string, { text: string; color: string }> = {
 };
 
 export default function PendingDelivery() {
-  const [filterStatus, setFilterStatus] = useState<
-    'all' | 'ordered' | 'shipped'
-  >('all');
+  const [filterStatus, setFilterStatus] = useState<'all' | 'ordered' | 'shipped'>('all');
 
   const { data, isLoading } = useQuery({
-    queryKey: queryKeys.purchaseOrders.list({ status: 'ordered' }),
+    queryKey: queryKeys.purchaseOrders.list({ status: 'ordered,shipped' }),
     queryFn: () =>
-      apiClient.get<{ items: PendingOrder[]; total: number }>(
+      apiClient.get<{ items: PurchaseOrder[]; total: number }>(
         '/api/purchase-orders?status=ordered'
       ),
   });
 
-  const orders = data?.items ?? [];
+  const orders = useMemo(() => {
+    const pos = data?.items ?? [];
+    const flat: FlatOrder[] = [];
+    for (const po of pos) {
+      for (const item of po.items ?? []) {
+        const qty = Number(item.quantity) || 0;
+        const unitCost = Number(item.unitPriceCny) || 0;
+        flat.push({
+          key: `${po.id}-${item.productId}`,
+          productName: item.productName,
+          supplier: po.supplierName,
+          status: po.status,
+          quantity: qty,
+          totalCost: Math.round(qty * unitCost),
+          orderedAt: po.orderDate || new Date().toISOString(),
+          expectedAt: po.expectedDeliveryDate,
+        });
+      }
+    }
+    return flat;
+  }, [data]);
 
   const now = new Date();
   const calcDaysElapsed = (orderedAt: string) =>
-    Math.floor(
-      (now.getTime() - new Date(orderedAt).getTime()) / 86400000
-    );
+    Math.floor((now.getTime() - new Date(orderedAt).getTime()) / 86400000);
   const isDelayed = (expectedAt: string | null) =>
     expectedAt ? new Date(expectedAt) < now : false;
 
@@ -124,25 +153,18 @@ export default function PendingDelivery() {
                 <th className="text-center py-2 px-3">발주일</th>
                 <th className="text-center py-2 px-3">예상입고일</th>
                 <th className="text-center py-2 px-3">경과일</th>
-                <th className="text-right py-2 px-3">현재재고</th>
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td
-                    colSpan={9}
-                    className="py-12 text-center text-slate-400"
-                  >
+                  <td colSpan={8} className="py-12 text-center text-slate-400">
                     로딩 중...
                   </td>
                 </tr>
               ) : filtered.length === 0 ? (
                 <tr>
-                  <td
-                    colSpan={9}
-                    className="py-12 text-center text-slate-400"
-                  >
+                  <td colSpan={8} className="py-12 text-center text-slate-400">
                     미송 발주 없음
                   </td>
                 </tr>
@@ -152,7 +174,7 @@ export default function PendingDelivery() {
                   const delayed = isDelayed(o.expectedAt);
                   return (
                     <tr
-                      key={o.id}
+                      key={o.key}
                       className={`border-b border-slate-100 hover:bg-slate-50 ${delayed ? 'bg-red-50' : ''}`}
                     >
                       <td className="py-2 px-3 font-medium max-w-[180px] truncate">
@@ -179,11 +201,7 @@ export default function PendingDelivery() {
                       </td>
                       <td className="py-2 px-3 text-center text-xs">
                         {o.expectedAt ? (
-                          <span
-                            className={
-                              delayed ? 'text-red-600 font-bold' : ''
-                            }
-                          >
+                          <span className={delayed ? 'text-red-600 font-bold' : ''}>
                             {fmtDate(o.expectedAt)}
                           </span>
                         ) : (
@@ -194,15 +212,10 @@ export default function PendingDelivery() {
                         <span
                           className={`inline-flex items-center gap-1 ${delayed ? 'text-red-600 font-bold' : 'text-slate-600'}`}
                         >
-                          {delayed && (
-                            <AlertTriangle className="w-3 h-3" />
-                          )}
+                          {delayed && <AlertTriangle className="w-3 h-3" />}
                           <Clock className="w-3 h-3" />
                           {elapsed}일
                         </span>
-                      </td>
-                      <td className="py-2 px-3 text-right">
-                        {formatNumber(o.currentStock)}개
                       </td>
                     </tr>
                   );

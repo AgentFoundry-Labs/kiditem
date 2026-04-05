@@ -7,7 +7,7 @@ export class SuppliersService {
   constructor(private readonly prisma: PrismaService) {}
 
   async findAll(companyId: string) {
-    return this.prisma.supplier.findMany({
+    const suppliers = await this.prisma.supplier.findMany({
       where: { companyId },
       include: {
         _count: {
@@ -19,6 +19,12 @@ export class SuppliersService {
       },
       orderBy: { createdAt: 'desc' },
     });
+
+    return suppliers.map(({ _count, ...rest }) => ({
+      ...rest,
+      productCount: _count.supplierProducts,
+      orderCount: _count.purchaseOrders,
+    }));
   }
 
   async create(dto: CreateSupplierDto) {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { BookOpen, Plus, ArrowDownCircle, ArrowUpCircle, X, Trash2, Calendar } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
@@ -49,11 +49,29 @@ export default function ManualLedger() {
 
   const { data: ledgerData } = useQuery({
     queryKey: ['manual-ledger', period],
-    queryFn: () => apiClient.get<{ ledgers: Ledger[]; monthly: MonthlySummary[] }>(`/api/manual-ledger?period=${period}`),
+    queryFn: () => apiClient.get<Ledger[]>(`/api/manual-ledger?period=${period}`),
   });
 
-  const ledgers = ledgerData?.ledgers ?? [];
-  const monthly = ledgerData?.monthly ?? [];
+  const ledgers = ledgerData ?? [];
+
+  const monthly = useMemo(() => {
+    const monthMap = new Map<string, { income: number; expense: number }>();
+    for (const l of ledgers) {
+      const month = l.date.slice(0, 7);
+      const entry = monthMap.get(month) || { income: 0, expense: 0 };
+      if (l.type === 'income') entry.income += l.amount;
+      else entry.expense += l.amount;
+      monthMap.set(month, entry);
+    }
+    return Array.from(monthMap.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([month, { income, expense }]) => ({
+        month,
+        income,
+        expense,
+        net: income - expense,
+      }));
+  }, [ledgers]);
 
   const [form, setForm] = useState({
     date: new Date().toISOString().slice(0, 10),

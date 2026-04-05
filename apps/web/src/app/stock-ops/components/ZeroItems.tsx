@@ -17,7 +17,7 @@ interface ProductItem {
   sellPrice: number;
   currentStock: number;
   status: string;
-  grade: string;
+  abcGrade: string;
   orderCount: number;
 }
 
@@ -36,7 +36,7 @@ export default function ZeroItems() {
     queryKey: queryKeys.products.list({ limit: '500' }),
     queryFn: () =>
       apiClient.get<{ items: ProductItem[]; total: number }>(
-        '/api/products?limit=500'
+        '/api/products?limit=200'
       ),
   });
 
@@ -154,9 +154,9 @@ export default function ZeroItems() {
                       </td>
                       <td className="py-2 px-3 text-center">
                         <span
-                          className={`px-2 py-0.5 rounded text-xs font-bold ${gradeColors[item.grade] || 'bg-gray-100 text-gray-600'}`}
+                          className={`px-2 py-0.5 rounded text-xs font-bold ${gradeColors[item.abcGrade] || 'bg-gray-100 text-gray-600'}`}
                         >
-                          {item.grade}
+                          {item.abcGrade}
                         </span>
                       </td>
                       <td className="py-2 px-3 text-slate-500">

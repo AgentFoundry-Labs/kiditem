@@ -1,46 +1,40 @@
 'use client';
 
+import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { AlertTriangle, DollarSign, Clock } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import { formatNumber } from '@/lib/utils';
 
-interface DeadStockItem {
+interface InventoryItem {
+  id: string;
   productId: string;
   productName: string;
   sku: string | null;
-  currentStock: number;
   grade: string;
-  lastOrderDate: string | null;
-  daysSinceLastOrder: number;
-  storageCost: number;
-  orderCount: number;
+  currentStock: number;
+  avgDailySales: number;
+  daysRemaining: number;
+  status: string;
 }
 
-const DEAD_STOCK_DAYS = 90;
 const STORAGE_COST_PER_UNIT = 100;
 
 export default function DeadStock() {
-  const { data: inventoryData, isLoading: loadingInventory } = useQuery({
-    queryKey: queryKeys.inventory.list({}),
+  const { data, isLoading } = useQuery({
+    queryKey: queryKeys.inventory.list({ limit: '500' }),
     queryFn: () =>
-      apiClient.get<{ items: DeadStockItem[]; total: number }>('/api/inventory'),
+      apiClient.get<{ items: InventoryItem[]; total: number }>('/api/inventory?limit=200'),
   });
 
-  const { data: productsData, isLoading: loadingProducts } = useQuery({
-    queryKey: queryKeys.products.list({ limit: '500' }),
-    queryFn: () =>
-      apiClient.get<{ items: DeadStockItem[]; total: number }>(
-        '/api/products?limit=500'
-      ),
-  });
+  const items = useMemo(() => {
+    const all = data?.items ?? [];
+    return all.filter((i) => i.avgDailySales === 0 && i.currentStock > 0);
+  }, [data]);
 
-  const isLoading = loadingInventory || loadingProducts;
-  const items = inventoryData?.items ?? [];
-
-  const totalStorageCost = items.reduce((s, i) => s + i.storageCost, 0);
   const totalDeadStock = items.reduce((s, i) => s + i.currentStock, 0);
+  const totalStorageCost = items.reduce((s, i) => s + i.currentStock * STORAGE_COST_PER_UNIT, 0);
 
   const gradeColors: Record<string, string> = {
     A: 'bg-green-100 text-green-700',
@@ -89,7 +83,7 @@ export default function DeadStock() {
         <h2 className="text-lg font-semibold text-slate-800 mb-4">
           악성재고 상품 목록
           <span className="text-sm text-slate-400 font-normal ml-2">
-            (마지막 주문 {DEAD_STOCK_DAYS}일 이상)
+            (판매 없는 재고 상품)
           </span>
         </h2>
         <div className="overflow-x-auto">
@@ -100,28 +94,20 @@ export default function DeadStock() {
                 <th className="text-left py-2 px-3">SKU</th>
                 <th className="text-center py-2 px-3">등급</th>
                 <th className="text-right py-2 px-3">재고</th>
-                <th className="text-right py-2 px-3">주문수</th>
-                <th className="text-center py-2 px-3">마지막주문</th>
-                <th className="text-right py-2 px-3">경과일</th>
+                <th className="text-right py-2 px-3">잔여일</th>
                 <th className="text-right py-2 px-3">추정보관비</th>
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td
-                    colSpan={8}
-                    className="py-12 text-center text-slate-400"
-                  >
+                  <td colSpan={6} className="py-12 text-center text-slate-400">
                     로딩 중...
                   </td>
                 </tr>
               ) : items.length === 0 ? (
                 <tr>
-                  <td
-                    colSpan={8}
-                    className="py-12 text-center text-slate-400"
-                  >
+                  <td colSpan={6} className="py-12 text-center text-slate-400">
                     악성재고 없음 (우수!)
                   </td>
                 </tr>
@@ -148,24 +134,12 @@ export default function DeadStock() {
                       {formatNumber(item.currentStock)}개
                     </td>
                     <td className="py-2 px-3 text-right">
-                      {item.orderCount}건
-                    </td>
-                    <td className="py-2 px-3 text-center text-xs text-slate-500">
-                      {item.lastOrderDate
-                        ? new Date(item.lastOrderDate).toLocaleDateString(
-                            'ko-KR'
-                          )
-                        : '없음'}
-                    </td>
-                    <td className="py-2 px-3 text-right">
                       <span className="text-red-600 font-medium">
-                        {item.daysSinceLastOrder >= 999
-                          ? 'N/A'
-                          : `${item.daysSinceLastOrder}일`}
+                        {item.daysRemaining >= 999 ? 'N/A' : `${item.daysRemaining}일`}
                       </span>
                     </td>
                     <td className="py-2 px-3 text-right font-medium text-orange-600">
-                      {formatNumber(item.storageCost)}원
+                      {formatNumber(item.currentStock * STORAGE_COST_PER_UNIT)}원
                     </td>
                   </tr>
                 ))

@@ -12,17 +12,15 @@ interface Supplier {
 }
 
 interface ProductSale {
-  supplierId: string;
-  supplierName: string;
   productId: string;
   productName: string;
-  sku: string;
-  category: string;
   supplyPrice: number;
-  revenue: number;
-  profit: number;
-  orderCount: number;
-  costOfGoods: number;
+  totalOrders: number;
+  totalQuantity: number;
+  totalRevenue: number;
+  revenue?: number;
+  profit?: number;
+  orderCount?: number;
 }
 
 export default function SupplierProductSales() {
@@ -39,9 +37,9 @@ export default function SupplierProductSales() {
     enabled: !!selectedId,
   });
 
-  const totalRevenue = products.reduce((s, p) => s + p.revenue, 0);
-  const totalProfit = products.reduce((s, p) => s + p.profit, 0);
-  const totalOrders = products.reduce((s, p) => s + p.orderCount, 0);
+  const totalRevenue = products.reduce((s, p) => s + (p.totalRevenue ?? p.revenue ?? 0), 0);
+  const totalProfit = products.reduce((s, p) => s + (p.profit ?? 0), 0);
+  const totalOrders = products.reduce((s, p) => s + (p.totalOrders ?? p.orderCount ?? 0), 0);
 
   return (
     <div className="space-y-6">
@@ -112,22 +110,15 @@ export default function SupplierProductSales() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {products.map((p) => {
-                const profitRate = p.revenue > 0 ? (p.profit / p.revenue) * 100 : 0;
-                return (
+              {products.map((p) => (
                   <tr key={p.productId} className="hover:bg-slate-50">
                     <td className="px-4 py-3 font-medium text-slate-900 max-w-[200px] truncate">{p.productName}</td>
-                    <td className="px-4 py-3 text-xs text-slate-500">{p.sku}</td>
-                    <td className="px-4 py-3 text-xs text-slate-500">{p.category}</td>
                     <td className="px-4 py-3 text-right tabular-nums">{formatKRW(p.supplyPrice)}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-slate-500">{formatKRW(p.costOfGoods)}</td>
-                    <td className="px-4 py-3 text-right tabular-nums font-semibold">{formatKRW(p.revenue)}</td>
-                    <td className={`px-4 py-3 text-right tabular-nums font-semibold ${p.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatKRW(p.profit)}</td>
-                    <td className={`px-4 py-3 text-right tabular-nums ${profitRate >= 5 ? 'text-green-600' : profitRate >= 0 ? 'text-orange-600' : 'text-red-600'}`}>{profitRate.toFixed(1)}%</td>
-                    <td className="px-4 py-3 text-right tabular-nums">{p.orderCount}</td>
+                    <td className="px-4 py-3 text-right tabular-nums font-semibold">{formatKRW(p.totalRevenue)}</td>
+                    <td className="px-4 py-3 text-right tabular-nums">{p.totalOrders}건</td>
+                    <td className="px-4 py-3 text-right tabular-nums">{p.totalQuantity}개</td>
                   </tr>
-                );
-              })}
+              ))}
               {/* 합계 */}
               <tr className="bg-slate-50 font-semibold border-t-2 border-slate-300">
                 <td className="px-4 py-3 text-slate-900" colSpan={5}>합계</td>

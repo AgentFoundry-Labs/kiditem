@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   ScanBarcode,
@@ -14,14 +14,11 @@ import {
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 
-interface ReturnInfo {
-  orderId: string;
-  productName: string;
-  sku: string;
-  quantity: number;
-  reason: string;
-  status: string;
-  requestDate: string;
+interface ProductInfo {
+  id: string;
+  name: string;
+  sku: string | null;
+  currentStock: number;
 }
 
 interface ScanLog {
@@ -35,21 +32,29 @@ interface ScanLog {
 export default function ReturnScanPage() {
   const [barcode, setBarcode] = useState('');
   const [submitted, setSubmitted] = useState('');
-  const [returnInfo, setReturnInfo] = useState<ReturnInfo | null>(null);
+  const [returnInfo, setReturnInfo] = useState<ProductInfo | null>(null);
   const [processing, setProcessing] = useState(false);
   const [scanLogs, setScanLogs] = useState<ScanLog[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const { isLoading: scanning } = useQuery({
+  const { data: searchData, isLoading: scanning } = useQuery({
     queryKey: queryKeys.products.list({ search: submitted }),
     queryFn: () =>
-      apiClient.get<{ items: ReturnInfo[] }>(
+      apiClient.get<{ items: ProductInfo[] }>(
         `/api/products?search=${encodeURIComponent(submitted)}`
       ),
     enabled: !!submitted,
   });
+
+  // Auto-select first match (local state sync — useEffect exception)
+  const searchResults = searchData?.items ?? [];
+  useEffect(() => {
+    if (submitted && searchResults.length > 0 && !returnInfo && !scanning) {
+      setReturnInfo(searchResults[0]);
+    }
+  }, [submitted, searchResults, returnInfo, scanning]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
@@ -66,8 +71,8 @@ export default function ReturnScanPage() {
     setError(null);
 
     const logEntry: ScanLog = {
-      barcode: barcode || returnInfo.sku,
-      productName: returnInfo.productName,
+      barcode: barcode || returnInfo.sku || returnInfo.id,
+      productName: returnInfo.name,
       timestamp: new Date().toLocaleString('ko-KR'),
       success: true,
       message: '회수 완료 (재고 반영 대기)',
@@ -75,7 +80,7 @@ export default function ReturnScanPage() {
 
     setScanLogs((prev) => [logEntry, ...prev]);
     setSuccessMsg(
-      `"${returnInfo.productName}" 회수 기록이 등록되었습니다.`
+      `"${returnInfo.name}" 회수 기록이 등록되었습니다.`
     );
     setReturnInfo(null);
     setBarcode('');
@@ -172,28 +177,16 @@ export default function ReturnScanPage() {
               <div>
                 <div className="text-xs text-slate-500">상품명</div>
                 <div className="text-sm font-medium">
-                  {returnInfo.productName}
+                  {returnInfo.name}
                 </div>
               </div>
               <div>
                 <div className="text-xs text-slate-500">SKU</div>
-                <div className="text-sm font-mono">{returnInfo.sku}</div>
+                <div className="text-sm font-mono">{returnInfo.sku || '-'}</div>
               </div>
               <div>
-                <div className="text-xs text-slate-500">수량</div>
-                <div className="text-sm">{returnInfo.quantity}개</div>
-              </div>
-              <div>
-                <div className="text-xs text-slate-500">사유</div>
-                <div className="text-sm">{returnInfo.reason}</div>
-              </div>
-              <div>
-                <div className="text-xs text-slate-500">상태</div>
-                <div className="text-sm">
-                  <span className="px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
-                    {returnInfo.status}
-                  </span>
-                </div>
+                <div className="text-xs text-slate-500">현재 재고</div>
+                <div className="text-sm">{returnInfo.currentStock}개</div>
               </div>
             </div>
             <button

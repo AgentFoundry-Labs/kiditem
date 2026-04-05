@@ -1,10 +1,23 @@
 'use client';
 
+import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { BarChart3, RefreshCw, Loader2, TrendingDown, Package, Percent } from 'lucide-react';
+import { BarChart3, TrendingDown, Package, Percent, Loader2, RefreshCw } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import { formatNumber } from '@/lib/utils';
+
+interface PurchaseOrder {
+  id: string;
+  status: string;
+  items?: { productId: string; productName: string; quantity: number }[];
+}
+
+interface InventoryItem {
+  productId: string;
+  currentStock: number;
+  product?: { id: string; name: string; sku: string | null; grade?: string | null } | null;
+}
 
 interface RetentionItem {
   productId: string;
@@ -19,21 +32,65 @@ interface RetentionItem {
 
 export default function StockRetention() {
   const { data: poData, isLoading: loadingPo } = useQuery({
-    queryKey: queryKeys.purchaseOrders.list({}),
+    queryKey: queryKeys.purchaseOrders.list({ status: 'received' }),
     queryFn: () =>
-      apiClient.get<{ items: RetentionItem[]; total: number }>(
-        '/api/purchase-orders'
+      apiClient.get<{ items: PurchaseOrder[]; total: number }>(
+        '/api/purchase-orders?status=received&limit=200'
       ),
   });
 
   const { data: invData, isLoading: loadingInv } = useQuery({
-    queryKey: queryKeys.inventory.list({}),
+    queryKey: queryKeys.inventory.list({ limit: '500' }),
     queryFn: () =>
-      apiClient.get<{ items: RetentionItem[]; total: number }>('/api/inventory'),
+      apiClient.get<{ items: InventoryItem[]; total: number }>('/api/inventory?limit=200'),
   });
 
   const isLoading = loadingPo || loadingInv;
-  const items = poData?.items ?? [];
+
+  const items = useMemo(() => {
+    const orders = poData?.items ?? [];
+    const inventories = invData?.items ?? [];
+
+    // 상품별 총 입고 수량 계산
+    const inboundMap = new Map<string, { name: string; qty: number }>();
+    for (const po of orders) {
+      for (const item of po.items ?? []) {
+        const qty = Number(item.quantity) || 0;
+        const prev = inboundMap.get(item.productId) ?? { name: item.productName, qty: 0 };
+        prev.qty += qty;
+        inboundMap.set(item.productId, prev);
+      }
+    }
+
+    // 재고 맵
+    const stockMap = new Map<string, InventoryItem>();
+    for (const inv of inventories) {
+      stockMap.set(inv.productId, inv);
+    }
+
+    // 잔존율 계산
+    const result: RetentionItem[] = [];
+    for (const [productId, inbound] of Array.from(inboundMap.entries())) {
+      const inv = stockMap.get(productId);
+      const currentStock = Number(inv?.currentStock) || 0;
+      const totalInbound = inbound.qty;
+      const soldQuantity = Math.max(0, totalInbound - currentStock);
+      const retentionRate = totalInbound > 0 ? (currentStock / totalInbound) * 100 : 0;
+
+      result.push({
+        productId,
+        productName: inbound.name || inv?.product?.name || productId,
+        sku: inv?.product?.sku ?? null,
+        grade: (inv?.product as any)?.grade ?? '-',
+        totalInbound,
+        currentStock,
+        retentionRate: Math.round(retentionRate * 10) / 10,
+        soldQuantity,
+      });
+    }
+
+    return result.sort((a, b) => b.retentionRate - a.retentionRate);
+  }, [poData, invData]);
 
   const totalInbound = items.reduce((s, i) => s + i.totalInbound, 0);
   const totalCurrentStock = items.reduce((s, i) => s + i.currentStock, 0);

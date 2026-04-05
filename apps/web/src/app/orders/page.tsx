@@ -40,8 +40,8 @@ export default function OrdersPage() {
       const results = await Promise.all(
         ALL_NODES.map(async (node) => {
           try {
-            const data = await apiClient.get<{ orders: OrderRow[] }>(`/api/orders?status=${node.key}`);
-            const orders = (data.orders || []) as OrderRow[];
+            const data = await apiClient.get<{ items: OrderRow[] }>(`/api/orders?status=${node.key}`);
+            const orders = (data.items || []) as OrderRow[];
             return { key: node.key, orders, count: orders.length };
           } catch {
             return { key: node.key, orders: [] as OrderRow[], count: 0 };

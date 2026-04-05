@@ -20,17 +20,18 @@ import { apiClient } from '@/lib/api-client';
 
 interface ReturnTransfer {
   id: string;
-  transferNumber: string;
-  orderNumber: string | null;
+  rtNumber: string | null;
+  orderId: string | null;
+  productId: string | null;
   productName: string;
-  sku: string | null;
   quantity: number;
   status: string;
   condition: string | null;
-  receivedAt: string;
-  inspectedAt: string | null;
-  completedAt: string | null;
-  note: string | null;
+  restockedQty: number;
+  disposedQty: number;
+  notes: string | null;
+  createdAt: string;
+  product: { id: string; name: string } | null;
 }
 
 interface Order {
@@ -245,10 +246,10 @@ export default function ReturnTransfers() {
               {filtered.map((t) => (
                 <tr key={t.id} className="hover:bg-slate-50">
                   <td className="px-4 py-3 font-mono text-xs font-semibold text-slate-700">
-                    {t.transferNumber || t.id.slice(0, 8)}
+                    {t.rtNumber || t.id.slice(0, 8)}
                   </td>
                   <td className="px-4 py-3 font-mono text-xs text-slate-500">
-                    {t.orderNumber || '-'}
+                    {t.orderId || '-'}
                   </td>
                   <td className="px-4 py-3 font-medium text-slate-900 max-w-[180px] truncate">
                     {t.productName}
@@ -277,7 +278,7 @@ export default function ReturnTransfers() {
                     )}
                   </td>
                   <td className="px-4 py-3 text-xs text-slate-500">
-                    {new Date(t.receivedAt).toLocaleDateString('ko-KR')}
+                    {new Date(t.createdAt).toLocaleDateString('ko-KR')}
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-1 justify-center">
@@ -443,7 +444,7 @@ export default function ReturnTransfers() {
               검수 — {selected.productName}
             </h3>
             <p className="text-sm text-slate-600 mb-4">
-              수량: {selected.quantity}개 | R/T: {selected.transferNumber || selected.id.slice(0, 8)}
+              수량: {selected.quantity}개 | R/T: {selected.rtNumber || selected.id.slice(0, 8)}
             </p>
             <div className="space-y-3">
               <label className="block text-sm font-medium text-slate-700 mb-2">

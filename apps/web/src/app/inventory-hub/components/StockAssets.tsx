@@ -5,7 +5,6 @@ import { useQuery } from '@tanstack/react-query';
 import {
   Package,
   TrendingUp,
-  BarChart3,
   ChevronDown,
   ChevronUp,
 } from 'lucide-react';
@@ -15,13 +14,9 @@ import { formatNumber, getGradeColor } from '@/lib/utils';
 
 interface StockAssetItem {
   id: string;
-  name: string;
+  productName: string;
   sku: string | null;
-  category: string;
-  company: string;
-  abcGrade: string;
-  costPrice: number;
-  sellPrice: number;
+  grade: string;
   currentStock: number;
   stockValue: number;
 }
@@ -33,17 +28,11 @@ interface GradeSummary {
   totalValue: number;
 }
 
-interface CategorySummary {
-  category: string;
-  count: number;
-  totalStock: number;
-  totalValue: number;
-}
 
 export default function StockAssets() {
   const [gradeFilter, setGradeFilter] = useState('');
   const [sortField, setSortField] = useState<
-    'stockValue' | 'currentStock' | 'costPrice'
+    'stockValue' | 'currentStock'
   >('stockValue');
   const [sortAsc, setSortAsc] = useState(false);
 
@@ -56,9 +45,8 @@ export default function StockAssets() {
   const items = data?.items ?? [];
 
   // useMemo로 자산 계산
-  const { byGrade, byCategory, totalValue, totalStock, totalProducts } = useMemo(() => {
+  const { byGrade, totalValue, totalStock, totalProducts } = useMemo(() => {
     const gradeMap = new Map<string, GradeSummary>();
-    const catMap = new Map<string, CategorySummary>();
     let tValue = 0;
     let tStock = 0;
 
@@ -66,22 +54,16 @@ export default function StockAssets() {
       tValue += item.stockValue;
       tStock += item.currentStock;
 
-      const g = gradeMap.get(item.abcGrade) || { grade: item.abcGrade, count: 0, totalStock: 0, totalValue: 0 };
+      const gradeKey = item.grade || '-';
+      const g = gradeMap.get(gradeKey) || { grade: gradeKey, count: 0, totalStock: 0, totalValue: 0 };
       g.count++;
       g.totalStock += item.currentStock;
       g.totalValue += item.stockValue;
-      gradeMap.set(item.abcGrade, g);
-
-      const c = catMap.get(item.category) || { category: item.category, count: 0, totalStock: 0, totalValue: 0 };
-      c.count++;
-      c.totalStock += item.currentStock;
-      c.totalValue += item.stockValue;
-      catMap.set(item.category, c);
+      gradeMap.set(gradeKey, g);
     }
 
     return {
       byGrade: Array.from(gradeMap.values()),
-      byCategory: Array.from(catMap.values()),
       totalValue: tValue,
       totalStock: tStock,
       totalProducts: items.length,
@@ -189,59 +171,6 @@ export default function StockAssets() {
         </div>
       </div>
 
-      {/* 카테고리별 재고자산 */}
-      <div className="bg-white rounded-xl border border-slate-200 p-5">
-        <div className="flex items-center gap-2 mb-4">
-          <BarChart3 className="w-5 h-5 text-slate-600" />
-          <h2 className="text-lg font-semibold text-slate-800">
-            카테고리별 재고자산
-          </h2>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-200 text-slate-500">
-                <th className="text-left py-2 px-3">카테고리</th>
-                <th className="text-right py-2 px-3">상품수</th>
-                <th className="text-right py-2 px-3">총 재고</th>
-                <th className="text-right py-2 px-3">재고자산</th>
-                <th className="text-right py-2 px-3">비율</th>
-              </tr>
-            </thead>
-            <tbody>
-              {byCategory.map((c) => (
-                <tr
-                  key={c.category}
-                  className="border-b border-slate-100 hover:bg-slate-50"
-                >
-                  <td className="py-2 px-3 font-medium">{c.category}</td>
-                  <td className="py-2 px-3 text-right">{c.count}개</td>
-                  <td className="py-2 px-3 text-right">
-                    {formatNumber(c.totalStock)}개
-                  </td>
-                  <td className="py-2 px-3 text-right font-medium">
-                    {formatNumber(c.totalValue)}원
-                  </td>
-                  <td className="py-2 px-3 text-right text-slate-500">
-                    {totalValue > 0
-                      ? ((c.totalValue / totalValue) * 100).toFixed(1)
-                      : 0}
-                    %
-                  </td>
-                </tr>
-              ))}
-              {byCategory.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="py-8 text-center text-slate-400">
-                    {isLoading ? '로딩 중...' : '데이터 없음'}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
       {/* 상품 목록 */}
       <div className="bg-white rounded-xl border border-slate-200 p-5">
         <h2 className="text-lg font-semibold text-slate-800 mb-4">
@@ -257,13 +186,6 @@ export default function StockAssets() {
                 <th className="text-left py-2 px-3">상품명</th>
                 <th className="text-left py-2 px-3">SKU</th>
                 <th className="text-center py-2 px-3">등급</th>
-                <th className="text-left py-2 px-3">카테고리</th>
-                <th
-                  className="text-right py-2 px-3 cursor-pointer select-none"
-                  onClick={() => toggleSort('costPrice')}
-                >
-                  매입가 <SortIcon field="costPrice" />
-                </th>
                 <th
                   className="text-right py-2 px-3 cursor-pointer select-none"
                   onClick={() => toggleSort('currentStock')}
@@ -281,13 +203,13 @@ export default function StockAssets() {
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-slate-400">
+                  <td colSpan={5} className="py-12 text-center text-slate-400">
                     로딩 중...
                   </td>
                 </tr>
               ) : sorted.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-slate-400">
+                  <td colSpan={5} className="py-12 text-center text-slate-400">
                     데이터 없음
                   </td>
                 </tr>
@@ -298,21 +220,17 @@ export default function StockAssets() {
                     className="border-b border-slate-100 hover:bg-slate-50"
                   >
                     <td className="py-2 px-3 font-medium max-w-[200px] truncate">
-                      {item.name}
+                      {item.productName}
                     </td>
                     <td className="py-2 px-3 text-slate-500 font-mono text-xs">
                       {item.sku || '-'}
                     </td>
                     <td className="py-2 px-3 text-center">
                       <span
-                        className={`px-2 py-0.5 rounded text-xs font-bold ${getGradeColor(item.abcGrade)}`}
+                        className={`px-2 py-0.5 rounded text-xs font-bold ${getGradeColor(item.grade)}`}
                       >
-                        {item.abcGrade}
+                        {item.grade}
                       </span>
-                    </td>
-                    <td className="py-2 px-3 text-slate-500">{item.category}</td>
-                    <td className="py-2 px-3 text-right">
-                      {formatNumber(item.costPrice)}원
                     </td>
                     <td className="py-2 px-3 text-right">
                       {formatNumber(item.currentStock)}개

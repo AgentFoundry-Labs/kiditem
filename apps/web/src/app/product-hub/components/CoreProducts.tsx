@@ -9,13 +9,13 @@ import { formatKRW, formatPercent, getProfitColor, getGradeColor } from '@/lib/u
 interface Product {
   id: string; name: string; sku: string; company: string; abcGrade: string;
   imageUrl: string | null; coupangId: string | null; category: string;
-  adTier: string | null; revenue: number; netProfit: number; profitRate: number;
-  adRate: number; roas: number; ctr: number; adSpend: number; adRevenue: number;
-  currentStock: number; reviewCount: number; orderCount: number; thumbnailCTR: number;
-  sellPrice: number; costPrice: number;
-  traffic: { visitors: number; views: number; cartAdds: number; orders: number; salesQty: number; revenue: number; conversionRate: number; date: string } | null;
-  t14: { revenue: number; salesQty: number; orders: number; conversionRate: number; date: string } | null;
-  t14prev: { revenue: number; salesQty: number; orders: number; date: string } | null;
+  adTier: string | null; revenue?: number; netProfit?: number; profitRate?: number;
+  adRate?: number; roas?: number; ctr?: number; adSpend?: number; adRevenue?: number;
+  currentStock: number; reviewCount?: number; orderCount?: number; thumbnailCTR?: number;
+  sellPrice?: number; costPrice?: number;
+  traffic?: { visitors: number; views: number; cartAdds: number; orders: number; salesQty: number; revenue: number; conversionRate: number; date: string } | null;
+  t14?: { revenue: number; salesQty: number; orders: number; conversionRate: number; date: string } | null;
+  t14prev?: { revenue: number; salesQty: number; orders: number; date: string } | null;
 }
 
 export default function CoreProducts() {
@@ -50,12 +50,13 @@ export default function CoreProducts() {
       // 매출 점수
       const revScore = 50;
       // 광고 효율 점수
+      const pRoas = p.roas ?? 0;
       let adScore = 15;
       if (p.adTier) {
-        if (p.roas >= 10) adScore = 30;
-        else if (p.roas >= 5) adScore = 25;
-        else if (p.roas >= 3) adScore = 20;
-        else if (p.roas >= 1) adScore = 10;
+        if (pRoas >= 10) adScore = 30;
+        else if (pRoas >= 5) adScore = 25;
+        else if (pRoas >= 3) adScore = 20;
+        else if (pRoas >= 1) adScore = 10;
         else adScore = 0;
       }
       // 전환율 점수
@@ -70,10 +71,10 @@ export default function CoreProducts() {
 
       // 광고 전략
       let strategy = '';
-      if (p.roas >= 5) strategy = '광고 예산 증액 추천 -- ROAS ' + p.roas + '배, 수익 극대화 구간';
-      else if (p.roas >= 3) strategy = '현재 광고 유지 -- ROAS 안정적, 키워드 확장 검토';
+      if (pRoas >= 5) strategy = '광고 예산 증액 추천 -- ROAS ' + pRoas + '배, 수익 극대화 구간';
+      else if (pRoas >= 3) strategy = '현재 광고 유지 -- ROAS 안정적, 키워드 확장 검토';
       else if (!p.adTier) strategy = '자연매출 우수 -- 광고 테스트 시 매출 폭발 가능';
-      else if (p.roas >= 1) strategy = '키워드 최적화 필요 -- 소재 변경으로 ROAS 개선 가능';
+      else if (pRoas >= 1) strategy = '키워드 최적화 필요 -- 소재 변경으로 ROAS 개선 가능';
       else strategy = '핵심 상품 -- 매출 집중 관리';
 
       // 순위 변동
@@ -90,7 +91,7 @@ export default function CoreProducts() {
     .sort((a, b) => b.score - a.score);
 
   const totalRevenue = coreProducts.reduce((s, p) => s + (p.t14?.revenue || 0), 0);
-  const totalAdSpend = coreProducts.reduce((s, p) => s + p.adSpend, 0);
+  const totalAdSpend = coreProducts.reduce((s, p) => s + (p.adSpend ?? 0), 0);
 
   return (
     <div className="space-y-4 animate-in">
@@ -168,9 +169,9 @@ export default function CoreProducts() {
                   <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${getGradeColor('A')}`}>A</span>
                   <span className="text-[10px] text-slate-400 font-mono">{p.score}점</span>
                   {p.adTier && <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-blue-600">{p.adTier} 광고</span>}
-                  {p.roas > 0 && (
-                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${p.roas >= 3 ? 'bg-green-50 text-green-600' : p.roas >= 1 ? 'bg-yellow-50 text-yellow-600' : 'bg-red-50 text-red-600'}`}>
-                      ROAS {p.roas}x
+                  {(p.roas ?? 0) > 0 && (
+                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${(p.roas ?? 0) >= 3 ? 'bg-green-50 text-green-600' : (p.roas ?? 0) >= 1 ? 'bg-yellow-50 text-yellow-600' : 'bg-red-50 text-red-600'}`}>
+                      ROAS {p.roas ?? 0}x
                     </span>
                   )}
                   {p.currentStock < 20 && p.currentStock > 0 && <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-orange-50 text-orange-600">재고부족 {p.currentStock}개</span>}
@@ -184,12 +185,12 @@ export default function CoreProducts() {
                 <div className="text-center">
                   <div className="text-xl font-bold text-slate-900 tabular-nums">{p.t14?.salesQty?.toLocaleString() || '-'}</div>
                   <div className="text-[10px] text-slate-400 mt-0.5">판매량</div>
-                  <div className={`text-[10px] font-medium ${getProfitColor(p.profitRate)}`}>이익률 {formatPercent(p.profitRate)}</div>
+                  <div className={`text-[10px] font-medium ${getProfitColor(p.profitRate ?? 0)}`}>이익률 {formatPercent(p.profitRate ?? 0)}</div>
                 </div>
                 <div className="text-right">
                   <div className="text-xl font-bold text-slate-900 tabular-nums">{p.t14?.revenue ? formatKRW(p.t14.revenue) : '-'}</div>
                   <div className="text-[10px] text-slate-400 mt-0.5">14일 매출</div>
-                  {p.adRate > 0 && <div className={`text-[10px] font-medium ${p.adRate > 15 ? 'text-red-600' : 'text-slate-500'}`}>광고 {formatPercent(p.adRate)}</div>}
+                  {(p.adRate ?? 0) > 0 && <div className={`text-[10px] font-medium ${(p.adRate ?? 0) > 15 ? 'text-red-600' : 'text-slate-500'}`}>광고 {formatPercent(p.adRate ?? 0)}</div>}
                 </div>
               </div>
             </div>

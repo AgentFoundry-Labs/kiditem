@@ -26,8 +26,8 @@ interface StockAudit {
   id: string;
   auditNumber: string;
   status: string;
-  totalItems: number;
-  diffItems: number;
+  totalProducts: number;
+  diffCount: number;
   createdAt: string;
   completedAt: string | null;
   items: AuditItem[];
@@ -146,11 +146,11 @@ export default function StockAudits() {
                     </span>
                   </div>
                   <div className="flex items-center justify-between text-xs text-slate-500">
-                    <span>{audit.totalItems}개 상품</span>
-                    {audit.diffItems > 0 && (
+                    <span>{audit.totalProducts}개 상품</span>
+                    {audit.diffCount > 0 && (
                       <span className="text-red-600 font-medium flex items-center gap-1">
                         <AlertTriangle size={10} />
-                        차이 {audit.diffItems}건
+                        차이 {audit.diffCount}건
                       </span>
                     )}
                   </div>

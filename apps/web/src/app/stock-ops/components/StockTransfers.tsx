@@ -7,16 +7,14 @@ import { apiClient } from '@/lib/api-client';
 
 interface StockTransfer {
   id: string;
-  transferNumber: string;
-  productName: string;
-  sku: string | null;
+  productId: string;
   quantity: number;
-  fromWarehouse: string;
-  toWarehouse: string;
   status: string;
-  requestedAt: string;
-  completedAt: string | null;
-  note: string | null;
+  notes: string | null;
+  createdAt: string;
+  product: { id: string; name: string } | null;
+  fromWarehouse: { id: string; name: string } | null;
+  toWarehouse: { id: string; name: string } | null;
 }
 
 interface Warehouse {
@@ -53,7 +51,7 @@ export default function StockTransfers() {
 
   const { data: productsData } = useQuery({
     queryKey: ['products', 'list'],
-    queryFn: () => apiClient.get<{ items: Product[] }>('/api/products?limit=500'),
+    queryFn: () => apiClient.get<{ items: Product[] }>('/api/products?limit=200'),
   });
   const products = productsData?.items ?? [];
 
@@ -165,7 +163,7 @@ export default function StockTransfers() {
                   <div>
                     <div className="flex items-center gap-2 mb-1">
                       <span className="font-mono text-sm font-semibold text-slate-900">
-                        {t.transferNumber || t.id.slice(0, 8)}
+                        {t.id.slice(0, 8)}
                       </span>
                       <span
                         className={`text-xs px-2 py-0.5 rounded-full font-medium ${
@@ -175,10 +173,7 @@ export default function StockTransfers() {
                         {statusConfig[t.status]?.text || t.status}
                       </span>
                     </div>
-                    <div className="text-sm font-medium text-slate-800">{t.productName}</div>
-                    {t.sku && (
-                      <span className="text-xs text-slate-400 font-mono">{t.sku}</span>
-                    )}
+                    <div className="text-sm font-medium text-slate-800">{t.product?.name ?? '-'}</div>
                   </div>
                 </div>
                 <div className="flex items-center gap-6">
@@ -187,7 +182,7 @@ export default function StockTransfers() {
                       <div className="text-xs text-slate-400">출발</div>
                       <div className="flex items-center gap-1 font-medium text-slate-700">
                         <Building2 size={12} />
-                        {t.fromWarehouse}
+                        {t.fromWarehouse?.name ?? '-'}
                       </div>
                     </div>
                     <ArrowRightLeft size={14} className="text-slate-300" />
@@ -195,7 +190,7 @@ export default function StockTransfers() {
                       <div className="text-xs text-slate-400">도착</div>
                       <div className="flex items-center gap-1 font-medium text-slate-700">
                         <Building2 size={12} />
-                        {t.toWarehouse}
+                        {t.toWarehouse?.name ?? '-'}
                       </div>
                     </div>
                   </div>
@@ -207,7 +202,7 @@ export default function StockTransfers() {
                     </div>
                   </div>
                   <div className="text-xs text-slate-400">
-                    {new Date(t.requestedAt).toLocaleDateString('ko-KR')}
+                    {new Date(t.createdAt).toLocaleDateString('ko-KR')}
                   </div>
                   <div className="flex gap-1">
                     {(t.status === 'pending' || t.status === 'in_transit') && (
@@ -236,9 +231,9 @@ export default function StockTransfers() {
                   </div>
                 </div>
               </div>
-              {t.note && (
+              {t.notes && (
                 <div className="mt-2 text-xs text-slate-500 bg-slate-50 px-3 py-1.5 rounded">
-                  {t.note}
+                  {t.notes}
                 </div>
               )}
             </div>

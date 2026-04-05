@@ -18,7 +18,7 @@ interface Memo {
   memoType: string;
   isResolved: boolean;
   createdAt: string;
-  createdBy: string | null;
+  author: string | null;
 }
 
 const memoTypeConfig: Record<string, { text: string; color: string; bg: string; icon: typeof MessageSquare }> = {
@@ -33,7 +33,7 @@ export default function ProductMemos() {
 
   const { data: productsData } = useQuery({
     queryKey: ['products', 'list'],
-    queryFn: () => apiClient.get<{ items: Product[] }>('/api/products?limit=500'),
+    queryFn: () => apiClient.get<{ items: Product[] }>('/api/products?limit=200'),
   });
   const products = productsData?.items ?? [];
 
@@ -209,8 +209,8 @@ export default function ProductMemos() {
                           <span className="text-xs text-slate-400">
                             {new Date(memo.createdAt).toLocaleString('ko-KR')}
                           </span>
-                          {memo.createdBy && (
-                            <span className="text-xs text-slate-400">by {memo.createdBy}</span>
+                          {memo.author && (
+                            <span className="text-xs text-slate-400">by {memo.author}</span>
                           )}
                         </div>
                         <p

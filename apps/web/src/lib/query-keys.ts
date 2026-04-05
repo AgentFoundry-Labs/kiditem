@@ -131,5 +131,25 @@ export const queryKeys = {
     all: ['suppliers'] as const,
     list: () => [...queryKeys.suppliers.all, 'list'] as const,
   },
+  stockAudits: {
+    all: ['stockAudits'] as const,
+    list: () => [...queryKeys.stockAudits.all, 'list'] as const,
+  },
+  stockTransfers: {
+    all: ['stockTransfers'] as const,
+    list: (params?: Record<string, string>) => [...queryKeys.stockTransfers.all, 'list', params] as const,
+  },
+  warehouses: {
+    all: ['warehouses'] as const,
+    list: () => [...queryKeys.warehouses.all, 'list'] as const,
+  },
+  returnTransfers: {
+    all: ['returnTransfers'] as const,
+    list: (params?: Record<string, string>) => [...queryKeys.returnTransfers.all, 'list', params] as const,
+  },
+  productMemos: {
+    all: ['productMemos'] as const,
+    list: (productId: string) => [...queryKeys.productMemos.all, 'list', productId] as const,
+  },
   syncInfo: () => ['syncInfo'] as const,
 } as const;

@@ -318,6 +318,26 @@ async function main() {
 
     // Reverse FK order: children first, parents last
     const clearOrder = [
+      // Agent platform (must come before companies)
+      'agent_permission_denials',
+      'agent_action_snapshots',
+      'agent_wakeup_requests',
+      'agent_workflows',
+      'heartbeat_runs',
+      'agent_runtime_state',
+      'agent_definitions',
+      'agent_logs',
+      'agent_tasks',
+      'execution_logs',
+      'execution_tasks',
+      'execution_workers',
+      'workflow_step_runs',
+      'workflow_runs',
+      'workflow_templates',
+      'workflow_marketplace',
+      'agent_marketplace',
+      'feature_gates',
+      'activity_events',
       // Deep children
       'supplier_payments',
       'stock_movement_summaries',

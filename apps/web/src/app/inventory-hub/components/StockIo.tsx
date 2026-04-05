@@ -28,14 +28,10 @@ interface StockTransaction {
 }
 
 interface Summary {
-  totalInbound: number;
-  totalOutbound: number;
-  totalAdjust: number;
-  inboundCount: number;
-  outboundCount: number;
-  adjustCount: number;
-  totalInboundCost: number;
-  totalOutboundCost: number;
+  inQty: number;
+  outQty: number;
+  inAmount: number;
+  outAmount: number;
 }
 
 const typeLabels: Record<string, { text: string; color: string }> = {
@@ -59,8 +55,8 @@ export default function StockIo() {
   const { data, isLoading } = useQuery({
     queryKey: queryKeys.stockMovement.data({ period }),
     queryFn: () =>
-      apiClient.get<{ items: StockTransaction[]; summary: Summary }>(
-        `/api/stock-movement?period=${period}`
+      apiClient.get<{ items: StockTransaction[]; total: number; summary: Summary }>(
+        `/api/stock-movement?from=${period}-01`
       ),
   });
 
@@ -98,33 +94,27 @@ export default function StockIo() {
       {/* KPI */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="bg-white rounded-xl border border-slate-200 p-5">
-          <p className="text-sm text-slate-500 mb-1">입고 건수</p>
+          <p className="text-sm text-slate-500 mb-1">입고 수량</p>
           <p className="text-2xl font-bold text-green-600">
-            {isLoading ? '-' : `${summary?.inboundCount || 0}건`}
-          </p>
-          <p className="text-xs text-slate-400 mt-1">
-            수량 {formatNumber(summary?.totalInbound || 0)}개
+            {isLoading ? '-' : `${formatNumber(summary?.inQty || 0)}개`}
           </p>
         </div>
         <div className="bg-white rounded-xl border border-slate-200 p-5">
-          <p className="text-sm text-slate-500 mb-1">출고 건수</p>
+          <p className="text-sm text-slate-500 mb-1">출고 수량</p>
           <p className="text-2xl font-bold text-red-600">
-            {isLoading ? '-' : `${summary?.outboundCount || 0}건`}
-          </p>
-          <p className="text-xs text-slate-400 mt-1">
-            수량 {formatNumber(summary?.totalOutbound || 0)}개
+            {isLoading ? '-' : `${formatNumber(summary?.outQty || 0)}개`}
           </p>
         </div>
         <div className="bg-white rounded-xl border border-slate-200 p-5">
           <p className="text-sm text-slate-500 mb-1">입고 금액</p>
           <p className="text-2xl font-bold text-slate-800">
-            {isLoading ? '-' : `${formatNumber(summary?.totalInboundCost || 0)}원`}
+            {isLoading ? '-' : `${formatNumber(summary?.inAmount || 0)}원`}
           </p>
         </div>
         <div className="bg-white rounded-xl border border-slate-200 p-5">
           <p className="text-sm text-slate-500 mb-1">출고 금액</p>
           <p className="text-2xl font-bold text-slate-800">
-            {isLoading ? '-' : `${formatNumber(summary?.totalOutboundCost || 0)}원`}
+            {isLoading ? '-' : `${formatNumber(summary?.outAmount || 0)}원`}
           </p>
         </div>
       </div>

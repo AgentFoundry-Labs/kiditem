@@ -33,7 +33,6 @@ interface ProcessingCost {
 interface MonthlySummary {
   month: string;
   total: number;
-  count: number;
   pending: number;
   completed: number;
   paid: number;
@@ -260,7 +259,6 @@ export default function ProcessingCosts() {
               <thead>
                 <tr>
                   <th>월</th>
-                  <th className="text-right">건수</th>
                   <th className="text-right">미결</th>
                   <th className="text-right">완료</th>
                   <th className="text-right">지급완료</th>
@@ -271,7 +269,6 @@ export default function ProcessingCosts() {
                 {monthly.map((m) => (
                   <tr key={m.month}>
                     <td className="font-medium">{m.month}</td>
-                    <td className="text-right tabular-nums">{m.count}</td>
                     <td className="text-right tabular-nums text-yellow-600">{formatKRW(m.pending)}</td>
                     <td className="text-right tabular-nums text-blue-600">{formatKRW(m.completed)}</td>
                     <td className="text-right tabular-nums text-green-600">{formatKRW(m.paid)}</td>
