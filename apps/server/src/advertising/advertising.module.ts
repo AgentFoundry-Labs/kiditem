@@ -1,14 +1,14 @@
 import { Module, OnModuleInit, Logger } from '@nestjs/common';
-import { AdvertisingController } from './advertising.controller';
-import { AdvertisingService } from './advertising.service';
-import { AdCampaignsService } from './ad-campaigns.service';
-import { AdStrategyService } from './ad-strategy.service';
-import { AdBenchmarkService } from './ad-benchmark.service';
-import { AdCollectService } from './ad-collect.service';
-import { AdSyncService } from './ad-sync.service';
-import { AdActionService } from './ad-action.service';
-import { AdExecutionService } from './ad-execution.service';
-import { AdConfigService } from './ad-config.service';
+import { AdvertisingController } from './controllers/advertising.controller';
+import { AdvertisingService } from './services/advertising.service';
+import { AdCampaignsService } from './services/ad-campaigns.service';
+import { AdStrategyService } from './services/ad-strategy.service';
+import { AdBenchmarkService } from './services/ad-benchmark.service';
+import { AdCollectService } from './services/ad-collect.service';
+import { AdSyncService } from './services/ad-sync.service';
+import { AdActionService } from './services/ad-action.service';
+import { AdExecutionService } from './services/ad-execution.service';
+import { AdConfigService } from './services/ad-config.service';
 
 @Module({
   controllers: [AdvertisingController],

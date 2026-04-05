@@ -8,11 +8,11 @@ import { queryKeys } from '@/lib/query-keys';
 import { isApiError } from '@/lib/api-error';
 import { toast } from 'sonner';
 import { Pagination } from '@/components/ui/Pagination';
-import SourcingHeader from './components/SourcingHeader';
-import SourcingStats from './components/SourcingStats';
-import SourcingToolbar from './components/SourcingToolbar';
-import ScrapeUrlInput from './components/ScrapeUrlInput';
-import ProductList from './components/ProductList';
+import SourcingHeader from './components/list/SourcingHeader';
+import SourcingStats from './components/list/SourcingStats';
+import SourcingToolbar from './components/list/SourcingToolbar';
+import ScrapeUrlInput from './components/list/ScrapeUrlInput';
+import ProductList from './components/list/ProductList';
 
 export default function SourcingPage() {
   const router = useRouter();

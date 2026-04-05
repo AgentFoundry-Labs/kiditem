@@ -2,10 +2,10 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { UseQueryOptions } from '@tanstack/react-query';
-import { workflowApi } from '@/lib/workflow-api';
+import { workflowApi } from '../lib/workflow-api';
 import { queryKeys } from '@/lib/query-keys';
 import type { WorkflowTemplate, WorkflowRun } from '@kiditem/shared';
-import type { WorkflowRunWithSteps } from '@/lib/workflow-types';
+import type { WorkflowRunWithSteps } from '../lib/workflow-types';
 
 export function useWorkflows(options?: Partial<UseQueryOptions<WorkflowTemplate[]>>) {
   return useQuery({

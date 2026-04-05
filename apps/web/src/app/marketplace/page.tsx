@@ -8,7 +8,7 @@ import { InstallModal } from '@/components/marketplace/InstallModal';
 import { useMarketplaceAgents, useMarketplaceWorkflows, useInstallAgent, useInstallWorkflow, useUninstallAgent, useUninstallWorkflow } from '@/hooks/useMarketplace';
 import { isApiError } from '@/lib/api-error';
 import { toast } from 'sonner';
-import type { AgentCatalogItem, WorkflowCatalogItem } from '@/lib/marketplace-types';
+import type { AgentCatalogItem, WorkflowCatalogItem } from './lib/marketplace-types';
 
 type TypeFilter = 'all' | 'agent' | 'workflow' | 'installed';
 type SortKey = 'installCount' | 'createdAt' | 'name';

@@ -2,10 +2,10 @@
 
 import Link from 'next/link';
 import { ChevronDown, Download, Pencil, Settings } from 'lucide-react';
-import ThumbnailGrid from '../../components/ThumbnailGrid';
-import TagEditor from '../../components/TagEditor';
-import RawDataTab from '../../components/RawDataTab';
-import type { EditTabType } from '../../components/ProductEditTabs';
+import ThumbnailGrid from '../../components/detail/ThumbnailGrid';
+import TagEditor from '../../components/detail/TagEditor';
+import RawDataTab from '../../components/detail/RawDataTab';
+import type { EditTabType } from '../../components/detail/ProductEditTabs';
 import type { ProductEditState } from '../lib/types';
 import { CATEGORIES } from '../lib/types';
 

@@ -1,7 +1,7 @@
 'use client';
 
 import { AlertCircle } from 'lucide-react';
-import type { SourcedProduct } from '../lib/sourcing-api';
+import type { SourcedProduct } from '../../lib/sourcing-api';
 import SkeletonCard from './SkeletonCard';
 import ProductCard from './ProductCard';
 

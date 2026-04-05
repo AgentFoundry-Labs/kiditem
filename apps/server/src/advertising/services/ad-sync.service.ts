@@ -1,6 +1,6 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
-import { ExtensionSyncDto } from './dto';
+import { PrismaService } from '../../prisma/prisma.service';
+import { ExtensionSyncDto } from '../dto';
 
 @Injectable()
 export class AdSyncService {

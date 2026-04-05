@@ -1,5 +1,5 @@
 import { Controller, Get, Post, Put, Delete, Body, Query, Param } from '@nestjs/common';
-import { WorkflowsService } from './workflows.service';
+import { WorkflowsService } from './services/workflows.service';
 import {
   CreateWorkflowBodyDto,
   ListWorkflowsQueryDto,

@@ -4,12 +4,12 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
+import { PrismaService } from '../../prisma/prisma.service';
 import { AdConfigService, type AdsConfig } from './ad-config.service';
 import {
   paginationParams,
   type PaginatedResponse,
-} from '../common/pagination';
+} from '../../common/pagination';
 import type { AdsListItem, AdsHubData } from '@kiditem/shared';
 
 @Injectable()

@@ -5,7 +5,7 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { PrismaService } from '../prisma/prisma.service';
+import { PrismaService } from '../../prisma/prisma.service';
 
 const DEFAULT_LIMIT = 3;
 const MAX_SCAN = 50;

@@ -1,6 +1,6 @@
 'use client';
 
-import type { ProductStatus } from '../lib/sourcing-api';
+import type { ProductStatus } from '../../lib/sourcing-api';
 
 const STATUS_STYLES: Record<ProductStatus, string> = {
   DRAFT: 'bg-gray-100 text-gray-600',

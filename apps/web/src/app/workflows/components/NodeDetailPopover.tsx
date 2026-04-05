@@ -2,7 +2,7 @@
 
 import { X, CheckCircle, XCircle, Loader2, Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { StepStatusInfo } from '@/lib/workflow-types';
+import type { StepStatusInfo } from '../lib/workflow-types';
 
 interface NodeDetailPopoverProps {
   stepInfo: StepStatusInfo;

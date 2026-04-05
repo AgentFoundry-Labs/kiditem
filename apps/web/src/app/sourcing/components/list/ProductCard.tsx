@@ -3,7 +3,7 @@
 import { Eye, Loader2, MoreVertical, Sparkles, Trash2 } from 'lucide-react';
 import SourcingStatusBadge from './SourcingStatusBadge';
 import { formatKRW } from '@/lib/utils';
-import type { SourcedProduct } from '../lib/sourcing-api';
+import type { SourcedProduct } from '../../lib/sourcing-api';
 
 interface Props {
   product: SourcedProduct;

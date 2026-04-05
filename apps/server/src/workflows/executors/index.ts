@@ -1,5 +1,5 @@
 import { PrismaService } from '../../prisma/prisma.service';
-import { WorkflowContext } from '../context';
+import { WorkflowContext } from '../services/context';
 import type { NodeDefinition } from './types';
 
 export interface ExecutorServices {

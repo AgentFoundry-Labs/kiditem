@@ -1,10 +1,10 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
-import { AgentRegistryService } from '../agent-registry/agent-registry.service';
+import { PrismaService } from '../../prisma/prisma.service';
+import { AgentRegistryService } from '../../agent-registry/agent-registry.service';
 import { DAG } from './dag';
 import { WorkflowContext } from './context';
-import { getExecutor, isConcurrencySafe, type ExecutorServices } from './executors/index';
-import './executors/builtin';
+import { getExecutor, isConcurrencySafe, type ExecutorServices } from '../executors/index';
+import '../executors/builtin';
 
 @Injectable()
 export class WorkflowRunnerService {

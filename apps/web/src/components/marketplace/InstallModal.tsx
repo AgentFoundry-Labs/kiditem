@@ -2,7 +2,7 @@
 
 import { X } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import type { ConfigurableParam } from '@/lib/marketplace-types';
+import type { ConfigurableParam } from '@/app/marketplace/lib/marketplace-types';
 
 interface InstallModalProps {
   open: boolean;

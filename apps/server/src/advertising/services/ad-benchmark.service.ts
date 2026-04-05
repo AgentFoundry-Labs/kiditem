@@ -2,7 +2,7 @@ import {
   Injectable,
   InternalServerErrorException,
 } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
+import { PrismaService } from '../../prisma/prisma.service';
 import { AdConfigService, type AdsConfig } from './ad-config.service';
 
 const BENCHMARK_LABELS: Record<string, string> = {

@@ -14,12 +14,12 @@ import {
   Trash2,
 } from 'lucide-react';
 import { cn, getModuleColor, timeAgo } from '@/lib/utils';
-import { workflowApi } from '@/lib/workflow-api';
+import { workflowApi } from '../lib/workflow-api';
 import type {
   WorkflowTemplate,
   WorkflowRun,
   WorkflowRunWithSteps,
-} from '@/lib/workflow-types';
+} from '../lib/workflow-types';
 import type { Workflow } from '@/types';
 import WorkflowCanvas from './WorkflowCanvas';
 import WorkflowRunView from './WorkflowRunView';

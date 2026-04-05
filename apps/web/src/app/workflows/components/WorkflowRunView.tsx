@@ -15,8 +15,8 @@ import type {
   WorkflowTemplate,
   WorkflowRunWithSteps,
   StepStatusInfo,
-} from '@/lib/workflow-types';
-import { mapStepStatus } from '@/lib/workflow-types';
+} from '../lib/workflow-types';
+import { mapStepStatus } from '../lib/workflow-types';
 import WorkflowCanvas from './WorkflowCanvas';
 import NodeDetailPopover from './NodeDetailPopover';
 

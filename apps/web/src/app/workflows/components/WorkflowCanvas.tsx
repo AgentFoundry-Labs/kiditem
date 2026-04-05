@@ -12,7 +12,7 @@ import ReactFlow, {
   ConnectionMode,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
-import type { WorkflowTemplate, StepStatusInfo } from '@/lib/workflow-types';
+import type { WorkflowTemplate, StepStatusInfo } from '../lib/workflow-types';
 import WorkflowNode from './WorkflowNode';
 
 interface WorkflowCanvasProps {
