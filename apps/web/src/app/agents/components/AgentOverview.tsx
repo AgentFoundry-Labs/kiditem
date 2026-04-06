@@ -8,6 +8,9 @@ import { isApiError } from '@/lib/api-error';
 import { toast } from 'sonner';
 import { queryKeys } from '@/lib/query-keys';
 import { useAgents, useAgentOrg, useDeleteAgent, useInvokeAgent } from '../hooks/useAgents';
+import { useMarketplaceAgents, useInstallAgent } from '@/hooks/useMarketplace';
+import { AgentDetailModal } from '@/components/marketplace/AgentDetailModal';
+import type { AgentCatalogItem } from '@/app/marketplace/lib/marketplace-types';
 import type { Agent, OrgNode, FilterTab, ViewMode } from '../lib/agent-types';
 import { AgentToolbar } from './AgentToolbar';
 import { AgentListPanel } from './AgentListPanel';
@@ -44,6 +47,9 @@ export default function AgentOverview({ onAddAgent }: { onAddAgent?: () => void 
 
   const { data: agents = [], isLoading: loading, error: agentsError } = useAgents({ refetchInterval: 15_000 });
   const { data: orgTree = [] } = useAgentOrg({ refetchInterval: 15_000 });
+  const { data: marketplaceAgents = [] } = useMarketplaceAgents();
+  const installAgent = useInstallAgent();
+  const [detailTarget, setDetailTarget] = useState<AgentCatalogItem | null>(null);
 
   const error = agentsError ? (isApiError(agentsError) ? agentsError.detail : '에이전트를 불러오는데 실패했습니다.') : null;
 
@@ -140,7 +146,15 @@ export default function AgentOverview({ onAddAgent }: { onAddAgent?: () => void 
             <>
               <div className="bg-white rounded-xl border border-gray-200 overflow-auto p-10">
                 <div className="flex justify-center">
-                  <OrgTree nodes={filteredOrg} router={router} onAddAgent={onAddAgent} />
+                  <OrgTree nodes={filteredOrg} router={router} onAddAgent={onAddAgent} onNodeClick={(node) => {
+                  if (node.hired) {
+                    router.push(`/agents/${node.id}`);
+                  } else {
+                    const catalog = marketplaceAgents.find(a => a.id === node.marketplaceId);
+                    if (catalog) setDetailTarget(catalog);
+                    else if (onAddAgent) onAddAgent();
+                  }
+                }} />
                 </div>
               </div>
               <OrgLegend />
@@ -177,6 +191,26 @@ export default function AgentOverview({ onAddAgent }: { onAddAgent?: () => void 
             runningAgentId={invokeAgent.isPending ? (invokeAgent.variables ?? null) : null}
           />
         </>
+      )}
+      {detailTarget && (
+        <AgentDetailModal
+          open={!!detailTarget}
+          onClose={() => setDetailTarget(null)}
+          item={detailTarget}
+          installed={detailTarget.installed ?? false}
+          onInstall={async (params) => {
+            try {
+              await installAgent.mutateAsync({ id: detailTarget.id, params });
+              toast.success(`${detailTarget.name} 고용 완료`);
+              setDetailTarget(null);
+              queryClient.invalidateQueries({ queryKey: queryKeys.agents.all });
+              queryClient.invalidateQueries({ queryKey: queryKeys.agents.org() });
+            } catch (err) {
+              toast.error(isApiError(err) ? err.detail : '고용에 실패했습니다.');
+            }
+          }}
+          installing={installAgent.isPending}
+        />
       )}
     </div>
   );

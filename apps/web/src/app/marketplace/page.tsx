@@ -4,7 +4,8 @@ import { useState, useMemo } from 'react';
 import { Search, Store } from 'lucide-react';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { MarketplaceCard } from '@/components/marketplace/MarketplaceCard';
-import { InstallModal } from '@/components/marketplace/InstallModal';
+import { AgentDetailModal } from '@/components/marketplace/AgentDetailModal';
+import { WorkflowDetailModal } from '@/components/marketplace/WorkflowDetailModal';
 import { useMarketplaceAgents, useMarketplaceWorkflows, useInstallAgent, useInstallWorkflow, useUninstallAgent, useUninstallWorkflow } from '@/hooks/useMarketplace';
 import { isApiError } from '@/lib/api-error';
 import { toast } from 'sonner';
@@ -86,16 +87,16 @@ export default function MarketplacePage() {
     }
   };
 
-  const handleUninstall = async (id: string) => {
-    const item = unified.find((i) => i.id === id);
-    if (!item) return;
+  const handleUninstall = async () => {
+    if (!installTarget) return;
     if (!confirm('삭제하시겠습니까?')) return;
     try {
-      if (item.itemType === 'agent') {
-        await uninstallAgent.mutateAsync(id);
+      if (installTarget.itemType === 'agent') {
+        await uninstallAgent.mutateAsync(installTarget.id);
       } else {
-        await uninstallWorkflow.mutateAsync(id);
+        await uninstallWorkflow.mutateAsync(installTarget.id);
       }
+      setInstallTarget(null);
     } catch (err) {
       toast.error(isApiError(err) ? err.detail : '삭제에 실패했습니다.');
     }
@@ -218,23 +219,32 @@ export default function MarketplacePage() {
               item={item}
               type={item.itemType}
               installed={item.installed}
-              onInstall={() => setInstallTarget(item)}
-              onUninstall={handleUninstall}
+              onClick={() => setInstallTarget(item)}
             />
           ))}
         </div>
       )}
 
-      {/* Install Modal */}
-      {installTarget && (
-        <InstallModal
-          open={!!installTarget}
+      {/* Detail Modals */}
+      {installTarget?.itemType === 'agent' && (
+        <AgentDetailModal
+          open
           onClose={() => setInstallTarget(null)}
+          item={installTarget}
+          installed={installTarget.installed}
           onInstall={handleInstall}
-          title={installTarget.name}
-          description={installTarget.description}
-          configurableParams={installTarget.configurableParams}
-          type={installTarget.itemType}
+          onUninstall={handleUninstall}
+          installing={installing}
+        />
+      )}
+      {installTarget?.itemType === 'workflow' && (
+        <WorkflowDetailModal
+          open
+          onClose={() => setInstallTarget(null)}
+          item={installTarget}
+          installed={installTarget.installed}
+          onInstall={handleInstall}
+          onUninstall={handleUninstall}
           installing={installing}
         />
       )}

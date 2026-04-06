@@ -9,6 +9,7 @@ interface Props {
   nodes: OrgNode[];
   router: ReturnType<typeof useRouter>;
   onAddAgent?: () => void;
+  onNodeClick?: (node: OrgNode) => void;
 }
 
 function EmptySlot({ onAddAgent }: { onAddAgent?: () => void }) {
@@ -38,7 +39,7 @@ function EmptySlot({ onAddAgent }: { onAddAgent?: () => void }) {
   );
 }
 
-export default function OrgTree({ nodes, router, onAddAgent }: Props) {
+export default function OrgTree({ nodes, router, onAddAgent, onNodeClick }: Props) {
   if (nodes.length === 0) return null;
 
   return (
@@ -54,7 +55,9 @@ export default function OrgTree({ nodes, router, onAddAgent }: Props) {
             )}
 
             <AgentCard node={node} onClick={() => {
-              if (node.hired) {
+              if (onNodeClick) {
+                onNodeClick(node);
+              } else if (node.hired) {
                 router.push(`/agents/${node.id}`);
               } else {
                 router.push(`/agents?tab=marketplace`);
@@ -66,7 +69,7 @@ export default function OrgTree({ nodes, router, onAddAgent }: Props) {
                 <div className="w-px h-6 bg-gray-200" />
 
                 {node.reports.length === 1 ? (
-                  <OrgTree nodes={node.reports} router={router} onAddAgent={onAddAgent} />
+                  <OrgTree nodes={node.reports} router={router} onAddAgent={onAddAgent} onNodeClick={onNodeClick} />
                 ) : (
                   <div className="flex flex-col items-center">
                     <div
@@ -77,7 +80,7 @@ export default function OrgTree({ nodes, router, onAddAgent }: Props) {
                       {node.reports.map((child) => (
                         <div key={child.id} className="flex flex-col items-center">
                           <div className="w-px h-6 bg-gray-200" />
-                          <OrgTree nodes={[child]} router={router} onAddAgent={onAddAgent} />
+                          <OrgTree nodes={[child]} router={router} onAddAgent={onAddAgent} onNodeClick={onNodeClick} />
                         </div>
                       ))}
                     </div>

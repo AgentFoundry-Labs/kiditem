@@ -1,6 +1,6 @@
 'use client';
 
-import { Download, CheckCircle } from 'lucide-react';
+import { CheckCircle } from 'lucide-react';
 
 interface MarketplaceCardProps {
   item: {
@@ -15,8 +15,7 @@ interface MarketplaceCardProps {
   };
   type: 'workflow' | 'agent';
   installed?: boolean;
-  onInstall: (id: string) => void;
-  onUninstall?: (id: string) => void;
+  onClick: () => void;
 }
 
 const MODULE_LABELS: Record<string, string> = {
@@ -40,9 +39,12 @@ const ROLE_LABELS: Record<string, string> = {
   manager: 'Manager',
 };
 
-export function MarketplaceCard({ item, type, installed, onInstall, onUninstall }: MarketplaceCardProps) {
+export function MarketplaceCard({ item, type, installed, onClick }: MarketplaceCardProps) {
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-4 hover:border-blue-300 hover:shadow-sm transition-all cursor-pointer">
+    <div
+      onClick={onClick}
+      className="bg-white border border-gray-200 rounded-lg p-4 hover:border-violet-300 hover:shadow-sm transition-all cursor-pointer"
+    >
       <div className="flex items-start gap-3">
         {/* Icon */}
         <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center text-xl shrink-0">
@@ -50,9 +52,15 @@ export function MarketplaceCard({ item, type, installed, onInstall, onUninstall 
         </div>
 
         <div className="flex-1 min-w-0">
-          {/* Name + badges */}
+          {/* Name + installed badge */}
           <div className="flex items-center gap-2 mb-1">
             <h3 className="font-medium text-gray-900 text-sm truncate">{item.name}</h3>
+            {installed && (
+              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-medium text-green-600 bg-green-50 rounded shrink-0">
+                <CheckCircle size={10} />
+                {type === 'workflow' ? '설치됨' : '고용됨'}
+              </span>
+            )}
           </div>
 
           {/* Description */}
@@ -77,44 +85,12 @@ export function MarketplaceCard({ item, type, installed, onInstall, onUninstall 
             )}
             {item.installCount > 0 && (
               <span className="text-[10px] text-gray-400 ml-auto">
-                {item.installCount}회 설치
+                {item.installCount}회 {type === 'workflow' ? '설치' : '고용'}
               </span>
             )}
           </div>
         </div>
       </div>
-
-      {/* Install button */}
-      {installed ? (
-        <div className="mt-3 flex gap-2">
-          <div className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium text-green-600 bg-green-50 rounded-md">
-            <CheckCircle size={12} />
-            {type === 'workflow' ? '설치됨' : '고용됨'}
-          </div>
-          {onUninstall && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onUninstall(item.id);
-              }}
-              className="px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-md transition-colors"
-            >
-              삭제
-            </button>
-          )}
-        </div>
-      ) : (
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onInstall(item.id);
-          }}
-          className="mt-3 w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors"
-        >
-          <Download size={12} />
-          {type === 'workflow' ? '설치' : '고용'}
-        </button>
-      )}
     </div>
   );
 }
