@@ -235,8 +235,8 @@ export class AgentRegistryService implements OnModuleInit {
     });
   }
 
-  async getRuntimeState(agentId: string) {
-    return this.prisma.agentRuntimeState.findUnique({ where: { agentId } });
+  async getRuntimeState(agentId: string): Promise<Record<string, unknown>> {
+    return (await this.prisma.agentRuntimeState.findUnique({ where: { agentId } })) ?? {};
   }
 
   async resetSession(agentId: string): Promise<{ ok: boolean }> {
