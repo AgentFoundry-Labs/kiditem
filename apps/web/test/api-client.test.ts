@@ -5,7 +5,8 @@ const mockFetch = vi.fn()
 globalThis.fetch = mockFetch
 
 function mockResponse(status: number, body: unknown, ok = status < 400) {
-  return { ok, status, json: () => Promise.resolve(body) } as Response
+  const text = JSON.stringify(body)
+  return { ok, status, json: () => Promise.resolve(body), text: () => Promise.resolve(text) } as Response
 }
 
 function mockTextResponse(status: number) {

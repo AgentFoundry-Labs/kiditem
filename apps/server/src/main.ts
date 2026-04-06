@@ -8,7 +8,6 @@ import { ValidationPipe } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
-import { NullToEmptyInterceptor } from './common/interceptors/null-to-empty.interceptor';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -27,7 +26,6 @@ async function bootstrap() {
     transform: true,
   }));
   app.useGlobalFilters(new GlobalExceptionFilter());
-  app.useGlobalInterceptors(new NullToEmptyInterceptor());
   app.useStaticAssets('/data/products', { prefix: '/processed/' });
   await app.listen(4000);
   console.log('Server running on http://localhost:4000');

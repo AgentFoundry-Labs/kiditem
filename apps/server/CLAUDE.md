@@ -47,7 +47,7 @@ Adding a new domain: create module + controller + service + dto/ → register in
 | Analytics/Dashboard | Domain-specific | Must define shared type |
 | Error (unified) | `{ statusCode, error, message, timestamp, path }` | GlobalExceptionFilter |
 
-**null 응답 금지**: `NullToEmptyInterceptor`가 모든 null 응답을 `{}`로 변환. 서비스에서 null을 반환해도 프론트는 빈 객체를 받음.
+**null 응답 금지**: 서비스에서 단일 리소스 GET 시 null 대신 기본값 객체를 반환. 프론트 `apiClient`가 빈 body를 `{}`로 처리.
 
 ## Rules
 
