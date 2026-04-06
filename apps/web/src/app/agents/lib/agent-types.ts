@@ -31,6 +31,8 @@ export interface OrgNode {
   status: string;
   adapterType: string;
   lastHeartbeatAt: string | null;
+  hired: boolean;
+  marketplaceId: string | null;
   reports: OrgNode[];
 }
 

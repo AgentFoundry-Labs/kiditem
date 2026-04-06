@@ -13,6 +13,8 @@ export interface OrgNode {
   status: string;
   adapterType: string;
   lastHeartbeatAt: string | null;
+  hired: boolean;
+  marketplaceId: string | null;
   reports: OrgNode[];
 }
 
@@ -364,39 +366,45 @@ export class AgentRegistryService implements OnModuleInit {
   // ── Org Chart ──
 
   async getOrgTree(companyId: string): Promise<OrgNode[]> {
-    const agents = await this.prisma.agentDefinition.findMany({
-      where: {
-        companyId,
-        adapterType: 'claude_local',
-        isActive: true,
-      },
+    // 마켓플레이스 전체 카탈로그 (claude_local만 — 조직도 대상)
+    const catalog = await this.prisma.agentMarketplace.findMany({
+      where: { isPublished: true, adapterType: 'claude_local' },
       orderBy: { name: 'asc' },
     });
 
-    const agentMap = new Map(agents.map(a => [a.id, a]));
-    const childMap = new Map<string | null, typeof agents>();
+    // 해당 company에서 고용한 에이전트
+    const hired = await this.prisma.agentDefinition.findMany({
+      where: { companyId, adapterType: 'claude_local', isActive: true },
+    });
+    const hiredByMarketplaceId = new Map(
+      hired.filter(h => h.marketplaceId).map(h => [h.marketplaceId!, h]),
+    );
 
-    for (const agent of agents) {
-      const parentId = agent.reportsTo || null;
-      if (!childMap.has(parentId)) childMap.set(parentId, []);
-      childMap.get(parentId)!.push(agent);
-    }
+    // 카탈로그 기반으로 트리 구성 (manager → specialist)
+    const managerCatalog = catalog.find(c => c.role === 'manager');
+    const specialistCatalog = catalog.filter(c => c.role !== 'manager');
 
-    function buildTree(parentId: string | null): OrgNode[] {
-      const children = childMap.get(parentId) || [];
-      return children.map(a => ({
-        id: a.id,
-        name: a.name,
-        type: a.type,
-        role: a.role,
-        title: a.title,
-        status: a.status,
-        adapterType: a.adapterType,
-        lastHeartbeatAt: a.lastHeartbeatAt?.toISOString() ?? null,
-        reports: buildTree(a.id),
-      }));
-    }
+    const toNode = (c: typeof catalog[number]): OrgNode => {
+      const agent = hiredByMarketplaceId.get(c.id);
+      return {
+        id: agent?.id ?? c.id,
+        name: c.name,
+        type: agent?.type ?? c.role,
+        role: c.role,
+        title: agent?.title ?? c.name,
+        status: agent?.status ?? 'not_hired',
+        adapterType: c.adapterType,
+        lastHeartbeatAt: agent?.lastHeartbeatAt?.toISOString() ?? null,
+        hired: !!agent,
+        marketplaceId: c.id,
+        reports: [],
+      };
+    };
 
-    return buildTree(null);
+    if (!managerCatalog) return specialistCatalog.map(toNode);
+
+    const managerNode = toNode(managerCatalog);
+    managerNode.reports = specialistCatalog.map(toNode);
+    return [managerNode];
   }
 }
