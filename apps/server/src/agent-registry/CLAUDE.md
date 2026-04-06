@@ -111,7 +111,7 @@ Applied in two places: `heartbeat.service.ts:wakeAgent()` + `agent-registry.serv
 ## Agent Data Access
 
 - Agents use `psql "$AGENT_DATABASE_URL"` for DB queries (read-only role: agent_reader)
-- `AGENT_DATABASE_URL` is injected via ExecutionContext env + {{db_url}} template variable
+- `AGENT_DATABASE_URL` is injected via ExecutionContext env. 프롬프트에서 `$AGENT_DATABASE_URL`로 직접 참조.
 - Prompts are loaded from `agent-config/prompts/agents/{type}.md` files (git-tracked)
 - DB `prompt_template` stores file path (e.g., 'agent-config/prompts/agents/ad-strategy.md')
 - Operational params (company_id, task_id, dry_run) are still {{key}} substituted

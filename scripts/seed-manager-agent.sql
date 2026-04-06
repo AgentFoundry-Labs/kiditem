@@ -7,8 +7,10 @@ INSERT INTO agent_definitions (
   trust_level, timeout_seconds, is_active
 ) VALUES (
   gen_random_uuid(),
-  '매니저 에이전트', 'manager', 'claude_local',
+  '매니저 에이전트',
+  'manager',
   '회사 데이터 종합 분석 + 전문 에이전트 할당',
+  'claude_local',
   'agent-config/prompts/agents/manager.md',
   'Bash(psql:*) Read Grep',
   'bypassPermissions',
