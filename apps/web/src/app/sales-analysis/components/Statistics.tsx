@@ -90,11 +90,27 @@ interface Stats {
 
 export default function Statistics() {
   const [tab, setTab] = useState('overview');
+  const prevMonth = (() => {
+    const d = new Date();
+    d.setMonth(d.getMonth() - 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  })();
+  const [period, setPeriod] = useState(prevMonth);
+
+  const periodOptions = (() => {
+    const opts: string[] = [];
+    const now = new Date();
+    for (let i = 0; i < 12; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      opts.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+    }
+    return opts;
+  })();
 
   const { data = null } = useQuery<Stats>({
-    queryKey: ['statistics', tab],
+    queryKey: ['statistics', tab, period],
     queryFn: async () => {
-      const raw = await apiClient.get<any>(`/api/statistics?type=${tab}`);
+      const raw = await apiClient.get<any>(`/api/statistics?type=${tab}&period=${period}`);
       return { [tab]: raw } as Stats;
     },
   });
@@ -125,9 +141,20 @@ export default function Statistics() {
           <h1 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">Statistics</h1>
           <p className="text-xs text-gray-400 font-mono mt-0.5">통합 통계 관리</p>
         </div>
-        <button className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white text-xs font-medium rounded-md hover:bg-green-700">
-          <Download size={12} /> 엑셀 다운로드
-        </button>
+        <div className="flex items-center gap-2">
+          <select
+            value={period}
+            onChange={(e) => setPeriod(e.target.value)}
+            className="text-sm border border-gray-200 rounded-lg px-3 py-2"
+          >
+            {periodOptions.map((p) => (
+              <option key={p} value={p}>{p}</option>
+            ))}
+          </select>
+          <button className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white text-xs font-medium rounded-md hover:bg-green-700">
+            <Download size={12} /> 엑셀 다운로드
+          </button>
+        </div>
       </div>
 
       {/* Tabs */}
