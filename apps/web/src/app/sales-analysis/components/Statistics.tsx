@@ -10,10 +10,12 @@ interface OverviewStats {
   totalProducts: number;
   totalOrders: number;
   totalRevenue: number;
-  totalQuantity: number;
-  today: { orders: number; revenue: number };
-  week: { orders: number; revenue: number };
-  month: { orders: number; revenue: number };
+  totalProfit: number;
+  avgMargin: number;
+  totalQuantity?: number;
+  today?: { orders: number; revenue: number };
+  week?: { orders: number; revenue: number };
+  month?: { orders: number; revenue: number };
 }
 
 interface ProductStat {
@@ -91,7 +93,10 @@ export default function Statistics() {
 
   const { data = null } = useQuery<Stats>({
     queryKey: ['statistics', tab],
-    queryFn: () => apiClient.get<Stats>(`/api/statistics?type=${tab}`),
+    queryFn: async () => {
+      const raw = await apiClient.get<any>(`/api/statistics?type=${tab}`);
+      return { [tab]: raw } as Stats;
+    },
   });
 
   const tabs = [
@@ -142,29 +147,38 @@ export default function Statistics() {
           {/* Overview */}
           {tab === 'overview' && data.overview && (
             <div className="space-y-4">
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
                 <StatBox label="전체 상품" value={data.overview.totalProducts} unit="개" />
                 <StatBox label="전체 주문" value={data.overview.totalOrders} unit="건" />
                 <StatBox label="총 매출" value={formatKRW(data.overview.totalRevenue)} unit="원" />
-                <StatBox label="총 수량" value={formatNumber(data.overview.totalQuantity)} unit="개" />
+                <StatBox label="총 이익" value={formatKRW(data.overview.totalProfit)} unit="원" />
+                <StatBox label="평균 마진" value={`${(data.overview.avgMargin * 100).toFixed(1)}%`} />
               </div>
+              {(data.overview.today || data.overview.week || data.overview.month) && (
               <div className="grid grid-cols-3 gap-3">
+                {data.overview.today && (
                 <div className="agent-card"><div className="px-4 py-3">
                   <div className="text-[10px] text-gray-500 font-mono uppercase">Today</div>
                   <div className="text-xl font-bold tabular-nums">{formatKRW(data.overview.today.revenue)}<span className="text-sm text-gray-400">원</span></div>
                   <div className="text-xs text-gray-400">{data.overview.today.orders}건</div>
                 </div></div>
+                )}
+                {data.overview.week && (
                 <div className="agent-card"><div className="px-4 py-3">
                   <div className="text-[10px] text-gray-500 font-mono uppercase">This Week</div>
                   <div className="text-xl font-bold tabular-nums">{formatKRW(data.overview.week.revenue)}<span className="text-sm text-gray-400">원</span></div>
                   <div className="text-xs text-gray-400">{data.overview.week.orders}건</div>
                 </div></div>
+                )}
+                {data.overview.month && (
                 <div className="agent-card"><div className="px-4 py-3">
                   <div className="text-[10px] text-gray-500 font-mono uppercase">This Month</div>
                   <div className="text-xl font-bold tabular-nums">{formatKRW(data.overview.month.revenue)}<span className="text-sm text-gray-400">원</span></div>
                   <div className="text-xs text-gray-400">{data.overview.month.orders}건</div>
                 </div></div>
+                )}
               </div>
+              )}
             </div>
           )}
 
