@@ -588,6 +588,14 @@ export class DashboardService {
     const since = new Date();
     since.setDate(since.getDate() - days);
 
+    // 월별 평균 이익률 계산 (ProfitLoss 기준)
+    const plAgg = await this.prisma.profitLoss.aggregate({
+      _sum: { revenue: true, netProfit: true },
+    });
+    const avgProfitRate = (plAgg._sum.revenue ?? 0) > 0
+      ? (plAgg._sum.netProfit ?? 0) / (plAgg._sum.revenue ?? 1)
+      : 0;
+
     const [orderRows, adRows] = await Promise.all([
       this.prisma.$queryRaw<{ date: string; revenue: number }[]>`
         SELECT
@@ -611,11 +619,15 @@ export class DashboardService {
 
     const adMap = new Map(adRows.map((r) => [r.date, Number(r.ad_cost)]));
 
-    return orderRows.map((r) => ({
-      date: r.date,
-      revenue: Number(r.revenue),
-      profit: 0,
-      adCost: adMap.get(r.date) ?? 0,
-    } satisfies DashboardTrendItem));
+    return orderRows.map((r) => {
+      const revenue = Number(r.revenue);
+      const profit = Math.round(revenue * avgProfitRate);
+      return {
+        date: r.date,
+        revenue,
+        profit,
+        adCost: adMap.get(r.date) ?? 0,
+      } satisfies DashboardTrendItem;
+    });
   }
 }
