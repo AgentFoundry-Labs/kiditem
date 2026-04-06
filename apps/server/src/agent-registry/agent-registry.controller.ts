@@ -12,6 +12,7 @@ import {
   PauseAgentBodyDto,
   RunHistoryQueryDto,
   DelegateAgentBodyDto,
+  OrgTreeQueryDto,
 } from './dto';
 import { DelegationService } from './delegation/delegation.service';
 import { DenialTrackerService } from './safety/denial-tracker.service';
@@ -33,8 +34,8 @@ export class AgentRegistryController {
   }
 
   @Get('org')
-  getOrgTree() {
-    return this.service.getOrgTree();
+  getOrgTree(@Query() query: OrgTreeQueryDto) {
+    return this.service.getOrgTree(query.companyId);
   }
 
   @Sse('events')
@@ -61,8 +62,8 @@ export class AgentRegistryController {
   }
 
   @Get(':id')
-  getById(@Param('id') id: string) {
-    return this.service.getById(id);
+  getById(@Param('id') id: string, @Query('companyId') companyId?: string) {
+    return this.service.getById(id, companyId);
   }
 
   @Post()

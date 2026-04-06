@@ -125,14 +125,22 @@ export default function AgentOverview({ onAddAgent }: { onAddAgent?: () => void 
       {pageTab === 'org' ? (
         <>
           {orgTree.length === 0 ? (
-            <div className="flex items-center justify-center py-32 text-sm text-gray-400">
-              등록된 에이전트가 없습니다.
+            <div className="flex flex-col items-center justify-center py-32 text-gray-400">
+              <p className="text-sm">에이전트가 아직 없습니다.</p>
+              {onAddAgent && (
+                <button
+                  onClick={onAddAgent}
+                  className="mt-2 text-sm text-blue-500 hover:text-blue-600 hover:underline"
+                >
+                  마켓플레이스에서 에이전트를 고용하세요
+                </button>
+              )}
             </div>
           ) : (
             <>
               <div className="bg-white rounded-xl border border-gray-200 overflow-auto p-10">
                 <div className="flex justify-center">
-                  <OrgTree nodes={filteredOrg} router={router} />
+                  <OrgTree nodes={filteredOrg} router={router} onAddAgent={onAddAgent} />
                 </div>
               </div>
               <OrgLegend />

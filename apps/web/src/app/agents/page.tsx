@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
+import { useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import TabLayout from '@/components/ui/TabLayout';
 import { Bot, Activity, Coins, Puzzle, GitBranch, Store } from 'lucide-react';
@@ -12,8 +13,12 @@ const SkillsPage = dynamic(() => import('@/app/agents/skills/page'), { ssr: fals
 const WorkflowsPage = dynamic(() => import('@/app/workflows/page'), { ssr: false });
 const MarketplacePage = dynamic(() => import('@/app/marketplace/page'), { ssr: false });
 
+const VALID_TABS = ['agents', 'activity', 'costs', 'skills', 'workflows', 'marketplace'];
+
 export default function AgentOSPage() {
-  const [activeTab, setActiveTab] = useState('agents');
+  const searchParams = useSearchParams();
+  const initialTab = VALID_TABS.includes(searchParams.get('tab') ?? '') ? searchParams.get('tab')! : 'agents';
+  const [activeTab, setActiveTab] = useState(initialTab);
 
   const goToMarketplace = useCallback(() => setActiveTab('marketplace'), []);
 

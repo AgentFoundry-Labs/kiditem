@@ -152,6 +152,19 @@ export class MarketplaceService {
 
     const agent = await this.prisma.agentDefinition.create({ data });
 
+    // Auto reports_to: specialists report to a manager in the same company
+    if (agent.role === 'specialist') {
+      const manager = await this.prisma.agentDefinition.findFirst({
+        where: { companyId, role: 'manager' },
+      });
+      if (manager) {
+        await this.prisma.agentDefinition.update({
+          where: { id: agent.id },
+          data: { reportsTo: manager.id },
+        });
+      }
+    }
+
     await this.prisma.agentMarketplace.update({
       where: { id: marketplaceId },
       data: { installCount: { increment: 1 } },

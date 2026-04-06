@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit, NotFoundException, BadRequestException, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, NotFoundException, BadRequestException, ForbiddenException, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { HeartbeatService } from './heartbeat/heartbeat.service';
 import type { DailyCost, AgentCostSummary, CostAnalytics } from '@kiditem/shared';
@@ -54,12 +54,18 @@ export class AgentRegistryService implements OnModuleInit {
     });
   }
 
-  async getById(id: string) {
+  async getById(id: string, companyId?: string) {
     const def = await this.prisma.agentDefinition.findUnique({
       where: { id },
       include: { runtimeState: true },
     });
     if (!def) throw new NotFoundException(`Agent definition ${id} not found`);
+
+    // Company isolation check
+    if (companyId && def.companyId && def.companyId !== companyId) {
+      throw new ForbiddenException('Access denied to this agent');
+    }
+
     return def;
   }
 
@@ -141,6 +147,11 @@ export class AgentRegistryService implements OnModuleInit {
   }) {
     const def = await this.getById(id);
     const dryRun = input?.dryRun ?? def.requiresApproval;
+
+    // Company isolation check
+    if (input?.companyId && def.companyId && def.companyId !== input.companyId) {
+      throw new ForbiddenException('Access denied to this agent');
+    }
 
     // 예산 체크 (task 생성 전) — 4단계 비용 경고
     if (def.monthlyTokenBudget > 0) {
@@ -352,9 +363,13 @@ export class AgentRegistryService implements OnModuleInit {
 
   // ── Org Chart ──
 
-  async getOrgTree(): Promise<OrgNode[]> {
+  async getOrgTree(companyId: string): Promise<OrgNode[]> {
     const agents = await this.prisma.agentDefinition.findMany({
-      where: { isActive: true },
+      where: {
+        companyId,
+        adapterType: 'claude_local',
+        isActive: true,
+      },
       orderBy: { name: 'asc' },
     });
 

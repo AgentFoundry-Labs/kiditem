@@ -10,8 +10,14 @@ export const agentApi = {
     const companyId = await getCompanyId();
     return apiClient.get<Agent[]>(`/api/agent-registry?companyId=${companyId}`);
   },
-  org: () => apiClient.get<OrgNode[]>('/api/agent-registry/org'),
-  get: (id: string) => apiClient.get<Agent>(`/api/agent-registry/${id}`),
+  org: async () => {
+    const companyId = await getCompanyId();
+    return apiClient.get<OrgNode[]>(`/api/agent-registry/org?companyId=${companyId}`);
+  },
+  get: async (id: string) => {
+    const companyId = await getCompanyId();
+    return apiClient.get<Agent>(`/api/agent-registry/${id}?companyId=${companyId}`);
+  },
   update: (id: string, data: Record<string, unknown>) =>
     apiClient.patch<Agent>(`/api/agent-registry/${id}`, data),
   invoke: (id: string) =>

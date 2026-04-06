@@ -95,7 +95,7 @@ describe('AgentRegistryService', () => {
       prisma.agentTask.create.mockResolvedValue({ id: 'task-1' });
 
       const result = await service.run('def-1', {
-        companyId: 'c-1',
+        companyId: 'company-1',
         dryRun: true,
         extra: { daily_budget_limit: '500,000' },
       });

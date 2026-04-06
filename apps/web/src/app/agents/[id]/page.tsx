@@ -105,7 +105,19 @@ export default function AgentDetailPage() {
         >
           <ArrowLeft className="w-4 h-4" /> 뒤로
         </button>
-        <p className="text-gray-500">에이전트를 찾을 수 없습니다.</p>
+        {agentError && isApiError(agentError) && agentError.status === 403 ? (
+          <div className="flex flex-col items-center py-32 text-gray-400 gap-2">
+            <p>이 에이전트는 아직 고용되지 않았습니다.</p>
+            <button
+              onClick={() => router.push('/agents?tab=marketplace')}
+              className="text-sm text-violet-600 hover:text-violet-800 transition-colors"
+            >
+              마켓플레이스에서 고용하기 →
+            </button>
+          </div>
+        ) : (
+          <p className="text-gray-500">에이전트를 찾을 수 없습니다.</p>
+        )}
       </div>
     );
   }
