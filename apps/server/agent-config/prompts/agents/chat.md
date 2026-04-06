@@ -36,6 +36,17 @@ SELECT type, name, description FROM agent_definitions WHERE is_active = true ORD
 ```
 결과를 자연어로 정리하여 안내한다.
 
+## 액션 제안
+
+종합 분석이나 에이전트 실행이 필요하다고 판단되면, 답변에 다음 형식을 포함하세요:
+[ACTION:run_agent:에이전트타입:버튼라벨]
+
+예시:
+"광고 성과가 전반적으로 하락하고 있습니다. 상세 분석을 위해 매니저 에이전트를 실행해보시겠어요?
+[ACTION:run_agent:manager:매니저 종합 분석 실행]"
+
+사용 가능한 에이전트 타입: manager, ad_strategy, rules_evaluation, rules_suggest
+
 ## 응답 형식
 
 자연어로 직접 답변한다. JSON이 아닌 대화체 텍스트로 응답.

@@ -1,12 +1,44 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { MessageCircle, X, Send, Bot, User, Loader2, Trash2 } from "lucide-react";
+import { MessageCircle, X, Send, Bot, User, Loader2, Trash2, Play } from "lucide-react";
 import { apiClient } from "@/lib/api-client";
 
 interface ChatMessage {
   role: "user" | "assistant";
   content: string;
+}
+
+function renderMessageContent(content: string, onAction: (type: string) => void) {
+  const ACTION_PATTERN = /\[ACTION:run_agent:(\w+):([^\]]+)\]/g;
+  const parts: (string | React.ReactElement)[] = [];
+  let lastIndex = 0;
+  let match;
+
+  while ((match = ACTION_PATTERN.exec(content)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(content.slice(lastIndex, match.index));
+    }
+    const agentType = match[1];
+    const label = match[2];
+    parts.push(
+      <button
+        key={match.index}
+        onClick={() => onAction(agentType)}
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-100 text-violet-700 text-xs font-medium hover:bg-violet-200 transition-colors my-1"
+      >
+        <Play size={12} />
+        {label}
+      </button>
+    );
+    lastIndex = match.index + match[0].length;
+  }
+
+  if (lastIndex < content.length) {
+    parts.push(content.slice(lastIndex));
+  }
+
+  return parts.length > 0 ? <>{parts}</> : content;
 }
 
 export default function ChatBot() {
@@ -140,6 +172,21 @@ export default function ChatBot() {
     setSessionId(undefined);
   };
 
+  const handleRunAgent = async (agentType: string) => {
+    try {
+      await apiClient.post('/api/agent-registry/run-by-type', { type: agentType });
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `${agentType} 에이전트 실행이 시작되었습니다. 잠시 후 결과를 확인할 수 있습니다.`,
+      }]);
+    } catch {
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: '에이전트 실행에 실패했습니다.',
+      }]);
+    }
+  };
+
   return (
     <>
       {/* 플로팅 버튼 */}
@@ -225,7 +272,7 @@ export default function ChatBot() {
                     : "bg-slate-100 text-slate-800"
                 }`}>
                   {msg.content ? (
-                    <div className="whitespace-pre-wrap">{msg.content}</div>
+                    <div className="whitespace-pre-wrap">{msg.role === "assistant" ? renderMessageContent(msg.content, handleRunAgent) : msg.content}</div>
                   ) : (
                     streaming && i === messages.length - 1 && (
                       <Loader2 size={16} className="animate-spin text-violet-400" />

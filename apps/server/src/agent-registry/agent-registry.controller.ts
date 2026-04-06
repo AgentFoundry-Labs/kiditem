@@ -8,6 +8,7 @@ import {
   CreateAgentBodyDto,
   UpdateAgentBodyDto,
   RunAgentBodyDto,
+  RunByTypeBodyDto,
   PauseAgentBodyDto,
   RunHistoryQueryDto,
   DelegateAgentBodyDto,
@@ -50,6 +51,13 @@ export class AgentRegistryController {
   getDenialsSummary(@Query('companyId') companyId: string) {
     if (!this.denialTracker) return { total: 0, byCategory: {} };
     return this.denialTracker.getSummary(companyId);
+  }
+
+  @Post('run-by-type')
+  runByType(@Body() body: RunByTypeBodyDto) {
+    return this.service.runByType(body.type, {
+      companyId: body.companyId,
+    });
   }
 
   @Get(':id')

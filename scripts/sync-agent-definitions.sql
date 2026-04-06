@@ -9,7 +9,8 @@ INSERT INTO agent_definitions (id, name, type, description, adapter_type, prompt
 VALUES
   (gen_random_uuid(), 'Ad Strategy Agent', 'ad_strategy', 'Advertising strategy analysis and action recommendations', 'claude_local', 'agent-config/prompts/agents/ad-strategy.md', 'Bash(psql:*) Read Grep', 'bypassPermissions', 2, 300, true),
   (gen_random_uuid(), 'Rules Evaluation Agent', 'rules_evaluation', 'Product health score evaluation based on business rules', 'claude_local', 'agent-config/prompts/agents/rules-evaluation.md', 'Bash(psql:*) Read Grep', 'bypassPermissions', 2, 300, true),
-  (gen_random_uuid(), 'Rules Suggest Agent', 'rules_suggest', 'Threshold recommendation based on data distribution', 'claude_local', 'agent-config/prompts/agents/rules-suggest.md', 'Bash(psql:*) Read Grep', 'bypassPermissions', 2, 300, true)
+  (gen_random_uuid(), 'Rules Suggest Agent', 'rules_suggest', 'Threshold recommendation based on data distribution', 'claude_local', 'agent-config/prompts/agents/rules-suggest.md', 'Bash(psql:*) Read Grep', 'bypassPermissions', 2, 300, true),
+  (gen_random_uuid(), 'Sourcing Agent', 'sourcing', 'Product URL scraping and 1688 matching', 'python_http', '', 'Bash(psql:*) Read Grep', 'bypassPermissions', 2, 180, true)
 ON CONFLICT (type) DO NOTHING;
 
 -- 3. Fix manager name (Korean → English consistency)

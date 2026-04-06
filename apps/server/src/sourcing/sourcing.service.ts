@@ -99,7 +99,7 @@ export class SourcingService {
   }
 
   async scrapeUrl(url: string, companyId: string): Promise<{ ok: boolean; message: string; taskId: string }> {
-    const result = await this.agentRegistry.runByType('sourcing_scraper', {
+    const result = await this.agentRegistry.runByType('sourcing', {
       companyId,
       extra: { action: 'scrape_url', url, company_id: companyId },
     });

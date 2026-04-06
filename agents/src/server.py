@@ -12,12 +12,14 @@ from contextlib import asynccontextmanager
 from src.db import get_pool, close_pool
 from src.agents.content.agent import ContentAgent
 from src.agents.image_edit import ImageEditAgent
+from src.agents.sourcing import SourcingAgent
 
 logger = structlog.get_logger()
 
 AGENTS = {
     "content": ContentAgent(),
     "image_edit": ImageEditAgent(),
+    "sourcing": SourcingAgent(),
 }
 
 
