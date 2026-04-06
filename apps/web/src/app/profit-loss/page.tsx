@@ -79,10 +79,6 @@ export default function ProfitLossPage() {
     });
   };
 
-  if (loading) return <PageSkeleton variant="table" />;
-  if (error) return <div className="flex items-center justify-center h-64 text-red-500">{error}</div>;
-  if (data.length === 0) return <div className="flex items-center justify-center h-64 text-slate-400">해당 기간 데이터가 없습니다.</div>;
-
   return (
     <div className="space-y-6">
       <div>
@@ -94,7 +90,7 @@ export default function ProfitLossPage() {
                 <option key={p.value} value={p.value}>{p.label}</option>
               ))}
             </select>
-            <button onClick={handleExcel} className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-medium">
+            <button onClick={handleExcel} disabled={data.length === 0} className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-40 text-sm font-medium">
               <Download size={16} /> 엑셀 다운로드
             </button>
           </div>
@@ -109,14 +105,23 @@ export default function ProfitLossPage() {
         )}
       </div>
 
-      <ProfitLossSummaryCards
-        totalRevenue={totalRevenue}
-        totalProfit={totalProfit}
-        totalAdCost={totalAdCost}
-        overallRate={overallRate}
-      />
-
-      <ProfitLossTable data={data} filtered={filtered} filter={filter} onFilter={setFilter} />
+      {loading ? (
+        <PageSkeleton variant="table" />
+      ) : error ? (
+        <div className="flex items-center justify-center h-64 text-red-500">{error}</div>
+      ) : data.length === 0 ? (
+        <div className="flex items-center justify-center h-64 text-slate-400">해당 기간 데이터가 없습니다.</div>
+      ) : (
+        <>
+          <ProfitLossSummaryCards
+            totalRevenue={totalRevenue}
+            totalProfit={totalProfit}
+            totalAdCost={totalAdCost}
+            overallRate={overallRate}
+          />
+          <ProfitLossTable data={data} filtered={filtered} filter={filter} onFilter={setFilter} />
+        </>
+      )}
     </div>
   );
 }

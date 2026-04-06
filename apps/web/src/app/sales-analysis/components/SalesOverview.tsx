@@ -34,7 +34,12 @@ interface SalesAnalysisData {
 }
 
 export default function SalesOverview() {
-  const [period, setPeriod] = useState("");
+  const prevMonth = (() => {
+    const d = new Date();
+    d.setMonth(d.getMonth() - 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  })();
+  const [period, setPeriod] = useState(prevMonth);
 
   const { data, isLoading: loading, error: queryError, refetch } = useQuery({
     queryKey: queryKeys.salesAnalysis.data(period),
@@ -98,7 +103,6 @@ export default function SalesOverview() {
             onChange={(e) => setPeriod(e.target.value)}
             className="text-sm border border-gray-200 rounded-lg px-3 py-2"
           >
-            <option value="">전체 기간</option>
             {periodOptions.map((p) => (
               <option key={p} value={p}>
                 {p}
