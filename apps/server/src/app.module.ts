@@ -35,6 +35,7 @@ import { PickingModule } from './picking/picking.module';
 import { ProcessingCostsModule } from './processing-costs/processing-costs.module';
 import { SalesPlansModule } from './sales-plans/sales-plans.module';
 import { StatisticsModule } from './statistics/statistics.module';
+import { ChatModule } from './chat/chat.module';
 
 @Module({
   imports: [
@@ -74,6 +75,7 @@ import { StatisticsModule } from './statistics/statistics.module';
     ProcessingCostsModule,
     SalesPlansModule,
     StatisticsModule,
+    ChatModule,
   ],
 })
 export class AppModule {}

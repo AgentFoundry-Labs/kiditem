@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils';
 import { usePathname } from 'next/navigation';
 import Sidebar from './Sidebar';
 import Header from './Header';
+import ChatBot from '@/components/chat/ChatBot';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { sidebarOpen } = useStore();
@@ -26,6 +27,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <Header />
         <main className="p-6">{children}</main>
       </div>
+      <ChatBot />
     </div>
   );
 }
