@@ -14,7 +14,7 @@ import {
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
-  AreaChart, Area,
+  AreaChart, Area, BarChart, Bar, Cell,
 } from 'recharts';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
@@ -555,6 +555,7 @@ export default function Dashboard() {
             completedActions={completedActions}
             executeAction={executeAction}
             processingAction={processingAction}
+            industryBenchmark={data.industryBenchmark}
           />
         </div>
         <SidePanel
@@ -920,20 +921,24 @@ function DashboardChart({
   completedActions,
   executeAction,
   processingAction,
+  industryBenchmark,
 }: {
   dailyTrend: { date: string; revenue: number; profit: number; adCost: number; profitRate: number; adRate: number }[];
   aiActions: AiAction[];
   completedActions: Set<string>;
   executeAction: (action: AiAction) => void;
   processingAction: string | null;
+  industryBenchmark?: { avgAdRate: number; avgProfitRate: number; avgRoas: number; avgCtr: number; myAdRate?: number; myRoas?: number; myCtr?: number; avgCvr?: number };
 }) {
-  const [chartTab, setChartTab] = useState<'actions' | 'revenue' | 'ad'>('actions');
+  const [chartTab, setChartTab] = useState<'actions' | 'revenue' | 'ad' | 'benchmark'>('actions');
   const hasTrend = dailyTrend.length > 0;
+  const hasBenchmark = !!industryBenchmark;
 
   const tabs = [
     { key: 'actions' as const, label: 'AI 액션' },
     { key: 'revenue' as const, label: '매출 · 이익률' },
     { key: 'ad' as const, label: '광고비 · 비율' },
+    ...(hasBenchmark ? [{ key: 'benchmark' as const, label: '업계 평균 대비' }] : []),
   ];
 
   const adChartData = dailyTrend.map(d => ({
@@ -1062,6 +1067,58 @@ function DashboardChart({
       {chartTab === 'ad' && !hasTrend && (
         <div className="flex-1 flex items-center justify-center text-sm text-slate-300">트렌드 데이터가 없습니다</div>
       )}
+
+      {/* 업계 평균 대비 */}
+      {chartTab === 'benchmark' && industryBenchmark && (() => {
+        const bm = industryBenchmark;
+        const benchmarkData = [
+          { name: '광고비율', my: bm.myAdRate ?? 0, avg: bm.avgAdRate, unit: '%', invertGood: true },
+          { name: 'ROAS', my: bm.myRoas ?? 0, avg: bm.avgRoas, unit: '%', invertGood: false },
+          { name: 'CTR', my: bm.myCtr ?? 0, avg: bm.avgCtr, unit: '%', invertGood: false },
+          { name: 'CVR', my: bm.avgCvr ?? 0, avg: 8, unit: '%', invertGood: false },
+        ];
+        return (
+          <div className="p-5" style={{ minHeight: 350 }}>
+            <div className="flex items-center gap-5 mb-4 text-[12px] text-slate-400">
+              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-blue-500" />내 수치</span>
+              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-orange-500" />업계 평균</span>
+            </div>
+            <ResponsiveContainer width="100%" height={250}>
+              <BarChart data={benchmarkData} barGap={4} barCategoryGap="25%">
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                <XAxis dataKey="name" fontSize={13} tickLine={false} axisLine={false} tick={{ fill: '#64748b' }} fontWeight={600} />
+                <YAxis fontSize={10} tickLine={false} axisLine={false} tick={{ fill: '#94a3b8' }} tickFormatter={(v: number) => `${v}%`} />
+                <Tooltip contentStyle={{ fontSize: 13, borderRadius: 12, background: '#fff', border: '1px solid #e2e8f0', color: '#0f172a' }} formatter={(v: any, name: any) => [`${Number(v).toFixed(1)}%`, name === 'my' ? '내 수치' : '업계 평균']} />
+                <Bar dataKey="my" name="my" radius={[6, 6, 0, 0]} maxBarSize={48}>
+                  {benchmarkData.map((entry, i) => {
+                    const isGood = entry.invertGood ? entry.my <= entry.avg : entry.my >= entry.avg;
+                    return <Cell key={i} fill={isGood ? '#3182f6' : '#f04452'} />;
+                  })}
+                </Bar>
+                <Bar dataKey="avg" name="avg" fill="#f97316" radius={[6, 6, 0, 0]} maxBarSize={48} opacity={0.7} />
+              </BarChart>
+            </ResponsiveContainer>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
+              {benchmarkData.map(item => {
+                const isGood = item.invertGood ? item.my <= item.avg : item.my >= item.avg;
+                const diff = item.my - item.avg;
+                const diffStr = diff > 0 ? `+${diff.toFixed(1)}` : diff.toFixed(1);
+                return (
+                  <div key={item.name} className="text-center">
+                    <div className="text-[13px] font-semibold text-slate-500">{item.name}</div>
+                    <div className={`text-[20px] font-bold tabular-nums mt-0.5 ${isGood ? 'text-emerald-500' : 'text-red-500'}`}>
+                      {item.my}{item.unit}
+                    </div>
+                    <div className={`text-[12px] mt-0.5 ${isGood ? 'text-emerald-500' : 'text-red-500'}`}>
+                      {isGood ? '✓' : '✗'} {diffStr}%p vs 평균
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
