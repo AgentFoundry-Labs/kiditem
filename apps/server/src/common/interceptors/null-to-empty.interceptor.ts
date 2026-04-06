@@ -7,13 +7,16 @@ import { CallHandler, ExecutionContext, Injectable, NestInterceptor } from '@nes
  */
 @Injectable()
 export class NullToEmptyInterceptor implements NestInterceptor {
-  async intercept(_context: ExecutionContext, next: CallHandler): Promise<any> {
-    const observable = next.handle();
-    return new Promise((resolve) => {
-      observable.subscribe({
-        next: (data) => resolve(data ?? {}),
-        error: (err) => { throw err; },
-      });
-    });
+  intercept(_context: ExecutionContext, next: CallHandler): any {
+    // rxjs 중복 설치(루트 vs 서버) 타입 충돌 우회 — pipe/map 대신 subscribe 래핑
+    const source$ = next.handle();
+    return {
+      subscribe: (observer: any) =>
+        source$.subscribe({
+          next: (data: any) => observer.next(data ?? {}),
+          error: (err: any) => observer.error(err),
+          complete: () => observer.complete(),
+        }),
+    };
   }
 }
