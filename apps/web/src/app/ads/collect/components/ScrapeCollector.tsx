@@ -147,7 +147,7 @@ export default function ScrapeCollector({ onComplete }: { onComplete?: () => voi
       </button>
 
       {open && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setOpen(false)}>
+        <div className="modal-overlay p-4" onClick={() => setOpen(false)}>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] overflow-hidden" onClick={e => e.stopPropagation()}>
             {/* 헤더 */}
             <div className="flex items-center justify-between px-6 py-4 border-b bg-gradient-to-r from-blue-600 to-indigo-600">
@@ -188,7 +188,7 @@ export default function ScrapeCollector({ onComplete }: { onComplete?: () => voi
               <div>
                 <div className="text-sm font-bold text-slate-900 mb-2">수집 대상 ({targets.length}개)</div>
                 {targets.length === 0 ? (
-                  <div className="text-center py-6 text-sm text-slate-400">등록된 URL이 없습니다</div>
+                  <div className="empty-state py-6">등록된 URL이 없습니다</div>
                 ) : (
                   <div className="space-y-2">
                     {targets.map((t) => (

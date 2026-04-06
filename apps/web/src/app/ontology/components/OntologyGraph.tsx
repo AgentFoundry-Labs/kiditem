@@ -171,23 +171,23 @@ export default function OntologyGraph() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-[500px] bg-white rounded-xl border border-gray-200">
-        <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
-        <span className="ml-2 text-sm text-gray-500">그래프 로딩 중...</span>
+      <div className="flex items-center justify-center h-[500px] bg-white rounded-xl border border-slate-200">
+        <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
+        <span className="ml-2 text-sm text-slate-500">그래프 로딩 중...</span>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="flex items-center justify-center h-[500px] bg-white rounded-xl border border-gray-200">
+      <div className="flex items-center justify-center h-[500px] bg-white rounded-xl border border-slate-200">
         <span className="text-sm text-red-500">{error}</span>
       </div>
     );
   }
 
   return (
-    <div className="w-full h-[600px] rounded-xl overflow-hidden border border-gray-200 bg-gray-50">
+    <div className="w-full h-[600px] rounded-xl overflow-hidden border border-slate-200 bg-slate-50">
       <ReactFlow
         nodes={nodes}
         edges={edges}

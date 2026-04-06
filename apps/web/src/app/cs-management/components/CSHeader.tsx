@@ -21,8 +21,8 @@ export function CSHeader({ summary, onRefresh, onRegister }: Props) {
       <div className="flex items-center gap-3">
         <MessageSquare size={20} className="text-blue-600" />
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">CS 관리</h1>
-          <span className="text-sm text-gray-500">
+          <h1 className="page-title">CS 관리</h1>
+          <span className="text-sm text-slate-500">
             {summary.total}건 | 접수 {summary.접수}건
           </span>
         </div>
@@ -30,7 +30,7 @@ export function CSHeader({ summary, onRefresh, onRegister }: Props) {
       <div className="flex gap-2">
         <button
           onClick={onRefresh}
-          className="flex items-center gap-1.5 px-3 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50"
+          className="flex items-center gap-1.5 px-3 py-2 text-sm text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50"
         >
           <RefreshCw size={14} /> 새로고침
         </button>

@@ -30,7 +30,7 @@ export default function ProductPageHeader({
   return (
     <>
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-900">
+        <h1 className="page-title">
           상품 관리 <span className="text-slate-400 font-normal">(총 <strong className="text-slate-900">{total}</strong>)</span>
         </h1>
         <div className="flex items-center gap-2">

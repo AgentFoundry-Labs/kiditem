@@ -22,8 +22,8 @@ export default function ProductErrorView({ productId, error, onBack, onRetry }: 
         onToggleLocked={() => {}}
         onBack={onBack}
       />
-      <div className="flex-1 flex items-center justify-center bg-gray-50">
-        <div className="flex flex-col items-center gap-3 text-gray-500">
+      <div className="flex-1 flex items-center justify-center bg-slate-50">
+        <div className="flex flex-col items-center gap-3 text-slate-500">
           <AlertCircle size={32} className="text-red-400" />
           <p className="text-sm font-medium">{error}</p>
           <button

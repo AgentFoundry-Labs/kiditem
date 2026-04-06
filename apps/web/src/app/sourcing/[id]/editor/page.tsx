@@ -125,7 +125,7 @@ export default function EditorPage() {
         <Suspense
           fallback={
             <div className="flex items-center justify-center h-full">
-              <div className="flex flex-col items-center gap-3 text-gray-400">
+              <div className="flex flex-col items-center gap-3 text-slate-400">
                 <Loader2 size={32} className="animate-spin" />
                 <p className="text-sm font-medium">에디터 로딩 중...</p>
               </div>

@@ -132,8 +132,8 @@ export function AITextEditPanel({
     <div className="flex-1 overflow-y-auto">
       <div className="p-3 space-y-3">
         <div>
-          <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">원본</span>
-          <p className="mt-1 text-xs text-gray-600 bg-gray-50 rounded-lg px-3 py-2 leading-relaxed line-clamp-4 border border-gray-100">
+          <span className="text-[11px] font-medium text-slate-400 uppercase tracking-wide">원본</span>
+          <p className="mt-1 text-xs text-slate-600 bg-slate-50 rounded-lg px-3 py-2 leading-relaxed line-clamp-4 border border-slate-100">
             {originalText || '(텍스트 없음)'}
           </p>
         </div>
@@ -148,7 +148,7 @@ export function AITextEditPanel({
                 type="button"
                 onClick={() => runTransform(preset.id)}
                 disabled={loading}
-                className="flex-1 flex items-center justify-center gap-1.5 px-2 py-2 text-xs font-medium text-gray-700 bg-gray-50 hover:bg-emerald-50 hover:text-emerald-700 border border-gray-200 hover:border-emerald-200 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex-1 flex items-center justify-center gap-1.5 px-2 py-2 text-xs font-medium text-slate-700 bg-slate-50 hover:bg-emerald-50 hover:text-emerald-700 border border-slate-200 hover:border-emerald-200 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isActive ? <Loader2 size={13} className="animate-spin" /> : <Icon size={13} />}
                 {preset.label}
@@ -170,7 +170,7 @@ export function AITextEditPanel({
             placeholder="원하는 변환 내용을 입력하세요..."
             disabled={loading}
             rows={2}
-            className="w-full px-3 py-2 text-xs border border-gray-200 rounded-lg resize-none focus:outline-none focus:ring-1 focus:ring-emerald-500 placeholder:text-gray-400"
+            className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg resize-none focus:outline-none focus:ring-1 focus:ring-emerald-500 placeholder:text-slate-400"
           />
           <button
             type="button"
@@ -191,7 +191,7 @@ export function AITextEditPanel({
             <div className="px-3 py-1.5 bg-emerald-100/60">
               <span className="text-[11px] font-semibold text-emerald-700">AI 결과</span>
             </div>
-            <p className="px-3 py-2 text-xs text-gray-700 leading-relaxed">
+            <p className="px-3 py-2 text-xs text-slate-700 leading-relaxed">
               {pendingResult}
             </p>
             <div className="flex gap-1.5 px-3 py-2 border-t border-emerald-100">
@@ -207,14 +207,14 @@ export function AITextEditPanel({
                 type="button"
                 onClick={handleRegenerate}
                 disabled={loading}
-                className="flex items-center justify-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-600 bg-white hover:bg-gray-50 border border-gray-200 rounded-md transition-colors disabled:opacity-50"
+                className="flex items-center justify-center gap-1 px-3 py-1.5 text-xs font-medium text-slate-600 bg-white hover:bg-slate-50 border border-slate-200 rounded-md transition-colors disabled:opacity-50"
               >
                 <RefreshCw size={12} />
               </button>
               <button
                 type="button"
                 onClick={handleDismissResult}
-                className="flex items-center justify-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-500 bg-white hover:bg-gray-50 border border-gray-200 rounded-md transition-colors"
+                className="flex items-center justify-center gap-1 px-3 py-1.5 text-xs font-medium text-slate-500 bg-white hover:bg-slate-50 border border-slate-200 rounded-md transition-colors"
               >
                 <X size={12} />
               </button>

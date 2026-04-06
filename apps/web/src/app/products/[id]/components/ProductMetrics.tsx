@@ -58,7 +58,7 @@ export default function ProductMetrics({ product }: ProductMetricsProps) {
   const badge = getProductStatusBadge(product.status);
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 p-6">
+    <div className="card p-6">
       <div className="flex items-center gap-3 mb-4">
         {product.abcGrade && (
           <span

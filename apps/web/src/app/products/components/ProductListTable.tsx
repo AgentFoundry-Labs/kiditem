@@ -23,21 +23,21 @@ export default function ProductListTable({
   }
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-      <div className="flex items-center px-5 py-2.5 border-b border-gray-200 bg-gray-50">
+    <div className="table-card">
+      <div className="flex items-center px-5 py-2.5 border-b border-slate-200 bg-slate-50">
         <div className="flex items-center gap-3 shrink-0">
           <div className="w-8" />
           <div className="w-[60px]" />
         </div>
         <div className="flex-1 min-w-0 ml-4" />
         <div className="flex items-center shrink-0">
-          <div className="w-[72px] text-right text-xs font-medium text-gray-400">옵션</div>
-          <div className="w-[80px] text-right text-xs font-medium text-gray-400">방문자▼</div>
-          <div className="w-[72px] text-right text-xs font-medium text-gray-400">조회▼</div>
-          <div className="w-[80px] text-right text-xs font-medium text-gray-400">장바구니▼</div>
-          <div className="w-[72px] text-right text-xs font-medium text-gray-400">주문▼</div>
-          <div className="w-[88px] text-right text-xs font-medium text-gray-400">판매량</div>
-          <div className="w-[120px] text-right text-xs font-medium text-gray-400">매출 (원) ▼</div>
+          <div className="w-[72px] text-right text-xs font-medium text-slate-400">옵션</div>
+          <div className="w-[80px] text-right text-xs font-medium text-slate-400">방문자▼</div>
+          <div className="w-[72px] text-right text-xs font-medium text-slate-400">조회▼</div>
+          <div className="w-[80px] text-right text-xs font-medium text-slate-400">장바구니▼</div>
+          <div className="w-[72px] text-right text-xs font-medium text-slate-400">주문▼</div>
+          <div className="w-[88px] text-right text-xs font-medium text-slate-400">판매량</div>
+          <div className="w-[120px] text-right text-xs font-medium text-slate-400">매출 (원) ▼</div>
         </div>
       </div>
       {displayProducts.map((p, index) => (

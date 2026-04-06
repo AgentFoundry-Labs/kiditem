@@ -140,15 +140,15 @@ export default function StockAssets() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Package className="w-6 h-6 text-blue-600" />
-          <h1 className="text-2xl font-bold text-slate-800">재고자산 리포트</h1>
+          <h1 className="page-title">재고자산 리포트</h1>
         </div>
       </div>
 
       {/* KPI */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-white rounded-xl border border-slate-200 p-5">
-          <p className="text-sm text-slate-500 mb-1">총 재고자산</p>
-          <p className="text-2xl font-bold text-blue-600">
+          <p className="card-label mb-1">총 재고자산</p>
+          <p className="card-value text-blue-600">
             {isLoading ? '-' : `${formatNumber(totalValue)}원`}
           </p>
           <p className="text-xs text-slate-400 mt-1">
@@ -156,14 +156,14 @@ export default function StockAssets() {
           </p>
         </div>
         <div className="bg-white rounded-xl border border-slate-200 p-5">
-          <p className="text-sm text-slate-500 mb-1">총 재고수량</p>
-          <p className="text-2xl font-bold text-slate-800">
+          <p className="card-label mb-1">총 재고수량</p>
+          <p className="card-value text-slate-800">
             {isLoading ? '-' : `${formatNumber(totalStock)}개`}
           </p>
         </div>
         <div className="bg-white rounded-xl border border-slate-200 p-5">
-          <p className="text-sm text-slate-500 mb-1">평균 단가</p>
-          <p className="text-2xl font-bold text-slate-800">
+          <p className="card-label mb-1">평균 단가</p>
+          <p className="card-value text-slate-800">
             {isLoading
               ? '-'
               : `${totalStock > 0 ? formatNumber(Math.round(totalValue / totalStock)) : 0}원`}
@@ -223,7 +223,7 @@ export default function StockAssets() {
           )}
         </h2>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table>
             <thead>
               <tr className="border-b border-slate-200 text-slate-500">
                 <th className="text-left py-2 px-3">상품명</th>

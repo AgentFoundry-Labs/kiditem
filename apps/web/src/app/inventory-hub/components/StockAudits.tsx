@@ -86,7 +86,7 @@ export default function StockAudits() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-900">
+        <h1 className="page-title">
           <ClipboardCheck size={24} className="inline mr-2" />
           재고 실사 + 차이 조정
         </h1>
@@ -110,9 +110,9 @@ export default function StockAudits() {
             실사 내역 ({audits.length})
           </h2>
           {isLoading ? (
-            <div className="text-center py-8 text-slate-400 text-sm">로딩 중...</div>
+            <div className="empty-state">로딩 중...</div>
           ) : audits.length === 0 ? (
-            <div className="text-center py-8 text-slate-400 text-sm">
+            <div className="empty-state">
               실사 내역이 없습니다
             </div>
           ) : (
@@ -126,7 +126,7 @@ export default function StockAudits() {
                 <div
                   key={audit.id}
                   onClick={() => handleSelect(audit)}
-                  className={`bg-white rounded-xl border border-slate-200 p-4 cursor-pointer transition-all ${
+                  className={`card cursor-pointer transition-all ${
                     selected?.id === audit.id
                       ? 'ring-2 ring-blue-500'
                       : 'hover:border-blue-300'
@@ -165,7 +165,7 @@ export default function StockAudits() {
         {/* 실사표 상세 */}
         <div className="col-span-8">
           {selected ? (
-            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+            <div className="table-card">
               <div className="p-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <span className="font-mono font-semibold">
@@ -200,27 +200,27 @@ export default function StockAudits() {
                   </button>
                 )}
               </div>
-              <table className="w-full text-sm">
-                <thead className="bg-slate-50 border-b border-slate-200">
+              <table>
+                <thead>
                   <tr>
-                    <th className="text-left px-4 py-3 font-medium text-slate-600">
+                    <th>
                       상품명
                     </th>
-                    <th className="text-left px-4 py-3 font-medium text-slate-600">
+                    <th>
                       SKU
                     </th>
-                    <th className="text-right px-4 py-3 font-medium text-slate-600">
+                    <th className="text-right">
                       시스템 수량
                     </th>
-                    <th className="text-right px-4 py-3 font-medium text-slate-600">
+                    <th className="text-right">
                       실제 수량
                     </th>
-                    <th className="text-right px-4 py-3 font-medium text-slate-600">
+                    <th className="text-right">
                       차이
                     </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody >
                   {editItems.map((item) => (
                     <tr
                       key={item.productId}
@@ -268,7 +268,7 @@ export default function StockAudits() {
                 </tbody>
               </table>
               {editItems.length === 0 && (
-                <div className="text-center py-8 text-slate-400 text-sm">
+                <div className="empty-state">
                   실사 항목이 없습니다
                 </div>
               )}

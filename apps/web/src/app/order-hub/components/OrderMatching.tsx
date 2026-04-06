@@ -77,7 +77,7 @@ export default function OrderMatching() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-900">
+        <h1 className="page-title">
           <Link2 size={24} className="inline mr-2" />
           미매칭 주문상품 매칭
         </h1>
@@ -90,24 +90,24 @@ export default function OrderMatching() {
       <div className="grid grid-cols-3 gap-4">
         <div className="bg-white rounded-xl border border-slate-200">
           <div className="p-4 text-center">
-            <div className="text-sm text-slate-500">전체 주문상품</div>
-            <div className="text-2xl font-bold text-slate-900">
+            <div className="card-label">전체 주문상품</div>
+            <div className="card-value">
               {isLoading ? '-' : `${orders.length}건`}
             </div>
           </div>
         </div>
         <div className="bg-white rounded-xl border border-slate-200">
           <div className="p-4 text-center">
-            <div className="text-sm text-red-500">미매칭</div>
-            <div className="text-2xl font-bold text-red-600">
+            <div className="card-label text-red-500">미매칭</div>
+            <div className="card-value text-red-600">
               {isLoading ? '-' : `${unmatchedOrders.length}건`}
             </div>
           </div>
         </div>
         <div className="bg-white rounded-xl border border-slate-200">
           <div className="p-4 text-center">
-            <div className="text-sm text-green-500">매칭완료</div>
-            <div className="text-2xl font-bold text-green-600">
+            <div className="card-label text-green-500">매칭완료</div>
+            <div className="card-value text-green-600">
               {isLoading ? '-' : `${matchedOrders.length}건`}
             </div>
           </div>
@@ -141,11 +141,11 @@ export default function OrderMatching() {
 
       {/* 미매칭 목록 */}
       {isLoading ? (
-        <div className="text-center py-12 text-slate-400">
+        <div className="empty-state">
           로딩 중...
         </div>
       ) : filteredUnmatched.length === 0 ? (
-        <div className="text-center py-12 text-slate-400">
+        <div className="empty-state">
           <CheckCircle size={48} className="mx-auto mb-3 opacity-30" />
           <p>미매칭 상품이 없습니다</p>
         </div>
@@ -167,7 +167,7 @@ export default function OrderMatching() {
                   <th className="px-4 py-3">액션</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody >
                 {filteredUnmatched.map((item, i) => {
                   const key = `${item.orderId}-${item.vendorItemName}`;
                   return (

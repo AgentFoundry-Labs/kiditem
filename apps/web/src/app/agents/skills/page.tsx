@@ -64,10 +64,10 @@ export default function SkillsPage() {
       )}
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
-        <p className="text-xs text-gray-400">{skills.length}개 스킬 · {agents.length}개 에이전트</p>
+        <p className="text-xs text-slate-400">{skills.length}개 스킬 · {agents.length}개 에이전트</p>
         <button
           onClick={() => queryClient.invalidateQueries({ queryKey: queryKeys.agents.list() })}
-          className="p-1.5 text-gray-400 hover:text-gray-600 border border-gray-200 rounded-lg transition-colors"
+          className="p-1.5 text-slate-400 hover:text-slate-600 border border-slate-200 rounded-lg transition-colors"
           title="새로고침"
         >
           <RefreshCw className="w-3.5 h-3.5" />
@@ -76,28 +76,28 @@ export default function SkillsPage() {
 
       {/* Search */}
       <div className="relative mb-6">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
         <input
           type="text"
           placeholder="스킬 검색…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          className="w-full pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900/10 bg-white placeholder-gray-400"
+          className="w-full pl-9 pr-4 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900/10 bg-white placeholder-slate-400"
         />
       </div>
 
       {/* Empty state */}
       {skills.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-16 text-gray-400 border border-gray-200 rounded-lg">
+        <div className="flex flex-col items-center justify-center py-16 text-slate-400 border border-slate-200 rounded-lg">
           <Puzzle className="w-8 h-8 mb-2" />
           <p className="text-sm">등록된 스킬이 없습니다.</p>
-          <p className="text-xs text-gray-400 mt-1">마켓플레이스에서 에이전트를 설치하면 스킬이 자동으로 등록됩니다.</p>
+          <p className="text-xs text-slate-400 mt-1">마켓플레이스에서 에이전트를 설치하면 스킬이 자동으로 등록됩니다.</p>
         </div>
       )}
 
       {/* No search results */}
       {skills.length > 0 && filtered.length === 0 && (
-        <p className="text-sm text-gray-400 text-center py-8">검색 결과가 없습니다.</p>
+        <p className="text-sm text-slate-400 text-center py-8">검색 결과가 없습니다.</p>
       )}
 
       {/* Skill cards grid */}

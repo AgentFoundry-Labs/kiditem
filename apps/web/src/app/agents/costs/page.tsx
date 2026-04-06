@@ -70,7 +70,7 @@ export default function CostsPage() {
       <div className="flex items-center justify-end mb-6">
         <button
           onClick={() => queryClient.invalidateQueries({ queryKey: queryKeys.agents.all })}
-          className="p-1.5 text-gray-400 hover:text-gray-600 border border-gray-200 rounded-lg transition-colors"
+          className="p-1.5 text-slate-400 hover:text-slate-600 border border-slate-200 rounded-lg transition-colors"
           title="새로고침"
         >
           <RefreshCw className="w-3.5 h-3.5" />
@@ -86,8 +86,8 @@ export default function CostsPage() {
             className={cn(
               'px-3 py-1.5 text-sm rounded-lg border transition-colors',
               period === p
-                ? 'bg-gray-900 text-white border-gray-900'
-                : 'border-gray-200 text-gray-600 hover:bg-gray-50',
+                ? 'bg-slate-900 text-white border-slate-900'
+                : 'border-slate-200 text-slate-600 hover:bg-slate-50',
             )}
           >
             {p}
@@ -114,7 +114,7 @@ export default function CostsPage() {
           icon={<Bot className="w-4 h-4" />}
           label="에이전트 수"
           value={String(analytics?.byAgent.length ?? 0)}
-          iconBg="bg-gray-100 text-gray-600"
+          iconBg="bg-slate-100 text-slate-600"
         />
         <CostSummaryCard
           icon={<Hash className="w-4 h-4" />}
@@ -136,7 +136,7 @@ export default function CostsPage() {
 
       {/* Breakdown table */}
       {(analytics?.byAgent.length ?? 0) === 0 ? (
-        <div className="flex flex-col items-center justify-center py-16 text-gray-400 border border-gray-200 rounded-lg">
+        <div className="flex flex-col items-center justify-center py-16 text-slate-400 border border-slate-200 rounded-lg">
           <Activity className="w-8 h-8 mb-2" />
           <p className="text-sm">비용 데이터가 없습니다.</p>
         </div>

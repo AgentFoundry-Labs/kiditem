@@ -18,10 +18,10 @@ export default function ThumbnailGrid({
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <label className="text-sm font-semibold text-gray-700">
+        <label className="text-sm font-semibold text-slate-700">
           썸네일 이미지
         </label>
-        <span className="text-xs text-gray-400">
+        <span className="text-xs text-slate-400">
           {thumbnails.length}/10장
         </span>
       </div>
@@ -29,7 +29,7 @@ export default function ThumbnailGrid({
         {thumbnails.map((url, index) => (
           <div
             key={`thumb-${index}`}
-            className="relative group w-[88px] h-[88px] rounded-lg overflow-hidden border-2 border-gray-200 hover:border-emerald-400 transition-colors cursor-grab"
+            className="relative group w-[88px] h-[88px] rounded-lg overflow-hidden border-2 border-slate-200 hover:border-emerald-400 transition-colors cursor-grab"
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
@@ -66,7 +66,7 @@ export default function ThumbnailGrid({
               `https://placehold.co/400x400/e2e8f0/64748b?text=상품+${thumbnails.length + 1}`,
             ])
           }
-          className="w-[88px] h-[88px] rounded-lg border-2 border-dashed border-gray-300 hover:border-emerald-400 flex flex-col items-center justify-center gap-1 text-gray-400 hover:text-emerald-500 transition-colors"
+          className="w-[88px] h-[88px] rounded-lg border-2 border-dashed border-slate-300 hover:border-emerald-400 flex flex-col items-center justify-center gap-1 text-slate-400 hover:text-emerald-500 transition-colors"
         >
           <Plus size={20} />
           <span className="text-[10px] font-medium">이미지 추가</span>

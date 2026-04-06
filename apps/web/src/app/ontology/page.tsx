@@ -77,11 +77,11 @@ export default function OntologyPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+        <h1 className="page-title flex items-center gap-2">
           <Network className="w-6 h-6 text-violet-500" />
           Ontology
         </h1>
-        <p className="text-gray-500 mt-1">
+        <p className="text-slate-500 mt-1">
           상품 카테고리와 브랜드 관계를 시각화합니다.
         </p>
       </div>

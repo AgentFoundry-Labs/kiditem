@@ -131,9 +131,9 @@ export default function ProductDetailPage() {
       />
 
       <div className="flex flex-1 overflow-hidden">
-        <div className="w-[65%] flex flex-col overflow-hidden border-r border-gray-200">
+        <div className="w-[65%] flex flex-col overflow-hidden border-r border-slate-200">
           <ProductEditTabs activeTab={activeTab} onTabChange={setActiveTab} />
-          <div className="flex-1 overflow-y-auto bg-gray-50">
+          <div className="flex-1 overflow-y-auto bg-slate-50">
             <ProductTabContent
               activeTab={activeTab}
               editData={editData}
@@ -146,7 +146,7 @@ export default function ProductDetailPage() {
           </div>
         </div>
 
-        <div className="w-[35%] overflow-y-auto bg-gray-50/50 p-6">
+        <div className="w-[35%] overflow-y-auto bg-slate-50/50 p-6">
           <MobilePreview
             name={editData.name}
             mainImage={editData.thumbnails[0] ?? 'https://placehold.co/400x400/e2e8f0/64748b?text=No+Image'}

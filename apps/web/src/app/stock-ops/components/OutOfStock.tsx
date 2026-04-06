@@ -42,15 +42,15 @@ export default function OutOfStock() {
         <div className="bg-white rounded-xl border border-slate-200 p-5">
           <div className="flex items-center gap-2 mb-1">
             <PackageX className="w-4 h-4 text-red-500" />
-            <p className="text-sm text-slate-500">품절 상품 수</p>
+            <p className="card-label">품절 상품 수</p>
           </div>
-          <p className="text-2xl font-bold text-red-600">
+          <p className="card-value text-red-600">
             {isLoading ? '-' : `${items.length}개`}
           </p>
         </div>
         <div className="bg-white rounded-xl border border-slate-200 p-5">
-          <p className="text-sm text-slate-500 mb-1">A등급 품절</p>
-          <p className="text-2xl font-bold text-green-600">
+          <p className="card-label mb-1">A등급 품절</p>
+          <p className="card-value text-green-600">
             {isLoading ? '-' : `${aGradeCount}개`}
           </p>
           <p className="text-xs text-red-400 mt-1">
@@ -58,17 +58,17 @@ export default function OutOfStock() {
           </p>
         </div>
         <div className="bg-white rounded-xl border border-slate-200 p-5">
-          <p className="text-sm text-slate-500 mb-1">B등급 품절</p>
-          <p className="text-2xl font-bold text-yellow-600">
+          <p className="card-label mb-1">B등급 품절</p>
+          <p className="card-value text-yellow-600">
             {isLoading ? '-' : `${bGradeCount}개`}
           </p>
         </div>
         <div className="bg-white rounded-xl border border-slate-200 p-5">
           <div className="flex items-center gap-2 mb-1">
             <BarChart3 className="w-4 h-4 text-blue-500" />
-            <p className="text-sm text-slate-500">판매 실적 있는 품절</p>
+            <p className="card-label">판매 실적 있는 품절</p>
           </div>
-          <p className="text-2xl font-bold text-blue-600">
+          <p className="card-value text-blue-600">
             {isLoading ? '-' : `${hasHighSales.length}개`}
           </p>
           <p className="text-xs text-slate-400 mt-1">일평균 판매 &gt; 0</p>
@@ -84,7 +84,7 @@ export default function OutOfStock() {
           </h2>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table>
             <thead>
               <tr className="border-b border-slate-200 text-slate-500">
                 <th className="text-left py-2 px-3">상품명</th>

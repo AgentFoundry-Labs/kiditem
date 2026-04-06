@@ -18,12 +18,12 @@ export function InventoryToolbar({ syncing, syncInfo, onReceiveStock, onBarcodeP
   return (
     <div>
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-900">재고/발주 관리</h1>
+        <h1 className="page-title">재고/발주 관리</h1>
         <div className="flex items-center gap-2">
           <button onClick={onReceiveStock} className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm font-medium">
             <ClipboardCheck size={16} /> 검수 입고
           </button>
-          <button onClick={onBarcodePrint} className="flex items-center gap-2 px-4 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-900 text-sm font-medium">
+          <button onClick={onBarcodePrint} className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-900 text-sm font-medium">
             <Barcode size={16} /> 바코드 출력
           </button>
           <button onClick={onStockCheck} className="flex items-center gap-2 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 text-sm font-medium">

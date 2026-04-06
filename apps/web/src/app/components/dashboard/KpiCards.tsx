@@ -37,7 +37,7 @@ export default function KpiCards({ summary: s }: KpiCardsProps) {
         <KpiCard
           label="광고비율" value={String(s.adRate)} unit="%"
           icon={Megaphone}
-          bgColor={s.adRate > 15 ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200'}
+          bgColor={s.adRate > 15 ? 'bg-red-50 border-red-200' : 'bg-slate-50 border-slate-200'}
           accentColor={s.adRate > 15 ? '#dc2626' : '#6b7280'}
           prevLabel={`${s.prevAdRate}%`}
         />

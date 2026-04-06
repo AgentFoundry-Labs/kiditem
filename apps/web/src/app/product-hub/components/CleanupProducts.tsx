@@ -11,6 +11,7 @@ interface Product {
   id: string; name: string; sku: string; company: string; abcGrade: string;
   revenue: number; netProfit: number; profitRate: number; adRate: number;
   costPrice: number; sellPrice: number; commissionRate: number; shippingCost: number;
+  thumbnailUrl: string | null; imageUrl: string | null;
 }
 
 export default function CleanupProducts() {
@@ -34,7 +35,7 @@ export default function CleanupProducts() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-900">
+        <h1 className="page-title">
           <Trash2 size={24} className="inline mr-2 text-red-500" />
           정리 대상 (순이익 3% 이하)
         </h1>
@@ -59,7 +60,7 @@ export default function CleanupProducts() {
       </div>
 
       {/* Cleanup Flow */}
-      <div className="bg-white rounded-xl p-5 border border-slate-200">
+      <div className="card p-5">
         <h3 className="font-semibold text-sm text-slate-700 mb-3">정리 판단 플로우</h3>
         <div className="flex items-center gap-2 text-xs text-slate-600">
           <span className="px-3 py-1.5 bg-red-100 text-red-800 rounded-lg font-medium">순이익 3% 이하 감지</span>
@@ -89,12 +90,13 @@ export default function CleanupProducts() {
           정리 대상 상품이 없습니다.
         </div>
       ) : (
-      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+      <div className="table-card">
         <div className="overflow-x-auto">
         <table>
           <thead>
-            <tr className="bg-slate-50">
+            <tr>
               <th>등급</th>
+              <th>이미지</th>
               <th>상품명</th>
               <th>회사</th>
               <th className="text-right">판매가</th>
@@ -120,6 +122,15 @@ export default function CleanupProducts() {
               return (
                 <tr key={p.id} className={p.profitRate < 0 ? 'bg-red-50/60' : 'bg-orange-50/30'}>
                   <td><span className={`px-2 py-0.5 rounded text-xs font-bold ${getGradeColor(p.abcGrade)}`}>{p.abcGrade}</span></td>
+                  <td>
+                    <div className="w-10 h-10 rounded-lg bg-slate-100 overflow-hidden">
+                      {(p.thumbnailUrl || p.imageUrl) ? (
+                        <img src={p.thumbnailUrl || p.imageUrl!} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-slate-300 text-xs">N/A</div>
+                      )}
+                    </div>
+                  </td>
                   <td className="font-medium text-slate-900">{p.name}</td>
                   <td className="text-slate-500 text-xs">{p.company}</td>
                   <td className="text-right tabular-nums">{formatKRW(p.sellPrice)}</td>

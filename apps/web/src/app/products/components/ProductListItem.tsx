@@ -18,20 +18,20 @@ export default function ProductListItem({ product: p, rank }: ProductListItemPro
   return (
     <div
       onClick={() => router.push(`/products/${p.id}`)}
-      className="flex items-center px-5 py-4 border-b border-gray-100 hover:bg-gray-50 cursor-pointer"
+      className="flex items-center px-5 py-4 border-b border-slate-100 hover:bg-slate-50 cursor-pointer"
     >
       <div className="flex items-center gap-3 shrink-0">
         <div className="flex flex-col items-center w-8">
-          <span className="text-sm text-gray-400">#{rank}</span>
+          <span className="text-sm text-slate-400">#{rank}</span>
           {isNew && (
             <span className="mt-1 px-1.5 py-0.5 text-[10px] font-bold bg-green-100 text-green-600 rounded">NEW</span>
           )}
         </div>
-        <div className="w-[60px] h-[60px] rounded-lg bg-gray-100 overflow-hidden shrink-0">
+        <div className="w-[60px] h-[60px] rounded-lg bg-slate-100 overflow-hidden shrink-0">
           {(p.thumbnailUrl || p.imageUrl) ? (
             <img src={p.thumbnailUrl || p.imageUrl!} alt="" className="w-full h-full object-cover" />
           ) : (
-            <div className="w-full h-full flex items-center justify-center text-gray-300">
+            <div className="w-full h-full flex items-center justify-center text-slate-300">
               <svg width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
                 <rect x="3" y="3" width="18" height="18" rx="2" />
                 <circle cx="8.5" cy="8.5" r="1.5" />
@@ -43,13 +43,13 @@ export default function ProductListItem({ product: p, rank }: ProductListItemPro
       </div>
 
       <div className="flex-1 min-w-0 ml-4">
-        <p className="text-base font-semibold text-gray-900 truncate">{p.name}</p>
+        <p className="text-base font-semibold text-slate-900 truncate">{p.name}</p>
         <div className="flex items-center gap-2 mt-1">
           <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${badge.color}`}>{badge.label}</span>
-          <span className="text-xs text-gray-400">ID: {p.coupangProductId || p.sku}</span>
+          <span className="text-xs text-slate-400">ID: {p.coupangProductId || p.sku}</span>
         </div>
         {p.category && (
-          <p className="text-xs text-gray-400 mt-0.5 truncate">
+          <p className="text-xs text-slate-400 mt-0.5 truncate">
             {p.category.split('/').slice(-2).join('/')}
           </p>
         )}
@@ -62,7 +62,7 @@ export default function ProductListItem({ product: p, rank }: ProductListItemPro
                 'bg-red-100 text-red-700'
               }`}>{p.abcGrade}</span>
               {p.gradeScore != null && (
-                <span className="text-xs text-gray-500">{p.gradeScore}점</span>
+                <span className="text-xs text-slate-500">{p.gradeScore}점</span>
               )}
             </>
           )}
@@ -77,17 +77,17 @@ export default function ProductListItem({ product: p, rank }: ProductListItemPro
             <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
               p.adTier === '1차' ? 'bg-blue-50 text-blue-600' :
               p.adTier === '2차' ? 'bg-purple-50 text-purple-600' :
-              'bg-gray-100 text-gray-500'
+              'bg-slate-100 text-slate-500'
             }`}>{p.adTier} 광고</span>
           )}
           {p.reviewCount > 0 && (
-            <span className="text-[11px] text-gray-500">리뷰 {p.reviewCount.toLocaleString()}건</span>
+            <span className="text-[11px] text-slate-500">리뷰 {p.reviewCount.toLocaleString()}건</span>
           )}
           {p.orderCount > 0 && (
-            <span className="text-[11px] text-gray-500">주문 {p.orderCount.toLocaleString()}건</span>
+            <span className="text-[11px] text-slate-500">주문 {p.orderCount.toLocaleString()}건</span>
           )}
           {p.thumbnailCTR > 0 && (
-            <span className="text-[11px] text-gray-500">CTR {p.thumbnailCTR.toFixed(1)}%</span>
+            <span className="text-[11px] text-slate-500">CTR {p.thumbnailCTR.toFixed(1)}%</span>
           )}
         </div>
         <p className={`text-xs mt-0.5 ${
@@ -112,38 +112,38 @@ export default function ProductListItem({ product: p, rank }: ProductListItemPro
       <div className="flex items-center shrink-0">
         <div className="w-[72px]" />
         <div className="w-[80px] text-right">
-          <p className="text-xl font-bold text-gray-900 tabular-nums">
-            {t?.visitors != null ? t.visitors.toLocaleString() : <span className="text-gray-300">-</span>}
+          <p className="text-xl font-bold text-slate-900 tabular-nums">
+            {t?.visitors != null ? t.visitors.toLocaleString() : <span className="text-slate-300">-</span>}
           </p>
-          <p className="text-xs text-gray-400">방문자</p>
+          <p className="text-xs text-slate-400">방문자</p>
         </div>
         <div className="w-[72px] text-right">
-          <p className="text-xl font-bold text-gray-900 tabular-nums">
-            {t?.views != null ? t.views.toLocaleString() : <span className="text-gray-300">-</span>}
+          <p className="text-xl font-bold text-slate-900 tabular-nums">
+            {t?.views != null ? t.views.toLocaleString() : <span className="text-slate-300">-</span>}
           </p>
-          <p className="text-xs text-gray-400">조회</p>
+          <p className="text-xs text-slate-400">조회</p>
         </div>
         <div className="w-[80px] text-right">
-          <p className="text-xl font-bold text-gray-900 tabular-nums">
-            {t?.cartAdds != null ? t.cartAdds.toLocaleString() : <span className="text-gray-300">-</span>}
+          <p className="text-xl font-bold text-slate-900 tabular-nums">
+            {t?.cartAdds != null ? t.cartAdds.toLocaleString() : <span className="text-slate-300">-</span>}
           </p>
-          <p className="text-xs text-gray-400">장바구니</p>
+          <p className="text-xs text-slate-400">장바구니</p>
         </div>
         <div className="w-[72px] text-right">
-          <p className="text-xl font-bold text-gray-900 tabular-nums">
-            {t?.orders != null ? t.orders.toLocaleString() : <span className="text-gray-300">-</span>}
+          <p className="text-xl font-bold text-slate-900 tabular-nums">
+            {t?.orders != null ? t.orders.toLocaleString() : <span className="text-slate-300">-</span>}
           </p>
-          <p className="text-xs text-gray-400">주문</p>
+          <p className="text-xs text-slate-400">주문</p>
         </div>
         <div className="w-[88px] text-right">
-          <p className="text-xl font-bold text-gray-900 tabular-nums">
-            {t?.salesQty != null ? t.salesQty.toLocaleString() : <span className="text-gray-300">-</span>}
+          <p className="text-xl font-bold text-slate-900 tabular-nums">
+            {t?.salesQty != null ? t.salesQty.toLocaleString() : <span className="text-slate-300">-</span>}
           </p>
           <p className={`text-xs ${getProfitColor(p.profitRate)}`}>이익률 {formatPercent(p.profitRate)}</p>
         </div>
         <div className="w-[120px] text-right">
-          <p className="text-xl font-bold text-gray-900 tabular-nums">{formatKRW(t?.revenue ?? p.revenue)}</p>
-          <p className="text-xs text-gray-400">매출 (원)</p>
+          <p className="text-xl font-bold text-slate-900 tabular-nums">{formatKRW(t?.revenue ?? p.revenue)}</p>
+          <p className="text-xs text-slate-400">매출 (원)</p>
         </div>
       </div>
     </div>

@@ -11,16 +11,16 @@ interface Props {
 export default function CostTrendChart({ data }: Props) {
   if (data.length === 0) {
     return (
-      <div className="border border-gray-200 rounded-lg p-6 bg-white">
-        <h3 className="text-sm font-medium text-gray-700 mb-4">일별 비용 추이</h3>
-        <p className="text-sm text-gray-400 text-center py-8">해당 기간에 실행 기록이 없습니다</p>
+      <div className="border border-slate-200 rounded-lg p-6 bg-white">
+        <h3 className="text-sm font-medium text-slate-700 mb-4">일별 비용 추이</h3>
+        <p className="text-sm text-slate-400 text-center py-8">해당 기간에 실행 기록이 없습니다</p>
       </div>
     );
   }
 
   return (
-    <div className="border border-gray-200 rounded-lg p-6 bg-white">
-      <h3 className="text-sm font-medium text-gray-700 mb-4">일별 비용 추이</h3>
+    <div className="border border-slate-200 rounded-lg p-6 bg-white">
+      <h3 className="text-sm font-medium text-slate-700 mb-4">일별 비용 추이</h3>
       <ResponsiveContainer width="100%" height={280}>
         <AreaChart data={data}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />

@@ -109,16 +109,12 @@ export default function ProcessingCosts() {
   };
 
   return (
-    <div className="space-y-6 animate-in">
+    <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Factory size={18} className="text-violet-500" />
-          <div>
-            <h1 className="text-base font-semibold text-gray-900 uppercase tracking-wide">Processing Costs</h1>
-            <p className="text-xs text-gray-400 font-mono mt-0.5">생산임가공비 관리</p>
-          </div>
-        </div>
+        <h1 className="page-title">
+          <Factory size={24} className="inline mr-2" />임가공비 관리
+        </h1>
         <button onClick={() => setShowModal(true)} className="flex items-center gap-1.5 px-3 py-2 bg-violet-600 text-white rounded-lg text-xs font-medium hover:bg-violet-700">
           <Plus size={14} /> 등록
         </button>
@@ -126,35 +122,29 @@ export default function ProcessingCosts() {
 
       {/* KPI */}
       <div className="grid grid-cols-3 gap-3">
-        <div className="agent-card">
-          <div className="px-4 py-3">
-            <div className="flex items-center gap-1.5 mb-1">
-              <Clock size={12} className="text-yellow-500" />
-              <span className="text-[10px] text-gray-500 font-mono uppercase">미결 합계</span>
-            </div>
-            <div className="text-xl font-bold text-yellow-600 tabular-nums">{formatKRW(pendingTotal)}원</div>
-            <div className="text-[10px] text-gray-400 mt-0.5">{costs.filter((c) => c.status === 'pending').length}건</div>
+        <div className="card">
+          <div className="flex items-center gap-1.5 mb-1">
+            <Clock size={12} className="text-yellow-500" />
+            <span className="card-label">미결 합계</span>
           </div>
+          <div className="card-value text-yellow-600 tabular-nums">{formatKRW(pendingTotal)}원</div>
+          <div className="text-xs text-slate-400 mt-0.5">{costs.filter((c) => c.status === 'pending').length}건</div>
         </div>
-        <div className="agent-card">
-          <div className="px-4 py-3">
-            <div className="flex items-center gap-1.5 mb-1">
-              <CheckCircle size={12} className="text-blue-500" />
-              <span className="text-[10px] text-gray-500 font-mono uppercase">완료 합계</span>
-            </div>
-            <div className="text-xl font-bold text-blue-600 tabular-nums">{formatKRW(completedTotal)}원</div>
-            <div className="text-[10px] text-gray-400 mt-0.5">{costs.filter((c) => c.status === 'completed').length}건</div>
+        <div className="card">
+          <div className="flex items-center gap-1.5 mb-1">
+            <CheckCircle size={12} className="text-blue-500" />
+            <span className="card-label">완료 합계</span>
           </div>
+          <div className="card-value text-blue-600 tabular-nums">{formatKRW(completedTotal)}원</div>
+          <div className="text-xs text-slate-400 mt-0.5">{costs.filter((c) => c.status === 'completed').length}건</div>
         </div>
-        <div className="agent-card">
-          <div className="px-4 py-3">
-            <div className="flex items-center gap-1.5 mb-1">
-              <Wallet size={12} className="text-green-500" />
-              <span className="text-[10px] text-gray-500 font-mono uppercase">지급완료 합계</span>
-            </div>
-            <div className="text-xl font-bold text-green-600 tabular-nums">{formatKRW(paidTotal)}원</div>
-            <div className="text-[10px] text-gray-400 mt-0.5">{costs.filter((c) => c.status === 'paid').length}건</div>
+        <div className="card">
+          <div className="flex items-center gap-1.5 mb-1">
+            <Wallet size={12} className="text-green-500" />
+            <span className="card-label">지급완료 합계</span>
           </div>
+          <div className="card-value text-green-600 tabular-nums">{formatKRW(paidTotal)}원</div>
+          <div className="text-xs text-slate-400 mt-0.5">{costs.filter((c) => c.status === 'paid').length}건</div>
         </div>
       </div>
 
@@ -170,7 +160,7 @@ export default function ProcessingCosts() {
             key={t.key}
             onClick={() => setFilter(t.key)}
             className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-              filter === t.key ? 'bg-violet-600 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
+              filter === t.key ? 'bg-violet-600 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
             }`}
           >
             {t.label}
@@ -179,10 +169,10 @@ export default function ProcessingCosts() {
       </div>
 
       {/* Table */}
-      <div className="agent-card">
-        <div className="agent-card-header">
-          <h3>임가공비 목록</h3>
-          <span className="text-[11px] text-gray-400 font-mono">{costs.length}건</span>
+      <div className="table-card">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
+          <h3 className="section-title">임가공비 목록</h3>
+          <span className="text-xs text-slate-400">{costs.length}건</span>
         </div>
         <div className="overflow-x-auto">
           <table>
@@ -205,15 +195,15 @@ export default function ProcessingCosts() {
                 const StatusIcon = cfg.icon;
                 return (
                   <tr key={c.id}>
-                    <td className="text-gray-500 text-xs tabular-nums">{new Date(c.date).toLocaleDateString('ko-KR')}</td>
-                    <td className="font-medium text-gray-900">{c.productName || '-'}</td>
-                    <td className="text-gray-500 text-xs">{c.vendor || '-'}</td>
+                    <td className="text-slate-500 text-xs tabular-nums">{new Date(c.date).toLocaleDateString('ko-KR')}</td>
+                    <td className="font-medium text-slate-900">{c.productName || '-'}</td>
+                    <td className="text-slate-500 text-xs">{c.vendor || '-'}</td>
                     <td className="text-xs">{c.processType}</td>
                     <td className="text-right tabular-nums">{formatKRW(c.unitCost)}</td>
                     <td className="text-right tabular-nums">{c.quantity}</td>
                     <td className="text-right tabular-nums font-semibold">{formatKRW(c.totalCost)}원</td>
                     <td className="text-center">
-                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono ${cfg.bg} ${cfg.color}`}>
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs ${cfg.bg} ${cfg.color}`}>
                         <StatusIcon size={10} /> {cfg.label}
                       </span>
                     </td>
@@ -239,7 +229,7 @@ export default function ProcessingCosts() {
               })}
               {costs.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="text-center py-8 text-gray-400 text-sm">데이터가 없습니다.</td>
+                  <td colSpan={9} className="empty-state">데이터가 없습니다.</td>
                 </tr>
               )}
             </tbody>
@@ -249,10 +239,10 @@ export default function ProcessingCosts() {
 
       {/* Monthly Summary */}
       {monthly.length > 0 && (
-        <div className="agent-card">
-          <div className="agent-card-header">
-            <h3>월별 합계</h3>
-            <Calendar size={14} className="text-gray-400" />
+        <div className="table-card">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
+            <h3 className="section-title">월별 합계</h3>
+            <Calendar size={14} className="text-slate-400" />
           </div>
           <div className="overflow-x-auto">
             <table>
@@ -283,32 +273,32 @@ export default function ProcessingCosts() {
 
       {/* Create Modal */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowModal(false)}>
-          <div className="bg-white rounded-xl p-6 w-[480px] max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-overlay" onClick={() => setShowModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-bold">임가공비 등록</h2>
-              <button onClick={() => setShowModal(false)}><X size={20} className="text-gray-400" /></button>
+              <button onClick={() => setShowModal(false)}><X size={20} className="text-slate-400" /></button>
             </div>
             <div className="space-y-3">
               <div>
-                <label className="text-xs text-gray-500 mb-1 block">상품명</label>
+                <label className="text-xs text-slate-500 mb-1 block">상품명</label>
                 <input type="text" value={form.productName} onChange={(e) => setForm({ ...form, productName: e.target.value })} placeholder="상품명" className="w-full border rounded-lg px-3 py-2 text-sm" />
               </div>
               <div>
-                <label className="text-xs text-gray-500 mb-1 block">업체 (Vendor)</label>
+                <label className="text-xs text-slate-500 mb-1 block">업체 (Vendor)</label>
                 <input type="text" value={form.vendor} onChange={(e) => setForm({ ...form, vendor: e.target.value })} placeholder="임가공 업체명" className="w-full border rounded-lg px-3 py-2 text-sm" />
               </div>
               <div>
-                <label className="text-xs text-gray-500 mb-1 block">공정유형 *</label>
+                <label className="text-xs text-slate-500 mb-1 block">공정유형 *</label>
                 <input type="text" value={form.processType} onChange={(e) => setForm({ ...form, processType: e.target.value })} placeholder="예: 봉제, 인쇄, 조립..." className="w-full border rounded-lg px-3 py-2 text-sm" />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs text-gray-500 mb-1 block">단가 *</label>
+                  <label className="text-xs text-slate-500 mb-1 block">단가 *</label>
                   <input type="number" value={form.unitCost} onChange={(e) => setForm({ ...form, unitCost: e.target.value })} placeholder="0" className="w-full border rounded-lg px-3 py-2 text-sm text-right" />
                 </div>
                 <div>
-                  <label className="text-xs text-gray-500 mb-1 block">수량 *</label>
+                  <label className="text-xs text-slate-500 mb-1 block">수량 *</label>
                   <input type="number" value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} placeholder="0" className="w-full border rounded-lg px-3 py-2 text-sm text-right" />
                 </div>
               </div>
@@ -318,11 +308,11 @@ export default function ProcessingCosts() {
                 </div>
               )}
               <div>
-                <label className="text-xs text-gray-500 mb-1 block">날짜</label>
+                <label className="text-xs text-slate-500 mb-1 block">날짜</label>
                 <input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" />
               </div>
               <div>
-                <label className="text-xs text-gray-500 mb-1 block">메모</label>
+                <label className="text-xs text-slate-500 mb-1 block">메모</label>
                 <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} rows={2} className="w-full border rounded-lg px-3 py-2 text-sm" />
               </div>
               <button onClick={handleCreate} className="w-full py-2 bg-violet-600 text-white rounded-lg text-sm font-medium hover:bg-violet-700">등록</button>

@@ -25,7 +25,7 @@ export function OrgTreeNode({
   return (
     <div style={{ paddingLeft: depth * 24 }}>
       <div
-        className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-0 transition-colors"
+        className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 cursor-pointer border-b border-slate-100 last:border-0 transition-colors"
         onClick={() => onNavigate(node.id)}
       >
         {/* Status dot */}
@@ -34,14 +34,14 @@ export function OrgTreeNode({
         </span>
 
         {/* Agent icon */}
-        <div className="w-7 h-7 rounded-md bg-gray-100 flex items-center justify-center shrink-0 text-xs font-semibold text-gray-500">
+        <div className="w-7 h-7 rounded-md bg-slate-100 flex items-center justify-center shrink-0 text-xs font-semibold text-slate-500">
           {node.name.charAt(0).toUpperCase()}
         </div>
 
         {/* Name + meta */}
         <div className="flex-1 min-w-0">
-          <span className="text-sm font-medium text-gray-900">{node.name}</span>
-          <span className="text-xs text-gray-500 ml-2">
+          <span className="text-sm font-medium text-slate-900">{node.name}</span>
+          <span className="text-xs text-slate-500 ml-2">
             {ROLE_LABELS[node.role] ?? node.role}
             {node.title ? ` · ${node.title}` : ''}
           </span>
@@ -59,16 +59,16 @@ export function OrgTreeNode({
             </span>
           )}
           {agent?.runtimeState && agent.runtimeState.totalCostCents > 0 && (
-            <span className="text-xs text-gray-400 font-mono text-right">
+            <span className="text-xs text-slate-400 font-mono text-right">
               {formatCost(agent.runtimeState.totalCostCents)}
             </span>
           )}
           {agent && (
-            <span className="text-xs text-gray-400 font-mono w-14 text-right">
+            <span className="text-xs text-slate-400 font-mono w-14 text-right">
               {ADAPTER_LABELS[agent.adapterType] ?? agent.adapterType}
             </span>
           )}
-          <span className="text-xs text-gray-400 w-16 text-right">
+          <span className="text-xs text-slate-400 w-16 text-right">
             {relativeTime(node.lastHeartbeatAt)}
           </span>
           <span className="w-20 flex justify-end">
@@ -82,7 +82,7 @@ export function OrgTreeNode({
 
       {/* Children with border-left connector */}
       {node.reports && node.reports.length > 0 && (
-        <div className="border-l border-gray-200 ml-8">
+        <div className="border-l border-slate-200 ml-8">
           {node.reports.map((child) => (
             <OrgTreeNode
               key={child.id}

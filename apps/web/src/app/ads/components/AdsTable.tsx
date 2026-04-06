@@ -9,11 +9,11 @@ interface Props {
 
 export function AdsTable({ filtered }: Props) {
   return (
-    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+    <div className="table-card">
       <div className="overflow-x-auto">
         <table>
           <thead>
-            <tr className="bg-slate-50">
+            <tr>
               <th>등급</th>
               <th>광고</th>
               <th className="min-w-[200px] max-w-[300px]">상품명</th>

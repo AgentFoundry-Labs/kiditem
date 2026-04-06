@@ -21,7 +21,7 @@ export default function ScanLogTable({ logs }: Props) {
         </h3>
       </div>
       {logs.length === 0 ? (
-        <div className="text-center py-12 text-slate-400">
+        <div className="empty-state">
           <Package size={48} className="mx-auto mb-3 opacity-30" />
           <p>회수 기록이 없습니다</p>
           <p className="text-xs mt-1">
@@ -40,7 +40,7 @@ export default function ScanLogTable({ logs }: Props) {
                 <th className="px-4 py-3">메시지</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody >
               {logs.map((log, i) => (
                 <tr key={i} className="hover:bg-slate-50">
                   <td className="px-4 py-3 text-xs text-slate-500">

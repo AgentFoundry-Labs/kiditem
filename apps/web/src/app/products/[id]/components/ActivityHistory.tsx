@@ -23,13 +23,13 @@ export default function ActivityHistory({ activities, onAction }: ActivityHistor
         <h3 className="text-sm font-semibold text-slate-700">분석 기록</h3>
       </div>
       {activities.length === 0 ? (
-        <div className="bg-white rounded-xl border border-slate-200 p-5">
+        <div className="card p-5">
           <p className="text-sm text-slate-400">워크플로우를 실행하면 분석 결과가 여기에 표시됩니다.</p>
         </div>
       ) : (
         <div className="space-y-3">
           {activities.map((event) => (
-            <div key={event.id} className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+            <div key={event.id} className="table-card">
               <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <CheckCircle2 size={14} className="text-green-500" />

@@ -92,7 +92,7 @@ export default function ReportsPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-slate-900">
+      <h1 className="page-title">
         <FileSpreadsheet size={24} className="inline mr-2 text-green-600" />
         리포트 / 엑셀 출력
       </h1>

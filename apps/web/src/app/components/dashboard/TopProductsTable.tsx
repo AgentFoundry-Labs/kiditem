@@ -18,19 +18,19 @@ interface TopProductsTableProps {
 
 export default function TopProductsTable({ products }: TopProductsTableProps) {
   return (
-    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-      <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+    <div className="table-card shadow-sm">
+      <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
         <div className="flex items-center gap-2">
-          <BarChart3 size={15} className="text-gray-400" />
-          <h3 className="text-base font-semibold text-gray-900">Top Revenue Products</h3>
+          <BarChart3 size={15} className="text-slate-400" />
+          <h3 className="text-base font-semibold text-slate-900">Top Revenue Products</h3>
         </div>
         <Link href="/products" className="text-xs text-blue-600 font-medium hover:text-blue-700">
           전체 보기 →
         </Link>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full text-sm text-left">
-          <thead className="text-xs text-gray-500 bg-gray-50 uppercase border-b border-gray-200">
+        <table>
+          <thead>
             <tr>
               <th className="px-4 py-3 font-medium w-8">#</th>
               <th className="px-4 py-3 font-medium w-8">등급</th>
@@ -40,20 +40,20 @@ export default function TopProductsTable({ products }: TopProductsTableProps) {
               <th className="px-4 py-3 font-medium text-right">이익률</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-200">
+          <tbody className="divide-y divide-slate-200">
             {products.map((product, i) => (
-              <tr key={product.id} className="bg-white hover:bg-gray-50">
-                <td className="px-4 py-3 text-gray-400 tabular-nums">{i + 1}</td>
+              <tr key={product.id} className="bg-white hover:bg-slate-50">
+                <td className="px-4 py-3 text-slate-400 tabular-nums">{i + 1}</td>
                 <td className="px-4 py-3 whitespace-nowrap">
                   <span className={cn('inline-flex items-center justify-center w-6 h-6 rounded text-xs font-bold', getGradeColor(product.grade))}>
                     {product.grade}
                   </span>
                 </td>
                 <td className="px-4 py-3">
-                  <p className="font-medium text-gray-900 line-clamp-1 max-w-[300px]">{product.name}</p>
-                  {product.company && <p className="text-xs text-gray-500">{product.company}</p>}
+                  <p className="font-medium text-slate-900 line-clamp-1 max-w-[300px]">{product.name}</p>
+                  {product.company && <p className="text-xs text-slate-500">{product.company}</p>}
                 </td>
-                <td className="px-4 py-3 whitespace-nowrap text-right font-medium text-gray-900 tabular-nums">
+                <td className="px-4 py-3 whitespace-nowrap text-right font-medium text-slate-900 tabular-nums">
                   {formatKRW(product.revenue)}원
                 </td>
                 <td className={cn('px-4 py-3 whitespace-nowrap text-right font-medium tabular-nums', getProfitColor(product.profitRate))}>

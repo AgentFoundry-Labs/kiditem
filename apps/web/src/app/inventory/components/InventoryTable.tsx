@@ -43,10 +43,10 @@ export function InventoryTable({ items, page, pageSize, total, onPageChange }: I
   }
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+    <div className="table-card">
       <table className="table-fixed w-full">
         <thead>
-          <tr className="bg-slate-50">
+          <tr>
             <th className="w-[240px] min-w-[180px]">상품명</th>
             <th>SKU</th>
             <th>등급</th>

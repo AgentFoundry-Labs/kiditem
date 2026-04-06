@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Patch, Param, Query, Body } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettlementsService } from './settlements.service';
-import { ListSettlementsQueryDto, CreateSettlementDto, UpdateSettlementDto } from './dto';
+import { ListSettlementsQueryDto, CreateSettlementDto, UpdateSettlementDto, ReconcileSettlementDto } from './dto';
 
 @Controller('settlements')
 export class SettlementsController {
@@ -27,6 +27,12 @@ export class SettlementsController {
   @Post()
   create(@Body() dto: CreateSettlementDto) {
     return this.settlementsService.create(dto);
+  }
+
+  @Post('reconcile')
+  async reconcile(@Body() dto: ReconcileSettlementDto) {
+    const companyId = await this.resolveCompanyId(dto.companyId);
+    return this.settlementsService.reconcile(companyId, dto.period);
   }
 
   @Patch(':id')

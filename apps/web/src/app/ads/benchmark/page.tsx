@@ -61,7 +61,7 @@ export default function AdsBenchmarkPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-slate-900">업계 평균 대비 진단</h1>
+      <h1 className="page-title">업계 평균 대비 진단</h1>
 
       {/* Diagnosis */}
       <DiagnosisCard diagnosis={data.diagnosis} dataInfo={data.dataInfo} />

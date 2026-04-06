@@ -122,27 +122,27 @@ export default function StockRetention() {
         <div className="bg-white rounded-xl border border-slate-200 p-5">
           <div className="flex items-center gap-2 mb-1">
             <Package className="w-4 h-4 text-blue-500" />
-            <p className="text-sm text-slate-500">총 입고수량</p>
+            <p className="card-label">총 입고수량</p>
           </div>
-          <p className="text-2xl font-bold text-slate-800">{isLoading ? '-' : `${formatNumber(totalInbound)}개`}</p>
+          <p className="card-value text-slate-800">{isLoading ? '-' : `${formatNumber(totalInbound)}개`}</p>
         </div>
         <div className="bg-white rounded-xl border border-slate-200 p-5">
           <p className="text-sm text-slate-500 mb-1">현재 잔존재고</p>
-          <p className="text-2xl font-bold text-slate-800">{isLoading ? '-' : `${formatNumber(totalCurrentStock)}개`}</p>
+          <p className="card-value text-slate-800">{isLoading ? '-' : `${formatNumber(totalCurrentStock)}개`}</p>
         </div>
         <div className="bg-white rounded-xl border border-slate-200 p-5">
           <div className="flex items-center gap-2 mb-1">
             <Percent className="w-4 h-4 text-cyan-500" />
-            <p className="text-sm text-slate-500">평균 잔존율</p>
+            <p className="card-label">평균 잔존율</p>
           </div>
-          <p className="text-2xl font-bold text-cyan-600">{isLoading ? '-' : `${avgRetention}%`}</p>
+          <p className="card-value text-cyan-600">{isLoading ? '-' : `${avgRetention}%`}</p>
         </div>
         <div className="bg-white rounded-xl border border-slate-200 p-5">
           <div className="flex items-center gap-2 mb-1">
             <TrendingDown className="w-4 h-4 text-red-500" />
-            <p className="text-sm text-slate-500">잔존율 80%+</p>
+            <p className="card-label">잔존율 80%+</p>
           </div>
-          <p className="text-2xl font-bold text-red-600">{isLoading ? '-' : `${highRetention}개`}</p>
+          <p className="card-value text-red-600">{isLoading ? '-' : `${highRetention}개`}</p>
           <p className="text-xs text-slate-400 mt-1">판매 부진 주의</p>
         </div>
       </div>
@@ -154,7 +154,7 @@ export default function StockRetention() {
           <span className="text-sm text-slate-400 ml-2">({items.length}개 상품)</span>
         </h2>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table>
             <thead>
               <tr className="border-b border-slate-200 text-slate-500">
                 <th className="text-left py-2 px-3">상품명</th>

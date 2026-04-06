@@ -108,7 +108,7 @@ export default function SmartPicking() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-900">
+        <h1 className="page-title">
           <ClipboardList size={24} className="inline mr-2" />
           스마트 피킹
         </h1>
@@ -168,7 +168,7 @@ export default function SmartPicking() {
             <div
               key={l.id}
               onClick={() => setSelected(l)}
-              className={`bg-white rounded-xl border border-slate-200 p-4 cursor-pointer transition-all ${
+              className={`card cursor-pointer transition-all ${
                 selected?.id === l.id
                   ? 'ring-2 ring-blue-500'
                   : 'hover:border-blue-300'
@@ -207,7 +207,7 @@ export default function SmartPicking() {
             </div>
           ))}
           {lists.length === 0 && (
-            <div className="text-center py-8 text-slate-400 text-sm">
+            <div className="empty-state">
               피킹 리스트가 없습니다
             </div>
           )}
@@ -216,7 +216,7 @@ export default function SmartPicking() {
         {/* 피킹 상세 */}
         <div className="col-span-8">
           {activeList ? (
-            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+            <div className="table-card">
               <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
                 <div>
                   <span className="font-mono font-semibold">
@@ -295,7 +295,7 @@ export default function SmartPicking() {
                   )}
                 </div>
               )}
-              <div className="divide-y divide-slate-100">
+              <div >
                 {activeList.items
                   .sort((a, b) =>
                     (a.location || 'ZZ').localeCompare(b.location || 'ZZ')

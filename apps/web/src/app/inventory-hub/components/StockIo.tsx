@@ -5,9 +5,10 @@ import { useQuery } from '@tanstack/react-query';
 import {
   ArrowDownToLine,
   ArrowUpFromLine,
-  Calendar,
   Hash,
 } from 'lucide-react';
+import { usePeriodSelector } from '@/hooks/usePeriodSelector';
+import PeriodSelector from '@/components/ui/PeriodSelector';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import { formatNumber } from '@/lib/utils';
@@ -42,15 +43,12 @@ const typeLabels: Record<string, { text: string; color: string }> = {
   adjust: { text: '조정', color: 'bg-purple-100 text-purple-700' },
   gift: { text: '증정', color: 'bg-pink-100 text-pink-700' },
   damage: { text: '파손', color: 'bg-yellow-100 text-yellow-700' },
-  transfer: { text: '이관', color: 'bg-gray-100 text-gray-700' },
+  transfer: { text: '이관', color: 'bg-slate-100 text-slate-700' },
 };
 
 export default function StockIo() {
   const [tab, setTab] = useState<'inbound' | 'outbound'>('inbound');
-  const [period, setPeriod] = useState(() => {
-    const now = new Date();
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  });
+  const { period, setPeriod } = usePeriodSelector();
 
   const { data, isLoading } = useQuery({
     queryKey: queryKeys.stockMovement.data({ period }),
@@ -76,44 +74,34 @@ export default function StockIo() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <ArrowDownToLine className="w-6 h-6 text-blue-600" />
-          <h1 className="text-2xl font-bold text-slate-800">입출고 통합 현황</h1>
+          <h1 className="page-title">입출고 통합 현황</h1>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <Calendar className="w-4 h-4 text-slate-400" />
-            <input
-              type="month"
-              value={period}
-              onChange={(e) => setPeriod(e.target.value)}
-              className="px-3 py-1.5 border border-slate-200 rounded-lg text-sm"
-            />
-          </div>
-        </div>
+        <PeriodSelector value={period} onChange={setPeriod} />
       </div>
 
       {/* KPI */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="bg-white rounded-xl border border-slate-200 p-5">
-          <p className="text-sm text-slate-500 mb-1">입고 수량</p>
-          <p className="text-2xl font-bold text-green-600">
+          <p className="card-label mb-1">입고 수량</p>
+          <p className="card-value text-green-600">
             {isLoading ? '-' : `${formatNumber(summary?.inQty || 0)}개`}
           </p>
         </div>
         <div className="bg-white rounded-xl border border-slate-200 p-5">
-          <p className="text-sm text-slate-500 mb-1">출고 수량</p>
-          <p className="text-2xl font-bold text-red-600">
+          <p className="card-label mb-1">출고 수량</p>
+          <p className="card-value text-red-600">
             {isLoading ? '-' : `${formatNumber(summary?.outQty || 0)}개`}
           </p>
         </div>
         <div className="bg-white rounded-xl border border-slate-200 p-5">
-          <p className="text-sm text-slate-500 mb-1">입고 금액</p>
-          <p className="text-2xl font-bold text-slate-800">
+          <p className="card-label mb-1">입고 금액</p>
+          <p className="card-value text-slate-800">
             {isLoading ? '-' : `${formatNumber(summary?.inAmount || 0)}원`}
           </p>
         </div>
         <div className="bg-white rounded-xl border border-slate-200 p-5">
-          <p className="text-sm text-slate-500 mb-1">출고 금액</p>
-          <p className="text-2xl font-bold text-slate-800">
+          <p className="card-label mb-1">출고 금액</p>
+          <p className="card-value text-slate-800">
             {isLoading ? '-' : `${formatNumber(summary?.outAmount || 0)}원`}
           </p>
         </div>
@@ -153,7 +141,7 @@ export default function StockIo() {
           <span className="text-sm text-slate-400">({transactions.length}건)</span>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table>
             <thead>
               <tr className="border-b border-slate-200 text-slate-500">
                 <th className="text-left py-2 px-3">일시</th>
@@ -190,7 +178,7 @@ export default function StockIo() {
                     <td className="py-2 px-3">
                       <span
                         className={`px-2 py-0.5 rounded text-xs font-medium ${
-                          typeLabels[tx.type]?.color || 'bg-gray-100 text-gray-600'
+                          typeLabels[tx.type]?.color || 'bg-slate-100 text-slate-600'
                         }`}
                       >
                         {typeLabels[tx.type]?.text || tx.type}

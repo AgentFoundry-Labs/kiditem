@@ -22,11 +22,11 @@ const nodeTypeIcons: Record<NodeType, any> = {
 };
 
 const statusConfig = {
-  idle: { color: 'border-gray-300', icon: null, glow: '' },
+  idle: { color: 'border-slate-300', icon: null, glow: '' },
   running: { color: 'border-blue-500', icon: Loader2, glow: 'shadow-blue-500/20 shadow-lg' },
   success: { color: 'border-emerald-500/50', icon: CheckCircle, glow: '' },
   error: { color: 'border-red-500', icon: XCircle, glow: 'shadow-red-500/20 shadow-lg' },
-  disabled: { color: 'border-gray-200', icon: null, glow: '' },
+  disabled: { color: 'border-slate-200', icon: null, glow: '' },
 };
 
 function WorkflowNode({ data, id }: NodeProps) {
@@ -47,7 +47,7 @@ function WorkflowNode({ data, id }: NodeProps) {
       <Handle
         type="target"
         position={Position.Left}
-        className="!w-2 !h-2 !bg-white !border-gray-300 !border-2"
+        className="!w-2 !h-2 !bg-white !border-slate-300 !border-2"
       />
 
       <div
@@ -68,7 +68,7 @@ function WorkflowNode({ data, id }: NodeProps) {
           >
             <Icon className="w-3 h-3" style={{ color: moduleColor }} />
           </div>
-          <span className="text-[10px] text-gray-600 uppercase tracking-wider font-medium">
+          <span className="text-[10px] text-slate-600 uppercase tracking-wider font-medium">
             {nodeType === 'ai_process' ? 'AI' : nodeType?.replace('_', ' ')}
           </span>
           {StatusIcon && (
@@ -84,21 +84,21 @@ function WorkflowNode({ data, id }: NodeProps) {
         </div>
 
         {/* Label */}
-        <p className="text-xs font-medium text-gray-800 leading-relaxed">{label}</p>
+        <p className="text-xs font-medium text-slate-800 leading-relaxed">{label}</p>
 
         {/* Config hint */}
         {config?.api && (
-          <p className="text-[9px] text-gray-600 mt-1 truncate">API: {config.api}</p>
+          <p className="text-[9px] text-slate-600 mt-1 truncate">API: {config.api}</p>
         )}
         {config?.cron && (
-          <p className="text-[9px] text-gray-600 mt-1 truncate">cron: {config.cron}</p>
+          <p className="text-[9px] text-slate-600 mt-1 truncate">cron: {config.cron}</p>
         )}
       </div>
 
       <Handle
         type="source"
         position={Position.Right}
-        className="!w-2 !h-2 !bg-white !border-gray-300 !border-2"
+        className="!w-2 !h-2 !bg-white !border-slate-300 !border-2"
       />
     </>
   );

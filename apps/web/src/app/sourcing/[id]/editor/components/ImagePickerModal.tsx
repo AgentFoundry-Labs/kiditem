@@ -67,20 +67,20 @@ export function ImagePickerModal({ open, onSelect, onClose, rawImages, processed
   const images = tab === 'raw' ? rawImages : tab === 'processed' ? processedImages : [];
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50" onClick={onClose}>
+    <div className="modal-overlay z-[100]" onClick={onClose}>
       <div
         className="bg-white rounded-xl shadow-2xl w-[640px] max-w-[90vw] overflow-hidden flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200">
-          <div className="flex items-center gap-2 text-gray-800 font-semibold text-sm">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200">
+          <div className="flex items-center gap-2 text-slate-800 font-semibold text-sm">
             <ImagePlus size={16} />
             이미지 선택
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="p-1 text-gray-400 hover:text-gray-600 rounded transition-colors"
+            className="p-1 text-slate-400 hover:text-slate-600 rounded transition-colors"
           >
             <X size={16} />
           </button>
@@ -96,7 +96,7 @@ export function ImagePickerModal({ open, onSelect, onClose, rawImages, processed
                 if (t.id !== 'upload') setUploadPreview(null);
               }}
               className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors ${
-                tab === t.id ? 'bg-emerald-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                tab === t.id ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
               }`}
             >
               {t.label}
@@ -111,7 +111,7 @@ export function ImagePickerModal({ open, onSelect, onClose, rawImages, processed
                 className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors ${
                   dragOver
                     ? 'border-emerald-400 bg-emerald-50'
-                    : 'border-gray-300 hover:border-emerald-300 hover:bg-gray-50'
+                    : 'border-slate-300 hover:border-emerald-300 hover:bg-slate-50'
                 }`}
                 onClick={() => fileInputRef.current?.click()}
                 onDragOver={(e) => {
@@ -121,9 +121,9 @@ export function ImagePickerModal({ open, onSelect, onClose, rawImages, processed
                 onDragLeave={() => setDragOver(false)}
                 onDrop={onDrop}
               >
-                <Upload size={32} className="mx-auto mb-2 text-gray-400" />
-                <p className="text-sm font-medium text-gray-600">클릭하거나 파일을 드래그하세요</p>
-                <p className="text-xs text-gray-400 mt-1">PNG, JPG, WebP</p>
+                <Upload size={32} className="mx-auto mb-2 text-slate-400" />
+                <p className="text-sm font-medium text-slate-600">클릭하거나 파일을 드래그하세요</p>
+                <p className="text-xs text-slate-400 mt-1">PNG, JPG, WebP</p>
               </div>
               <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={onInputChange} />
               {uploadPreview && (
@@ -131,13 +131,13 @@ export function ImagePickerModal({ open, onSelect, onClose, rawImages, processed
                   <img
                     src={uploadPreview}
                     alt="업로드 미리보기"
-                    className="max-h-[200px] rounded-lg object-contain border border-gray-200"
+                    className="max-h-[200px] rounded-lg object-contain border border-slate-200"
                   />
                 </div>
               )}
             </div>
           ) : images.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12 text-gray-400">
+            <div className="flex flex-col items-center justify-center py-12 text-slate-400">
               <ImagePlus size={32} className="mb-2" />
               <p className="text-sm">이미지가 없습니다</p>
             </div>
@@ -151,7 +151,7 @@ export function ImagePickerModal({ open, onSelect, onClose, rawImages, processed
                   className={`relative aspect-square rounded-lg overflow-hidden border-2 transition-all ${
                     selected === url
                       ? 'border-emerald-500 ring-2 ring-emerald-500/30'
-                      : 'border-gray-200 hover:border-emerald-300'
+                      : 'border-slate-200 hover:border-emerald-300'
                   }`}
                 >
                   <img src={url} alt="" className="w-full h-full object-cover" loading="lazy" />
@@ -166,11 +166,11 @@ export function ImagePickerModal({ open, onSelect, onClose, rawImages, processed
           )}
         </div>
 
-        <div className="flex justify-end gap-2 px-5 py-3 border-t border-gray-200">
+        <div className="flex justify-end gap-2 px-5 py-3 border-t border-slate-200">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+            className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
           >
             취소
           </button>

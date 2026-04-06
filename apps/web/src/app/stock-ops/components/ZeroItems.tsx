@@ -57,9 +57,9 @@ export default function ZeroItems() {
         <div className="bg-white rounded-xl border border-slate-200 p-5">
           <div className="flex items-center gap-2 mb-1">
             <ShoppingCart className="w-4 h-4 text-orange-500" />
-            <p className="text-sm text-slate-500">판매 0건 상품</p>
+            <p className="card-label">판매 0건 상품</p>
           </div>
-          <p className="text-2xl font-bold text-orange-600">
+          <p className="card-value text-orange-600">
             {isLoading ? '-' : `${zeroSalesItems.length}개`}
           </p>
           <p className="text-xs text-slate-400 mt-1">
@@ -69,9 +69,9 @@ export default function ZeroItems() {
         <div className="bg-white rounded-xl border border-slate-200 p-5">
           <div className="flex items-center gap-2 mb-1">
             <PackageX className="w-4 h-4 text-red-500" />
-            <p className="text-sm text-slate-500">재고 0 상품</p>
+            <p className="card-label">재고 0 상품</p>
           </div>
-          <p className="text-2xl font-bold text-red-600">
+          <p className="card-value text-red-600">
             {isLoading ? '-' : `${zeroStockItems.length}개`}
           </p>
           <p className="text-xs text-slate-400 mt-1">현재 재고가 0인 상품</p>
@@ -102,7 +102,7 @@ export default function ZeroItems() {
             판매 0건 상품 목록
           </h2>
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table>
               <thead>
                 <tr className="border-b border-slate-200 text-slate-500">
                   <th className="text-left py-2 px-3">상품명</th>
@@ -184,7 +184,7 @@ export default function ZeroItems() {
             재고 0 상품 목록
           </h2>
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table>
               <thead>
                 <tr className="border-b border-slate-200 text-slate-500">
                   <th className="text-left py-2 px-3">상품명</th>

@@ -67,7 +67,7 @@ const alertIcon = (type: string) => {
     grade_change: <TrendingDown size={13} className="text-orange-500 shrink-0" />,
     defect_found: <PackageX size={13} className="text-red-500 shrink-0" />,
   };
-  return m[type] || <AlertTriangle size={13} className="text-gray-400 shrink-0" />;
+  return m[type] || <AlertTriangle size={13} className="text-slate-400 shrink-0" />;
 };
 
 export default function ActionPanels({
@@ -91,7 +91,7 @@ export default function ActionPanels({
         </div>
         <div className="divide-y divide-orange-100/50 max-h-[400px] overflow-y-auto">
           {humanTasks.length === 0 && (
-            <div className="py-8 text-center text-sm text-gray-400">처리할 업무가 없습니다</div>
+            <div className="py-8 text-center text-sm text-slate-400">처리할 업무가 없습니다</div>
           )}
           {humanTasks.map(task => {
             const done = !!checkedTasks[task.id];
@@ -99,17 +99,17 @@ export default function ActionPanels({
             const pLabel = task.priority === 'urgent' ? '긴급' : task.priority === 'high' ? '높음' : '보통';
             return (
               <div key={task.id} className={cn('flex items-start gap-3 px-4 py-3 hover:bg-white/50 transition-colors', done && 'opacity-40')}>
-                <button onClick={() => onToggleTask(task.id)} className={cn('shrink-0 mt-0.5 w-5 h-5 rounded border-2 flex items-center justify-center transition-colors', done ? 'bg-green-500 border-green-500' : 'border-gray-300 hover:border-orange-400')}>
+                <button onClick={() => onToggleTask(task.id)} className={cn('shrink-0 mt-0.5 w-5 h-5 rounded border-2 flex items-center justify-center transition-colors', done ? 'bg-green-500 border-green-500' : 'border-slate-300 hover:border-orange-400')}>
                   {done && <Check size={12} className="text-white" />}
                 </button>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <span className={cn('shrink-0 px-2 py-0.5 rounded text-xs font-semibold', pStyle)}>{pLabel}</span>
-                    <span className={cn('text-sm font-semibold', done ? 'line-through text-gray-400' : 'text-gray-900')}>{task.label}</span>
+                    <span className={cn('text-sm font-semibold', done ? 'line-through text-slate-400' : 'text-slate-900')}>{task.label}</span>
                   </div>
-                  <div className="text-xs text-gray-500 mt-1 leading-relaxed">{task.detail}</div>
+                  <div className="text-xs text-slate-500 mt-1 leading-relaxed">{task.detail}</div>
                   <div className="flex items-center gap-1.5 mt-1.5">
-                    <span className="text-xs px-2 py-0.5 bg-gray-100 text-gray-600 rounded font-medium">{task.where}</span>
+                    <span className="text-xs px-2 py-0.5 bg-slate-100 text-slate-600 rounded font-medium">{task.where}</span>
                     {task.href && (
                       <Link href={task.href} className="text-xs px-2 py-0.5 bg-blue-50 text-blue-600 rounded font-medium hover:bg-blue-100 transition-colors">
                         상세 확인 →
@@ -138,7 +138,7 @@ export default function ActionPanels({
         </div>
         <div className="divide-y divide-blue-100/50 max-h-[400px] overflow-y-auto">
           {aiActions.filter(a => !completedActions[a.id]).length === 0 && (
-            <div className="py-8 text-center text-sm text-gray-400">모든 자동 액션 완료</div>
+            <div className="py-8 text-center text-sm text-slate-400">모든 자동 액션 완료</div>
           )}
           {aiActions.filter(a => !completedActions[a.id]).map(action => {
             const isProcessing = processingAction === action.id;
@@ -148,8 +148,8 @@ export default function ActionPanels({
               <div key={action.id} className="flex items-center gap-3 px-4 py-3 hover:bg-white/50 transition-colors">
                 <span className={cn('shrink-0 px-2 py-0.5 rounded text-xs font-semibold', pStyle)}>{pLabel}</span>
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm font-semibold text-gray-900 truncate">{action.label}</div>
-                  <div className="text-xs text-gray-500 mt-0.5 truncate">{action.desc}</div>
+                  <div className="text-sm font-semibold text-slate-900 truncate">{action.label}</div>
+                  <div className="text-xs text-slate-500 mt-0.5 truncate">{action.desc}</div>
                 </div>
                 {action.href && !action.apiCall ? (
                   <Link
@@ -165,11 +165,11 @@ export default function ActionPanels({
                     disabled={isProcessing}
                     className={cn(
                       'shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors',
-                      isProcessing ? 'bg-gray-100 text-gray-400 cursor-wait' : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                      isProcessing ? 'bg-slate-100 text-slate-400 cursor-wait' : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
                     )}
                   >
                     {isProcessing ? (
-                      <><span className="animate-spin inline-block w-3 h-3 border-2 border-gray-300 border-t-blue-500 rounded-full" /> 처리중</>
+                      <><span className="animate-spin inline-block w-3 h-3 border-2 border-slate-300 border-t-blue-500 rounded-full" /> 처리중</>
                     ) : (
                       <><Play size={13} /> 실행</>
                     )}
@@ -197,17 +197,17 @@ export default function ActionPanels({
             <div key={a.id} className="flex items-start gap-2.5 px-4 py-2.5 hover:bg-white/50 transition-colors">
               <div className="mt-0.5">{alertIcon(a.type)}</div>
               <div className="flex-1 min-w-0">
-                <span className="text-sm text-gray-700 leading-relaxed">{a.title || a.message}</span>
+                <span className="text-sm text-slate-700 leading-relaxed">{a.title || a.message}</span>
                 {a.title && a.message && !/^[a-z_]+\.[a-z_]+/.test(a.message) && (
-                  <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{a.message}</p>
+                  <p className="text-xs text-slate-500 mt-0.5 line-clamp-2">{a.message}</p>
                 )}
               </div>
               {a.createdAt && (
-                <span className="text-xs text-gray-400 whitespace-nowrap shrink-0">{timeAgo(a.createdAt)}</span>
+                <span className="text-xs text-slate-400 whitespace-nowrap shrink-0">{timeAgo(a.createdAt)}</span>
               )}
             </div>
           ))}
-          {alerts.length === 0 && <div className="px-4 py-8 text-center text-xs text-gray-400">알림 없음</div>}
+          {alerts.length === 0 && <div className="px-4 py-8 text-center text-xs text-slate-400">알림 없음</div>}
         </div>
       </div>
     </div>

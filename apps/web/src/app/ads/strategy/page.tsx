@@ -57,7 +57,7 @@ export default function AdsStrategyPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-slate-900">ABC 전략</h1>
+      <h1 className="page-title">ABC 전략</h1>
 
       {!hasAgentData && (
         <div className="bg-violet-50 border border-violet-200 rounded-xl px-4 py-3 text-sm text-violet-700">

@@ -150,39 +150,39 @@ export default function ReturnTransfers() {
 
       {/* 요약 KPI */}
       <div className="grid grid-cols-4 gap-4">
-        <div className="bg-white rounded-xl border border-slate-200 p-4">
+        <div className="card">
           <div className="flex items-center gap-3">
             <PackageCheck size={20} className="text-blue-600" />
             <div>
-              <div className="text-xs text-slate-500 mb-1">접수</div>
-              <div className="text-2xl font-bold text-blue-600">{counts.received}</div>
+              <div className="card-label mb-1">접수</div>
+              <div className="card-value text-blue-600">{counts.received}</div>
             </div>
           </div>
         </div>
-        <div className="bg-white rounded-xl border border-slate-200 p-4">
+        <div className="card">
           <div className="flex items-center gap-3">
             <Search size={20} className="text-yellow-600" />
             <div>
-              <div className="text-xs text-slate-500 mb-1">검수중</div>
-              <div className="text-2xl font-bold text-yellow-600">{counts.inspecting}</div>
+              <div className="card-label mb-1">검수중</div>
+              <div className="card-value text-yellow-600">{counts.inspecting}</div>
             </div>
           </div>
         </div>
-        <div className="bg-white rounded-xl border border-slate-200 p-4">
+        <div className="card">
           <div className="flex items-center gap-3">
             <CheckCircle size={20} className="text-green-600" />
             <div>
-              <div className="text-xs text-slate-500 mb-1">재입고</div>
-              <div className="text-2xl font-bold text-green-600">{counts.restocked}</div>
+              <div className="card-label mb-1">재입고</div>
+              <div className="card-value text-green-600">{counts.restocked}</div>
             </div>
           </div>
         </div>
-        <div className="bg-white rounded-xl border border-slate-200 p-4">
+        <div className="card">
           <div className="flex items-center gap-3">
             <Trash2 size={20} className="text-red-600" />
             <div>
-              <div className="text-xs text-slate-500 mb-1">폐기</div>
-              <div className="text-2xl font-bold text-red-600">{counts.disposed}</div>
+              <div className="card-label mb-1">폐기</div>
+              <div className="card-value text-red-600">{counts.disposed}</div>
             </div>
           </div>
         </div>
@@ -228,21 +228,21 @@ export default function ReturnTransfers() {
           <p>R/T 내역이 없습니다</p>
         </div>
       ) : (
-        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 border-b border-slate-200">
+        <div className="table-card">
+          <table>
+            <thead>
               <tr>
-                <th className="text-left px-4 py-3 font-medium text-slate-600">R/T 번호</th>
-                <th className="text-left px-4 py-3 font-medium text-slate-600">주문번호</th>
-                <th className="text-left px-4 py-3 font-medium text-slate-600">상품명</th>
-                <th className="text-right px-4 py-3 font-medium text-slate-600">수량</th>
-                <th className="text-left px-4 py-3 font-medium text-slate-600">상태</th>
-                <th className="text-left px-4 py-3 font-medium text-slate-600">상태(품질)</th>
-                <th className="text-left px-4 py-3 font-medium text-slate-600">접수일</th>
-                <th className="text-center px-4 py-3 font-medium text-slate-600">액션</th>
+                <th>R/T 번호</th>
+                <th>주문번호</th>
+                <th>상품명</th>
+                <th className="text-right">수량</th>
+                <th>상태</th>
+                <th>상태(품질)</th>
+                <th>접수일</th>
+                <th className="text-center">액션</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody >
               {filtered.map((t) => (
                 <tr key={t.id} className="hover:bg-slate-50">
                   <td className="px-4 py-3 font-mono text-xs font-semibold text-slate-700">
@@ -347,11 +347,11 @@ export default function ReturnTransfers() {
       {/* R/T 접수 모달 */}
       {showModal && (
         <div
-          className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50"
+          className="modal-overlay"
           onClick={() => setShowModal(false)}
         >
           <div
-            className="bg-white rounded-xl p-6 w-full max-w-lg shadow-xl"
+            className="modal-content max-w-lg"
             onClick={(e) => e.stopPropagation()}
           >
             <h3 className="text-lg font-semibold text-slate-900 mb-4 flex items-center gap-2">
@@ -432,11 +432,11 @@ export default function ReturnTransfers() {
       {/* 검수 모달 */}
       {selected && (
         <div
-          className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50"
+          className="modal-overlay"
           onClick={() => setSelected(null)}
         >
           <div
-            className="bg-white rounded-xl p-6 w-full max-w-md shadow-xl"
+            className="modal-content max-w-md"
             onClick={(e) => e.stopPropagation()}
           >
             <h3 className="text-lg font-semibold text-slate-900 mb-4 flex items-center gap-2">

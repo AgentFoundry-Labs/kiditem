@@ -3,7 +3,7 @@
 import type { ProductStatus } from '../../lib/sourcing-api';
 
 const STATUS_STYLES: Record<ProductStatus, string> = {
-  DRAFT: 'bg-gray-100 text-gray-600',
+  DRAFT: 'bg-slate-100 text-slate-600',
   PROCESSING: 'bg-yellow-100 text-yellow-700 animate-pulse',
   LISTED: 'bg-emerald-100 text-emerald-700',
   DISCONTINUED: 'bg-red-100 text-red-700',

@@ -75,7 +75,7 @@ export default function BundleProducts() {
     <div className="space-y-6">
       {/* 헤더 */}
       <div className="flex items-center justify-between">
-        <h1 className="text-[22px] font-bold text-slate-900 flex items-center gap-2">
+        <h1 className="page-title flex items-center gap-2">
           <Layers size={22} className="text-purple-500" /> 묶음 상품 AI 분석
         </h1>
         <div className="flex items-center gap-2">
@@ -91,7 +91,7 @@ export default function BundleProducts() {
       </div>
 
       {/* 요약 */}
-      <div className="bg-white rounded-xl border border-slate-200 p-5">
+      <div className="card p-5">
         <h2 className="text-[15px] font-bold text-slate-900 mb-3">묶음 상품 요약</h2>
         <div className="grid grid-cols-4 gap-3">
           <div className="bg-slate-50 rounded-lg p-3">

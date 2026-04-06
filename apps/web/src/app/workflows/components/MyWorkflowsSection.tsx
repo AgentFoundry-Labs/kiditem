@@ -28,7 +28,7 @@ export function MyWorkflowsSection({ templates, filter, setFilter, onToggleActiv
   return (
     <>
       <div className="flex items-center gap-2">
-        <Filter className="w-4 h-4 text-gray-600" />
+        <Filter className="w-4 h-4 text-slate-600" />
         <div className="flex gap-1">
           {moduleFilters.map((f) => (
             <button
@@ -36,8 +36,8 @@ export function MyWorkflowsSection({ templates, filter, setFilter, onToggleActiv
               onClick={() => setFilter(f.id)}
               className={`px-3 py-1.5 rounded-lg text-xs transition-colors ${
                 filter === f.id
-                  ? 'bg-white text-gray-900 border border-gray-200'
-                  : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50 border border-transparent'
+                  ? 'bg-white text-slate-900 border border-slate-200'
+                  : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50 border border-transparent'
               }`}
             >
               {f.label}

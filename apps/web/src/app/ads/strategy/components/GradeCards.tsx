@@ -190,12 +190,12 @@ export function GradeCards({ budgetAllocation, rules }: Props) {
           (a, b) => (priOrder[a.priority as keyof typeof priOrder] ?? 3) - (priOrder[b.priority as keyof typeof priOrder] ?? 3),
         );
         return (
-          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+          <div className="table-card shadow-sm">
             <div className={`flex items-center justify-between px-5 py-3 bg-gradient-to-r ${g.headerGrad}`}>
               <h3 className="text-[15px] font-bold text-white">{selectedGrade}등급 전체 제안 — {sorted.length}건</h3>
               <button onClick={() => setSelectedGrade(null)} className="text-white/70 hover:text-white text-sm">닫기</button>
             </div>
-            <div className="divide-y divide-slate-100">
+            <div >
               {sorted.map((r, i) => (
                 <div key={i} className="flex items-start gap-3 px-5 py-3">
                   {r.priority && (
@@ -203,7 +203,7 @@ export function GradeCards({ budgetAllocation, rules }: Props) {
                       r.priority === 'urgent' ? 'bg-red-500 text-white' :
                       r.priority === 'high' ? 'bg-orange-100 text-orange-700' :
                       r.priority === 'medium' ? 'bg-blue-100 text-blue-700' :
-                      'bg-gray-100 text-gray-700'
+                      'bg-slate-100 text-slate-700'
                     }`}>
                       {r.priority === 'urgent' ? '긴급' : r.priority === 'high' ? '높음' : r.priority === 'medium' ? '보통' : '낮음'}
                     </span>

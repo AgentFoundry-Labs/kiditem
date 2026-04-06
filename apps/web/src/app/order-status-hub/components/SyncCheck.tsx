@@ -81,7 +81,7 @@ export default function SyncCheck() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-900">
+        <h1 className="page-title">
           <RefreshCcwDot size={24} className="inline mr-2" />
           주문 동기화 누락 체크
         </h1>
@@ -224,7 +224,7 @@ export default function SyncCheck() {
                         <th className="px-4 py-3">상태</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100">
+                    <tbody >
                       {dailyData.map((row) => (
                         <tr
                           key={row.date}

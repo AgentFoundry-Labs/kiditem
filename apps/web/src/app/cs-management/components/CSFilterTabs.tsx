@@ -21,7 +21,7 @@ export function CSFilterTabs({ statusTabs, filter, onChange }: Props) {
           className={`px-4 py-2 rounded-lg text-sm font-medium ${
             filter === tab.key
               ? 'bg-blue-600 text-white'
-              : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'
+              : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
           }`}
         >
           {tab.label}

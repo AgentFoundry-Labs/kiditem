@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   LayoutDashboard,
   ShoppingCart,
@@ -36,10 +36,16 @@ import {
   Users,
   Building2,
   Wallet,
+  Bell,
+  MinusCircle,
+  TrendingDown,
   type LucideIcon,
 } from 'lucide-react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { apiClient } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 import { useStore } from '@/store/useStore';
+import type { AlertItem } from '@kiditem/shared';
 
 interface MenuItem {
   href: string;
@@ -167,9 +173,60 @@ function findActiveSection(pathname: string): string | null {
   return null;
 }
 
+function alertTypeIcon(type: string) {
+  switch (type) {
+    case 'minus_product': return <MinusCircle className="w-4 h-4 text-red-500" />;
+    case 'profit_low': return <AlertTriangle className="w-4 h-4 text-orange-500" />;
+    case 'ad_high': return <Megaphone className="w-4 h-4 text-amber-500" />;
+    case 'stock_low': return <Truck className="w-4 h-4 text-blue-500" />;
+    case 'grade_change': return <TrendingDown className="w-4 h-4 text-purple-500" />;
+    default: return <Bell className="w-4 h-4 text-slate-400" />;
+  }
+}
+
+function timeAgoShort(dateStr: string): string {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return '방금';
+  if (mins < 60) return `${mins}분 전`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}시간 전`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days}일 전`;
+  return `${Math.floor(days / 30)}개월 전`;
+}
+
 export default function Sidebar() {
   const pathname = usePathname();
   const { sidebarOpen, toggleSidebar, setSidebarOpen } = useStore();
+  const [alertOpen, setAlertOpen] = useState(false);
+  const alertRef = useRef<HTMLDivElement>(null);
+  const qc = useQueryClient();
+
+  const { data: alerts = [] } = useQuery({
+    queryKey: ['alerts'],
+    queryFn: () => apiClient.get<AlertItem[]>('/api/alerts?limit=10'),
+  });
+  const unreadCount = alerts.length;
+
+  const markAsReadMutation = useMutation({
+    mutationFn: (id: string) => apiClient.patch(`/api/alerts/${id}/read`, {}),
+    onSuccess: (_, id) => { qc.setQueryData<AlertItem[]>(['alerts'], (old) => old?.filter(a => a.id !== id) ?? []); },
+  });
+  const markAllAsReadMutation = useMutation({
+    mutationFn: () => apiClient.patch('/api/alerts/read-all', {}),
+    onSuccess: () => { qc.setQueryData<AlertItem[]>(['alerts'], []); },
+  });
+
+  useEffect(() => {
+    if (!alertOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (alertRef.current && !alertRef.current.contains(e.target as Node)) setAlertOpen(false);
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [alertOpen]);
+
   const [openGroups, setOpenGroups] = useState<Set<string>>(() => {
     const active = findActiveSection(pathname);
     return active ? new Set([active]) : new Set();
@@ -219,25 +276,25 @@ export default function Sidebar() {
       )}
       <aside
         className={cn(
-          'fixed left-0 top-0 z-50 h-screen bg-white border-r border-gray-200 transition-all duration-300 flex flex-col font-sans',
+          'fixed left-0 top-0 z-50 h-screen bg-white border-r border-slate-200 transition-all duration-300 flex flex-col font-sans',
           sidebarOpen
             ? 'translate-x-0 w-60 md:translate-x-0 md:w-60'
             : '-translate-x-full w-60 md:translate-x-0 md:w-[68px]'
         )}
       >
         {/* Logo */}
-        <div className="h-14 flex items-center px-5 border-b border-gray-100">
+        <div className="h-14 flex items-center px-5 border-b border-slate-100">
           {sidebarOpen ? (
             <>
               <Link href="/" className="flex items-center gap-2.5">
                 <div className="w-7 h-7 rounded-lg bg-violet-500 flex items-center justify-center flex-shrink-0">
                   <span className="text-[12px] font-extrabold text-white">K</span>
                 </div>
-                <span className="text-[16px] font-bold text-gray-900 tracking-tight">Kiditem</span>
+                <span className="text-[16px] font-bold text-slate-900 tracking-tight">Kiditem</span>
               </Link>
               <button
                 onClick={toggleSidebar}
-                className="ml-auto text-gray-400 hover:text-gray-600 p-1 rounded transition-colors"
+                className="ml-auto text-slate-400 hover:text-slate-600 p-1 rounded transition-colors"
               >
                 <PanelLeftClose size={16} />
               </button>
@@ -245,7 +302,7 @@ export default function Sidebar() {
           ) : (
             <button
               onClick={toggleSidebar}
-              className="mx-auto text-gray-400 hover:text-gray-600 p-1 transition-colors"
+              className="mx-auto text-slate-400 hover:text-slate-600 p-1 transition-colors"
             >
               <PanelLeftOpen size={16} />
             </button>
@@ -264,7 +321,7 @@ export default function Sidebar() {
               <div key={si}>
                 {/* 구분선 */}
                 {!sidebarOpen && si > 0 && (
-                  <div className="mx-3 my-2 border-t border-gray-100" />
+                  <div className="mx-3 my-2 border-t border-slate-100" />
                 )}
 
                 {/* 그룹 라벨 (접힘식) */}
@@ -275,14 +332,14 @@ export default function Sidebar() {
                   >
                     <span className={cn(
                       'text-[14px] font-medium transition-colors',
-                      hasActiveChild ? 'text-violet-500' : 'text-gray-700 group-hover:text-gray-900'
+                      hasActiveChild ? 'text-violet-500' : 'text-slate-700 group-hover:text-slate-900'
                     )}>
                       {section.label}
                     </span>
                     <ChevronDown
                       size={14}
                       className={cn(
-                        'text-gray-300 group-hover:text-gray-400 transition-all duration-200',
+                        'text-slate-300 group-hover:text-slate-400 transition-all duration-200',
                         isOpen ? '' : '-rotate-90'
                       )}
                     />
@@ -307,8 +364,8 @@ export default function Sidebar() {
                         className={cn(
                           'group flex items-center gap-3 px-3 py-2 rounded-lg text-[14px] transition-all duration-100 relative',
                           active
-                            ? 'bg-violet-50 text-gray-900'
-                            : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50',
+                            ? 'bg-violet-50 text-slate-900'
+                            : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50',
                           !sidebarOpen && 'justify-center px-0'
                         )}
                         title={!sidebarOpen ? item.label : undefined}
@@ -321,7 +378,7 @@ export default function Sidebar() {
                           strokeWidth={active ? 2 : 1.5}
                           className={cn(
                             'shrink-0 transition-colors',
-                            active ? 'text-violet-500' : 'text-gray-400 group-hover:text-gray-500'
+                            active ? 'text-violet-500' : 'text-slate-400 group-hover:text-slate-500'
                           )}
                         />
                         {sidebarOpen && (
@@ -339,7 +396,7 @@ export default function Sidebar() {
         </nav>
 
         {/* Bottom pinned — Agent OS + 설정 */}
-        <div className="border-t border-gray-100 px-3 py-2 space-y-0.5">
+        <div className="border-t border-slate-100 px-3 py-2 space-y-0.5">
           {menuSections[menuSections.length - 1].items.map((item) => {
             const active = isItemActive(item.href, pathname);
             const Icon = item.icon;
@@ -351,8 +408,8 @@ export default function Sidebar() {
                 className={cn(
                   'group flex items-center gap-3 px-3 py-2 rounded-lg text-[14px] transition-all duration-100 relative',
                   active
-                    ? 'bg-violet-50 text-gray-900'
-                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50',
+                    ? 'bg-violet-50 text-slate-900'
+                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50',
                   !sidebarOpen && 'justify-center px-0'
                 )}
                 title={!sidebarOpen ? item.label : undefined}
@@ -365,7 +422,7 @@ export default function Sidebar() {
                   strokeWidth={active ? 2 : 1.5}
                   className={cn(
                     'shrink-0 transition-colors',
-                    active ? 'text-violet-500' : 'text-gray-400 group-hover:text-gray-500'
+                    active ? 'text-violet-500' : 'text-slate-400 group-hover:text-slate-500'
                   )}
                 />
                 {sidebarOpen && (
@@ -376,14 +433,65 @@ export default function Sidebar() {
               </Link>
             );
           })}
-          {sidebarOpen && (
-            <div className="flex items-center gap-2 px-3 pt-2 pb-1">
-              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 pulse-dot" />
-              <span className="text-[11px] text-gray-400 font-mono tracking-wide">
-                SYSTEM ONLINE
-              </span>
-            </div>
-          )}
+          {/* 알림 */}
+          <div className="relative" ref={alertRef}>
+            <button
+              onClick={() => setAlertOpen((v) => !v)}
+              className={cn(
+                'group flex items-center gap-3 px-3 py-2 rounded-lg text-[14px] transition-all duration-100 relative w-full',
+                'text-slate-500 hover:text-slate-700 hover:bg-slate-50',
+                !sidebarOpen && 'justify-center px-0'
+              )}
+              title={!sidebarOpen ? '알림' : undefined}
+            >
+              <div className="relative shrink-0">
+                <Bell size={18} strokeWidth={1.5} className="text-slate-400 group-hover:text-slate-500 transition-colors" />
+                {unreadCount > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] font-bold rounded-full min-w-[14px] h-[14px] flex items-center justify-center px-0.5">
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </span>
+                )}
+              </div>
+              {sidebarOpen && <span className="font-medium">알림</span>}
+            </button>
+
+            {alertOpen && (
+              <div className={cn(
+                'absolute bottom-full mb-2 w-80 bg-white rounded-xl border border-slate-200 shadow-lg z-50 overflow-hidden',
+                sidebarOpen ? 'left-0' : 'left-full ml-2'
+              )}>
+                <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-sm text-slate-900">알림</span>
+                    {unreadCount > 0 && (
+                      <span className="bg-red-100 text-red-700 text-xs font-medium px-1.5 py-0.5 rounded-full">{unreadCount}</span>
+                    )}
+                  </div>
+                  {unreadCount > 0 && (
+                    <button onClick={() => markAllAsReadMutation.mutate()} className="text-xs text-blue-600 hover:text-blue-800 font-medium">모두 읽음</button>
+                  )}
+                </div>
+                <div className="max-h-[300px] overflow-y-auto">
+                  {alerts.length === 0 ? (
+                    <div className="px-4 py-8 text-center text-sm text-slate-400">새로운 알림이 없습니다</div>
+                  ) : alerts.map((alert) => (
+                    <button
+                      key={alert.id}
+                      onClick={() => markAsReadMutation.mutate(alert.id)}
+                      className="w-full flex items-start gap-3 px-4 py-3 hover:bg-slate-50 transition-colors text-left border-b border-slate-50 last:border-b-0"
+                    >
+                      <div className="mt-0.5 shrink-0">{alertTypeIcon(alert.type)}</div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-slate-900 font-medium truncate">{alert.title}</p>
+                        {alert.message && <p className="text-xs text-slate-500 mt-0.5 line-clamp-2">{alert.message}</p>}
+                        <p className="text-xs text-slate-400 mt-1">{timeAgoShort(alert.createdAt)}</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </aside>
     </>

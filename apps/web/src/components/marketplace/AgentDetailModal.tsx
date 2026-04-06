@@ -78,44 +78,44 @@ export function AgentDetailModal({
             {item.icon || item.name.charAt(0)}
           </div>
           <div className="flex-1 min-w-0">
-            <h2 className="text-lg font-semibold text-gray-900 truncate">{item.name}</h2>
+            <h2 className="text-lg font-semibold text-slate-900 truncate">{item.name}</h2>
           </div>
-          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors">
-            <X size={18} className="text-gray-400" />
+          <button onClick={onClose} className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors">
+            <X size={18} className="text-slate-400" />
           </button>
         </div>
 
         {/* Description */}
         <div className="px-6 pb-4">
-          <p className="text-sm text-gray-600 whitespace-pre-wrap">{item.description}</p>
+          <p className="text-sm text-slate-600 whitespace-pre-wrap">{item.description}</p>
         </div>
 
         {/* Meta badges */}
         <div className="px-6 pb-4 flex items-center gap-2 flex-wrap">
-          <span className="px-2 py-0.5 text-xs font-medium bg-gray-100 text-gray-600 rounded-md">
+          <span className="px-2 py-0.5 text-xs font-medium bg-slate-100 text-slate-600 rounded-md">
             {CATEGORY_LABELS[item.category] || item.category}
           </span>
           <span className="px-2 py-0.5 text-xs font-medium bg-violet-50 text-violet-600 rounded-md">
             {ROLE_LABELS[item.role] || item.role}
           </span>
           {item.installCount > 0 && (
-            <span className="text-xs text-gray-400">{item.installCount}회 고용</span>
+            <span className="text-xs text-slate-400">{item.installCount}회 고용</span>
           )}
         </div>
 
         {/* Config section (only when not installed) */}
         {!installed && item.configurableParams.length > 0 && (
           <>
-            <div className="border-t border-gray-100 mx-6" />
+            <div className="border-t border-slate-100 mx-6" />
             <div className="px-6 py-4 space-y-4 max-h-[300px] overflow-y-auto">
-              <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">설정</p>
+              <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">설정</p>
               {item.configurableParams.map((param) => (
                 <div key={param.key}>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-slate-700 mb-1">
                     {param.label}
                   </label>
                   {param.description && (
-                    <p className="text-xs text-gray-400 mb-1.5">{param.description}</p>
+                    <p className="text-xs text-slate-400 mb-1.5">{param.description}</p>
                   )}
                   {renderField(param, values[param.key], (val) => setValue(param.key, val))}
                 </div>
@@ -125,7 +125,7 @@ export function AgentDetailModal({
         )}
 
         {/* Action buttons */}
-        <div className="px-6 py-5 border-t border-gray-100">
+        <div className="px-6 py-5 border-t border-slate-100">
           {installed ? (
             <div className="flex items-center gap-2">
               <div className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 text-sm font-medium text-green-600 bg-green-50 rounded-lg cursor-default">
@@ -161,7 +161,7 @@ function renderField(
   onChange: (val: any) => void,
 ) {
   const inputClass =
-    'w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-violet-500 focus:border-violet-500';
+    'w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-violet-500 focus:border-violet-500';
 
   switch (param.type) {
     case 'cron':
@@ -191,7 +191,7 @@ function renderField(
           type="button"
           onClick={() => onChange(!value)}
           className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
-            value ? 'bg-violet-600' : 'bg-gray-200'
+            value ? 'bg-violet-600' : 'bg-slate-200'
           }`}
         >
           <span

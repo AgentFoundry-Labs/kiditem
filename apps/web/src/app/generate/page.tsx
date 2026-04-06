@@ -61,7 +61,7 @@ export default function GeneratePage() {
   }
 
   return (
-    <div className="flex flex-col h-full bg-gray-50 overflow-y-auto">
+    <div className="flex flex-col h-full bg-slate-50 overflow-y-auto">
       <GeneratePageHeader />
 
       {error && (

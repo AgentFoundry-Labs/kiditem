@@ -61,7 +61,7 @@ export default function AdsCampaignsPage() {
     <div className="space-y-6">
       {/* Header + Period Toggle */}
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-900">캠페인 분석</h1>
+        <h1 className="page-title">캠페인 분석</h1>
         <div className="flex gap-1">
           {([['7d', '7일'], ['30d', '월간']] as const).map(([key, label]) => (
             <button
@@ -87,23 +87,23 @@ export default function AdsCampaignsPage() {
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-white rounded-xl p-4 border border-slate-200">
-          <div className="text-sm text-slate-500">총 광고비</div>
-          <div className="text-xl font-bold text-slate-900 mt-1">{formatKRW(kpi.adSpend)}원</div>
+        <div className="card">
+          <div className="card-label">총 광고비</div>
+          <div className="card-value">{formatKRW(kpi.adSpend)}원</div>
         </div>
-        <div className="bg-white rounded-xl p-4 border border-slate-200">
-          <div className="text-sm text-slate-500">광고 매출</div>
-          <div className="text-xl font-bold text-slate-900 mt-1">{formatKRW(kpi.adRevenue)}원</div>
+        <div className="card">
+          <div className="card-label">광고 매출</div>
+          <div className="card-value">{formatKRW(kpi.adRevenue)}원</div>
         </div>
-        <div className="bg-white rounded-xl p-4 border border-slate-200">
-          <div className="text-sm text-slate-500">ROAS</div>
-          <div className={`text-xl font-bold mt-1 ${roasColor(kpi.roas ?? 0, roasT)}`}>
+        <div className="card">
+          <div className="card-label">ROAS</div>
+          <div className={`card-value ${roasColor(kpi.roas ?? 0, roasT)}`}>
             {kpi.roas ?? 0}%
           </div>
         </div>
-        <div className="bg-white rounded-xl p-4 border border-slate-200">
-          <div className="text-sm text-slate-500">CTR</div>
-          <div className="text-xl font-bold text-slate-900 mt-1">{(kpi.ctr ?? 0).toFixed(1)}%</div>
+        <div className="card">
+          <div className="card-label">CTR</div>
+          <div className="card-value">{(kpi.ctr ?? 0).toFixed(1)}%</div>
         </div>
       </div>
 

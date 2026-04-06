@@ -16,8 +16,8 @@ export function OntologyViewToggle({ viewMode, onChange }: Props) {
         className={cn(
           'px-3 py-1.5 rounded-lg text-sm flex items-center gap-1.5',
           viewMode === 'graph'
-            ? 'bg-gray-900 text-white'
-            : 'bg-white border border-gray-200 text-gray-700',
+            ? 'bg-slate-900 text-white'
+            : 'bg-white border border-slate-200 text-slate-700',
         )}
       >
         <Network className="w-4 h-4" /> 그래프
@@ -27,8 +27,8 @@ export function OntologyViewToggle({ viewMode, onChange }: Props) {
         className={cn(
           'px-3 py-1.5 rounded-lg text-sm flex items-center gap-1.5',
           viewMode === 'list'
-            ? 'bg-gray-900 text-white'
-            : 'bg-white border border-gray-200 text-gray-700',
+            ? 'bg-slate-900 text-white'
+            : 'bg-white border border-slate-200 text-slate-700',
         )}
       >
         <List className="w-4 h-4" /> 목록

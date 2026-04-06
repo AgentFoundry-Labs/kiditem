@@ -36,6 +36,8 @@ import { ProcessingCostsModule } from './processing-costs/processing-costs.modul
 import { SalesPlansModule } from './sales-plans/sales-plans.module';
 import { StatisticsModule } from './statistics/statistics.module';
 import { ChatModule } from './chat/chat.module';
+import { UploadsModule } from './uploads/uploads.module';
+import { TrafficModule } from './traffic/traffic.module';
 
 @Module({
   imports: [
@@ -76,6 +78,8 @@ import { ChatModule } from './chat/chat.module';
     SalesPlansModule,
     StatisticsModule,
     ChatModule,
+    UploadsModule,
+    TrafficModule,
   ],
 })
 export class AppModule {}

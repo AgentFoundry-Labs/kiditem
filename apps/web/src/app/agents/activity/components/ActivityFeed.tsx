@@ -23,8 +23,8 @@ export function ActivityFeed({
         <div key={group.label} className="mb-6">
           {/* Date group header */}
           <div className="flex items-center gap-2 mb-3">
-            <span className="text-xs font-medium text-gray-500">{group.label}</span>
-            <div className="flex-1 h-px bg-gray-100" />
+            <span className="text-xs font-medium text-slate-500">{group.label}</span>
+            <div className="flex-1 h-px bg-slate-100" />
           </div>
 
           {/* Runs */}
@@ -32,7 +32,7 @@ export function ActivityFeed({
             {group.runs.map((run, idx) => {
               const colorClass = agentColor(run.agentName);
               const initials = agentInitials(run.agentName);
-              const srcColor = SOURCE_COLORS[run.invocationSource] ?? 'bg-gray-100 text-gray-600';
+              const srcColor = SOURCE_COLORS[run.invocationSource] ?? 'bg-slate-100 text-slate-600';
               const badgeClass = statusBadge[run.status] ?? statusBadgeDefault;
               const isLast = idx === group.runs.length - 1;
               const hasError = (run.status === 'failed' || run.status === 'timed_out') && (run.error || run.stderrExcerpt);
@@ -45,8 +45,8 @@ export function ActivityFeed({
                       if (hasError) setExpandedRunId(isExpanded ? null : run.id);
                     }}
                     className={cn(
-                      'flex items-start gap-3 px-3 py-2.5 rounded-lg hover:bg-gray-50 transition-colors cursor-default',
-                      !isLast && !isExpanded && 'border-b border-gray-50',
+                      'flex items-start gap-3 px-3 py-2.5 rounded-lg hover:bg-slate-50 transition-colors cursor-default',
+                      !isLast && !isExpanded && 'border-b border-slate-50',
                       hasError && 'cursor-pointer',
                     )}
                   >
@@ -63,8 +63,8 @@ export function ActivityFeed({
                     {/* Content */}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-start gap-2 flex-wrap">
-                        <span className="text-sm font-medium text-gray-900">{run.agentName}</span>
-                        <span className="text-sm text-gray-500 truncate flex-1 min-w-0">
+                        <span className="text-sm font-medium text-slate-900">{run.agentName}</span>
+                        <span className="text-sm text-slate-500 truncate flex-1 min-w-0">
                           {runDescription(run)}
                         </span>
                       </div>
@@ -101,9 +101,9 @@ export function ActivityFeed({
                     {/* Expand indicator + time */}
                     <div className="flex items-center gap-1.5 shrink-0 mt-0.5">
                       {hasError && (
-                        <ChevronDown className={cn('w-3 h-3 text-gray-400 transition-transform', isExpanded && 'rotate-180')} />
+                        <ChevronDown className={cn('w-3 h-3 text-slate-400 transition-transform', isExpanded && 'rotate-180')} />
                       )}
-                      <span className="text-xs text-gray-400">
+                      <span className="text-xs text-slate-400">
                         {relativeTime(run.createdAt)}
                       </span>
                     </div>

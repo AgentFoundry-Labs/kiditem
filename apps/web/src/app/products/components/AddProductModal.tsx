@@ -33,8 +33,8 @@ export default function AddProductModal({ onClose, onSaved }: AddProductModalPro
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
-      <div className="bg-white rounded-xl p-6 w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
         <h2 className="text-lg font-bold mb-4">상품 등록</h2>
         <form onSubmit={handleSubmit} className="space-y-3">
           <div className="grid grid-cols-2 gap-3">

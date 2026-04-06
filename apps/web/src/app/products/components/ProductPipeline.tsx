@@ -29,7 +29,7 @@ export default function ProductPipeline({ total, aCount, bCount, cCount, minusCo
   ];
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+    <div className="table-card">
       <div className="flex items-center justify-between px-5 py-3 border-b border-slate-100">
         <h3 className="text-sm font-bold text-slate-900">Product Pipeline</h3>
         <span className="text-xs text-emerald-600 font-mono flex items-center gap-1">

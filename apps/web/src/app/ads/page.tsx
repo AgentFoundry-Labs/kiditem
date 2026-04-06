@@ -114,7 +114,7 @@ export default function AdsPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-900">광고 관리</h1>
+        <h1 className="page-title">광고 관리</h1>
         <button onClick={handleExcel} className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-medium">
           <Download size={16} /> 엑셀 다운로드
         </button>
@@ -122,22 +122,22 @@ export default function AdsPage() {
 
       {/* Summary Cards */}
       <div className="grid grid-cols-4 gap-4">
-        <div className="bg-white rounded-xl p-4 border border-slate-200">
-          <div className="flex items-center gap-2 text-sm text-slate-500"><Megaphone size={16} /> 총 광고비</div>
-          <div className="text-xl font-bold text-slate-900 mt-1">{formatKRW(summary.totalSpend)}원</div>
+        <div className="card">
+          <div className="flex items-center gap-2 card-label"><Megaphone size={16} /> 총 광고비</div>
+          <div className="card-value">{formatKRW(summary.totalSpend)}원</div>
         </div>
-        <div className="bg-white rounded-xl p-4 border border-slate-200">
-          <div className="text-sm text-slate-500">ROAS</div>
-          <div className={`text-xl font-bold mt-1 ${ROAS_STATUS_COLOR[summary.overallRoasStatus]}`}>{summary.overallRoas}%</div>
+        <div className="card">
+          <div className="card-label">ROAS</div>
+          <div className={`card-value ${ROAS_STATUS_COLOR[summary.overallRoasStatus]}`}>{summary.overallRoas}%</div>
         </div>
         <div className={`rounded-xl p-4 border ${AD_RATE_STATUS_STYLE[summary.overallAdRateStatus]}`}>
-          <div className="text-sm text-slate-500">광고비율</div>
-          <div className={`text-xl font-bold mt-1 ${AD_RATE_STATUS_TEXT_COLOR[summary.overallAdRateStatus]}`}>{summary.overallAdRate}%</div>
+          <div className="card-label">광고비율</div>
+          <div className={`card-value ${AD_RATE_STATUS_TEXT_COLOR[summary.overallAdRateStatus]}`}>{summary.overallAdRate}%</div>
           <div className="text-xs text-slate-500 mt-1">목표: 업계평균</div>
         </div>
         <div className="bg-red-50 rounded-xl p-4 border border-red-200">
           <div className="flex items-center gap-2 text-sm text-red-600"><AlertTriangle size={16} /> {adRateT.warning}% 초과</div>
-          <div className="text-xl font-bold text-red-700 mt-1">{summary.highAdCount}개</div>
+          <div className="card-value text-red-700">{summary.highAdCount}개</div>
         </div>
       </div>
 
@@ -156,7 +156,7 @@ export default function AdsPage() {
 
       {/* Budget Allocation */}
       <div className="grid grid-cols-2 gap-6">
-        <div className="bg-white rounded-xl p-6 border border-slate-200">
+        <div className="card p-6">
           <h3 className="font-semibold text-slate-900 mb-4">등급별 광고비 배분 (목표: A등급 80%)</h3>
            <ResponsiveContainer width="100%" height={200} minWidth={0} minHeight={0}>
              <BarChart data={gradeChartData} layout="vertical">
@@ -178,7 +178,7 @@ export default function AdsPage() {
           </div>
         </div>
 
-        <div className="bg-white rounded-xl p-6 border border-slate-200">
+        <div className="card p-6">
           <h3 className="font-semibold text-slate-900 mb-4">광고 등급별 배분 (1차:15 / 2차:10 / 3차:5)</h3>
           <div className="space-y-4 mt-6">
             {["1차", "2차", "3차"].map((tier) => {

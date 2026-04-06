@@ -4,10 +4,11 @@ import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   BookOpen,
-  Calendar,
   ArrowDownToLine,
   ArrowUpFromLine,
 } from 'lucide-react';
+import { usePeriodSelector } from '@/hooks/usePeriodSelector';
+import PeriodSelector from '@/components/ui/PeriodSelector';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import { formatNumber } from '@/lib/utils';
@@ -49,10 +50,7 @@ const IN_TYPES = new Set(['in', 'purchase', 'return_in', 'inbound']);
 const OUT_TYPES = new Set(['out', 'sale', 'outbound']);
 
 export default function StockLedger() {
-  const [period, setPeriod] = useState(() => {
-    const now = new Date();
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  });
+  const { period, setPeriod } = usePeriodSelector();
 
   const { data, isLoading } = useQuery({
     queryKey: queryKeys.stockMovement.data({ period, action: 'ledger' }),
@@ -109,18 +107,10 @@ export default function StockLedger() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <BookOpen className="w-6 h-6 text-teal-600" />
-          <h1 className="text-2xl font-bold text-slate-800">재고수불부</h1>
+          <h1 className="page-title">재고수불부</h1>
         </div>
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <Calendar className="w-4 h-4 text-slate-400" />
-            <input
-              type="month"
-              value={period}
-              onChange={(e) => setPeriod(e.target.value)}
-              className="px-3 py-1.5 border border-slate-200 rounded-lg text-sm"
-            />
-          </div>
+          <PeriodSelector value={period} onChange={setPeriod} />
         </div>
       </div>
 
@@ -128,8 +118,8 @@ export default function StockLedger() {
       {totals && (
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
           <div className="bg-white rounded-xl border border-slate-200 p-5">
-            <p className="text-sm text-slate-500 mb-1">기초재고</p>
-            <p className="text-xl font-bold text-slate-800">
+            <p className="card-label mb-1">기초재고</p>
+            <p className="card-value text-slate-800">
               {formatNumber(totals.beginStock)}개
             </p>
           </div>
@@ -138,7 +128,7 @@ export default function StockLedger() {
               <ArrowDownToLine className="w-3.5 h-3.5 text-green-500" />
               <p className="text-sm text-slate-500">입고</p>
             </div>
-            <p className="text-xl font-bold text-green-600">
+            <p className="card-value text-green-600">
               +{formatNumber(totals.inbound)}개
             </p>
           </div>
@@ -147,20 +137,20 @@ export default function StockLedger() {
               <ArrowUpFromLine className="w-3.5 h-3.5 text-red-500" />
               <p className="text-sm text-slate-500">출고</p>
             </div>
-            <p className="text-xl font-bold text-red-600">
+            <p className="card-value text-red-600">
               -{formatNumber(totals.outbound)}개
             </p>
           </div>
           <div className="bg-white rounded-xl border border-slate-200 p-5">
-            <p className="text-sm text-slate-500 mb-1">조정</p>
-            <p className="text-xl font-bold text-purple-600">
+            <p className="card-label mb-1">조정</p>
+            <p className="card-value text-purple-600">
               {totals.adjust >= 0 ? '+' : ''}
               {formatNumber(totals.adjust)}개
             </p>
           </div>
           <div className="bg-white rounded-xl border border-slate-200 p-5">
-            <p className="text-sm text-slate-500 mb-1">기말재고</p>
-            <p className="text-xl font-bold text-blue-600">
+            <p className="card-label mb-1">기말재고</p>
+            <p className="card-value text-blue-600">
               {formatNumber(totals.endStock)}개
             </p>
           </div>
@@ -176,7 +166,7 @@ export default function StockLedger() {
           </span>
         </h2>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table>
             <thead>
               <tr className="border-b border-slate-200 text-slate-500">
                 <th className="text-left py-2 px-3">상품명</th>

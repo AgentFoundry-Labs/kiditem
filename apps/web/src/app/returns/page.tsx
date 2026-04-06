@@ -75,7 +75,7 @@ export default function ReturnsPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-900">
+        <h1 className="page-title">
           <RotateCcw size={24} className="inline mr-2" />
           반품/교환 관리
         </h1>
@@ -88,11 +88,11 @@ export default function ReturnsPage() {
       <div className="grid grid-cols-2 gap-4">
         <div className={`rounded-xl p-4 border cursor-pointer transition-colors ${tab === "return" ? "bg-red-50 border-red-300" : "bg-white border-slate-200 hover:border-red-200"}`} onClick={() => setTab("return")}>
           <div className="text-sm text-red-600">반품 요청</div>
-          <div className="text-2xl font-bold text-red-700">{returns.length}건</div>
+          <div className="card-value text-red-700">{returns.length}건</div>
         </div>
         <div className={`rounded-xl p-4 border cursor-pointer transition-colors ${tab === "exchange" ? "bg-orange-50 border-orange-300" : "bg-white border-slate-200 hover:border-orange-200"}`} onClick={() => setTab("exchange")}>
           <div className="text-sm text-orange-600">교환 요청</div>
-          <div className="text-2xl font-bold text-orange-700">{exchanges.length}건</div>
+          <div className="card-value text-orange-700">{exchanges.length}건</div>
         </div>
       </div>
 
@@ -104,7 +104,7 @@ export default function ReturnsPage() {
       ) : error ? (
         <div className="text-center py-12 text-red-500">{error}</div>
       ) : currentData.length === 0 ? (
-        <div className="text-center py-12 text-slate-400">
+        <div className="empty-state">
           {tab === "return" ? "반품" : "교환"} 요청이 없습니다.
         </div>
       ) : tab === "return" ? (

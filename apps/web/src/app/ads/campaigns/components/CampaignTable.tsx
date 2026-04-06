@@ -41,7 +41,7 @@ export function CampaignTable({ campaigns, sortBy, onSortChange, selectedCampaig
   );
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+    <div className="table-card">
       <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
         <h3 className="font-semibold text-slate-900">캠페인 목록</h3>
         <div className="flex gap-1">
@@ -59,7 +59,7 @@ export function CampaignTable({ campaigns, sortBy, onSortChange, selectedCampaig
       <div className="overflow-x-auto">
         <table>
           <thead>
-            <tr className="bg-slate-50">
+            <tr>
               <th>캠페인명</th>
               <th className="text-right">광고비</th>
               <th className="text-right">광고매출</th>

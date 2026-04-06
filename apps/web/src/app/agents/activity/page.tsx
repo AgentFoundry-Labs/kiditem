@@ -97,16 +97,16 @@ export default function ActivityPage() {
       )}
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
-        <p className="text-xs text-gray-400">
+        <p className="text-xs text-slate-400">
           마지막 갱신: {lastRefreshed.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
         </p>
         <div className="flex items-center gap-1">
-          <div className="flex items-center border border-gray-200 rounded-lg overflow-hidden mr-2">
+          <div className="flex items-center border border-slate-200 rounded-lg overflow-hidden mr-2">
             <button
               onClick={() => setViewMode('feed')}
               className={cn(
                 'p-1.5 transition-colors',
-                viewMode === 'feed' ? 'bg-gray-100 text-gray-900' : 'text-gray-400 hover:bg-gray-50 hover:text-gray-700',
+                viewMode === 'feed' ? 'bg-slate-100 text-slate-900' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-700',
               )}
               title="피드"
             >
@@ -116,7 +116,7 @@ export default function ActivityPage() {
               onClick={() => setViewMode('timeline')}
               className={cn(
                 'p-1.5 transition-colors',
-                viewMode === 'timeline' ? 'bg-gray-100 text-gray-900' : 'text-gray-400 hover:bg-gray-50 hover:text-gray-700',
+                viewMode === 'timeline' ? 'bg-slate-100 text-slate-900' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-700',
               )}
               title="타임라인"
             >
@@ -125,7 +125,7 @@ export default function ActivityPage() {
           </div>
           <button
             onClick={() => queryClient.invalidateQueries({ queryKey: [...queryKeys.agents.all, 'activity'] })}
-            className="p-1.5 text-gray-400 hover:text-gray-600 border border-gray-200 rounded-lg transition-colors"
+            className="p-1.5 text-slate-400 hover:text-slate-600 border border-slate-200 rounded-lg transition-colors"
             title="새로고침"
           >
             <RefreshCw className="w-3.5 h-3.5" />
@@ -148,7 +148,7 @@ export default function ActivityPage() {
 
       {/* Empty state */}
       {filteredRuns.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-16 text-gray-400 border border-gray-200 rounded-lg">
+        <div className="flex flex-col items-center justify-center py-16 text-slate-400 border border-slate-200 rounded-lg">
           <Activity className="w-8 h-8 mb-2" />
           <p className="text-sm">아직 활동이 없습니다.</p>
         </div>

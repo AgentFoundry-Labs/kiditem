@@ -70,7 +70,7 @@ const runStatusColors: Record<string, string> = {
   completed: 'text-green-600',
   failed: 'text-red-500',
   running: 'text-blue-600',
-  pending: 'text-gray-500',
+  pending: 'text-slate-500',
 };
 
 function formatDuration(startedAt: string | null, completedAt: string | null): string {
@@ -155,10 +155,10 @@ export default function WorkflowList({
         const StatusIcon = lastStatus ? runStatusIcons[lastStatus] : null;
 
         return (
-          <div key={wf.id} className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+          <div key={wf.id} className="bg-white border border-slate-200 rounded-xl overflow-hidden">
             {/* Header row */}
             <div
-              className="flex items-center gap-4 px-5 py-4 cursor-pointer hover:bg-gray-50 transition-colors"
+              className="flex items-center gap-4 px-5 py-4 cursor-pointer hover:bg-slate-50 transition-colors"
               onClick={() => handleExpand(wf.id)}
             >
               {/* Active indicator / toggle */}
@@ -170,7 +170,7 @@ export default function WorkflowList({
                   }}
                   className={cn(
                     'w-1.5 h-10 rounded-full flex-shrink-0 transition-colors cursor-pointer',
-                    wf.isActive ? 'bg-emerald-500 hover:bg-emerald-600' : 'bg-gray-300 hover:bg-gray-400',
+                    wf.isActive ? 'bg-emerald-500 hover:bg-emerald-600' : 'bg-slate-300 hover:bg-slate-400',
                   )}
                   title={wf.isActive ? '비활성화' : '활성화'}
                 />
@@ -178,7 +178,7 @@ export default function WorkflowList({
                 <div
                   className={cn(
                     'w-1.5 h-10 rounded-full flex-shrink-0 transition-colors',
-                    wf.isActive ? 'bg-emerald-500' : 'bg-gray-300',
+                    wf.isActive ? 'bg-emerald-500' : 'bg-slate-300',
                   )}
                 />
               )}
@@ -194,17 +194,17 @@ export default function WorkflowList({
               {/* Info */}
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  <h3 className="text-sm font-medium text-gray-900 truncate">
+                  <h3 className="text-sm font-medium text-slate-900 truncate">
                     {wf.name}
                   </h3>
                   {wf.schedule && (
-                    <span className="inline-flex items-center gap-1 text-[10px] text-gray-600 bg-gray-100 px-1.5 py-0.5 rounded">
+                    <span className="inline-flex items-center gap-1 text-[10px] text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded">
                       <Clock className="w-2.5 h-2.5" />
                       스케줄
                     </span>
                   )}
                 </div>
-                <p className="text-[11px] text-gray-600 truncate mt-0.5">
+                <p className="text-[11px] text-slate-600 truncate mt-0.5">
                   {wf.description}
                 </p>
               </div>
@@ -229,7 +229,7 @@ export default function WorkflowList({
                 )}
 
                 {lastRun?.startedAt && (
-                  <span className="text-[10px] text-gray-600 w-16 text-right">
+                  <span className="text-[10px] text-slate-600 w-16 text-right">
                     {timeAgo(lastRun.startedAt)}
                   </span>
                 )}
@@ -243,7 +243,7 @@ export default function WorkflowList({
                         onDelete(wf.id);
                       }
                     }}
-                    className="p-1 text-gray-400 hover:text-red-500 transition-colors"
+                    className="p-1 text-slate-400 hover:text-red-500 transition-colors"
                     title="삭제"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -252,26 +252,26 @@ export default function WorkflowList({
 
                 {/* Expand */}
                 {isExpanded ? (
-                  <ChevronUp className="w-4 h-4 text-gray-600" />
+                  <ChevronUp className="w-4 h-4 text-slate-600" />
                 ) : (
-                  <ChevronDown className="w-4 h-4 text-gray-600" />
+                  <ChevronDown className="w-4 h-4 text-slate-600" />
                 )}
               </div>
             </div>
 
             {/* Expanded content */}
             {isExpanded && (
-              <div className="border-t border-gray-200 p-4 space-y-4">
+              <div className="border-t border-slate-200 p-4 space-y-4">
                 {/* Run history bar */}
                 {loadingRuns === wf.id ? (
-                  <div className="flex items-center gap-2 text-sm text-gray-400">
+                  <div className="flex items-center gap-2 text-sm text-slate-400">
                     <Loader2 className="w-4 h-4 animate-spin" />
                     실행 이력 로딩...
                   </div>
                 ) : runs.length > 0 ? (
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
-                      <h4 className="text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <h4 className="text-xs font-medium text-slate-500 uppercase tracking-wider">
                         실행 이력
                       </h4>
                       {selectedRun && (
@@ -296,7 +296,7 @@ export default function WorkflowList({
                               'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border transition-colors whitespace-nowrap',
                               isSelected
                                 ? 'bg-blue-50 border-blue-200 text-blue-700'
-                                : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50',
+                                : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50',
                             )}
                           >
                             <Icon
@@ -307,7 +307,7 @@ export default function WorkflowList({
                               )}
                             />
                             <span>{r.startedAt ? timeAgo(r.startedAt) : '대기'}</span>
-                            <span className="text-gray-400">
+                            <span className="text-slate-400">
                               {formatDuration(r.startedAt, r.completedAt)}
                             </span>
                           </button>
@@ -316,13 +316,13 @@ export default function WorkflowList({
                     </div>
                   </div>
                 ) : (
-                  <p className="text-xs text-gray-400">실행 이력이 없습니다.</p>
+                  <p className="text-xs text-slate-400">실행 이력이 없습니다.</p>
                 )}
 
                 {/* Canvas or RunView */}
                 {loadingDetail ? (
                   <div className="flex items-center justify-center h-[300px]">
-                    <Loader2 className="w-6 h-6 text-gray-400 animate-spin" />
+                    <Loader2 className="w-6 h-6 text-slate-400 animate-spin" />
                   </div>
                 ) : selectedRun && selectedTemplateId === wf.id ? (
                   <WorkflowRunView template={wf} run={selectedRun} />

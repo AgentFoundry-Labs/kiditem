@@ -10,10 +10,10 @@ export default function GenerateLoadingOverlay() {
         <Sparkles size={24} />
         AI OCR 텍스트 번역 및 이미지 재생성 중...
       </p>
-      <p className="text-gray-500 text-sm">
+      <p className="text-slate-500 text-sm">
         중국어 등 외국어를 스캔하여 지우고 한국어로 재생성하고 있습니다.
       </p>
-      <p className="text-gray-400 text-sm mt-1">
+      <p className="text-slate-400 text-sm mt-1">
         이 작업은 약 20~40초가 소요될 수 있습니다.
       </p>
     </div>

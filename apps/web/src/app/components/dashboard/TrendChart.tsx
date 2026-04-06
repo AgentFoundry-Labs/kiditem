@@ -40,11 +40,11 @@ export default function TrendChart({ trendData, monthlyTrend, trendRange, trendL
   }));
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
-      <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-        <h3 className="text-base font-semibold text-gray-900">매출 / 광고비 추이</h3>
+    <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
+      <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+        <h3 className="text-base font-semibold text-slate-900">매출 / 광고비 추이</h3>
         <div className="flex items-center gap-4">
-          <div className="flex items-center rounded-lg border border-gray-200 p-0.5">
+          <div className="flex items-center rounded-lg border border-slate-200 p-0.5">
             {rangeOptions.map((opt) => (
               <button
                 key={opt.value}
@@ -53,14 +53,14 @@ export default function TrendChart({ trendData, monthlyTrend, trendRange, trendL
                   'px-3 py-1 text-xs font-semibold rounded-md transition-colors',
                   trendRange === opt.value
                     ? 'bg-blue-600 text-white'
-                    : 'text-gray-500 hover:text-gray-700'
+                    : 'text-slate-500 hover:text-slate-700'
                 )}
               >
                 {opt.label}
               </button>
             ))}
           </div>
-          <div className="flex items-center gap-4 text-xs text-gray-400">
+          <div className="flex items-center gap-4 text-xs text-slate-400">
             <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-blue-500" />매출</span>
             <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-emerald-500" />이익률</span>
             <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-amber-500" />광고비율</span>

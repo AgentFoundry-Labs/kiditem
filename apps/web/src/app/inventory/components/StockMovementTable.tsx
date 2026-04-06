@@ -42,7 +42,7 @@ export function StockMovementTable({ grouped, loading, groupBy }: Props) {
     return (
       <div className="animate-pulse space-y-2 py-4">
         {[1, 2, 3, 4, 5].map((i) => (
-          <div key={i} className="h-12 bg-gray-100 rounded" />
+          <div key={i} className="h-12 bg-slate-100 rounded" />
         ))}
       </div>
     );
@@ -51,14 +51,14 @@ export function StockMovementTable({ grouped, loading, groupBy }: Props) {
   if (grouped.length === 0) {
     return (
       <div className="py-20 text-center">
-        <ArrowUpDown size={40} className="mx-auto text-gray-300 mb-3" />
-        <p className="text-gray-500">입출고 이력이 없습니다</p>
+        <ArrowUpDown size={40} className="mx-auto text-slate-300 mb-3" />
+        <p className="text-slate-500">입출고 이력이 없습니다</p>
       </div>
     );
   }
 
   return (
-    <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+    <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
       <div className="overflow-x-auto">
         <table>
           <thead>
@@ -76,14 +76,14 @@ export function StockMovementTable({ grouped, loading, groupBy }: Props) {
               const net = row.inQty - row.outQty;
               return (
                 <tr key={row.key}>
-                  <td className="font-medium text-gray-900 max-w-[250px] truncate">
+                  <td className="font-medium text-slate-900 max-w-[250px] truncate">
                     {formatGroupKey(row.key)}
                   </td>
                   <td className="text-right tabular-nums text-green-600">+{formatKRW(row.inQty)}</td>
                   <td className="text-right tabular-nums text-red-600">-{formatKRW(row.outQty)}</td>
-                  <td className="text-right tabular-nums text-gray-700">{formatKRW(row.inAmt)}원</td>
-                  <td className="text-right tabular-nums text-gray-700">{formatKRW(row.outAmt)}원</td>
-                  <td className={`text-right tabular-nums font-semibold ${net > 0 ? 'text-green-600' : net < 0 ? 'text-red-600' : 'text-gray-500'}`}>
+                  <td className="text-right tabular-nums text-slate-700">{formatKRW(row.inAmt)}원</td>
+                  <td className="text-right tabular-nums text-slate-700">{formatKRW(row.outAmt)}원</td>
+                  <td className={`text-right tabular-nums font-semibold ${net > 0 ? 'text-green-600' : net < 0 ? 'text-red-600' : 'text-slate-500'}`}>
                     {net > 0 ? '+' : ''}{formatKRW(net)}
                   </td>
                 </tr>

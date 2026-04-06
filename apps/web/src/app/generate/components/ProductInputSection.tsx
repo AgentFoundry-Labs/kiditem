@@ -36,12 +36,12 @@ export default function ProductInputSection({ mode, setMode, url, setUrl, images
   };
 
   return (
-    <section className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
+    <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-8">
       <div className="flex items-center gap-3 mb-6">
-        <div className="w-8 h-8 rounded-full bg-gray-900 text-white flex items-center justify-center font-bold">
+        <div className="w-8 h-8 rounded-full bg-slate-900 text-white flex items-center justify-center font-bold">
           1
         </div>
-        <h2 className="text-xl font-bold text-gray-800">
+        <h2 className="text-xl font-bold text-slate-800">
           상품 정보 입력 방식 선택
         </h2>
       </div>
@@ -51,17 +51,17 @@ export default function ProductInputSection({ mode, setMode, url, setUrl, images
           onClick={() => setMode('url')}
           className={`p-6 rounded-2xl border-2 transition-all flex flex-col items-center justify-center gap-3 ${
             mode === 'url'
-              ? 'border-gray-900 bg-gray-50'
-              : 'border-gray-100 hover:border-gray-300 hover:bg-gray-50 text-gray-400'
+              ? 'border-slate-900 bg-slate-50'
+              : 'border-slate-100 hover:border-slate-300 hover:bg-slate-50 text-slate-400'
           }`}
         >
           <Globe
             size={32}
-            className={mode === 'url' ? 'text-gray-900' : ''}
+            className={mode === 'url' ? 'text-slate-900' : ''}
           />
           <div
             className={
-              mode === 'url' ? 'text-gray-900' : 'text-gray-500'
+              mode === 'url' ? 'text-slate-900' : 'text-slate-500'
             }
           >
             <p className="font-bold text-lg mb-1">쇼핑몰 URL 연동</p>
@@ -74,17 +74,17 @@ export default function ProductInputSection({ mode, setMode, url, setUrl, images
           onClick={() => setMode('image')}
           className={`p-6 rounded-2xl border-2 transition-all flex flex-col items-center justify-center gap-3 ${
             mode === 'image'
-              ? 'border-gray-900 bg-gray-50'
-              : 'border-gray-100 hover:border-gray-300 hover:bg-gray-50 text-gray-400'
+              ? 'border-slate-900 bg-slate-50'
+              : 'border-slate-100 hover:border-slate-300 hover:bg-slate-50 text-slate-400'
           }`}
         >
           <ImageIcon
             size={32}
-            className={mode === 'image' ? 'text-gray-900' : ''}
+            className={mode === 'image' ? 'text-slate-900' : ''}
           />
           <div
             className={
-              mode === 'image' ? 'text-gray-900' : 'text-gray-500'
+              mode === 'image' ? 'text-slate-900' : 'text-slate-500'
             }
           >
             <p className="font-bold text-lg mb-1">직접 이미지 업로드</p>
@@ -97,36 +97,36 @@ export default function ProductInputSection({ mode, setMode, url, setUrl, images
 
       {mode === 'url' ? (
         <div className="space-y-3">
-          <label className="block text-sm font-bold text-gray-700">
+          <label className="block text-sm font-bold text-slate-700">
             추출할 상품 URL
           </label>
           <div className="relative">
             <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-              <LinkIcon className="text-gray-400" size={20} />
+              <LinkIcon className="text-slate-400" size={20} />
             </div>
             <input
               type="url"
               placeholder="https://taobao.com/product/123, https://coupang.com/vp/products/..."
               value={url}
               onChange={(e) => setUrl(e.target.value)}
-              className="w-full pl-12 pr-4 py-4 bg-gray-50 border-2 border-gray-200 rounded-xl focus:border-gray-900 focus:ring-0 focus:outline-none transition-colors text-lg"
+              className="w-full pl-12 pr-4 py-4 bg-slate-50 border-2 border-slate-200 rounded-xl focus:border-slate-900 focus:ring-0 focus:outline-none transition-colors text-lg"
             />
           </div>
-          <p className="text-sm text-gray-500 flex items-center gap-2">
+          <p className="text-sm text-slate-500 flex items-center gap-2">
             <CheckCircle2 size={14} className="text-green-500" />
             자동으로 상품의 메인 이미지 5장을 수집하여 분석합니다.
           </p>
         </div>
       ) : (
         <div className="space-y-3">
-          <label className="block text-sm font-bold text-gray-700">
+          <label className="block text-sm font-bold text-slate-700">
             상품 이미지 (권장 3~5장)
           </label>
           <div className="grid grid-cols-4 gap-4">
             {images.map((img, idx) => (
               <div
                 key={idx}
-                className="relative aspect-square rounded-xl overflow-hidden border border-gray-200 group bg-gray-100"
+                className="relative aspect-square rounded-xl overflow-hidden border border-slate-200 group bg-slate-100"
               >
                 <img
                   src={img}
@@ -142,7 +142,7 @@ export default function ProductInputSection({ mode, setMode, url, setUrl, images
               </div>
             ))}
 
-            <div className="relative aspect-square border-2 border-dashed border-gray-300 rounded-xl flex flex-col items-center justify-center hover:border-gray-900 hover:bg-gray-50 transition-all cursor-pointer group">
+            <div className="relative aspect-square border-2 border-dashed border-slate-300 rounded-xl flex flex-col items-center justify-center hover:border-slate-900 hover:bg-slate-50 transition-all cursor-pointer group">
               <input
                 type="file"
                 multiple
@@ -151,10 +151,10 @@ export default function ProductInputSection({ mode, setMode, url, setUrl, images
                 className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
               />
               <Upload
-                className="text-gray-400 group-hover:text-gray-900 mb-2 transition-colors"
+                className="text-slate-400 group-hover:text-slate-900 mb-2 transition-colors"
                 size={28}
               />
-              <span className="text-sm text-gray-600 group-hover:text-gray-900 font-medium transition-colors">
+              <span className="text-sm text-slate-600 group-hover:text-slate-900 font-medium transition-colors">
                 이미지 추가
               </span>
             </div>

@@ -66,7 +66,7 @@ export function TrendsComparison({ daily, comparison, budgetAllocation }: Props)
     <div className="space-y-4">
       {/* 전반 vs 후반 비교 — 6칼럼 카드 그리드 */}
       {comparison && Object.keys(comparison).length > 0 && (
-        <div className="bg-white rounded-xl border border-slate-200 p-5">
+        <div className="card p-5">
           <div className="flex items-center gap-2 mb-4">
             <TrendingUp size={18} className="text-violet-500" />
             <h2 className="text-lg font-bold text-slate-900">전략 성과 변화</h2>
@@ -109,7 +109,7 @@ export function TrendsComparison({ daily, comparison, budgetAllocation }: Props)
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* ROAS 추이 차트 */}
         {daily.length > 0 && (
-          <div className="bg-white rounded-xl p-5 border border-slate-200">
+          <div className="card p-5">
             <h3 className="font-semibold text-slate-900 mb-4">ROAS 추이</h3>
             <ResponsiveContainer width="100%" height={200} minWidth={0} minHeight={0}>
               <ComposedChart data={daily}>
@@ -131,7 +131,7 @@ export function TrendsComparison({ daily, comparison, budgetAllocation }: Props)
 
         {/* ABC 등급별 예산 배분 */}
         {budgetAllocation.length > 0 && (
-          <div className="bg-white rounded-xl p-5 border border-slate-200">
+          <div className="card p-5">
             <h3 className="font-semibold text-slate-900 mb-4">ABC 등급별 예산 배분</h3>
             <div className="flex items-center gap-4">
               <ResponsiveContainer width={160} height={160} minWidth={0} minHeight={0}>
@@ -154,7 +154,7 @@ export function TrendsComparison({ daily, comparison, budgetAllocation }: Props)
               </ResponsiveContainer>
 
               <div className="flex-1">
-                <table className="w-full text-xs">
+                <table className="text-xs">
                   <thead>
                     <tr className="text-slate-400">
                       <th className="text-left pb-2">등급</th>

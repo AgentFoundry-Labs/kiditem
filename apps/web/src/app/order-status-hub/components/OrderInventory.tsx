@@ -73,7 +73,7 @@ export default function OrderInventory() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-900">
+        <h1 className="page-title">
           <PackageCheck size={24} className="inline mr-2" />
           주문-재고 자동매칭 뷰
         </h1>
@@ -187,7 +187,7 @@ export default function OrderInventory() {
                   <th className="px-4 py-3">상태</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody >
                 {filteredItems.map((item) => {
                   const badge = getStatusBadge(item.status);
                   const isUrgent =

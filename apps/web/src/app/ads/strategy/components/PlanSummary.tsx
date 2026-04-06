@@ -32,12 +32,12 @@ export function PlanSummary({ plan }: { plan?: PlanData }) {
 
   if (!plan) {
     return (
-      <div className="bg-white rounded-xl p-6 border border-slate-200">
+      <div className="card p-6">
         <h3 className="font-semibold text-slate-900 mb-4">주간 액션 플랜</h3>
         <div className="grid grid-cols-3 md:grid-cols-5 gap-3">
           {['확대', '최적화', '축소', '중단', '신규'].map((label) => (
             <div key={label} className="rounded-lg p-3 border text-center bg-slate-50 border-slate-200 text-slate-400">
-              <div className="text-2xl font-bold">-</div>
+              <div className="card-value">-</div>
               <div className="text-xs font-medium mt-1">{label}</div>
             </div>
           ))}
@@ -55,7 +55,7 @@ export function PlanSummary({ plan }: { plan?: PlanData }) {
   ];
 
   return (
-    <div className="bg-white rounded-xl p-6 border border-slate-200">
+    <div className="card p-6">
       <div className="flex items-center justify-between mb-4">
         <h3 className="font-semibold text-slate-900">주간 액션 플랜</h3>
         <span className="text-xs text-slate-400">{plan.totalProducts}개 상품 분석</span>
@@ -64,7 +64,7 @@ export function PlanSummary({ plan }: { plan?: PlanData }) {
       <div className="grid grid-cols-3 md:grid-cols-5 gap-3 mb-4">
         {cards.map((c) => (
           <div key={c.label} className={`rounded-lg p-3 border text-center ${c.color}`}>
-            <div className="text-2xl font-bold">{c.value}</div>
+            <div className="card-value">{c.value}</div>
             <div className="text-xs font-medium mt-1">{c.label}</div>
           </div>
         ))}

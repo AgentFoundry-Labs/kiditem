@@ -47,28 +47,28 @@ export default function OptionMasterFormModal({
 
   return (
     <div
-      className="fixed inset-0 bg-black/30 flex items-center justify-center z-50"
+      className="modal-overlay"
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-xl border border-slate-200 p-6 w-[480px] space-y-4"
+        className="modal-content space-y-4"
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 className="text-sm font-semibold text-gray-900">
+        <h3 className="text-sm font-semibold text-slate-900">
           {editName ? '옵션 수정' : '옵션 추가'}
         </h3>
         <div className="space-y-3">
           <div>
-            <label className="text-xs text-gray-500 mb-1 block">옵션명</label>
+            <label className="text-xs text-slate-500 mb-1 block">옵션명</label>
             <input
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
-              className="w-full border border-gray-200 rounded-md px-3 py-1.5 text-sm"
+              className="w-full border border-slate-200 rounded-md px-3 py-1.5 text-sm"
               placeholder="예: 색상, 사이즈"
             />
           </div>
           <div>
-            <label className="text-xs text-gray-500 mb-1 block">
+            <label className="text-xs text-slate-500 mb-1 block">
               활성상태
             </label>
             <select
@@ -76,15 +76,15 @@ export default function OptionMasterFormModal({
               onChange={(e) =>
                 setForm({ ...form, isActive: e.target.value === 'Y' })
               }
-              className="w-full border border-gray-200 rounded-md px-3 py-1.5 text-sm"
+              className="w-full border border-slate-200 rounded-md px-3 py-1.5 text-sm"
             >
               <option value="Y">활성</option>
               <option value="N">비활성</option>
             </select>
           </div>
           <div>
-            <label className="text-xs text-gray-500 mb-1 block">값 목록</label>
-            <div className="flex flex-wrap gap-1.5 mb-2 min-h-[32px] p-2 border border-gray-200 rounded-md bg-gray-50">
+            <label className="text-xs text-slate-500 mb-1 block">값 목록</label>
+            <div className="flex flex-wrap gap-1.5 mb-2 min-h-[32px] p-2 border border-slate-200 rounded-md bg-slate-50">
               {tags.map((tag, i) => (
                 <span
                   key={i}
@@ -100,7 +100,7 @@ export default function OptionMasterFormModal({
                 </span>
               ))}
               {tags.length === 0 && (
-                <span className="text-xs text-gray-400">
+                <span className="text-xs text-slate-400">
                   Enter키로 값 추가
                 </span>
               )}
@@ -110,7 +110,7 @@ export default function OptionMasterFormModal({
                 value={tagInput}
                 onChange={(e) => setTagInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                className="flex-1 border border-gray-200 rounded-md px-3 py-1.5 text-sm"
+                className="flex-1 border border-slate-200 rounded-md px-3 py-1.5 text-sm"
                 placeholder="값 입력 후 Enter"
               />
               <button
@@ -125,7 +125,7 @@ export default function OptionMasterFormModal({
         <div className="flex justify-end gap-2 pt-2">
           <button
             onClick={onClose}
-            className="px-3 py-1.5 text-xs text-gray-500 border border-gray-200 rounded-md hover:bg-gray-50"
+            className="px-3 py-1.5 text-xs text-slate-500 border border-slate-200 rounded-md hover:bg-slate-50"
           >
             취소
           </button>

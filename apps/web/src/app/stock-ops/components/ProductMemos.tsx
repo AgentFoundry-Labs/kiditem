@@ -89,7 +89,7 @@ export default function ProductMemos() {
       </div>
 
       {/* 상품 선택 */}
-      <div className="bg-white rounded-xl border border-slate-200 p-4">
+      <div className="card">
         <label className="block text-sm font-medium text-slate-700 mb-2">상품 선택</label>
         <select
           value={selectedProductId}
@@ -116,7 +116,7 @@ export default function ProductMemos() {
       {selectedProductId && (
         <>
           {/* 메모 작성 폼 */}
-          <div className="bg-white rounded-xl border border-slate-200 p-4">
+          <div className="card">
             <h3 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-1">
               <Plus size={14} />
               새 메모 작성
@@ -167,7 +167,7 @@ export default function ProductMemos() {
               <Loader2 size={20} className="animate-spin mr-2" /> 메모 로딩 중...
             </div>
           ) : memos.length === 0 ? (
-            <div className="bg-white rounded-xl border border-slate-200 p-12 text-center text-slate-400">
+            <div className="card p-12 text-center text-slate-400">
               <StickyNote size={48} className="mx-auto mb-3 opacity-30" />
               <p>등록된 메모가 없습니다</p>
             </div>
@@ -179,7 +179,7 @@ export default function ProductMemos() {
                 return (
                   <div
                     key={memo.id}
-                    className={`bg-white rounded-xl border border-slate-200 p-4 border-l-4 ${
+                    className={`card border-l-4 ${
                       memo.isResolved ? 'opacity-60' : ''
                     } ${
                       memo.memoType === 'urgent'

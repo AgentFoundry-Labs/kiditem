@@ -43,18 +43,18 @@ export function MarketplaceCard({ item, type, installed, onClick }: MarketplaceC
   return (
     <div
       onClick={onClick}
-      className="bg-white border border-gray-200 rounded-lg p-4 hover:border-violet-300 hover:shadow-sm transition-all cursor-pointer"
+      className="bg-white border border-slate-200 rounded-lg p-4 hover:border-violet-300 hover:shadow-sm transition-all cursor-pointer"
     >
       <div className="flex items-start gap-3">
         {/* Icon */}
-        <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center text-xl shrink-0">
+        <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center text-xl shrink-0">
           {item.icon || item.name.charAt(0)}
         </div>
 
         <div className="flex-1 min-w-0">
           {/* Name + installed badge */}
           <div className="flex items-center gap-2 mb-1">
-            <h3 className="font-medium text-gray-900 text-sm truncate">{item.name}</h3>
+            <h3 className="font-medium text-slate-900 text-sm truncate">{item.name}</h3>
             {installed && (
               <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-medium text-green-600 bg-green-50 rounded shrink-0">
                 <CheckCircle size={10} />
@@ -64,7 +64,7 @@ export function MarketplaceCard({ item, type, installed, onClick }: MarketplaceC
           </div>
 
           {/* Description */}
-          <p className="text-xs text-gray-500 line-clamp-2 mb-3">{item.description}</p>
+          <p className="text-xs text-slate-500 line-clamp-2 mb-3">{item.description}</p>
 
           {/* Badges */}
           <div className="flex items-center gap-1.5 flex-wrap">
@@ -74,7 +74,7 @@ export function MarketplaceCard({ item, type, installed, onClick }: MarketplaceC
               </span>
             )}
             {item.category && (
-              <span className="px-1.5 py-0.5 text-[10px] font-medium bg-gray-100 text-gray-600 rounded">
+              <span className="px-1.5 py-0.5 text-[10px] font-medium bg-slate-100 text-slate-600 rounded">
                 {CATEGORY_LABELS[item.category] || item.category}
               </span>
             )}
@@ -84,7 +84,7 @@ export function MarketplaceCard({ item, type, installed, onClick }: MarketplaceC
               </span>
             )}
             {item.installCount > 0 && (
-              <span className="text-[10px] text-gray-400 ml-auto">
+              <span className="text-[10px] text-slate-400 ml-auto">
                 {item.installCount}회 {type === 'workflow' ? '설치' : '고용'}
               </span>
             )}

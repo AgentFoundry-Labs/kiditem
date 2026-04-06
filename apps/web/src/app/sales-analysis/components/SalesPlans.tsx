@@ -118,10 +118,9 @@ export default function SalesPlans() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-sm font-semibold text-gray-900 uppercase tracking-wide flex items-center gap-2">
-            <Target size={18} /> Sales Plans
+          <h1 className="page-title flex items-center gap-2">
+            <Target size={22} /> 사업계획
           </h1>
-          <p className="text-xs text-gray-400 font-mono mt-0.5">월별 매출목표 vs 실적 관리</p>
         </div>
         <div className="flex gap-2">
           <button onClick={openNew} className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white rounded-md text-xs hover:bg-blue-700">
@@ -132,7 +131,7 @@ export default function SalesPlans() {
 
       {/* 테이블 */}
       {plans.length === 0 ? (
-        <div className="bg-white rounded-xl border border-slate-200 p-10 text-center text-sm text-gray-400">
+        <div className="bg-white rounded-xl border border-slate-200 p-10 text-center text-sm text-slate-400">
           등록된 사업계획이 없습니다.
         </div>
       ) : (
@@ -143,11 +142,11 @@ export default function SalesPlans() {
             const profitRate = getAchievementRate(plan.actualProfit, plan.targetProfit);
 
             return (
-              <div key={plan.id} className="bg-white rounded-xl border border-slate-200 p-5">
+              <div key={plan.id} className="card p-5">
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-3">
-                    <span className="text-sm font-bold text-gray-900 font-mono">{plan.period}</span>
-                    {plan.notes && <span className="text-xs text-gray-400">{plan.notes}</span>}
+                    <span className="text-sm font-bold text-slate-900 font-mono">{plan.period}</span>
+                    {plan.notes && <span className="text-xs text-slate-400">{plan.notes}</span>}
                   </div>
                   <div className="flex items-center gap-1">
                     <button
@@ -162,10 +161,10 @@ export default function SalesPlans() {
                       )}
                       실적 동기화
                     </button>
-                    <button onClick={() => openEdit(plan)} className="p-1.5 text-gray-400 hover:text-blue-500">
+                    <button onClick={() => openEdit(plan)} className="p-1.5 text-slate-400 hover:text-blue-500">
                       <Save size={14} />
                     </button>
-                    <button onClick={() => handleDelete(plan.id)} className="p-1.5 text-gray-400 hover:text-red-500">
+                    <button onClick={() => handleDelete(plan.id)} className="p-1.5 text-slate-400 hover:text-red-500">
                       <Trash2 size={14} />
                     </button>
                   </div>
@@ -203,68 +202,68 @@ export default function SalesPlans() {
 
       {/* 추가/수정 모달 */}
       {showForm && (
-        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={() => setShowForm(false)}>
-          <div className="bg-white rounded-xl border border-slate-200 p-6 w-[480px] space-y-4" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-overlay" onClick={() => setShowForm(false)}>
+          <div className="modal-content space-y-4" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-gray-900">
+              <h3 className="section-title">
                 {editItem ? '목표 수정' : '목표 추가'}
               </h3>
-              <button onClick={() => setShowForm(false)} className="text-gray-400 hover:text-gray-600">
+              <button onClick={() => setShowForm(false)} className="text-slate-400 hover:text-slate-600">
                 <X size={16} />
               </button>
             </div>
             <div className="space-y-3">
               <div>
-                <label className="text-xs text-gray-500 mb-1 block">기간 (YYYY-MM)</label>
+                <label className="text-xs text-slate-500 mb-1 block">기간 (YYYY-MM)</label>
                 <input
                   value={form.period}
                   onChange={(e) => setForm({ ...form, period: e.target.value })}
-                  className="w-full border border-gray-200 rounded-md px-3 py-1.5 text-sm font-mono"
+                  className="w-full border border-slate-200 rounded-md px-3 py-1.5 text-sm font-mono"
                   placeholder="2025-01"
                   disabled={!!editItem}
                 />
               </div>
               <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <label className="text-xs text-gray-500 mb-1 block">목표 매출</label>
+                  <label className="text-xs text-slate-500 mb-1 block">목표 매출</label>
                   <input
                     type="number"
                     value={form.targetRevenue}
                     onChange={(e) => setForm({ ...form, targetRevenue: Number(e.target.value) })}
-                    className="w-full border border-gray-200 rounded-md px-3 py-1.5 text-sm"
+                    className="w-full border border-slate-200 rounded-md px-3 py-1.5 text-sm"
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-gray-500 mb-1 block">목표 주문수</label>
+                  <label className="text-xs text-slate-500 mb-1 block">목표 주문수</label>
                   <input
                     type="number"
                     value={form.targetOrders}
                     onChange={(e) => setForm({ ...form, targetOrders: Number(e.target.value) })}
-                    className="w-full border border-gray-200 rounded-md px-3 py-1.5 text-sm"
+                    className="w-full border border-slate-200 rounded-md px-3 py-1.5 text-sm"
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-gray-500 mb-1 block">목표 순이익</label>
+                  <label className="text-xs text-slate-500 mb-1 block">목표 순이익</label>
                   <input
                     type="number"
                     value={form.targetProfit}
                     onChange={(e) => setForm({ ...form, targetProfit: Number(e.target.value) })}
-                    className="w-full border border-gray-200 rounded-md px-3 py-1.5 text-sm"
+                    className="w-full border border-slate-200 rounded-md px-3 py-1.5 text-sm"
                   />
                 </div>
               </div>
               <div>
-                <label className="text-xs text-gray-500 mb-1 block">메모</label>
+                <label className="text-xs text-slate-500 mb-1 block">메모</label>
                 <input
                   value={form.notes}
                   onChange={(e) => setForm({ ...form, notes: e.target.value })}
-                  className="w-full border border-gray-200 rounded-md px-3 py-1.5 text-sm"
+                  className="w-full border border-slate-200 rounded-md px-3 py-1.5 text-sm"
                   placeholder="메모 (선택)"
                 />
               </div>
             </div>
             <div className="flex justify-end gap-2 pt-2">
-              <button onClick={() => setShowForm(false)} className="px-3 py-1.5 text-xs text-gray-500 border border-gray-200 rounded-md hover:bg-gray-50">
+              <button onClick={() => setShowForm(false)} className="px-3 py-1.5 text-xs text-slate-500 border border-slate-200 rounded-md hover:bg-slate-50">
                 취소
               </button>
               <button onClick={handleSave} className="px-3 py-1.5 text-xs text-white bg-blue-600 rounded-md hover:bg-blue-700">
@@ -288,17 +287,17 @@ function ProgressRow({ label, target, actual, rate, color }: {
   return (
     <div>
       <div className="flex items-center justify-between text-xs mb-1">
-        <span className="text-gray-500 font-medium">{label}</span>
+        <span className="text-slate-500 font-medium">{label}</span>
         <div className="flex items-center gap-3">
-          <span className="text-gray-400">목표: {target}</span>
-          <span className="text-gray-700 font-semibold">실적: {actual}</span>
+          <span className="text-slate-400">목표: {target}</span>
+          <span className="text-slate-700 font-semibold">실적: {actual}</span>
           <span className={`font-bold ${rate >= 100 ? 'text-green-600' : rate >= 70 ? 'text-blue-600' : 'text-red-600'}`}>
             <TrendingUp size={11} className="inline mr-0.5" />
             {rate}%
           </span>
         </div>
       </div>
-      <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
+      <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
         <div
           className={`h-full rounded-full transition-all duration-500 ${color}`}
           style={{ width: `${Math.min(rate, 100)}%` }}

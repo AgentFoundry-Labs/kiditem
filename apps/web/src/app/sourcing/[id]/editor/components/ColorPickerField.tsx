@@ -13,19 +13,19 @@ interface ColorPickerFieldProps {
 export function ColorPickerField({ label, value, onChange, onClose }: ColorPickerFieldProps) {
   return (
     <div className="flex items-center gap-2">
-      <span className="text-xs text-gray-600 w-28 shrink-0">{label}</span>
+      <span className="text-xs text-slate-600 w-28 shrink-0">{label}</span>
       <Popover.Root onOpenChange={(open) => { if (!open && onClose) onClose(); }}>
         <Popover.Trigger asChild>
           <button
             type="button"
-            className="w-7 h-7 rounded border border-gray-300 shrink-0"
+            className="w-7 h-7 rounded border border-slate-300 shrink-0"
             style={{ backgroundColor: value }}
             aria-label={`${label} 색상 선택`}
           />
         </Popover.Trigger>
         <Popover.Portal>
           <Popover.Content
-            className="z-50 p-3 bg-white rounded-lg shadow-xl border border-gray-200"
+            className="z-50 p-3 bg-white rounded-lg shadow-xl border border-slate-200"
             sideOffset={6}
           >
             <HexColorPicker color={value} onChange={onChange} />
@@ -36,7 +36,7 @@ export function ColorPickerField({ label, value, onChange, onClose }: ColorPicke
         color={value}
         onChange={onChange}
         prefixed
-        className="w-20 px-2 py-1 text-xs border border-gray-200 rounded font-mono"
+        className="w-20 px-2 py-1 text-xs border border-slate-200 rounded font-mono"
       />
     </div>
   );

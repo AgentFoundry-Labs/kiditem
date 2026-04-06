@@ -20,7 +20,7 @@ export default function HealthDiagnosis({
   violations,
 }: HealthDiagnosisProps) {
   return (
-    <div className="bg-white rounded-xl border border-slate-200 p-5">
+    <div className="card p-5">
       <div className="flex items-center gap-2 mb-3">
         <span className="text-slate-500"><Shield size={16} /></span>
         <h3 className="text-sm font-semibold text-slate-700">상품 진단</h3>
@@ -45,7 +45,7 @@ export default function HealthDiagnosis({
                 {product.healthScore >= 70 ? '정상' : product.healthScore >= 40 ? '주의' : '위험'}
               </span>
             </div>
-            <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+            <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
               <div
                 className={`h-full rounded-full ${
                   product.healthScore >= 70 ? 'bg-green-500' :

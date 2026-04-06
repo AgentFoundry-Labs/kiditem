@@ -45,7 +45,7 @@ export default function UnshippedItemsPage() {
         <p className="text-red-500">{error}</p>
         <button
           onClick={() => refetch()}
-          className="px-4 py-2 text-sm bg-gray-900 text-white rounded-lg hover:bg-gray-800"
+          className="px-4 py-2 text-sm bg-slate-900 text-white rounded-lg hover:bg-slate-800"
         >
           다시 시도
         </button>
@@ -63,8 +63,8 @@ export default function UnshippedItemsPage() {
         <div className="flex items-center gap-3">
           <Truck size={20} className="text-red-600" />
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">미배송 조회</h1>
-            <span className="text-sm text-gray-500">
+            <h1 className="page-title">미배송 조회</h1>
+            <span className="text-sm text-slate-500">
               {items.length}건 | 긴급 {critical.length}건
             </span>
           </div>
@@ -73,7 +73,7 @@ export default function UnshippedItemsPage() {
           <select
             value={minDays}
             onChange={(e) => setMinDays(Number(e.target.value))}
-            className="text-sm border border-gray-200 rounded-lg px-3 py-2"
+            className="text-sm border border-slate-200 rounded-lg px-3 py-2"
           >
             <option value={0}>전체</option>
             <option value={1}>1일 이상</option>
@@ -82,7 +82,7 @@ export default function UnshippedItemsPage() {
           </select>
           <button
             onClick={() => refetch()}
-            className="flex items-center gap-1.5 px-3 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50"
+            className="flex items-center gap-1.5 px-3 py-2 text-sm text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50"
           >
             <RefreshCw size={14} /> 새로고침
           </button>

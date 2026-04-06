@@ -138,21 +138,21 @@ interface CategorySelectProps {
 
 export default function CategorySelect({ category, setCategory }: CategorySelectProps) {
   return (
-    <section className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8">
+    <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-8">
       <div className="flex items-center gap-3 mb-6">
-        <div className="w-8 h-8 rounded-full bg-gray-900 text-white flex items-center justify-center font-bold">
+        <div className="w-8 h-8 rounded-full bg-slate-900 text-white flex items-center justify-center font-bold">
           2
         </div>
-        <h2 className="text-xl font-bold text-gray-800">
+        <h2 className="text-xl font-bold text-slate-800">
           추가 설정 (선택 사항)
         </h2>
       </div>
 
       <div className="space-y-3">
-        <label className="block text-sm font-bold text-gray-700">
+        <label className="block text-sm font-bold text-slate-700">
           상품 카테고리
         </label>
-        <p className="text-sm text-gray-500 mb-2">
+        <p className="text-sm text-slate-500 mb-2">
           카테고리를 지정하면 해당 분야에 최적화된 마케팅 용어와 문체가
           적용됩니다.
         </p>
@@ -160,7 +160,7 @@ export default function CategorySelect({ category, setCategory }: CategorySelect
           <select
             value={category}
             onChange={(e) => setCategory(e.target.value)}
-            className="w-full px-4 py-4 bg-gray-50 border-2 border-gray-200 rounded-xl focus:border-gray-900 focus:outline-none appearance-none transition-colors font-medium text-gray-800"
+            className="w-full px-4 py-4 bg-slate-50 border-2 border-slate-200 rounded-xl focus:border-slate-900 focus:outline-none appearance-none transition-colors font-medium text-slate-800"
           >
             <option value="">자동 감지 (권장)</option>
             {PRODUCT_CATEGORIES.map((cat) => (
@@ -177,7 +177,7 @@ export default function CategorySelect({ category, setCategory }: CategorySelect
             ))}
           </select>
           <ChevronDown
-            className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
+            className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
             size={20}
           />
         </div>

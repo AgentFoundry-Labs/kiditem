@@ -53,13 +53,13 @@ export default function CreateCSModal({ onClose, onCreated }: CreateCSModalProps
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+    <div className="modal-overlay">
       <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-6">
-        <h2 className="text-lg font-bold text-gray-900 mb-4">CS 등록</h2>
+        <h2 className="text-lg font-bold text-slate-900 mb-4">CS 등록</h2>
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm text-gray-500 mb-1">
+              <label className="block text-sm text-slate-500 mb-1">
                 CS 유형
               </label>
               <select
@@ -67,7 +67,7 @@ export default function CreateCSModal({ onClose, onCreated }: CreateCSModalProps
                 onChange={(e) =>
                   setForm({ ...form, csType: e.target.value })
                 }
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
               >
                 {CS_TYPES.map((t) => (
                   <option key={t} value={t}>
@@ -77,7 +77,7 @@ export default function CreateCSModal({ onClose, onCreated }: CreateCSModalProps
               </select>
             </div>
             <div>
-              <label className="block text-sm text-gray-500 mb-1">
+              <label className="block text-sm text-slate-500 mb-1">
                 우선순위
               </label>
               <select
@@ -85,7 +85,7 @@ export default function CreateCSModal({ onClose, onCreated }: CreateCSModalProps
                 onChange={(e) =>
                   setForm({ ...form, priority: e.target.value })
                 }
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
               >
                 <option value="normal">일반</option>
                 <option value="urgent">긴급</option>
@@ -93,7 +93,7 @@ export default function CreateCSModal({ onClose, onCreated }: CreateCSModalProps
             </div>
           </div>
           <div>
-            <label className="block text-sm text-gray-500 mb-1">
+            <label className="block text-sm text-slate-500 mb-1">
               주문번호 (선택)
             </label>
             <input
@@ -102,23 +102,23 @@ export default function CreateCSModal({ onClose, onCreated }: CreateCSModalProps
               onChange={(e) =>
                 setForm({ ...form, orderId: e.target.value })
               }
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
               placeholder="주문번호"
             />
           </div>
           <div>
-            <label className="block text-sm text-gray-500 mb-1">내용</label>
+            <label className="block text-sm text-slate-500 mb-1">내용</label>
             <textarea
               value={form.content}
               onChange={(e) =>
                 setForm({ ...form, content: e.target.value })
               }
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm h-24 resize-none"
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm h-24 resize-none"
               placeholder="CS 내용을 입력하세요"
             />
           </div>
           <div>
-            <label className="block text-sm text-gray-500 mb-1">
+            <label className="block text-sm text-slate-500 mb-1">
               담당자
             </label>
             <input
@@ -127,7 +127,7 @@ export default function CreateCSModal({ onClose, onCreated }: CreateCSModalProps
               onChange={(e) =>
                 setForm({ ...form, assignee: e.target.value })
               }
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
               placeholder="담당자"
             />
           </div>
@@ -135,7 +135,7 @@ export default function CreateCSModal({ onClose, onCreated }: CreateCSModalProps
         <div className="flex justify-end gap-2 mt-6">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-sm text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200"
+            className="px-4 py-2 text-sm text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200"
           >
             취소
           </button>

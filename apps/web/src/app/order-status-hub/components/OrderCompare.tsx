@@ -64,7 +64,7 @@ export default function OrderCompare() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-900">
+        <h1 className="page-title">
           <GitCompareArrows size={24} className="inline mr-2" />
           판매처 주문비교
         </h1>
@@ -128,7 +128,7 @@ export default function OrderCompare() {
                 <div className="bg-white rounded-xl border border-slate-200">
                   <div className="p-4 text-center">
                     <div className="text-sm text-slate-500">DB 주문</div>
-                    <div className="text-2xl font-bold text-slate-900">
+                    <div className="page-title">
                       {formatNumber(summary.totalDb)}건
                     </div>
                   </div>
@@ -184,7 +184,7 @@ export default function OrderCompare() {
                         <th className="px-4 py-3">상태</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100">
+                    <tbody >
                       {results.map((row) => (
                         <tr
                           key={row.date}

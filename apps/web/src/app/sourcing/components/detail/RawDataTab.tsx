@@ -14,11 +14,11 @@ export default function RawDataTab({ rawData }: RawDataTabProps) {
   if (!rawData) {
     return (
       <div className="p-6">
-        <div className="bg-white rounded-xl border border-gray-200 p-8">
-          <div className="flex flex-col items-center justify-center py-12 text-gray-400">
-            <Database size={40} className="mb-3 text-gray-300" />
+        <div className="card p-8">
+          <div className="flex flex-col items-center justify-center py-12 text-slate-400">
+            <Database size={40} className="mb-3 text-slate-300" />
             <p className="text-sm font-medium">원본 데이터 없음</p>
-            <p className="text-xs text-gray-400 mt-1">스크래핑된 원본 데이터가 없습니다</p>
+            <p className="text-xs text-slate-400 mt-1">스크래핑된 원본 데이터가 없습니다</p>
           </div>
         </div>
       </div>
@@ -50,34 +50,34 @@ export default function RawDataTab({ rawData }: RawDataTabProps) {
         </div>
       )}
 
-      <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+      <div className="card p-6 shadow-sm">
         <div className="flex items-center gap-2 mb-4">
           <Database size={18} className="text-emerald-500" />
-          <h2 className="text-base font-bold text-gray-900">원본 기본 정보</h2>
+          <h2 className="text-base font-bold text-slate-900">원본 기본 정보</h2>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="space-y-4">
             <div>
-              <p className="text-xs text-gray-500 font-medium mb-1">원본 상품명</p>
-              <p className="text-sm font-medium text-gray-900 bg-gray-50 p-3 rounded-lg border border-gray-100">
+              <p className="text-xs text-slate-500 font-medium mb-1">원본 상품명</p>
+              <p className="text-sm font-medium text-slate-900 bg-slate-50 p-3 rounded-lg border border-slate-100">
                 {title || '없음'}
               </p>
             </div>
             
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <p className="text-xs text-gray-500 font-medium mb-1">카테고리</p>
-                <div className="flex items-center gap-1.5 text-sm font-medium text-gray-900 bg-gray-50 p-3 rounded-lg border border-gray-100">
-                  <Tag size={14} className="text-gray-400" />
+                <p className="text-xs text-slate-500 font-medium mb-1">카테고리</p>
+                <div className="flex items-center gap-1.5 text-sm font-medium text-slate-900 bg-slate-50 p-3 rounded-lg border border-slate-100">
+                  <Tag size={14} className="text-slate-400" />
                   <span className="truncate">{category || '없음'}</span>
                 </div>
               </div>
               
               <div>
-                <p className="text-xs text-gray-500 font-medium mb-1">최소 주문 / 단위</p>
-                <div className="flex items-center gap-1.5 text-sm font-medium text-gray-900 bg-gray-50 p-3 rounded-lg border border-gray-100">
-                  <Package size={14} className="text-gray-400" />
+                <p className="text-xs text-slate-500 font-medium mb-1">최소 주문 / 단위</p>
+                <div className="flex items-center gap-1.5 text-sm font-medium text-slate-900 bg-slate-50 p-3 rounded-lg border border-slate-100">
+                  <Package size={14} className="text-slate-400" />
                   <span>
                     {moq ? `${moq}개` : '없음'} {unit ? `/ ${unit}` : ''}
                   </span>
@@ -87,7 +87,7 @@ export default function RawDataTab({ rawData }: RawDataTabProps) {
           </div>
 
           <div>
-            <p className="text-xs text-gray-500 font-medium mb-1">원본 가격 (단위: {price?.unit || 'CNY'})</p>
+            <p className="text-xs text-slate-500 font-medium mb-1">원본 가격 (단위: {price?.unit || 'CNY'})</p>
             <div className="bg-emerald-50 text-emerald-900 p-4 rounded-lg border border-emerald-100 flex items-center justify-center h-[106px]">
               {price ? (
                 <div className="text-center">
@@ -110,10 +110,10 @@ export default function RawDataTab({ rawData }: RawDataTabProps) {
         </div>
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+      <div className="card p-6 shadow-sm">
         <div className="flex items-center gap-2 mb-4">
           <ImageIcon size={18} className="text-blue-500" />
-          <h2 className="text-base font-bold text-gray-900">원본 썸네일 ({images.length}장)</h2>
+          <h2 className="text-base font-bold text-slate-900">원본 썸네일 ({images.length}장)</h2>
         </div>
         
         {images.length > 0 ? (
@@ -121,7 +121,7 @@ export default function RawDataTab({ rawData }: RawDataTabProps) {
             {images.map((url, idx) => (
               <div
                 key={`raw-img-${idx}`}
-                className="aspect-square rounded-lg border border-gray-200 overflow-hidden cursor-pointer hover:border-blue-500 hover:ring-2 hover:ring-blue-200 transition-all bg-gray-50 group relative"
+                className="aspect-square rounded-lg border border-slate-200 overflow-hidden cursor-pointer hover:border-blue-500 hover:ring-2 hover:ring-blue-200 transition-all bg-slate-50 group relative"
                 onClick={() => setEnlargedImage(url)}
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -138,17 +138,17 @@ export default function RawDataTab({ rawData }: RawDataTabProps) {
             ))}
           </div>
         ) : (
-          <p className="text-sm text-gray-500 py-4 text-center bg-gray-50 rounded-lg border border-gray-100">
+          <p className="text-sm text-slate-500 py-4 text-center bg-slate-50 rounded-lg border border-slate-100">
             이미지가 없습니다.
           </p>
         )}
       </div>
 
       <div className="space-y-6">
-        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+        <div className="card p-6 shadow-sm">
           <div className="flex items-center gap-2 mb-4">
             <ImageIcon size={18} className="text-purple-500" />
-            <h2 className="text-base font-bold text-gray-900">상세 설명 이미지 ({descriptionImages.length}장)</h2>
+            <h2 className="text-base font-bold text-slate-900">상세 설명 이미지 ({descriptionImages.length}장)</h2>
           </div>
           
           {descriptionImages.length > 0 ? (
@@ -156,7 +156,7 @@ export default function RawDataTab({ rawData }: RawDataTabProps) {
               {descriptionImages.map((url, idx) => (
                 <div
                   key={`desc-img-${idx}`}
-                  className="aspect-[3/4] rounded-lg border border-gray-200 overflow-hidden cursor-pointer hover:border-purple-500 transition-colors bg-gray-50"
+                  className="aspect-[3/4] rounded-lg border border-slate-200 overflow-hidden cursor-pointer hover:border-purple-500 transition-colors bg-slate-50"
                   onClick={() => setEnlargedImage(url)}
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -170,25 +170,25 @@ export default function RawDataTab({ rawData }: RawDataTabProps) {
               ))}
             </div>
           ) : (
-            <p className="text-sm text-gray-500 py-8 text-center border border-gray-100 bg-gray-50 rounded-lg">
+            <p className="text-sm text-slate-500 py-8 text-center border border-slate-100 bg-slate-50 rounded-lg">
               상세 설명 이미지가 없습니다.
             </p>
           )}
         </div>
 
-        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
-          <h2 className="text-base font-bold text-gray-900 mb-4">상세 스펙 ({specs.length}개)</h2>
+        <div className="card p-6 shadow-sm">
+          <h2 className="text-base font-bold text-slate-900 mb-4">상세 스펙 ({specs.length}개)</h2>
           
           {specs.length > 0 ? (
-            <div className="border border-gray-200 rounded-lg overflow-hidden">
-              <table className="w-full text-sm text-left">
-                <tbody className="divide-y divide-gray-200">
+            <div className="border border-slate-200 rounded-lg overflow-hidden">
+              <table className="text-left">
+                <tbody className="divide-y divide-slate-200">
                   {specs.map((spec, idx) => (
-                    <tr key={`spec-${idx}`} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                      <th className="px-4 py-3 font-medium text-gray-700 w-1/3 border-r border-gray-200">
+                    <tr key={`spec-${idx}`} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                      <th className="px-4 py-3 font-medium text-slate-700 w-1/3 border-r border-slate-200">
                         {spec.key}
                       </th>
-                      <td className="px-4 py-3 text-gray-600">
+                      <td className="px-4 py-3 text-slate-600">
                         {spec.value}
                       </td>
                     </tr>
@@ -197,7 +197,7 @@ export default function RawDataTab({ rawData }: RawDataTabProps) {
               </table>
             </div>
           ) : (
-            <p className="text-sm text-gray-500 py-8 text-center border border-gray-100 bg-gray-50 rounded-lg">
+            <p className="text-sm text-slate-500 py-8 text-center border border-slate-100 bg-slate-50 rounded-lg">
               상세 스펙 정보가 없습니다.
             </p>
           )}

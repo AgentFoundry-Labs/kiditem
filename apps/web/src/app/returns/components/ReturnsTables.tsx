@@ -70,11 +70,11 @@ interface ReturnsTableProps {
 
 export function ReturnsTable({ returns, processing, onApprove }: ReturnsTableProps) {
   return (
-    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+    <div className="table-card">
       <div className="overflow-x-auto">
         <table>
           <thead>
-            <tr className="bg-slate-50">
+            <tr>
               <th>접수번호</th>
               <th>주문번호</th>
               <th>상품명</th>
@@ -126,11 +126,11 @@ export function ReturnsTable({ returns, processing, onApprove }: ReturnsTablePro
 
 export function ExchangesTable({ exchanges }: { exchanges: ReturnItem[] }) {
   return (
-    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+    <div className="table-card">
       <div className="overflow-x-auto">
         <table>
           <thead>
-            <tr className="bg-slate-50">
+            <tr>
               <th>접수번호</th>
               <th>주문번호</th>
               <th>상품명</th>

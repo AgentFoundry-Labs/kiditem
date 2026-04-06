@@ -14,7 +14,7 @@ import type { ThumbnailListItem } from '@kiditem/shared';
 const BADGE_COLORS: Record<string, string> = {
   S: 'bg-emerald-100 text-emerald-700 border-emerald-200',
   A: 'bg-blue-100 text-blue-700 border-blue-200',
-  B: 'bg-gray-100 text-gray-700 border-gray-200',
+  B: 'bg-slate-100 text-slate-700 border-slate-200',
   C: 'bg-amber-100 text-amber-700 border-amber-200',
   F: 'bg-red-100 text-red-700 border-red-200',
 };
@@ -27,21 +27,21 @@ interface Props {
 
 export function ThumbnailCard({ item, isExpanded, onToggle }: Props) {
   return (
-    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <div className="table-card">
       <button
         onClick={onToggle}
-        className="w-full flex items-center gap-3 p-3 text-left hover:bg-gray-50/50 transition-colors"
+        className="w-full flex items-center gap-3 p-3 text-left hover:bg-slate-50/50 transition-colors"
       >
-        <div className="w-14 h-14 rounded-lg bg-gray-50 flex-shrink-0 flex items-center justify-center overflow-hidden">
+        <div className="w-14 h-14 rounded-lg bg-slate-50 flex-shrink-0 flex items-center justify-center overflow-hidden">
           {item.imageUrl && item.imageUrl.startsWith('http') ? (
             <img src={item.imageUrl} alt="" className="w-full h-full object-cover" />
           ) : (
-            <ImageIcon size={20} className="text-gray-200" />
+            <ImageIcon size={20} className="text-slate-200" />
           )}
         </div>
 
         <div className="flex-1 min-w-0">
-          <span className="text-sm font-medium text-gray-900 truncate block">
+          <span className="text-sm font-medium text-slate-900 truncate block">
             {item.productName}
           </span>
           <div className="flex items-center gap-2 mt-0.5">
@@ -64,7 +64,7 @@ export function ThumbnailCard({ item, isExpanded, onToggle }: Props) {
           </div>
         </div>
 
-        <div className="flex items-center gap-2 text-xs text-gray-500 flex-shrink-0">
+        <div className="flex items-center gap-2 text-xs text-slate-500 flex-shrink-0">
           <span className="font-mono tabular-nums">CTR {item.ctr.toFixed(2)}%</span>
           {item.prevCtr > 0 && (
             <span className="font-mono tabular-nums text-[10px]">
@@ -73,7 +73,7 @@ export function ThumbnailCard({ item, isExpanded, onToggle }: Props) {
               ) : (
                 <span className="text-red-500">▼ {(item.prevCtr - item.ctr).toFixed(2)}%</span>
               )}
-              <span className="text-gray-400 ml-1">(이전 {item.prevCtr.toFixed(2)}%)</span>
+              <span className="text-slate-400 ml-1">(이전 {item.prevCtr.toFixed(2)}%)</span>
             </span>
           )}
         </div>
@@ -83,18 +83,18 @@ export function ThumbnailCard({ item, isExpanded, onToggle }: Props) {
             <span className="text-lg font-black">{item.grade}</span>
           </div>
           {isExpanded ? (
-            <ChevronUp size={14} className="text-gray-400" />
+            <ChevronUp size={14} className="text-slate-400" />
           ) : (
-            <ChevronDown size={14} className="text-gray-400" />
+            <ChevronDown size={14} className="text-slate-400" />
           )}
         </div>
       </button>
 
       {isExpanded && (
-        <div className="border-t border-gray-100 p-4 bg-gray-50/30 space-y-3">
+        <div className="border-t border-slate-100 p-4 bg-slate-50/30 space-y-3">
           {item.issues.length > 0 && (
             <div>
-              <div className="text-[10px] font-mono text-gray-500 uppercase mb-1.5">
+              <div className="text-[10px] font-mono text-slate-500 uppercase mb-1.5">
                 발견된 이슈
               </div>
               <div className="space-y-1">
@@ -124,7 +124,7 @@ export function ThumbnailCard({ item, isExpanded, onToggle }: Props) {
 
           {item.suggestions.length > 0 && (
             <div>
-              <div className="text-[10px] font-mono text-gray-500 uppercase mb-1.5">
+              <div className="text-[10px] font-mono text-slate-500 uppercase mb-1.5">
                 개선 제안
               </div>
               <div className="space-y-1">
@@ -143,16 +143,16 @@ export function ThumbnailCard({ item, isExpanded, onToggle }: Props) {
 
           <div className="grid grid-cols-3 gap-3 pt-1">
             <div className="text-xs">
-              <span className="text-gray-500">노출수</span>
-              <span className="ml-2 font-medium text-gray-900">{item.impressions.toLocaleString()}</span>
+              <span className="text-slate-500">노출수</span>
+              <span className="ml-2 font-medium text-slate-900">{item.impressions.toLocaleString()}</span>
             </div>
             <div className="text-xs">
-              <span className="text-gray-500">클릭수</span>
-              <span className="ml-2 font-medium text-gray-900">{item.clicks.toLocaleString()}</span>
+              <span className="text-slate-500">클릭수</span>
+              <span className="ml-2 font-medium text-slate-900">{item.clicks.toLocaleString()}</span>
             </div>
             <div className="text-xs">
-              <span className="text-gray-500">전략</span>
-              <span className="ml-2 font-medium text-gray-900">{item.strategy === 'premium' ? '프리미엄' : '표준'}</span>
+              <span className="text-slate-500">전략</span>
+              <span className="ml-2 font-medium text-slate-900">{item.strategy === 'premium' ? '프리미엄' : '표준'}</span>
             </div>
           </div>
         </div>

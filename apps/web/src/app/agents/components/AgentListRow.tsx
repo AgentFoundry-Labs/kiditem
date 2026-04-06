@@ -14,7 +14,7 @@ export function AgentListRow({ agent, onClick, onDelete, onRun, isRunning }: { a
 
   return (
     <div
-      className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-0 transition-colors"
+      className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 cursor-pointer border-b border-slate-100 last:border-0 transition-colors"
       onClick={onClick}
     >
       {/* Status dot */}
@@ -23,19 +23,19 @@ export function AgentListRow({ agent, onClick, onDelete, onRun, isRunning }: { a
       </span>
 
       {/* Icon placeholder */}
-      <div className="w-6 h-6 sm:w-8 sm:h-8 rounded-lg bg-gray-100 flex items-center justify-center shrink-0 text-sm font-semibold text-gray-500">
+      <div className="w-6 h-6 sm:w-8 sm:h-8 rounded-lg bg-slate-100 flex items-center justify-center shrink-0 text-sm font-semibold text-slate-500">
         {agent.icon ?? agent.name.charAt(0).toUpperCase()}
       </div>
 
       {/* Name + meta */}
       <div className="flex-1 min-w-0">
-        <span className="text-sm font-medium text-gray-900">{agent.name}</span>
-        <span className="hidden sm:inline text-xs text-gray-500 ml-2">
+        <span className="text-sm font-medium text-slate-900">{agent.name}</span>
+        <span className="hidden sm:inline text-xs text-slate-500 ml-2">
           {ROLE_LABELS[agent.role] ?? agent.role}
           {agent.title ? ` · ${agent.title}` : ''}
         </span>
         {agent.description && (
-          <p className="text-xs text-gray-400 truncate mt-0.5">{agent.description}</p>
+          <p className="text-xs text-slate-400 truncate mt-0.5">{agent.description}</p>
         )}
       </div>
 
@@ -51,14 +51,14 @@ export function AgentListRow({ agent, onClick, onDelete, onRun, isRunning }: { a
           </span>
         )}
         {agent.runtimeState && agent.runtimeState.totalCostCents > 0 && (
-          <span className="text-xs text-gray-400 font-mono text-right">
+          <span className="text-xs text-slate-400 font-mono text-right">
             {formatCost(agent.runtimeState.totalCostCents)}
           </span>
         )}
-        <span className="text-xs text-gray-400 font-mono w-14 text-right">
+        <span className="text-xs text-slate-400 font-mono w-14 text-right">
           {ADAPTER_LABELS[agent.adapterType] ?? agent.adapterType}
         </span>
-        <span className="text-xs text-gray-400 w-16 text-right">
+        <span className="text-xs text-slate-400 w-16 text-right">
           {relativeTime(agent.lastHeartbeatAt)}
         </span>
         <span className="w-20 flex justify-end">
@@ -86,7 +86,7 @@ export function AgentListRow({ agent, onClick, onDelete, onRun, isRunning }: { a
                 onDelete(agent.id);
               }
             }}
-            className="p-1 text-gray-400 hover:text-red-500 transition-colors"
+            className="p-1 text-slate-400 hover:text-red-500 transition-colors"
             title="삭제"
           >
             <Trash2 className="w-3.5 h-3.5" />

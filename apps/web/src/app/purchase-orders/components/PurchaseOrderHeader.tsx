@@ -16,8 +16,8 @@ export function PurchaseOrderHeader({ total, totalAmountCny, onRefresh, onCreate
       <div className="flex items-center gap-3">
         <Package size={20} className="text-purple-500" />
         <div>
-          <h1 className="text-lg font-bold text-gray-900">발주 관리</h1>
-          <p className="text-sm text-gray-500">
+          <h1 className="page-title">발주 관리</h1>
+          <p className="text-sm text-slate-500">
             {total}건 · 총 {formatKRW(totalAmountCny)} CNY
           </p>
         </div>
@@ -25,7 +25,7 @@ export function PurchaseOrderHeader({ total, totalAmountCny, onRefresh, onCreate
       <div className="flex items-center gap-2">
         <button
           onClick={onRefresh}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-lg border border-gray-200"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded-lg border border-slate-200"
         >
           <RefreshCw size={14} />
           새로고침

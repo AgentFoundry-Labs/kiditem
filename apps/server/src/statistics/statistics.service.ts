@@ -181,7 +181,32 @@ export class StatisticsService {
         }
       }
     }
-    const daily = Array.from(dailyMap.entries()).map(([date, count]) => ({ date, count }));
+    // Daily order counts/revenue (last 30 days)
+    const dailyOrders = await this.prisma.order.findMany({
+      where: {
+        companyId,
+        orderedAt: { gte: thirtyDaysAgo, lte: now },
+        status: { notIn: ['cancelled', 'returned'] },
+      },
+      select: { orderedAt: true, totalPrice: true, quantity: true },
+    });
+
+    const orderDailyMap = new Map<string, { orders: number; revenue: number; qty: number }>();
+    for (const o of dailyOrders) {
+      if (o.orderedAt) {
+        const key = o.orderedAt.toISOString().slice(0, 10);
+        const entry = orderDailyMap.get(key) ?? { orders: 0, revenue: 0, qty: 0 };
+        entry.orders += 1;
+        entry.revenue += o.totalPrice ?? 0;
+        entry.qty += o.quantity ?? 0;
+        orderDailyMap.set(key, entry);
+      }
+    }
+
+    const daily = Array.from(dailyMap.entries()).map(([date, count]) => {
+      const orderEntry = orderDailyMap.get(date) ?? { orders: 0, revenue: 0, qty: 0 };
+      return { date, count, ...orderEntry };
+    });
 
     return {
       totalShipments: shipments.length,
@@ -201,14 +226,15 @@ export class StatisticsService {
       },
     });
 
-    const gradeMap = new Map<string, { revenue: number; profit: number; productCount: number }>();
+    const gradeMap = new Map<string, { revenue: number; profit: number; productCount: number; adCost: number }>();
 
     for (const r of records) {
       const grade = r.product.abcGrade ?? 'N/A';
-      const entry = gradeMap.get(grade) ?? { revenue: 0, profit: 0, productCount: 0 };
+      const entry = gradeMap.get(grade) ?? { revenue: 0, profit: 0, productCount: 0, adCost: 0 };
       entry.revenue += r.revenue;
       entry.profit += r.netProfit;
       entry.productCount += 1;
+      entry.adCost += r.adCost;
       gradeMap.set(grade, entry);
     }
 
@@ -219,7 +245,7 @@ export class StatisticsService {
         profit: data.profit,
         count: data.productCount,
         productCount: data.productCount,
-        adCost: 0,
+        adCost: data.adCost,
       }))
       .sort((a, b) => b.revenue - a.revenue);
   }
@@ -236,40 +262,46 @@ export class StatisticsService {
     });
 
     const totalRevenue = records.reduce((sum, r) => sum + r.revenue, 0);
-    const top20Count = Math.max(1, Math.ceil(records.length * 0.2));
-    const top20Records = records.slice(0, top20Count);
-    const top20Revenue = top20Records.reduce((sum, r) => sum + r.revenue, 0);
 
-    // Grade distribution
-    const gradeMap = new Map<string, { count: number; revenue: number }>();
-    for (const r of records) {
-      const grade = r.product.abcGrade ?? 'N/A';
-      const entry = gradeMap.get(grade) ?? { count: 0, revenue: 0 };
-      entry.count += 1;
-      entry.revenue += r.revenue;
-      gradeMap.set(grade, entry);
+    // Compute full pareto items with cumulative percent
+    let cumulativeRevenue = 0;
+    const fullParetoItems = records.map((r, index) => {
+      cumulativeRevenue += r.revenue;
+      const revenuePercent = totalRevenue > 0
+        ? Math.round((r.revenue / totalRevenue) * 1000) / 10
+        : 0;
+      const cumulativePercent = totalRevenue > 0
+        ? Math.round((cumulativeRevenue / totalRevenue) * 1000) / 10
+        : 0;
+      const currentGrade = r.product.abcGrade ?? 'N/A';
+      const suggestedGrade = cumulativePercent <= 70 ? 'A' : cumulativePercent <= 90 ? 'B' : 'C';
+      return {
+        id: r.productId,
+        rank: index + 1,
+        name: r.product.name,
+        currentGrade,
+        suggestedGrade,
+        gradeMatch: currentGrade === suggestedGrade,
+        revenue: r.revenue,
+        revenuePercent,
+        cumulativePercent,
+      };
+    });
+
+    // Grade distribution as object
+    const gradeDistribution = { A: 0, B: 0, C: 0 } as { A: number; B: number; C: number };
+    for (const item of fullParetoItems) {
+      const g = item.currentGrade as 'A' | 'B' | 'C';
+      if (g in gradeDistribution) gradeDistribution[g] += 1;
     }
-    const gradeDistribution = Array.from(gradeMap.entries())
-      .map(([grade, data]) => ({ grade, ...data }))
-      .sort((a, b) => b.revenue - a.revenue);
 
-    const top20Products = top20Records.map((r) => ({
-      productId: r.productId,
-      productName: r.product.name,
-      revenue: r.revenue,
-    }));
+    const mismatchCount = fullParetoItems.filter((item) => !item.gradeMatch).length;
 
     return {
-      totalProducts: records.length,
-      top20Count,
       totalRevenue,
-      top20Revenue,
-      top20RevenueRatio: totalRevenue > 0
-        ? Math.round((top20Revenue / totalRevenue) * 10000) / 10000
-        : 0,
-      top20Products,
-      data: top20Products,
       gradeDistribution,
+      mismatchCount,
+      data: fullParetoItems,
     };
   }
 
@@ -289,31 +321,86 @@ export class StatisticsService {
         ...where,
         status: { notIn: ['cancelled', 'returned'] },
       },
-      select: { receiverName: true },
+      select: { receiverName: true, totalPrice: true, orderedAt: true },
     });
 
+    // repeatProducts
+    const productOrders = await this.prisma.order.findMany({
+      where: {
+        ...where,
+        status: { notIn: ['cancelled', 'returned'] },
+        productId: { not: null },
+      },
+      select: {
+        productId: true,
+        receiverName: true,
+        product: { select: { name: true, category: true } },
+      },
+    });
+
+    const productCustomerMap = new Map<string, { productName: string; category: string | null; customers: Set<string>; orderCount: number }>();
+    for (const o of productOrders) {
+      if (!o.productId) continue;
+      const entry = productCustomerMap.get(o.productId) ?? {
+        productName: o.product?.name ?? '',
+        category: o.product?.category ?? null,
+        customers: new Set<string>(),
+        orderCount: 0,
+      };
+      if (o.receiverName) entry.customers.add(o.receiverName);
+      entry.orderCount += 1;
+      productCustomerMap.set(o.productId, entry);
+    }
+
+    const repeatProducts = Array.from(productCustomerMap.entries())
+      .filter(([, v]) => v.customers.size >= 2)
+      .sort((a, b) => b[1].orderCount - a[1].orderCount)
+      .slice(0, 20)
+      .map(([productId, v]) => ({
+        productId,
+        productName: v.productName,
+        category: v.category,
+        orderCount: v.orderCount,
+      }));
+
     // Count orders per receiver
-    const receiverMap = new Map<string, number>();
+    const receiverMap = new Map<string, { count: number; totalAmount: number; lastOrder: Date | null }>();
     for (const o of orders) {
       const name = o.receiverName ?? '';
       if (!name) continue;
-      receiverMap.set(name, (receiverMap.get(name) ?? 0) + 1);
+      const entry = receiverMap.get(name) ?? { count: 0, totalAmount: 0, lastOrder: null };
+      entry.count += 1;
+      entry.totalAmount += o.totalPrice ?? 0;
+      if (!entry.lastOrder || (o.orderedAt && o.orderedAt > entry.lastOrder)) {
+        entry.lastOrder = o.orderedAt;
+      }
+      receiverMap.set(name, entry);
     }
 
     const totalCustomers = receiverMap.size;
-    const repeatCustomers = Array.from(receiverMap.values()).filter((c) => c >= 2).length;
+    const repeatCustomerCount = Array.from(receiverMap.values()).filter((c) => c.count >= 2).length;
     const repurchaseRate = totalCustomers > 0
-      ? Math.round((repeatCustomers / totalCustomers) * 10000) / 10000
+      ? Math.round((repeatCustomerCount / totalCustomers) * 10000) / 10000
       : 0;
+
+    const repeatCustomers = Array.from(receiverMap.entries())
+      .filter(([, v]) => v.count >= 2)
+      .sort((a, b) => b[1].count - a[1].count)
+      .slice(0, 20)
+      .map(([name, v]) => ({
+        name,
+        count: v.count,
+        totalAmount: v.totalAmount,
+        lastOrder: v.lastOrder,
+      }));
 
     return {
       totalCustomers,
-      repeatCustomers: repeatCustomers as number,
+      repeatCount: repeatCustomerCount,
       repurchaseRate,
       totalOrders: orders.length,
-      repeatCount: repeatCustomers,
-      repeatProducts: [] as string[],
-      repeatCustomersList: [] as string[],
+      repeatProducts,
+      repeatCustomers,
     };
   }
 }

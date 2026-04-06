@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { BarChart3, RefreshCw } from "lucide-react";
+import { usePeriodSelector } from '@/hooks/usePeriodSelector';
+import PeriodSelector from '@/components/ui/PeriodSelector';
 import { apiClient } from "@/lib/api-client";
 import { isApiError } from "@/lib/api-error";
 import { queryKeys } from "@/lib/query-keys";
@@ -34,12 +35,7 @@ interface SalesAnalysisData {
 }
 
 export default function SalesOverview() {
-  const prevMonth = (() => {
-    const d = new Date();
-    d.setMonth(d.getMonth() - 1);
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-  })();
-  const [period, setPeriod] = useState(prevMonth);
+  const { period, setPeriod, periodOptions } = usePeriodSelector({ months: 12, defaultTo: 'prev' });
 
   const { data, isLoading: loading, error: queryError, refetch } = useQuery({
     queryKey: queryKeys.salesAnalysis.data(period),
@@ -51,17 +47,6 @@ export default function SalesOverview() {
   });
   const error = queryError ? (isApiError(queryError) ? queryError.detail : "매출분석 조회 실패") : null;
 
-  const periodOptions = (() => {
-    const opts: string[] = [];
-    const now = new Date();
-    for (let i = 0; i < 12; i++) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      opts.push(
-        `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`
-      );
-    }
-    return opts;
-  })();
 
   if (loading) {
     return <PageSkeleton variant="table" />;
@@ -73,7 +58,7 @@ export default function SalesOverview() {
         <p className="text-red-500">{error}</p>
         <button
           onClick={() => refetch()}
-          className="px-4 py-2 text-sm bg-gray-900 text-white rounded-lg hover:bg-gray-800"
+          className="px-4 py-2 text-sm bg-slate-900 text-white rounded-lg hover:bg-slate-800"
         >
           다시 시도
         </button>
@@ -95,23 +80,13 @@ export default function SalesOverview() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <BarChart3 size={20} className="text-purple-600" />
-          <h1 className="text-2xl font-bold text-gray-900">통합매출분석</h1>
+          <h1 className="page-title">통합매출분석</h1>
         </div>
         <div className="flex items-center gap-2">
-          <select
-            value={period}
-            onChange={(e) => setPeriod(e.target.value)}
-            className="text-sm border border-gray-200 rounded-lg px-3 py-2"
-          >
-            {periodOptions.map((p) => (
-              <option key={p} value={p}>
-                {p}
-              </option>
-            ))}
-          </select>
+          <PeriodSelector value={period} onChange={setPeriod} options={periodOptions} />
           <button
             onClick={() => refetch()}
-            className="flex items-center gap-1.5 px-3 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50"
+            className="flex items-center gap-1.5 px-3 py-2 text-sm text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50"
           >
             <RefreshCw size={14} /> 새로고침
           </button>
@@ -121,15 +96,15 @@ export default function SalesOverview() {
       {data && (
         <>
           <div className="grid grid-cols-4 gap-4">
-            <div className="bg-white rounded-xl p-4 border border-gray-200">
-              <div className="text-sm text-gray-500">총매출</div>
-              <div className="text-xl font-bold text-gray-900 mt-1">
+            <div className="card">
+              <div className="card-label">총매출</div>
+              <div className="card-value">
                 {formatKRW(data.totals.totalRevenue)}원
               </div>
             </div>
-            <div className="bg-white rounded-xl p-4 border border-gray-200">
-              <div className="text-sm text-gray-500">총비용</div>
-              <div className="text-xl font-bold text-gray-900 mt-1">
+            <div className="card">
+              <div className="card-label">총비용</div>
+              <div className="card-value">
                 {formatKRW(data.totals.totalCost)}원
               </div>
             </div>
@@ -140,9 +115,9 @@ export default function SalesOverview() {
                   : "bg-red-50 border-red-200"
               }`}
             >
-              <div className="text-sm text-gray-500">총이익</div>
+              <div className="card-label">총이익</div>
               <div
-                className={`text-xl font-bold mt-1 ${
+                className={`card-value ${
                   data.totals.totalProfit >= 0
                     ? "text-green-600"
                     : "text-red-600"
@@ -151,9 +126,9 @@ export default function SalesOverview() {
                 {formatKRW(data.totals.totalProfit)}원
               </div>
             </div>
-            <div className="bg-white rounded-xl p-4 border border-gray-200">
-              <div className="text-sm text-gray-500">반품률</div>
-              <div className="text-xl font-bold text-gray-900 mt-1">
+            <div className="card">
+              <div className="card-label">반품률</div>
+              <div className="card-value">
                 {formatPercent(returnRate)}
               </div>
             </div>

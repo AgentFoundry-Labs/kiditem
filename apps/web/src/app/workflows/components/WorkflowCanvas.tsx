@@ -86,7 +86,7 @@ export default function WorkflowCanvas({
   );
 
   return (
-    <div className="w-full h-[500px] rounded-xl overflow-hidden border border-gray-200 bg-gray-50">
+    <div className="w-full h-[500px] rounded-xl overflow-hidden border border-slate-200 bg-slate-50">
       <ReactFlow
         nodes={nodes}
         edges={edges}

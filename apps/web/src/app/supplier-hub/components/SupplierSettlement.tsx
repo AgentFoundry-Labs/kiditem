@@ -53,49 +53,42 @@ export default function SupplierSettlement() {
       <div className="flex items-center gap-3">
         <Scale size={18} className="text-amber-500" />
         <div>
-          <h1 className="text-base font-semibold text-gray-900 uppercase tracking-wide">Supplier Settlement</h1>
-          <p className="text-xs text-gray-400 font-mono mt-0.5">매입처 구매입고 정산관리</p>
+          <h1 className="page-title">구매 정산</h1>
         </div>
       </div>
 
       {/* Overview KPI */}
       <div className="grid grid-cols-3 gap-3">
-        <div className="bg-white rounded-xl border border-slate-200">
-          <div className="px-4 py-3">
-            <div className="flex items-center gap-1.5 mb-1">
-              <ArrowDown size={12} className="text-blue-500" />
-              <span className="text-[10px] text-gray-500 font-mono uppercase">총 입고금액 (발주 합)</span>
-            </div>
-            <div className="text-xl font-bold text-gray-900 tabular-nums">{formatKRW(totalReceived)}원</div>
+        <div className="card">
+          <div className="flex items-center gap-1.5 mb-1">
+            <ArrowDown size={12} className="text-blue-500" />
+            <span className="card-label">총 입고금액 (발주 합)</span>
           </div>
+          <div className="card-value tabular-nums">{formatKRW(totalReceived)}원</div>
         </div>
-        <div className="bg-white rounded-xl border border-slate-200">
-          <div className="px-4 py-3">
-            <div className="flex items-center gap-1.5 mb-1">
-              <ArrowUp size={12} className="text-green-500" />
-              <span className="text-[10px] text-gray-500 font-mono uppercase">총 지불금액</span>
-            </div>
-            <div className="text-xl font-bold text-green-600 tabular-nums">{formatKRW(totalPaid)}원</div>
+        <div className="card">
+          <div className="flex items-center gap-1.5 mb-1">
+            <ArrowUp size={12} className="text-green-500" />
+            <span className="card-label">총 지불금액</span>
           </div>
+          <div className="card-value text-green-600 tabular-nums">{formatKRW(totalPaid)}원</div>
         </div>
-        <div className="bg-white rounded-xl border border-slate-200">
-          <div className="px-4 py-3">
-            <div className="flex items-center gap-1.5 mb-1">
-              {difference === 0 ? <Minus size={12} className="text-gray-400" /> : <AlertTriangle size={12} className="text-red-500" />}
-              <span className="text-[10px] text-gray-500 font-mono uppercase">차이 (미정산)</span>
-            </div>
-            <div className={`text-xl font-bold tabular-nums ${difference > 0 ? 'text-red-600' : difference < 0 ? 'text-blue-600' : 'text-gray-400'}`}>
-              {difference > 0 ? '+' : ''}{formatKRW(difference)}원
-            </div>
+        <div className="card">
+          <div className="flex items-center gap-1.5 mb-1">
+            {difference === 0 ? <Minus size={12} className="text-slate-400" /> : <AlertTriangle size={12} className="text-red-500" />}
+            <span className="card-label">차이 (미정산)</span>
+          </div>
+          <div className={`card-value tabular-nums ${difference > 0 ? 'text-red-600' : difference < 0 ? 'text-blue-600' : 'text-slate-400'}`}>
+            {difference > 0 ? '+' : ''}{formatKRW(difference)}원
           </div>
         </div>
       </div>
 
       {/* Detail Table */}
-      <div className="bg-white rounded-xl border border-slate-200">
+      <div className="table-card">
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
           <h3 className="text-sm font-semibold text-slate-900">매입처별 정산 대조</h3>
-          <span className="text-[11px] text-gray-400 font-mono">{summaries.length} suppliers</span>
+          <span className="text-xs text-slate-400">{summaries.length} suppliers</span>
         </div>
         <div className="overflow-x-auto">
           <table>
@@ -115,47 +108,47 @@ export default function SupplierSettlement() {
                 const isSettled = sm.unpaid === 0 && sm.totalPaid > 0;
                 return (
                   <tr key={sm.supplierId}>
-                    <td className="font-medium text-gray-900">{sm.supplierName}</td>
+                    <td className="font-medium text-slate-900">{sm.supplierName}</td>
                     <td className="text-right tabular-nums">{sm.orderCount}</td>
                     <td className="text-right tabular-nums">{formatKRW(sm.totalOrdered)}원</td>
                     <td className="text-right tabular-nums font-semibold">{formatKRW(sm.totalOrdered)}원</td>
                     <td className="text-right tabular-nums text-green-600">{formatKRW(sm.totalPaid)}원</td>
-                    <td className={`text-right tabular-nums font-semibold ${sm.unpaid > 0 ? 'text-red-600' : 'text-gray-400'}`}>
+                    <td className={`text-right tabular-nums font-semibold ${sm.unpaid > 0 ? 'text-red-600' : 'text-slate-400'}`}>
                       {sm.unpaid > 0 ? `${formatKRW(sm.unpaid)}원` : '-'}
                     </td>
                     <td className="text-center">
                       {isSettled ? (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-50 text-green-600 rounded text-[10px] font-mono">
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-50 text-green-600 rounded text-xs">
                           <CheckCircle size={10} /> 정산완료
                         </span>
                       ) : sm.totalPaid > 0 ? (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-yellow-50 text-yellow-600 rounded text-[10px] font-mono">
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-yellow-50 text-yellow-600 rounded text-xs">
                           <AlertTriangle size={10} /> 부분정산
                         </span>
                       ) : sm.totalOrdered > 0 ? (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-red-50 text-red-600 rounded text-[10px] font-mono">
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-red-50 text-red-600 rounded text-xs">
                           <AlertTriangle size={10} /> 미정산
                         </span>
                       ) : (
-                        <span className="text-[10px] text-gray-400 font-mono">-</span>
+                        <span className="text-xs text-slate-400">-</span>
                       )}
                     </td>
                   </tr>
                 );
               })}
               {summaries.length === 0 && (
-                <tr><td colSpan={7} className="text-center py-8 text-gray-400 text-sm">데이터가 없습니다.</td></tr>
+                <tr><td colSpan={7} className="text-center py-8 text-slate-400 text-sm">데이터가 없습니다.</td></tr>
               )}
             </tbody>
             {summaries.length > 0 && (
               <tfoot>
-                <tr className="bg-gray-50 font-semibold">
+                <tr className="bg-slate-50 font-semibold">
                   <td>합계</td>
                   <td className="text-right tabular-nums">{summaries.reduce((s, sm) => s + sm.orderCount, 0)}</td>
                   <td className="text-right tabular-nums">{formatKRW(summaries.reduce((s, sm) => s + sm.totalOrdered, 0))}원</td>
                   <td className="text-right tabular-nums">{formatKRW(totalReceived)}원</td>
                   <td className="text-right tabular-nums text-green-600">{formatKRW(totalPaid)}원</td>
-                  <td className={`text-right tabular-nums ${paymentSummary.totalUnpaid > 0 ? 'text-red-600' : 'text-gray-400'}`}>
+                  <td className={`text-right tabular-nums ${paymentSummary.totalUnpaid > 0 ? 'text-red-600' : 'text-slate-400'}`}>
                     {paymentSummary.totalUnpaid > 0 ? `${formatKRW(paymentSummary.totalUnpaid)}원` : '-'}
                   </td>
                   <td></td>

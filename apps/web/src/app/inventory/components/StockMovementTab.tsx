@@ -64,11 +64,11 @@ export function StockMovementTab() {
         <div className="flex items-center gap-3">
           <ArrowUpDown size={20} className="text-indigo-500" />
           <div>
-            <p className="text-sm text-gray-500">{total}건 거래 내역</p>
+            <p className="text-sm text-slate-500">{total}건 거래 내역</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <div className="flex border border-gray-200 rounded-lg overflow-hidden">
+          <div className="flex border border-slate-200 rounded-lg overflow-hidden">
             {PERIOD_OPTIONS.map((opt) => (
               <button
                 key={opt.value}
@@ -76,7 +76,7 @@ export function StockMovementTab() {
                 className={`px-3 py-1.5 text-sm font-medium transition-colors ${
                   dateRange === opt.value
                     ? 'bg-blue-600 text-white'
-                    : 'bg-white text-gray-500 hover:text-gray-700'
+                    : 'bg-white text-slate-500 hover:text-slate-700'
                 }`}
               >
                 {opt.label}
@@ -85,7 +85,7 @@ export function StockMovementTab() {
           </div>
           <button
             onClick={() => queryClient.invalidateQueries({ queryKey: queryKeys.stockMovement.all })}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-lg border border-gray-200"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded-lg border border-slate-200"
           >
             <RefreshCw size={14} />
             새로고침
@@ -100,13 +100,13 @@ export function StockMovementTab() {
         <StockMovementSummaryCard icon={<TrendingDown size={14} className="text-red-500" />} label="출고 금액" value={`${formatKRW(summary.outAmount)}원`} color="text-red-600" />
       </div>
 
-      <div className="flex gap-1 border-b border-gray-200">
+      <div className="flex gap-1 border-b border-slate-200">
         {GROUP_TABS.map((tab) => (
           <button
             key={tab.key}
             onClick={() => setGroupBy(tab.key)}
             className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-              groupBy === tab.key ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'
+              groupBy === tab.key ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'
             }`}
           >
             {tab.label}

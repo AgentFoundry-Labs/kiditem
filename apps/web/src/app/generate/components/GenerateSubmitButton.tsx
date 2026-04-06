@@ -15,10 +15,10 @@ export default function GenerateSubmitButton({ isLoading, isFormValid, onSubmit 
         disabled={isLoading || !isFormValid}
         className={`w-full py-5 rounded-2xl font-black text-xl transition-all flex items-center justify-center gap-3 ${
           isLoading
-            ? 'bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed'
+            ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
             : !isFormValid
-              ? 'bg-gray-800 text-gray-400 cursor-not-allowed opacity-50'
-              : 'bg-gray-900 text-white hover:bg-gray-800 shadow-xl shadow-gray-200 active:scale-[0.98]'
+              ? 'bg-slate-800 text-slate-400 cursor-not-allowed opacity-50'
+              : 'bg-slate-900 text-white hover:bg-slate-800 shadow-xl shadow-slate-200 active:scale-[0.98]'
         }`}
       >
         {isLoading ? (

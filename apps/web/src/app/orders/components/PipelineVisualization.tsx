@@ -33,14 +33,14 @@ export default function PipelineVisualization({
   const getNodeX = (i: number) => padX + i * (nodeW + gap);
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100">
-        <h3 className="text-xs font-semibold text-gray-900 uppercase tracking-wider">Autonomous Lineage</h3>
+    <div className="table-card">
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-100">
+        <h3 className="text-xs font-semibold text-slate-900 uppercase tracking-wider">Autonomous Lineage</h3>
         <span className="text-[10px] text-emerald-600 font-mono flex items-center gap-1">
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> LIVE
         </span>
       </div>
-      <div className="relative overflow-x-auto bg-gray-50/50 p-4">
+      <div className="relative overflow-x-auto bg-slate-50/50 p-4">
         <svg
           width="100%"
           height={svgH}

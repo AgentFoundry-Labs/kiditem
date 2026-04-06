@@ -97,30 +97,30 @@ export default function CoreProducts() {
     <div className="space-y-4 animate-in">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">핵심상품 <span className="text-green-600">A등급</span></h1>
+          <h1 className="page-title">핵심상품 <span className="text-green-600">A등급</span></h1>
           <span className="text-sm text-slate-500">{coreProducts.length}개 상품 -- 14일 매출 누적 70% (매출 {formatKRW(totalRevenue)}원)</span>
         </div>
-        <button className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-500 hover:bg-gray-100 rounded-md font-mono">
+        <button className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-100 rounded-md font-mono">
           <RefreshCw size={12} /> REFRESH
         </button>
       </div>
 
       {/* KPI */}
       <div className="grid grid-cols-4 gap-3">
-        <div className="bg-white rounded-xl border border-slate-200 p-4">
-          <div className="text-2xl font-bold text-slate-900">{isLoading ? '-' : coreProducts.length}</div>
+        <div className="card">
+          <div className="card-value text-2xl">{isLoading ? '-' : coreProducts.length}</div>
           <div className="text-xs text-slate-500 mt-1">핵심상품 수</div>
         </div>
-        <div className="bg-white rounded-xl border border-slate-200 p-4">
-          <div className="text-2xl font-bold text-blue-600 tabular-nums">{isLoading ? '-' : `${formatKRW(totalRevenue)}원`}</div>
+        <div className="card">
+          <div className="card-value text-2xl text-blue-600 tabular-nums">{isLoading ? '-' : `${formatKRW(totalRevenue)}원`}</div>
           <div className="text-xs text-slate-500 mt-1">14일 매출 합계</div>
         </div>
-        <div className="bg-white rounded-xl border border-slate-200 p-4">
-          <div className="text-2xl font-bold text-purple-600 tabular-nums">{isLoading ? '-' : `${formatKRW(Math.round(totalAdSpend))}원`}</div>
+        <div className="card">
+          <div className="card-value text-2xl text-purple-600 tabular-nums">{isLoading ? '-' : `${formatKRW(Math.round(totalAdSpend))}원`}</div>
           <div className="text-xs text-slate-500 mt-1">광고비 합계</div>
         </div>
-        <div className="bg-white rounded-xl border border-slate-200 p-4">
-          <div className="text-2xl font-bold text-green-600">{isLoading ? '-' : totalAdSpend > 0 ? `${(totalRevenue / totalAdSpend).toFixed(1)}x` : '-'}</div>
+        <div className="card">
+          <div className="card-value text-2xl text-green-600">{isLoading ? '-' : totalAdSpend > 0 ? `${(totalRevenue / totalAdSpend).toFixed(1)}x` : '-'}</div>
           <div className="text-xs text-slate-500 mt-1">평균 ROAS</div>
         </div>
       </div>

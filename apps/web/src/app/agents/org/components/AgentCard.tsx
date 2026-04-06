@@ -21,8 +21,8 @@ export default function AgentCard({ node, onClick }: Props) {
       className={cn(
         "group flex flex-col items-center gap-2 p-3 rounded-xl border transition-all duration-200 w-36 text-left",
         hired
-          ? "border-gray-200 bg-white hover:border-blue-300 hover:shadow-sm"
-          : "border-dashed border-gray-300 bg-gray-50 opacity-60 hover:opacity-80 hover:border-violet-300",
+          ? "border-slate-200 bg-white hover:border-blue-300 hover:shadow-sm"
+          : "border-dashed border-slate-300 bg-slate-50 opacity-60 hover:opacity-80 hover:border-violet-300",
       )}
     >
       {/* Icon + status dot */}
@@ -30,8 +30,8 @@ export default function AgentCard({ node, onClick }: Props) {
         <div className={cn(
           "w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold transition-colors",
           hired
-            ? "bg-gray-100 text-gray-700 group-hover:bg-blue-50 group-hover:text-blue-700"
-            : "bg-gray-200 text-gray-400",
+            ? "bg-slate-100 text-slate-700 group-hover:bg-blue-50 group-hover:text-blue-700"
+            : "bg-slate-200 text-slate-400",
         )}>
           {initial}
         </div>
@@ -44,9 +44,9 @@ export default function AgentCard({ node, onClick }: Props) {
 
       {/* Name */}
       <div className="w-full text-center">
-        <p className={cn("text-xs font-medium truncate", hired ? "text-gray-900" : "text-gray-500")}>{node.name}</p>
+        <p className={cn("text-xs font-medium truncate", hired ? "text-slate-900" : "text-slate-500")}>{node.name}</p>
         {hired && node.title && (
-          <p className="text-[10px] text-gray-500 truncate mt-0.5">{node.title}</p>
+          <p className="text-[10px] text-slate-500 truncate mt-0.5">{node.title}</p>
         )}
         {!hired && (
           <p className="text-[10px] text-violet-500 mt-0.5">고용하기</p>
@@ -55,7 +55,7 @@ export default function AgentCard({ node, onClick }: Props) {
 
       {/* Badges */}
       <div className="flex flex-wrap justify-center gap-1">
-        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium bg-gray-100 text-gray-600">
+        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium bg-slate-100 text-slate-600">
           {roleLabel}
         </span>
         {hired && (

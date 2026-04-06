@@ -1,7 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Download } from "lucide-react";
+import { usePeriodSelector } from '@/hooks/usePeriodSelector';
+import PeriodSelector from '@/components/ui/PeriodSelector';
 import { timeAgo } from "@/lib/utils";
 import { apiClient } from "@/lib/api-client";
 import { isApiError } from "@/lib/api-error";
@@ -11,23 +13,14 @@ import PageSkeleton from "@/components/ui/PageSkeleton";
 import type { PLData, SyncInfo } from '@kiditem/shared';
 import ProfitLossSummaryCards from "./components/ProfitLossSummaryCards";
 import ProfitLossTable from "./components/ProfitLossTable";
+import type { SortField } from "./components/ProfitLossTable";
 
 export default function ProfitLossPage() {
-  // 동적 기간 생성 (최근 6개월)
-  const getRecentPeriods = () => {
-    const periods = [];
-    const now = new Date();
-    for (let i = 0; i < 6; i++) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const val = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-      const label = `${d.getFullYear()}년 ${d.getMonth() + 1}월`;
-      periods.push({ value: val, label });
-    }
-    return periods;
-  };
-  const periodOptions = getRecentPeriods();
-  const [period, setPeriod] = useState(periodOptions[0].value);
+  const { period, setPeriod, periodOptions } = usePeriodSelector({ months: 6 });
   const [filter, setFilter] = useState("all");
+  const [selectedGrades, setSelectedGrades] = useState<string[]>([]);
+  const [sortField, setSortField] = useState<SortField | null>(null);
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc' | null>(null);
 
   const { data: syncInfo } = useQuery({
     queryKey: queryKeys.syncInfo(),
@@ -51,22 +44,48 @@ export default function ProfitLossPage() {
   });
   const error = queryError ? (isApiError(queryError) ? queryError.detail : queryError instanceof Error ? queryError.message : "조회 실패") : null;
 
-  const filtered = data.filter((d) => {
-    if (filter === "minus") return d.profitRate < 0;
-    if (filter === "low") return d.profitRate >= 0 && d.profitRate <= 3;
-    if (filter === "normal") return d.profitRate > 3;
-    return true;
-  });
+  const filtered = useMemo(() => data.filter((d) => {
+    const matchesProfitFilter =
+      filter === "minus" ? d.profitRate < 0
+        : filter === "low" ? d.profitRate >= 0 && d.profitRate <= 3
+          : filter === "normal" ? d.profitRate > 3
+            : true;
+    const matchesGrade =
+      selectedGrades.length === 0 || selectedGrades.includes((d.grade || "").toUpperCase());
+    return matchesProfitFilter && matchesGrade;
+  }), [data, filter, selectedGrades]);
 
-  const totalRevenue = filtered.reduce((s, d) => s + d.revenue, 0);
-  const totalProfit = filtered.reduce((s, d) => s + d.netProfit, 0);
-  const totalAdCost = filtered.reduce((s, d) => s + d.adCost, 0);
+  const sorted = useMemo(() => {
+    if (!sortField || !sortDirection) return filtered;
+    return [...filtered].sort((a, b) => {
+      const left = a[sortField];
+      const right = b[sortField];
+      if (left === right) return 0;
+      return sortDirection === 'asc' ? (left > right ? 1 : -1) : (left < right ? 1 : -1);
+    });
+  }, [filtered, sortField, sortDirection]);
+
+  const toggleSort = (field: SortField) => {
+    if (sortField !== field) { setSortField(field); setSortDirection('desc'); return; }
+    if (sortDirection === 'desc') { setSortDirection('asc'); return; }
+    setSortField(null); setSortDirection(null);
+  };
+
+  const toggleGrade = (grade: string) => {
+    setSelectedGrades((prev) =>
+      prev.includes(grade) ? prev.filter((g) => g !== grade) : [...prev, grade]
+    );
+  };
+
+  const totalRevenue = sorted.reduce((s, d) => s + d.revenue, 0);
+  const totalProfit = sorted.reduce((s, d) => s + d.netProfit, 0);
+  const totalAdCost = sorted.reduce((s, d) => s + d.adCost, 0);
   const overallRate = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
 
   const handleExcel = () => {
     import("xlsx").then((XLSX) => {
       const ws = XLSX.utils.json_to_sheet(
-        filtered.map((d) => ({
+        sorted.map((d) => ({
           등급: d.grade, 상품명: d.productName, SKU: d.sku, 회사: d.company,
           매출: d.revenue, 매입원가: d.costOfGoods, 수수료: d.commission,
           배송비: d.shippingCost, 광고비: d.adCost, 기타비용: d.otherCost,
@@ -83,13 +102,9 @@ export default function ProfitLossPage() {
     <div className="space-y-6">
       <div>
         <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold text-slate-900">상품별 손익표</h1>
+          <h1 className="page-title">상품별 손익표</h1>
           <div className="flex gap-2">
-            <select value={period} onChange={(e) => setPeriod(e.target.value)} className="border rounded-lg px-3 py-2 text-sm">
-              {periodOptions.map((p) => (
-                <option key={p.value} value={p.value}>{p.label}</option>
-              ))}
-            </select>
+            <PeriodSelector value={period} onChange={setPeriod} options={periodOptions} />
             <button onClick={handleExcel} disabled={data.length === 0} className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-40 text-sm font-medium">
               <Download size={16} /> 엑셀 다운로드
             </button>
@@ -109,8 +124,6 @@ export default function ProfitLossPage() {
         <PageSkeleton variant="table" />
       ) : error ? (
         <div className="flex items-center justify-center h-64 text-red-500">{error}</div>
-      ) : data.length === 0 ? (
-        <div className="flex items-center justify-center h-64 text-slate-400">해당 기간 데이터가 없습니다.</div>
       ) : (
         <>
           <ProfitLossSummaryCards
@@ -119,7 +132,18 @@ export default function ProfitLossPage() {
             totalAdCost={totalAdCost}
             overallRate={overallRate}
           />
-          <ProfitLossTable data={data} filtered={filtered} filter={filter} onFilter={setFilter} />
+          <ProfitLossTable
+            data={data}
+            filtered={sorted}
+            filter={filter}
+            onFilter={setFilter}
+            selectedGrades={selectedGrades}
+            onToggleGrade={toggleGrade}
+            onResetGrades={() => setSelectedGrades([])}
+            sortField={sortField}
+            sortDirection={sortDirection}
+            onToggleSort={toggleSort}
+          />
         </>
       )}
     </div>

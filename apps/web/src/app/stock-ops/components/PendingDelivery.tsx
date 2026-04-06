@@ -92,29 +92,29 @@ export default function PendingDelivery() {
       {/* KPI */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="bg-white rounded-xl border border-slate-200 p-5">
-          <p className="text-sm text-slate-500 mb-1">미송 건수</p>
-          <p className="text-2xl font-bold text-orange-600">
+          <p className="card-label mb-1">미송 건수</p>
+          <p className="card-value text-orange-600">
             {isLoading ? '-' : `${orders.length}건`}
           </p>
         </div>
         <div className="bg-white rounded-xl border border-slate-200 p-5">
-          <p className="text-sm text-slate-500 mb-1">미송 수량</p>
-          <p className="text-2xl font-bold text-slate-800">
+          <p className="card-label mb-1">미송 수량</p>
+          <p className="card-value text-slate-800">
             {isLoading ? '-' : `${formatNumber(totalPendingQty)}개`}
           </p>
         </div>
         <div className="bg-white rounded-xl border border-slate-200 p-5">
-          <p className="text-sm text-slate-500 mb-1">미송 금액</p>
-          <p className="text-2xl font-bold text-slate-800">
+          <p className="card-label mb-1">미송 금액</p>
+          <p className="card-value text-slate-800">
             {isLoading ? '-' : `${formatNumber(totalPendingCost)}원`}
           </p>
         </div>
         <div className="bg-white rounded-xl border border-slate-200 p-5">
           <div className="flex items-center gap-1">
             <AlertTriangle className="w-4 h-4 text-red-500" />
-            <p className="text-sm text-slate-500 mb-1">지연 건수</p>
+            <p className="card-label mb-1">지연 건수</p>
           </div>
-          <p className="text-2xl font-bold text-red-600">
+          <p className="card-value text-red-600">
             {isLoading ? '-' : `${delayedCount}건`}
           </p>
         </div>
@@ -142,7 +142,7 @@ export default function PendingDelivery() {
           </h2>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table>
             <thead>
               <tr className="border-b border-slate-200 text-slate-500">
                 <th className="text-left py-2 px-3">상품명</th>
@@ -185,7 +185,7 @@ export default function PendingDelivery() {
                       </td>
                       <td className="py-2 px-3 text-center">
                         <span
-                          className={`px-2 py-0.5 rounded text-xs font-medium ${statusLabels[o.status]?.color || 'bg-gray-100 text-gray-600'}`}
+                          className={`px-2 py-0.5 rounded text-xs font-medium ${statusLabels[o.status]?.color || 'bg-slate-100 text-slate-600'}`}
                         >
                           {statusLabels[o.status]?.text || o.status}
                         </span>

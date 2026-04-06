@@ -60,7 +60,7 @@ export default function CSManagementPage() {
         <p className="text-red-500">{error}</p>
         <button
           onClick={() => queryClient.invalidateQueries({ queryKey: queryKeys.cs.all })}
-          className="px-4 py-2 text-sm bg-gray-900 text-white rounded-lg hover:bg-gray-800"
+          className="px-4 py-2 text-sm bg-slate-900 text-white rounded-lg hover:bg-slate-800"
         >
           다시 시도
         </button>

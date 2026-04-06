@@ -27,8 +27,8 @@ export default function ProductList({
   return (
     <>
       <div className="flex items-center gap-2 mb-4">
-        <input type="checkbox" className="w-4 h-4 rounded border-gray-300" />
-        <span className="text-sm font-medium text-gray-500">전체 선택</span>
+        <input type="checkbox" className="w-4 h-4 rounded border-slate-300" />
+        <span className="text-sm font-medium text-slate-500">전체 선택</span>
       </div>
 
       {isLoading ? (
@@ -38,11 +38,11 @@ export default function ProductList({
           ))}
         </div>
       ) : products.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-24 text-gray-500">
-          <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center border border-gray-200 mb-4">
-            <AlertCircle size={24} className="text-gray-400" />
+        <div className="flex flex-col items-center justify-center py-24 text-slate-500">
+          <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center border border-slate-200 mb-4">
+            <AlertCircle size={24} className="text-slate-400" />
           </div>
-          <p className="font-bold text-gray-800 text-lg mb-2">수집된 상품이 없습니다.</p>
+          <p className="font-bold text-slate-800 text-lg mb-2">수집된 상품이 없습니다.</p>
           <p className="text-sm">URL 수집이나 상세페이지 생성을 통해 첫 상품을 등록해 보세요!</p>
         </div>
       ) : (

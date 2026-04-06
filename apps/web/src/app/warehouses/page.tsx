@@ -62,7 +62,7 @@ export default function WarehousesPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-900">
+        <h1 className="page-title">
           <Building2 size={24} className="inline mr-2" />
           창고 관리
         </h1>

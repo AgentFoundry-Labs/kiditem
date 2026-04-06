@@ -1,22 +1,14 @@
 'use client';
 
-import React, { useState } from 'react';
-import {
-  Link as LinkIcon,
-  Settings,
-  Building2,
-  ListChecks,
-  Shield,
-} from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
+import { Settings } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
-import { queryKeys } from '@/lib/query-keys';
-import CompanyInfoTab from './components/CompanyInfoTab';
-import SettingsTabNav from './components/SettingsTabNav';
 import CoupangTab from './components/CoupangTab';
-import CommonCodesTab from './components/CommonCodesTab';
-import RulesConfigTab from './components/RulesConfigTab';
+import AdsCsvUpload from './components/AdsCsvUpload';
+import TrafficUpload from './components/TrafficUpload';
+import ReportDownload from './components/ReportDownload';
+import PrinterSettings from './components/PrinterSettings';
 
 export interface SyncResult {
   synced: number;
@@ -30,20 +22,7 @@ export interface HealthResult {
   error?: string;
 }
 
-export interface CompanyInfo {
-  id: string;
-  name: string;
-  businessNumber: string | null;
-  representative: string | null;
-  address: string | null;
-  phone: string | null;
-  email: string | null;
-}
-
-export type SettingsTab = 'company' | 'coupang' | 'codes' | 'rules';
-
 export default function SettingsPage() {
-  const [activeTab, setActiveTab] = useState<SettingsTab>('company');
   const [healthResult, setHealthResult] = useState<HealthResult | null>(null);
   const [testing, setTesting] = useState(false);
   const [syncingProduct, setSyncingProduct] = useState(false);
@@ -53,16 +32,6 @@ export default function SettingsPage() {
   const [lastProductSync, setLastProductSync] = useState<Date | null>(null);
   const [lastOrderSync, setLastOrderSync] = useState<Date | null>(null);
   const isConnected = healthResult?.connected ?? false;
-
-  const { data: companyInfo = null, isLoading: companyLoading } = useQuery({
-    queryKey: queryKeys.companies.list(),
-    queryFn: async () => {
-      const data = await apiClient.get<CompanyInfo[] | { items: CompanyInfo[] }>(`/api/companies`);
-      const items = Array.isArray(data) ? data : data.items ?? [];
-      return items.length > 0 ? items[0] : null;
-    },
-    enabled: activeTab === 'company',
-  });
 
   const handleTestConnection = async () => {
     setTesting(true);
@@ -104,51 +73,42 @@ export default function SettingsPage() {
     }
   };
 
-  const tabs: { key: SettingsTab; label: string; icon: React.ReactNode }[] = [
-    { key: 'company', label: '회사 정보', icon: <Building2 className="w-4 h-4" /> },
-    { key: 'coupang', label: '쿠팡 연동', icon: <LinkIcon className="w-4 h-4" /> },
-    { key: 'codes', label: '공통 코드', icon: <ListChecks className="w-4 h-4" /> },
-    { key: 'rules', label: '규칙 설정', icon: <Shield className="w-4 h-4" /> },
-  ];
-
   return (
-    <div className="space-y-6 max-w-4xl mx-auto pb-12">
+    <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-          <Settings className="w-6 h-6 text-gray-600" />
+        <h1 className="page-title flex items-center gap-2">
+          <Settings className="w-6 h-6 text-slate-600" />
           설정
         </h1>
-        <p className="text-gray-500 mt-1">회사 정보, API 연동, 공통 코드를 관리합니다.</p>
+        <p className="text-sm text-slate-500 mt-1">쿠팡 API 연동, 데이터 동기화, 보고서를 관리합니다.</p>
       </div>
 
-      <SettingsTabNav tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab} />
+      <CoupangTab
+        healthResult={healthResult}
+        isConnected={isConnected}
+        testing={testing}
+        syncingProduct={syncingProduct}
+        syncingOrder={syncingOrder}
+        productSyncResult={productSyncResult}
+        orderSyncResult={orderSyncResult}
+        lastProductSync={lastProductSync}
+        lastOrderSync={lastOrderSync}
+        onTestConnection={handleTestConnection}
+        onSyncProduct={handleSyncProduct}
+        onSyncOrder={handleSyncOrder}
+      />
 
-      {activeTab === 'company' && (
-        <CompanyInfoTab
-          companyInfo={companyInfo}
-          loading={companyLoading}
-        />
-      )}
+      <AdsCsvUpload />
 
-      {activeTab === 'coupang' && (
-        <CoupangTab
-          healthResult={healthResult}
-          isConnected={isConnected}
-          testing={testing}
-          syncingProduct={syncingProduct}
-          syncingOrder={syncingOrder}
-          productSyncResult={productSyncResult}
-          orderSyncResult={orderSyncResult}
-          lastProductSync={lastProductSync}
-          lastOrderSync={lastOrderSync}
-          onTestConnection={handleTestConnection}
-          onSyncProduct={handleSyncProduct}
-          onSyncOrder={handleSyncOrder}
-        />
-      )}
+      <TrafficUpload />
 
-      {activeTab === 'codes' && <CommonCodesTab />}
-      {activeTab === 'rules' && <RulesConfigTab />}
+      <ReportDownload />
+
+      <PrinterSettings />
+
+      <div className="bg-blue-50 rounded-xl p-4 border border-blue-200 text-sm text-blue-800">
+        <strong>참고:</strong> API 호출 제한이 있으므로 동기화는 필요할 때만 실행하세요. 셀피아와 API 키를 공유하고 있어 호출 빈도가 합산됩니다.
+      </div>
     </div>
   );
 }

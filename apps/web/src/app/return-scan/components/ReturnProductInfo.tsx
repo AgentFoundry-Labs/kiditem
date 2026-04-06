@@ -30,15 +30,15 @@ export default function ReturnProductInfo({
       <div className="p-4">
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4">
           <div>
-            <div className="text-xs text-slate-500">상품명</div>
+            <div className="card-label">상품명</div>
             <div className="text-sm font-medium">{product.name}</div>
           </div>
           <div>
-            <div className="text-xs text-slate-500">SKU</div>
+            <div className="card-label">SKU</div>
             <div className="text-sm font-mono">{product.sku || '-'}</div>
           </div>
           <div>
-            <div className="text-xs text-slate-500">현재 재고</div>
+            <div className="card-label">현재 재고</div>
             <div className="text-sm">{product.currentStock}개</div>
           </div>
         </div>

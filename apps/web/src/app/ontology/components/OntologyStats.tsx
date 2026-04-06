@@ -11,26 +11,26 @@ interface Props {
 export function OntologyStats({ productCount, totalCategories, totalBrands }: Props) {
   return (
     <div className="grid grid-cols-3 gap-4">
-      <div className="bg-white rounded-xl p-4 border border-gray-200">
-        <div className="flex items-center gap-2 text-sm text-gray-500">
+      <div className="card">
+        <div className="flex items-center gap-2 card-label">
           <Package className="w-4 h-4" />
           전체 상품
         </div>
-        <div className="text-2xl font-bold text-gray-900 mt-1">{productCount}</div>
+        <div className="card-value">{productCount}</div>
       </div>
-      <div className="bg-white rounded-xl p-4 border border-gray-200">
-        <div className="flex items-center gap-2 text-sm text-gray-500">
+      <div className="card">
+        <div className="flex items-center gap-2 card-label">
           <Layers className="w-4 h-4" />
           카테고리
         </div>
-        <div className="text-2xl font-bold text-gray-900 mt-1">{totalCategories}</div>
+        <div className="card-value">{totalCategories}</div>
       </div>
-      <div className="bg-white rounded-xl p-4 border border-gray-200">
-        <div className="flex items-center gap-2 text-sm text-gray-500">
+      <div className="card">
+        <div className="flex items-center gap-2 card-label">
           <Tag className="w-4 h-4" />
           브랜드
         </div>
-        <div className="text-2xl font-bold text-gray-900 mt-1">{totalBrands}</div>
+        <div className="card-value">{totalBrands}</div>
       </div>
     </div>
   );

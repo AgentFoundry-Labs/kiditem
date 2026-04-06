@@ -54,14 +54,14 @@ export default function ReviewsPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+        <h1 className="page-title flex items-center gap-2">
           <MessageSquare className="w-6 h-6 text-green-500" />
           리뷰 관리
         </h1>
         <button
           onClick={() => refetch()}
           disabled={loading}
-          className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+          className="flex items-center gap-2 px-3 py-1.5 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-50"
         >
           <RefreshCw className={cn('w-4 h-4', loading && 'animate-spin')} />
           새로고침
@@ -69,17 +69,17 @@ export default function ReviewsPage() {
       </div>
 
       <div className="grid grid-cols-4 gap-4">
-        <div className="bg-white rounded-xl p-4 border border-gray-200">
-          <div className="text-sm text-gray-500">전체 상품</div>
-          <div className="text-xl font-bold text-gray-900">{total.toLocaleString()}개</div>
+        <div className="card">
+          <div className="card-label">전체 상품</div>
+          <div className="card-value">{total.toLocaleString()}개</div>
         </div>
-        <div className="bg-white rounded-xl p-4 border border-gray-200">
-          <div className="text-sm text-gray-500">총 리뷰</div>
-          <div className="text-xl font-bold text-gray-900">{totalReviews.toLocaleString()}개</div>
+        <div className="card">
+          <div className="card-label">총 리뷰</div>
+          <div className="card-value">{totalReviews.toLocaleString()}개</div>
         </div>
-        <div className="bg-white rounded-xl p-4 border border-gray-200">
-          <div className="text-sm text-gray-500">평균 평점</div>
-          <div className="text-xl font-bold text-gray-900 flex items-center gap-1">
+        <div className="card">
+          <div className="card-label">평균 평점</div>
+          <div className="card-value flex items-center gap-1">
             <Star className="w-5 h-5 text-yellow-500 fill-yellow-500" />
             {avgRating.toFixed(1)}
           </div>
@@ -91,7 +91,7 @@ export default function ReviewsPage() {
         </div>
       </div>
 
-      <div className="flex gap-1 border-b border-gray-200">
+      <div className="flex gap-1 border-b border-slate-200">
         {filterTabs.map((tab) => (
           <button
             key={tab.key}
@@ -100,7 +100,7 @@ export default function ReviewsPage() {
               'px-4 py-2.5 text-sm font-medium border-b-2 transition-colors flex items-center gap-2',
               activeFilter === tab.key
                 ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
+                : 'border-transparent text-slate-500 hover:text-slate-700'
             )}
           >
             {tab.label}
@@ -108,7 +108,7 @@ export default function ReviewsPage() {
               'px-1.5 py-0.5 rounded-full text-[10px] font-medium',
               activeFilter === tab.key
                 ? 'bg-blue-100 text-blue-700'
-                : 'bg-gray-100 text-gray-500'
+                : 'bg-slate-100 text-slate-500'
             )}>
               {tab.count}
             </span>

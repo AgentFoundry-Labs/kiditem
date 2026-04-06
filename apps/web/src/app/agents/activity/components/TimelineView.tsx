@@ -12,9 +12,9 @@ const TIMELINE_BLOCK_COLORS: Record<string, string> = {
   running: 'bg-blue-400 animate-pulse',
   timed_out: 'bg-orange-400',
   queued: 'bg-violet-400',
-  cancelled: 'bg-gray-300',
+  cancelled: 'bg-slate-300',
 };
-const TIMELINE_BLOCK_DEFAULT = 'bg-gray-300';
+const TIMELINE_BLOCK_DEFAULT = 'bg-slate-300';
 
 function getTimeRange(timeRange: string): { start: number; end: number; tickCount: number; tickLabel: (i: number) => string } {
   const now = new Date();
@@ -70,10 +70,10 @@ export function TimelineView({ runs, timeRange }: { runs: RunWithAgent[]; timeRa
   const agents = Array.from(agentGroups.keys()).sort();
 
   return (
-    <div className="border border-gray-200 rounded-lg overflow-hidden">
+    <div className="border border-slate-200 rounded-lg overflow-hidden">
       {/* Time axis header */}
-      <div className="flex border-b border-gray-100">
-        <div className="w-36 shrink-0 px-3 py-2 text-[10px] text-gray-400 font-medium border-r border-gray-100">
+      <div className="flex border-b border-slate-100">
+        <div className="w-36 shrink-0 px-3 py-2 text-[10px] text-slate-400 font-medium border-r border-slate-100">
           에이전트
         </div>
         <div className="flex-1 relative h-8">
@@ -82,7 +82,7 @@ export function TimelineView({ runs, timeRange }: { runs: RunWithAgent[]; timeRa
             return (
               <span
                 key={i}
-                className="absolute top-2 text-[10px] text-gray-400 -translate-x-1/2"
+                className="absolute top-2 text-[10px] text-slate-400 -translate-x-1/2"
                 style={{ left: `${pct}%` }}
               >
                 {range.tickLabel(i)}
@@ -99,9 +99,9 @@ export function TimelineView({ runs, timeRange }: { runs: RunWithAgent[]; timeRa
         const initials = agentInitials(agentName);
 
         return (
-          <div key={agentName} className="flex border-b border-gray-50 last:border-0">
+          <div key={agentName} className="flex border-b border-slate-50 last:border-0">
             {/* Agent label */}
-            <div className="w-36 shrink-0 px-3 py-2 flex items-center gap-2 border-r border-gray-100">
+            <div className="w-36 shrink-0 px-3 py-2 flex items-center gap-2 border-r border-slate-100">
               <div
                 className={cn(
                   'w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-semibold shrink-0',
@@ -110,16 +110,16 @@ export function TimelineView({ runs, timeRange }: { runs: RunWithAgent[]; timeRa
               >
                 {initials}
               </div>
-              <span className="text-xs text-gray-700 truncate">{agentName}</span>
+              <span className="text-xs text-slate-700 truncate">{agentName}</span>
             </div>
 
             {/* Timeline bar */}
-            <div className="flex-1 relative h-10 bg-gray-50/50">
+            <div className="flex-1 relative h-10 bg-slate-50/50">
               {/* Grid lines */}
               {Array.from({ length: range.tickCount }, (_, i) => (
                 <div
                   key={i}
-                  className="absolute top-0 bottom-0 w-px bg-gray-100"
+                  className="absolute top-0 bottom-0 w-px bg-slate-100"
                   style={{ left: `${(i / range.tickCount) * 100}%` }}
                 />
               ))}
@@ -162,7 +162,7 @@ export function TimelineView({ runs, timeRange }: { runs: RunWithAgent[]; timeRa
 
       {/* Empty state */}
       {agents.length === 0 && (
-        <div className="flex items-center justify-center py-12 text-gray-400 text-sm">
+        <div className="flex items-center justify-center py-12 text-slate-400 text-sm">
           표시할 데이터가 없습니다.
         </div>
       )}
@@ -170,14 +170,14 @@ export function TimelineView({ runs, timeRange }: { runs: RunWithAgent[]; timeRa
       {/* Hover tooltip */}
       {hoveredRun && (
         <div
-          className="fixed z-50 px-3 py-2 bg-gray-900 text-white rounded-lg shadow-lg text-xs pointer-events-none"
+          className="fixed z-50 px-3 py-2 bg-slate-900 text-white rounded-lg shadow-lg text-xs pointer-events-none"
           style={{ left: hoveredRun.x + 12, top: hoveredRun.y - 8 }}
         >
           <div className="font-medium">{hoveredRun.run.agentName}</div>
-          <div className="text-gray-300 mt-0.5">
+          <div className="text-slate-300 mt-0.5">
             {statusLabel(hoveredRun.run)} · {SOURCE_LABELS[hoveredRun.run.invocationSource] ?? hoveredRun.run.invocationSource}
           </div>
-          <div className="text-gray-400 mt-0.5">
+          <div className="text-slate-400 mt-0.5">
             {new Date(hoveredRun.run.startedAt ?? hoveredRun.run.createdAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}
             {hoveredRun.run.finishedAt && (
               <> → {new Date(hoveredRun.run.finishedAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</>

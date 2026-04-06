@@ -52,8 +52,8 @@ export default function WorkflowsPage({ onAddWorkflow }: { onAddWorkflow?: () =>
     <div className="space-y-6 max-w-[1200px]">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Workflows</h1>
-          <p className="text-sm text-gray-500 mt-1">
+          <h1 className="page-title">Workflows</h1>
+          <p className="text-sm text-slate-500 mt-1">
             {templates.length}개 워크플로우 ({templates.filter((t) => t.isActive).length}개 활성)
           </p>
         </div>

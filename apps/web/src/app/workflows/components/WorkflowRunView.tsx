@@ -29,7 +29,7 @@ const runStatusConfig: Record<
   string,
   { label: string; color: string; icon: any }
 > = {
-  pending: { label: '대기중', color: 'bg-gray-100 text-gray-700', icon: Clock },
+  pending: { label: '대기중', color: 'bg-slate-100 text-slate-700', icon: Clock },
   running: {
     label: '실행중',
     color: 'bg-blue-100 text-blue-700',
@@ -108,7 +108,7 @@ export default function WorkflowRunView({
   return (
     <div className="space-y-4">
       {/* Run summary */}
-      <div className="flex items-center gap-4 px-4 py-3 bg-white border border-gray-200 rounded-lg">
+      <div className="flex items-center gap-4 px-4 py-3 bg-white border border-slate-200 rounded-lg">
         <div
           className={cn(
             'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium',
@@ -124,17 +124,17 @@ export default function WorkflowRunView({
           {cfg.label}
         </div>
 
-        <div className="flex items-center gap-1.5 text-xs text-gray-500">
+        <div className="flex items-center gap-1.5 text-xs text-slate-500">
           <User className="w-3.5 h-3.5" />
           {run.triggeredBy}
         </div>
 
-        <div className="flex items-center gap-1.5 text-xs text-gray-500">
+        <div className="flex items-center gap-1.5 text-xs text-slate-500">
           <Clock className="w-3.5 h-3.5" />
           {formatTime(run.startedAt)}
         </div>
 
-        <span className="text-xs text-gray-400">
+        <span className="text-xs text-slate-400">
           소요 {formatDuration(run.startedAt, run.completedAt)}
         </span>
 
@@ -163,10 +163,10 @@ export default function WorkflowRunView({
 
       {/* Step detail table (collapsible) */}
       {run.steps.length > 0 && (
-        <div className="border border-gray-200 rounded-lg overflow-hidden">
+        <div className="border border-slate-200 rounded-lg overflow-hidden">
           <button
             onClick={() => setShowSteps((v) => !v)}
-            className="w-full flex items-center justify-between px-4 py-2.5 bg-gray-50 hover:bg-gray-100 transition-colors text-sm font-medium text-gray-700"
+            className="w-full flex items-center justify-between px-4 py-2.5 bg-slate-50 hover:bg-slate-100 transition-colors text-sm font-medium text-slate-700"
           >
             <span>스텝 상세 ({run.steps.length})</span>
             {showSteps ? (
@@ -179,7 +179,7 @@ export default function WorkflowRunView({
           {showSteps && (
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-gray-200 bg-gray-50 text-gray-500 text-xs">
+                <tr className="border-b border-slate-200 bg-slate-50 text-slate-500 text-xs">
                   <th className="text-left px-4 py-2 font-medium">노드</th>
                   <th className="text-left px-4 py-2 font-medium">상태</th>
                   <th className="text-right px-4 py-2 font-medium">소요시간</th>
@@ -192,9 +192,9 @@ export default function WorkflowRunView({
                   return (
                     <tr
                       key={step.id}
-                      className="border-b border-gray-100 last:border-0"
+                      className="border-b border-slate-100 last:border-0"
                     >
-                      <td className="px-4 py-2 text-gray-800 font-medium">
+                      <td className="px-4 py-2 text-slate-800 font-medium">
                         {step.nodeLabel}
                       </td>
                       <td className="px-4 py-2">
@@ -204,7 +204,7 @@ export default function WorkflowRunView({
                             frontendStatus === 'success' && 'text-green-600',
                             frontendStatus === 'error' && 'text-red-500',
                             frontendStatus === 'running' && 'text-blue-600',
-                            frontendStatus === 'idle' && 'text-gray-500',
+                            frontendStatus === 'idle' && 'text-slate-500',
                           )}
                         >
                           {frontendStatus === 'success' && (
@@ -219,7 +219,7 @@ export default function WorkflowRunView({
                           {frontendStatus}
                         </span>
                       </td>
-                      <td className="px-4 py-2 text-right text-gray-500 font-mono text-[11px]">
+                      <td className="px-4 py-2 text-right text-slate-500 font-mono text-[11px]">
                         {formatDuration(step.startedAt, step.completedAt)}
                       </td>
                       <td className="px-4 py-2 text-red-500 text-xs truncate max-w-[200px]">

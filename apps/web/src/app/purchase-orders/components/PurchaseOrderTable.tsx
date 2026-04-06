@@ -6,7 +6,7 @@ import { formatKRW } from '@/lib/utils';
 import type { PurchaseOrder } from '../page';
 
 const STATUS_MAP: Record<string, { label: string; color: string }> = {
-  draft: { label: '임시저장', color: 'bg-gray-100 text-gray-700' },
+  draft: { label: '임시저장', color: 'bg-slate-100 text-slate-700' },
   pending: { label: '대기', color: 'bg-yellow-100 text-yellow-700' },
   ordered: { label: '발주완료', color: 'bg-blue-100 text-blue-700' },
   shipped: { label: '배송중', color: 'bg-purple-100 text-purple-700' },
@@ -45,7 +45,7 @@ export function PurchaseOrderTable({ orders, loading, actionLoading, page, pageS
     return (
       <div className="animate-pulse space-y-2 py-4">
         {[1, 2, 3, 4, 5].map((i) => (
-          <div key={i} className="h-12 bg-gray-100 rounded" />
+          <div key={i} className="h-12 bg-slate-100 rounded" />
         ))}
       </div>
     );
@@ -54,14 +54,14 @@ export function PurchaseOrderTable({ orders, loading, actionLoading, page, pageS
   if (orders.length === 0) {
     return (
       <div className="py-20 text-center">
-        <Package size={40} className="mx-auto text-gray-300 mb-3" />
-        <p className="text-gray-500">발주 내역이 없습니다</p>
+        <Package size={40} className="mx-auto text-slate-300 mb-3" />
+        <p className="text-slate-500">발주 내역이 없습니다</p>
       </div>
     );
   }
 
   return (
-    <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+    <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
       <div className="overflow-x-auto">
         <table>
           <thead>
@@ -78,7 +78,7 @@ export function PurchaseOrderTable({ orders, loading, actionLoading, page, pageS
           </thead>
           <tbody>
             {orders.map((order) => {
-              const statusInfo = STATUS_MAP[order.status] || { label: order.status, color: 'bg-gray-100 text-gray-700' };
+              const statusInfo = STATUS_MAP[order.status] || { label: order.status, color: 'bg-slate-100 text-slate-700' };
               const nextStatus = NEXT_STATUS[order.status];
               const canDelete = order.status === 'draft' || order.status === 'pending';
               const isActioning = actionLoading === order.id;
@@ -90,10 +90,10 @@ export function PurchaseOrderTable({ orders, loading, actionLoading, page, pageS
                       {statusInfo.label}
                     </span>
                   </td>
-                  <td className="font-medium text-gray-900">
+                  <td className="font-medium text-slate-900">
                     {order.supplier?.name || order.supplierName}
                   </td>
-                  <td className="text-sm text-gray-600 max-w-[200px] truncate">
+                  <td className="text-sm text-slate-600 max-w-[200px] truncate">
                     {order.items.length > 0
                       ? order.items.map((i) => `${i.productName}(${i.quantity})`).join(', ')
                       : '-'}
@@ -101,15 +101,15 @@ export function PurchaseOrderTable({ orders, loading, actionLoading, page, pageS
                   <td className="text-right tabular-nums font-semibold">
                     {formatKRW(parseFloat(order.totalAmountCny))}
                   </td>
-                  <td className="text-sm text-gray-500 tabular-nums">
+                  <td className="text-sm text-slate-500 tabular-nums">
                     {new Date(order.orderDate).toLocaleDateString('ko-KR')}
                   </td>
-                  <td className="text-sm text-gray-500 tabular-nums">
+                  <td className="text-sm text-slate-500 tabular-nums">
                     {order.expectedDeliveryDate
                       ? new Date(order.expectedDeliveryDate).toLocaleDateString('ko-KR')
                       : '-'}
                   </td>
-                  <td className="text-sm text-gray-500 font-mono">
+                  <td className="text-sm text-slate-500 font-mono">
                     {order.trackingNumber || '-'}
                   </td>
                   <td>
@@ -127,7 +127,7 @@ export function PurchaseOrderTable({ orders, loading, actionLoading, page, pageS
                         <button
                           onClick={() => onDelete(order.id)}
                           disabled={isActioning}
-                          className="p-1 text-gray-400 hover:text-red-500 rounded disabled:opacity-50"
+                          className="p-1 text-slate-400 hover:text-red-500 rounded disabled:opacity-50"
                           title="삭제"
                         >
                           <Trash2 size={14} />

@@ -31,7 +31,7 @@ export function CampaignList({ campaigns }: { campaigns: CampaignItem[] }) {
   if (campaigns.length === 0) return null;
 
   return (
-    <div className="bg-white rounded-xl p-6 border border-slate-200">
+    <div className="card p-6">
       <div className="flex items-center justify-between mb-4">
         <h3 className="font-semibold text-slate-900">캠페인 현황</h3>
         <Link href="/ads/campaigns" className="text-sm text-blue-600 hover:text-blue-700">

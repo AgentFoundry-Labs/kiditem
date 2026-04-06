@@ -2,7 +2,7 @@
 
 export default function OrgLegend() {
   return (
-    <div className="mt-4 flex items-center gap-4 text-[11px] text-gray-500">
+    <div className="mt-4 flex items-center gap-4 text-[11px] text-slate-500">
       <div className="flex items-center gap-1.5">
         <span className="inline-flex h-2 w-2 rounded-full bg-blue-400 animate-pulse" />
         <span>실행 중</span>
@@ -12,7 +12,7 @@ export default function OrgLegend() {
         <span>활성</span>
       </div>
       <div className="flex items-center gap-1.5">
-        <span className="inline-flex h-2 w-2 rounded-full bg-gray-400" />
+        <span className="inline-flex h-2 w-2 rounded-full bg-slate-400" />
         <span>유휴</span>
       </div>
       <div className="flex items-center gap-1.5">

@@ -13,7 +13,7 @@ const SKILL_COLORS: Record<string, string> = {
   'kiditem-api': 'bg-violet-50 text-violet-600 border-violet-100',
   'data-analysis': 'bg-cyan-50 text-cyan-600 border-cyan-100',
 };
-const DEFAULT_SKILL_COLOR = 'bg-gray-50 text-gray-600 border-gray-200';
+const DEFAULT_SKILL_COLOR = 'bg-slate-50 text-slate-600 border-slate-200';
 
 export interface SkillEntry {
   name: string;
@@ -33,29 +33,29 @@ export default function SkillCardGrid({ skills }: Props) {
         return (
           <div
             key={skill.name}
-            className="border border-gray-200 rounded-lg p-4 hover:shadow-sm transition-shadow"
+            className="border border-slate-200 rounded-lg p-4 hover:shadow-sm transition-shadow"
           >
             <div className="flex items-start gap-3 mb-3">
               <div className={cn('w-8 h-8 rounded-lg flex items-center justify-center shrink-0 border', colorClass)}>
                 <Puzzle className="w-4 h-4" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-gray-900 font-mono">{skill.name}</p>
+                <p className="text-sm font-semibold text-slate-900 font-mono">{skill.name}</p>
                 {skill.description && (
-                  <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{skill.description}</p>
+                  <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">{skill.description}</p>
                 )}
               </div>
             </div>
 
             <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wide mr-1">
+              <span className="text-[10px] text-slate-400 font-medium uppercase tracking-wide mr-1">
                 사용 에이전트
               </span>
               {skill.agents.map((agent) => (
                 <Link
                   key={agent.id}
                   href={`/agents/${agent.id}`}
-                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-gray-100 text-gray-600 text-[11px] hover:bg-gray-200 hover:text-gray-900 transition-colors"
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-600 text-[11px] hover:bg-slate-200 hover:text-slate-900 transition-colors"
                   title={ROLE_LABELS[agent.role] ?? agent.role}
                 >
                   <Bot className="w-2.5 h-2.5" />

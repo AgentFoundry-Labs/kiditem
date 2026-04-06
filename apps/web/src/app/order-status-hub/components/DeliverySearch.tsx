@@ -52,7 +52,7 @@ export default function DeliverySearch() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-900">
+        <h1 className="page-title">
           <Truck size={24} className="inline mr-2" />
           배송완료 검색
         </h1>

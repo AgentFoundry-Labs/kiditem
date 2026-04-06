@@ -13,11 +13,11 @@ export default function GenerateResult({ result, onReset, onNewCreate }: Generat
   const router = useRouter();
 
   return (
-    <div className="flex flex-col h-full bg-gray-50">
-      <div className="bg-white border-b border-gray-200 px-8 py-4 flex items-center justify-between">
+    <div className="flex flex-col h-full bg-slate-50">
+      <div className="bg-white border-b border-slate-200 px-8 py-4 flex items-center justify-between">
         <button
           onClick={onReset}
-          className="flex items-center gap-2 text-gray-600 hover:text-gray-900 font-bold transition-colors"
+          className="flex items-center gap-2 text-slate-600 hover:text-slate-900 font-bold transition-colors"
         >
           <ArrowLeft size={20} />
           다시 만들기
@@ -29,17 +29,17 @@ export default function GenerateResult({ result, onReset, onNewCreate }: Generat
       </div>
 
       <div className="flex-1 overflow-y-auto p-8">
-        <div className="max-w-3xl mx-auto bg-white rounded-xl border border-gray-200 shadow-sm p-8">
+        <div className="max-w-3xl mx-auto card shadow-sm p-8">
           <div className="flex items-center gap-3 mb-6">
             <CheckCircle2 className="text-emerald-500" size={24} />
-            <h2 className="text-xl font-bold text-gray-900">
+            <h2 className="text-xl font-bold text-slate-900">
               AI 분석 완료!
             </h2>
           </div>
-          <p className="text-sm text-gray-500 mb-6">
+          <p className="text-sm text-slate-500 mb-6">
             AI 분석 결과가 생성되었습니다. 상세 편집은 수집상품 페이지에서 확인하세요.
           </p>
-          <pre className="bg-gray-50 border border-gray-200 rounded-lg p-4 text-xs text-gray-700 overflow-auto max-h-[400px]">
+          <pre className="bg-slate-50 border border-slate-200 rounded-lg p-4 text-xs text-slate-700 overflow-auto max-h-[400px]">
             {JSON.stringify(result, null, 2)}
           </pre>
           <div className="mt-6 flex gap-3">
@@ -51,7 +51,7 @@ export default function GenerateResult({ result, onReset, onNewCreate }: Generat
             </button>
             <button
               onClick={onNewCreate}
-              className="px-6 py-2.5 border border-gray-300 text-gray-700 rounded-lg font-bold text-sm hover:bg-gray-50 transition-colors"
+              className="px-6 py-2.5 border border-slate-300 text-slate-700 rounded-lg font-bold text-sm hover:bg-slate-50 transition-colors"
             >
               새로 만들기
             </button>

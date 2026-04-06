@@ -127,12 +127,12 @@ export default function MarketplacePage() {
     <div className="p-4 sm:p-8 max-w-[1200px]">
       {/* Header */}
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">마켓플레이스</h1>
-        <p className="text-sm text-gray-500 mt-1">에이전트와 워크플로우를 설치하세요</p>
+        <h1 className="page-title">마켓플레이스</h1>
+        <p className="text-sm text-slate-500 mt-1">에이전트와 워크플로우를 설치하세요</p>
       </div>
 
       {/* Type filter tabs */}
-      <div className="flex items-center gap-1 border-b border-gray-200 mb-5">
+      <div className="flex items-center gap-1 border-b border-slate-200 mb-5">
         {TYPE_TABS.map((tab) => (
           <button
             key={tab.id}
@@ -140,7 +140,7 @@ export default function MarketplacePage() {
             className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
               typeFilter === tab.id
                 ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
+                : 'border-transparent text-slate-500 hover:text-slate-700'
             }`}
           >
             {tab.label}
@@ -152,13 +152,13 @@ export default function MarketplacePage() {
       <div className="flex flex-wrap items-center gap-3 mb-5">
         {/* Search */}
         <div className="relative flex-1 min-w-[200px] max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="이름 또는 설명 검색"
-            className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+            className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
           />
         </div>
 
@@ -168,8 +168,8 @@ export default function MarketplacePage() {
             onClick={() => setCategoryFilter('all')}
             className={`px-3 py-1.5 rounded-lg text-xs transition-colors ${
               categoryFilter === 'all'
-                ? 'bg-white text-gray-900 border border-gray-200 shadow-sm'
-                : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50 border border-transparent'
+                ? 'bg-white text-slate-900 border border-slate-200 shadow-sm'
+                : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50 border border-transparent'
             }`}
           >
             전체
@@ -180,8 +180,8 @@ export default function MarketplacePage() {
               onClick={() => setCategoryFilter(cat)}
               className={`px-3 py-1.5 rounded-lg text-xs transition-colors ${
                 categoryFilter === cat
-                  ? 'bg-white text-gray-900 border border-gray-200 shadow-sm'
-                  : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50 border border-transparent'
+                  ? 'bg-white text-slate-900 border border-slate-200 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50 border border-transparent'
               }`}
             >
               {CATEGORY_LABELS[cat] || cat}
@@ -193,7 +193,7 @@ export default function MarketplacePage() {
         <select
           value={sort}
           onChange={(e) => setSort(e.target.value as SortKey)}
-          className="ml-auto px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+          className="ml-auto px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
         >
           {SORT_OPTIONS.map((opt) => (
             <option key={opt.value} value={opt.value}>
@@ -207,7 +207,7 @@ export default function MarketplacePage() {
       {loading ? (
         <PageSkeleton variant="list" />
       ) : filtered.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-20 text-gray-400">
+        <div className="flex flex-col items-center justify-center py-20 text-slate-400">
           <Store size={40} className="mb-3" />
           <p className="text-sm">검색 결과가 없습니다</p>
         </div>

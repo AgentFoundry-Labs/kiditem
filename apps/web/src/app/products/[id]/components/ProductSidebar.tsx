@@ -23,7 +23,7 @@ export function InfoCard({
   children: React.ReactNode;
 }) {
   return (
-    <div className="bg-white rounded-xl border border-slate-200 p-5">
+    <div className="card p-5">
       <div className="flex items-center gap-2 mb-3">
         {icon && <span className="text-slate-500">{icon}</span>}
         <h3 className="text-sm font-semibold text-slate-700">{title}</h3>

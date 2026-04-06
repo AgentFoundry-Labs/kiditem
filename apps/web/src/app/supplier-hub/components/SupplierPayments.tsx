@@ -95,39 +95,32 @@ export default function SupplierPayments() {
       <div className="flex items-center gap-3">
         <CreditCard size={18} className="text-orange-500" />
         <div>
-          <h1 className="text-base font-semibold text-gray-900 uppercase tracking-wide">Supplier Payments</h1>
-          <p className="text-xs text-gray-400 font-mono mt-0.5">매입처 지불현황</p>
+          <h1 className="page-title">지불 관리</h1>
         </div>
       </div>
 
       {/* KPI */}
       <div className="grid grid-cols-3 gap-3">
-        <div className="bg-white rounded-xl border border-slate-200">
-          <div className="px-4 py-3">
-            <div className="flex items-center gap-1.5 mb-1">
-              <DollarSign size={12} className="text-gray-400" />
-              <span className="text-[10px] text-gray-500 font-mono uppercase">총 금액</span>
-            </div>
-            <div className="text-xl font-bold text-gray-900 tabular-nums">{formatKRW(summary.totalAmount)}원</div>
+        <div className="card">
+          <div className="flex items-center gap-1.5 mb-1">
+            <DollarSign size={12} className="text-slate-400" />
+            <span className="card-label">총 금액</span>
           </div>
+          <div className="card-value tabular-nums">{formatKRW(summary.totalAmount)}원</div>
         </div>
-        <div className="bg-white rounded-xl border border-slate-200">
-          <div className="px-4 py-3">
-            <div className="flex items-center gap-1.5 mb-1">
-              <Wallet size={12} className="text-green-500" />
-              <span className="text-[10px] text-gray-500 font-mono uppercase">지급 완료</span>
-            </div>
-            <div className="text-xl font-bold text-green-600 tabular-nums">{formatKRW(summary.totalPaid)}원</div>
+        <div className="card">
+          <div className="flex items-center gap-1.5 mb-1">
+            <Wallet size={12} className="text-green-500" />
+            <span className="card-label">지급 완료</span>
           </div>
+          <div className="card-value text-green-600 tabular-nums">{formatKRW(summary.totalPaid)}원</div>
         </div>
-        <div className="bg-white rounded-xl border border-red-200">
-          <div className="px-4 py-3">
-            <div className="flex items-center gap-1.5 mb-1">
-              <AlertTriangle size={12} className="text-red-500" />
-              <span className="text-[10px] text-gray-500 font-mono uppercase">총 미지급</span>
-            </div>
-            <div className="text-xl font-bold text-red-600 tabular-nums">{formatKRW(summary.totalUnpaid)}원</div>
+        <div className="card border-red-200">
+          <div className="flex items-center gap-1.5 mb-1">
+            <AlertTriangle size={12} className="text-red-500" />
+            <span className="card-label">총 미지급</span>
           </div>
+          <div className="card-value text-red-600 tabular-nums">{formatKRW(summary.totalUnpaid)}원</div>
         </div>
       </div>
 
@@ -141,7 +134,7 @@ export default function SupplierPayments() {
               key={key}
               onClick={() => setTab(key)}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                tab === key ? 'bg-orange-600 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
+                tab === key ? 'bg-orange-600 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
               }`}
             >
               <Icon size={12} /> {cfg.label} ({counts[key]})
@@ -151,10 +144,10 @@ export default function SupplierPayments() {
       </div>
 
       {/* Table */}
-      <div className="bg-white rounded-xl border border-slate-200">
+      <div className="table-card">
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
           <h3 className="text-sm font-semibold text-slate-900">지불 내역</h3>
-          <span className="text-[11px] text-gray-400 font-mono">{payments.length}건</span>
+          <span className="text-xs text-slate-400">{payments.length}건</span>
         </div>
         <div className="overflow-x-auto">
           <table>
@@ -176,17 +169,17 @@ export default function SupplierPayments() {
                 const StatusIcon = cfg.icon;
                 return (
                   <tr key={p.id}>
-                    <td className="font-medium text-gray-900">{p.supplierName}</td>
+                    <td className="font-medium text-slate-900">{p.supplierName}</td>
                     <td className="text-right tabular-nums font-semibold">{formatKRW(p.amount)}원</td>
                     <td className="text-right tabular-nums text-green-600">{formatKRW(p.paidAmount)}원</td>
-                    <td className={`text-right tabular-nums font-semibold ${remaining > 0 ? 'text-red-600' : 'text-gray-400'}`}>
+                    <td className={`text-right tabular-nums font-semibold ${remaining > 0 ? 'text-red-600' : 'text-slate-400'}`}>
                       {remaining > 0 ? `${formatKRW(remaining)}원` : '-'}
                     </td>
-                    <td className="text-xs text-gray-500 tabular-nums">
+                    <td className="text-xs text-slate-500 tabular-nums">
                       {p.dueDate ? new Date(p.dueDate).toLocaleDateString('ko-KR') : '-'}
                     </td>
                     <td className="text-center">
-                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono ${
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs ${
                         p.status === 'paid' ? 'bg-green-50 text-green-600' : p.status === 'partial' ? 'bg-yellow-50 text-yellow-600' : 'bg-red-50 text-red-600'
                       }`}>
                         <StatusIcon size={10} /> {cfg.label}
@@ -194,7 +187,7 @@ export default function SupplierPayments() {
                     </td>
                     <td className="text-center">
                       {p.status !== 'paid' && (
-                        <button onClick={() => openPayModal(p)} className="px-2 py-1 bg-orange-100 text-orange-700 rounded text-[10px] font-medium hover:bg-orange-200">
+                        <button onClick={() => openPayModal(p)} className="px-2 py-1 bg-orange-100 text-orange-700 rounded text-xs font-medium hover:bg-orange-200">
                           결제
                         </button>
                       )}
@@ -203,7 +196,7 @@ export default function SupplierPayments() {
                 );
               })}
               {payments.length === 0 && (
-                <tr><td colSpan={7} className="text-center py-8 text-gray-400 text-sm">데이터가 없습니다.</td></tr>
+                <tr><td colSpan={7} className="text-center py-8 text-slate-400 text-sm">데이터가 없습니다.</td></tr>
               )}
             </tbody>
           </table>
@@ -212,33 +205,33 @@ export default function SupplierPayments() {
 
       {/* Pay Modal */}
       {showPayModal && selectedPayment && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowPayModal(false)}>
-          <div className="bg-white rounded-xl p-6 w-[400px]" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-overlay" onClick={() => setShowPayModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-bold">결제 처리</h2>
-              <button onClick={() => setShowPayModal(false)}><X size={20} className="text-gray-400" /></button>
+              <button onClick={() => setShowPayModal(false)}><X size={20} className="text-slate-400" /></button>
             </div>
             <div className="space-y-3">
-              <div className="bg-gray-50 rounded-lg p-3 text-sm">
+              <div className="bg-slate-50 rounded-lg p-3 text-sm">
                 <div className="flex justify-between mb-1">
-                  <span className="text-gray-500">매입처</span>
+                  <span className="text-slate-500">매입처</span>
                   <span className="font-medium">{selectedPayment.supplierName}</span>
                 </div>
                 <div className="flex justify-between mb-1">
-                  <span className="text-gray-500">청구 금액</span>
+                  <span className="text-slate-500">청구 금액</span>
                   <span className="font-semibold">{formatKRW(selectedPayment.amount)}원</span>
                 </div>
                 <div className="flex justify-between mb-1">
-                  <span className="text-gray-500">기 지급</span>
+                  <span className="text-slate-500">기 지급</span>
                   <span className="text-green-600">{formatKRW(selectedPayment.paidAmount)}원</span>
                 </div>
                 <div className="flex justify-between border-t pt-1 mt-1">
-                  <span className="text-gray-500 font-medium">잔액</span>
+                  <span className="text-slate-500 font-medium">잔액</span>
                   <span className="font-bold text-red-600">{formatKRW(selectedPayment.amount - selectedPayment.paidAmount)}원</span>
                 </div>
               </div>
               <div>
-                <label className="text-xs text-gray-500 mb-1 block">결제 금액</label>
+                <label className="text-xs text-slate-500 mb-1 block">결제 금액</label>
                 <input
                   type="number"
                   value={payAmount}

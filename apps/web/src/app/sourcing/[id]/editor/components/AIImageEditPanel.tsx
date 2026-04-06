@@ -147,7 +147,7 @@ export function AIImageEditPanel({ imageUrl, isBusy, onEditComplete, onReplace, 
           </div>
         )}
 
-        <div className="rounded-lg overflow-hidden border border-gray-200 bg-gray-50">
+        <div className="rounded-lg overflow-hidden border border-slate-200 bg-slate-50">
           <img src={imageUrl} alt="편집 대상" className="w-full h-[180px] object-contain" />
         </div>
 
@@ -158,7 +158,7 @@ export function AIImageEditPanel({ imageUrl, isBusy, onEditComplete, onReplace, 
                 type="button"
                 onClick={() => !preset.needsInput && handlePresetClick(preset)}
                 disabled={loading}
-                className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-gray-700 bg-gray-50 hover:bg-emerald-50 hover:text-emerald-700 border border-gray-200 hover:border-emerald-200 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-700 bg-slate-50 hover:bg-emerald-50 hover:text-emerald-700 border border-slate-200 hover:border-emerald-200 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {loadingPreset === preset.id ? <Loader2 size={13} className="animate-spin" /> : preset.icon}
                 {preset.label}
@@ -171,7 +171,7 @@ export function AIImageEditPanel({ imageUrl, isBusy, onEditComplete, onReplace, 
                     onChange={(e) => setPresetInput((p) => ({ ...p, [preset.id]: e.target.value }))}
                     placeholder={preset.inputPlaceholder}
                     disabled={loading}
-                    className="flex-1 px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                    className="flex-1 px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500"
                     onKeyDown={(e) => e.key === 'Enter' && handlePresetClick(preset)}
                   />
                   <button
@@ -191,7 +191,7 @@ export function AIImageEditPanel({ imageUrl, isBusy, onEditComplete, onReplace, 
             type="button"
             onClick={onReplace}
             disabled={loading}
-            className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-gray-700 bg-gray-50 hover:bg-indigo-50 hover:text-indigo-700 border border-gray-200 hover:border-indigo-200 rounded-lg transition-colors disabled:opacity-50"
+            className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-700 bg-slate-50 hover:bg-indigo-50 hover:text-indigo-700 border border-slate-200 hover:border-indigo-200 rounded-lg transition-colors disabled:opacity-50"
           >
             <Replace size={13} />
             이미지 교체
@@ -211,7 +211,7 @@ export function AIImageEditPanel({ imageUrl, isBusy, onEditComplete, onReplace, 
             placeholder="원하는 편집 내용을 입력하세요..."
             disabled={loading}
             rows={2}
-            className="w-full px-3 py-2 text-xs border border-gray-200 rounded-lg resize-none focus:outline-none focus:ring-1 focus:ring-emerald-500 placeholder:text-gray-400"
+            className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg resize-none focus:outline-none focus:ring-1 focus:ring-emerald-500 placeholder:text-slate-400"
           />
           <button
             type="button"

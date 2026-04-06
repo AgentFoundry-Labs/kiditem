@@ -28,7 +28,7 @@ export function ReviewTable({ filteredData, loading, activeFilter, page, total, 
     return (
       <div className="animate-pulse space-y-2 py-4">
         {[1, 2, 3, 4, 5].map((i) => (
-          <div key={i} className="h-12 bg-gray-100 rounded" />
+          <div key={i} className="h-12 bg-slate-100 rounded" />
         ))}
       </div>
     );
@@ -36,18 +36,18 @@ export function ReviewTable({ filteredData, loading, activeFilter, page, total, 
 
   if (filteredData.length === 0) {
     return (
-      <div className="bg-white rounded-xl border border-gray-200 p-12 text-center text-gray-500">
+      <div className="bg-white rounded-xl border border-slate-200 p-12 text-center text-slate-500">
         {activeFilter === 'all' ? '리뷰 데이터가 없습니다.' : '해당 필터에 맞는 데이터가 없습니다.'}
       </div>
     );
   }
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <div className="table-card">
       <div className="overflow-x-auto">
         <table>
           <thead>
-            <tr className="bg-gray-50">
+            <tr>
               <th>등급</th>
               <th>상품명</th>
               <th>회사</th>
@@ -77,8 +77,8 @@ export function ReviewTable({ filteredData, loading, activeFilter, page, total, 
                       {d.grade}
                     </span>
                   </td>
-                  <td className="font-medium text-gray-900">{d.productName}</td>
-                  <td className="text-gray-500 text-xs">{d.company}</td>
+                  <td className="font-medium text-slate-900">{d.productName}</td>
+                  <td className="text-slate-500 text-xs">{d.company}</td>
                   <td className="text-right tabular-nums">{d.totalReviews}</td>
                   <td className="text-right tabular-nums">
                     <span className="flex items-center justify-end gap-1">

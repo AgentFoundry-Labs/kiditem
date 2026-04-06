@@ -80,7 +80,7 @@ export function ProductDrilldown({ campaignName, period }: Props) {
           <div className="overflow-x-auto">
             <table>
               <thead>
-                <tr className="bg-slate-50">
+                <tr>
                   <th>상태</th>
                   <th>상품명</th>
                   <th>키워드</th>
@@ -98,7 +98,7 @@ export function ProductDrilldown({ campaignName, period }: Props) {
                 {paged.map((p, i) => (
                   <tr key={`${p.vendorItemId}-${i}`}>
                     <td>
-                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${p.onOff === 'ON' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}`}>
+                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${p.onOff === 'ON' ? 'bg-green-100 text-green-800' : 'bg-slate-100 text-slate-600'}`}>
                         {p.onOff ?? '-'}
                       </span>
                     </td>

@@ -12,9 +12,9 @@ interface Props {
 export function CSTable({ records, onRegisterClick }: Props) {
   if (records.length === 0) {
     return (
-      <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
-        <MessageSquare size={48} className="mx-auto text-gray-300 mb-4" />
-        <p className="text-gray-500 mb-4">CS 데이터가 없습니다</p>
+      <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
+        <MessageSquare size={48} className="mx-auto text-slate-300 mb-4" />
+        <p className="text-slate-500 mb-4">CS 데이터가 없습니다</p>
         <button
           onClick={onRegisterClick}
           className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700"
@@ -26,11 +26,11 @@ export function CSTable({ records, onRegisterClick }: Props) {
   }
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <div className="table-card">
       <div className="overflow-x-auto">
         <table>
           <thead>
-            <tr className="bg-gray-50">
+            <tr>
               <th>CS유형</th>
               <th>상태</th>
               <th>우선순위</th>
@@ -66,15 +66,15 @@ export function CSTable({ records, onRegisterClick }: Props) {
                   {r.priority === 'urgent' ? (
                     <AlertTriangle size={14} className="text-red-500" />
                   ) : (
-                    <Clock size={14} className="text-gray-400" />
+                    <Clock size={14} className="text-slate-400" />
                   )}
                 </td>
-                <td className="max-w-[300px] truncate text-gray-700">{r.content}</td>
-                <td className="max-w-[200px] truncate text-sm text-gray-500" title={r.resolution || ''}>
+                <td className="max-w-[300px] truncate text-slate-700">{r.content}</td>
+                <td className="max-w-[200px] truncate text-sm text-slate-500" title={r.resolution || ''}>
                   {r.csStatus === '완료' ? (r.resolution || '-') : '-'}
                 </td>
-                <td className="text-sm text-gray-500">{r.assignee || '-'}</td>
-                <td className="text-sm text-gray-400 tabular-nums">
+                <td className="text-sm text-slate-500">{r.assignee || '-'}</td>
+                <td className="text-sm text-slate-400 tabular-nums">
                   {new Date(r.createdAt).toLocaleDateString('ko-KR')}
                 </td>
                 <td>

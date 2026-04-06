@@ -10,12 +10,9 @@ export default function OptionMasterHeader({ onAdd }: Props) {
   return (
     <div className="flex items-center justify-between">
       <div>
-        <h1 className="text-sm font-semibold text-gray-900 uppercase tracking-wide flex items-center gap-2">
-          <SlidersHorizontal size={18} /> Option Masters
+        <h1 className="page-title flex items-center gap-2">
+          <SlidersHorizontal size={22} /> 옵션 마스터
         </h1>
-        <p className="text-xs text-gray-400 font-mono mt-0.5">
-          옵션 항목 관리 (색상, 사이즈 등)
-        </p>
       </div>
       <div className="flex gap-2">
         <button

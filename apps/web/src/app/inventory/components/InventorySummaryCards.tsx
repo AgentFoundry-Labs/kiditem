@@ -6,9 +6,9 @@ import type { InventorySummary } from '@kiditem/shared';
 export function InventorySummaryCards({ summary }: { summary: InventorySummary }) {
   return (
     <div className="grid grid-cols-5 gap-4">
-      <div className="bg-white rounded-xl p-4 border border-slate-200 flex items-center gap-3">
+      <div className="card flex items-center gap-3">
         <Package size={20} className="text-blue-600" />
-        <div><div className="text-sm text-slate-500">전체 상품</div><div className="text-xl font-bold">{summary.total}개</div></div>
+        <div><div className="card-label">전체 상품</div><div className="card-value">{summary.total}개</div></div>
       </div>
       <div className="bg-red-50 rounded-xl p-4 border border-red-200 flex items-center gap-3">
         <AlertTriangle size={20} className="text-red-600" />

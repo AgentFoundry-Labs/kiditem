@@ -4,7 +4,7 @@ const PRIORITY_STYLE: Record<string, { bg: string; text: string }> = {
   urgent: { bg: 'bg-red-100', text: 'text-red-700' },
   high: { bg: 'bg-orange-100', text: 'text-orange-700' },
   medium: { bg: 'bg-blue-100', text: 'text-blue-700' },
-  low: { bg: 'bg-gray-100', text: 'text-gray-700' },
+  low: { bg: 'bg-slate-100', text: 'text-slate-700' },
 };
 
 interface RecommendCardData {
@@ -35,7 +35,7 @@ export function RecommendCards({ cards }: { cards: RecommendCardData[] }) {
                     {item.value && (
                       <div className="text-xs text-slate-400 mt-0.5">{item.value}</div>
                     )}
-                    <span className={`inline-block mt-1 px-1.5 py-0.5 rounded text-[10px] font-bold ${PRIORITY_STYLE[item.priority]?.bg ?? 'bg-gray-100'} ${PRIORITY_STYLE[item.priority]?.text ?? 'text-gray-700'}`}>
+                    <span className={`inline-block mt-1 px-1.5 py-0.5 rounded text-[10px] font-bold ${PRIORITY_STYLE[item.priority]?.bg ?? 'bg-slate-100'} ${PRIORITY_STYLE[item.priority]?.text ?? 'text-slate-700'}`}>
                       {item.priority}
                     </span>
                   </div>

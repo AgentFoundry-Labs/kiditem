@@ -54,10 +54,8 @@ export default function ThumbnailsPage() {
         <div className="flex items-center gap-3">
           <Scan size={18} className="text-purple-500" />
           <div>
-            <h1 className="text-base font-semibold text-gray-900 uppercase tracking-wide">
-              Thumbnail AI Scanner
-            </h1>
-            <span className="text-xs text-gray-400 font-mono">
+            <h1 className="page-title">썸네일 분석</h1>
+            <span className="text-sm text-slate-500">
               {total}개 상품 분석 완료
             </span>
           </div>
@@ -65,7 +63,7 @@ export default function ThumbnailsPage() {
         <button
           onClick={() => refetch()}
           disabled={loading}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-500 hover:bg-gray-100 rounded-md font-mono"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-100 rounded-md font-mono"
         >
           <RefreshCw size={12} className={cn(loading && 'animate-spin')} /> RE-SCAN
         </button>
@@ -75,11 +73,11 @@ export default function ThumbnailsPage() {
       <ThumbnailFilterTabs tabs={filterTabs} activeFilter={filter} onChange={setFilter} />
 
       {loading ? (
-        <div className="flex items-center justify-center h-64 text-gray-500 font-mono text-sm">
+        <div className="flex items-center justify-center h-64 text-slate-500 font-mono text-sm">
           SCANNING THUMBNAILS...
         </div>
       ) : filtered.length === 0 ? (
-        <div className="bg-white rounded-xl border border-gray-200 p-12 text-center text-gray-500">
+        <div className="bg-white rounded-xl border border-slate-200 p-12 text-center text-slate-500">
           해당 조건의 상품이 없습니다
         </div>
       ) : (

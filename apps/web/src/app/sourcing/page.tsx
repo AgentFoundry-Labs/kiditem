@@ -139,10 +139,10 @@ export default function SourcingPage() {
   };
 
   return (
-    <div className="flex flex-col h-full bg-gray-50">
+    <div className="flex flex-col h-full bg-slate-50">
       <SourcingHeader />
 
-      <div className="flex-1 overflow-y-auto bg-white m-6 rounded-xl border border-gray-200 p-6 shadow-sm">
+      <div className="flex-1 overflow-y-auto bg-white m-6 rounded-xl border border-slate-200 p-6 shadow-sm">
         <SourcingStats
           draftCount={products.filter((p) => p.status === 'DRAFT').length}
           totalCount={products.length}

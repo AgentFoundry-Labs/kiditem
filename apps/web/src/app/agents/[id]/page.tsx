@@ -100,13 +100,13 @@ export default function AgentDetailPage() {
     return (
       <div className="p-4 sm:p-8">
         <button
-          className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900 mb-4 transition-colors"
+          className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-900 mb-4 transition-colors"
           onClick={() => router.push('/agents')}
         >
           <ArrowLeft className="w-4 h-4" /> 뒤로
         </button>
         {agentError && isApiError(agentError) && agentError.status === 403 ? (
-          <div className="flex flex-col items-center py-32 text-gray-400 gap-2">
+          <div className="flex flex-col items-center py-32 text-slate-400 gap-2">
             <p>이 에이전트는 아직 고용되지 않았습니다.</p>
             <button
               onClick={() => router.push('/agents?tab=marketplace')}
@@ -116,7 +116,7 @@ export default function AgentDetailPage() {
             </button>
           </div>
         ) : (
-          <p className="text-gray-500">에이전트를 찾을 수 없습니다.</p>
+          <p className="text-slate-500">에이전트를 찾을 수 없습니다.</p>
         )}
       </div>
     );
@@ -142,15 +142,15 @@ export default function AgentDetailPage() {
       />
 
       {/* Tab bar */}
-      <div className="flex gap-0 mb-6 border-b border-gray-200 overflow-x-auto">
+      <div className="flex gap-0 mb-6 border-b border-slate-200 overflow-x-auto">
         {ALL_TABS.map((tab) => (
           <button
             key={tab}
             className={cn(
               'px-4 py-2.5 text-sm whitespace-nowrap -mb-px border-b-2 transition-colors',
               activeTab === tab
-                ? 'border-gray-900 text-gray-900 font-medium'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300',
+                ? 'border-slate-900 text-slate-900 font-medium'
+                : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300',
             )}
             onClick={() => setActiveTab(tab)}
           >

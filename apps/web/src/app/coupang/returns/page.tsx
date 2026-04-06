@@ -82,7 +82,7 @@ export default function CoupangReturnsPage() {
     <div className="space-y-6">
       {/* Page header with date filter */}
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-gray-900">반품 대시보드</h1>
+        <h1 className="page-title">반품 대시보드</h1>
         <div className="flex items-center gap-2">
           {[
             { label: '7일', days: 7 },
@@ -96,7 +96,7 @@ export default function CoupangReturnsPage() {
                 'px-3 py-1.5 text-sm rounded-lg border',
                 activePreset === p.days
                   ? 'bg-blue-50 text-blue-600 border-blue-200'
-                  : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+                  : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
               )}
             >
               {p.label}
@@ -109,33 +109,33 @@ export default function CoupangReturnsPage() {
       {/* RET-01: Return rate KPI cards */}
       {summary && (
         <div className="grid grid-cols-3 gap-4">
-          <div className="bg-white rounded-lg border border-gray-200 p-4 flex items-center gap-3">
+          <div className="bg-white rounded-lg border border-slate-200 p-4 flex items-center gap-3">
             <TrendingDown className="w-6 h-6 text-red-500 flex-shrink-0" />
             <div>
-              <p className="text-xs text-gray-500">반품률</p>
-              <p className="text-xl font-bold text-gray-900">{formatPercent(summary.returnRate)}</p>
+              <p className="text-xs text-slate-500">반품률</p>
+              <p className="text-xl font-bold text-slate-900">{formatPercent(summary.returnRate)}</p>
             </div>
           </div>
-          <div className="bg-white rounded-lg border border-gray-200 p-4 flex items-center gap-3">
+          <div className="bg-white rounded-lg border border-slate-200 p-4 flex items-center gap-3">
             <RotateCcw className="w-6 h-6 text-amber-500 flex-shrink-0" />
             <div>
-              <p className="text-xs text-gray-500">반품 건수</p>
-              <p className="text-xl font-bold text-gray-900">{summary.returnCount}건</p>
+              <p className="text-xs text-slate-500">반품 건수</p>
+              <p className="text-xl font-bold text-slate-900">{summary.returnCount}건</p>
             </div>
           </div>
-          <div className="bg-white rounded-lg border border-gray-200 p-4 flex items-center gap-3">
+          <div className="bg-white rounded-lg border border-slate-200 p-4 flex items-center gap-3">
             <Package className="w-6 h-6 text-blue-500 flex-shrink-0" />
             <div>
-              <p className="text-xs text-gray-500">주문 건수</p>
-              <p className="text-xl font-bold text-gray-900">{summary.orderCount}건</p>
+              <p className="text-xs text-slate-500">주문 건수</p>
+              <p className="text-xl font-bold text-slate-900">{summary.orderCount}건</p>
             </div>
           </div>
         </div>
       )}
 
       {/* RET-02: Return reason breakdown bar chart */}
-      <div className="bg-white rounded-lg border border-gray-200 p-6">
-        <h3 className="text-base font-semibold text-gray-900 mb-4">반품 사유 분석</h3>
+      <div className="bg-white rounded-lg border border-slate-200 p-6">
+        <h3 className="text-base font-semibold text-slate-900 mb-4">반품 사유 분석</h3>
          {reasons.length > 0 ? (
            <div className="h-[300px]">
              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
@@ -173,7 +173,7 @@ export default function CoupangReturnsPage() {
           </div>
         ) : (
           !loading && (
-            <div className="py-12 text-center text-sm text-gray-400">데이터가 없습니다</div>
+            <div className="py-12 text-center text-sm text-slate-400">데이터가 없습니다</div>
           )
         )}
       </div>

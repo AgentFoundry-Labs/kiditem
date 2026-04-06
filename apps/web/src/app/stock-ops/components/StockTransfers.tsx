@@ -157,7 +157,7 @@ export default function StockTransfers() {
       ) : (
         <div className="space-y-3">
           {filtered.map((t) => (
-            <div key={t.id} className="bg-white rounded-xl border border-slate-200 p-4">
+            <div key={t.id} className="card">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
                   <div>
@@ -244,11 +244,11 @@ export default function StockTransfers() {
       {/* 이관 요청 모달 */}
       {showModal && (
         <div
-          className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50"
+          className="modal-overlay"
           onClick={() => setShowModal(false)}
         >
           <div
-            className="bg-white rounded-xl p-6 w-full max-w-lg shadow-xl"
+            className="modal-content max-w-lg"
             onClick={(e) => e.stopPropagation()}
           >
             <h3 className="text-lg font-semibold text-slate-900 mb-4 flex items-center gap-2">

@@ -39,27 +39,27 @@ export default function DeadStock() {
         <div className="bg-white rounded-xl border border-slate-200 p-5">
           <div className="flex items-center gap-2 mb-1">
             <AlertTriangle className="w-4 h-4 text-red-500" />
-            <p className="text-sm text-slate-500">악성재고 상품수</p>
+            <p className="card-label">악성재고 상품수</p>
           </div>
-          <p className="text-2xl font-bold text-red-600">
+          <p className="card-value text-red-600">
             {isLoading ? '-' : `${items.length}개`}
           </p>
         </div>
         <div className="bg-white rounded-xl border border-slate-200 p-5">
           <div className="flex items-center gap-2 mb-1">
             <Clock className="w-4 h-4 text-orange-500" />
-            <p className="text-sm text-slate-500">악성재고 수량</p>
+            <p className="card-label">악성재고 수량</p>
           </div>
-          <p className="text-2xl font-bold text-slate-800">
+          <p className="card-value text-slate-800">
             {isLoading ? '-' : `${formatNumber(totalDeadStock)}개`}
           </p>
         </div>
         <div className="bg-white rounded-xl border border-slate-200 p-5">
           <div className="flex items-center gap-2 mb-1">
             <DollarSign className="w-4 h-4 text-orange-500" />
-            <p className="text-sm text-slate-500">추정 보관비용</p>
+            <p className="card-label">추정 보관비용</p>
           </div>
-          <p className="text-2xl font-bold text-orange-600">
+          <p className="card-value text-orange-600">
             {isLoading ? '-' : `${formatNumber(totalStorageCost)}원`}
           </p>
           <p className="text-xs text-slate-400 mt-1">
@@ -77,7 +77,7 @@ export default function DeadStock() {
           </span>
         </h2>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table>
             <thead>
               <tr className="border-b border-slate-200 text-slate-500">
                 <th className="text-left py-2 px-3">상품명</th>

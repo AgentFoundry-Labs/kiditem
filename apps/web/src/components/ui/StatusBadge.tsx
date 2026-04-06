@@ -35,7 +35,7 @@ const variants: Record<BadgeVariant, string> = {
   warning: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
   info: 'bg-blue-50 text-blue-600 border-blue-500/20',
   processing: 'bg-violet-500/10 text-violet-400 border-violet-500/20',
-  default: 'bg-gray-500/10 text-gray-500 border-gray-500/20',
+  default: 'bg-slate-500/10 text-slate-500 border-slate-500/20',
 };
 
 const dotColors: Record<BadgeVariant, string> = {
@@ -44,7 +44,7 @@ const dotColors: Record<BadgeVariant, string> = {
   warning: 'bg-amber-400',
   info: 'bg-blue-400',
   processing: 'bg-violet-400',
-  default: 'bg-gray-400',
+  default: 'bg-slate-400',
 };
 
 export default function VariantStatusBadge({ variant, children, dot = false, className }: StatusBadgeProps) {

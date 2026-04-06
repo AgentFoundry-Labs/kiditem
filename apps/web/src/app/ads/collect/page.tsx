@@ -39,7 +39,7 @@ export default function AdsCollectPage() {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-900">데이터 수집</h1>
+        <h1 className="page-title">데이터 수집</h1>
         <ScrapeCollector
           onComplete={() => {
             queryClient.invalidateQueries({ queryKey: queryKeys.ads.collectStatus() });
@@ -50,8 +50,8 @@ export default function AdsCollectPage() {
 
       {/* Status Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-white rounded-xl p-5 border border-slate-200">
-          <div className="flex items-center gap-2 text-sm text-slate-500 mb-2">
+        <div className="card p-5">
+          <div className="flex items-center gap-2 card-label mb-2">
             <Calendar size={16} />
             마지막 수집
           </div>
@@ -62,8 +62,8 @@ export default function AdsCollectPage() {
           </div>
         </div>
 
-        <div className="bg-white rounded-xl p-5 border border-slate-200">
-          <div className="flex items-center gap-2 text-sm text-slate-500 mb-2">
+        <div className="card p-5">
+          <div className="flex items-center gap-2 card-label mb-2">
             <Database size={16} />
             캠페인 스냅샷
           </div>
@@ -72,8 +72,8 @@ export default function AdsCollectPage() {
           </div>
         </div>
 
-        <div className="bg-white rounded-xl p-5 border border-slate-200">
-          <div className="flex items-center gap-2 text-sm text-slate-500 mb-2">
+        <div className="card p-5">
+          <div className="flex items-center gap-2 card-label mb-2">
             <Database size={16} />
             상품 스냅샷
           </div>
@@ -82,8 +82,8 @@ export default function AdsCollectPage() {
           </div>
         </div>
 
-        <div className="bg-white rounded-xl p-5 border border-slate-200">
-          <div className="flex items-center gap-2 text-sm text-slate-500 mb-2">
+        <div className="card p-5">
+          <div className="flex items-center gap-2 card-label mb-2">
             <Wifi size={16} />
             익스텐션 상태
           </div>

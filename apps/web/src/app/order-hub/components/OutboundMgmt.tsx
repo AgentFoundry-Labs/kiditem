@@ -64,7 +64,7 @@ export default function OutboundMgmt() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-900">
+        <h1 className="page-title">
           <PackageCheck size={24} className="inline mr-2" />
           출고 관리
         </h1>
@@ -91,34 +91,34 @@ export default function OutboundMgmt() {
 
       {/* KPI 카드 */}
       <div className="grid grid-cols-3 gap-4">
-        <div className="bg-white rounded-xl border border-slate-200 p-4">
+        <div className="card">
           <div className="flex items-center gap-3">
             <Clock size={20} className="text-yellow-600" />
             <div>
-              <div className="text-xs text-slate-500 mb-1">오늘 출고 예정</div>
-              <div className="text-2xl font-bold text-yellow-600">
+              <div className="card-label mb-1">오늘 출고 예정</div>
+              <div className="card-value text-yellow-600">
                 {isLoading ? '-' : `${pendingCount}건`}
               </div>
             </div>
           </div>
         </div>
-        <div className="bg-white rounded-xl border border-slate-200 p-4">
+        <div className="card">
           <div className="flex items-center gap-3">
             <CheckCircle size={20} className="text-green-600" />
             <div>
-              <div className="text-xs text-slate-500 mb-1">출고 완료</div>
-              <div className="text-2xl font-bold text-green-600">
+              <div className="card-label mb-1">출고 완료</div>
+              <div className="card-value text-green-600">
                 {isLoading ? '-' : `${shippedToday}건`}
               </div>
             </div>
           </div>
         </div>
-        <div className="bg-white rounded-xl border border-slate-200 p-4">
+        <div className="card">
           <div className="flex items-center gap-3">
             <AlertCircle size={20} className="text-red-600" />
             <div>
-              <div className="text-xs text-slate-500 mb-1">미출고</div>
-              <div className="text-2xl font-bold text-red-600">
+              <div className="card-label mb-1">미출고</div>
+              <div className="card-value text-red-600">
                 {isLoading ? '-' : `${pendingCount}건`}
               </div>
             </div>
@@ -140,14 +140,14 @@ export default function OutboundMgmt() {
           </p>
         </div>
       ) : (
-        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <div className="table-card">
           <div className="p-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
             <span className="text-sm font-semibold text-slate-700">
               출고 대상 ({orders.length}건)
             </span>
           </div>
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 border-b border-slate-200">
+          <table>
+            <thead>
               <tr>
                 <th className="text-left px-4 py-3 w-10">
                   <input
@@ -159,30 +159,30 @@ export default function OutboundMgmt() {
                     className="rounded"
                   />
                 </th>
-                <th className="text-left px-4 py-3 font-medium text-slate-600">
+                <th>
                   주문번호
                 </th>
-                <th className="text-left px-4 py-3 font-medium text-slate-600">
+                <th>
                   상품명
                 </th>
-                <th className="text-right px-4 py-3 font-medium text-slate-600">
+                <th className="text-right">
                   수량
                 </th>
-                <th className="text-left px-4 py-3 font-medium text-slate-600">
+                <th>
                   수령인
                 </th>
-                <th className="text-left px-4 py-3 font-medium text-slate-600">
+                <th>
                   확정일시
                 </th>
-                <th className="text-left px-4 py-3 font-medium text-slate-600">
+                <th>
                   상태
                 </th>
-                <th className="text-center px-4 py-3 font-medium text-slate-600">
+                <th className="text-center">
                   액션
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody >
               {orders.map((o) => (
                 <tr key={o.id} className="hover:bg-slate-50">
                   <td className="px-4 py-3">

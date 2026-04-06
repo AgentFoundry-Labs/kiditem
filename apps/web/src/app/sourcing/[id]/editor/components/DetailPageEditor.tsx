@@ -407,7 +407,7 @@ function ToolBtn({
   } else if (active) {
     cls += 'text-emerald-600 bg-emerald-50';
   } else {
-    cls += 'text-gray-500 hover:text-gray-700 hover:bg-gray-100 disabled:text-gray-300';
+    cls += 'text-slate-500 hover:text-slate-700 hover:bg-slate-100 disabled:text-slate-300';
   }
   return (
     <button type="button" onClick={onClick} disabled={disabled} title={title} className={cls}>
@@ -639,19 +639,19 @@ function EditorToolbar({
   }, [applyContentZoom]);
 
   return (
-    <div className="flex items-center justify-between px-3 py-1.5 bg-white border-b border-gray-200">
+    <div className="flex items-center justify-between px-3 py-1.5 bg-white border-b border-slate-200">
       <div className="flex items-center gap-1">
         <button
           type="button"
           onClick={onClose}
-          className="flex items-center gap-1 px-2 py-1.5 text-sm text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+          className="flex items-center gap-1 px-2 py-1.5 text-sm text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
         >
           <ArrowLeft size={16} />
           <span className="text-xs">닫기</span>
         </button>
-        <div className="w-px h-5 bg-gray-200 mx-1" />
-        <h2 className="text-xs font-medium text-gray-600 truncate max-w-[160px] mr-2">{productName}</h2>
-        <div className="w-px h-5 bg-gray-200 mx-1" />
+        <div className="w-px h-5 bg-slate-200 mx-1" />
+        <h2 className="text-xs font-medium text-slate-600 truncate max-w-[160px] mr-2">{productName}</h2>
+        <div className="w-px h-5 bg-slate-200 mx-1" />
         <ToolBtn
           icon={<MousePointer2 size={16} />}
           title="선택 (V)"
@@ -703,7 +703,7 @@ function EditorToolbar({
           onClick={() => editor.UndoManager.redo()}
           disabled={!canRedo}
         />
-        <div className="w-px h-5 bg-gray-200 mx-1" />
+        <div className="w-px h-5 bg-slate-200 mx-1" />
         <ToolBtn icon={<Files size={16} />} title="복제" onClick={handleDuplicate} disabled={!hasSelection} />
         <ToolBtn
           icon={<Trash2 size={16} />}
@@ -712,10 +712,10 @@ function EditorToolbar({
           disabled={!hasSelection}
           danger
         />
-        <div className="w-px h-5 bg-gray-200 mx-1" />
+        <div className="w-px h-5 bg-slate-200 mx-1" />
         <ToolBtn icon={<ArrowUp size={16} />} title="위로 이동" onClick={handleMoveUp} disabled={!hasSelection} />
         <ToolBtn icon={<ArrowDown size={16} />} title="아래로 이동" onClick={handleMoveDown} disabled={!hasSelection} />
-        <div className="w-px h-5 bg-gray-200 mx-1" />
+        <div className="w-px h-5 bg-slate-200 mx-1" />
         <ToolBtn
           icon={selectedVisible ? <Eye size={16} /> : <EyeOff size={16} />}
           title="표시/숨김"
@@ -729,17 +729,17 @@ function EditorToolbar({
         <button
           type="button"
           onClick={handleZoomReset}
-          className="px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded transition-colors min-w-[44px] text-center"
+          className="px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded transition-colors min-w-[44px] text-center"
           title="확대/축소 초기화"
         >
           {zoom}%
         </button>
         <ToolBtn icon={<ZoomIn size={16} />} title="확대" onClick={handleZoomIn} />
-        <div className="w-px h-5 bg-gray-200 mx-1.5" />
+        <div className="w-px h-5 bg-slate-200 mx-1.5" />
         <button
           type="button"
           onClick={handleSave}
-          className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100 border border-gray-200 rounded-lg transition-colors"
+          className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors"
         >
           <Save size={14} />
           저장
@@ -761,7 +761,7 @@ function EditorToolbar({
 function LeftPanel({ onClose, rawImages = [] }: { onClose?: () => void; rawImages?: string[] }) {
   const editor = useEditor();
   return (
-    <aside className="w-[280px] bg-white border-r border-gray-200 flex flex-col overflow-hidden shrink-0">
+    <aside className="w-[280px] bg-white border-r border-slate-200 flex flex-col overflow-hidden shrink-0">
       <BlocksProvider>
         {({ blocks, dragStart, dragStop }) => {
           const standardBlocks = blocks.filter((b) => !b.getId().startsWith('raw-image-'));
@@ -769,14 +769,14 @@ function LeftPanel({ onClose, rawImages = [] }: { onClose?: () => void; rawImage
 
           return (
             <>
-              <div className="p-3 border-b border-gray-100">
+              <div className="p-3 border-b border-slate-100">
                 <div className="flex items-center justify-between mb-2.5">
-                  <h3 className="text-xs font-bold text-gray-700">요소 추가</h3>
+                  <h3 className="text-xs font-bold text-slate-700">요소 추가</h3>
                   {onClose && (
                     <button
                       type="button"
                       onClick={onClose}
-                      className="p-0.5 text-gray-400 hover:text-gray-600 rounded transition-colors"
+                      className="p-0.5 text-slate-400 hover:text-slate-600 rounded transition-colors"
                     >
                       <X size={12} />
                     </button>
@@ -787,14 +787,14 @@ function LeftPanel({ onClose, rawImages = [] }: { onClose?: () => void; rawImage
                     <div
                       key={block.getId()}
                       draggable
-                      className="flex flex-col items-center gap-1 p-2.5 bg-gray-50 hover:bg-emerald-50 border border-gray-200 hover:border-emerald-300 rounded-lg cursor-grab active:cursor-grabbing transition-colors group"
+                      className="flex flex-col items-center gap-1 p-2.5 bg-slate-50 hover:bg-emerald-50 border border-slate-200 hover:border-emerald-300 rounded-lg cursor-grab active:cursor-grabbing transition-colors group"
                       onDragStart={(e) => dragStart(block, e.nativeEvent)}
                       onDragEnd={() => dragStop(false)}
                     >
                       <span className="text-emerald-500 group-hover:text-emerald-600 transition-colors">
                         {getBlockIcon(block.getId())}
                       </span>
-                      <span className="text-[10px] font-medium text-gray-500 group-hover:text-gray-700">
+                      <span className="text-[10px] font-medium text-slate-500 group-hover:text-slate-700">
                         {block.getLabel()}
                       </span>
                     </div>
@@ -803,11 +803,11 @@ function LeftPanel({ onClose, rawImages = [] }: { onClose?: () => void; rawImage
               </div>
 
               {imageBlocks.length > 0 && (
-                <div className="border-t border-gray-100 p-3">
-                  <h3 className="text-xs font-bold text-gray-700 mb-2 flex items-center gap-1.5">
+                <div className="border-t border-slate-100 p-3">
+                  <h3 className="text-xs font-bold text-slate-700 mb-2 flex items-center gap-1.5">
                     <ImageIcon size={12} />
                     원본 이미지
-                    <span className="text-gray-400 font-normal">({imageBlocks.length})</span>
+                    <span className="text-slate-400 font-normal">({imageBlocks.length})</span>
                   </h3>
                   <div className="grid grid-cols-3 gap-1.5 max-h-[320px] overflow-y-auto">
                     {imageBlocks.map((block) => {
@@ -819,7 +819,7 @@ function LeftPanel({ onClose, rawImages = [] }: { onClose?: () => void; rawImage
                         <div
                           key={block.getId()}
                           draggable
-                          className="aspect-square rounded border border-gray-200 hover:border-emerald-400 overflow-hidden cursor-grab active:cursor-grabbing transition-colors group"
+                          className="aspect-square rounded border border-slate-200 hover:border-emerald-400 overflow-hidden cursor-grab active:cursor-grabbing transition-colors group"
                           title="드래그하여 배치 · 클릭하여 선택된 이미지 교체"
                           onDragStart={(e) => dragStart(block, e.nativeEvent)}
                           onDragEnd={() => dragStop(false)}
@@ -849,7 +849,7 @@ function LeftPanel({ onClose, rawImages = [] }: { onClose?: () => void; rawImage
       </BlocksProvider>
 
       <div className="flex-1 flex flex-col overflow-hidden">
-        <h3 className="text-xs font-bold text-gray-700 px-3 pt-3 pb-2">레이어</h3>
+        <h3 className="text-xs font-bold text-slate-700 px-3 pt-3 pb-2">레이어</h3>
         <div className="flex-1 overflow-y-auto px-1">
           <LayersProvider>{({ Container }) => <Container>{null}</Container>}</LayersProvider>
         </div>
@@ -1079,17 +1079,17 @@ function RightPanel({
   const selectionType = selectedTextComponent ? 'text' : selectedImageSrc ? 'image' : null;
 
   return (
-    <aside className="w-[320px] bg-white border-l border-gray-200 flex flex-col overflow-hidden shrink-0">
-      <div className="flex items-center justify-between px-3 py-2.5 border-b border-gray-200 shrink-0">
+    <aside className="w-[320px] bg-white border-l border-slate-200 flex flex-col overflow-hidden shrink-0">
+      <div className="flex items-center justify-between px-3 py-2.5 border-b border-slate-200 shrink-0">
         <div className="flex items-center gap-2 min-w-0">
           <Sparkles size={14} className="text-emerald-500 shrink-0" />
-          <span className="text-xs font-semibold text-gray-700">AI 어시스턴트</span>
+          <span className="text-xs font-semibold text-slate-700">AI 어시스턴트</span>
         </div>
         {onClose && (
           <button
             type="button"
             onClick={onClose}
-            className="p-1 text-gray-400 hover:text-gray-600 rounded transition-colors shrink-0"
+            className="p-1 text-slate-400 hover:text-slate-600 rounded transition-colors shrink-0"
             title="패널 닫기"
           >
             <X size={14} />
@@ -1099,9 +1099,9 @@ function RightPanel({
 
       <div className="flex-1 overflow-hidden flex flex-col min-h-0">
         {selectionType && (
-          <div className="flex items-center gap-1.5 px-3 py-2 border-b border-gray-100 bg-gray-50 shrink-0">
+          <div className="flex items-center gap-1.5 px-3 py-2 border-b border-slate-100 bg-slate-50 shrink-0">
             {selectionType === 'text' ? <Type size={13} className="text-emerald-500" /> : <ImageIcon size={13} className="text-emerald-500" />}
-            <span className="text-xs font-medium text-gray-600">
+            <span className="text-xs font-medium text-slate-600">
               {selectionType === 'text' ? '텍스트 AI 편집' : '이미지 AI 편집'}
             </span>
           </div>
@@ -1125,8 +1125,8 @@ function RightPanel({
           <div className="flex-1 flex flex-col items-center justify-center px-6 gap-4">
             <Loader2 size={32} className="animate-spin text-emerald-500" />
             <div className="text-center">
-              <p className="text-sm font-semibold text-gray-700">{aiFillStep}</p>
-              <p className="text-[10px] text-gray-400 mt-1">생성이 완료되면 캔버스에 자동 반영됩니다</p>
+              <p className="text-sm font-semibold text-slate-700">{aiFillStep}</p>
+              <p className="text-[10px] text-slate-400 mt-1">생성이 완료되면 캔버스에 자동 반영됩니다</p>
             </div>
             <button
               type="button"
@@ -1140,14 +1140,14 @@ function RightPanel({
           <div className="flex-1 overflow-y-auto">
             <div className="p-3 space-y-4">
               <div className="space-y-2">
-                <label className="block text-xs font-medium text-gray-600">상품 제목 <span className="text-gray-400 font-normal">(선택)</span></label>
+                <label className="block text-xs font-medium text-slate-600">상품 제목 <span className="text-slate-400 font-normal">(선택)</span></label>
                 <input
                   type="text"
                   value={seedHookText}
                   onChange={(e) => setSeedHookText(e.target.value)}
                   placeholder="1줄 (예: 쫀득쫀득)"
                   disabled={aiFillLoading}
-                  className="w-full px-3 py-2 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 placeholder:text-gray-400"
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 placeholder:text-slate-400"
                 />
                 <input
                   type="text"
@@ -1155,14 +1155,14 @@ function RightPanel({
                   onChange={(e) => setSeedHookTitleSub(e.target.value)}
                   placeholder="2줄 (예: 쫀득이)"
                   disabled={aiFillLoading}
-                  className="w-full px-3 py-2 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 placeholder:text-gray-400"
+                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 placeholder:text-slate-400"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1.5">히어로 사진 <span className="text-gray-400 font-normal">(선택)</span></label>
+                <label className="block text-xs font-medium text-slate-600 mb-1.5">히어로 사진 <span className="text-slate-400 font-normal">(선택)</span></label>
                 {seedHeroImage ? (
-                  <div className="relative rounded-lg overflow-hidden border border-gray-200 bg-gray-50">
+                  <div className="relative rounded-lg overflow-hidden border border-slate-200 bg-slate-50">
                     <img src={seedHeroImage} alt="" className="w-full h-[160px] object-contain" />
                     <div className="absolute top-1.5 right-1.5 flex gap-1">
                       <button
@@ -1172,14 +1172,14 @@ function RightPanel({
                         className="p-1 bg-white/80 hover:bg-white rounded-full shadow-sm transition-colors"
                         title="다른 사진 선택"
                       >
-                        <ImageIcon size={12} className="text-gray-500" />
+                        <ImageIcon size={12} className="text-slate-500" />
                       </button>
                       <button
                         type="button"
                         onClick={() => setSeedHeroImage(null)}
                         className="p-1 bg-white/80 hover:bg-white rounded-full shadow-sm transition-colors"
                       >
-                        <X size={12} className="text-gray-500" />
+                        <X size={12} className="text-slate-500" />
                       </button>
                     </div>
                   </div>
@@ -1188,10 +1188,10 @@ function RightPanel({
                     type="button"
                     onClick={() => setShowHeroPicker(true)}
                     disabled={aiFillLoading}
-                    className="w-full h-[120px] flex flex-col items-center justify-center gap-2 border-2 border-dashed border-gray-200 hover:border-emerald-400 rounded-lg bg-gray-50 hover:bg-emerald-50/50 transition-colors"
+                    className="w-full h-[120px] flex flex-col items-center justify-center gap-2 border-2 border-dashed border-slate-200 hover:border-emerald-400 rounded-lg bg-slate-50 hover:bg-emerald-50/50 transition-colors"
                   >
-                    <ImageIcon size={24} className="text-gray-300" />
-                    <span className="text-xs text-gray-400">사진 선택하기</span>
+                    <ImageIcon size={24} className="text-slate-300" />
+                    <span className="text-xs text-slate-400">사진 선택하기</span>
                   </button>
                 )}
                 <ImagePickerModal
@@ -1208,8 +1208,8 @@ function RightPanel({
 
               <div>
                 <div className="flex items-center justify-between">
-                  <label className="flex items-center gap-1.5 text-xs font-medium text-gray-600">
-                    <Palette size={12} className="text-gray-400" />
+                  <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600">
+                    <Palette size={12} className="text-slate-400" />
                     색상 안내
                   </label>
                   <button
@@ -1236,7 +1236,7 @@ function RightPanel({
                       }
                     }}
                     disabled={aiFillLoading}
-                    className={`relative w-9 h-5 rounded-full transition-colors ${colorGuideEnabled ? 'bg-blue-600' : 'bg-gray-200'}`}
+                    className={`relative w-9 h-5 rounded-full transition-colors ${colorGuideEnabled ? 'bg-blue-600' : 'bg-slate-200'}`}
                   >
                     <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${colorGuideEnabled ? 'translate-x-4' : ''}`} />
                   </button>
@@ -1246,7 +1246,7 @@ function RightPanel({
                     {colorImageUrls.length > 0 && (
                       <div className="grid grid-cols-4 gap-1.5">
                         {colorImageUrls.map((url, i) => (
-                          <div key={url} className="relative aspect-square rounded-lg overflow-hidden border border-gray-200 group">
+                          <div key={url} className="relative aspect-square rounded-lg overflow-hidden border border-slate-200 group">
                             <img src={url} alt="" className="w-full h-full object-cover" />
                             <button
                               type="button"
@@ -1263,11 +1263,11 @@ function RightPanel({
                       type="button"
                       onClick={() => setShowColorPicker(true)}
                       disabled={aiFillLoading || colorImageUrls.length >= 6}
-                      className="w-full py-2 text-xs font-medium text-gray-500 border border-dashed border-gray-300 hover:border-emerald-400 hover:text-emerald-600 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                      className="w-full py-2 text-xs font-medium text-slate-500 border border-dashed border-slate-300 hover:border-emerald-400 hover:text-emerald-600 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       + 사진 추가
                     </button>
-                    <p className="text-[10px] text-gray-400 text-center">{colorImageUrls.length}/6장</p>
+                    <p className="text-[10px] text-slate-400 text-center">{colorImageUrls.length}/6장</p>
                   </div>
                 )}
                 <ImagePickerModal
@@ -1303,13 +1303,13 @@ function RightPanel({
                 )}
               </button>
 
-                <p className="text-[10px] text-gray-400 text-center leading-relaxed">
+                <p className="text-[10px] text-slate-400 text-center leading-relaxed">
                 입력하면 반영, 비워두면 AI가 전부 자동 생성합니다
               </p>
 
               {hasGenerated && (
                 <div className="space-y-2">
-                  <div className="h-px bg-gray-100" />
+                  <div className="h-px bg-slate-100" />
                   {!postColorGuideOpen ? (
                     <button
                       type="button"
@@ -1332,14 +1332,14 @@ function RightPanel({
                   ) : (
                     <div className="space-y-2">
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-medium text-gray-600 flex items-center gap-1.5">
-                          <Palette size={12} className="text-gray-400" />
+                        <span className="text-xs font-medium text-slate-600 flex items-center gap-1.5">
+                          <Palette size={12} className="text-slate-400" />
                           색상 안내 이미지
                         </span>
                         <button
                           type="button"
                           onClick={() => setPostColorGuideOpen(false)}
-                          className="p-0.5 text-gray-400 hover:text-gray-600 rounded transition-colors"
+                          className="p-0.5 text-slate-400 hover:text-slate-600 rounded transition-colors"
                         >
                           <X size={12} />
                         </button>
@@ -1347,7 +1347,7 @@ function RightPanel({
                       {colorImageUrls.length > 0 && (
                         <div className="grid grid-cols-4 gap-1.5">
                           {colorImageUrls.map((url, i) => (
-                            <div key={url} className="relative aspect-square rounded-lg overflow-hidden border border-gray-200 group">
+                            <div key={url} className="relative aspect-square rounded-lg overflow-hidden border border-slate-200 group">
                               <img src={url} alt="" className="w-full h-full object-cover" />
                               <button
                                 type="button"
@@ -1364,11 +1364,11 @@ function RightPanel({
                         type="button"
                         onClick={() => setShowColorPicker(true)}
                         disabled={colorImageUrls.length >= 6}
-                        className="w-full py-2 text-xs font-medium text-gray-500 border border-dashed border-gray-300 hover:border-emerald-400 hover:text-emerald-600 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                        className="w-full py-2 text-xs font-medium text-slate-500 border border-dashed border-slate-300 hover:border-emerald-400 hover:text-emerald-600 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                       >
                         + 사진 추가
                       </button>
-                      <p className="text-[10px] text-gray-400 text-center">{colorImageUrls.length}/6장</p>
+                      <p className="text-[10px] text-slate-400 text-center">{colorImageUrls.length}/6장</p>
                       <button
                         type="button"
                         onClick={handleColorGuideGenerate}
@@ -1662,7 +1662,7 @@ export default function DetailPageEditor({
               <LeftPanel onClose={() => setShowLeftPanel(false)} rawImages={rawImages} />
             </WithEditor>
           </div>
-          <div ref={canvasWrapperRef} className="flex-1 overflow-hidden bg-gray-100 relative">
+          <div ref={canvasWrapperRef} className="flex-1 overflow-hidden bg-slate-100 relative">
             <Canvas />
             {isGenerating && (
               <div className="absolute inset-0 bg-white/30 z-50 cursor-not-allowed" />
@@ -1674,7 +1674,7 @@ export default function DetailPageEditor({
                   setShowLeftPanel(true);
                   refreshCanvas();
                 }}
-                className="absolute top-2 left-2 z-10 p-1.5 bg-white border border-gray-200 rounded-lg shadow-sm text-gray-500 hover:text-gray-700 transition-colors"
+                className="absolute top-2 left-2 z-10 p-1.5 bg-white border border-slate-200 rounded-lg shadow-sm text-slate-500 hover:text-slate-700 transition-colors"
                 title="요소 패널 열기"
               >
                 <PanelLeft size={14} />

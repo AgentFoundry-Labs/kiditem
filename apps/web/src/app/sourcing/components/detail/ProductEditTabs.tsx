@@ -21,7 +21,7 @@ export default function ProductEditTabs({
   onTabChange,
 }: ProductEditTabsProps) {
   return (
-    <div className="flex border-b border-gray-200 bg-white">
+    <div className="flex border-b border-slate-200 bg-white">
       {TABS.map((tab) => (
         <button
           key={tab.key}
@@ -29,7 +29,7 @@ export default function ProductEditTabs({
           className={`relative px-6 py-3 text-sm font-medium transition-colors flex items-center gap-1.5 ${
             activeTab === tab.key
               ? 'text-emerald-600'
-              : 'text-gray-500 hover:text-gray-700'
+              : 'text-slate-500 hover:text-slate-700'
           }`}
         >
           {tab.icon && <Database size={14} />}

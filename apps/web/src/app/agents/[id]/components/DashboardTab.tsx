@@ -46,9 +46,9 @@ function computeSuccessRate(runs: HeartbeatRun[]): number {
 }
 
 function LatestRunCard({ run, isLive }: { run: HeartbeatRun; isLive: boolean }) {
-  const statusInfo = RUN_STATUS_ICONS[run.status] ?? { icon: Clock, colorClass: 'text-gray-400' };
+  const statusInfo = RUN_STATUS_ICONS[run.status] ?? { icon: Clock, colorClass: 'text-slate-400' };
   const StatusIcon = statusInfo.icon;
-  const sourceBadgeClass = SOURCE_BADGE_COLORS[run.invocationSource] ?? 'bg-gray-100 text-gray-600';
+  const sourceBadgeClass = SOURCE_BADGE_COLORS[run.invocationSource] ?? 'bg-slate-100 text-slate-600';
 
   const summaryText = (() => {
     if (run.stdoutExcerpt) {
@@ -64,23 +64,23 @@ function LatestRunCard({ run, isLive }: { run: HeartbeatRun; isLive: boolean }) 
   return (
     <div className={cn(
       'border rounded-lg p-4 space-y-3',
-      isLive ? 'border-cyan-300 bg-cyan-50/20 shadow-[0_0_12px_rgba(6,182,212,0.06)]' : 'border-gray-200',
+      isLive ? 'border-cyan-300 bg-cyan-50/20 shadow-[0_0_12px_rgba(6,182,212,0.06)]' : 'border-slate-200',
     )}>
       <div className="flex items-center gap-2 flex-wrap">
         <StatusIcon
           className={cn('w-3.5 h-3.5 shrink-0', statusInfo.colorClass, run.status === 'running' && 'animate-spin')}
         />
         <StatusBadge status={run.status} />
-        <span className="font-mono text-xs text-gray-400">{run.id.slice(0, 8)}</span>
+        <span className="font-mono text-xs text-slate-400">{run.id.slice(0, 8)}</span>
         <span className={cn('inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium', sourceBadgeClass)}>
           {SOURCE_LABELS[run.invocationSource] ?? run.invocationSource}
         </span>
-        <span className="ml-auto text-xs text-gray-400">{relativeTime(run.createdAt)}</span>
+        <span className="ml-auto text-xs text-slate-400">{relativeTime(run.createdAt)}</span>
       </div>
       {summaryText && (
-        <p className="text-xs text-gray-600 line-clamp-2">{summaryText}</p>
+        <p className="text-xs text-slate-600 line-clamp-2">{summaryText}</p>
       )}
-      <div className="flex items-center gap-4 text-xs text-gray-500">
+      <div className="flex items-center gap-4 text-xs text-slate-500">
         <span>소요: {formatDuration(run.startedAt, run.finishedAt)}</span>
         {(run.usageJson?.costCents as number | undefined) ? (
           <span>비용: {formatCost(run.usageJson!.costCents as number)}</span>
@@ -104,15 +104,15 @@ function MetricCard({
   iconBg: string;
 }) {
   return (
-    <div className="border border-gray-200 rounded-lg p-4">
+    <div className="border border-slate-200 rounded-lg p-4">
       <div className="flex items-center gap-2 mb-2">
         <div className={cn('w-6 h-6 rounded-md flex items-center justify-center', iconBg)}>
           <Icon className={cn('w-3.5 h-3.5', iconColor)} />
         </div>
-        <span className="text-xs text-gray-500">{label}</span>
+        <span className="text-xs text-slate-500">{label}</span>
       </div>
-      <div className="text-xl font-bold text-gray-900 tabular-nums">{value}</div>
-      <div className="text-[11px] text-gray-400 mt-0.5">{sub}</div>
+      <div className="text-xl font-bold text-slate-900 tabular-nums">{value}</div>
+      <div className="text-[11px] text-slate-400 mt-0.5">{sub}</div>
     </div>
   );
 }
@@ -145,7 +145,7 @@ export function DashboardTab({
       {latestRun && (
         <div>
           <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm font-medium text-gray-700 flex items-center gap-2">
+            <h3 className="text-sm font-medium text-slate-700 flex items-center gap-2">
               {isLive && (
                 <span className="relative flex h-2 w-2">
                   <span className="animate-pulse absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75" />
@@ -155,7 +155,7 @@ export function DashboardTab({
               {isLive ? '라이브 실행' : '최근 실행'}
             </h3>
             <button
-              className="text-xs text-gray-400 hover:text-gray-700 transition-colors"
+              className="text-xs text-slate-400 hover:text-slate-700 transition-colors"
               onClick={() => onSelectRun(latestRun.id)}
             >
               상세 보기 →
@@ -202,8 +202,8 @@ export function DashboardTab({
       </div>
 
       {/* Run activity mini chart */}
-      <div className="border border-gray-200 rounded-lg p-4">
-        <h3 className="text-sm font-medium text-gray-700 mb-3">실행 활동 (최근 14일)</h3>
+      <div className="border border-slate-200 rounded-lg p-4">
+        <h3 className="text-sm font-medium text-slate-700 mb-3">실행 활동 (최근 14일)</h3>
         <div className="flex items-end gap-1 h-20">
           {activityData.map((day, i) => (
             <div key={i} className="flex-1 flex flex-col items-center gap-0.5" title={`${day.date}: ${day.total}회`}>
@@ -221,56 +221,56 @@ export function DashboardTab({
                   />
                 )}
                 {day.total === 0 && (
-                  <div className="w-full bg-gray-100 rounded-sm" style={{ height: '4px' }} />
+                  <div className="w-full bg-slate-100 rounded-sm" style={{ height: '4px' }} />
                 )}
               </div>
             </div>
           ))}
         </div>
         <div className="flex items-center gap-4 mt-2">
-          <span className="flex items-center gap-1 text-[11px] text-gray-500">
+          <span className="flex items-center gap-1 text-[11px] text-slate-500">
             <span className="w-2 h-2 rounded-sm bg-green-400 inline-block" /> 성공
           </span>
-          <span className="flex items-center gap-1 text-[11px] text-gray-500">
+          <span className="flex items-center gap-1 text-[11px] text-slate-500">
             <span className="w-2 h-2 rounded-sm bg-red-400 inline-block" /> 실패
           </span>
         </div>
       </div>
 
       {/* Recent issues placeholder */}
-      <div className="border border-gray-200 rounded-lg p-4">
+      <div className="border border-slate-200 rounded-lg p-4">
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-medium text-gray-700">최근 이슈</h3>
+          <h3 className="text-sm font-medium text-slate-700">최근 이슈</h3>
         </div>
-        <div className="flex flex-col items-center justify-center py-6 text-gray-400">
-          <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center mb-2">
+        <div className="flex flex-col items-center justify-center py-6 text-slate-400">
+          <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center mb-2">
             <Clock className="w-4 h-4" />
           </div>
           <p className="text-sm">이슈 트래킹 준비 중</p>
-          <p className="text-xs text-gray-300 mt-0.5">Coming soon</p>
+          <p className="text-xs text-slate-300 mt-0.5">Coming soon</p>
         </div>
       </div>
 
       {/* Runtime state */}
       {runtimeState && (
-        <div className="border border-gray-200 rounded-lg p-4">
-          <h3 className="text-sm font-medium text-gray-700 mb-3">런타임 상태</h3>
+        <div className="border border-slate-200 rounded-lg p-4">
+          <h3 className="text-sm font-medium text-slate-700 mb-3">런타임 상태</h3>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 tabular-nums">
             <div>
-              <span className="text-[11px] uppercase tracking-wide text-gray-400 block mb-1">입력 토큰</span>
-              <span className="text-lg font-semibold text-gray-900">{formatTokens(runtimeState.totalInputTokens)}</span>
+              <span className="text-[11px] uppercase tracking-wide text-slate-400 block mb-1">입력 토큰</span>
+              <span className="text-lg font-semibold text-slate-900">{formatTokens(runtimeState.totalInputTokens)}</span>
             </div>
             <div>
-              <span className="text-[11px] uppercase tracking-wide text-gray-400 block mb-1">출력 토큰</span>
-              <span className="text-lg font-semibold text-gray-900">{formatTokens(runtimeState.totalOutputTokens)}</span>
+              <span className="text-[11px] uppercase tracking-wide text-slate-400 block mb-1">출력 토큰</span>
+              <span className="text-lg font-semibold text-slate-900">{formatTokens(runtimeState.totalOutputTokens)}</span>
             </div>
             <div>
-              <span className="text-[11px] uppercase tracking-wide text-gray-400 block mb-1">총 비용</span>
-              <span className="text-lg font-semibold text-gray-900">{formatCost(runtimeState.totalCostCents)}</span>
+              <span className="text-[11px] uppercase tracking-wide text-slate-400 block mb-1">총 비용</span>
+              <span className="text-lg font-semibold text-slate-900">{formatCost(runtimeState.totalCostCents)}</span>
             </div>
             <div>
-              <span className="text-[11px] uppercase tracking-wide text-gray-400 block mb-1">세션 ID</span>
-              <span className="text-xs font-mono text-gray-700 truncate block">
+              <span className="text-[11px] uppercase tracking-wide text-slate-400 block mb-1">세션 ID</span>
+              <span className="text-xs font-mono text-slate-700 truncate block">
                 {runtimeState.sessionId ? runtimeState.sessionId.slice(0, 16) + '…' : '—'}
               </span>
             </div>

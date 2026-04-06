@@ -19,7 +19,7 @@ interface Props {
 export default function OrdersDateFilter({ activePreset, dateRange, onPreset, onCustomRange }: Props) {
   return (
     <div className="flex items-center justify-between">
-      <h1 className="text-xl font-bold text-gray-900">주문 대시보드</h1>
+      <h1 className="page-title">주문 대시보드</h1>
       <div className="flex items-center gap-2">
         {PRESETS.map((p) => (
           <button
@@ -29,7 +29,7 @@ export default function OrdersDateFilter({ activePreset, dateRange, onPreset, on
               'px-3 py-1.5 text-sm rounded-lg border',
               activePreset === p.days
                 ? 'bg-blue-50 text-blue-600 border-blue-200'
-                : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
             )}
           >
             {p.label}

@@ -44,7 +44,7 @@ export default function SupplierProductSales() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-900">
+        <h1 className="page-title">
           <Store size={24} className="inline mr-2" />매입처-상품별 판매현황
         </h1>
         <div className="relative">
@@ -65,47 +65,47 @@ export default function SupplierProductSales() {
       {/* 요약 카드 */}
       {selectedId && (
         <div className="grid grid-cols-4 gap-4">
-          <div className="bg-white rounded-xl border border-slate-200 p-4">
+          <div className="card">
             <div className="flex items-center gap-2 text-xs text-slate-500 mb-1"><Package size={14} />상품 수</div>
-            <div className="text-xl font-bold text-slate-900">{products.length}개</div>
+            <div className="card-value">{products.length}개</div>
           </div>
-          <div className="bg-white rounded-xl border border-slate-200 p-4">
-            <div className="text-xs text-slate-500 mb-1">총 매출</div>
-            <div className="text-xl font-bold text-blue-600">{formatKRW(totalRevenue)}원</div>
+          <div className="card">
+            <div className="card-label mb-1">총 매출</div>
+            <div className="card-value text-blue-600">{formatKRW(totalRevenue)}원</div>
           </div>
-          <div className="bg-white rounded-xl border border-slate-200 p-4">
-            <div className="text-xs text-slate-500 mb-1">총 이익</div>
-            <div className={`text-xl font-bold ${totalProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatKRW(totalProfit)}원</div>
+          <div className="card">
+            <div className="card-label mb-1">총 이익</div>
+            <div className={`card-value ${totalProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatKRW(totalProfit)}원</div>
           </div>
-          <div className="bg-white rounded-xl border border-slate-200 p-4">
-            <div className="text-xs text-slate-500 mb-1">총 주문수</div>
-            <div className="text-xl font-bold text-slate-900">{totalOrders}건</div>
+          <div className="card">
+            <div className="card-label mb-1">총 주문수</div>
+            <div className="card-value">{totalOrders}건</div>
           </div>
         </div>
       )}
 
       {/* 상품별 테이블 */}
-      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+      <div className="table-card">
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
           <h3 className="text-sm font-semibold text-slate-900">{suppliers.find((s) => s.id === selectedId)?.name || '매입처'} 상품 판매현황</h3>
           <span className="text-xs text-slate-400">{products.length}개 상품</span>
         </div>
         {!selectedId ? (
-          <div className="text-center py-12 text-slate-400">매입처를 선택해주세요.</div>
+          <div className="empty-state">매입처를 선택해주세요.</div>
         ) : products.length === 0 ? (
-          <div className="text-center py-12 text-slate-400">해당 매입처의 상품 판매 데이터가 없습니다.</div>
+          <div className="empty-state">해당 매입처의 상품 판매 데이터가 없습니다.</div>
         ) : (
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 border-b border-slate-200">
+          <table>
+            <thead>
               <tr>
-                <th className="text-left px-4 py-3 font-medium text-slate-600">상품명</th>
-                <th className="text-right px-4 py-3 font-medium text-slate-600">공급가</th>
-                <th className="text-right px-4 py-3 font-medium text-slate-600">매출</th>
-                <th className="text-right px-4 py-3 font-medium text-slate-600">주문건</th>
-                <th className="text-right px-4 py-3 font-medium text-slate-600">수량</th>
+                <th>상품명</th>
+                <th className="text-right">공급가</th>
+                <th className="text-right">매출</th>
+                <th className="text-right">주문건</th>
+                <th className="text-right">수량</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody >
               {products.map((p) => (
                   <tr key={p.productId} className="hover:bg-slate-50">
                     <td className="px-4 py-3 font-medium text-slate-900 max-w-[200px] truncate">{p.productName}</td>

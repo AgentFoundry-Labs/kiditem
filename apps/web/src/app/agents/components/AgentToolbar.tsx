@@ -40,8 +40,8 @@ export function AgentToolbar({
             className={cn(
               'px-3 py-1.5 text-sm rounded-lg transition-colors',
               filter === tab
-                ? 'bg-gray-900 text-white'
-                : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700',
+                ? 'bg-slate-900 text-white'
+                : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700',
             )}
             onClick={() => setFilter(tab)}
           >
@@ -56,30 +56,30 @@ export function AgentToolbar({
         <div className="relative">
           <button
             className={cn(
-              'flex items-center gap-1.5 px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg transition-colors',
+              'flex items-center gap-1.5 px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg transition-colors',
               filtersOpen || showTerminated
-                ? 'bg-gray-100 text-gray-900'
-                : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900',
+                ? 'bg-slate-100 text-slate-900'
+                : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900',
             )}
             onClick={() => setFiltersOpen(!filtersOpen)}
           >
             <SlidersHorizontal className="w-3.5 h-3.5" />
             Filters
             {showTerminated && (
-              <span className="ml-0.5 px-1 bg-gray-900 text-white rounded text-[10px]">1</span>
+              <span className="ml-0.5 px-1 bg-slate-900 text-white rounded text-[10px]">1</span>
             )}
           </button>
           {filtersOpen && (
             <>
               <div className="fixed inset-0 z-10" onClick={() => setFiltersOpen(false)} />
-              <div className="absolute right-0 top-full mt-1 z-20 w-48 bg-white border border-gray-200 rounded-lg shadow-lg p-1">
+              <div className="absolute right-0 top-full mt-1 z-20 w-48 bg-white border border-slate-200 rounded-lg shadow-lg p-1">
                 <button
-                  className="flex items-center gap-2 w-full px-2 py-1.5 text-xs text-left rounded-md hover:bg-gray-50 transition-colors"
+                  className="flex items-center gap-2 w-full px-2 py-1.5 text-xs text-left rounded-md hover:bg-slate-50 transition-colors"
                   onClick={() => setShowTerminated(!showTerminated)}
                 >
                   <span className={cn(
                     'flex items-center justify-center w-3.5 h-3.5 border rounded-sm transition-colors',
-                    showTerminated ? 'bg-gray-900 border-gray-900' : 'border-gray-300',
+                    showTerminated ? 'bg-slate-900 border-slate-900' : 'border-slate-300',
                   )}>
                     {showTerminated && <span className="text-white text-[9px] leading-none">✓</span>}
                   </span>
@@ -91,11 +91,11 @@ export function AgentToolbar({
         </div>
 
         {/* View toggle */}
-        <div className="flex items-center border border-gray-200 rounded-lg overflow-hidden">
+        <div className="flex items-center border border-slate-200 rounded-lg overflow-hidden">
           <button
             className={cn(
               'p-1.5 transition-colors',
-              view === 'list' ? 'bg-gray-100 text-gray-900' : 'text-gray-400 hover:bg-gray-50 hover:text-gray-700',
+              view === 'list' ? 'bg-slate-100 text-slate-900' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-700',
             )}
             onClick={() => setView('list')}
             title="리스트"
@@ -105,7 +105,7 @@ export function AgentToolbar({
           <button
             className={cn(
               'p-1.5 transition-colors',
-              view === 'org' ? 'bg-gray-100 text-gray-900' : 'text-gray-400 hover:bg-gray-50 hover:text-gray-700',
+              view === 'org' ? 'bg-slate-100 text-slate-900' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-700',
             )}
             onClick={() => setView('org')}
             title="조직도"
@@ -116,7 +116,7 @@ export function AgentToolbar({
 
         <button
           onClick={onRefresh}
-          className="p-1.5 text-gray-400 hover:text-gray-600 border border-gray-200 rounded-lg transition-colors"
+          className="p-1.5 text-slate-400 hover:text-slate-600 border border-slate-200 rounded-lg transition-colors"
           title="새로고침"
         >
           <RefreshCw className="w-3.5 h-3.5" />
@@ -126,7 +126,7 @@ export function AgentToolbar({
         {onAddAgent ? (
           <button
             onClick={onAddAgent}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-gray-700"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors text-slate-700"
           >
             <Plus className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">에이전트 설치</span>
@@ -134,7 +134,7 @@ export function AgentToolbar({
         ) : (
           <Link
             href="/marketplace"
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-gray-700"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors text-slate-700"
           >
             <Plus className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">에이전트 설치</span>

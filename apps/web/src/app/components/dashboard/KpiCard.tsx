@@ -24,8 +24,8 @@ export default function KpiCard({ label, value, unit, icon: Icon, bgColor, accen
           <span className="text-2xl font-extrabold tabular-nums tracking-tight" style={{ color: accentColor }}>{value}</span>
           <span className="text-sm font-semibold" style={{ color: accentColor, opacity: 0.6 }}>{unit}</span>
         </div>
-        {subValue && <div className="text-xs text-gray-500 mt-1.5">{subValue}</div>}
-        {prevLabel && <div className="text-xs text-gray-400 mt-1">이전 {prevLabel}</div>}
+        {subValue && <div className="text-xs text-slate-500 mt-1.5">{subValue}</div>}
+        {prevLabel && <div className="text-xs text-slate-400 mt-1">이전 {prevLabel}</div>}
       </div>
     </div>
   );

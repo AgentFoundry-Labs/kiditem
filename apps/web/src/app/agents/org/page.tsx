@@ -15,7 +15,7 @@ export default function OrgPage() {
   return (
     <div className="p-4 sm:p-8">
       {loading && (
-        <div className="flex items-center justify-center py-32 text-sm text-gray-400">
+        <div className="flex items-center justify-center py-32 text-sm text-slate-400">
           불러오는 중...
         </div>
       )}
@@ -27,7 +27,7 @@ export default function OrgPage() {
       )}
 
       {!loading && !error && roots.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-32 text-gray-400">
+        <div className="flex flex-col items-center justify-center py-32 text-slate-400">
           <Users className="w-10 h-10 mb-3" />
           <p className="text-sm">에이전트가 아직 없습니다.</p>
           <Link
@@ -40,7 +40,7 @@ export default function OrgPage() {
       )}
 
       {!loading && !error && roots.length > 0 && (
-        <div className="bg-white rounded-xl border border-gray-200 overflow-auto p-10">
+        <div className="bg-white rounded-xl border border-slate-200 overflow-auto p-10">
           <div className="flex justify-center">
             <OrgTree nodes={roots} router={router} />
           </div>

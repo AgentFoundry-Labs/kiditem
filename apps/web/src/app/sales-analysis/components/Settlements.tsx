@@ -12,6 +12,7 @@ import {
   ArrowUpRight,
   FileSearch,
   Download,
+  Loader2,
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { formatKRW } from '@/lib/utils';
@@ -74,7 +75,13 @@ export default function Settlements() {
 
   const [editId, setEditId] = useState<string | null>(null);
   const [actualAmount, setActualAmount] = useState(0);
-  const [reconcile] = useState<ReconcileResult | null>(null);
+  const [reconcilePeriod, setReconcilePeriod] = useState('');
+
+  const reconcileMutation = useMutation({
+    mutationFn: (period: string) =>
+      apiClient.post<ReconcileResult>('/api/settlements/reconcile', { period }),
+  });
+  const reconcile = reconcileMutation.data ?? null;
 
   const confirmMutation = useMutation({
     mutationFn: ({ id, actualAmount: amt }: { id: string; actualAmount: number }) =>
@@ -95,32 +102,32 @@ export default function Settlements() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-slate-900"><Wallet size={24} className="inline mr-2" />정산 관리</h1>
+      <h1 className="page-title"><Wallet size={24} className="inline mr-2" />정산 관리</h1>
 
       {/* 요약 카드 */}
       <div className="grid grid-cols-4 gap-4">
-        <div className="agent-card p-4"><div className="text-xs text-slate-500 mb-1">총 예상 정산액</div><div className="text-xl font-bold text-slate-900">{formatKRW(totalExpected)}</div></div>
-        <div className="agent-card p-4"><div className="text-xs text-slate-500 mb-1">확인된 입금액</div><div className="text-xl font-bold text-green-600">{formatKRW(totalActual)}</div></div>
-        <div className="agent-card p-4"><div className="text-xs text-slate-500 mb-1">차이 합계</div><div className={`text-xl font-bold ${totalDiff >= 0 ? 'text-green-600' : 'text-red-600'}`}>{totalDiff >= 0 ? '+' : ''}{formatKRW(totalDiff)}</div></div>
-        <div className="agent-card p-4"><div className="text-xs text-slate-500 mb-1">미확인 월</div><div className="text-xl font-bold text-orange-600">{settlements.filter(s => s.status === 'pending').length}건</div></div>
+        <div className="card"><div className="card-label">총 예상 정산액</div><div className="card-value">{formatKRW(totalExpected)}</div></div>
+        <div className="card"><div className="card-label">확인된 입금액</div><div className="card-value text-green-600">{formatKRW(totalActual)}</div></div>
+        <div className="card"><div className="card-label">차이 합계</div><div className={`card-value ${totalDiff >= 0 ? 'text-green-600' : 'text-red-600'}`}>{totalDiff >= 0 ? '+' : ''}{formatKRW(totalDiff)}</div></div>
+        <div className="card"><div className="card-label">미확인 월</div><div className="card-value text-orange-600">{settlements.filter(s => s.status === 'pending').length}건</div></div>
       </div>
 
       {/* 정산 테이블 */}
-      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 border-b border-slate-200">
+      <div className="table-card">
+        <table>
+          <thead>
             <tr>
-              <th className="text-left px-4 py-3 font-medium text-slate-600">정산 월</th>
-              <th className="text-right px-4 py-3 font-medium text-slate-600">주문/반품</th>
-              <th className="text-right px-4 py-3 font-medium text-slate-600">수수료</th>
-              <th className="text-right px-4 py-3 font-medium text-slate-600">예상 정산액</th>
-              <th className="text-right px-4 py-3 font-medium text-slate-600">실제 입금액</th>
-              <th className="text-right px-4 py-3 font-medium text-slate-600">차이</th>
-              <th className="text-center px-4 py-3 font-medium text-slate-600">상태</th>
-              <th className="text-center px-4 py-3 font-medium text-slate-600">확인</th>
+              <th>정산 월</th>
+              <th className="text-right">주문/반품</th>
+              <th className="text-right">수수료</th>
+              <th className="text-right">예상 정산액</th>
+              <th className="text-right">실제 입금액</th>
+              <th className="text-right">차이</th>
+              <th className="text-center">상태</th>
+              <th className="text-center">확인</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
+          <tbody >
             {settlements.map(s => (
               <tr key={s.id} className="hover:bg-slate-50">
                 <td className="px-4 py-3 font-medium">{s.period}</td>
@@ -161,29 +168,33 @@ export default function Settlements() {
             ))}
           </tbody>
         </table>
-        {settlements.length === 0 && <div className="text-center py-12 text-slate-400">정산 데이터가 없습니다. 손익 데이터가 생성되면 자동으로 표시됩니다.</div>}
+        {settlements.length === 0 && <div className="empty-state">정산 데이터가 없습니다. 손익 데이터가 생성되면 자동으로 표시됩니다.</div>}
       </div>
 
       {/* 정산 대사 매칭 */}
-      <div className="bg-white rounded-xl border border-slate-200 p-5">
+      <div className="card p-5">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <FileSearch size={18} className="text-indigo-600" />
-            <h2 className="text-sm font-semibold text-gray-900">정산 대사 (주문-정산 매칭)</h2>
+            <h2 className="section-title">정산 대사 (주문-정산 매칭)</h2>
           </div>
           <div className="flex items-center gap-2">
             <select
-              id="reconcilePeriod"
-              className="border border-gray-200 rounded-md px-3 py-1.5 text-sm"
-              defaultValue={settlements[0]?.period || ''}
+              className="border border-slate-200 rounded-md px-3 py-1.5 text-sm"
+              value={reconcilePeriod || settlements[0]?.period || ''}
+              onChange={(e) => setReconcilePeriod(e.target.value)}
             >
               {settlements.map((s) => <option key={s.id} value={s.period}>{s.period}</option>)}
             </select>
             <button
-              disabled
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white text-xs rounded-md hover:bg-indigo-700 disabled:opacity-50 font-mono"
+              onClick={() => {
+                const p = reconcilePeriod || settlements[0]?.period;
+                if (p) reconcileMutation.mutate(p);
+              }}
+              disabled={reconcileMutation.isPending}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white text-xs rounded-md hover:bg-indigo-700 disabled:opacity-50"
             >
-              <FileSearch size={12} />
+              {reconcileMutation.isPending ? <Loader2 size={12} className="animate-spin" /> : <FileSearch size={12} />}
               대사 실행
             </button>
           </div>
@@ -216,26 +227,26 @@ export default function Settlements() {
             </div>
 
             {/* 매칭 상세 테이블 */}
-            <div className="overflow-x-auto max-h-[400px] overflow-y-auto">
-              <table className="w-full text-xs">
-                <thead className="bg-slate-50 sticky top-0">
+            <div className="table-scroll">
+              <table className="text-xs">
+                <thead className="sticky top-0">
                   <tr>
-                    <th className="text-left px-3 py-2 font-medium text-slate-600">상품명</th>
-                    <th className="text-right px-3 py-2 font-medium text-slate-600">손익 매출</th>
-                    <th className="text-right px-3 py-2 font-medium text-slate-600">주문 합계</th>
-                    <th className="text-right px-3 py-2 font-medium text-slate-600">차이</th>
-                    <th className="text-right px-3 py-2 font-medium text-slate-600">손익건수</th>
-                    <th className="text-right px-3 py-2 font-medium text-slate-600">주문건수</th>
-                    <th className="text-center px-3 py-2 font-medium text-slate-600">상태</th>
+                    <th>상품명</th>
+                    <th className="text-right">손익 매출</th>
+                    <th className="text-right">주문 합계</th>
+                    <th className="text-right">차이</th>
+                    <th className="text-right">손익건수</th>
+                    <th className="text-right">주문건수</th>
+                    <th className="text-center">상태</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody >
                   {reconcile.details.map((d) => (
                     <tr key={d.productId} className={d.status === 'mismatch' ? 'bg-red-50/50' : d.status === 'minor_diff' ? 'bg-yellow-50/50' : ''}>
-                      <td className="px-3 py-2 font-medium text-gray-900 max-w-[200px] truncate">{d.productName}</td>
+                      <td className="px-3 py-2 font-medium text-slate-900 max-w-[200px] truncate">{d.productName}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{formatKRW(d.plRevenue)}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{formatKRW(d.orderTotal)}</td>
-                      <td className={`px-3 py-2 text-right tabular-nums font-medium ${d.revenueDiff > 0 ? 'text-green-600' : d.revenueDiff < 0 ? 'text-red-600' : 'text-gray-400'}`}>
+                      <td className={`px-3 py-2 text-right tabular-nums font-medium ${d.revenueDiff > 0 ? 'text-green-600' : d.revenueDiff < 0 ? 'text-red-600' : 'text-slate-400'}`}>
                         {d.revenueDiff !== 0 ? `${d.revenueDiff > 0 ? '+' : ''}${formatKRW(d.revenueDiff)}` : '-'}
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums">{d.plOrderCount}</td>
@@ -257,15 +268,29 @@ export default function Settlements() {
 
             {/* 엑셀 내보내기 */}
             <button
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white text-xs rounded-md hover:bg-green-700 font-mono"
+              onClick={() => {
+                if (!reconcile) return;
+                import("xlsx").then((XLSX) => {
+                  const ws = XLSX.utils.json_to_sheet(reconcile.details.map((d) => ({
+                    상품명: d.productName, SKU: d.sku, 손익매출: d.plRevenue,
+                    주문합계: d.orderTotal, 차이: d.revenueDiff,
+                    손익건수: d.plOrderCount, 주문건수: d.orderCount,
+                    상태: d.status === 'matched' ? '매칭' : d.status === 'minor_diff' ? '소차이' : '불일치',
+                  })));
+                  const wb = XLSX.utils.book_new();
+                  XLSX.utils.book_append_sheet(wb, ws, "정산대사");
+                  XLSX.writeFile(wb, `정산대사_${reconcile.period}.xlsx`);
+                });
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white text-xs rounded-md hover:bg-green-700"
             >
               <Download size={12} /> 엑셀 내보내기
             </button>
           </div>
         )}
 
-        {!reconcile && (
-          <div className="text-center py-8 text-gray-400 text-xs font-mono">
+        {!reconcile && !reconcileMutation.isPending && (
+          <div className="empty-state">
             정산 월을 선택하고 &quot;대사 실행&quot;을 클릭하면 주문-정산 건별 매칭 결과를 확인할 수 있습니다.
           </div>
         )}

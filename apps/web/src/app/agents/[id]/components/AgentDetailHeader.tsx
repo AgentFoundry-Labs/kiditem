@@ -26,23 +26,23 @@ export function AgentDetailHeader({
   return (
     <>
       {/* Breadcrumb */}
-      <nav className="flex items-center gap-1.5 text-sm text-gray-500 mb-5">
-        <Link href="/agents" className="hover:text-gray-900 transition-colors">에이전트</Link>
-        <ChevronRight className="w-3.5 h-3.5 text-gray-300" />
-        <span className="text-gray-900 font-medium">{agent.name}</span>
-        <ChevronRight className="w-3.5 h-3.5 text-gray-300" />
-        <span className="text-gray-500">{tabLabel}</span>
+      <nav className="flex items-center gap-1.5 text-sm text-slate-500 mb-5">
+        <Link href="/agents" className="hover:text-slate-900 transition-colors">에이전트</Link>
+        <ChevronRight className="w-3.5 h-3.5 text-slate-300" />
+        <span className="text-slate-900 font-medium">{agent.name}</span>
+        <ChevronRight className="w-3.5 h-3.5 text-slate-300" />
+        <span className="text-slate-500">{tabLabel}</span>
       </nav>
 
       {/* Header */}
       <div className="flex items-center justify-between gap-3 mb-6">
         <div className="flex items-center gap-3 min-w-0">
-          <div className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center shrink-0 text-xl font-semibold text-gray-600">
+          <div className="w-12 h-12 rounded-xl bg-slate-100 flex items-center justify-center shrink-0 text-xl font-semibold text-slate-600">
             {agent.icon ?? agent.name.charAt(0).toUpperCase()}
           </div>
           <div className="min-w-0">
-            <h1 className="text-2xl font-bold text-gray-900 truncate">{agent.name}</h1>
-            <p className="text-sm text-gray-500 mt-0.5">
+            <h1 className="page-title truncate">{agent.name}</h1>
+            <p className="text-sm text-slate-500 mt-0.5">
               {ROLE_LABELS[agent.role] ?? agent.role}
               {agent.title ? ` · ${agent.title}` : ''}
             </p>
@@ -50,13 +50,13 @@ export function AgentDetailHeader({
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-          <button className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-gray-700">
+          <button className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-sm border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors text-slate-700">
             <Plus className="w-3.5 h-3.5" />
             <span>태스크 할당</span>
           </button>
 
           <button
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 text-white rounded-lg hover:bg-gray-700 disabled:opacity-50 transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-slate-900 text-white rounded-lg hover:bg-slate-700 disabled:opacity-50 transition-colors"
             onClick={() => onAction('run')}
             disabled={actionLoading === 'run'}
           >
@@ -70,7 +70,7 @@ export function AgentDetailHeader({
 
           {agent.status === 'paused' ? (
             <button
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-50 transition-colors"
               onClick={() => onAction('resume')}
               disabled={actionLoading === 'resume'}
             >
@@ -79,7 +79,7 @@ export function AgentDetailHeader({
             </button>
           ) : (
             <button
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-50 transition-colors"
               onClick={() => onAction('pause')}
               disabled={actionLoading === 'pause'}
             >
@@ -92,7 +92,7 @@ export function AgentDetailHeader({
 
           <div className="relative">
             <button
-              className="p-1.5 text-gray-400 hover:text-gray-700 border border-gray-200 rounded-lg transition-colors"
+              className="p-1.5 text-slate-400 hover:text-slate-700 border border-slate-200 rounded-lg transition-colors"
               onClick={() => setMoreOpen((o) => !o)}
             >
               <MoreHorizontal className="w-4 h-4" />
@@ -100,15 +100,15 @@ export function AgentDetailHeader({
             {moreOpen && (
               <>
                 <div className="fixed inset-0 z-10" onClick={() => setMoreOpen(false)} />
-                <div className="absolute right-0 top-full mt-1 z-20 w-48 bg-white border border-gray-200 rounded-lg shadow-lg p-1">
+                <div className="absolute right-0 top-full mt-1 z-20 w-48 bg-white border border-slate-200 rounded-lg shadow-lg p-1">
                   <button
-                    className="flex items-center gap-2 w-full px-2 py-1.5 text-xs text-left rounded-md hover:bg-gray-50 transition-colors"
+                    className="flex items-center gap-2 w-full px-2 py-1.5 text-xs text-left rounded-md hover:bg-slate-50 transition-colors"
                     onClick={() => { navigator.clipboard.writeText(agent.id); setMoreOpen(false); }}
                   >
                     <Copy className="w-3 h-3" /> 에이전트 ID 복사
                   </button>
                   <button
-                    className="flex items-center gap-2 w-full px-2 py-1.5 text-xs text-left rounded-md hover:bg-gray-50 transition-colors"
+                    className="flex items-center gap-2 w-full px-2 py-1.5 text-xs text-left rounded-md hover:bg-slate-50 transition-colors"
                     onClick={() => { onAction('reset-session'); setMoreOpen(false); }}
                   >
                     <RotateCcw className="w-3 h-3" /> 세션 리셋

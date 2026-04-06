@@ -14,7 +14,7 @@ const statusDisplay: Record<
   string,
   { label: string; color: string; icon: any }
 > = {
-  idle: { label: '대기', color: 'text-gray-500', icon: Clock },
+  idle: { label: '대기', color: 'text-slate-500', icon: Clock },
   running: { label: '실행중', color: 'text-blue-600', icon: Loader2 },
   success: { label: '성공', color: 'text-green-600', icon: CheckCircle },
   error: { label: '실패', color: 'text-red-500', icon: XCircle },
@@ -50,7 +50,7 @@ export default function NodeDetailPopover({
 
   return (
     <div
-      className="absolute z-50 bg-white border border-gray-200 rounded-lg shadow-lg p-4 w-[320px]"
+      className="absolute z-50 bg-white border border-slate-200 rounded-lg shadow-lg p-4 w-[320px]"
       style={{ right: 16, top: 16 }}
     >
       {/* Header */}
@@ -66,24 +66,24 @@ export default function NodeDetailPopover({
         </div>
         <button
           onClick={onClose}
-          className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
+          className="p-1 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
         >
           <X className="w-4 h-4" />
         </button>
       </div>
 
       {/* Duration */}
-      <div className="text-xs text-gray-500 mb-2">
+      <div className="text-xs text-slate-500 mb-2">
         소요시간: {formatDuration(stepInfo.startedAt, stepInfo.completedAt)}
       </div>
 
       {/* Output preview */}
       {stepInfo.outputData && (
         <div className="mb-2">
-          <p className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">
+          <p className="text-[10px] text-slate-400 uppercase tracking-wider mb-1">
             Output
           </p>
-          <pre className="text-[11px] text-gray-700 bg-gray-50 border border-gray-100 rounded p-2 overflow-auto max-h-[120px] whitespace-pre-wrap">
+          <pre className="text-[11px] text-slate-700 bg-slate-50 border border-slate-100 rounded p-2 overflow-auto max-h-[120px] whitespace-pre-wrap">
             {truncateJson(stepInfo.outputData)}
           </pre>
         </div>

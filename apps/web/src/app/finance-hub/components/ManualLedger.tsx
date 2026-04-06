@@ -2,7 +2,9 @@
 
 import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { BookOpen, Plus, ArrowDownCircle, ArrowUpCircle, X, Trash2, Calendar } from 'lucide-react';
+import { BookOpen, Plus, ArrowDownCircle, ArrowUpCircle, X, Trash2 } from 'lucide-react';
+import { usePeriodSelector } from '@/hooks/usePeriodSelector';
+import PeriodSelector from '@/components/ui/PeriodSelector';
 import { apiClient } from '@/lib/api-client';
 import { formatKRW } from '@/lib/utils';
 
@@ -42,10 +44,7 @@ export default function ManualLedger() {
 
   const [tab, setTab] = useState<'income' | 'expense'>('income');
   const [showModal, setShowModal] = useState(false);
-  const [period, setPeriod] = useState(() => {
-    const now = new Date();
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  });
+  const { period, setPeriod } = usePeriodSelector();
 
   const { data: ledgerData } = useQuery({
     queryKey: ['manual-ledger', period],
@@ -116,12 +115,11 @@ export default function ManualLedger() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-900">
+        <h1 className="page-title">
           <BookOpen size={24} className="inline mr-2" />거래원장 수기관리
         </h1>
         <div className="flex items-center gap-2">
-          <Calendar size={16} className="text-slate-400" />
-          <input type="month" value={period} onChange={(e) => setPeriod(e.target.value)} className="border rounded-lg px-3 py-2 text-sm" />
+          <PeriodSelector value={period} onChange={setPeriod} />
           <button onClick={() => { setForm({ ...form, type: tab }); setShowModal(true); }} className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">
             <Plus size={14} /> 등록
           </button>
@@ -130,17 +128,17 @@ export default function ManualLedger() {
 
       {/* 요약 카드 */}
       <div className="grid grid-cols-3 gap-4">
-        <div className="agent-card p-4">
-          <div className="flex items-center gap-2 text-xs text-slate-500 mb-1"><ArrowDownCircle size={14} className="text-green-500" />수입 합계</div>
-          <div className="text-xl font-bold text-green-600">{formatKRW(totalIncome)}원</div>
+        <div className="card">
+          <div className="flex items-center gap-2 card-label"><ArrowDownCircle size={14} className="text-green-500" />수입 합계</div>
+          <div className="card-value text-green-600">{formatKRW(totalIncome)}원</div>
         </div>
-        <div className="agent-card p-4">
-          <div className="flex items-center gap-2 text-xs text-slate-500 mb-1"><ArrowUpCircle size={14} className="text-red-500" />지출 합계</div>
-          <div className="text-xl font-bold text-red-600">{formatKRW(totalExpense)}원</div>
+        <div className="card">
+          <div className="flex items-center gap-2 card-label"><ArrowUpCircle size={14} className="text-red-500" />지출 합계</div>
+          <div className="card-value text-red-600">{formatKRW(totalExpense)}원</div>
         </div>
-        <div className="agent-card p-4">
-          <div className="text-xs text-slate-500 mb-1">차이 (수입-지출)</div>
-          <div className={`text-xl font-bold ${totalIncome - totalExpense >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+        <div className="card">
+          <div className="card-label">차이 (수입-지출)</div>
+          <div className={`card-value ${totalIncome - totalExpense >= 0 ? 'text-green-600' : 'text-red-600'}`}>
             {totalIncome - totalExpense >= 0 ? '+' : ''}{formatKRW(totalIncome - totalExpense)}원
           </div>
         </div>
@@ -157,27 +155,27 @@ export default function ManualLedger() {
       </div>
 
       {/* 테이블 */}
-      <div className="agent-card overflow-hidden">
-        <div className="agent-card-header">
-          <h3>{tab === 'income' ? '수입' : '지출'} 내역</h3>
+      <div className="table-card">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
+          <h3 className="section-title">{tab === 'income' ? '수입' : '지출'} 내역</h3>
           <span className="text-xs text-slate-400">{filtered.length}건</span>
         </div>
         {filtered.length === 0 ? (
-          <div className="text-center py-12 text-slate-400">등록된 {tab === 'income' ? '수입' : '지출'} 내역이 없습니다.</div>
+          <div className="empty-state">등록된 {tab === 'income' ? '수입' : '지출'} 내역이 없습니다.</div>
         ) : (
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 border-b border-slate-200">
+          <table>
+            <thead>
               <tr>
-                <th className="text-left px-4 py-3 font-medium text-slate-600">날짜</th>
-                <th className="text-left px-4 py-3 font-medium text-slate-600">구분</th>
-                <th className="text-left px-4 py-3 font-medium text-slate-600">거래처</th>
-                <th className="text-left px-4 py-3 font-medium text-slate-600">내용</th>
-                <th className="text-right px-4 py-3 font-medium text-slate-600">금액</th>
-                <th className="text-right px-4 py-3 font-medium text-slate-600">세금</th>
-                <th className="text-center px-4 py-3 font-medium text-slate-600">삭제</th>
+                <th>날짜</th>
+                <th>구분</th>
+                <th>거래처</th>
+                <th>내용</th>
+                <th className="text-right">금액</th>
+                <th className="text-right">세금</th>
+                <th className="text-center">삭제</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody >
               {filtered.map((l) => (
                 <tr key={l.id} className="hover:bg-slate-50">
                   <td className="px-4 py-3 text-slate-900">{new Date(l.date).toLocaleDateString('ko-KR')}</td>
@@ -198,20 +196,20 @@ export default function ManualLedger() {
 
       {/* 월별 합계 */}
       {monthly.length > 0 && (
-        <div className="agent-card overflow-hidden">
-          <div className="agent-card-header">
-            <h3>월별 합계</h3>
+        <div className="table-card">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
+            <h3 className="section-title">월별 합계</h3>
           </div>
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 border-b border-slate-200">
+          <table>
+            <thead>
               <tr>
-                <th className="text-left px-4 py-3 font-medium text-slate-600">월</th>
+                <th>월</th>
                 <th className="text-right px-4 py-3 font-medium text-green-600">수입</th>
                 <th className="text-right px-4 py-3 font-medium text-red-600">지출</th>
-                <th className="text-right px-4 py-3 font-medium text-slate-600">차이</th>
+                <th className="text-right">차이</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody >
               {monthly.map((m) => (
                 <tr key={m.month} className="hover:bg-slate-50">
                   <td className="px-4 py-3 font-medium">{m.month}</td>
@@ -227,8 +225,8 @@ export default function ManualLedger() {
 
       {/* 등록 모달 */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowModal(false)}>
-          <div className="bg-white rounded-xl p-6 w-[480px] max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-overlay" onClick={() => setShowModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-bold">거래 등록</h2>
               <button onClick={() => setShowModal(false)}><X size={20} className="text-slate-400" /></button>

@@ -16,14 +16,14 @@ export function ActivityPagination({ totalPages, page, setPage, filteredCount, p
 
   return (
     <div className="flex items-center justify-between mt-6">
-      <span className="text-xs text-gray-400">
+      <span className="text-xs text-slate-400">
         {filteredCount}건 중 {page * pageSize + 1}-{Math.min((page + 1) * pageSize, filteredCount)}
       </span>
       <div className="flex items-center gap-1">
         <button
           onClick={() => setPage((p) => Math.max(0, p - 1))}
           disabled={page === 0}
-          className="p-1.5 rounded-lg hover:bg-gray-50 disabled:opacity-30 text-gray-500"
+          className="p-1.5 rounded-lg hover:bg-slate-50 disabled:opacity-30 text-slate-500"
         >
           <ChevronLeft className="w-4 h-4" />
         </button>
@@ -37,7 +37,7 @@ export function ActivityPagination({ totalPages, page, setPage, filteredCount, p
               onClick={() => setPage(pageNum)}
               className={cn(
                 'w-8 h-8 rounded-lg text-xs transition-colors',
-                page === pageNum ? 'bg-gray-900 text-white' : 'text-gray-500 hover:bg-gray-50',
+                page === pageNum ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-slate-50',
               )}
             >
               {pageNum + 1}
@@ -47,7 +47,7 @@ export function ActivityPagination({ totalPages, page, setPage, filteredCount, p
         <button
           onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
           disabled={page >= totalPages - 1}
-          className="p-1.5 rounded-lg hover:bg-gray-50 disabled:opacity-30 text-gray-500"
+          className="p-1.5 rounded-lg hover:bg-slate-50 disabled:opacity-30 text-slate-500"
         >
           <ChevronRight className="w-4 h-4" />
         </button>
