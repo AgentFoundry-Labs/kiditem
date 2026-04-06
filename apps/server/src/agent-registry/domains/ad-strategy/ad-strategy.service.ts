@@ -14,15 +14,12 @@ export class AdStrategyService {
   async run(input: {
     companyId?: string;
     dryRun?: boolean;
-    dailyBudgetLimit?: number;
   }) {
     const def = await this.agentRegistry.findByType('ad_strategy');
-    const budgetLimit = input.dailyBudgetLimit ?? 500_000;
 
     return this.agentRegistry.run(def.id, {
       companyId: input.companyId,
       dryRun: input.dryRun,
-      extra: { daily_budget_limit: budgetLimit.toLocaleString() },
       resultApiBase: '/api/ad-agent/results',
     });
   }

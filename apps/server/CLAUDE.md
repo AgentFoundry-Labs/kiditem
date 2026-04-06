@@ -56,6 +56,9 @@ Adding a new domain: create module + controller + service + dto/ → register in
 - Errors → throw HttpException (no `ok: false` in 200 responses)
 - Types → import from `@kiditem/shared`, use `satisfies` pattern in services
 - Agent trigger: `AgentRegistryService.runByType()` → HeartbeatService → adapter execution (Claude CLI or Python HTTP)
+- Agent data access: `AGENT_DATABASE_URL` (read-only PostgreSQL). Agents query DB directly via psql.
+- Agent prompts: stored in `agent-config/prompts/`, NOT in DB. DB `prompt_template` field holds file path.
+- No data injection in prompts — agents fetch what they need via db-query skill.
 
 ## Domain Guides
 

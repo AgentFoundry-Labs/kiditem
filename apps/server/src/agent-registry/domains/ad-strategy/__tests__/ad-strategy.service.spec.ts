@@ -33,28 +33,15 @@ describe('AdStrategyService', () => {
       registry.findByType.mockResolvedValue({ id: 'def-ad', type: 'ad_strategy' });
       registry.run.mockResolvedValue({ ok: true, taskId: 'task-1', agentType: 'ad_strategy', dryRun: true });
 
-      const result = await service.run({ companyId: 'c-1', dryRun: true, dailyBudgetLimit: 300_000 });
+      const result = await service.run({ companyId: 'c-1', dryRun: true });
 
       expect(registry.findByType).toHaveBeenCalledWith('ad_strategy');
       expect(registry.run).toHaveBeenCalledWith('def-ad', {
         companyId: 'c-1',
         dryRun: true,
-        extra: { daily_budget_limit: '300,000' },
         resultApiBase: '/api/ad-agent/results',
       });
       expect(result.ok).toBe(true);
-    });
-
-    it('uses default budget 500,000 when not provided', async () => {
-      const { service, registry } = makeService();
-      registry.findByType.mockResolvedValue({ id: 'def-ad' });
-      registry.run.mockResolvedValue({ ok: true, taskId: 'task-2' });
-
-      await service.run({});
-
-      expect(registry.run).toHaveBeenCalledWith('def-ad', expect.objectContaining({
-        extra: { daily_budget_limit: '500,000' },
-      }));
     });
   });
 

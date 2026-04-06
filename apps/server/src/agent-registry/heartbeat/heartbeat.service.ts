@@ -2,6 +2,8 @@ import { Injectable, Logger, Inject, Optional } from '@nestjs/common';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { CronJob } from 'cron';
+import { readFile } from 'fs/promises';
+import { join } from 'path';
 import { PrismaService } from '../../prisma/prisma.service';
 import { WakeupService, WakeupSource } from '../wakeup/wakeup.service';
 import { SkillsService } from '../skills/skills.service';
@@ -190,7 +192,7 @@ export class HeartbeatService {
     // Skills already built in prefetch above
 
     // Prompt 빌드
-    const prompt = this.buildPrompt(agent, run.id, wakeup.payload as Record<string, unknown>);
+    const prompt = await this.buildPrompt(agent, run.id, wakeup.payload as Record<string, unknown>);
 
     // Adapter 실행
     const adapter = getAdapter(agent.adapterType);
@@ -214,6 +216,7 @@ export class HeartbeatService {
         KIDITEM_AGENT_ID: agent.id,
         KIDITEM_COMPANY_ID: companyId,
         KIDITEM_RUN_ID: run.id,
+        AGENT_DATABASE_URL: process.env.AGENT_DATABASE_URL || process.env.DATABASE_URL || '',
       }),
       cwd: (adapterConfig.cwd as string) || process.cwd(),
       allowedTools: agent.allowedTools,
@@ -507,17 +510,22 @@ export class HeartbeatService {
 
   // ── Prompt 빌드 ──
 
-  private buildPrompt(
+  private async buildPrompt(
     agent: { promptTemplate: string; type: string },
     runId: string,
     payload?: Record<string, unknown>,
-  ): string {
-    const dbUrl = process.env.DATABASE_URL || '';
+  ): Promise<string> {
+    const dbUrl = process.env.AGENT_DATABASE_URL || process.env.DATABASE_URL || '';
     const dryRun = payload?.dry_run !== undefined ? String(payload.dry_run) : 'true';
     const resultApiBase = (payload?.result_api_base as string) || '/api/agent-registry/results';
     const resultApi = `http://localhost:4000${resultApiBase}/${runId}`;
 
-    let prompt = agent.promptTemplate;
+    let template = agent.promptTemplate;
+    if (template.startsWith('agent-config/')) {
+      template = await readFile(join(process.cwd(), template), 'utf-8');
+    }
+
+    let prompt = template;
 
     // 기본 변수 치환
     prompt = prompt

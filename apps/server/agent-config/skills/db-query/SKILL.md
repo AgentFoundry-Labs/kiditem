@@ -9,11 +9,13 @@ description: >
 
 ## 연결
 
-DB URL은 프롬프트의 `{{db_url}}` 변수로 제공됨.
+DB URL은 환경변수 `$AGENT_DATABASE_URL`로 제공됨.
 
 ```bash
-psql "{{db_url}}" -t -A -F '|' -c "SELECT ..."
+psql "$AGENT_DATABASE_URL" -t -A -F '|' -c "SELECT ..."
 ```
+
+읽기 전용 연결. INSERT/UPDATE/DELETE 불가. PostgreSQL이 물리적으로 차단합니다.
 
 ## 주요 테이블
 
@@ -34,3 +36,4 @@ psql "{{db_url}}" -t -A -F '|' -c "SELECT ..."
 - 날짜 범위: `CURRENT_DATE - N` 형식
 - 결과가 많을 때 `LIMIT` 사용
 - NULL 처리: `COALESCE(값, 0)`
+- 필요한 데이터를 직접 판단하여 쿼리하세요. 하드코딩된 쿼리를 따르지 않아도 됩니다.

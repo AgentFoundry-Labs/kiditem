@@ -137,7 +137,7 @@ export class MarketplaceService {
       skills: catalog.skills,
       permissions: catalog.permissions as any,
       promptTemplate: catalog.promptTemplate,
-      allowedTools: 'Bash(psql:*) Bash(curl:*) Read',
+      allowedTools: 'Bash(psql:*) Read Grep',
       permissionMode: 'bypassPermissions',
       marketplaceId,
       isActive: true,

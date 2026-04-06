@@ -108,6 +108,15 @@ Applied in two places: `heartbeat.service.ts:wakeAgent()` + `agent-registry.serv
 - `domains/ad-strategy/` — Ad strategy. `@Controller('ad-agent')`.
 - `domains/manager/` — Manager + workflow (Async Generator). `@Controller('manager')`.
 
+## Agent Data Access
+
+- Agents use `psql "$AGENT_DATABASE_URL"` for DB queries (read-only role: agent_reader)
+- `AGENT_DATABASE_URL` is injected via ExecutionContext env + {{db_url}} template variable
+- Prompts are loaded from `agent-config/prompts/{type}.md` files (git-tracked)
+- DB `prompt_template` stores file path (e.g., 'agent-config/prompts/ad-strategy.md')
+- Operational params (company_id, result_api, task_id, dry_run) are still {{key}} substituted
+- Business data is NOT injected — agents query autonomously
+
 ## Prohibited
 
 - Mutating ExecutionContext directly → create new object + Object.freeze

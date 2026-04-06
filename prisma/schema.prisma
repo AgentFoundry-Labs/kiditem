@@ -775,7 +775,7 @@ model AgentDefinition {
 
   // Prompt & Tools (기존)
   promptTemplate String @map("prompt_template") @db.Text
-  allowedTools   String @default("Bash(psql:*) Bash(curl:*) Read") @map("allowed_tools")
+  allowedTools   String @default("Bash(psql:*) Read Grep") @map("allowed_tools")
   permissionMode String @default("bypassPermissions") @map("permission_mode")
 
   // Budget (기존)
