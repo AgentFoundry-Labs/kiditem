@@ -233,7 +233,7 @@ export default function Statistics() {
           )}
 
           {/* Delivery / Daily */}
-          {tab === 'delivery' && data.daily && (
+          {tab === 'delivery' && data.delivery && (
             <div className="space-y-4">
               <div className="agent-card">
                 <div className="agent-card-header"><h3>Daily Orders</h3></div>
@@ -241,12 +241,13 @@ export default function Statistics() {
                   차트 데이터가 연결되면 표시됩니다.
                 </div>
               </div>
+              {data.delivery.daily && (
               <div className="agent-card overflow-hidden">
                 <div className="overflow-x-auto">
                   <table>
                     <thead><tr><th>날짜</th><th className="text-right">주문수</th><th className="text-right">매출</th><th className="text-right">수량</th></tr></thead>
                     <tbody>
-                      {data.daily.slice(-30).reverse().map((d) => (
+                      {data.delivery.daily.slice(-30).reverse().map((d: any) => (
                         <tr key={d.date}>
                           <td className="font-mono text-gray-600">{d.date}</td>
                           <td className="text-right tabular-nums">{d.orders}건</td>
@@ -258,6 +259,7 @@ export default function Statistics() {
                   </table>
                 </div>
               </div>
+              )}
             </div>
           )}
 
