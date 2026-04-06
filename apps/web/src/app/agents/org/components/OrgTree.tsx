@@ -53,7 +53,13 @@ export default function OrgTree({ nodes, router, onAddAgent }: Props) {
               <div className="w-px h-4 bg-gray-200" />
             )}
 
-            <AgentCard node={node} onClick={() => router.push(`/agents/${node.id}`)} />
+            <AgentCard node={node} onClick={() => {
+              if (node.hired) {
+                router.push(`/agents/${node.id}`);
+              } else {
+                router.push(`/agents?tab=marketplace`);
+              }
+            }} />
 
             {hasReports ? (
               <div className="flex flex-col items-center">
