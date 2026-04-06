@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Activity, RefreshCcw } from 'lucide-react';
+import { Activity } from 'lucide-react';
 import { cn, timeAgo } from '@/lib/utils';
 
 export interface HealthSummary {
@@ -20,11 +20,9 @@ export interface HealthSummary {
 interface HealthSummaryCardProps {
   healthSummary: HealthSummary | null;
   healthLoading: boolean;
-  evaluating: boolean;
-  onEvaluate: () => void;
 }
 
-export default function HealthSummaryCard({ healthSummary, healthLoading, evaluating, onEvaluate }: HealthSummaryCardProps) {
+export default function HealthSummaryCard({ healthSummary, healthLoading }: HealthSummaryCardProps) {
   if (healthLoading) {
     return (
       <div className="bg-white rounded-xl border border-gray-200 p-6">
@@ -41,14 +39,7 @@ export default function HealthSummaryCard({ healthSummary, healthLoading, evalua
     return (
       <div className="bg-white rounded-xl border border-gray-200 p-6">
         <div className="text-center py-4">
-          <p className="text-sm text-gray-400 mb-3">평가 데이터 없음</p>
-          <button
-            onClick={onEvaluate}
-            disabled={evaluating}
-            className="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
-          >
-            {evaluating ? '평가 중...' : '지금 평가하기'}
-          </button>
+          <p className="text-sm text-gray-400">평가 데이터 없음</p>
         </div>
       </div>
     );
@@ -61,19 +52,9 @@ export default function HealthSummaryCard({ healthSummary, healthLoading, evalua
           <Activity size={16} className="text-gray-500" />
           <h3 className="text-base font-semibold text-gray-900">상품 진단 현황</h3>
         </div>
-        <div className="flex items-center gap-3">
-          {healthSummary.lastEvaluatedAt && (
-            <span className="text-xs text-gray-400">{timeAgo(healthSummary.lastEvaluatedAt)} 평가</span>
-          )}
-          <button
-            onClick={onEvaluate}
-            disabled={evaluating}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition-colors disabled:opacity-50"
-          >
-            <RefreshCcw size={12} className={evaluating ? 'animate-spin' : ''} />
-            {evaluating ? '평가 중...' : '전체 평가'}
-          </button>
-        </div>
+        {healthSummary.lastEvaluatedAt && (
+          <span className="text-xs text-gray-400">{timeAgo(healthSummary.lastEvaluatedAt)} 평가</span>
+        )}
       </div>
       <div className="flex items-center gap-6 mb-4">
         <div className="flex items-center gap-2">

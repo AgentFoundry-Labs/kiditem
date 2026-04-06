@@ -1,10 +1,8 @@
-import { Injectable, Logger, OnModuleInit, NotFoundException, BadRequestException, Inject, forwardRef, Optional } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, NotFoundException, BadRequestException, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { HeartbeatService } from './heartbeat/heartbeat.service';
 import type { DailyCost, AgentCostSummary, CostAnalytics } from '@kiditem/shared';
 import { validateAllowedTools } from './safety/dangerous-patterns';
-import { SafetyPipelineService } from './business-safety/safety-pipeline.service';
-import { DryRunGateService } from './business-safety/dry-run-gate.service';
 
 export interface OrgNode {
   id: string;
@@ -26,8 +24,6 @@ export class AgentRegistryService implements OnModuleInit {
     private readonly prisma: PrismaService,
     @Inject(forwardRef(() => HeartbeatService))
     private readonly heartbeat: HeartbeatService,
-    @Optional() private readonly safetyPipeline?: SafetyPipelineService,
-    @Optional() private readonly dryRunGate?: DryRunGateService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -133,7 +129,6 @@ export class AgentRegistryService implements OnModuleInit {
     companyId?: string;
     dryRun?: boolean;
     extra?: Record<string, unknown>;
-    resultApiBase?: string;
   }) {
     const def = await this.findByType(type);
     return this.run(def.id, input);
@@ -143,7 +138,6 @@ export class AgentRegistryService implements OnModuleInit {
     companyId?: string;
     dryRun?: boolean;
     extra?: Record<string, unknown>;
-    resultApiBase?: string;
   }) {
     const def = await this.getById(id);
     const dryRun = input?.dryRun ?? def.requiresApproval;
@@ -187,7 +181,6 @@ export class AgentRegistryService implements OnModuleInit {
         reason: `run() call for ${def.type}`,
         payload: {
           dry_run: dryRun,
-          result_api_base: input?.resultApiBase,
           _legacy_task_id: task.id,
           ...input?.extra,
         },
@@ -203,113 +196,6 @@ export class AgentRegistryService implements OnModuleInit {
 
     this.logger.log(`Agent wakeup: ${def.name} (task=${task.id}), dry_run=${dryRun}`);
     return { ok: true, taskId: task.id, agentType: def.type, dryRun };
-  }
-
-  // ── 결과 수신 (하위 호환) ──
-
-  /**
-   * 공통 태스크 완료 처리.
-   */
-  async completeTask(
-    taskId: string,
-    body: { actions?: unknown[]; summary?: Record<string, unknown>; tokensUsed?: number; products?: unknown[] },
-  ) {
-    const task = await this.prisma.agentTask.findUnique({ where: { id: taskId } });
-    if (!task) throw new NotFoundException(`Task ${taskId} not found`);
-
-    await this.prisma.agentTask.update({
-      where: { id: taskId },
-      data: {
-        output: body as any,
-        status: 'completed',
-        completedAt: new Date(),
-      },
-    });
-
-    const input = task.input as any;
-    if (input?.definitionId && body.tokensUsed) {
-      await this.prisma.agentDefinition.update({
-        where: { id: input.definitionId },
-        data: { tokensUsed: { increment: body.tokensUsed } },
-      });
-    }
-
-    return task;
-  }
-
-  /**
-   * 범용 결과 수신: Safety Pipeline → completeTask → activity_event.
-   */
-  async receiveResults(
-    taskId: string,
-    body: { actions?: unknown[]; summary?: Record<string, unknown>; tokensUsed?: number; dry_run?: boolean },
-  ): Promise<{ ok: boolean }> {
-    const task = await this.prisma.agentTask.findUnique({ where: { id: taskId } });
-    if (!task) throw new NotFoundException(`Task ${taskId} not found`);
-
-    const input = task.input as any;
-    const agentDef = input?.definitionId
-      ? await this.prisma.agentDefinition.findUnique({ where: { id: input.definitionId } })
-      : null;
-
-    // ── Business Safety Pipeline ──
-    if (agentDef && this.safetyPipeline) {
-      const safety = await this.safetyPipeline.validate({
-        agentId: agentDef.id,
-        trustLevel: (agentDef as any).trustLevel ?? 0,
-        actionCap: (agentDef as any).actionCap ?? {},
-        runId: input?._run_id ?? taskId,
-        companyId: task.companyId ?? '',
-        body: body as any,
-      });
-
-      if (!safety.allowed) {
-        await this.prisma.agentTask.update({
-          where: { id: taskId },
-          data: { status: 'blocked', error: `ActionCap: ${safety.blockedActions.map(b => b.reason).join(', ')}` },
-        });
-        this.logger.warn(`Task ${taskId} blocked by ActionCap: ${safety.blockedActions.length} violations`);
-        return { ok: false } as any;
-      }
-
-      if (safety.dryRunForced) {
-        (body as any).dry_run = true;
-      }
-    }
-
-    // 기존 흐름
-    await this.completeTask(taskId, body);
-
-    if (task.companyId) {
-      await this.prisma.activityEvent.create({
-        data: {
-          companyId: task.companyId,
-          objectType: 'company',
-          objectId: task.companyId,
-          eventType: task.agentType,
-          source: `agent:${task.agentType}`,
-          title: `${task.agentType} 실행 완료`,
-          data: body as any,
-        },
-      });
-    }
-
-    // ── PostVerification 예약 ──
-    if (agentDef && this.safetyPipeline && !(body as any).dry_run) {
-      await this.safetyPipeline.scheduleVerification({
-        agentId: agentDef.id,
-        runId: input?._run_id ?? taskId,
-        companyId: task.companyId ?? '',
-        trustLevel: (agentDef as any).trustLevel ?? 0,
-      });
-    }
-
-    // ── TrustLevel 조정 ──
-    if (agentDef && this.dryRunGate) {
-      await this.dryRunGate.adjustTrust(agentDef.id, true);
-    }
-
-    return { ok: true };
   }
 
   // ── 월간 예산 리셋 ──

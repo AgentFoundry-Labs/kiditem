@@ -1,6 +1,8 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { OnEvent } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AgentRegistryService } from '../../agent-registry/agent-registry.service';
+import { AGENT_EVENTS, AgentResultReadyEvent } from '../../agent-registry/events/agent-events';
 import type { RuleItem } from '@kiditem/shared';
 
 export interface EvaluationResult {
@@ -47,31 +49,19 @@ export class RulesService implements OnModuleInit {
     const result = await this.agentRegistry.run(def.id, {
       companyId,
       extra: { company_id: companyId },
-      resultApiBase: '/api/rules/results',
     });
 
     this.logger.log(`Rules evaluation spawned: ${result.taskId}`);
     return { taskId: result.taskId, status: 'running' };
   }
 
-  async receiveResults(
-    taskId: string,
-    body: { products?: ProductEvalResult[]; summary?: Record<string, unknown>; tokensUsed?: number },
-  ): Promise<{
-    ok: boolean;
-    total: number;
-    healthy: number;
-    warning: number;
-    critical: number;
-    violationCount: number;
-  }> {
-    // Stage 1: 공통 처리 (task 완료 + 토큰 추적)
-    const task = await this.agentRegistry.completeTask(taskId, body);
+  @OnEvent(AGENT_EVENTS.RESULT_READY)
+  async onResultReady(event: AgentResultReadyEvent): Promise<void> {
+    if (event.agentType !== 'rules_evaluation') return;
 
-    const companyId = task.companyId;
-    const products = body.products || [];
+    const companyId = event.companyId;
+    const products = (event.resultJson.products as ProductEvalResult[]) || [];
 
-    // Stage 2: 도메인 후처리 (에러 시 silent failure 방지)
     try {
       // 2-1. healthScore 일괄 업데이트
       if (products.length > 0) {
@@ -91,7 +81,7 @@ export class RulesService implements OnModuleInit {
       // 2-2. activity_events 기록
       const events = products.flatMap((r) =>
         r.violations.map((v) => ({
-          companyId: companyId!,
+          companyId,
           objectType: 'product',
           objectId: r.productId,
           eventType: 'rule_violation',
@@ -115,7 +105,7 @@ export class RulesService implements OnModuleInit {
         r.violations
           .filter((v) => v.severity === 'critical')
           .map((v) => ({
-            companyId: companyId!,
+            companyId,
             productId: r.productId,
             type: 'rule_violation',
             severity: 'critical',
@@ -127,23 +117,13 @@ export class RulesService implements OnModuleInit {
         await this.prisma.alert.createMany({ data: criticals });
       }
     } catch (err) {
-      this.logger.error(`Rules post-processing failed for task ${taskId}: ${err}`);
+      this.logger.error(`Rules post-processing failed for run ${event.runId}: ${err}`);
     }
 
     const violationCount = products.reduce((sum, r) => sum + r.violations.length, 0);
-
     this.logger.log(
       `Rules evaluation complete: ${products.length} products, ${violationCount} violations`,
     );
-
-    return {
-      ok: true,
-      total: products.length,
-      healthy: products.filter((r) => r.healthScore >= 70).length,
-      warning: products.filter((r) => r.healthScore >= 40 && r.healthScore < 70).length,
-      critical: products.filter((r) => r.healthScore < 40).length,
-      violationCount,
-    };
   }
 
   async getEvaluationStatus(taskId: string) {
@@ -249,7 +229,6 @@ export class RulesService implements OnModuleInit {
     const result = await this.agentRegistry.run(def.id, {
       companyId,
       extra: { company_id: companyId },
-      resultApiBase: '/api/rules/results',
     });
 
     return { taskId: result.taskId, status: 'running' };

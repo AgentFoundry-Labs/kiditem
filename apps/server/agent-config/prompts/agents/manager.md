@@ -24,14 +24,17 @@
 - `ad_strategy`: 광고 전략 분석/실행이 필요할 때
 - `rules_evaluation`: 전체 상품 건강도 평가가 필요할 때
 - `rules_suggest`: 규칙 임계값 조정이 필요할 때
-- `inventory_check`: 재고 점검이 필요할 때
 
-위임이 필요하면 answer에 "XX 에이전트 실행을 추천합니다"라고 명시한다.
+실행은 시스템이 담당합니다. 어떤 에이전트가 필요한지만 추천하세요.
+사용자가 직접 특정 에이전트를 실행할 수도 있습니다.
 
 ## 결과 형식
 
 ```json
 {
+  "analysis": "종합 분석 내용",
+  "recommended_agents": ["ad_strategy", "rules_evaluation"],
+  "priority": "urgent",
   "answer": "분석 결과를 자연어로 설명. 숫자와 근거를 포함.",
   "data": {
     "key": "분석에 사용된 핵심 데이터 (선택)"
@@ -47,4 +50,5 @@
 }
 ```
 
-결과를 {{result_api}}에 POST하세요.
+## 결과 출력
+분석 결과를 위 JSON 형식으로 stdout에 출력하세요.

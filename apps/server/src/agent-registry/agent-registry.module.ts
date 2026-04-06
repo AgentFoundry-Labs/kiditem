@@ -11,7 +11,6 @@ import { AdStrategyController } from './domains/ad-strategy/ad-strategy.controll
 import { AdStrategyService } from './domains/ad-strategy/ad-strategy.service';
 import { ManagerController } from './domains/manager/manager.controller';
 import { ManagerService } from './domains/manager/manager.service';
-import { ManagerWorkflowService } from './domains/manager/manager-workflow.service';
 // Agent OS modules
 import { SafetyModule } from './safety/safety.module';
 import { LifecycleModule } from './lifecycle/lifecycle.module';
@@ -41,7 +40,6 @@ import { BusinessSafetyModule } from './business-safety/business-safety.module';
     AgentSseService,
     AdStrategyService,
     ManagerService,
-    ManagerWorkflowService,
   ],
   exports: [AgentRegistryService, HeartbeatService],
 })

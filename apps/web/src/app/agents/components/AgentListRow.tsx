@@ -1,6 +1,6 @@
 'use client';
 
-import { Trash2 } from 'lucide-react';
+import { Play, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { agentStatusDot, agentStatusDotDefault } from '@/lib/status-colors';
@@ -8,7 +8,7 @@ import { relativeTime, formatCost } from '../lib/agent-utils';
 import { ADAPTER_LABELS, ROLE_LABELS } from '../lib/agent-types';
 import type { Agent } from '../lib/agent-types';
 
-export function AgentListRow({ agent, onClick, onDelete }: { agent: Agent; onClick: () => void; onDelete?: (id: string) => void }) {
+export function AgentListRow({ agent, onClick, onDelete, onRun, isRunning }: { agent: Agent; onClick: () => void; onDelete?: (id: string) => void; onRun?: (id: string) => void; isRunning?: boolean }) {
   const dotClass = agentStatusDot[agent.status] ?? agentStatusDotDefault;
   const isLive = agent.status === 'running';
 
@@ -64,6 +64,20 @@ export function AgentListRow({ agent, onClick, onDelete }: { agent: Agent; onCli
         <span className="w-20 flex justify-end">
           <StatusBadge status={agent.status} />
         </span>
+        {onRun && agent.status !== 'paused' && agent.status !== 'disabled' && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onRun(agent.id);
+            }}
+            disabled={isRunning}
+            className="px-2.5 py-1 text-xs font-medium text-blue-600 bg-blue-50 rounded-md hover:bg-blue-100 transition-colors disabled:opacity-50"
+            title="실행"
+          >
+            <Play className="w-3 h-3 inline -mt-0.5 mr-0.5" />
+            {isRunning ? '실행 중...' : '실행'}
+          </button>
+        )}
         {onDelete && (
           <button
             onClick={(e) => {

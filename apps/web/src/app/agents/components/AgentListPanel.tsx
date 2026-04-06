@@ -15,6 +15,8 @@ interface AgentListPanelProps {
   agentMap: Map<string, Agent>;
   onNavigate: (id: string) => void;
   onDelete: (id: string) => void;
+  onRun: (id: string) => void;
+  runningAgentId: string | null;
 }
 
 export function AgentListPanel({
@@ -26,6 +28,8 @@ export function AgentListPanel({
   agentMap,
   onNavigate,
   onDelete,
+  onRun,
+  runningAgentId,
 }: AgentListPanelProps) {
   return (
     <>
@@ -61,6 +65,8 @@ export function AgentListPanel({
               agent={agent}
               onClick={() => onNavigate(agent.id)}
               onDelete={onDelete}
+              onRun={onRun}
+              isRunning={runningAgentId === agent.id}
             />
           ))}
         </div>

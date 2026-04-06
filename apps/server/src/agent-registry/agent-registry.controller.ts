@@ -8,7 +8,6 @@ import {
   CreateAgentBodyDto,
   UpdateAgentBodyDto,
   RunAgentBodyDto,
-  ReceiveResultsBodyDto,
   PauseAgentBodyDto,
   RunHistoryQueryDto,
   DelegateAgentBodyDto,
@@ -78,11 +77,6 @@ export class AgentRegistryController {
   @Post(':id/run')
   run(@Param('id') id: string, @Body() body: RunAgentBodyDto) {
     return this.service.run(id, body);
-  }
-
-  @Post('results/:taskId')
-  receiveResults(@Param('taskId') taskId: string, @Body() body: ReceiveResultsBodyDto) {
-    return this.service.receiveResults(taskId, body);
   }
 
   // ── 스케줄 & 관리 ──

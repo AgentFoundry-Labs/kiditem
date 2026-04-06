@@ -98,7 +98,6 @@ describe('AgentRegistryService', () => {
         companyId: 'c-1',
         dryRun: true,
         extra: { daily_budget_limit: '500,000' },
-        resultApiBase: '/api/ad-agent/results',
       });
 
       expect(result).toEqual({
@@ -114,7 +113,6 @@ describe('AgentRegistryService', () => {
           payload: expect.objectContaining({
             dry_run: true,
             daily_budget_limit: '500,000',
-            result_api_base: '/api/ad-agent/results',
           }),
         }),
       );
@@ -130,69 +128,6 @@ describe('AgentRegistryService', () => {
 
       await expect(service.run('def-1')).rejects.toThrow(BadRequestException);
       expect(heartbeat.wakeAgent).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('completeTask', () => {
-    it('updates task status and returns task', async () => {
-      const { service, prisma } = makeService();
-      const mockTask = { id: 'task-1', companyId: 'c-1', input: { definitionId: 'def-1' } };
-      prisma.agentTask.findUnique.mockResolvedValue(mockTask);
-      prisma.agentTask.update.mockResolvedValue({});
-
-      const result = await service.completeTask('task-1', {
-        actions: [{ action: 'stop_ad' }],
-        tokensUsed: 500,
-      });
-
-      expect(result).toEqual(mockTask);
-      expect(prisma.agentDefinition.update).toHaveBeenCalledWith({
-        where: { id: 'def-1' },
-        data: { tokensUsed: { increment: 500 } },
-      });
-    });
-
-    it('throws NotFoundException for unknown taskId', async () => {
-      const { service, prisma } = makeService();
-      prisma.agentTask.findUnique.mockResolvedValue(null);
-
-      await expect(service.completeTask('unknown', {})).rejects.toThrow(NotFoundException);
-    });
-  });
-
-  describe('receiveResults', () => {
-    it('calls completeTask and creates activity event', async () => {
-      const { service, prisma } = makeService();
-      prisma.agentTask.findUnique.mockResolvedValue({
-        id: 'task-1', companyId: 'c-1', agentType: 'ad_strategy', input: {},
-      });
-      prisma.agentTask.update.mockResolvedValue({});
-      prisma.activityEvent.create.mockResolvedValue({});
-
-      const result = await service.receiveResults('task-1', {
-        actions: [{ action: 'stop_ad' }],
-        summary: { total: 1 },
-      });
-
-      expect(result).toEqual({ ok: true });
-      expect(prisma.activityEvent.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          eventType: 'ad_strategy',
-          title: 'ad_strategy 실행 완료',
-        }),
-      });
-    });
-
-    it('skips activity event when no companyId', async () => {
-      const { service, prisma } = makeService();
-      prisma.agentTask.findUnique.mockResolvedValue({
-        id: 'task-1', companyId: null, agentType: 'test', input: {},
-      });
-      prisma.agentTask.update.mockResolvedValue({});
-
-      await service.receiveResults('task-1', {});
-
-      expect(prisma.activityEvent.create).not.toHaveBeenCalled();
     });
   });
 

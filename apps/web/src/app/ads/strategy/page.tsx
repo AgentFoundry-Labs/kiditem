@@ -1,7 +1,6 @@
 'use client';
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Sparkles } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import PageSkeleton from '@/components/ui/PageSkeleton';
@@ -11,8 +10,6 @@ import { RecommendCards } from './components/RecommendCards';
 import { TrendsComparison } from './components/TrendsComparison';
 
 export default function AdsStrategyPage() {
-  const queryClient = useQueryClient();
-
   const { data: rulesData, isLoading: rulesLoading } = useQuery({
     queryKey: queryKeys.ads.rules(),
     queryFn: () => apiClient.get<{
@@ -54,32 +51,13 @@ export default function AdsStrategyPage() {
     }>('/api/ads/campaigns/trends?days=14'),
   });
 
-  const runAnalysis = useMutation({
-    mutationFn: () => apiClient.post('/api/ad-agent/run', {}),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.ads.rules() });
-      queryClient.invalidateQueries({ queryKey: queryKeys.ads.plan() });
-      queryClient.invalidateQueries({ queryKey: queryKeys.ads.recommend() });
-    },
-  });
-
   if (rulesLoading) return <PageSkeleton variant="table" />;
 
   const hasAgentData = !!(rulesData?.recommendations?.length || recommendData?.cards?.length);
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-900">ABC 전략</h1>
-        <button
-          onClick={() => runAnalysis.mutate()}
-          disabled={runAnalysis.isPending}
-          className="flex items-center gap-2 px-4 py-2 bg-violet-600 text-white text-sm font-medium rounded-lg hover:bg-violet-700 disabled:opacity-50"
-        >
-          <Sparkles size={14} />
-          {runAnalysis.isPending ? '분석 중...' : 'AI 분석 실행'}
-        </button>
-      </div>
+      <h1 className="text-2xl font-bold text-slate-900">ABC 전략</h1>
 
       {!hasAgentData && (
         <div className="bg-violet-50 border border-violet-200 rounded-xl px-4 py-3 text-sm text-violet-700">

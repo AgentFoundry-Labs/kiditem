@@ -27,7 +27,7 @@ export class ChatService {
   private async loadPrompt(): Promise<string> {
     try {
       return await readFile(
-        join(process.cwd(), 'agent-config/prompts/chat.md'), 'utf-8',
+        join(process.cwd(), 'agent-config/prompts/agents/chat.md'), 'utf-8',
       );
     } catch {
       this.logger.warn('chat.md not found, using fallback prompt');

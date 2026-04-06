@@ -2,7 +2,6 @@
 
 import {
   Shield,
-  RefreshCw,
   XCircle,
   AlertTriangle,
   AlertCircle,
@@ -14,15 +13,11 @@ import type { ActivityEvent } from '../page';
 interface HealthDiagnosisProps {
   product: Product;
   violations: ActivityEvent[];
-  evaluatingHealth: boolean;
-  onEvaluate: () => void;
 }
 
 export default function HealthDiagnosis({
   product,
   violations,
-  evaluatingHealth,
-  onEvaluate,
 }: HealthDiagnosisProps) {
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-5">
@@ -84,30 +79,15 @@ export default function HealthDiagnosis({
                 ))}
               </div>
             )}
-            <div className="flex items-center justify-between pt-2 border-t border-slate-100">
-              <span className="text-xs text-slate-400">
-                {product.healthUpdatedAt ? `마지막 평가: ${timeAgo(product.healthUpdatedAt)}` : '미평가'}
-              </span>
-              <button
-                onClick={onEvaluate}
-                disabled={evaluatingHealth}
-                className="flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-700 disabled:opacity-50"
-              >
-                <RefreshCw size={12} className={evaluatingHealth ? 'animate-spin' : ''} />
-                {evaluatingHealth ? '평가 중...' : '재평가'}
-              </button>
-            </div>
+            {product.healthUpdatedAt && (
+              <p className="text-xs text-slate-400 pt-2 border-t border-slate-100">
+                마지막 평가: {timeAgo(product.healthUpdatedAt)}
+              </p>
+            )}
           </div>
         ) : (
           <div className="text-center py-3">
-            <p className="text-sm text-slate-400 mb-2">아직 평가되지 않았습니다.</p>
-            <button
-              onClick={onEvaluate}
-              disabled={evaluatingHealth}
-              className="px-3 py-1.5 text-xs font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
-            >
-              {evaluatingHealth ? '평가 중...' : '평가하기'}
-            </button>
+            <p className="text-sm text-slate-400">아직 평가되지 않았습니다.</p>
           </div>
         )}
       </div>

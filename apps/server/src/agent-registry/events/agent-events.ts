@@ -45,6 +45,16 @@ export class AgentDelegationEvent {
   ) {}
 }
 
+export class AgentResultReadyEvent {
+  constructor(
+    public readonly agentType: string,
+    public readonly agentId: string,
+    public readonly runId: string,
+    public readonly resultJson: Record<string, unknown>,
+    public readonly companyId: string,
+  ) {}
+}
+
 // 이벤트 이름 상수
 export const AGENT_EVENTS = {
   STATUS_CHANGED: 'agent.status.changed',
@@ -58,4 +68,5 @@ export const AGENT_EVENTS = {
   DRY_RUN_FORCED: 'agent.dry_run.forced',
   SNAPSHOT_CREATED: 'agent.snapshot.created',
   ROLLBACK_EXECUTED: 'agent.rollback.executed',
+  RESULT_READY: 'agent.result.ready',
 } as const;

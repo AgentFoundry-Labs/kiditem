@@ -1,6 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { OnEvent } from '@nestjs/event-emitter';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { AgentRegistryService } from '../../agent-registry.service';
+import { AGENT_EVENTS, AgentResultReadyEvent } from '../../events/agent-events';
 
 @Injectable()
 export class ManagerService {
@@ -34,50 +36,47 @@ export class ManagerService {
       companyId: input.companyId,
       dryRun: false,
       extra,
-      resultApiBase: '/api/manager/results',
     });
   }
 
-  async receiveResults(
-    taskId: string,
-    body: {
-      answer?: string;
-      data?: Record<string, unknown>;
-      recommendations?: Array<{
-        action: string;
-        target: string;
-        reason: string;
-        priority: string;
-      }>;
-      tokensUsed?: number;
-    },
-  ): Promise<{ ok: boolean }> {
-    const task = await this.agentRegistry.completeTask(taskId, body);
+  @OnEvent(AGENT_EVENTS.RESULT_READY)
+  async onResultReady(event: AgentResultReadyEvent): Promise<void> {
+    if (event.agentType !== 'manager') return;
 
     try {
-      if (task.companyId) {
-        const recCount = body.recommendations?.length ?? 0;
-        const title = recCount > 0
-          ? `운영 매니저: ${recCount}건 액션 추천`
-          : '운영 매니저: 분석 완료';
-
-        await this.prisma.activityEvent.create({
-          data: {
-            companyId: task.companyId,
-            objectType: 'company',
-            objectId: task.companyId,
-            eventType: 'manager_response',
-            source: 'agent:claude_cli',
-            title,
-            data: body as any,
-          },
-        });
+      // 추천 에이전트 실행
+      const recommended = event.resultJson.recommended_agents as string[] | undefined;
+      if (recommended?.length) {
+        for (const agentType of recommended) {
+          try {
+            await this.agentRegistry.runByType(agentType, { companyId: event.companyId });
+            this.logger.log(`Manager dispatched agent: ${agentType}`);
+          } catch (err) {
+            this.logger.error(`Manager failed to dispatch agent ${agentType}: ${err}`);
+          }
+        }
       }
-    } catch (err) {
-      this.logger.error(`Manager post-processing failed for task ${taskId}: ${err}`);
-    }
 
-    return { ok: true };
+      // Activity event
+      const recCount = recommended?.length ?? 0;
+      const title = recCount > 0
+        ? `운영 매니저: ${recCount}건 에이전트 실행`
+        : '운영 매니저: 분석 완료';
+
+      await this.prisma.activityEvent.create({
+        data: {
+          companyId: event.companyId,
+          objectType: 'company',
+          objectId: event.companyId,
+          eventType: 'manager_response',
+          source: 'agent:claude_cli',
+          title,
+          data: event.resultJson as any,
+        },
+      });
+    } catch (err) {
+      this.logger.error(`Manager post-processing failed for run ${event.runId}: ${err}`);
+    }
   }
 
   async getConversations(companyId: string, limit = 20) {

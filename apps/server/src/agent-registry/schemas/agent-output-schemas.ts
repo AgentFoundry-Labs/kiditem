@@ -97,14 +97,9 @@ export const RulesSuggestOutputSchema = z.object({
 
 // 매니저 에이전트 결과
 export const ManagerOutputSchema = z.object({
-  answer: z.string(),
-  data: z.record(z.unknown()).optional(),
-  recommendations: z.array(z.object({
-    action: z.string(),
-    target: z.string().optional(),
-    reason: z.string().optional(),
-    priority: z.enum(['high', 'medium', 'low']).optional(),
-  })).optional(),
+  analysis: z.string(),
+  recommended_agents: z.array(z.string()),
+  priority: z.string().optional(),
 });
 
 // type -> schema 매핑

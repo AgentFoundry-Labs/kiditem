@@ -1,6 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { OnEvent } from '@nestjs/event-emitter';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { AgentRegistryService } from '../../agent-registry.service';
+import { AGENT_EVENTS, AgentResultReadyEvent } from '../../events/agent-events';
 
 @Injectable()
 export class AdStrategyService {
@@ -20,41 +22,34 @@ export class AdStrategyService {
     return this.agentRegistry.run(def.id, {
       companyId: input.companyId,
       dryRun: input.dryRun,
-      resultApiBase: '/api/ad-agent/results',
     });
   }
 
-  async receiveResults(
-    taskId: string,
-    body: { actions?: unknown[]; summary?: Record<string, unknown>; tokensUsed?: number },
-  ): Promise<{ ok: boolean }> {
-    const task = await this.agentRegistry.completeTask(taskId, body);
+  @OnEvent(AGENT_EVENTS.RESULT_READY)
+  async onResultReady(event: AgentResultReadyEvent): Promise<void> {
+    if (event.agentType !== 'ad_strategy') return;
 
     try {
-      if (task.companyId) {
-        const actions = (body.actions as any[]) || [];
-        const stopCount = actions.filter(
-          (a: any) => a.action === 'stop_ad',
-        ).length;
-        const title = `광고 전략 실행: ${actions.length}건 (중단 ${stopCount})`;
+      const actions = (event.resultJson.actions as any[]) || [];
+      const stopCount = actions.filter(
+        (a: any) => a.action === 'stop_ad',
+      ).length;
+      const title = `광고 전략 실행: ${actions.length}건 (중단 ${stopCount})`;
 
-        await this.prisma.activityEvent.create({
-          data: {
-            companyId: task.companyId,
-            objectType: 'company',
-            objectId: task.companyId,
-            eventType: 'ad_strategy',
-            source: 'agent:claude_cli',
-            title,
-            data: body as any,
-          },
-        });
-      }
+      await this.prisma.activityEvent.create({
+        data: {
+          companyId: event.companyId,
+          objectType: 'company',
+          objectId: event.companyId,
+          eventType: 'ad_strategy',
+          source: 'agent:claude_cli',
+          title,
+          data: event.resultJson as any,
+        },
+      });
     } catch (err) {
-      this.logger.error(`Ad strategy post-processing failed for task ${taskId}: ${err}`);
+      this.logger.error(`Ad strategy post-processing failed for run ${event.runId}: ${err}`);
     }
-
-    return { ok: true };
   }
 
   async getStatus(taskId: string) {

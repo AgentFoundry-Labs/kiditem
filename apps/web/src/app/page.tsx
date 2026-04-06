@@ -6,7 +6,7 @@ import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
 import { toast } from 'sonner';
 import { queryKeys } from '@/lib/query-keys';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { DashboardSummary as DashboardData, DashboardTrendItem as TrendPoint } from '@kiditem/shared';
 import KpiCards from './components/dashboard/KpiCards';
 import HealthSummaryCard from './components/dashboard/HealthSummaryCard';
@@ -69,16 +69,6 @@ export default function HomePage() {
     () => data ? generateTasksAndActions(data) : { tasks: [] as HumanTask[], actions: [] as AiAction[] },
     [data],
   );
-
-  // Evaluate mutation
-  const evaluateMutation = useMutation({
-    mutationFn: () => apiClient.post('/api/rules/evaluate'),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.health() });
-    },
-  });
-  const evaluating = evaluateMutation.isPending;
-  const handleEvaluate = () => evaluateMutation.mutate();
 
   const toggleTask = (id: string) => {
     setCheckedTasks(prev => {
@@ -144,8 +134,6 @@ export default function HomePage() {
       <HealthSummaryCard
         healthSummary={healthSummary}
         healthLoading={healthLoading}
-        evaluating={evaluating}
-        onEvaluate={handleEvaluate}
       />
 
       <TrendChart

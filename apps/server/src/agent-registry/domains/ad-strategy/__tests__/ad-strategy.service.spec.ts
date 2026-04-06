@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { AdStrategyService } from '../ad-strategy.service';
+import { AgentResultReadyEvent } from '../../../events/agent-events';
 
 function makePrisma() {
   return {
@@ -12,7 +13,6 @@ function makeAgentRegistry() {
   return {
     findByType: vi.fn(),
     run: vi.fn(),
-    completeTask: vi.fn(),
   };
 }
 
@@ -39,30 +39,31 @@ describe('AdStrategyService', () => {
       expect(registry.run).toHaveBeenCalledWith('def-ad', {
         companyId: 'c-1',
         dryRun: true,
-        resultApiBase: '/api/ad-agent/results',
       });
       expect(result.ok).toBe(true);
     });
   });
 
-  describe('receiveResults', () => {
-    it('calls completeTask then creates domain activity event', async () => {
-      const { service, registry, prisma } = makeService();
-      registry.completeTask.mockResolvedValue({ id: 'task-1', companyId: 'c-1' });
+  describe('onResultReady', () => {
+    it('creates domain activity event for ad_strategy results', async () => {
+      const { service, prisma } = makeService();
       prisma.activityEvent.create.mockResolvedValue({});
 
-      const body = {
-        actions: [
-          { action: 'stop_ad', product_id: 'p1' },
-          { action: 'increase_budget', product_id: 'p2' },
-          { action: 'stop_ad', product_id: 'p3' },
-        ],
-        summary: { total: 3 },
-      };
+      const event = new AgentResultReadyEvent(
+        'ad_strategy', 'agent-1', 'run-1',
+        {
+          actions: [
+            { action: 'stop_ad', product_id: 'p1' },
+            { action: 'increase_budget', product_id: 'p2' },
+            { action: 'stop_ad', product_id: 'p3' },
+          ],
+          summary: { total: 3 },
+        },
+        'c-1',
+      );
 
-      const result = await service.receiveResults('task-1', body);
+      await service.onResultReady(event);
 
-      expect(result).toEqual({ ok: true });
       expect(prisma.activityEvent.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
           title: '광고 전략 실행: 3건 (중단 2)',
@@ -71,23 +72,30 @@ describe('AdStrategyService', () => {
       });
     });
 
-    it('does not create activity event when no companyId', async () => {
-      const { service, registry, prisma } = makeService();
-      registry.completeTask.mockResolvedValue({ id: 'task-1', companyId: null });
+    it('ignores non-ad_strategy events', async () => {
+      const { service, prisma } = makeService();
 
-      await service.receiveResults('task-1', { actions: [] });
+      const event = new AgentResultReadyEvent(
+        'rules_evaluation', 'agent-2', 'run-2', {}, 'c-1',
+      );
+
+      await service.onResultReady(event);
 
       expect(prisma.activityEvent.create).not.toHaveBeenCalled();
     });
 
-    it('returns ok even when post-processing fails', async () => {
-      const { service, registry, prisma } = makeService();
-      registry.completeTask.mockResolvedValue({ id: 'task-1', companyId: 'c-1' });
+    it('does not throw when post-processing fails', async () => {
+      const { service, prisma } = makeService();
       prisma.activityEvent.create.mockRejectedValue(new Error('DB error'));
 
-      const result = await service.receiveResults('task-1', { actions: [] });
+      const event = new AgentResultReadyEvent(
+        'ad_strategy', 'agent-1', 'run-1',
+        { actions: [] },
+        'c-1',
+      );
 
-      expect(result).toEqual({ ok: true });
+      // Should not throw
+      await service.onResultReady(event);
     });
   });
 });

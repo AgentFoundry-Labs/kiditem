@@ -1,11 +1,9 @@
 "use client";
 
 import { apiClient } from "@/lib/api-client";
-import { isApiError } from "@/lib/api-error";
-import { toast } from "sonner";
 import PageSkeleton from "@/components/ui/PageSkeleton";
 import { useParams } from "next/navigation";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import type { ProductDetail as Product } from "@kiditem/shared";
 import { queryKeys } from "@/lib/query-keys";
 import ProductHeader from "./components/ProductHeader";
@@ -22,8 +20,6 @@ export type { ActivityEvent, Workflow } from "./hooks/useProductActions";
 export default function ProductDetailPage() {
   const params = useParams();
   const productId = params.id as string;
-  const queryClient = useQueryClient();
-
   // Main product + inventory fetch
   const { data: productData, isLoading: loading, error: productError } = useQuery({
     queryKey: queryKeys.products.detail(productId),
@@ -83,15 +79,6 @@ export default function ProductDetailPage() {
     },
   });
 
-  // Health evaluation mutation
-  const evaluateHealthMutation = useMutation({
-    mutationFn: async () => { await apiClient.post(`/api/rules/evaluate`); },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.products.detail(productId) });
-      queryClient.invalidateQueries({ queryKey: [...queryKeys.products.detail(productId), "violations"] });
-    },
-  });
-
   const { showWfMenu, setShowWfMenu, runWorkflow, runBatchWorkflows, handleAction } =
     useProductActions({ productId, product, workflows });
 
@@ -123,8 +110,6 @@ export default function ProductDetailPage() {
           <HealthDiagnosis
             product={product}
             violations={violations}
-            evaluatingHealth={evaluateHealthMutation.isPending}
-            onEvaluate={() => evaluateHealthMutation.mutate()}
           />
 
           <ActivityHistory activities={activities} onAction={handleAction} />

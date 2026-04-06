@@ -13,6 +13,7 @@ import {
   AgentStatusChangedEvent,
   AgentBudgetWarningEvent,
   AgentAutoPausedEvent,
+  AgentResultReadyEvent,
   AGENT_EVENTS,
 } from '../events/agent-events';
 import { FeatureGateService } from '../../feature-gate/feature-gate.service';
@@ -21,6 +22,8 @@ import { validateAgentOutput, extractResultJsonFromStdout } from '../schemas/val
 import { SkillFilterService } from '../safety/skill-filter.service';
 import { RetryService } from '../lifecycle/retry.service';
 import { TRANSCRIPT_EVENT } from '../lifecycle/transcript.service';
+import { SafetyPipelineService } from '../business-safety/safety-pipeline.service';
+import { DryRunGateService } from '../business-safety/dry-run-gate.service';
 
 @Injectable()
 export class HeartbeatService {
@@ -36,6 +39,8 @@ export class HeartbeatService {
     private readonly featureGateService: FeatureGateService,
     @Optional() private readonly skillFilterService?: SkillFilterService,
     @Optional() private readonly retryService?: RetryService,
+    @Optional() private readonly safetyPipeline?: SafetyPipelineService,
+    @Optional() private readonly dryRunGate?: DryRunGateService,
   ) {}
 
   // ── Wakeup 처리 ──
@@ -326,6 +331,43 @@ export class HeartbeatService {
       },
     });
 
+    // ── RESULT_READY: Safety Pipeline + domain event ──
+    if (status === 'succeeded' && resultJson && companyId) {
+      let safetyAllowed = true;
+
+      if (this.safetyPipeline) {
+        const safety = await this.safetyPipeline.validate({
+          agentId: agent.id,
+          trustLevel: (agent as any).trustLevel ?? 0,
+          actionCap: (agent as any).actionCap ?? {},
+          runId: run.id,
+          companyId,
+          body: resultJson as any,
+        });
+
+        if (!safety.allowed) {
+          safetyAllowed = false;
+          this.logger.warn(`Run ${run.id} blocked by Safety Pipeline`);
+        }
+
+        if (safety.dryRunForced) {
+          (resultJson as any).dry_run = true;
+        }
+      }
+
+      if (safetyAllowed) {
+        this.eventEmitter.emit(
+          AGENT_EVENTS.RESULT_READY,
+          new AgentResultReadyEvent(agent.type, agent.id, run.id, resultJson, companyId),
+        );
+
+        // TrustLevel 조정
+        if (this.dryRunGate) {
+          await this.dryRunGate.adjustTrust(agent.id, true);
+        }
+      }
+    }
+
     // #17 Async Transcript — Step 2: Fire-and-forget (non-critical fields)
     this.eventEmitter.emit(TRANSCRIPT_EVENT, {
       runId: run.id,
@@ -517,8 +559,6 @@ export class HeartbeatService {
   ): Promise<string> {
     const dbUrl = process.env.AGENT_DATABASE_URL || process.env.DATABASE_URL || '';
     const dryRun = payload?.dry_run !== undefined ? String(payload.dry_run) : 'true';
-    const resultApiBase = (payload?.result_api_base as string) || '/api/agent-registry/results';
-    const resultApi = `http://localhost:4000${resultApiBase}/${runId}`;
 
     let template = agent.promptTemplate;
     if (template.startsWith('agent-config/')) {
@@ -531,8 +571,7 @@ export class HeartbeatService {
     prompt = prompt
       .replace(/\{\{task_id\}\}/g, runId)
       .replace(/\{\{dry_run\}\}/g, dryRun)
-      .replace(/\{\{db_url\}\}/g, dbUrl)
-      .replace(/\{\{result_api\}\}/g, resultApi);
+      .replace(/\{\{db_url\}\}/g, dbUrl);
 
     // payload 변수 치환
     if (payload) {

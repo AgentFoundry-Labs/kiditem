@@ -7,7 +7,7 @@ import PageSkeleton from '@/components/ui/PageSkeleton';
 import { isApiError } from '@/lib/api-error';
 import { toast } from 'sonner';
 import { queryKeys } from '@/lib/query-keys';
-import { useAgents, useAgentOrg, useDeleteAgent } from '../hooks/useAgents';
+import { useAgents, useAgentOrg, useDeleteAgent, useInvokeAgent } from '../hooks/useAgents';
 import type { Agent, OrgNode, FilterTab, ViewMode } from '../lib/agent-types';
 import { AgentToolbar } from './AgentToolbar';
 import { AgentListPanel } from './AgentListPanel';
@@ -48,6 +48,7 @@ export default function AgentOverview({ onAddAgent }: { onAddAgent?: () => void 
   const error = agentsError ? (isApiError(agentsError) ? agentsError.detail : '에이전트를 불러오는데 실패했습니다.') : null;
 
   const deleteAgent = useDeleteAgent();
+  const invokeAgent = useInvokeAgent();
 
   const handleDeleteAgent = async (id: string) => {
     if (!confirm('이 에이전트를 삭제하시겠습니까?')) return;
@@ -56,6 +57,13 @@ export default function AgentOverview({ onAddAgent }: { onAddAgent?: () => void 
     } catch (err) {
       toast.error(isApiError(err) ? err.detail : '에이전트 삭제에 실패했습니다.');
     }
+  };
+
+  const handleRunAgent = (id: string) => {
+    invokeAgent.mutate(id, {
+      onSuccess: () => toast.success('에이전트 실행이 시작되었습니다'),
+      onError: () => toast.error('에이전트 실행에 실패했습니다'),
+    });
   };
 
   const filtered = useMemo(
@@ -157,6 +165,8 @@ export default function AgentOverview({ onAddAgent }: { onAddAgent?: () => void 
             agentMap={agentMap}
             onNavigate={(id) => router.push(`/agents/${id}`)}
             onDelete={handleDeleteAgent}
+            onRun={handleRunAgent}
+            runningAgentId={invokeAgent.isPending ? (invokeAgent.variables ?? null) : null}
           />
         </>
       )}

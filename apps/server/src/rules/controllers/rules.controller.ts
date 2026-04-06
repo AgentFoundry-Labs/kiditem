@@ -6,12 +6,9 @@ import { PrismaService } from '../../prisma/prisma.service';
 import {
   ListRulesQueryDto,
   EvaluateRulesQueryDto,
-  ReceiveRuleResultsBodyDto,
   UpdateRuleBodyDto,
   UpdateScheduleBodyDto,
 } from '../dto';
-
-// Design Ref: §5.3 — RulesScheduler → Heartbeat 통합 후 controller 전환
 
 @Controller('rules')
 export class RulesController {
@@ -32,11 +29,6 @@ export class RulesController {
   @Post('evaluate')
   async evaluate(@Query() query: EvaluateRulesQueryDto) {
     return this.rulesService.evaluateAll(await this.resolveCompanyId(query.companyId));
-  }
-
-  @Post('results/:taskId')
-  receiveResults(@Param('taskId') taskId: string, @Body() body: ReceiveRuleResultsBodyDto) {
-    return this.rulesService.receiveResults(taskId, body);
   }
 
   @Get('evaluate/status/:taskId')
