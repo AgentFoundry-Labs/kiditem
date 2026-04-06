@@ -7,8 +7,12 @@ export class DashboardController {
   constructor(private readonly dashboardService: DashboardService) {}
 
   @Get()
-  getSummary() {
-    return this.dashboardService.getSummary();
+  getSummary(
+    @Query('range') range?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.dashboardService.getSummary(range, from, to);
   }
 
   @Get('trend')

@@ -1,0 +1,46 @@
+#!/bin/sh
+#
+# Pre-commit hook: block large files and binaries from being committed.
+# Install: git config core.hooksPath .githooks
+#
+
+STAGED=$(git diff --cached --name-only --diff-filter=ACM)
+[ -z "$STAGED" ] && exit 0
+
+VIOLATIONS=0
+
+# Block binary files
+BINARIES=$(echo "$STAGED" | grep -iE '\.(exe|dll|so|dylib|o|obj|a|lib|wasm|pyc)$' || true)
+if [ -n "$BINARIES" ]; then
+  echo "ERROR: Binary files staged for commit:"
+  echo "$BINARIES"
+  VIOLATIONS=1
+fi
+
+# Block build artifacts
+BUILD_ARTIFACTS=$(echo "$STAGED" | grep -E '(^|/)dist/|/build/|/\.next/' || true)
+if [ -n "$BUILD_ARTIFACTS" ]; then
+  echo "ERROR: Build artifacts staged for commit:"
+  echo "$BUILD_ARTIFACTS"
+  VIOLATIONS=1
+fi
+
+# Block files over 1MB
+for f in $STAGED; do
+  [ ! -f "$f" ] && continue
+  # Skip lockfiles
+  case "$f" in package-lock.json|*/package-lock.json|pnpm-lock.yaml) continue ;; esac
+  SIZE=$(wc -c < "$f" | tr -d ' ')
+  if [ "$SIZE" -gt 1048576 ]; then
+    echo "ERROR: Oversized file ($(( SIZE / 1024 ))KB): $f"
+    VIOLATIONS=1
+  fi
+done
+
+if [ "$VIOLATIONS" -eq 1 ]; then
+  echo ""
+  echo "Commit blocked. Remove the above files from staging or use --no-verify to bypass."
+  exit 1
+fi
+
+exit 0

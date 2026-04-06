@@ -1,15 +1,51 @@
+# Dependencies
 node_modules/
+
+# Build artifacts
 .next/
+dist/
+build/
+*.tsbuildinfo
+
+# Environment / Secrets
 .env
 .env.local
+*.pem
+
+# Database
 *.db
-dist/
-*.tsbuildinfo
-.DS_Store
+
+# Python
 __pycache__/
 *.pyc
 .venv/
-.claude/
+
+# IDE
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Binary files
+*.dll
+*.so
+*.dylib
+*.exe
+*.wasm
+*.o
+*.obj
+
+# Test
+coverage/
+
+# Claude Code — ignore session/personal, track team-shared
+.claude/*
+!.claude/docs/
+!.claude/skills/
+!.claude/settings.json
+
+# Tools
 .claude-flow/
 .swarm/
 .mcp.json

@@ -39,6 +39,7 @@ import {
   Bell,
   MinusCircle,
   TrendingDown,
+  Zap,
   type LucideIcon,
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -65,6 +66,7 @@ const menuSections: MenuSection[] = [
     collapsible: false,
     items: [
       { href: '/', label: '대시보드', icon: LayoutDashboard },
+      { href: '/ad-ops', label: 'AI 광고 전략', icon: Zap },
     ],
   },
   {

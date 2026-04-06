@@ -2,6 +2,12 @@
 
 이커머스 셀러 관리 자동화 플랫폼. 중국(1688) 소싱 → AI 콘텐츠 생성 → 쿠팡/네이버 리스팅 → 운영 자동화.
 
+## 사전 요구사항
+
+- **Node.js** v20+ (npm 포함)
+- **Python** 3.11+
+- **Docker Desktop** (PostgreSQL 실행용)
+
 ## 셋업
 
 ```bash
@@ -30,6 +36,7 @@ npm run dev:all                                # Next.js + NestJS + Python Agent
 npm run dev                          # Next.js 프론트엔드만 (localhost:3000)
 npm run dev:server                   # NestJS 백엔드만 (localhost:4000)
 npm run dev:agents                   # Python Agents만
+npm run db:studio                    # Prisma Studio (DB GUI, localhost:5555)
 ```
 
 ### 상세페이지 생성 테스트
@@ -76,10 +83,15 @@ extensions/          — Chrome 익스텐션 (1688/Alibaba 스크래퍼)
 
 ```
 DATABASE_URL=postgresql://kiditem:kiditem@localhost:5433/kiditem
-COUPANG_ACCESS_KEY=         # Coupang Wing API
+AGENT_DATABASE_URL=postgresql://agent_reader:agent_readonly@localhost:5433/kiditem
+
+# Coupang Wing API
+COUPANG_ACCESS_KEY=
 COUPANG_SECRET_KEY=
 COUPANG_VENDOR_ID=
-GEMINI_API_KEY=             # 워크플로우 AI 분석
+
+# AI (워크플로우 분석)
+GEMINI_API_KEY=
 AI_TEXT_MODEL=gemini-2.5-flash
 ```
 
@@ -89,8 +101,11 @@ AI_TEXT_MODEL=gemini-2.5-flash
 DATABASE_URL=postgresql://kiditem:kiditem@localhost:5433/kiditem
 
 # AI API 키
+AI_MODE=proxy                        # proxy (VectorEngine) or direct
+AI_BASE_URL=https://api.vectorengine.ai/v1
 OPENAI_API_KEY=sk-...
 GEMINI_API_KEY=AI...
+VECTORENGINE_API_KEY=sk-...
 FAL_KEY=...
 
 # AI 모델
@@ -98,6 +113,8 @@ AI_TEXT_MODEL=gemini-2.5-flash
 AI_IMAGE_ANALYSIS_MODEL=gemini-3.1-flash-lite-preview
 AI_IMAGE_MODEL=gemini-3.1-flash-image-preview
 AI_IMAGE_EDIT_MODEL=fal-ai/flux-2-pro/edit
+AI_IMAGE_DETAIL_MODEL=fal-ai/flux-pro/kontext/max
+AI_IMAGE_EDIT_SIZE_MODEL=gemini-3.1-flash-image-preview
 
 # Langfuse (선택)
 LANGFUSE_PUBLIC_KEY=pk-lf-...
