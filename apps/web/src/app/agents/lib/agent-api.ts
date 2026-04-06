@@ -33,7 +33,7 @@ export const agentApi = {
   getRuns: (id: string, limit = 20) =>
     apiClient.get<HeartbeatRun[]>(`/api/agent-registry/${id}/runs?limit=${limit}`),
   getRuntimeState: (id: string) =>
-    apiClient.get<AgentRuntimeState | null>(`/api/agent-registry/${id}/runtime-state`),
+    apiClient.get<AgentRuntimeState>(`/api/agent-registry/${id}/runtime-state`),
   getCostAnalytics: (params?: { from?: string; to?: string; agentId?: string }) => {
     const qs = new URLSearchParams();
     if (params?.from) qs.set('from', params.from);

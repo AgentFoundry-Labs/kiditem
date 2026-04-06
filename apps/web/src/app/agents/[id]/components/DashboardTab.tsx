@@ -125,7 +125,7 @@ export function DashboardTab({
 }: {
   agent: Agent;
   runs: HeartbeatRun[];
-  runtimeState: AgentRuntimeState | null;
+  runtimeState?: AgentRuntimeState;
   onSelectRun: (id: string) => void;
 }) {
   const sorted = [...runs].sort(

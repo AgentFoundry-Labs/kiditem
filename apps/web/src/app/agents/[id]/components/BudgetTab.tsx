@@ -20,7 +20,7 @@ export function BudgetTab({
   onSaved,
 }: {
   agent: Agent;
-  runtimeState: AgentRuntimeState | null;
+  runtimeState?: AgentRuntimeState;
   onSaved: () => void;
 }) {
   const [budgetInput, setBudgetInput] = useState('');

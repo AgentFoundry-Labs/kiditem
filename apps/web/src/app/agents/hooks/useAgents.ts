@@ -41,7 +41,7 @@ export function useAgentRuns(id: string, limit?: number, options?: Partial<UseQu
   });
 }
 
-export function useAgentRuntimeState(id: string, options?: Partial<UseQueryOptions<AgentRuntimeState | null>>) {
+export function useAgentRuntimeState(id: string, options?: Partial<UseQueryOptions<AgentRuntimeState>>) {
   return useQuery({
     queryKey: queryKeys.agents.runtimeState(id),
     queryFn: () => agentApi.getRuntimeState(id),

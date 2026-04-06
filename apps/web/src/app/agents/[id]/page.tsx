@@ -53,7 +53,7 @@ export default function AgentDetailPage() {
 
   const { data: agent, isLoading: agentLoading, error: agentError } = useAgent(id, { refetchInterval: 15_000 });
   const { data: runsData, isLoading: runsLoading } = useAgentRuns(id, 30, { refetchInterval: 15_000 });
-  const { data: runtimeState = null } = useAgentRuntimeState(id, { refetchInterval: 15_000 });
+  const { data: runtimeState } = useAgentRuntimeState(id, { refetchInterval: 15_000 });
   const runs = Array.isArray(runsData) ? runsData : [];
   const loading = agentLoading || runsLoading;
   const error = agentError ? (isApiError(agentError) ? agentError.detail : '에이전트 정보를 불러오는데 실패했습니다.') : null;
