@@ -10,7 +10,11 @@
     "lint": "eslint 'src/**/*.ts'"
   },
   "dependencies": {
+    "@copilotkit/runtime": "^1.54.1",
     "@kiditem/shared": "*",
+    "@langchain/core": "^1.1.39",
+    "@langchain/google-gauth": "^2.1.26",
+    "@langchain/google-genai": "^2.1.26",
     "@nestjs/common": "^11.0.0",
     "@nestjs/core": "^11.0.0",
     "@nestjs/mapped-types": "^2.1.1",

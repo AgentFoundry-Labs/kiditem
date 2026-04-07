@@ -15,6 +15,7 @@ import {
   XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
   AreaChart, Area, BarChart, Bar, Cell,
 } from 'recharts';
+import { useCopilotReadable, useCopilotAction } from '@copilotkit/react-core';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import { formatKRW, formatPercent, getGradeColor, getProfitColor } from '@/lib/utils';
@@ -77,6 +78,37 @@ export default function Dashboard() {
   });
   const aiActions = actionTasks.filter(t => t.type === 'ai');
 
+  // CopilotKit: 대시보드 데이터를 AI에게 제공
+  useCopilotReadable({
+    description: '대시보드 요약 - 매출, 이익, 광고 KPI, 경고사항',
+    value: JSON.stringify({
+      summary: data?.summary,
+      warnings: data?.warnings,
+      rangeKpi: data?.rangeKpi,
+      adKpi: data?.adKpi,
+      profitDetail: data?.profitDetail,
+    }),
+  });
+
+  // CopilotKit: AI 액션 - ABC 등급 재계산
+  useCopilotAction({
+    name: 'recalc_grade',
+    description: 'ABC 등급 재계산 - 14일 매출 기반 등급 재산정',
+    handler: async () => {
+      const result = await apiClient.post('/api/products/calculate-grades', {});
+      return JSON.stringify(result);
+    },
+  });
+
+  // CopilotKit: AI 액션 - 적자 상품 분석
+  useCopilotAction({
+    name: 'analyze_deficit',
+    description: '적자 상품 분석 - 적자 원인(광고비 과다/원가 문제) 파악',
+    handler: async () => {
+      const result = await apiClient.get('/api/products?status=active&sortBy=profitRate&sortDir=asc&period=14');
+      return JSON.stringify(result);
+    },
+  });
 
   if (loading) {
     return (
