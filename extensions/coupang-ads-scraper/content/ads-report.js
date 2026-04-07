@@ -261,17 +261,21 @@
     return appended;
   }
 
+  const MAX_AD_ROWS = 300;
+
   function parseCampaignTable() {
     const rawRows = [];
     const normalizedRows = [];
     let selectedHeaders = [];
 
     document.querySelectorAll("table").forEach((table) => {
+      if (rawRows.length >= MAX_AD_ROWS) return;
       const headers = Array.from(table.querySelectorAll("thead th")).map((th) => normalizeText(th.innerText.replace(/\n/g, " ")));
       if (headers.length < 3) return;
+      const trs = Array.from(table.querySelectorAll("tbody tr")).slice(0, MAX_AD_ROWS - rawRows.length);
       const appended = appendStructuredRows(
         headers,
-        Array.from(table.querySelectorAll("tbody tr")),
+        trs,
         (row) => row.querySelectorAll("td"),
         rawRows,
         normalizedRows
@@ -280,6 +284,7 @@
     });
 
     document.querySelectorAll(".rt-table, [class*='rt-table'], [role='grid']").forEach((grid) => {
+      if (rawRows.length >= MAX_AD_ROWS) return;
       const headerNodes = Array.from(
         grid.querySelectorAll(".rt-thead .rt-th, [role='columnheader']")
       ).filter((node) => normalizeText(node.innerText).length > 0);

@@ -342,7 +342,7 @@ export class AdSyncService {
             conversions: 0,
             spend: 0,
             revenue: 0,
-            rawJson: { adSummary: kpis, timestamp: payload.timestamp },
+            rawJson: { kpis, rowCount: rows.length, timestamp: payload.timestamp },
             capturedAt: payload.timestamp ? new Date(payload.timestamp) : new Date(),
           },
         });

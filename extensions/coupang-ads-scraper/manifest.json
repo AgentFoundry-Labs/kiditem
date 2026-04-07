@@ -3,7 +3,7 @@
   "name": "KIDITEM 쿠팡 광고 수집기",
   "description": "쿠팡 Wing/광고센터 데이터를 자동 수집하여 KIDITEM에 연동합니다.",
   "version": "1.0.0",
-  "permissions": ["activeTab", "storage", "tabs", "scripting"],
+  "permissions": ["activeTab", "storage", "tabs", "scripting", "alarms"],
   "externally_connectable": {
     "matches": ["http://localhost:3000/*"]
   },

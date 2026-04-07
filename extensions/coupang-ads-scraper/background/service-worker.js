@@ -4,7 +4,32 @@ const API_URL = "http://localhost:4000";
 
 chrome.runtime.onInstalled.addListener(() => {
   console.log("[KIDITEM] Extension installed");
+  cleanupStorage();
 });
+
+// 24시간마다 storage 정리
+chrome.alarms.create("storage-cleanup", { periodInMinutes: 1440 });
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === "storage-cleanup") cleanupStorage();
+});
+
+function cleanupStorage() {
+  chrome.storage.local.get(null, (all) => {
+    const keysToRemove = [];
+    const now = Date.now();
+    const MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7일
+
+    for (const [key, val] of Object.entries(all)) {
+      if (key.startsWith("kiditem_last_sync_") && val?.time && now - val.time > MAX_AGE) {
+        keysToRemove.push(key);
+      }
+    }
+    if (keysToRemove.length > 0) {
+      chrome.storage.local.remove(keysToRemove);
+      console.log(`[KIDITEM] Storage 정리: ${keysToRemove.length}개 삭제`);
+    }
+  });
+}
 
 // content script에서 메시지 수신
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {

@@ -6,11 +6,14 @@
 
   const SERVER = "http://localhost:4000";
 
+  const MAX_PRODUCTS = 500;
+
   // Wing 아이템위너 테이블 파싱 (실제 DOM 구조 기반)
   function parseWingTable() {
     const data = [];
 
-    const rows = document.querySelectorAll("table.w-ui-table tbody tr, .data-table-container table tbody tr, .data-body tr");
+    const allRows = document.querySelectorAll("table.w-ui-table tbody tr, .data-table-container table tbody tr, .data-body tr");
+    const rows = Array.from(allRows).slice(0, MAX_PRODUCTS);
 
     rows.forEach((row) => {
       let vendorItemId = row.getAttribute("data-vendor-item-id") || "";
@@ -135,7 +138,17 @@
     return { success: false, error: "데이터 없음" };
   }
 
-  setTimeout(doSync, 3000);
+  // 재시도 로직 (최대 3회)
+  function waitAndSync(attempt) {
+    attempt = attempt || 1;
+    const result = doSync();
+    if (!result.success && attempt < 3) {
+      console.log(`[KIDITEM] 재시도 ${attempt}/3 (3초 후)...`);
+      setTimeout(() => waitAndSync(attempt + 1), 3000);
+    }
+  }
+
+  setTimeout(() => waitAndSync(1), 3000);
 
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.action === "manualSync") {
@@ -145,12 +158,29 @@
     }
   });
 
-  // SPA 감지
+  // SPA 감지 — debounce + subtree:false (메모리 누수 방지)
   let lastUrl = location.href;
-  new MutationObserver(() => {
+  let urlDebounceTimer = null;
+  const observer = new MutationObserver(() => {
     if (location.href !== lastUrl) {
       lastUrl = location.href;
-      setTimeout(doSync, 3000);
+      if (urlDebounceTimer) clearTimeout(urlDebounceTimer);
+      urlDebounceTimer = setTimeout(() => {
+        console.log("[KIDITEM] URL 변경 감지:", location.href);
+        waitAndSync(1);
+      }, 4000);
     }
-  }).observe(document.body, { childList: true, subtree: true });
+  });
+  observer.observe(document.body, { childList: true, subtree: false });
+
+  // 탭 비활성 시 observer 해제, 활성 시 재연결
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") {
+      observer.disconnect();
+      if (urlDebounceTimer) clearTimeout(urlDebounceTimer);
+    } else {
+      lastUrl = location.href;
+      observer.observe(document.body, { childList: true, subtree: false });
+    }
+  });
 })();
