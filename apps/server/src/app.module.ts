@@ -39,7 +39,6 @@ import { ChatModule } from './chat/chat.module';
 import { UploadsModule } from './uploads/uploads.module';
 import { TrafficModule } from './traffic/traffic.module';
 import { ActionTaskModule } from './action-task/action-task.module';
-import { CopilotKitModule } from './copilotkit/copilotkit.module';
 
 @Module({
   imports: [
@@ -83,7 +82,6 @@ import { CopilotKitModule } from './copilotkit/copilotkit.module';
     UploadsModule,
     TrafficModule,
     ActionTaskModule,
-    CopilotKitModule,
   ],
 })
 export class AppModule {}

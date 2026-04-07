@@ -1,8 +1,14 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { spawn, ChildProcess } from 'child_process';
 import { readFile } from 'fs/promises';
 import { join } from 'path';
+import {
+  CopilotRuntime,
+  copilotRuntimeNestEndpoint,
+} from '@copilotkit/runtime';
+import type { IncomingMessage, ServerResponse } from 'http';
+import { ClaudeCliAdapter } from './claude-cli-adapter';
 
 const FALLBACK_PROMPT = `당신은 KIDITEM 운영 AI 어시스턴트입니다.
 사용자의 질문에 실시간 데이터를 기반으로 답변합니다.
@@ -21,8 +27,24 @@ interface SseData {
 }
 
 @Injectable()
-export class ChatService {
+export class ChatService implements OnModuleInit {
   private readonly logger = new Logger(ChatService.name);
+  private copilotHandler!: (req: IncomingMessage, res: ServerResponse) => Promise<void>;
+
+  onModuleInit() {
+    const serviceAdapter = new ClaudeCliAdapter();
+    const runtime = new CopilotRuntime();
+
+    this.copilotHandler = copilotRuntimeNestEndpoint({
+      runtime,
+      serviceAdapter,
+      endpoint: '/api/chat/copilot',
+    }) as (req: IncomingMessage, res: ServerResponse) => Promise<void>;
+  }
+
+  async handleCopilotRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    return this.copilotHandler(req, res);
+  }
 
   private async loadPrompt(): Promise<string> {
     try {
@@ -59,7 +81,7 @@ export class ChatService {
             cwd: process.cwd(),
             env: {
               ...process.env,
-              AGENT_DATABASE_URL: process.env.AGENT_DATABASE_URL || process.env.DATABASE_URL || '',
+              AGENT_DATABASE_URL: process.env.CHATBOT_DATABASE_URL || process.env.AGENT_DATABASE_URL || process.env.DATABASE_URL || '',
             },
             stdio: ['ignore', 'pipe', 'pipe'],
           });

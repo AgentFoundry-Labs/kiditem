@@ -1,5 +1,5 @@
-import { Controller, Post, Body, Res } from '@nestjs/common';
-import { Response } from 'express';
+import { Controller, Post, Body, Res, All, Req } from '@nestjs/common';
+import { Request, Response } from 'express';
 import { ChatService } from './chat.service';
 import { ChatRequestDto } from './dto';
 
@@ -21,5 +21,10 @@ export class ChatController {
         res.end();
       },
     });
+  }
+
+  @All('copilot')
+  async copilot(@Req() req: Request, @Res() res: Response): Promise<void> {
+    await this.chatService.handleCopilotRequest(req, res);
   }
 }

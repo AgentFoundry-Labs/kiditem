@@ -15,7 +15,6 @@ import {
   XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
   AreaChart, Area, BarChart, Bar, Cell,
 } from 'recharts';
-import { useCopilotReadable, useCopilotAction } from '@copilotkit/react-core';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import { formatKRW, formatPercent, getGradeColor, getProfitColor } from '@/lib/utils';
@@ -77,38 +76,6 @@ export default function Dashboard() {
     refetchInterval: 60_000,
   });
   const aiActions = actionTasks.filter(t => t.type === 'ai');
-
-  // CopilotKit: 대시보드 데이터를 AI에게 제공
-  useCopilotReadable({
-    description: '대시보드 요약 - 매출, 이익, 광고 KPI, 경고사항',
-    value: JSON.stringify({
-      summary: data?.summary,
-      warnings: data?.warnings,
-      rangeKpi: data?.rangeKpi,
-      adKpi: data?.adKpi,
-      profitDetail: data?.profitDetail,
-    }),
-  });
-
-  // CopilotKit: AI 액션 - ABC 등급 재계산
-  useCopilotAction({
-    name: 'recalc_grade',
-    description: 'ABC 등급 재계산 - 14일 매출 기반 등급 재산정',
-    handler: async () => {
-      const result = await apiClient.post('/api/products/calculate-grades', {});
-      return JSON.stringify(result);
-    },
-  });
-
-  // CopilotKit: AI 액션 - 적자 상품 분석
-  useCopilotAction({
-    name: 'analyze_deficit',
-    description: '적자 상품 분석 - 적자 원인(광고비 과다/원가 문제) 파악',
-    handler: async () => {
-      const result = await apiClient.get('/api/products?status=active&sortBy=profitRate&sortDir=asc&period=14');
-      return JSON.stringify(result);
-    },
-  });
 
   if (loading) {
     return (
@@ -383,8 +350,8 @@ export default function Dashboard() {
       </div>
 
       {/* 차트 + 사이드패널 */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-3 items-start">
-        <div className="lg:col-span-3">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-3 overflow-hidden" style={{ height: 480 }}>
+        <div className="lg:col-span-3 h-full">
           <DashboardChart
             dailyTrend={dailyTrend}
             aiActions={aiActions}
@@ -638,7 +605,7 @@ function SidePanel({ alerts, router, queryClient }: {
   };
 
   return (
-    <div className="rounded-2xl overflow-hidden flex flex-col max-h-[360px] bg-white border border-slate-100 shadow-sm">
+    <div className="rounded-2xl overflow-hidden flex flex-col h-full bg-white border border-slate-100 shadow-sm">
       <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
         <div className="flex items-center gap-1.5">
           <AlertTriangle size={14} className="text-slate-500" />
@@ -705,8 +672,8 @@ function DashboardChart({
   }));
 
   return (
-    <div className="rounded-2xl overflow-hidden flex flex-col bg-white border border-slate-100 shadow-sm">
-      <div className="flex items-center justify-between px-5 py-3 border-b border-slate-100">
+    <div className="rounded-2xl overflow-hidden flex flex-col h-full bg-white border border-slate-100 shadow-sm">
+      <div className="flex items-center justify-between px-5 py-3 border-b border-slate-100 shrink-0">
         <div className="flex gap-1 rounded-lg p-0.5 bg-slate-100">
           {tabs.map(t => (
             <button key={t.key} onClick={() => setChartTab(t.key)}
@@ -720,30 +687,29 @@ function DashboardChart({
 
       {/* 액션 요약 */}
       {chartTab === 'actions' && (
-        <div className="flex-1 flex flex-col items-center justify-center p-6 gap-4">
-          <div className="flex gap-6 text-center">
-            <div>
-              <div className="text-2xl font-bold text-red-600">{aiActions.filter(a => a.priority === 'urgent').length}</div>
-              <div className="text-xs text-slate-400">긴급</div>
-            </div>
-            <div>
-              <div className="text-2xl font-bold text-amber-600">{aiActions.filter(a => a.priority === 'high').length}</div>
-              <div className="text-xs text-slate-400">높음</div>
-            </div>
-            <div>
-              <div className="text-2xl font-bold text-blue-600">{aiActions.filter(a => a.priority === 'medium').length}</div>
-              <div className="text-xs text-slate-400">보통</div>
-            </div>
-          </div>
-          <div className="space-y-1.5 w-full max-w-xs">
-            {aiActions.slice(0, 3).map(a => (
-              <div key={a.id} className="flex items-center gap-2 text-sm text-slate-600">
-                <span className={`w-1.5 h-1.5 rounded-full ${a.priority === 'urgent' ? 'bg-red-500' : a.priority === 'high' ? 'bg-amber-500' : 'bg-blue-500'}`} />
-                {a.label}
+        <div className="flex-1 flex flex-col p-5 gap-4">
+          <div className="flex gap-6">
+            {[
+              { label: '긴급', color: 'text-red-600 bg-red-50 border-red-200', count: aiActions.filter(a => a.priority === 'urgent').length },
+              { label: '높음', color: 'text-amber-600 bg-amber-50 border-amber-200', count: aiActions.filter(a => a.priority === 'high').length },
+              { label: '보통', color: 'text-blue-600 bg-blue-50 border-blue-200', count: aiActions.filter(a => a.priority === 'medium').length },
+            ].map(g => (
+              <div key={g.label} className={`flex-1 rounded-xl border p-3 text-center ${g.color}`}>
+                <div className="text-2xl font-bold">{g.count}</div>
+                <div className="text-xs font-medium mt-0.5">{g.label}</div>
               </div>
             ))}
           </div>
-          <Link href="/action-board" className="mt-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition-colors">
+          <div className="flex-1 space-y-1.5 overflow-y-auto">
+            {aiActions.map(a => (
+              <div key={a.id} className="flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-slate-50 transition-colors">
+                <span className={`w-2 h-2 rounded-full shrink-0 ${a.priority === 'urgent' ? 'bg-red-500' : a.priority === 'high' ? 'bg-amber-500' : 'bg-blue-500'}`} />
+                <span className="text-[13px] text-slate-700 truncate flex-1">{a.label}</span>
+                <span className="text-[11px] text-slate-400 shrink-0">{a.detail?.slice(0, 15)}</span>
+              </div>
+            ))}
+          </div>
+          <Link href="/action-board" className="shrink-0 text-center px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition-colors">
             액션 보드에서 보기 →
           </Link>
         </div>
@@ -757,7 +723,7 @@ function DashboardChart({
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-500" />이익률</span>
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-amber-400 opacity-70" />광고비율</span>
           </div>
-          <ResponsiveContainer width="100%" height={200}>
+          <ResponsiveContainer width="100%" height={320}>
             <AreaChart data={dailyTrend}>
               <defs>
                 <linearGradient id="gRevenue" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#3b82f6" stopOpacity={0.12} /><stop offset="95%" stopColor="#3b82f6" stopOpacity={0} /></linearGradient>
@@ -792,7 +758,7 @@ function DashboardChart({
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-violet-500" />매출</span>
             <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-indigo-500 inline-block" /> 광고비율</span>
           </div>
-          <ResponsiveContainer width="100%" height={200}>
+          <ResponsiveContainer width="100%" height={320}>
             <AreaChart data={adChartData}>
               <defs>
                 <linearGradient id="gAdCost" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#f43f5e" stopOpacity={0.12} /><stop offset="95%" stopColor="#f43f5e" stopOpacity={0} /></linearGradient>
@@ -833,7 +799,7 @@ function DashboardChart({
               <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-blue-500" />내 수치</span>
               <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-orange-500" />업계 평균</span>
             </div>
-            <ResponsiveContainer width="100%" height={180}>
+            <ResponsiveContainer width="100%" height={220}>
               <BarChart data={benchmarkData} barGap={4} barCategoryGap="25%">
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
                 <XAxis dataKey="name" fontSize={13} tickLine={false} axisLine={false} tick={{ fill: '#64748b' }} fontWeight={600} />

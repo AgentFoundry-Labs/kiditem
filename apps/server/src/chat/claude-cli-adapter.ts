@@ -1,24 +1,24 @@
 import { spawn } from 'child_process';
 import { randomUUID } from 'crypto';
+import { readFile } from 'fs/promises';
+import { join } from 'path';
 import type {
   CopilotServiceAdapter,
   CopilotRuntimeChatCompletionRequest,
   CopilotRuntimeChatCompletionResponse,
 } from '@copilotkit/runtime';
 
-const SYSTEM_PROMPT = `당신은 KIDITEM 이커머스 운영 AI 어시스턴트입니다.
-쿠팡 키즈용품 셀러의 광고, 재고, 가격, 매출 전략을 도와줍니다.
-한국어로 간결하게 답변하세요.
-사용자가 제공하는 컨텍스트 데이터를 참고하여 인사이트를 제공하세요.
+const FALLBACK_PROMPT = `당신은 KIDITEM 운영 AI 어시스턴트입니다.
+사용자의 질문에 실시간 데이터를 기반으로 답변합니다.
 DB 조회는 psql "$AGENT_DATABASE_URL"로 직접 수행합니다.
-쓰기 작업은 절대 불가.`;
+쓰기 작업은 절대 불가. 한국어, 간결하게 답변.`;
 
 const TIMEOUT_MS = 120_000;
 const GRACE_MS = 10_000;
 
 /**
  * CopilotKit adapter that delegates to the Claude CLI process.
- * Mirrors the pattern from apps/server/src/chat/chat.service.ts.
+ * Loads system prompt from agent-config/prompts/agents/chat.md.
  */
 export class ClaudeCliAdapter implements CopilotServiceAdapter {
   provider = 'anthropic';
@@ -26,6 +26,17 @@ export class ClaudeCliAdapter implements CopilotServiceAdapter {
 
   get name() {
     return 'ClaudeCliAdapter';
+  }
+
+  private async loadPrompt(): Promise<string> {
+    try {
+      return await readFile(
+        join(process.cwd(), 'agent-config/prompts/agents/chat.md'),
+        'utf-8',
+      );
+    } catch {
+      return FALLBACK_PROMPT;
+    }
   }
 
   async process(
@@ -39,22 +50,16 @@ export class ClaudeCliAdapter implements CopilotServiceAdapter {
 
     const threadId = threadIdFromRequest || randomUUID();
 
-    // Extract user text and context from messages
+    // Extract user text from messages
     let userText = '';
-    const contextParts: string[] = [];
-
     for (const msg of messages) {
       if (!msg.isTextMessage()) continue;
       const text = (msg as any).content ?? '';
       if (msg.role === 'user') userText = text;
-      else if (msg.role === 'system') contextParts.push(text);
     }
 
-    const fullPrompt = [
-      SYSTEM_PROMPT,
-      ...contextParts.length > 0 ? [`\n--- 컨텍스트 ---\n${contextParts.join('\n')}`] : [],
-      `\n--- 사용자 질문 ---\n${userText}`,
-    ].join('\n');
+    const systemPrompt = await this.loadPrompt();
+    const fullPrompt = `${systemPrompt}\n\n---\n\n${userText}`;
 
     await eventSource.stream(async (eventStream$) => {
       return new Promise<void>((resolve) => {
@@ -75,6 +80,7 @@ export class ClaudeCliAdapter implements CopilotServiceAdapter {
             env: {
               ...process.env,
               AGENT_DATABASE_URL:
+                process.env.CHATBOT_DATABASE_URL ||
                 process.env.AGENT_DATABASE_URL ||
                 process.env.DATABASE_URL ||
                 '',

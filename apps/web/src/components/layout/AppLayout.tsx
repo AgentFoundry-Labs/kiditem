@@ -30,7 +30,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <CopilotKit runtimeUrl="http://localhost:4000/api/copilotkit">
+    <CopilotKit runtimeUrl="http://localhost:4000/api/chat/copilot">
       <div className="min-h-screen bg-slate-50">
         <Sidebar onChatToggle={toggleChat} chatOpen={chatOpen} />
         <div
