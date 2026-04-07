@@ -28,6 +28,14 @@ npm run db:studio     # DB browser (localhost:5555)
 - Python accesses snake_case DB column names directly (asyncpg raw SQL)
 - After schema changes: always run `npm run db:push` + `npx prisma generate`
 - Keep Zod schemas in sync: use `satisfies z.infer<typeof Schema>` pattern in services
+- Json 흡수 패턴: 부모의 `items Json @default("[]")` 사용 (CoupangReturn, BundleProduct, WorkflowRun). 서비스에서 `as unknown as T[]` 캐스트.
+
+## 통합 모델 규칙
+
+- `AgentDefinition.rt_*` 필드: 런타임 상태 (sessionId, lastRunStatus, 토큰 사용량 등). 별도 테이블 없음.
+- `AgentEvent`: eventType(`permission_denied`|`action_snapshot`)으로 구분. snapshot 필드는 해당 타입만 사용.
+- `AdSnapshot`: level(`campaign`|`product`|null)로 구분. null은 raw 스냅샷.
+- `Marketplace`: type(`agent`|`workflow`)으로 구분.
 
 ## User Types
 
