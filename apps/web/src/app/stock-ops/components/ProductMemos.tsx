@@ -24,7 +24,7 @@ interface Memo {
 const memoTypeConfig: Record<string, { text: string; color: string; bg: string; icon: typeof MessageSquare }> = {
   general: { text: '일반', color: 'text-slate-600', bg: 'bg-slate-100 border-slate-200', icon: MessageSquare },
   urgent: { text: '긴급', color: 'text-red-600', bg: 'bg-red-50 border-red-200', icon: AlertTriangle },
-  shipping: { text: '배송', color: 'text-purple-600', bg: 'bg-blue-50 border-blue-200', icon: Truck },
+  shipping: { text: '배송', color: 'text-purple-600', bg: 'bg-purple-50 border-purple-200', icon: Truck },
   quality: { text: '품질', color: 'text-orange-600', bg: 'bg-orange-50 border-orange-200', icon: ShieldCheck },
 };
 

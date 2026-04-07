@@ -45,7 +45,7 @@ export default function BarcodeScanInput({
               onChange={(e) => onBarcodeChange(e.target.value)}
               onKeyDown={handleKeyDown}
               autoFocus
-              className="w-full pl-10 pr-4 py-3 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+              className="w-full pl-10 pr-4 py-3 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 font-mono"
             />
           </div>
           <button

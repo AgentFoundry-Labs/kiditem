@@ -48,7 +48,7 @@ export function SkillsTab({ agent }: { agent: Agent }) {
                   <p className="text-xs text-slate-500 mt-0.5">{SKILL_DESCRIPTIONS[skill]}</p>
                 )}
               </div>
-              <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-purple-600 font-medium">
+              <span className="text-xs px-2 py-0.5 rounded-full bg-purple-50 text-purple-600 font-medium">
                 활성
               </span>
             </div>

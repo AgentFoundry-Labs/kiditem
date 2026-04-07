@@ -47,7 +47,7 @@ export default function OrderTable({
           <button
             onClick={onConfirm}
             disabled={selectedCount === 0}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono rounded-full bg-blue-500 text-white hover:bg-purple-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono rounded-full bg-purple-500 text-white hover:bg-purple-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             <Check size={12} />
             CONFIRM ({selectedCount})
@@ -92,7 +92,7 @@ export default function OrderTable({
                     type="checkbox"
                     checked={allChecked}
                     onChange={onToggleAll}
-                    className="w-3.5 h-3.5 rounded border-slate-300 text-purple-600 focus:ring-blue-500 cursor-pointer"
+                    className="w-3.5 h-3.5 rounded border-slate-300 text-purple-600 focus:ring-purple-500 cursor-pointer"
                   />
                 </th>
                 <th>상품명</th>
@@ -118,7 +118,7 @@ export default function OrderTable({
                         type="checkbox"
                         checked={isSelected}
                         onChange={() => onToggleOrder(order.id)}
-                        className="w-3.5 h-3.5 rounded border-slate-300 text-purple-600 focus:ring-blue-500 cursor-pointer"
+                        className="w-3.5 h-3.5 rounded border-slate-300 text-purple-600 focus:ring-purple-500 cursor-pointer"
                       />
                     </td>
                     <td className="max-w-[280px]">

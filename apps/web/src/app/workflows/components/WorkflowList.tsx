@@ -277,7 +277,7 @@ export default function WorkflowList({
                       {selectedRun && (
                         <button
                           onClick={handleBackToTemplate}
-                          className="flex items-center gap-1 text-xs text-purple-600 hover:text-blue-700"
+                          className="flex items-center gap-1 text-xs text-purple-600 hover:text-purple-700"
                         >
                           <ArrowLeft className="w-3 h-3" />
                           템플릿 보기

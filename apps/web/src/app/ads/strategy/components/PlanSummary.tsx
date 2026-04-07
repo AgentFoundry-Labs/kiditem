@@ -48,7 +48,7 @@ export function PlanSummary({ plan }: { plan?: PlanData }) {
 
   const cards = [
     { label: '확대', value: plan.summary.scaleUp, color: 'text-emerald-600 bg-emerald-50 border-emerald-200' },
-    { label: '최적화', value: plan.summary.optimize, color: 'text-purple-600 bg-blue-50 border-blue-200' },
+    { label: '최적화', value: plan.summary.optimize, color: 'text-purple-600 bg-purple-50 border-purple-200' },
     { label: '축소', value: plan.summary.reduce, color: 'text-amber-600 bg-amber-50 border-amber-200' },
     { label: '중단', value: plan.summary.stop, color: 'text-red-600 bg-red-50 border-red-200' },
     { label: '신규', value: plan.summary.newStart, color: 'text-purple-600 bg-purple-50 border-purple-200' },

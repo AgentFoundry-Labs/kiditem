@@ -69,7 +69,7 @@ export function MarketplaceCard({ item, type, installed, onClick }: MarketplaceC
           {/* Badges */}
           <div className="flex items-center gap-1.5 flex-wrap">
             {type === 'workflow' && item.module && (
-              <span className="px-1.5 py-0.5 text-[10px] font-medium bg-blue-50 text-purple-600 rounded">
+              <span className="px-1.5 py-0.5 text-[10px] font-medium bg-purple-50 text-purple-600 rounded">
                 {MODULE_LABELS[item.module] || item.module}
               </span>
             )}

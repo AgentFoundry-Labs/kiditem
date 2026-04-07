@@ -50,7 +50,7 @@ export function AgentListPanel({
             <Bot className="w-6 h-6 text-slate-400" />
           </div>
           <p className="text-sm font-medium text-slate-600">등록된 에이전트가 없습니다.</p>
-          <Link href="/marketplace" className="text-xs text-blue-500 hover:text-purple-600 mt-1">
+          <Link href="/marketplace" className="text-xs text-purple-500 hover:text-purple-600 mt-1">
             마켓플레이스에서 에이전트를 설치하세요 →
           </Link>
         </div>

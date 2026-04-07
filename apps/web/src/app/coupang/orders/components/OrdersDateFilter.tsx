@@ -28,7 +28,7 @@ export default function OrdersDateFilter({ activePreset, dateRange, onPreset, on
             className={cn(
               'px-3 py-1.5 text-sm rounded-lg border',
               activePreset === p.days
-                ? 'bg-blue-50 text-purple-600 border-blue-200'
+                ? 'bg-purple-50 text-purple-600 border-purple-200'
                 : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
             )}
           >

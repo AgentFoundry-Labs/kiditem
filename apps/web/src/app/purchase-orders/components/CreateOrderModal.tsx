@@ -107,7 +107,7 @@ export default function CreateOrderModal({ onClose, onCreated }: CreateOrderModa
               value={supplierName}
               onChange={(e) => setSupplierName(e.target.value)}
               placeholder="예: 이우 XX무역"
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none"
             />
           </div>
 
@@ -116,7 +116,7 @@ export default function CreateOrderModal({ onClose, onCreated }: CreateOrderModa
               <label className="text-sm font-medium text-slate-700">품목</label>
               <button
                 onClick={addItem}
-                className="flex items-center gap-1 text-xs text-purple-600 hover:text-blue-700"
+                className="flex items-center gap-1 text-xs text-purple-600 hover:text-purple-700"
               >
                 <Plus size={12} /> 품목 추가
               </button>
@@ -129,7 +129,7 @@ export default function CreateOrderModal({ onClose, onCreated }: CreateOrderModa
                     value={item.productName}
                     onChange={(e) => updateItem(idx, 'productName', e.target.value)}
                     placeholder="상품명"
-                    className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                    className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none"
                   />
                   <input
                     type="number"
@@ -137,7 +137,7 @@ export default function CreateOrderModal({ onClose, onCreated }: CreateOrderModa
                     onChange={(e) => updateItem(idx, 'quantity', e.target.value)}
                     placeholder="수량"
                     min={1}
-                    className="w-20 px-3 py-2 border border-slate-300 rounded-lg text-sm text-right focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                    className="w-20 px-3 py-2 border border-slate-300 rounded-lg text-sm text-right focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none"
                   />
                   <input
                     type="number"
@@ -145,7 +145,7 @@ export default function CreateOrderModal({ onClose, onCreated }: CreateOrderModa
                     onChange={(e) => updateItem(idx, 'unitPriceCny', e.target.value)}
                     placeholder="단가(CNY)"
                     step="0.01"
-                    className="w-28 px-3 py-2 border border-slate-300 rounded-lg text-sm text-right focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                    className="w-28 px-3 py-2 border border-slate-300 rounded-lg text-sm text-right focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none"
                   />
                   {items.length > 1 && (
                     <button
@@ -173,7 +173,7 @@ export default function CreateOrderModal({ onClose, onCreated }: CreateOrderModa
               type="date"
               value={expectedDate}
               onChange={(e) => setExpectedDate(e.target.value)}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none"
             />
           </div>
         </div>

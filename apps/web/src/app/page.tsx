@@ -13,6 +13,7 @@ import {
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import dynamic from 'next/dynamic';
 import { apiClient } from '@/lib/api-client';
+import PageSkeleton from '@/components/ui/PageSkeleton';
 
 const DashboardCharts = dynamic(
   () => import('./components/DashboardCharts').then(mod => ({ default: mod.DashboardCharts })),
@@ -79,13 +80,7 @@ export default function Dashboard() {
   });
   const aiActions = actionTasks.filter(t => t.type === 'ai');
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64 text-sm font-mono text-slate-400">
-        INITIALIZING FOUNDRY...
-      </div>
-    );
-  }
+  if (loading) return <PageSkeleton variant="dashboard" />;
 
   if (!data) {
     return (
@@ -694,7 +689,7 @@ function DashboardChart({
             {[
               { label: '긴급', color: 'text-red-600 bg-red-50 border-red-200', count: aiActions.filter(a => a.priority === 'urgent').length },
               { label: '높음', color: 'text-amber-600 bg-amber-50 border-amber-200', count: aiActions.filter(a => a.priority === 'high').length },
-              { label: '보통', color: 'text-purple-600 bg-blue-50 border-blue-200', count: aiActions.filter(a => a.priority === 'medium').length },
+              { label: '보통', color: 'text-purple-600 bg-purple-50 border-purple-200', count: aiActions.filter(a => a.priority === 'medium').length },
             ].map(g => (
               <div key={g.label} className={`flex-1 rounded-xl border p-3 text-center ${g.color}`}>
                 <div className="text-2xl font-bold">{g.count}</div>

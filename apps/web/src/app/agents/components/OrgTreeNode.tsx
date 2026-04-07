@@ -50,10 +50,10 @@ export function OrgTreeNode({
         {/* Trailing info */}
         <div className="hidden sm:flex items-center gap-3 shrink-0">
           {isLive && (
-            <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-50 text-purple-600 text-[11px] font-medium">
+            <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-purple-50 text-purple-600 text-[11px] font-medium">
               <span className="relative flex h-1.5 w-1.5">
-                <span className="animate-pulse absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-blue-500" />
+                <span className="animate-pulse absolute inline-flex h-full w-full rounded-full bg-purple-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-purple-500" />
               </span>
               Live
             </span>

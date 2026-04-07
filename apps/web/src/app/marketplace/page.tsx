@@ -139,7 +139,7 @@ export default function MarketplacePage() {
             onClick={() => setTypeFilter(tab.id)}
             className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
               typeFilter === tab.id
-                ? 'border-blue-500 text-purple-600'
+                ? 'border-purple-500 text-purple-600'
                 : 'border-transparent text-slate-500 hover:text-slate-700'
             }`}
           >
@@ -158,7 +158,7 @@ export default function MarketplacePage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="이름 또는 설명 검색"
-            className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+            className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-purple-500 focus:border-purple-500"
           />
         </div>
 
@@ -193,7 +193,7 @@ export default function MarketplacePage() {
         <select
           value={sort}
           onChange={(e) => setSort(e.target.value as SortKey)}
-          className="ml-auto px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+          className="ml-auto px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-purple-500 bg-white"
         >
           {SORT_OPTIONS.map((opt) => (
             <option key={opt.value} value={opt.value}>

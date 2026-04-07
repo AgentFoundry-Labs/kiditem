@@ -58,12 +58,12 @@ export default function WorkflowsPage({ onAddWorkflow }: { onAddWorkflow?: () =>
           </p>
         </div>
         {onAddWorkflow ? (
-          <button onClick={onAddWorkflow} className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-blue-500 hover:bg-purple-600 text-white text-sm font-medium transition-colors">
+          <button onClick={onAddWorkflow} className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-purple-500 hover:bg-purple-600 text-white text-sm font-medium transition-colors">
             <Plus className="w-4 h-4" />
             워크플로우 설치
           </button>
         ) : (
-          <Link href="/marketplace" className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-blue-500 hover:bg-purple-600 text-white text-sm font-medium transition-colors">
+          <Link href="/marketplace" className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-purple-500 hover:bg-purple-600 text-white text-sm font-medium transition-colors">
             <Plus className="w-4 h-4" />
             워크플로우 설치
           </Link>

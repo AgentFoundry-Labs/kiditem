@@ -40,7 +40,7 @@ interface MonthlySummary {
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; icon: typeof Clock }> = {
   pending: { label: '미결', color: 'text-yellow-600', bg: 'bg-yellow-50', icon: Clock },
-  completed: { label: '완료', color: 'text-purple-600', bg: 'bg-blue-50', icon: CheckCircle },
+  completed: { label: '완료', color: 'text-purple-600', bg: 'bg-purple-50', icon: CheckCircle },
   paid: { label: '지급완료', color: 'text-green-600', bg: 'bg-green-50', icon: Wallet },
 };
 

@@ -152,7 +152,7 @@ export default function SalesPlans() {
                     <button
                       disabled={syncing === plan.id}
                       onClick={() => syncMutation.mutate(plan.id)}
-                      className="flex items-center gap-1 px-2.5 py-1 text-xs text-purple-600 border border-blue-200 rounded-md hover:bg-blue-50"
+                      className="flex items-center gap-1 px-2.5 py-1 text-xs text-purple-600 border border-purple-200 rounded-md hover:bg-purple-50"
                     >
                       {syncing === plan.id ? (
                         <Loader2 size={11} className="animate-spin" />

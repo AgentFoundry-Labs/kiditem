@@ -133,7 +133,7 @@ export default function OrderMatching() {
               placeholder="주문상품명 또는 주문번호로 검색..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
             />
           </div>
         </div>
@@ -196,7 +196,7 @@ export default function OrderMatching() {
                               [key]: e.target.value,
                             }))
                           }
-                          className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
                         >
                           <option value="">-- 상품 선택 --</option>
                           {products.map((p) => (

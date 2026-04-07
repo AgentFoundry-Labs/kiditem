@@ -8,6 +8,7 @@ import {
   MessageSquare, Clock, Send, Package,
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import PageSkeleton from '@/components/ui/PageSkeleton';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
@@ -152,13 +153,7 @@ export default function ActionBoardPage() {
 
   const columns = getColumns();
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-64 text-sm font-mono text-slate-400">
-        LOADING ACTION BOARD...
-      </div>
-    );
-  }
+  if (isLoading) return <PageSkeleton variant="table" />;
 
   return (
     <div className="flex flex-col h-full min-h-0">

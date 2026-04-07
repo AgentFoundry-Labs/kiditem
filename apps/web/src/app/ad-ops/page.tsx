@@ -2,29 +2,25 @@
 
 import { useState } from 'react';
 import {
-  RefreshCw, Brain, Sparkles, Megaphone,
-  AlertTriangle, LayoutGrid, Package,
+  RefreshCw, Brain, Sparkles,
+  AlertTriangle, LayoutGrid,
 } from 'lucide-react';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import ScrapeCollector from '@/app/ads/collect/components/ScrapeCollector';
 import { useAdOpsData, useCampaignProducts, useRefreshAdOps } from './hooks/useAdOpsData';
 import { KpiCards } from './components/KpiCards';
-import { OverviewTab } from './components/OverviewTab';
+import { StatusTab } from './components/StatusTab';
 import { StrategyTab } from './components/StrategyTab';
-import { CampaignsTab } from './components/CampaignsTab';
-import { ProductsTab } from './components/ProductsTab';
 
 import type { TabKey } from './lib/types';
 
 const TABS: { key: TabKey; label: string; icon: typeof LayoutGrid }[] = [
-  { key: 'overview', label: '개요', icon: LayoutGrid },
-  { key: 'strategy', label: 'AI 전략', icon: Sparkles },
-  { key: 'campaigns', label: '캠페인', icon: Megaphone },
-  { key: 'products', label: '상품 현황', icon: Package },
+  { key: 'status', label: '현황', icon: LayoutGrid },
+  { key: 'strategy', label: '전략', icon: Sparkles },
 ];
 
 export default function AdOpsPage() {
-  const [tab, setTab] = useState<TabKey>('overview');
+  const [tab, setTab] = useState<TabKey>('status');
   const [period, setPeriod] = useState('14d');
   const [selectedCampaign, setSelectedCampaign] = useState<string | null>(null);
 
@@ -52,7 +48,7 @@ export default function AdOpsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-purple-600">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-600">
             <Brain size={20} className="text-white" />
           </div>
           <div>
@@ -70,7 +66,7 @@ export default function AdOpsPage() {
           <div className="flex rounded-lg p-0.5 bg-slate-100">
             {[{ key: '7d', label: '7일' }, { key: '14d', label: '14일' }, { key: 'month', label: '이번달' }].map(p => (
               <button key={p.key} onClick={() => setPeriod(p.key)}
-                className={`px-4 py-1.5 text-sm font-semibold rounded-md transition-all ${period === p.key ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-400'}`}>
+                className={`px-4 py-1.5 text-sm font-semibold rounded-md transition-all ${period === p.key ? 'bg-violet-600 text-white shadow-sm' : 'text-slate-400'}`}>
                 {p.label}
               </button>
             ))}
@@ -84,14 +80,15 @@ export default function AdOpsPage() {
       {/* KPI Cards */}
       <KpiCards totalKpi={totalKpi} wingAdData={wingAdData} roas={roas} />
 
-      {/* Tab navigation */}
-      <div className="flex gap-2">
+      {/* Tab navigation — purple bar */}
+      <div className="rounded-2xl px-3 py-3 flex items-center gap-1.5 bg-violet-600">
         {TABS.map(t => {
           const Icon = t.icon;
           const isActive = tab === t.key;
           return (
             <button key={t.key} onClick={() => setTab(t.key)}
-              className={`flex items-center gap-2 px-4 py-2 text-[13px] font-medium rounded-lg border transition-all ${isActive ? 'text-white border-purple-600 bg-purple-600' : 'bg-white hover:bg-slate-50 border-slate-100 text-slate-500'}`}>
+              className="flex items-center gap-2 px-6 py-2.5 text-sm font-semibold rounded-xl transition-all"
+              style={isActive ? { background: '#ffffff', color: '#7c3aed', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' } : { color: 'rgba(255,255,255,0.7)' }}>
               <Icon size={15} />
               {t.label}
             </button>
@@ -100,38 +97,27 @@ export default function AdOpsPage() {
       </div>
 
       {/* Tab content */}
-      {tab === 'overview' && (
-        <OverviewTab
-          trends={data.trends.data}
-          wingKpis={wingKpis}
-          rules={rules}
-          strategy={data.strategy.data}
-        />
-      )}
+      <div style={{ minHeight: 600 }}>
+        {tab === 'status' && (
+          <StatusTab
+            trends={data.trends.data}
+            wingKpis={wingKpis}
+            rules={rules}
+            strategy={data.strategy.data}
+            campaigns={sorted}
+            selectedCampaign={selectedCampaign}
+            onSelectCampaign={setSelectedCampaign}
+            products={campaignProducts.data?.products || []}
+          />
+        )}
 
-      {tab === 'strategy' && (
-        <StrategyTab
-          rules={rules}
-          strategy={data.strategy.data}
-          strategyCards={data.recommend.data?.cards || []}
-        />
-      )}
-
-      {tab === 'campaigns' && (
-        <CampaignsTab
-          campaigns={sorted}
-          selectedCampaign={selectedCampaign}
-          onSelectCampaign={setSelectedCampaign}
-          products={campaignProducts.data?.products || []}
-        />
-      )}
-
-      {tab === 'products' && data.adsList.data && (
-        <ProductsTab
-          products={data.adsList.data.products}
-          summary={data.adsList.data.summary}
-        />
-      )}
+        {tab === 'strategy' && (
+          <StrategyTab
+            rules={rules}
+            strategy={data.strategy.data}
+          />
+        )}
+      </div>
     </div>
   );
 }

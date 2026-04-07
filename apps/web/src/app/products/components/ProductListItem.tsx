@@ -75,7 +75,7 @@ export default function ProductListItem({ product: p, rank }: ProductListItemPro
           )}
           {p.adTier && (
             <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
-              p.adTier === '1차' ? 'bg-blue-50 text-purple-600' :
+              p.adTier === '1차' ? 'bg-purple-50 text-purple-600' :
               p.adTier === '2차' ? 'bg-purple-50 text-purple-600' :
               'bg-slate-100 text-slate-500'
             }`}>{p.adTier} 광고</span>

@@ -40,7 +40,7 @@ interface PurchaseOrder {
 
 const STATUS_LABELS: Record<string, { label: string; color: string; bg: string }> = {
   pending: { label: '대기', color: 'text-slate-600', bg: 'bg-slate-100' },
-  ordered: { label: '발주', color: 'text-purple-600', bg: 'bg-blue-50' },
+  ordered: { label: '발주', color: 'text-purple-600', bg: 'bg-purple-50' },
   shipped: { label: '배송중', color: 'text-yellow-600', bg: 'bg-yellow-50' },
   inspecting: { label: '검수중', color: 'text-orange-600', bg: 'bg-orange-50' },
   received: { label: '입고완료', color: 'text-green-600', bg: 'bg-green-50' },

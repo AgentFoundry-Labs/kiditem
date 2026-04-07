@@ -1,1 +1,1 @@
-export type TabKey = 'overview' | 'strategy' | 'campaigns' | 'products';
+export type TabKey = 'status' | 'strategy';

@@ -110,7 +110,7 @@ export default function AgentOverview({ onAddAgent }: { onAddAgent?: () => void 
           onClick={() => setPageTab('my')}
           className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
             pageTab === 'my'
-              ? 'border-blue-500 text-purple-600'
+              ? 'border-purple-500 text-purple-600'
               : 'border-transparent text-slate-500 hover:text-slate-700'
           }`}
         >
@@ -120,7 +120,7 @@ export default function AgentOverview({ onAddAgent }: { onAddAgent?: () => void 
           onClick={() => setPageTab('org')}
           className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
             pageTab === 'org'
-              ? 'border-blue-500 text-purple-600'
+              ? 'border-purple-500 text-purple-600'
               : 'border-transparent text-slate-500 hover:text-slate-700'
           }`}
         >
@@ -136,7 +136,7 @@ export default function AgentOverview({ onAddAgent }: { onAddAgent?: () => void 
               {onAddAgent && (
                 <button
                   onClick={onAddAgent}
-                  className="mt-2 text-sm text-blue-500 hover:text-purple-600 hover:underline"
+                  className="mt-2 text-sm text-purple-500 hover:text-purple-600 hover:underline"
                 >
                   마켓플레이스에서 에이전트를 고용하세요
                 </button>

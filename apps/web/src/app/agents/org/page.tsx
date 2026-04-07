@@ -32,7 +32,7 @@ export default function OrgPage() {
           <p className="text-sm">에이전트가 아직 없습니다.</p>
           <Link
             href="/agents?tab=marketplace"
-            className="mt-2 text-sm text-blue-500 hover:text-purple-600 hover:underline"
+            className="mt-2 text-sm text-purple-500 hover:text-purple-600 hover:underline"
           >
             마켓플레이스에서 에이전트를 고용하세요
           </Link>

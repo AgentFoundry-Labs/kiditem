@@ -30,7 +30,7 @@ export default function AgentCard({ node, onClick }: Props) {
         <div className={cn(
           "w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold transition-colors",
           hired
-            ? "bg-slate-100 text-slate-700 group-hover:bg-blue-50 group-hover:text-blue-700"
+            ? "bg-slate-100 text-slate-700 group-hover:bg-purple-50 group-hover:text-purple-700"
             : "bg-slate-200 text-slate-400",
         )}>
           {initial}
@@ -59,7 +59,7 @@ export default function AgentCard({ node, onClick }: Props) {
           {roleLabel}
         </span>
         {hired && (
-          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium bg-blue-50 text-purple-600">
+          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium bg-purple-50 text-purple-600">
             {adapterLabel}
           </span>
         )}

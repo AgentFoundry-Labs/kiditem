@@ -15,7 +15,7 @@ export function CSSummaryCards({ summary }: Props) {
   const cards = [
     { label: '전체', value: summary.total, color: 'text-slate-900', bg: 'bg-white' },
     { label: '접수', value: summary.접수, color: 'text-yellow-600', bg: 'bg-yellow-50' },
-    { label: '처리중', value: summary.처리중, color: 'text-purple-600', bg: 'bg-blue-50' },
+    { label: '처리중', value: summary.처리중, color: 'text-purple-600', bg: 'bg-purple-50' },
     { label: '완료', value: summary.완료, color: 'text-green-600', bg: 'bg-green-50' },
   ];
 

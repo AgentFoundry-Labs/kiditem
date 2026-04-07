@@ -250,6 +250,18 @@ export const AdStrategyActionSchema = z.object({
   spend: z.number(),
   roas: z.number(),
   profitRate: z.number(),
+  // Dashboard UI 이식 — 전략 탭 ABC 카드 상세 필드
+  tier: z.string().nullable().default(null),
+  currentRoas: z.number().default(0),
+  currentCtr: z.number().default(0),
+  currentCvr: z.number().default(0),
+  currentAcos: z.number().default(0),
+  currentAdRate: z.number().default(0),
+  recommendedAction: z.string().default(''),
+  actionPriority: z.enum(['urgent', 'high', 'medium', 'low']).default('medium'),
+  maxBidPrice: z.number().default(0),
+  targetRoas: z.number().default(0),
+  keywords: z.array(z.string()).default([]),
 });
 
 export type AdStrategyAction = z.infer<typeof AdStrategyActionSchema>;

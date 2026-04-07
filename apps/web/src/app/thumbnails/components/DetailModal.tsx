@@ -127,7 +127,7 @@ export function DetailModal({
                         onClick={() => onSelectCandidate(url)}
                         className={cn(
                           'relative rounded-xl overflow-hidden border-2 transition-all hover:scale-[1.02]',
-                          gen.selectedUrl === url ? 'border-blue-500 ring-2 ring-purple-200' : 'border-slate-200 hover:border-slate-300'
+                          gen.selectedUrl === url ? 'border-purple-500 ring-2 ring-purple-200' : 'border-slate-200 hover:border-slate-300'
                         )}
                       >
                         <div className="aspect-square bg-slate-100">

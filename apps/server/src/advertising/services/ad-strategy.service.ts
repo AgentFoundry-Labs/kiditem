@@ -328,50 +328,90 @@ export class AdStrategyService {
   }
 
   private async calcActions(companyId: string, year: number, month: number) {
-    const since = new Date();
-    since.setDate(since.getDate() - 14);
+    const config = await this.adConfigService.getConfig(companyId);
+    const roasTargets = config.roasTargetByGrade;
 
-    const products = await this.prisma.product.findMany({
-      where: { companyId, isDeleted: false },
-      select: {
-        id: true,
-        name: true,
-        abcGrade: true,
-        ads: {
-          where: { companyId, date: { gte: since } },
-          select: { spend: true, revenue: true },
+    const [adAgg, products, adKeywords] = await Promise.all([
+      this.prisma.ad.groupBy({
+        by: ['productId'],
+        where: { companyId },
+        _sum: { spend: true, revenue: true, clicks: true, impressions: true, conversions: true },
+      }),
+      this.prisma.product.findMany({
+        where: { companyId, isDeleted: false },
+        select: {
+          id: true,
+          name: true,
+          abcGrade: true,
+          adTier: true,
+          sellPrice: true,
+          costPrice: true,
+          profitLoss: {
+            where: { companyId, year, month },
+            select: { profitRate: true, revenue: true },
+            take: 1,
+          },
         },
-        profitLoss: {
-          where: { companyId, year, month },
-          select: { profitRate: true },
-          take: 1,
-        },
-      },
-    });
+      }),
+      this.prisma.ad.findMany({
+        where: { companyId, keyword: { not: null } },
+        select: { productId: true, keyword: true },
+        distinct: ['productId', 'keyword'] as any,
+      }),
+    ]);
+
+    const adMap = new Map(adAgg.map((a) => [a.productId, a._sum]));
+
+    const keywordMap = new Map<string, string[]>();
+    for (const ak of adKeywords) {
+      if (!ak.keyword) continue;
+      const existing = keywordMap.get(ak.productId) || [];
+      if (!existing.includes(ak.keyword)) {
+        existing.push(ak.keyword);
+        keywordMap.set(ak.productId, existing);
+      }
+    }
 
     return products
       .map((p) => {
-        const spend = p.ads.reduce((s, a) => s + a.spend, 0);
-        const adRevenue = p.ads.reduce((s, a) => s + a.revenue, 0);
+        const ad = adMap.get(p.id);
+        const spend = ad?.spend || 0;
+        const adRevenue = ad?.revenue || 0;
+        const clicks = ad?.clicks || 0;
+        const impressions = ad?.impressions || 0;
+        const conversions = ad?.conversions || 0;
         if (spend === 0) return null;
 
-        const roas = spend > 0 ? (adRevenue / spend) * 100 : 0;
+        const roas = (adRevenue / spend) * 100;
         const profitRate = Number(p.profitLoss[0]?.profitRate ?? 0) * 100;
+        const totalRevenue = Number(p.profitLoss[0]?.revenue ?? 0);
+        const margin = p.sellPrice != null && p.costPrice != null ? p.sellPrice - p.costPrice : 0;
+        const grade = p.abcGrade ?? 'C';
+
+        const currentCtr = impressions > 0 ? (clicks / impressions) * 100 : 0;
+        const currentCvr = clicks > 0 ? (conversions / clicks) * 100 : 0;
+        const currentAcos = adRevenue > 0 ? (spend / adRevenue) * 100 : 0;
+        const currentAdRate = totalRevenue > 0 ? (spend / totalRevenue) * 100 : 0;
 
         let action: string;
         let reason: string;
+        let actionPriority: 'urgent' | 'high' | 'medium' | 'low';
         if (roas < 100) {
           action = 'stop';
           reason = 'ROAS 100% 미만 — 광고 중단 권장';
+          actionPriority = 'urgent';
         } else if (roas < 200) {
           action = 'decrease';
           reason = 'ROAS 200% 미만 — 예산 축소 권장';
+          actionPriority = 'high';
         } else if (roas > 400 && profitRate > 10) {
           action = 'increase';
           reason = 'ROAS 400% 초과 + 수익률 10% 초과 — 예산 확대 권장';
+          actionPriority = 'low';
         } else {
           action = 'maintain';
           reason = '현재 수준 유지';
+          actionPriority = 'medium';
         }
 
         return {
@@ -383,6 +423,17 @@ export class AdStrategyService {
           spend,
           roas: Math.round(roas),
           profitRate: Math.round(profitRate * 10) / 10,
+          tier: p.adTier ?? null,
+          currentRoas: Math.round(roas),
+          currentCtr: Math.round(currentCtr * 100) / 100,
+          currentCvr: Math.round(currentCvr * 100) / 100,
+          currentAcos: Math.round(currentAcos * 100) / 100,
+          currentAdRate: Math.round(currentAdRate * 100) / 100,
+          recommendedAction: reason,
+          actionPriority,
+          maxBidPrice: margin > 0 ? Math.round(margin * 0.25) : 0,
+          targetRoas: roasTargets[grade] ?? 300,
+          keywords: keywordMap.get(p.id) || [],
         };
       })
       .filter((x): x is NonNullable<typeof x> => x !== null);

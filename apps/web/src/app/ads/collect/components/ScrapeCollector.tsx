@@ -169,14 +169,14 @@ export default function ScrapeCollector({ onComplete }: { onComplete?: () => voi
                   value={newUrl}
                   onChange={e => setNewUrl(e.target.value)}
                   placeholder="https://advertising.coupang.com/..."
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-200 focus:border-blue-400"
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-200 focus:border-purple-400"
                 />
                 <div className="flex gap-2">
                   <input
                     value={newLabel}
                     onChange={e => setNewLabel(e.target.value)}
                     placeholder="라벨 (예: 메인 캠페인)"
-                    className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-200 focus:border-blue-400"
+                    className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-200 focus:border-purple-400"
                   />
                   <button onClick={addUrl} className="flex items-center gap-1 px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-semibold hover:bg-purple-700 shrink-0">
                     <Plus size={14} /> 추가

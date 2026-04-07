@@ -173,7 +173,7 @@ export default function Categories() {
                   <td className="px-4 py-3">
                     <div className="flex gap-1 justify-end">
                       <button onClick={() => { setEditingId(m.id); setEditForm({ internalCategory: m.internalCategory, coupangCategoryId: m.coupangCategoryId || '', coupangCategoryName: m.coupangCategoryName || '', keywords: m.keywords || '' }); setShowAdd(true); }}
-                        className="px-2 py-1 text-[10px] text-purple-600 hover:bg-blue-50 rounded font-mono">EDIT</button>
+                        className="px-2 py-1 text-[10px] text-purple-600 hover:bg-purple-50 rounded font-mono">EDIT</button>
                       <button onClick={() => deleteMutation.mutate(m.id)} className="p-1 text-slate-400 hover:text-red-500 rounded"><Trash2 size={12} /></button>
                     </div>
                   </td>

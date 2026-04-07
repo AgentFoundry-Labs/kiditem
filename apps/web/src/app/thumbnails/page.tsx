@@ -5,6 +5,7 @@ import { Sparkles, RefreshCw, Zap, Loader2, X, Info } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { apiClient } from '@/lib/api-client';
+import PageSkeleton from '@/components/ui/PageSkeleton';
 import type { ThumbnailAnalysisResult, ThumbnailGenerationItem } from '@kiditem/shared';
 
 import { useAnalysisList } from './hooks/useThumbnailAnalysis';
@@ -168,13 +169,7 @@ export default function ThumbnailsPage() {
   };
 
   // ─── Render ────────────────────────────────────────────────────
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64 text-slate-400 font-mono text-sm">
-        SCANNING THUMBNAILS...
-      </div>
-    );
-  }
+  if (loading) return <PageSkeleton variant="dashboard" />;
 
   return (
     <div className="space-y-5">
