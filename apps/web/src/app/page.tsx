@@ -383,8 +383,8 @@ export default function Dashboard() {
       </div>
 
       {/* 차트 + 사이드패널 */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-3" style={{ minHeight: 400 }}>
-        <div className="lg:col-span-3 h-full">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-3 items-start">
+        <div className="lg:col-span-3">
           <DashboardChart
             dailyTrend={dailyTrend}
             aiActions={aiActions}
@@ -638,7 +638,7 @@ function SidePanel({ alerts, router, queryClient }: {
   };
 
   return (
-    <div className="rounded-2xl overflow-hidden flex flex-col h-full bg-white border border-slate-100 shadow-sm">
+    <div className="rounded-2xl overflow-hidden flex flex-col max-h-[360px] bg-white border border-slate-100 shadow-sm">
       <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
         <div className="flex items-center gap-1.5">
           <AlertTriangle size={14} className="text-slate-500" />
@@ -705,7 +705,7 @@ function DashboardChart({
   }));
 
   return (
-    <div className="rounded-2xl overflow-hidden h-full flex flex-col bg-white border border-slate-100 shadow-sm">
+    <div className="rounded-2xl overflow-hidden flex flex-col bg-white border border-slate-100 shadow-sm">
       <div className="flex items-center justify-between px-5 py-3 border-b border-slate-100">
         <div className="flex gap-1 rounded-lg p-0.5 bg-slate-100">
           {tabs.map(t => (
@@ -751,13 +751,13 @@ function DashboardChart({
 
       {/* 매출 · 이익률 차트 */}
       {chartTab === 'revenue' && hasTrend && (
-        <div className="p-5" style={{ minHeight: 350 }}>
+        <div className="p-5">
           <div className="flex items-center gap-5 mb-3 text-[12px] text-slate-400">
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-blue-500" />매출</span>
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-500" />이익률</span>
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-amber-400 opacity-70" />광고비율</span>
           </div>
-          <ResponsiveContainer width="100%" height={300}>
+          <ResponsiveContainer width="100%" height={200}>
             <AreaChart data={dailyTrend}>
               <defs>
                 <linearGradient id="gRevenue" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#3b82f6" stopOpacity={0.12} /><stop offset="95%" stopColor="#3b82f6" stopOpacity={0} /></linearGradient>
@@ -786,13 +786,13 @@ function DashboardChart({
 
       {/* 광고비 · 비율 차트 */}
       {chartTab === 'ad' && hasTrend && (
-        <div className="p-5" style={{ minHeight: 350 }}>
+        <div className="p-5">
           <div className="flex items-center gap-5 mb-3 text-[12px] text-slate-400">
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-rose-400" />광고비</span>
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-violet-500" />매출</span>
             <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-indigo-500 inline-block" /> 광고비율</span>
           </div>
-          <ResponsiveContainer width="100%" height={300}>
+          <ResponsiveContainer width="100%" height={200}>
             <AreaChart data={adChartData}>
               <defs>
                 <linearGradient id="gAdCost" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#f43f5e" stopOpacity={0.12} /><stop offset="95%" stopColor="#f43f5e" stopOpacity={0} /></linearGradient>
@@ -828,12 +828,12 @@ function DashboardChart({
           { name: 'CVR', my: bm.avgCvr ?? 0, avg: 8, unit: '%', invertGood: false },
         ];
         return (
-          <div className="p-5" style={{ minHeight: 350 }}>
+          <div className="p-5">
             <div className="flex items-center gap-5 mb-4 text-[12px] text-slate-400">
               <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-blue-500" />내 수치</span>
               <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-orange-500" />업계 평균</span>
             </div>
-            <ResponsiveContainer width="100%" height={250}>
+            <ResponsiveContainer width="100%" height={180}>
               <BarChart data={benchmarkData} barGap={4} barCategoryGap="25%">
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
                 <XAxis dataKey="name" fontSize={13} tickLine={false} axisLine={false} tick={{ fill: '#64748b' }} fontWeight={600} />
