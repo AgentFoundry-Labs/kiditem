@@ -44,7 +44,7 @@ npm run db:studio                    # Prisma Studio (DB GUI)
 |---|---|---|
 | Next.js | 3000 | Local (`npm run dev`) |
 | NestJS | 4000 | Local (`npm run dev:server`) |
-| Python Agents | — (worker) | Local (`npm run dev:agents`) |
+| Python Agents | 8001 | Local (`npm run dev:agents`) |
 | PostgreSQL | 5433 | Docker |
 
 ## Tests
