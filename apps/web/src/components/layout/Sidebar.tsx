@@ -199,7 +199,7 @@ function timeAgoShort(dateStr: string): string {
   return `${Math.floor(days / 30)}개월 전`;
 }
 
-export default function Sidebar() {
+export default function Sidebar({ onChatToggle, chatOpen }: { onChatToggle?: () => void; chatOpen?: boolean }) {
   const pathname = usePathname();
   const { sidebarOpen, toggleSidebar, setSidebarOpen } = useStore();
   const [alertOpen, setAlertOpen] = useState(false);
@@ -495,6 +495,30 @@ export default function Sidebar() {
               </div>
             )}
           </div>
+          {/* AI 챗 토글 */}
+          {onChatToggle && (
+            <button
+              onClick={onChatToggle}
+              className={cn(
+                'group flex items-center gap-3 px-3 py-2 rounded-lg text-[14px] transition-all duration-100 relative w-full',
+                chatOpen
+                  ? 'bg-violet-50 text-violet-700'
+                  : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50',
+                !sidebarOpen && 'justify-center px-0'
+              )}
+              title={!sidebarOpen ? 'AI 챗' : undefined}
+            >
+              <MessageSquare
+                size={18}
+                strokeWidth={chatOpen ? 2 : 1.5}
+                className={cn(
+                  'shrink-0 transition-colors',
+                  chatOpen ? 'text-violet-500' : 'text-slate-400 group-hover:text-slate-500'
+                )}
+              />
+              {sidebarOpen && <span className={chatOpen ? 'font-semibold' : 'font-medium'}>AI 챗</span>}
+            </button>
+          )}
         </div>
       </aside>
     </>

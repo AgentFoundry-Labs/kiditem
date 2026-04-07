@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useCallback } from 'react';
 import { useStore } from '@/store/useStore';
 import { cn } from '@/lib/utils';
 import { usePathname } from 'next/navigation';
@@ -16,6 +17,13 @@ const COPILOT_INSTRUCTIONS = `당신은 KIDITEM 이커머스 운영 AI 어시스
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { sidebarOpen } = useStore();
   const pathname = usePathname();
+  const [chatOpen, setChatOpen] = useState(false);
+
+  const toggleChat = useCallback(() => {
+    // CopilotSidebar 내부 버튼을 클릭하여 열기/닫기 트리거
+    const btn = document.querySelector('.copilotKitButton') as HTMLButtonElement | null;
+    if (btn) btn.click();
+  }, []);
 
   if (pathname.includes('/editor')) {
     return <>{children}</>;
@@ -24,7 +32,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <CopilotKit runtimeUrl="http://localhost:4000/api/copilotkit">
       <div className="min-h-screen bg-slate-50">
-        <Sidebar />
+        <Sidebar onChatToggle={toggleChat} chatOpen={chatOpen} />
         <div
           className={cn(
             'transition-all duration-300',
@@ -36,6 +44,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <CopilotSidebar
           defaultOpen={false}
           clickOutsideToClose
+          hitEscapeToClose
+          onSetOpen={setChatOpen}
           instructions={COPILOT_INSTRUCTIONS}
           labels={{
             title: 'KIDITEM AI',
@@ -44,6 +54,18 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           }}
         />
       </div>
+      {/* CopilotSidebar 기본 플로팅 버튼 시각적 숨김 (JS click은 유지) */}
+      <style>{`
+        .copilotKitButton {
+          width: 0 !important;
+          height: 0 !important;
+          overflow: hidden !important;
+          opacity: 0 !important;
+          position: fixed !important;
+          bottom: 0 !important;
+          right: 0 !important;
+        }
+      `}</style>
     </CopilotKit>
   );
 }
