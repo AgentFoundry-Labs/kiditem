@@ -16,7 +16,7 @@ export function SkillsTab({ agent }: { agent: Agent }) {
           <h3 className="text-sm font-medium text-slate-900">에이전트 스킬</h3>
           <p className="text-xs text-slate-500 mt-0.5">이 에이전트에 할당된 스킬 목록입니다.</p>
         </div>
-        <Link href="/agents/skills" className="text-xs text-blue-600 hover:text-blue-800 transition-colors">
+        <Link href="/agents/skills" className="text-xs text-purple-600 hover:text-purple-800 transition-colors">
           스킬 라이브러리 보기 →
         </Link>
       </div>
@@ -48,7 +48,7 @@ export function SkillsTab({ agent }: { agent: Agent }) {
                   <p className="text-xs text-slate-500 mt-0.5">{SKILL_DESCRIPTIONS[skill]}</p>
                 )}
               </div>
-              <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-medium">
+              <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-purple-600 font-medium">
                 활성
               </span>
             </div>

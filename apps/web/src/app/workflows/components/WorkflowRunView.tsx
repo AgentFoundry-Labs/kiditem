@@ -203,7 +203,7 @@ export default function WorkflowRunView({
                             'inline-flex items-center gap-1 text-xs',
                             frontendStatus === 'success' && 'text-green-600',
                             frontendStatus === 'error' && 'text-red-500',
-                            frontendStatus === 'running' && 'text-blue-600',
+                            frontendStatus === 'running' && 'text-purple-600',
                             frontendStatus === 'idle' && 'text-slate-500',
                           )}
                         >

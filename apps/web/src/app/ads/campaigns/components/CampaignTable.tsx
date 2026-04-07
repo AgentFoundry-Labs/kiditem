@@ -49,7 +49,7 @@ export function CampaignTable({ campaigns, sortBy, onSortChange, selectedCampaig
             <button
               key={key}
               onClick={() => onSortChange(key)}
-              className={`px-3 py-1 rounded text-xs font-medium ${sortBy === key ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+              className={`px-3 py-1 rounded text-xs font-medium ${sortBy === key ? 'bg-purple-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
             >
               {label}
             </button>

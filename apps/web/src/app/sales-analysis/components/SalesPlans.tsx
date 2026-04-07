@@ -123,7 +123,7 @@ export default function SalesPlans() {
           </h1>
         </div>
         <div className="flex gap-2">
-          <button onClick={openNew} className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white rounded-md text-xs hover:bg-blue-700">
+          <button onClick={openNew} className="flex items-center gap-1 px-3 py-1.5 bg-purple-600 text-white rounded-md text-xs hover:bg-purple-700">
             <Plus size={12} /> 목표 추가
           </button>
         </div>
@@ -152,7 +152,7 @@ export default function SalesPlans() {
                     <button
                       disabled={syncing === plan.id}
                       onClick={() => syncMutation.mutate(plan.id)}
-                      className="flex items-center gap-1 px-2.5 py-1 text-xs text-blue-600 border border-blue-200 rounded-md hover:bg-blue-50"
+                      className="flex items-center gap-1 px-2.5 py-1 text-xs text-purple-600 border border-blue-200 rounded-md hover:bg-blue-50"
                     >
                       {syncing === plan.id ? (
                         <Loader2 size={11} className="animate-spin" />
@@ -266,7 +266,7 @@ export default function SalesPlans() {
               <button onClick={() => setShowForm(false)} className="px-3 py-1.5 text-xs text-slate-500 border border-slate-200 rounded-md hover:bg-slate-50">
                 취소
               </button>
-              <button onClick={handleSave} className="px-3 py-1.5 text-xs text-white bg-blue-600 rounded-md hover:bg-blue-700">
+              <button onClick={handleSave} className="px-3 py-1.5 text-xs text-white bg-purple-600 rounded-md hover:bg-purple-700">
                 저장
               </button>
             </div>
@@ -291,7 +291,7 @@ function ProgressRow({ label, target, actual, rate, color }: {
         <div className="flex items-center gap-3">
           <span className="text-slate-400">목표: {target}</span>
           <span className="text-slate-700 font-semibold">실적: {actual}</span>
-          <span className={`font-bold ${rate >= 100 ? 'text-green-600' : rate >= 70 ? 'text-blue-600' : 'text-red-600'}`}>
+          <span className={`font-bold ${rate >= 100 ? 'text-green-600' : rate >= 70 ? 'text-purple-600' : 'text-red-600'}`}>
             <TrendingUp size={11} className="inline mr-0.5" />
             {rate}%
           </span>

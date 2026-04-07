@@ -212,7 +212,7 @@ export default function OrderMatching() {
                             handleMatch(item.orderId, item.vendorItemName)
                           }
                           disabled={!matchMap[key] || saving === key}
-                          className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white text-xs rounded-lg hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                          className="flex items-center gap-1 px-3 py-1.5 bg-purple-600 text-white text-xs rounded-lg hover:bg-purple-700 disabled:opacity-40 disabled:cursor-not-allowed"
                         >
                           {saving === key ? (
                             <Loader2 size={12} className="animate-spin" />

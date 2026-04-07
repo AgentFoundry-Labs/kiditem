@@ -39,7 +39,7 @@ export default function ProductInfoCards({ product, inventory }: ProductInfoCard
                 href={product.sourceUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-blue-600 hover:underline flex items-center gap-1"
+                className="text-purple-600 hover:underline flex items-center gap-1"
               >
                 링크 <ExternalLink size={12} />
               </a>

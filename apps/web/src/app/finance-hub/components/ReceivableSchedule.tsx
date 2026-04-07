@@ -91,7 +91,7 @@ export default function ReceivableSchedule() {
               {items.map((s) => (
                 <tr key={s.id}>
                   <td className="font-medium text-slate-900">{s.period}</td>
-                  <td className="text-right tabular-nums font-semibold text-blue-600">{formatKRW(s.expectedAmount)}원</td>
+                  <td className="text-right tabular-nums font-semibold text-purple-600">{formatKRW(s.expectedAmount)}원</td>
                   <td className="text-right tabular-nums text-red-500">{formatKRW(s.commission)}원</td>
                   <td className="text-right tabular-nums text-slate-500">{formatKRW(s.shippingFee)}원</td>
                   <td className="text-right tabular-nums">{s.orderCount}</td>
@@ -120,7 +120,7 @@ export default function ReceivableSchedule() {
             <Clock size={12} className="text-blue-500" />
             <span className="card-label">미정산 합계</span>
           </div>
-          <div className="card-value text-blue-600 tabular-nums">{formatKRW(totalPending)}원</div>
+          <div className="card-value text-purple-600 tabular-nums">{formatKRW(totalPending)}원</div>
           <div className="text-xs text-slate-400 mt-0.5">{pending.length}건</div>
         </div>
         <div className="card">
@@ -148,7 +148,7 @@ export default function ReceivableSchedule() {
         `이번 달 (${thisMonth})`,
         <CalendarDays size={14} className="text-blue-500" />,
         thisMonthItems,
-        'text-blue-600'
+        'text-purple-600'
       )}
       {renderGroup(
         `다음 달 (${nextMonth})`,

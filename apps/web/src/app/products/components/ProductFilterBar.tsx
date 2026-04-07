@@ -71,7 +71,7 @@ export default function ProductFilterBar({
             key={f.key}
             onClick={() => onAdFilterChange(f.key)}
             className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-              adFilter === f.key ? "bg-white text-blue-700 shadow-sm" : "text-blue-400 hover:text-blue-600"
+              adFilter === f.key ? "bg-white text-blue-700 shadow-sm" : "text-blue-400 hover:text-purple-600"
             }`}
           >
             {f.label}

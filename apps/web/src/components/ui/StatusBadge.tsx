@@ -33,7 +33,7 @@ const variants: Record<BadgeVariant, string> = {
   success: 'bg-green-50 text-green-600 border-emerald-500/20',
   error: 'bg-red-500/10 text-red-400 border-red-500/20',
   warning: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
-  info: 'bg-blue-50 text-blue-600 border-blue-500/20',
+  info: 'bg-blue-50 text-purple-600 border-blue-500/20',
   processing: 'bg-violet-500/10 text-violet-400 border-violet-500/20',
   default: 'bg-slate-500/10 text-slate-500 border-slate-500/20',
 };

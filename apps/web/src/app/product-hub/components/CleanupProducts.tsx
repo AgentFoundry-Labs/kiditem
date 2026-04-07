@@ -75,7 +75,7 @@ export default function CleanupProducts() {
 
       {/* Filter */}
       <div className="flex gap-2">
-        <button onClick={() => setFilter('all')} className={`px-4 py-2 rounded-lg text-sm font-medium ${filter === 'all' ? 'bg-blue-600 text-white' : 'bg-white border hover:bg-slate-50'}`}>전체 ({products.length})</button>
+        <button onClick={() => setFilter('all')} className={`px-4 py-2 rounded-lg text-sm font-medium ${filter === 'all' ? 'bg-purple-600 text-white' : 'bg-white border hover:bg-slate-50'}`}>전체 ({products.length})</button>
         <button onClick={() => setFilter('minus')} className={`px-4 py-2 rounded-lg text-sm font-medium ${filter === 'minus' ? 'bg-red-600 text-white' : 'bg-white border hover:bg-slate-50 text-red-600'}`}>적자 ({minusProducts.length})</button>
         <button onClick={() => setFilter('low')} className={`px-4 py-2 rounded-lg text-sm font-medium ${filter === 'low' ? 'bg-orange-600 text-white' : 'bg-white border hover:bg-slate-50 text-orange-600'}`}>3%이하 ({lowProducts.length})</button>
       </div>

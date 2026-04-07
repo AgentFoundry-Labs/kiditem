@@ -80,7 +80,7 @@ export default function AddProductModal({ onClose, onSaved }: AddProductModalPro
           </div>
           <div className="flex justify-end gap-2 pt-3">
             <button type="button" onClick={onClose} className="px-4 py-2 text-slate-600 border rounded-lg text-sm hover:bg-slate-50">취소</button>
-            <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">등록</button>
+            <button type="submit" className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700">등록</button>
           </div>
         </form>
       </div>

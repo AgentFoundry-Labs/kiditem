@@ -98,7 +98,7 @@ export function WorkflowDetailModal({
           <span className="px-2 py-0.5 text-xs font-medium bg-slate-100 text-slate-600 rounded-md">
             {CATEGORY_LABELS[item.category] || item.category}
           </span>
-          <span className="px-2 py-0.5 text-xs font-medium bg-blue-50 text-blue-600 rounded-md">
+          <span className="px-2 py-0.5 text-xs font-medium bg-blue-50 text-purple-600 rounded-md">
             {item.module ? (MODULE_LABELS[item.module] || item.module) : 'order'}
           </span>
           {item.installCount > 0 && (

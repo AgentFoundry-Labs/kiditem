@@ -85,7 +85,7 @@ export default function Categories() {
           <button className="flex items-center gap-1 px-3 py-1.5 border border-slate-200 rounded-md text-xs text-slate-500 hover:bg-slate-50 font-mono">
             <RefreshCw size={12} /> REFRESH
           </button>
-          <button onClick={() => setShowAdd(true)} className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white rounded-md text-xs hover:bg-blue-700">
+          <button onClick={() => setShowAdd(true)} className="flex items-center gap-1 px-3 py-1.5 bg-purple-600 text-white rounded-md text-xs hover:bg-purple-700">
             <Plus size={12} /> 매핑 추가
           </button>
         </div>
@@ -140,7 +140,7 @@ export default function Categories() {
             <button
               onClick={() => editingId ? updateMutation.mutate({ id: editingId, body: editForm }) : createMutation.mutate(editForm)}
               disabled={createMutation.isPending || updateMutation.isPending}
-              className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white text-xs rounded-md hover:bg-blue-700 disabled:opacity-50">
+              className="flex items-center gap-1 px-3 py-1.5 bg-purple-600 text-white text-xs rounded-md hover:bg-purple-700 disabled:opacity-50">
               <Save size={12} /> 저장
             </button>
           </div>
@@ -173,7 +173,7 @@ export default function Categories() {
                   <td className="px-4 py-3">
                     <div className="flex gap-1 justify-end">
                       <button onClick={() => { setEditingId(m.id); setEditForm({ internalCategory: m.internalCategory, coupangCategoryId: m.coupangCategoryId || '', coupangCategoryName: m.coupangCategoryName || '', keywords: m.keywords || '' }); setShowAdd(true); }}
-                        className="px-2 py-1 text-[10px] text-blue-600 hover:bg-blue-50 rounded font-mono">EDIT</button>
+                        className="px-2 py-1 text-[10px] text-purple-600 hover:bg-blue-50 rounded font-mono">EDIT</button>
                       <button onClick={() => deleteMutation.mutate(m.id)} className="p-1 text-slate-400 hover:text-red-500 rounded"><Trash2 size={12} /></button>
                     </div>
                   </td>

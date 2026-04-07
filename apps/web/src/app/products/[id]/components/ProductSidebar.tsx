@@ -63,17 +63,17 @@ export default function ProductSidebar({ product }: ProductSidebarProps) {
 
       <InfoCard title="링크">
         {product.sourceUrl && (
-          <a href={product.sourceUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-sm text-blue-600 hover:underline py-1">
+          <a href={product.sourceUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-sm text-purple-600 hover:underline py-1">
             <ExternalLink size={13} /> 소싱 URL
           </a>
         )}
         {product.detailPageUrl && (
-          <a href={product.detailPageUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-sm text-blue-600 hover:underline py-1">
+          <a href={product.detailPageUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-sm text-purple-600 hover:underline py-1">
             <ExternalLink size={13} /> 상세페이지
           </a>
         )}
         {product.coupangProductId && (
-          <a href={`https://www.coupang.com/vp/products/${product.coupangProductId}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-sm text-blue-600 hover:underline py-1">
+          <a href={`https://www.coupang.com/vp/products/${product.coupangProductId}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-sm text-purple-600 hover:underline py-1">
             <ExternalLink size={13} /> 쿠팡 리스팅
           </a>
         )}

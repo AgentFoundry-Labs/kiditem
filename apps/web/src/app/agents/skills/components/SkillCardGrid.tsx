@@ -7,7 +7,7 @@ import { ROLE_LABELS } from '../../lib/agent-types';
 import type { Agent } from '../../lib/agent-types';
 
 const SKILL_COLORS: Record<string, string> = {
-  'db-query': 'bg-blue-50 text-blue-600 border-blue-100',
+  'db-query': 'bg-blue-50 text-purple-600 border-blue-100',
   'result-callback': 'bg-green-50 text-green-600 border-green-100',
   'coupang-browse': 'bg-amber-50 text-amber-600 border-amber-100',
   'kiditem-api': 'bg-violet-50 text-violet-600 border-violet-100',

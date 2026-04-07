@@ -85,7 +85,7 @@ export function InventoryTable({ items, page, pageSize, total, onPageChange }: I
                 <td className={`text-right font-semibold ${unsynced ? '' : i.daysRemaining <= 7 ? 'text-red-600' : i.daysRemaining <= 14 ? 'text-orange-500' : ''}`}>
                   {i.daysRemaining}일
                 </td>
-                <td className="text-right font-semibold text-blue-600">
+                <td className="text-right font-semibold text-purple-600">
                   {i.recommendedOrder > 0 ? `${i.recommendedOrder.toLocaleString('ko-KR')}개` : '-'}
                 </td>
                 <td>

@@ -100,7 +100,7 @@ export default function OrderCompare() {
             </div>
             <button
               onClick={handleCompare}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+              className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 disabled:opacity-50"
             >
               <Search size={16} />
               비교 실행
@@ -120,7 +120,7 @@ export default function OrderCompare() {
                 <div className="bg-white rounded-xl border border-slate-200">
                   <div className="p-4 text-center">
                     <div className="text-sm text-slate-500">쿠팡 주문</div>
-                    <div className="text-2xl font-bold text-blue-600">
+                    <div className="text-2xl font-bold text-purple-600">
                       {formatNumber(summary.totalCoupang)}건
                     </div>
                   </div>

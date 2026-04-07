@@ -120,7 +120,7 @@ export default function ManualLedger() {
         </h1>
         <div className="flex items-center gap-2">
           <PeriodSelector value={period} onChange={setPeriod} />
-          <button onClick={() => { setForm({ ...form, type: tab }); setShowModal(true); }} className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">
+          <button onClick={() => { setForm({ ...form, type: tab }); setShowModal(true); }} className="flex items-center gap-1.5 px-3 py-2 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700">
             <Plus size={14} /> 등록
           </button>
         </div>
@@ -273,7 +273,7 @@ export default function ManualLedger() {
                 <label className="text-xs text-slate-500 mb-1 block">메모</label>
                 <textarea value={form.memo} onChange={(e) => setForm({ ...form, memo: e.target.value })} rows={2} className="w-full border rounded-lg px-3 py-2 text-sm" />
               </div>
-              <button onClick={handleCreate} className="w-full py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">등록</button>
+              <button onClick={handleCreate} className="w-full py-2 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700">등록</button>
             </div>
           </div>
         </div>

@@ -15,7 +15,7 @@ const statusDisplay: Record<
   { label: string; color: string; icon: any }
 > = {
   idle: { label: '대기', color: 'text-slate-500', icon: Clock },
-  running: { label: '실행중', color: 'text-blue-600', icon: Loader2 },
+  running: { label: '실행중', color: 'text-purple-600', icon: Loader2 },
   success: { label: '성공', color: 'text-green-600', icon: CheckCircle },
   error: { label: '실패', color: 'text-red-500', icon: XCircle },
 };

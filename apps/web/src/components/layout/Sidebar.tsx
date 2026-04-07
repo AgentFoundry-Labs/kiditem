@@ -31,6 +31,7 @@ import {
   Boxes,
   Truck,
   ScanLine,
+  ImageIcon,
   Handshake,
   Users,
   Building2,
@@ -67,6 +68,7 @@ const menuSections: MenuSection[] = [
       { href: '/', label: '대시보드', icon: LayoutDashboard },
       { href: '/action-board', label: '액션 보드', icon: ClipboardList },
       { href: '/ad-ops', label: 'AI 광고 전략', icon: Zap },
+      { href: '/thumbnails', label: '썸네일 AI', icon: ImageIcon },
     ],
   },
   {
@@ -469,7 +471,7 @@ export default function Sidebar({ onChatToggle, chatOpen }: { onChatToggle?: () 
                     )}
                   </div>
                   {unreadCount > 0 && (
-                    <button onClick={() => markAllAsReadMutation.mutate()} className="text-xs text-blue-600 hover:text-blue-800 font-medium">모두 읽음</button>
+                    <button onClick={() => markAllAsReadMutation.mutate()} className="text-xs text-purple-600 hover:text-purple-800 font-medium">모두 읽음</button>
                   )}
                 </div>
                 <div className="max-h-[300px] overflow-y-auto">

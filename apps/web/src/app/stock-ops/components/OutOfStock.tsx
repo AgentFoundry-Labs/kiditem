@@ -68,7 +68,7 @@ export default function OutOfStock() {
             <BarChart3 className="w-4 h-4 text-blue-500" />
             <p className="card-label">판매 실적 있는 품절</p>
           </div>
-          <p className="card-value text-blue-600">
+          <p className="card-value text-purple-600">
             {isLoading ? '-' : `${hasHighSales.length}개`}
           </p>
           <p className="text-xs text-slate-400 mt-1">일평균 판매 &gt; 0</p>

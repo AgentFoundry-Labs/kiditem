@@ -99,7 +99,7 @@ export default function ReviewsPage() {
             className={cn(
               'px-4 py-2.5 text-sm font-medium border-b-2 transition-colors flex items-center gap-2',
               activeFilter === tab.key
-                ? 'border-blue-600 text-blue-600'
+                ? 'border-purple-600 text-purple-600'
                 : 'border-transparent text-slate-500 hover:text-slate-700'
             )}
           >

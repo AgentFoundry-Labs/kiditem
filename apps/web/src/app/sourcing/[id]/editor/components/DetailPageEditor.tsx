@@ -1236,7 +1236,7 @@ function RightPanel({
                       }
                     }}
                     disabled={aiFillLoading}
-                    className={`relative w-9 h-5 rounded-full transition-colors ${colorGuideEnabled ? 'bg-blue-600' : 'bg-slate-200'}`}
+                    className={`relative w-9 h-5 rounded-full transition-colors ${colorGuideEnabled ? 'bg-purple-600' : 'bg-slate-200'}`}
                   >
                     <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${colorGuideEnabled ? 'translate-x-4' : ''}`} />
                   </button>

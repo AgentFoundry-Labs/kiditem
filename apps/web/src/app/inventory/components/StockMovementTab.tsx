@@ -75,7 +75,7 @@ export function StockMovementTab() {
                 onClick={() => setDateRange(opt.value)}
                 className={`px-3 py-1.5 text-sm font-medium transition-colors ${
                   dateRange === opt.value
-                    ? 'bg-blue-600 text-white'
+                    ? 'bg-purple-600 text-white'
                     : 'bg-white text-slate-500 hover:text-slate-700'
                 }`}
               >
@@ -106,7 +106,7 @@ export function StockMovementTab() {
             key={tab.key}
             onClick={() => setGroupBy(tab.key)}
             className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-              groupBy === tab.key ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'
+              groupBy === tab.key ? 'border-purple-600 text-purple-600' : 'border-transparent text-slate-500 hover:text-slate-700'
             }`}
           >
             {tab.label}

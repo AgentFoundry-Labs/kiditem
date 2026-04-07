@@ -38,7 +38,7 @@ export default function ProductHeader({
         <div className="relative flex gap-2">
           <button
             onClick={onToggleWfMenu}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700"
           >
             <Play size={14} /> 워크플로우 실행 <ChevronDown size={14} />
           </button>

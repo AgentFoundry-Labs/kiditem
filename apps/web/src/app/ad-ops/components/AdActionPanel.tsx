@@ -35,9 +35,9 @@ export function AdActionPanel({ rules, strategy }: Props) {
     <div className="rounded-xl border border-slate-100 overflow-hidden flex flex-col h-full bg-white">
       <div className="flex items-center gap-1 px-3 py-2 border-b border-slate-100">
         <button onClick={() => setPanelTab('actions')}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${panelTab === 'actions' ? 'bg-blue-600 text-white' : 'text-slate-400'}`}>
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${panelTab === 'actions' ? 'bg-purple-600 text-white' : 'text-slate-400'}`}>
           <Sparkles size={12} />
-          AI 액션 {urgentCount > 0 && <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${panelTab === 'actions' ? 'bg-white text-blue-600' : 'bg-red-600 text-white'}`}>{urgentCount}</span>}
+          AI 액션 {urgentCount > 0 && <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${panelTab === 'actions' ? 'bg-white text-purple-600' : 'bg-red-600 text-white'}`}>{urgentCount}</span>}
         </button>
         <button onClick={() => setPanelTab('todos')}
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${panelTab === 'todos' ? 'bg-red-600 text-white' : 'text-slate-400'}`}>

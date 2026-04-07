@@ -32,9 +32,9 @@ export default function ProfitLossTable({
       return <ArrowUpDown size={14} className="text-slate-400" />;
     }
     if (sortDirection === 'asc') {
-      return <ArrowUp size={14} className="text-blue-600" />;
+      return <ArrowUp size={14} className="text-purple-600" />;
     }
-    return <ArrowDown size={14} className="text-blue-600" />;
+    return <ArrowDown size={14} className="text-purple-600" />;
   };
 
   return (
@@ -50,7 +50,7 @@ export default function ProfitLossTable({
           <button
             key={f.key}
             onClick={() => onFilter(f.key)}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${filter === f.key ? "bg-blue-600 text-white" : `bg-white border border-slate-200 hover:bg-slate-50 ${f.color || "text-slate-700"}`}`}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${filter === f.key ? "bg-purple-600 text-white" : `bg-white border border-slate-200 hover:bg-slate-50 ${f.color || "text-slate-700"}`}`}
           >
             {f.label}
           </button>

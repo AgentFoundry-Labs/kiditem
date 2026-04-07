@@ -142,7 +142,7 @@ export default function AdsCsvUpload() {
               </div>
             </div>
             <div className="bg-blue-50 rounded-lg p-3 text-center">
-              <div className="text-xs text-blue-600">매칭 상품수</div>
+              <div className="text-xs text-purple-600">매칭 상품수</div>
               <div className="text-lg font-bold text-blue-700">
                 {uploadResult.stats.uniqueProducts}
               </div>
@@ -200,7 +200,7 @@ export default function AdsCsvUpload() {
               </div>
               <div>
                 <span className="text-slate-500">평균 ROAS(14일)</span>
-                <div className="font-bold text-blue-600">{uploadResult.stats.summary.avgRoas}</div>
+                <div className="font-bold text-purple-600">{uploadResult.stats.summary.avgRoas}</div>
               </div>
             </div>
           </div>

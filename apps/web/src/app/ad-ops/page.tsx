@@ -52,7 +52,7 @@ export default function AdOpsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-purple-600">
             <Brain size={20} className="text-white" />
           </div>
           <div>
@@ -70,7 +70,7 @@ export default function AdOpsPage() {
           <div className="flex rounded-lg p-0.5 bg-slate-100">
             {[{ key: '7d', label: '7일' }, { key: '14d', label: '14일' }, { key: 'month', label: '이번달' }].map(p => (
               <button key={p.key} onClick={() => setPeriod(p.key)}
-                className={`px-4 py-1.5 text-sm font-semibold rounded-md transition-all ${period === p.key ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400'}`}>
+                className={`px-4 py-1.5 text-sm font-semibold rounded-md transition-all ${period === p.key ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-400'}`}>
                 {p.label}
               </button>
             ))}
@@ -91,7 +91,7 @@ export default function AdOpsPage() {
           const isActive = tab === t.key;
           return (
             <button key={t.key} onClick={() => setTab(t.key)}
-              className={`flex items-center gap-2 px-4 py-2 text-[13px] font-medium rounded-lg border transition-all ${isActive ? 'text-white border-blue-600 bg-blue-600' : 'bg-white hover:bg-slate-50 border-slate-100 text-slate-500'}`}>
+              className={`flex items-center gap-2 px-4 py-2 text-[13px] font-medium rounded-lg border transition-all ${isActive ? 'text-white border-purple-600 bg-purple-600' : 'bg-white hover:bg-slate-50 border-slate-100 text-slate-500'}`}>
               <Icon size={15} />
               {t.label}
             </button>

@@ -150,7 +150,7 @@ export default function OrderInventory() {
             onClick={() => setFilterStatus(f.key)}
             className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
               filterStatus === f.key
-                ? 'bg-blue-600 text-white'
+                ? 'bg-purple-600 text-white'
                 : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
             }`}
           >

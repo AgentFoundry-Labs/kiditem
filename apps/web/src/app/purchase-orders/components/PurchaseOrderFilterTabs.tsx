@@ -21,7 +21,7 @@ export function PurchaseOrderFilterTabs({ filter, tabs, onFilterChange }: Purcha
           onClick={() => onFilterChange(tab.key)}
           className={`px-4 py-2 rounded-lg text-sm font-medium ${
             filter === tab.key
-              ? 'bg-blue-600 text-white'
+              ? 'bg-purple-600 text-white'
               : 'bg-white border border-slate-200 hover:bg-slate-50'
           }`}
         >

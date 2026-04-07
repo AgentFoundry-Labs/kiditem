@@ -121,7 +121,7 @@ export default function RawDataTab({ rawData }: RawDataTabProps) {
             {images.map((url, idx) => (
               <div
                 key={`raw-img-${idx}`}
-                className="aspect-square rounded-lg border border-slate-200 overflow-hidden cursor-pointer hover:border-blue-500 hover:ring-2 hover:ring-blue-200 transition-all bg-slate-50 group relative"
+                className="aspect-square rounded-lg border border-slate-200 overflow-hidden cursor-pointer hover:border-blue-500 hover:ring-2 hover:ring-purple-200 transition-all bg-slate-50 group relative"
                 onClick={() => setEnlargedImage(url)}
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}

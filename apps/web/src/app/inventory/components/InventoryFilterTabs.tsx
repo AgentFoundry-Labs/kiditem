@@ -21,7 +21,7 @@ export function InventoryFilterTabs({ filter, summary, onFilterChange }: Invento
         <button
           key={f.key}
           onClick={() => onFilterChange(f.key)}
-          className={`px-4 py-2 rounded-lg text-sm font-medium ${filter === f.key ? 'bg-blue-600 text-white' : 'bg-white border border-slate-200 hover:bg-slate-50'}`}
+          className={`px-4 py-2 rounded-lg text-sm font-medium ${filter === f.key ? 'bg-purple-600 text-white' : 'bg-white border border-slate-200 hover:bg-slate-50'}`}
         >
           {f.label} ({f.count.toLocaleString('ko-KR')})
         </button>

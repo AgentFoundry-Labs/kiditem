@@ -83,7 +83,7 @@ export default function ReportsPage() {
   };
 
   const reports = [
-    { type: "full", title: "통합 리포트", desc: "상품 + 손익 + 재고 + 광고 전체", color: "bg-blue-600 hover:bg-blue-700" },
+    { type: "full", title: "통합 리포트", desc: "상품 + 손익 + 재고 + 광고 전체", color: "bg-purple-600 hover:bg-purple-700" },
     { type: "products", title: "상품 리포트", desc: "전체 상품 목록, 등급, 손익 요약", color: "bg-slate-600 hover:bg-slate-700" },
     { type: "profitloss", title: "손익 리포트", desc: "상품별 손익 상세 (매출~순이익)", color: "bg-green-600 hover:bg-green-700" },
     { type: "inventory", title: "재고 리포트", desc: "재고 현황, 발주 추천, 적정 재고", color: "bg-orange-600 hover:bg-orange-700" },

@@ -25,8 +25,10 @@ model Company {
   purchaseOrders PurchaseOrder[]
   ads            Ad[]
   profitLoss     ProfitLoss[]
-  thumbnails     Thumbnail[]
-  reviews        Review[]
+  thumbnails           Thumbnail[]
+  thumbnailAnalyses    ThumbnailAnalysis[]
+  thumbnailGenerations ThumbnailGeneration[]
+  reviews              Review[]
   alerts         Alert[]
 
   // Sourcing & Content
@@ -212,6 +214,8 @@ model Product {
   unshippedItems UnshippedItem[]
 
   // Product Extensions
+  thumbnailAnalysis    ThumbnailAnalysis?
+  thumbnailGenerations ThumbnailGeneration[]
 
   productMemos     ProductMemo[]
   processingCosts  ProcessingCost[]
@@ -604,6 +608,55 @@ model Thumbnail {
   @@index([companyId])
   @@index([productId])
   @@map("thumbnails")
+}
+
+model ThumbnailAnalysis {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  productId String @unique @map("product_id") @db.Uuid
+
+  imageUrl     String  @map("image_url")
+  overallScore Int     @default(0) @map("overall_score")
+  grade        String  @default("F")
+  scores       Json?   // { guideline, heroShot, composition, branding, mobile }
+  issues       Json    @default("[]")
+  suggestions  Json    @default("[]")
+  method       String  @default("ai") // "ai" | "rule"
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([grade])
+  @@map("thumbnail_analyses")
+}
+
+model ThumbnailGeneration {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  productId String @map("product_id") @db.Uuid
+
+  originalUrl String? @map("original_url")
+  candidates  Json    @default("[]")
+  selectedUrl String? @map("selected_url")
+  status      String  @default("pending")
+  grade       String  @default("F")
+  score       Int     @default(0)
+  prompt      String?
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([productId])
+  @@index([status])
+  @@map("thumbnail_generations")
 }
 
 // ─── Reviews ──────────────────────────────────────────────────────────────────

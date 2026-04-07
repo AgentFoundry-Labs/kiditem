@@ -73,7 +73,7 @@ export default function StockIo() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <ArrowDownToLine className="w-6 h-6 text-blue-600" />
+          <ArrowDownToLine className="w-6 h-6 text-purple-600" />
           <h1 className="page-title">입출고 통합 현황</h1>
         </div>
         <PeriodSelector value={period} onChange={setPeriod} />

@@ -69,7 +69,7 @@ const runStatusLabels: Record<string, string> = {
 const runStatusColors: Record<string, string> = {
   completed: 'text-green-600',
   failed: 'text-red-500',
-  running: 'text-blue-600',
+  running: 'text-purple-600',
   pending: 'text-slate-500',
 };
 
@@ -277,7 +277,7 @@ export default function WorkflowList({
                       {selectedRun && (
                         <button
                           onClick={handleBackToTemplate}
-                          className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700"
+                          className="flex items-center gap-1 text-xs text-purple-600 hover:text-blue-700"
                         >
                           <ArrowLeft className="w-3 h-3" />
                           템플릿 보기

@@ -34,7 +34,7 @@ export function CampaignList({ campaigns }: { campaigns: CampaignItem[] }) {
     <div className="card p-6">
       <div className="flex items-center justify-between mb-4">
         <h3 className="font-semibold text-slate-900">캠페인 현황</h3>
-        <Link href="/ads/campaigns" className="text-sm text-blue-600 hover:text-blue-700">
+        <Link href="/ads/campaigns" className="text-sm text-purple-600 hover:text-blue-700">
           전체보기 →
         </Link>
       </div>

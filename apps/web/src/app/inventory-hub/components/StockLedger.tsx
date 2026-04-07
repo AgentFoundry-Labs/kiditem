@@ -150,7 +150,7 @@ export default function StockLedger() {
           </div>
           <div className="bg-white rounded-xl border border-slate-200 p-5">
             <p className="card-label mb-1">기말재고</p>
-            <p className="card-value text-blue-600">
+            <p className="card-value text-purple-600">
               {formatNumber(totals.endStock)}개
             </p>
           </div>

@@ -71,7 +71,7 @@ export default function SupplierProductSales() {
           </div>
           <div className="card">
             <div className="card-label mb-1">총 매출</div>
-            <div className="card-value text-blue-600">{formatKRW(totalRevenue)}원</div>
+            <div className="card-value text-purple-600">{formatKRW(totalRevenue)}원</div>
           </div>
           <div className="card">
             <div className="card-label mb-1">총 이익</div>

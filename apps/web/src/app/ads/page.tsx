@@ -148,7 +148,7 @@ export default function AdsPage() {
           <div className="bg-white p-3 rounded-lg border">광고비율 &gt; {adRateT.warning}% &rarr; <strong className="text-red-600">점검 알림</strong></div>
           <div className="bg-white p-3 rounded-lg border">ROAS &lt; {roasT.warning}% &rarr; <strong className="text-orange-600">효율 낮음 알림</strong></div>
           <div className="bg-white p-3 rounded-lg border">7일 연속 적자 &rarr; <strong className="text-red-600">광고 중단 추천</strong></div>
-          <div className="bg-white p-3 rounded-lg border">A등급 광고비 &lt; 80% &rarr; <strong className="text-blue-600">재배분 추천</strong></div>
+          <div className="bg-white p-3 rounded-lg border">A등급 광고비 &lt; 80% &rarr; <strong className="text-purple-600">재배분 추천</strong></div>
           <div className="bg-white p-3 rounded-lg border">전환율 &lt; 평균50% &rarr; <strong className="text-orange-600">개선 필요</strong></div>
           <div className="bg-white p-3 rounded-lg border">예산 배분 기준 &rarr; <strong className="text-purple-600">1차/2차/3차 등급별</strong></div>
         </div>
@@ -172,7 +172,7 @@ export default function AdsPage() {
             </BarChart>
           </ResponsiveContainer>
           <div className="mt-3 flex gap-4 text-xs text-slate-500">
-            <span>A등급: <strong className="text-blue-600">{summary.gradeSpendPercent.A}%</strong> (목표 80%)</span>
+            <span>A등급: <strong className="text-purple-600">{summary.gradeSpendPercent.A}%</strong> (목표 80%)</span>
             <span>B등급: <strong>{summary.gradeSpendPercent.B}%</strong></span>
             <span>C등급: <strong className="text-orange-600">{summary.gradeSpendPercent.C}%</strong></span>
           </div>
@@ -214,7 +214,7 @@ export default function AdsPage() {
           { key: "2차", label: "2차 (성장)" },
           { key: "3차", label: "3차 (테스트)" },
         ].map((f) => (
-          <button key={f.key} onClick={() => setFilter(f.key)} className={`px-4 py-2 rounded-lg text-sm font-medium ${filter === f.key ? "bg-blue-600 text-white" : "bg-white border border-slate-200 hover:bg-slate-50"}`}>
+          <button key={f.key} onClick={() => setFilter(f.key)} className={`px-4 py-2 rounded-lg text-sm font-medium ${filter === f.key ? "bg-purple-600 text-white" : "bg-white border border-slate-200 hover:bg-slate-50"}`}>
             {f.label}
           </button>
         ))}

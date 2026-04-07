@@ -8,7 +8,7 @@ export default function GeneratePageHeader() {
         <div>
           <div className="flex items-center gap-3 mb-3">
             <div className="p-2 bg-blue-100 rounded-lg">
-              <Sparkles className="text-blue-600" size={24} />
+              <Sparkles className="text-purple-600" size={24} />
             </div>
             <h1 className="text-3xl font-black text-slate-900 tracking-tight">
               AI 상세페이지 생성

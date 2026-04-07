@@ -115,7 +115,7 @@ export default function OptionMasterFormModal({
               />
               <button
                 onClick={addTag}
-                className="px-3 py-1.5 text-xs text-white bg-blue-600 rounded-md hover:bg-blue-700"
+                className="px-3 py-1.5 text-xs text-white bg-purple-600 rounded-md hover:bg-purple-700"
               >
                 추가
               </button>
@@ -131,7 +131,7 @@ export default function OptionMasterFormModal({
           </button>
           <button
             onClick={handleSave}
-            className="px-3 py-1.5 text-xs text-white bg-blue-600 rounded-md hover:bg-blue-700"
+            className="px-3 py-1.5 text-xs text-white bg-purple-600 rounded-md hover:bg-purple-700"
           >
             저장
           </button>

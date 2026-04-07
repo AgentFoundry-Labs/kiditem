@@ -83,7 +83,7 @@ export default function DeliverySearch() {
             <button
               onClick={handleSearch}
               disabled={!searchTerm.trim()}
-              className="px-6 py-3 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="px-6 py-3 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               검색
             </button>

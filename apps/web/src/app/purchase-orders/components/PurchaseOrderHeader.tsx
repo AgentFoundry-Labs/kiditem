@@ -32,7 +32,7 @@ export function PurchaseOrderHeader({ total, totalAmountCny, onRefresh, onCreate
         </button>
         <button
           onClick={onCreateOrder}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-white bg-blue-600 hover:bg-blue-700 rounded-lg"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-white bg-purple-600 hover:bg-purple-700 rounded-lg"
         >
           <Plus size={14} />
           발주 등록

@@ -126,7 +126,7 @@ export default function PendingDelivery() {
           <button
             key={s}
             onClick={() => setFilterStatus(s)}
-            className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${filterStatus === s ? 'bg-blue-600 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+            className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${filterStatus === s ? 'bg-purple-600 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}
           >
             {s === 'all' ? '전체' : (statusLabels[s]?.text || s)}
           </button>

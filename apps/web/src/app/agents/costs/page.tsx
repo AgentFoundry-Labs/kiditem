@@ -108,7 +108,7 @@ export default function CostsPage() {
           label="총 토큰"
           value={formatTokens(totalTokens)}
           sub={`입력 ${formatTokens(summary.totalInputTokens)} · 출력 ${formatTokens(summary.totalOutputTokens)}`}
-          iconBg="bg-blue-50 text-blue-600"
+          iconBg="bg-blue-50 text-purple-600"
         />
         <CostSummaryCard
           icon={<Bot className="w-4 h-4" />}

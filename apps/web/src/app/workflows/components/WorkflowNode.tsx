@@ -77,7 +77,7 @@ function WorkflowNode({ data, id }: NodeProps) {
                 'w-3 h-3 ml-auto flex-shrink-0',
                 status === 'success' && 'text-green-600',
                 status === 'error' && 'text-red-400',
-                status === 'running' && 'text-blue-600 animate-spin'
+                status === 'running' && 'text-purple-600 animate-spin'
               )}
             />
           )}

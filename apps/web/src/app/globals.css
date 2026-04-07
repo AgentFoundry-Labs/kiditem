@@ -128,7 +128,7 @@ body {
 
   /* ── Buttons ── */
   .btn-primary {
-    @apply px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors;
+    @apply px-4 py-2 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 transition-colors;
   }
 
   .btn-secondary {
@@ -149,7 +149,7 @@ body {
   }
 
   .tab-active {
-    @apply bg-blue-600 text-white;
+    @apply bg-purple-600 text-white;
   }
 
   .tab-inactive {

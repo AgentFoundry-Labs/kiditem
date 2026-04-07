@@ -40,7 +40,7 @@ interface MonthlySummary {
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; icon: typeof Clock }> = {
   pending: { label: '미결', color: 'text-yellow-600', bg: 'bg-yellow-50', icon: Clock },
-  completed: { label: '완료', color: 'text-blue-600', bg: 'bg-blue-50', icon: CheckCircle },
+  completed: { label: '완료', color: 'text-purple-600', bg: 'bg-blue-50', icon: CheckCircle },
   paid: { label: '지급완료', color: 'text-green-600', bg: 'bg-green-50', icon: Wallet },
 };
 
@@ -135,7 +135,7 @@ export default function ProcessingCosts() {
             <CheckCircle size={12} className="text-blue-500" />
             <span className="card-label">완료 합계</span>
           </div>
-          <div className="card-value text-blue-600 tabular-nums">{formatKRW(completedTotal)}원</div>
+          <div className="card-value text-purple-600 tabular-nums">{formatKRW(completedTotal)}원</div>
           <div className="text-xs text-slate-400 mt-0.5">{costs.filter((c) => c.status === 'completed').length}건</div>
         </div>
         <div className="card">
@@ -260,7 +260,7 @@ export default function ProcessingCosts() {
                   <tr key={m.month}>
                     <td className="font-medium">{m.month}</td>
                     <td className="text-right tabular-nums text-yellow-600">{formatKRW(m.pending)}</td>
-                    <td className="text-right tabular-nums text-blue-600">{formatKRW(m.completed)}</td>
+                    <td className="text-right tabular-nums text-purple-600">{formatKRW(m.completed)}</td>
                     <td className="text-right tabular-nums text-green-600">{formatKRW(m.paid)}</td>
                     <td className="text-right tabular-nums font-semibold">{formatKRW(m.total)}원</td>
                   </tr>

@@ -59,7 +59,7 @@ export default function AgentCard({ node, onClick }: Props) {
           {roleLabel}
         </span>
         {hired && (
-          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium bg-blue-50 text-blue-600">
+          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium bg-blue-50 text-purple-600">
             {adapterLabel}
           </span>
         )}

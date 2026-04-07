@@ -430,7 +430,7 @@ export default function ActionBoardPage() {
                   {selectedTask.href && (
                     <Link
                       href={selectedTask.href}
-                      className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-800"
+                      className="inline-flex items-center gap-1 text-xs font-medium text-purple-600 hover:text-purple-800"
                     >
                       <ExternalLink size={12} /> 바로가기
                     </Link>
@@ -525,7 +525,7 @@ export default function ActionBoardPage() {
                       }
                     }}
                     disabled={!noteText.trim() || noteMutation.isPending}
-                    className="p-1.5 text-blue-600 hover:text-blue-800 disabled:text-slate-300 rounded"
+                    className="p-1.5 text-purple-600 hover:text-purple-800 disabled:text-slate-300 rounded"
                   >
                     <Send size={14} />
                   </button>

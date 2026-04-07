@@ -116,7 +116,7 @@ export default function CreateOrderModal({ onClose, onCreated }: CreateOrderModa
               <label className="text-sm font-medium text-slate-700">품목</label>
               <button
                 onClick={addItem}
-                className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700"
+                className="flex items-center gap-1 text-xs text-purple-600 hover:text-blue-700"
               >
                 <Plus size={12} /> 품목 추가
               </button>
@@ -188,7 +188,7 @@ export default function CreateOrderModal({ onClose, onCreated }: CreateOrderModa
           <button
             onClick={handleSubmit}
             disabled={submitting}
-            className="px-4 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+            className="px-4 py-2 text-sm text-white bg-purple-600 rounded-lg hover:bg-purple-700 disabled:opacity-50"
           >
             {submitting ? '생성 중...' : '발주 등록'}
           </button>

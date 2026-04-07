@@ -63,7 +63,7 @@ export default function ProductPageHeader({
           </button>
           <button
             onClick={onAddProduct}
-            className="flex items-center gap-1.5 h-9 px-4 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700"
+            className="flex items-center gap-1.5 h-9 px-4 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700"
           >
             <Plus size={14} /> 상품 등록
           </button>

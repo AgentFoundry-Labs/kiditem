@@ -36,7 +36,7 @@ export function Pagination({ page, limit, total, onPageChange }: PaginationProps
             <button
               key={pageNum}
               onClick={() => onPageChange(pageNum)}
-              className={`w-8 h-8 rounded text-sm ${page === pageNum ? 'bg-blue-600 text-white' : 'hover:bg-slate-100'}`}
+              className={`w-8 h-8 rounded text-sm ${page === pageNum ? 'bg-purple-600 text-white' : 'hover:bg-slate-100'}`}
             >
               {pageNum}
             </button>

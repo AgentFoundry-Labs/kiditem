@@ -140,7 +140,7 @@ export default function ReturnTransfers() {
           </button>
           <button
             onClick={() => setShowModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium"
+            className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm font-medium"
           >
             <Plus size={16} />
             R/T 접수
@@ -152,10 +152,10 @@ export default function ReturnTransfers() {
       <div className="grid grid-cols-4 gap-4">
         <div className="card">
           <div className="flex items-center gap-3">
-            <PackageCheck size={20} className="text-blue-600" />
+            <PackageCheck size={20} className="text-purple-600" />
             <div>
               <div className="card-label mb-1">접수</div>
-              <div className="card-value text-blue-600">{counts.received}</div>
+              <div className="card-value text-purple-600">{counts.received}</div>
             </div>
           </div>
         </div>
@@ -203,7 +203,7 @@ export default function ReturnTransfers() {
             onClick={() => setFilter(f.key)}
             className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
               filter === f.key
-                ? 'bg-blue-600 text-white'
+                ? 'bg-purple-600 text-white'
                 : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
             }`}
           >
@@ -420,7 +420,7 @@ export default function ReturnTransfers() {
               <button
                 onClick={() => createMutation.mutate(form)}
                 disabled={createMutation.isPending}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+                className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 disabled:opacity-50"
               >
                 접수
               </button>

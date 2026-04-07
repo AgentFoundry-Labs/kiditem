@@ -67,7 +67,7 @@ export default function AdsCampaignsPage() {
             <button
               key={key}
               onClick={() => setPeriod(key)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium ${period === key ? 'bg-blue-600 text-white' : 'bg-white border border-slate-200 hover:bg-slate-50'}`}
+              className={`px-4 py-2 rounded-lg text-sm font-medium ${period === key ? 'bg-purple-600 text-white' : 'bg-white border border-slate-200 hover:bg-slate-50'}`}
             >
               {label}
             </button>
@@ -78,7 +78,7 @@ export default function AdsCampaignsPage() {
       {campaigns.length === 0 ? (
         <div className="flex flex-col items-center justify-center min-h-[40vh] text-slate-500">
           <p className="text-sm mb-2">캠페인 스냅샷 데이터가 없습니다.</p>
-          <Link href="/ads/collect" className="text-sm text-blue-600 hover:text-blue-700">
+          <Link href="/ads/collect" className="text-sm text-purple-600 hover:text-blue-700">
             데이터 수집 페이지에서 먼저 수집해주세요 →
           </Link>
         </div>

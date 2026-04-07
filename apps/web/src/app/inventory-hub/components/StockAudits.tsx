@@ -96,7 +96,7 @@ export default function StockAudits() {
             새로고침
           </button>
           <button onClick={() => createMutation.mutate()} disabled={createMutation.isPending}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium disabled:opacity-50">
+            className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm font-medium disabled:opacity-50">
             <Plus size={16} />
             새 실사 시작
           </button>

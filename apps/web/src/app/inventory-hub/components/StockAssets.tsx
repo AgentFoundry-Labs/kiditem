@@ -139,7 +139,7 @@ export default function StockAssets() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Package className="w-6 h-6 text-blue-600" />
+          <Package className="w-6 h-6 text-purple-600" />
           <h1 className="page-title">재고자산 리포트</h1>
         </div>
       </div>
@@ -148,7 +148,7 @@ export default function StockAssets() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-white rounded-xl border border-slate-200 p-5">
           <p className="card-label mb-1">총 재고자산</p>
-          <p className="card-value text-blue-600">
+          <p className="card-value text-purple-600">
             {isLoading ? '-' : `${formatNumber(totalValue)}원`}
           </p>
           <p className="text-xs text-slate-400 mt-1">
@@ -219,7 +219,7 @@ export default function StockAssets() {
         <h2 className="text-lg font-semibold text-slate-800 mb-4">
           상품별 재고자산{' '}
           {gradeFilter && (
-            <span className="text-sm text-blue-600">({gradeFilter}등급)</span>
+            <span className="text-sm text-purple-600">({gradeFilter}등급)</span>
           )}
         </h2>
         <div className="overflow-x-auto">
@@ -278,7 +278,7 @@ export default function StockAssets() {
                     <td className="py-2 px-3 text-right">
                       {formatNumber(item.currentStock)}개
                     </td>
-                    <td className="py-2 px-3 text-right font-bold text-blue-600">
+                    <td className="py-2 px-3 text-right font-bold text-purple-600">
                       {formatNumber(item.stockValue)}원
                     </td>
                   </tr>

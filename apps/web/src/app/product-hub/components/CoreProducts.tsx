@@ -112,7 +112,7 @@ export default function CoreProducts() {
           <div className="text-xs text-slate-500 mt-1">핵심상품 수</div>
         </div>
         <div className="card">
-          <div className="card-value text-2xl text-blue-600 tabular-nums">{isLoading ? '-' : `${formatKRW(totalRevenue)}원`}</div>
+          <div className="card-value text-2xl text-purple-600 tabular-nums">{isLoading ? '-' : `${formatKRW(totalRevenue)}원`}</div>
           <div className="text-xs text-slate-500 mt-1">14일 매출 합계</div>
         </div>
         <div className="card">
@@ -168,7 +168,7 @@ export default function CoreProducts() {
                 <div className="flex items-center gap-1.5 mt-2 flex-wrap">
                   <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${getGradeColor('A')}`}>A</span>
                   <span className="text-[10px] text-slate-400 font-mono">{p.score}점</span>
-                  {p.adTier && <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-blue-600">{p.adTier} 광고</span>}
+                  {p.adTier && <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-purple-600">{p.adTier} 광고</span>}
                   {(p.roas ?? 0) > 0 && (
                     <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${(p.roas ?? 0) >= 3 ? 'bg-green-50 text-green-600' : (p.roas ?? 0) >= 1 ? 'bg-yellow-50 text-yellow-600' : 'bg-red-50 text-red-600'}`}>
                       ROAS {p.roas ?? 0}x

@@ -17,7 +17,7 @@ export function CSTable({ records, onRegisterClick }: Props) {
         <p className="text-slate-500 mb-4">CS 데이터가 없습니다</p>
         <button
           onClick={onRegisterClick}
-          className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          className="px-4 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700"
         >
           CS 등록
         </button>

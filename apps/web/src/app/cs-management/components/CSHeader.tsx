@@ -19,7 +19,7 @@ export function CSHeader({ summary, onRefresh, onRegister }: Props) {
   return (
     <div className="flex items-center justify-between">
       <div className="flex items-center gap-3">
-        <MessageSquare size={20} className="text-blue-600" />
+        <MessageSquare size={20} className="text-purple-600" />
         <div>
           <h1 className="page-title">CS 관리</h1>
           <span className="text-sm text-slate-500">
@@ -36,7 +36,7 @@ export function CSHeader({ summary, onRefresh, onRegister }: Props) {
         </button>
         <button
           onClick={onRegister}
-          className="flex items-center gap-1.5 px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium"
+          className="flex items-center gap-1.5 px-4 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-medium"
         >
           <Plus size={14} /> CS 등록
         </button>

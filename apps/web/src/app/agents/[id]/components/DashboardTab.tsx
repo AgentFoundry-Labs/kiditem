@@ -172,7 +172,7 @@ export function DashboardTab({
           label="총 실행"
           value={String(runs.length)}
           sub={`${sorted.filter(r => r.status === 'running').length}개 실행 중`}
-          iconColor="text-blue-600"
+          iconColor="text-purple-600"
           iconBg="bg-blue-50"
         />
         <MetricCard

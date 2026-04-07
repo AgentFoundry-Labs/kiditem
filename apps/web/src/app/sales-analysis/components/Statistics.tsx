@@ -119,7 +119,7 @@ export default function Statistics() {
 
   const getGradeTextColor = (grade: string): string => {
     switch (grade) {
-      case 'A': return 'text-blue-600';
+      case 'A': return 'text-purple-600';
       case 'B': return 'text-slate-600';
       case 'C': return 'text-orange-600';
       default: return 'text-slate-600';
@@ -352,7 +352,7 @@ export default function Statistics() {
                           <td className="text-slate-400 tabular-nums">{i + 1}</td>
                           <td className="font-medium text-slate-900 max-w-[200px] truncate">{p.productName}</td>
                           <td className="text-slate-500 text-xs">{p.category}</td>
-                          <td className="text-right tabular-nums font-semibold text-blue-600">{p.orderCount}회</td>
+                          <td className="text-right tabular-nums font-semibold text-purple-600">{p.orderCount}회</td>
                         </tr>
                       ))}
                     </tbody>
@@ -376,7 +376,7 @@ export default function Statistics() {
                         {data.repurchase.repeatCustomers!.map((c) => (
                           <tr key={c.name}>
                             <td className="font-medium text-slate-900">{c.name}</td>
-                            <td className="text-right tabular-nums font-semibold text-blue-600">{c.count}회</td>
+                            <td className="text-right tabular-nums font-semibold text-purple-600">{c.count}회</td>
                             <td className="text-right tabular-nums">{formatKRW(c.totalAmount)}원</td>
                             <td className="text-slate-500 text-xs font-mono">{c.lastOrder ? new Date(c.lastOrder).toLocaleDateString('ko-KR') : '-'}</td>
                           </tr>

@@ -91,7 +91,7 @@ export default function Dashboard() {
     return (
       <div className="flex flex-col items-center justify-center h-64 gap-3">
         <p className="text-red-500 text-sm">대시보드 데이터를 불러오는데 실패했습니다.</p>
-        <button onClick={() => window.location.reload()} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm">Retry</button>
+        <button onClick={() => window.location.reload()} className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm">Retry</button>
       </div>
     );
   }
@@ -155,23 +155,23 @@ export default function Dashboard() {
               <button
                 key={val}
                 onClick={() => setKpiRange(val)}
-                className={`px-4 py-1.5 rounded-md text-sm font-semibold transition-colors ${kpiRange === val ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400'}`}
+                className={`px-4 py-1.5 rounded-md text-sm font-semibold transition-colors ${kpiRange === val ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-400'}`}
               >{label}</button>
             ))}
             <button
               onClick={() => setKpiRange('custom')}
-              className={`px-3 py-1.5 rounded-md text-sm font-semibold transition-colors flex items-center gap-1 ${kpiRange === 'custom' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400'}`}
+              className={`px-3 py-1.5 rounded-md text-sm font-semibold transition-colors flex items-center gap-1 ${kpiRange === 'custom' ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-400'}`}
             ><Calendar size={13} /> 기간</button>
           </div>
           {kpiRange === 'custom' ? (
             <div className="flex items-center gap-2">
               <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
-                className="px-2.5 py-1.5 rounded-lg text-sm border border-slate-200 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-200" />
+                className="px-2.5 py-1.5 rounded-lg text-sm border border-slate-200 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-200" />
               <span className="text-xs text-slate-400">~</span>
               <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
-                className="px-2.5 py-1.5 rounded-lg text-sm border border-slate-200 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-200" />
+                className="px-2.5 py-1.5 rounded-lg text-sm border border-slate-200 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-200" />
               <button onClick={applyCustomRange} disabled={!dateFrom || !dateTo}
-                className="px-3 py-1.5 rounded-lg text-white text-sm font-semibold bg-blue-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                className="px-3 py-1.5 rounded-lg text-white text-sm font-semibold bg-purple-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
                 조회
               </button>
             </div>
@@ -372,7 +372,7 @@ export default function Dashboard() {
         {(['A', 'B', 'C'] as const).map(g => {
           const count = data.gradeCount[g] || 0;
           const pct = s.totalProducts > 0 ? Math.round((count / s.totalProducts) * 100) : 0;
-          const barColor = g === 'C' ? 'bg-red-500' : 'bg-blue-600';
+          const barColor = g === 'C' ? 'bg-red-500' : 'bg-purple-600';
           const labelMap = { A: '핵심상품', B: '성장상품', C: '정리대상' };
           return (
             <Link key={g} href={g === 'A' ? '/product-hub?tab=core' : g === 'C' ? '/product-hub?tab=cleanup' : '/product-hub'} className="rounded-2xl p-4 hover:shadow-md transition-all bg-white border border-slate-100 shadow-sm">
@@ -416,7 +416,7 @@ export default function Dashboard() {
             <BarChart3 size={15} className="text-slate-400" />
             <h3 className="text-sm font-bold text-slate-900">Top Revenue Products</h3>
           </div>
-          <Link href="/product-hub" className="text-xs font-mono text-blue-600">VIEW ALL →</Link>
+          <Link href="/product-hub" className="text-xs font-mono text-purple-600">VIEW ALL →</Link>
         </div>
         <div className="overflow-x-auto">
           <table style={{ minWidth: 600 }}>
@@ -481,7 +481,7 @@ export default function Dashboard() {
                     <div className="flex items-center gap-3">
                       <div className="w-24 h-2 rounded-full overflow-hidden bg-slate-100">
                         <div
-                          className={`h-full rounded-full ${item.negative ? 'bg-red-500' : 'bg-blue-600'}`}
+                          className={`h-full rounded-full ${item.negative ? 'bg-red-500' : 'bg-purple-600'}`}
                           style={{ width: `${Math.min(Math.abs(item.value) / Math.max(revenue, 1) * 100, 100)}%` }}
                         />
                       </div>
@@ -617,7 +617,7 @@ function SidePanel({ alerts, router, queryClient }: {
           )}
         </div>
         {alerts.length > 0 && (
-          <button onClick={markAllRead} className="text-xs text-blue-600 font-semibold hover:underline">전체 읽음</button>
+          <button onClick={markAllRead} className="text-xs text-purple-600 font-semibold hover:underline">전체 읽음</button>
         )}
       </div>
 
@@ -629,7 +629,7 @@ function SidePanel({ alerts, router, queryClient }: {
               <div className="mt-0.5">{alertIcon(a.type)}</div>
               <div className="flex-1 min-w-0">
                 <span className="text-sm leading-relaxed text-slate-500">{a.message}</span>
-                {href && <span className="text-[10px] ml-1.5 text-blue-600">→</span>}
+                {href && <span className="text-[10px] ml-1.5 text-purple-600">→</span>}
               </div>
             </div>
           );
@@ -679,7 +679,7 @@ function DashboardChart({
         <div className="flex gap-1 rounded-lg p-0.5 bg-slate-100">
           {tabs.map(t => (
             <button key={t.key} onClick={() => setChartTab(t.key)}
-              className={`px-4 py-1.5 rounded-md text-[13px] font-semibold transition-all ${chartTab === t.key ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500'}`}>
+              className={`px-4 py-1.5 rounded-md text-[13px] font-semibold transition-all ${chartTab === t.key ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-500'}`}>
               {t.label}
             </button>
           ))}
@@ -694,7 +694,7 @@ function DashboardChart({
             {[
               { label: '긴급', color: 'text-red-600 bg-red-50 border-red-200', count: aiActions.filter(a => a.priority === 'urgent').length },
               { label: '높음', color: 'text-amber-600 bg-amber-50 border-amber-200', count: aiActions.filter(a => a.priority === 'high').length },
-              { label: '보통', color: 'text-blue-600 bg-blue-50 border-blue-200', count: aiActions.filter(a => a.priority === 'medium').length },
+              { label: '보통', color: 'text-purple-600 bg-blue-50 border-blue-200', count: aiActions.filter(a => a.priority === 'medium').length },
             ].map(g => (
               <div key={g.label} className={`flex-1 rounded-xl border p-3 text-center ${g.color}`}>
                 <div className="text-2xl font-bold">{g.count}</div>
@@ -711,7 +711,7 @@ function DashboardChart({
               </div>
             ))}
           </div>
-          <Link href="/action-board" className="shrink-0 text-center px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition-colors">
+          <Link href="/action-board" className="shrink-0 text-center px-4 py-2 rounded-lg bg-purple-600 text-white text-sm font-semibold hover:bg-purple-700 transition-colors">
             액션 보드에서 보기 →
           </Link>
         </div>

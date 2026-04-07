@@ -142,7 +142,7 @@ export default function SupplierHistory() {
 
                       {/* Amount & Date */}
                       <div className="flex items-center gap-4 text-xs text-slate-400">
-                        <span className={item.type === 'payment' ? 'text-blue-600 font-medium' : 'text-slate-700 font-medium'}>
+                        <span className={item.type === 'payment' ? 'text-purple-600 font-medium' : 'text-slate-700 font-medium'}>
                           {formatKRW(item.amount)}원
                         </span>
                         <span className="text-slate-400">

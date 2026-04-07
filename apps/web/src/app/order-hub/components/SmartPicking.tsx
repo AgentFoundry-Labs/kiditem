@@ -118,7 +118,7 @@ export default function SmartPicking() {
             새로고침
           </button>
           <button onClick={() => generateMutation.mutate()} disabled={generateMutation.isPending}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium disabled:opacity-50">
+            className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm font-medium disabled:opacity-50">
             <Play size={16} />
             피킹리스트 생성
           </button>
@@ -129,21 +129,21 @@ export default function SmartPicking() {
       <div className="bg-blue-50 rounded-xl p-4 border border-blue-200">
         <div className="flex items-center gap-6 text-sm">
           <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center text-xs font-bold">
+            <div className="w-6 h-6 rounded-full bg-purple-600 text-white flex items-center justify-center text-xs font-bold">
               1
             </div>
             <span>피킹리스트 생성</span>
           </div>
           <span className="text-blue-300">&rarr;</span>
           <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center text-xs font-bold">
+            <div className="w-6 h-6 rounded-full bg-purple-600 text-white flex items-center justify-center text-xs font-bold">
               2
             </div>
             <span>위치순 피킹</span>
           </div>
           <span className="text-blue-300">&rarr;</span>
           <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center text-xs font-bold">
+            <div className="w-6 h-6 rounded-full bg-purple-600 text-white flex items-center justify-center text-xs font-bold">
               3
             </div>
             <span>바코드 검수</span>
@@ -341,7 +341,7 @@ export default function SmartPicking() {
                         {!item.isPicked ? (
                           <button
                             onClick={() => pickItem(item.id)}
-                            className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700"
+                            className="flex items-center gap-1 px-3 py-1.5 bg-purple-600 text-white rounded-lg text-xs font-medium hover:bg-purple-700"
                           >
                             <Package size={12} />
                             피킹

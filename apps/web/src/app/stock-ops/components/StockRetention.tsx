@@ -111,7 +111,7 @@ export default function StockRetention() {
           <BarChart3 className="w-6 h-6 text-cyan-600" />
           <h2 className="text-lg font-bold text-slate-800">입고대비 잔존재고 분석</h2>
         </div>
-        <button disabled={isLoading} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
+        <button disabled={isLoading} className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50">
           {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
           새로고침
         </button>

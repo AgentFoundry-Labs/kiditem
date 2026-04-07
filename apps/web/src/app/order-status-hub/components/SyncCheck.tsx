@@ -117,7 +117,7 @@ export default function SyncCheck() {
             </div>
             <button
               onClick={handleCheck}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+              className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 disabled:opacity-50"
             >
               <Search size={16} />
               체크 실행
@@ -139,7 +139,7 @@ export default function SyncCheck() {
                     <div className="flex items-center justify-center gap-1 text-sm text-slate-500">
                       <Cloud size={14} /> 쿠팡 API
                     </div>
-                    <div className="text-2xl font-bold text-blue-600 mt-1">
+                    <div className="text-2xl font-bold text-purple-600 mt-1">
                       {formatNumber(totalApi)}건
                     </div>
                   </div>

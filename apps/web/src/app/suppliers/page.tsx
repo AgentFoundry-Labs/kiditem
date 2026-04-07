@@ -48,7 +48,7 @@ export default function SuppliersPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="page-title"><Truck size={24} className="inline mr-2" />매입처 관리</h1>
-        <button onClick={() => setShowForm(!showForm)} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium"><Plus size={16} />매입처 추가</button>
+        <button onClick={() => setShowForm(!showForm)} className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm font-medium"><Plus size={16} />매입처 추가</button>
       </div>
 
       {showForm && (
@@ -65,7 +65,7 @@ export default function SuppliersPage() {
             <input placeholder="메모" value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} className="px-3 py-2 border rounded-lg text-sm col-span-2" />
           </div>
           <button onClick={() => createMutation.mutate(form)} disabled={createMutation.isPending}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50">등록</button>
+            className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 disabled:opacity-50">등록</button>
         </div>
       )}
 

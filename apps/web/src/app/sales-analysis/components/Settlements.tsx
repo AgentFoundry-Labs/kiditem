@@ -131,7 +131,7 @@ export default function Settlements() {
             {settlements.map(s => (
               <tr key={s.id} className="hover:bg-slate-50">
                 <td className="px-4 py-3 font-medium">{s.period}</td>
-                <td className="px-4 py-3 text-right text-xs"><span className="text-blue-600">{s.orderCount}건</span> / <span className="text-red-500">{s.returnCount}건</span></td>
+                <td className="px-4 py-3 text-right text-xs"><span className="text-purple-600">{s.orderCount}건</span> / <span className="text-red-500">{s.returnCount}건</span></td>
                 <td className="px-4 py-3 text-right">{formatKRW(s.commission)}</td>
                 <td className="px-4 py-3 text-right font-medium">{formatKRW(s.expectedAmount)}</td>
                 <td className="px-4 py-3 text-right">
@@ -161,7 +161,7 @@ export default function Settlements() {
                   {editId === s.id ? (
                     <button onClick={() => handleConfirm(s)} className="px-3 py-1 bg-green-600 text-white rounded text-xs font-medium hover:bg-green-700">저장</button>
                   ) : s.status !== 'confirmed' ? (
-                    <button onClick={() => { setEditId(s.id); setActualAmount(s.expectedAmount); }} className="px-3 py-1 bg-blue-600 text-white rounded text-xs font-medium hover:bg-blue-700">입금확인</button>
+                    <button onClick={() => { setEditId(s.id); setActualAmount(s.expectedAmount); }} className="px-3 py-1 bg-purple-600 text-white rounded text-xs font-medium hover:bg-purple-700">입금확인</button>
                   ) : null}
                 </td>
               </tr>

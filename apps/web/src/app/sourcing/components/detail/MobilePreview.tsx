@@ -96,7 +96,7 @@ export default function MobilePreview({
 
             <div className="border-t border-slate-100 pt-2 mt-2">
               <div className="flex items-center gap-1">
-                <span className="px-1.5 py-0.5 bg-blue-50 text-blue-600 text-[9px] font-bold rounded">
+                <span className="px-1.5 py-0.5 bg-blue-50 text-purple-600 text-[9px] font-bold rounded">
                   최대적립
                 </span>
                 <span className="text-[10px] text-slate-600">

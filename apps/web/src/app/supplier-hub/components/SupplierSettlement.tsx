@@ -78,7 +78,7 @@ export default function SupplierSettlement() {
             {difference === 0 ? <Minus size={12} className="text-slate-400" /> : <AlertTriangle size={12} className="text-red-500" />}
             <span className="card-label">차이 (미정산)</span>
           </div>
-          <div className={`card-value tabular-nums ${difference > 0 ? 'text-red-600' : difference < 0 ? 'text-blue-600' : 'text-slate-400'}`}>
+          <div className={`card-value tabular-nums ${difference > 0 ? 'text-red-600' : difference < 0 ? 'text-purple-600' : 'text-slate-400'}`}>
             {difference > 0 ? '+' : ''}{formatKRW(difference)}원
           </div>
         </div>

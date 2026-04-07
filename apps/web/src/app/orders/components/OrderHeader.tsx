@@ -32,7 +32,7 @@ export default function OrderHeader({
         </div>
       </div>
       <div className="flex items-center gap-2">
-        {syncing && <span className="text-[10px] text-blue-600 font-mono animate-pulse">쿠팡 동기화 중...</span>}
+        {syncing && <span className="text-[10px] text-purple-600 font-mono animate-pulse">쿠팡 동기화 중...</span>}
         <span className="text-[10px] text-slate-400 font-mono">자동 동기화: 9/12/15/18시</span>
         <button
           onClick={onToggleCompleted}
@@ -42,7 +42,7 @@ export default function OrderHeader({
         >
           {showCompleted ? "배송완료 숨기기" : `배송완료 보기 (${completedCount})`}
         </button>
-        <button className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-white bg-blue-600 hover:bg-blue-700 rounded-md font-mono">
+        <button className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-white bg-purple-600 hover:bg-purple-700 rounded-md font-mono">
           <Plus size={12} /> 수기주문
         </button>
         <button

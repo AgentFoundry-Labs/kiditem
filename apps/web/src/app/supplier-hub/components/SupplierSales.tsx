@@ -66,7 +66,7 @@ export default function SupplierSales() {
         </div>
         <div className="card">
           <div className="flex items-center gap-2 card-label mb-1"><DollarSign size={14} className="text-blue-500" />총 매출</div>
-          <div className="card-value text-blue-600">{formatKRW(totalRevenue)}원</div>
+          <div className="card-value text-purple-600">{formatKRW(totalRevenue)}원</div>
         </div>
         <div className="card">
           <div className="flex items-center gap-2 card-label mb-1"><TrendingUp size={14} className="text-green-500" />총 이익</div>
@@ -110,7 +110,7 @@ export default function SupplierSales() {
                   <td className={`px-4 py-3 text-right tabular-nums ${sup.profitRate >= 5 ? 'text-green-600' : 'text-orange-600'}`}>{sup.profitRate}%</td>
                   <td className="px-4 py-3 text-right tabular-nums">{sup.totalOrders}</td>
                   <td className="px-4 py-3 text-center">
-                    <button className="text-xs text-blue-600 hover:underline">상품별</button>
+                    <button className="text-xs text-purple-600 hover:underline">상품별</button>
                   </td>
                 </tr>
               ))}

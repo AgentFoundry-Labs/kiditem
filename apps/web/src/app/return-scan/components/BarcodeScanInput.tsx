@@ -51,7 +51,7 @@ export default function BarcodeScanInput({
           <button
             disabled={!barcode.trim() || scanning}
             onClick={onSubmit}
-            className="px-6 py-3 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed"
+            className="px-6 py-3 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {scanning ? (
               <Loader2 size={16} className="animate-spin" />

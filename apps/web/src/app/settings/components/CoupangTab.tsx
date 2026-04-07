@@ -61,7 +61,7 @@ export default function CoupangTab({
               <span className="text-slate-500">상태</span>
               <div className="mt-1">
                 {!healthResult && !testing && <span className="text-slate-400">테스트 필요</span>}
-                {testing && <span className="text-blue-600 flex items-center gap-1"><Loader2 size={14} className="animate-spin" /> 테스트 중...</span>}
+                {testing && <span className="text-purple-600 flex items-center gap-1"><Loader2 size={14} className="animate-spin" /> 테스트 중...</span>}
                 {healthResult?.connected && <span className="text-green-600 flex items-center gap-1"><CheckCircle size={14} /> 연결됨</span>}
                 {healthResult && !healthResult.connected && <span className="text-red-600 flex items-center gap-1"><XCircle size={14} /> 실패</span>}
               </div>
@@ -83,7 +83,7 @@ export default function CoupangTab({
           <button
             onClick={onTestConnection}
             disabled={testing}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm font-medium"
+            className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 text-sm font-medium"
           >
             <RefreshCw size={16} className={testing ? 'animate-spin' : ''} />
             연결 테스트
@@ -100,7 +100,7 @@ export default function CoupangTab({
           {/* 상품 동기화 */}
           <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
             <div className="flex items-center gap-3">
-              <Package size={20} className="text-blue-600" />
+              <Package size={20} className="text-purple-600" />
               <div>
                 <div className="font-medium text-sm">상품 동기화</div>
                 <div className="text-xs text-slate-500">쿠팡 등록 상품 전체를 가져옵니다</div>
@@ -115,7 +115,7 @@ export default function CoupangTab({
               <button
                 onClick={onSyncProduct}
                 disabled={syncingProduct}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm font-medium"
+                className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 text-sm font-medium"
               >
                 {syncingProduct ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
                 {syncingProduct ? '동기화 중...' : '상품 가져오기'}

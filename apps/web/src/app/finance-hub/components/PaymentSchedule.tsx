@@ -166,7 +166,7 @@ export default function PaymentSchedule() {
       {/* Groups */}
       {renderGroup('연체 (Overdue)', <AlertOctagon size={14} className="text-red-500" />, groups.overdue, 'text-red-600')}
       {renderGroup('이번 주', <Clock size={14} className="text-yellow-500" />, groups.thisWeek, 'text-yellow-600')}
-      {renderGroup('이번 달', <CalendarDays size={14} className="text-blue-500" />, groups.thisMonth, 'text-blue-600')}
+      {renderGroup('이번 달', <CalendarDays size={14} className="text-blue-500" />, groups.thisMonth, 'text-purple-600')}
       {renderGroup('이후 / 미정', <CalendarClock size={14} className="text-slate-400" />, groups.later, 'text-slate-500')}
 
       {payments.length === 0 && (
