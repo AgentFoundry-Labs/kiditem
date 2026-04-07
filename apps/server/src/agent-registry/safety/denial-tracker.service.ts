@@ -13,8 +13,9 @@ export class DenialTrackerService {
     detail: string;
     action?: string;
   }): Promise<void> {
-    await this.prisma.agentPermissionDenial.create({
+    await this.prisma.agentEvent.create({
       data: {
+        eventType: 'permission_denied',
         company: { connect: { id: input.companyId } },
         agent: { connect: { id: input.agentId } },
         runId: input.runId,
@@ -26,17 +27,17 @@ export class DenialTrackerService {
   }
 
   async listDenials(agentId: string, options?: { limit?: number }) {
-    return this.prisma.agentPermissionDenial.findMany({
-      where: { agentId },
+    return this.prisma.agentEvent.findMany({
+      where: { agentId, eventType: 'permission_denied' },
       orderBy: { createdAt: 'desc' },
       take: options?.limit ?? 50,
     });
   }
 
   async getSummary(companyId: string) {
-    const denials = await this.prisma.agentPermissionDenial.groupBy({
+    const denials = await this.prisma.agentEvent.groupBy({
       by: ['category'],
-      where: { companyId },
+      where: { companyId, eventType: 'permission_denied' },
       _count: { id: true },
     });
     const total = denials.reduce((sum, d) => sum + d._count.id, 0);

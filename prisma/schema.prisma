@@ -80,16 +80,13 @@ model Company {
   systemSettings  SystemSetting[]
 
   // Agent Platform
-  agentRuntimeStates    AgentRuntimeState[]
+
   heartbeatRuns         HeartbeatRun[]
   agentWakeupRequests   AgentWakeupRequest[]
 
-  agentPermissionDenials AgentPermissionDenial[]
-  agentActionSnapshots   AgentActionSnapshot[]
+  agentEvents            AgentEvent[]
 
   // Ad Snapshots
-  adCampaignSnapshots  AdCampaignSnapshot[]
-  adProductSnapshots   AdProductSnapshot[]
   scrapeTargets        ScrapeTarget[]
   adSnapshots          AdSnapshot[]
   itemWinners          ItemWinner[]
@@ -783,22 +780,31 @@ model AgentDefinition {
   lastHeartbeatAt DateTime? @map("last_heartbeat_at") @db.Timestamptz
   metadata        Json?
 
+  // Runtime State (AgentRuntimeState 흡수 — Phase 3)
+  rtSessionId          String?   @map("rt_session_id")
+  rtStateJson          Json      @default("{}") @map("rt_state_json") @db.JsonB
+  rtLastRunId          String?   @map("rt_last_run_id") @db.Uuid
+  rtLastRunStatus      String?   @map("rt_last_run_status")
+  rtTotalInputTokens   Int       @default(0) @map("rt_total_input_tokens")
+  rtTotalOutputTokens  Int       @default(0) @map("rt_total_output_tokens")
+  rtTotalCostCents     Int       @default(0) @map("rt_total_cost_cents")
+  rtLastError          String?   @map("rt_last_error")
+  rtConsecutiveFailCount Int     @default(0) @map("rt_consecutive_fail_count")
+  rtLastFailedAt       DateTime? @map("rt_last_failed_at") @db.Timestamptz
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   marketplaceId String? @map("marketplace_id") @db.Uuid
 
   // Relations
-  company        Company?          @relation(fields: [companyId], references: [id])
-  marketplace    AgentMarketplace? @relation(fields: [marketplaceId], references: [id])
+  company        Company?     @relation(fields: [companyId], references: [id])
+  marketplace    Marketplace? @relation(fields: [marketplaceId], references: [id])
   parent         AgentDefinition?  @relation("AgentHierarchy", fields: [reportsTo], references: [id])
   children       AgentDefinition[] @relation("AgentHierarchy")
-  runtimeState   AgentRuntimeState?
   heartbeatRuns  HeartbeatRun[]
   wakeupRequests AgentWakeupRequest[]
-
-  permissionDenials AgentPermissionDenial[]
-  actionSnapshots   AgentActionSnapshot[]
+  agentEvents    AgentEvent[]
   users             User[]
 
   @@index([companyId])
@@ -810,34 +816,7 @@ model AgentDefinition {
   @@map("agent_definitions")
 }
 
-// ─── Agent Runtime State ─────────────────────────────────────────────────────
-
-model AgentRuntimeState {
-  agentId           String @id @map("agent_id") @db.Uuid
-  companyId         String @map("company_id") @db.Uuid
-  adapterType       String @map("adapter_type")
-  sessionId         String? @map("session_id")
-  stateJson         Json   @default("{}") @map("state_json") @db.JsonB
-  lastRunId         String? @map("last_run_id") @db.Uuid
-  lastRunStatus     String? @map("last_run_status")
-  totalInputTokens  Int    @default(0) @map("total_input_tokens")
-  totalOutputTokens Int    @default(0) @map("total_output_tokens")
-  totalCostCents    Int    @default(0) @map("total_cost_cents")
-  lastError         String? @map("last_error")
-
-  // 에러 복구 캐스케이드: 연속 실패 추적 → 3회 시 auto-pause
-  consecutiveFailCount Int       @default(0) @map("consecutive_fail_count")
-  lastFailedAt         DateTime? @map("last_failed_at") @db.Timestamptz
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  agent   AgentDefinition @relation(fields: [agentId], references: [id], onDelete: Cascade)
-  company Company         @relation(fields: [companyId], references: [id])
-
-  @@index([companyId, agentId])
-  @@map("agent_runtime_state")
-}
+// AgentRuntimeState 삭제 (Phase 3: AgentDefinition에 rt_ 접두사로 흡수)
 
 // ─── Heartbeat Runs ──────────────────────────────────────────────────────────
 
@@ -925,46 +904,35 @@ model AgentWakeupRequest {
   @@map("agent_wakeup_requests")
 }
 
-// ─── Agent Permission Denials ─────────────────────────────────────────────────
+// ─── Agent Events (Phase 3: PermissionDenial + ActionSnapshot 통합) ──────────
 
-model AgentPermissionDenial {
-  id        String   @id @default(uuid()) @db.Uuid
-  companyId String   @map("company_id") @db.Uuid
-  agentId   String   @map("agent_id") @db.Uuid
-  runId     String?  @map("run_id") @db.Uuid
-  category  String                                    // dangerous_tool | budget_exceeded | feature_gate | skill_denied
-  detail    String
-  action    String   @default("blocked")              // blocked | warned
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-
-  agent   AgentDefinition @relation(fields: [agentId], references: [id])
-  company Company         @relation(fields: [companyId], references: [id])
-
-  @@index([companyId, agentId, createdAt])
-  @@map("agent_permission_denials")
-}
-
-// ─── Agent Action Snapshots (Business Safety) ────────────────────────────────
-
-model AgentActionSnapshot {
+model AgentEvent {
   id          String    @id @default(uuid()) @db.Uuid
   companyId   String    @map("company_id") @db.Uuid
-  runId       String    @map("run_id") @db.Uuid
   agentId     String    @map("agent_id") @db.Uuid
-  tableName   String    @map("table_name")
-  recordId    String    @map("record_id")
-  fieldName   String    @map("field_name")
-  valueBefore Json      @map("value_before")
-  valueAfter  Json      @map("value_after")
+  runId       String?   @map("run_id") @db.Uuid
+  eventType   String    @map("event_type")             // permission_denied | action_snapshot
+  category    String?                                   // denial: dangerous_tool | budget_exceeded | feature_gate | skill_denied
+  detail      String?
+  action      String?                                   // blocked | warned | restored
+
+  // Snapshot fields (eventType=action_snapshot)
+  tableName   String?   @map("table_name")
+  recordId    String?   @map("record_id")
+  fieldName   String?   @map("field_name")
+  valueBefore Json?     @map("value_before")
+  valueAfter  Json?     @map("value_after")
   restoredAt  DateTime? @map("restored_at") @db.Timestamptz
+
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
   agent   AgentDefinition @relation(fields: [agentId], references: [id])
   company Company         @relation(fields: [companyId], references: [id])
 
+  @@index([companyId, agentId, createdAt])
+  @@index([companyId, eventType, createdAt])
   @@index([runId])
-  @@index([agentId, createdAt])
-  @@map("agent_action_snapshots")
+  @@map("agent_events")
 }
 
 // ─── Content ──────────────────────────────────────────────────────────────────
@@ -1013,8 +981,8 @@ model WorkflowTemplate {
 
   marketplaceId String? @map("marketplace_id") @db.Uuid
 
-  company     Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  marketplace WorkflowMarketplace?  @relation(fields: [marketplaceId], references: [id])
+  company     Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  marketplace Marketplace? @relation(fields: [marketplaceId], references: [id])
   runs        WorkflowRun[]
 
   @@index([companyId])
@@ -1623,15 +1591,27 @@ model BusinessRule {
 
 // ─── Marketplace ──────────────────────────────────────────────────────────────
 
-model WorkflowMarketplace {
+model Marketplace {
   id                 String   @id @default(uuid()) @db.Uuid
+  type               String   // "workflow" | "agent"
   name               String
   description        String   @default("")
-  module             String   @default("order")
-  category           String   @default("automation") // automation, monitoring, reporting
+  category           String   @default("automation")
   icon               String?
-  nodesJson          Json     @map("nodes_json")
-  edgesJson          Json     @map("edges_json")
+
+  // Workflow 전용 (type="workflow"일 때만 사용)
+  module             String?  @default("order")
+  nodesJson          Json?    @map("nodes_json")
+  edgesJson          Json?    @map("edges_json")
+
+  // Agent 전용 (type="agent"일 때만 사용)
+  role               String?  @default("specialist")
+  adapterType        String?  @map("adapter_type")
+  promptTemplate     String?  @map("prompt_template") @db.Text
+  skills             String[] @default([])
+  permissions        Json?    @db.JsonB
+
+  // 공통
   configurableParams Json     @default("[]") @map("configurable_params") // ConfigurableParam[]
   version            Int      @default(1)
   installCount       Int      @default(0) @map("install_count")
@@ -1640,100 +1620,14 @@ model WorkflowMarketplace {
   updatedAt          DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   installedWorkflows WorkflowTemplate[]
+  installedAgents    AgentDefinition[]
 
-  @@index([module])
+  @@index([type])
   @@index([category])
   @@index([isPublished])
-  @@map("workflow_marketplace")
+  @@map("marketplace")
 }
 
-model AgentMarketplace {
-  id                 String   @id @default(uuid()) @db.Uuid
-  name               String
-  description        String   @default("")
-  role               String   @default("specialist")
-  category           String   @default("operations") // operations, analytics, monitoring
-  icon               String?
-  adapterType        String   @default("claude_local") @map("adapter_type")
-  promptTemplate     String   @map("prompt_template") @db.Text
-  skills             String[] @default([])
-  permissions        Json     @default("{}") @db.JsonB
-  configurableParams Json     @default("[]") @map("configurable_params") // ConfigurableParam[]
-  version            Int      @default(1)
-  installCount       Int      @default(0) @map("install_count")
-  isPublished        Boolean  @default(true) @map("is_published")
-  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt          DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  installedAgents AgentDefinition[]
-
-  @@index([role])
-  @@index([category])
-  @@index([isPublished])
-  @@map("agent_marketplace")
-}
-
-// ─── Ad Snapshots ─────────────────────────────────────────────────────────────
-
-model AdCampaignSnapshot {
-  id            String   @id @default(uuid()) @db.Uuid
-  companyId     String   @map("company_id") @db.Uuid
-  campaignName  String   @map("campaign_name")
-  period        String   // "7d" | "month" | "yesterday"
-  date          DateTime @db.Date
-  onOff         String?  @map("on_off")
-  status        String?
-  adSpend       Int      @default(0) @map("ad_spend")
-  adRevenue     Int      @default(0) @map("ad_revenue")
-  totalRevenue  Int      @default(0) @map("total_revenue")
-  impressions   Int      @default(0)
-  clicks        Int      @default(0)
-  ctr           Decimal? @db.Decimal(8, 4)
-  conversions   Int      @default(0)
-  orders        Int      @default(0)
-  roas          Decimal? @db.Decimal(10, 2)
-  conversionRate Decimal? @map("conversion_rate") @db.Decimal(8, 4)
-  budget        Int?
-  todaySpend    Int?     @map("today_spend")
-  collectedAt   DateTime? @map("collected_at") @db.Timestamptz
-  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
-
-  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  @@unique([companyId, campaignName, date, period])
-  @@index([companyId, date])
-  @@index([campaignName, period])
-  @@map("ad_campaign_snapshots")
-}
-
-model AdProductSnapshot {
-  id            String   @id @default(uuid()) @db.Uuid
-  companyId     String   @map("company_id") @db.Uuid
-  campaignName  String   @map("campaign_name")
-  period        String
-  date          DateTime @db.Date
-  productName   String   @map("product_name")
-  vendorItemId  String?  @map("vendor_item_id")
-  onOff         String?  @map("on_off")
-  status        String?
-  keyword       String?
-  adSpend       Int      @default(0) @map("ad_spend")
-  adRevenue     Int      @default(0) @map("ad_revenue")
-  impressions   Int      @default(0)
-  clicks        Int      @default(0)
-  ctr           Decimal? @db.Decimal(8, 4)
-  adConversions Int      @default(0) @map("ad_conversions")
-  conversionRate Decimal? @map("conversion_rate") @db.Decimal(8, 4)
-  collectedAt   DateTime? @map("collected_at") @db.Timestamptz
-  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
-
-  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  @@index([companyId, date])
-  @@index([campaignName, period])
-  @@index([vendorItemId])
-  @@map("ad_product_snapshots")
-}
 
 // ─── Scrape Targets ──────────────────────────────────────────────────────────
 
@@ -1753,7 +1647,7 @@ model ScrapeTarget {
   @@map("scrape_targets")
 }
 
-// ─── Ad Snapshots (Raw) ──────────────────────────────────────────────────────
+// ─── Ad Snapshots (통합) ─────────────────────────────────────────────────────
 
 model AdSnapshot {
   id           String   @id @default(uuid()) @db.Uuid
@@ -1761,20 +1655,34 @@ model AdSnapshot {
   productId    String?  @map("product_id") @db.Uuid
   source       String   // "advertising" | "wing"
   pageType     String   @map("page_type") // "campaign" | "keyword" | "product"
+  level        String?  // "campaign" | "product" | null(raw)
   externalId   String?  @map("external_id")
   campaignName String?  @map("campaign_name")
+  period       String?  // "7d" | "month" | "yesterday"
+  date         DateTime? @db.Date
   keyword      String?
   productName  String?  @map("product_name")
+  vendorItemId String?  @map("vendor_item_id")
   status       String?
+  onOff        String?  @map("on_off")
   currentBid   Int?     @map("current_bid")
   dailyBudget  Int?     @map("daily_budget")
+  budget       Int?
+  todaySpend   Int?     @map("today_spend")
   impressions  Int      @default(0)
   clicks       Int      @default(0)
   conversions  Int      @default(0)
+  adConversions Int     @default(0) @map("ad_conversions")
+  orders       Int      @default(0)
   spend        Int      @default(0)
+  adSpend      Int      @default(0) @map("ad_spend")
   revenue      Int      @default(0)
+  adRevenue    Int      @default(0) @map("ad_revenue")
+  totalRevenue Int      @default(0) @map("total_revenue")
   roas         Decimal? @db.Decimal(10, 2)
   ctr          Decimal? @db.Decimal(8, 4)
+  conversionRate Decimal? @map("conversion_rate") @db.Decimal(8, 4)
+  collectedAt  DateTime? @map("collected_at") @db.Timestamptz
   rawJson      Json?    @map("raw_json")
   capturedAt   DateTime @default(now()) @map("captured_at") @db.Timestamptz
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
@@ -1784,6 +1692,7 @@ model AdSnapshot {
   adActions    AdAction[]
 
   @@index([companyId, source])
+  @@index([companyId, level, date])
   @@index([capturedAt])
   @@map("ad_snapshots")
 }

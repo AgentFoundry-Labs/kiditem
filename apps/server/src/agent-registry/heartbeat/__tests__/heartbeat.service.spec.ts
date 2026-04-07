@@ -8,10 +8,6 @@ function makePrisma() {
       findMany: vi.fn().mockResolvedValue([]),
       update: vi.fn(),
     },
-    agentRuntimeState: {
-      findUnique: vi.fn(),
-      upsert: vi.fn(),
-    },
     heartbeatRun: {
       create: vi.fn(),
       update: vi.fn(),

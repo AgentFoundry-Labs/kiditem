@@ -41,8 +41,8 @@ export type {
 } from './agent.js';
 
 // Marketplace
-export { ConfigurableParamSchema, WorkflowCatalogItemSchema, AgentCatalogItemSchema } from './marketplace.js';
-export type { ConfigurableParam, WorkflowCatalogItem, AgentCatalogItem } from './marketplace.js';
+export { ConfigurableParamSchema, MarketplaceCatalogItemSchema, WorkflowCatalogItemSchema, AgentCatalogItemSchema } from './marketplace.js';
+export type { ConfigurableParam, MarketplaceCatalogItem, WorkflowCatalogItem, AgentCatalogItem } from './marketplace.js';
 
 // Dashboard
 export { DashboardSummarySchema, DashboardTrendItemSchema } from './dashboard.js';
@@ -57,8 +57,16 @@ export { ThumbnailListItemSchema, ThumbnailSummarySchema } from './thumbnails.js
 export type { ThumbnailListItem, ThumbnailSummary } from './thumbnails.js';
 
 // Ads
-export { AdsListItemSchema, AdsHubDataSchema, AdCampaignSnapshotSchema, AdProductSnapshotSchema } from './ads.js';
-export type { AdsListItem, AdsHubData, AdsSummary, AdCampaignSnapshot, AdProductSnapshot } from './ads.js';
+export {
+  AdsListItemSchema, AdsHubDataSchema, AdCampaignSnapshotSchema, AdProductSnapshotSchema,
+  AdBenchmarkDataSchema, AdTrendsDataSchema, AdStrategyPlanSchema, AdRulesDataSchema,
+  AdStrategyActionSchema, AdIssuesSchema, AdTierAnalysisSchema, AdTop20ItemSchema, AdWeeklyPlanSchema,
+} from './ads.js';
+export type {
+  AdsListItem, AdsHubData, AdsSummary, AdCampaignSnapshot, AdProductSnapshot,
+  AdBenchmarkData, AdTrendsData, AdStrategyPlan, AdRulesData,
+  AdStrategyAction, AdIssues, AdTierAnalysis, AdTop20Item, AdWeeklyPlan,
+} from './ads.js';
 
 // Alerts
 export { AlertItemSchema } from './alerts.js';

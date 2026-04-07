@@ -1,6 +1,7 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ExtensionSyncDto } from '../dto';
+import type { NormalizedCampaignKpi } from './types';
 
 @Injectable()
 export class AdSyncService {
@@ -75,7 +76,7 @@ export class AdSyncService {
   }
 
   /**
-   * ad_campaign → AdCampaignSnapshot upsert + AdProductSnapshot + AdSnapshot
+   * ad_campaign → AdSnapshot(level=campaign/product) upsert
    */
   private async handleAdCampaign(
     payload: ExtensionSyncDto,
@@ -89,8 +90,8 @@ export class AdSyncService {
     const normalizedRows: any[] = payload.normalizedRows || [];
     const capturedAt = payload.timestamp ? new Date(payload.timestamp) : new Date();
 
-    // 전체 KPI 스냅샷 저장
-    const totalKpi = {
+    // 전체 KPI 스냅샷 저장 (level=campaign, campaignName=_전체)
+    const totalKpi: NormalizedCampaignKpi = {
       adSpend: Math.round(this.getKpiNumber(kpis, ['전체 집행 광고비', '집행 광고비', '광고비'])),
       adRevenue: Math.round(this.getKpiNumber(kpis, ['광고 전환 매출', '전환 매출'])),
       totalRevenue: Math.round(this.getKpiNumber(kpis, ['전체 매출'])),
@@ -103,18 +104,25 @@ export class AdSyncService {
       conversionRate: this.getKpiNumber(kpis, ['전환율']),
     };
 
-    await this.prisma.adCampaignSnapshot.upsert({
-      where: {
-        companyId_campaignName_date_period: {
-          companyId, campaignName, date: today, period,
-        },
-      },
-      update: { ...totalKpi, collectedAt: capturedAt },
-      create: {
-        companyId, campaignName, date: today, period,
-        ...totalKpi, collectedAt: capturedAt,
-      },
+    // _전체 KPI: findFirst + upsert 패턴
+    const existingTotal = await this.prisma.adSnapshot.findFirst({
+      where: { companyId, level: 'campaign', campaignName, date: today, period },
+      select: { id: true },
     });
+    if (existingTotal) {
+      await this.prisma.adSnapshot.update({
+        where: { id: existingTotal.id },
+        data: { ...totalKpi, collectedAt: capturedAt },
+      });
+    } else {
+      await this.prisma.adSnapshot.create({
+        data: {
+          companyId, level: 'campaign', source: 'advertising', pageType: 'campaign',
+          campaignName, date: today, period,
+          ...totalKpi, collectedAt: capturedAt,
+        },
+      });
+    }
 
     // 캠페인/키워드 행 스냅샷 저장
     let productCount = 0;
@@ -144,38 +152,44 @@ export class AdSyncService {
           ? Math.round((rowConversions / Math.max(rowClicks, 1)) * 10000) / 100
           : this.toNumber(row.conversionRate);
 
-      // 캠페인 행이면 AdCampaignSnapshot upsert
+      // 캠페인 행이면 level=campaign AdSnapshot upsert
       if (row.pageType === 'campaign' && rowCampaignName && rowCampaignName !== '_전체') {
-        await this.prisma.adCampaignSnapshot.upsert({
-          where: {
-            companyId_campaignName_date_period: {
-              companyId, campaignName: rowCampaignName, date: today, period,
-            },
-          },
-          update: {
-            onOff: rowOnOff, status: rowStatus,
-            adSpend: rowSpend, adRevenue: rowRevenue,
-            impressions: rowImpressions, clicks: rowClicks, ctr: rowCtr,
-            conversions: rowConversions, orders: rowOrders,
-            roas: rowRoas, conversionRate: rowConversionRate,
-            budget: rowDailyBudget, todaySpend: rowTodaySpend,
-            collectedAt: capturedAt,
-          },
-          create: {
-            companyId, campaignName: rowCampaignName, date: today, period,
-            onOff: rowOnOff, status: rowStatus,
-            adSpend: rowSpend, adRevenue: rowRevenue,
-            impressions: rowImpressions, clicks: rowClicks, ctr: rowCtr,
-            conversions: rowConversions, orders: rowOrders,
-            roas: rowRoas, conversionRate: rowConversionRate,
-            budget: rowDailyBudget, todaySpend: rowTodaySpend,
-            collectedAt: capturedAt,
-          },
+        const existing = await this.prisma.adSnapshot.findFirst({
+          where: { companyId, level: 'campaign', campaignName: rowCampaignName, date: today, period },
+          select: { id: true },
         });
+        if (existing) {
+          await this.prisma.adSnapshot.update({
+            where: { id: existing.id },
+            data: {
+              onOff: rowOnOff, status: rowStatus,
+              adSpend: rowSpend, adRevenue: rowRevenue,
+              impressions: rowImpressions, clicks: rowClicks, ctr: rowCtr,
+              conversions: rowConversions, orders: rowOrders,
+              roas: rowRoas, conversionRate: rowConversionRate,
+              budget: rowDailyBudget, todaySpend: rowTodaySpend,
+              collectedAt: capturedAt,
+            },
+          });
+        } else {
+          await this.prisma.adSnapshot.create({
+            data: {
+              companyId, level: 'campaign', source: 'advertising', pageType: 'campaign',
+              campaignName: rowCampaignName, date: today, period,
+              onOff: rowOnOff, status: rowStatus,
+              adSpend: rowSpend, adRevenue: rowRevenue,
+              impressions: rowImpressions, clicks: rowClicks, ctr: rowCtr,
+              conversions: rowConversions, orders: rowOrders,
+              roas: rowRoas, conversionRate: rowConversionRate,
+              budget: rowDailyBudget, todaySpend: rowTodaySpend,
+              collectedAt: capturedAt,
+            },
+          });
+        }
         campaignSnapshotCount++;
       }
 
-      // AdSnapshot 생성
+      // raw AdSnapshot 생성 (level=null, 기존 동작 유지)
       const externalId = String(
         row.externalId ||
         [row.pageType || 'campaign', rowCampaignName || '', row.keyword || '', row.productName || ''].join('::'),
@@ -206,11 +220,14 @@ export class AdSyncService {
       });
       snapshotCount++;
 
-      // AdProductSnapshot 생성 (중복은 무시)
+      // level=product AdSnapshot 생성 (중복은 무시)
       try {
-        await this.prisma.adProductSnapshot.create({
+        await this.prisma.adSnapshot.create({
           data: {
             companyId,
+            level: 'product',
+            source: 'advertising',
+            pageType: 'product',
             campaignName: rowCampaignName,
             period, date: today,
             productName: row.productName || '',

@@ -7,7 +7,7 @@
 - **Controller**: `advertising.controller.ts` — all `/api/ads/*` routes
 - **Services**: advertising (list), ad-campaigns (snapshots/trends), ad-strategy (rules/plan/recommend), ad-benchmark (diagnosis), ad-collect (status), ad-sync (extension sync)
 - **Frontend**: `apps/web/src/app/ads/` — 5 pages (main, campaigns, strategy, benchmark, collect)
-- **DB**: `Ad`, `AdCampaignSnapshot`, `AdProductSnapshot`, `AdSnapshot`, `ItemWinner`, `ScrapeTarget` models (Prisma)
+- **DB**: `Ad`, `AdSnapshot` (level: "campaign"|"product"|null), `ItemWinner`, `ScrapeTarget` models (Prisma)
 - **Shared**: `@kiditem/shared/schemas` — `AdsListItem`, `AdBenchmarkData`, `AdTrendsData`, `AdStrategyPlan`, `AdRulesData`
 - **Data source**: Chrome 익스텐션 (`extensions/coupang-ads-scraper/`) → NestJS sync API → DB
 - **Extension**: `extensions/coupang-ads-scraper/` — 광고센터 + Wing 자동 수집

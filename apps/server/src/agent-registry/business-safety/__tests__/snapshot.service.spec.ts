@@ -7,7 +7,7 @@ function makePrisma() {
       findUnique: vi.fn(),
       update: vi.fn().mockResolvedValue({}),
     },
-    agentActionSnapshot: {
+    agentEvent: {
       createMany: vi.fn().mockResolvedValue({ count: 2 }),
       findMany: vi.fn().mockResolvedValue([]),
       update: vi.fn().mockResolvedValue({}),
@@ -29,8 +29,9 @@ describe('SnapshotService', () => {
     });
 
     expect(count).toBe(1);
-    expect(prisma.agentActionSnapshot.createMany).toHaveBeenCalledWith({
+    expect(prisma.agentEvent.createMany).toHaveBeenCalledWith({
       data: [expect.objectContaining({
+        eventType: 'action_snapshot',
         fieldName: 'adBudgetLimit',
         valueBefore: 10000,
         valueAfter: 13000,
@@ -64,7 +65,7 @@ describe('SnapshotService', () => {
 
   it('rollback restores values', async () => {
     const prisma = makePrisma();
-    prisma.agentActionSnapshot.findMany.mockResolvedValue([
+    prisma.agentEvent.findMany.mockResolvedValue([
       { id: 's-1', recordId: 'p-1', fieldName: 'adBudgetLimit', valueBefore: 10000 },
     ]);
 

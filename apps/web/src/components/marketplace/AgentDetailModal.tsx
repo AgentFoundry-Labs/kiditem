@@ -26,7 +26,7 @@ interface AgentDetailModalProps {
     description: string;
     icon: string | null;
     category: string;
-    role: string;
+    role: string | null;
     installCount: number;
     configurableParams: ConfigurableParam[];
   };
@@ -96,7 +96,7 @@ export function AgentDetailModal({
             {CATEGORY_LABELS[item.category] || item.category}
           </span>
           <span className="px-2 py-0.5 text-xs font-medium bg-violet-50 text-violet-600 rounded-md">
-            {ROLE_LABELS[item.role] || item.role}
+            {item.role ? (ROLE_LABELS[item.role] || item.role) : 'specialist'}
           </span>
           {item.installCount > 0 && (
             <span className="text-xs text-slate-400">{item.installCount}회 고용</span>

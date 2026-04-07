@@ -11,7 +11,7 @@ function makePrisma() {
       findMany: vi.fn().mockResolvedValue([]),
       create: vi.fn(),
       update: vi.fn(),
-      updateMany: vi.fn(),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       delete: vi.fn(),
     },
     agentTask: {
@@ -20,10 +20,6 @@ function makePrisma() {
       update: vi.fn(),
     },
     activityEvent: { create: vi.fn() },
-    agentRuntimeState: {
-      findUnique: vi.fn(),
-      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
-    },
     heartbeatRun: { findMany: vi.fn().mockResolvedValue([]) },
   };
 }
@@ -154,9 +150,9 @@ describe('AgentRegistryService', () => {
         where: { id: 'def-1' },
         data: expect.objectContaining({ status: 'idle', pauseReason: null }),
       });
-      expect(prisma.agentRuntimeState.updateMany).toHaveBeenCalledWith({
-        where: { agentId: 'def-1' },
-        data: { consecutiveFailCount: 0, lastFailedAt: null },
+      expect(prisma.agentDefinition.updateMany).toHaveBeenCalledWith({
+        where: { id: 'def-1' },
+        data: expect.objectContaining({ rtConsecutiveFailCount: 0, rtLastFailedAt: null }),
       });
     });
   });

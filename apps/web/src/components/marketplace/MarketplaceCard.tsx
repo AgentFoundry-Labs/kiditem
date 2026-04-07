@@ -9,9 +9,9 @@ interface MarketplaceCardProps {
     description: string;
     icon: string | null;
     installCount: number;
-    category?: string;
-    module?: string;
-    role?: string;
+    category?: string | null;
+    module?: string | null;
+    role?: string | null;
   };
   type: 'workflow' | 'agent';
   installed?: boolean;

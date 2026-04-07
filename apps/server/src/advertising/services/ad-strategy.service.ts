@@ -4,6 +4,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AdConfigService } from './ad-config.service';
+import type { GradeBudgetAllocation } from './types';
 
 @Injectable()
 export class AdStrategyService {
@@ -30,7 +31,7 @@ export class AdStrategyService {
     return run ? { ...(run.resultJson as any), generatedAt: run.finishedAt } : null;
   }
 
-  private async calcBudgetAllocation() {
+  private async calcBudgetAllocation(): Promise<GradeBudgetAllocation[]> {
     const companyId = await this.getDefaultCompanyId();
     const config = await this.adConfigService.getConfig(companyId);
 

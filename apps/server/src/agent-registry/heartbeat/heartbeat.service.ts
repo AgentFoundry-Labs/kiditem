@@ -164,8 +164,8 @@ export class HeartbeatService {
       }
     })();
 
-    const [runtimeState, skillsDir] = await Promise.all([
-      this.prisma.agentRuntimeState.findUnique({ where: { agentId } }),
+    const [agentWithRt, skillsDir] = await Promise.all([
+      this.prisma.agentDefinition.findUnique({ where: { id: agentId } }),
       buildSkillsPromise,
     ]);
 
@@ -178,7 +178,7 @@ export class HeartbeatService {
         triggerDetail: wakeup.triggerDetail,
         status: 'running',
         startedAt: new Date(),
-        sessionIdBefore: runtimeState?.sessionId,
+        sessionIdBefore: (agentWithRt as any)?.rtSessionId,
         wakeupRequest: { connect: { id: wakeup.id } },
       },
     });
@@ -214,7 +214,7 @@ export class HeartbeatService {
       config: Object.freeze(adapterConfig),
       prompt,
       skillPaths: Object.freeze(skillsDir ? [skillsDir] : []),
-      sessionId: runtimeState?.sessionId ?? undefined,
+      sessionId: (agentWithRt as any)?.rtSessionId ?? undefined,
       timeoutSec: agent.timeoutSeconds,
       graceSec: 10,
       env: Object.freeze({
@@ -379,48 +379,34 @@ export class HeartbeatService {
 
     // Runtime state 업데이트 (에러 복구 캐스케이드 포함)
     const isFailed = status === 'failed' || status === 'timed_out';
-    const prevFailCount = runtimeState?.consecutiveFailCount ?? 0;
+    const prevFailCount = (agentWithRt as any)?.rtConsecutiveFailCount ?? 0;
     const newFailCount = isFailed ? prevFailCount + 1 : 0;
 
-    const updatedRuntimeState = await this.prisma.agentRuntimeState.upsert({
-      where: { agentId },
-      update: {
-        sessionId: result.sessionIdAfter ?? runtimeState?.sessionId,
-        lastRunId: run.id,
-        lastRunStatus: status,
-        lastError: errorCode ? result.stderr.slice(0, 500) : null,
-        totalInputTokens: { increment: result.usage?.inputTokens ?? 0 },
-        totalOutputTokens: { increment: result.usage?.outputTokens ?? 0 },
-        totalCostCents: { increment: result.usage?.costCents ?? 0 },
-        consecutiveFailCount: newFailCount,
-        lastFailedAt: isFailed ? new Date() : runtimeState?.lastFailedAt,
-      },
-      create: {
-        agent: { connect: { id: agentId } },
-        company: { connect: { id: companyId } },
-        adapterType: agent.adapterType,
-        sessionId: result.sessionIdAfter,
-        lastRunId: run.id,
-        lastRunStatus: status,
-        lastError: errorCode ? result.stderr.slice(0, 500) : null,
-        totalInputTokens: result.usage?.inputTokens ?? 0,
-        totalOutputTokens: result.usage?.outputTokens ?? 0,
-        totalCostCents: result.usage?.costCents ?? 0,
-        consecutiveFailCount: newFailCount,
-        lastFailedAt: isFailed ? new Date() : null,
-      },
+    const updatedAgent = await this.prisma.agentDefinition.update({
+      where: { id: agentId },
+      data: {
+        rtSessionId: result.sessionIdAfter ?? (agentWithRt as any)?.rtSessionId,
+        rtLastRunId: run.id,
+        rtLastRunStatus: status,
+        rtLastError: errorCode ? result.stderr.slice(0, 500) : null,
+        rtTotalInputTokens: { increment: result.usage?.inputTokens ?? 0 },
+        rtTotalOutputTokens: { increment: result.usage?.outputTokens ?? 0 },
+        rtTotalCostCents: { increment: result.usage?.costCents ?? 0 },
+        rtConsecutiveFailCount: newFailCount,
+        rtLastFailedAt: isFailed ? new Date() : (agentWithRt as any)?.rtLastFailedAt,
+      } as any,
     });
 
     // 에러 복구 캐스케이드: 연속 3회 실패 시 자동 pause
-    if (updatedRuntimeState.consecutiveFailCount >= 3) {
+    if ((updatedAgent as any).rtConsecutiveFailCount >= 3) {
       this.logger.error(
-        `Agent ${agent.name} auto-paused: ${updatedRuntimeState.consecutiveFailCount} consecutive failures`,
+        `Agent ${agent.name} auto-paused: ${(updatedAgent as any).rtConsecutiveFailCount} consecutive failures`,
       );
       await this.prisma.agentDefinition.update({
         where: { id: agentId },
         data: {
           status: 'paused',
-          pauseReason: `consecutive_failures(${updatedRuntimeState.consecutiveFailCount})`,
+          pauseReason: `consecutive_failures(${(updatedAgent as any).rtConsecutiveFailCount})`,
           pausedAt: new Date(),
         },
       });
@@ -433,8 +419,8 @@ export class HeartbeatService {
         AGENT_EVENTS.AUTO_PAUSED,
         new AgentAutoPausedEvent(
           agent.id, agent.name,
-          updatedRuntimeState.consecutiveFailCount,
-          updatedRuntimeState.lastError ?? undefined,
+          (updatedAgent as any).rtConsecutiveFailCount,
+          (updatedAgent as any).rtLastError ?? undefined,
         ),
       );
     } else {

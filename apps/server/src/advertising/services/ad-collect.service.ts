@@ -29,18 +29,18 @@ export class AdCollectService {
       const companyId = await this.getDefaultCompanyId();
 
       const [lastCampaign, lastProduct, campaignCount, productCount] = await Promise.all([
-        this.prisma.adCampaignSnapshot.findFirst({
-          where: { companyId },
+        this.prisma.adSnapshot.findFirst({
+          where: { companyId, level: 'campaign' },
           orderBy: { createdAt: 'desc' },
           select: { createdAt: true },
         }),
-        this.prisma.adProductSnapshot.findFirst({
-          where: { companyId },
+        this.prisma.adSnapshot.findFirst({
+          where: { companyId, level: 'product' },
           orderBy: { createdAt: 'desc' },
           select: { createdAt: true },
         }),
-        this.prisma.adCampaignSnapshot.count({ where: { companyId } }),
-        this.prisma.adProductSnapshot.count({ where: { companyId } }),
+        this.prisma.adSnapshot.count({ where: { companyId, level: 'campaign' } }),
+        this.prisma.adSnapshot.count({ where: { companyId, level: 'product' } }),
       ]);
 
       return {

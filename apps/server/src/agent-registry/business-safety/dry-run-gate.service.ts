@@ -19,10 +19,9 @@ export class DryRunGateService {
     if (!agent) return null;
 
     const trustLevel = (agent as any).trustLevel ?? 0;
-    const runtimeState = await this.prisma.agentRuntimeState.findUnique({ where: { agentId } });
-    const stateJson = (runtimeState?.stateJson as Record<string, unknown>) ?? {};
+    const stateJson = ((agent as any).rtStateJson as Record<string, unknown>) ?? {};
     const successCount = (stateJson.successCount as number) ?? 0;
-    const failStreak = runtimeState?.consecutiveFailCount ?? 0;
+    const failStreak = (agent as any).rtConsecutiveFailCount ?? 0;
 
     let newLevel = trustLevel;
 
@@ -31,12 +30,10 @@ export class DryRunGateService {
       if (trustLevel === 0 && newCount >= 5) newLevel = 1;
       if (trustLevel === 1 && newCount >= 20) newLevel = 2;
 
-      if (runtimeState) {
-        await this.prisma.agentRuntimeState.update({
-          where: { agentId },
-          data: { stateJson: { ...stateJson, successCount: newCount } },
-        });
-      }
+      await this.prisma.agentDefinition.update({
+        where: { id: agentId },
+        data: { rtStateJson: { ...stateJson, successCount: newCount } } as any,
+      });
     } else {
       if (failStreak >= 2 && trustLevel > 0) {
         newLevel = trustLevel - 1;

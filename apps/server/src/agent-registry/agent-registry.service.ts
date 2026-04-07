@@ -51,7 +51,6 @@ export class AgentRegistryService implements OnModuleInit {
         ...(query.isActive !== undefined && { isActive: query.isActive === 'true' }),
       },
       omit: { promptTemplate: true },
-      include: { runtimeState: true },
       orderBy: { createdAt: 'desc' },
     });
   }
@@ -59,7 +58,6 @@ export class AgentRegistryService implements OnModuleInit {
   async getById(id: string, companyId?: string) {
     const def = await this.prisma.agentDefinition.findUnique({
       where: { id },
-      include: { runtimeState: true },
     });
     if (!def) throw new NotFoundException(`Agent definition ${id} not found`);
 
@@ -236,24 +234,40 @@ export class AgentRegistryService implements OnModuleInit {
   }
 
   async getRuntimeState(agentId: string) {
-    return (await this.prisma.agentRuntimeState.findUnique({ where: { agentId } })) ?? {
+    const agent = await this.prisma.agentDefinition.findUnique({ where: { id: agentId } });
+    if (!agent) {
+      return {
+        agentId,
+        rtTotalInputTokens: 0,
+        rtTotalOutputTokens: 0,
+        rtTotalCostCents: 0,
+        rtConsecutiveFailCount: 0,
+        rtSessionId: null,
+        rtLastRunId: null,
+        rtLastRunStatus: null,
+        rtLastError: null,
+        rtLastFailedAt: null,
+      };
+    }
+    return {
       agentId,
-      totalInputTokens: 0,
-      totalOutputTokens: 0,
-      totalCostCents: 0,
-      consecutiveFailCount: 0,
-      sessionId: null,
-      lastRunId: null,
-      lastRunStatus: null,
-      lastError: null,
-      lastFailedAt: null,
+      rtSessionId: (agent as any).rtSessionId ?? null,
+      rtStateJson: (agent as any).rtStateJson ?? null,
+      rtLastRunId: (agent as any).rtLastRunId ?? null,
+      rtLastRunStatus: (agent as any).rtLastRunStatus ?? null,
+      rtTotalInputTokens: (agent as any).rtTotalInputTokens ?? 0,
+      rtTotalOutputTokens: (agent as any).rtTotalOutputTokens ?? 0,
+      rtTotalCostCents: (agent as any).rtTotalCostCents ?? 0,
+      rtLastError: (agent as any).rtLastError ?? null,
+      rtConsecutiveFailCount: (agent as any).rtConsecutiveFailCount ?? 0,
+      rtLastFailedAt: (agent as any).rtLastFailedAt ?? null,
     };
   }
 
   async resetSession(agentId: string): Promise<{ ok: boolean }> {
-    await this.prisma.agentRuntimeState.update({
-      where: { agentId },
-      data: { sessionId: null },
+    await this.prisma.agentDefinition.update({
+      where: { id: agentId },
+      data: { rtSessionId: null } as any,
     });
     return { ok: true };
   }
@@ -272,9 +286,9 @@ export class AgentRegistryService implements OnModuleInit {
       data: { status: 'idle', pauseReason: null, pausedAt: null },
     });
     // 에러 복구 캐스케이드: resume 시 연속 실패 카운터 리셋
-    await this.prisma.agentRuntimeState.updateMany({
-      where: { agentId },
-      data: { consecutiveFailCount: 0, lastFailedAt: null },
+    await this.prisma.agentDefinition.updateMany({
+      where: { id: agentId },
+      data: { rtConsecutiveFailCount: 0, rtLastFailedAt: null } as any,
     });
     return { ok: true };
   }
@@ -378,8 +392,8 @@ export class AgentRegistryService implements OnModuleInit {
 
   async getOrgTree(companyId: string): Promise<OrgNode[]> {
     // 마켓플레이스 전체 카탈로그 (claude_local만 — 조직도 대상)
-    const catalog = await this.prisma.agentMarketplace.findMany({
-      where: { isPublished: true, adapterType: 'claude_local' },
+    const catalog = await this.prisma.marketplace.findMany({
+      where: { type: 'agent', isPublished: true, adapterType: 'claude_local' },
       orderBy: { name: 'asc' },
     });
 
@@ -392,19 +406,19 @@ export class AgentRegistryService implements OnModuleInit {
     );
 
     // 카탈로그 기반으로 트리 구성 (manager → specialist)
-    const managerCatalog = catalog.find(c => c.role === 'manager');
-    const specialistCatalog = catalog.filter(c => c.role !== 'manager');
+    const managerCatalog = catalog.find((c) => c.role === 'manager');
+    const specialistCatalog = catalog.filter((c) => c.role !== 'manager');
 
     const toNode = (c: typeof catalog[number]): OrgNode => {
       const agent = hiredByMarketplaceId.get(c.id);
       return {
         id: agent?.id ?? c.id,
         name: c.name,
-        type: agent?.type ?? c.role,
-        role: c.role,
+        type: agent?.type ?? c.role ?? 'specialist',
+        role: c.role ?? 'specialist',
         title: agent?.title ?? c.name,
         status: agent?.status ?? 'not_hired',
-        adapterType: c.adapterType,
+        adapterType: c.adapterType ?? 'claude_local',
         lastHeartbeatAt: agent?.lastHeartbeatAt?.toISOString() ?? null,
         hired: !!agent,
         marketplaceId: c.id,

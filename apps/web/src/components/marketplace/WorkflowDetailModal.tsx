@@ -29,7 +29,7 @@ interface WorkflowDetailModalProps {
     description: string;
     icon: string | null;
     category: string;
-    module: string;
+    module: string | null;
     installCount: number;
     configurableParams: ConfigurableParam[];
   };
@@ -99,7 +99,7 @@ export function WorkflowDetailModal({
             {CATEGORY_LABELS[item.category] || item.category}
           </span>
           <span className="px-2 py-0.5 text-xs font-medium bg-blue-50 text-blue-600 rounded-md">
-            {MODULE_LABELS[item.module] || item.module}
+            {item.module ? (MODULE_LABELS[item.module] || item.module) : 'order'}
           </span>
           {item.installCount > 0 && (
             <span className="text-xs text-slate-400">{item.installCount}회 설치</span>

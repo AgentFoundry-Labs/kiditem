@@ -15,19 +15,31 @@ export const ConfigurableParamSchema = z.object({
   description: z.string().optional(),
 });
 
-// GET /api/marketplace/workflows 응답의 각 item
-// 출처: marketplace.service.ts — Prisma WorkflowMarketplace + computed fields
+// GET /api/marketplace/workflows | /api/marketplace/agents 응답의 각 item
+// 출처: marketplace.service.ts — Prisma Marketplace + computed fields
 // ⚠️ Date fields: createdAt, updatedAt — Prisma Date → JSON string 자동 변환
 // satisfies 미적용: Prisma 모델 직접 반환 (Date ≠ string 불일치)
-export const WorkflowCatalogItemSchema = z.object({
+export const MarketplaceCatalogItemSchema = z.object({
   id: z.string(),
+  type: z.enum(['workflow', 'agent']),
   name: z.string(),
   description: z.string(),
-  module: z.string(),
   category: z.string(),
   icon: z.string().nullable(),
-  nodesJson: z.any(),
-  edgesJson: z.any(),
+
+  // Workflow 전용 (type="workflow"일 때만 사용)
+  module: z.string().nullable(),
+  nodesJson: z.any().optional(),
+  edgesJson: z.any().optional(),
+
+  // Agent 전용 (type="agent"일 때만 사용)
+  role: z.string().nullable(),
+  adapterType: z.string().nullable(),
+  promptTemplate: z.string().nullable(),
+  skills: z.array(z.string()),
+  permissions: z.record(z.unknown()).nullable(),
+
+  // 공통
   configurableParams: z.array(ConfigurableParamSchema),
   version: z.number(),
   installCount: z.number(),
@@ -37,31 +49,12 @@ export const WorkflowCatalogItemSchema = z.object({
   updatedAt: z.string(),
 });
 
-// GET /api/marketplace/agents 응답의 각 item
-// 출처: marketplace.service.ts — Prisma AgentMarketplace + computed fields
-// ⚠️ Date fields: createdAt, updatedAt — Prisma Date → JSON string 자동 변환
-// satisfies 미적용: Prisma 모델 직접 반환 (Date ≠ string 불일치)
-export const AgentCatalogItemSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  description: z.string(),
-  role: z.string(),
-  category: z.string(),
-  icon: z.string().nullable(),
-  adapterType: z.string(),
-  promptTemplate: z.string(),
-  skills: z.array(z.string()),
-  permissions: z.record(z.unknown()),
-  configurableParams: z.array(ConfigurableParamSchema),
-  version: z.number(),
-  installCount: z.number(),
-  isPublished: z.boolean(),
-  installed: z.boolean(),
-  createdAt: z.string(),
-  updatedAt: z.string(),
-});
+// 하위 호환 타입 별칭
+export const WorkflowCatalogItemSchema = MarketplaceCatalogItemSchema;
+export const AgentCatalogItemSchema = MarketplaceCatalogItemSchema;
 
 // 타입 export
 export type ConfigurableParam = z.infer<typeof ConfigurableParamSchema>;
-export type WorkflowCatalogItem = z.infer<typeof WorkflowCatalogItemSchema>;
-export type AgentCatalogItem = z.infer<typeof AgentCatalogItemSchema>;
+export type MarketplaceCatalogItem = z.infer<typeof MarketplaceCatalogItemSchema>;
+export type WorkflowCatalogItem = MarketplaceCatalogItem;
+export type AgentCatalogItem = MarketplaceCatalogItem;

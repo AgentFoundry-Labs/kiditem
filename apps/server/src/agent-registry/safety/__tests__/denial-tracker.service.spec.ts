@@ -3,9 +3,10 @@ import { DenialTrackerService } from '../denial-tracker.service';
 
 function makePrisma() {
   return {
-    agentPermissionDenial: {
-      create: vi.fn().mockResolvedValue({ id: 'denial-1' }),
+    agentEvent: {
+      create: vi.fn().mockResolvedValue({ id: 'event-1' }),
       findMany: vi.fn().mockResolvedValue([]),
+      groupBy: vi.fn().mockResolvedValue([]),
     },
   } as any;
 }
@@ -23,8 +24,9 @@ describe('DenialTrackerService', () => {
       detail: 'Bash(rm:*)',
     });
 
-    expect(prisma.agentPermissionDenial.create).toHaveBeenCalledWith({
+    expect(prisma.agentEvent.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
+        eventType: 'permission_denied',
         category: 'dangerous_tool',
         detail: 'Bash(rm:*)',
         action: 'blocked',
@@ -38,8 +40,8 @@ describe('DenialTrackerService', () => {
 
     await service.listDenials('agent-1');
 
-    expect(prisma.agentPermissionDenial.findMany).toHaveBeenCalledWith({
-      where: { agentId: 'agent-1' },
+    expect(prisma.agentEvent.findMany).toHaveBeenCalledWith({
+      where: { agentId: 'agent-1', eventType: 'permission_denied' },
       orderBy: { createdAt: 'desc' },
       take: 50,
     });
@@ -51,7 +53,7 @@ describe('DenialTrackerService', () => {
 
     await service.listDenials('agent-1', { limit: 10 });
 
-    expect(prisma.agentPermissionDenial.findMany).toHaveBeenCalledWith(
+    expect(prisma.agentEvent.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ take: 10 }),
     );
   });

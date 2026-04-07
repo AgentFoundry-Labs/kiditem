@@ -40,7 +40,9 @@ export class SnapshotService {
     }
 
     if (snapshots.length > 0) {
-      await this.prisma.agentActionSnapshot.createMany({ data: snapshots });
+      await this.prisma.agentEvent.createMany({
+        data: snapshots.map(s => ({ ...s, eventType: 'action_snapshot' })),
+      });
     }
 
     this.logger.debug(`Snapshot captured: ${snapshots.length} fields for run ${context.runId}`);
@@ -48,8 +50,8 @@ export class SnapshotService {
   }
 
   async rollback(runId: string): Promise<{ restored: number }> {
-    const snapshots = await this.prisma.agentActionSnapshot.findMany({
-      where: { runId, restoredAt: null },
+    const snapshots = await this.prisma.agentEvent.findMany({
+      where: { runId, eventType: 'action_snapshot', restoredAt: null },
       orderBy: { createdAt: 'desc' },
     });
 
@@ -57,10 +59,10 @@ export class SnapshotService {
     for (const snap of snapshots) {
       try {
         await this.prisma.product.update({
-          where: { id: snap.recordId },
-          data: { [snap.fieldName]: snap.valueBefore },
+          where: { id: snap.recordId as string },
+          data: { [snap.fieldName as string]: snap.valueBefore },
         });
-        await this.prisma.agentActionSnapshot.update({
+        await this.prisma.agentEvent.update({
           where: { id: snap.id },
           data: { restoredAt: new Date() },
         });
@@ -74,8 +76,8 @@ export class SnapshotService {
   }
 
   async getSnapshots(runId: string) {
-    return this.prisma.agentActionSnapshot.findMany({
-      where: { runId },
+    return this.prisma.agentEvent.findMany({
+      where: { runId, eventType: 'action_snapshot' },
       orderBy: { createdAt: 'asc' },
     });
   }

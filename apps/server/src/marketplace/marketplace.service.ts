@@ -10,8 +10,9 @@ export class MarketplaceService {
   // ─── Workflow Catalog ───
 
   async listWorkflows(query: { module?: string; category?: string; companyId?: string }) {
-    const items = await this.prisma.workflowMarketplace.findMany({
+    const items = await this.prisma.marketplace.findMany({
       where: {
+        type: 'workflow',
         isPublished: true,
         ...(query.module && { module: query.module }),
         ...(query.category && { category: query.category }),
@@ -33,7 +34,7 @@ export class MarketplaceService {
   }
 
   async getWorkflow(id: string) {
-    return this.prisma.workflowMarketplace.findUnique({ where: { id } });
+    return this.prisma.marketplace.findUnique({ where: { id, type: 'workflow' } });
   }
 
   async installWorkflow(
@@ -42,10 +43,10 @@ export class MarketplaceService {
     params?: Record<string, any>,
   ) {
     if (!companyId) throw new BadRequestException('companyId is required');
-    const catalog = await this.prisma.workflowMarketplace.findUnique({
+    const catalog = await this.prisma.marketplace.findUnique({
       where: { id: marketplaceId },
     });
-    if (!catalog) throw new NotFoundException('Workflow catalog item not found');
+    if (!catalog || catalog.type !== 'workflow') throw new NotFoundException('Workflow catalog item not found');
 
     let nodesJson = catalog.nodesJson as any[];
     if (params && Array.isArray(catalog.configurableParams)) {
@@ -66,7 +67,7 @@ export class MarketplaceService {
         companyId,
         name: catalog.name,
         description: catalog.description,
-        module: catalog.module,
+        module: catalog.module ?? 'order',
         isActive: true,
         triggerType: params?.schedule ? 'scheduled' : 'manual',
         schedule: params?.schedule ?? null,
@@ -76,7 +77,7 @@ export class MarketplaceService {
       },
     });
 
-    await this.prisma.workflowMarketplace.update({
+    await this.prisma.marketplace.update({
       where: { id: marketplaceId },
       data: { installCount: { increment: 1 } },
     });
@@ -87,8 +88,9 @@ export class MarketplaceService {
   // ─── Agent Catalog ───
 
   async listAgents(query: { role?: string; category?: string; companyId?: string }) {
-    const items = await this.prisma.agentMarketplace.findMany({
+    const items = await this.prisma.marketplace.findMany({
       where: {
+        type: 'agent',
         isPublished: true,
         ...(query.role && { role: query.role }),
         ...(query.category && { category: query.category }),
@@ -110,7 +112,7 @@ export class MarketplaceService {
   }
 
   async getAgent(id: string) {
-    return this.prisma.agentMarketplace.findUnique({ where: { id } });
+    return this.prisma.marketplace.findUnique({ where: { id, type: 'agent' } });
   }
 
   async installAgent(
@@ -119,24 +121,24 @@ export class MarketplaceService {
     params?: Record<string, any>,
   ) {
     if (!companyId) throw new BadRequestException('companyId is required');
-    const catalog = await this.prisma.agentMarketplace.findUnique({
+    const catalog = await this.prisma.marketplace.findUnique({
       where: { id: marketplaceId },
     });
-    if (!catalog) throw new NotFoundException('Agent catalog item not found');
+    if (!catalog || catalog.type !== 'agent') throw new NotFoundException('Agent catalog item not found');
 
     const data: any = {
       companyId,
       name: catalog.name,
       type: `${catalog.name.replace(/\s/g, '_').toLowerCase()}_${Date.now()}`,
       description: catalog.description,
-      adapterType: catalog.adapterType,
+      adapterType: catalog.adapterType ?? 'claude_local',
       adapterConfig: { command: 'claude' },
-      role: catalog.role,
+      role: catalog.role ?? 'specialist',
       title: catalog.name,
       icon: catalog.icon,
       skills: catalog.skills,
       permissions: catalog.permissions as any,
-      promptTemplate: catalog.promptTemplate,
+      promptTemplate: catalog.promptTemplate ?? '',
       allowedTools: 'Bash(psql:*) Read Grep',
       permissionMode: 'bypassPermissions',
       marketplaceId,
@@ -165,7 +167,7 @@ export class MarketplaceService {
       }
     }
 
-    await this.prisma.agentMarketplace.update({
+    await this.prisma.marketplace.update({
       where: { id: marketplaceId },
       data: { installCount: { increment: 1 } },
     });
@@ -183,11 +185,11 @@ export class MarketplaceService {
 
     await this.prisma.workflowTemplate.delete({ where: { id: installed.id } });
 
-    const catalog = await this.prisma.workflowMarketplace.findUnique({
+    const catalog = await this.prisma.marketplace.findUnique({
       where: { id: marketplaceId },
     });
     if (catalog && catalog.installCount > 0) {
-      await this.prisma.workflowMarketplace.update({
+      await this.prisma.marketplace.update({
         where: { id: marketplaceId },
         data: { installCount: { decrement: 1 } },
       });
@@ -204,11 +206,11 @@ export class MarketplaceService {
 
     await this.prisma.agentDefinition.delete({ where: { id: installed.id } });
 
-    const catalog = await this.prisma.agentMarketplace.findUnique({
+    const catalog = await this.prisma.marketplace.findUnique({
       where: { id: marketplaceId },
     });
     if (catalog && catalog.installCount > 0) {
-      await this.prisma.agentMarketplace.update({
+      await this.prisma.marketplace.update({
         where: { id: marketplaceId },
         data: { installCount: { decrement: 1 } },
       });

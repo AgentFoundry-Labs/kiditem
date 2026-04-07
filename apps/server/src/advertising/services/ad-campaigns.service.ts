@@ -26,16 +26,16 @@ export class AdCampaignsService {
       const companyId = await this.getDefaultCompanyId();
       const p = period || '7d';
 
-      // 캠페인 스냅샷 (최신 날짜만)
-      const allSnapshots = await this.prisma.adCampaignSnapshot.findMany({
-        where: { companyId, period: p },
+      // 캠페인 스냅샷 (level=campaign, 최신 날짜만)
+      const allSnapshots = await this.prisma.adSnapshot.findMany({
+        where: { companyId, level: 'campaign', period: p },
         orderBy: { date: 'desc' },
       });
 
       // 캠페인별 최신만
       const latestMap = new Map<string, (typeof allSnapshots)[0]>();
       for (const s of allSnapshots) {
-        if (!latestMap.has(s.campaignName)) latestMap.set(s.campaignName, s);
+        if (s.campaignName && !latestMap.has(s.campaignName)) latestMap.set(s.campaignName, s);
       }
 
       // 상품 드릴다운
@@ -57,9 +57,10 @@ export class AdCampaignsService {
       }> = [];
 
       if (campaign) {
-        let rawProducts = await this.prisma.adProductSnapshot.findMany({
+        let rawProducts = await this.prisma.adSnapshot.findMany({
           where: {
             companyId,
+            level: 'product',
             campaignName: campaign,
             productName: { not: '' },
           },
@@ -70,14 +71,14 @@ export class AdCampaignsService {
         if (rawProducts.length > 0) {
           const latestDate = rawProducts[0].date;
           rawProducts = rawProducts.filter(
-            (rp) => rp.date.getTime() === latestDate.getTime(),
+            (rp) => rp.date && latestDate && rp.date.getTime() === latestDate.getTime(),
           );
         }
 
         // 중복 제거
         const seen = new Set<string>();
         rawProducts = rawProducts.filter((rp) => {
-          const key = rp.productName + (rp.vendorItemId || '');
+          const key = (rp.productName || '') + (rp.vendorItemId || '');
           if (seen.has(key)) return false;
           seen.add(key);
           return true;
@@ -106,7 +107,7 @@ export class AdCampaignsService {
 
         products = rawProducts.map((rp) => ({
           imageUrl: (rp.vendorItemId && productImageMap.get(rp.vendorItemId)) || null,
-          productName: rp.productName,
+          productName: rp.productName ?? '',
           vendorItemId: rp.vendorItemId,
           onOff: rp.onOff,
           status: rp.status,
@@ -165,7 +166,7 @@ export class AdCampaignsService {
         period: p,
         totalKpi,
         campaigns: campaignList.map((c) => ({
-          campaignName: c.campaignName,
+          campaignName: c.campaignName ?? '',
           date: c.date,
           adSpend: c.adSpend,
           adRevenue: c.adRevenue,
