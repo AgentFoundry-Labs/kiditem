@@ -4,7 +4,8 @@ import { useState } from 'react';
 import {
   ChevronDown, AlertTriangle, Wallet, Download, FileSpreadsheet,
 } from 'lucide-react';
-import { formatKRW } from '@/lib/utils';
+import { formatKRW, formatNumber } from '@/lib/utils';
+
 import type { AdRulesData, AdWeeklyPlan, AdStrategyAction } from '@kiditem/shared';
 
 interface Props {
@@ -116,7 +117,7 @@ export function StrategyTab({ rules, strategy }: Props) {
                 onChange={e => {
                   const raw = e.target.value.replace(/[^0-9]/g, '');
                   const num = Math.max(0, parseInt(raw) || 0);
-                  setBudgetInput(num.toLocaleString());
+                  setBudgetInput(formatNumber(num));
                   setTotalBudget(num);
                 }}
                 className="w-48 text-right pr-12 pl-3 py-2.5 rounded-xl text-xl font-black tabular-nums bg-slate-50 border-2 border-violet-600 text-slate-900"
@@ -139,9 +140,9 @@ export function StrategyTab({ rules, strategy }: Props) {
             <div style={{ width: '10%', background: 'linear-gradient(90deg, #ef4444, #f87171)' }} />
           </div>
           <div className="flex gap-3 text-[11px] font-semibold shrink-0 text-slate-600">
-            <span><span className="inline-block w-2 h-2 rounded-full bg-emerald-500 mr-1" />A {Math.round(totalBudget * 0.65).toLocaleString()}원</span>
-            <span><span className="inline-block w-2 h-2 rounded-full bg-amber-500 mr-1" />B {Math.round(totalBudget * 0.25).toLocaleString()}원</span>
-            <span><span className="inline-block w-2 h-2 rounded-full bg-red-500 mr-1" />C {Math.round(totalBudget * 0.1).toLocaleString()}원</span>
+            <span><span className="inline-block w-2 h-2 rounded-full bg-emerald-500 mr-1" />A {formatKRW(Math.round(totalBudget * 0.65))}원</span>
+            <span><span className="inline-block w-2 h-2 rounded-full bg-amber-500 mr-1" />B {formatKRW(Math.round(totalBudget * 0.25))}원</span>
+            <span><span className="inline-block w-2 h-2 rounded-full bg-red-500 mr-1" />C {formatKRW(Math.round(totalBudget * 0.1))}원</span>
           </div>
         </div>
       </div>
@@ -169,7 +170,7 @@ export function StrategyTab({ rules, strategy }: Props) {
                   <ChevronDown size={18} className={`text-white/70 transition-transform ${isSelected ? 'rotate-180' : ''}`} />
                 </div>
                 <div className="flex items-center justify-between">
-                  <div className="text-2xl font-black text-white tabular-nums">{gradeBudget.toLocaleString()}<span className="text-sm font-semibold text-white/60 ml-1">원/일</span></div>
+                  <div className="text-2xl font-black text-white tabular-nums">{formatKRW(gradeBudget)}<span className="text-sm font-semibold text-white/60 ml-1">원/일</span></div>
                   <div className="flex items-center gap-2">
                     {urgentCount > 0 && <span className="px-2 py-1 bg-red-500/80 rounded-lg text-[11px] font-bold text-white">긴급 {urgentCount}</span>}
                     <span className="px-2 py-1 bg-white/20 rounded-lg text-[12px] font-bold text-white">{gradeActions.length}개 상품</span>
@@ -231,9 +232,9 @@ export function StrategyTab({ rules, strategy }: Props) {
                               </span>
                             </div>
                             <div className="flex items-center gap-2 text-[12px] tabular-nums text-slate-600">
-                              <span>일예산 <b className="text-slate-900">{productBudget.toLocaleString()}원</b></span>
+                              <span>일예산 <b className="text-slate-900">{formatKRW(productBudget)}원</b></span>
                               <span>·</span>
-                              <span>입찰 <b className="text-slate-900">{a.maxBidPrice > 0 ? `${a.maxBidPrice.toLocaleString()}원` : '-'}</b></span>
+                              <span>입찰 <b className="text-slate-900">{a.maxBidPrice > 0 ? `${formatKRW(a.maxBidPrice)}원` : '-'}</b></span>
                               <span>·</span>
                               <span className={`font-bold ${a.actionPriority === 'urgent' ? 'text-red-600' : a.actionPriority === 'high' ? 'text-orange-600' : ''}`}>
                                 {a.actionPriority === 'urgent' ? '긴급' : a.actionPriority === 'high' ? '높음' : a.actionPriority === 'medium' ? '보통' : '낮음'}

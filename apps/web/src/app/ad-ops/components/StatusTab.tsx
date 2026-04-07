@@ -9,8 +9,9 @@ import {
   ResponsiveContainer, CartesianGrid,
 } from 'recharts';
 import { formatKRW, formatNumber } from '@/lib/utils';
-import type { AdTrendsData, AdRulesData, AdWeeklyPlan, AdCampaignSnapshot, AdProductSnapshot } from '@kiditem/shared';
 import { AdActionPanel } from './AdActionPanel';
+
+import type { AdTrendsData, AdRulesData, AdWeeklyPlan, AdCampaignSnapshot, AdProductSnapshot } from '@kiditem/shared';
 
 interface Props {
   trends: AdTrendsData | undefined;
@@ -50,9 +51,9 @@ export function StatusTab({ trends, wingKpis, rules, strategy, campaigns, select
               <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 inline-block rounded bg-violet-600" />ROAS</span>
             </div>
           </div>
-          <div className="flex-1 p-4" style={{ minHeight: 280 }}>
+          <div className="flex-1 p-4">
             {trends?.daily?.length ? (
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height={420}>
                 <ComposedChart data={trends.daily}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
                   <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#94a3b8' }} tickLine={false} axisLine={false} />
@@ -96,9 +97,9 @@ export function StatusTab({ trends, wingKpis, rules, strategy, campaigns, select
               const isWarning = label.includes('노출제한') || label.includes('아이템위너 아닌') || label.includes('미보유');
               const hasIssue = isWarning && parseInt(String(value)) > 0;
               return (
-                <div key={label} className={`rounded-xl p-4 text-center border ${hasIssue ? 'bg-red-50 border-red-200' : 'bg-slate-50 border-slate-100'}`}>
-                  <div className={`text-2xl font-extrabold tabular-nums ${hasIssue ? 'text-red-600' : 'text-slate-900'}`}>{value}</div>
-                  <div className={`text-xs mt-1 font-medium ${hasIssue ? 'text-red-500' : 'text-slate-500'}`}>{label}</div>
+                <div key={label} className="rounded-xl p-4 text-center" style={{ background: hasIssue ? 'rgba(220,38,38,0.06)' : '#f8fafc', border: hasIssue ? '1px solid #dc2626' : '1px solid #e2e8f0' }}>
+                  <div className="text-2xl font-extrabold tabular-nums" style={{ color: hasIssue ? '#dc2626' : '#0f172a' }}>{value}</div>
+                  <div className="text-xs mt-1 font-medium" style={{ color: hasIssue ? '#dc2626' : '#475569' }}>{label}</div>
                 </div>
               );
             })}
@@ -195,6 +196,7 @@ export function StatusTab({ trends, wingKpis, rules, strategy, campaigns, select
                 <tbody>
                   {pagedProducts.map((p, i) => {
                     const cleanName = p.productName.replace(/\s*ID\s*:\s*\d+/, '').trim();
+                    const prodRoas = p.adSpend > 0 ? Math.round((p.adRevenue / p.adSpend) * 100) : 0;
                     return (
                       <tr key={i} className="border-b border-slate-100">
                         <td className="px-4 py-2.5"><span className={`inline-flex rounded-md px-2 py-0.5 text-[10px] font-bold text-white ${p.onOff === 'ON' ? 'bg-emerald-500' : 'bg-slate-400'}`}>{p.onOff || 'OFF'}</span></td>
@@ -204,10 +206,7 @@ export function StatusTab({ trends, wingKpis, rules, strategy, campaigns, select
                         <td className="text-right px-3 py-2.5 text-sm tabular-nums text-slate-600">{formatNumber(p.clicks)}</td>
                         <td className="text-right px-3 py-2.5 text-sm tabular-nums text-slate-600">{(p.ctr ?? 0) > 0 ? p.ctr + '%' : '-'}</td>
                         <td className="text-right px-3 py-2.5 text-sm tabular-nums text-slate-600">{p.adConversions}건</td>
-                        {(() => {
-                          const prodRoas = p.adSpend > 0 ? Math.round((p.adRevenue / p.adSpend) * 100) : 0;
-                          return <td className={`text-right px-3 py-2.5 text-sm font-bold tabular-nums ${prodRoas >= 300 ? 'text-emerald-600' : prodRoas >= 100 ? 'text-amber-500' : 'text-slate-400'}`}>{prodRoas > 0 ? `${prodRoas}%` : '-'}</td>;
-                        })()}
+                        <td className={`text-right px-3 py-2.5 text-sm font-bold tabular-nums ${prodRoas >= 300 ? 'text-emerald-600' : prodRoas >= 100 ? 'text-amber-500' : 'text-slate-400'}`}>{prodRoas > 0 ? `${prodRoas}%` : '-'}</td>
                       </tr>
                     );
                   })}

@@ -380,6 +380,9 @@ async function main() {
       'bundle_products',
       'product_locations',
       'supplier_products',
+      'ad_snapshots',
+      'item_winners',
+      'ad_actions',
       'alerts',
       'purchase_order_items',
       'purchase_orders',
@@ -398,7 +401,13 @@ async function main() {
 
     for (const table of clearOrder) {
       if (!SKIP_PG_TABLES.has(table)) {
-        await pg.query(`DELETE FROM ${table}`);
+        await pg.query(`SAVEPOINT sp_${table.replace(/[^a-z0-9_]/g, '')}`);
+        try {
+          await pg.query(`DELETE FROM ${table} WHERE true`);
+          await pg.query(`RELEASE SAVEPOINT sp_${table.replace(/[^a-z0-9_]/g, '')}`);
+        } catch {
+          await pg.query(`ROLLBACK TO SAVEPOINT sp_${table.replace(/[^a-z0-9_]/g, '')}`);
+        }
       }
     }
 
@@ -1686,6 +1695,132 @@ async function main() {
         toTimestamptz(r.createdAt) ?? new Date().toISOString(),
       ]),
     );
+
+    // ── AdCampaignSnapshot + AdProductSnapshot → ad_snapshots ────────────
+    log('Migrating AdCampaignSnapshot → ad_snapshots...');
+    const srcCampaignSnaps = sqlite.prepare('SELECT * FROM AdCampaignSnapshot').all() as any[];
+    log(`  Found ${srcCampaignSnaps.length} campaign snapshots`);
+
+    if (srcCampaignSnaps.length > 0) {
+      await bulkInsert(
+        'ad_snapshots',
+        ['id', 'company_id', 'source', 'page_type', 'level', 'campaign_name', 'period', 'date', 'status', 'on_off', 'budget', 'today_spend', 'impressions', 'clicks', 'conversions', 'ad_conversions', 'orders', 'spend', 'ad_spend', 'revenue', 'ad_revenue', 'total_revenue', 'roas', 'ctr', 'conversion_rate', 'collected_at', 'captured_at', 'created_at'],
+        srcCampaignSnaps.map((r) => [
+          toUUID(`camp-snap-${r.id}`),
+          defaultCompanyId,
+          'advertising',
+          'campaign',
+          'campaign',
+          r.campaignName,
+          r.period ?? '7d',
+          r.date ?? null,
+          r.status ?? null,
+          r.onOff ?? null,
+          toInt(r.budget),
+          toInt(r.todaySpend),
+          toInt(r.impressions),
+          toInt(r.clicks),
+          toInt(r.conversions),
+          toInt(r.conversions),
+          toInt(r.orders),
+          toInt(r.adSpend),
+          toInt(r.adSpend),
+          toInt(r.adRevenue),
+          toInt(r.adRevenue),
+          toInt(r.totalRevenue),
+          toDecimal(r.roas),
+          toDecimal(r.ctr),
+          toDecimal(r.conversionRate),
+          toTimestamptz(r.collectedAt),
+          toTimestamptz(r.collectedAt) ?? new Date().toISOString(),
+          new Date().toISOString(),
+        ]),
+      );
+    }
+
+    log('Migrating AdProductSnapshot → ad_snapshots...');
+    const srcProductSnaps = sqlite.prepare('SELECT * FROM AdProductSnapshot').all() as any[];
+    log(`  Found ${srcProductSnaps.length} product snapshots`);
+
+    if (srcProductSnaps.length > 0) {
+      await bulkInsert(
+        'ad_snapshots',
+        ['id', 'company_id', 'source', 'page_type', 'level', 'campaign_name', 'period', 'date', 'keyword', 'product_name', 'vendor_item_id', 'status', 'on_off', 'impressions', 'clicks', 'ad_conversions', 'spend', 'ad_spend', 'revenue', 'ad_revenue', 'ctr', 'conversion_rate', 'collected_at', 'captured_at', 'created_at'],
+        srcProductSnaps.map((r) => [
+          toUUID(`prod-snap-${r.id}`),
+          defaultCompanyId,
+          'advertising',
+          'product',
+          'product',
+          r.campaignName,
+          r.period ?? '7d',
+          r.date ?? null,
+          r.keyword ?? null,
+          r.productName ?? null,
+          r.vendorItemId ?? null,
+          r.status ?? null,
+          r.onOff ?? null,
+          toInt(r.impressions),
+          toInt(r.clicks),
+          toInt(r.adConversions),
+          toInt(r.adSpend),
+          toInt(r.adSpend),
+          toInt(r.adRevenue),
+          toInt(r.adRevenue),
+          toDecimal(r.ctr),
+          toDecimal(r.conversionRate),
+          toTimestamptz(r.collectedAt),
+          toTimestamptz(r.collectedAt) ?? new Date().toISOString(),
+          new Date().toISOString(),
+        ]),
+      );
+    }
+
+    // ── Wing KPI (ScheduledTask ext_scrape_wing) → ad_snapshots ──────────
+    log('Migrating Wing KPI snapshots → ad_snapshots...');
+    const srcWingTasks = sqlite.prepare(
+      "SELECT id, result, executedAt FROM ScheduledTask WHERE taskType='ext_scrape_wing' AND result IS NOT NULL ORDER BY executedAt DESC",
+    ).all() as any[];
+    log(`  Found ${srcWingTasks.length} wing scrape tasks`);
+
+    if (srcWingTasks.length > 0) {
+      await bulkInsert(
+        'ad_snapshots',
+        ['id', 'company_id', 'source', 'page_type', 'level', 'raw_json', 'captured_at', 'created_at'],
+        srcWingTasks.map((r) => [
+          toUUID(`wing-kpi-${r.id}`),
+          defaultCompanyId,
+          'wing',
+          'dashboard_kpi',
+          null,
+          r.result,
+          toTimestamptz(r.executedAt) ?? new Date().toISOString(),
+          new Date().toISOString(),
+        ]),
+      );
+    }
+
+    // ── ItemWinner → item_winners ──────────────────────────────────────────
+    log('Migrating ItemWinner → item_winners...');
+    const srcItemWinners = sqlite.prepare('SELECT * FROM ItemWinner').all() as any[];
+    log(`  Found ${srcItemWinners.length} item winners`);
+
+    if (srcItemWinners.length > 0) {
+      await bulkInsert(
+        'item_winners',
+        ['id', 'company_id', 'product_id', 'product_name', 'is_winner', 'my_price', 'winner_price', 'checked_at'],
+        srcItemWinners.map((r) => [
+          toUUID(`iw-${r.id}`),
+          defaultCompanyId,
+          mapFK(idMap, r.productId),
+          null,
+          r.isWinner ? true : false,
+          toInt(r.myPrice),
+          r.winnerPrice != null ? toInt(r.winnerPrice) : null,
+          toTimestamptz(r.checkedAt) ?? new Date().toISOString(),
+        ]),
+      );
+    }
 
     // ── Commit ─────────────────────────────────────────────────────────────
     await pg.query('COMMIT');

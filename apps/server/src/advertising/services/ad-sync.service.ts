@@ -40,26 +40,51 @@ export class AdSyncService {
    */
   async getExtensionStatus(companyId?: string) {
     const cid = companyId || await this.getDefaultCompanyId();
-    const [productCount, snapshotCount, itemWinnerCount, wingKpiSnapshot] = await Promise.all([
+    const [productCount, snapshotCount, wingKpiSnapshot, itemWinnerStats] = await Promise.all([
       this.prisma.product.count({ where: { companyId: cid, isDeleted: false } }),
       this.prisma.adSnapshot.count({ where: { companyId: cid } }),
-      this.prisma.itemWinner.count({ where: { companyId: cid } }),
       this.prisma.adSnapshot.findFirst({
-        where: { companyId: cid, source: 'wing', pageType: 'dashboard_kpi' },
+        where: { companyId: cid, source: 'wing' },
         orderBy: { capturedAt: 'desc' },
         select: { rawJson: true, capturedAt: true },
       }),
+      this.prisma.itemWinner.groupBy({
+        by: ['isWinner'],
+        where: { companyId: cid },
+        _count: true,
+      }),
     ]);
 
-    const wingKpis = wingKpiSnapshot?.rawJson
-      ? (wingKpiSnapshot.rawJson as Record<string, unknown>).adSummary as Record<string, string> ?? {}
-      : {};
+    // Wing KPI: rawJson에서 kpis 추출 (Dashboard 동일 한글 라벨 구조)
+    let wingKpis: Record<string, string> = {};
+    if (wingKpiSnapshot?.rawJson) {
+      const raw = wingKpiSnapshot.rawJson as Record<string, unknown>;
+      if (raw.kpis && typeof raw.kpis === 'object') {
+        wingKpis = raw.kpis as Record<string, string>;
+      }
+    }
+
+    // rawJson에 kpis가 없으면 ItemWinner 테이블에서 직접 계산
+    if (Object.keys(wingKpis).length === 0) {
+      const total = itemWinnerStats.reduce((s, g) => s + g._count, 0);
+      const winners = itemWinnerStats.find((g) => g.isWinner)?._count || 0;
+      const nonWinners = itemWinnerStats.find((g) => !g.isWinner)?._count || 0;
+      if (total > 0) {
+        wingKpis = {
+          '아이템위너 상품': String(winners),
+          '노출제한 상품': '0',
+          '아이템위너 아닌 상품': String(nonWinners),
+          '쿠팡 상위 20% 인기 상품': '0',
+          '판매자 자동가격조정 상품': '0',
+        };
+      }
+    }
 
     return {
       connected: true,
       productCount,
       snapshotCount,
-      itemWinnerCount,
+      itemWinnerCount: itemWinnerStats.reduce((s, g) => s + g._count, 0),
       wing: { kpis: wingKpis, lastSync: wingKpiSnapshot?.capturedAt ?? null },
     };
   }
