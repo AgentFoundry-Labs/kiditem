@@ -68,6 +68,10 @@ export type { AlertItem } from './schemas/alerts.js';
 export { RuleItemSchema } from './schemas/rules.js';
 export type { RuleItem } from './schemas/rules.js';
 
+// Action Task
+export { ActionTaskSchema, ActionTaskRelatedProductSchema } from './schemas/action-task.js';
+export type { ActionTask, ActionTaskRelatedProduct } from './schemas/action-task.js';
+
 
 // Feature Gate
 export { FeatureGateSchema } from './schemas/feature-gate.js';

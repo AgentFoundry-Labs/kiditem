@@ -39,12 +39,28 @@ export class AdSyncService {
    */
   async getExtensionStatus(companyId?: string) {
     const cid = companyId || await this.getDefaultCompanyId();
-    const [productCount, snapshotCount, itemWinnerCount] = await Promise.all([
+    const [productCount, snapshotCount, itemWinnerCount, wingKpiSnapshot] = await Promise.all([
       this.prisma.product.count({ where: { companyId: cid, isDeleted: false } }),
       this.prisma.adSnapshot.count({ where: { companyId: cid } }),
       this.prisma.itemWinner.count({ where: { companyId: cid } }),
+      this.prisma.adSnapshot.findFirst({
+        where: { companyId: cid, source: 'wing', pageType: 'dashboard_kpi' },
+        orderBy: { capturedAt: 'desc' },
+        select: { rawJson: true, capturedAt: true },
+      }),
     ]);
-    return { connected: true, productCount, snapshotCount, itemWinnerCount };
+
+    const wingKpis = wingKpiSnapshot?.rawJson
+      ? (wingKpiSnapshot.rawJson as Record<string, unknown>).adSummary as Record<string, string> ?? {}
+      : {};
+
+    return {
+      connected: true,
+      productCount,
+      snapshotCount,
+      itemWinnerCount,
+      wing: { kpis: wingKpis, lastSync: wingKpiSnapshot?.capturedAt ?? null },
+    };
   }
 
   /**
@@ -269,6 +285,25 @@ export class AdSyncService {
           },
         });
         upserted++;
+      }
+
+      // Wing KPI 카드 데이터 저장 (adSummary용)
+      const kpis = payload.kpis || {};
+      if (Object.keys(kpis).length > 0) {
+        await this.prisma.adSnapshot.create({
+          data: {
+            companyId,
+            source: 'wing',
+            pageType: 'dashboard_kpi',
+            impressions: 0,
+            clicks: 0,
+            conversions: 0,
+            spend: 0,
+            revenue: 0,
+            rawJson: { adSummary: kpis, timestamp: payload.timestamp },
+            capturedAt: payload.timestamp ? new Date(payload.timestamp) : new Date(),
+          },
+        });
       }
     }
 

@@ -1,0 +1,40 @@
+import { z } from 'zod';
+
+export const ActionTaskRelatedProductSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  metric: z.string(),
+  value: z.string(),
+});
+
+export const ActionTaskSchema = z.object({
+  id: z.string(),
+  companyId: z.string(),
+  taskKey: z.string(),
+  type: z.string(),
+  label: z.string(),
+  detail: z.string().nullable(),
+  where: z.string().nullable(),
+  href: z.string().nullable(),
+  priority: z.string(),
+  status: z.string(),
+  role: z.string().nullable(),
+  apiCall: z.any().nullable(),
+  result: z.any().nullable(),
+  notes: z.array(z.object({ text: z.string(), createdAt: z.string() })),
+  activityLog: z.array(z.object({
+    action: z.string(),
+    timestamp: z.string(),
+    detail: z.string().optional(),
+    from: z.string().optional(),
+    to: z.string().optional(),
+    success: z.boolean().optional(),
+  })),
+  date: z.string(),
+  relatedProducts: z.array(ActionTaskRelatedProductSchema).optional(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+export type ActionTask = z.infer<typeof ActionTaskSchema>;
+export type ActionTaskRelatedProduct = z.infer<typeof ActionTaskRelatedProductSchema>;

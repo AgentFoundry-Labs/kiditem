@@ -8,7 +8,6 @@ import {
   AlertTriangle, MinusCircle, Megaphone, Truck,
   Zap,
   BarChart3, Target, ShieldCheck, Wallet,
-  Check, Sparkles, Play, ClipboardList,
   ShoppingCart, X, Calendar,
 } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -17,120 +16,11 @@ import {
   AreaChart, Area, BarChart, Bar, Cell,
 } from 'recharts';
 import { apiClient } from '@/lib/api-client';
-import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
 import { formatKRW, formatPercent, getGradeColor, getProfitColor } from '@/lib/utils';
 import type { DashboardSummary, DashboardTrendItem } from '@kiditem/shared';
+import type { ActionTask } from '@kiditem/shared';
 
-interface HumanTask {
-  id: string;
-  label: string;
-  detail: string;
-  where: string;
-  priority: 'urgent' | 'high' | 'medium';
-  href?: string;
-}
-
-interface AiAction {
-  id: string;
-  label: string;
-  desc: string;
-  priority: 'urgent' | 'high' | 'medium';
-  apiCall?: { url: string; method: string; body?: Record<string, string> };
-  href?: string;
-}
-
-function generateTasksAndActions(data: DashboardSummary): { tasks: HumanTask[]; actions: AiAction[] } {
-  const tasks: HumanTask[] = [];
-  const actions: AiAction[] = [];
-  const w = data.warnings;
-  const s = data.summary;
-
-  if (w.highAdProducts > 0) {
-    tasks.push({
-      id: 'h-ad-bid', label: `광고비 초과 ${w.highAdProducts}개 — 입찰가 하향 조정`,
-      detail: '쿠팡 광고센터에서 해당 상품 입찰가를 낮추거나 일예산 축소',
-      where: '쿠팡 광고센터', priority: 'urgent', href: '/ads-hub',
-    });
-  }
-  if (w.minusProducts > 0) {
-    tasks.push({
-      id: 'h-minus-ad-stop', label: `적자 상품 ${w.minusProducts}개 — 광고 중단 처리`,
-      detail: '쿠팡 광고센터에서 적자 상품 캠페인 OFF 처리',
-      where: '쿠팡 광고센터', priority: 'urgent', href: '/cleanup',
-    });
-    tasks.push({
-      id: 'h-minus-price', label: `적자 상품 ${w.minusProducts}개 — 판매가 인상 검토`,
-      detail: '경쟁사 가격 확인 후 마진 확보 가능한 상품 가격 조정',
-      where: '쿠팡 윙', priority: 'high', href: '/cleanup',
-    });
-  }
-  if (w.needReorder > 0) {
-    tasks.push({
-      id: 'h-reorder', label: `${w.needReorder}개 상품 — 매입처에 발주`,
-      detail: '안전재고 이하 상품을 매입처에 발주서 전송',
-      where: '매입처/1688', priority: 'high', href: '/purchase-orders',
-    });
-  }
-  if (s.adRate > 12) {
-    tasks.push({
-      id: 'h-ad-rate', label: `전체 광고비율 ${s.adRate}% — 비효율 캠페인 정리`,
-      detail: 'ROAS 200% 미만 캠페인을 쿠팡 광고센터에서 OFF 또는 입찰가 50% 하향',
-      where: '쿠팡 광고센터', priority: 'high',
-    });
-  }
-  if (w.lowProfitProducts > 0) {
-    tasks.push({
-      id: 'h-low-profit', label: `저이익 ${w.lowProfitProducts}개 — 소싱처/수수료 재검토`,
-      detail: '원가 절감 가능한 소싱처 확인, 카테고리 수수료율 점검',
-      where: '소싱처/쿠팡 윙', priority: 'medium', href: '/cleanup',
-    });
-  }
-  tasks.push({
-    id: 'h-ad-csv', label: '쿠팡 광고센터 리포트 다운로드 & 업로드',
-    detail: '광고센터 → 리포트 다운로드(CSV) → 여기에 업로드해서 데이터 갱신',
-    where: '쿠팡 광고센터 → 업로드', priority: 'medium',
-  });
-
-  actions.push({
-    id: 'recalc-grade', label: 'ABC 등급 재계산', desc: '14일 매출 기반 등급 재산정 + 변동 리포트',
-    priority: 'high',
-    apiCall: { url: '/api/products/calculate-grades', method: 'POST', body: {} },
-  });
-  if (w.minusProducts > 0) {
-    actions.push({
-      id: 'analyze-deficit', label: `적자 상품 ${w.minusProducts}개 분석`, desc: '적자 원인 분석: 광고비 과다 / 원가 문제 / 가격 오류',
-      priority: 'urgent',
-      apiCall: { url: '/api/products?status=active&sortBy=profitRate&sortDir=asc&period=14', method: 'GET' },
-    });
-  }
-  actions.push({
-    id: 'analyze-ad-rules', label: '광고 자동규칙 전략 분석', desc: 'A/B/C 등급별 광고 규칙 평가 → 수정 요청 생성',
-    priority: 'urgent',
-    apiCall: { url: '/api/ad-rules', method: 'GET' },
-  });
-  if (w.highAdProducts > 0) {
-    actions.push({
-      id: 'analyze-ad', label: `광고비 초과 ${w.highAdProducts}개 분석`, desc: 'ROAS/CTR 분석 → 중단/축소/유지 판단',
-      priority: 'high',
-      apiCall: { url: '/api/products?sortBy=revenue&sortDir=desc&period=14', method: 'GET' },
-    });
-  }
-  if (w.needReorder > 0) {
-    actions.push({
-      id: 'analyze-stock', label: `재고 부족 ${w.needReorder}개 분석`, desc: '판매속도 대비 재고일수 계산 → 발주 추천량',
-      priority: 'high',
-      apiCall: { url: '/api/inventory', method: 'GET' },
-    });
-  }
-  actions.push({
-    id: 'analyze-category', label: '카테고리별 성과 분석', desc: '카테고리별 매출/이익률/ROAS 비교',
-    priority: 'medium',
-    apiCall: { url: '/api/coupang/category', method: 'GET' },
-  });
-
-  return { tasks, actions };
-}
 
 function alertIcon(type: string) {
   if (type === 'minus_product') return <MinusCircle size={14} className="text-red-500 shrink-0" />;
@@ -143,36 +33,10 @@ export default function Dashboard() {
   const router = useRouter();
   const queryClient = useQueryClient();
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [actionModal, setActionModal] = useState<{ title: string; results: any[] } | null>(null);
-  const [processingAction, setProcessingAction] = useState<string | null>(null);
-  const [completedActions, setCompletedActions] = useState<Set<string>>(() => {
-    if (typeof window === 'undefined') return new Set();
-    try {
-      const saved = JSON.parse(localStorage.getItem('dashboard-completed-actions') || '{}');
-      if (saved.date === new Date().toDateString()) return new Set(saved.ids || []);
-      return new Set();
-    } catch { return new Set(); }
-  });
   const [showProfitDetail, setShowProfitDetail] = useState(false);
   const [kpiRange, setKpiRange] = useState<'month' | 'week' | 'day' | 'custom'>('month');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
-  const [checkedTasks, setCheckedTasks] = useState<Set<string>>(() => {
-    if (typeof window === 'undefined') return new Set();
-    try {
-      const saved = JSON.parse(localStorage.getItem('dashboard-checked-tasks') || '{}');
-      if (saved.date === new Date().toDateString()) return new Set(saved.ids || []);
-      return new Set();
-    } catch { return new Set(); }
-  });
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('dashboard-completed-actions', JSON.stringify({ date: new Date().toDateString(), ids: Array.from(completedActions) }));
-      localStorage.setItem('dashboard-checked-tasks', JSON.stringify({ date: new Date().toDateString(), ids: Array.from(checkedTasks) }));
-    }
-  }, [checkedTasks, completedActions]);
 
   const { data, isLoading: loading } = useQuery({
     queryKey: queryKeys.dashboard.summary(),
@@ -206,96 +70,13 @@ export default function Dashboard() {
 
   const displayData = rangeData ?? data;
 
-  const { tasks: humanTasks, actions: aiActions } = data
-    ? generateTasksAndActions(data)
-    : { tasks: [] as HumanTask[], actions: [] as AiAction[] };
+  const { data: actionTasks = [] } = useQuery({
+    queryKey: queryKeys.actionTasks.list(),
+    queryFn: () => apiClient.get<ActionTask[]>('/api/action-tasks'),
+    refetchInterval: 60_000,
+  });
+  const aiActions = actionTasks.filter(t => t.type === 'ai');
 
-  const toggleTask = (id: string) => {
-    setCheckedTasks(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-  };
-
-  const executeAction = useCallback(async (action: AiAction) => {
-    if (!action.apiCall) return;
-    setProcessingAction(action.id);
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      let json: any;
-      if (action.apiCall.method === 'GET') {
-        json = await apiClient.get(action.apiCall.url);
-      } else {
-        json = await apiClient.post(action.apiCall.url, action.apiCall.body || {});
-      }
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const results: any[] = [];
-
-      if (action.id === 'recalc-grade') {
-        results.push({ label: '총 상품', value: json.totalProducts });
-        results.push({ label: '등급 변경', value: `${json.updatedCount}개`, highlight: json.updatedCount > 0 });
-        results.push({ label: 'A등급', value: `${json.gradeCounts?.A || 0}개` });
-        results.push({ label: 'B등급', value: `${json.gradeCounts?.B || 0}개` });
-        results.push({ label: 'C등급', value: `${json.gradeCounts?.C || 0}개` });
-        results.push({ label: '총 매출', value: formatKRW(json.totalRevenue || 0) + '원' });
-        if (json.updatedProducts?.length > 0) {
-          results.push({ label: '변경 내역', value: '', list: json.updatedProducts.slice(0, 10).map((p: { oldGrade: string; newGrade: string; score: number }) => `${p.oldGrade}→${p.newGrade} (${p.score}점)`) });
-        }
-        queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
-      } else if (action.id === 'analyze-deficit') {
-        const prods = (json.data || []).filter((p: { profitRate: number }) => p.profitRate < 0).slice(0, 15);
-        results.push({ label: '적자 상품 수', value: `${prods.length}개`, highlight: true });
-        for (const p of prods) {
-          const reason = p.adRate > 15 ? '광고비 과다' : p.costPrice >= p.sellPrice ? '원가 > 판매가' : '수수료/배송비';
-          results.push({ label: p.name?.substring(0, 25), value: `이익률 ${formatPercent(p.profitRate)} | 원인: ${reason}` });
-        }
-      } else if (action.id === 'analyze-ad') {
-        const prods = (json.data || []).filter((p: { adTier: string | null }) => p.adTier).slice(0, 15);
-        const stop = prods.filter((p: { roas: number }) => p.roas < 1);
-        const reduce = prods.filter((p: { roas: number }) => p.roas >= 1 && p.roas < 3);
-        const keep = prods.filter((p: { roas: number }) => p.roas >= 3);
-        results.push({ label: '광고 중단 권장', value: `${stop.length}개 (ROAS < 1)`, highlight: stop.length > 0 });
-        results.push({ label: '광고 축소 검토', value: `${reduce.length}개 (ROAS 1~3)` });
-        results.push({ label: '광고 유지/확대', value: `${keep.length}개 (ROAS 3+)` });
-      } else if (action.id === 'analyze-stock') {
-        const items = (json.inventories || json.data || []).filter((i: { currentStock: number; reorderPoint: number }) => i.currentStock <= i.reorderPoint && i.reorderPoint > 0).slice(0, 15);
-        results.push({ label: '발주 필요', value: `${items.length}개`, highlight: true });
-        for (const i of items) {
-          const days = i.avgDailySales > 0 ? Math.round(i.currentStock / i.avgDailySales) : 0;
-          results.push({ label: i.productName || i.product?.name || '상품', value: `재고 ${i.currentStock}개 (${days}일분)` });
-        }
-      } else if (action.id === 'analyze-ad-rules') {
-        const s = json.summary || {};
-        const recs = json.recommendations || [];
-        results.push({ label: '분석 상품 수', value: `${s.total}개` });
-        results.push({ label: '긴급 조치 필요', value: `${s.urgent}개`, highlight: s.urgent > 0 });
-        results.push({ label: '높은 우선순위', value: `${s.high}개` });
-        results.push({ label: '전략 수정 알림', value: `${s.newAlerts}건 생성` });
-        for (const r of recs.slice(0, 15)) {
-          const icon = r.priority === 'urgent' ? '🔴' : r.priority === 'high' ? '🟡' : '🟢';
-          results.push({ label: `${icon} [${r.rule}] ${r.name?.substring(0, 18)}`, value: r.action });
-        }
-      } else if (action.id === 'analyze-category') {
-        const cats = (json.categories || []).slice(0, 10);
-        results.push({ label: '카테고리 수', value: `${cats.length}개` });
-        for (const c of cats) {
-          results.push({ label: c.category?.substring(0, 20) || '-', value: `매출 ${formatKRW(c.totalRevenue)}원 | 이익률 ${c.avgProfitRate}% | 상품 ${c.productCount}개` });
-        }
-      } else {
-        results.push({ label: '결과', value: JSON.stringify(json).substring(0, 200) });
-      }
-
-      setCompletedActions(prev => new Set(Array.from(prev).concat(action.id)));
-      setActionModal({ title: action.label, results });
-    } catch (e) {
-      const msg = isApiError(e) ? e.detail : e instanceof Error ? e.message : '실행 실패';
-      setActionModal({ title: action.label, results: [{ label: '오류', value: msg, highlight: true }] });
-    } finally {
-      setProcessingAction(null);
-    }
-  }, [queryClient]);
 
   if (loading) {
     return (
@@ -315,22 +96,29 @@ export default function Dashboard() {
   }
 
   const s = (displayData ?? data).summary;
+  const rk = (displayData ?? data).rangeKpi;
+  const rangeLabelMap: Record<string, string> = { month: '월', week: '주', day: '일', custom: '기간' };
+  const rangeLabel = rk ? rangeLabelMap[rk.range] ?? '월' : '월';
 
-  // KPI 계산
-  const prevRevenue = s.prevMonthlyRevenue;
-  const prevProfit = s.prevMonthlyProfit;
-  const revenueChange = prevRevenue > 0 ? ((s.monthlyRevenue - prevRevenue) / prevRevenue) * 100 : 0;
-  const profitChange = prevProfit > 0 ? ((s.monthlyProfit - prevProfit) / prevProfit) * 100 : 0;
-  const adRateChange = s.prevAdRate > 0 ? s.adRate - s.prevAdRate : 0;
-  const profitRate = s.monthlyRevenue > 0 ? (s.monthlyProfit / s.monthlyRevenue) * 100 : 0;
-  const prevProfitRate = s.prevMonthlyRevenue > 0 ? (s.prevMonthlyProfit / s.prevMonthlyRevenue) * 100 : 0;
+  // KPI: rangeKpi 서버 값 우선, 없으면 summary 폴백
+  const kpiRevenue = rk?.revenue ?? s.monthlyRevenue;
+  const kpiProfit = rk?.profit ?? s.monthlyProfit;
+  const kpiPrevRevenue = rk?.prevRevenue ?? s.prevMonthlyRevenue;
+  const kpiPrevProfit = rk?.prevProfit ?? s.prevMonthlyProfit;
+  const revenueChange = rk?.revenueChange ?? (kpiPrevRevenue > 0 ? ((kpiRevenue - kpiPrevRevenue) / kpiPrevRevenue) * 100 : 0);
+  const profitChange = rk?.profitChange ?? (kpiPrevProfit > 0 ? ((kpiProfit - kpiPrevProfit) / kpiPrevProfit) * 100 : 0);
+  const profitRate = rk?.profitRate ?? (s.monthlyRevenue > 0 ? (s.monthlyProfit / s.monthlyRevenue) * 100 : 0);
+  const prevProfitRate = rk?.prevProfitRate ?? (s.prevMonthlyRevenue > 0 ? (s.prevMonthlyProfit / s.prevMonthlyRevenue) * 100 : 0);
+  const kpiAdRate = rk?.adRate ?? s.adRate;
+  const kpiPrevAdRate = rk?.prevAdRate ?? s.prevAdRate;
+  const adRateChange = rk?.adRateChange ?? (kpiPrevAdRate > 0 ? kpiAdRate - kpiPrevAdRate : 0);
 
-  const revenueGoal = Math.max(prevRevenue * 1.15, 1000000);
-  const profitGoal = Math.max(prevProfit * 1.15, 100000);
-  const revenueAchieve = revenueGoal > 0 ? Math.min(Math.round((s.monthlyRevenue / revenueGoal) * 100), 999) : 0;
-  const revenuePct = revenueGoal > 0 ? Math.min((s.monthlyRevenue / revenueGoal) * 100, 100) : 0;
-  const profitAchieve = profitGoal > 0 ? Math.min(Math.round((s.monthlyProfit / profitGoal) * 100), 999) : 0;
-  const profitPct = profitGoal > 0 ? Math.min((s.monthlyProfit / profitGoal) * 100, 100) : 0;
+  const revenueGoal = Math.max(kpiPrevRevenue * 1.15, 1000000);
+  const profitGoal = Math.max(kpiPrevProfit * 1.15, 100000);
+  const revenueAchieve = revenueGoal > 0 ? Math.min(Math.round((kpiRevenue / revenueGoal) * 100), 999) : 0;
+  const revenuePct = revenueGoal > 0 ? Math.min((kpiRevenue / revenueGoal) * 100, 100) : 0;
+  const profitAchieve = profitGoal > 0 ? Math.min(Math.round((kpiProfit / profitGoal) * 100), 999) : 0;
+  const profitPct = profitGoal > 0 ? Math.min((kpiProfit / profitGoal) * 100, 100) : 0;
 
   // 트렌드 차트용 데이터
   const dailyTrend = trendData.map(d => ({
@@ -401,17 +189,17 @@ export default function Dashboard() {
           <div>
             <div className="flex items-center gap-2 mb-2">
               <Wallet size={18} className="text-blue-600" />
-              <span className="text-sm font-bold uppercase tracking-wider text-blue-600">월 매출</span>
+              <span className="text-sm font-bold uppercase tracking-wider text-blue-600">{rangeLabel} 매출</span>
               <span className={`flex items-center gap-0.5 px-2 py-0.5 rounded-full text-sm font-mono ${revenueChange >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}>
                 {revenueChange >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
                 <span>{revenueChange > 0 ? '+' : ''}{revenueChange.toFixed(1)}%</span>
               </span>
             </div>
             <div className="flex items-baseline gap-1.5 mb-1">
-              <span className="text-xl sm:text-3xl font-extrabold tabular-nums tracking-tight text-blue-600">{formatKRW(s.monthlyRevenue)}</span>
+              <span className="text-xl sm:text-3xl font-extrabold tabular-nums tracking-tight text-blue-600">{formatKRW(kpiRevenue)}</span>
               <span className="text-lg font-semibold text-blue-600/60">원</span>
             </div>
-            <div className="text-sm text-slate-500">이전 {formatKRW(prevRevenue)}원</div>
+            <div className="text-sm text-slate-500">이전 {formatKRW(kpiPrevRevenue)}원</div>
             <div className="mt-2 pt-2 border-t border-blue-100">
               <div className="flex items-center justify-between mb-1.5">
                 <span className="text-[12px] font-medium text-blue-400">목표 {formatKRW(revenueGoal)}원</span>
@@ -422,18 +210,26 @@ export default function Dashboard() {
               </div>
               {revenueAchieve >= 100
                 ? <div className="text-[11px] mt-1 font-semibold text-blue-600">목표 달성!</div>
-                : <div className="text-[11px] mt-1 text-blue-400">{formatKRW(revenueGoal - s.monthlyRevenue)}원 남음</div>
+                : <div className="text-[11px] mt-1 text-blue-400">{formatKRW(revenueGoal - kpiRevenue)}원 남음</div>
               }
             </div>
           </div>
           <div className="mt-2 pt-2 space-y-1.5 border-t border-blue-100">
             <div className="flex justify-between text-sm">
-              <span className="text-slate-500">오늘 매출</span>
-              <span className="font-bold tabular-nums text-slate-900">{formatKRW(s.todayRevenue)}원</span>
+              <span className="text-slate-500">광고외매출</span>
+              <span className="font-bold tabular-nums text-slate-900">{formatKRW(kpiRevenue - (rk?.adConvRevenue ?? 0))}원</span>
             </div>
             <div className="flex justify-between text-sm">
-              <span className="text-slate-500">오늘 주문</span>
-              <span className="font-bold tabular-nums text-slate-900">{s.todayOrders.toLocaleString()}건</span>
+              <span className="text-slate-500">광고전환매출</span>
+              <span className="font-bold tabular-nums text-slate-900">{formatKRW(rk?.adConvRevenue ?? s.adRevenue)}원</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-slate-500">주문</span>
+              <span className="font-bold tabular-nums text-slate-900">{((displayData ?? data).trafficKpi?.orders ?? s.todayOrders).toLocaleString()}건</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-slate-500">판매량</span>
+              <span className="font-bold tabular-nums text-slate-900">{((displayData ?? data).trafficKpi?.salesQty ?? 0).toLocaleString()}개</span>
             </div>
           </div>
         </div>
@@ -446,17 +242,17 @@ export default function Dashboard() {
           <div>
             <div className="flex items-center gap-2 mb-2">
               <TrendingUp size={18} className="text-emerald-600" />
-              <span className="text-sm font-bold uppercase tracking-wider text-emerald-600">월 순이익</span>
+              <span className="text-sm font-bold uppercase tracking-wider text-emerald-600">{rangeLabel} 순이익</span>
               <span className={`flex items-center gap-0.5 px-2 py-0.5 rounded-full text-sm font-mono ${profitChange >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}>
                 {profitChange >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
                 <span>{profitChange > 0 ? '+' : ''}{profitChange.toFixed(1)}%</span>
               </span>
             </div>
             <div className="flex items-baseline gap-1.5 mb-1">
-              <span className="text-xl sm:text-3xl font-extrabold tabular-nums tracking-tight text-emerald-600">{formatKRW(s.monthlyProfit)}</span>
+              <span className="text-xl sm:text-3xl font-extrabold tabular-nums tracking-tight text-emerald-600">{formatKRW(kpiProfit)}</span>
               <span className="text-lg font-semibold text-emerald-600/60">원</span>
             </div>
-            <div className="text-sm text-slate-500">이전 {formatKRW(prevProfit)}원</div>
+            <div className="text-sm text-slate-500">이전 {formatKRW(kpiPrevProfit)}원</div>
             <div className="mt-2 pt-2 border-t border-emerald-100">
               <div className="flex items-center justify-between mb-1.5">
                 <span className="text-[12px] font-medium text-emerald-400">목표 {formatKRW(profitGoal)}원</span>
@@ -467,18 +263,26 @@ export default function Dashboard() {
               </div>
               {profitAchieve >= 100
                 ? <div className="text-[11px] mt-1 font-semibold text-emerald-600">목표 달성!</div>
-                : <div className="text-[11px] mt-1 text-emerald-400">{formatKRW(profitGoal - s.monthlyProfit)}원 남음</div>
+                : <div className="text-[11px] mt-1 text-emerald-400">{formatKRW(profitGoal - kpiProfit)}원 남음</div>
               }
             </div>
           </div>
           <div className="mt-2 pt-2 space-y-1.5 border-t border-emerald-100">
             <div className="flex justify-between text-sm">
-              <span className="text-slate-500">광고비</span>
-              <span className="font-bold tabular-nums text-slate-900">{formatKRW(s.totalAdSpend)}원</span>
+              <span className="text-slate-500">집행광고비</span>
+              <span className="font-bold tabular-nums text-slate-900">{formatKRW(rk?.adSpend ?? s.totalAdSpend)}원</span>
             </div>
             <div className="flex justify-between text-sm">
-              <span className="text-slate-500">광고전환매출</span>
-              <span className="font-bold tabular-nums text-slate-900">{formatKRW(s.adRevenue)}원</span>
+              <span className="text-slate-500">수수료</span>
+              <span className="font-bold tabular-nums text-slate-900">{formatKRW((displayData ?? data).profitDetail?.commission ?? 0)}원</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-slate-500">배송비</span>
+              <span className="font-bold tabular-nums text-slate-900">{formatKRW((displayData ?? data).profitDetail?.shippingCost ?? 0)}원</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-slate-500">매입가</span>
+              <span className="font-bold tabular-nums text-slate-900">{formatKRW((displayData ?? data).profitDetail?.costOfGoods ?? 0)}원</span>
             </div>
           </div>
         </div>
@@ -501,48 +305,48 @@ export default function Dashboard() {
         {/* 광고비율 */}
         <MetricCard
           label="광고비율"
-          value={s.adRate.toFixed(1)}
+          value={kpiAdRate.toFixed(1)}
           unit="%"
           change={-adRateChange}
-          prevLabel={`이전 ${s.prevAdRate.toFixed(1)}%`}
+          prevLabel={`이전 ${kpiPrevAdRate.toFixed(1)}%`}
           accentColor="#dc2626"
           icon={Megaphone}
           invertColor
           goal={10}
-          current={s.adRate}
+          current={kpiAdRate}
           goalUnit="%"
           goalLabel="목표 10% 이하"
           invertGoal
         />
 
-        {/* ROAS */}
+        {/* 구매전환율 */}
         <MetricCard
-          label="ROAS"
-          value={s.roas.toFixed(0)}
+          label="구매전환율"
+          value={((displayData ?? data).trafficKpi?.conversionRate ?? 0).toFixed(1)}
           unit="%"
-          change={s.roas - s.prevRoas}
-          prevLabel={`이전 ${s.prevRoas.toFixed(0)}%`}
+          change={0}
+          prevLabel=""
           accentColor="#0284c7"
-          icon={BarChart3}
-          goal={400}
-          current={s.roas}
+          icon={ShoppingCart}
+          goal={5}
+          current={(displayData ?? data).trafficKpi?.conversionRate ?? 0}
           goalUnit="%"
-          goalLabel="목표 400%"
+          goalLabel="목표 5%"
         />
 
-        {/* CTR */}
+        {/* 광고수익률(ROAS) */}
         <MetricCard
-          label="클릭률(CTR)"
-          value={s.ctr.toFixed(2)}
+          label="광고수익률"
+          value={(rk?.adRoas ?? s.roas).toFixed(0)}
           unit="%"
-          change={s.ctr - s.prevCtr}
-          prevLabel={`이전 ${s.prevCtr.toFixed(2)}%`}
+          change={(rk?.adRoas ?? s.roas) - (rk?.prevAdRoas ?? s.prevRoas)}
+          prevLabel={`이전 ${(rk?.prevAdRoas ?? s.prevRoas).toFixed(0)}%`}
           accentColor="#059669"
-          icon={ShoppingCart}
-          goal={1.5}
-          current={s.ctr}
+          icon={BarChart3}
+          goal={400}
+          current={rk?.adRoas ?? s.roas}
           goalUnit="%"
-          goalLabel="목표 1.5%"
+          goalLabel="목표 400%"
         />
       </div>
 
@@ -552,18 +356,13 @@ export default function Dashboard() {
           <DashboardChart
             dailyTrend={dailyTrend}
             aiActions={aiActions}
-            completedActions={completedActions}
-            executeAction={executeAction}
-            processingAction={processingAction}
             industryBenchmark={data.industryBenchmark}
           />
         </div>
         <SidePanel
-          humanTasks={humanTasks}
-          checkedTasks={checkedTasks}
-          toggleTask={toggleTask}
           alerts={data.alerts}
           router={router}
+          queryClient={queryClient}
         />
       </div>
 
@@ -646,42 +445,6 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* 분석 결과 모달 */}
-      {actionModal && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setActionModal(null)}>
-          <div className="rounded-2xl shadow-2xl w-full max-w-lg max-h-[80vh] overflow-hidden bg-white" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-slate-50">
-              <div className="flex items-center gap-2">
-                <Sparkles size={18} className="text-violet-500" />
-                <h2 className="text-lg font-bold text-slate-900">{actionModal.title}</h2>
-              </div>
-              <button onClick={() => setActionModal(null)} className="p-1 text-slate-400">
-                <X size={20} />
-              </button>
-            </div>
-            <div className="px-6 py-4 space-y-2 overflow-y-auto max-h-[60vh]">
-              {actionModal.results.map((r, i) => (
-                <div key={i} className={`flex items-start justify-between py-2 ${i < actionModal.results.length - 1 ? 'border-b border-slate-100' : ''}`}>
-                  <span className={`text-sm ${r.highlight ? 'text-red-600 font-bold' : 'text-slate-500'}`}>{r.label}</span>
-                  <div className="text-right">
-                    <span className={`text-sm font-semibold ${r.highlight ? 'text-red-600' : 'text-slate-900'}`}>{r.value}</span>
-                    {r.list && (
-                      <div className="mt-1 space-y-0.5">
-                        {r.list.map((item: string, j: number) => (
-                          <div key={j} className="text-xs text-slate-500">{item}</div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="px-6 py-3 flex justify-end border-t border-slate-200 bg-slate-50">
-              <button onClick={() => setActionModal(null)} className="px-4 py-2 text-white rounded-lg text-sm font-medium bg-slate-900">확인</button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* 순이익 상세 모달 */}
       {showProfitDetail && (() => {
@@ -828,88 +591,55 @@ function MetricCard({ label, value, unit, change, prevLabel, accentColor, icon: 
 }
 
 // ===== 사이드 패널 =====
-function SidePanel({ humanTasks, checkedTasks, toggleTask, alerts, router }: {
-  humanTasks: HumanTask[];
-  checkedTasks: Set<string>;
-  toggleTask: (id: string) => void;
+function SidePanel({ alerts, router, queryClient }: {
   alerts: { id: string; type: string; message: string }[];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   router: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  queryClient: any;
 }) {
-  const [tab, setTab] = useState<'tasks' | 'alerts'>('tasks');
-  const taskCount = humanTasks.filter(t => !checkedTasks.has(t.id)).length;
+  const markAllRead = async () => {
+    try {
+      await apiClient.patch('/api/alerts/read-all', {});
+      queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
+    } catch { /* ignore */ }
+  };
 
   return (
     <div className="rounded-2xl overflow-hidden flex flex-col h-full bg-white border border-slate-100 shadow-sm">
-      <div className="flex items-center gap-1 px-3 py-2 border-b border-slate-100">
-        <button
-          onClick={() => setTab('tasks')}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${tab === 'tasks' ? 'bg-blue-600 text-white' : 'text-slate-400'}`}
-        >
-          <ClipboardList size={13} />
-          할 일 {taskCount > 0 && (
-            <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${tab === 'tasks' ? 'bg-white text-blue-600' : 'bg-blue-600 text-white'}`}>{taskCount}</span>
+      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+        <div className="flex items-center gap-1.5">
+          <AlertTriangle size={14} className="text-slate-500" />
+          <span className="text-sm font-semibold text-slate-900">알림</span>
+          {alerts.length > 0 && (
+            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-red-100 text-red-700">{alerts.length}</span>
           )}
-        </button>
-        <button
-          onClick={() => setTab('alerts')}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${tab === 'alerts' ? 'bg-red-600 text-white' : 'text-slate-400'}`}
-        >
-          <AlertTriangle size={13} />
-          알림 {alerts.length > 0 && (
-            <span className={`px-1.5 py-0.5 rounded-full text-[10px] text-white ${tab === 'alerts' ? 'bg-red-400' : 'bg-red-600'}`}>{alerts.length}</span>
-          )}
-        </button>
+        </div>
+        {alerts.length > 0 && (
+          <button onClick={markAllRead} className="text-xs text-blue-600 font-semibold hover:underline">전체 읽음</button>
+        )}
       </div>
 
-      {tab === 'tasks' && (
-        <div className="flex-1 overflow-y-auto min-h-0">
-          {humanTasks.length === 0 && (
-            <div className="py-8 text-center text-sm text-slate-300">처리할 업무가 없습니다</div>
-          )}
-          {humanTasks.map(task => {
-            const done = checkedTasks.has(task.id);
-            return (
-              <div key={task.id} className={`flex items-start gap-3 px-4 py-2.5 border-b border-slate-50 transition-colors ${done ? 'opacity-40' : ''}`}>
-                <button
-                  onClick={() => toggleTask(task.id)}
-                  className="shrink-0 mt-0.5 w-5 h-5 rounded border-2 flex items-center justify-center transition-colors"
-                  style={done ? { background: '#059669', borderColor: '#059669' } : { borderColor: '#cbd5e1' }}
-                >
-                  {done && <Check size={12} className="text-white" />}
-                </button>
-                <div className="flex-1 min-w-0">
-                  <span className="text-sm font-medium" style={{ color: done ? '#94a3b8' : '#0f172a', textDecoration: done ? 'line-through' : 'none' }}>{task.label}</span>
-                  <div className="text-xs mt-0.5 text-slate-400">{task.where}</div>
-                </div>
+      <div className="flex-1 overflow-y-auto min-h-0">
+        {alerts.map(a => {
+          const href = a.type === 'strategy_change' ? '/ad-ops' : a.type === 'stock_low' ? '/purchase-orders' : a.type === 'minus_product' ? '/cleanup' : a.type === 'ad_high' ? '/ads-hub' : undefined;
+          return (
+            <div key={a.id} onClick={() => href && router.push(href)} className={`flex items-start gap-2.5 px-4 py-2.5 border-b border-slate-50 transition-colors ${href ? 'cursor-pointer' : ''}`}>
+              <div className="mt-0.5">{alertIcon(a.type)}</div>
+              <div className="flex-1 min-w-0">
+                <span className="text-sm leading-relaxed text-slate-500">{a.message}</span>
+                {href && <span className="text-[10px] ml-1.5 text-blue-600">→</span>}
               </div>
-            );
-          })}
-        </div>
-      )}
-
-      {tab === 'alerts' && (
-        <div className="flex-1 overflow-y-auto min-h-0">
-          {alerts.map(a => {
-            const href = a.type === 'strategy_change' ? '/ad-ops' : a.type === 'stock_low' ? '/purchase-orders' : a.type === 'minus_product' ? '/cleanup' : a.type === 'ad_high' ? '/ads-hub' : undefined;
-            return (
-              <div key={a.id} onClick={() => href && router.push(href)} className={`flex items-start gap-2.5 px-4 py-2.5 border-b border-slate-50 transition-colors ${href ? 'cursor-pointer' : ''}`}>
-                <div className="mt-0.5">{alertIcon(a.type)}</div>
-                <div className="flex-1 min-w-0">
-                  <span className="text-sm leading-relaxed text-slate-500">{a.message}</span>
-                  {href && <span className="text-[10px] ml-1.5 text-blue-600">→</span>}
-                </div>
-              </div>
-            );
-          })}
-          {alerts.length === 0 && (
-            <div className="px-4 py-8 text-center">
-              <ShieldCheck size={24} className="mx-auto mb-2 text-emerald-500" />
-              <div className="text-xs text-slate-400">모든 알림을 확인했습니다</div>
             </div>
-          )}
-        </div>
-      )}
+          );
+        })}
+        {alerts.length === 0 && (
+          <div className="px-4 py-8 text-center">
+            <ShieldCheck size={24} className="mx-auto mb-2 text-emerald-500" />
+            <div className="text-xs text-slate-400">모든 알림을 확인했습니다</div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -918,16 +648,10 @@ function SidePanel({ humanTasks, checkedTasks, toggleTask, alerts, router }: {
 function DashboardChart({
   dailyTrend,
   aiActions,
-  completedActions,
-  executeAction,
-  processingAction,
   industryBenchmark,
 }: {
   dailyTrend: { date: string; revenue: number; profit: number; adCost: number; profitRate: number; adRate: number }[];
-  aiActions: AiAction[];
-  completedActions: Set<string>;
-  executeAction: (action: AiAction) => void;
-  processingAction: string | null;
+  aiActions: ActionTask[];
   industryBenchmark?: { avgAdRate: number; avgProfitRate: number; avgRoas: number; avgCtr: number; myAdRate?: number; myRoas?: number; myCtr?: number; avgCvr?: number };
 }) {
   const [chartTab, setChartTab] = useState<'actions' | 'revenue' | 'ad' | 'benchmark'>('actions');
@@ -935,7 +659,7 @@ function DashboardChart({
   const hasBenchmark = !!industryBenchmark;
 
   const tabs = [
-    { key: 'actions' as const, label: 'AI 액션' },
+    { key: 'actions' as const, label: '액션 요약' },
     { key: 'revenue' as const, label: '매출 · 이익률' },
     { key: 'ad' as const, label: '광고비 · 비율' },
     ...(hasBenchmark ? [{ key: 'benchmark' as const, label: '업계 평균 대비' }] : []),
@@ -959,43 +683,37 @@ function DashboardChart({
             </button>
           ))}
         </div>
-        <span className="text-[12px] text-slate-400">{chartTab === 'actions' ? 'AI 자동 실행' : '최근 30일'}</span>
+        <span className="text-[12px] text-slate-400">{chartTab === 'actions' ? '요약' : '최근 30일'}</span>
       </div>
 
-      {/* AI 액션 */}
+      {/* 액션 요약 */}
       {chartTab === 'actions' && (
-        <div className="flex-1 overflow-y-auto p-4 space-y-2">
-          {aiActions.length === 0 && (
-            <div className="py-8 text-center text-sm text-slate-300">실행할 AI 액션이 없습니다</div>
-          )}
-          {aiActions.map(action => {
-            const done = completedActions.has(action.id);
-            const running = processingAction === action.id;
-            const priorityColor = action.priority === 'urgent' ? 'text-red-500' : action.priority === 'high' ? 'text-amber-500' : 'text-slate-400';
-            return (
-              <div key={action.id} className={`flex items-center gap-3 p-3 rounded-xl border border-slate-100 transition-all ${done ? 'opacity-50' : 'hover:border-blue-200'}`}>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className={`text-[10px] font-bold uppercase ${priorityColor}`}>{action.priority}</span>
-                    <span className="text-sm font-semibold text-slate-900 truncate">{action.label}</span>
-                  </div>
-                  <div className="text-xs text-slate-400 mt-0.5">{action.desc}</div>
-                </div>
-                {done
-                  ? <Check size={16} className="text-emerald-500 shrink-0" />
-                  : (
-                    <button
-                      onClick={() => executeAction(action)}
-                      disabled={running}
-                      className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors disabled:opacity-50"
-                    >
-                      {running ? <span className="animate-pulse">...</span> : <><Play size={11} /> 실행</>}
-                    </button>
-                  )
-                }
+        <div className="flex-1 flex flex-col items-center justify-center p-6 gap-4">
+          <div className="flex gap-6 text-center">
+            <div>
+              <div className="text-2xl font-bold text-red-600">{aiActions.filter(a => a.priority === 'urgent').length}</div>
+              <div className="text-xs text-slate-400">긴급</div>
+            </div>
+            <div>
+              <div className="text-2xl font-bold text-amber-600">{aiActions.filter(a => a.priority === 'high').length}</div>
+              <div className="text-xs text-slate-400">높음</div>
+            </div>
+            <div>
+              <div className="text-2xl font-bold text-blue-600">{aiActions.filter(a => a.priority === 'medium').length}</div>
+              <div className="text-xs text-slate-400">보통</div>
+            </div>
+          </div>
+          <div className="space-y-1.5 w-full max-w-xs">
+            {aiActions.slice(0, 3).map(a => (
+              <div key={a.id} className="flex items-center gap-2 text-sm text-slate-600">
+                <span className={`w-1.5 h-1.5 rounded-full ${a.priority === 'urgent' ? 'bg-red-500' : a.priority === 'high' ? 'bg-amber-500' : 'bg-blue-500'}`} />
+                {a.label}
               </div>
-            );
-          })}
+            ))}
+          </div>
+          <Link href="/action-board" className="mt-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition-colors">
+            액션 보드에서 보기 →
+          </Link>
         </div>
       )}
 

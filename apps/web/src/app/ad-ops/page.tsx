@@ -8,13 +8,14 @@ import {
   Minus, BarChart3, LayoutGrid, ListOrdered, Package,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { formatKRW, formatPercent, getGradeColor } from '@/lib/utils';
+import { formatKRW, formatPercent, formatNumber, getGradeColor } from '@/lib/utils';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import {
   ComposedChart, Bar, Line, Area, XAxis, YAxis, Tooltip,
   ResponsiveContainer, CartesianGrid, PieChart, Pie, Cell,
 } from 'recharts';
 import { apiClient } from '@/lib/api-client';
+import ScrapeCollector from '@/app/ads/collect/components/ScrapeCollector';
 
 // ===== Types =====
 interface CampaignData {
@@ -135,7 +136,7 @@ export default function AdOpsPage() {
       setRules(rulesRes.recommendations || []);
       setWingKpis(extRes.wing?.kpis || {});
       if (stratRes?.success) setStrategy(stratRes);
-      if (adsRes?.products) { setAdProducts(adsRes.products); setAdSummary(adsRes.summary); }
+      if (adsRes?.products || adsRes?.items) { setAdProducts(adsRes.products || adsRes.items); setAdSummary(adsRes.summary); }
       try {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const [recRes, trendRes, benchRes] = await Promise.all([
@@ -215,6 +216,7 @@ export default function AdOpsPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <ScrapeCollector onComplete={fetchData} />
           {urgentCount > 0 && (
             <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold animate-pulse bg-red-50 text-red-600 border border-red-600">
               <AlertTriangle size={13} /> 긴급 {urgentCount}건
@@ -621,7 +623,7 @@ export default function AdOpsPage() {
                     <div className="space-y-2">
                       {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
                       {card.items.map((item: any, ii: number) => (
-                        <div key={ii} className="bg-white/80 rounded-lg p-2.5">
+                        <div key={ii} className="bg-transparent/80 rounded-lg p-2.5">
                           {item.productName && <div className="text-[12px] font-bold text-slate-800 truncate">{item.productName}</div>}
                           <div className="text-[12px] text-slate-600 leading-relaxed">{item.text}</div>
                           {item.value && <div className={`text-[11px] font-semibold mt-0.5 ${item.priority === 'urgent' ? 'text-red-600' : item.priority === 'high' ? 'text-emerald-600' : 'text-slate-500'}`}>→ {item.value}</div>}
@@ -660,7 +662,7 @@ export default function AdOpsPage() {
                   <div className="text-right text-[13px] font-medium tabular-nums text-slate-700">{formatKRW(c.adSpend)}원</div>
                   <div className="text-right text-[13px] font-semibold tabular-nums text-emerald-600">{formatKRW(c.adRevenue)}원</div>
                   <div className={`text-right text-[13px] font-bold tabular-nums ${c.roas >= 300 ? 'text-emerald-600' : c.roas >= 100 ? 'text-amber-600' : 'text-red-500'}`}>{Math.round(c.roas)}%</div>
-                  <div className="text-right text-[13px] tabular-nums text-slate-600">{c.clicks.toLocaleString()}</div>
+                  <div className="text-right text-[13px] tabular-nums text-slate-600">{formatNumber(c.clicks)}</div>
                   <div className="text-right text-[13px] tabular-nums text-slate-600">{c.ctr}%</div>
                 </div>
               ))}
@@ -673,7 +675,7 @@ export default function AdOpsPage() {
               <div className="text-[12px] text-slate-400">전체 캠페인 &gt; <span className="text-violet-600 font-semibold">{selectedCampaign}</span></div>
               <div className="bg-transparent rounded-xl border p-5">
                 <div className="grid grid-cols-6 gap-3 mb-3">
-                  {[{ label: '광고비', value: formatKRW(camp.adSpend) + '원' }, { label: '전환매출', value: formatKRW(camp.adRevenue) + '원' }, { label: '노출', value: camp.impressions.toLocaleString() }, { label: '클릭', value: camp.clicks.toLocaleString() }, { label: 'ROAS', value: Math.round(camp.roas) + '%' }, { label: '전환율', value: camp.conversionRate + '%' }].map(k => (
+                  {[{ label: '광고비', value: formatKRW(camp.adSpend) + '원' }, { label: '전환매출', value: formatKRW(camp.adRevenue) + '원' }, { label: '노출', value: formatNumber(camp.impressions) }, { label: '클릭', value: formatNumber(camp.clicks) }, { label: 'ROAS', value: Math.round(camp.roas) + '%' }, { label: '전환율', value: camp.conversionRate + '%' }].map(k => (
                     <div key={k.label} className="bg-slate-100 rounded-lg p-3"><div className="text-[10px] text-slate-500 mb-0.5">{k.label}</div><div className="text-lg font-bold text-slate-900 tabular-nums">{k.value}</div></div>
                   ))}
                 </div>
@@ -694,7 +696,7 @@ export default function AdOpsPage() {
                               <td className="px-4 py-2.5 font-medium text-slate-900 truncate">{cleanName}</td>
                               <td className="text-right px-3 py-2.5 tabular-nums">{formatKRW(p.adSpend)}원</td>
                               <td className={`text-right px-3 py-2.5 tabular-nums ${p.adRevenue > 0 ? 'text-emerald-600 font-medium' : 'text-slate-300'}`}>{p.adRevenue > 0 ? formatKRW(p.adRevenue) + '원' : '0원'}</td>
-                              <td className="text-right px-3 py-2.5 tabular-nums">{p.clicks.toLocaleString()}</td>
+                              <td className="text-right px-3 py-2.5 tabular-nums">{formatNumber(p.clicks)}</td>
                               <td className="text-right px-3 py-2.5 tabular-nums">{p.ctr > 0 ? p.ctr + '%' : '-'}</td>
                               <td className="text-right px-3 py-2.5 tabular-nums">{p.adConversions}건</td>
                               <td className={`text-right px-3 py-2.5 tabular-nums font-bold ${p.roas >= 300 ? 'text-emerald-600' : p.roas >= 100 ? 'text-amber-600' : 'text-slate-400'}`}>{p.roas}%</td>

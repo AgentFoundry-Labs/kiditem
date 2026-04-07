@@ -47,8 +47,39 @@ export default function ChatBot() {
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [sessionId, setSessionId] = useState<string | undefined>();
+  const [posY, setPosY] = useState<number | null>(null);
+  const dragging = useRef(false);
+  const dragOffset = useRef(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  const handleDragStart = useCallback((e: React.MouseEvent | React.TouchEvent) => {
+    dragging.current = true;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+    const currentBottom = posY ?? 24;
+    dragOffset.current = clientY + currentBottom;
+    e.preventDefault();
+  }, [posY]);
+
+  useEffect(() => {
+    const handleMove = (e: MouseEvent | TouchEvent) => {
+      if (!dragging.current) return;
+      const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+      const newBottom = Math.max(8, Math.min(window.innerHeight - 80, dragOffset.current - clientY));
+      setPosY(newBottom);
+    };
+    const handleUp = () => { dragging.current = false; };
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('mouseup', handleUp);
+    window.addEventListener('touchmove', handleMove);
+    window.addEventListener('touchend', handleUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleUp);
+      window.removeEventListener('touchmove', handleMove);
+      window.removeEventListener('touchend', handleUp);
+    };
+  }, []);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -189,11 +220,14 @@ export default function ChatBot() {
 
   return (
     <>
-      {/* 플로팅 버튼 */}
+      {/* 플로팅 버튼 — 드래그로 위아래 이동 가능 */}
       {!open && (
         <button
           onClick={() => setOpen(true)}
-          className="fixed bottom-6 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-violet-600 text-white shadow-lg hover:bg-violet-700 transition-all hover:scale-105 active:scale-95"
+          onMouseDown={handleDragStart}
+          onTouchStart={handleDragStart}
+          className="fixed right-6 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-violet-600 text-white shadow-lg hover:bg-violet-700 transition-colors hover:scale-105 active:scale-95 cursor-grab active:cursor-grabbing select-none"
+          style={{ bottom: posY ?? 24 }}
         >
           <MessageCircle size={24} />
         </button>
@@ -201,7 +235,10 @@ export default function ChatBot() {
 
       {/* 채팅 패널 */}
       {open && (
-        <div className="fixed bottom-6 right-6 z-50 flex h-[600px] w-[420px] flex-col rounded-2xl border border-slate-200 bg-white shadow-2xl overflow-hidden animate-in slide-in-from-bottom-4 duration-200">
+        <div
+          className="fixed right-6 z-50 flex h-[600px] w-[420px] flex-col rounded-2xl border border-slate-200 bg-white shadow-2xl overflow-hidden animate-in slide-in-from-bottom-4 duration-200"
+          style={{ bottom: posY ?? 24 }}
+        >
           {/* 헤더 */}
           <div className="flex items-center justify-between bg-violet-600 px-4 py-3">
             <div className="flex items-center gap-2">

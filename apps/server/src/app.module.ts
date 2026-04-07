@@ -38,6 +38,7 @@ import { StatisticsModule } from './statistics/statistics.module';
 import { ChatModule } from './chat/chat.module';
 import { UploadsModule } from './uploads/uploads.module';
 import { TrafficModule } from './traffic/traffic.module';
+import { ActionTaskModule } from './action-task/action-task.module';
 
 @Module({
   imports: [
@@ -80,6 +81,7 @@ import { TrafficModule } from './traffic/traffic.module';
     ChatModule,
     UploadsModule,
     TrafficModule,
+    ActionTaskModule,
   ],
 })
 export class AppModule {}

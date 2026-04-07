@@ -151,5 +151,9 @@ export const queryKeys = {
     all: ['productMemos'] as const,
     list: (productId: string) => [...queryKeys.productMemos.all, 'list', productId] as const,
   },
+  actionTasks: {
+    all: ['actionTasks'] as const,
+    list: () => [...queryKeys.actionTasks.all, 'list'] as const,
+  },
   syncInfo: () => ['syncInfo'] as const,
 } as const;

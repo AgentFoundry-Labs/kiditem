@@ -67,3 +67,7 @@ export type { AlertItem } from './alerts.js';
 // Rules
 export { RuleItemSchema } from './rules.js';
 export type { RuleItem } from './rules.js';
+
+// Action Task
+export { ActionTaskSchema, ActionTaskRelatedProductSchema } from './action-task.js';
+export type { ActionTask, ActionTaskRelatedProduct } from './action-task.js';

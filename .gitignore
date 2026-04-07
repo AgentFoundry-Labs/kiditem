@@ -42,7 +42,6 @@ coverage/
 # Claude Code — ignore session/personal, track team-shared
 .claude/*
 !.claude/docs/
-!.claude/skills/
 !.claude/settings.json
 
 # Tools
