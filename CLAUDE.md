@@ -13,7 +13,7 @@ E-commerce operations automation for kids' products. Sourcing → AI processing 
 ## Structure
 
 ```
-apps/web/            — Next.js 14 frontend (see apps/web/CLAUDE.md)
+apps/web/            — Next.js 16 frontend (see apps/web/CLAUDE.md)
 apps/server/         — NestJS 11 backend API (see apps/server/CLAUDE.md)
 agents/              — Python 3.11+ background workers (see agents/CLAUDE.md)
 packages/shared/     — @kiditem/shared (Zod schemas + TypeScript types + error codes)

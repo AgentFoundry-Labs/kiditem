@@ -19,9 +19,11 @@ src/{domain}/
 ├── {domain}.module.ts       # @Module — register Controller + Service
 ├── {domain}.controller.ts   # @Controller — use class-validator DTOs
 ├── {domain}.service.ts      # @Injectable — business logic + Prisma
-└── dto/                     # Request/Response DTOs (class-validator decorators)
-    ├── {operation}.dto.ts
-    └── index.ts
+├── dto/                     # Request/Response DTOs (class-validator decorators)
+│   ├── {operation}.dto.ts
+│   └── index.ts
+└── services/
+    └── types.ts             # Service-internal interfaces (no decorators, not in shared)
 ```
 
 Adding a new domain: create module + controller + service + dto/ → register in `app.module.ts`.
@@ -57,6 +59,7 @@ Adding a new domain: create module + controller + service + dto/ → register in
 - New endpoints → class-validator DTO required (no manual if + BadRequestException)
 - Errors → throw HttpException (no `ok: false` in 200 responses)
 - Types → import from `@kiditem/shared`, use `satisfies` pattern in services
+- Service-internal types → `services/types.ts` (interface, not class). API DTOs(`dto/`)와 분리. `@kiditem/shared`에 넣지 않음.
 - Agent trigger: `AgentRegistryService.runByType()` → HeartbeatService → adapter execution (Claude CLI or Python HTTP)
 - Agent data access: `AGENT_DATABASE_URL` (read-only PostgreSQL). Agents query DB directly via psql.
 - Agent prompts: stored in `agent-config/prompts/`, NOT in DB. DB `prompt_template` field holds file path.
