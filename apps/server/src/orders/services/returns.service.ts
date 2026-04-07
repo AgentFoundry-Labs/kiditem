@@ -1,16 +1,14 @@
 import { Injectable } from '@nestjs/common';
-import type { CoupangReturn, CoupangReturnItem } from '@prisma/client';
+import type { CoupangReturn } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { approveReturn } from '../../channels/adapters/coupang/orders';
-
-type CoupangReturnWithItems = CoupangReturn & { returnItems: CoupangReturnItem[] };
 
 @Injectable()
 export class ReturnsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async findAll(query: { from?: string; to?: string; type?: string }): Promise<{
-    items: CoupangReturnWithItems[];
+    items: CoupangReturn[];
     total: number;
     type: string;
   }> {
@@ -30,7 +28,6 @@ export class ReturnsService {
 
     const data = await this.prisma.coupangReturn.findMany({
       where,
-      include: { returnItems: true },
       orderBy: { requestedAt: 'desc' },
     });
 
@@ -41,10 +38,9 @@ export class ReturnsService {
     };
   }
 
-  async findOne(id: string): Promise<CoupangReturnWithItems | null> {
+  async findOne(id: string): Promise<CoupangReturn | null> {
     return this.prisma.coupangReturn.findUnique({
       where: { id },
-      include: { returnItems: true },
     });
   }
 

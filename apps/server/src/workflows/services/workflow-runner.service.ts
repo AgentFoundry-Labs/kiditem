@@ -6,6 +6,14 @@ import { WorkflowContext } from './context';
 import { getExecutor, isConcurrencySafe, type ExecutorServices } from '../executors/index';
 import '../executors/builtin';
 
+/** Subset of WorkflowTemplate fields needed for node execution */
+interface WorkflowTemplateRef {
+  companyId: string;
+}
+
+/** User-provided context data passed when triggering a workflow run */
+type WorkflowRunContext = Record<string, unknown>;
+
 @Injectable()
 export class WorkflowRunnerService {
   private readonly logger = new Logger(WorkflowRunnerService.name);
@@ -31,7 +39,7 @@ export class WorkflowRunnerService {
     }
 
     const run = await this.prisma.workflowRun.findUnique({ where: { id: runId } });
-    const runContext = (run?.contextData as Record<string, any>) ?? {};
+    const runContext: WorkflowRunContext = (run?.contextData as WorkflowRunContext) ?? {};
 
     const dag = new DAG(
       template.nodesJson as any[],
@@ -131,8 +139,8 @@ export class WorkflowRunnerService {
     nodeId: string,
     dag: DAG,
     context: WorkflowContext,
-    template: { companyId: string },
-    runContext: Record<string, any>,
+    template: WorkflowTemplateRef,
+    runContext: WorkflowRunContext,
   ): Promise<{ nextNodes: string[] }> {
     const nodeDef = dag.nodes.get(nodeId);
     if (!nodeDef) return { nextNodes: [] };
@@ -145,16 +153,23 @@ export class WorkflowRunnerService {
       throw new Error(error);
     }
 
-    const stepRun = await this.prisma.workflowStepRun.create({
-      data: {
-        runId,
-        nodeId,
-        nodeType: nodeDef.type,
-        nodeLabel: nodeDef.label,
-        status: 'running',
-        startedAt: new Date(),
-      },
-    });
+    const stepEntry = {
+      nodeId,
+      nodeType: nodeDef.type,
+      nodeLabel: nodeDef.label,
+      status: 'running',
+      startedAt: new Date().toISOString(),
+      completedAt: null as string | null,
+      outputData: null as unknown,
+      error: null as string | null,
+    };
+
+    // Append step to WorkflowRun.steps Json array
+    const run = await this.prisma.workflowRun.findUnique({ where: { id: runId } });
+    const steps = (run?.steps as unknown[] ?? []);
+    const stepIndex = steps.length;
+    steps.push(stepEntry);
+    await this.prisma.workflowRun.update({ where: { id: runId }, data: { steps: steps as any } });
 
     try {
       const resolvedConfig = context.resolveConfig({
@@ -165,14 +180,11 @@ export class WorkflowRunnerService {
       const output = await executor(this.prisma, resolvedConfig, context, this.executorServices);
       context.setOutput(nodeId, output);
 
-      await this.prisma.workflowStepRun.update({
-        where: { id: stepRun.id },
-        data: {
-          status: 'completed',
-          outputData: output as any,
-          completedAt: new Date(),
-        },
-      });
+      stepEntry.status = 'completed';
+      stepEntry.outputData = output;
+      stepEntry.completedAt = new Date().toISOString();
+      steps[stepIndex] = stepEntry;
+      await this.prisma.workflowRun.update({ where: { id: runId }, data: { steps: steps as any } });
 
       const branch = nodeDef.type.startsWith('condition.')
         ? (output.branch as string) ?? null
@@ -183,14 +195,11 @@ export class WorkflowRunnerService {
       const message = err instanceof Error ? err.message : String(err);
       this.logger.error(`Step ${nodeId} failed: ${message}`);
 
-      await this.prisma.workflowStepRun.update({
-        where: { id: stepRun.id },
-        data: {
-          status: 'failed',
-          error: message,
-          completedAt: new Date(),
-        },
-      });
+      stepEntry.status = 'failed';
+      stepEntry.error = message;
+      stepEntry.completedAt = new Date().toISOString();
+      steps[stepIndex] = stepEntry;
+      await this.prisma.workflowRun.update({ where: { id: runId }, data: { steps: steps as any } });
 
       throw err;
     }
@@ -201,18 +210,19 @@ export class WorkflowRunnerService {
     nodeDef: { id: string; type: string; label: string },
     error: string,
   ) {
-    await this.prisma.workflowStepRun.create({
-      data: {
-        runId,
-        nodeId: nodeDef.id,
-        nodeType: nodeDef.type,
-        nodeLabel: nodeDef.label,
-        status: 'failed',
-        error,
-        startedAt: new Date(),
-        completedAt: new Date(),
-      },
+    const run = await this.prisma.workflowRun.findUnique({ where: { id: runId } });
+    const steps = (run?.steps as unknown[] ?? []);
+    steps.push({
+      nodeId: nodeDef.id,
+      nodeType: nodeDef.type,
+      nodeLabel: nodeDef.label,
+      status: 'failed',
+      error,
+      startedAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+      outputData: null,
     });
+    await this.prisma.workflowRun.update({ where: { id: runId }, data: { steps: steps as any } });
   }
 
   private async recordRunError(runId: string, error: string) {

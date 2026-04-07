@@ -999,6 +999,7 @@ model WorkflowRun {
   status      String    @default("pending")
   triggeredBy String    @default("manual") @map("triggered_by")
   contextData Json?     @map("context_data")
+  steps       Json      @default("[]") @db.JsonB
   error       String?
   startedAt   DateTime? @map("started_at") @db.Timestamptz
   completedAt DateTime? @map("completed_at") @db.Timestamptz

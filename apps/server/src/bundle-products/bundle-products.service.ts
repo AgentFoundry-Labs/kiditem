@@ -2,6 +2,11 @@ import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateBundleProductDto } from './dto';
 
+interface BundleItemJson {
+  productId: string;
+  quantity: number;
+}
+
 @Injectable()
 export class BundleProductsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -9,21 +14,24 @@ export class BundleProductsService {
   async analyze(companyId: string) {
     const bundles = await this.prisma.bundleProduct.findMany({
       where: { companyId },
-      include: {
-        items: {
-          include: {
-            product: {
-              select: { id: true, name: true, costPrice: true, sellPrice: true },
-            },
-          },
-        },
-      },
       orderBy: { createdAt: 'desc' },
     });
 
+    const productIds = bundles.flatMap((b) =>
+      ((b.items ?? []) as unknown as BundleItemJson[]).map((item) => item.productId),
+    );
+
+    const products = await this.prisma.product.findMany({
+      where: { id: { in: productIds } },
+      select: { id: true, name: true, costPrice: true, sellPrice: true },
+    });
+    const productMap = new Map(products.map((p) => [p.id, p]));
+
     return bundles.map((bundle) => {
-      const totalItemCost = bundle.items.reduce((sum, item) => {
-        return sum + (item.product.costPrice ?? 0) * item.quantity;
+      const items = (bundle.items ?? []) as unknown as BundleItemJson[];
+      const totalItemCost = items.reduce((sum, item) => {
+        const product = productMap.get(item.productId);
+        return sum + (product?.costPrice ?? 0) * item.quantity;
       }, 0);
 
       const profit = bundle.sellPrice - totalItemCost;
@@ -47,14 +55,11 @@ export class BundleProductsService {
         name: dto.name,
         sku: dto.sku,
         sellPrice: dto.sellPrice,
-        items: {
-          create: dto.items.map((item) => ({
-            productId: item.productId,
-            quantity: item.quantity,
-          })),
-        },
+        items: dto.items.map((item) => ({
+          productId: item.productId,
+          quantity: item.quantity,
+        })),
       },
-      include: { items: true },
     });
   }
 

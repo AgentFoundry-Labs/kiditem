@@ -121,7 +121,6 @@ export class WorkflowsService {
   async findRunDetail(runId: string) {
     return this.prisma.workflowRun.findUnique({
       where: { id: runId },
-      include: { steps: { orderBy: { startedAt: 'asc' } } },
     });
   }
 }
