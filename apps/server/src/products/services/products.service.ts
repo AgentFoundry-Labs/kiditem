@@ -9,6 +9,14 @@ import { AgentRegistryService } from '../../agent-registry/agent-registry.servic
 import type { Prisma } from '@prisma/client';
 import { paginationParams, type PaginatedResponse } from '../../common/pagination';
 import type { ProductListItem } from '@kiditem/shared';
+import type {
+  ProductWithRelations,
+  ProductEnrichmentMaps,
+  RevenueData,
+  TrafficMetrics,
+  T14Metrics,
+  T14PrevMetrics,
+} from './types';
 
 @Injectable()
 export class ProductsService {
@@ -40,6 +48,14 @@ export class ProductsService {
       const periodStart = new Date();
       periodStart.setDate(periodStart.getDate() - periodDays);
 
+      // t14 / t14prev 기간 계산
+      const t14Start = new Date();
+      t14Start.setDate(t14Start.getDate() - 14);
+      const t14PrevStart = new Date();
+      t14PrevStart.setDate(t14PrevStart.getDate() - 28);
+      const t14PrevEnd = new Date();
+      t14PrevEnd.setDate(t14PrevEnd.getDate() - 14);
+
       let companyFilterId: string | undefined;
       if (company && company !== 'all') {
         const comp = await this.prisma.company.findFirst({
@@ -61,7 +77,7 @@ export class ProductsService {
       const monthEnd = new Date(year, month, 1);
 
       // Enrichment 쿼리 (전역 집계 — 페이지네이션과 무관)
-      const [plData, revenueData, adsAgg, thumbData, reviewCounts, trafficAgg, gradeScoreData] =
+      const [plData, revenueData, adsAgg, thumbData, reviewCounts, trafficAgg, gradeScoreData, t14Agg, t14PrevAgg] =
         await Promise.all([
           this.prisma.profitLoss.findMany({ where: { year, month } }),
           this.prisma.$queryRaw<
@@ -119,40 +135,88 @@ export class ProductsService {
             FROM grade_histories
             ORDER BY product_id, calculated_at DESC
           `,
+          // t14: 최근 14일 트래픽
+          this.prisma.$queryRaw<
+            { product_id: string; revenue: number; sales_qty: number; orders: number; conversion_rate: number; date: string }[]
+          >`
+            SELECT
+              product_id,
+              SUM(revenue)::int AS revenue,
+              SUM(sales_qty)::int AS sales_qty,
+              SUM(orders)::int AS orders,
+              CASE WHEN SUM(views) > 0 THEN ROUND(SUM(orders)::numeric / SUM(views) * 100, 2) ELSE 0 END AS conversion_rate,
+              MAX(date)::text AS date
+            FROM traffic_stats
+            WHERE date >= ${t14Start}
+            GROUP BY product_id
+          `,
+          // t14prev: 이전 14일 트래픽 (14~28일 전)
+          this.prisma.$queryRaw<
+            { product_id: string; revenue: number; sales_qty: number; orders: number; date: string }[]
+          >`
+            SELECT
+              product_id,
+              SUM(revenue)::int AS revenue,
+              SUM(sales_qty)::int AS sales_qty,
+              SUM(orders)::int AS orders,
+              MAX(date)::text AS date
+            FROM traffic_stats
+            WHERE date >= ${t14PrevStart} AND date < ${t14PrevEnd}
+            GROUP BY product_id
+          `,
         ]);
 
-      const plMap = new Map(plData.map((pl) => [pl.productId, pl]));
-      const revenueMap = new Map(
-        revenueData.map((r) => [
-          r.seller_product_id,
-          { revenue: Number(r.revenue), orderCount: Number(r.order_count) },
-        ]),
-      );
-      const adsMap = new Map(
-        adsAgg.map((a) => [a.productId, a._sum.spend ?? 0]),
-      );
-      const thumbMap = new Map(
-        thumbData.map((t) => [t.productId, t.ctr ? Number(t.ctr) : 0]),
-      );
-      const reviewMap = new Map(
-        reviewCounts.map((r) => [r.productId, r._count]),
-      );
-      const trafficMap = new Map(
-        trafficAgg.map((t) => [
-          t.product_id,
-          {
-            visitors: Number(t.visitors) || 0,
-            views: Number(t.views) || 0,
-            cartAdds: Number(t.cart_adds) || 0,
-            orders: Number(t.orders) || 0,
-            salesQty: Number(t.sales_qty) || 0,
+      const maps: ProductEnrichmentMaps = {
+        profitLoss: new Map(plData.map((pl) => [pl.productId, pl])),
+        revenue: new Map(
+          revenueData.map((r): [string, RevenueData] => [
+            r.seller_product_id,
+            { revenue: Number(r.revenue), orderCount: Number(r.order_count) },
+          ]),
+        ),
+        ads: new Map(
+          adsAgg.map((a) => [a.productId, a._sum.spend ?? 0]),
+        ),
+        thumbnails: new Map(
+          thumbData.map((t) => [t.productId, t.ctr ? Number(t.ctr) : 0]),
+        ),
+        reviews: new Map(
+          reviewCounts.map((r) => [r.productId, r._count]),
+        ),
+        traffic: new Map(
+          trafficAgg.map((t): [string, TrafficMetrics] => [
+            t.product_id,
+            {
+              visitors: Number(t.visitors) || 0,
+              views: Number(t.views) || 0,
+              cartAdds: Number(t.cart_adds) || 0,
+              orders: Number(t.orders) || 0,
+              salesQty: Number(t.sales_qty) || 0,
+              revenue: Number(t.revenue) || 0,
+            },
+          ]),
+        ),
+        gradeScores: new Map(
+          gradeScoreData.map((g) => [g.product_id, Number(g.score)]),
+        ),
+        t14: new Map(
+          t14Agg.map((t): [string, T14Metrics] => [t.product_id, {
             revenue: Number(t.revenue) || 0,
-          },
-        ]),
-      );
-      const gradeScoreMap = new Map(
-        gradeScoreData.map((g) => [g.product_id, Number(g.score)]),
-      );
+            salesQty: Number(t.sales_qty) || 0,
+            orders: Number(t.orders) || 0,
+            conversionRate: Number(t.conversion_rate) || 0,
+            date: t.date,
+          }]),
+        ),
+        t14Prev: new Map(
+          t14PrevAgg.map((t): [string, T14PrevMetrics] => [t.product_id, {
+            revenue: Number(t.revenue) || 0,
+            salesQty: Number(t.sales_qty) || 0,
+            orders: Number(t.orders) || 0,
+            date: t.date,
+          }]),
+        ),
+      };
 
       const sortByRevenue = !query.orderBy || query.orderBy === 'revenue';
 
@@ -163,7 +227,7 @@ export class ProductsService {
           include: { company: true, inventory: true },
           orderBy: { createdAt: 'desc' },
         });
-        const allEnriched = allProducts.map((p) => this.enrichProduct(p, plMap, revenueMap, adsMap, thumbMap, reviewMap, trafficMap, gradeScoreMap));
+        const allEnriched = allProducts.map((p) => this.enrichProduct(p, maps));
         const filtered = allEnriched.filter((p) => p.profitRate <= maxRate);
         if (sortByRevenue) filtered.sort((a, b) => b.revenue - a.revenue);
         const total = filtered.length;
@@ -173,7 +237,7 @@ export class ProductsService {
 
       const total = await this.prisma.product.count({ where });
 
-      let productsData: any[];
+      let productsData: ProductWithRelations[];
       if (sortByRevenue) {
         const nowYear = now.getFullYear();
         const nowMonth = now.getMonth() + 1;
@@ -234,7 +298,7 @@ export class ProductsService {
         });
       }
 
-      const items = productsData.map((p) => this.enrichProduct(p, plMap, revenueMap, adsMap, thumbMap, reviewMap, trafficMap, gradeScoreMap));
+      const items = productsData.map((p) => this.enrichProduct(p, maps));
       return { items, total, page, limit };
     } catch {
       throw new InternalServerErrorException('상품 조회 실패');
@@ -242,18 +306,12 @@ export class ProductsService {
   }
 
   private enrichProduct(
-    p: any,
-    plMap: Map<string, any>,
-    revenueMap: Map<string, { revenue: number; orderCount: number }>,
-    adsMap: Map<string, number>,
-    thumbMap: Map<string, number>,
-    reviewMap: Map<string, number>,
-    trafficMap: Map<string, { visitors: number; views: number; cartAdds: number; orders: number; salesQty: number; revenue: number }>,
-    gradeScoreMap: Map<string, number>,
+    p: ProductWithRelations,
+    maps: ProductEnrichmentMaps,
   ) {
-    const pl = plMap.get(p.id);
-    const orderData = revenueMap.get(p.coupangProductId ?? '');
-    const totalAdSpend = adsMap.get(p.id) ?? 0;
+    const pl = maps.profitLoss.get(p.id);
+    const orderData = maps.revenue.get(p.coupangProductId ?? '');
+    const totalAdSpend = maps.ads.get(p.id) ?? 0;
 
     let revenue: number;
     let netProfit: number;
@@ -299,7 +357,7 @@ export class ProductsService {
       adTier: p.adTier,
       currentStock: p.inventory?.currentStock ?? 0,
       reorderPoint: p.inventory?.reorderPoint ?? 0,
-      avgDailySales: p.inventory?.dailySalesAvg ?? 0,
+      avgDailySales: p.inventory?.dailySalesAvg ? Number(p.inventory.dailySalesAvg) : 0,
       revenue,
       netProfit,
       profitRate:
@@ -307,15 +365,17 @@ export class ProductsService {
           ? Math.round((netProfit / revenue) * 1000) / 10
           : 0,
       adRate: Math.round(adRate * 10) / 10,
-      reviewCount: reviewMap.get(p.id) ?? 0,
+      reviewCount: maps.reviews.get(p.id) ?? 0,
       orderCount,
-      thumbnailCTR: thumbMap.get(p.id) ?? 0,
-      traffic: trafficMap.get(p.id) ?? null,
+      thumbnailCTR: maps.thumbnails.get(p.id) ?? 0,
+      traffic: maps.traffic.get(p.id) ?? null,
+      t14: maps.t14.get(p.id) ?? null,
+      t14prev: maps.t14Prev.get(p.id) ?? null,
       thumbnailUrl: p.thumbnailUrl ?? null,
       imageUrl: p.imageUrl ?? null,
       coupangProductId: p.coupangProductId ?? null,
       createdAt: p.createdAt instanceof Date ? p.createdAt.toISOString() : p.createdAt,
-      gradeScore: gradeScoreMap.get(p.id) ?? null,
+      gradeScore: maps.gradeScores.get(p.id) ?? null,
       healthScore: p.healthScore ?? null,
     } satisfies ProductListItem;
   }

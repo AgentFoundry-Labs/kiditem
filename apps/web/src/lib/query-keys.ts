@@ -80,10 +80,6 @@ export const queryKeys = {
     all: ['logs'] as const,
     list: () => [...queryKeys.logs.all, 'list'] as const,
   },
-  ontology: {
-    all: ['ontology'] as const,
-    products: () => [...queryKeys.ontology.all, 'products'] as const,
-  },
   profitLoss: {
     all: ['profitLoss'] as const,
     list: (period: string) => [...queryKeys.profitLoss.all, 'list', period] as const,

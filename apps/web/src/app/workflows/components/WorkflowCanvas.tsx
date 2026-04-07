@@ -106,7 +106,7 @@ export default function WorkflowCanvas({
         />
         <Controls />
         <MiniMap
-          nodeColor={(node) => {
+          nodeColor={(node: { data?: { status?: string } }) => {
             const status = node.data?.status;
             if (status === 'success') return '#10b981';
             if (status === 'error') return '#ef4444';

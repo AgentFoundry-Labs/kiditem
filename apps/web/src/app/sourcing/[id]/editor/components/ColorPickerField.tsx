@@ -14,7 +14,7 @@ export function ColorPickerField({ label, value, onChange, onClose }: ColorPicke
   return (
     <div className="flex items-center gap-2">
       <span className="text-xs text-slate-600 w-28 shrink-0">{label}</span>
-      <Popover.Root onOpenChange={(open) => { if (!open && onClose) onClose(); }}>
+      <Popover.Root onOpenChange={(open: boolean) => { if (!open && onClose) onClose(); }}>
         <Popover.Trigger asChild>
           <button
             type="button"

@@ -15,7 +15,7 @@ interface ProductPageHeaderProps {
   total: number;
   period: number;
   onPeriodChange: (days: number) => void;
-  trafficRef: RefObject<HTMLInputElement>;
+  trafficRef: RefObject<HTMLInputElement | null>;
   onTrafficUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   trafficMsg: string;
   onExcelDownload: () => void;

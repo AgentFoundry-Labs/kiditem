@@ -13,7 +13,6 @@ import {
   Megaphone,
   MessageSquare,
   Settings,
-  GitBranch,
   PanelLeftClose,
   PanelLeftOpen,
   ChevronDown,
@@ -85,7 +84,6 @@ const menuSections: MenuSection[] = [
       { href: '/product-hub', label: '상품 관리', icon: Package },
       { href: '/reviews', label: '리뷰 관리', icon: MessageSquare },
       { href: '/option-masters', label: '옵션 마스터', icon: Layers },
-      { href: '/ontology', label: '온톨로지', icon: GitBranch },
     ],
   },
   {

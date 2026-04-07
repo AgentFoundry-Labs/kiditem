@@ -238,3 +238,59 @@ export const AdRulesDataSchema = z.object({
 });
 
 export type AdRulesData = z.infer<typeof AdRulesDataSchema>;
+
+// ─── GET /api/ads/strategy/plan — 주간 액션 플랜 (확장) ────────────────────
+
+export const AdStrategyActionSchema = z.object({
+  productId: z.string(),
+  name: z.string(),
+  grade: z.string().nullable(),
+  action: z.string(),
+  reason: z.string(),
+  spend: z.number(),
+  roas: z.number(),
+  profitRate: z.number(),
+});
+
+export type AdStrategyAction = z.infer<typeof AdStrategyActionSchema>;
+
+export const AdIssuesSchema = z.object({
+  zeroConversion: z.number(),
+  lowRoas: z.number(),
+  cGradeHighTier: z.number(),
+  aGradeNoAd: z.number(),
+});
+
+export type AdIssues = z.infer<typeof AdIssuesSchema>;
+
+export const AdTierAnalysisSchema = z.object({
+  tier: z.string(),
+  count: z.number(),
+  spend: z.number(),
+  revenue: z.number(),
+  roas: z.number(),
+});
+
+export type AdTierAnalysis = z.infer<typeof AdTierAnalysisSchema>;
+
+export const AdTop20ItemSchema = z.object({
+  productId: z.string(),
+  name: z.string(),
+  grade: z.string().nullable(),
+  tier: z.string().nullable(),
+  revenue: z.number(),
+  adSpend: z.number(),
+  roas: z.number(),
+  profitRate: z.number(),
+});
+
+export type AdTop20Item = z.infer<typeof AdTop20ItemSchema>;
+
+export const AdWeeklyPlanSchema = AdStrategyPlanSchema.extend({
+  actions: z.array(AdStrategyActionSchema),
+  adIssues: AdIssuesSchema,
+  tierAnalysis: z.array(AdTierAnalysisSchema).optional(),
+  top20: z.array(AdTop20ItemSchema).optional(),
+});
+
+export type AdWeeklyPlan = z.infer<typeof AdWeeklyPlanSchema>;

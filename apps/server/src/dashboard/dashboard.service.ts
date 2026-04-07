@@ -2,6 +2,7 @@ import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { kstDayStart } from '../common/kst';
 import type { DashboardSummary, DashboardTrendItem } from '@kiditem/shared';
+import type { DateRangeContext, AdMetricsSnapshot } from './types';
 
 @Injectable()
 export class DashboardService {
@@ -127,7 +128,7 @@ export class DashboardService {
       const prevRoas = Number(prevAd.spend) > 0 ? (Number(prevAd.revenue) / Number(prevAd.spend)) * 100 : 0;
       const prevCtr = Number(prevAd.impressions) > 0 ? (Number(prevAd.clicks) / Number(prevAd.impressions)) * 100 : 0;
 
-      const adMetrics = {
+      const adMetrics: AdMetricsSnapshot = {
         roas: Math.round(curRoas * 100) / 100,
         ctr: Math.round(curCtr * 100) / 100,
         adRevenue: 0,       // curMonthProfit으로 보정 (아래)
@@ -148,10 +149,6 @@ export class DashboardService {
 
       // range KPI 기간 계산
       const effectiveRange = range ?? 'month';
-      let rangeStart: Date;
-      let rangeEnd: Date;
-      let prevRangeStart: Date;
-      let prevRangeEnd: Date;
       const weekStart = new Date(todayStart);
       weekStart.setDate(weekStart.getDate() - 7);
       const prevWeekStart = new Date(weekStart);
@@ -159,28 +156,23 @@ export class DashboardService {
       const yesterdayStart = new Date(todayStart);
       yesterdayStart.setDate(yesterdayStart.getDate() - 1);
 
+      let dateRange: DateRangeContext;
       if (from && to) {
-        rangeStart = new Date(from);
-        rangeEnd = new Date(to);
+        const rangeEnd = new Date(to);
         rangeEnd.setDate(rangeEnd.getDate() + 1);
-        const duration = rangeEnd.getTime() - rangeStart.getTime();
-        prevRangeStart = new Date(rangeStart.getTime() - duration);
-        prevRangeEnd = rangeStart;
+        const duration = rangeEnd.getTime() - new Date(from).getTime();
+        dateRange = {
+          start: new Date(from),
+          end: rangeEnd,
+          prevStart: new Date(new Date(from).getTime() - duration),
+          prevEnd: new Date(from),
+        };
       } else if (effectiveRange === 'week') {
-        rangeStart = weekStart;
-        rangeEnd = now;
-        prevRangeStart = prevWeekStart;
-        prevRangeEnd = weekStart;
+        dateRange = { start: weekStart, end: now, prevStart: prevWeekStart, prevEnd: weekStart };
       } else if (effectiveRange === 'day') {
-        rangeStart = todayStart;
-        rangeEnd = todayEnd;
-        prevRangeStart = yesterdayStart;
-        prevRangeEnd = todayStart;
+        dateRange = { start: todayStart, end: todayEnd, prevStart: yesterdayStart, prevEnd: todayStart };
       } else {
-        rangeStart = monthStart;
-        rangeEnd = monthEnd;
-        prevRangeStart = prevMonthDate;
-        prevRangeEnd = monthStart;
+        dateRange = { start: monthStart, end: monthEnd, prevStart: prevMonthDate, prevEnd: monthStart };
       }
 
       const [
@@ -209,10 +201,10 @@ export class DashboardService {
           },
           where: { date: { gte: monthStart, lt: monthEnd } },
         }),
-        this.calculateProfitForRange(rangeStart, rangeEnd),
-        this.calculateProfitForRange(prevRangeStart, prevRangeEnd),
-        this.aggregateAdForRange(rangeStart, rangeEnd),
-        this.aggregateAdForRange(prevRangeStart, prevRangeEnd),
+        this.calculateProfitForRange(dateRange.start, dateRange.end),
+        this.calculateProfitForRange(dateRange.prevStart, dateRange.prevEnd),
+        this.aggregateAdForRange(dateRange.start, dateRange.end),
+        this.aggregateAdForRange(dateRange.prevStart, dateRange.prevEnd),
         this.prisma.order.findMany({
           where: {
             orderedAt: { gte: thirtyDaysAgo },

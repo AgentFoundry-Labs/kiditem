@@ -5,7 +5,7 @@ import { ScanBarcode, Loader2 } from 'lucide-react';
 interface Props {
   barcode: string;
   scanning: boolean;
-  inputRef: React.RefObject<HTMLInputElement>;
+  inputRef: React.RefObject<HTMLInputElement | null>;
   onBarcodeChange: (value: string) => void;
   onSubmit: () => void;
 }

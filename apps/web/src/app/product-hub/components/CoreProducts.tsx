@@ -29,9 +29,9 @@ export default function CoreProducts() {
 
   const allProducts = data?.items ?? [];
 
-  // 14일 매출 기준 동적 A등급 계산
+  // 14일 매출 기준 동적 A등급 계산 (t14 없으면 revenue 폴백)
   const withRev = allProducts
-    .map((p) => ({ id: p.id, rev: p.t14?.revenue || 0 }))
+    .map((p) => ({ id: p.id, rev: p.t14?.revenue || p.revenue || 0 }))
     .filter((p) => p.rev > 0)
     .sort((a, b) => b.rev - a.rev);
   const totalRev14 = withRev.reduce((s, p) => s + p.rev, 0);
@@ -90,7 +90,7 @@ export default function CoreProducts() {
     })
     .sort((a, b) => b.score - a.score);
 
-  const totalRevenue = coreProducts.reduce((s, p) => s + (p.t14?.revenue || 0), 0);
+  const totalRevenue = coreProducts.reduce((s, p) => s + (p.t14?.revenue || p.revenue || 0), 0);
   const totalAdSpend = coreProducts.reduce((s, p) => s + (p.adSpend ?? 0), 0);
 
   return (
@@ -183,13 +183,13 @@ export default function CoreProducts() {
               {/* 숫자 영역 */}
               <div className="flex items-start shrink-0 gap-6">
                 <div className="text-center">
-                  <div className="text-xl font-bold text-slate-900 tabular-nums">{p.t14?.salesQty ? formatNumber(p.t14.salesQty) : '-'}</div>
-                  <div className="text-[10px] text-slate-400 mt-0.5">판매량</div>
+                  <div className="text-xl font-bold text-slate-900 tabular-nums">{p.t14?.salesQty ? formatNumber(p.t14.salesQty) : p.orderCount ? formatNumber(p.orderCount) : '-'}</div>
+                  <div className="text-[10px] text-slate-400 mt-0.5">{p.t14 ? '판매량' : '주문수'}</div>
                   <div className={`text-[10px] font-medium ${getProfitColor(p.profitRate ?? 0)}`}>이익률 {formatPercent(p.profitRate ?? 0)}</div>
                 </div>
                 <div className="text-right">
-                  <div className="text-xl font-bold text-slate-900 tabular-nums">{p.t14?.revenue ? formatKRW(p.t14.revenue) : '-'}</div>
-                  <div className="text-[10px] text-slate-400 mt-0.5">14일 매출</div>
+                  <div className="text-xl font-bold text-slate-900 tabular-nums">{(p.t14?.revenue || p.revenue) ? formatKRW(p.t14?.revenue || p.revenue || 0) : '-'}</div>
+                  <div className="text-[10px] text-slate-400 mt-0.5">{p.t14 ? '14일 매출' : '월 매출'}</div>
                   {(p.adRate ?? 0) > 0 && <div className={`text-[10px] font-medium ${(p.adRate ?? 0) > 15 ? 'text-red-600' : 'text-slate-500'}`}>광고 {formatPercent(p.adRate ?? 0)}</div>}
                 </div>
               </div>

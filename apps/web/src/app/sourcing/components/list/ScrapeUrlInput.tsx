@@ -11,7 +11,7 @@ interface Props {
   isPending: boolean;
   error: string | null;
   success: string | null;
-  inputRef: React.RefObject<HTMLInputElement>;
+  inputRef: React.RefObject<HTMLInputElement | null>;
 }
 
 export default function ScrapeUrlInput({
