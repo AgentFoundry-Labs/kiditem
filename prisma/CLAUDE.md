@@ -28,3 +28,5 @@ npm run db:studio     # DB browser (localhost:5555)
 - Python accesses snake_case DB column names directly (asyncpg raw SQL)
 - After schema changes: always run `npm run db:push` + `npx prisma generate`
 - Keep Zod schemas in sync: use `satisfies z.infer<typeof Schema>` pattern in services
+- `User.type`: `human` (사람), `agent` (AI 에이전트, `agentDefinitionId` 연결), `system` (챗봇)
+- RLS: `chatbot_readonly` DB 유저에 company_id 기반 행 필터 적용 (11개 테이블). NestJS `kiditem` 유저는 미적용.

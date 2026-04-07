@@ -10,7 +10,7 @@ npm run build           # Production build
 docker compose up -d    # Run via Docker (from root)
 ```
 
-Env: `.env` → `DATABASE_URL`, `COUPANG_*`, `GEMINI_API_KEY`
+Env: `.env` → `DATABASE_URL`, `CHATBOT_DATABASE_URL`, `COUPANG_*`, `GEMINI_API_KEY`
 
 ## Domain Module Pattern
 
@@ -66,6 +66,9 @@ Adding a new domain: create module + controller + service + dto/ → register in
 
 - **Workflows**: see `src/workflows/CLAUDE.md`
 - **Agent Platform**: see `src/agent-registry/CLAUDE.md`
+- **Advertising**: see `src/advertising/CLAUDE.md`
+- **Chat (AI 챗봇)**: `src/chat/` — CopilotKit 런타임 + ClaudeCliAdapter. 프롬프트: `agent-config/prompts/agents/chat.md`. DB 접근: `CHATBOT_DATABASE_URL` (RLS 적용된 chatbot_readonly 유저).
+- **Action Tasks**: `src/action-task/` — 액션 보드 CRUD API (`GET/PATCH/POST`). 대시보드 데이터 기반 태스크 자동 생성 + 관련 상품 연결.
 
 ## Tests
 
