@@ -68,12 +68,12 @@ model Company {
   // Operations & Config
   csRecords          CSRecord[]
   categoryMappings   CategoryMapping[]
-  commonCodes        CommonCode[]
+
   optionMasters      OptionMaster[]
 
   // Analytics
   salesPlans             SalesPlan[]
-  auditLogs              AuditLog[]
+
 
   // Ontology
   businessRules   BusinessRule[]
@@ -83,7 +83,7 @@ model Company {
   agentRuntimeStates    AgentRuntimeState[]
   heartbeatRuns         HeartbeatRun[]
   agentWakeupRequests   AgentWakeupRequest[]
-  agentWorkflows        AgentWorkflow[]
+
   agentPermissionDenials AgentPermissionDenial[]
   agentActionSnapshots   AgentActionSnapshot[]
 
@@ -215,7 +215,7 @@ model Product {
   unshippedItems UnshippedItem[]
 
   // Product Extensions
-  bundleItems      BundleItem[]
+
   productMemos     ProductMemo[]
   processingCosts  ProcessingCost[]
 
@@ -386,8 +386,9 @@ model CoupangReturn {
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
+  items         Json     @default("[]") @map("items")
+
   company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  returnItems   CoupangReturnItem[]
 
   @@index([companyId])
   @@index([receiptStatus])
@@ -396,24 +397,7 @@ model CoupangReturn {
   @@map("coupang_returns")
 }
 
-model CoupangReturnItem {
-  id            String   @id @default(uuid()) @db.Uuid
-  returnId      String   @map("return_id") @db.Uuid
-
-  vendorItemId    String? @map("vendor_item_id") @db.VarChar(30)
-  vendorItemName  String  @default("") @map("vendor_item_name")
-  sellerProductId String? @map("seller_product_id") @db.VarChar(30)
-  sellerProductName String @default("") @map("seller_product_name")
-  purchaseCount   Int     @default(1) @map("purchase_count")
-  cancelCount     Int     @default(1) @map("cancel_count")
-
-  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz
-
-  return        CoupangReturn @relation(fields: [returnId], references: [id], onDelete: Cascade)
-
-  @@index([returnId])
-  @@map("coupang_return_items")
-}
+// CoupangReturnItem 삭제 (Phase 2: CoupangReturn.items Json으로 흡수)
 
 // ─── Product Items ───────────────────────────────────────────────────
 
@@ -812,7 +796,7 @@ model AgentDefinition {
   runtimeState   AgentRuntimeState?
   heartbeatRuns  HeartbeatRun[]
   wakeupRequests AgentWakeupRequest[]
-  workflows      AgentWorkflow[]
+
   permissionDenials AgentPermissionDenial[]
   actionSnapshots   AgentActionSnapshot[]
   users             User[]
@@ -907,31 +891,7 @@ model FeatureGate {
   @@map("feature_gates")
 }
 
-// ─── Agent Workflows (Async Generator 패턴) ─────────────────────────────────
-
-model AgentWorkflow {
-  id          String   @id @default(uuid()) @db.Uuid
-  agentId     String   @map("agent_id") @db.Uuid
-  companyId   String   @map("company_id") @db.Uuid
-  type        String
-  status      String   @default("running")
-  currentStep Int      @default(0) @map("current_step")
-  state       Json     @default("{}") @db.JsonB
-  steps       Json     @default("[]") @db.JsonB
-  input       Json?    @db.JsonB
-  output      Json?    @db.JsonB
-  error       String?
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  agent   AgentDefinition @relation(fields: [agentId], references: [id])
-  company Company         @relation(fields: [companyId], references: [id])
-
-  @@index([companyId, status])
-  @@index([agentId])
-  @@map("agent_workflows")
-}
+// AgentWorkflow 삭제 (Phase 1: 쿼리 0, HeartbeatRun+AgentTask로 대체)
 
 // ─── Agent Wakeup Requests ───────────────────────────────────────────────────
 
@@ -1077,8 +1037,6 @@ model WorkflowRun {
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
   template WorkflowTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
-  steps    WorkflowStepRun[]
-
   @@index([companyId])
   @@index([templateId])
   @@index([status])
@@ -1086,25 +1044,7 @@ model WorkflowRun {
   @@map("workflow_runs")
 }
 
-model WorkflowStepRun {
-  id          String    @id @default(uuid()) @db.Uuid
-  runId       String    @map("run_id") @db.Uuid
-  nodeId      String    @map("node_id")
-  nodeType    String    @map("node_type")
-  nodeLabel   String    @default("") @map("node_label")
-  status      String    @default("pending")
-  inputData   Json?     @map("input_data")
-  outputData  Json?     @map("output_data")
-  error       String?
-  startedAt   DateTime? @map("started_at") @db.Timestamptz
-  completedAt DateTime? @map("completed_at") @db.Timestamptz
-
-  run WorkflowRun @relation(fields: [runId], references: [id], onDelete: Cascade)
-
-  @@index([runId])
-  @@index([nodeId])
-  @@map("workflow_step_runs")
-}
+// WorkflowStepRun 삭제 (Phase 2: WorkflowRun.steps Json 사용)
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Dashboard 이식 — 신규 모델
@@ -1414,26 +1354,16 @@ model BundleProduct {
   createdAt DateTime     @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
+  items     Json         @default("[]") @map("items")
+
   company Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  items   BundleItem[]
 
   @@unique([companyId, sku])
   @@index([companyId])
   @@map("bundle_products")
 }
 
-model BundleItem {
-  id        String        @id @default(uuid()) @db.Uuid
-  bundleId  String        @map("bundle_id") @db.Uuid
-  productId String        @map("product_id") @db.Uuid
-  quantity  Int           @default(1)
-
-  bundle  BundleProduct @relation(fields: [bundleId], references: [id], onDelete: Cascade)
-  product Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
-
-  @@unique([bundleId, productId])
-  @@map("bundle_items")
-}
+// BundleItem 삭제 (Phase 2: BundleProduct.items Json으로 흡수)
 
 model ProductMemo {
   id         String   @id @default(uuid()) @db.Uuid
@@ -1564,23 +1494,7 @@ model CategoryMapping {
   @@map("category_mappings")
 }
 
-model CommonCode {
-  id        String   @id @default(uuid()) @db.Uuid
-  companyId String   @map("company_id") @db.Uuid
-  groupCode String   @map("group_code")
-  code      String
-  name      String
-  sortOrder Int      @default(0) @map("sort_order")
-  isActive  Boolean  @default(true) @map("is_active")
-  extra     String?
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  @@unique([companyId, groupCode, code])
-  @@index([companyId])
-  @@map("common_codes")
-}
+// CommonCode 삭제 (Phase 1: 쿼리 0, 미사용)
 
 model OptionMaster {
   id        String   @id @default(uuid()) @db.Uuid
@@ -1661,25 +1575,7 @@ model GradeHistory {
   @@map("grade_histories")
 }
 
-model AuditLog {
-  id         String   @id @default(uuid()) @db.Uuid
-  companyId  String   @map("company_id") @db.Uuid
-  userId     String?  @map("user_id")
-  userName   String?  @map("user_name")
-  action     String
-  resource   String
-  resourceId String?  @map("resource_id")
-  details    String?
-  ipAddress  String?  @map("ip_address")
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
-
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  @@index([companyId])
-  @@index([createdAt])
-  @@index([resource])
-  @@map("audit_logs")
-}
+// AuditLog 삭제 (Phase 1: 쿼리 0, ActivityEvent가 대체)
 
 // ─── Ontology: Business Rules ─────────────────────────────────────────────────
 
