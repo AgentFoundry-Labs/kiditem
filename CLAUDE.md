@@ -31,6 +31,7 @@ extensions/          — Chrome extensions (product-scraper: 1688/Alibaba, coupa
 
 ## Reference (read when relevant)
 
+- [ERD](.claude/docs/erd.md) — 도메인별 DB 모델 관계도 (63개 모델, 9개 도메인)
 - [Architecture](.claude/docs/architecture.md) — data flow, agent runtimes, @kiditem/shared, workflow vs agent boundary
 - [Commands & Environment](.claude/docs/commands.md) — quick start, dev commands, ports, env vars, tests
 - [Workflow & Process](.claude/docs/workflow.md) — autonomy spectrum, verification, collaboration, branches, commits, PRs
