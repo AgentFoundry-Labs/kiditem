@@ -1,0 +1,381 @@
+import { describe, it, expect, vi } from 'vitest';
+import { RulesService } from '../services/rules.service';
+import { AgentResultReadyEvent } from '../../agent-registry/events/agent-events';
+
+/**
+ * rules-flow.spec.ts — end-to-end rules evaluation flow test.
+ * Tests the full pipeline: evaluateAll → onResultReady → healthScore update + alerts.
+ */
+
+function makePrisma() {
+  return {
+    agentTask: { findUnique: vi.fn(), update: vi.fn() },
+    activityEvent: { create: vi.fn(), createMany: vi.fn() },
+    alert: { createMany: vi.fn() },
+    product: { count: vi.fn(), findFirst: vi.fn(), findMany: vi.fn() },
+    businessRule: { findMany: vi.fn(), update: vi.fn(), count: vi.fn() },
+    company: { findFirst: vi.fn() },
+    $executeRawUnsafe: vi.fn(),
+  };
+}
+
+function makeAgentRegistry() {
+  return {
+    findByType: vi.fn(),
+    run: vi.fn(),
+  };
+}
+
+function makeService() {
+  const prisma = makePrisma();
+  const registry = makeAgentRegistry();
+  return {
+    service: new RulesService(prisma as any, registry as any),
+    prisma,
+    registry,
+  };
+}
+
+describe('RulesService — full evaluation flow', () => {
+  describe('evaluateAll → agent run delegation', () => {
+    it('resolves rules_evaluation definition and delegates to agentRegistry.run', async () => {
+      const { service, registry } = makeService();
+      registry.findByType.mockResolvedValue({ id: 'def-rules' });
+      registry.run.mockResolvedValue({ ok: true, taskId: 'task-1', agentType: 'rules_evaluation' });
+
+      const result = await service.evaluateAll('company-1');
+
+      expect(registry.findByType).toHaveBeenCalledWith('rules_evaluation');
+      expect(registry.run).toHaveBeenCalledWith('def-rules', {
+        companyId: 'company-1',
+        extra: { company_id: 'company-1' },
+      });
+      expect(result).toEqual({ taskId: 'task-1', status: 'running' });
+    });
+
+    it('returns taskId from registry run result', async () => {
+      const { service, registry } = makeService();
+      registry.findByType.mockResolvedValue({ id: 'def-rules-2' });
+      registry.run.mockResolvedValue({ ok: true, taskId: 'task-xyz', agentType: 'rules_evaluation' });
+
+      const result = await service.evaluateAll('company-2');
+
+      expect(result.taskId).toBe('task-xyz');
+      expect(result.status).toBe('running');
+    });
+  });
+
+  describe('onResultReady — full evaluation result processing', () => {
+    it('updates healthScores via bulk SQL for products with violations', async () => {
+      const { service, prisma } = makeService();
+      prisma.$executeRawUnsafe.mockResolvedValue(undefined);
+      prisma.activityEvent.createMany.mockResolvedValue({ count: 1 });
+      prisma.alert.createMany.mockResolvedValue({ count: 0 });
+
+      const event = new AgentResultReadyEvent(
+        'rules_evaluation', 'agent-rules', 'run-1',
+        {
+          products: [
+            {
+              productId: 'p1',
+              healthScore: 75,
+              violations: [
+                {
+                  ruleName: '리뷰 부족',
+                  field: 'reviewCount',
+                  severity: 'warning',
+                  category: 'reviews',
+                  message: '리뷰 5개 미만',
+                  actionType: null,
+                  value: 3,
+                },
+              ],
+            },
+          ],
+          summary: { total: 1 },
+        },
+        'c-1',
+      );
+
+      await service.onResultReady(event);
+
+      expect(prisma.$executeRawUnsafe).toHaveBeenCalledWith(
+        expect.stringContaining("WHEN id = 'p1'::uuid THEN 75"),
+      );
+    });
+
+    it('creates activity events for each violation', async () => {
+      const { service, prisma } = makeService();
+      prisma.$executeRawUnsafe.mockResolvedValue(undefined);
+      prisma.activityEvent.createMany.mockResolvedValue({ count: 2 });
+      prisma.alert.createMany.mockResolvedValue({ count: 0 });
+
+      const event = new AgentResultReadyEvent(
+        'rules_evaluation', 'agent-rules', 'run-2',
+        {
+          products: [
+            {
+              productId: 'p1',
+              healthScore: 60,
+              violations: [
+                {
+                  ruleName: '리뷰 부족',
+                  field: 'reviewCount',
+                  severity: 'warning',
+                  category: 'reviews',
+                  message: '리뷰 5개 미만',
+                  actionType: null,
+                  value: 3,
+                },
+              ],
+            },
+            {
+              productId: 'p2',
+              healthScore: 40,
+              violations: [
+                {
+                  ruleName: '이미지 없음',
+                  field: 'imageCount',
+                  severity: 'warning',
+                  category: 'content',
+                  message: '이미지가 없습니다',
+                  actionType: 'add_image',
+                  value: 0,
+                },
+              ],
+            },
+          ],
+          summary: { total: 2 },
+        },
+        'c-1',
+      );
+
+      await service.onResultReady(event);
+
+      expect(prisma.activityEvent.createMany).toHaveBeenCalledWith({
+        data: expect.arrayContaining([
+          expect.objectContaining({ objectId: 'p1', title: '리뷰 5개 미만', eventType: 'rule_violation' }),
+          expect.objectContaining({ objectId: 'p2', title: '이미지가 없습니다', eventType: 'rule_violation' }),
+        ]),
+      });
+    });
+
+    it('creates critical alerts only for critical severity violations', async () => {
+      const { service, prisma } = makeService();
+      prisma.$executeRawUnsafe.mockResolvedValue(undefined);
+      prisma.activityEvent.createMany.mockResolvedValue({ count: 2 });
+      prisma.alert.createMany.mockResolvedValue({ count: 1 });
+
+      const event = new AgentResultReadyEvent(
+        'rules_evaluation', 'agent-rules', 'run-3',
+        {
+          products: [
+            {
+              productId: 'p1',
+              healthScore: 85,
+              violations: [
+                {
+                  ruleName: '리뷰 부족',
+                  field: 'reviewCount',
+                  severity: 'warning',
+                  category: 'reviews',
+                  message: '리뷰 5개 미만',
+                  actionType: null,
+                  value: 3,
+                },
+              ],
+            },
+            {
+              productId: 'p2',
+              healthScore: 20,
+              violations: [
+                {
+                  ruleName: '적자 상품',
+                  field: 'profitRate',
+                  severity: 'critical',
+                  category: 'profitability',
+                  message: '순이익률 -10%',
+                  actionType: 'review_pricing',
+                  value: -10,
+                },
+              ],
+            },
+          ],
+          summary: { total: 2 },
+        },
+        'c-1',
+      );
+
+      await service.onResultReady(event);
+
+      // Only critical violation (p2) should create an alert
+      expect(prisma.alert.createMany).toHaveBeenCalledWith({
+        data: [
+          expect.objectContaining({
+            productId: 'p2',
+            severity: 'critical',
+            title: '순이익률 -10%',
+          }),
+        ],
+      });
+    });
+
+    it('does not create alerts when no critical violations exist', async () => {
+      const { service, prisma } = makeService();
+      prisma.$executeRawUnsafe.mockResolvedValue(undefined);
+      prisma.activityEvent.createMany.mockResolvedValue({ count: 1 });
+
+      const event = new AgentResultReadyEvent(
+        'rules_evaluation', 'agent-rules', 'run-4',
+        {
+          products: [
+            {
+              productId: 'p1',
+              healthScore: 70,
+              violations: [
+                {
+                  ruleName: '리뷰 부족',
+                  field: 'reviewCount',
+                  severity: 'warning',
+                  category: 'reviews',
+                  message: '리뷰 5개 미만',
+                  actionType: null,
+                  value: 3,
+                },
+              ],
+            },
+          ],
+          summary: { total: 1 },
+        },
+        'c-1',
+      );
+
+      await service.onResultReady(event);
+
+      expect(prisma.alert.createMany).not.toHaveBeenCalled();
+    });
+
+    it('skips all DB operations when products array is empty', async () => {
+      const { service, prisma } = makeService();
+
+      const event = new AgentResultReadyEvent(
+        'rules_evaluation', 'agent-rules', 'run-5',
+        { products: [], summary: { total: 0 } },
+        'c-1',
+      );
+
+      await service.onResultReady(event);
+
+      expect(prisma.$executeRawUnsafe).not.toHaveBeenCalled();
+      expect(prisma.activityEvent.createMany).not.toHaveBeenCalled();
+      expect(prisma.alert.createMany).not.toHaveBeenCalled();
+    });
+
+    it('ignores events from non-rules_evaluation agent types', async () => {
+      const { service, prisma } = makeService();
+
+      const event = new AgentResultReadyEvent(
+        'ad_strategy', 'agent-ad', 'run-6', {}, 'c-1',
+      );
+
+      await service.onResultReady(event);
+
+      expect(prisma.$executeRawUnsafe).not.toHaveBeenCalled();
+      expect(prisma.activityEvent.createMany).not.toHaveBeenCalled();
+      expect(prisma.alert.createMany).not.toHaveBeenCalled();
+    });
+
+    it('does not throw when DB operations fail (error recovery)', async () => {
+      const { service, prisma } = makeService();
+      prisma.$executeRawUnsafe.mockRejectedValue(new Error('SQL execution failed'));
+
+      const event = new AgentResultReadyEvent(
+        'rules_evaluation', 'agent-rules', 'run-7',
+        {
+          products: [
+            {
+              productId: 'p1',
+              healthScore: 50,
+              violations: [
+                {
+                  ruleName: '테스트 룰',
+                  field: 'testField',
+                  severity: 'warning',
+                  category: 'test',
+                  message: '테스트 메시지',
+                  actionType: null,
+                  value: 0,
+                },
+              ],
+            },
+          ],
+        },
+        'c-1',
+      );
+
+      // Should not throw — service catches and logs the error
+      await expect(service.onResultReady(event)).resolves.not.toThrow();
+    });
+
+    it('includes actionType in activity event data when present', async () => {
+      const { service, prisma } = makeService();
+      prisma.$executeRawUnsafe.mockResolvedValue(undefined);
+      prisma.activityEvent.createMany.mockResolvedValue({ count: 1 });
+
+      const event = new AgentResultReadyEvent(
+        'rules_evaluation', 'agent-rules', 'run-8',
+        {
+          products: [
+            {
+              productId: 'p1',
+              healthScore: 30,
+              violations: [
+                {
+                  ruleName: '가격 오류',
+                  field: 'price',
+                  severity: 'critical',
+                  category: 'pricing',
+                  message: '가격이 너무 낮습니다',
+                  actionType: 'review_pricing',
+                  value: 100,
+                },
+              ],
+            },
+          ],
+          summary: { total: 1 },
+        },
+        'c-1',
+      );
+
+      await service.onResultReady(event);
+
+      expect(prisma.activityEvent.createMany).toHaveBeenCalledWith({
+        data: [
+          expect.objectContaining({
+            data: expect.objectContaining({
+              actionType: 'review_pricing',
+              severity: 'critical',
+            }),
+          }),
+        ],
+      });
+    });
+  });
+
+  describe('suggestThresholds → agent run delegation', () => {
+    it('resolves rules_suggest definition and delegates to agentRegistry.run', async () => {
+      const { service, registry } = makeService();
+      registry.findByType.mockResolvedValue({ id: 'def-suggest' });
+      registry.run.mockResolvedValue({ ok: true, taskId: 'task-s1' });
+
+      const result = await service.suggestThresholds('company-1');
+
+      expect(registry.findByType).toHaveBeenCalledWith('rules_suggest');
+      expect(registry.run).toHaveBeenCalledWith('def-suggest', {
+        companyId: 'company-1',
+        extra: { company_id: 'company-1' },
+      });
+      expect(result).toEqual({ taskId: 'task-s1', status: 'running' });
+    });
+  });
+});

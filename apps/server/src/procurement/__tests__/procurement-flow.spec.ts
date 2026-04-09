@@ -1,0 +1,130 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { ProcurementService } from '../procurement.service';
+import { BadRequestException } from '@nestjs/common';
+
+function makePrisma() {
+  return {
+    purchaseOrder: {
+      findUnique: vi.fn(),
+      findMany: vi.fn().mockResolvedValue([]),
+      create: vi.fn(),
+      update: vi.fn(),
+      delete: vi.fn(),
+      count: vi.fn().mockResolvedValue(0),
+      groupBy: vi.fn().mockResolvedValue([]),
+    },
+  };
+}
+
+const MOCK_ORDER_DRAFT = {
+  id: 'po-1',
+  companyId: 'company-1',
+  supplierName: 'Test Supplier',
+  supplierId: null,
+  status: 'draft',
+  totalAmountCny: 500,
+  orderDate: new Date(),
+  expectedDeliveryDate: null,
+  receivedAt: null,
+};
+
+describe('ProcurementService — PO status lifecycle', () => {
+  let service: ProcurementService;
+  let prisma: ReturnType<typeof makePrisma>;
+
+  beforeEach(() => {
+    prisma = makePrisma();
+    service = new ProcurementService(prisma as any);
+  });
+
+  it('create PO → prisma.purchaseOrder.create called with draft status', async () => {
+    const created = { ...MOCK_ORDER_DRAFT, items: [], supplier: null };
+    prisma.purchaseOrder.create.mockResolvedValue(created);
+
+    const result = await service.create({
+      companyId: 'company-1',
+      supplierName: 'Test Supplier',
+      items: [{ productName: 'Widget', quantity: 10, unitPriceCny: 50 }],
+    });
+
+    expect(prisma.purchaseOrder.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          companyId: 'company-1',
+          supplierName: 'Test Supplier',
+          status: 'draft',
+          totalAmountCny: 500,
+        }),
+      }),
+    );
+    expect(result).toEqual(created);
+  });
+
+  it('updateStatus draft→pending → valid transition', async () => {
+    prisma.purchaseOrder.findUnique.mockResolvedValue({ ...MOCK_ORDER_DRAFT, status: 'draft' });
+    prisma.purchaseOrder.update.mockResolvedValue({ ...MOCK_ORDER_DRAFT, status: 'pending', items: [], supplier: null });
+
+    const result = await service.updateStatus('po-1', 'pending');
+    expect(prisma.purchaseOrder.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'po-1' },
+        data: expect.objectContaining({ status: 'pending' }),
+      }),
+    );
+    expect((result as any).status).toBe('pending');
+  });
+
+  it('updateStatus pending→ordered → valid transition', async () => {
+    prisma.purchaseOrder.findUnique.mockResolvedValue({ ...MOCK_ORDER_DRAFT, status: 'pending' });
+    prisma.purchaseOrder.update.mockResolvedValue({ ...MOCK_ORDER_DRAFT, status: 'ordered', items: [], supplier: null });
+
+    await service.updateStatus('po-1', 'ordered');
+    expect(prisma.purchaseOrder.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: 'ordered' }) }),
+    );
+  });
+
+  it('updateStatus ordered→shipped → valid transition', async () => {
+    prisma.purchaseOrder.findUnique.mockResolvedValue({ ...MOCK_ORDER_DRAFT, status: 'ordered' });
+    prisma.purchaseOrder.update.mockResolvedValue({ ...MOCK_ORDER_DRAFT, status: 'shipped', items: [], supplier: null });
+
+    await service.updateStatus('po-1', 'shipped');
+    expect(prisma.purchaseOrder.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: 'shipped' }) }),
+    );
+  });
+
+  it('updateStatus shipped→received → valid transition, sets receivedAt', async () => {
+    prisma.purchaseOrder.findUnique.mockResolvedValue({ ...MOCK_ORDER_DRAFT, status: 'shipped' });
+    prisma.purchaseOrder.update.mockResolvedValue({ ...MOCK_ORDER_DRAFT, status: 'received', items: [], supplier: null });
+
+    await service.updateStatus('po-1', 'received');
+    expect(prisma.purchaseOrder.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: 'received', receivedAt: expect.any(Date) }),
+      }),
+    );
+  });
+
+  it('invalid transition draft→received → throws BadRequestException', async () => {
+    prisma.purchaseOrder.findUnique.mockResolvedValue({ ...MOCK_ORDER_DRAFT, status: 'draft' });
+
+    await expect(service.updateStatus('po-1', 'received')).rejects.toThrow(BadRequestException);
+    expect(prisma.purchaseOrder.update).not.toHaveBeenCalled();
+  });
+
+  it('delete draft PO → ok', async () => {
+    prisma.purchaseOrder.findUnique.mockResolvedValue({ ...MOCK_ORDER_DRAFT, status: 'draft' });
+    prisma.purchaseOrder.delete.mockResolvedValue(MOCK_ORDER_DRAFT);
+
+    await service.delete('po-1');
+    expect(prisma.purchaseOrder.delete).toHaveBeenCalledWith({ where: { id: 'po-1' } });
+  });
+
+  it('delete non-draft PO → throws BadRequestException', async () => {
+    prisma.purchaseOrder.findUnique.mockResolvedValue({ ...MOCK_ORDER_DRAFT, status: 'shipped' });
+
+    await expect(service.delete('po-1')).rejects.toThrow(BadRequestException);
+    expect(prisma.purchaseOrder.delete).not.toHaveBeenCalled();
+  });
+});

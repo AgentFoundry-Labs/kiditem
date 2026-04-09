@@ -1,0 +1,160 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { SourcingService } from '../sourcing.service';
+
+function makePrisma() {
+  return {
+    product: {
+      findFirst: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+      findMany: vi.fn().mockResolvedValue([]),
+      count: vi.fn().mockResolvedValue(0),
+    },
+  };
+}
+
+function makeAgentRegistry() {
+  return {
+    runByType: vi.fn().mockResolvedValue({ taskId: 'task-1', ok: true }),
+  };
+}
+
+describe('SourcingService — extension data → product creation', () => {
+  let service: SourcingService;
+  let prisma: ReturnType<typeof makePrisma>;
+  let agentRegistry: ReturnType<typeof makeAgentRegistry>;
+
+  beforeEach(() => {
+    prisma = makePrisma();
+    agentRegistry = makeAgentRegistry();
+    service = new SourcingService(prisma as any, agentRegistry as any);
+  });
+
+  it('receiveExtensionData with new source_url → creates new product', async () => {
+    prisma.product.findFirst.mockResolvedValue(null);
+    prisma.product.create.mockResolvedValue({ id: 'prod-1' });
+
+    const result = await service.receiveExtensionData(
+      {
+        page_type: 'detail',
+        title: '아동용 스니커즈',
+        source_url: 'https://1688.com/item/12345',
+        source_platform: '1688',
+        price: 15.5,
+        images: ['https://img1.jpg'],
+      },
+      'company-1',
+    );
+
+    expect(prisma.product.findFirst).toHaveBeenCalledWith({
+      where: { sourceUrl: 'https://1688.com/item/12345' },
+    });
+    expect(prisma.product.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          name: '아동용 스니커즈',
+          companyId: 'company-1',
+          sourceUrl: 'https://1688.com/item/12345',
+          sourcePlatform: 'ALIBABA_1688',
+          costCny: 15.5,
+        }),
+      }),
+    );
+    expect(result.ok).toBe(true);
+    expect(result.product_count).toBe(1);
+  });
+
+  it('receiveExtensionData with existing source_url → updates existing product', async () => {
+    const existing = { id: 'prod-existing' };
+    prisma.product.findFirst.mockResolvedValue(existing);
+    prisma.product.update.mockResolvedValue({ id: 'prod-existing' });
+
+    const result = await service.receiveExtensionData(
+      {
+        page_type: 'detail',
+        title: '아동용 스니커즈 (업데이트)',
+        source_url: 'https://1688.com/item/12345',
+        source_platform: '1688',
+        price: 18.0,
+      },
+      'company-1',
+    );
+
+    expect(prisma.product.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'prod-existing' },
+        data: expect.objectContaining({
+          name: '아동용 스니커즈 (업데이트)',
+          costCny: 18.0,
+        }),
+      }),
+    );
+    expect(prisma.product.create).not.toHaveBeenCalled();
+    expect(result.ok).toBe(true);
+  });
+
+  it('price parsing: priceRange "¥12.5-¥25.0" format → extracts minimum cost', async () => {
+    prisma.product.findFirst.mockResolvedValue(null);
+    prisma.product.create.mockResolvedValue({ id: 'prod-2' });
+
+    await service.receiveExtensionData(
+      {
+        page_type: 'detail',
+        title: '키즈 바람막이',
+        source_url: 'https://1688.com/item/99999',
+        source_platform: '1688',
+        priceRange: '12.5-25.0',
+      },
+      'company-1',
+    );
+
+    expect(prisma.product.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          costCny: 12.5,
+        }),
+      }),
+    );
+  });
+
+  it('companyId is resolved and stored on new product', async () => {
+    prisma.product.findFirst.mockResolvedValue(null);
+    prisma.product.create.mockResolvedValue({ id: 'prod-3' });
+
+    await service.receiveExtensionData(
+      {
+        page_type: 'detail',
+        title: '유아 모자',
+        source_url: 'https://alibaba.com/product/abc',
+        source_platform: 'alibaba',
+        price: 8.0,
+      },
+      'company-A',
+    );
+
+    expect(prisma.product.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          companyId: 'company-A',
+          sourcePlatform: 'ALIBABA',
+        }),
+      }),
+    );
+  });
+
+  it('search page type → returns product_count from total_found, does not create product', async () => {
+    const result = await service.receiveExtensionData(
+      {
+        page_type: 'search',
+        source_platform: '1688',
+        total_found: 42,
+      },
+      'company-1',
+    );
+
+    expect(prisma.product.findFirst).not.toHaveBeenCalled();
+    expect(prisma.product.create).not.toHaveBeenCalled();
+    expect(result.product_count).toBe(42);
+    expect(result.ok).toBe(true);
+  });
+});
