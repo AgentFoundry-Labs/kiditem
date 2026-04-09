@@ -123,7 +123,7 @@ describe('AdSyncService — extension data sync', () => {
       });
 
       expect(result.success).toBe(true);
-      expect(result.type).toBe('ad_campaign');
+      expect((result as any).type).toBe('ad_campaign');
       // AdSnapshot create called for total KPI
       expect(prisma.adSnapshot.create).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -194,7 +194,7 @@ describe('AdSyncService — extension data sync', () => {
       });
 
       expect(result.success).toBe(true);
-      expect(result.campaignSnapshotCount).toBe(1);
+      expect((result as any).campaignSnapshotCount).toBe(1);
     });
   });
 
@@ -227,8 +227,8 @@ describe('AdSyncService — extension data sync', () => {
       });
 
       expect(result.success).toBe(true);
-      expect(result.type).toBe('traffic');
-      expect(result.upserted).toBe(1);
+      expect((result as any).type).toBe('traffic');
+      expect((result as any).upserted).toBe(1);
     });
 
     it('skips traffic rows without matching product', async () => {
@@ -247,8 +247,8 @@ describe('AdSyncService — extension data sync', () => {
       });
 
       expect(result.success).toBe(true);
-      expect(result.upserted).toBe(0);
-      expect(result.skipped).toBe(1);
+      expect((result as any).upserted).toBe(0);
+      expect((result as any).skipped).toBe(1);
     });
   });
 
@@ -263,7 +263,7 @@ describe('AdSyncService — extension data sync', () => {
       const result = await service.sync({ type: 'unknown_type' } as any);
 
       expect(result.success).toBe(false);
-      expect(result.error).toContain('unknown_type');
+      expect((result as any).error).toContain('unknown_type');
     });
   });
 });
