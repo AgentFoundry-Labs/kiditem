@@ -14,6 +14,7 @@ import {
   Package,
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
+import { queryKeys } from '@/lib/query-keys';
 
 interface Warehouse {
   id: string;
@@ -31,7 +32,7 @@ export default function WarehousesPage() {
   const queryClient = useQueryClient();
 
   const { data: warehouses = [] } = useQuery({
-    queryKey: ['warehouses'],
+    queryKey: queryKeys.warehouses.all,
     queryFn: () => apiClient.get<Warehouse[]>('/api/warehouses'),
   });
 

@@ -20,7 +20,7 @@ const DashboardCharts = dynamic(
   { ssr: false, loading: () => <div className="h-[320px] flex items-center justify-center text-sm text-slate-300">차트 로딩 중...</div> },
 );
 import { queryKeys } from '@/lib/query-keys';
-import { formatKRW, formatPercent, getGradeColor, getProfitColor } from '@/lib/utils';
+import { formatKRW, formatNumber, formatPercent, getGradeColor, getProfitColor } from '@/lib/utils';
 import type { DashboardSummary, DashboardTrendItem } from '@kiditem/shared';
 import type { ActionTask } from '@kiditem/shared';
 
@@ -221,11 +221,11 @@ export default function Dashboard() {
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-slate-500">주문</span>
-              <span className="font-bold tabular-nums text-slate-900">{((displayData ?? data).trafficKpi?.orders ?? s.todayOrders).toLocaleString()}건</span>
+              <span className="font-bold tabular-nums text-slate-900">{formatNumber((displayData ?? data).trafficKpi?.orders ?? s.todayOrders)}건</span>
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-slate-500">판매량</span>
-              <span className="font-bold tabular-nums text-slate-900">{((displayData ?? data).trafficKpi?.salesQty ?? 0).toLocaleString()}개</span>
+              <span className="font-bold tabular-nums text-slate-900">{formatNumber((displayData ?? data).trafficKpi?.salesQty ?? 0)}개</span>
             </div>
           </div>
         </div>

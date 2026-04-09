@@ -72,7 +72,7 @@ export const ThumbnailGenerationItemSchema = z.object({
   id: z.string(),
   productId: z.string(),
   originalUrl: z.string().nullable(),
-  candidates: z.array(z.string()),
+  candidates: z.array(z.object({ url: z.string(), filename: z.string() })),
   selectedUrl: z.string().nullable(),
   status: z.string(),
   grade: z.string(),

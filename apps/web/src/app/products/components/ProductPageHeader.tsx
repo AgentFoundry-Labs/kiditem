@@ -1,4 +1,4 @@
-"use client";
+'use client';
 import { type RefObject } from "react";
 import { Plus, Download, BarChart3 } from "lucide-react";
 import { timeAgo } from "@/lib/utils";

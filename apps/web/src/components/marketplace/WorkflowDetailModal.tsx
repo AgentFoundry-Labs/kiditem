@@ -1,7 +1,7 @@
 'use client';
 
-import { X } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { X } from 'lucide-react';
 import type { ConfigurableParam } from '@/app/marketplace/lib/marketplace-types';
 
 const CATEGORY_LABELS: Record<string, string> = {

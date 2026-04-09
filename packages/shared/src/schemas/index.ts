@@ -22,6 +22,14 @@ export type { PLData } from './profit-loss.js';
 export { WorkflowTemplateSchema, WorkflowRunSchema, WorkflowStepRunSchema } from './workflow.js';
 export type { WorkflowTemplate, WorkflowRun, WorkflowStepRun } from './workflow.js';
 
+// Agent Workflow
+export { WorkflowStepSchema, AgentWorkflowSchema, WorkflowYieldSchema } from './agent-workflow.js';
+export type { WorkflowStep, AgentWorkflow, WorkflowYield } from './agent-workflow.js';
+
+// Feature Gate
+export { FeatureGateSchema } from './feature-gate.js';
+export type { FeatureGate } from './feature-gate.js';
+
 // Agent
 export {
   AgentSchema,

@@ -2,7 +2,7 @@
  * Delegation Service — Operator→Specialist 위임.
  * Design Ref: §4.2.2 — 계층 검증 후 WakeupService로 위임
  */
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -36,7 +36,7 @@ export class DelegationService {
       where: { type: input.childAgentType },
     });
     if (!parent || !child) {
-      return { ok: false, error: 'agent_not_found' };
+      throw new NotFoundException('agent_not_found');
     }
 
     const validation = validateDelegation(parent, child);
@@ -51,12 +51,12 @@ export class DelegationService {
           detail: `${parent.name} → ${child.name}: ${validation.reason}`,
         });
       }
-      return { ok: false, error: validation.reason };
+      throw new ForbiddenException(validation.reason);
     }
 
     const companyId = input.companyId || parent.companyId;
     if (!companyId) {
-      return { ok: false, error: 'no_company_id' };
+      throw new BadRequestException('no_company_id');
     }
 
     const wakeup = await this.wakeupService.requestWakeup({

@@ -1,5 +1,6 @@
 'use client';
 
+import { formatNumber } from '@/lib/utils';
 import type { InventorySummary } from '@kiditem/shared';
 
 interface InventoryFilterTabsProps {
@@ -23,7 +24,7 @@ export function InventoryFilterTabs({ filter, summary, onFilterChange }: Invento
           onClick={() => onFilterChange(f.key)}
           className={`px-4 py-2 rounded-lg text-sm font-medium ${filter === f.key ? 'bg-purple-600 text-white' : 'bg-white border border-slate-200 hover:bg-slate-50'}`}
         >
-          {f.label} ({f.count.toLocaleString('ko-KR')})
+          {f.label} ({formatNumber(f.count)})
         </button>
       ))}
     </div>

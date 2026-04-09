@@ -1,10 +1,11 @@
 'use client';
 
-import { Bell, MinusCircle, AlertTriangle, Megaphone, Truck, TrendingDown, Menu } from 'lucide-react';
 import { useEffect, useState, useRef } from 'react';
+import { Bell, MinusCircle, AlertTriangle, Megaphone, Truck, TrendingDown, Menu } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
+import { queryKeys } from '@/lib/query-keys';
 import { useStore } from '@/store/useStore';
 import type { AlertItem } from '@kiditem/shared';
 
@@ -39,7 +40,7 @@ export default function Header() {
   const qc = useQueryClient();
 
   const { data: alerts = [] } = useQuery({
-    queryKey: ['alerts'],
+    queryKey: queryKeys.alerts.all,
     queryFn: () => apiClient.get<AlertItem[]>('/api/alerts?limit=10'),
   });
   const unreadCount = alerts.length;
@@ -47,14 +48,14 @@ export default function Header() {
   const markAsReadMutation = useMutation({
     mutationFn: (id: string) => apiClient.patch(`/api/alerts/${id}/read`, {}),
     onSuccess: (_, id) => {
-      qc.setQueryData<AlertItem[]>(['alerts'], (old) => old?.filter(a => a.id !== id) ?? []);
+      qc.setQueryData<AlertItem[]>(queryKeys.alerts.all, (old) => old?.filter(a => a.id !== id) ?? []);
     },
   });
 
   const markAllAsReadMutation = useMutation({
     mutationFn: () => apiClient.patch('/api/alerts/read-all', {}),
     onSuccess: () => {
-      qc.setQueryData<AlertItem[]>(['alerts'], []);
+      qc.setQueryData<AlertItem[]>(queryKeys.alerts.all, []);
     },
   });
 

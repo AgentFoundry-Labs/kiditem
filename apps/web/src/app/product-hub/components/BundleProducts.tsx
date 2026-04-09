@@ -8,6 +8,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
+import { queryKeys } from '@/lib/query-keys';
 import { formatKRW } from '@/lib/utils';
 
 /* --- Types --- */
@@ -31,7 +32,7 @@ export default function BundleProducts() {
   const queryClient = useQueryClient();
 
   const { data: bundles = [], isLoading } = useQuery({
-    queryKey: ['bundle-products', 'analyze'],
+    queryKey: [...queryKeys.bundleProducts.all, 'analyze'],
     queryFn: () => apiClient.get<BundleProduct[]>('/api/bundle-products/analyze'),
   });
 
@@ -55,7 +56,7 @@ export default function BundleProducts() {
     mutationFn: (body: { name: string; sku: string; sellPrice: number; items: { productId: string; quantity: number }[] }) =>
       apiClient.post('/api/bundle-products', body),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['bundle-products'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.bundleProducts.all });
       setShowForm(false);
       setForm({ name: '', sku: '', sellPrice: 0 });
       setSelectedItems([]);
@@ -64,7 +65,7 @@ export default function BundleProducts() {
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => apiClient.delete(`/api/bundle-products/${id}`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['bundle-products'] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.bundleProducts.all }),
   });
 
   const syncing = createMutation.isPending;

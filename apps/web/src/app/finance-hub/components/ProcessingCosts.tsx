@@ -14,6 +14,7 @@ import {
   Calendar,
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
+import { queryKeys } from '@/lib/query-keys';
 import { formatKRW } from '@/lib/utils';
 
 interface ProcessingCost {
@@ -48,12 +49,12 @@ export default function ProcessingCosts() {
   const queryClient = useQueryClient();
 
   const { data: costs = [] } = useQuery({
-    queryKey: ['processing-costs'],
+    queryKey: queryKeys.processingCosts.all,
     queryFn: () => apiClient.get<ProcessingCost[]>('/api/processing-costs'),
   });
 
   const { data: monthly = [] } = useQuery({
-    queryKey: ['processing-costs', 'monthly'],
+    queryKey: [...queryKeys.processingCosts.all, 'monthly'],
     queryFn: () => apiClient.get<MonthlySummary[]>('/api/processing-costs/monthly'),
   });
 
@@ -77,7 +78,7 @@ export default function ProcessingCosts() {
     mutationFn: (body: { productName: string; vendor: string; processType: string; unitCost: number; quantity: number; date: string; notes: string }) =>
       apiClient.post('/api/processing-costs', body),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['processing-costs'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.processingCosts.all });
       setShowModal(false);
       setForm({ productName: '', vendor: '', processType: '', unitCost: '', quantity: '', date: new Date().toISOString().slice(0, 10), notes: '' });
     },
@@ -86,12 +87,12 @@ export default function ProcessingCosts() {
   const statusMutation = useMutation({
     mutationFn: ({ id, status }: { id: string; status: string }) =>
       apiClient.patch(`/api/processing-costs/${id}`, { status }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['processing-costs'] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.processingCosts.all }),
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => apiClient.delete(`/api/processing-costs/${id}`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['processing-costs'] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.processingCosts.all }),
   });
 
   const handleCreate = () => {

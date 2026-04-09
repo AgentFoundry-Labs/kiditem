@@ -6,6 +6,7 @@ import { BookOpen, Plus, ArrowDownCircle, ArrowUpCircle, X, Trash2 } from 'lucid
 import { usePeriodSelector } from '@/hooks/usePeriodSelector';
 import PeriodSelector from '@/components/ui/PeriodSelector';
 import { apiClient } from '@/lib/api-client';
+import { queryKeys } from '@/lib/query-keys';
 import { formatKRW } from '@/lib/utils';
 
 interface Ledger {
@@ -47,7 +48,7 @@ export default function ManualLedger() {
   const { period, setPeriod } = usePeriodSelector();
 
   const { data: ledgerData } = useQuery({
-    queryKey: ['manual-ledger', period],
+    queryKey: [...queryKeys.manualLedger.all, period],
     queryFn: () => apiClient.get<Ledger[]>(`/api/manual-ledger?period=${period}`),
   });
 
@@ -91,7 +92,7 @@ export default function ManualLedger() {
     mutationFn: (body: { date: string; type: string; category: string; counterpart: string; description: string; amount: number; tax: number; memo: string }) =>
       apiClient.post('/api/manual-ledger', body),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['manual-ledger'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.manualLedger.all });
       setShowModal(false);
       setForm({ date: new Date().toISOString().slice(0, 10), type: 'income', category: 'sale', counterpart: '', description: '', amount: '', tax: '', memo: '' });
     },
@@ -99,7 +100,7 @@ export default function ManualLedger() {
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => apiClient.delete(`/api/manual-ledger/${id}`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['manual-ledger'] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.manualLedger.all }),
   });
 
   const handleCreate = () => {

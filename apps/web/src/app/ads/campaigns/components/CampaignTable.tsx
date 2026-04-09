@@ -3,7 +3,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import { formatKRW } from '@/lib/utils';
+import { formatKRW, formatNumber } from '@/lib/utils';
 import { roasColor } from '../../lib/status-colors';
 
 interface CampaignItem {
@@ -89,8 +89,8 @@ export function CampaignTable({ campaigns, sortBy, onSortChange, selectedCampaig
                 <td className={`text-right font-semibold ${roasColor(c.roas ?? 0, roasT)}`}>
                   {c.roas ?? 0}%
                 </td>
-                <td className="text-right">{(c.impressions ?? 0).toLocaleString()}</td>
-                <td className="text-right">{(c.clicks ?? 0).toLocaleString()}</td>
+                <td className="text-right">{formatNumber(c.impressions ?? 0)}</td>
+                <td className="text-right">{formatNumber(c.clicks ?? 0)}</td>
                 <td className="text-right">{(c.ctr ?? 0).toFixed(1)}%</td>
                 <td className="text-right">{c.conversions ?? 0}</td>
                 <td className="text-right">{(c.conversionRate ?? 0).toFixed(1)}%</td>

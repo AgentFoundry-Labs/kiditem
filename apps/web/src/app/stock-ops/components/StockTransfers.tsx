@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowRightLeft, Plus, RefreshCw, CheckCircle, Loader2, Building2, Package, Filter } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
+import { queryKeys } from '@/lib/query-keys';
 
 interface StockTransfer {
   id: string;
@@ -40,12 +41,12 @@ export default function StockTransfers() {
   const queryClient = useQueryClient();
 
   const { data: transfers = [], isLoading: loading } = useQuery({
-    queryKey: ['stock-transfers'],
+    queryKey: queryKeys.stockTransfers.all,
     queryFn: () => apiClient.get<StockTransfer[]>('/api/stock-transfers'),
   });
 
   const { data: warehouses = [] } = useQuery({
-    queryKey: ['warehouses'],
+    queryKey: queryKeys.warehouses.all,
     queryFn: () => apiClient.get<Warehouse[]>('/api/warehouses'),
   });
 

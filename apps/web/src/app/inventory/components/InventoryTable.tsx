@@ -1,6 +1,7 @@
 'use client';
 
 import { Pagination } from '@/components/ui/Pagination';
+import { formatNumber } from '@/lib/utils';
 import type { InventoryItem } from '@kiditem/shared';
 
 function isUnsynced(item: InventoryItem): boolean {
@@ -78,15 +79,15 @@ export function InventoryTable({ items, page, pageSize, total, onPageChange }: I
                 </td>
                 <td className="text-slate-500 text-xs">{i.company}</td>
                 <td className={`text-right font-semibold ${unsynced ? 'text-amber-600' : i.currentStock === 0 ? 'text-red-600' : i.currentStock <= i.reorderPoint ? 'text-orange-600' : ''}`}>
-                  {i.currentStock.toLocaleString('ko-KR')}
+                  {formatNumber(i.currentStock)}
                 </td>
-                <td className="text-right text-slate-500">{i.optimalStock.toLocaleString('ko-KR')}</td>
+                <td className="text-right text-slate-500">{formatNumber(i.optimalStock)}</td>
                 <td className="text-right">{i.avgDailySales}</td>
                 <td className={`text-right font-semibold ${unsynced ? '' : i.daysRemaining <= 7 ? 'text-red-600' : i.daysRemaining <= 14 ? 'text-orange-500' : ''}`}>
                   {i.daysRemaining}일
                 </td>
                 <td className="text-right font-semibold text-purple-600">
-                  {i.recommendedOrder > 0 ? `${i.recommendedOrder.toLocaleString('ko-KR')}개` : '-'}
+                  {i.recommendedOrder > 0 ? `${formatNumber(i.recommendedOrder)}개` : '-'}
                 </td>
                 <td>
                   <StatusBadge status={rowStatus} />

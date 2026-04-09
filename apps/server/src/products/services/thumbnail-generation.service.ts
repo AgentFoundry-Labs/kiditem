@@ -1,22 +1,9 @@
 import { Injectable, NotFoundException, InternalServerErrorException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ThumbnailAiService } from './thumbnail-ai.service';
+import type { GenerationWithProduct } from './types';
 
-export interface GenerationWithProduct {
-  id: string;
-  productId: string;
-  companyId: string;
-  originalUrl: string | null;
-  candidates: Array<{ url: string; filename: string }>;
-  selectedUrl: string | null;
-  status: string;
-  grade: string;
-  score: number;
-  prompt: string | null;
-  createdAt: Date;
-  updatedAt: Date;
-  product: { id: string; name: string; imageUrl: string | null } | null;
-}
+export type { GenerationWithProduct } from './types';
 
 @Injectable()
 export class ThumbnailGenerationService {
@@ -52,30 +39,30 @@ export class ThumbnailGenerationService {
             originalUrl: product.imageUrl ?? product.thumbnailUrl ?? null,
             status: 'generating',
           },
-          include: { product: { select: { id: true, name: true, imageUrl: true } } },
+          include: { product: { select: { id: true, name: true, imageUrl: true, coupangProductId: true, category: true } } },
         });
 
         let candidates: Array<{ url: string; filename: string }>;
+        let status: string;
         try {
           candidates = await this.thumbnailAiService.generateImages(
             product.name,
             product.category ?? '일반',
             productId,
           );
+          status = 'ready';
         } catch {
-          candidates = [0, 1, 2].map((i) => ({
-            url: `https://placehold.co/800x800/f5f5f5/999999?text=${encodeURIComponent(product.name)}`,
-            filename: `${productId}_${Date.now()}_${i}.png`,
-          }));
+          candidates = [];
+          status = 'failed';
         }
 
         const updated = await this.prisma.thumbnailGeneration.update({
           where: { id: generation.id },
           data: {
             candidates,
-            status: 'ready',
+            status,
           },
-          include: { product: { select: { id: true, name: true, imageUrl: true } } },
+          include: { product: { select: { id: true, name: true, imageUrl: true, coupangProductId: true, category: true } } },
         });
 
         results.push({
@@ -106,7 +93,7 @@ export class ThumbnailGenerationService {
       const [items, total] = await Promise.all([
         this.prisma.thumbnailGeneration.findMany({
           where,
-          include: { product: { select: { id: true, name: true, imageUrl: true } } },
+          include: { product: { select: { id: true, name: true, imageUrl: true, coupangProductId: true, category: true } } },
           orderBy: { createdAt: 'desc' },
           skip,
           take: limit,
@@ -136,7 +123,7 @@ export class ThumbnailGenerationService {
     const updated = await this.prisma.thumbnailGeneration.update({
       where: { id },
       data: { selectedUrl, status: 'ready' },
-      include: { product: { select: { id: true, name: true, imageUrl: true } } },
+      include: { product: { select: { id: true, name: true, imageUrl: true, coupangProductId: true, category: true } } },
     });
 
     return {
@@ -153,7 +140,7 @@ export class ThumbnailGenerationService {
     const updated = await this.prisma.thumbnailGeneration.update({
       where: { id },
       data: { status: 'applied' },
-      include: { product: { select: { id: true, name: true, imageUrl: true } } },
+      include: { product: { select: { id: true, name: true, imageUrl: true, coupangProductId: true, category: true } } },
     });
 
     return {
@@ -170,7 +157,7 @@ export class ThumbnailGenerationService {
     const updated = await this.prisma.thumbnailGeneration.update({
       where: { id },
       data: { status: 'skipped' },
-      include: { product: { select: { id: true, name: true, imageUrl: true } } },
+      include: { product: { select: { id: true, name: true, imageUrl: true, coupangProductId: true, category: true } } },
     });
 
     return {

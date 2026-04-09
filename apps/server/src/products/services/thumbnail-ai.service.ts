@@ -1,42 +1,16 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { GoogleGenAI } from '@google/genai';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as https from 'https';
 import * as http from 'http';
+import type { ThumbnailGrade, AnalysisScores, AnalysisIssue, AiAnalysisResult, GeneratedImage } from './types';
 
-type ThumbnailGrade = 'S' | 'A' | 'B' | 'C' | 'F';
-
-export interface AnalysisScores {
-  guideline: number;
-  heroShot: number;
-  composition: number;
-  branding: number;
-  mobile: number;
-}
-
-export interface AnalysisIssue {
-  type: string;
-  severity: 'critical' | 'warning' | 'info';
-  message: string;
-}
-
-export interface AiAnalysisResult {
-  overallScore: number;
-  grade: ThumbnailGrade;
-  scores: AnalysisScores | null;
-  issues: AnalysisIssue[];
-  suggestions: string[];
-  method: 'ai' | 'rule';
-}
-
-export interface GeneratedImage {
-  url: string;
-  filename: string;
-}
+export type { AnalysisScores, AnalysisIssue, AiAnalysisResult, GeneratedImage } from './types';
 
 @Injectable()
 export class ThumbnailAiService {
+  private readonly logger = new Logger(ThumbnailAiService.name);
   private client: GoogleGenAI | null = null;
 
   private readonly ANALYSIS_PROMPT = `당신은 쿠팡 마켓플레이스 전문 썸네일 분석가입니다.
@@ -148,7 +122,8 @@ export class ThumbnailAiService {
         suggestions: parsed.suggestions ?? [],
         method: 'ai',
       };
-    } catch {
+    } catch (error) {
+      this.logger.error(`Gemini Vision 분석 실패: ${error instanceof Error ? error.message : error}`);
       return null;
     }
   }
@@ -225,13 +200,9 @@ export class ThumbnailAiService {
       }
 
       return results;
-    } catch {
-      // Fallback to placeholder URLs
-      const timestamp = Date.now();
-      return [0, 1, 2].map((i) => ({
-        url: `https://placehold.co/800x800/f5f5f5/999999?text=${encodeURIComponent(productName)}`,
-        filename: `${productId}_${timestamp}_${i}.png`,
-      }));
+    } catch (error) {
+      this.logger.error(`Imagen 생성 실패 (product: ${productId}): ${error instanceof Error ? error.message : error}`);
+      throw error;
     }
   }
 }

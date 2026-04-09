@@ -4,7 +4,7 @@ import { useRef, useState } from 'react';
 import { BarChart3, CheckCircle, FileSpreadsheet, Loader2, Upload, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { isApiError } from '@/lib/api-error';
-import { API_BASE } from '@/lib/api';
+import { apiClient } from '@/lib/api-client';
 
 interface AdUploadStats {
   totalRows: number;
@@ -46,8 +46,7 @@ export default function AdsCsvUpload() {
       formData.append('file', file);
       formData.append('type', 'adCsv');
 
-      const res = await fetch(`${API_BASE}/api/upload`, { method: 'POST', body: formData });
-      const data = await res.json() as AdUploadResult & { success?: boolean };
+      const data = await apiClient.upload<AdUploadResult & { success?: boolean }>('/api/upload', formData);
 
       if (data.success) {
         setUploadStatus('success');

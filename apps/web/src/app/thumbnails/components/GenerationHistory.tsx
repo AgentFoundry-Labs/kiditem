@@ -12,6 +12,7 @@ function StatusBadge({ status }: { status: string }) {
     ready: { label: '후보 선택', color: 'bg-amber-100 text-amber-700', icon: Sparkles },
     applied: { label: '적용 완료', color: 'bg-emerald-100 text-emerald-700', icon: CheckCircle },
     skipped: { label: '건너뜀', color: 'bg-slate-100 text-slate-500', icon: SkipForward },
+    failed: { label: '생성 실패', color: 'bg-red-100 text-red-700', icon: Clock },
   };
   const c = config[status] || config.pending;
   const Icon = c.icon;

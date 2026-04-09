@@ -1,4 +1,4 @@
-"use client";
+'use client';
 import { Package, Box, ExternalLink } from "lucide-react";
 import { formatKRW } from "@/lib/utils";
 import type { ProductDetail as Product } from "@kiditem/shared";

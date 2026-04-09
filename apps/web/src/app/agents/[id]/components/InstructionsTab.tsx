@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { isApiError } from '@/lib/api-error';
+import { formatNumber } from '@/lib/utils';
 import { toast } from 'sonner';
 import type { Agent } from '../../lib/agent-types';
 import { useUpdateAgent } from '../../hooks/useAgents';
@@ -69,7 +70,7 @@ export function InstructionsTab({
         placeholder="프롬프트 템플릿을 입력하세요..."
       />
       <p className="text-xs text-slate-400">
-        {draft.length.toLocaleString('ko-KR')}자 · 대략 {Math.round(draft.length / 4).toLocaleString('ko-KR')} 토큰
+        {formatNumber(draft.length)}자 · 대략 {formatNumber(Math.round(draft.length / 4))} 토큰
       </p>
     </div>
   );

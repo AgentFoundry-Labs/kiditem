@@ -3,7 +3,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import { formatKRW } from '@/lib/utils';
+import { formatKRW, formatNumber } from '@/lib/utils';
 import { roasColor } from '../../lib/status-colors';
 import {
   ComposedChart, Bar, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
@@ -51,7 +51,7 @@ const METRIC_DEFS: Array<{
 
 function fmtVal(key: string, v: number, isMoney: boolean): string {
   if (isMoney) return formatKRW(v) + '원';
-  if (key === 'conversions') return v.toLocaleString() + '건';
+  if (key === 'conversions') return formatNumber(v) + '건';
   if (key === 'ctr' || key === 'cvr') return (v / 100).toFixed(2) + '%';
   return v + '%';
 }

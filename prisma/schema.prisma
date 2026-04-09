@@ -219,6 +219,8 @@ model Product {
 
   productMemos     ProductMemo[]
   processingCosts  ProcessingCost[]
+  pickingItems     PickingItem[]
+  csRecords        CSRecord[]
 
   // Analytics
   gradeHistory   GradeHistory[]
@@ -263,7 +265,6 @@ model Inventory {
   product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@index([companyId])
-  @@index([productId])
   @@map("inventory")
 }
 
@@ -751,6 +752,7 @@ model AgentTask {
   startedAt   DateTime? @map("started_at") @db.Timestamptz
   completedAt DateTime? @map("completed_at") @db.Timestamptz
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   logs AgentLog[]
 
@@ -1057,6 +1059,7 @@ model WorkflowRun {
   startedAt   DateTime? @map("started_at") @db.Timestamptz
   completedAt DateTime? @map("completed_at") @db.Timestamptz
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   template WorkflowTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
   @@index([companyId])
@@ -1129,6 +1132,7 @@ model SupplierPayment {
   purchaseOrderId String?   @map("purchase_order_id") @db.Uuid
   notes           String?
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   company       Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
   supplier      Supplier       @relation(fields: [supplierId], references: [id], onDelete: Cascade)
@@ -1182,6 +1186,7 @@ model StockTransfer {
   completedAt     DateTime? @map("completed_at") @db.Timestamptz
   notes           String?
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   company       Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
   product       Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
@@ -1259,6 +1264,7 @@ model Shipment {
   deliveryDays Int?      @map("delivery_days")
   warehouseId  String?   @map("warehouse_id") @db.Uuid
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   company   Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
   order     Order?     @relation(fields: [orderId], references: [id], onDelete: SetNull)
@@ -1275,7 +1281,7 @@ model Shipment {
 model UnshippedItem {
   id          String    @id @default(uuid()) @db.Uuid
   companyId   String    @map("company_id") @db.Uuid
-  orderId     String    @map("order_id")
+  orderId     String    @map("order_id") @db.Uuid
   productId   String    @map("product_id") @db.Uuid
   productName String    @map("product_name")
   quantity    Int
@@ -1306,6 +1312,7 @@ model PickingList {
   startedAt   DateTime?     @map("started_at") @db.Timestamptz
   completedAt DateTime?     @map("completed_at") @db.Timestamptz
   createdAt   DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   company Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
   items   PickingItem[]
@@ -1318,8 +1325,8 @@ model PickingList {
 model PickingItem {
   id            String      @id @default(uuid()) @db.Uuid
   pickingListId String      @map("picking_list_id") @db.Uuid
-  orderId       String?     @map("order_id")
-  productId     String      @map("product_id")
+  orderId       String?     @map("order_id") @db.Uuid
+  productId     String      @map("product_id") @db.Uuid
   productName   String      @map("product_name")
   sku           String?
   quantity      Int         @default(1)
@@ -1328,8 +1335,10 @@ model PickingItem {
   isVerified    Boolean     @default(false) @map("is_verified")
   pickedAt      DateTime?   @map("picked_at") @db.Timestamptz
   verifiedAt    DateTime?   @map("verified_at") @db.Timestamptz
+  createdAt     DateTime    @default(now()) @map("created_at") @db.Timestamptz
 
-  pickingList PickingList @relation(fields: [pickingListId], references: [id], onDelete: Cascade)
+  pickingList PickingList  @relation(fields: [pickingListId], references: [id], onDelete: Cascade)
+  product     Product?     @relation(fields: [productId], references: [id])
 
   @@index([pickingListId])
   @@index([productId])
@@ -1340,7 +1349,7 @@ model ReturnTransfer {
   id           String    @id @default(uuid()) @db.Uuid
   companyId    String    @map("company_id") @db.Uuid
   rtNumber     String    @map("rt_number")
-  orderId      String?   @map("order_id")
+  orderId      String?   @map("order_id") @db.Uuid
   productId    String    @map("product_id") @db.Uuid
   productName  String?   @map("product_name")
   quantity     Int
@@ -1352,6 +1361,7 @@ model ReturnTransfer {
   processedBy  String?   @map("processed_by")
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
   completedAt  DateTime? @map("completed_at") @db.Timestamptz
+  updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
   product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
@@ -1443,6 +1453,7 @@ model Settlement {
   settledAt      DateTime? @map("settled_at") @db.Timestamptz
   notes          String?
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
@@ -1476,8 +1487,8 @@ model ManualLedger {
 model CSRecord {
   id          String   @id @default(uuid()) @db.Uuid
   companyId   String   @map("company_id") @db.Uuid
-  orderId     String?  @map("order_id")
-  productId   String?  @map("product_id")
+  orderId     String?  @map("order_id") @db.Uuid
+  productId   String?  @map("product_id") @db.Uuid
   csType      String   @map("cs_type")
   csStatus    String   @default("접수") @map("cs_status")
   priority    String   @default("normal")
@@ -1488,7 +1499,8 @@ model CSRecord {
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  product Product? @relation(fields: [productId], references: [id])
 
   @@index([companyId])
   @@index([companyId, csStatus, createdAt])
@@ -1567,6 +1579,7 @@ model TrafficStats {
   salesQty       Int      @default(0) @map("sales_qty")
   revenue        Int      @default(0)
   conversionRate Decimal  @default(0) @map("conversion_rate") @db.Decimal(5, 4)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 
@@ -1605,9 +1618,9 @@ model SystemSetting {
   id        String   @id @default(uuid()) @db.Uuid
   companyId String   @map("company_id") @db.Uuid
   key       String
-  value     String
+  value     Json
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
@@ -1633,7 +1646,7 @@ model BusinessRule {
   active          Boolean  @default(true)
   sortOrder       Int      @default(0) @map("sort_order")
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
 

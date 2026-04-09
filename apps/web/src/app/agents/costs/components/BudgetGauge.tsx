@@ -1,5 +1,3 @@
-'use client';
-
 import type { Agent } from '../../lib/agent-types';
 import { formatTokens } from '../../lib/agent-utils';
 import { cn } from '@/lib/utils';

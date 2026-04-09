@@ -1,3 +1,4 @@
+import { formatNumber } from '@/lib/utils';
 import type { InventoryItem } from '@kiditem/shared';
 
 export function printBarcodeWindow(items: InventoryItem[]): void {
@@ -16,7 +17,7 @@ export function printBarcodeWindow(items: InventoryItem[]): void {
         <div style="font-family:'Courier New',monospace; font-size:28px; letter-spacing:1px; line-height:1; margin-bottom:6px; overflow:hidden; white-space:nowrap;">${bars}</div>
         <div style="font-family:'Courier New',monospace; font-size:13px; letter-spacing:2px; margin-bottom:4px;">${code}</div>
         <div style="font-size:12px; color:#333; margin-bottom:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:260px;">${item.productName}</div>
-        <div style="font-size:11px; color:#666;">재고: ${item.currentStock.toLocaleString('ko-KR')}개</div>
+        <div style="font-size:11px; color:#666;">재고: ${formatNumber(item.currentStock)}개</div>
       </div>`;
   });
 

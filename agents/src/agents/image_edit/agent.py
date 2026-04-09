@@ -1,3 +1,4 @@
+import base64
 import json
 from src.agents.base import BaseAgent
 from src.core.ai_client import AIClient
@@ -72,8 +73,6 @@ class ImageEditAgent(BaseAgent):
             prompt=prompt,
             model=AI_IMAGE_EDIT_SIZE_MODEL,
         )
-
-        import base64
 
         b64 = base64.b64encode(result_bytes).decode()
         return {"image_url": f"data:image/png;base64,{b64}"}

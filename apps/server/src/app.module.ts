@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from './prisma/prisma.module';
+import { CommonModule } from './common/common.module';
 import { ProductsModule } from './products/products.module';
 import { OrdersModule } from './orders/orders.module';
 import { InventoryModule } from './inventory/inventory.module';
@@ -43,6 +44,7 @@ import { ActionTaskModule } from './action-task/action-task.module';
 @Module({
   imports: [
     PrismaModule,
+    CommonModule,
     FeatureGateModule,
     ProductsModule,
     OrdersModule,

@@ -8,3 +8,4 @@ export { RunHistoryQueryDto } from './run-history.dto';
 export { DelegateAgentBodyDto } from './delegate-agent.dto';
 export { RunByTypeBodyDto } from './run-by-type.dto';
 export { OrgTreeQueryDto } from './org-tree.dto';
+export { UpdateTrustLevelDto } from './update-trust-level.dto';

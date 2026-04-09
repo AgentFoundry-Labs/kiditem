@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import type { ProductListItem as Product } from '@kiditem/shared';
-import { formatKRW, formatPercent, getProfitColor, getProductStatusBadge } from '@/lib/utils';
+import { formatKRW, formatNumber, formatPercent, getProfitColor, getProductStatusBadge } from '@/lib/utils';
 
 interface ProductListItemProps {
   product: Product;
@@ -81,10 +81,10 @@ export default function ProductListItem({ product: p, rank }: ProductListItemPro
             }`}>{p.adTier} 광고</span>
           )}
           {p.reviewCount > 0 && (
-            <span className="text-[11px] text-slate-500">리뷰 {p.reviewCount.toLocaleString()}건</span>
+            <span className="text-[11px] text-slate-500">리뷰 {formatNumber(p.reviewCount)}건</span>
           )}
           {p.orderCount > 0 && (
-            <span className="text-[11px] text-slate-500">주문 {p.orderCount.toLocaleString()}건</span>
+            <span className="text-[11px] text-slate-500">주문 {formatNumber(p.orderCount)}건</span>
           )}
           {p.thumbnailCTR > 0 && (
             <span className="text-[11px] text-slate-500">CTR {p.thumbnailCTR.toFixed(1)}%</span>
@@ -113,31 +113,31 @@ export default function ProductListItem({ product: p, rank }: ProductListItemPro
         <div className="w-[72px]" />
         <div className="w-[80px] text-right">
           <p className="text-xl font-bold text-slate-900 tabular-nums">
-            {t?.visitors != null ? t.visitors.toLocaleString() : <span className="text-slate-300">-</span>}
+            {t?.visitors != null ? formatNumber(t.visitors) : <span className="text-slate-300">-</span>}
           </p>
           <p className="text-xs text-slate-400">방문자</p>
         </div>
         <div className="w-[72px] text-right">
           <p className="text-xl font-bold text-slate-900 tabular-nums">
-            {t?.views != null ? t.views.toLocaleString() : <span className="text-slate-300">-</span>}
+            {t?.views != null ? formatNumber(t.views) : <span className="text-slate-300">-</span>}
           </p>
           <p className="text-xs text-slate-400">조회</p>
         </div>
         <div className="w-[80px] text-right">
           <p className="text-xl font-bold text-slate-900 tabular-nums">
-            {t?.cartAdds != null ? t.cartAdds.toLocaleString() : <span className="text-slate-300">-</span>}
+            {t?.cartAdds != null ? formatNumber(t.cartAdds) : <span className="text-slate-300">-</span>}
           </p>
           <p className="text-xs text-slate-400">장바구니</p>
         </div>
         <div className="w-[72px] text-right">
           <p className="text-xl font-bold text-slate-900 tabular-nums">
-            {t?.orders != null ? t.orders.toLocaleString() : <span className="text-slate-300">-</span>}
+            {t?.orders != null ? formatNumber(t.orders) : <span className="text-slate-300">-</span>}
           </p>
           <p className="text-xs text-slate-400">주문</p>
         </div>
         <div className="w-[88px] text-right">
           <p className="text-xl font-bold text-slate-900 tabular-nums">
-            {t?.salesQty != null ? t.salesQty.toLocaleString() : <span className="text-slate-300">-</span>}
+            {t?.salesQty != null ? formatNumber(t.salesQty) : <span className="text-slate-300">-</span>}
           </p>
           <p className={`text-xs ${getProfitColor(p.profitRate)}`}>이익률 {formatPercent(p.profitRate)}</p>
         </div>

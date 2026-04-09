@@ -8,7 +8,7 @@ import {
   ChevronUp,
   Lightbulb,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, formatNumber } from '@/lib/utils';
 import type { ThumbnailListItem } from '@kiditem/shared';
 
 const BADGE_COLORS: Record<string, string> = {
@@ -144,11 +144,11 @@ export function ThumbnailCard({ item, isExpanded, onToggle }: Props) {
           <div className="grid grid-cols-3 gap-3 pt-1">
             <div className="text-xs">
               <span className="text-slate-500">노출수</span>
-              <span className="ml-2 font-medium text-slate-900">{item.impressions.toLocaleString()}</span>
+              <span className="ml-2 font-medium text-slate-900">{formatNumber(item.impressions)}</span>
             </div>
             <div className="text-xs">
               <span className="text-slate-500">클릭수</span>
-              <span className="ml-2 font-medium text-slate-900">{item.clicks.toLocaleString()}</span>
+              <span className="ml-2 font-medium text-slate-900">{formatNumber(item.clicks)}</span>
             </div>
             <div className="text-xs">
               <span className="text-slate-500">전략</span>

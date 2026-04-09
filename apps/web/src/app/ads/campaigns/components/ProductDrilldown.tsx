@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import { formatKRW } from '@/lib/utils';
+import { formatKRW, formatNumber } from '@/lib/utils';
 import { roasColor } from '../../lib/status-colors';
 
 interface ProductItem {
@@ -113,8 +113,8 @@ export function ProductDrilldown({ campaignName, period }: Props) {
                     <td className="text-xs text-slate-500 max-w-[120px] truncate">{p.keyword ?? '-'}</td>
                     <td className="text-right">{formatKRW(p.adSpend)}</td>
                     <td className="text-right">{formatKRW(p.adRevenue)}</td>
-                    <td className="text-right">{(p.impressions ?? 0).toLocaleString()}</td>
-                    <td className="text-right">{(p.clicks ?? 0).toLocaleString()}</td>
+                    <td className="text-right">{formatNumber(p.impressions ?? 0)}</td>
+                    <td className="text-right">{formatNumber(p.clicks ?? 0)}</td>
                     <td className="text-right">{(p.ctr ?? 0).toFixed(1)}%</td>
                     <td className="text-right">{p.adConversions ?? 0}</td>
                     <td className="text-right">{(p.conversionRate ?? 0).toFixed(1)}%</td>

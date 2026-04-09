@@ -3,20 +3,9 @@ import { PrismaService } from '../prisma/prisma.service';
 import { HeartbeatService } from './heartbeat/heartbeat.service';
 import type { DailyCost, AgentCostSummary, CostAnalytics } from '@kiditem/shared';
 import { validateAllowedTools } from './safety/dangerous-patterns';
+import type { OrgNode } from './types';
 
-export interface OrgNode {
-  id: string;
-  name: string;
-  type: string;
-  role: string;
-  title: string | null;
-  status: string;
-  adapterType: string;
-  lastHeartbeatAt: string | null;
-  hired: boolean;
-  marketplaceId: string | null;
-  reports: OrgNode[];
-}
+export type { OrgNode } from './types';
 
 @Injectable()
 export class AgentRegistryService implements OnModuleInit {

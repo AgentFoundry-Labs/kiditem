@@ -1,28 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import type { ChannelAnalysis, SalesAnalysisResult } from './types';
 
-export interface ChannelAnalysis {
-  channelName: string;
-  channelType: string;
-  totalOrders: number;
-  totalRevenue: number;
-  totalCost: number;
-  totalProfit: number;
-  returnCount: number;
-  returnRate: number;
-  avgOrderValue: number;
-}
-
-export interface SalesAnalysisResult {
-  period: string;
-  channels: ChannelAnalysis[];
-  totals: {
-    totalRevenue: number;
-    totalProfit: number;
-    totalOrders: number;
-    totalCost: number;
-  };
-}
+export type { ChannelAnalysis, SalesAnalysisResult } from './types';
 
 @Injectable()
 export class SalesAnalysisService {

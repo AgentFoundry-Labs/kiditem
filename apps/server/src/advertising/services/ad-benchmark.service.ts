@@ -3,28 +3,16 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { AdConfigService, type AdsConfig } from './ad-config.service';
+import { AdConfigService } from './ad-config.service';
+import type { AdsConfig, BenchmarkComparison } from './types';
+
+export type { BenchmarkComparison } from './types';
 
 const BENCHMARK_LABELS: Record<string, string> = {
   roas: 'ROAS', ctr: 'CTR', cvr: 'CVR', cpc: 'CPC', adRate: '광고비율', acos: 'ACoS',
 };
 
 type BenchmarkKey = 'roas' | 'ctr' | 'cvr' | 'cpc' | 'adRate' | 'acos';
-
-export interface BenchmarkComparison {
-  metric: string;
-  label: string;
-  myValue: number;
-  industryAvg: number;
-  industryGood: number;
-  industryExcellent: number;
-  industryPoor: number;
-  status: 'excellent' | 'good' | 'average' | 'below' | 'poor';
-  gap: number;
-  gapPercent: number;
-  strategy: string;
-  actions: string[];
-}
 
 function getBenchmarkStrategy(
   metric: BenchmarkKey,

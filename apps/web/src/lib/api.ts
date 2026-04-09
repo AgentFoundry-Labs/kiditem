@@ -1,3 +1,5 @@
+import { apiClient } from './api-client';
+
 export const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
 // 회사 ID 캐시 — 앱 시작 시 1회 조회 후 재사용
@@ -8,9 +10,8 @@ export async function getCompanyId(): Promise<string> {
   if (_companyIdCache) return _companyIdCache;
   if (_companyIdPromise) return _companyIdPromise;
 
-  _companyIdPromise = fetch(`${API_BASE}/api/companies`)
-    .then((res) => res.json())
-    .then((items: { id: string }[]) => {
+  _companyIdPromise = apiClient.get<{ id: string }[]>('/api/companies')
+    .then((items) => {
       if (!items.length) throw new Error('No company found');
       _companyIdCache = items[0].id;
       return _companyIdCache!;

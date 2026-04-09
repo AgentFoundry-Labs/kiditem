@@ -16,6 +16,7 @@ import {
   GenerateThumbnailDto,
   SelectCandidateDto,
   ListThumbnailAnalysesQueryDto,
+  ListGenerationsQueryDto,
 } from '../dto';
 
 @Controller('thumbnail-analysis')
@@ -52,11 +53,11 @@ export class ThumbnailAnalysisController {
   }
 
   @Get('generations')
-  findGenerations(@Query() query: { status?: string; page?: string; limit?: string }) {
+  findGenerations(@Query() query: ListGenerationsQueryDto) {
     return this.generationService.findAll({
       status: query.status,
-      page: query.page ? Number(query.page) : undefined,
-      limit: query.limit ? Number(query.limit) : undefined,
+      page: query.page,
+      limit: query.limit,
     });
   }
 

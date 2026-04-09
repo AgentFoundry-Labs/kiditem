@@ -6,7 +6,7 @@ import { useQuery } from '@tanstack/react-query';
 import type { ReviewListItem as ReviewProduct } from '@kiditem/shared';
 import { useState } from 'react';
 import { MessageSquare, Star, RefreshCw } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, formatNumber } from '@/lib/utils';
 import { ReviewTable, type FilterTab } from './components/ReviewTable';
 
 interface ReviewSummaryData {
@@ -71,11 +71,11 @@ export default function ReviewsPage() {
       <div className="grid grid-cols-4 gap-4">
         <div className="card">
           <div className="card-label">전체 상품</div>
-          <div className="card-value">{total.toLocaleString()}개</div>
+          <div className="card-value">{formatNumber(total)}개</div>
         </div>
         <div className="card">
           <div className="card-label">총 리뷰</div>
-          <div className="card-value">{totalReviews.toLocaleString()}개</div>
+          <div className="card-value">{formatNumber(totalReviews)}개</div>
         </div>
         <div className="card">
           <div className="card-label">평균 평점</div>
@@ -86,7 +86,7 @@ export default function ReviewsPage() {
         </div>
         <div className="bg-white rounded-xl p-4 border border-red-200 bg-red-50">
           <div className="text-sm text-red-600">리뷰 집중 필요</div>
-          <div className="text-xl font-bold text-red-700">{needsAttention.toLocaleString()}개</div>
+          <div className="text-xl font-bold text-red-700">{formatNumber(needsAttention)}개</div>
           <div className="text-xs text-red-500 mt-0.5">리뷰 5건 미만 또는 평점 3.0 미만</div>
         </div>
       </div>

@@ -2,6 +2,7 @@
 
 import { Database, ImageIcon, Package, Tag } from 'lucide-react';
 import type React from 'react';
+import { formatNumber } from '@/lib/utils';
 import { useState } from 'react';
 
 interface RawDataTabProps {
@@ -93,11 +94,11 @@ export default function RawDataTab({ rawData }: RawDataTabProps) {
                 <div className="text-center">
                   {price.min && price.max && price.min !== price.max ? (
                     <span className="text-2xl font-bold">
-                      {price.min.toLocaleString()} ~ {price.max.toLocaleString()}
+                      {formatNumber(price.min)} ~ {formatNumber(price.max)}
                     </span>
                   ) : (
                     <span className="text-2xl font-bold">
-                      {(price.min || price.max || 0).toLocaleString()}
+                      {formatNumber(price.min || price.max || 0)}
                     </span>
                   )}
                   <span className="text-sm font-medium ml-1 text-emerald-700">{price.unit || 'CNY'}</span>

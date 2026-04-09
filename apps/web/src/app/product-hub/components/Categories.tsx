@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { FolderTree, Plus, Save, Trash2, RefreshCw } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
+import { queryKeys } from '@/lib/query-keys';
 
 interface CategoryMapping {
   id: string;
@@ -20,7 +21,7 @@ export default function Categories() {
   const queryClient = useQueryClient();
 
   const { data: mappings = [] } = useQuery({
-    queryKey: ['categories', 'mappings'],
+    queryKey: [...queryKeys.categories.all, 'mappings'],
     queryFn: () => apiClient.get<CategoryMapping[]>('/api/categories'),
   });
 
@@ -47,7 +48,7 @@ export default function Categories() {
   const createMutation = useMutation({
     mutationFn: (body: typeof editForm) => apiClient.post('/api/categories', body),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['categories'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.categories.all });
       setShowAdd(false);
       setEditForm({ internalCategory: '', coupangCategoryId: '', coupangCategoryName: '', keywords: '' });
     },
@@ -56,7 +57,7 @@ export default function Categories() {
   const updateMutation = useMutation({
     mutationFn: ({ id, body }: { id: string; body: typeof editForm }) => apiClient.patch(`/api/categories/${id}`, body),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['categories'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.categories.all });
       setShowAdd(false);
       setEditingId(null);
       setEditForm({ internalCategory: '', coupangCategoryId: '', coupangCategoryName: '', keywords: '' });
@@ -65,7 +66,7 @@ export default function Categories() {
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => apiClient.delete(`/api/categories/${id}`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['categories'] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.categories.all }),
   });
 
   // 미매핑 카테고리 찾기

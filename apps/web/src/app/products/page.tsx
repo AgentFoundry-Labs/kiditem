@@ -1,4 +1,4 @@
-"use client";
+'use client';
 import { apiClient } from "@/lib/api-client";
 import { isApiError } from "@/lib/api-error";
 import type { ProductListItem as Product, SyncInfo, PipelineCounts } from "@kiditem/shared";

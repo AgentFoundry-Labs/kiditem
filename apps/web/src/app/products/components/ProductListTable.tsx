@@ -1,4 +1,4 @@
-"use client";
+'use client';
 import type { ProductListItem as Product } from "@kiditem/shared";
 import { Pagination } from "@/components/ui/Pagination";
 import ProductListItem from "./ProductListItem";

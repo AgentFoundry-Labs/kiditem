@@ -1,5 +1,5 @@
 import { Controller, Get, Post, Patch, Param, Query, Body } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
+import { CompanyResolverService } from '../common/company-resolver.service';
 import { SettlementsService } from './settlements.service';
 import { ListSettlementsQueryDto, CreateSettlementDto, UpdateSettlementDto, ReconcileSettlementDto } from './dto';
 
@@ -7,20 +7,13 @@ import { ListSettlementsQueryDto, CreateSettlementDto, UpdateSettlementDto, Reco
 export class SettlementsController {
   constructor(
     private readonly settlementsService: SettlementsService,
-    private readonly prisma: PrismaService,
+    private readonly companyResolver: CompanyResolverService,
   ) {}
-
-  private async resolveCompanyId(companyId?: string): Promise<string> {
-    if (companyId) return companyId;
-    const first = await this.prisma.company.findFirst({ select: { id: true } });
-    if (!first) throw new Error('No company found');
-    return first.id;
-  }
 
   @Get()
   async findAll(@Query() query: ListSettlementsQueryDto) {
     return this.settlementsService.findAll(
-      await this.resolveCompanyId(query.companyId),
+      await this.companyResolver.resolve(),
     );
   }
 
@@ -31,7 +24,7 @@ export class SettlementsController {
 
   @Post('reconcile')
   async reconcile(@Body() dto: ReconcileSettlementDto) {
-    const companyId = await this.resolveCompanyId(dto.companyId);
+    const companyId = await this.companyResolver.resolve();
     return this.settlementsService.reconcile(companyId, dto.period);
   }
 

@@ -104,20 +104,6 @@
       .catch(e => ({ success: false, error: e.message }));
   }
 
-  function showBadge(text, color) {
-    let el = document.getElementById("kiditem-badge");
-    if (!el) {
-      el = document.createElement("div");
-      el.id = "kiditem-badge";
-      el.style.cssText = "position:fixed;top:12px;right:12px;background:#0f172a;padding:12px 20px;border-radius:10px;font-size:13px;font-weight:600;z-index:999999;box-shadow:0 4px 16px rgba(0,0,0,0.4);font-family:-apple-system,sans-serif;transition:opacity 0.5s;";
-      document.body.appendChild(el);
-    }
-    el.style.color = color || "#22c55e";
-    el.textContent = text;
-    el.style.opacity = "1";
-    setTimeout(() => { el.style.opacity = "0"; setTimeout(() => el.remove(), 500); }, 5000);
-  }
-
   function doSync() {
     const tableData = parseWingTable();
     const cards = parseDashboardCards();

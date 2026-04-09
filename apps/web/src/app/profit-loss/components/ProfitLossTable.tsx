@@ -2,7 +2,7 @@
 
 import type { ReactNode } from 'react';
 import { ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
-import { formatKRW, formatPercent, getGradeColor, getProfitColor } from '@/lib/utils';
+import { cn, formatKRW, formatPercent, getGradeColor, getProfitColor } from '@/lib/utils';
 import type { PLData } from '@kiditem/shared';
 
 export type SortField =
@@ -50,7 +50,7 @@ export default function ProfitLossTable({
           <button
             key={f.key}
             onClick={() => onFilter(f.key)}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${filter === f.key ? "bg-purple-600 text-white" : `bg-white border border-slate-200 hover:bg-slate-50 ${f.color || "text-slate-700"}`}`}
+            className={cn('px-4 py-2 rounded-lg text-sm font-medium transition-colors', filter === f.key ? 'bg-purple-600 text-white' : cn('bg-white border border-slate-200 hover:bg-slate-50', f.color || 'text-slate-700'))}
           >
             {f.label}
           </button>
@@ -62,11 +62,7 @@ export default function ProfitLossTable({
         <span className="text-sm font-medium text-slate-600">등급</span>
         <button
           onClick={onResetGrades}
-          className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-            selectedGrades.length === 0
-              ? "bg-slate-900 text-white"
-              : "bg-white border border-slate-200 text-slate-700 hover:bg-slate-50"
-          }`}
+          className={cn('px-3 py-1.5 rounded-lg text-sm font-medium transition-colors', selectedGrades.length === 0 ? 'bg-slate-900 text-white' : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50')}
         >
           전체
         </button>
@@ -74,11 +70,7 @@ export default function ProfitLossTable({
           <button
             key={grade}
             onClick={() => onToggleGrade(grade)}
-            className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
-              selectedGrades.includes(grade)
-                ? `${getGradeColor(grade)} border-transparent`
-                : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
-            }`}
+            className={cn('px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors', selectedGrades.includes(grade) ? cn(getGradeColor(grade), 'border-transparent') : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50')}
           >
             {grade}
           </button>
@@ -143,11 +135,11 @@ function SortableHeader({
   onClick: () => void;
 }) {
   return (
-    <th className={`${align === 'right' ? 'text-right' : 'text-left'}`}>
+    <th className={cn(align === 'right' ? 'text-right' : 'text-left')}>
       <button
         type="button"
         onClick={onClick}
-        className={`inline-flex items-center gap-1.5 ${align === 'right' ? 'ml-auto justify-end' : ''} hover:text-slate-900`}
+        className={cn('inline-flex items-center gap-1.5 hover:text-slate-900', align === 'right' && 'ml-auto justify-end')}
       >
         <span>{label}</span>
         {icon}

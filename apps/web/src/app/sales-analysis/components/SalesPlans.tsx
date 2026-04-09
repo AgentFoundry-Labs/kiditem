@@ -12,6 +12,7 @@ import {
   X,
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
+import { queryKeys } from '@/lib/query-keys';
 import { formatKRW, formatNumber } from '@/lib/utils';
 
 interface SalesPlan {
@@ -30,7 +31,7 @@ export default function SalesPlans() {
   const queryClient = useQueryClient();
 
   const { data: plans = [] } = useQuery({
-    queryKey: ['sales-plans'],
+    queryKey: queryKeys.salesPlans.all,
     queryFn: () => apiClient.get<SalesPlan[]>('/api/sales-plans'),
   });
 

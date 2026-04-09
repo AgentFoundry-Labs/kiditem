@@ -2,25 +2,9 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { kstDayStart } from '../common/kst';
+import type { TaskSeed, RelatedProduct } from './types';
 
-interface TaskSeed {
-  taskKey: string;
-  type: 'human' | 'ai';
-  label: string;
-  detail?: string;
-  where?: string;
-  href?: string;
-  priority: 'urgent' | 'high' | 'medium';
-  role?: string;
-  apiCall?: Record<string, unknown>;
-}
-
-export interface RelatedProduct {
-  id: string;
-  name: string;
-  metric: string;
-  value: string;
-}
+export type { RelatedProduct } from './types';
 
 @Injectable()
 export class ActionTaskService {

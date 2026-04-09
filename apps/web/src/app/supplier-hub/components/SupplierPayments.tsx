@@ -12,6 +12,7 @@ import {
   Wallet,
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
+import { queryKeys } from '@/lib/query-keys';
 import { formatKRW } from '@/lib/utils';
 
 interface Payment {
@@ -51,7 +52,7 @@ export default function SupplierPayments() {
   const queryClient = useQueryClient();
 
   const { data: paymentsData } = useQuery({
-    queryKey: ['supplier-payments'],
+    queryKey: queryKeys.supplierPayments.all,
     queryFn: () => apiClient.get<Payment[]>('/api/supplier-payments'),
   });
 

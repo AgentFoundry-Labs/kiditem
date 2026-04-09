@@ -5,10 +5,9 @@ import {
   type PaginatedResponse,
 } from '../../common/pagination';
 import type { ThumbnailListItem, ThumbnailSummary } from '@kiditem/shared';
+import type { ThumbnailGrade } from './types';
 
 export type { ThumbnailSummary } from '@kiditem/shared';
-
-type ThumbnailGrade = 'S' | 'A' | 'B' | 'C' | 'F';
 
 export interface GradeDistribution {
   S: number;

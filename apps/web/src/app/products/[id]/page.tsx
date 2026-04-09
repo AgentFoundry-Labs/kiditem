@@ -1,4 +1,4 @@
-"use client";
+'use client';
 
 import { apiClient } from "@/lib/api-client";
 import PageSkeleton from "@/components/ui/PageSkeleton";

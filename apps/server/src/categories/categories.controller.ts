@@ -1,5 +1,5 @@
 import { Controller, Get, Post, Patch, Delete, Param, Query, Body } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
+import { CompanyResolverService } from '../common/company-resolver.service';
 import { CategoriesService } from './categories.service';
 import { CreateCategoryDto, UpdateCategoryDto } from './dto';
 
@@ -7,19 +7,12 @@ import { CreateCategoryDto, UpdateCategoryDto } from './dto';
 export class CategoriesController {
   constructor(
     private readonly categoriesService: CategoriesService,
-    private readonly prisma: PrismaService,
+    private readonly companyResolver: CompanyResolverService,
   ) {}
-
-  private async resolveCompanyId(companyId?: string): Promise<string> {
-    if (companyId) return companyId;
-    const first = await this.prisma.company.findFirst({ select: { id: true } });
-    if (!first) throw new Error('No company found');
-    return first.id;
-  }
 
   @Get()
   async findAll(@Query('companyId') companyId?: string) {
-    return this.categoriesService.findAll(await this.resolveCompanyId(companyId));
+    return this.categoriesService.findAll(await this.companyResolver.resolve());
   }
 
   @Post()

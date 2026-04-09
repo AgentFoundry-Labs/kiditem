@@ -1,15 +1,7 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import * as XLSX from 'xlsx';
-
-interface MulterFile {
-  fieldname: string;
-  originalname: string;
-  encoding: string;
-  mimetype: string;
-  size: number;
-  buffer: Buffer;
-}
+import type { MulterFile } from '../common/types';
 
 function parseRoasPercent(val: string | number | undefined): number {
   if (val === undefined || val === null || val === '-') return 0;

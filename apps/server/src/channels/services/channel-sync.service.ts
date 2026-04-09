@@ -4,108 +4,15 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { getSellerProducts, getSellerProduct } from '../adapters/coupang/products';
 import { getOrderSheets } from '../adapters/coupang/orders';
 import { getVendorId } from '../adapters/coupang/coupang-client';
+import type {
+  SyncResult,
+  HealthResult,
+  SellerProductListResponse,
+  SellerProductDetailResponse,
+  OrderSheetResponse,
+} from './types';
 
-export interface SyncResult {
-  synced: number;
-  errors: number;
-  details?: string[];
-}
-
-export interface HealthResult {
-  connected: boolean;
-  vendorId: string;
-  error?: string;
-}
-
-/** Coupang Wing API — seller product list (undocumented response shape) */
-interface SellerProductListResponse {
-  code: string;
-  message: string;
-  data?: {
-    nextToken?: string;
-    content?: Array<{
-      sellerProductId: number;
-      sellerProductName: string;
-      displayCategoryCode?: number;
-      statusName?: string;
-      brand?: string;
-    }>;
-  };
-}
-
-/** Coupang Wing API — seller product detail (undocumented response shape) */
-interface SellerProductDetailResponse {
-  code: string;
-  message: string;
-  data?: {
-    sellerProductId: number;
-    sellerProductName: string;
-    displayCategoryCode?: number;
-    statusName?: string;
-    brand?: string;
-    deliveryChargeType?: string;
-    freeShipOverAmount?: number;
-    returnCharge?: number;
-    deliveryInfo?: Record<string, unknown>;
-    items?: Array<{
-      vendorItemId: number;
-      itemName: string;
-      originalPrice: number;
-      salePrice: number;
-      supplyPrice?: number;
-      maximumBuyCount?: number;
-      maximumBuyForPerson?: number;
-    }>;
-    images?: Array<{
-      imageOrder: number;
-      imageType: string;
-      cdnPath: string;
-    }>;
-  };
-}
-
-/** Coupang Wing API — order sheet list (undocumented response shape) */
-interface OrderSheetResponse {
-  code: string;
-  message: string;
-  data?: Array<{
-    shipmentBoxId: number;
-    orderId: number;
-    orderedAt: string;
-    paidAt?: string;
-    status: string;
-    shippingPrice?: number;
-    remotePrice?: number;
-    remoteArea?: boolean;
-    deliveryCompanyName?: string;
-    invoiceNumber?: string;
-    parcelPrintMessage?: string;
-    orderer?: {
-      name?: string;
-      email?: string;
-      phone?: string;
-      safeNumber?: string;
-    };
-    receiver?: {
-      name?: string;
-      phone?: string;
-      safeNumber?: string;
-      addr1?: string;
-      addr2?: string;
-      postCode?: string;
-    };
-    orderItems?: Array<{
-      vendorItemId: number;
-      vendorItemName: string;
-      sellerProductId?: number;
-      sellerProductName?: string;
-      shippingCount: number;
-      salesPrice: number;
-      orderPrice: number;
-      instantCouponDiscount?: number;
-    }>;
-  }>;
-}
+export type { SyncResult, HealthResult } from './types';
 
 const COUPANG_STATUS_MAP: Record<string, string> = {
   APPROVED: 'active',

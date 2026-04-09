@@ -1,5 +1,5 @@
 import { Controller, Get, Query, BadRequestException } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
+import { CompanyResolverService } from '../common/company-resolver.service';
 import { StatisticsService } from './statistics.service';
 import { StatisticsQueryDto } from './dto';
 
@@ -7,19 +7,12 @@ import { StatisticsQueryDto } from './dto';
 export class StatisticsController {
   constructor(
     private readonly statisticsService: StatisticsService,
-    private readonly prisma: PrismaService,
+    private readonly companyResolver: CompanyResolverService,
   ) {}
-
-  private async resolveCompanyId(companyId?: string): Promise<string> {
-    if (companyId) return companyId;
-    const first = await this.prisma.company.findFirst({ select: { id: true } });
-    if (!first) throw new Error('No company found');
-    return first.id;
-  }
 
   @Get()
   async getStatistics(@Query() query: StatisticsQueryDto) {
-    const companyId = await this.resolveCompanyId(query.companyId);
+    const companyId = await this.companyResolver.resolve();
     const { type, period } = query;
 
     switch (type) {

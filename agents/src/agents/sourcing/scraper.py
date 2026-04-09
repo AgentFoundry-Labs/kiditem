@@ -8,15 +8,16 @@ Ported from e-commerce-system. No DB queries — pure extraction.
 
 from __future__ import annotations
 
-import logging
 import pathlib
+
+import structlog
 
 try:
     from rebrowser_playwright.async_api import async_playwright
 except ImportError:
     async_playwright = None
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 _EXTENSION_DIR = pathlib.Path(__file__).resolve().parents[4] / "extensions" / "product-scraper"
 
@@ -259,7 +260,7 @@ async def scrape_product_url(url: str) -> dict | None:
 
     common_js, platform_js, _ = _load_extractor_js(platform)
 
-    logger.info("scraper_starting url=%s platform=%s", url, platform)
+    logger.info("scraper_starting", url=url, platform=platform)
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(
@@ -282,10 +283,10 @@ async def scrape_product_url(url: str) -> dict | None:
                     _DATA_READY_CHECK, timeout=_DATA_WAIT_TIMEOUT_MS
                 )
                 data_source = await handle.json_value()
-                logger.info("scraper_data_ready source=%s url=%s", data_source, url)
+                logger.info("scraper_data_ready", source=data_source, url=url)
             except Exception:
                 page_title = await page.title()
-                logger.warning("scraper_data_wait_timeout url=%s title=%s", url, page_title)
+                logger.warning("scraper_data_wait_timeout", url=url, title=page_title)
 
             await page.evaluate("window.scrollTo(0, document.documentElement.scrollHeight)")
             await page.wait_for_timeout(_SCROLL_PAUSE_MS)
@@ -298,7 +299,7 @@ async def scrape_product_url(url: str) -> dict | None:
             data = await page.evaluate(_EXTRACT_RUNNER)
 
             if not data:
-                logger.warning("scraper_no_data url=%s", url)
+                logger.warning("scraper_no_data", url=url)
                 return None
 
             detail_url = data.get("_detail_url", "")
@@ -313,10 +314,10 @@ async def scrape_product_url(url: str) -> dict | None:
             data.pop("_extraction_method", None)
 
             logger.info(
-                "scraper_done url=%s title=%s images=%d",
-                url,
-                data.get("title", "")[:80],
-                len(data.get("images", [])),
+                "scraper_done",
+                url=url,
+                title=data.get("title", "")[:80],
+                images=len(data.get("images", [])),
             )
             return data
 

@@ -1,0 +1,24 @@
+export interface EvaluationResult {
+  taskId?: string;
+  status: string;
+  total?: number;
+  healthy?: number;
+  warning?: number;
+  critical?: number;
+  violationCount?: number;
+  evaluatedAt?: Date;
+}
+
+export interface ProductEvalResult {
+  productId: string;
+  healthScore: number;
+  violations: Array<{
+    ruleName: string;
+    field: string;
+    severity: string;
+    category: string;
+    message: string;
+    actionType: string | null;
+    value: number;
+  }>;
+}

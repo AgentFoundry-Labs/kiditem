@@ -15,6 +15,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
+import { queryKeys } from '@/lib/query-keys';
 import { formatKRW } from '@/lib/utils';
 
 interface Settlement {
@@ -69,7 +70,7 @@ export default function Settlements() {
   const queryClient = useQueryClient();
 
   const { data: settlements = [] } = useQuery({
-    queryKey: ['settlements'],
+    queryKey: queryKeys.settlements.all,
     queryFn: () => apiClient.get<Settlement[]>('/api/settlements'),
   });
 

@@ -1,4 +1,4 @@
-"use client";
+'use client';
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api-client";

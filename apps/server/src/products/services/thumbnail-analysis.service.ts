@@ -2,36 +2,11 @@ import { Injectable, NotFoundException, InternalServerErrorException } from '@ne
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ThumbnailAiService } from './thumbnail-ai.service';
+import type { ThumbnailAnalysisItem, ThumbnailAnalysisSummaryInternal, ThumbnailAnalysisListResponse } from './types';
+import type { ThumbnailAnalysisSummary as SharedThumbnailAnalysisSummary } from '@kiditem/shared';
 
-export interface ThumbnailAnalysisItem {
-  id: string;
-  productId: string;
-  productName: string;
-  imageUrl: string | null;
-  overallScore: number;
-  grade: string;
-  scores: Record<string, number> | null;
-  issues: Array<{ type: string; severity: string; message: string }>;
-  suggestions: string[];
-  method: string;
-  analyzed: boolean;
-}
-
-export interface ThumbnailAnalysisSummary {
-  total: number;
-  analyzed: number;
-  unclassifiedCount: number;
-  gradeDistribution: { S: number; A: number; B: number; C: number; F: number };
-}
-
-export interface ThumbnailAnalysisListResponse {
-  total: number;
-  analyzed: number;
-  unclassifiedCount: number;
-  gradeDistribution: { S: number; A: number; B: number; C: number; F: number };
-  allResults: ThumbnailAnalysisItem[];
-  unclassified: ThumbnailAnalysisItem[];
-}
+export type { ThumbnailAnalysisItem, ThumbnailAnalysisListResponse } from './types';
+export type ThumbnailAnalysisSummary = ThumbnailAnalysisSummaryInternal;
 
 @Injectable()
 export class ThumbnailAnalysisService {
@@ -145,7 +120,7 @@ export class ThumbnailAnalysisService {
         analyzed,
         unclassifiedCount: total - analyzed,
         gradeDistribution,
-      };
+      } satisfies SharedThumbnailAnalysisSummary;
     } catch {
       throw new InternalServerErrorException('썸네일 분석 요약 조회 실패');
     }

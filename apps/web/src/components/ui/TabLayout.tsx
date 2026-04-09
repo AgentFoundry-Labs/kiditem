@@ -1,7 +1,8 @@
-"use client";
+'use client';
 
-import { useState, useRef, type ReactNode } from "react";
-import { type LucideIcon, ChevronLeft, ChevronRight } from "lucide-react";
+import { useState, useRef, type ReactNode } from 'react';
+import { type LucideIcon, ChevronLeft, ChevronRight } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 interface Tab {
   id: string;
@@ -69,13 +70,12 @@ export default function TabLayout({
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium whitespace-nowrap transition-all duration-150 ${
-                  isActive
-                    ? "bg-white text-slate-900 shadow-sm"
-                    : "text-slate-500 hover:text-slate-700"
-                }`}
+                className={cn(
+                  'flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium whitespace-nowrap transition-all duration-150',
+                  isActive ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700',
+                )}
               >
-                {Icon && <Icon size={15} className={isActive ? "text-blue-500" : ""} />}
+                {Icon && <Icon size={15} className={cn(isActive && 'text-blue-500')} />}
                 {tab.label}
               </button>
             );
@@ -90,7 +90,7 @@ export default function TabLayout({
 
       <div>
         {tabs.map((tab) => (
-          <div key={tab.id} className={activeTab === tab.id ? "block" : "hidden"}>
+          <div key={tab.id} className={cn(activeTab === tab.id ? 'block' : 'hidden')}>
             {tab.content}
           </div>
         ))}

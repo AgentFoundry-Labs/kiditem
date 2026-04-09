@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import { formatKRW } from '@/lib/utils';
+import { formatKRW, formatNumber } from '@/lib/utils';
 import { roasColor } from '../lib/status-colors';
 
 interface CampaignItem {
@@ -48,7 +48,7 @@ export function CampaignList({ campaigns }: { campaigns: CampaignItem[] }) {
             <div>
               <div className="font-medium text-sm text-slate-900">{c.campaignName}</div>
               <div className="text-xs text-slate-500">
-                클릭 {c.clicks.toLocaleString()} · 전환 {c.conversions}
+                클릭 {formatNumber(c.clicks)} · 전환 {c.conversions}
               </div>
             </div>
             <div className="text-right">

@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { StickyNote, Plus, RefreshCw, CheckCircle, Loader2, MessageSquare, AlertTriangle, Truck, ShieldCheck } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
+import { queryKeys } from '@/lib/query-keys';
 
 interface Product {
   id: string;
@@ -41,7 +42,7 @@ export default function ProductMemos() {
   const [form, setForm] = useState({ content: '', memoType: 'general' });
 
   const { data: memos = [], isLoading: loading } = useQuery({
-    queryKey: ['product-memos', selectedProductId],
+    queryKey: queryKeys.productMemos.list(selectedProductId),
     queryFn: () => apiClient.get<Memo[]>(`/api/product-memos?productId=${selectedProductId}`),
     enabled: !!selectedProductId,
   });

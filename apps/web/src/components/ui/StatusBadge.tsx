@@ -1,5 +1,3 @@
-'use client';
-
 import { cn } from '@/lib/utils';
 import { statusBadge, statusBadgeDefault } from '@/lib/status-colors';
 

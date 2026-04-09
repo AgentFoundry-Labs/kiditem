@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Query, Body } from '@nestjs/common';
+import { Controller, Get, Post, Query, Body, BadRequestException } from '@nestjs/common';
 import { ProcurementService } from './procurement.service';
 import { ListPurchaseOrdersQueryDto, PurchaseOrderActionBodyDto } from './dto';
 
@@ -24,5 +24,6 @@ export class ProcurementController {
     if (body.action === 'delete') {
       return this.procurementService.delete(body.id!);
     }
+    throw new BadRequestException(`Unknown action: ${body.action}`);
   }
 }

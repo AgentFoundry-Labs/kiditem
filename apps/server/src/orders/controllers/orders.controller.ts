@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, Query, ServiceUnavailableException } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Query, ServiceUnavailableException, BadRequestException } from '@nestjs/common';
 import { OrdersService } from '../services/orders.service';
 import { ListOrdersQueryDto, OrderActionBodyDto } from '../dto';
 
@@ -38,5 +38,6 @@ export class OrdersController {
         throw new ServiceUnavailableException('쿠팡 API가 연결되지 않았습니다.');
       }
     }
+    throw new BadRequestException(`Unknown action: ${body.action}`);
   }
 }

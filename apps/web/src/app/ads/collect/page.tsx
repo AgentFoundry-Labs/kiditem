@@ -5,6 +5,7 @@ import { Database, Calendar, Wifi } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import PageSkeleton from '@/components/ui/PageSkeleton';
+import { formatNumber } from '@/lib/utils';
 import ScrapeCollector from './components/ScrapeCollector';
 
 interface CollectStatus {
@@ -68,7 +69,7 @@ export default function AdsCollectPage() {
             캠페인 스냅샷
           </div>
           <div className="text-lg font-bold text-slate-900">
-            {(status?.campaignSnapshotCount ?? 0).toLocaleString()}건
+            {formatNumber(status?.campaignSnapshotCount ?? 0)}건
           </div>
         </div>
 
@@ -78,7 +79,7 @@ export default function AdsCollectPage() {
             상품 스냅샷
           </div>
           <div className="text-lg font-bold text-slate-900">
-            {(status?.productSnapshotCount ?? 0).toLocaleString()}건
+            {formatNumber(status?.productSnapshotCount ?? 0)}건
           </div>
         </div>
 

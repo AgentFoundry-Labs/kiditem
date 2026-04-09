@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Body, Query, Param, Sse, Optional } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Query, Param, Sse, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { AgentRegistryService } from './agent-registry.service';
 import { AgentSseService } from './events/agent-sse.service';
@@ -13,6 +13,7 @@ import {
   RunHistoryQueryDto,
   DelegateAgentBodyDto,
   OrgTreeQueryDto,
+  UpdateTrustLevelDto,
 } from './dto';
 import { DelegationService } from './delegation/delegation.service';
 import { DenialTrackerService } from './safety/denial-tracker.service';
@@ -132,7 +133,7 @@ export class AgentRegistryController {
     @Param('parentId') parentId: string,
     @Body() body: DelegateAgentBodyDto,
   ) {
-    if (!this.delegationService) return { ok: false, error: 'delegation_not_available' };
+    if (!this.delegationService) throw new ServiceUnavailableException('delegation_not_available');
     return this.delegationService.delegate({
       parentAgentId: parentId,
       childAgentType: body.childAgentType,
@@ -180,7 +181,7 @@ export class AgentRegistryController {
   }
 
   @Patch(':id/trust-level')
-  async updateTrustLevel(@Param('id') id: string, @Body() body: { trustLevel: number }) {
+  async updateTrustLevel(@Param('id') id: string, @Body() body: UpdateTrustLevelDto) {
     return this.service.update(id, { trustLevel: body.trustLevel });
   }
 }

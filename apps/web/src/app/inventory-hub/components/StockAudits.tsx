@@ -12,6 +12,7 @@ import {
   Eye,
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
+import { queryKeys } from '@/lib/query-keys';
 
 interface AuditItem {
   productId: string;
@@ -43,7 +44,7 @@ export default function StockAudits() {
   const queryClient = useQueryClient();
 
   const { data: audits = [], isLoading } = useQuery({
-    queryKey: ['stock-audits'],
+    queryKey: queryKeys.stockAudits.all,
     queryFn: () => apiClient.get<StockAudit[]>('/api/stock-audits'),
   });
 

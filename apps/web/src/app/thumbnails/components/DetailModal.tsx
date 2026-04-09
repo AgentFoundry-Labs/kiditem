@@ -23,6 +23,7 @@ function StatusBadge({ status }: { status: string }) {
     ready: { label: '후보 선택', color: 'bg-amber-100 text-amber-700', icon: Sparkles },
     applied: { label: '적용 완료', color: 'bg-emerald-100 text-emerald-700', icon: CheckCircle },
     skipped: { label: '건너뜀', color: 'bg-slate-100 text-slate-500', icon: SkipForward },
+    failed: { label: '생성 실패', color: 'bg-red-100 text-red-700', icon: XCircle },
   };
   const c = config[status] || config.pending;
   const Icon = c.icon;
@@ -121,33 +122,36 @@ export function DetailModal({
                     Gemini AI 후보 ({candidates.length}장)
                   </div>
                   <div className="grid grid-cols-3 gap-2">
-                    {candidates.map((url, idx) => (
-                      <button
-                        key={idx}
-                        onClick={() => onSelectCandidate(url)}
-                        className={cn(
-                          'relative rounded-xl overflow-hidden border-2 transition-all hover:scale-[1.02]',
-                          gen.selectedUrl === url ? 'border-purple-500 ring-2 ring-purple-200' : 'border-slate-200 hover:border-slate-300'
-                        )}
-                      >
-                        <div className="aspect-square bg-slate-100">
-                          <img src={url} alt={`후보 ${idx + 1}`} className="w-full h-full object-cover" loading="lazy" referrerPolicy="no-referrer" />
-                        </div>
-                        <div className="absolute top-1.5 left-1.5">
-                          <span className={cn(
-                            'inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold',
-                            gen.selectedUrl === url ? 'bg-blue-500 text-white' : 'bg-white/80 text-slate-600 border border-slate-300'
-                          )}>
-                            {gen.selectedUrl === url ? <CheckCircle size={10} /> : String.fromCharCode(65 + idx)}
-                          </span>
-                        </div>
-                        {gen.selectedUrl === url && (
-                          <div className="absolute inset-0 bg-blue-500/10 flex items-center justify-center">
-                            <span className="bg-purple-600 text-white text-[10px] font-semibold px-2.5 py-1 rounded-full">선택됨</span>
+                    {candidates.map((candidate, idx) => {
+                      const imgUrl = typeof candidate === 'string' ? candidate : candidate.url;
+                      return (
+                        <button
+                          key={idx}
+                          onClick={() => onSelectCandidate(imgUrl)}
+                          className={cn(
+                            'relative rounded-xl overflow-hidden border-2 transition-all hover:scale-[1.02]',
+                            gen.selectedUrl === imgUrl ? 'border-purple-500 ring-2 ring-purple-200' : 'border-slate-200 hover:border-slate-300'
+                          )}
+                        >
+                          <div className="aspect-square bg-slate-100">
+                            <img src={imgUrl} alt={`후보 ${idx + 1}`} className="w-full h-full object-cover" loading="lazy" referrerPolicy="no-referrer" />
                           </div>
-                        )}
-                      </button>
-                    ))}
+                          <div className="absolute top-1.5 left-1.5">
+                            <span className={cn(
+                              'inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold',
+                              gen.selectedUrl === imgUrl ? 'bg-blue-500 text-white' : 'bg-white/80 text-slate-600 border border-slate-300'
+                            )}>
+                              {gen.selectedUrl === imgUrl ? <CheckCircle size={10} /> : String.fromCharCode(65 + idx)}
+                            </span>
+                          </div>
+                          {gen.selectedUrl === imgUrl && (
+                            <div className="absolute inset-0 bg-blue-500/10 flex items-center justify-center">
+                              <span className="bg-purple-600 text-white text-[10px] font-semibold px-2.5 py-1 rounded-full">선택됨</span>
+                            </div>
+                          )}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               </div>

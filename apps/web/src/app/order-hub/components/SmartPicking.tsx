@@ -15,6 +15,7 @@ import {
   Scissors,
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
+import { queryKeys } from '@/lib/query-keys';
 
 interface PickingItem {
   id: string;
@@ -48,7 +49,7 @@ export default function SmartPicking() {
   const queryClient = useQueryClient();
 
   const { data: lists = [] } = useQuery({
-    queryKey: ['picking'],
+    queryKey: queryKeys.picking.all,
     queryFn: () => apiClient.get<PickingList[]>('/api/picking'),
   });
 

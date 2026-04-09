@@ -2,9 +2,9 @@
 
 import { useState, useCallback } from 'react';
 import dynamic from 'next/dynamic';
+import { usePathname } from 'next/navigation';
 import { useStore } from '@/store/useStore';
 import { cn } from '@/lib/utils';
-import { usePathname } from 'next/navigation';
 import Sidebar from './Sidebar';
 
 const CopilotChat = dynamic(() => import('./CopilotChat'), { ssr: false });

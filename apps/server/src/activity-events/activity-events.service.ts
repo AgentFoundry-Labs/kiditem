@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
-interface CreateActivityEventDto {
+interface CreateActivityEventInput {
   companyId: string;
   objectType: string;
   objectId: string;
@@ -15,13 +15,13 @@ interface CreateActivityEventDto {
 export class ActivityEventsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async create(data: CreateActivityEventDto) {
+  async create(data: CreateActivityEventInput) {
     return this.prisma.activityEvent.create({
       data: data as any,
     });
   }
 
-  async createMany(events: CreateActivityEventDto[]) {
+  async createMany(events: CreateActivityEventInput[]) {
     return this.prisma.activityEvent.createMany({
       data: events as any[],
     });

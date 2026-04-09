@@ -1,5 +1,6 @@
 import { Controller, Get, Post, Delete, Body, Param } from '@nestjs/common';
 import { FeatureGateService } from './feature-gate.service';
+import { UpsertFeatureGateDto } from './dto';
 
 @Controller('feature-gates')
 export class FeatureGateController {
@@ -13,13 +14,7 @@ export class FeatureGateController {
   @Post(':name')
   upsert(
     @Param('name') name: string,
-    @Body()
-    body: {
-      enabled?: boolean;
-      description?: string;
-      allowedCompanies?: string[];
-      metadata?: Record<string, unknown>;
-    },
+    @Body() body: UpsertFeatureGateDto,
   ) {
     return this.service.upsert(name, body);
   }

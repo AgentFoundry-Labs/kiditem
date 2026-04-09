@@ -17,6 +17,7 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
+import { queryKeys } from '@/lib/query-keys';
 
 interface ReturnTransfer {
   id: string;
@@ -57,7 +58,7 @@ export default function ReturnTransfers() {
   const queryClient = useQueryClient();
 
   const { data: transfers = [], isLoading: loading } = useQuery({
-    queryKey: ['return-transfers'],
+    queryKey: queryKeys.returnTransfers.all,
     queryFn: () => apiClient.get<ReturnTransfer[]>('/api/return-transfers'),
   });
 

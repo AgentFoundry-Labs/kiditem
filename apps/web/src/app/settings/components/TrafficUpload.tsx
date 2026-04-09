@@ -4,7 +4,7 @@ import { useRef, useState } from 'react';
 import { BarChart3, CheckCircle, Loader2, Upload, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { isApiError } from '@/lib/api-error';
-import { API_BASE } from '@/lib/api';
+import { apiClient } from '@/lib/api-client';
 
 interface TrafficUploadResult {
   upserted?: number;
@@ -29,8 +29,7 @@ export default function TrafficUpload() {
       const formData = new FormData();
       formData.append('file', file);
 
-      const res = await fetch(`${API_BASE}/api/traffic/upload`, { method: 'POST', body: formData });
-      const data = await res.json() as TrafficUploadResult & { success?: boolean };
+      const data = await apiClient.upload<TrafficUploadResult & { success?: boolean }>('/api/traffic/upload', formData);
 
       if (data.success) {
         setUploadStatus('success');

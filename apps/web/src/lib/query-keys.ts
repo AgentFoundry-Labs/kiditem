@@ -158,4 +158,34 @@ export const queryKeys = {
     list: () => [...queryKeys.actionTasks.all, 'list'] as const,
   },
   syncInfo: () => ['syncInfo'] as const,
+  optionMasters: {
+    all: ['option-masters'] as const,
+  },
+  manualLedger: {
+    all: ['manual-ledger'] as const,
+  },
+  processingCosts: {
+    all: ['processing-costs'] as const,
+  },
+  salesPlans: {
+    all: ['sales-plans'] as const,
+  },
+  picking: {
+    all: ['picking'] as const,
+  },
+  categories: {
+    all: ['categories'] as const,
+  },
+  bundleProducts: {
+    all: ['bundle-products'] as const,
+  },
+  supplierPayments: {
+    all: ['supplier-payments'] as const,
+  },
+  alerts: {
+    all: ['alerts'] as const,
+  },
+  settlements: {
+    all: ['settlements'] as const,
+  },
 } as const;

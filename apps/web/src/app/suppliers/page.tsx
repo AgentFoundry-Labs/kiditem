@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Truck, Plus, Phone, Mail, MapPin, Clock, Edit2, Trash2, Package } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
+import { queryKeys } from '@/lib/query-keys';
 
 interface Supplier {
   id: string;
@@ -23,7 +24,7 @@ export default function SuppliersPage() {
   const queryClient = useQueryClient();
 
   const { data: suppliers = [] } = useQuery({
-    queryKey: ['suppliers'],
+    queryKey: queryKeys.suppliers.all,
     queryFn: () => apiClient.get<Supplier[]>('/api/suppliers'),
   });
 

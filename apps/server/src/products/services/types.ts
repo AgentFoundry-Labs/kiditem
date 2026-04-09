@@ -1,5 +1,83 @@
 import type { Product, Company, Inventory, ProfitLoss } from '@prisma/client';
 
+// ── Thumbnail types ──
+
+export type ThumbnailGrade = 'S' | 'A' | 'B' | 'C' | 'F';
+
+export interface AnalysisScores {
+  guideline: number;
+  heroShot: number;
+  composition: number;
+  branding: number;
+  mobile: number;
+}
+
+export interface AnalysisIssue {
+  type: string;
+  severity: 'critical' | 'warning' | 'info';
+  message: string;
+}
+
+export interface AiAnalysisResult {
+  overallScore: number;
+  grade: ThumbnailGrade;
+  scores: AnalysisScores | null;
+  issues: AnalysisIssue[];
+  suggestions: string[];
+  method: 'ai' | 'rule';
+}
+
+export interface GeneratedImage {
+  url: string;
+  filename: string;
+}
+
+export interface GenerationWithProduct {
+  id: string;
+  productId: string;
+  companyId: string;
+  originalUrl: string | null;
+  candidates: Array<{ url: string; filename: string }>;
+  selectedUrl: string | null;
+  status: string;
+  grade: string;
+  score: number;
+  prompt: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  product: { id: string; name: string; imageUrl: string | null; coupangProductId: string | null; category: string | null } | null;
+}
+
+export interface ThumbnailAnalysisItem {
+  id: string;
+  productId: string;
+  productName: string;
+  imageUrl: string | null;
+  overallScore: number;
+  grade: string;
+  scores: Record<string, number> | null;
+  issues: Array<{ type: string; severity: string; message: string }>;
+  suggestions: string[];
+  method: string;
+  analyzed: boolean;
+}
+
+export interface ThumbnailAnalysisSummaryInternal {
+  total: number;
+  analyzed: number;
+  unclassifiedCount: number;
+  gradeDistribution: { S: number; A: number; B: number; C: number; F: number };
+}
+
+export interface ThumbnailAnalysisListResponse {
+  total: number;
+  analyzed: number;
+  unclassifiedCount: number;
+  gradeDistribution: { S: number; A: number; B: number; C: number; F: number };
+  allResults: ThumbnailAnalysisItem[];
+  unclassified: ThumbnailAnalysisItem[];
+}
+
 /** Product with relations loaded via `include: { company, inventory }` */
 export type ProductWithRelations = Product & {
   company?: Company | null;

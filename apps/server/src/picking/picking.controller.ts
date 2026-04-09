@@ -1,5 +1,5 @@
 import { Controller, Get, Post, Patch, Param, Query, Body } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
+import { CompanyResolverService } from '../common/company-resolver.service';
 import { PickingService } from './picking.service';
 import { ListPickingQueryDto, GeneratePickingDto, UpdatePickingItemDto } from './dto';
 
@@ -7,20 +7,13 @@ import { ListPickingQueryDto, GeneratePickingDto, UpdatePickingItemDto } from '.
 export class PickingController {
   constructor(
     private readonly pickingService: PickingService,
-    private readonly prisma: PrismaService,
+    private readonly companyResolver: CompanyResolverService,
   ) {}
-
-  private async resolveCompanyId(companyId?: string): Promise<string> {
-    if (companyId) return companyId;
-    const first = await this.prisma.company.findFirst({ select: { id: true } });
-    if (!first) throw new Error('No company found');
-    return first.id;
-  }
 
   @Get()
   async findAll(@Query() query: ListPickingQueryDto) {
     return this.pickingService.findAll(
-      await this.resolveCompanyId(query.companyId),
+      await this.companyResolver.resolve(),
     );
   }
 

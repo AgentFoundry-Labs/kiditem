@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
+import { queryKeys } from '@/lib/query-keys';
 import OptionMasterHeader from './components/OptionMasterHeader';
 import OptionMasterGrid from './components/OptionMasterGrid';
 import OptionMasterFormModal from './components/OptionMasterFormModal';
@@ -19,7 +20,7 @@ export default function OptionMastersPage() {
   const queryClient = useQueryClient();
 
   const { data: options = [] } = useQuery({
-    queryKey: ['option-masters'],
+    queryKey: queryKeys.optionMasters.all,
     queryFn: () => apiClient.get<OptionMaster[]>('/api/option-masters'),
   });
 

@@ -935,7 +935,6 @@ function RightPanel({
   }, [editor]);
 
   const handleAiFill = useCallback(async () => {
-    console.log('[AI Fill] triggered', { isBusy: isBusy.current, productId, aiFillLoading });
     if (!productId) return;
     if (aiFillLoading) return;
     isBusy.current = true;

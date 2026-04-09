@@ -60,7 +60,7 @@ export type { ThumbnailListItem, ThumbnailSummary, ThumbnailScores, ThumbnailAna
 export {
   AdsListItemSchema, AdsHubDataSchema, AdCampaignSnapshotSchema, AdProductSnapshotSchema,
   AdBenchmarkDataSchema, AdTrendsDataSchema, AdStrategyPlanSchema, AdRulesDataSchema,
-  AdStrategyActionSchema, AdIssuesSchema, AdWeeklyPlanSchema,
+  AdStrategyActionSchema, AdIssuesSchema, AdTierAnalysisSchema, AdTop20ItemSchema, AdWeeklyPlanSchema,
 } from './schemas/ads.js';
 export type {
   AdsListItem, AdsHubData, AdsSummary, AdCampaignSnapshot, AdProductSnapshot,

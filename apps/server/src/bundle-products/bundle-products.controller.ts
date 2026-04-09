@@ -1,5 +1,5 @@
 import { Controller, Get, Post, Delete, Param, Query, Body } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
+import { CompanyResolverService } from '../common/company-resolver.service';
 import { BundleProductsService } from './bundle-products.service';
 import { AnalyzeBundleQueryDto, CreateBundleProductDto } from './dto';
 
@@ -7,20 +7,13 @@ import { AnalyzeBundleQueryDto, CreateBundleProductDto } from './dto';
 export class BundleProductsController {
   constructor(
     private readonly bundleProductsService: BundleProductsService,
-    private readonly prisma: PrismaService,
+    private readonly companyResolver: CompanyResolverService,
   ) {}
-
-  private async resolveCompanyId(companyId?: string): Promise<string> {
-    if (companyId) return companyId;
-    const first = await this.prisma.company.findFirst({ select: { id: true } });
-    if (!first) throw new Error('No company found');
-    return first.id;
-  }
 
   @Get('analyze')
   async analyze(@Query() query: AnalyzeBundleQueryDto) {
     return this.bundleProductsService.analyze(
-      await this.resolveCompanyId(query.companyId),
+      await this.companyResolver.resolve(),
     );
   }
 

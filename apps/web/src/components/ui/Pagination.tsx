@@ -1,6 +1,7 @@
 'use client';
 
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 interface PaginationProps {
   page: number;   // 1-indexed
@@ -36,7 +37,7 @@ export function Pagination({ page, limit, total, onPageChange }: PaginationProps
             <button
               key={pageNum}
               onClick={() => onPageChange(pageNum)}
-              className={`w-8 h-8 rounded text-sm ${page === pageNum ? 'bg-purple-600 text-white' : 'hover:bg-slate-100'}`}
+              className={cn('w-8 h-8 rounded text-sm', page === pageNum ? 'bg-purple-600 text-white' : 'hover:bg-slate-100')}
             >
               {pageNum}
             </button>

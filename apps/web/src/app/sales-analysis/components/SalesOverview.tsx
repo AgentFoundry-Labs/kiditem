@@ -1,4 +1,4 @@
-"use client";
+'use client';
 
 import { useQuery } from "@tanstack/react-query";
 import { BarChart3, RefreshCw } from "lucide-react";

@@ -1,4 +1,4 @@
-"use client";
+'use client';
 import { Zap, Plus, RefreshCw } from "lucide-react";
 
 interface OrderHeaderProps {

@@ -16,5 +16,7 @@
       { type: "__ps_detail_data", payload: JSON.stringify(slim) },
       "*"
     );
-  } catch (e) {}
+  } catch (e) {
+    console.debug('[bridge] error:', e.message);
+  }
 })();

@@ -1,8 +1,8 @@
 'use client';
 
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useState, useEffect, useRef } from 'react';
 import {
   LayoutDashboard,
   ShoppingCart,
@@ -44,6 +44,7 @@ import {
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
+import { queryKeys } from '@/lib/query-keys';
 import { cn } from '@/lib/utils';
 import { useStore } from '@/store/useStore';
 import type { AlertItem } from '@kiditem/shared';
@@ -207,18 +208,18 @@ export default function Sidebar({ onChatToggle, chatOpen }: { onChatToggle?: () 
   const qc = useQueryClient();
 
   const { data: alerts = [] } = useQuery({
-    queryKey: ['alerts'],
+    queryKey: queryKeys.alerts.all,
     queryFn: () => apiClient.get<AlertItem[]>('/api/alerts?limit=10'),
   });
   const unreadCount = alerts.length;
 
   const markAsReadMutation = useMutation({
     mutationFn: (id: string) => apiClient.patch(`/api/alerts/${id}/read`, {}),
-    onSuccess: (_, id) => { qc.setQueryData<AlertItem[]>(['alerts'], (old) => old?.filter(a => a.id !== id) ?? []); },
+    onSuccess: (_, id) => { qc.setQueryData<AlertItem[]>(queryKeys.alerts.all, (old) => old?.filter(a => a.id !== id) ?? []); },
   });
   const markAllAsReadMutation = useMutation({
     mutationFn: () => apiClient.patch('/api/alerts/read-all', {}),
-    onSuccess: () => { qc.setQueryData<AlertItem[]>(['alerts'], []); },
+    onSuccess: () => { qc.setQueryData<AlertItem[]>(queryKeys.alerts.all, []); },
   });
 
   useEffect(() => {

@@ -1,8 +1,9 @@
-"use client";
+'use client';
 
-import { useState, useRef, useEffect, useCallback } from "react";
-import { MessageCircle, X, Send, Bot, User, Loader2, Trash2, Play } from "lucide-react";
-import { apiClient } from "@/lib/api-client";
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { MessageCircle, X, Send, Bot, User, Loader2, Trash2, Play } from 'lucide-react';
+import { apiClient } from '@/lib/api-client';
+import { cn } from '@/lib/utils';
 
 interface ChatMessage {
   role: "user" | "assistant";
@@ -297,17 +298,11 @@ export default function ChatBot() {
             )}
 
             {messages.map((msg, i) => (
-              <div key={i} className={`flex gap-2.5 ${msg.role === "user" ? "flex-row-reverse" : ""}`}>
-                <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
-                  msg.role === "user" ? "bg-slate-200" : "bg-violet-100"
-                }`}>
-                  {msg.role === "user" ? <User size={14} className="text-slate-600" /> : <Bot size={14} className="text-violet-600" />}
+              <div key={i} className={cn('flex gap-2.5', msg.role === 'user' && 'flex-row-reverse')}>
+                <div className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded-full', msg.role === 'user' ? 'bg-slate-200' : 'bg-violet-100')}>
+                  {msg.role === 'user' ? <User size={14} className="text-slate-600" /> : <Bot size={14} className="text-violet-600" />}
                 </div>
-                <div className={`max-w-[80%] rounded-xl px-3.5 py-2.5 text-sm leading-relaxed ${
-                  msg.role === "user"
-                    ? "bg-violet-600 text-white"
-                    : "bg-slate-100 text-slate-800"
-                }`}>
+                <div className={cn('max-w-[80%] rounded-xl px-3.5 py-2.5 text-sm leading-relaxed', msg.role === 'user' ? 'bg-violet-600 text-white' : 'bg-slate-100 text-slate-800')}>
                   {msg.content ? (
                     <div className="whitespace-pre-wrap">{msg.role === "assistant" ? renderMessageContent(msg.content, handleRunAgent) : msg.content}</div>
                   ) : (
