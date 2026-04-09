@@ -89,7 +89,10 @@ export function useDeleteAgent() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => agentApi.delete(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.agents.all }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.agents.all });
+      qc.invalidateQueries({ queryKey: queryKeys.marketplace.all });
+    },
   });
 }
 

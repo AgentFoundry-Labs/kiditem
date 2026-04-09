@@ -82,9 +82,8 @@ export function AgentListRow({ agent, onClick, onDelete, onRun, isRunning }: { a
           <button
             onClick={(e) => {
               e.stopPropagation();
-              if (confirm('이 에이전트를 삭제하시겠습니까?')) {
-                onDelete(agent.id);
-              }
+              e.preventDefault();
+              onDelete(agent.id);
             }}
             className="p-1 text-slate-400 hover:text-red-500 transition-colors"
             title="삭제"

@@ -3,7 +3,7 @@ import { apiClient } from "@/lib/api-client";
 import { queryKeys } from "@/lib/query-keys";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { OrderRow } from "@kiditem/shared";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { CheckCircle, Truck, Package, Clock, MapPin } from "lucide-react";
 import OrderHeader from "./components/OrderHeader";
@@ -68,38 +68,31 @@ export default function OrdersPage() {
   const refetch = () => queryClient.invalidateQueries({ queryKey: queryKeys.orders.all });
 
   const lastSyncKey = "orders_last_sync_hour";
-  const now = new Date();
-  const currentHour = now.getHours();
-  const shouldSync = SYNC_HOURS.includes(currentHour) &&
-    (typeof window !== "undefined" ? sessionStorage.getItem(lastSyncKey) !== String(currentHour) : false);
 
-  const syncFromCoupang = useCallback(async () => {
-    const nowInner = new Date();
-    const hour = nowInner.getHours();
-    const lastHour = sessionStorage.getItem(lastSyncKey);
-    if (!SYNC_HOURS.includes(hour) || lastHour === String(hour)) return null;
-    setSyncing(true);
-    try {
-      const today = nowInner.toISOString().slice(0, 10);
-      const weekAgo = new Date(nowInner.getTime() - 7 * 86400000).toISOString().slice(0, 10);
-      await apiClient.post("/api/coupang-sync", { createdAtFrom: weekAgo, createdAtTo: today });
-      sessionStorage.setItem(lastSyncKey, String(hour));
-      refetch();
-    } catch {
-      toast.error('쿠팡 동기화 실패');
-    } finally {
-      setSyncing(false);
-    }
-    return null;
+  useEffect(() => {
+    const hour = new Date().getHours();
+    if (!SYNC_HOURS.includes(hour)) return;
+    if (sessionStorage.getItem(lastSyncKey) === String(hour)) return;
+
+    let cancelled = false;
+    (async () => {
+      setSyncing(true);
+      try {
+        const now = new Date();
+        const today = now.toISOString().slice(0, 10);
+        const weekAgo = new Date(now.getTime() - 7 * 86400000).toISOString().slice(0, 10);
+        await apiClient.post("/api/coupang-sync", { createdAtFrom: weekAgo, createdAtTo: today });
+        sessionStorage.setItem(lastSyncKey, String(hour));
+        if (!cancelled) refetch();
+      } catch {
+        toast.error('쿠팡 동기화 실패');
+      } finally {
+        if (!cancelled) setSyncing(false);
+      }
+    })();
+    return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  useQuery({
-    queryKey: [...queryKeys.orders.all, 'coupang-sync'],
-    queryFn: syncFromCoupang,
-    refetchInterval: 60_000,
-    enabled: shouldSync,
-  });
 
   useEffect(() => {
     setSelectedOrders({});

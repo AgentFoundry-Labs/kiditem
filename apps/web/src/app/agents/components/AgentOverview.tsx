@@ -8,9 +8,11 @@ import { isApiError } from '@/lib/api-error';
 import { toast } from 'sonner';
 import { queryKeys } from '@/lib/query-keys';
 import { useAgents, useAgentOrg, useDeleteAgent, useInvokeAgent } from '../hooks/useAgents';
+import dynamic from 'next/dynamic';
 import { useMarketplaceAgents, useInstallAgent } from '@/hooks/useMarketplace';
-import { AgentDetailModal } from '@/components/marketplace/AgentDetailModal';
 import type { AgentCatalogItem } from '@/app/marketplace/lib/marketplace-types';
+
+const AgentDetailModal = dynamic(() => import('@/components/marketplace/AgentDetailModal').then(m => ({ default: m.AgentDetailModal })));
 import type { Agent, OrgNode, FilterTab, ViewMode } from '../lib/agent-types';
 import { AgentToolbar } from './AgentToolbar';
 import { AgentListPanel } from './AgentListPanel';
@@ -60,6 +62,8 @@ export default function AgentOverview({ onAddAgent }: { onAddAgent?: () => void 
     if (!confirm('이 에이전트를 삭제하시겠습니까?')) return;
     try {
       await deleteAgent.mutateAsync(id);
+      toast.success('에이전트가 삭제되었습니다.');
+      router.replace('/agents');
     } catch (err) {
       toast.error(isApiError(err) ? err.detail : '에이전트 삭제에 실패했습니다.');
     }

@@ -20,7 +20,11 @@ export default function AgentOSPage() {
   const initialTab = VALID_TABS.includes(searchParams.get('tab') ?? '') ? searchParams.get('tab')! : 'agents';
   const [activeTab, setActiveTab] = useState(initialTab);
 
-  const goToMarketplace = useCallback(() => setActiveTab('marketplace'), []);
+  const [marketplaceFilter, setMarketplaceFilter] = useState<'all' | 'agent' | 'workflow'>('all');
+  const goToMarketplace = useCallback((type?: 'agent' | 'workflow') => {
+    setMarketplaceFilter(type ?? 'all');
+    setActiveTab('marketplace');
+  }, []);
 
   return (
     <TabLayout
@@ -29,12 +33,12 @@ export default function AgentOSPage() {
       activeTab={activeTab}
       onTabChange={setActiveTab}
       tabs={[
-        { id: 'agents', label: '에이전트 관리', icon: Bot, content: <AgentOverview onAddAgent={goToMarketplace} /> },
+        { id: 'agents', label: '에이전트 관리', icon: Bot, content: <AgentOverview onAddAgent={() => goToMarketplace('agent')} /> },
         { id: 'activity', label: '활동 로그', icon: Activity, content: <ActivityPage /> },
         { id: 'costs', label: '비용 분석', icon: Coins, content: <CostsPage /> },
         { id: 'skills', label: '스킬 카탈로그', icon: Puzzle, content: <SkillsPage /> },
-        { id: 'workflows', label: '워크플로우', icon: GitBranch, content: <WorkflowsPage onAddWorkflow={goToMarketplace} /> },
-        { id: 'marketplace', label: '마켓플레이스', icon: Store, content: <MarketplacePage /> },
+        { id: 'workflows', label: '워크플로우', icon: GitBranch, content: <WorkflowsPage onAddWorkflow={() => goToMarketplace('workflow')} /> },
+        { id: 'marketplace', label: '마켓플레이스', icon: Store, content: <MarketplacePage initialTypeFilter={marketplaceFilter} /> },
       ]}
     />
   );

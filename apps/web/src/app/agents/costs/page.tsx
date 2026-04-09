@@ -8,7 +8,9 @@ import { formatTokens, formatCost } from '../lib/agent-utils';
 import { useAgents, useAgentCostAnalytics } from '../hooks/useAgents';
 import { useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
-import CostTrendChart from './components/CostTrendChart';
+import dynamic from 'next/dynamic';
+
+const CostTrendChart = dynamic(() => import('./components/CostTrendChart'), { ssr: false });
 import BudgetGauge from './components/BudgetGauge';
 import { CostSummaryCard } from './components/CostSummaryCard';
 import { CostBreakdownTable } from './components/CostBreakdownTable';

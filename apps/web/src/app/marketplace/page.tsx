@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Search, Store } from 'lucide-react';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { MarketplaceCard } from '@/components/marketplace/MarketplaceCard';
@@ -18,8 +18,9 @@ type UnifiedItem =
   | (AgentCatalogItem & { itemType: 'agent' })
   | (WorkflowCatalogItem & { itemType: 'workflow' });
 
-export default function MarketplacePage() {
-  const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
+export default function MarketplacePage({ initialTypeFilter }: { initialTypeFilter?: TypeFilter }) {
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>(initialTypeFilter ?? 'all');
+  useEffect(() => { if (initialTypeFilter) setTypeFilter(initialTypeFilter); }, [initialTypeFilter]);
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [sort, setSort] = useState<SortKey>('installCount');
