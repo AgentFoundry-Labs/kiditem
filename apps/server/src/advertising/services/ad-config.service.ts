@@ -66,7 +66,7 @@ export class AdConfigService {
 
     const map = new Map<string, unknown>();
     for (const s of settings) {
-      map.set(s.key, JSON.parse(s.value));
+      map.set(s.key, s.value);
     }
 
     const get = <T>(key: string): T => (map.get(key) ?? DEFAULTS[key]) as T;
