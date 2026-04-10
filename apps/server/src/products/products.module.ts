@@ -6,10 +6,12 @@ import { ThumbnailsService } from './services/thumbnails.service';
 import { ReviewsController } from './controllers/reviews.controller';
 import { ReviewsService } from './services/reviews.service';
 import { ThumbnailAnalysisController } from './controllers/thumbnail-analysis.controller';
+import { ThumbnailTrackingController } from './controllers/thumbnail-tracking.controller';
 import { ThumbnailAiService } from './services/thumbnail-ai.service';
 import { ThumbnailAnalysisService } from './services/thumbnail-analysis.service';
 import { ThumbnailGenerationService } from './services/thumbnail-generation.service';
 import { ThumbnailEditService } from './services/thumbnail-edit.service';
+import { ThumbnailTrackingService } from './services/thumbnail-tracking.service';
 
 @Module({
   controllers: [
@@ -17,6 +19,7 @@ import { ThumbnailEditService } from './services/thumbnail-edit.service';
     ThumbnailsController,
     ReviewsController,
     ThumbnailAnalysisController,
+    ThumbnailTrackingController,
   ],
   providers: [
     ProductsService,
@@ -26,6 +29,7 @@ import { ThumbnailEditService } from './services/thumbnail-edit.service';
     ThumbnailAnalysisService,
     ThumbnailGenerationService,
     ThumbnailEditService,
+    ThumbnailTrackingService,
   ],
 })
 export class ProductsModule {}

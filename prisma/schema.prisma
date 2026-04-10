@@ -25,10 +25,11 @@ model Company {
   purchaseOrders PurchaseOrder[]
   ads            Ad[]
   profitLoss     ProfitLoss[]
-  thumbnails           Thumbnail[]
-  thumbnailAnalyses    ThumbnailAnalysis[]
-  thumbnailGenerations ThumbnailGeneration[]
-  reviews              Review[]
+  thumbnails            Thumbnail[]
+  thumbnailAnalyses     ThumbnailAnalysis[]
+  thumbnailGenerations  ThumbnailGeneration[]
+  thumbnailTrackings    ThumbnailTracking[]
+  reviews               Review[]
   alerts         Alert[]
 
   // Sourcing & Content
@@ -216,6 +217,7 @@ model Product {
   // Product Extensions
   thumbnailAnalysis    ThumbnailAnalysis?
   thumbnailGenerations ThumbnailGeneration[]
+  thumbnailTrackings   ThumbnailTracking[]
 
   productMemos     ProductMemo[]
   processingCosts  ProcessingCost[]
@@ -660,14 +662,49 @@ model ThumbnailGeneration {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  company   Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  product   Product              @relation(fields: [productId], references: [id], onDelete: Cascade)
+  trackings ThumbnailTracking[]
 
   @@index([companyId])
   @@index([productId])
   @@index([status])
   @@index([method])
   @@map("thumbnail_generations")
+}
+
+model ThumbnailTracking {
+  id           String @id @default(uuid()) @db.Uuid
+  companyId    String @map("company_id") @db.Uuid
+  productId    String @map("product_id") @db.Uuid
+  generationId String @map("generation_id") @db.Uuid
+
+  originalGrade String @map("original_grade") // S|A|B|C|F
+  originalScore Int    @default(0) @map("original_score")
+  appliedAt     DateTime @default(now()) @map("applied_at") @db.Timestamptz
+
+  // 성과 지표 (나중에 채워짐)
+  ctrBefore    Float? @map("ctr_before")
+  ctrAfter     Float? @map("ctr_after")
+  reviewsBefore Int?  @map("reviews_before")
+  reviewsAfter  Int?  @map("reviews_after")
+  salesBefore   Int?  @map("sales_before")
+  salesAfter    Int?  @map("sales_after")
+
+  status String @default("tracking") // tracking|measured|inconclusive
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company    Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  product    Product             @relation(fields: [productId], references: [id], onDelete: Cascade)
+  generation ThumbnailGeneration @relation(fields: [generationId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, generationId])
+  @@index([companyId])
+  @@index([productId])
+  @@index([status])
+  @@map("thumbnail_trackings")
 }
 
 // ─── Reviews ──────────────────────────────────────────────────────────────────

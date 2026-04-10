@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, InternalServerErrorException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ThumbnailAiService } from './thumbnail-ai.service';
+import { ThumbnailTrackingService } from './thumbnail-tracking.service';
 import type { GenerationWithProduct, EditAnalysisResult } from './types';
 
 export type { GenerationWithProduct } from './types';
@@ -19,6 +20,7 @@ export class ThumbnailGenerationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly thumbnailAiService: ThumbnailAiService,
+    private readonly trackingService: ThumbnailTrackingService,
   ) {}
 
   async createJobs(productIds: string[]): Promise<GenerationWithProduct[]> {
@@ -142,6 +144,16 @@ export class ThumbnailGenerationService {
       data: { status: 'applied' },
       include: { product: { select: { id: true, name: true, imageUrl: true, coupangProductId: true, category: true } } },
     });
+
+    // 추적 레코드 생성 (이미 있으면 upsert 처리됨)
+    const analysis = await this.prisma.thumbnailAnalysis.findUnique({ where: { productId: existing.productId } });
+    this.trackingService.create({
+      companyId: existing.companyId,
+      productId: existing.productId,
+      generationId: existing.id,
+      originalGrade: analysis?.grade ?? existing.grade,
+      originalScore: analysis?.overallScore ?? existing.score,
+    }).catch(() => { /* 추적 실패는 적용에 영향 없음 */ });
 
     return toGeneration(updated);
   }
