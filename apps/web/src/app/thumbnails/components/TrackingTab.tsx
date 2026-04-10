@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { TrendingUp, TrendingDown, Minus, ChevronDown, ChevronUp, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -211,9 +211,8 @@ export function TrackingTab({ records }: TrackingTabProps) {
                 : null;
 
               return (
-                <>
+                <Fragment key={record.id}>
                   <tr
-                    key={record.id}
                     className={cn(
                       'border-b border-slate-100 hover:bg-slate-50 transition-colors',
                       isEditing && 'bg-blue-50/30'
@@ -268,13 +267,13 @@ export function TrackingTab({ records }: TrackingTabProps) {
                     </td>
                   </tr>
                   {isEditing && (
-                    <tr key={`${record.id}-form`}>
+                    <tr>
                       <td colSpan={8} className="px-4 pb-3">
                         <MetricsForm record={record} onClose={() => setEditingId(null)} />
                       </td>
                     </tr>
                   )}
-                </>
+                </Fragment>
               );
             })}
           </tbody>

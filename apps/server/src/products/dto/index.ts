@@ -10,3 +10,6 @@ export { GenerateThumbnailDto, SelectCandidateDto } from './generate-thumbnail.d
 export { ListThumbnailAnalysesQueryDto } from './list-thumbnail-analyses.dto';
 export { ListGenerationsQueryDto } from './list-generations-query.dto';
 export { EditThumbnailDto } from './edit-thumbnail.dto';
+export { CreateTrackingDto } from './create-tracking.dto';
+export { UpdateMetricsDto } from './update-metrics.dto';
+export { ListTrackingQueryDto } from './list-tracking-query.dto';

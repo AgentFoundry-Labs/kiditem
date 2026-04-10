@@ -1,4 +1,4 @@
-const API_URL = "http://localhost:3000";
+const API_URL = "http://localhost:4000";
 
 function timeAgo(ts) {
   if (!ts) return "-";
@@ -20,7 +20,7 @@ function setCardValue(id, text, hasDot, dotColor) {
 async function init() {
   // 서버 연결 확인
   try {
-    await fetch(`${API_URL}/api/extension/sync`);
+    await fetch(`${API_URL}/api/ads/extension/sync`);
     setCardValue("serverStatus", "연결됨 ✅", false);
     document.getElementById("connBadge").textContent = "연결됨";
     document.getElementById("connBadge").className = "badge";
@@ -56,7 +56,7 @@ async function init() {
   });
 
   try {
-    const res = await fetch(`${API_URL}/api/ad-actions?approvalStatus=approved&executeStatus=queued&limit=50`);
+    const res = await fetch(`${API_URL}/api/ads/actions?approvalStatus=approved&executeStatus=queued&limit=50`);
     const json = await res.json();
     const count = Array.isArray(json.items) ? json.items.length : 0;
     if (count > 0) {
@@ -104,7 +104,7 @@ document.getElementById("btnRunApproved").addEventListener("click", async () => 
   resultEl.className = "sync-result success";
 
   try {
-    const res = await fetch(`${API_URL}/api/ad-actions?approvalStatus=approved&executeStatus=queued&limit=20`);
+    const res = await fetch(`${API_URL}/api/ads/actions?approvalStatus=approved&executeStatus=queued&limit=20`);
     const json = await res.json();
     const actions = Array.isArray(json.items) ? json.items : [];
 
@@ -116,7 +116,7 @@ document.getElementById("btnRunApproved").addEventListener("click", async () => 
 
     chrome.tabs.sendMessage(
       tab.id,
-      { action: "executeApprovedAdActions", payload: { actions, apiUrl: `${API_URL}/api/ad-actions` } },
+      { action: "executeApprovedAdActions", payload: { actions, apiUrl: `${API_URL}/api/ads/actions` } },
       (response) => {
         if (chrome.runtime.lastError) {
           resultEl.textContent = "광고센터 탭에서 실행해주세요.";

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, InternalServerErrorException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, InternalServerErrorException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ThumbnailAiService } from './thumbnail-ai.service';
 import { ThumbnailTrackingService } from './thumbnail-tracking.service';
@@ -17,6 +17,8 @@ function toGeneration(row: any): GenerationWithProduct {
 
 @Injectable()
 export class ThumbnailGenerationService {
+  private readonly logger = new Logger(ThumbnailGenerationService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly thumbnailAiService: ThumbnailAiService,
@@ -153,7 +155,11 @@ export class ThumbnailGenerationService {
       generationId: existing.id,
       originalGrade: analysis?.grade ?? existing.grade,
       originalScore: analysis?.overallScore ?? existing.score,
-    }).catch(() => { /* 추적 실패는 적용에 영향 없음 */ });
+    }).catch((err) => {
+      this.logger.warn(
+        `ThumbnailTracking 자동 생성 실패 (generationId=${existing.id}): ${err instanceof Error ? err.message : String(err)}`,
+      );
+    });
 
     return toGeneration(updated);
   }

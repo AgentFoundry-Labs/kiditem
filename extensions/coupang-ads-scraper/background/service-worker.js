@@ -1,6 +1,6 @@
 // KIDITEM OS — Background Service Worker
 
-const API_URL = "http://localhost:3000";
+const API_URL = "http://localhost:4000";
 
 chrome.runtime.onInstalled.addListener(() => {
   console.log("[KIDITEM] Extension installed");
@@ -36,7 +36,7 @@ function cleanupStorage() {
 
 // 동기화 완료 후 대시보드 탭 자동 새로고침
 function notifyDashboard() {
-  chrome.tabs.query({ url: "http://localhost:3000/*" }, (tabs) => {
+  chrome.tabs.query({ url: "http://localhost:4000/*" }, (tabs) => {
     for (const tab of tabs) {
       if (!tab.id) continue;
       chrome.scripting.executeScript({
@@ -66,7 +66,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (msg.action === "syncToServer") {
     const payload = msg.payload || {};
-    fetch(`${API_URL}/api/extension/sync`, {
+    fetch(`${API_URL}/api/ads/extension/sync`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -144,7 +144,7 @@ async function autoScrape() {
   console.log("[KIDITEM] 자동 수집 시작");
 
   try {
-    const res = await fetch(`${API_URL}/api/scrape-targets`);
+    const res = await fetch(`${API_URL}/api/ads/scrape-targets`);
     const json = await res.json();
     const targets = json.targets || [];
 
@@ -221,7 +221,7 @@ function scrapeUrl(url, targetId, label) {
 
             // 수집 완료 알림을 서버로 전송
             if (targetId) {
-              fetch(`${API_URL}/api/scrape-targets`, {
+              fetch(`${API_URL}/api/ads/scrape-targets`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ action: "markScraped", id: targetId }),

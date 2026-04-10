@@ -1,72 +1,89 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import type {
+  ThumbnailTrackingRecord,
+  ThumbnailTrackingListResponse,
+  UpdateMetricsInput,
+} from './types';
 
-export interface ThumbnailTrackingRecord {
+type TrackingRow = {
   id: string;
   productId: string;
-  productName: string;
   generationId: string;
   originalGrade: string;
   originalScore: number;
-  appliedAt: string;
-  daysElapsed: number;
+  appliedAt: Date;
   status: string;
   ctrBefore: number | null;
   ctrAfter: number | null;
-  ctrChange: number | null;
   reviewsBefore: number | null;
   reviewsAfter: number | null;
   salesBefore: number | null;
   salesAfter: number | null;
-}
+  product: { id: string; name: string };
+};
 
-export interface UpdateMetricsInput {
-  ctrBefore?: number;
-  ctrAfter?: number;
-  reviewsBefore?: number;
-  reviewsAfter?: number;
-  salesBefore?: number;
-  salesAfter?: number;
-  status?: string;
+function toRecord(row: TrackingRow, nowMs: number = Date.now()): ThumbnailTrackingRecord {
+  const ctrChange =
+    row.ctrBefore != null && row.ctrAfter != null
+      ? Math.round((row.ctrAfter - row.ctrBefore) * 10) / 10
+      : null;
+  return {
+    id: row.id,
+    productId: row.productId,
+    productName: row.product.name,
+    generationId: row.generationId,
+    originalGrade: row.originalGrade,
+    originalScore: row.originalScore,
+    appliedAt: row.appliedAt.toISOString(),
+    daysElapsed: Math.floor((nowMs - row.appliedAt.getTime()) / (1000 * 60 * 60 * 24)),
+    status: row.status,
+    ctrBefore: row.ctrBefore,
+    ctrAfter: row.ctrAfter,
+    ctrChange,
+    reviewsBefore: row.reviewsBefore,
+    reviewsAfter: row.reviewsAfter,
+    salesBefore: row.salesBefore,
+    salesAfter: row.salesAfter,
+  };
 }
 
 @Injectable()
 export class ThumbnailTrackingService {
+  private readonly logger = new Logger(ThumbnailTrackingService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll(): Promise<ThumbnailTrackingRecord[]> {
-    const rows = await this.prisma.thumbnailTracking.findMany({
-      include: {
-        product: { select: { id: true, name: true } },
-      },
-      orderBy: { appliedAt: 'desc' },
-    });
+  async findAll(query: {
+    page?: number;
+    limit?: number;
+    status?: string;
+  } = {}): Promise<ThumbnailTrackingListResponse> {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 50;
+    const skip = (page - 1) * limit;
+
+    const where: Record<string, unknown> = {};
+    if (query.status) where.status = query.status;
+
+    const [rows, total] = await Promise.all([
+      this.prisma.thumbnailTracking.findMany({
+        where,
+        include: { product: { select: { id: true, name: true } } },
+        orderBy: { appliedAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      this.prisma.thumbnailTracking.count({ where }),
+    ]);
 
     const now = Date.now();
-    return rows.map((r) => {
-      const ctrChange =
-        r.ctrBefore != null && r.ctrAfter != null
-          ? Math.round((r.ctrAfter - r.ctrBefore) * 10) / 10
-          : null;
-      return {
-        id: r.id,
-        productId: r.productId,
-        productName: r.product.name,
-        generationId: r.generationId,
-        originalGrade: r.originalGrade,
-        originalScore: r.originalScore,
-        appliedAt: r.appliedAt.toISOString(),
-        daysElapsed: Math.floor((now - r.appliedAt.getTime()) / (1000 * 60 * 60 * 24)),
-        status: r.status,
-        ctrBefore: r.ctrBefore,
-        ctrAfter: r.ctrAfter,
-        ctrChange,
-        reviewsBefore: r.reviewsBefore,
-        reviewsAfter: r.reviewsAfter,
-        salesBefore: r.salesBefore,
-        salesAfter: r.salesAfter,
-      };
-    });
+    return {
+      items: rows.map((r) => toRecord(r as TrackingRow, now)),
+      total,
+      page,
+      limit,
+    };
   }
 
   async create(data: {
@@ -81,27 +98,7 @@ export class ThumbnailTrackingService {
       include: { product: { select: { id: true, name: true } } },
     });
 
-    if (existing) {
-      const now = Date.now();
-      return {
-        id: existing.id,
-        productId: existing.productId,
-        productName: existing.product.name,
-        generationId: existing.generationId,
-        originalGrade: existing.originalGrade,
-        originalScore: existing.originalScore,
-        appliedAt: existing.appliedAt.toISOString(),
-        daysElapsed: Math.floor((now - existing.appliedAt.getTime()) / (1000 * 60 * 60 * 24)),
-        status: existing.status,
-        ctrBefore: existing.ctrBefore,
-        ctrAfter: existing.ctrAfter,
-        ctrChange: null,
-        reviewsBefore: existing.reviewsBefore,
-        reviewsAfter: existing.reviewsAfter,
-        salesBefore: existing.salesBefore,
-        salesAfter: existing.salesAfter,
-      };
-    }
+    if (existing) return toRecord(existing as TrackingRow);
 
     const row = await this.prisma.thumbnailTracking.create({
       data: {
@@ -114,24 +111,7 @@ export class ThumbnailTrackingService {
       include: { product: { select: { id: true, name: true } } },
     });
 
-    return {
-      id: row.id,
-      productId: row.productId,
-      productName: row.product.name,
-      generationId: row.generationId,
-      originalGrade: row.originalGrade,
-      originalScore: row.originalScore,
-      appliedAt: row.appliedAt.toISOString(),
-      daysElapsed: 0,
-      status: row.status,
-      ctrBefore: null,
-      ctrAfter: null,
-      ctrChange: null,
-      reviewsBefore: null,
-      reviewsAfter: null,
-      salesBefore: null,
-      salesAfter: null,
-    };
+    return toRecord(row as TrackingRow);
   }
 
   async updateMetrics(id: string, input: UpdateMetricsInput): Promise<ThumbnailTrackingRecord> {
@@ -160,29 +140,6 @@ export class ThumbnailTrackingService {
       include: { product: { select: { id: true, name: true } } },
     });
 
-    const now = Date.now();
-    const ctrChange =
-      row.ctrBefore != null && row.ctrAfter != null
-        ? Math.round((row.ctrAfter - row.ctrBefore) * 10) / 10
-        : null;
-
-    return {
-      id: row.id,
-      productId: row.productId,
-      productName: row.product.name,
-      generationId: row.generationId,
-      originalGrade: row.originalGrade,
-      originalScore: row.originalScore,
-      appliedAt: row.appliedAt.toISOString(),
-      daysElapsed: Math.floor((now - row.appliedAt.getTime()) / (1000 * 60 * 60 * 24)),
-      status: row.status,
-      ctrBefore: row.ctrBefore,
-      ctrAfter: row.ctrAfter,
-      ctrChange,
-      reviewsBefore: row.reviewsBefore,
-      reviewsAfter: row.reviewsAfter,
-      salesBefore: row.salesBefore,
-      salesAfter: row.salesAfter,
-    };
+    return toRecord(row as TrackingRow);
   }
 }

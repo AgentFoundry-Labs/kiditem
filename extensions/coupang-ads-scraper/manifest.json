@@ -10,12 +10,12 @@
   "host_permissions": [
     "https://wing.coupang.com/*",
     "https://advertising.coupang.com/*",
-    "http://localhost:3000/*"
+    "http://localhost:4000/*"
   ],
   "content_scripts": [
     {
       "matches": ["https://wing.coupang.com/*"],
-      "js": ["content/wing-unified.js"],
+      "js": ["content/wing-unified.js", "content/wing-itemwinner.js", "content/wing-traffic.js"],
       "run_at": "document_idle"
     },
     {

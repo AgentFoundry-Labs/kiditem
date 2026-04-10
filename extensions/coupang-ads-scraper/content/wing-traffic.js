@@ -3,7 +3,7 @@
 (function () {
   "use strict";
 
-  const SERVER = "http://localhost:3000";
+  const SERVER = "http://localhost:4000";
 
   function parseTrafficTable() {
     const data = [];
@@ -53,7 +53,7 @@
 
   function syncToServer(data) {
     if (data.length === 0) return;
-    fetch(`${SERVER}/api/extension/sync`, {
+    fetch(`${SERVER}/api/ads/extension/sync`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ type: "traffic", data, period: 14, timestamp: new Date().toISOString() }),

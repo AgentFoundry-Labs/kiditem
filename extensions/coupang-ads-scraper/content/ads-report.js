@@ -3,7 +3,7 @@
 (function () {
   "use strict";
 
-  const SERVER = "http://localhost:3000";
+  const SERVER = "http://localhost:4000";
 
   function showBadge(text, color) {
     let el = document.getElementById("kiditem-badge");
@@ -613,7 +613,7 @@
 
     if (msg.action === "executeApprovedAdActions") {
       const payload = msg.payload || {};
-      executeApprovedActions(payload.actions || [], payload.apiUrl || `${SERVER}/api/ad-actions`)
+      executeApprovedActions(payload.actions || [], payload.apiUrl || `${SERVER}/api/ads/actions`)
         .then(sendResponse)
         .catch((error) => sendResponse({ success: false, error: error.message || "실행 실패" }));
       return true;

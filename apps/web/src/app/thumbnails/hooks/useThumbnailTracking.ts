@@ -31,10 +31,20 @@ export interface UpdateMetricsInput {
   status?: string;
 }
 
-export function useTrackingList() {
+export interface ThumbnailTrackingListResponse {
+  items: ThumbnailTrackingRecord[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export function useTrackingList(params: { page?: number; limit?: number; status?: string } = {}) {
+  const { page = 1, limit = 50, status } = params;
+  const search = new URLSearchParams({ page: String(page), limit: String(limit) });
+  if (status) search.set('status', status);
   return useQuery({
-    queryKey: queryKeys.thumbnailAnalysis.tracking(),
-    queryFn: () => apiClient.get<ThumbnailTrackingRecord[]>('/api/thumbnail-tracking'),
+    queryKey: [...queryKeys.thumbnailAnalysis.tracking(), page, limit, status ?? 'all'],
+    queryFn: () => apiClient.get<ThumbnailTrackingListResponse>(`/api/thumbnail-tracking?${search.toString()}`),
   });
 }
 
