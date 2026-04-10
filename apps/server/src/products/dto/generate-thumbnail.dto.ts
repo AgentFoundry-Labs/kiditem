@@ -1,10 +1,4 @@
-import { IsString, IsArray, IsUUID } from 'class-validator';
-
-export class GenerateThumbnailDto {
-  @IsArray()
-  @IsUUID(undefined, { each: true })
-  productIds: string[];
-}
+import { IsString } from 'class-validator';
 
 export class SelectCandidateDto {
   @IsString()

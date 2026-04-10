@@ -31,11 +31,26 @@ export interface ComplianceScores {
 }
 
 export interface AnalysisScores {
-  guideline: number;
   heroShot: number;
   composition: number;
   branding: number;
   mobile: number;
+  differentiation: number;
+}
+
+export interface ImageSpecIssue {
+  type: string;
+  severity: 'fail' | 'warn';
+  message: string;
+}
+
+export interface ImageSpec {
+  width: number;
+  height: number;
+  aspectRatio: number;
+  fileSizeKB: number;
+  format: string;
+  issues: ImageSpecIssue[];
 }
 
 export interface AnalysisIssue {
@@ -101,6 +116,7 @@ export interface ThumbnailAnalysisItem {
   complianceAnalyzed: boolean;
   complianceGrade?: string;
   complianceScores?: Record<string, unknown> | null;
+  imageSpec?: ImageSpec | null;
 }
 
 export interface ThumbnailAnalysisSummaryInternal {

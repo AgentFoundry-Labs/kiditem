@@ -56,7 +56,7 @@ export function RegenerationPipeline({
     {
       key: 'needsfix',
       label: '개선 필요',
-      desc: 'F·C등급 재생성 대상',
+      desc: 'F·C등급 AI 편집 대상',
       color: '#f59e0b',
       bg: 'rgba(245,158,11,0.06)',
       icon: AlertTriangle,
@@ -65,8 +65,8 @@ export function RegenerationPipeline({
     },
     {
       key: 'queue',
-      label: '재생성',
-      desc: 'Gemini Imagen 생성',
+      label: 'AI 편집',
+      desc: 'Gemini 이미지 편집',
       color: '#7048e8',
       bg: 'rgba(112,72,232,0.06)',
       icon: Wand2,

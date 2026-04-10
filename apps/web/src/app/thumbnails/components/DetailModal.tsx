@@ -13,6 +13,13 @@ import {
   COMPLIANCE_GRADE_LABELS,
   VIOLATION_LABELS,
 } from '../lib/grade-constants';
+import { API_BASE } from '@/lib/api';
+
+function resolveUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  if (url.startsWith('/generated-thumbnails/')) return `${API_BASE}${url}`;
+  return url;
+}
 
 const GRADE_COLORS: Record<string, string> = {
   S: 'bg-emerald-100 text-emerald-700 border-emerald-200',
@@ -54,16 +61,17 @@ interface DetailModalProps {
   gen: ThumbnailGenerationItem | null | undefined;
   aiResult?: ThumbnailAnalysisResult;
   isAiAnalyzing: boolean;
-  isGenerating: boolean;
-  isEditing: boolean;
+  imageSpec?: { width: number; height: number; aspectRatio: number; fileSizeKB: number; format: string; issues: Array<{ type: string; severity: string; message: string }> } | null;
   generatedProductIds: Set<string>;
   onClose: () => void;
   onAiAnalyze: () => void;
-  onGenerate: () => void;
-  onEdit: () => void;
+  onComplianceCheck: () => void;
+  onEditCompliance: () => void;
+  onEditQuality: () => void;
   onSelectCandidate: (url: string) => void;
   onApply: () => void;
   onSkip: () => void;
+  onDelete: () => void;
 }
 
 export function DetailModal({
@@ -71,21 +79,22 @@ export function DetailModal({
   gen,
   aiResult,
   isAiAnalyzing,
-  isGenerating,
-  isEditing,
+  imageSpec,
   generatedProductIds,
   onClose,
   onAiAnalyze,
-  onGenerate,
-  onEdit,
+  onComplianceCheck,
+  onEditCompliance,
+  onEditQuality,
   onSelectCandidate,
   onApply,
   onSkip,
+  onDelete,
 }: DetailModalProps) {
   const display = aiResult || product;
   const candidates = gen?.candidates || [];
   const productName = gen?.product.name || product?.productName || '';
-  const originalImage = gen?.originalUrl || gen?.product.imageUrl || product?.imageUrl || null;
+  const originalImage = resolveUrl(gen?.originalUrl || gen?.product.imageUrl || product?.imageUrl || null);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={onClose}>
@@ -144,7 +153,7 @@ export function DetailModal({
                   </div>
                   <div className="grid grid-cols-3 gap-2">
                     {candidates.map((candidate, idx) => {
-                      const imgUrl = typeof candidate === 'string' ? candidate : candidate.url;
+                      const imgUrl = resolveUrl(typeof candidate === 'string' ? candidate : candidate.url) ?? '';
                       return (
                         <button
                           key={idx}
@@ -192,6 +201,12 @@ export function DetailModal({
                   >
                     <SkipForward size={14} /> 건너뛰기
                   </button>
+                  <button
+                    onClick={onDelete}
+                    className="flex items-center gap-2 px-3 py-2.5 text-red-500 hover:bg-red-50 rounded-lg text-xs font-medium transition-colors"
+                  >
+                    <XCircle size={14} /> 삭제
+                  </button>
                   {gen.selectedUrl && (
                     <>
                       <div className="flex-1" />
@@ -238,35 +253,83 @@ export function DetailModal({
                     <div className="w-full h-full flex items-center justify-center"><ImageIcon size={36} className="text-slate-300" /></div>
                   )}
                 </div>
+                {imageSpec && (
+                  <div className="mt-2 space-y-1">
+                    <div className="text-[10px] font-mono text-slate-400">
+                      {imageSpec.width}x{imageSpec.height} · {imageSpec.format.split('/')[1]?.toUpperCase()} · {imageSpec.fileSizeKB}KB
+                    </div>
+                    {imageSpec.issues.map((issue, i) => (
+                      <div
+                        key={i}
+                        className={cn(
+                          'text-[10px] px-1.5 py-0.5 rounded',
+                          issue.severity === 'fail' ? 'bg-red-50 text-red-600' : 'bg-amber-50 text-amber-600',
+                        )}
+                      >
+                        {issue.message}
+                      </div>
+                    ))}
+                    {imageSpec.issues.length === 0 && (
+                      <div className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-600">
+                        이미지 스펙 적합
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
               <div className="flex-1 min-w-0 space-y-3">
                 <div className="flex gap-2 flex-wrap">
-                  {!aiResult && (
-                    <button
-                      onClick={onAiAnalyze}
-                      disabled={isAiAnalyzing}
-                      className="flex items-center gap-2 px-3 py-2 bg-purple-600 text-white rounded-lg text-xs font-medium hover:bg-purple-700 disabled:opacity-50"
-                    >
-                      <Eye size={12} /> {isAiAnalyzing ? 'AI 분석 중...' : 'AI 정밀 분석'}
-                    </button>
+                  <button
+                    onClick={onAiAnalyze}
+                    disabled={isAiAnalyzing}
+                    className="flex items-center gap-2 px-3 py-2 bg-purple-600 text-white rounded-lg text-xs font-medium hover:bg-purple-700 disabled:opacity-50"
+                  >
+                    <Eye size={12} /> {isAiAnalyzing ? 'AI 분석 중...' : 'AI 정밀 분석'}
+                  </button>
+                  <button
+                    onClick={onComplianceCheck}
+                    disabled={isAiAnalyzing}
+                    className="flex items-center gap-2 px-3 py-2 bg-amber-500 text-white rounded-lg text-xs font-medium hover:bg-amber-600 disabled:opacity-50"
+                  >
+                    <AlertTriangle size={12} /> {isAiAnalyzing ? '체크 중...' : '가이드라인 체크'}
+                  </button>
+                  {gen && (gen.status === 'pending' || gen.status === 'generating') && (
+                    <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 text-blue-700 rounded-lg text-xs font-medium">
+                      <Loader2 size={12} className="animate-spin" /> AI 편집 진행 중...
+                    </div>
                   )}
-                  {product && (product.complianceGrade === 'FAIL' || product.complianceGrade === 'WARN' || product.grade === 'F' || product.grade === 'C') && !generatedProductIds.has(product.productId) && (
-                    <button
-                      onClick={onGenerate}
-                      disabled={isGenerating}
-                      className="flex items-center gap-2 px-3 py-2 bg-purple-600 text-white rounded-lg text-xs font-medium hover:bg-purple-700 disabled:opacity-50"
-                    >
-                      <Wand2 size={12} /> {isGenerating ? 'Gemini 생성 중...' : '썸네일 재생성'}
-                    </button>
+                  {gen?.status === 'failed' && (
+                    <div className="flex items-center gap-2">
+                      <span className="flex items-center gap-1 px-3 py-2 bg-red-50 text-red-700 rounded-lg text-xs font-medium">
+                        <XCircle size={12} /> AI 편집 실패
+                      </span>
+                      <button
+                        onClick={onEditCompliance}
+                        className="flex items-center gap-2 px-3 py-2 bg-amber-600 text-white rounded-lg text-xs font-medium hover:bg-amber-700"
+                      >
+                        <Wand2 size={12} /> 재시도
+                      </button>
+                    </div>
                   )}
-                  {product && (product.complianceGrade === 'FAIL' || product.complianceGrade === 'WARN') && (
-                    <button
-                      onClick={onEdit}
-                      disabled={isEditing}
-                      className="flex items-center gap-2 px-3 py-2 bg-amber-600 text-white rounded-lg text-xs font-medium hover:bg-amber-700 disabled:opacity-50"
-                    >
-                      <Wand2 size={12} /> {isEditing ? '편집 중...' : '가이드라인 자동 수정'}
-                    </button>
+                  {(!gen || gen.status === 'applied' || gen.status === 'skipped') && (
+                    <>
+                      {product && (product.complianceGrade === 'FAIL' || product.complianceGrade === 'WARN') && (
+                        <button
+                          onClick={onEditCompliance}
+                          className="flex items-center gap-2 px-3 py-2 bg-amber-600 text-white rounded-lg text-xs font-medium hover:bg-amber-700"
+                        >
+                          <Wand2 size={12} /> 가이드라인 수정
+                        </button>
+                      )}
+                      {product && (product.grade === 'F' || product.grade === 'C' || product.grade === 'B') && (
+                        <button
+                          onClick={onEditQuality}
+                          className="flex items-center gap-2 px-3 py-2 bg-purple-600 text-white rounded-lg text-xs font-medium hover:bg-purple-700"
+                        >
+                          <Wand2 size={12} /> 품질 개선
+                        </button>
+                      )}
+                    </>
                   )}
                 </div>
 

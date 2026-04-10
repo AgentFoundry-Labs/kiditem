@@ -66,11 +66,11 @@ export type ThumbnailSummary = z.infer<typeof ThumbnailSummarySchema>;
 // ─── AI 분석 스키마 ──────────────────────────────────────────────
 
 export const ThumbnailScoresSchema = z.object({
-  guideline: z.number(),
   heroShot: z.number(),
   composition: z.number(),
   branding: z.number(),
   mobile: z.number(),
+  differentiation: z.number(),
 });
 
 export const ThumbnailAnalysisResultSchema = z.object({

@@ -6,7 +6,7 @@ export { TriggerContentDraftBodyDto } from './trigger-content-draft.dto';
 export { ListReviewsQueryDto } from './list-reviews.dto';
 export { ListThumbnailsQueryDto } from './list-thumbnails.dto';
 export { AnalyzeThumbnailDto, AnalyzeBatchDto } from './analyze-thumbnail.dto';
-export { GenerateThumbnailDto, SelectCandidateDto } from './generate-thumbnail.dto';
+export { SelectCandidateDto } from './generate-thumbnail.dto';
 export { ListThumbnailAnalysesQueryDto } from './list-thumbnail-analyses.dto';
 export { ListGenerationsQueryDto } from './list-generations-query.dto';
 export { EditThumbnailDto } from './edit-thumbnail.dto';

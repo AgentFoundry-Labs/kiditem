@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Put,
+  Delete,
   Body,
   Param,
   Query,
@@ -14,7 +15,6 @@ import { ThumbnailEditService } from '../services/thumbnail-edit.service';
 import {
   AnalyzeThumbnailDto,
   AnalyzeBatchDto,
-  GenerateThumbnailDto,
   SelectCandidateDto,
   ListThumbnailAnalysesQueryDto,
   ListGenerationsQueryDto,
@@ -55,6 +55,21 @@ export class ThumbnailAnalysisController {
     return this.analysisService.analyzeBatch(body.productIds, body.scope);
   }
 
+  @Delete('analyze-batch')
+  cancelBatch() {
+    return this.analysisService.cancelBatch();
+  }
+
+  @Post('image-spec')
+  checkImageSpec(@Body() body: { imageUrl: string }) {
+    return this.analysisService.checkImageSpec(body.imageUrl);
+  }
+
+  @Post('pre-inspect')
+  preInspect(@Body() body: { productIds?: string[] }) {
+    return this.analysisService.preInspect(body.productIds);
+  }
+
   @Get('generations')
   findGenerations(@Query() query: ListGenerationsQueryDto) {
     return this.generationService.findAll({
@@ -70,11 +85,6 @@ export class ThumbnailAnalysisController {
     return this.editService.createEditJobs(body.productIds, body.purpose);
   }
 
-  @Post('generations')
-  createGenerations(@Body() body: GenerateThumbnailDto) {
-    return this.generationService.createJobs(body.productIds);
-  }
-
   @Put('generations/:id/select')
   selectCandidate(@Param('id') id: string, @Body() body: SelectCandidateDto) {
     return this.generationService.selectCandidate(id, body.selectedUrl);
@@ -88,5 +98,10 @@ export class ThumbnailAnalysisController {
   @Put('generations/:id/skip')
   skipGeneration(@Param('id') id: string) {
     return this.generationService.skipGeneration(id);
+  }
+
+  @Delete('generations/:id')
+  deleteGeneration(@Param('id') id: string) {
+    return this.generationService.deleteGeneration(id);
   }
 }

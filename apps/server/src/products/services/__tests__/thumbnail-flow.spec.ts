@@ -14,6 +14,7 @@ function makePrisma() {
       count: vi.fn(),
     },
     thumbnailAnalysis: {
+      findUnique: vi.fn(),
       upsert: vi.fn(),
       count: vi.fn(),
       groupBy: vi.fn(),
@@ -33,10 +34,9 @@ function makePrisma() {
 
 function makeAiService() {
   return {
-    analyzeWithGeminiVision: vi.fn(),
+    analyzeQuality: vi.fn().mockResolvedValue(new Map()),
+    checkCompliance: vi.fn().mockResolvedValue(new Map()),
     analyzeWithRules: vi.fn(),
-    analyzeImagesBatch: vi.fn(),
-    generateImages: vi.fn(),
     toCoupangOriginal: vi.fn((url: string) => url),
     scoreToGrade: vi.fn((score: number) => {
       if (score >= 90) return 'S';
@@ -232,7 +232,7 @@ describe('ThumbnailAiService', () => {
       expect(service.calculateComplianceGrade(scores as any).grade).toBe('FAIL');
     });
 
-    it('8. violations 필드 누락 시 기본값 true → FAIL (방어 로직은 analyzeWithGeminiVision에서 적용)', () => {
+    it('8. violations 필드 누락 시 기본값 true → FAIL (방어 로직은 checkCompliance에서 적용)', () => {
       // calculateComplianceGrade receives already-defaulted scores
       // Here we test that true violations with confidence ≥60 → FAIL
       const scores = {
@@ -278,15 +278,18 @@ describe('ThumbnailAnalysisService', () => {
       const product = makeProduct();
       prisma.product.findUnique.mockResolvedValue(product);
 
-      const aiResult = {
+      const qualityResult = {
         overallScore: 82,
         grade: 'A',
         scores: { guideline: 22, heroShot: 17, composition: 18, branding: 13, mobile: 12 },
         issues: [],
         suggestions: ['배경 유지'],
         method: 'ai' as const,
+        complianceGrade: null,
+        complianceScores: null,
       };
-      aiService.analyzeWithGeminiVision.mockResolvedValue(aiResult);
+      aiService.analyzeQuality.mockResolvedValue(new Map([['prod-1', qualityResult]]));
+      aiService.checkCompliance.mockResolvedValue(new Map());
 
       const savedRecord = {
         id: 'ana-1',
@@ -294,7 +297,7 @@ describe('ThumbnailAnalysisService', () => {
         imageUrl: product.imageUrl,
         overallScore: 82,
         grade: 'A',
-        scores: aiResult.scores,
+        scores: qualityResult.scores,
         issues: [],
         suggestions: ['배경 유지'],
         method: 'ai',
@@ -315,7 +318,8 @@ describe('ThumbnailAnalysisService', () => {
     it('AI fails → falls back to rule-based analysis', async () => {
       const product = makeProduct();
       prisma.product.findUnique.mockResolvedValue(product);
-      aiService.analyzeWithGeminiVision.mockResolvedValue(null); // AI returns null
+      aiService.analyzeQuality.mockResolvedValue(new Map()); // empty = AI returned nothing
+      aiService.checkCompliance.mockResolvedValue(new Map());
 
       const ruleResult = {
         overallScore: 60,
@@ -379,7 +383,7 @@ describe('ThumbnailAnalysisService', () => {
       const result = await service.analyzeProduct(product.id);
 
       // AI should not be called when there's no image
-      expect(aiService.analyzeWithGeminiVision).not.toHaveBeenCalled();
+      expect(aiService.analyzeQuality).not.toHaveBeenCalled();
       expect(result.grade).toBe('F');
       expect(result.issues[0].message).toBe('대표 이미지 미등록');
     });
@@ -392,17 +396,19 @@ describe('ThumbnailAnalysisService', () => {
   });
 
   describe('analyzeBatch', () => {
-    it('processes multiple products via batch and returns all results', async () => {
+    it('processes multiple products via batch API and returns all results', async () => {
       const productIds = ['prod-1', 'prod-2', 'prod-3'];
       const products = productIds.map((id) => makeProduct({ id }));
 
       prisma.product.findMany.mockResolvedValue(products);
 
-      const batchResults = new Map<string, any>();
-      for (const id of productIds) {
-        batchResults.set(id, { overallScore: 75, grade: 'A', scores: null, issues: [], suggestions: [], method: 'ai', complianceGrade: null, complianceScores: null });
-      }
-      aiService.analyzeImagesBatch.mockResolvedValue(batchResults);
+      // Batch calls return Map with all results
+      const qualityMap = new Map(productIds.map((id) => [id, {
+        overallScore: 75, grade: 'A' as const, scores: null, issues: [], suggestions: [], method: 'ai' as const,
+        complianceGrade: null, complianceScores: null,
+      }]));
+      aiService.analyzeQuality.mockResolvedValueOnce(qualityMap);
+      aiService.checkCompliance.mockResolvedValueOnce(new Map());
 
       for (const id of productIds) {
         prisma.thumbnailAnalysis.upsert.mockResolvedValueOnce({
@@ -415,33 +421,32 @@ describe('ThumbnailAnalysisService', () => {
           issues: [],
           suggestions: [],
           method: 'ai',
+          qualityAnalyzedAt: new Date(),
+          complianceAnalyzedAt: null,
         });
       }
 
       const results = await service.analyzeBatch(productIds);
       expect(results).toHaveLength(3);
-      expect(aiService.analyzeImagesBatch).toHaveBeenCalledTimes(1);
+      expect(aiService.analyzeQuality).toHaveBeenCalledTimes(1);
     });
 
-    it('continues when batch fails by falling back to single analysis', async () => {
+    it('processes only found products (unfound products skipped)', async () => {
       // findMany returns only prod-2 (prod-1 not found)
       prisma.product.findMany.mockResolvedValue([makeProduct({ id: 'prod-2' })]);
 
-      // batch call fails
-      aiService.analyzeImagesBatch.mockRejectedValue(new Error('batch failed'));
-
-      // fallback single analysis: findUnique + analyzeWithGeminiVision
-      prisma.product.findUnique.mockResolvedValueOnce(makeProduct({ id: 'prod-2' }));
-      aiService.analyzeWithGeminiVision.mockResolvedValueOnce({
+      // batch analysis for prod-2
+      aiService.analyzeQuality.mockResolvedValueOnce(new Map([['prod-2', {
         overallScore: 80,
-        grade: 'A',
+        grade: 'A' as const,
         scores: null,
         issues: [],
         suggestions: [],
         method: 'ai' as const,
         complianceGrade: null,
         complianceScores: null,
-      });
+      }]]));
+      aiService.checkCompliance.mockResolvedValueOnce(new Map());
       prisma.thumbnailAnalysis.upsert.mockResolvedValueOnce({
         id: 'ana-2',
         productId: 'prod-2',
@@ -452,6 +457,8 @@ describe('ThumbnailAnalysisService', () => {
         issues: [],
         suggestions: [],
         method: 'ai',
+        qualityAnalyzedAt: new Date(),
+        complianceAnalyzedAt: null,
       });
 
       const results = await service.analyzeBatch(['prod-1', 'prod-2']);
@@ -498,113 +505,6 @@ describe('ThumbnailGenerationService', () => {
     prisma = makePrisma();
     aiService = makeAiService();
     service = new ThumbnailGenerationService(prisma as any, aiService as any, { create: vi.fn().mockResolvedValue({}) } as any);
-  });
-
-  describe('createJobs', () => {
-    it('creates ThumbnailGeneration record with status="generating" initially, then "ready" on success', async () => {
-      const product = makeProduct();
-      prisma.thumbnailGeneration.findFirst.mockResolvedValue(null); // no existing job
-      prisma.product.findUnique.mockResolvedValue(product);
-
-      const createdRecord = {
-        id: 'gen-1',
-        productId: product.id,
-        companyId: product.companyId,
-        originalUrl: product.imageUrl,
-        status: 'generating',
-        candidates: [],
-        selectedUrl: null,
-        grade: '',
-        score: 0,
-        prompt: null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        product,
-      };
-      prisma.thumbnailGeneration.create.mockResolvedValue(createdRecord);
-
-      const generatedImages = [
-        { url: '/generated-thumbnails/prod-1_123_0.png', filename: 'prod-1_123_0.png' },
-        { url: '/generated-thumbnails/prod-1_123_1.png', filename: 'prod-1_123_1.png' },
-      ];
-      aiService.generateImages.mockResolvedValue(generatedImages);
-
-      const updatedRecord = {
-        ...createdRecord,
-        candidates: generatedImages,
-        status: 'ready',
-      };
-      prisma.thumbnailGeneration.update.mockResolvedValue(updatedRecord);
-
-      const results = await service.createJobs([product.id]);
-
-      expect(prisma.thumbnailGeneration.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({ status: 'generating', productId: product.id }),
-        }),
-      );
-      expect(aiService.generateImages).toHaveBeenCalledWith(
-        product.name,
-        product.category,
-        product.id,
-      );
-      expect(prisma.thumbnailGeneration.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({ status: 'ready' }),
-        }),
-      );
-      expect(results).toHaveLength(1);
-      expect(results[0].status).toBe('ready');
-    });
-
-    it('AI generation fails → status="failed", no placeholder URLs', async () => {
-      const product = makeProduct();
-      prisma.thumbnailGeneration.findFirst.mockResolvedValue(null);
-      prisma.product.findUnique.mockResolvedValue(product);
-
-      const createdRecord = {
-        id: 'gen-2',
-        productId: product.id,
-        companyId: product.companyId,
-        originalUrl: product.imageUrl,
-        status: 'generating',
-        candidates: [],
-        selectedUrl: null,
-        grade: '',
-        score: 0,
-        prompt: null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        product,
-      };
-      prisma.thumbnailGeneration.create.mockResolvedValue(createdRecord);
-      aiService.generateImages.mockRejectedValue(new Error('Imagen API error'));
-
-      const failedRecord = { ...createdRecord, candidates: [], status: 'failed' };
-      prisma.thumbnailGeneration.update.mockResolvedValue(failedRecord);
-
-      const results = await service.createJobs([product.id]);
-
-      expect(prisma.thumbnailGeneration.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({ status: 'failed', candidates: [] }),
-        }),
-      );
-      expect(results).toHaveLength(1);
-      expect(results[0].status).toBe('failed');
-      expect(results[0].candidates).toHaveLength(0);
-    });
-
-    it('skips product that already has an active job', async () => {
-      const existingJob = { id: 'gen-existing', status: 'generating' };
-      prisma.thumbnailGeneration.findFirst.mockResolvedValue(existingJob);
-
-      const results = await service.createJobs(['prod-1']);
-
-      expect(prisma.product.findUnique).not.toHaveBeenCalled();
-      expect(prisma.thumbnailGeneration.create).not.toHaveBeenCalled();
-      expect(results).toHaveLength(0);
-    });
   });
 
   describe('selectCandidate', () => {

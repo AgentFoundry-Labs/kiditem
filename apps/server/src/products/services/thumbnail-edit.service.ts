@@ -20,14 +20,15 @@ export class ThumbnailEditService {
 
     for (const productId of productIds) {
       try {
-        const existing = await this.prisma.thumbnailGeneration.findFirst({
+        // 이미 진행 중인 job이 있으면 skip
+        const activeJob = await this.prisma.thumbnailGeneration.findFirst({
           where: {
             productId,
             method: 'edit',
             status: { in: ['pending', 'generating'] },
           },
         });
-        if (existing) continue;
+        if (activeJob) continue;
 
         const product = await this.prisma.product.findUnique({
           where: { id: productId },
@@ -69,6 +70,8 @@ export class ThumbnailEditService {
     return results;
   }
 
+  private static readonly EDIT_TIMEOUT_MS = 5 * 60 * 1000; // 5분
+
   private async processEditJob(
     generationId: string,
     imageUrl: string,
@@ -76,14 +79,21 @@ export class ThumbnailEditService {
     category: string | null,
     purpose: 'compliance' | 'quality' = 'compliance',
   ): Promise<void> {
+    const timeout = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('편집 타임아웃 (5분 초과)')), ThumbnailEditService.EDIT_TIMEOUT_MS),
+    );
+
     try {
       await this.prisma.thumbnailGeneration.update({
         where: { id: generationId },
         data: { status: 'generating' },
       });
 
-      // 1. 이미지 편집
-      const candidates = await this.thumbnailAiService.editImage(imageUrl, generationId, purpose);
+      // 1. 이미지 편집 (타임아웃 적용)
+      const candidates = await Promise.race([
+        this.thumbnailAiService.editImage(imageUrl, generationId, purpose),
+        timeout,
+      ]);
 
       if (candidates.length === 0) {
         await this.prisma.thumbnailGeneration.update({
@@ -97,11 +107,13 @@ export class ThumbnailEditService {
       let editAnalysis: EditAnalysisResult | null = null;
       const firstCandidate = candidates[0];
       if (firstCandidate) {
-        const compliance = await this.thumbnailAiService.checkCompliance(
-          firstCandidate.url,
+        const complianceMap = await this.thumbnailAiService.checkCompliance([{
+          imageUrl: firstCandidate.url,
           productName,
-          category ?? undefined,
-        );
+          productId: generationId,
+          category: category ?? undefined,
+        }]);
+        const compliance = complianceMap.get(generationId) ?? null;
         if (compliance) {
           editAnalysis = {
             complianceGrade: compliance.complianceGrade,

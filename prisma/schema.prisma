@@ -628,6 +628,7 @@ model ThumbnailAnalysis {
 
   complianceGrade  String? @map("compliance_grade")   // PASS | WARN | FAIL
   complianceScores Json?   @map("compliance_scores")  // { violations, confidence, quality, violationCount }
+  imageSpec        Json?   @map("image_spec")          // { width, height, aspectRatio, fileSizeKB, format, issues }
 
   qualityAnalyzedAt    DateTime? @map("quality_analyzed_at") @db.Timestamptz
   complianceAnalyzedAt DateTime? @map("compliance_analyzed_at") @db.Timestamptz

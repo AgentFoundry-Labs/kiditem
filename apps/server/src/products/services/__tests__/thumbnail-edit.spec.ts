@@ -17,7 +17,7 @@ function makePrisma() {
 function makeAiService() {
   return {
     editImage: vi.fn(),
-    analyzeWithGeminiVision: vi.fn(),
+    checkCompliance: vi.fn().mockResolvedValue(new Map()),
   };
 }
 

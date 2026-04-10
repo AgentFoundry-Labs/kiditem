@@ -21,17 +21,6 @@ export function useGenerationList() {
   };
 }
 
-export function useCreateGeneration() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (productIds: string[]) =>
-      apiClient.post<ThumbnailGenerationItem[]>('/api/thumbnail-analysis/generations', { productIds }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.thumbnailAnalysis.generations() });
-    },
-  });
-}
-
 export function useSelectCandidate() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -59,6 +48,17 @@ export function useSkipGeneration() {
   return useMutation({
     mutationFn: (id: string) =>
       apiClient.put(`/api/thumbnail-analysis/generations/${id}/skip`, {}),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.thumbnailAnalysis.generations() });
+    },
+  });
+}
+
+export function useDeleteGeneration() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiClient.delete(`/api/thumbnail-analysis/generations/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.thumbnailAnalysis.generations() });
     },
