@@ -63,6 +63,26 @@ export const ThumbnailSummarySchema = z.object({
 export type ThumbnailListItem = z.infer<typeof ThumbnailListItemSchema>;
 export type ThumbnailSummary = z.infer<typeof ThumbnailSummarySchema>;
 
+// ─── 이미지 스펙 ────────────────────────────────────────────────
+
+export const ImageSpecIssueSchema = z.object({
+  type: z.string(),
+  severity: z.enum(['fail', 'warn']),
+  message: z.string(),
+});
+
+export const ImageSpecSchema = z.object({
+  width: z.number(),
+  height: z.number(),
+  aspectRatio: z.number(),
+  fileSizeKB: z.number(),
+  format: z.string(),
+  issues: z.array(ImageSpecIssueSchema),
+});
+
+export type ImageSpec = z.infer<typeof ImageSpecSchema>;
+export type ImageSpecIssue = z.infer<typeof ImageSpecIssueSchema>;
+
 // ─── AI 분석 스키마 ──────────────────────────────────────────────
 
 export const ThumbnailScoresSchema = z.object({

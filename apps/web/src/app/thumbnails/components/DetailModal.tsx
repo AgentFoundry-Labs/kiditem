@@ -5,7 +5,7 @@ import {
   Loader2, Sparkles,
 } from 'lucide-react';
 import { ScoreBreakdown } from './ScoreBreakdown';
-import type { ThumbnailAnalysisResult, ThumbnailGenerationItem } from '@kiditem/shared';
+import type { ThumbnailAnalysisResult, ThumbnailGenerationItem, ImageSpec } from '@kiditem/shared';
 import { cn } from '@/lib/utils';
 import {
   COMPLIANCE_GRADE_TEXT,
@@ -61,7 +61,7 @@ interface DetailModalProps {
   gen: ThumbnailGenerationItem | null | undefined;
   aiResult?: ThumbnailAnalysisResult;
   isAiAnalyzing: boolean;
-  imageSpec?: { width: number; height: number; aspectRatio: number; fileSizeKB: number; format: string; issues: Array<{ type: string; severity: string; message: string }> } | null;
+  imageSpec?: ImageSpec | null;
   generatedProductIds: Set<string>;
   onClose: () => void;
   onAiAnalyze: () => void;

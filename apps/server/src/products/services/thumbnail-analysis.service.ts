@@ -19,13 +19,15 @@ export class ThumbnailAnalysisService {
     private readonly thumbnailAiService: ThumbnailAiService,
   ) {}
 
-  cancelBatch(): { cancelled: boolean } {
-    if (this.batchAbort) {
-      this.batchAbort.abort();
-      this.batchAbort = null;
-      return { cancelled: true };
-    }
-    return { cancelled: false };
+  isBatchRunning(): boolean {
+    return this.batchAbort !== null;
+  }
+
+  cancelBatch(): { ok: true } {
+    if (!this.batchAbort) throw new NotFoundException('실행 중인 배치 분석이 없습니다');
+    this.batchAbort.abort();
+    this.batchAbort = null;
+    return { ok: true };
   }
 
   async checkImageSpec(imageUrl: string) {
@@ -386,6 +388,10 @@ export class ThumbnailAnalysisService {
   }
 
   async analyzeBatch(productIds: string[], scope: AnalysisScope = 'all'): Promise<ThumbnailAnalysisItem[]> {
+    if (this.batchAbort) {
+      throw new InternalServerErrorException('이미 배치 분석이 진행 중입니다. 취소 후 다시 시도하세요.');
+    }
+
     const BATCH_SIZE = 10;
     const results: ThumbnailAnalysisItem[] = [];
     this.batchAbort = new AbortController();

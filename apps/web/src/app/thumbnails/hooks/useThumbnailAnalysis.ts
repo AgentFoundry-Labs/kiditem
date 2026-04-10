@@ -53,14 +53,8 @@ export function useAnalyzeBatch() {
   });
 }
 
-export interface ImageSpec {
-  width: number;
-  height: number;
-  aspectRatio: number;
-  fileSizeKB: number;
-  format: string;
-  issues: Array<{ type: string; severity: 'fail' | 'warn'; message: string }>;
-}
+export type { ImageSpec } from '@kiditem/shared';
+import type { ImageSpec } from '@kiditem/shared';
 
 export function useCheckImageSpec() {
   return useMutation({

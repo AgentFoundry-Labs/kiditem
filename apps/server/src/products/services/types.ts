@@ -1,4 +1,5 @@
 import type { Product, Company, Inventory, ProfitLoss } from '@prisma/client';
+import type { ImageSpec, ImageSpecIssue } from '@kiditem/shared';
 
 // ── Thumbnail types ──
 
@@ -38,20 +39,7 @@ export interface AnalysisScores {
   differentiation: number;
 }
 
-export interface ImageSpecIssue {
-  type: string;
-  severity: 'fail' | 'warn';
-  message: string;
-}
-
-export interface ImageSpec {
-  width: number;
-  height: number;
-  aspectRatio: number;
-  fileSizeKB: number;
-  format: string;
-  issues: ImageSpecIssue[];
-}
+export type { ImageSpec, ImageSpecIssue };
 
 export interface AnalysisIssue {
   type: string;

@@ -19,6 +19,8 @@ import {
   ListThumbnailAnalysesQueryDto,
   ListGenerationsQueryDto,
   EditThumbnailDto,
+  CheckImageSpecDto,
+  PreInspectDto,
 } from '../dto';
 
 @Controller('thumbnail-analysis')
@@ -61,12 +63,12 @@ export class ThumbnailAnalysisController {
   }
 
   @Post('image-spec')
-  checkImageSpec(@Body() body: { imageUrl: string }) {
+  checkImageSpec(@Body() body: CheckImageSpecDto) {
     return this.analysisService.checkImageSpec(body.imageUrl);
   }
 
   @Post('pre-inspect')
-  preInspect(@Body() body: { productIds?: string[] }) {
+  preInspect(@Body() body: PreInspectDto) {
     return this.analysisService.preInspect(body.productIds);
   }
 
