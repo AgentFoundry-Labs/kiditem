@@ -9,13 +9,13 @@ interface RegenerationPipelineProps {
 }
 
 export function RegenerationPipeline({ pendingProducts, activeGenerations, completedGenerations }: RegenerationPipelineProps) {
-  const fPending = pendingProducts.filter((p) => p.grade === 'F');
+  const fPending = pendingProducts.filter((p) => p.complianceGrade === 'FAIL' || p.grade === 'F');
   const totalPipeline = fPending.length + activeGenerations.length + completedGenerations.length;
   const donePipeline = completedGenerations.filter((g) => g.status === 'applied').length;
   const pipelinePct = totalPipeline > 0 ? Math.round((donePipeline / totalPipeline) * 100) : 0;
 
   const steps = [
-    { label: '재생성 대기', desc: 'F등급 상품', count: fPending.length, color: '#dc2626', bg: 'rgba(220,38,38,0.06)', icon: Clock },
+    { label: '재생성 대기', desc: '가이드라인 위반 + F등급', count: fPending.length, color: '#dc2626', bg: 'rgba(220,38,38,0.06)', icon: Clock },
     { label: 'AI 생성 중', desc: 'Gemini 이미지 생성', count: activeGenerations.filter((g) => g.status === 'generating').length, color: '#2563eb', bg: 'rgba(37,99,235,0.06)', icon: Loader2 },
     { label: '후보 선택', desc: '3장 중 1장 선택', count: activeGenerations.filter((g) => g.status === 'ready' && !g.selectedUrl).length, color: '#d97706', bg: 'rgba(217,119,6,0.06)', icon: Eye },
     { label: '쿠팡 적용', desc: 'Wing 이미지 교체', count: activeGenerations.filter((g) => g.status === 'ready' && !!g.selectedUrl).length, color: '#7c3aed', bg: 'rgba(124,58,237,0.06)', icon: ExternalLink },

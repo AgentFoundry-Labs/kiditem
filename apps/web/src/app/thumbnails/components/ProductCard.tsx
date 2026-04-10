@@ -2,30 +2,7 @@
 import { useState } from 'react';
 import { ImageIcon, AlertTriangle, Zap, Loader2, CheckCircle, Wand2, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
-
-const GRADE_BG: Record<string, string> = {
-  S: 'bg-emerald-500',
-  A: 'bg-blue-500',
-  B: 'bg-amber-500',
-  C: 'bg-orange-500',
-  F: 'bg-red-500',
-};
-
-const GRADE_LABELS: Record<string, string> = {
-  S: 'EXCELLENT',
-  A: 'GOOD',
-  B: 'AVERAGE',
-  C: 'POOR',
-  F: 'CRITICAL',
-};
-
-const GRADE_COLORS: Record<string, string> = {
-  S: 'text-emerald-500',
-  A: 'text-blue-500',
-  B: 'text-amber-500',
-  C: 'text-orange-500',
-  F: 'text-red-500',
-};
+import { QUALITY_GRADE_BG, QUALITY_GRADE_TEXT, QUALITY_GRADE_LABELS, COMPLIANCE_GRADE_COLORS } from '../lib/grade-constants';
 
 interface ProductCardProps {
   imageUrl: string | null;
@@ -38,6 +15,7 @@ interface ProductCardProps {
   candidateCount?: number;
   aiAnalyzed?: boolean;
   isGenerating?: boolean;
+  complianceGrade?: string;
   onGenerate?: () => void;
   onClick?: () => void;
 }
@@ -53,6 +31,7 @@ export function ProductCard({
   candidateCount,
   aiAnalyzed,
   isGenerating,
+  complianceGrade,
   onGenerate,
   onClick,
 }: ProductCardProps) {
@@ -82,13 +61,21 @@ export function ProductCard({
 
         {grade && (
           <div className="absolute top-2 left-2 flex items-center gap-1">
-            <span className={cn('inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-sm font-black text-white', GRADE_BG[grade] || 'bg-slate-500')}>
+            <span className={cn('inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-sm font-black text-white', QUALITY_GRADE_BG[grade] || 'bg-slate-500')}>
               {grade}
               {score !== undefined && <span className="font-mono font-medium text-[12px] opacity-80">{score}</span>}
             </span>
             {aiAnalyzed && (
               <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[11px] font-bold bg-purple-600 text-white">
                 <Zap size={10} /> AI
+              </span>
+            )}
+            {complianceGrade && (
+              <span
+                className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[10px] font-bold text-white"
+                style={{ backgroundColor: COMPLIANCE_GRADE_COLORS[complianceGrade] || '#64748b' }}
+              >
+                {complianceGrade === 'FAIL' ? '위반' : complianceGrade === 'WARN' ? '주의' : '적합'}
               </span>
             )}
           </div>
@@ -157,8 +144,8 @@ export function ProductCard({
         <div className="text-[14px] font-medium text-slate-900 line-clamp-2 leading-5">{name}</div>
         <div className="mt-1.5">
           {badge || (grade && (
-            <span className={cn('text-[12px] font-mono', GRADE_COLORS[grade] || 'text-slate-400')}>
-              {GRADE_LABELS[grade] || grade}
+            <span className={cn('text-[12px] font-mono', QUALITY_GRADE_TEXT[grade] || 'text-slate-400')}>
+              {QUALITY_GRADE_LABELS[grade] || grade}
             </span>
           ))}
         </div>
