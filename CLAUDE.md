@@ -29,6 +29,7 @@ extensions/          — Chrome extensions (product-scraper: 1688/Alibaba, coupa
 - **No silent model fallback** — `model = model or default` pattern prohibited.
 - **No native PG enums** — `String` + app-level validation. Production cast error experience.
 - **PR 생성 시** — `.github/PULL_REQUEST_TEMPLATE.md` 템플릿 내용을 body에 포함하고 체크리스트를 작성할 것. DB 변경/backfill/init.sql.gz 갱신 여부를 반드시 명시.
+- **PR 생성 전 체크** — `gh pr create` 시 pre-hook이 자동 실행. 코드 컨벤션 + 문서 업데이트 체크리스트 확인 후 PR 생성.
 
 ## Reference (read when relevant)
 

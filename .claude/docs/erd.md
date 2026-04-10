@@ -418,7 +418,7 @@ erDiagram
 
 ## 7. AI/썸네일
 
-> 상품 썸네일 AI 분석 (Gemini Vision) → 재생성 (Imagen 3.0) → 적용.
+> 사전 검수(이미지 스펙) → AI 분류(품질+가이드라인, Gemini Vision) → AI 편집(가이드라인 수정/품질 개선, Gemini Image).
 
 ```mermaid
 erDiagram
@@ -439,12 +439,17 @@ erDiagram
         json issues "문제점"
         json suggestions "개선안"
         string method "ai|rule"
+        string complianceGrade "PASS|WARN|FAIL"
+        json complianceScores "12항목 위반 여부"
+        json imageSpec "해상도/비율/크기 사전 체크"
     }
     ThumbnailGeneration {
         uuid id PK
-        json candidates "3장 후보 URL"
+        json candidates "편집 후보 URL"
         string selectedUrl "선택된 후보"
-        string status "pending|generating|ready|applied|skipped"
+        string status "pending|generating|ready|failed|applied|skipped"
+        string method "edit"
+        json editAnalysis "편집 후 가이드라인 재체크"
     }
     ContentGeneration {
         uuid id PK
@@ -456,13 +461,16 @@ erDiagram
 
     Product ||--o{ Thumbnail : "CTR 추적"
     Product ||--|| ThumbnailAnalysis : "AI 분석 1:1"
-    Product ||--o{ ThumbnailGeneration : "재생성"
+    Product ||--o{ ThumbnailGeneration : "AI 편집"
     Product ||--o{ ContentGeneration : "콘텐츠 생성"
 ```
 
 **핵심 포인트:**
-- `ThumbnailAnalysis.scores` — 5차원: guideline(25), heroShot(20), composition(20), branding(15), mobile(20)
-- `ThumbnailGeneration` 상태 흐름: pending → generating → ready → applied/skipped
+- `ThumbnailAnalysis.scores` — 5차원: heroShot(25), composition(25), branding(15), mobile(20), differentiation(15)
+- `ThumbnailAnalysis.complianceGrade` — 가이드라인 준수: PASS/WARN/FAIL. 12항목 위반 판정.
+- `ThumbnailAnalysis.imageSpec` — 사전 검수: 해상도(최소 1000x1000), 비율(1:1 필수), 크기(10MB 이하). 스펙 FAIL 시 AI 호출 생략.
+- `ThumbnailGeneration` 상태 흐름: pending → generating → ready/failed → applied/skipped
+- `ThumbnailGeneration.method` — `edit` (기존 이미지 보정). `generate` (Imagen 무에서 생성)은 삭제됨.
 - `Thumbnail` vs `ThumbnailAnalysis` — CTR 기반 vs AI 기반 (별도 시스템)
 
 ---

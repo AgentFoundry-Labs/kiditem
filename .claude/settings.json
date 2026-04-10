@@ -4,5 +4,18 @@
       "Bash(*)"
     ],
     "deny": []
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if echo \"$CLAUDE_TOOL_INPUT\" | grep -q 'gh pr create'; then printf 'CONVENTION_CHECK_REQUIRED: PR 생성 전 체크리스트\\n1. 코드 컨벤션: diff를 CLAUDE.md + 워크스페이스 CLAUDE.md 규칙과 대조\\n2. 문서 업데이트: 변경 도메인의 CLAUDE.md, ERD(.claude/docs/erd.md), 스키마 주석이 코드와 일치하는지 확인\\n3. 위반/불일치 시 수정 후 PR 생성\\n'; fi"
+          }
+        ]
+      }
+    ]
   }
 }
