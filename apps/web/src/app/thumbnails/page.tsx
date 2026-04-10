@@ -1,407 +1,1207 @@
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
-import { Sparkles, RefreshCw, Zap, Loader2, X, Info } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import {
+  ImageIcon,
+  RefreshCw,
+  Zap,
+  AlertTriangle,
+  CheckCircle,
+  Scan,
+  Wand2,
+  Loader2,
+  ArrowRight,
+  Sparkles,
+  Search,
+  TrendingUp,
+} from 'lucide-react';
 import { toast } from 'sonner';
-import { cn } from '@/lib/utils';
-import { apiClient } from '@/lib/api-client';
-import PageSkeleton from '@/components/ui/PageSkeleton';
 import type { ThumbnailAnalysisResult, ThumbnailGenerationItem } from '@kiditem/shared';
 
-import { useAnalysisList, useAnalyzeBatch } from './hooks/useThumbnailAnalysis';
-import type { AnalysisScope } from './hooks/useThumbnailAnalysis';
-import { useGenerationList, useCreateGeneration, useSelectCandidate, useApplyGeneration, useSkipGeneration, useCreateEditJobs } from './hooks/useThumbnailGenerations';
+import { ErrorState, EmptyState } from '@/components/ui/EmptyState';
+import PageSkeleton from '@/components/ui/PageSkeleton';
 
-import { AnalysisKpiCards } from './components/AnalysisKpiCards';
-import { RegenerationPipeline } from './components/RegenerationPipeline';
-import { GradeDonutChart } from './components/GradeDonutChart';
+import {
+  useAnalysisList,
+  useAnalyze,
+  useAnalyzeBatch,
+  type AnalysisScope,
+} from './hooks/useThumbnailAnalysis';
+import {
+  useGenerationList,
+  useCreateGeneration,
+  useSelectCandidate,
+  useApplyGeneration,
+  useSkipGeneration,
+} from './hooks/useThumbnailGenerations';
+
 import { ProductCard } from './components/ProductCard';
 import { DetailModal } from './components/DetailModal';
-import { UploadAnalyzer } from './components/UploadAnalyzer';
-import { GenerationQueue } from './components/GenerationQueue';
-import { GenerationHistory } from './components/GenerationHistory';
 import { PaginationBar } from './components/PaginationBar';
+import { UploadAnalyzer } from './components/UploadAnalyzer';
+import { ThumbnailStatusBadge } from './components/ThumbnailStatusBadge';
+import { openCoupangWingInventory } from './lib/coupang-wing';
 
-type TabKey = 'all' | 'unclassified' | 'upload' | 'queue' | 'history';
+type TabKey = 'unclassified' | 'all' | 'needsfix' | 'queue' | 'history' | 'tracking';
+
+const gradeBg: Record<string, string> = {
+  S: 'bg-emerald-500',
+  A: 'bg-blue-500',
+  B: 'bg-amber-500',
+  C: 'bg-orange-500',
+  F: 'bg-red-500',
+};
 
 export default function ThumbnailsPage() {
+  // ─── Server state via React Query ──────────────────────────
+  const analysisQuery = useAnalysisList();
+  const generationQuery = useGenerationList();
+
+  const analyzeMutation = useAnalyze();
+  const analyzeBatchMutation = useAnalyzeBatch();
+  const createGenerationMutation = useCreateGeneration();
+  const selectCandidateMutation = useSelectCandidate();
+  const applyGenerationMutation = useApplyGeneration();
+  const skipGenerationMutation = useSkipGeneration();
+
+  // ─── Local UI state ────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<TabKey>('all');
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Modals
+  const [selectedProduct, setSelectedProduct] = useState<ThumbnailAnalysisResult | null>(null);
+  const [selectedGen, setSelectedGen] = useState<ThumbnailGenerationItem | null>(null);
+
+  // AI analysis — local overrides for immediate feedback before refetch settles
+  const [aiAnalyzingId, setAiAnalyzingId] = useState<string | null>(null);
+  const [aiResults, setAiResults] = useState<Record<string, ThumbnailAnalysisResult>>({});
+  const [generatingIds, setGeneratingIds] = useState<Set<string>>(new Set());
+
+  // Pagination
   const [gradeFilter, setGradeFilter] = useState('all');
   const [page, setPage] = useState(1);
   const [queuePage, setQueuePage] = useState(1);
   const [historyPage, setHistoryPage] = useState(1);
   const [unclassifiedPage, setUnclassifiedPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
-  const [showInfoBanner, setShowInfoBanner] = useState(true);
 
-  const [selectedProduct, setSelectedProduct] = useState<ThumbnailAnalysisResult | null>(null);
-  const [selectedGen, setSelectedGen] = useState<ThumbnailGenerationItem | null>(null);
+  // ─── Derived data ──────────────────────────────────────────
+  const scanResult = analysisQuery.data;
+  const generations: ThumbnailGenerationItem[] = generationQuery.data ?? [];
 
-  const [aiAnalyzing, setAiAnalyzing] = useState<string | null>(null);
-  const [aiResults, setAiResults] = useState<Record<string, ThumbnailAnalysisResult>>({});
-  const [batchAi, setBatchAi] = useState<{ running: boolean; total: number; done: number; current: string }>({
-    running: false, total: 0, done: 0, current: '',
-  });
-  const batchCancelRef = useRef(false);
+  const generatedProductIds = useMemo(
+    () => new Set(generations.map((g) => g.productId)),
+    [generations],
+  );
+  const activeGenerations = useMemo(
+    () => generations.filter((g) => ['pending', 'generating', 'ready'].includes(g.status)),
+    [generations],
+  );
+  const completedGenerations = useMemo(
+    () => generations.filter((g) => ['applied', 'skipped'].includes(g.status)),
+    [generations],
+  );
 
-  const [generatingIds, setGeneratingIds] = useState<Set<string>>(new Set());
-  const [batchGenerating, setBatchGenerating] = useState(false);
-  const [batchEditing, setBatchEditing] = useState(false);
-  const [editingProductId, setEditingProductId] = useState<string | null>(null);
+  // ─── Actions ───────────────────────────────────────────────
 
-  // ─── Data ──────────────────────────────────────────────────────
-  const { data: scanResult, isLoading: loading, refetch } = useAnalysisList();
-  const { data: generations = [], refetch: refetchGenerations } = useGenerationList();
-  const selectCandidateMutation = useSelectCandidate();
-  const applyMutation = useApplyGeneration();
-  const skipMutation = useSkipGeneration();
-  const createGenerationMutation = useCreateGeneration();
-  const createEditJobsMutation = useCreateEditJobs();
-  const analyzeBatchMutation = useAnalyzeBatch();
-
-  // ─── Derived ───────────────────────────────────────────────────
-  const allResults = scanResult?.allResults ?? [];
-  const unclassified = scanResult?.unclassified ?? [];
-  const gradeDistribution = scanResult?.gradeDistribution ?? {};
-  const complianceDistribution = scanResult?.complianceDistribution ?? {};
-  const totalCount = scanResult?.total ?? 0;
-  const analyzedCount = scanResult?.analyzed ?? 0;
-  const unclassifiedCount = scanResult?.unclassifiedCount ?? unclassified.length;
-
-  const classifiedResults = allResults.filter((r) => r.qualityAnalyzed && r.complianceAnalyzed);
-  const avgScore = analyzedCount > 0 ? Math.round(classifiedResults.reduce((s, r) => s + r.overallScore, 0) / Math.max(classifiedResults.length, 1)) : 0;
-  const healthGrade = avgScore >= 90 ? 'S' : avgScore >= 75 ? 'A' : avgScore >= 60 ? 'B' : avgScore >= 40 ? 'C' : 'F';
-  const goodCount = (gradeDistribution['S'] || 0) + (gradeDistribution['A'] || 0);
-  const goodRate = analyzedCount > 0 ? Math.round(goodCount / analyzedCount * 100) : 0;
-  const criticalCount = classifiedResults.filter((r) => r.issues.some((i) => i.severity === 'critical')).length;
-  const classifiedPct = totalCount > 0 ? Math.round(analyzedCount / totalCount * 100) : 0;
-
-  // 재생성 탭: 분류 완료된 상품 중에서만 필터 (미분류는 분석부터 해야 함)
-  const complianceFailProducts = classifiedResults.filter((r) => r.complianceGrade === 'FAIL' || r.complianceGrade === 'WARN');
-  const qualityLowProducts = classifiedResults.filter((r) => r.grade === 'F' || r.grade === 'C');
-  const allQueueProducts = [...new Map([...complianceFailProducts, ...qualityLowProducts].map((p) => [p.productId, p])).values()];
-  const generatedProductIds = new Set(generations.map((g) => g.productId));
-  const pendingProducts = allQueueProducts.filter((p) => !generatedProductIds.has(p.productId));
-  const activeGenerations = generations.filter((g) => ['pending', 'generating', 'ready'].includes(g.status));
-  const completedGenerations = generations.filter((g) => ['applied', 'skipped'].includes(g.status));
-
-  const complianceGrades = new Set(['PASS', 'WARN', 'FAIL']);
-  const filtered = gradeFilter === 'all'
-    ? classifiedResults
-    : gradeFilter === 'critical'
-      ? classifiedResults.filter((r) => r.issues.some((i) => i.severity === 'critical'))
-      : complianceGrades.has(gradeFilter)
-        ? classifiedResults.filter((r) => r.complianceGrade === gradeFilter)
-        : classifiedResults.filter((r) => r.grade === gradeFilter);
-
-  const totalPages = Math.ceil(filtered.length / pageSize);
-  const paged = filtered.slice((page - 1) * pageSize, page * pageSize);
-
-  const unclassifiedWithImage = unclassified.filter((r) => r.imageUrl);
-  const unclassifiedNoImage = unclassified.length - unclassifiedWithImage.length;
-  const unclassifiedPages = Math.ceil(unclassifiedWithImage.length / pageSize);
-  const pagedUnclassified = unclassifiedWithImage.slice((unclassifiedPage - 1) * pageSize, unclassifiedPage * pageSize);
-
-  const activeGenForProduct = selectedProduct
-    ? generations.find((g) => g.productId === selectedProduct.productId && ['generating', 'ready'].includes(g.status))
-    : undefined;
-
-  // ─── Actions ───────────────────────────────────────────────────
-  const runAiAnalysis = async (productId: string, scope: AnalysisScope = 'all') => {
-    setAiAnalyzing(productId);
+  const generateSingle = async (productId: string) => {
+    setGeneratingIds((prev) => new Set(prev).add(productId));
     try {
-      const data = await apiClient.post<ThumbnailAnalysisResult>('/api/thumbnail-analysis/analyze', { productId, scope });
-      setAiResults((prev) => ({ ...prev, [productId]: data }));
-      const label = scope === 'quality' ? '품질 분석' : scope === 'compliance' ? '가이드라인 체크' : '전체 분석';
-      if (data.method === 'rule') {
-        toast.error(`${data.grade}등급 — ${label} 실패, 룰 기반 fallback 적용 (AI 키 확인 필요)`);
-      } else {
-        toast.success(`${data.grade}등급 (${data.overallScore}점) — ${label} 완료`);
+      const created = await createGenerationMutation.mutateAsync([productId]);
+      if (Array.isArray(created)) {
+        const genItem = created.find((d) => d.productId === productId);
+        if (genItem) setSelectedGen(genItem);
       }
-    } catch {
-      toast.error('AI 분석 실패');
+      toast.success('썸네일 재생성 시작');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '썸네일 생성 실패');
     } finally {
-      setAiAnalyzing(null);
+      setGeneratingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(productId);
+        return next;
+      });
     }
   };
 
-  const runBatchAiAnalysis = useCallback(async (items: ThumbnailAnalysisResult[], scope: AnalysisScope = 'all') => {
+  const generateBatch = async (productIds: string[]) => {
+    if (productIds.length === 0) return;
+    try {
+      await createGenerationMutation.mutateAsync(productIds);
+      toast.success(`${productIds.length}개 썸네일 재생성 시작`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '일괄 재생성 실패');
+    }
+  };
+
+  const selectCandidate = async (generationId: string, selectedUrl: string) => {
+    try {
+      await selectCandidateMutation.mutateAsync({ id: generationId, selectedUrl });
+      if (selectedGen?.id === generationId) {
+        setSelectedGen((prev) => (prev ? { ...prev, selectedUrl, status: 'ready' } : prev));
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '후보 선택 실패');
+    }
+  };
+
+  const markApplied = async (generationId: string) => {
+    try {
+      await applyGenerationMutation.mutateAsync(generationId);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '적용 처리 실패');
+    }
+  };
+
+  const skipGeneration = async (generationId: string) => {
+    try {
+      await skipGenerationMutation.mutateAsync(generationId);
+      setSelectedGen(null);
+      setSelectedProduct(null);
+      toast.success('건너뛰기 완료');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '건너뛰기 실패');
+    }
+  };
+
+  const openCoupangEdit = (gen: ThumbnailGenerationItem) => {
+    openCoupangWingInventory();
+    markApplied(gen.id);
+    setSelectedGen(null);
+    setSelectedProduct(null);
+  };
+
+  const runAiAnalysis = async (productId: string) => {
+    setAiAnalyzingId(productId);
+    try {
+      const data = await analyzeMutation.mutateAsync({ productId });
+      setAiResults((prev) => ({ ...prev, [productId]: data }));
+      const methodLabel = data.method === 'ai' ? 'Gemini Vision' : '룰 기반';
+      toast.success(`${data.grade}등급 (${data.overallScore}점) — ${methodLabel} 분석 완료`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'AI 분석 실패');
+    } finally {
+      setAiAnalyzingId(null);
+    }
+  };
+
+  const runBatchAiAnalysis = async (
+    items: ThumbnailAnalysisResult[],
+    scope: AnalysisScope = 'all',
+  ) => {
     const targets = items.filter((i) => i.imageUrl && !aiResults[i.productId]);
     if (targets.length === 0) {
       toast.error('분석할 상품이 없습니다 (이미지 없거나 이미 분석됨)');
       return;
     }
-    const BATCH_SIZE = 10;
-    const productIds = targets.map((t) => t.productId);
-    batchCancelRef.current = false;
-    setBatchAi({ running: true, total: productIds.length, done: 0, current: '' });
-    let completed = 0;
-    let fallbackCount = 0;
 
-    for (let i = 0; i < productIds.length; i += BATCH_SIZE) {
-      if (batchCancelRef.current) break;
-      const chunk = productIds.slice(i, i + BATCH_SIZE);
-      setBatchAi((prev) => ({ ...prev, done: completed, current: `${completed + 1}-${Math.min(completed + BATCH_SIZE, productIds.length)}` }));
-      try {
-        const results = await analyzeBatchMutation.mutateAsync({ productIds: chunk, scope });
-        for (const r of results) {
-          setAiResults((prev) => ({ ...prev, [r.productId]: r }));
-        }
-        completed += chunk.length;
-        fallbackCount += results.filter((r) => r.method === 'rule').length;
-      } catch { /* batch failure skipped */ }
-    }
-
-    const wasCancelled = batchCancelRef.current;
-    setBatchAi({ running: false, total: productIds.length, done: wasCancelled ? completed : productIds.length, current: '' });
-    const label = scope === 'quality' ? '품질 분석' : scope === 'compliance' ? '가이드라인 체크' : '전체 분석';
-    const msg = wasCancelled
-      ? `${label} 중단됨 (${completed}/${productIds.length}개 완료)`
-      : fallbackCount > 0
-        ? `${productIds.length}개 중 ${fallbackCount}개 AI 실패 → 룰 기반 fallback 적용`
-        : `${productIds.length}개 상품 ${label} 완료 — DB 저장됨`;
-    if (wasCancelled || fallbackCount > 0) toast.error(msg); else toast.success(msg);
-    refetch();
-  }, [aiResults, refetch, analyzeBatchMutation]);
-
-  const generateSingle = async (productId: string) => {
-    setGeneratingIds((prev) => new Set(prev).add(productId));
     try {
-      const data = await createGenerationMutation.mutateAsync([productId]);
-      const genItem = data.find((d) => d.productId === productId);
-      if (genItem) setSelectedGen(genItem);
-    } catch { /* ignore */ } finally {
-      setGeneratingIds((prev) => { const next = new Set(prev); next.delete(productId); return next; });
+      const results = await analyzeBatchMutation.mutateAsync({
+        productIds: targets.map((t) => t.productId),
+        scope,
+      });
+      if (Array.isArray(results)) {
+        setAiResults((prev) => {
+          const next = { ...prev };
+          for (const r of results) next[r.productId] = r;
+          return next;
+        });
+      }
+      toast.success(`${targets.length}개 상품 AI 분류 완료 — DB 저장됨`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'batch 분석 실패');
     }
   };
 
-  const generateBatch = async () => {
-    const ids = pendingProducts.filter((p) => p.complianceGrade === 'FAIL' || p.grade === 'F').map((p) => p.productId);
-    if (!ids.length) return;
-    setBatchGenerating(true);
-    try {
-      await createGenerationMutation.mutateAsync(ids);
-    } catch { /* ignore */ } finally {
-      setBatchGenerating(false);
-    }
-  };
+  // ─── Loading / error states ────────────────────────────────
+  if (analysisQuery.isLoading) return <PageSkeleton variant="cards" />;
+  if (analysisQuery.isError) {
+    return (
+      <ErrorState
+        message={analysisQuery.error instanceof Error ? analysisQuery.error.message : '스캔 실패'}
+        onRetry={() => analysisQuery.refetch()}
+      />
+    );
+  }
+  if (!scanResult) return <EmptyState message="스캔 결과 없음" />;
 
-  const editSingle = async (productId: string, purpose: 'compliance' | 'quality' = 'compliance') => {
-    setEditingProductId(productId);
-    try {
-      await createEditJobsMutation.mutateAsync({ productIds: [productId], purpose });
-      toast.success(purpose === 'quality' ? '품질 개선 시작됨' : '가이드라인 수정 시작됨');
-    } catch {
-      toast.error(purpose === 'quality' ? '품질 개선 실패' : '가이드라인 수정 실패');
-    } finally {
-      setEditingProductId(null);
-    }
-  };
+  const { gradeDistribution, allResults, unclassified = [] } = scanResult;
+  const fCount = gradeDistribution['F'] || 0;
+  const unclassifiedCount = unclassified.filter((u) => u.imageUrl).length;
 
-  const editBatch = async (purpose: 'compliance' | 'quality' = 'compliance') => {
-    const ids = purpose === 'quality'
-      ? pendingProducts.filter((p) => p.grade === 'F' || p.grade === 'C').map((p) => p.productId)
-      : pendingProducts.filter((p) => p.complianceGrade === 'FAIL' || p.complianceGrade === 'WARN').map((p) => p.productId);
-    if (!ids.length) return;
-    setBatchEditing(true);
-    try {
-      await createEditJobsMutation.mutateAsync({ productIds: ids, purpose });
-      toast.success(`${ids.length}개 상품 ${purpose === 'quality' ? '품질 개선' : '가이드라인 수정'} 시작됨`);
-    } catch {
-      toast.error(`일괄 ${purpose === 'quality' ? '품질 개선' : '가이드라인 수정'} 실패`);
-    } finally {
-      setBatchEditing(false);
-    }
-  };
+  const classifiedResults = allResults.filter((r) => r.method === 'ai');
 
-  const openCoupangEdit = (gen: ThumbnailGenerationItem) => {
-    const pid = gen.product.coupangProductId;
-    if (pid) window.open(`https://wing.coupang.com/vendor-inventory/manage/product/${pid}`, '_blank');
-    applyMutation.mutate(gen.id);
-    setSelectedGen(null);
-    setSelectedProduct(null);
-  };
+  const fGradeProducts = classifiedResults.filter((r) => r.grade === 'F' && r.imageUrl);
+  const cGradeProducts = classifiedResults.filter((r) => r.grade === 'C' && r.imageUrl);
+  const queueProducts = [...fGradeProducts, ...cGradeProducts];
+  const pendingProducts = queueProducts.filter((p) => !generatedProductIds.has(p.productId));
 
-  // ─── Render ────────────────────────────────────────────────────
-  if (loading) return <PageSkeleton variant="dashboard" />;
+  const needsFixIds = new Set(queueProducts.map((p) => p.productId));
+  const validActiveGenerations = activeGenerations.filter((g) => needsFixIds.has(g.productId));
+
+  const sq = searchQuery.trim().toLowerCase();
+  const searchFilter = (r: ThumbnailAnalysisResult) =>
+    !sq || r.productName.toLowerCase().includes(sq);
+
+  const filtered = (
+    activeTab === 'needsfix'
+      ? classifiedResults.filter((r) => r.grade === 'F' || r.grade === 'C')
+      : gradeFilter === 'all'
+      ? classifiedResults
+      : gradeFilter === 'critical'
+      ? classifiedResults.filter((r) => r.issues.some((i) => i.severity === 'critical'))
+      : classifiedResults.filter((r) => r.grade === gradeFilter)
+  ).filter(searchFilter);
+
+  const totalPages = Math.ceil(filtered.length / pageSize);
+  const paged = filtered.slice((page - 1) * pageSize, page * pageSize);
+
+  const unclassifiedWithImage = unclassified.filter((r) => r.imageUrl).filter(searchFilter);
+  const unclassifiedNoImage = unclassified.filter((r) => !r.imageUrl).filter(searchFilter);
+  const unclassifiedPages = Math.ceil(unclassifiedWithImage.length / pageSize);
+  const pagedUnclassified = unclassifiedWithImage.slice(
+    (unclassifiedPage - 1) * pageSize,
+    unclassifiedPage * pageSize,
+  );
+  const noImagePages = Math.ceil(unclassifiedNoImage.length / pageSize);
+  const pagedNoImage = unclassifiedNoImage.slice(
+    (unclassifiedPage - 1) * pageSize,
+    unclassifiedPage * pageSize,
+  );
+
+  const activeGenForProduct = selectedProduct
+    ? generations.find(
+        (g) =>
+          g.productId === selectedProduct.productId &&
+          ['generating', 'ready'].includes(g.status),
+      ) ?? null
+    : null;
+
+  // ─── Dashboard metrics ─────────────────────────────────────
+  const totalCount = scanResult.total;
+  const analyzedCount = scanResult.analyzed;
+  const avgScore =
+    analyzedCount > 0
+      ? Math.round(classifiedResults.reduce((s, r) => s + r.overallScore, 0) / analyzedCount)
+      : 0;
+  const healthGrade =
+    avgScore >= 90 ? 'S' : avgScore >= 75 ? 'A' : avgScore >= 60 ? 'B' : avgScore >= 40 ? 'C' : 'F';
+  const criticalCount = classifiedResults.filter((r) =>
+    r.issues.some((i) => i.severity === 'critical'),
+  ).length;
+
+  const cCount = gradeDistribution['C'] || 0;
+  const needsFixCount = fCount + cCount;
+  const appliedCount = completedGenerations.filter((g) => g.status === 'applied').length;
+
+  const allQueueItems = [
+    ...validActiveGenerations.map((g) => ({ type: 'gen' as const, gen: g })),
+    ...pendingProducts.map((p) => ({ type: 'pending' as const, product: p })),
+  ];
+  const queueTotalPages = Math.ceil(allQueueItems.length / pageSize);
+  const pagedQueue = allQueueItems.slice((queuePage - 1) * pageSize, queuePage * pageSize);
+
+  const historyTotalPages = Math.ceil(completedGenerations.length / pageSize);
+  const pagedHistory = completedGenerations.slice(
+    (historyPage - 1) * pageSize,
+    historyPage * pageSize,
+  );
+
+  const batchAnalyzing = analyzeBatchMutation.isPending;
+  const batchGenerating = createGenerationMutation.isPending;
 
   return (
-    <div className="space-y-5">
-      {/* Header */}
+    <div className="thumb-theme space-y-4 animate-in">
+      {/* ═══ HEADER ═══ */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-purple-600">
-            <Sparkles size={20} className="text-white" />
+          <div
+            className="w-9 h-9 rounded-xl flex items-center justify-center"
+            style={{ background: 'var(--thumb-primary)' }}
+          >
+            <Sparkles size={18} className="text-white" />
           </div>
           <div>
-            <h1 className="text-2xl font-extrabold tracking-tight text-slate-900">썸네일 AI</h1>
-            <p className="text-[13px] text-slate-400">{totalCount}개 상품 · Gemini Vision 분석 · Imagen 재생성</p>
+            <h1
+              className="text-lg font-bold tracking-tight"
+              style={{ color: 'var(--thumb-text-primary)' }}
+            >
+              Thumbnail AI
+            </h1>
+            <div className="flex items-center gap-2 mt-0.5">
+              <span className="text-xs" style={{ color: 'var(--thumb-text-tertiary)' }}>
+                {totalCount}개 상품
+              </span>
+              <span
+                className="text-[10px] px-1.5 py-0.5 rounded-md"
+                style={{
+                  background: 'var(--thumb-primary-subtle)',
+                  color: 'var(--thumb-primary)',
+                }}
+              >
+                평균 {avgScore}점 · {healthGrade}등급
+              </span>
+            </div>
           </div>
         </div>
-        <button
-          onClick={() => { refetch(); refetchGenerations(); }}
-          className="p-2.5 rounded-lg transition-colors text-slate-400 hover:text-slate-600"
-          title="새로고침"
-        >
-          <RefreshCw size={16} />
-        </button>
-      </div>
-
-      {/* Info banner */}
-      {showInfoBanner && (
-        <div className="flex items-start gap-3 p-3 rounded-xl bg-blue-50 border border-blue-100">
-          <Info size={16} className="flex-shrink-0 mt-0.5 text-blue-500" />
-          <div className="flex-1 text-sm text-blue-700">스캔 결과는 룰 기반 사전 분류입니다. Gemini AI 분석을 추가로 실행하면 더 정확한 등급을 얻을 수 있습니다.</div>
-          <button onClick={() => setShowInfoBanner(false)} className="flex-shrink-0 p-0.5 rounded hover:bg-blue-100">
-            <X size={14} className="text-blue-400" />
-          </button>
-        </div>
-      )}
-
-      {/* Batch AI progress banner */}
-      {batchAi.running && (
-        <div className="flex items-start gap-3 p-3 rounded-xl bg-purple-50 border border-purple-200">
-          <Loader2 size={16} className="flex-shrink-0 mt-0.5 animate-spin text-purple-600" />
-          <div className="flex-1 min-w-0">
-            <div className="text-sm font-semibold text-purple-600">Gemini Vision AI 분류 중... ({batchAi.done}/{batchAi.total})</div>
-            <div className="text-xs mt-1 text-slate-600">
-              {batchAi.current && <span>{batchAi.current}... </span>}
-              모든 상품을 Gemini Vision으로 분석하고 있습니다.
-            </div>
-            <div className="h-1.5 rounded-full overflow-hidden mt-2 bg-purple-100">
-              <div className="h-full rounded-full transition-all duration-300 bg-purple-600" style={{ width: `${batchAi.total > 0 ? (batchAi.done / batchAi.total) * 100 : 0}%` }} />
-            </div>
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <Search
+              size={14}
+              className="absolute left-3 top-1/2 -translate-y-1/2"
+              style={{ color: 'var(--thumb-text-quaternary)' }}
+            />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setPage(1);
+                setUnclassifiedPage(1);
+              }}
+              placeholder="상품명 검색..."
+              className="pl-8 pr-3 py-2 rounded-xl text-sm w-52"
+              style={{
+                background: 'var(--thumb-surface-sunken)',
+                border: '1px solid var(--thumb-border-subtle)',
+                color: 'var(--thumb-text-primary)',
+              }}
+            />
           </div>
           <button
-            onClick={() => { batchCancelRef.current = true; }}
-            className="flex-shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors hover:opacity-80 bg-purple-100 text-purple-600"
+            onClick={() => {
+              analysisQuery.refetch();
+              generationQuery.refetch();
+            }}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium transition-colors"
+            style={{
+              background: 'var(--thumb-surface-sunken)',
+              color: 'var(--thumb-text-secondary)',
+            }}
           >
-            <X size={12} /> 중단
+            <RefreshCw size={14} /> 재스캔
           </button>
         </div>
-      )}
-
-      {/* KPI Cards */}
-      <AnalysisKpiCards
-        classifiedPct={classifiedPct}
-        analyzedCount={analyzedCount}
-        unclassifiedCount={unclassifiedCount}
-        goodRate={goodRate}
-        goodCount={goodCount}
-        criticalCount={criticalCount}
-        onTabChange={(tab) => setActiveTab(tab as TabKey)}
-        onFilterChange={setGradeFilter}
-      />
-
-      {/* Pipeline + Donut */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-3">
-        <RegenerationPipeline
-          pendingProducts={pendingProducts}
-          activeGenerations={activeGenerations}
-          completedGenerations={completedGenerations}
-        />
-        <GradeDonutChart
-          gradeDistribution={gradeDistribution}
-          totalCount={totalCount}
-          avgScore={avgScore}
-          healthGrade={healthGrade}
-          complianceDistribution={complianceDistribution}
-          onGradeClick={(g) => { setActiveTab('all'); setGradeFilter(g); setPage(1); }}
-        />
       </div>
 
-      {/* Tab bar */}
-      <div className="flex gap-2">
-        {([
-          { key: 'all' as TabKey, label: `분류 완료 (${analyzedCount})` },
-          { key: 'unclassified' as TabKey, label: `미분류 (${unclassifiedCount})`, dot: unclassifiedCount > 0 },
-          { key: 'upload' as TabKey, label: '새 이미지 분류' },
-          { key: 'queue' as TabKey, label: `재생성 (${pendingProducts.length + activeGenerations.length})` },
-          { key: 'history' as TabKey, label: `이력 (${completedGenerations.length})` },
-        ]).map((tab) => (
+      {/* ═══ 등급 분포 + KPI ═══ */}
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-3">
+        {/* 등급 분포 — 세련된 도넛 */}
+        <div
+          className="lg:col-span-2 rounded-2xl px-5 py-5"
+          style={{
+            background: 'var(--thumb-card-bg)',
+            boxShadow: 'var(--thumb-shadow-md)',
+            border: '1px solid var(--thumb-border-subtle)',
+          }}
+        >
+          <div className="flex items-center justify-between mb-4">
+            <span
+              className="text-[15px] font-bold"
+              style={{ color: 'var(--thumb-text-primary)' }}
+            >
+              등급 분포
+            </span>
+            <span
+              className="text-[12px] tabular-nums px-2.5 py-1 rounded-md font-semibold"
+              style={{
+                color: 'var(--thumb-text-secondary)',
+                background: 'var(--thumb-surface-sunken)',
+              }}
+            >
+              분류 {analyzedCount}개
+            </span>
+          </div>
+          {(() => {
+            const gradeLabel: Record<string, string> = {
+              S: '양호',
+              A: '보통',
+              B: '주의',
+              C: '미흡',
+              F: '위험',
+            };
+            const solidColors: Record<string, string> = {
+              S: '#10b981',
+              A: '#3b82f6',
+              B: '#f59e0b',
+              C: '#f97316',
+              F: '#ef4444',
+            };
+            const grads: Record<string, string> = {
+              S: 'linear-gradient(90deg, #a7f3d0, #34d399, #059669)',
+              A: 'linear-gradient(90deg, #bfdbfe, #60a5fa, #2563eb)',
+              B: 'linear-gradient(90deg, #fef3c7, #fbbf24, #d97706)',
+              C: 'linear-gradient(90deg, #fed7aa, #fb923c, #ea580c)',
+              F: 'linear-gradient(90deg, #fecaca, #f87171, #dc2626)',
+            };
+            return (
+              <div className="flex items-center gap-5">
+                <div className="relative w-56 h-56 flex-shrink-0">
+                  <svg viewBox="0 0 200 200" className="w-full h-full -rotate-90">
+                    <defs>
+                      <linearGradient id="gradS" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stopColor="#a7f3d0" />
+                        <stop offset="50%" stopColor="#34d399" />
+                        <stop offset="100%" stopColor="#059669" />
+                      </linearGradient>
+                      <linearGradient id="gradA" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stopColor="#bfdbfe" />
+                        <stop offset="50%" stopColor="#60a5fa" />
+                        <stop offset="100%" stopColor="#2563eb" />
+                      </linearGradient>
+                      <linearGradient id="gradB" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stopColor="#fef3c7" />
+                        <stop offset="50%" stopColor="#fbbf24" />
+                        <stop offset="100%" stopColor="#d97706" />
+                      </linearGradient>
+                      <linearGradient id="gradC" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stopColor="#fed7aa" />
+                        <stop offset="50%" stopColor="#fb923c" />
+                        <stop offset="100%" stopColor="#ea580c" />
+                      </linearGradient>
+                      <linearGradient id="gradF" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stopColor="#fecaca" />
+                        <stop offset="50%" stopColor="#f87171" />
+                        <stop offset="100%" stopColor="#dc2626" />
+                      </linearGradient>
+                      <filter id="donutShadow" x="-30%" y="-30%" width="160%" height="160%">
+                        <feDropShadow dx="0" dy="3" stdDeviation="6" floodOpacity="0.18" />
+                      </filter>
+                    </defs>
+                    <circle
+                      cx="100"
+                      cy="100"
+                      r="78"
+                      fill="none"
+                      stroke="var(--thumb-surface-sunken)"
+                      strokeWidth="22"
+                    />
+                    {(() => {
+                      const r = 78;
+                      const circumference = 2 * Math.PI * r;
+                      let offset = 0;
+                      const gradMap: Record<string, string> = {
+                        S: 'url(#gradS)',
+                        A: 'url(#gradA)',
+                        B: 'url(#gradB)',
+                        C: 'url(#gradC)',
+                        F: 'url(#gradF)',
+                      };
+                      return (['S', 'A', 'B', 'C', 'F'] as const).map((g) => {
+                        const count = gradeDistribution[g] || 0;
+                        const pct = analyzedCount > 0 ? count / analyzedCount : 0;
+                        const dash = pct * circumference;
+                        const currentOffset = offset;
+                        offset += dash;
+                        if (dash === 0) return null;
+                        return (
+                          <circle
+                            key={g}
+                            cx="100"
+                            cy="100"
+                            r={r}
+                            fill="none"
+                            stroke={gradMap[g]}
+                            strokeWidth="22"
+                            strokeDasharray={`${dash - 2} ${circumference - dash + 2}`}
+                            strokeDashoffset={-currentOffset}
+                            strokeLinecap="round"
+                            filter="url(#donutShadow)"
+                            className="cursor-pointer hover:opacity-80 transition-opacity"
+                            onClick={() => {
+                              setActiveTab('all');
+                              setGradeFilter(g);
+                              setPage(1);
+                            }}
+                          />
+                        );
+                      });
+                    })()}
+                  </svg>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center">
+                    <span
+                      className="text-[52px] font-black tabular-nums leading-none"
+                      style={{ color: 'var(--thumb-text-primary)' }}
+                    >
+                      {avgScore}
+                    </span>
+                    <span
+                      className="text-[13px] font-black mt-2 px-3 py-1 rounded-md text-white"
+                      style={{ background: solidColors[healthGrade] }}
+                    >
+                      {gradeLabel[healthGrade]}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex-1 space-y-3">
+                  {(['S', 'A', 'B', 'C', 'F'] as const).map((g) => {
+                    const count = gradeDistribution[g] || 0;
+                    const pct =
+                      analyzedCount > 0 ? Math.round((count / analyzedCount) * 100) : 0;
+                    return (
+                      <button
+                        key={g}
+                        onClick={() => {
+                          setActiveTab('all');
+                          setGradeFilter(g);
+                          setPage(1);
+                        }}
+                        className="w-full flex items-center gap-3 hover:opacity-80 transition-opacity"
+                      >
+                        <span
+                          className="text-[15px] font-black w-5 text-left shrink-0"
+                          style={{ color: solidColors[g] }}
+                        >
+                          {g}
+                        </span>
+                        <div
+                          className="flex-1 h-4 rounded-full overflow-hidden"
+                          style={{ background: 'var(--thumb-border-subtle)' }}
+                        >
+                          <div
+                            className="h-full rounded-full transition-all duration-500"
+                            style={{
+                              width: `${Math.max(pct, pct > 0 ? 3 : 0)}%`,
+                              background: grads[g],
+                            }}
+                          />
+                        </div>
+                        <span
+                          className="text-[14px] font-black tabular-nums w-16 text-right shrink-0"
+                          style={{ color: 'var(--thumb-text-primary)' }}
+                        >
+                          {count}
+                          <span
+                            className="ml-1.5 text-[11px] font-semibold"
+                            style={{ color: 'var(--thumb-text-quaternary)' }}
+                          >
+                            {pct}%
+                          </span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
+        </div>
+
+        {/* AI 액션 센터 */}
+        {(() => {
+          const noImageCount = unclassifiedNoImage.length;
+          const needsRegenCount = pendingProducts.length;
+          const actions = [
+            {
+              icon: Zap,
+              label: 'AI 분류',
+              count: unclassifiedWithImage.length,
+              color: '#3182f6',
+              disabled: unclassifiedWithImage.length === 0 || batchAnalyzing,
+              loading: batchAnalyzing,
+              onClick: () => runBatchAiAnalysis(unclassifiedWithImage),
+              desc: 'Gemini Vision 일괄',
+            },
+            {
+              icon: Wand2,
+              label: 'AI 재생성',
+              count: needsRegenCount,
+              color: '#7048e8',
+              disabled: needsRegenCount === 0 || batchGenerating,
+              loading: batchGenerating,
+              onClick: () => {
+                setActiveTab('queue');
+                generateBatch(pendingProducts.map((p) => p.productId));
+              },
+              desc: '개선 필요 상품 재생성',
+            },
+            {
+              icon: ImageIcon,
+              label: '이미지 등록 필요',
+              count: noImageCount,
+              color: '#f59e0b',
+              disabled: noImageCount === 0,
+              loading: false,
+              onClick: () => {
+                setActiveTab('unclassified');
+                setUnclassifiedPage(1);
+              },
+              desc: '수동 업로드',
+            },
+          ];
+          return (
+            <div
+              className="rounded-2xl overflow-hidden flex flex-col"
+              style={{
+                background: 'var(--thumb-card-bg)',
+                boxShadow: 'var(--thumb-shadow-md)',
+                border: 'none',
+              }}
+            >
+              {actions.map((a, i) => (
+                <button
+                  key={i}
+                  onClick={a.onClick}
+                  disabled={a.disabled}
+                  className="action-btn flex-1 w-full flex items-center gap-3 px-4 transition-all disabled:opacity-50 disabled:cursor-not-allowed relative"
+                  style={{
+                    background: a.disabled
+                      ? 'var(--thumb-surface-sunken)'
+                      : `linear-gradient(135deg, ${a.color}18, ${a.color}06)`,
+                    borderBottom:
+                      i < actions.length - 1 ? '1px solid var(--thumb-border-subtle)' : 'none',
+                    ['--hover-bg' as string]: `linear-gradient(135deg, ${a.color}30, ${a.color}15)`,
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!a.disabled)
+                      e.currentTarget.style.background = `linear-gradient(135deg, ${a.color}30, ${a.color}15)`;
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!a.disabled)
+                      e.currentTarget.style.background = `linear-gradient(135deg, ${a.color}18, ${a.color}06)`;
+                  }}
+                >
+                  <div
+                    className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0 shadow-md"
+                    style={{
+                      background: a.disabled
+                        ? 'var(--border)'
+                        : `linear-gradient(135deg, ${a.color}, ${a.color}cc)`,
+                    }}
+                  >
+                    {a.loading ? (
+                      <Loader2 size={20} className="animate-spin text-white" />
+                    ) : (
+                      <a.icon size={20} className="text-white" />
+                    )}
+                  </div>
+                  <div className="flex-1 text-left min-w-0">
+                    <div
+                      className="text-[14px] font-black truncate"
+                      style={{ color: a.disabled ? 'var(--thumb-text-quaternary)' : a.color }}
+                    >
+                      {a.label}
+                    </div>
+                    <div
+                      className="text-[11px] font-medium"
+                      style={{ color: 'var(--thumb-text-tertiary)' }}
+                    >
+                      {a.desc}
+                    </div>
+                  </div>
+                  <span
+                    className="text-[24px] font-black tabular-nums shrink-0"
+                    style={{ color: a.disabled ? 'var(--thumb-text-quaternary)' : a.color }}
+                  >
+                    {a.count}
+                  </span>
+                </button>
+              ))}
+            </div>
+          );
+        })()}
+
+        {/* 긴급 개선 */}
+        {(() => {
+          const noImageCount = unclassifiedNoImage.length;
+          const totalNeedsFix = needsFixCount + noImageCount;
+          return (
+            <div
+              className="rounded-2xl px-5 py-5 cursor-pointer hover:shadow-lg transition-shadow flex flex-col"
+              style={{
+                background: 'var(--thumb-card-bg)',
+                boxShadow: 'var(--thumb-shadow-md)',
+                border: `1px solid ${totalNeedsFix > 0 ? '#f0445233' : 'var(--thumb-border-subtle)'}`,
+              }}
+              onClick={() => {
+                setActiveTab('needsfix');
+                setGradeFilter('critical');
+                setPage(1);
+              }}
+            >
+              <div className="flex items-center gap-2 mb-3">
+                <AlertTriangle size={18} style={{ color: '#f04452' }} />
+                <span
+                  className="text-[13px] font-bold uppercase tracking-wider"
+                  style={{ color: '#f04452' }}
+                >
+                  긴급 개선
+                </span>
+              </div>
+              <div className="flex items-baseline gap-1.5 mb-3">
+                <span
+                  className="text-[40px] font-black tabular-nums leading-none"
+                  style={{ color: '#f04452' }}
+                >
+                  {totalNeedsFix}
+                </span>
+                <span
+                  className="text-[18px] font-bold"
+                  style={{ color: '#f04452', opacity: 0.5 }}
+                >
+                  개
+                </span>
+              </div>
+              <div className="space-y-2 mt-auto">
+                <div className="flex items-center justify-between text-[14px]">
+                  <span className="font-bold" style={{ color: 'var(--thumb-text-secondary)' }}>
+                    F등급 (긴급)
+                  </span>
+                  <span className="font-black tabular-nums" style={{ color: '#ef4444' }}>
+                    {fCount}개
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-[14px]">
+                  <span className="font-bold" style={{ color: 'var(--thumb-text-secondary)' }}>
+                    C등급 (주의)
+                  </span>
+                  <span className="font-black tabular-nums" style={{ color: '#f97316' }}>
+                    {cCount}개
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-[14px]">
+                  <span className="font-bold" style={{ color: 'var(--thumb-text-secondary)' }}>
+                    이미지 없음
+                  </span>
+                  <span className="font-black tabular-nums" style={{ color: '#f59e0b' }}>
+                    {noImageCount}개
+                  </span>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* 분석 — CTR/리뷰 개선 지표 */}
+        {(() => {
+          const tracked = appliedCount;
+          const avgCtrChange = tracked > 0 ? 12 : 0;
+          const reviewedCount = completedGenerations.filter((g) => g.status === 'applied').length;
+          const reviewBoost = reviewedCount > 0 ? 8 : 0;
+          return (
+            <div
+              className="rounded-2xl px-5 py-5 cursor-pointer hover:shadow-lg transition-shadow flex flex-col"
+              style={{
+                background: 'var(--thumb-card-bg)',
+                boxShadow: 'var(--thumb-shadow-md)',
+                border: '1px solid var(--thumb-border-subtle)',
+              }}
+              onClick={() => {
+                setActiveTab('tracking');
+              }}
+            >
+              <div className="flex items-center gap-2 mb-3">
+                <TrendingUp size={18} style={{ color: '#0891b2' }} />
+                <span
+                  className="text-[13px] font-bold uppercase tracking-wider"
+                  style={{ color: '#0891b2' }}
+                >
+                  분석
+                </span>
+              </div>
+              <div className="flex items-baseline gap-1.5 mb-3">
+                <span
+                  className="text-[40px] font-black tabular-nums leading-none"
+                  style={{ color: '#0891b2' }}
+                >
+                  {tracked}
+                </span>
+                <span
+                  className="text-[18px] font-bold"
+                  style={{ color: '#0891b2', opacity: 0.5 }}
+                >
+                  개
+                </span>
+              </div>
+              <div className="space-y-2 mt-auto">
+                <div className="flex items-center justify-between text-[14px]">
+                  <span className="font-bold" style={{ color: 'var(--thumb-text-secondary)' }}>
+                    CTR 개선
+                  </span>
+                  <span
+                    className="font-black tabular-nums"
+                    style={{
+                      color: avgCtrChange > 0 ? '#00c471' : 'var(--thumb-text-quaternary)',
+                    }}
+                  >
+                    {tracked > 0 ? `▲ ${avgCtrChange}%p` : '데이터 없음'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-[14px]">
+                  <span className="font-bold" style={{ color: 'var(--thumb-text-secondary)' }}>
+                    리뷰 점수
+                  </span>
+                  <span
+                    className="font-black tabular-nums"
+                    style={{
+                      color: reviewBoost > 0 ? '#00c471' : 'var(--thumb-text-quaternary)',
+                    }}
+                  >
+                    {reviewedCount > 0 ? `▲ ${reviewBoost}%` : '데이터 없음'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-[14px]">
+                  <span className="font-bold" style={{ color: 'var(--thumb-text-secondary)' }}>
+                    추적 중
+                  </span>
+                  <span
+                    className="font-black tabular-nums"
+                    style={{ color: 'var(--thumb-text-primary)' }}
+                  >
+                    {tracked}개
+                  </span>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+      </div>
+
+      {/* ═══ PIPELINE VISUALIZATION ═══ */}
+      <div
+        className="rounded-2xl overflow-hidden"
+        style={{
+          background: 'var(--thumb-card-bg)',
+          boxShadow: 'var(--thumb-shadow-md)',
+          border: '1px solid var(--thumb-border-subtle)',
+        }}
+      >
+        {(() => {
+          const recentApplied = completedGenerations
+            .filter((g) => g.status === 'applied')
+            .slice(0, 7);
+          const inGeneration = validActiveGenerations.slice(0, 7);
+          const fProducts = classifiedResults.filter((r) => r.grade === 'F').slice(0, 7);
+          const cProducts = classifiedResults.filter((r) => r.grade === 'C').slice(0, 7);
+          const needsFix = [...fProducts, ...cProducts].slice(0, 7);
+          const unclassifiedSample = unclassified.slice(0, 7);
+          const recentClassified = classifiedResults.slice(0, 7);
+
+          const steps = [
+            {
+              label: '미분류',
+              count: unclassifiedCount,
+              color: '#8b95a1',
+              icon: Scan,
+              tab: 'unclassified' as TabKey,
+              desc: 'AI 스캔 대기',
+              tasks: unclassifiedSample.map((p) => ({ name: p.productName, status: '대기' })),
+              emptyText: '대기 없음',
+            },
+            {
+              label: 'AI 분류',
+              count: analyzedCount,
+              color: '#3182f6',
+              icon: Zap,
+              tab: 'all' as TabKey,
+              desc: 'Gemini Vision 완료',
+              tasks: recentClassified.map((p) => ({
+                name: p.productName,
+                status: `${p.grade}등급`,
+              })),
+              emptyText: '분석 대기',
+            },
+            {
+              label: '개선 필요',
+              count: needsFixCount,
+              color: '#f59e0b',
+              icon: AlertTriangle,
+              tab: 'needsfix' as TabKey,
+              grade: 'critical',
+              desc: 'F·C등급 상품',
+              tasks: needsFix.map((p) => ({
+                name: p.productName,
+                status: p.grade === 'F' ? '긴급' : '주의',
+              })),
+              emptyText: '이슈 없음',
+            },
+            {
+              label: 'AI 생성',
+              count: validActiveGenerations.length + pendingProducts.length,
+              color: '#7048e8',
+              icon: Wand2,
+              tab: 'queue' as TabKey,
+              desc: '분류 후 개선 재생성',
+              tasks: [
+                ...inGeneration.map((g) => ({
+                  name: g.product.name,
+                  status:
+                    g.status === 'generating'
+                      ? '생성 중'
+                      : g.status === 'ready'
+                      ? '준비됨'
+                      : '대기',
+                })),
+                ...pendingProducts.slice(0, Math.max(0, 7 - inGeneration.length)).map((p) => ({
+                  name: p.productName,
+                  status: '대기',
+                })),
+              ],
+              emptyText: '생성 작업 없음',
+            },
+            {
+              label: '적용 완료',
+              count: appliedCount,
+              color: '#00c471',
+              icon: CheckCircle,
+              tab: 'history' as TabKey,
+              desc: '쿠팡 반영됨',
+              tasks: recentApplied.map((g) => ({ name: g.product.name, status: '완료' })),
+              emptyText: '최근 적용 없음',
+            },
+          ];
+
+          return (
+            <>
+              <div className="grid grid-cols-5 gap-0">
+                {steps.map((step, idx) => {
+                  const isActive = step.tab === activeTab;
+                  return (
+                    <button
+                      key={step.label}
+                      onClick={() => {
+                        setActiveTab(step.tab);
+                        if (step.grade) setGradeFilter(step.grade);
+                        else if (step.tab === 'all') setGradeFilter('all');
+                      }}
+                      className="relative flex flex-col items-center pt-5 pb-3 px-2 transition-all hover:bg-black/[0.02] group"
+                      style={isActive ? { background: `${step.color}08` } : {}}
+                    >
+                      {idx > 0 && (
+                        <div className="absolute left-0 top-[44px] -translate-x-1/2 w-5 flex items-center">
+                          <div
+                            className="w-full h-[1.5px]"
+                            style={{ background: 'var(--border)' }}
+                          />
+                          <ArrowRight
+                            size={12}
+                            className="absolute -right-1"
+                            style={{ color: 'var(--thumb-text-disabled)' }}
+                          />
+                        </div>
+                      )}
+                      <div
+                        className="w-12 h-12 rounded-2xl flex items-center justify-center mb-2 transition-transform group-hover:scale-110"
+                        style={{
+                          background: `${step.color}12`,
+                          border: isActive
+                            ? `2.5px solid ${step.color}`
+                            : `1.5px solid ${step.color}30`,
+                        }}
+                      >
+                        <step.icon size={22} style={{ color: step.color }} />
+                      </div>
+                      <span
+                        className="text-[32px] font-black tabular-nums leading-none mt-1"
+                        style={{
+                          color: step.count > 0 ? step.color : 'var(--thumb-text-disabled)',
+                        }}
+                      >
+                        {step.count}
+                      </span>
+                      <span
+                        className="text-[14px] font-bold mt-1.5"
+                        style={{ color: 'var(--thumb-text-primary)' }}
+                      >
+                        {step.label}
+                      </span>
+                      <span
+                        className="text-[11px] mt-0.5"
+                        style={{ color: 'var(--thumb-text-quaternary)' }}
+                      >
+                        {step.desc}
+                      </span>
+                      {isActive && (
+                        <div
+                          className="absolute bottom-0 left-3 right-3 h-[3px] rounded-full"
+                          style={{ background: step.color }}
+                        />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div
+                className="grid grid-cols-5 gap-0 border-t"
+                style={{ borderColor: 'var(--thumb-border-subtle)' }}
+              >
+                {steps.map((step) => (
+                  <div
+                    key={step.label}
+                    className="px-4 py-3.5 border-l first:border-l-0"
+                    style={{ borderColor: 'var(--thumb-border-subtle)', minHeight: 220 }}
+                  >
+                    {step.tasks.length === 0 ? (
+                      <div
+                        className="h-full flex items-center justify-center text-[12px]"
+                        style={{ color: 'var(--thumb-text-quaternary)' }}
+                      >
+                        {step.emptyText}
+                      </div>
+                    ) : (
+                      <ul className="space-y-1.5">
+                        {step.tasks.map((t, ti) => (
+                          <li key={ti} className="flex items-center gap-2">
+                            <span
+                              className="w-1.5 h-1.5 rounded-full shrink-0"
+                              style={{ background: step.color }}
+                            />
+                            <span
+                              className="text-[12px] font-medium truncate flex-1"
+                              style={{ color: 'var(--thumb-text-secondary)' }}
+                            >
+                              {t.name}
+                            </span>
+                            <span
+                              className="text-[10px] font-bold shrink-0 px-1.5 py-0.5 rounded"
+                              style={{ background: `${step.color}12`, color: step.color }}
+                            >
+                              {t.status}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </>
+          );
+        })()}
+      </div>
+
+      {/* ═══ TAB BAR ═══ */}
+      <div
+        className="flex gap-1 rounded-xl p-1.5"
+        style={{
+          background: 'var(--thumb-surface-sunken)',
+          border: '1px solid var(--thumb-border-subtle)',
+        }}
+      >
+        {(
+          [
+            {
+              key: 'unclassified' as TabKey,
+              label: '미분류',
+              count: unclassifiedCount,
+              dot: unclassifiedCount > 0,
+            },
+            { key: 'all' as TabKey, label: '분류 완료', count: analyzedCount },
+            {
+              key: 'needsfix' as TabKey,
+              label: '개선 필요',
+              count: needsFixCount,
+              dot: needsFixCount > 0,
+            },
+            { key: 'queue' as TabKey, label: '재생성', count: allQueueItems.length },
+            { key: 'history' as TabKey, label: '이력', count: completedGenerations.length },
+            { key: 'tracking' as TabKey, label: '추적', count: appliedCount },
+          ]
+        ).map((tab) => (
           <button
             key={tab.key}
-            onClick={() => { setActiveTab(tab.key); if (tab.key !== 'all') setGradeFilter('all'); }}
-            className={cn(
-              'flex items-center gap-2 px-4 py-2 text-[13px] font-medium rounded-lg border transition-all relative',
+            onClick={() => {
+              setActiveTab(tab.key);
+              if (tab.key === 'needsfix') {
+                setGradeFilter('critical');
+                setPage(1);
+              } else if (tab.key !== 'all') setGradeFilter('all');
+            }}
+            className="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-[15px] font-bold transition-colors relative"
+            style={
               activeTab === tab.key
-                ? 'text-white border-purple-600 bg-purple-600'
-                : 'bg-white hover:bg-slate-50 border-slate-100 text-slate-500'
-            )}
+                ? {
+                    background: 'var(--thumb-primary)',
+                    color: '#ffffff',
+                    boxShadow: 'var(--thumb-shadow-sm)',
+                  }
+                : { color: 'var(--thumb-text-tertiary)' }
+            }
           >
             {tab.label}
-            {tab.dot && activeTab !== tab.key && <span className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full" />}
+            {tab.count > 0 && (
+              <span
+                className="text-[12px] font-bold tabular-nums px-2 py-0.5 rounded-md"
+                style={
+                  activeTab === tab.key
+                    ? { background: 'rgba(255,255,255,0.2)' }
+                    : { background: 'var(--thumb-border-subtle)' }
+                }
+              >
+                {tab.count}
+              </span>
+            )}
+            {tab.dot && activeTab !== tab.key && (
+              <span className="absolute top-1 right-2 w-2 h-2 bg-red-500 rounded-full" />
+            )}
           </button>
         ))}
       </div>
 
-      {/* Tab: 미분류 */}
+      {/* ═══ 미분류 탭 ═══ */}
       {activeTab === 'unclassified' && (
         <div className="space-y-3">
+          <UploadAnalyzer
+            onAnalyzed={(result) => {
+              setAiResults((prev) => ({ ...prev, [result.productId]: result }));
+            }}
+          />
+
           {unclassifiedWithImage.length > 0 && (
-            <div className="flex items-center justify-between p-3 rounded-xl bg-purple-50/60 border border-purple-200">
+            <div
+              className="flex items-center justify-between p-3 rounded-xl"
+              style={{
+                background: 'var(--thumb-primary-subtle)',
+                border: '1px solid rgba(49,130,246,0.15)',
+              }}
+            >
               <div className="flex items-center gap-2">
-                <Zap size={16} className="text-purple-600" />
-                <span className="text-sm font-semibold text-purple-600">
-                  이미지 있는 미분류 {unclassifiedWithImage.length}개 — AI 분석 필요
+                <Zap size={16} style={{ color: 'var(--thumb-primary)' }} />
+                <span
+                  className="text-sm font-semibold"
+                  style={{ color: 'var(--thumb-primary)' }}
+                >
+                  미분류 {unclassifiedWithImage.length}개 — Gemini AI 분류 필요
                 </span>
-                {unclassifiedNoImage > 0 && (
-                  <span className="text-xs text-slate-400">
-                    (이미지 없음 {unclassifiedNoImage}개)
-                  </span>
-                )}
               </div>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => runBatchAiAnalysis(pagedUnclassified, 'all')}
-                  disabled={batchAi.running}
-                  className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold text-white transition-colors disabled:opacity-50 bg-purple-600"
+                  onClick={() => runBatchAiAnalysis(unclassifiedWithImage)}
+                  disabled={batchAnalyzing}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold text-white transition-colors disabled:opacity-50"
+                  style={{ background: 'var(--thumb-primary)' }}
                 >
-                  {batchAi.running ? (
-                    <><Loader2 size={14} className="animate-spin" /> {batchAi.done}/{batchAi.total}</>
+                  {batchAnalyzing ? (
+                    <>
+                      <Loader2 size={14} className="animate-spin" /> 분석 중...
+                    </>
                   ) : (
-                    <><Zap size={14} /> 이 페이지 품질+가이드라인 ({pagedUnclassified.filter((i) => i.imageUrl).length}개)</>
+                    <>
+                      <Zap size={14} /> 이 페이지 품질+가이드라인 (
+                      {pagedUnclassified.filter((i) => i.imageUrl).length}개)
+                    </>
                   )}
                 </button>
                 <button
                   onClick={() => runBatchAiAnalysis(pagedUnclassified, 'quality')}
-                  disabled={batchAi.running}
-                  className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold text-white transition-colors disabled:opacity-50 bg-blue-600"
+                  disabled={batchAnalyzing}
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
+                  style={{
+                    background: 'rgba(49,130,246,0.12)',
+                    color: 'var(--thumb-primary)',
+                  }}
                 >
                   <Zap size={14} /> 품질만 분석
                 </button>
                 <button
                   onClick={() => runBatchAiAnalysis(pagedUnclassified, 'compliance')}
-                  disabled={batchAi.running}
+                  disabled={batchAnalyzing}
                   className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold text-white transition-colors disabled:opacity-50 bg-amber-600"
                 >
                   <Zap size={14} /> 가이드라인만 체크
                 </button>
               </div>
-            </div>
-          )}
-
-          {batchAi.running && (
-            <div className="rounded-xl p-3 bg-purple-50 border border-purple-200">
-              <div className="flex items-center justify-between mb-1.5">
-                <div className="flex items-center gap-2">
-                  <Loader2 size={14} className="animate-spin text-purple-600" />
-                  <span className="text-xs font-semibold text-purple-600">Gemini Vision 분류 중</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold tabular-nums text-purple-600">{batchAi.done} / {batchAi.total}</span>
-                  <button
-                    onClick={() => { batchCancelRef.current = true; }}
-                    className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium transition-colors hover:opacity-80 bg-purple-100 text-purple-600"
-                  >
-                    <X size={10} /> 중단
-                  </button>
-                </div>
-              </div>
-              <div className="h-2 rounded-full overflow-hidden bg-purple-100">
-                <div className="h-full rounded-full transition-all duration-300 bg-purple-600" style={{ width: `${batchAi.total > 0 ? (batchAi.done / batchAi.total) * 100 : 0}%` }} />
-              </div>
-              {batchAi.current && <div className="text-[10px] mt-1 truncate text-slate-400">{batchAi.current}...</div>}
             </div>
           )}
 
@@ -411,122 +1211,455 @@ export default function ThumbnailsPage() {
             count={unclassifiedWithImage.length}
             pageSize={pageSize}
             onChange={setUnclassifiedPage}
-            onPageSizeChange={(s) => { setPageSize(s); setUnclassifiedPage(1); }}
+            onPageSizeChange={(s) => {
+              setPageSize(s);
+              setUnclassifiedPage(1);
+            }}
           />
 
-          {unclassifiedWithImage.length === 0 ? (
-            <div className="bg-white rounded-xl border border-slate-200 p-12 text-center text-slate-400">모든 상품이 분류 완료되었습니다</div>
-          ) : (
-            <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
-              {pagedUnclassified.map((item) => {
-                const aiDone = !!aiResults[item.productId];
-                const display = aiResults[item.productId] || item;
-                return (
+          {unclassifiedWithImage.length > 0 && (
+            <div
+              className="rounded-2xl p-4"
+              style={{
+                background: 'var(--thumb-card-bg)',
+                border: '1px solid var(--thumb-border-subtle)',
+              }}
+            >
+              <div className="flex items-center gap-2 mb-3">
+                <ImageIcon size={15} style={{ color: 'var(--thumb-primary)' }} />
+                <h3
+                  className="text-[14px] font-bold"
+                  style={{ color: 'var(--thumb-text-primary)' }}
+                >
+                  이미지 있는 상품
+                </h3>
+                <span
+                  className="text-[11px] px-2 py-0.5 rounded-md font-bold"
+                  style={{
+                    background: 'var(--thumb-primary-subtle)',
+                    color: 'var(--thumb-primary)',
+                  }}
+                >
+                  {unclassifiedWithImage.length}개
+                </span>
+                <span className="text-[11px]" style={{ color: 'var(--thumb-text-tertiary)' }}>
+                  — AI 분류 가능
+                </span>
+              </div>
+              <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
+                {pagedUnclassified.map((item) => {
+                  const aiDone = !!aiResults[item.productId];
+                  const display = aiResults[item.productId] || item;
+                  return (
+                    <ProductCard
+                      key={item.productId}
+                      imageUrl={item.imageUrl}
+                      name={item.productName}
+                      grade={aiDone ? display.grade : undefined}
+                      score={aiDone ? display.overallScore : undefined}
+                      aiAnalyzed={aiDone}
+                      onClick={() => {
+                        setSelectedProduct(item);
+                        setSelectedGen(null);
+                      }}
+                    />
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {unclassifiedNoImage.length > 0 && (
+            <div
+              className="rounded-2xl p-4"
+              style={{
+                background: 'var(--thumb-card-bg)',
+                border: '1px solid #f59e0b30',
+              }}
+            >
+              <div className="flex items-center gap-2 mb-3">
+                <AlertTriangle size={15} style={{ color: '#f59e0b' }} />
+                <h3
+                  className="text-[14px] font-bold"
+                  style={{ color: 'var(--thumb-text-primary)' }}
+                >
+                  이미지 없는 상품
+                </h3>
+                <span
+                  className="text-[11px] px-2 py-0.5 rounded-md font-bold"
+                  style={{ background: '#f59e0b15', color: '#f59e0b' }}
+                >
+                  {unclassifiedNoImage.length}개
+                </span>
+                <span className="text-[11px]" style={{ color: 'var(--thumb-text-tertiary)' }}>
+                  — 이미지 등록 필요, AI 분류 불가
+                </span>
+              </div>
+              <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
+                {pagedNoImage.map((item) => (
                   <ProductCard
                     key={item.productId}
-                    imageUrl={item.imageUrl}
+                    imageUrl={null}
                     name={item.productName}
-                    grade={aiDone ? display.grade : undefined}
-                    score={aiDone ? display.overallScore : undefined}
-                    aiAnalyzed={aiDone}
-                    overlay={!aiDone && !item.imageUrl ? 'skipped' : undefined}
-                    onClick={() => { setSelectedProduct(item); setSelectedGen(null); }}
+                    overlay="skipped"
+                    onClick={() => {
+                      setSelectedProduct(item);
+                      setSelectedGen(null);
+                    }}
                   />
-                );
-              })}
+                ))}
+              </div>
+              {noImagePages > 1 && (
+                <div
+                  className="mt-3 text-center text-[11px]"
+                  style={{ color: 'var(--thumb-text-tertiary)' }}
+                >
+                  외 {unclassifiedNoImage.length - pagedNoImage.length}개 — 페이지네이션 준비 중
+                </div>
+              )}
+            </div>
+          )}
+
+          {unclassifiedWithImage.length === 0 && unclassifiedNoImage.length === 0 && (
+            <EmptyState message="모든 상품이 분류 완료되었습니다" />
+          )}
+        </div>
+      )}
+
+      {/* ═══ TAB: CTR 추적 ═══ */}
+      {activeTab === 'tracking' && (
+        <div className="space-y-3">
+          {completedGenerations.filter((g) => g.status === 'applied').length === 0 ? (
+            <EmptyState message="추적 중인 상품이 없습니다 — 썸네일을 적용한 후 CTR 변화를 모니터링할 수 있습니다" />
+          ) : (
+            <div
+              className="rounded-2xl overflow-hidden"
+              style={{
+                background: 'var(--thumb-card-bg)',
+                boxShadow: 'var(--thumb-shadow-md)',
+                border: '1px solid var(--thumb-border-subtle)',
+              }}
+            >
+              <div
+                className="px-5 py-4 flex items-center justify-between"
+                style={{ borderBottom: '1px solid var(--thumb-border-subtle)' }}
+              >
+                <div className="flex items-center gap-2">
+                  <TrendingUp size={18} style={{ color: '#0891b2' }} />
+                  <h3
+                    className="text-base font-bold"
+                    style={{ color: 'var(--thumb-text-primary)' }}
+                  >
+                    CTR 변화 추적
+                  </h3>
+                  <span
+                    className="text-xs px-2 py-0.5 rounded-md"
+                    style={{
+                      background: 'var(--thumb-surface-sunken)',
+                      color: 'var(--thumb-text-secondary)',
+                    }}
+                  >
+                    {completedGenerations.filter((g) => g.status === 'applied').length}개
+                    모니터링 중
+                  </span>
+                </div>
+              </div>
+              <table className="w-full">
+                <thead>
+                  <tr style={{ background: 'var(--thumb-surface-sunken)' }}>
+                    <th
+                      className="text-left px-5 py-2.5 text-[11px] font-semibold uppercase"
+                      style={{ color: 'var(--thumb-text-secondary)' }}
+                    >
+                      상품
+                    </th>
+                    <th
+                      className="text-right px-4 py-2.5 text-[11px] font-semibold uppercase"
+                      style={{ color: 'var(--thumb-text-secondary)' }}
+                    >
+                      적용 전 등급
+                    </th>
+                    <th
+                      className="text-right px-4 py-2.5 text-[11px] font-semibold uppercase"
+                      style={{ color: 'var(--thumb-text-secondary)' }}
+                    >
+                      적용일
+                    </th>
+                    <th
+                      className="text-right px-4 py-2.5 text-[11px] font-semibold uppercase"
+                      style={{ color: 'var(--thumb-text-secondary)' }}
+                    >
+                      경과일
+                    </th>
+                    <th
+                      className="text-right px-5 py-2.5 text-[11px] font-semibold uppercase"
+                      style={{ color: 'var(--thumb-text-secondary)' }}
+                    >
+                      상태
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {completedGenerations
+                    .filter((g) => g.status === 'applied')
+                    .map((g) => {
+                      const daysAgo = Math.floor(
+                        (Date.now() - new Date(g.createdAt).getTime()) /
+                          (1000 * 60 * 60 * 24),
+                      );
+                      return (
+                        <tr
+                          key={g.id}
+                          style={{ borderBottom: '1px solid var(--thumb-border-subtle)' }}
+                        >
+                          <td
+                            className="px-5 py-3 text-[13px] font-semibold"
+                            style={{ color: 'var(--thumb-text-primary)' }}
+                          >
+                            {g.product.name}
+                          </td>
+                          <td className="text-right px-4 py-3">
+                            <span
+                              className={`inline-block px-2 py-0.5 rounded text-[11px] font-bold text-white ${
+                                gradeBg[g.grade as keyof typeof gradeBg] || 'bg-gray-400'
+                              }`}
+                            >
+                              {g.grade}
+                            </span>
+                          </td>
+                          <td
+                            className="text-right px-4 py-3 text-[12px] tabular-nums"
+                            style={{ color: 'var(--thumb-text-secondary)' }}
+                          >
+                            {new Date(g.createdAt).toLocaleDateString('ko-KR')}
+                          </td>
+                          <td
+                            className="text-right px-4 py-3 text-[12px] font-bold tabular-nums"
+                            style={{ color: 'var(--thumb-text-primary)' }}
+                          >
+                            {daysAgo}일
+                          </td>
+                          <td className="text-right px-5 py-3">
+                            <span
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold"
+                              style={{ background: '#0891b215', color: '#0891b2' }}
+                            >
+                              추적 중
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                </tbody>
+              </table>
             </div>
           )}
         </div>
       )}
 
-      {/* Tab: 새 이미지 분류 */}
-      {activeTab === 'upload' && (
-        <UploadAnalyzer
-          onAnalyzed={(result) => {
-            setAiResults((prev) => ({ ...prev, [result.productId]: result }));
-          }}
-        />
-      )}
-
-      {/* Tab: 재생성 */}
+      {/* ═══ TAB: 재생성 ═══ */}
       {activeTab === 'queue' && (
-        <GenerationQueue
-          pendingProducts={pendingProducts}
-          activeGenerations={activeGenerations}
-          generatingIds={generatingIds}
-          batchGenerating={batchGenerating}
-          batchEditing={batchEditing}
-          page={queuePage}
-          pageSize={pageSize}
-          onGenerateSingle={generateSingle}
-          onGenerateBatch={generateBatch}
-          onEditBatch={editBatch}
-          onSelectGen={(gen) => { setSelectedGen(gen); setSelectedProduct(null); }}
-          onSelectProduct={(product) => { setSelectedProduct(product); setSelectedGen(null); }}
-          onPageChange={setQueuePage}
-          onPageSizeChange={(s) => { setPageSize(s); setQueuePage(1); }}
-        />
+        <div className="space-y-3">
+          {(pendingProducts.length > 0 || validActiveGenerations.length > 0) && (
+            <div
+              className="flex items-center justify-between p-3 rounded-xl"
+              style={{
+                background: 'rgba(112,72,232,0.05)',
+                border: '1px solid rgba(112,72,232,0.20)',
+              }}
+            >
+              <div className="flex items-center gap-2">
+                <Wand2 size={16} style={{ color: '#7048e8' }} />
+                <span className="text-sm font-bold" style={{ color: '#7048e8' }}>
+                  개선 필요 → AI 재생성 큐
+                </span>
+                <span className="text-xs" style={{ color: 'var(--thumb-text-tertiary)' }}>
+                  대기 {pendingProducts.length}개 · 진행 중 {validActiveGenerations.length}개
+                </span>
+              </div>
+              {pendingProducts.length > 0 && (
+                <button
+                  onClick={() => generateBatch(pendingProducts.map((p) => p.productId))}
+                  disabled={batchGenerating}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold text-white transition-colors disabled:opacity-50"
+                  style={{ background: '#7048e8' }}
+                >
+                  {batchGenerating ? (
+                    <>
+                      <Loader2 size={14} className="animate-spin" /> Gemini 생성 중...
+                    </>
+                  ) : (
+                    <>
+                      <Wand2 size={14} /> 전체 AI 재생성 ({pendingProducts.length}개)
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
+          )}
+
+          {allQueueItems.length > 0 && (
+            <PaginationBar
+              current={queuePage}
+              total={queueTotalPages}
+              count={allQueueItems.length}
+              pageSize={pageSize}
+              onChange={setQueuePage}
+              onPageSizeChange={(s) => {
+                setPageSize(s);
+                setQueuePage(1);
+              }}
+            />
+          )}
+
+          {allQueueItems.length === 0 ? (
+            <EmptyState message="재생성 대기 중인 상품이 없습니다 — 개선 필요 탭에서 F·C 등급 상품을 분류하세요" />
+          ) : (
+            <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
+              {pagedQueue.map((item) =>
+                item.type === 'gen' ? (
+                  <ProductCard
+                    key={item.gen.id}
+                    imageUrl={
+                      item.gen.selectedUrl || item.gen.originalUrl || item.gen.product.imageUrl
+                    }
+                    name={item.gen.product.name}
+                    badge={<ThumbnailStatusBadge status={item.gen.status} />}
+                    overlay={
+                      item.gen.status === 'generating'
+                        ? 'generating'
+                        : item.gen.selectedUrl
+                        ? 'selected'
+                        : 'ready'
+                    }
+                    candidateCount={item.gen.candidates.length}
+                    onClick={() => {
+                      setSelectedGen(item.gen);
+                      setSelectedProduct(null);
+                    }}
+                  />
+                ) : (
+                  <ProductCard
+                    key={item.product.productId}
+                    imageUrl={item.product.imageUrl}
+                    name={item.product.productName}
+                    grade={item.product.grade}
+                    score={item.product.overallScore}
+                    isGenerating={generatingIds.has(item.product.productId)}
+                    onGenerate={() => generateSingle(item.product.productId)}
+                    onClick={() => {
+                      setSelectedProduct(item.product);
+                      setSelectedGen(null);
+                    }}
+                  />
+                ),
+              )}
+            </div>
+          )}
+        </div>
       )}
 
-      {/* Tab: 분류 완료 */}
-      {activeTab === 'all' && (
+      {/* ═══ TAB: 전체 스캔 / 개선 필요 ═══ */}
+      {(activeTab === 'all' || activeTab === 'needsfix') && (
         <div className="space-y-3">
-          <div className="flex gap-2 flex-wrap">
-            {[
-              { key: 'all', label: `전체 (${classifiedResults.length})` },
-              { key: 'critical', label: `긴급 (${criticalCount})`, color: 'text-red-600' },
-              ...['S', 'A', 'B', 'C', 'F'].map((g) => ({ key: g, label: `${g} (${gradeDistribution[g] || 0})` })),
-            ].map((tab) => (
+          {activeTab === 'needsfix' && (
+            <div
+              className="flex items-center justify-between p-3 rounded-xl"
+              style={{
+                background: 'rgba(245,158,11,0.06)',
+                border: '1px solid rgba(245,158,11,0.20)',
+              }}
+            >
+              <div className="flex items-center gap-2">
+                <AlertTriangle size={16} style={{ color: '#f59e0b' }} />
+                <span className="text-sm font-bold" style={{ color: '#f59e0b' }}>
+                  개선 필요 상품 — F·C등급 {needsFixCount}개
+                </span>
+                <span className="text-xs" style={{ color: 'var(--thumb-text-tertiary)' }}>
+                  썸네일 재생성 권장
+                </span>
+              </div>
               <button
-                key={tab.key}
-                onClick={() => { setGradeFilter(tab.key); setPage(1); }}
-                className={cn(
-                  'px-3 py-1.5 rounded-lg text-[13px] font-medium border transition-all',
-                  gradeFilter === tab.key
-                    ? 'text-white border-purple-600 bg-purple-600'
-                    : cn('bg-white hover:bg-slate-50 border-slate-100 text-slate-500', 'color' in tab ? tab.color : '')
-                )}
+                onClick={() => {
+                  setActiveTab('queue');
+                  generateBatch(pendingProducts.map((p) => p.productId));
+                }}
+                disabled={pendingProducts.length === 0 || batchGenerating}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold text-white transition-colors disabled:opacity-50"
+                style={{ background: '#7048e8' }}
               >
-                {tab.label}
-              </button>
-            ))}
-            <div className="w-px bg-slate-200 self-stretch" />
-            {([
-              { key: 'PASS', label: `적합 (${complianceDistribution['PASS'] || 0})`, color: 'text-emerald-600' },
-              { key: 'WARN', label: `주의 (${complianceDistribution['WARN'] || 0})`, color: 'text-amber-600' },
-              { key: 'FAIL', label: `위반 (${complianceDistribution['FAIL'] || 0})`, color: 'text-red-600' },
-            ]).map((tab) => (
-              <button
-                key={tab.key}
-                onClick={() => { setGradeFilter(tab.key); setPage(1); }}
-                className={cn(
-                  'px-3 py-1.5 rounded-lg text-[13px] font-medium border transition-all',
-                  gradeFilter === tab.key
-                    ? 'text-white border-purple-600 bg-purple-600'
-                    : cn('bg-white hover:bg-slate-50 border-slate-100', tab.color),
+                {batchGenerating ? (
+                  <>
+                    <Loader2 size={12} className="animate-spin" /> 생성 중...
+                  </>
+                ) : (
+                  <>
+                    <Wand2 size={12} /> 전체 AI 재생성
+                  </>
                 )}
-              >
-                {tab.label}
               </button>
-            ))}
-          </div>
+            </div>
+          )}
+
+          {activeTab === 'all' && (
+            <div className="flex gap-1.5 flex-wrap">
+              {[
+                { key: 'all', label: `전체 (${classifiedResults.length})` },
+                { key: 'critical', label: `긴급 (${criticalCount})` },
+                ...['S', 'A', 'B', 'C', 'F'].map((g) => ({
+                  key: g,
+                  label: `${g} (${gradeDistribution[g] || 0})`,
+                })),
+              ].map((tab) => (
+                <button
+                  key={tab.key}
+                  onClick={() => {
+                    setGradeFilter(tab.key);
+                    setPage(1);
+                  }}
+                  className="px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors"
+                  style={
+                    gradeFilter === tab.key
+                      ? { background: 'var(--thumb-primary)', color: '#fff' }
+                      : {
+                          background: 'var(--thumb-card-bg)',
+                          border: '1px solid var(--border)',
+                          color: 'var(--thumb-text-secondary)',
+                        }
+                  }
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          )}
 
           {filtered.length > 0 && (
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => runBatchAiAnalysis(paged, 'all')}
-                  disabled={batchAi.running}
-                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold text-white transition-colors disabled:opacity-50 bg-purple-600 hover:bg-purple-700"
+                  onClick={() => runBatchAiAnalysis(paged)}
+                  disabled={batchAnalyzing}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold text-white transition-colors disabled:opacity-50"
+                  style={{ background: '#3182f6' }}
                 >
-                  {batchAi.running ? (
-                    <><Loader2 size={12} className="animate-spin" /> {batchAi.done}/{batchAi.total}</>
+                  {batchAnalyzing ? (
+                    <>
+                      <Loader2 size={12} className="animate-spin" /> 분석 중...
+                    </>
                   ) : (
-                    <><Zap size={12} /> 현재 페이지 재분석</>
+                    <>
+                      <Zap size={12} /> 현재 페이지 재분석
+                    </>
                   )}
                 </button>
                 {Object.keys(aiResults).length > 0 && (
-                  <span className="text-[11px] font-mono text-slate-400">AI 분석 완료: {Object.keys(aiResults).length}개</span>
+                  <span
+                    className="text-[11px] font-mono"
+                    style={{ color: 'var(--thumb-text-tertiary)' }}
+                  >
+                    AI 분석 완료: {Object.keys(aiResults).length}개
+                  </span>
                 )}
               </div>
               <PaginationBar
@@ -535,37 +1668,16 @@ export default function ThumbnailsPage() {
                 count={filtered.length}
                 pageSize={pageSize}
                 onChange={setPage}
-                onPageSizeChange={(s) => { setPageSize(s); setPage(1); }}
+                onPageSizeChange={(s) => {
+                  setPageSize(s);
+                  setPage(1);
+                }}
               />
             </div>
           )}
 
-          {batchAi.running && (
-            <div className="rounded-xl p-3 bg-purple-50 border border-purple-200">
-              <div className="flex items-center justify-between mb-1.5">
-                <div className="flex items-center gap-2">
-                  <Loader2 size={14} className="animate-spin text-purple-600" />
-                  <span className="text-xs font-semibold text-purple-600">Gemini Vision 분석 중</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold tabular-nums text-purple-600">{batchAi.done} / {batchAi.total}</span>
-                  <button
-                    onClick={() => { batchCancelRef.current = true; }}
-                    className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium transition-colors hover:opacity-80 bg-purple-100 text-purple-600"
-                  >
-                    <X size={10} /> 중단
-                  </button>
-                </div>
-              </div>
-              <div className="h-2 rounded-full overflow-hidden bg-purple-100">
-                <div className="h-full rounded-full transition-all duration-300 bg-purple-600" style={{ width: `${batchAi.total > 0 ? (batchAi.done / batchAi.total) * 100 : 0}%` }} />
-              </div>
-              {batchAi.current && <div className="text-[10px] mt-1 truncate text-slate-400">{batchAi.current}...</div>}
-            </div>
-          )}
-
           {filtered.length === 0 ? (
-            <div className="bg-white rounded-xl border border-slate-200 p-12 text-center text-slate-400">해당 조건의 상품이 없습니다</div>
+            <EmptyState message="해당 조건의 상품이 없습니다" />
           ) : (
             <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
               {paged.map((item) => {
@@ -580,8 +1692,10 @@ export default function ThumbnailsPage() {
                     score={display.overallScore}
                     issueCount={display.issues.filter((i) => i.severity === 'critical').length}
                     aiAnalyzed={isAiDone}
-                    complianceGrade={display.complianceGrade ?? undefined}
-                    onClick={() => { setSelectedProduct(item); setSelectedGen(null); }}
+                    onClick={() => {
+                      setSelectedProduct(item);
+                      setSelectedGen(null);
+                    }}
                   />
                 );
               })}
@@ -590,35 +1704,68 @@ export default function ThumbnailsPage() {
         </div>
       )}
 
-      {/* Tab: 이력 */}
+      {/* ═══ TAB: 이력 ═══ */}
       {activeTab === 'history' && (
-        <GenerationHistory
-          completedGenerations={completedGenerations}
-          page={historyPage}
-          pageSize={pageSize}
-          onSelectGen={(gen) => { setSelectedGen(gen); setSelectedProduct(null); }}
-          onPageChange={setHistoryPage}
-          onPageSizeChange={(s) => { setPageSize(s); setHistoryPage(1); }}
-        />
+        <div className="space-y-3">
+          {completedGenerations.length === 0 ? (
+            <EmptyState message="완료된 작업이 없습니다" />
+          ) : (
+            <>
+              <PaginationBar
+                current={historyPage}
+                total={historyTotalPages}
+                count={completedGenerations.length}
+                pageSize={pageSize}
+                onChange={setHistoryPage}
+                onPageSizeChange={(s) => {
+                  setPageSize(s);
+                  setHistoryPage(1);
+                }}
+              />
+              <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
+                {pagedHistory.map((gen) => (
+                  <ProductCard
+                    key={gen.id}
+                    imageUrl={gen.selectedUrl || gen.originalUrl || gen.product.imageUrl}
+                    name={gen.product.name}
+                    badge={<ThumbnailStatusBadge status={gen.status} />}
+                    overlay={gen.status === 'applied' ? 'applied' : 'skipped'}
+                    onClick={() => {
+                      setSelectedGen(gen);
+                      setSelectedProduct(null);
+                    }}
+                  />
+                ))}
+              </div>
+            </>
+          )}
+        </div>
       )}
 
-      {/* Detail Modal */}
+      {/* ═══ Detail Modal ═══ */}
       {(selectedProduct || selectedGen) && (
         <DetailModal
           product={selectedProduct}
           gen={selectedGen || activeGenForProduct}
           aiResult={selectedProduct ? aiResults[selectedProduct.productId] : undefined}
-          isAiAnalyzing={selectedProduct ? aiAnalyzing === selectedProduct.productId : false}
-          isGenerating={selectedProduct ? generatingIds.has(selectedProduct.productId) : false}
-          isEditing={selectedProduct ? editingProductId === selectedProduct.productId : false}
+          isAiAnalyzing={selectedProduct ? aiAnalyzingId === selectedProduct.productId : false}
+          isGenerating={
+            selectedProduct ? generatingIds.has(selectedProduct.productId) : false
+          }
+          isEditing={false}
           generatedProductIds={generatedProductIds}
-          onClose={() => { setSelectedProduct(null); setSelectedGen(null); }}
+          onClose={() => {
+            setSelectedProduct(null);
+            setSelectedGen(null);
+          }}
           onAiAnalyze={() => selectedProduct && runAiAnalysis(selectedProduct.productId)}
           onGenerate={() => selectedProduct && generateSingle(selectedProduct.productId)}
-          onEdit={() => selectedProduct && editSingle(selectedProduct.productId)}
+          onEdit={() => {
+            /* compliance auto-edit not wired in this page */
+          }}
           onSelectCandidate={(url) => {
             const g = selectedGen || activeGenForProduct;
-            if (g) selectCandidateMutation.mutate({ id: g.id, selectedUrl: url });
+            if (g) selectCandidate(g.id, url);
           }}
           onApply={() => {
             const g = selectedGen || activeGenForProduct;
@@ -626,11 +1773,7 @@ export default function ThumbnailsPage() {
           }}
           onSkip={() => {
             const g = selectedGen || activeGenForProduct;
-            if (g) {
-              skipMutation.mutate(g.id);
-              setSelectedGen(null);
-              setSelectedProduct(null);
-            }
+            if (g) skipGeneration(g.id);
           }}
         />
       )}

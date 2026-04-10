@@ -1,9 +1,23 @@
-// KIDITEM — 쿠팡 광고센터 (advertising.coupang.com) 데이터 수집 + 승인 액션 실행
+// KIDITEM OS — 쿠팡 광고센터 (advertising.coupang.com) 데이터 수집 + 승인 액션 실행
 
 (function () {
   "use strict";
 
   const SERVER = "http://localhost:4000";
+
+  function showBadge(text, color) {
+    let el = document.getElementById("kiditem-badge");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "kiditem-badge";
+      el.style.cssText = "position:fixed;top:12px;right:12px;background:#0f172a;padding:12px 20px;border-radius:10px;font-size:13px;font-weight:600;z-index:999999;box-shadow:0 4px 16px rgba(0,0,0,0.4);font-family:-apple-system,sans-serif;transition:opacity 0.5s;";
+      document.body.appendChild(el);
+    }
+    el.style.color = color || "#22c55e";
+    el.textContent = text;
+    el.style.opacity = "1";
+    setTimeout(() => { el.style.opacity = "0"; setTimeout(() => el.remove(), 500); }, 5000);
+  }
 
   function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -270,7 +284,6 @@
     });
 
     document.querySelectorAll(".rt-table, [class*='rt-table'], [role='grid']").forEach((grid) => {
-      if (rawRows.length >= MAX_AD_ROWS) return;
       const headerNodes = Array.from(
         grid.querySelectorAll(".rt-thead .rt-th, [role='columnheader']")
       ).filter((node) => normalizeText(node.innerText).length > 0);
@@ -295,18 +308,22 @@
   }
 
   function syncToServer(payload) {
-    return fetch(`${SERVER}/api/ads/extension/sync`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    })
-      .then(r => r.json())
-      .catch(e => ({ success: false, error: e.message }));
+    return new Promise((resolve) => {
+      chrome.runtime.sendMessage({ action: "syncToServer", payload }, (response) => {
+        if (chrome.runtime.lastError) {
+          resolve({ success: false, error: chrome.runtime.lastError.message });
+          return;
+        }
+        resolve(response || { success: false, error: "no response" });
+      });
+    });
   }
 
+  // 현재 캠페인명 감지 — span.page-name 또는 "모든 캠페인" 텍스트
   function detectCampaignName() {
     const pageNameEl = document.querySelector(".page-name, [class*='page-name']");
     if (pageNameEl) return normalizeText(pageNameEl.innerText);
+    // "모든 캠페인 > 노출된 광고 > AI스마트광고(wing)" 패턴
     const breadcrumb = document.querySelector("[class*='breadcrumb'], [class*='page-title']");
     if (breadcrumb) {
       const text = normalizeText(breadcrumb.innerText);
@@ -316,35 +333,80 @@
     return "_전체";
   }
 
+  // 기간 감지 — 날짜 피커, 버튼, URL 등에서 추출
   function detectPeriod() {
-    const activeBtn = document.querySelector("[class*='active'][class*='period'], button[class*='active']");
-    if (activeBtn) {
-      const text = normalizeText(activeBtn.innerText);
-      if (text.includes("7일")) return "7d";
-      if (text.includes("이번달") || text.includes("이번 달")) return "month";
-      if (text.includes("어제")) return "yesterday";
+    // 1. 날짜 피커에서 날짜 범위 읽기 (YYYY.MM.DD ~ YYYY.MM.DD 형태)
+    const dateTexts = [];
+    document.querySelectorAll(
+      "[class*='date'], [class*='period'], [class*='calendar'], [class*='range'], [class*='picker'], [class*='DateRange'], [class*='dateRange']"
+    ).forEach(el => {
+      const text = normalizeText(el.innerText);
+      if (text) dateTexts.push(text);
+    });
+    // input[type=date] 또는 날짜 입력란
+    document.querySelectorAll("input[type='date'], input[class*='date'], input[placeholder*='날짜']").forEach(el => {
+      if (el.value) dateTexts.push(el.value);
+    });
+
+    const combined = dateTexts.join(" ");
+    // "2026.04.01 ~ 2026.04.04" 또는 "2026-04-01 ~ 2026-04-04" 패턴
+    const rangeMatch = combined.match(/(\d{4}[.\-/]\d{1,2}[.\-/]\d{1,2})\s*[~\-–]\s*(\d{4}[.\-/]\d{1,2}[.\-/]\d{1,2})/);
+
+    // 2. 활성 버튼에서 기간 라벨 감지
+    let periodLabel = "";
+    document.querySelectorAll(
+      "button[class*='active'], [class*='active'][class*='period'], [class*='selected'][class*='period'], [aria-selected='true']"
+    ).forEach(btn => {
+      const text = normalizeText(btn.innerText);
+      if (text.includes("7일") || text.includes("이번달") || text.includes("이번 달") || text.includes("어제") || text.includes("14일") || text.includes("30일") || text.includes("월")) {
+        periodLabel = text;
+      }
+    });
+
+    // 3. period 결정
+    let period = "7d";
+    if (periodLabel.includes("이번달") || periodLabel.includes("이번 달") || periodLabel.includes("월")) {
+      period = "30d";
+    } else if (periodLabel.includes("14일")) {
+      period = "14d";
+    } else if (periodLabel.includes("어제")) {
+      period = "1d";
     }
-    const url = window.location.href;
-    if (url.includes("7d") || url.includes("week")) return "7d";
-    if (url.includes("month")) return "month";
-    return "7d";
+
+    // 날짜 범위가 있으면 일수로 period 재결정
+    let dateFrom = null, dateTo = null;
+    if (rangeMatch) {
+      dateFrom = rangeMatch[1].replace(/\./g, "-").replace(/\//g, "-");
+      dateTo = rangeMatch[2].replace(/\./g, "-").replace(/\//g, "-");
+      const diffDays = Math.round((new Date(dateTo) - new Date(dateFrom)) / 86400000) + 1;
+      if (diffDays >= 25) period = "30d";
+      else if (diffDays >= 12) period = "14d";
+      else if (diffDays <= 1) period = "1d";
+      else period = "7d";
+    }
+
+    return { period, periodLabel, dateFrom, dateTo };
   }
 
-  function doSync() {
+  async function doSync() {
     const kpis = parseAdKpis();
     const { rawRows, normalizedRows, headers, pageType } = parseCampaignTable();
     const kpiCount = Object.keys(kpis).length;
     const total = kpiCount + rawRows.length;
     const campaignName = detectCampaignName();
-    const period = detectPeriod();
+    const { period, periodLabel, dateFrom, dateTo } = detectPeriod();
 
     if (kpiCount > 0 || rawRows.length > 0) {
-      showBadge(`[${campaignName}] KPI ${kpiCount}개 + ${rawRows.length}행 — 동기화 중...`, "#f59e0b");
-      syncToServer({
+      const periodDisplay = periodLabel || period;
+      showBadge(`📊 [${campaignName}] ${periodDisplay} — KPI ${kpiCount}개 + ${rawRows.length}행 동기화 중...`, "#f59e0b");
+      const json = await syncToServer({
         type: "ad_campaign",
         source: "advertising",
         campaignName,
         period,
+        periodLabel,
+        dateFrom,
+        dateTo,
         data: rawRows.length > 0 ? rawRows : [{ _kpiOnly: true }],
         normalizedRows,
         headers,
@@ -353,15 +415,15 @@
         url: window.location.href,
         title: document.title,
         timestamp: new Date().toISOString(),
-      }).then((json) => {
-        if (json?.success) {
-          chrome.storage.local.set({ kiditem_last_sync_ads: { time: Date.now(), count: total } });
-          showBadge(`광고 데이터 ${total}건 동기화 완료`, "#22c55e");
-        } else {
-          showBadge(`${json?.error || "실패"}`, "#ef4444");
-        }
       });
-      return { success: true, type: "ads", count: total };
+      if (json?.success) {
+        chrome.storage.local.set({ kiditem_last_sync_ads: { time: Date.now(), count: total } });
+        showBadge(`✅ 광고 데이터 ${total}건 동기화 완료`, "#22c55e");
+        return { success: true, type: "ads", count: total };
+      } else {
+        showBadge(`❌ ${json?.error || "실패"}`, "#ef4444");
+        return { success: false, error: json?.error || "실패" };
+      }
     }
     return { success: false, error: "광고 데이터 없음" };
   }
@@ -517,7 +579,7 @@
 
     for (const action of runnable) {
       try {
-        showBadge(`${action.targetLabel} 실행 중...`, "#60a5fa");
+        showBadge(`⚙️ ${action.targetLabel} 실행 중...`, "#60a5fa");
         const result = await executeSingleAction(action, apiUrl);
         if (result.success) {
           executed++;
@@ -537,7 +599,7 @@
       }
     }
 
-    showBadge(`승인 액션 ${executed}개 실행 완료`, "#22c55e");
+    showBadge(`✅ 승인 액션 ${executed}개 실행 완료`, "#22c55e");
     return { success: true, executed, skipped };
   }
 
@@ -545,8 +607,7 @@
 
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.action === "manualSync") {
-      const result = doSync();
-      sendResponse(result);
+      doSync().then((result) => sendResponse(result));
       return true;
     }
 

@@ -10,6 +10,31 @@
   --border: #e2e8f0; /* slate-200 */
   --accent: #2563eb; /* blue-600 */
   --muted: #64748b; /* slate-500 */
+
+}
+
+/* Thumbnail AI page theme tokens — scoped to .thumb-theme to avoid affecting other pages */
+.thumb-theme {
+  --thumb-card-bg: #ffffff;
+  --thumb-surface-sunken: #f1f5f9;
+  --thumb-border-subtle: #e2e8f0;
+  --thumb-primary: #7c3aed;
+  --thumb-primary-hover: #6d28d9;
+  --thumb-primary-subtle: rgba(124, 58, 237, 0.10);
+  --thumb-primary-light: rgba(124, 58, 237, 0.15);
+  --thumb-danger: #ef4444;
+  --thumb-danger-subtle: rgba(239, 68, 68, 0.10);
+  --thumb-warning: #f59e0b;
+  --thumb-warning-subtle: rgba(245, 158, 11, 0.10);
+  --thumb-success: #10b981;
+  --thumb-success-subtle: rgba(16, 185, 129, 0.10);
+  --thumb-text-primary: #0f172a;
+  --thumb-text-secondary: #334155;
+  --thumb-text-tertiary: #64748b;
+  --thumb-text-quaternary: #94a3b8;
+  --thumb-text-disabled: #cbd5e1;
+  --thumb-shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.05);
+  --thumb-shadow-md: 0 4px 12px rgba(15, 23, 42, 0.06);
 }
 
 * {

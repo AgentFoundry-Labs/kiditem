@@ -1,6 +1,7 @@
-import { Injectable, NotFoundException, InternalServerErrorException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, InternalServerErrorException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ThumbnailAiService } from './thumbnail-ai.service';
+import { ThumbnailTrackingService } from './thumbnail-tracking.service';
 import type { GenerationWithProduct, EditAnalysisResult } from './types';
 
 export type { GenerationWithProduct } from './types';
@@ -16,9 +17,12 @@ function toGeneration(row: any): GenerationWithProduct {
 
 @Injectable()
 export class ThumbnailGenerationService {
+  private readonly logger = new Logger(ThumbnailGenerationService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly thumbnailAiService: ThumbnailAiService,
+    private readonly trackingService: ThumbnailTrackingService,
   ) {}
 
   async createJobs(productIds: string[]): Promise<GenerationWithProduct[]> {
@@ -141,6 +145,20 @@ export class ThumbnailGenerationService {
       where: { id },
       data: { status: 'applied' },
       include: { product: { select: { id: true, name: true, imageUrl: true, coupangProductId: true, category: true } } },
+    });
+
+    // 추적 레코드 생성 (이미 있으면 upsert 처리됨)
+    const analysis = await this.prisma.thumbnailAnalysis.findUnique({ where: { productId: existing.productId } });
+    this.trackingService.create({
+      companyId: existing.companyId,
+      productId: existing.productId,
+      generationId: existing.id,
+      originalGrade: analysis?.grade ?? existing.grade,
+      originalScore: analysis?.overallScore ?? existing.score,
+    }).catch((err) => {
+      this.logger.warn(
+        `ThumbnailTracking 자동 생성 실패 (generationId=${existing.id}): ${err instanceof Error ? err.message : String(err)}`,
+      );
     });
 
     return toGeneration(updated);

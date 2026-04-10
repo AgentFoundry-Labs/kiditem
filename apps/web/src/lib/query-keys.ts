@@ -109,6 +109,7 @@ export const queryKeys = {
     list: (params: Record<string, string>) => [...queryKeys.thumbnailAnalysis.all, 'list', params] as const,
     summary: () => [...queryKeys.thumbnailAnalysis.all, 'summary'] as const,
     generations: (params?: Record<string, string>) => [...queryKeys.thumbnailAnalysis.all, 'generations', params] as const,
+    tracking: () => [...queryKeys.thumbnailAnalysis.all, 'tracking'] as const,
   },
   stockMovement: {
     all: ['stockMovement'] as const,

@@ -1,34 +1,36 @@
 {
   "manifest_version": 3,
-  "name": "KIDITEM 쿠팡 광고 수집기",
-  "description": "쿠팡 Wing/광고센터 데이터를 자동 수집하여 KIDITEM에 연동합니다.",
-  "version": "1.0.0",
-  "permissions": ["activeTab", "storage", "tabs", "scripting", "alarms"],
+  "name": "KIDITEM OS - 쿠팡 셀러 도우미",
+  "description": "쿠팡 Wing/광고센터 데이터를 자동 수집하여 KIDITEM OS 대시보드에 연동합니다.",
+  "version": "1.1.0",
+  "permissions": ["activeTab", "storage", "tabs", "scripting", "sidePanel", "alarms"],
   "externally_connectable": {
     "matches": ["http://localhost:3000/*"]
   },
   "host_permissions": [
-    "http://localhost:4000/*",
     "https://wing.coupang.com/*",
-    "https://advertising.coupang.com/*"
+    "https://advertising.coupang.com/*",
+    "http://localhost:4000/*"
   ],
   "content_scripts": [
     {
       "matches": ["https://wing.coupang.com/*"],
-      "js": ["utils/dom.js", "content/wing-unified.js"],
+      "js": ["content/wing-unified.js", "content/wing-itemwinner.js", "content/wing-traffic.js"],
       "run_at": "document_idle"
     },
     {
       "matches": ["https://advertising.coupang.com/*"],
-      "js": ["utils/dom.js", "content/ads-report.js"],
+      "js": ["content/ads-report.js"],
       "run_at": "document_idle"
     }
   ],
   "background": {
     "service_worker": "background/service-worker.js"
   },
+  "side_panel": {
+    "default_path": "popup/popup.html"
+  },
   "action": {
-    "default_popup": "popup/popup.html",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",

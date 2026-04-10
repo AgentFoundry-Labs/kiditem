@@ -123,6 +123,42 @@ export interface ThumbnailAnalysisListResponse {
   unclassified: ThumbnailAnalysisItem[];
 }
 
+export interface ThumbnailTrackingRecord {
+  id: string;
+  productId: string;
+  productName: string;
+  generationId: string;
+  originalGrade: string;
+  originalScore: number;
+  appliedAt: string;
+  daysElapsed: number;
+  status: string;
+  ctrBefore: number | null;
+  ctrAfter: number | null;
+  ctrChange: number | null;
+  reviewsBefore: number | null;
+  reviewsAfter: number | null;
+  salesBefore: number | null;
+  salesAfter: number | null;
+}
+
+export interface UpdateMetricsInput {
+  ctrBefore?: number;
+  ctrAfter?: number;
+  reviewsBefore?: number;
+  reviewsAfter?: number;
+  salesBefore?: number;
+  salesAfter?: number;
+  status?: string;
+}
+
+export interface ThumbnailTrackingListResponse {
+  items: ThumbnailTrackingRecord[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
 /** Product with relations loaded via `include: { company, inventory }` */
 export type ProductWithRelations = Product & {
   company?: Company | null;

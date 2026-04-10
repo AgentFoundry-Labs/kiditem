@@ -1,112 +1,124 @@
 'use client';
-import { Scan, CheckCircle, AlertTriangle, XCircle } from 'lucide-react';
+import { ScanSearch, Zap, AlertTriangle, TrendingUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-interface KpiMiniProps {
+interface ActionCardProps {
   icon: React.ElementType;
   color: string;
+  bgColor: string;
+  borderColor: string;
   label: string;
-  value: number;
-  unit: string;
-  sub: string;
-  bar?: number;
-  alert?: boolean;
+  count: number;
+  sub1: string;
+  sub2: string;
+  urgent?: boolean;
   onClick?: () => void;
 }
 
-function KpiMini({ icon: Icon, color, label, value, unit, sub, bar, alert, onClick }: KpiMiniProps) {
+function ActionCard({ icon: Icon, color, bgColor, borderColor, label, count, sub1, sub2, urgent, onClick }: ActionCardProps) {
   return (
     <div
       className={cn(
-        'rounded-2xl px-4 py-4 flex flex-col justify-between cursor-pointer hover:shadow-lg transition-shadow bg-white shadow-md',
-        alert ? 'border' : 'border border-slate-200'
+        'rounded-2xl px-4 py-4 flex flex-col justify-between cursor-pointer hover:shadow-lg transition-all bg-white shadow-md border',
+        urgent ? borderColor : 'border-slate-200'
       )}
-      style={alert ? { borderColor: `${color}33` } : undefined}
       onClick={onClick}
     >
-      <div className="flex items-center gap-1.5 mb-2">
-        <Icon size={16} style={{ color }} />
-        <span className="text-[12px] font-bold uppercase tracking-wider" style={{ color }}>{label}</span>
-      </div>
-      <div className="flex items-baseline gap-1">
-        <span className="text-2xl font-extrabold tabular-nums" style={{ color }}>{value}</span>
-        <span className="text-sm font-semibold" style={{ color, opacity: 0.5 }}>{unit}</span>
-      </div>
-      <div className="text-[13px] mt-1 text-slate-400">{sub}</div>
-      {bar !== undefined && (
-        <div className="mt-2 h-1 rounded-full overflow-hidden" style={{ background: `${color}18` }}>
-          <div className="h-full rounded-full transition-all duration-500" style={{ width: `${Math.min(bar, 100)}%`, background: color }} />
+      <div className="flex items-center justify-between mb-2">
+        <div className={cn('flex items-center gap-1.5')}>
+          <Icon size={15} style={{ color }} />
+          <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color }}>{label}</span>
         </div>
-      )}
-      {alert && (
-        <div className="mt-2 text-[9px] font-semibold px-2 py-0.5 rounded-full w-fit" style={{ background: `${color}15`, color }}>즉시 조치</div>
-      )}
+        {urgent && <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />}
+      </div>
+      <div className="flex items-baseline gap-1 mb-1">
+        <span className="text-3xl font-extrabold tabular-nums" style={{ color }}>{count}</span>
+        <span className="text-sm font-semibold text-slate-400">개</span>
+      </div>
+      <div className="mt-1 space-y-0.5">
+        <div className="text-[12px] text-slate-400">{sub1}</div>
+        <div className="text-[12px] text-slate-400">{sub2}</div>
+      </div>
     </div>
   );
 }
 
 interface AnalysisKpiCardsProps {
-  classifiedPct: number;
-  analyzedCount: number;
   unclassifiedCount: number;
+  unclassifiedWithImage: number;
+  unclassifiedNoImage: number;
+  analyzedCount: number;
+  avgScore: number;
   goodRate: number;
-  goodCount: number;
-  criticalCount: number;
+  needsFixCount: number;
+  fCount: number;
+  cCount: number;
+  appliedCount: number;
+  avgDaysTracked: number;
   onTabChange: (tab: string) => void;
-  onFilterChange: (filter: string) => void;
 }
 
 export function AnalysisKpiCards({
-  classifiedPct,
-  analyzedCount,
   unclassifiedCount,
+  unclassifiedWithImage,
+  unclassifiedNoImage,
+  analyzedCount,
+  avgScore,
   goodRate,
-  goodCount,
-  criticalCount,
+  needsFixCount,
+  fCount,
+  cCount,
+  appliedCount,
+  avgDaysTracked,
   onTabChange,
-  onFilterChange,
 }: AnalysisKpiCardsProps) {
   return (
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-      <KpiMini
-        icon={Scan}
-        color="#7c3aed"
-        label="AI 분류율"
-        value={classifiedPct}
-        unit="%"
-        sub={`${analyzedCount}개 분류 / ${unclassifiedCount}개 미분류`}
-        bar={classifiedPct}
-        onClick={() => { onTabChange('unclassified'); }}
-      />
-      <KpiMini
-        icon={CheckCircle}
-        color="#059669"
-        label="우수 비율"
-        value={goodRate}
-        unit="%"
-        sub={`S+A ${goodCount}개 / ${analyzedCount}개`}
-        bar={goodRate}
-        onClick={() => { onTabChange('all'); onFilterChange('all'); }}
-      />
-      <KpiMini
-        icon={AlertTriangle}
-        color="#dc2626"
-        label="긴급 개선"
-        value={criticalCount}
-        unit="개"
-        sub="크리티컬 이슈 상품"
-        alert={criticalCount > 0}
-        onClick={() => { onTabChange('all'); onFilterChange('critical'); }}
-      />
-      <KpiMini
-        icon={XCircle}
-        color="#d97706"
+      <ActionCard
+        icon={ScanSearch}
+        color="#6b7280"
+        bgColor="rgba(107,114,128,0.06)"
+        borderColor="border-gray-300"
         label="미분류"
-        value={unclassifiedCount}
-        unit="개"
-        sub="AI 스캔 대기 상품"
-        alert={unclassifiedCount > 0}
-        onClick={() => { onTabChange('unclassified'); }}
+        count={unclassifiedCount}
+        sub1={`이미지 있음 ${unclassifiedWithImage}개`}
+        sub2={`이미지 없음 ${unclassifiedNoImage}개`}
+        urgent={unclassifiedCount > 0}
+        onClick={() => onTabChange('unclassified')}
+      />
+      <ActionCard
+        icon={Zap}
+        color="#3182f6"
+        bgColor="rgba(49,130,246,0.06)"
+        borderColor="border-blue-200"
+        label="AI 분류"
+        count={analyzedCount}
+        sub1={`평균 점수 ${avgScore}점`}
+        sub2={`우수(S+A) ${goodRate}%`}
+        onClick={() => onTabChange('all')}
+      />
+      <ActionCard
+        icon={AlertTriangle}
+        color="#f59e0b"
+        bgColor="rgba(245,158,11,0.06)"
+        borderColor="border-amber-300"
+        label="개선 필요"
+        count={needsFixCount}
+        sub1={`F등급 ${fCount}개`}
+        sub2={`C등급 ${cCount}개`}
+        urgent={needsFixCount > 0}
+        onClick={() => onTabChange('needsfix')}
+      />
+      <ActionCard
+        icon={TrendingUp}
+        color="#0891b2"
+        bgColor="rgba(8,145,178,0.06)"
+        borderColor="border-cyan-200"
+        label="추적"
+        count={appliedCount}
+        sub1={`적용 완료 상품`}
+        sub2={avgDaysTracked > 0 ? `평균 ${avgDaysTracked}일 경과` : '추적 대기 중'}
+        onClick={() => onTabChange('tracking')}
       />
     </div>
   );

@@ -1,4 +1,4 @@
-// KIDITEM — 서버 통신 모듈
+// KIDITEM OS — 서버 통신 모듈
 const KIDITEM_API = "http://localhost:4000";
 
 const KiditemAPI = {
@@ -11,6 +11,7 @@ const KiditemAPI = {
       });
       const json = await res.json();
 
+      // 동기화 시간 저장
       if (json.success) {
         const key = `kiditem_last_sync_${type}`;
         chrome.storage.local.set({ [key]: { time: Date.now(), count: data.length } });
@@ -25,7 +26,7 @@ const KiditemAPI = {
 
   async getStatus() {
     try {
-      const res = await fetch(`${KIDITEM_API}/api/ads/extension/status`);
+      const res = await fetch(`${KIDITEM_API}/api/ads/extension/sync`);
       return await res.json();
     } catch {
       return { connected: false };
