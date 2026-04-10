@@ -621,7 +621,7 @@ model ThumbnailAnalysis {
   imageUrl     String  @map("image_url")
   overallScore Int     @default(0) @map("overall_score")
   grade        String  @default("F")
-  scores       Json?   // { guideline, heroShot, composition, branding, mobile }
+  scores       Json?   // { heroShot, composition, branding, mobile, differentiation }
   issues       Json    @default("[]")
   suggestions  Json    @default("[]")
   method       String  @default("ai") // "ai" | "rule"

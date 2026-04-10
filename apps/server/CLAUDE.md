@@ -70,6 +70,7 @@ Adding a new domain: create module + controller + service + dto/ → register in
 - **Workflows**: see `src/workflows/CLAUDE.md`
 - **Agent Platform**: see `src/agent-registry/CLAUDE.md`
 - **Advertising**: see `src/advertising/CLAUDE.md`
+- **Thumbnails**: `src/products/services/thumbnail-*.ts` — 썸네일 AI 분석/편집. 3단계: 사전 검수(이미지 스펙) → AI 분류(품질+가이드라인) → AI 편집(가이드라인 수정/품질 개선). Gemini API 사용. 모델명은 `ThumbnailAiService.GEMINI_MODEL` 상수.
 - **Chat**: `src/chat/` — CopilotKit 런타임 + ClaudeCliAdapter
 - **Action Tasks**: `src/action-task/` — 액션 보드 CRUD API
 
