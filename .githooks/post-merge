@@ -1,0 +1,30 @@
+#!/bin/sh
+#
+# Post-merge hook: warn when DB schema or shared types changed.
+# Runs after git pull/merge.
+#
+
+CHANGED=$(git diff-tree -r --name-only ORIG_HEAD HEAD)
+
+NEED_SYNC=0
+
+if echo "$CHANGED" | grep -q "prisma/schema.prisma"; then
+  echo ""
+  echo "⚠️  prisma/schema.prisma 변경됨 → npx prisma db push + generate 필요"
+  NEED_SYNC=1
+fi
+
+if echo "$CHANGED" | grep -q "packages/shared/"; then
+  echo "⚠️  packages/shared/ 변경됨 → npm run build -w packages/shared 필요"
+  NEED_SYNC=1
+fi
+
+if echo "$CHANGED" | grep -q "prisma/init.sql.gz"; then
+  echo "ℹ️  prisma/init.sql.gz 갱신됨 → 데이터 동기화가 필요하면 /project:kiditem-sync 실행"
+fi
+
+if [ "$NEED_SYNC" -eq 1 ]; then
+  echo ""
+  echo "👉 /project:kiditem-sync 실행하세요."
+  echo ""
+fi
