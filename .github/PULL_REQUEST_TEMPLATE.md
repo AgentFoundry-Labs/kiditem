@@ -9,7 +9,7 @@
 
 > init.sql.gz 갱신 방법:
 > ```bash
-> docker exec kiditem-postgres pg_dump -U kiditem --data-only --inserts --no-owner --no-privileges kiditem | gzip > prisma/init.sql.gz
+> docker exec kiditem-postgres pg_dump -U kiditem --data-only --column-inserts --no-owner --no-privileges kiditem | gzip > prisma/init.sql.gz
 > ```
 
 ## 테스트
