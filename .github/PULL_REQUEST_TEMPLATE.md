@@ -12,9 +12,20 @@
 npx prisma db push        # schema 변경 시
 npx prisma generate       # schema 변경 시
 npm run build -w packages/shared  # shared 타입 변경 시
+
+# 최초 환경 셋업 또는 init.sql.gz 갱신 시
+gunzip -k prisma/init.sql.gz
+docker exec -i kiditem-postgres psql -U kiditem kiditem < prisma/init.sql
 ```
 
 ## 테스트
 - [ ] `npx vitest run` 통과
 - [ ] `npm run dev:server` 부트 확인
 - [ ] `npm run build -w apps/web` 빌드 성공
+
+## 리뷰
+리뷰어는 checkout 후 Claude Code로 리뷰:
+```bash
+gh pr checkout <PR번호>
+claude /review
+```
