@@ -9,6 +9,7 @@ import { ThumbnailAnalysisController } from './controllers/thumbnail-analysis.co
 import { ThumbnailAiService } from './services/thumbnail-ai.service';
 import { ThumbnailAnalysisService } from './services/thumbnail-analysis.service';
 import { ThumbnailGenerationService } from './services/thumbnail-generation.service';
+import { ThumbnailEditService } from './services/thumbnail-edit.service';
 
 @Module({
   controllers: [
@@ -24,6 +25,7 @@ import { ThumbnailGenerationService } from './services/thumbnail-generation.serv
     ThumbnailAiService,
     ThumbnailAnalysisService,
     ThumbnailGenerationService,
+    ThumbnailEditService,
   ],
 })
 export class ProductsModule {}

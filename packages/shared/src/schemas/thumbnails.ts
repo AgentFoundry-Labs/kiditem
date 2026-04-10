@@ -1,5 +1,31 @@
 import { z } from 'zod';
 
+// ─── 가이드라인 준수 점수 스키마 ─────────────────────────────────────────────
+
+export const ComplianceScoresSchema = z.object({
+  violations: z.object({
+    background_not_white: z.boolean(),
+    has_text: z.boolean(),
+    has_extra_logo: z.boolean(),
+    has_discount_text: z.boolean(),
+    has_freebie_display: z.boolean(),
+    has_overlay_effects: z.boolean(),
+    has_gradient_background: z.boolean(),
+    has_background_objects: z.boolean(),
+    product_fill_low: z.boolean(),
+    not_center_aligned: z.boolean(),
+    product_cropped: z.boolean(),
+    excessive_editing: z.boolean(),
+  }),
+  confidence: z.record(z.string(), z.number()),
+  quality: z.object({
+    estimatedFillPercent: z.number(),
+    centerOffsetPercent: z.number(),
+    aspectRatioValid: z.boolean(),
+  }),
+  violationCount: z.number(),
+});
+
 // GET /api/thumbnails 응답의 각 item
 export const ThumbnailListItemSchema = z.object({
   id: z.string(),
@@ -59,13 +85,26 @@ export const ThumbnailAnalysisResultSchema = z.object({
   suggestions: z.array(z.string()),
   method: z.string(),
   analyzed: z.boolean(),
+  qualityAnalyzed: z.boolean(),
+  complianceAnalyzed: z.boolean(),
+  complianceGrade: z.string().nullable(),
+  complianceScores: ComplianceScoresSchema.nullable(),
 });
 
 export const ThumbnailAnalysisSummarySchema = z.object({
   total: z.number(),
   analyzed: z.number(),
+  partialCount: z.number(),
   unclassifiedCount: z.number(),
   gradeDistribution: z.object({ S: z.number(), A: z.number(), B: z.number(), C: z.number(), F: z.number() }),
+  complianceDistribution: z.object({ PASS: z.number(), WARN: z.number(), FAIL: z.number() }),
+});
+
+export const EditAnalysisResultSchema = z.object({
+  complianceGrade: z.string(),
+  complianceScores: z.record(z.string(), z.unknown()).nullable(),
+  overallScore: z.number(),
+  grade: z.string(),
 });
 
 export const ThumbnailGenerationItemSchema = z.object({
@@ -77,6 +116,8 @@ export const ThumbnailGenerationItemSchema = z.object({
   status: z.string(),
   grade: z.string(),
   score: z.number(),
+  method: z.string().default('generate'),
+  editAnalysis: EditAnalysisResultSchema.nullable().default(null),
   createdAt: z.string(),
   product: z.object({
     id: z.string(),
@@ -88,6 +129,8 @@ export const ThumbnailGenerationItemSchema = z.object({
 });
 
 export type ThumbnailScores = z.infer<typeof ThumbnailScoresSchema>;
+export type EditAnalysisResult = z.infer<typeof EditAnalysisResultSchema>;
+export type ComplianceScores = z.infer<typeof ComplianceScoresSchema>;
 export type ThumbnailAnalysisResult = z.infer<typeof ThumbnailAnalysisResultSchema>;
 export type ThumbnailAnalysisSummary = z.infer<typeof ThumbnailAnalysisSummarySchema>;
 export type ThumbnailGenerationItem = z.infer<typeof ThumbnailGenerationItemSchema>;

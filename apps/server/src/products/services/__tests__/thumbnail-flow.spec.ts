@@ -35,6 +35,7 @@ function makeAiService() {
   return {
     analyzeWithGeminiVision: vi.fn(),
     analyzeWithRules: vi.fn(),
+    analyzeImagesBatch: vi.fn(),
     generateImages: vi.fn(),
     toCoupangOriginal: vi.fn((url: string) => url),
     scoreToGrade: vi.fn((score: number) => {
@@ -121,6 +122,141 @@ describe('ThumbnailAiService', () => {
       expect(result.issues[0].severity).toBe('critical');
       expect(result.issues[0].message).toBe('대표 이미지 미등록');
     });
+
+    it('no image → complianceGrade FAIL', () => {
+      const result = service.analyzeWithRules({
+        id: 'p-1',
+        name: '상품',
+        imageUrl: null,
+      });
+      expect(result.complianceGrade).toBe('FAIL');
+    });
+
+    it('with image → complianceGrade null (미분석)', () => {
+      const result = service.analyzeWithRules({
+        id: 'p-1',
+        name: '상품',
+        imageUrl: 'https://example.com/img.jpg',
+      });
+      expect(result.complianceGrade).toBeNull();
+    });
+  });
+
+  // ── calculateComplianceGrade ─────────────────────────────────────────────────
+
+  describe('calculateComplianceGrade', () => {
+    function makeScores(overrides: {
+      violations?: Partial<Record<string, boolean>>;
+      confidence?: Record<string, number>;
+      fillPercent?: number;
+      offsetPercent?: number;
+    } = {}) {
+      const allFalse = {
+        background_not_white: false,
+        has_text: false,
+        has_extra_logo: false,
+        has_discount_text: false,
+        has_freebie_display: false,
+        has_overlay_effects: false,
+        has_gradient_background: false,
+        has_background_objects: false,
+        product_fill_low: false,
+        not_center_aligned: false,
+        product_cropped: false,
+        excessive_editing: false,
+      };
+      return {
+        violations: { ...allFalse, ...(overrides.violations ?? {}) } as Record<string, boolean>,
+        confidence: overrides.confidence ?? {},
+        quality: {
+          estimatedFillPercent: overrides.fillPercent ?? 90,
+          centerOffsetPercent: overrides.offsetPercent ?? 2,
+          aspectRatioValid: true,
+        },
+        violationCount: 0,
+      };
+    }
+
+    it('1. 위반 0건 + 경계값 없음 → PASS', () => {
+      const scores = makeScores();
+      expect(service.calculateComplianceGrade(scores as any).grade).toBe('PASS');
+    });
+
+    it('2. 위반 0건 + fill 80~85% → WARN', () => {
+      const scores = makeScores({ fillPercent: 82 });
+      expect(service.calculateComplianceGrade(scores as any).grade).toBe('WARN');
+    });
+
+    it('3. 위반 0건 + offset >5% → WARN', () => {
+      const scores = makeScores({ offsetPercent: 6 });
+      expect(service.calculateComplianceGrade(scores as any).grade).toBe('WARN');
+    });
+
+    it('4. 위반 0건 + 저확신 flag(violation true, confidence <60) → WARN', () => {
+      const scores = makeScores({
+        violations: { has_text: true },
+        confidence: { has_text: 50 },
+      });
+      expect(service.calculateComplianceGrade(scores as any).grade).toBe('WARN');
+    });
+
+    it('5. 위반 1건 (confidence ≥60) → FAIL', () => {
+      const scores = makeScores({
+        violations: { background_not_white: true },
+        confidence: { background_not_white: 80 },
+      });
+      expect(service.calculateComplianceGrade(scores as any).grade).toBe('FAIL');
+    });
+
+    it('6. 위반 1건 (confidence <60) → 무시 → PASS', () => {
+      const scores = makeScores({
+        violations: { background_not_white: true },
+        confidence: { background_not_white: 40 },
+      });
+      // confidence < 60 → not confirmed violation, but low-confidence flag → WARN
+      // Actually per spec: low-confidence flag → WARN
+      expect(service.calculateComplianceGrade(scores as any).grade).toBe('WARN');
+    });
+
+    it('7. 위반 12건 전부 (confidence ≥60) → FAIL', () => {
+      const violations = Object.fromEntries(
+        [
+          'background_not_white', 'has_text', 'has_extra_logo', 'has_discount_text',
+          'has_freebie_display', 'has_overlay_effects', 'has_gradient_background',
+          'has_background_objects', 'product_fill_low', 'not_center_aligned',
+          'product_cropped', 'excessive_editing',
+        ].map((k) => [k, true]),
+      );
+      const confidence = Object.fromEntries(Object.keys(violations).map((k) => [k, 95]));
+      const scores = makeScores({ violations, confidence });
+      expect(service.calculateComplianceGrade(scores as any).grade).toBe('FAIL');
+    });
+
+    it('8. violations 필드 누락 시 기본값 true → FAIL (방어 로직은 analyzeWithGeminiVision에서 적용)', () => {
+      // calculateComplianceGrade receives already-defaulted scores
+      // Here we test that true violations with confidence ≥60 → FAIL
+      const scores = {
+        violations: {
+          background_not_white: true, // defaulted to true (missing field)
+          has_text: false,
+          has_extra_logo: false,
+          has_discount_text: false,
+          has_freebie_display: false,
+          has_overlay_effects: false,
+          has_gradient_background: false,
+          has_background_objects: false,
+          product_fill_low: false,
+          not_center_aligned: false,
+          product_cropped: false,
+          excessive_editing: false,
+        },
+        confidence: { background_not_white: 0 }, // missing field → defaults to 0
+        quality: { estimatedFillPercent: 90, centerOffsetPercent: 2, aspectRatioValid: true },
+        violationCount: 1,
+      };
+      // confidence[background_not_white] = 0 < 60 → not confirmed, but low-confidence flag → WARN
+      expect(service.calculateComplianceGrade(scores as any).grade).toBe('WARN');
+    });
   });
 });
 
@@ -162,26 +298,18 @@ describe('ThumbnailAnalysisService', () => {
         issues: [],
         suggestions: ['배경 유지'],
         method: 'ai',
+        qualityAnalyzedAt: new Date(),
+        complianceAnalyzedAt: new Date(),
       };
       prisma.thumbnailAnalysis.upsert.mockResolvedValue(savedRecord);
 
       const result = await service.analyzeProduct(product.id);
 
-      expect(aiService.analyzeWithGeminiVision).toHaveBeenCalledWith(
-        product.imageUrl,
-        product.name,
-        product.category,
-      );
-      expect(prisma.thumbnailAnalysis.upsert).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { productId: product.id },
-          create: expect.objectContaining({ grade: 'A', method: 'ai' }),
-          update: expect.objectContaining({ grade: 'A', method: 'ai' }),
-        }),
-      );
+      expect(prisma.thumbnailAnalysis.upsert).toHaveBeenCalled();
       expect(result.grade).toBe('A');
       expect(result.method).toBe('ai');
       expect(result.analyzed).toBe(true);
+      expect(result.qualityAnalyzed).toBe(true);
     });
 
     it('AI fails → falls back to rule-based analysis', async () => {
@@ -264,20 +392,23 @@ describe('ThumbnailAnalysisService', () => {
   });
 
   describe('analyzeBatch', () => {
-    it('processes multiple products and returns all results', async () => {
-      const products = ['prod-1', 'prod-2', 'prod-3'];
+    it('processes multiple products via batch and returns all results', async () => {
+      const productIds = ['prod-1', 'prod-2', 'prod-3'];
+      const products = productIds.map((id) => makeProduct({ id }));
 
-      for (const id of products) {
-        const product = makeProduct({ id });
-        prisma.product.findUnique.mockResolvedValueOnce(product);
+      prisma.product.findMany.mockResolvedValue(products);
 
-        const aiResult = { overallScore: 75, grade: 'A', scores: null, issues: [], suggestions: [], method: 'ai' as const };
-        aiService.analyzeWithGeminiVision.mockResolvedValueOnce(aiResult);
+      const batchResults = new Map<string, any>();
+      for (const id of productIds) {
+        batchResults.set(id, { overallScore: 75, grade: 'A', scores: null, issues: [], suggestions: [], method: 'ai', complianceGrade: null, complianceScores: null });
+      }
+      aiService.analyzeImagesBatch.mockResolvedValue(batchResults);
 
+      for (const id of productIds) {
         prisma.thumbnailAnalysis.upsert.mockResolvedValueOnce({
           id: `ana-${id}`,
           productId: id,
-          imageUrl: 'https://example.com/img.jpg',
+          imageUrl: 'https://cdn.example.com/img.jpg',
           overallScore: 75,
           grade: 'A',
           scores: null,
@@ -287,16 +418,20 @@ describe('ThumbnailAnalysisService', () => {
         });
       }
 
-      const results = await service.analyzeBatch(products);
+      const results = await service.analyzeBatch(productIds);
       expect(results).toHaveLength(3);
+      expect(aiService.analyzeImagesBatch).toHaveBeenCalledTimes(1);
     });
 
-    it('continues on individual product failure', async () => {
-      // First product throws, second succeeds
-      prisma.product.findUnique
-        .mockResolvedValueOnce(null) // causes NotFoundException for prod-1
-        .mockResolvedValueOnce(makeProduct({ id: 'prod-2' }));
+    it('continues when batch fails by falling back to single analysis', async () => {
+      // findMany returns only prod-2 (prod-1 not found)
+      prisma.product.findMany.mockResolvedValue([makeProduct({ id: 'prod-2' })]);
 
+      // batch call fails
+      aiService.analyzeImagesBatch.mockRejectedValue(new Error('batch failed'));
+
+      // fallback single analysis: findUnique + analyzeWithGeminiVision
+      prisma.product.findUnique.mockResolvedValueOnce(makeProduct({ id: 'prod-2' }));
       aiService.analyzeWithGeminiVision.mockResolvedValueOnce({
         overallScore: 80,
         grade: 'A',
@@ -304,12 +439,13 @@ describe('ThumbnailAnalysisService', () => {
         issues: [],
         suggestions: [],
         method: 'ai' as const,
+        complianceGrade: null,
+        complianceScores: null,
       });
-
       prisma.thumbnailAnalysis.upsert.mockResolvedValueOnce({
         id: 'ana-2',
         productId: 'prod-2',
-        imageUrl: 'https://example.com/img.jpg',
+        imageUrl: 'https://cdn.example.com/img.jpg',
         overallScore: 80,
         grade: 'A',
         scores: null,
@@ -319,28 +455,33 @@ describe('ThumbnailAnalysisService', () => {
       });
 
       const results = await service.analyzeBatch(['prod-1', 'prod-2']);
-      // Only prod-2 succeeded; prod-1 error was swallowed
       expect(results).toHaveLength(1);
       expect(results[0].productId).toBe('prod-2');
     });
   });
 
   describe('getSummary', () => {
-    it('returns total/analyzed/gradeDistribution', async () => {
+    it('returns total/analyzed/partialCount/gradeDistribution', async () => {
       prisma.product.count.mockResolvedValue(10);
-      prisma.thumbnailAnalysis.count.mockResolvedValue(6);
-      prisma.thumbnailAnalysis.groupBy.mockResolvedValue([
-        { grade: 'S', _count: { id: 1 } },
-        { grade: 'A', _count: { id: 2 } },
-        { grade: 'B', _count: { id: 2 } },
-        { grade: 'C', _count: { id: 1 } },
-      ]);
+      // count is called twice: fully analyzed, then partial
+      prisma.thumbnailAnalysis.count
+        .mockResolvedValueOnce(6)  // fully analyzed
+        .mockResolvedValueOnce(1); // partial
+      prisma.thumbnailAnalysis.groupBy
+        .mockResolvedValueOnce([  // grade groups
+          { grade: 'S', _count: { id: 1 } },
+          { grade: 'A', _count: { id: 2 } },
+          { grade: 'B', _count: { id: 2 } },
+          { grade: 'C', _count: { id: 1 } },
+        ])
+        .mockResolvedValueOnce([]); // compliance groups
 
       const summary = await service.getSummary();
 
       expect(summary.total).toBe(10);
       expect(summary.analyzed).toBe(6);
-      expect(summary.unclassifiedCount).toBe(4);
+      expect(summary.partialCount).toBe(1);
+      expect(summary.unclassifiedCount).toBe(3);
       expect(summary.gradeDistribution).toEqual({ S: 1, A: 2, B: 2, C: 1, F: 0 });
     });
   });

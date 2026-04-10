@@ -9,3 +9,4 @@ export { AnalyzeThumbnailDto, AnalyzeBatchDto } from './analyze-thumbnail.dto';
 export { GenerateThumbnailDto, SelectCandidateDto } from './generate-thumbnail.dto';
 export { ListThumbnailAnalysesQueryDto } from './list-thumbnail-analyses.dto';
 export { ListGenerationsQueryDto } from './list-generations-query.dto';
+export { EditThumbnailDto } from './edit-thumbnail.dto';

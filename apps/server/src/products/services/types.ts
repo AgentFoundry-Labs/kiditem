@@ -4,6 +4,32 @@ import type { Product, Company, Inventory, ProfitLoss } from '@prisma/client';
 
 export type ThumbnailGrade = 'S' | 'A' | 'B' | 'C' | 'F';
 
+export type ComplianceGrade = 'PASS' | 'WARN' | 'FAIL';
+
+export interface ComplianceScores {
+  violations: {
+    background_not_white: boolean;
+    has_text: boolean;
+    has_extra_logo: boolean;
+    has_discount_text: boolean;
+    has_freebie_display: boolean;
+    has_overlay_effects: boolean;
+    has_gradient_background: boolean;
+    has_background_objects: boolean;
+    product_fill_low: boolean;
+    not_center_aligned: boolean;
+    product_cropped: boolean;
+    excessive_editing: boolean;
+  };
+  confidence: Record<string, number>;
+  quality: {
+    estimatedFillPercent: number;
+    centerOffsetPercent: number;
+    aspectRatioValid: boolean;
+  };
+  violationCount: number;
+}
+
 export interface AnalysisScores {
   guideline: number;
   heroShot: number;
@@ -25,11 +51,20 @@ export interface AiAnalysisResult {
   issues: AnalysisIssue[];
   suggestions: string[];
   method: 'ai' | 'rule';
+  complianceGrade: ComplianceGrade | null;
+  complianceScores: ComplianceScores | null;
 }
 
 export interface GeneratedImage {
   url: string;
   filename: string;
+}
+
+export interface EditAnalysisResult {
+  complianceGrade: string;
+  complianceScores: Record<string, unknown> | null;
+  overallScore: number;
+  grade: string;
 }
 
 export interface GenerationWithProduct {
@@ -43,6 +78,8 @@ export interface GenerationWithProduct {
   grade: string;
   score: number;
   prompt: string | null;
+  method: string;
+  editAnalysis: EditAnalysisResult | null;
   createdAt: Date;
   updatedAt: Date;
   product: { id: string; name: string; imageUrl: string | null; coupangProductId: string | null; category: string | null } | null;
@@ -60,20 +97,28 @@ export interface ThumbnailAnalysisItem {
   suggestions: string[];
   method: string;
   analyzed: boolean;
+  qualityAnalyzed: boolean;
+  complianceAnalyzed: boolean;
+  complianceGrade?: string;
+  complianceScores?: Record<string, unknown> | null;
 }
 
 export interface ThumbnailAnalysisSummaryInternal {
   total: number;
   analyzed: number;
+  partialCount: number;
   unclassifiedCount: number;
   gradeDistribution: { S: number; A: number; B: number; C: number; F: number };
+  complianceDistribution: { PASS: number; WARN: number; FAIL: number };
 }
 
 export interface ThumbnailAnalysisListResponse {
   total: number;
   analyzed: number;
+  partialCount: number;
   unclassifiedCount: number;
   gradeDistribution: { S: number; A: number; B: number; C: number; F: number };
+  complianceDistribution: { PASS: number; WARN: number; FAIL: number };
   allResults: ThumbnailAnalysisItem[];
   unclassified: ThumbnailAnalysisItem[];
 }

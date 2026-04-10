@@ -7,6 +7,12 @@ import {
 import { ScoreBreakdown } from './ScoreBreakdown';
 import type { ThumbnailAnalysisResult, ThumbnailGenerationItem } from '@kiditem/shared';
 import { cn } from '@/lib/utils';
+import {
+  COMPLIANCE_GRADE_TEXT,
+  COMPLIANCE_GRADE_BG,
+  COMPLIANCE_GRADE_LABELS,
+  VIOLATION_LABELS,
+} from '../lib/grade-constants';
 
 const GRADE_COLORS: Record<string, string> = {
   S: 'bg-emerald-100 text-emerald-700 border-emerald-200',
@@ -49,10 +55,12 @@ interface DetailModalProps {
   aiResult?: ThumbnailAnalysisResult;
   isAiAnalyzing: boolean;
   isGenerating: boolean;
+  isEditing: boolean;
   generatedProductIds: Set<string>;
   onClose: () => void;
   onAiAnalyze: () => void;
   onGenerate: () => void;
+  onEdit: () => void;
   onSelectCandidate: (url: string) => void;
   onApply: () => void;
   onSkip: () => void;
@@ -64,10 +72,12 @@ export function DetailModal({
   aiResult,
   isAiAnalyzing,
   isGenerating,
+  isEditing,
   generatedProductIds,
   onClose,
   onAiAnalyze,
   onGenerate,
+  onEdit,
   onSelectCandidate,
   onApply,
   onSkip,
@@ -118,8 +128,19 @@ export function DetailModal({
                 </div>
 
                 <div className="flex-1 min-w-0">
-                  <div className="text-[10px] font-mono text-slate-400 uppercase mb-1.5">
-                    Gemini AI 후보 ({candidates.length}장)
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <div className="text-[10px] font-mono text-slate-400 uppercase">
+                      {gen?.method === 'edit' ? '가이드라인 수정' : 'Gemini AI 후보'} ({candidates.length}장)
+                    </div>
+                    {gen?.editAnalysis && (
+                      <span className={cn(
+                        'inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold text-white',
+                        gen.editAnalysis.complianceGrade === 'PASS' ? 'bg-emerald-600' :
+                        gen.editAnalysis.complianceGrade === 'WARN' ? 'bg-amber-500' : 'bg-red-600',
+                      )}>
+                        편집 후: {gen.editAnalysis.complianceGrade}
+                      </span>
+                    )}
                   </div>
                   <div className="grid grid-cols-3 gap-2">
                     {candidates.map((candidate, idx) => {
@@ -229,13 +250,22 @@ export function DetailModal({
                       <Eye size={12} /> {isAiAnalyzing ? 'AI 분석 중...' : 'AI 정밀 분석'}
                     </button>
                   )}
-                  {product && (product.grade === 'F' || product.grade === 'C') && !generatedProductIds.has(product.productId) && (
+                  {product && (product.complianceGrade === 'FAIL' || product.complianceGrade === 'WARN' || product.grade === 'F' || product.grade === 'C') && !generatedProductIds.has(product.productId) && (
                     <button
                       onClick={onGenerate}
                       disabled={isGenerating}
                       className="flex items-center gap-2 px-3 py-2 bg-purple-600 text-white rounded-lg text-xs font-medium hover:bg-purple-700 disabled:opacity-50"
                     >
                       <Wand2 size={12} /> {isGenerating ? 'Gemini 생성 중...' : '썸네일 재생성'}
+                    </button>
+                  )}
+                  {product && (product.complianceGrade === 'FAIL' || product.complianceGrade === 'WARN') && (
+                    <button
+                      onClick={onEdit}
+                      disabled={isEditing}
+                      className="flex items-center gap-2 px-3 py-2 bg-amber-600 text-white rounded-lg text-xs font-medium hover:bg-amber-700 disabled:opacity-50"
+                    >
+                      <Wand2 size={12} /> {isEditing ? '편집 중...' : '가이드라인 자동 수정'}
                     </button>
                   )}
                 </div>
@@ -284,6 +314,63 @@ export function DetailModal({
                         </div>
                       ))}
                     </div>
+                  </div>
+                )}
+
+                {display && (
+                  <div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <div className="text-[10px] font-mono text-slate-500 uppercase">가이드라인 준수</div>
+                      {display.complianceGrade ? (
+                        <span className={cn(
+                          'inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold text-white',
+                          COMPLIANCE_GRADE_BG[display.complianceGrade] || 'bg-slate-400',
+                        )}>
+                          {COMPLIANCE_GRADE_LABELS[display.complianceGrade] || display.complianceGrade}
+                          {display.complianceScores && (
+                            <span className="ml-1 opacity-80">({display.complianceScores.violationCount}건)</span>
+                          )}
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 text-slate-400">
+                          미분석
+                        </span>
+                      )}
+                    </div>
+                    {display.complianceScores ? (
+                      <div className="grid grid-cols-2 gap-1">
+                        {Object.entries(display.complianceScores.violations).map(([key, violated]) => {
+                          const confidence = display.complianceScores!.confidence[key];
+                          return (
+                            <div
+                              key={key}
+                              className={cn(
+                                'flex items-center gap-1.5 p-1.5 rounded-lg text-[11px]',
+                                violated ? 'bg-red-50 text-red-700' : 'bg-slate-50 text-slate-500',
+                              )}
+                            >
+                              {violated
+                                ? <XCircle size={11} className="shrink-0 text-red-500" />
+                                : <CheckCircle size={11} className="shrink-0 text-emerald-500" />
+                              }
+                              <span className="flex-1 truncate">{VIOLATION_LABELS[key] || key}</span>
+                              {confidence !== undefined && (
+                                <span className={cn(
+                                  'text-[9px] font-mono shrink-0',
+                                  violated ? 'text-red-400' : 'text-slate-300',
+                                )}>
+                                  {confidence}%
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : display.complianceGrade === null && (
+                      <div className="text-[11px] text-slate-400 p-2 rounded-lg bg-slate-50">
+                        가이드라인 준수 분석을 실행하면 12가지 규칙을 검사합니다.
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

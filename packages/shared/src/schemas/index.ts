@@ -61,8 +61,8 @@ export { ReviewListItemSchema } from './reviews.js';
 export type { ReviewListItem } from './reviews.js';
 
 // Thumbnails
-export { ThumbnailListItemSchema, ThumbnailSummarySchema, ThumbnailScoresSchema, ThumbnailAnalysisResultSchema, ThumbnailAnalysisSummarySchema, ThumbnailGenerationItemSchema } from './thumbnails.js';
-export type { ThumbnailListItem, ThumbnailSummary, ThumbnailScores, ThumbnailAnalysisResult, ThumbnailAnalysisSummary, ThumbnailGenerationItem } from './thumbnails.js';
+export { ThumbnailListItemSchema, ThumbnailSummarySchema, ThumbnailScoresSchema, ComplianceScoresSchema, ThumbnailAnalysisResultSchema, ThumbnailAnalysisSummarySchema, ThumbnailGenerationItemSchema, EditAnalysisResultSchema } from './thumbnails.js';
+export type { ThumbnailListItem, ThumbnailSummary, ThumbnailScores, ComplianceScores, ThumbnailAnalysisResult, ThumbnailAnalysisSummary, ThumbnailGenerationItem, EditAnalysisResult } from './thumbnails.js';
 
 // Ads
 export {

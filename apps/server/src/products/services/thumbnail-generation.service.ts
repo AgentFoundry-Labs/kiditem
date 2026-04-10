@@ -1,9 +1,18 @@
 import { Injectable, NotFoundException, InternalServerErrorException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ThumbnailAiService } from './thumbnail-ai.service';
-import type { GenerationWithProduct } from './types';
+import type { GenerationWithProduct, EditAnalysisResult } from './types';
 
 export type { GenerationWithProduct } from './types';
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function toGeneration(row: any): GenerationWithProduct {
+  return {
+    ...row,
+    candidates: row.candidates as Array<{ url: string; filename: string }>,
+    editAnalysis: (row.editAnalysis ?? null) as EditAnalysisResult | null,
+  };
+}
 
 @Injectable()
 export class ThumbnailGenerationService {
@@ -65,11 +74,7 @@ export class ThumbnailGenerationService {
           include: { product: { select: { id: true, name: true, imageUrl: true, coupangProductId: true, category: true } } },
         });
 
-        results.push({
-          ...updated,
-          candidates: updated.candidates as Array<{ url: string; filename: string }>,
-          product: updated.product,
-        });
+        results.push(toGeneration(updated));
       } catch {
         // continue with remaining
       }
@@ -80,6 +85,7 @@ export class ThumbnailGenerationService {
 
   async findAll(query: {
     status?: string;
+    method?: string;
     page?: number;
     limit?: number;
   }): Promise<{ items: GenerationWithProduct[]; total: number; page: number; limit: number }> {
@@ -88,7 +94,9 @@ export class ThumbnailGenerationService {
       const limit = query.limit ?? 50;
       const skip = (page - 1) * limit;
 
-      const where = query.status ? { status: query.status } : {};
+      const where: Record<string, unknown> = {};
+      if (query.status) where.status = query.status;
+      if (query.method) where.method = query.method;
 
       const [items, total] = await Promise.all([
         this.prisma.thumbnailGeneration.findMany({
@@ -102,11 +110,7 @@ export class ThumbnailGenerationService {
       ]);
 
       return {
-        items: items.map((item) => ({
-          ...item,
-          candidates: item.candidates as Array<{ url: string; filename: string }>,
-          product: item.product,
-        })),
+        items: items.map(toGeneration),
         total,
         page,
         limit,
@@ -126,11 +130,7 @@ export class ThumbnailGenerationService {
       include: { product: { select: { id: true, name: true, imageUrl: true, coupangProductId: true, category: true } } },
     });
 
-    return {
-      ...updated,
-      candidates: updated.candidates as Array<{ url: string; filename: string }>,
-      product: updated.product,
-    };
+    return toGeneration(updated);
   }
 
   async applyGeneration(id: string): Promise<GenerationWithProduct> {
@@ -143,11 +143,7 @@ export class ThumbnailGenerationService {
       include: { product: { select: { id: true, name: true, imageUrl: true, coupangProductId: true, category: true } } },
     });
 
-    return {
-      ...updated,
-      candidates: updated.candidates as Array<{ url: string; filename: string }>,
-      product: updated.product,
-    };
+    return toGeneration(updated);
   }
 
   async skipGeneration(id: string): Promise<GenerationWithProduct> {
@@ -160,10 +156,6 @@ export class ThumbnailGenerationService {
       include: { product: { select: { id: true, name: true, imageUrl: true, coupangProductId: true, category: true } } },
     });
 
-    return {
-      ...updated,
-      candidates: updated.candidates as Array<{ url: string; filename: string }>,
-      product: updated.product,
-    };
+    return toGeneration(updated);
   }
 }

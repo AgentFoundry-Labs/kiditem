@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { ThumbnailAnalysisService } from '../services/thumbnail-analysis.service';
 import { ThumbnailGenerationService } from '../services/thumbnail-generation.service';
+import { ThumbnailEditService } from '../services/thumbnail-edit.service';
 import {
   AnalyzeThumbnailDto,
   AnalyzeBatchDto,
@@ -17,6 +18,7 @@ import {
   SelectCandidateDto,
   ListThumbnailAnalysesQueryDto,
   ListGenerationsQueryDto,
+  EditThumbnailDto,
 } from '../dto';
 
 @Controller('thumbnail-analysis')
@@ -24,6 +26,7 @@ export class ThumbnailAnalysisController {
   constructor(
     private readonly analysisService: ThumbnailAnalysisService,
     private readonly generationService: ThumbnailGenerationService,
+    private readonly editService: ThumbnailEditService,
   ) {}
 
   @Get()
@@ -39,7 +42,7 @@ export class ThumbnailAnalysisController {
   @Post('analyze')
   async analyze(@Body() body: AnalyzeThumbnailDto) {
     if (body.productId) {
-      return this.analysisService.analyzeProduct(body.productId);
+      return this.analysisService.analyzeProduct(body.productId, body.scope);
     }
     if (body.imageUrl) {
       return this.analysisService.analyzeDirectImage(body.imageUrl, body.productName);
@@ -49,16 +52,22 @@ export class ThumbnailAnalysisController {
 
   @Post('analyze-batch')
   analyzeBatch(@Body() body: AnalyzeBatchDto) {
-    return this.analysisService.analyzeBatch(body.productIds);
+    return this.analysisService.analyzeBatch(body.productIds, body.scope);
   }
 
   @Get('generations')
   findGenerations(@Query() query: ListGenerationsQueryDto) {
     return this.generationService.findAll({
       status: query.status,
+      method: query.method,
       page: query.page,
       limit: query.limit,
     });
+  }
+
+  @Post('edit-jobs')
+  createEditJobs(@Body() body: EditThumbnailDto) {
+    return this.editService.createEditJobs(body.productIds, body.purpose);
   }
 
   @Post('generations')

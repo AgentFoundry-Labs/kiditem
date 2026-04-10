@@ -624,6 +624,12 @@ model ThumbnailAnalysis {
   suggestions  Json    @default("[]")
   method       String  @default("ai") // "ai" | "rule"
 
+  complianceGrade  String? @map("compliance_grade")   // PASS | WARN | FAIL
+  complianceScores Json?   @map("compliance_scores")  // { violations, confidence, quality, violationCount }
+
+  qualityAnalyzedAt    DateTime? @map("quality_analyzed_at") @db.Timestamptz
+  complianceAnalyzedAt DateTime? @map("compliance_analyzed_at") @db.Timestamptz
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
@@ -632,6 +638,7 @@ model ThumbnailAnalysis {
 
   @@index([companyId])
   @@index([grade])
+  @@index([complianceGrade])
   @@map("thumbnail_analyses")
 }
 
@@ -646,7 +653,9 @@ model ThumbnailGeneration {
   status      String  @default("pending")
   grade       String  @default("F")
   score       Int     @default(0)
-  prompt      String?
+  prompt       String?
+  method       String  @default("generate") @map("method")
+  editAnalysis Json?   @map("edit_analysis")
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
@@ -657,6 +666,7 @@ model ThumbnailGeneration {
   @@index([companyId])
   @@index([productId])
   @@index([status])
+  @@index([method])
   @@map("thumbnail_generations")
 }
 
