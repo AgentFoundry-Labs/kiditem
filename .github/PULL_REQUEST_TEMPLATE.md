@@ -18,3 +18,10 @@ npm run build -w packages/shared  # shared 타입 변경 시
 - [ ] `npx vitest run` 통과
 - [ ] `npm run dev:server` 부트 확인
 - [ ] `npm run build -w apps/web` 빌드 성공
+
+## 리뷰
+리뷰어는 checkout 후 Claude Code로 리뷰:
+```bash
+gh pr checkout <PR번호>
+claude /review
+```
