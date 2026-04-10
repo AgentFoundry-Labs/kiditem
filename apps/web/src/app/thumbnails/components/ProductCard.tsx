@@ -2,14 +2,8 @@
 import { useState } from 'react';
 import { ImageIcon, Zap, Loader2, CheckCircle, Wand2, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { API_BASE } from '@/lib/api';
 import { QUALITY_GRADE_BG, QUALITY_GRADE_TEXT, QUALITY_GRADE_LABELS, COMPLIANCE_GRADE_COLORS } from '../lib/grade-constants';
-
-function resolveImageUrl(url: string | null): string | null {
-  if (!url) return null;
-  if (url.startsWith('/generated-thumbnails/')) return `${API_BASE}${url}`;
-  return url;
-}
+import { resolveImageUrl } from '../lib/resolve-url';
 
 interface ProductCardProps {
   imageUrl: string | null;

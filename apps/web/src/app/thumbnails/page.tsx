@@ -28,9 +28,7 @@ import {
   useAnalyzeBatch,
   useCancelBatch,
   usePreInspect,
-  useCheckImageSpec,
   type AnalysisScope,
-  type ImageSpec,
 } from './hooks/useThumbnailAnalysis';
 import {
   useGenerationList,
@@ -66,7 +64,6 @@ export default function ThumbnailsPage() {
   const analyzeMutation = useAnalyze();
   const analyzeBatchMutation = useAnalyzeBatch();
   const cancelBatchMutation = useCancelBatch();
-  const checkImageSpecMutation = useCheckImageSpec();
   const preInspectMutation = usePreInspect();
   const editJobsMutation = useCreateEditJobs();
   const selectCandidateMutation = useSelectCandidate();
@@ -85,7 +82,6 @@ export default function ThumbnailsPage() {
   // AI analysis — local overrides for immediate feedback before refetch settles
   const [aiAnalyzingId, setAiAnalyzingId] = useState<string | null>(null);
   const [aiResults, setAiResults] = useState<Record<string, ThumbnailAnalysisResult>>({});
-  const [imageSpecs, setImageSpecs] = useState<Record<string, ImageSpec>>({});
 
   // Pagination
   const [gradeFilter, setGradeFilter] = useState('all');
@@ -115,16 +111,6 @@ export default function ThumbnailsPage() {
       setSelectedGen(latest);
     }
   }, [generations, selectedGen]);
-
-  // 모달 열릴 때 이미지 스펙 자동 체크
-  useEffect(() => {
-    const imageUrl = selectedProduct?.imageUrl ?? selectedGen?.originalUrl ?? selectedGen?.product.imageUrl;
-    const pid = selectedProduct?.productId ?? selectedGen?.productId;
-    if (!imageUrl || !pid || imageSpecs[pid]) return;
-    checkImageSpecMutation.mutateAsync(imageUrl).then((spec) => {
-      setImageSpecs((prev) => ({ ...prev, [pid]: spec }));
-    }).catch(() => {});
-  }, [selectedProduct, selectedGen]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 상품별 최신 편집 job 매핑
   const genByProductId = useMemo(() => {
@@ -1770,7 +1756,7 @@ export default function ThumbnailsPage() {
           gen={selectedGen || activeGenForProduct}
           aiResult={selectedProduct ? aiResults[selectedProduct.productId] : undefined}
           isAiAnalyzing={selectedProduct ? aiAnalyzingId === selectedProduct.productId : false}
-          imageSpec={imageSpecs[selectedProduct?.productId ?? selectedGen?.productId ?? ''] ?? null}
+          imageSpec={selectedProduct?.imageSpec ?? null}
           generatedProductIds={generatedProductIds}
           onClose={() => {
             setSelectedProduct(null);

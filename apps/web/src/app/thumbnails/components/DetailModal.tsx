@@ -13,13 +13,7 @@ import {
   COMPLIANCE_GRADE_LABELS,
   VIOLATION_LABELS,
 } from '../lib/grade-constants';
-import { API_BASE } from '@/lib/api';
-
-function resolveUrl(url: string | null | undefined): string | null {
-  if (!url) return null;
-  if (url.startsWith('/generated-thumbnails/')) return `${API_BASE}${url}`;
-  return url;
-}
+import { resolveImageUrl } from '../lib/resolve-url';
 
 const GRADE_COLORS: Record<string, string> = {
   S: 'bg-emerald-100 text-emerald-700 border-emerald-200',
@@ -94,7 +88,7 @@ export function DetailModal({
   const display = aiResult || product;
   const candidates = gen?.candidates || [];
   const productName = gen?.product.name || product?.productName || '';
-  const originalImage = resolveUrl(gen?.originalUrl || gen?.product.imageUrl || product?.imageUrl || null);
+  const originalImage = resolveImageUrl(gen?.originalUrl || gen?.product.imageUrl || product?.imageUrl || null);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={onClose}>
@@ -153,7 +147,7 @@ export function DetailModal({
                   </div>
                   <div className="grid grid-cols-3 gap-2">
                     {candidates.map((candidate, idx) => {
-                      const imgUrl = resolveUrl(typeof candidate === 'string' ? candidate : candidate.url) ?? '';
+                      const imgUrl = resolveImageUrl(typeof candidate === 'string' ? candidate : candidate.url) ?? '';
                       return (
                         <button
                           key={idx}

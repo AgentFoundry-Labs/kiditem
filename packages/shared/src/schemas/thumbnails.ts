@@ -109,6 +109,7 @@ export const ThumbnailAnalysisResultSchema = z.object({
   complianceAnalyzed: z.boolean(),
   complianceGrade: z.string().nullable(),
   complianceScores: ComplianceScoresSchema.nullable(),
+  imageSpec: ImageSpecSchema.nullable().optional(),
 });
 
 export const ThumbnailAnalysisSummarySchema = z.object({

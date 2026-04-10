@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, InternalServerErrorException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, InternalServerErrorException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ThumbnailAiService } from './thumbnail-ai.service';
@@ -12,6 +12,7 @@ type AnalysisScope = 'all' | 'quality' | 'compliance';
 
 @Injectable()
 export class ThumbnailAnalysisService {
+  private readonly logger = new Logger(ThumbnailAnalysisService.name);
   private batchAbort: AbortController | null = null;
 
   constructor(
@@ -70,7 +71,8 @@ export class ThumbnailAnalysisService {
           },
         });
         processed++;
-      } catch {
+      } catch (err) {
+        this.logger.warn(`사전 검수 실패 (${product.id}): ${err instanceof Error ? err.message : err}`);
         failed++;
       }
     }
@@ -266,7 +268,9 @@ export class ThumbnailAnalysisService {
     if (imageUrl) {
       try {
         imageSpec = await this.thumbnailAiService.checkImageSpec(imageUrl);
-      } catch { /* 스펙 체크 실패해도 분석은 계속 */ }
+      } catch (err) {
+        this.logger.warn(`이미지 스펙 체크 실패 (${productId}): ${err instanceof Error ? err.message : err}`);
+      }
     }
 
     const specHasFail = imageSpec?.issues.some((i) => i.severity === 'fail') ?? false;
@@ -466,15 +470,19 @@ export class ThumbnailAnalysisService {
           try {
             const saved = await this.saveAnalysisResult(product, item.imageUrl, result);
             results.push(saved);
-          } catch { /* skip */ }
+          } catch (err) {
+            this.logger.warn(`분석 결과 저장 실패 (${item.productId}): ${err instanceof Error ? err.message : err}`);
+          }
         }
-      } catch {
-        // 배치 실패 시 개별 fallback
+      } catch (err) {
+        this.logger.warn(`배치 분석 실패, 개별 fallback: ${err instanceof Error ? err.message : err}`);
         for (const item of chunk) {
           try {
             const saved = await this.analyzeProduct(item.productId, scope);
             results.push(saved);
-          } catch { /* continue */ }
+          } catch (innerErr) {
+            this.logger.warn(`개별 분석 실패 (${item.productId}): ${innerErr instanceof Error ? innerErr.message : innerErr}`);
+          }
         }
       }
     }
@@ -484,7 +492,9 @@ export class ThumbnailAnalysisService {
       try {
         const saved = await this.analyzeProduct(productId, scope);
         results.push(saved);
-      } catch { /* continue */ }
+      } catch (err) {
+        this.logger.warn(`이미지 없는 상품 분석 실패 (${productId}): ${err instanceof Error ? err.message : err}`);
+      }
     }
 
     this.batchAbort = null;
