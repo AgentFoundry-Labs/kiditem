@@ -360,7 +360,7 @@ export default function ThumbnailsPage() {
                   {batchAi.running ? (
                     <><Loader2 size={14} className="animate-spin" /> {batchAi.done}/{batchAi.total}</>
                   ) : (
-                    <><Zap size={14} /> 전체 분석</>
+                    <><Zap size={14} /> 이 페이지 품질+가이드라인 ({pagedUnclassified.filter((i) => i.imageUrl).length}개)</>
                   )}
                 </button>
                 <button
@@ -368,14 +368,14 @@ export default function ThumbnailsPage() {
                   disabled={batchAi.running}
                   className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold text-white transition-colors disabled:opacity-50 bg-blue-600"
                 >
-                  <Zap size={14} /> 품질만
+                  <Zap size={14} /> 품질만 분석
                 </button>
                 <button
                   onClick={() => runBatchAiAnalysis(pagedUnclassified, 'compliance')}
                   disabled={batchAi.running}
                   className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold text-white transition-colors disabled:opacity-50 bg-amber-600"
                 >
-                  <Zap size={14} /> 가이드라인만
+                  <Zap size={14} /> 가이드라인만 체크
                 </button>
               </div>
             </div>
@@ -522,7 +522,7 @@ export default function ThumbnailsPage() {
                   {batchAi.running ? (
                     <><Loader2 size={12} className="animate-spin" /> {batchAi.done}/{batchAi.total}</>
                   ) : (
-                    <><Zap size={12} /> 전체 재분석</>
+                    <><Zap size={12} /> 현재 페이지 재분석</>
                   )}
                 </button>
                 {Object.keys(aiResults).length > 0 && (

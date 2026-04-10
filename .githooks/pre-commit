@@ -28,8 +28,8 @@ fi
 # Block files over 1MB
 for f in $STAGED; do
   [ ! -f "$f" ] && continue
-  # Skip lockfiles
-  case "$f" in package-lock.json|*/package-lock.json|pnpm-lock.yaml) continue ;; esac
+  # Skip lockfiles and DB seed data
+  case "$f" in package-lock.json|*/package-lock.json|pnpm-lock.yaml|prisma/init.sql.gz) continue ;; esac
   SIZE=$(wc -c < "$f" | tr -d ' ')
   if [ "$SIZE" -gt 1048576 ]; then
     echo "ERROR: Oversized file ($(( SIZE / 1024 ))KB): $f"
