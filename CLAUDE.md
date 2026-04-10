@@ -28,6 +28,7 @@ extensions/          — Chrome extensions (product-scraper: 1688/Alibaba, coupa
 - **Workflows must never call LLMs directly** — delegate to agents via `agent_task.create`.
 - **No silent model fallback** — `model = model or default` pattern prohibited.
 - **No native PG enums** — `String` + app-level validation. Production cast error experience.
+- **PR 생성 시** — `.github/PULL_REQUEST_TEMPLATE.md` 템플릿 내용을 body에 포함하고 체크리스트를 작성할 것. DB 변경/backfill/init.sql.gz 갱신 여부를 반드시 명시.
 
 ## Reference (read when relevant)
 
