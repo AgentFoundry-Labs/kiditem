@@ -151,10 +151,10 @@ export class InventoryService {
       throw new NotFoundException('재고 항목을 찾을 수 없습니다.');
     }
 
-    let updated;
+    let currentStock: number;
     if (inv.product?.masterProductId) {
       // MasterProduct 연결됨 → MasterInventory에만 쓰기
-      await this.prisma.masterInventory.upsert({
+      const masterInv = await this.prisma.masterInventory.upsert({
         where: { masterProductId: inv.product.masterProductId },
         update: { currentStock: { increment: quantity } },
         create: {
@@ -164,16 +164,17 @@ export class InventoryService {
           safetyStock: 0,
         },
       });
-      updated = (await this.prisma.inventory.findUnique({ where: { id } }))!;
+      currentStock = masterInv.currentStock;
     } else {
       // 미연결 → 기존 Inventory에 쓰기
-      updated = await this.prisma.inventory.update({
+      const updated = await this.prisma.inventory.update({
         where: { id },
         data: {
           currentStock: { increment: quantity },
           lastRestockedAt: new Date(),
         },
       });
+      currentStock = updated.currentStock;
     }
 
     await this.prisma.stockTransaction.create({
@@ -188,10 +189,10 @@ export class InventoryService {
     });
 
     return {
-      id: updated.id,
+      id: inv.id,
       productId: inv.productId,
       productName: inv.product?.name ?? 'N/A',
-      currentStock: updated.currentStock,
+      currentStock,
       received: quantity,
     };
   }

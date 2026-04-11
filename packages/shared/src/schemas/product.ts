@@ -57,6 +57,7 @@ export const ProductListItemSchema = z.object({
   gradeScore: z.number().nullable(),
   healthScore: z.number().nullable().optional(),
   masterProductId: z.string().nullable().optional(),
+  isCostMissing: z.boolean().optional(),
 });
 
 // GET /api/products/:id 응답 (Prisma Product + company + inventory)

@@ -192,18 +192,18 @@ export class ChannelSyncService {
             0,
           );
 
-          if (product.masterProductId) {
-            // MasterProduct 연결됨 → Inventory 쓰기 스킵 (MasterInventory에서 일괄 처리)
-          } else if (product.inventory) {
-            await this.prisma.inventory.update({
-              where: { id: product.inventory.id },
-              data: {
-                currentStock: totalStock,
-                updatedAt: new Date(),
-              },
-            });
-          } else {
-            await this.prisma.inventory.create({
+          // masterProductId 연결됨 → Inventory 쓰기 스킵 (아래 MasterInventory SUM 집계에서 처리)
+          if (!product.masterProductId) {
+            if (product.inventory) {
+              await this.prisma.inventory.update({
+                where: { id: product.inventory.id },
+                data: {
+                  currentStock: totalStock,
+                  updatedAt: new Date(),
+                },
+              });
+            } else {
+              await this.prisma.inventory.create({
               data: {
                 companyId: company.id,
                 productId: product.id,
@@ -215,6 +215,7 @@ export class ChannelSyncService {
                 dailySalesAvg: 0,
               },
             });
+            }
           }
 
           result.synced++;

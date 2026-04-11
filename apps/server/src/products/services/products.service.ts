@@ -329,7 +329,7 @@ export class ProductsService {
       revenue = orderData.revenue;
       orderCount = orderData.orderCount;
       const comm = Math.round(
-        revenue * (resolved.commissionRate || 0.108),
+        revenue * (resolved.commissionRate ?? 0.108),
       );
       const cogs = resolved.costPrice * orderCount;
       const ship = (p.shippingCost ?? 0) * orderCount;
@@ -380,6 +380,7 @@ export class ProductsService {
       gradeScore: maps.gradeScores.get(p.id) ?? null,
       healthScore: p.healthScore ?? null,
       masterProductId: p.masterProductId ?? null,
+      isCostMissing: resolved.isCostMissing,
     } satisfies ProductListItem;
   }
 

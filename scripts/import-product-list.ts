@@ -39,8 +39,9 @@ function normalizeName(name: string): string {
 }
 
 function toIntOrNull(val: unknown): number | null {
+  if (val === null || val === undefined || val === '') return null;
   const num = Number(val);
-  if (!num || isNaN(num)) return null;
+  if (isNaN(num)) return null;
   return Math.round(num);
 }
 

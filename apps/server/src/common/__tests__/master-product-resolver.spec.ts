@@ -67,6 +67,7 @@ describe('resolvePricing', () => {
     });
     const result = resolvePricing(p);
     expect(result.costPrice).toBe(8000);
+    expect(result.isCostMissing).toBe(false);
   });
 
   it('falls back to product.costPrice when masterProduct.costPrice is null', () => {
@@ -76,6 +77,7 @@ describe('resolvePricing', () => {
     });
     const result = resolvePricing(p);
     expect(result.costPrice).toBe(5000);
+    expect(result.isCostMissing).toBe(false);
   });
 
   it('falls back to costCny * 190 when both costPrice are null', () => {
@@ -85,12 +87,14 @@ describe('resolvePricing', () => {
     });
     const result = resolvePricing(p);
     expect(result.costPrice).toBe(1900);
+    expect(result.isCostMissing).toBe(false);
   });
 
-  it('returns 0 when all cost sources are null', () => {
+  it('returns 0 and isCostMissing=true when all cost sources are null', () => {
     const p = stubProduct();
     const result = resolvePricing(p);
     expect(result.costPrice).toBe(0);
+    expect(result.isCostMissing).toBe(true);
   });
 
   it('returns costPrice=0 when masterProduct.costPrice is explicitly 0', () => {

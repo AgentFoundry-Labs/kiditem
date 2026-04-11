@@ -25,6 +25,8 @@ export interface ResolvedPricing {
   costPrice: number;
   sellPrice: number;
   commissionRate: number;
+  /** costPrice가 실제 데이터 없이 0으로 fallback된 경우 true */
+  isCostMissing: boolean;
 }
 
 export interface ResolvedInventory {
@@ -42,10 +44,11 @@ export interface ResolvedInventory {
 export function resolvePricing(p: ResolvePricingInput): ResolvedPricing {
   const mp = p.masterProduct;
 
+  const hasCost = mp?.costPrice != null || p.costPrice != null || p.costCny != null;
   const costPrice =
     mp?.costPrice ??
     p.costPrice ??
-    (p.costCny ? Math.round(Number(p.costCny) * CNY_TO_KRW_RATE) : 0);
+    (p.costCny != null ? Math.round(Number(p.costCny) * CNY_TO_KRW_RATE) : 0);
 
   const sellPrice = p.sellPrice ?? mp?.sellPrice ?? 0;
 
@@ -56,7 +59,7 @@ export function resolvePricing(p: ResolvePricingInput): ResolvedPricing {
         ? Number(p.commissionRate)
         : 0;
 
-  return { costPrice, sellPrice, commissionRate };
+  return { costPrice, sellPrice, commissionRate, isCostMissing: !hasCost };
 }
 
 /**
