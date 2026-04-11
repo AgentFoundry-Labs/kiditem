@@ -6,6 +6,7 @@ import { ThumbnailsService } from './services/thumbnails.service';
 import { ReviewsController } from './controllers/reviews.controller';
 import { ReviewsService } from './services/reviews.service';
 import { ThumbnailAnalysisController } from './controllers/thumbnail-analysis.controller';
+import { ThumbnailEditorController } from './controllers/thumbnail-editor.controller';
 import { ThumbnailTrackingController } from './controllers/thumbnail-tracking.controller';
 import { ThumbnailAiService } from './services/thumbnail-ai.service';
 import { ThumbnailAnalysisService } from './services/thumbnail-analysis.service';
@@ -19,6 +20,7 @@ import { ThumbnailTrackingService } from './services/thumbnail-tracking.service'
     ThumbnailsController,
     ReviewsController,
     ThumbnailAnalysisController,
+    ThumbnailEditorController,
     ThumbnailTrackingController,
   ],
   providers: [

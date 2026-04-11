@@ -4,6 +4,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AdConfigService } from './ad-config.service';
+import { resolvePricing, resolveInventory } from '../../common/master-product-resolver';
 import type { GradeBudgetAllocation } from './types';
 
 @Injectable()
@@ -81,6 +82,7 @@ export class AdStrategyService {
         where: { companyId, isDeleted: false },
         include: {
           inventory: true,
+          masterProduct: { include: { inventory: true } },
           trafficStats: { where: { periodDays: 14 }, orderBy: { date: 'desc' }, take: 1 },
         },
       }),
@@ -103,9 +105,13 @@ export class AdStrategyService {
       const roas = spend > 0 ? Math.round((revenue / spend) * 100) : 0;
       const ctr = impressions > 0 ? Math.round((clicks / impressions) * 10000) / 100 : 0;
       const cvr = clicks > 0 ? Math.round((conversions / clicks) * 10000) / 100 : 0;
-      const stock = (p as any).inventory?.currentStock || 0;
+      const resolvedInv = resolveInventory(p);
+      const resolvedPrice = resolvePricing(p);
+      const stock = resolvedInv.currentStock;
       const t14Rev = (p as any).trafficStats?.[0]?.revenue || 0;
-      const margin = p.sellPrice && p.costPrice ? p.sellPrice - p.costPrice : 0;
+      const margin = resolvedPrice.sellPrice > 0 && resolvedPrice.costPrice > 0
+        ? resolvedPrice.sellPrice - resolvedPrice.costPrice
+        : 0;
       const adBudgetLimit = margin > 0 ? margin * 0.35 : 0;
 
       const recs: Array<{ rule: string; action: string; priority: string }> = [];

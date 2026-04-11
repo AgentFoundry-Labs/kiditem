@@ -44,7 +44,7 @@ export default function AddProductModal({ onClose, onSaved }: AddProductModalPro
             </div>
             <div>
               <label className="block text-sm text-slate-600 mb-1">SKU</label>
-              <input value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" />
+              <input value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value })} placeholder="미입력시 자동 생성" className="w-full border rounded-lg px-3 py-2 text-sm" />
             </div>
             <div>
               <label className="block text-sm text-slate-600 mb-1">카테고리</label>

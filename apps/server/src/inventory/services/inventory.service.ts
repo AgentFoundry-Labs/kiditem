@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { paginationParams } from '../../common/pagination';
+import { resolveInventory } from '../../common/master-product-resolver';
 import type { InventoryItem, InventorySummary } from '@kiditem/shared';
 
 export type { InventorySummary } from '@kiditem/shared';
@@ -28,7 +29,7 @@ export class InventoryService {
       const rows = await this.prisma.inventory.findMany({
         include: {
           product: {
-            include: { company: true },
+            include: { company: true, masterProduct: { include: { inventory: true } } },
           },
         },
       });
@@ -36,9 +37,14 @@ export class InventoryService {
       const enriched = rows.map((inv) => {
         const avgDailySales = Number(inv.dailySalesAvg ?? 0);
         const leadTimeDays = inv.leadTimeDays ?? 14;
-        const currentStock = inv.currentStock;
-        const safetyStock = inv.safetyStock;
-        const reorderPoint = inv.reorderPoint;
+
+        // MasterInventory 우선 resolve
+        const resolvedInv = inv.product
+          ? resolveInventory(inv.product)
+          : { currentStock: inv.currentStock, safetyStock: inv.safetyStock, reorderPoint: inv.reorderPoint };
+        const currentStock = resolvedInv.currentStock;
+        const safetyStock = resolvedInv.safetyStock;
+        const reorderPoint = resolvedInv.reorderPoint;
 
         const optimalStock =
           avgDailySales > 0
@@ -145,13 +151,31 @@ export class InventoryService {
       throw new NotFoundException('재고 항목을 찾을 수 없습니다.');
     }
 
-    const updated = await this.prisma.inventory.update({
-      where: { id },
-      data: {
-        currentStock: { increment: quantity },
-        lastRestockedAt: new Date(),
-      },
-    });
+    let currentStock: number;
+    if (inv.product?.masterProductId) {
+      // MasterProduct 연결됨 → MasterInventory에만 쓰기
+      const masterInv = await this.prisma.masterInventory.upsert({
+        where: { masterProductId: inv.product.masterProductId },
+        update: { currentStock: { increment: quantity } },
+        create: {
+          companyId: inv.companyId,
+          masterProductId: inv.product.masterProductId,
+          currentStock: quantity,
+          safetyStock: 0,
+        },
+      });
+      currentStock = masterInv.currentStock;
+    } else {
+      // 미연결 → 기존 Inventory에 쓰기
+      const updated = await this.prisma.inventory.update({
+        where: { id },
+        data: {
+          currentStock: { increment: quantity },
+          lastRestockedAt: new Date(),
+        },
+      });
+      currentStock = updated.currentStock;
+    }
 
     await this.prisma.stockTransaction.create({
       data: {
@@ -165,10 +189,10 @@ export class InventoryService {
     });
 
     return {
-      id: updated.id,
+      id: inv.id,
       productId: inv.productId,
       productName: inv.product?.name ?? 'N/A',
-      currentStock: updated.currentStock,
+      currentStock,
       received: quantity,
     };
   }

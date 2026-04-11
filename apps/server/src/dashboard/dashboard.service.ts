@@ -1,6 +1,7 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { kstDayStart } from '../common/kst';
+import { resolvePricing } from '../common/master-product-resolver';
 import type { DashboardSummary, DashboardTrendItem } from '@kiditem/shared';
 import type { DateRangeContext, AdMetricsSnapshot } from './types';
 
@@ -556,7 +557,7 @@ export class DashboardService {
           sellerIds.length > 0
             ? await this.prisma.product.findMany({
                 where: { coupangProductId: { in: sellerIds } },
-                include: { company: true },
+                include: { company: true, masterProduct: true },
               })
             : [];
         const productMap = new Map(
@@ -588,14 +589,11 @@ export class DashboardService {
           topProducts: topOrderItems.map((r) => {
             const prod = productMap.get(r.seller_product_id);
             const rev = Number(r.revenue);
-            const rate = prod?.commissionRate
-              ? Number(prod.commissionRate)
-              : 0.108;
+            const resolved = prod ? resolvePricing(prod) : { costPrice: 0, sellPrice: 0, commissionRate: 0, isCostMissing: true };
+            const rate = resolved.commissionRate || 0.108;
             const comm = Math.round(rev * rate);
             const cnt = Number(r.order_count);
-            const cogsVal = prod?.costCny
-              ? Math.round(Number(prod.costCny) * 190 * cnt)
-              : 0;
+            const cogsVal = resolved.costPrice * cnt;
             const ship = (prod?.shippingCost ?? 0) * cnt;
             const net = rev - comm - cogsVal - ship;
 
@@ -777,7 +775,14 @@ export class DashboardService {
         totalPrice: true,
         quantity: true,
         product: {
-          select: { costPrice: true, commissionRate: true, shippingCost: true, otherCost: true },
+          select: {
+            costPrice: true,
+            costCny: true,
+            commissionRate: true,
+            shippingCost: true,
+            otherCost: true,
+            masterProduct: { select: { costPrice: true, commissionRate: true } },
+          },
         },
       },
     });
@@ -799,9 +804,10 @@ export class DashboardService {
 
       if (!p) continue; // productId nullable → product null이면 비용 스킵
 
+      const resolved = resolvePricing(p);
       // commissionRate는 Decimal(5,4) = 0.108 (분수). /100 하지 않음
-      const commRate = p.commissionRate ? Number(p.commissionRate) : 0.108;
-      costOfGoods += (p.costPrice || 0) * qty;
+      const commRate = resolved.commissionRate || 0.108;
+      costOfGoods += resolved.costPrice * qty;
       commission += amt * commRate;
       shippingCost += p.shippingCost || 0; // 건당 1회
       otherCost += (p.otherCost || 0) * qty;

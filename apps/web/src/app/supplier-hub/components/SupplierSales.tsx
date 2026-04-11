@@ -43,13 +43,13 @@ export default function SupplierSales() {
 
   const suppliers = (salesData ?? []).map((s) => ({
     ...s, id: s.supplierId ?? s.id, name: s.supplierName ?? s.name,
-    totalProfit: 0, profitRate: 0, contactName: null, phone: null,
   }));
   const products: ProductSale[] = [];
   const [selectedSupplier, setSelectedSupplier] = useState<string | null>(null);
 
   const totalRevenue = suppliers.reduce((s, sup) => s + sup.totalRevenue, 0);
-  const totalProfit = suppliers.reduce((s, sup) => s + sup.totalProfit, 0);
+  const hasProfit = suppliers.some((s) => s.totalProfit != null);
+  const totalProfit = hasProfit ? suppliers.reduce((s, sup) => s + (sup.totalProfit ?? 0), 0) : null;
   const selectedName = suppliers.find((s) => s.id === selectedSupplier)?.name;
 
   return (
@@ -70,11 +70,15 @@ export default function SupplierSales() {
         </div>
         <div className="card">
           <div className="flex items-center gap-2 card-label mb-1"><TrendingUp size={14} className="text-green-500" />총 이익</div>
-          <div className={`card-value ${totalProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatKRW(totalProfit)}원</div>
+          <div className={`card-value ${totalProfit != null ? (totalProfit >= 0 ? 'text-green-600' : 'text-red-600') : 'text-slate-400'}`}>
+            {totalProfit != null ? `${formatKRW(totalProfit)}원` : '-'}
+          </div>
         </div>
         <div className="card">
           <div className="flex items-center gap-2 card-label mb-1"><Package size={14} />평균 이익률</div>
-          <div className="card-value">{totalRevenue > 0 ? ((totalProfit / totalRevenue) * 100).toFixed(1) : '0.0'}%</div>
+          <div className="card-value">
+            {totalProfit != null && totalRevenue > 0 ? `${((totalProfit / totalRevenue) * 100).toFixed(1)}%` : '-'}
+          </div>
         </div>
       </div>
 
@@ -106,8 +110,12 @@ export default function SupplierSales() {
                   <td className="px-4 py-3 text-xs text-slate-500">{sup.contactName || '-'}</td>
                   <td className="px-4 py-3 text-right tabular-nums">{sup.productCount}</td>
                   <td className="px-4 py-3 text-right tabular-nums font-semibold">{formatKRW(sup.totalRevenue)}</td>
-                  <td className={`px-4 py-3 text-right tabular-nums font-semibold ${sup.totalProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatKRW(sup.totalProfit)}</td>
-                  <td className={`px-4 py-3 text-right tabular-nums ${sup.profitRate >= 5 ? 'text-green-600' : 'text-orange-600'}`}>{sup.profitRate}%</td>
+                  <td className={`px-4 py-3 text-right tabular-nums font-semibold ${sup.totalProfit != null ? (sup.totalProfit >= 0 ? 'text-green-600' : 'text-red-600') : 'text-slate-400'}`}>
+                    {sup.totalProfit != null ? formatKRW(sup.totalProfit) : '-'}
+                  </td>
+                  <td className={`px-4 py-3 text-right tabular-nums ${sup.profitRate != null ? (sup.profitRate >= 5 ? 'text-green-600' : 'text-orange-600') : 'text-slate-400'}`}>
+                    {sup.profitRate != null ? `${sup.profitRate}%` : '-'}
+                  </td>
                   <td className="px-4 py-3 text-right tabular-nums">{sup.totalOrders}</td>
                   <td className="px-4 py-3 text-center">
                     <button className="text-xs text-purple-600 hover:underline">상품별</button>

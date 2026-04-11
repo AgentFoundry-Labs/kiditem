@@ -1,4 +1,5 @@
-import type { Product, Company, Inventory, ProfitLoss } from '@prisma/client';
+import type { Product, Company, Inventory, ProfitLoss, MasterProduct, MasterInventory } from '@prisma/client';
+import type { ImageSpec, ImageSpecIssue } from '@kiditem/shared';
 
 // ── Thumbnail types ──
 
@@ -31,12 +32,14 @@ export interface ComplianceScores {
 }
 
 export interface AnalysisScores {
-  guideline: number;
   heroShot: number;
   composition: number;
   branding: number;
   mobile: number;
+  differentiation: number;
 }
+
+export type { ImageSpec, ImageSpecIssue };
 
 export interface AnalysisIssue {
   type: string;
@@ -101,6 +104,7 @@ export interface ThumbnailAnalysisItem {
   complianceAnalyzed: boolean;
   complianceGrade?: string;
   complianceScores?: Record<string, unknown> | null;
+  imageSpec?: ImageSpec | null;
 }
 
 export interface ThumbnailAnalysisSummaryInternal {
@@ -159,10 +163,11 @@ export interface ThumbnailTrackingListResponse {
   limit: number;
 }
 
-/** Product with relations loaded via `include: { company, inventory }` */
+/** Product with relations loaded via `include: { company, inventory, masterProduct }` */
 export type ProductWithRelations = Product & {
   company?: Company | null;
   inventory?: Inventory | null;
+  masterProduct?: (MasterProduct & { inventory?: MasterInventory | null }) | null;
 };
 
 // ── Enrichment Map value types ──

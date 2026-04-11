@@ -8,6 +8,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AgentRegistryService } from '../../agent-registry/agent-registry.service';
 import type { Prisma } from '@prisma/client';
 import { paginationParams, type PaginatedResponse } from '../../common/pagination';
+import { resolvePricing, resolveInventory } from '../../common/master-product-resolver';
 import type { ProductListItem } from '@kiditem/shared';
 import type {
   ProductWithRelations,
@@ -224,7 +225,7 @@ export class ProductsService {
         const maxRate = parseFloat(maxProfitRate);
         const allProducts = await this.prisma.product.findMany({
           where,
-          include: { company: true, inventory: true },
+          include: { company: true, inventory: true, masterProduct: { include: { inventory: true } } },
           orderBy: { createdAt: 'desc' },
         });
         const allEnriched = allProducts.map((p) => this.enrichProduct(p, maps));
@@ -281,7 +282,7 @@ export class ProductsService {
         const idList = sortedIds.map((r) => r.id);
         const products = await this.prisma.product.findMany({
           where: { id: { in: idList } },
-          include: { company: true, inventory: true },
+          include: { company: true, inventory: true, masterProduct: { include: { inventory: true } } },
         });
 
         const idOrder = new Map(idList.map((id, i) => [id, i]));
@@ -291,7 +292,7 @@ export class ProductsService {
       } else {
         productsData = await this.prisma.product.findMany({
           where,
-          include: { company: true, inventory: true },
+          include: { company: true, inventory: true, masterProduct: { include: { inventory: true } } },
           orderBy: { createdAt: 'desc' },
           skip,
           take: limit,
@@ -313,8 +314,11 @@ export class ProductsService {
     const orderData = maps.revenue.get(p.coupangProductId ?? '');
     const totalAdSpend = maps.ads.get(p.id) ?? 0;
 
+    const resolved = resolvePricing(p);
+    const resolvedInv = resolveInventory(p);
+
     let revenue: number;
-    let netProfit: number;
+    let netProfit = 0;
     let orderCount: number;
 
     if (pl) {
@@ -325,11 +329,9 @@ export class ProductsService {
       revenue = orderData.revenue;
       orderCount = orderData.orderCount;
       const comm = Math.round(
-        revenue * (p.commissionRate ? Number(p.commissionRate) : 0.108),
+        revenue * (resolved.commissionRate ?? 0.108),
       );
-      const cogs = p.costCny
-        ? Math.round(Number(p.costCny) * 190 * orderCount)
-        : 0;
+      const cogs = resolved.costPrice * orderCount;
       const ship = (p.shippingCost ?? 0) * orderCount;
       netProfit = revenue - comm - cogs - ship - totalAdSpend;
     } else {
@@ -348,15 +350,15 @@ export class ProductsService {
       brand: p.brand ?? null,
       company: p.company?.name ?? 'N/A',
       companyId: p.companyId,
-      costPrice: p.costCny ? Number(p.costCny) : 0,
-      sellPrice: p.sellPrice ?? 0,
-      commissionRate: p.commissionRate ? Number(p.commissionRate) : 0,
+      costPrice: resolved.costPrice,
+      sellPrice: resolved.sellPrice,
+      commissionRate: resolved.commissionRate,
       shippingCost: p.shippingCost ?? 0,
       status: p.status,
       abcGrade: p.abcGrade,
       adTier: p.adTier,
-      currentStock: p.inventory?.currentStock ?? 0,
-      reorderPoint: p.inventory?.reorderPoint ?? 0,
+      currentStock: resolvedInv.currentStock,
+      reorderPoint: resolvedInv.reorderPoint,
       avgDailySales: p.inventory?.dailySalesAvg ? Number(p.inventory.dailySalesAvg) : 0,
       revenue,
       netProfit,
@@ -377,6 +379,8 @@ export class ProductsService {
       createdAt: p.createdAt instanceof Date ? p.createdAt.toISOString() : p.createdAt,
       gradeScore: maps.gradeScores.get(p.id) ?? null,
       healthScore: p.healthScore ?? null,
+      masterProductId: p.masterProductId ?? null,
+      isCostMissing: resolved.isCostMissing,
     } satisfies ProductListItem;
   }
 
@@ -388,31 +392,47 @@ export class ProductsService {
     }
 
     const sellPrice = Number(body.sellPrice) || 0;
+    const costPrice = Number(body.costPrice) || 0;
     const shippingCost = Number(body.shippingCost) || 0;
+    const sku = (body.sku as string) || `AUTO-${Date.now()}`;
 
     try {
-      return await this.prisma.product.create({
-        data: {
-          name,
-          category: (body.category as string) ?? null,
-          sellPrice: sellPrice > 0 ? sellPrice : null,
-          commissionRate:
-            Number(body.commissionRate) > 0
-              ? Number(body.commissionRate)
-              : null,
-          shippingCost: shippingCost > 0 ? shippingCost : null,
-          companyId,
-          status: (body.status as string) ?? 'active',
-          abcGrade: (body.abcGrade as string) ?? 'C',
-          adTier: (body.adTier as string) ?? null,
-          inventory: {
-            create: {
-              companyId,
-              currentStock: Math.max(0, Number(body.currentStock) || 0),
-              leadTimeDays: Number(body.leadTimeDays) || 14,
+      return await this.prisma.$transaction(async (tx) => {
+        const masterProduct = await tx.masterProduct.create({
+          data: {
+            companyId,
+            sku,
+            name,
+            costPrice: costPrice > 0 ? costPrice : null,
+            sellPrice: sellPrice > 0 ? sellPrice : null,
+          },
+        });
+
+        return await tx.product.create({
+          data: {
+            name,
+            category: (body.category as string) ?? null,
+            sellPrice: sellPrice > 0 ? sellPrice : null,
+            costPrice: costPrice > 0 ? costPrice : null,
+            commissionRate:
+              Number(body.commissionRate) > 0
+                ? Number(body.commissionRate)
+                : null,
+            shippingCost: shippingCost > 0 ? shippingCost : null,
+            companyId,
+            status: (body.status as string) ?? 'active',
+            abcGrade: (body.abcGrade as string) ?? 'C',
+            adTier: (body.adTier as string) ?? null,
+            masterProductId: masterProduct.id,
+            inventory: {
+              create: {
+                companyId,
+                currentStock: Math.max(0, Number(body.currentStock) || 0),
+                leadTimeDays: Number(body.leadTimeDays) || 14,
+              },
             },
           },
-        },
+        });
       });
     } catch {
       throw new InternalServerErrorException('상품 등록 실패');
@@ -420,10 +440,20 @@ export class ProductsService {
   }
 
   async findOne(id: string): Promise<any> {
-    return this.prisma.product.findUnique({
+    const product = await this.prisma.product.findUnique({
       where: { id },
-      include: { company: true, inventory: true },
+      include: { company: true, inventory: true, masterProduct: { include: { inventory: true } } },
     });
+    if (!product) return null;
+
+    const resolved = resolvePricing(product);
+    return {
+      ...product,
+      costPrice: resolved.costPrice,
+      sellPrice: resolved.sellPrice,
+      commissionRate: resolved.commissionRate,
+      isCostMissing: resolved.isCostMissing,
+    };
   }
 
   async remove(id: string): Promise<any> {

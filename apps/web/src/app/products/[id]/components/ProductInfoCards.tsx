@@ -48,6 +48,14 @@ export default function ProductInfoCards({ product, inventory }: ProductInfoCard
         )}
         <InfoRow label="쿠팡 상품 ID" value={product.coupangProductId ?? "-"} />
         <InfoRow label="배송비" value={product.shippingCost ? `₩${formatKRW(product.shippingCost)}` : "-"} />
+        {product.masterProduct && (
+          <>
+            <div className="border-t border-slate-100 my-2" />
+            <InfoRow label="내부 SKU" value={product.masterProduct.sku ?? "-"} />
+            <InfoRow label="매입가" value={product.masterProduct.costPrice ? `₩${formatKRW(product.masterProduct.costPrice)}` : "-"} />
+            <InfoRow label="판매가 (내부)" value={product.masterProduct.sellPrice ? `₩${formatKRW(product.masterProduct.sellPrice)}` : "-"} />
+          </>
+        )}
       </InfoCard>
 
       {inventory ? (

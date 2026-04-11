@@ -27,7 +27,7 @@ async function bootstrap() {
   }));
   app.useGlobalFilters(new GlobalExceptionFilter());
   app.useStaticAssets('/data/products', { prefix: '/processed/' });
-  app.useStaticAssets(join(process.cwd(), 'data', 'generated-thumbnails'), { prefix: '/generated-thumbnails/' });
+  app.useStaticAssets(join(process.cwd(), 'generated-thumbnails'), { prefix: '/generated-thumbnails/' });
   await app.listen(4000);
   console.log('Server running on http://localhost:4000');
 }

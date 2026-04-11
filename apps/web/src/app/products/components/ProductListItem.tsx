@@ -139,7 +139,9 @@ export default function ProductListItem({ product: p, rank }: ProductListItemPro
           <p className="text-xl font-bold text-slate-900 tabular-nums">
             {t?.salesQty != null ? formatNumber(t.salesQty) : <span className="text-slate-300">-</span>}
           </p>
-          <p className={`text-xs ${getProfitColor(p.profitRate)}`}>이익률 {formatPercent(p.profitRate)}</p>
+          <p className={`text-xs ${p.isCostMissing ? 'text-orange-500' : getProfitColor(p.profitRate)}`}>
+            {p.isCostMissing ? '원가 미반영' : `이익률 ${formatPercent(p.profitRate)}`}
+          </p>
         </div>
         <div className="w-[120px] text-right">
           <p className="text-xl font-bold text-slate-900 tabular-nums">{formatKRW(t?.revenue ?? p.revenue)}</p>

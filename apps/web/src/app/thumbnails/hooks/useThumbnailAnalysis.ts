@@ -52,3 +52,31 @@ export function useAnalyzeBatch() {
     },
   });
 }
+
+export type { ImageSpec } from '@kiditem/shared';
+import type { ImageSpec } from '@kiditem/shared';
+
+export function useCheckImageSpec() {
+  return useMutation({
+    mutationFn: (imageUrl: string) =>
+      apiClient.post<ImageSpec>('/api/thumbnail-analysis/image-spec', { imageUrl }),
+  });
+}
+
+export function usePreInspect() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (productIds?: string[]) =>
+      apiClient.post<{ processed: number; failed: number }>('/api/thumbnail-analysis/pre-inspect', { productIds }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.thumbnailAnalysis.all });
+    },
+  });
+}
+
+export function useCancelBatch() {
+  return useMutation({
+    mutationFn: () =>
+      apiClient.delete<{ cancelled: boolean }>('/api/thumbnail-analysis/analyze-batch'),
+  });
+}

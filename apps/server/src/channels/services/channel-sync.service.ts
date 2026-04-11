@@ -177,6 +177,7 @@ export class ChannelSyncService {
         include: {
           productItems: true,
           inventory: true,
+          masterProduct: true,
         },
       });
 
@@ -191,16 +192,18 @@ export class ChannelSyncService {
             0,
           );
 
-          if (product.inventory) {
-            await this.prisma.inventory.update({
-              where: { id: product.inventory.id },
-              data: {
-                currentStock: totalStock,
-                updatedAt: new Date(),
-              },
-            });
-          } else {
-            await this.prisma.inventory.create({
+          // masterProductId 연결됨 → Inventory 쓰기 스킵 (아래 MasterInventory SUM 집계에서 처리)
+          if (!product.masterProductId) {
+            if (product.inventory) {
+              await this.prisma.inventory.update({
+                where: { id: product.inventory.id },
+                data: {
+                  currentStock: totalStock,
+                  updatedAt: new Date(),
+                },
+              });
+            } else {
+              await this.prisma.inventory.create({
               data: {
                 companyId: company.id,
                 productId: product.id,
@@ -212,6 +215,7 @@ export class ChannelSyncService {
                 dailySalesAvg: 0,
               },
             });
+            }
           }
 
           result.synced++;
@@ -223,6 +227,35 @@ export class ChannelSyncService {
           this.logger.error(
             `Failed to sync inventory for product ${product.id}: ${message}`,
           );
+        }
+      }
+
+      // MasterInventory: 1:N SUM 집계 후 일괄 upsert
+      const masterStockMap = new Map<string, number>();
+      for (const product of syncedProducts) {
+        if (!product.masterProductId) continue;
+        const stock = product.productItems.reduce(
+          (sum, item) => sum + (item.salePrice > 0 ? 1 : 0),
+          0,
+        );
+        const current = masterStockMap.get(product.masterProductId) ?? 0;
+        masterStockMap.set(product.masterProductId, current + stock);
+      }
+      for (const [masterProductId, totalStock] of masterStockMap) {
+        try {
+          await this.prisma.masterInventory.upsert({
+            where: { masterProductId },
+            update: { currentStock: totalStock },
+            create: {
+              companyId: company.id,
+              masterProductId,
+              currentStock: totalStock,
+              safetyStock: 0,
+            },
+          });
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : 'Unknown error';
+          this.logger.error(`MasterInventory sync failed for ${masterProductId}: ${msg}`);
         }
       }
     } catch (error: unknown) {

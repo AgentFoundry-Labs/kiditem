@@ -8,11 +8,11 @@ interface ScoreBreakdownProps {
 
 export function ScoreBreakdown({ scores }: ScoreBreakdownProps) {
   const items = [
-    { label: '쿠팡 가이드라인', score: scores.guideline, max: 25, desc: '흰배경, 비율, 워터마크' },
-    { label: '히어로 샷 품질', score: scores.heroShot, max: 20, desc: '각도, 조명, 선명도' },
-    { label: '구도 / 레이아웃', score: scores.composition, max: 20, desc: '중앙 정렬, 여백, 배치' },
+    { label: '히어로 샷 품질', score: scores.heroShot, max: 25, desc: '각도, 조명, 선명도' },
+    { label: '구도 / 레이아웃', score: scores.composition, max: 25, desc: '중앙 정렬, 여백, 배치' },
     { label: '브랜드 일관성', score: scores.branding, max: 15, desc: '톤 통일, 반복 패턴' },
     { label: '모바일 매력도', score: scores.mobile, max: 20, desc: '작은 화면 가독성, 대비' },
+    { label: '경쟁 차별화', score: scores.differentiation, max: 15, desc: '검색 내 시각적 차별화' },
   ];
   const total = items.reduce((s, i) => s + i.score, 0);
 

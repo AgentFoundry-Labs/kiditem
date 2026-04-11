@@ -101,6 +101,10 @@ model Company {
   // Action Board
   actionTasks          ActionTask[]
 
+  // Master Products
+  masterProducts    MasterProduct[]
+  masterInventory   MasterInventory[]
+
   @@map("companies")
 }
 
@@ -188,6 +192,10 @@ model Product {
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Master Product (물리적 상품 마스터)
+  masterProductId String?        @map("master_product_id") @db.Uuid
+  masterProduct   MasterProduct? @relation(fields: [masterProductId], references: [id], onDelete: SetNull)
 
   // Core relations
   company    Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -621,13 +629,14 @@ model ThumbnailAnalysis {
   imageUrl     String  @map("image_url")
   overallScore Int     @default(0) @map("overall_score")
   grade        String  @default("F")
-  scores       Json?   // { guideline, heroShot, composition, branding, mobile }
+  scores       Json?   // { heroShot, composition, branding, mobile, differentiation }
   issues       Json    @default("[]")
   suggestions  Json    @default("[]")
   method       String  @default("ai") // "ai" | "rule"
 
   complianceGrade  String? @map("compliance_grade")   // PASS | WARN | FAIL
   complianceScores Json?   @map("compliance_scores")  // { violations, confidence, quality, violationCount }
+  imageSpec        Json?   @map("image_spec")          // { width, height, aspectRatio, fileSizeKB, format, issues }
 
   qualityAnalyzedAt    DateTime? @map("quality_analyzed_at") @db.Timestamptz
   complianceAnalyzedAt DateTime? @map("compliance_analyzed_at") @db.Timestamptz
@@ -1143,6 +1152,7 @@ model Supplier {
   supplierProducts SupplierProduct[]
   purchaseOrders   PurchaseOrder[]
   payments         SupplierPayment[]
+  masterSupplierProducts MasterSupplierProduct[]
 
   @@index([companyId])
   @@index([status])
@@ -1965,4 +1975,70 @@ model ActionTask {
   @@unique([companyId, taskKey, date])
   @@index([companyId, date])
   @@map("action_tasks")
+}
+
+// ─── Master Products ─────────────────────────────────────────────────────────
+
+model MasterProduct {
+  id             String   @id @default(uuid()) @db.Uuid
+  companyId      String   @map("company_id") @db.Uuid
+  sku            String
+  name           String
+  costPrice      Int?     @map("cost_price")
+  sellPrice      Int?     @map("sell_price")
+  commissionRate Decimal? @map("commission_rate") @db.Decimal(5, 4)
+  barcode        String?
+  category       String?
+  brand          String?
+  status         String   @default("active")
+  memo           String?
+  rawData        Json?    @map("raw_data")
+  isDeleted      Boolean  @default(false) @map("is_deleted")
+  deletedAt      DateTime? @map("deleted_at") @db.Timestamptz
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company          Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  products         Product[]
+  inventory        MasterInventory?
+  supplierProducts MasterSupplierProduct[]
+
+  @@unique([companyId, sku])
+  @@index([companyId])
+  @@index([companyId, status])
+  @@map("master_products")
+}
+
+model MasterInventory {
+  id              String @id @default(uuid()) @db.Uuid
+  companyId       String @map("company_id") @db.Uuid
+  masterProductId String @unique @map("master_product_id") @db.Uuid
+
+  currentStock Int @default(0) @map("current_stock")
+  safetyStock  Int @default(0) @map("safety_stock")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company       Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  masterProduct MasterProduct @relation(fields: [masterProductId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@map("master_inventory")
+}
+
+model MasterSupplierProduct {
+  id              String   @id @default(uuid()) @db.Uuid
+  masterProductId String   @map("master_product_id") @db.Uuid
+  supplierId      String   @map("supplier_id") @db.Uuid
+  supplyPrice     Int      @default(0) @map("supply_price")
+  minOrderQty     Int      @default(1) @map("min_order_qty")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  masterProduct MasterProduct @relation(fields: [masterProductId], references: [id], onDelete: Cascade)
+  supplier      Supplier      @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+
+  @@unique([masterProductId, supplierId])
+  @@index([supplierId])
+  @@map("master_supplier_products")
 }

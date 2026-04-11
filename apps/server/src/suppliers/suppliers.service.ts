@@ -13,6 +13,7 @@ export class SuppliersService {
         _count: {
           select: {
             supplierProducts: true,
+            masterSupplierProducts: true,
             purchaseOrders: true,
           },
         },
@@ -22,7 +23,7 @@ export class SuppliersService {
 
     return suppliers.map(({ _count, ...rest }) => ({
       ...rest,
-      productCount: _count.supplierProducts,
+      productCount: _count.supplierProducts + _count.masterSupplierProducts,
       orderCount: _count.purchaseOrders,
     }));
   }

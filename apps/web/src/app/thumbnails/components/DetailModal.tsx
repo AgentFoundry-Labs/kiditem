@@ -1,11 +1,13 @@
 'use client';
+import { useState } from 'react';
+import Link from 'next/link';
 import {
   X, ImageIcon, Eye, Wand2, Zap, ArrowRight, CheckCircle, ExternalLink,
   SkipForward, Download, Copy, Lightbulb, AlertTriangle, XCircle, Clock,
   Loader2, Sparkles,
 } from 'lucide-react';
 import { ScoreBreakdown } from './ScoreBreakdown';
-import type { ThumbnailAnalysisResult, ThumbnailGenerationItem } from '@kiditem/shared';
+import type { ThumbnailAnalysisResult, ThumbnailGenerationItem, ImageSpec } from '@kiditem/shared';
 import { cn } from '@/lib/utils';
 import {
   COMPLIANCE_GRADE_TEXT,
@@ -13,6 +15,7 @@ import {
   COMPLIANCE_GRADE_LABELS,
   VIOLATION_LABELS,
 } from '../lib/grade-constants';
+import { resolveImageUrl } from '../lib/resolve-url';
 
 const GRADE_COLORS: Record<string, string> = {
   S: 'bg-emerald-100 text-emerald-700 border-emerald-200',
@@ -52,42 +55,63 @@ function ScoreBadge({ score, grade }: { score: number; grade: string }) {
 interface DetailModalProps {
   product: ThumbnailAnalysisResult | null;
   gen: ThumbnailGenerationItem | null | undefined;
+  productGenerations: ThumbnailGenerationItem[];
   aiResult?: ThumbnailAnalysisResult;
   isAiAnalyzing: boolean;
-  isGenerating: boolean;
-  isEditing: boolean;
+  imageSpec?: ImageSpec | null;
   generatedProductIds: Set<string>;
   onClose: () => void;
   onAiAnalyze: () => void;
-  onGenerate: () => void;
-  onEdit: () => void;
+  onComplianceCheck: () => void;
+  onEditCompliance: () => void;
+  onEditQuality: () => void;
   onSelectCandidate: (url: string) => void;
   onApply: () => void;
   onSkip: () => void;
+  onDelete: () => void;
+  onSelectGen: (gen: ThumbnailGenerationItem) => void;
 }
 
 export function DetailModal({
   product,
   gen,
+  productGenerations,
   aiResult,
   isAiAnalyzing,
-  isGenerating,
-  isEditing,
+  imageSpec,
   generatedProductIds,
   onClose,
   onAiAnalyze,
-  onGenerate,
-  onEdit,
+  onComplianceCheck,
+  onEditCompliance,
+  onEditQuality,
   onSelectCandidate,
   onApply,
   onSkip,
+  onDelete,
+  onSelectGen,
 }: DetailModalProps) {
+  const [zoomImage, setZoomImage] = useState<string | null>(null);
   const display = aiResult || product;
   const candidates = gen?.candidates || [];
   const productName = gen?.product.name || product?.productName || '';
-  const originalImage = gen?.originalUrl || gen?.product.imageUrl || product?.imageUrl || null;
+  const originalImage = resolveImageUrl(gen?.originalUrl || gen?.product.imageUrl || product?.imageUrl || null);
 
   return (
+    <>
+    {zoomImage && (
+      <div
+        className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 cursor-zoom-out"
+        onClick={() => setZoomImage(null)}
+      >
+        <img
+          src={zoomImage}
+          alt="확대"
+          className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg shadow-2xl"
+          referrerPolicy="no-referrer"
+        />
+      </div>
+    )}
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={onClose}>
       <div
         className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto"
@@ -116,7 +140,13 @@ export function DetailModal({
                   <div className="text-[10px] font-mono text-slate-400 uppercase mb-1.5">Before</div>
                   <div className="aspect-square rounded-xl overflow-hidden border border-slate-200 bg-slate-50">
                     {originalImage ? (
-                      <img src={originalImage} alt="원본" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                      <img
+                        src={originalImage}
+                        alt="원본"
+                        className="w-full h-full object-cover cursor-zoom-in"
+                        referrerPolicy="no-referrer"
+                        onClick={(e) => { e.stopPropagation(); setZoomImage(originalImage); }}
+                      />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center"><ImageIcon size={32} className="text-slate-300" /></div>
                     )}
@@ -144,18 +174,25 @@ export function DetailModal({
                   </div>
                   <div className="grid grid-cols-3 gap-2">
                     {candidates.map((candidate, idx) => {
-                      const imgUrl = typeof candidate === 'string' ? candidate : candidate.url;
+                      const imgUrl = resolveImageUrl(typeof candidate === 'string' ? candidate : candidate.url) ?? '';
                       return (
                         <button
                           key={idx}
-                          onClick={() => onSelectCandidate(imgUrl)}
+                          onClick={() => onSelectCandidate(gen.selectedUrl === imgUrl ? '' : imgUrl)}
                           className={cn(
                             'relative rounded-xl overflow-hidden border-2 transition-all hover:scale-[1.02]',
                             gen.selectedUrl === imgUrl ? 'border-purple-500 ring-2 ring-purple-200' : 'border-slate-200 hover:border-slate-300'
                           )}
                         >
                           <div className="aspect-square bg-slate-100">
-                            <img src={imgUrl} alt={`후보 ${idx + 1}`} className="w-full h-full object-cover" loading="lazy" referrerPolicy="no-referrer" />
+                            <img
+                              src={imgUrl}
+                              alt={`후보 ${idx + 1}`}
+                              className="w-full h-full object-cover cursor-zoom-in"
+                              loading="lazy"
+                              referrerPolicy="no-referrer"
+                              onClick={(e) => { e.stopPropagation(); setZoomImage(imgUrl); }}
+                            />
                           </div>
                           <div className="absolute top-1.5 left-1.5">
                             <span className={cn(
@@ -192,6 +229,12 @@ export function DetailModal({
                   >
                     <SkipForward size={14} /> 건너뛰기
                   </button>
+                  <button
+                    onClick={onDelete}
+                    className="flex items-center gap-2 px-3 py-2.5 text-red-500 hover:bg-red-50 rounded-lg text-xs font-medium transition-colors"
+                  >
+                    <XCircle size={14} /> 삭제
+                  </button>
                   {gen.selectedUrl && (
                     <>
                       <div className="flex-1" />
@@ -227,6 +270,15 @@ export function DetailModal({
                   </div>
                 </div>
               )}
+
+              <div className="flex items-center gap-2 pt-3 border-t border-slate-100">
+                <Link
+                  href={`/thumbnail-editor?productId=${product?.productId ?? gen?.productId ?? ''}`}
+                  className="flex items-center gap-2 px-3 py-2 bg-purple-600 text-white rounded-lg text-xs font-medium hover:bg-purple-700"
+                >
+                  <Wand2 size={12} /> 썸네일 편집
+                </Link>
+              </div>
             </>
           ) : (
             <div className="flex items-start gap-4">
@@ -238,36 +290,52 @@ export function DetailModal({
                     <div className="w-full h-full flex items-center justify-center"><ImageIcon size={36} className="text-slate-300" /></div>
                   )}
                 </div>
+                {imageSpec && (
+                  <div className="mt-2 space-y-1">
+                    <div className="text-[10px] font-mono text-slate-400">
+                      {imageSpec.width}x{imageSpec.height} · {imageSpec.format.split('/')[1]?.toUpperCase()} · {imageSpec.fileSizeKB}KB
+                    </div>
+                    {imageSpec.issues.map((issue, i) => (
+                      <div
+                        key={i}
+                        className={cn(
+                          'text-[10px] px-1.5 py-0.5 rounded',
+                          issue.severity === 'fail' ? 'bg-red-50 text-red-600' : 'bg-amber-50 text-amber-600',
+                        )}
+                      >
+                        {issue.message}
+                      </div>
+                    ))}
+                    {imageSpec.issues.length === 0 && (
+                      <div className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-600">
+                        이미지 스펙 적합
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
               <div className="flex-1 min-w-0 space-y-3">
                 <div className="flex gap-2 flex-wrap">
-                  {!aiResult && (
-                    <button
-                      onClick={onAiAnalyze}
-                      disabled={isAiAnalyzing}
-                      className="flex items-center gap-2 px-3 py-2 bg-purple-600 text-white rounded-lg text-xs font-medium hover:bg-purple-700 disabled:opacity-50"
-                    >
-                      <Eye size={12} /> {isAiAnalyzing ? 'AI 분석 중...' : 'AI 정밀 분석'}
-                    </button>
-                  )}
-                  {product && (product.complianceGrade === 'FAIL' || product.complianceGrade === 'WARN' || product.grade === 'F' || product.grade === 'C') && !generatedProductIds.has(product.productId) && (
-                    <button
-                      onClick={onGenerate}
-                      disabled={isGenerating}
-                      className="flex items-center gap-2 px-3 py-2 bg-purple-600 text-white rounded-lg text-xs font-medium hover:bg-purple-700 disabled:opacity-50"
-                    >
-                      <Wand2 size={12} /> {isGenerating ? 'Gemini 생성 중...' : '썸네일 재생성'}
-                    </button>
-                  )}
-                  {product && (product.complianceGrade === 'FAIL' || product.complianceGrade === 'WARN') && (
-                    <button
-                      onClick={onEdit}
-                      disabled={isEditing}
-                      className="flex items-center gap-2 px-3 py-2 bg-amber-600 text-white rounded-lg text-xs font-medium hover:bg-amber-700 disabled:opacity-50"
-                    >
-                      <Wand2 size={12} /> {isEditing ? '편집 중...' : '가이드라인 자동 수정'}
-                    </button>
-                  )}
+                  <button
+                    onClick={onAiAnalyze}
+                    disabled={isAiAnalyzing}
+                    className="flex items-center gap-2 px-3 py-2 bg-purple-600 text-white rounded-lg text-xs font-medium hover:bg-purple-700 disabled:opacity-50"
+                  >
+                    <Eye size={12} /> {isAiAnalyzing ? 'AI 분석 중...' : 'AI 정밀 분석'}
+                  </button>
+                  <button
+                    onClick={onComplianceCheck}
+                    disabled={isAiAnalyzing}
+                    className="flex items-center gap-2 px-3 py-2 bg-amber-500 text-white rounded-lg text-xs font-medium hover:bg-amber-600 disabled:opacity-50"
+                  >
+                    <AlertTriangle size={12} /> {isAiAnalyzing ? '체크 중...' : '가이드라인 체크'}
+                  </button>
+                  <Link
+                    href={`/thumbnail-editor?productId=${product?.productId ?? gen?.productId ?? ''}`}
+                    className="flex items-center gap-2 px-3 py-2 bg-purple-600 text-white rounded-lg text-xs font-medium hover:bg-purple-700"
+                  >
+                    <Wand2 size={12} /> 썸네일 편집
+                  </Link>
                 </div>
 
                 {aiResult && (
@@ -376,8 +444,59 @@ export function DetailModal({
               </div>
             </div>
           )}
+
+          {/* 과거 편집 이력 */}
+          {productGenerations.length > 1 && (() => {
+            const pastGens = productGenerations
+              .filter((g) => g.id !== gen?.id)
+              .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+              .slice(0, 3);
+            if (pastGens.length === 0) return null;
+            return (
+              <div className="border-t border-slate-100 pt-4">
+                <div className="text-[10px] font-mono text-slate-500 uppercase mb-2">
+                  과거 편집 이력 ({pastGens.length}건)
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {pastGens.map((pg) => {
+                    const thumbUrl = resolveImageUrl(
+                      pg.selectedUrl || pg.candidates?.[0]?.url || pg.originalUrl,
+                    );
+                    return (
+                      <button
+                        key={pg.id}
+                        className="space-y-1 text-left hover:opacity-80 transition-opacity"
+                        onClick={() => onSelectGen(pg)}
+                        title="이 결과로 전환"
+                      >
+                        <div className="aspect-square rounded-lg overflow-hidden border-2 border-slate-200 bg-slate-50 hover:border-purple-400 transition-colors">
+                          {thumbUrl ? (
+                            <img src={thumbUrl} alt="" className="w-full h-full object-cover" loading="lazy" referrerPolicy="no-referrer" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center">
+                              <ImageIcon size={20} className="text-slate-300" />
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1 text-[10px] text-slate-400">
+                          <span className={cn(
+                            'px-1.5 py-0.5 rounded font-bold text-white',
+                            pg.status === 'applied' ? 'bg-emerald-500' : pg.status === 'skipped' ? 'bg-slate-400' : 'bg-amber-500',
+                          )}>
+                            {pg.status === 'applied' ? '적용' : pg.status === 'skipped' ? '건너뜀' : pg.status}
+                          </span>
+                          <span>{new Date(pg.createdAt).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' })}</span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
         </div>
       </div>
     </div>
+    </>
   );
 }

@@ -1,8 +1,9 @@
 'use client';
 import { useState } from 'react';
-import { ImageIcon, AlertTriangle, Zap, Loader2, CheckCircle, Wand2, Sparkles } from 'lucide-react';
+import { ImageIcon, Zap, Loader2, CheckCircle, Wand2, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { QUALITY_GRADE_BG, QUALITY_GRADE_TEXT, QUALITY_GRADE_LABELS, COMPLIANCE_GRADE_COLORS } from '../lib/grade-constants';
+import { resolveImageUrl } from '../lib/resolve-url';
 
 interface ProductCardProps {
   imageUrl: string | null;
@@ -11,7 +12,6 @@ interface ProductCardProps {
   score?: number;
   badge?: React.ReactNode;
   overlay?: 'generating' | 'selected' | 'ready' | 'applied' | 'skipped';
-  issueCount?: number;
   candidateCount?: number;
   aiAnalyzed?: boolean;
   isGenerating?: boolean;
@@ -27,7 +27,6 @@ export function ProductCard({
   score,
   badge,
   overlay,
-  issueCount,
   candidateCount,
   aiAnalyzed,
   isGenerating,
@@ -36,7 +35,8 @@ export function ProductCard({
   onClick,
 }: ProductCardProps) {
   const [imgError, setImgError] = useState(false);
-  const showImage = imageUrl && (imageUrl.startsWith('http') || imageUrl.startsWith('/generated-thumbnails/')) && !imgError;
+  const resolvedImageUrl = resolveImageUrl(imageUrl);
+  const showImage = resolvedImageUrl && (resolvedImageUrl.startsWith('http')) && !imgError;
 
   return (
     <div
@@ -46,7 +46,7 @@ export function ProductCard({
       <div className="relative aspect-square bg-slate-50">
         {showImage ? (
           <img
-            src={imageUrl!}
+            src={resolvedImageUrl!}
             alt={name}
             className="w-full h-full object-cover"
             loading="lazy"
@@ -70,21 +70,16 @@ export function ProductCard({
                 <Zap size={10} /> AI
               </span>
             )}
-            {complianceGrade && (
-              <span
-                className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[10px] font-bold text-white"
-                style={{ backgroundColor: COMPLIANCE_GRADE_COLORS[complianceGrade] || '#64748b' }}
-              >
-                {complianceGrade === 'FAIL' ? '위반' : complianceGrade === 'WARN' ? '주의' : '적합'}
-              </span>
-            )}
           </div>
         )}
 
-        {issueCount !== undefined && issueCount > 0 && (
+        {complianceGrade && (
           <div className="absolute top-2 right-2">
-            <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-md text-[12px] font-medium bg-red-500 text-white">
-              <AlertTriangle size={12} /> {issueCount}
+            <span
+              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[10px] font-bold text-white"
+              style={{ backgroundColor: COMPLIANCE_GRADE_COLORS[complianceGrade] || '#64748b' }}
+            >
+              {complianceGrade === 'FAIL' ? '위반' : complianceGrade === 'WARN' ? '주의' : '적합'}
             </span>
           </div>
         )}

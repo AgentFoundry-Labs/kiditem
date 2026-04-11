@@ -57,6 +57,12 @@ function MetricCard({
 export default function ProductMetrics({ product }: ProductMetricsProps) {
   const badge = getProductStatusBadge(product.status);
 
+  // resolved costPrice/sellPrice 기반으로 marginRate 재계산
+  const marginRate =
+    product.sellPrice && product.sellPrice > 0 && product.costPrice && product.costPrice > 0
+      ? (product.sellPrice - product.costPrice) / product.sellPrice
+      : null;
+
   return (
     <div className="card p-6">
       <div className="flex items-center gap-3 mb-4">
@@ -73,7 +79,7 @@ export default function ProductMetrics({ product }: ProductMetricsProps) {
         </span>
       </div>
 
-      {product.sellPrice == null && product.costCny == null && product.marginRate == null && product.commissionRate == null && (
+      {product.sellPrice == null && product.costPrice == null && marginRate == null && product.commissionRate == null && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-center text-amber-700">
           쿠팡 동기화를 실행하면 판매 데이터가 표시됩니다{" "}
           <a href="/settings" className="underline font-medium">설정으로 이동</a>
@@ -87,20 +93,20 @@ export default function ProductMetrics({ product }: ProductMetricsProps) {
         />
         <MetricCard
           label="매입가"
-          value={product.costCny ? `¥${product.costCny}` : "-"}
+          value={product.costPrice ? `${formatKRW(product.costPrice)}원` : "-"}
           icon={<TrendingUp size={16} className="text-green-500" />}
         />
         <MetricCard
           label="이익률"
           value={
-            product.marginRate != null
-              ? formatPercent(Number(product.marginRate) * 100)
+            marginRate != null
+              ? formatPercent(marginRate * 100)
               : "-"
           }
           icon={<BarChart3 size={16} className="text-purple-500" />}
           valueColor={
-            product.marginRate != null
-              ? getProfitColor(Number(product.marginRate) * 100)
+            marginRate != null
+              ? getProfitColor(marginRate * 100)
               : ""
           }
         />

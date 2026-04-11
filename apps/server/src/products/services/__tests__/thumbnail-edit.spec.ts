@@ -8,8 +8,10 @@ function makePrisma() {
     },
     thumbnailGeneration: {
       findFirst: vi.fn(),
+      findMany: vi.fn().mockResolvedValue([]),
       create: vi.fn(),
       update: vi.fn(),
+      deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
     },
   };
 }
@@ -17,7 +19,7 @@ function makePrisma() {
 function makeAiService() {
   return {
     editImage: vi.fn(),
-    analyzeWithGeminiVision: vi.fn(),
+    checkCompliance: vi.fn().mockResolvedValue(new Map()),
   };
 }
 

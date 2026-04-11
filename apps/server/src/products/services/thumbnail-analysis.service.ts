@@ -1,8 +1,8 @@
-import { Injectable, NotFoundException, InternalServerErrorException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, InternalServerErrorException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ThumbnailAiService } from './thumbnail-ai.service';
-import type { ThumbnailAnalysisItem, ThumbnailAnalysisSummaryInternal, ThumbnailAnalysisListResponse, AiAnalysisResult } from './types';
+import type { ThumbnailAnalysisItem, ThumbnailAnalysisSummaryInternal, ThumbnailAnalysisListResponse, AiAnalysisResult, ImageSpec } from './types';
 import type { ThumbnailAnalysisSummary as SharedThumbnailAnalysisSummary } from '@kiditem/shared';
 
 export type { ThumbnailAnalysisItem, ThumbnailAnalysisListResponse } from './types';
@@ -12,10 +12,73 @@ type AnalysisScope = 'all' | 'quality' | 'compliance';
 
 @Injectable()
 export class ThumbnailAnalysisService {
+  private readonly logger = new Logger(ThumbnailAnalysisService.name);
+  private batchAbort: AbortController | null = null;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly thumbnailAiService: ThumbnailAiService,
   ) {}
+
+  isBatchRunning(): boolean {
+    return this.batchAbort !== null;
+  }
+
+  cancelBatch(): { ok: true } {
+    if (!this.batchAbort) throw new NotFoundException('실행 중인 배치 분석이 없습니다');
+    this.batchAbort.abort();
+    this.batchAbort = null;
+    return { ok: true };
+  }
+
+  async checkImageSpec(imageUrl: string) {
+    return this.thumbnailAiService.checkImageSpec(imageUrl);
+  }
+
+  async preInspect(productIds?: string[]): Promise<{ processed: number; failed: number }> {
+    const where: Record<string, unknown> = { isDeleted: false, status: 'active' };
+    if (productIds?.length) where.id = { in: productIds };
+
+    const products = await this.prisma.product.findMany({
+      where,
+      select: { id: true, companyId: true, name: true, imageUrl: true, thumbnailUrl: true, thumbnails: { orderBy: { createdAt: 'desc' as const }, take: 1 } },
+    });
+
+    let processed = 0;
+    let failed = 0;
+
+    for (const product of products) {
+      const rawImageUrl = product.imageUrl ?? product.thumbnails[0]?.imageUrl ?? null;
+      if (!rawImageUrl) continue;
+
+      const imageUrl = this.thumbnailAiService.toCoupangOriginal(rawImageUrl);
+      try {
+        const spec = await this.thumbnailAiService.checkImageSpec(imageUrl);
+        const specHasFail = spec.issues.some((i) => i.severity === 'fail');
+
+        await this.prisma.thumbnailAnalysis.upsert({
+          where: { productId: product.id },
+          create: {
+            productId: product.id,
+            companyId: product.companyId,
+            imageUrl,
+            imageSpec: spec as unknown as Prisma.InputJsonValue,
+            ...(specHasFail ? { complianceGrade: 'FAIL', complianceAnalyzedAt: new Date() } : {}),
+          },
+          update: {
+            imageSpec: spec as unknown as Prisma.InputJsonValue,
+            ...(specHasFail ? { complianceGrade: 'FAIL', complianceAnalyzedAt: new Date() } : {}),
+          },
+        });
+        processed++;
+      } catch (err) {
+        this.logger.warn(`사전 검수 실패 (${product.id}): ${err instanceof Error ? err.message : err}`);
+        failed++;
+      }
+    }
+
+    return { processed, failed };
+  }
 
   async findAllWithAnalysis(query: {
     page?: number;
@@ -74,6 +137,7 @@ export class ThumbnailAnalysisService {
             complianceAnalyzed,
             complianceGrade: complianceGrade ?? undefined,
             complianceScores: (analysis as { complianceScores?: Record<string, unknown> | null }).complianceScores ?? null,
+            imageSpec: ((analysis as { imageSpec?: unknown }).imageSpec as ImageSpec | null) ?? null,
           };
 
           if (fullyAnalyzed) {
@@ -98,6 +162,7 @@ export class ThumbnailAnalysisService {
             analyzed: false,
             qualityAnalyzed: false,
             complianceAnalyzed: false,
+            imageSpec: null,
           };
           unclassifiedItems.push(item);
         }
@@ -198,36 +263,81 @@ export class ThumbnailAnalysisService {
       ? this.thumbnailAiService.toCoupangOriginal(rawImageUrl)
       : null;
 
+    // 이미지 스펙 사전 체크 (AI 불필요)
+    let imageSpec: ImageSpec | null = null;
+    if (imageUrl) {
+      try {
+        imageSpec = await this.thumbnailAiService.checkImageSpec(imageUrl);
+      } catch (err) {
+        this.logger.warn(`이미지 스펙 체크 실패 (${productId}): ${err instanceof Error ? err.message : err}`);
+      }
+    }
+
+    const specHasFail = imageSpec?.issues.some((i) => i.severity === 'fail') ?? false;
+
     let result: AiAnalysisResult;
 
     if (!imageUrl) {
       result = this.thumbnailAiService.analyzeWithRules({ id: product.id, name: product.name, imageUrl: rawImageUrl });
-    } else if (scope === 'quality') {
-      const qualityResult = await this.thumbnailAiService.analyzeQualityOnly(imageUrl, product.name, product.category ?? undefined);
-      result = qualityResult ?? this.thumbnailAiService.analyzeWithRules({ id: product.id, name: product.name, imageUrl: rawImageUrl });
-    } else if (scope === 'compliance') {
-      const complianceResult = await this.thumbnailAiService.checkCompliance(imageUrl, product.name, product.category ?? undefined);
-      // compliance-only: 기존 quality 데이터 유지하면서 compliance만 업데이트
-      const existing = await this.prisma.thumbnailAnalysis.findUnique({ where: { productId } });
-      result = {
-        overallScore: existing?.overallScore ?? 0,
-        grade: (existing?.grade ?? 'F') as AiAnalysisResult['grade'],
-        scores: existing?.scores as unknown as AiAnalysisResult['scores'] ?? null,
-        issues: (existing?.issues ?? []) as unknown as AiAnalysisResult['issues'],
-        suggestions: (existing?.suggestions ?? []) as unknown as AiAnalysisResult['suggestions'],
-        method: existing?.method === 'ai' ? 'ai' : 'rule',
-        complianceGrade: complianceResult?.complianceGrade ?? null,
-        complianceScores: complianceResult?.complianceScores ?? null,
-      };
     } else {
-      const aiResult = await this.thumbnailAiService.analyzeWithGeminiVision(imageUrl, product.name, product.category ?? undefined);
-      result = aiResult ?? this.thumbnailAiService.analyzeWithRules({ id: product.id, name: product.name, imageUrl: rawImageUrl });
+      const item = { imageUrl, productName: product.name, productId: product.id, category: product.category ?? undefined };
+
+      if (scope === 'quality') {
+        const qualityMap = await this.thumbnailAiService.analyzeQuality([item]);
+        const qualityResult = qualityMap.get(product.id) ?? null;
+        result = qualityResult ?? this.thumbnailAiService.analyzeWithRules({ id: product.id, name: product.name, imageUrl: rawImageUrl });
+      } else if (scope === 'compliance') {
+        const existing = await this.prisma.thumbnailAnalysis.findUnique({ where: { productId } });
+        if (specHasFail) {
+          result = {
+            overallScore: existing?.overallScore ?? 0,
+            grade: (existing?.grade ?? 'F') as AiAnalysisResult['grade'],
+            scores: existing?.scores as unknown as AiAnalysisResult['scores'] ?? null,
+            issues: (existing?.issues ?? []) as unknown as AiAnalysisResult['issues'],
+            suggestions: (existing?.suggestions ?? []) as unknown as AiAnalysisResult['suggestions'],
+            method: existing?.method === 'ai' ? 'ai' : 'rule',
+            complianceGrade: 'FAIL',
+            complianceScores: null,
+          };
+        } else {
+          const complianceMap = await this.thumbnailAiService.checkCompliance([item]);
+          const complianceResult = complianceMap.get(product.id) ?? null;
+          result = {
+            overallScore: existing?.overallScore ?? 0,
+            grade: (existing?.grade ?? 'F') as AiAnalysisResult['grade'],
+            scores: existing?.scores as unknown as AiAnalysisResult['scores'] ?? null,
+            issues: (existing?.issues ?? []) as unknown as AiAnalysisResult['issues'],
+            suggestions: (existing?.suggestions ?? []) as unknown as AiAnalysisResult['suggestions'],
+            method: existing?.method === 'ai' ? 'ai' : 'rule',
+            complianceGrade: complianceResult?.complianceGrade ?? null,
+            complianceScores: complianceResult?.complianceScores ?? null,
+          };
+        }
+      } else {
+        // scope === 'all'
+        const qualityMap = await this.thumbnailAiService.analyzeQuality([item]);
+        const qualityResult = qualityMap.get(product.id) ?? null;
+        const base = qualityResult ?? this.thumbnailAiService.analyzeWithRules({ id: product.id, name: product.name, imageUrl: rawImageUrl });
+
+        if (specHasFail) {
+          result = { ...base, complianceGrade: 'FAIL', complianceScores: null };
+        } else {
+          const complianceMap = await this.thumbnailAiService.checkCompliance([item]);
+          const complianceResult = complianceMap.get(product.id) ?? null;
+          result = {
+            ...base,
+            complianceGrade: complianceResult?.complianceGrade ?? null,
+            complianceScores: complianceResult?.complianceScores ?? null,
+          };
+        }
+      }
     }
 
     const now = new Date();
     const upsertData: Record<string, unknown> = {
       imageUrl: imageUrl ?? rawImageUrl ?? '',
       method: result.method,
+      imageSpec: imageSpec as unknown as Prisma.InputJsonValue ?? undefined,
     };
 
     // scope에 따라 업데이트할 필드 결정
@@ -277,12 +387,19 @@ export class ThumbnailAnalysisService {
       complianceAnalyzed,
       complianceGrade: (saved as { complianceGrade?: string | null }).complianceGrade ?? undefined,
       complianceScores: (saved as { complianceScores?: Record<string, unknown> | null }).complianceScores ?? null,
+      imageSpec: ((saved as { imageSpec?: unknown }).imageSpec as ImageSpec | null) ?? null,
     };
   }
 
   async analyzeBatch(productIds: string[], scope: AnalysisScope = 'all'): Promise<ThumbnailAnalysisItem[]> {
+    if (this.batchAbort) {
+      throw new InternalServerErrorException('이미 배치 분석이 진행 중입니다. 취소 후 다시 시도하세요.');
+    }
+
     const BATCH_SIZE = 10;
     const results: ThumbnailAnalysisItem[] = [];
+    this.batchAbort = new AbortController();
+    const signal = this.batchAbort.signal;
 
     const products = await this.prisma.product.findMany({
       where: { id: { in: productIds } },
@@ -311,51 +428,76 @@ export class ThumbnailAnalysisService {
       }
     }
 
-    // 배치 분석 (scope=all일 때만 배치 메서드 사용, 아닌 경우 개별)
-    if (scope === 'all') {
-      for (let i = 0; i < itemsForBatch.length; i += BATCH_SIZE) {
-        const chunk = itemsForBatch.slice(i, i + BATCH_SIZE);
-        try {
-          const batchResults = await this.thumbnailAiService.analyzeImagesBatch(chunk);
+    // 배치 분석: 청크 단위로 멀티이미지 API 호출
+    for (let i = 0; i < itemsForBatch.length; i += BATCH_SIZE) {
+      if (signal.aborted) break;
+      const chunk = itemsForBatch.slice(i, i + BATCH_SIZE);
+      try {
+        const [qualityMap, complianceMap] = await Promise.all([
+          scope !== 'compliance' ? this.thumbnailAiService.analyzeQuality(chunk) : Promise.resolve(new Map()),
+          scope !== 'quality' ? this.thumbnailAiService.checkCompliance(chunk) : Promise.resolve(new Map()),
+        ]);
 
-          for (const item of chunk) {
-            const product = productMap.get(item.productId)!;
-            const aiResult = batchResults.get(item.productId);
-            const result = aiResult ?? this.thumbnailAiService.analyzeWithRules({
+        for (const item of chunk) {
+          const product = productMap.get(item.productId)!;
+          const qualityResult = qualityMap.get(item.productId) ?? null;
+          const complianceResult = complianceMap.get(item.productId) ?? null;
+
+          let result: AiAnalysisResult;
+          if (scope === 'compliance') {
+            const existing = await this.prisma.thumbnailAnalysis.findUnique({ where: { productId: item.productId } });
+            result = {
+              overallScore: existing?.overallScore ?? 0,
+              grade: (existing?.grade ?? 'F') as AiAnalysisResult['grade'],
+              scores: existing?.scores as unknown as AiAnalysisResult['scores'] ?? null,
+              issues: (existing?.issues ?? []) as unknown as AiAnalysisResult['issues'],
+              suggestions: (existing?.suggestions ?? []) as unknown as AiAnalysisResult['suggestions'],
+              method: existing?.method === 'ai' ? 'ai' : 'rule',
+              complianceGrade: complianceResult?.complianceGrade ?? null,
+              complianceScores: complianceResult?.complianceScores ?? null,
+            };
+          } else {
+            const base = qualityResult ?? this.thumbnailAiService.analyzeWithRules({
               id: product.id, name: product.name, imageUrl: item.imageUrl,
             });
-
-            try {
-              const saved = await this.saveAnalysisResult(product, item.imageUrl, result);
-              results.push(saved);
-            } catch { /* skip */ }
+            result = {
+              ...base,
+              complianceGrade: complianceResult?.complianceGrade ?? null,
+              complianceScores: complianceResult?.complianceScores ?? null,
+            };
           }
-        } catch {
-          for (const item of chunk) {
-            try {
-              const saved = await this.analyzeProduct(item.productId, scope);
-              results.push(saved);
-            } catch { /* continue */ }
+
+          try {
+            const saved = await this.saveAnalysisResult(product, item.imageUrl, result);
+            results.push(saved);
+          } catch (err) {
+            this.logger.warn(`분석 결과 저장 실패 (${item.productId}): ${err instanceof Error ? err.message : err}`);
           }
         }
-      }
-    } else {
-      // quality-only 또는 compliance-only: 개별 호출
-      for (const item of itemsForBatch) {
-        try {
-          const saved = await this.analyzeProduct(item.productId, scope);
-          results.push(saved);
-        } catch { /* continue */ }
+      } catch (err) {
+        this.logger.warn(`배치 분석 실패, 개별 fallback: ${err instanceof Error ? err.message : err}`);
+        for (const item of chunk) {
+          try {
+            const saved = await this.analyzeProduct(item.productId, scope);
+            results.push(saved);
+          } catch (innerErr) {
+            this.logger.warn(`개별 분석 실패 (${item.productId}): ${innerErr instanceof Error ? innerErr.message : innerErr}`);
+          }
+        }
       }
     }
 
     for (const productId of noImageProductIds) {
+      if (signal.aborted) break;
       try {
         const saved = await this.analyzeProduct(productId, scope);
         results.push(saved);
-      } catch { /* continue */ }
+      } catch (err) {
+        this.logger.warn(`이미지 없는 상품 분석 실패 (${productId}): ${err instanceof Error ? err.message : err}`);
+      }
     }
 
+    this.batchAbort = null;
     return results;
   }
 
@@ -408,6 +550,7 @@ export class ThumbnailAnalysisService {
       complianceAnalyzed,
       complianceGrade: (saved as { complianceGrade?: string | null }).complianceGrade ?? undefined,
       complianceScores: (saved as { complianceScores?: Record<string, unknown> | null }).complianceScores ?? null,
+      imageSpec: ((saved as { imageSpec?: unknown }).imageSpec as ImageSpec | null) ?? null,
     };
   }
 
@@ -415,19 +558,25 @@ export class ThumbnailAnalysisService {
     imageUrl: string,
     productName?: string,
   ): Promise<ReturnType<ThumbnailAiService['analyzeWithRules']>> {
-    const result = await this.thumbnailAiService.analyzeWithGeminiVision(
+    const name = productName ?? '직접 분석';
+    const item = { imageUrl, productName: name, productId: 'direct', category: undefined };
+
+    const [qualityMap, complianceMap] = await Promise.all([
+      this.thumbnailAiService.analyzeQuality([item]),
+      this.thumbnailAiService.checkCompliance([item]),
+    ]);
+
+    const base = qualityMap.get('direct') ?? this.thumbnailAiService.analyzeWithRules({
+      id: 'direct',
+      name,
       imageUrl,
-      productName ?? '직접 분석',
-    );
+    });
 
-    if (!result) {
-      return this.thumbnailAiService.analyzeWithRules({
-        id: 'direct',
-        name: productName ?? '직접 분석',
-        imageUrl,
-      });
-    }
-
-    return result;
+    const complianceResult = complianceMap.get('direct') ?? null;
+    return {
+      ...base,
+      complianceGrade: complianceResult?.complianceGrade ?? null,
+      complianceScores: complianceResult?.complianceScores ?? null,
+    };
   }
 }

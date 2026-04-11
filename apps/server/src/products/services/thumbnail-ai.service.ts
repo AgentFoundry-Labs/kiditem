@@ -4,13 +4,14 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as https from 'https';
 import * as http from 'http';
-import type { ThumbnailGrade, AnalysisScores, AnalysisIssue, AiAnalysisResult, GeneratedImage, ComplianceGrade, ComplianceScores } from './types';
+import type { ThumbnailGrade, AnalysisScores, AnalysisIssue, AiAnalysisResult, GeneratedImage, ComplianceGrade, ComplianceScores, ImageSpec, ImageSpecIssue } from './types';
 
-export type { AnalysisScores, AnalysisIssue, AiAnalysisResult, GeneratedImage } from './types';
+export type { AnalysisScores, AnalysisIssue, AiAnalysisResult, GeneratedImage, ImageSpec } from './types';
 
 @Injectable()
 export class ThumbnailAiService implements OnModuleInit {
   private readonly logger = new Logger(ThumbnailAiService.name);
+  private static readonly GEMINI_MODEL = 'gemini-3.1-flash-lite-preview';
   private client: GoogleGenAI | null = null;
 
   onModuleInit() {
@@ -19,68 +20,40 @@ export class ThumbnailAiService implements OnModuleInit {
     }
   }
 
-  // ── 가이드라인 준수 판단 프롬프트 (광고 중단/검색 하락 리스크) ──
+  // ── 가이드라인 준수 판단 프롬프트 ──
   private readonly COMPLIANCE_PROMPT = `당신은 쿠팡 대표이미지 정책 심사관입니다.
-아래 상품 썸네일 이미지가 쿠팡 대표이미지 가이드라인 12가지 항목을 준수하는지 판단하세요.
-각 항목이 위반인지(true/false), 확신도(0-100)를 함께 제공하세요.
+아래 상품 썸네일 이미지를 각각 가이드라인 12항목 준수 여부를 판단하고, 이미지 순서대로 JSON 배열로 응답하세요.
 
 ## 가이드라인 12항목
 1. background_not_white: 배경이 순백색(RGB 255,255,255)이 아님
-2. has_text: 이미지에 텍스트/카피 삽입 (상품 자체에 인쇄된 것 제외)
-3. has_extra_logo: 브랜드 로고 외 추가 로고/인증마크 삽입
+2. has_text: 상품 위에 포토샵 등으로 텍스트/카피를 덧붙인 경우만 위반. 상품 자체에 원래 인쇄·각인·자수된 브랜드명, 로고, 라벨 등은 위반이 아님
+3. has_extra_logo: 이미지 편집으로 추가한 로고/인증마크/워터마크. 상품 자체에 원래 있는 브랜드 로고는 위반이 아님
 4. has_discount_text: 할인율/프로모션/가격 문구
 5. has_freebie_display: 사은품/증정품/덤 표시
 6. has_overlay_effects: 그림자/테두리/장식/프레임 효과
 7. has_gradient_background: 배경에 그라데이션/텍스처/패턴
 8. has_background_objects: 배경에 소품/오브젝트 배치
 9. product_fill_low: 상품이 이미지 면적의 85% 미만 차지
-10. not_center_aligned: 상품이 이미지 중앙에 정렬되지 않음
+10. not_center_aligned: 상품의 무게 중심이 이미지 중앙에서 크게(10% 이상) 벗어난 경우만 위반. 약간의 편차는 허용
 11. product_cropped: 상품 일부가 이미지 밖으로 잘림
 12. excessive_editing: 과도한 색보정/합성으로 실물과 괴리
 
-상품명: {productName}
-카테고리: {category}
+상품 정보:
+{productList}
 
-응답 형식 (JSON만 출력):
-{
-  "violations": {
-    "background_not_white": false,
-    "has_text": false,
-    "has_extra_logo": false,
-    "has_discount_text": false,
-    "has_freebie_display": false,
-    "has_overlay_effects": false,
-    "has_gradient_background": false,
-    "has_background_objects": false,
-    "product_fill_low": false,
-    "not_center_aligned": false,
-    "product_cropped": false,
-    "excessive_editing": false
-  },
-  "confidence": {
-    "background_not_white": 95,
-    "has_text": 95,
-    "has_extra_logo": 95,
-    "has_discount_text": 95,
-    "has_freebie_display": 95,
-    "has_overlay_effects": 95,
-    "has_gradient_background": 95,
-    "has_background_objects": 95,
-    "product_fill_low": 90,
-    "not_center_aligned": 85,
-    "product_cropped": 95,
-    "excessive_editing": 80
-  },
-  "quality": {
-    "estimatedFillPercent": 90,
-    "centerOffsetPercent": 2,
-    "aspectRatioValid": true
+응답 형식 (JSON 배열만 출력):
+[
+  {
+    "index": 0,
+    "violations": { "background_not_white": false, "has_text": false, ... },
+    "confidence": { "background_not_white": 95, ... },
+    "quality": { "estimatedFillPercent": 90, "centerOffsetPercent": 2, "aspectRatioValid": true }
   }
-}`;
+]`;
 
-  // ── CTR 품질 평가 프롬프트 (클릭률에 영향주는 시각 품질) ──
+  // ── CTR 품질 평가 프롬프트 ──
   private readonly QUALITY_PROMPT = `당신은 쿠팡 마켓플레이스 전문 썸네일 분석가입니다.
-아래 상품 썸네일 이미지의 CTR(클릭률) 관점에서 시각 품질을 평가하고 JSON으로 점수를 매겨주세요.
+아래 상품 썸네일 이미지의 CTR(클릭률) 관점에서 시각 품질을 각각 평가하고, 이미지 순서대로 JSON 배열로 응답하세요.
 
 ## 평가 기준 (5개 항목, 총 100점)
 1. 히어로 샷 품질 (0-25점): 촬영 앵글, 조명, 선명도, 입체감, 상품 매력도
@@ -89,16 +62,19 @@ export class ThumbnailAiService implements OnModuleInit {
 4. 모바일 최적화 (0-20점): 모바일 화면에서의 식별성, 주목도, 정보 전달력
 5. 경쟁 차별화 (0-15점): 검색 결과 내 시각적 차별화, 클릭 유도 요소
 
-상품명: {productName}
-카테고리: {category}
+상품 정보:
+{productList}
 
-응답 형식 (JSON만 출력):
-{
-  "overallScore": 72,
-  "scores": { "heroShot": 20, "composition": 18, "branding": 10, "mobile": 14, "differentiation": 10 },
-  "issues": [{ "type": "lighting", "severity": "warning", "message": "조명이 어두워 상품 디테일이 잘 보이지 않음" }],
-  "suggestions": ["상품에 더 밝은 조명을 사용하세요"]
-}`;
+응답 형식 (JSON 배열만 출력):
+[
+  {
+    "index": 0,
+    "overallScore": 72,
+    "scores": { "heroShot": 20, "composition": 18, "branding": 10, "mobile": 14, "differentiation": 10 },
+    "issues": [{ "type": "lighting", "severity": "warning", "message": "조명이 어두움" }],
+    "suggestions": ["더 밝은 조명 사용"]
+  }
+]`;
 
   private getClient(): GoogleGenAI {
     if (!this.client) {
@@ -151,6 +127,11 @@ export class ThumbnailAiService implements OnModuleInit {
       .replace(/\/thumbnail\/\d+x\d+\//, '/original/')
       .replace(/\/q\d+\//, '/q100/')
       .replace(/\/thumbnail_/, '/original_');
+  }
+
+  fetchImageAsBase64Public(imageUrl: string): Promise<{ data: string; mimeType: string }> {
+    const originalUrl = this.toCoupangOriginal(imageUrl);
+    return this.fetchImageAsBase64(originalUrl);
   }
 
   private fetchImageAsBase64(imageUrl: string): Promise<{ data: string; mimeType: string }> {
@@ -207,292 +188,51 @@ export class ThumbnailAiService implements OnModuleInit {
   }
 
   /**
-   * 가이드라인 준수만 체크 (편집 후 재분석 등)
+   * 가이드라인 준수 체크 (1개 또는 여러 개 이미지)
    */
   async checkCompliance(
-    imageUrl: string,
-    productName: string,
-    category?: string,
-  ): Promise<{ complianceGrade: ComplianceGrade; complianceScores: ComplianceScores } | null> {
-    try {
-      const client = this.getClient();
-      const originalUrl = this.toCoupangOriginal(imageUrl);
-      const { data: imageData, mimeType } = await this.fetchImageAsBase64(originalUrl);
-
-      const prompt = this.COMPLIANCE_PROMPT
-        .replace('{productName}', productName)
-        .replace('{category}', category ?? '미분류');
-
-      const response = await client.models.generateContent({
-        model: 'gemini-3.1-flash-live-preview',
-        contents: [{ role: 'user', parts: [{ inlineData: { data: imageData, mimeType } }, { text: prompt }] }],
-      });
-
-      const text = response.text ?? '';
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) return null;
-
-      const parsed = JSON.parse(jsonMatch[0]) as {
-        violations?: Partial<ComplianceScores['violations']>;
-        confidence?: Record<string, number>;
-        quality?: Partial<ComplianceScores['quality']>;
-      };
-
-      return this.parseComplianceResponse(parsed);
-    } catch (error) {
-      this.logger.error(`가이드라인 체크 실패: ${error instanceof Error ? error.message : error}`);
-      return null;
-    }
-  }
-
-  /**
-   * CTR 품질만 분석 (가이드라인 체크 없이)
-   */
-  async analyzeQualityOnly(
-    imageUrl: string,
-    productName: string,
-    category?: string,
-  ): Promise<AiAnalysisResult | null> {
-    try {
-      const client = this.getClient();
-      const originalUrl = this.toCoupangOriginal(imageUrl);
-      const { data: imageData, mimeType } = await this.fetchImageAsBase64(originalUrl);
-
-      const prompt = this.QUALITY_PROMPT
-        .replace('{productName}', productName)
-        .replace('{category}', category ?? '미분류');
-
-      const response = await client.models.generateContent({
-        model: 'gemini-3.1-flash-live-preview',
-        contents: [{ role: 'user', parts: [{ inlineData: { data: imageData, mimeType } }, { text: prompt }] }],
-      });
-
-      const text = response.text ?? '';
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) return null;
-
-      const parsed = JSON.parse(jsonMatch[0]) as {
-        overallScore?: number;
-        scores?: AnalysisScores;
-        issues?: AnalysisIssue[];
-        suggestions?: string[];
-      };
-
-      const overallScore = parsed.overallScore ?? 0;
-      return {
-        overallScore,
-        grade: this.scoreToGrade(overallScore),
-        scores: parsed.scores ?? null,
-        issues: parsed.issues ?? [],
-        suggestions: parsed.suggestions ?? [],
-        method: 'ai',
-        complianceGrade: null,
-        complianceScores: null,
-      };
-    } catch (error) {
-      this.logger.error(`품질 분석 실패: ${error instanceof Error ? error.message : error}`);
-      return null;
-    }
-  }
-
-  /**
-   * 품질 + 가이드라인 모두 분석 (단건 분석 시)
-   */
-  async analyzeWithGeminiVision(
-    imageUrl: string,
-    productName: string,
-    category?: string,
-  ): Promise<AiAnalysisResult | null> {
-    try {
-      const client = this.getClient();
-      const originalUrl = this.toCoupangOriginal(imageUrl);
-      const { data: imageData, mimeType } = await this.fetchImageAsBase64(originalUrl);
-
-      // 가이드라인 + 품질을 병렬 호출
-      const compliancePrompt = this.COMPLIANCE_PROMPT
-        .replace('{productName}', productName)
-        .replace('{category}', category ?? '미분류');
-      const qualityPrompt = this.QUALITY_PROMPT
-        .replace('{productName}', productName)
-        .replace('{category}', category ?? '미분류');
-
-      const [complianceRes, qualityRes] = await Promise.all([
-        client.models.generateContent({
-          model: 'gemini-3.1-flash-live-preview',
-          contents: [{ role: 'user', parts: [{ inlineData: { data: imageData, mimeType } }, { text: compliancePrompt }] }],
-        }),
-        client.models.generateContent({
-          model: 'gemini-3.1-flash-live-preview',
-          contents: [{ role: 'user', parts: [{ inlineData: { data: imageData, mimeType } }, { text: qualityPrompt }] }],
-        }),
-      ]);
-
-      // 가이드라인 파싱
-      let complianceGrade: ComplianceGrade | null = null;
-      let complianceScores: ComplianceScores | null = null;
-
-      const complianceText = complianceRes.text ?? '';
-      const complianceJson = complianceText.match(/\{[\s\S]*\}/);
-      if (complianceJson) {
-        const parsed = JSON.parse(complianceJson[0]);
-        const result = this.parseComplianceResponse(parsed);
-        complianceGrade = result.complianceGrade;
-        complianceScores = result.complianceScores;
-      }
-
-      // 품질 파싱
-      let overallScore = 0;
-      let scores: AnalysisScores | null = null;
-      let issues: AnalysisIssue[] = [];
-      let suggestions: string[] = [];
-
-      const qualityText = qualityRes.text ?? '';
-      const qualityJson = qualityText.match(/\{[\s\S]*\}/);
-      if (qualityJson) {
-        const parsed = JSON.parse(qualityJson[0]) as {
-          overallScore?: number;
-          scores?: AnalysisScores;
-          issues?: AnalysisIssue[];
-          suggestions?: string[];
-        };
-        overallScore = parsed.overallScore ?? 0;
-        scores = parsed.scores ?? null;
-        issues = parsed.issues ?? [];
-        suggestions = parsed.suggestions ?? [];
-      }
-
-      return {
-        overallScore,
-        grade: this.scoreToGrade(overallScore),
-        scores,
-        issues,
-        suggestions,
-        method: 'ai',
-        complianceGrade,
-        complianceScores,
-      };
-    } catch (error) {
-      this.logger.error(`Gemini Vision 분석 실패: ${error instanceof Error ? error.message : error}`);
-      return null;
-    }
-  }
-
-  // ── 배치용 프롬프트 (멀티이미지 → JSON 배열) ──
-
-  private readonly BATCH_COMPLIANCE_PROMPT = `당신은 쿠팡 대표이미지 정책 심사관입니다.
-아래 상품 썸네일 이미지 **여러 장**을 각각 가이드라인 12항목 준수 여부를 판단하고, 이미지 순서대로 JSON 배열로 응답하세요.
-
-## 가이드라인 12항목
-1. background_not_white: 배경이 순백색(RGB 255,255,255)이 아님
-2. has_text: 이미지에 텍스트/카피 삽입 (상품 자체에 인쇄된 것 제외)
-3. has_extra_logo: 브랜드 로고 외 추가 로고/인증마크 삽입
-4. has_discount_text: 할인율/프로모션/가격 문구
-5. has_freebie_display: 사은품/증정품/덤 표시
-6. has_overlay_effects: 그림자/테두리/장식/프레임 효과
-7. has_gradient_background: 배경에 그라데이션/텍스처/패턴
-8. has_background_objects: 배경에 소품/오브젝트 배치
-9. product_fill_low: 상품이 이미지 면적의 85% 미만 차지
-10. not_center_aligned: 상품이 이미지 중앙에 정렬되지 않음
-11. product_cropped: 상품 일부가 이미지 밖으로 잘림
-12. excessive_editing: 과도한 색보정/합성으로 실물과 괴리
-
-상품 정보:
-{productList}
-
-응답 형식 (JSON 배열만 출력):
-[
-  {
-    "index": 0,
-    "violations": { "background_not_white": false, "has_text": false, ... },
-    "confidence": { "background_not_white": 95, ... },
-    "quality": { "estimatedFillPercent": 90, "centerOffsetPercent": 2, "aspectRatioValid": true }
-  }
-]`;
-
-  private readonly BATCH_QUALITY_PROMPT = `당신은 쿠팡 마켓플레이스 전문 썸네일 분석가입니다.
-아래 상품 썸네일 이미지 **여러 장**의 CTR(클릭률) 관점에서 시각 품질을 각각 평가하고, 이미지 순서대로 JSON 배열로 응답하세요.
-
-## 평가 기준 (5개 항목, 총 100점)
-1. 히어로 샷 품질 (0-25점): 촬영 앵글, 조명, 선명도, 입체감, 상품 매력도
-2. 구도 및 배치 (0-25점): 중앙 정렬, 여백 균형, 세트/번들 배치, 시선 유도
-3. 브랜드 일관성 (0-15점): 톤앤매너, 일관된 레이아웃, 브랜드 인식성
-4. 모바일 최적화 (0-20점): 모바일 화면에서의 식별성, 주목도, 정보 전달력
-5. 경쟁 차별화 (0-15점): 검색 결과 내 시각적 차별화, 클릭 유도 요소
-
-상품 정보:
-{productList}
-
-응답 형식 (JSON 배열만 출력):
-[
-  {
-    "index": 0,
-    "overallScore": 72,
-    "scores": { "heroShot": 20, "composition": 18, "branding": 10, "mobile": 14, "differentiation": 10 },
-    "issues": [{ "type": "lighting", "severity": "warning", "message": "조명이 어두움" }],
-    "suggestions": ["더 밝은 조명 사용"]
-  }
-]`;
-
-  async analyzeImagesBatch(
     items: Array<{ imageUrl: string; productName: string; productId: string; category?: string }>,
-  ): Promise<Map<string, AiAnalysisResult>> {
-    const results = new Map<string, AiAnalysisResult>();
+  ): Promise<Map<string, { complianceGrade: ComplianceGrade; complianceScores: ComplianceScores }>> {
+    const results = new Map<string, { complianceGrade: ComplianceGrade; complianceScores: ComplianceScores }>();
     if (items.length === 0) return results;
 
     try {
       const client = this.getClient();
 
-      // 이미지들을 병렬로 fetch
       const imageDataList = await Promise.all(
         items.map(async (item) => {
           try {
-            const originalUrl = this.toCoupangOriginal(item.imageUrl);
-            return await this.fetchImageAsBase64(originalUrl);
+            return await this.fetchImageAsBase64(this.toCoupangOriginal(item.imageUrl));
           } catch {
             return null;
           }
         }),
       );
 
-      // 유효한 이미지만 필터
       const validItems: Array<{ item: typeof items[number]; imageData: { data: string; mimeType: string } }> = [];
       for (let i = 0; i < items.length; i++) {
         const data = imageDataList[i];
-        if (data) {
-          validItems.push({ item: items[i], imageData: data });
-        }
+        if (data) validItems.push({ item: items[i], imageData: data });
       }
-
       if (validItems.length === 0) return results;
 
-      // 상품 정보 목록
       const productList = validItems
         .map((v, idx) => `이미지 ${idx}: "${v.item.productName}" (카테고리: ${v.item.category ?? '미분류'})`)
         .join('\n');
 
-      // 멀티이미지 parts 구성 (이미지 데이터 공유)
       const imageParts = validItems.map((v) => ({
         inlineData: { data: v.imageData.data, mimeType: v.imageData.mimeType },
       }));
 
-      // compliance + quality 병렬 호출
-      const [complianceRes, qualityRes] = await Promise.all([
-        client.models.generateContent({
-          model: 'gemini-3.1-flash-live-preview',
-          contents: [{ role: 'user', parts: [...imageParts, { text: this.BATCH_COMPLIANCE_PROMPT.replace('{productList}', productList) }] }],
-        }),
-        client.models.generateContent({
-          model: 'gemini-3.1-flash-live-preview',
-          contents: [{ role: 'user', parts: [...imageParts, { text: this.BATCH_QUALITY_PROMPT.replace('{productList}', productList) }] }],
-        }),
-      ]);
+      const response = await client.models.generateContent({
+        model: ThumbnailAiService.GEMINI_MODEL,
+        contents: [{ role: 'user', parts: [...imageParts, { text: this.COMPLIANCE_PROMPT.replace('{productList}', productList) }] }],
+      });
 
-      // compliance 파싱
-      const complianceMap = new Map<number, { complianceGrade: ComplianceGrade; complianceScores: ComplianceScores }>();
-      const complianceText = complianceRes.text ?? '';
-      const complianceJsonMatch = complianceText.match(/\[[\s\S]*\]/);
-      if (complianceJsonMatch) {
-        const parsed = JSON.parse(complianceJsonMatch[0]) as Array<{
+      const text = response.text ?? '';
+      const jsonMatch = text.match(/\[[\s\S]*\]/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]) as Array<{
           index?: number;
           violations?: Partial<ComplianceScores['violations']>;
           confidence?: Record<string, number>;
@@ -501,16 +241,65 @@ export class ThumbnailAiService implements OnModuleInit {
         for (let i = 0; i < parsed.length; i++) {
           const entry = parsed[i];
           const idx = entry.index ?? i;
-          complianceMap.set(idx, this.parseComplianceResponse(entry));
+          if (idx < validItems.length) {
+            results.set(validItems[idx].item.productId, this.parseComplianceResponse(entry));
+          }
         }
       }
 
-      // quality 파싱
-      const qualityMap = new Map<number, { overallScore: number; scores: AnalysisScores | null; issues: AnalysisIssue[]; suggestions: string[] }>();
-      const qualityText = qualityRes.text ?? '';
-      const qualityJsonMatch = qualityText.match(/\[[\s\S]*\]/);
-      if (qualityJsonMatch) {
-        const parsed = JSON.parse(qualityJsonMatch[0]) as Array<{
+      return results;
+    } catch (error) {
+      this.logger.error(`가이드라인 체크 실패: ${error instanceof Error ? error.message : error}`);
+      return results;
+    }
+  }
+
+  /**
+   * CTR 품질 분석 (1개 또는 여러 개 이미지)
+   */
+  async analyzeQuality(
+    items: Array<{ imageUrl: string; productName: string; productId: string; category?: string }>,
+  ): Promise<Map<string, AiAnalysisResult>> {
+    const results = new Map<string, AiAnalysisResult>();
+    if (items.length === 0) return results;
+
+    try {
+      const client = this.getClient();
+
+      const imageDataList = await Promise.all(
+        items.map(async (item) => {
+          try {
+            return await this.fetchImageAsBase64(this.toCoupangOriginal(item.imageUrl));
+          } catch {
+            return null;
+          }
+        }),
+      );
+
+      const validItems: Array<{ item: typeof items[number]; imageData: { data: string; mimeType: string } }> = [];
+      for (let i = 0; i < items.length; i++) {
+        const data = imageDataList[i];
+        if (data) validItems.push({ item: items[i], imageData: data });
+      }
+      if (validItems.length === 0) return results;
+
+      const productList = validItems
+        .map((v, idx) => `이미지 ${idx}: "${v.item.productName}" (카테고리: ${v.item.category ?? '미분류'})`)
+        .join('\n');
+
+      const imageParts = validItems.map((v) => ({
+        inlineData: { data: v.imageData.data, mimeType: v.imageData.mimeType },
+      }));
+
+      const response = await client.models.generateContent({
+        model: ThumbnailAiService.GEMINI_MODEL,
+        contents: [{ role: 'user', parts: [...imageParts, { text: this.QUALITY_PROMPT.replace('{productList}', productList) }] }],
+      });
+
+      const text = response.text ?? '';
+      const jsonMatch = text.match(/\[[\s\S]*\]/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]) as Array<{
           index?: number;
           overallScore?: number;
           scores?: AnalysisScores;
@@ -520,38 +309,90 @@ export class ThumbnailAiService implements OnModuleInit {
         for (let i = 0; i < parsed.length; i++) {
           const entry = parsed[i];
           const idx = entry.index ?? i;
-          qualityMap.set(idx, {
-            overallScore: entry.overallScore ?? 0,
-            scores: entry.scores ?? null,
-            issues: entry.issues ?? [],
-            suggestions: entry.suggestions ?? [],
-          });
+          if (idx < validItems.length) {
+            const overallScore = entry.overallScore ?? 0;
+            results.set(validItems[idx].item.productId, {
+              overallScore,
+              grade: this.scoreToGrade(overallScore),
+              scores: entry.scores ?? null,
+              issues: entry.issues ?? [],
+              suggestions: entry.suggestions ?? [],
+              method: 'ai',
+              complianceGrade: null,
+              complianceScores: null,
+            });
+          }
         }
-      }
-
-      // 결과 병합
-      for (let i = 0; i < validItems.length; i++) {
-        const compliance = complianceMap.get(i);
-        const quality = qualityMap.get(i);
-        const overallScore = quality?.overallScore ?? 0;
-
-        results.set(validItems[i].item.productId, {
-          overallScore,
-          grade: this.scoreToGrade(overallScore),
-          scores: quality?.scores ?? null,
-          issues: quality?.issues ?? [],
-          suggestions: quality?.suggestions ?? [],
-          method: 'ai',
-          complianceGrade: compliance?.complianceGrade ?? null,
-          complianceScores: compliance?.complianceScores ?? null,
-        });
       }
 
       return results;
     } catch (error) {
-      this.logger.error(`배치 Gemini Vision 분석 실패: ${error instanceof Error ? error.message : error}`);
+      this.logger.error(`품질 분석 실패: ${error instanceof Error ? error.message : error}`);
       return results;
     }
+  }
+
+
+  private parseImageDimensions(buffer: Buffer, mimeType: string): { width: number; height: number } {
+    try {
+      if (mimeType.includes('png') && buffer.length >= 24) {
+        return {
+          width: buffer.readUInt32BE(16),
+          height: buffer.readUInt32BE(20),
+        };
+      }
+
+      if (mimeType.includes('jpeg') || mimeType.includes('jpg')) {
+        let offset = 2;
+        while (offset < buffer.length - 1) {
+          if (buffer[offset] !== 0xff) break;
+          const marker = buffer[offset + 1];
+          if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8) {
+            return {
+              height: buffer.readUInt16BE(offset + 5),
+              width: buffer.readUInt16BE(offset + 7),
+            };
+          }
+          const segLen = buffer.readUInt16BE(offset + 2);
+          offset += 2 + segLen;
+        }
+      }
+    } catch {
+      // 파싱 실패 시 0x0 반환
+    }
+    return { width: 0, height: 0 };
+  }
+
+  async checkImageSpec(imageUrl: string): Promise<ImageSpec> {
+    const originalUrl = this.toCoupangOriginal(imageUrl);
+    const { data, mimeType } = await this.fetchImageAsBase64(originalUrl);
+    const buffer = Buffer.from(data, 'base64');
+    const { width, height } = this.parseImageDimensions(buffer, mimeType);
+
+    const issues: ImageSpecIssue[] = [];
+
+    if (width < 1000 || height < 1000) {
+      issues.push({ type: 'low_resolution', severity: 'fail', message: `최소 해상도 미달 (${width}x${height}, 최소 1000x1000)` });
+    } else if (width < 2000 || height < 2000) {
+      issues.push({ type: 'low_resolution', severity: 'warn', message: `권장 해상도 미달 (${width}x${height}, 권장 2000x2000)` });
+    }
+
+    if (width > 0 && height > 0 && Math.abs(width / height - 1) > 0.01) {
+      issues.push({ type: 'aspect_ratio', severity: 'fail', message: `1:1 비율 아님 (${width}x${height})` });
+    }
+
+    if (buffer.length > 10 * 1024 * 1024) {
+      issues.push({ type: 'file_too_large', severity: 'fail', message: `파일 크기 초과 (${Math.round(buffer.length / 1024 / 1024)}MB, 최대 10MB)` });
+    }
+
+    return {
+      width,
+      height,
+      aspectRatio: height > 0 ? Math.round((width / height) * 100) / 100 : 0,
+      fileSizeKB: Math.round(buffer.length / 1024),
+      format: mimeType,
+      issues,
+    };
   }
 
   analyzeWithRules(product: {
@@ -596,62 +437,18 @@ export class ThumbnailAiService implements OnModuleInit {
     };
   }
 
-  async generateImages(
-    productName: string,
-    category: string,
-    productId: string,
-  ): Promise<GeneratedImage[]> {
-    try {
-      const client = this.getClient();
-      const timestamp = Date.now();
+  private static readonly REFERENCE_DIR = path.join(process.cwd(), 'assets', 'thumbnail-references');
+  private referenceCache: Array<{ data: string; mimeType: string }> | null = null;
 
-      const response = await client.models.generateImages({
-        model: 'imagen-3.0-generate-002',
-        prompt: `Professional product thumbnail for "${productName}" in category "${category}". White background, centered product, high quality, e-commerce style, square format.`,
-        config: {
-          numberOfImages: 3,
-          aspectRatio: '1:1',
-          outputMimeType: 'image/png',
-        },
-      });
+  private readonly EDIT_PROMPT = `Edit this product thumbnail photo to comply with Coupang marketplace guidelines. Reference images above show the target style — match the white background, product centering, fill ratio, and clean studio look.
 
-      const outputDir = '/data/generated-thumbnails';
-      if (!fs.existsSync(outputDir)) {
-        fs.mkdirSync(outputDir, { recursive: true });
-      }
-
-      const results: GeneratedImage[] = [];
-
-      const images = response.generatedImages ?? [];
-      for (let i = 0; i < images.length; i++) {
-        const img = images[i];
-        const filename = `${productId}_${timestamp}_${i}.png`;
-        const filePath = path.join(outputDir, filename);
-
-        if (img.image?.imageBytes) {
-          const buffer = Buffer.from(img.image.imageBytes as string, 'base64');
-          fs.writeFileSync(filePath, buffer);
-          results.push({
-            url: `/generated-thumbnails/${filename}`,
-            filename,
-          });
-        }
-      }
-
-      return results;
-    } catch (error) {
-      this.logger.error(`Imagen 생성 실패 (product: ${productId}): ${error instanceof Error ? error.message : error}`);
-      throw error;
-    }
-  }
-
-  private readonly EDIT_PROMPT = `Edit this product thumbnail photo to comply with Coupang marketplace guidelines.
-
-The background must be changed to a clean, pure white studio backdrop with no gradients, textures, patterns, or decorative objects visible. Remove all text overlays, watermarks, discount labels, promotional badges, freebie displays, extra logos, drop shadows, borders, and any decorative effects from the image entirely.
-
-The product itself should remain exactly as it appears — do not alter, reshape, recolor, or distort the product in any way. Center the product in the frame so it occupies approximately 85-90% of the image area with even margins on all sides. If the product appears cropped or cut off at the edges, extend the visible area to show the complete product.
-
-Maintain the natural color grading and lighting of the product. The final result should look like a professional e-commerce product photo taken in a white-background studio with soft, even lighting and no post-processing artifacts.`;
+Rules:
+1. BACKGROUND: Change to clean, pure white. No gradients, textures, patterns, or decorative objects.
+2. REMOVE: All text overlays, watermarks, discount labels, promotional badges, freebie displays, extra logos, drop shadows, borders, and decorative effects.
+3. MAIN PRODUCT FOCUS: Identify the main product (usually the packaged item or the largest single item). Keep only the main product and remove scattered parts, loose accessories, duplicate angles, or lifestyle props. The thumbnail should show one clean hero shot of the product.
+4. DO NOT ADD: Never add new objects, products, or elements that are not in the original image.
+5. COMPOSITION: Center the main product. It should fill approximately 85-90% of the image area with even margins.
+6. LIGHTING: Maintain natural color grading. The result should look like a professional studio photo with soft, even lighting.`;
 
   private readonly QUALITY_EDIT_PROMPT = `Enhance this product thumbnail photo to maximize click-through rate for e-commerce. Do not change the product itself — only improve the photographic quality.
 
@@ -660,6 +457,100 @@ Improve the studio lighting to create soft, diffused highlights that reveal prod
 If the composition feels unbalanced, subtly adjust the product positioning to follow the rule of thirds while keeping it centered. Ensure the product fills approximately 85-90% of the frame with even margins. The background should remain pure white.
 
 The final image should look like it was taken by a professional product photographer with a three-point softbox setup, emphasizing the product's key features and creating visual depth through subtle shadow and highlight work.`;
+
+  private readonly GENERATE_PROMPT = `Reference images above show the target style for Coupang marketplace thumbnails.
+
+You are given product photos labeled below.{compositionLine}
+
+Create a single clean e-commerce thumbnail:
+1. Pure white background, no gradients or patterns
+2. Show the main product centered, filling 85-90% of the frame with even margins
+3. If the product is a set/bundle, arrange items neatly as shown in the reference examples
+4. Remove all text overlays, watermarks, and decorative effects
+5. Do NOT add any elements not visible in the provided photos
+6. The result should look like a professional studio product photo with soft, even lighting`;
+
+  async generateFromInputs(
+    images: Array<{ data: string; mimeType: string; label: string }>,
+    composition: string | undefined,
+    purpose: 'compliance' | 'quality',
+  ): Promise<GeneratedImage[]> {
+    try {
+      const client = this.getClient();
+      const timestamp = Date.now();
+
+      const inputParts: Array<{ inlineData?: { data: string; mimeType: string }; text?: string }> = [];
+
+      // 레퍼런스 이미지
+      try {
+        if (!this.referenceCache) {
+          const refDir = ThumbnailAiService.REFERENCE_DIR;
+          const refFiles = fs.existsSync(refDir)
+            ? fs.readdirSync(refDir).filter((f) => /\.(png|jpg|jpeg)$/i.test(f)).sort()
+            : [];
+          this.referenceCache = refFiles.map((f) => {
+            const buffer = fs.readFileSync(path.join(refDir, f));
+            const ext = f.split('.').pop()?.toLowerCase();
+            return { data: buffer.toString('base64'), mimeType: ext === 'png' ? 'image/png' : 'image/jpeg' };
+          });
+        }
+        if (this.referenceCache.length > 0) {
+          inputParts.push({ text: 'Reference examples:' });
+          for (const ref of this.referenceCache) {
+            inputParts.push({ inlineData: { data: ref.data, mimeType: ref.mimeType } });
+          }
+        }
+      } catch {
+        this.logger.warn('레퍼런스 이미지 로드 실패');
+      }
+
+      // 입력 이미지
+      for (const img of images) {
+        inputParts.push({ text: `${img.label}:` });
+        inputParts.push({ inlineData: { data: img.data, mimeType: img.mimeType } });
+      }
+
+      // 프롬프트
+      const compositionLine = composition ? ` Product composition: "${composition}"` : '';
+      const prompt = purpose === 'quality'
+        ? this.QUALITY_EDIT_PROMPT
+        : this.GENERATE_PROMPT.replace('{compositionLine}', compositionLine);
+      inputParts.push({ text: prompt });
+
+      const response = await client.models.generateContent({
+        model: 'gemini-3.1-flash-image-preview',
+        contents: [{ role: 'user', parts: inputParts }],
+        config: {
+          responseModalities: ['TEXT', 'IMAGE'],
+          imageConfig: { aspectRatio: '1:1', imageSize: '2K' },
+        },
+      });
+
+      const outputDir = path.join(process.cwd(), 'generated-thumbnails');
+      if (!fs.existsSync(outputDir)) {
+        fs.mkdirSync(outputDir, { recursive: true });
+      }
+
+      const results: GeneratedImage[] = [];
+      const parts = response.candidates?.[0]?.content?.parts ?? [];
+
+      for (let i = 0; i < parts.length; i++) {
+        const part = parts[i];
+        if (part.inlineData?.data) {
+          const filename = `editor_${timestamp}_${i}.png`;
+          const filePath = path.join(outputDir, filename);
+          const buffer = Buffer.from(part.inlineData.data, 'base64');
+          fs.writeFileSync(filePath, buffer);
+          results.push({ url: `/generated-thumbnails/${filename}`, filename });
+        }
+      }
+
+      return results;
+    } catch (error) {
+      this.logger.error(`썸네일 생성 실패: ${error instanceof Error ? error.message : error}`);
+      throw error;
+    }
+  }
 
   async editImage(
     imageUrl: string,
@@ -673,17 +564,40 @@ The final image should look like it was taken by a professional product photogra
       const { data: imageData, mimeType } = await this.fetchImageAsBase64(originalUrl);
       const editPrompt = purpose === 'quality' ? this.QUALITY_EDIT_PROMPT : this.EDIT_PROMPT;
 
+      // compliance 편집 시 레퍼런스 이미지 포함
+      const inputParts: Array<{ inlineData?: { data: string; mimeType: string }; text?: string }> = [];
+      if (purpose === 'compliance') {
+        try {
+          if (!this.referenceCache) {
+            const refDir = ThumbnailAiService.REFERENCE_DIR;
+            const refFiles = fs.existsSync(refDir)
+              ? fs.readdirSync(refDir).filter((f) => /\.(png|jpg|jpeg)$/i.test(f)).sort()
+              : [];
+            this.referenceCache = refFiles.map((f) => {
+              const buffer = fs.readFileSync(path.join(refDir, f));
+              const ext = f.split('.').pop()?.toLowerCase();
+              return { data: buffer.toString('base64'), mimeType: ext === 'png' ? 'image/png' : 'image/jpeg' };
+            });
+          }
+          if (this.referenceCache.length > 0) {
+            inputParts.push({ text: 'These are good examples of compliant product thumbnails:' });
+            for (const ref of this.referenceCache) {
+              inputParts.push({ inlineData: { data: ref.data, mimeType: ref.mimeType } });
+            }
+            inputParts.push({ text: 'Now edit the following product image to match the same style:' });
+          }
+        } catch {
+          this.logger.warn('레퍼런스 이미지 로드 실패, 레퍼런스 없이 편집 진행');
+        }
+      }
+      inputParts.push(
+        { inlineData: { data: imageData, mimeType } },
+        { text: editPrompt },
+      );
+
       const response = await client.models.generateContent({
         model: 'gemini-3.1-flash-image-preview',
-        contents: [
-          {
-            role: 'user',
-            parts: [
-              { inlineData: { data: imageData, mimeType } },
-              { text: editPrompt },
-            ],
-          },
-        ],
+        contents: [{ role: 'user', parts: inputParts }],
         config: {
           responseModalities: ['TEXT', 'IMAGE'],
           imageConfig: {
@@ -693,7 +607,7 @@ The final image should look like it was taken by a professional product photogra
         },
       });
 
-      const outputDir = '/data/generated-thumbnails';
+      const outputDir = path.join(process.cwd(), 'generated-thumbnails');
       if (!fs.existsSync(outputDir)) {
         fs.mkdirSync(outputDir, { recursive: true });
       }

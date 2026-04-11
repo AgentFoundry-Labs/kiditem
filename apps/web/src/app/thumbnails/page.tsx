@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ImageIcon,
   RefreshCw,
@@ -14,6 +14,7 @@ import {
   Sparkles,
   Search,
   TrendingUp,
+  XCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { ThumbnailAnalysisResult, ThumbnailGenerationItem } from '@kiditem/shared';
@@ -25,14 +26,17 @@ import {
   useAnalysisList,
   useAnalyze,
   useAnalyzeBatch,
+  useCancelBatch,
+  usePreInspect,
   type AnalysisScope,
 } from './hooks/useThumbnailAnalysis';
 import {
   useGenerationList,
-  useCreateGeneration,
+  useCreateEditJobs,
   useSelectCandidate,
   useApplyGeneration,
   useSkipGeneration,
+  useDeleteGeneration,
 } from './hooks/useThumbnailGenerations';
 
 import { ProductCard } from './components/ProductCard';
@@ -42,7 +46,7 @@ import { UploadAnalyzer } from './components/UploadAnalyzer';
 import { ThumbnailStatusBadge } from './components/ThumbnailStatusBadge';
 import { openCoupangWingInventory } from './lib/coupang-wing';
 
-type TabKey = 'unclassified' | 'all' | 'needsfix' | 'queue' | 'history' | 'tracking';
+type TabKey = 'unclassified' | 'all' | 'needsfix' | 'history' | 'tracking';
 
 const gradeBg: Record<string, string> = {
   S: 'bg-emerald-500',
@@ -59,10 +63,13 @@ export default function ThumbnailsPage() {
 
   const analyzeMutation = useAnalyze();
   const analyzeBatchMutation = useAnalyzeBatch();
-  const createGenerationMutation = useCreateGeneration();
+  const cancelBatchMutation = useCancelBatch();
+  const preInspectMutation = usePreInspect();
+  const editJobsMutation = useCreateEditJobs();
   const selectCandidateMutation = useSelectCandidate();
   const applyGenerationMutation = useApplyGeneration();
   const skipGenerationMutation = useSkipGeneration();
+  const deleteGenerationMutation = useDeleteGeneration();
 
   // ─── Local UI state ────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<TabKey>('all');
@@ -75,12 +82,10 @@ export default function ThumbnailsPage() {
   // AI analysis — local overrides for immediate feedback before refetch settles
   const [aiAnalyzingId, setAiAnalyzingId] = useState<string | null>(null);
   const [aiResults, setAiResults] = useState<Record<string, ThumbnailAnalysisResult>>({});
-  const [generatingIds, setGeneratingIds] = useState<Set<string>>(new Set());
 
   // Pagination
   const [gradeFilter, setGradeFilter] = useState('all');
   const [page, setPage] = useState(1);
-  const [queuePage, setQueuePage] = useState(1);
   const [historyPage, setHistoryPage] = useState(1);
   const [unclassifiedPage, setUnclassifiedPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
@@ -90,47 +95,105 @@ export default function ThumbnailsPage() {
   const generations: ThumbnailGenerationItem[] = generationQuery.data ?? [];
 
   const generatedProductIds = useMemo(
-    () => new Set(generations.map((g) => g.productId)),
+    () => new Set(generations.filter((g) => g.status !== 'failed').map((g) => g.productId)),
     [generations],
   );
   const activeGenerations = useMemo(
     () => generations.filter((g) => ['pending', 'generating', 'ready'].includes(g.status)),
     [generations],
   );
-  const completedGenerations = useMemo(
-    () => generations.filter((g) => ['applied', 'skipped'].includes(g.status)),
-    [generations],
-  );
+
+  // selectedGen을 polling 데이터와 동기화 (status + candidates 변화 감지)
+  useEffect(() => {
+    if (!selectedGen) return;
+    const latest = generations.find((g) => g.id === selectedGen.id);
+    if (!latest) return;
+    const changed = latest.status !== selectedGen.status
+      || latest.candidates.length !== selectedGen.candidates.length
+      || latest.selectedUrl !== selectedGen.selectedUrl;
+    if (changed) setSelectedGen(latest);
+  }, [generations, selectedGen]);
+
+  // 상품별 최신 편집 job 매핑
+  const genByProductId = useMemo(() => {
+    const map = new Map<string, ThumbnailGenerationItem>();
+    for (const g of generations) {
+      const existing = map.get(g.productId);
+      if (!existing || new Date(g.createdAt) > new Date(existing.createdAt)) {
+        map.set(g.productId, g);
+      }
+    }
+    return map;
+  }, [generations]);
+
+  // 이력: 상품별 최신 job만 표시
+  const historyByProduct = useMemo(() => Array.from(genByProductId.values()), [genByProductId]);
+
+  // filtered는 scanResult 로딩 전에는 빈 배열
+  const sq = searchQuery.trim().toLowerCase();
+  const filtered = useMemo(() => {
+    if (!scanResult) return [];
+    const allResults = scanResult.allResults ?? [];
+    const classifiedResults = allResults.filter((r) => r.method === 'ai');
+    const needsFix = classifiedResults.filter(
+      (r) => r.imageUrl && (
+        r.complianceGrade === 'FAIL' || r.complianceGrade === 'WARN' ||
+        r.grade === 'B' || r.grade === 'C' || r.grade === 'F'
+      ),
+    );
+
+    const hasEditStatus = (items: ThumbnailAnalysisResult[], statuses: string[]) =>
+      items.filter((r) => {
+        const g = genByProductId.get(r.productId);
+        return g && statuses.includes(g.status);
+      });
+
+    const base = activeTab === 'needsfix' ? needsFix : classifiedResults;
+
+    let result: ThumbnailAnalysisResult[];
+    if (gradeFilter === 'all') {
+      result = base;
+    } else if (gradeFilter === 'edit-pending') {
+      result = hasEditStatus(base, ['pending', 'generating']);
+    } else if (gradeFilter === 'edit-ready') {
+      result = hasEditStatus(base, ['ready']);
+    } else if (gradeFilter === 'edit-failed') {
+      result = hasEditStatus(base, ['failed']);
+    } else if (['FAIL', 'WARN', 'PASS'].includes(gradeFilter)) {
+      result = base.filter((r) => r.complianceGrade === gradeFilter);
+    } else if (['S', 'A', 'B', 'C', 'F'].includes(gradeFilter)) {
+      result = base.filter((r) => r.grade === gradeFilter);
+    } else {
+      result = base;
+    }
+
+    return result.filter((r) => !sq || r.productName.toLowerCase().includes(sq));
+  }, [scanResult, activeTab, gradeFilter, genByProductId, sq]);
 
   // ─── Actions ───────────────────────────────────────────────
 
-  const generateSingle = async (productId: string) => {
-    setGeneratingIds((prev) => new Set(prev).add(productId));
+  const editSingle = async (productId: string, purpose?: 'compliance' | 'quality') => {
     try {
-      const created = await createGenerationMutation.mutateAsync([productId]);
+      const created = await editJobsMutation.mutateAsync({ productIds: [productId], purpose });
       if (Array.isArray(created)) {
         const genItem = created.find((d) => d.productId === productId);
         if (genItem) setSelectedGen(genItem);
       }
-      toast.success('썸네일 재생성 시작');
+      // polling 시작을 위해 generation list 즉시 refetch
+      generationQuery.refetch();
+      toast.success('AI 편집 시작');
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : '썸네일 생성 실패');
-    } finally {
-      setGeneratingIds((prev) => {
-        const next = new Set(prev);
-        next.delete(productId);
-        return next;
-      });
+      toast.error(err instanceof Error ? err.message : 'AI 편집 실패');
     }
   };
 
-  const generateBatch = async (productIds: string[]) => {
+  const editBatch = async (productIds: string[]) => {
     if (productIds.length === 0) return;
     try {
-      await createGenerationMutation.mutateAsync(productIds);
-      toast.success(`${productIds.length}개 썸네일 재생성 시작`);
+      await editJobsMutation.mutateAsync({ productIds });
+      toast.success(`${productIds.length}개 AI 편집 시작`);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : '일괄 재생성 실패');
+      toast.error(err instanceof Error ? err.message : '일괄 편집 실패');
     }
   };
 
@@ -161,6 +224,17 @@ export default function ThumbnailsPage() {
       toast.success('건너뛰기 완료');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '건너뛰기 실패');
+    }
+  };
+
+  const deleteGeneration = async (generationId: string) => {
+    try {
+      await deleteGenerationMutation.mutateAsync(generationId);
+      setSelectedGen(null);
+      setSelectedProduct(null);
+      toast.success('이력 삭제 완료');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '삭제 실패');
     }
   };
 
@@ -226,32 +300,24 @@ export default function ThumbnailsPage() {
   if (!scanResult) return <EmptyState message="스캔 결과 없음" />;
 
   const { gradeDistribution, allResults, unclassified = [] } = scanResult;
-  const fCount = gradeDistribution['F'] || 0;
   const unclassifiedCount = unclassified.filter((u) => u.imageUrl).length;
 
   const classifiedResults = allResults.filter((r) => r.method === 'ai');
 
-  const fGradeProducts = classifiedResults.filter((r) => r.grade === 'F' && r.imageUrl);
-  const cGradeProducts = classifiedResults.filter((r) => r.grade === 'C' && r.imageUrl);
-  const queueProducts = [...fGradeProducts, ...cGradeProducts];
-  const pendingProducts = queueProducts.filter((p) => !generatedProductIds.has(p.productId));
+  // 개선 필요: 가이드라인 WARN/FAIL 또는 품질 B 이하
+  const needsFixProducts = classifiedResults.filter(
+    (r) => r.imageUrl && (
+      r.complianceGrade === 'FAIL' || r.complianceGrade === 'WARN' ||
+      r.grade === 'B' || r.grade === 'C' || r.grade === 'F'
+    ),
+  );
+  const pendingProducts = needsFixProducts.filter((p) => !generatedProductIds.has(p.productId));
 
-  const needsFixIds = new Set(queueProducts.map((p) => p.productId));
+  const needsFixIds = new Set(needsFixProducts.map((p) => p.productId));
   const validActiveGenerations = activeGenerations.filter((g) => needsFixIds.has(g.productId));
 
-  const sq = searchQuery.trim().toLowerCase();
   const searchFilter = (r: ThumbnailAnalysisResult) =>
     !sq || r.productName.toLowerCase().includes(sq);
-
-  const filtered = (
-    activeTab === 'needsfix'
-      ? classifiedResults.filter((r) => r.grade === 'F' || r.grade === 'C')
-      : gradeFilter === 'all'
-      ? classifiedResults
-      : gradeFilter === 'critical'
-      ? classifiedResults.filter((r) => r.issues.some((i) => i.severity === 'critical'))
-      : classifiedResults.filter((r) => r.grade === gradeFilter)
-  ).filter(searchFilter);
 
   const totalPages = Math.ceil(filtered.length / pageSize);
   const paged = filtered.slice((page - 1) * pageSize, page * pageSize);
@@ -286,29 +352,18 @@ export default function ThumbnailsPage() {
       : 0;
   const healthGrade =
     avgScore >= 90 ? 'S' : avgScore >= 75 ? 'A' : avgScore >= 60 ? 'B' : avgScore >= 40 ? 'C' : 'F';
-  const criticalCount = classifiedResults.filter((r) =>
-    r.issues.some((i) => i.severity === 'critical'),
-  ).length;
 
-  const cCount = gradeDistribution['C'] || 0;
-  const needsFixCount = fCount + cCount;
-  const appliedCount = completedGenerations.filter((g) => g.status === 'applied').length;
+  const needsFixCount = needsFixProducts.length;
+  const appliedCount = generations.filter((g) => g.status === 'applied').length;
 
-  const allQueueItems = [
-    ...validActiveGenerations.map((g) => ({ type: 'gen' as const, gen: g })),
-    ...pendingProducts.map((p) => ({ type: 'pending' as const, product: p })),
-  ];
-  const queueTotalPages = Math.ceil(allQueueItems.length / pageSize);
-  const pagedQueue = allQueueItems.slice((queuePage - 1) * pageSize, queuePage * pageSize);
 
-  const historyTotalPages = Math.ceil(completedGenerations.length / pageSize);
-  const pagedHistory = completedGenerations.slice(
+  const historyTotalPages = Math.ceil(historyByProduct.length / pageSize);
+  const pagedHistory = historyByProduct.slice(
     (historyPage - 1) * pageSize,
     historyPage * pageSize,
   );
 
   const batchAnalyzing = analyzeBatchMutation.isPending;
-  const batchGenerating = createGenerationMutation.isPending;
 
   return (
     <div className="thumb-theme space-y-4 animate-in">
@@ -379,7 +434,7 @@ export default function ThumbnailsPage() {
               color: 'var(--thumb-text-secondary)',
             }}
           >
-            <RefreshCw size={14} /> 재스캔
+            <RefreshCw size={14} /> 새로고침
           </button>
         </div>
       </div>
@@ -593,27 +648,58 @@ export default function ThumbnailsPage() {
           const needsRegenCount = pendingProducts.length;
           const actions = [
             {
-              icon: Zap,
-              label: 'AI 분류',
-              count: unclassifiedWithImage.length,
-              color: '#3182f6',
-              disabled: unclassifiedWithImage.length === 0 || batchAnalyzing,
-              loading: batchAnalyzing,
-              onClick: () => runBatchAiAnalysis(unclassifiedWithImage),
-              desc: 'Gemini Vision 일괄',
+              icon: Scan,
+              label: '사전 검수',
+              count: unclassifiedCount,
+              color: '#6b7280',
+              disabled: unclassifiedCount === 0 || preInspectMutation.isPending,
+              loading: preInspectMutation.isPending,
+              onClick: async () => {
+                try {
+                  const result = await preInspectMutation.mutateAsync();
+                  toast.success(`사전 검수 완료 — ${result.processed}개 처리${result.failed > 0 ? `, ${result.failed}개 실패` : ''}`);
+                } catch (err) {
+                  toast.error(err instanceof Error ? err.message : '사전 검수 실패');
+                }
+              },
+              desc: '이미지 스펙 체크',
             },
+            batchAnalyzing
+              ? {
+                  icon: XCircle,
+                  label: '분류 중단',
+                  count: unclassifiedWithImage.length,
+                  color: '#ef4444',
+                  disabled: false,
+                  loading: false,
+                  onClick: async () => {
+                    await cancelBatchMutation.mutateAsync();
+                    toast.success('배치 분류를 중단했습니다');
+                  },
+                  desc: '진행 중인 분류 중단',
+                }
+              : {
+                  icon: Zap,
+                  label: 'AI 분류',
+                  count: pagedUnclassified.filter((i) => i.imageUrl).length,
+                  color: '#3182f6',
+                  disabled: pagedUnclassified.filter((i) => i.imageUrl).length === 0,
+                  loading: false,
+                  onClick: () => runBatchAiAnalysis(pagedUnclassified),
+                  desc: '현재 페이지 일괄',
+                },
             {
               icon: Wand2,
-              label: 'AI 재생성',
+              label: 'AI 편집',
               count: needsRegenCount,
               color: '#7048e8',
-              disabled: needsRegenCount === 0 || batchGenerating,
-              loading: batchGenerating,
+              disabled: needsRegenCount === 0 || editJobsMutation.isPending,
+              loading: editJobsMutation.isPending,
               onClick: () => {
-                setActiveTab('queue');
-                generateBatch(pendingProducts.map((p) => p.productId));
+                setActiveTab('needsfix');
+                editBatch(pendingProducts.map((p) => p.productId));
               },
-              desc: '개선 필요 상품 재생성',
+              desc: '개선 필요 상품 편집',
             },
             {
               icon: ImageIcon,
@@ -701,70 +787,70 @@ export default function ThumbnailsPage() {
           );
         })()}
 
-        {/* 긴급 개선 */}
+        {/* 가이드라인 준수 */}
         {(() => {
-          const noImageCount = unclassifiedNoImage.length;
-          const totalNeedsFix = needsFixCount + noImageCount;
+          const failCount = classifiedResults.filter((r) => r.complianceGrade === 'FAIL').length;
+          const warnCount = classifiedResults.filter((r) => r.complianceGrade === 'WARN').length;
+          const passCount = classifiedResults.filter((r) => r.complianceGrade === 'PASS').length;
+          const checkedTotal = failCount + warnCount + passCount;
+          const passRate = checkedTotal > 0 ? Math.round((passCount / checkedTotal) * 100) : 0;
+          const hasRisk = failCount > 0;
+          const color = hasRisk ? '#f04452' : warnCount > 0 ? '#f59e0b' : '#059669';
           return (
             <div
               className="rounded-2xl px-5 py-5 cursor-pointer hover:shadow-lg transition-shadow flex flex-col"
               style={{
                 background: 'var(--thumb-card-bg)',
                 boxShadow: 'var(--thumb-shadow-md)',
-                border: `1px solid ${totalNeedsFix > 0 ? '#f0445233' : 'var(--thumb-border-subtle)'}`,
+                border: `1px solid ${hasRisk ? '#f0445233' : 'var(--thumb-border-subtle)'}`,
               }}
               onClick={() => {
                 setActiveTab('needsfix');
-                setGradeFilter('critical');
                 setPage(1);
               }}
             >
               <div className="flex items-center gap-2 mb-3">
-                <AlertTriangle size={18} style={{ color: '#f04452' }} />
+                <AlertTriangle size={18} style={{ color }} />
                 <span
                   className="text-[13px] font-bold uppercase tracking-wider"
-                  style={{ color: '#f04452' }}
+                  style={{ color }}
                 >
-                  긴급 개선
+                  가이드라인 준수
                 </span>
               </div>
               <div className="flex items-baseline gap-1.5 mb-3">
                 <span
                   className="text-[40px] font-black tabular-nums leading-none"
-                  style={{ color: '#f04452' }}
+                  style={{ color }}
                 >
-                  {totalNeedsFix}
+                  {passRate}
                 </span>
-                <span
-                  className="text-[18px] font-bold"
-                  style={{ color: '#f04452', opacity: 0.5 }}
-                >
-                  개
-                </span>
+                <span className="text-[18px] font-bold" style={{ color, opacity: 0.5 }}>%</span>
+                <span className="text-[12px] text-slate-400 ml-1">({checkedTotal}개 검사)</span>
               </div>
               <div className="space-y-2 mt-auto">
                 <div className="flex items-center justify-between text-[14px]">
                   <span className="font-bold" style={{ color: 'var(--thumb-text-secondary)' }}>
-                    F등급 (긴급)
+                    FAIL (광고 중단 리스크)
                   </span>
                   <span className="font-black tabular-nums" style={{ color: '#ef4444' }}>
-                    {fCount}개
+                    {failCount}개
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-[14px]">
                   <span className="font-bold" style={{ color: 'var(--thumb-text-secondary)' }}>
-                    C등급 (주의)
-                  </span>
-                  <span className="font-black tabular-nums" style={{ color: '#f97316' }}>
-                    {cCount}개
-                  </span>
-                </div>
-                <div className="flex items-center justify-between text-[14px]">
-                  <span className="font-bold" style={{ color: 'var(--thumb-text-secondary)' }}>
-                    이미지 없음
+                    WARN (주의)
                   </span>
                   <span className="font-black tabular-nums" style={{ color: '#f59e0b' }}>
-                    {noImageCount}개
+                    {warnCount}개
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-[14px]">
+                  <span className="font-bold" style={{ color: 'var(--thumb-text-secondary)' }}>
+                    PASS (준수)
+                  </span>
+                  <span className="font-black tabular-nums" style={{ color: '#059669' }}>
+                    {passCount}개
                   </span>
                 </div>
               </div>
@@ -776,7 +862,7 @@ export default function ThumbnailsPage() {
         {(() => {
           const tracked = appliedCount;
           const avgCtrChange = tracked > 0 ? 12 : 0;
-          const reviewedCount = completedGenerations.filter((g) => g.status === 'applied').length;
+          const reviewedCount = generations.filter((g) => g.status === 'applied').length;
           const reviewBoost = reviewedCount > 0 ? 8 : 0;
           return (
             <div
@@ -867,7 +953,7 @@ export default function ThumbnailsPage() {
         }}
       >
         {(() => {
-          const recentApplied = completedGenerations
+          const recentApplied = generations
             .filter((g) => g.status === 'applied')
             .slice(0, 7);
           const inGeneration = validActiveGenerations.slice(0, 7);
@@ -916,12 +1002,12 @@ export default function ThumbnailsPage() {
               emptyText: '이슈 없음',
             },
             {
-              label: 'AI 생성',
+              label: 'AI 편집',
               count: validActiveGenerations.length + pendingProducts.length,
               color: '#7048e8',
               icon: Wand2,
-              tab: 'queue' as TabKey,
-              desc: '분류 후 개선 재생성',
+              tab: 'needsfix' as TabKey,
+              desc: '가이드라인 수정 · 품질 개선',
               tasks: [
                 ...inGeneration.map((g) => ({
                   name: g.product.name,
@@ -1094,8 +1180,7 @@ export default function ThumbnailsPage() {
               count: needsFixCount,
               dot: needsFixCount > 0,
             },
-            { key: 'queue' as TabKey, label: '재생성', count: allQueueItems.length },
-            { key: 'history' as TabKey, label: '이력', count: completedGenerations.length },
+            { key: 'history' as TabKey, label: '이력', count: historyByProduct.length },
             { key: 'tracking' as TabKey, label: '추적', count: appliedCount },
           ]
         ).map((tab) => (
@@ -1167,7 +1252,7 @@ export default function ThumbnailsPage() {
               </div>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => runBatchAiAnalysis(unclassifiedWithImage)}
+                  onClick={() => runBatchAiAnalysis(pagedUnclassified)}
                   disabled={batchAnalyzing}
                   className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold text-white transition-colors disabled:opacity-50"
                   style={{ background: 'var(--thumb-primary)' }}
@@ -1257,6 +1342,7 @@ export default function ThumbnailsPage() {
                       name={item.productName}
                       grade={aiDone ? display.grade : undefined}
                       score={aiDone ? display.overallScore : undefined}
+                      complianceGrade={aiDone ? display.complianceGrade ?? undefined : undefined}
                       aiAnalyzed={aiDone}
                       onClick={() => {
                         setSelectedProduct(item);
@@ -1329,7 +1415,7 @@ export default function ThumbnailsPage() {
       {/* ═══ TAB: CTR 추적 ═══ */}
       {activeTab === 'tracking' && (
         <div className="space-y-3">
-          {completedGenerations.filter((g) => g.status === 'applied').length === 0 ? (
+          {generations.filter((g) => g.status === 'applied').length === 0 ? (
             <EmptyState message="추적 중인 상품이 없습니다 — 썸네일을 적용한 후 CTR 변화를 모니터링할 수 있습니다" />
           ) : (
             <div
@@ -1359,7 +1445,7 @@ export default function ThumbnailsPage() {
                       color: 'var(--thumb-text-secondary)',
                     }}
                   >
-                    {completedGenerations.filter((g) => g.status === 'applied').length}개
+                    {generations.filter((g) => g.status === 'applied').length}개
                     모니터링 중
                   </span>
                 </div>
@@ -1400,7 +1486,7 @@ export default function ThumbnailsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {completedGenerations
+                  {generations
                     .filter((g) => g.status === 'applied')
                     .map((g) => {
                       const daysAgo = Math.floor(
@@ -1457,159 +1543,77 @@ export default function ThumbnailsPage() {
         </div>
       )}
 
-      {/* ═══ TAB: 재생성 ═══ */}
-      {activeTab === 'queue' && (
-        <div className="space-y-3">
-          {(pendingProducts.length > 0 || validActiveGenerations.length > 0) && (
-            <div
-              className="flex items-center justify-between p-3 rounded-xl"
-              style={{
-                background: 'rgba(112,72,232,0.05)',
-                border: '1px solid rgba(112,72,232,0.20)',
-              }}
-            >
-              <div className="flex items-center gap-2">
-                <Wand2 size={16} style={{ color: '#7048e8' }} />
-                <span className="text-sm font-bold" style={{ color: '#7048e8' }}>
-                  개선 필요 → AI 재생성 큐
-                </span>
-                <span className="text-xs" style={{ color: 'var(--thumb-text-tertiary)' }}>
-                  대기 {pendingProducts.length}개 · 진행 중 {validActiveGenerations.length}개
-                </span>
-              </div>
-              {pendingProducts.length > 0 && (
-                <button
-                  onClick={() => generateBatch(pendingProducts.map((p) => p.productId))}
-                  disabled={batchGenerating}
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold text-white transition-colors disabled:opacity-50"
-                  style={{ background: '#7048e8' }}
-                >
-                  {batchGenerating ? (
-                    <>
-                      <Loader2 size={14} className="animate-spin" /> Gemini 생성 중...
-                    </>
-                  ) : (
-                    <>
-                      <Wand2 size={14} /> 전체 AI 재생성 ({pendingProducts.length}개)
-                    </>
-                  )}
-                </button>
-              )}
-            </div>
-          )}
-
-          {allQueueItems.length > 0 && (
-            <PaginationBar
-              current={queuePage}
-              total={queueTotalPages}
-              count={allQueueItems.length}
-              pageSize={pageSize}
-              onChange={setQueuePage}
-              onPageSizeChange={(s) => {
-                setPageSize(s);
-                setQueuePage(1);
-              }}
-            />
-          )}
-
-          {allQueueItems.length === 0 ? (
-            <EmptyState message="재생성 대기 중인 상품이 없습니다 — 개선 필요 탭에서 F·C 등급 상품을 분류하세요" />
-          ) : (
-            <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
-              {pagedQueue.map((item) =>
-                item.type === 'gen' ? (
-                  <ProductCard
-                    key={item.gen.id}
-                    imageUrl={
-                      item.gen.selectedUrl || item.gen.originalUrl || item.gen.product.imageUrl
-                    }
-                    name={item.gen.product.name}
-                    badge={<ThumbnailStatusBadge status={item.gen.status} />}
-                    overlay={
-                      item.gen.status === 'generating'
-                        ? 'generating'
-                        : item.gen.selectedUrl
-                        ? 'selected'
-                        : 'ready'
-                    }
-                    candidateCount={item.gen.candidates.length}
-                    onClick={() => {
-                      setSelectedGen(item.gen);
-                      setSelectedProduct(null);
-                    }}
-                  />
-                ) : (
-                  <ProductCard
-                    key={item.product.productId}
-                    imageUrl={item.product.imageUrl}
-                    name={item.product.productName}
-                    grade={item.product.grade}
-                    score={item.product.overallScore}
-                    isGenerating={generatingIds.has(item.product.productId)}
-                    onGenerate={() => generateSingle(item.product.productId)}
-                    onClick={() => {
-                      setSelectedProduct(item.product);
-                      setSelectedGen(null);
-                    }}
-                  />
-                ),
-              )}
-            </div>
-          )}
-        </div>
-      )}
-
       {/* ═══ TAB: 전체 스캔 / 개선 필요 ═══ */}
       {(activeTab === 'all' || activeTab === 'needsfix') && (
         <div className="space-y-3">
-          {activeTab === 'needsfix' && (
-            <div
-              className="flex items-center justify-between p-3 rounded-xl"
-              style={{
-                background: 'rgba(245,158,11,0.06)',
-                border: '1px solid rgba(245,158,11,0.20)',
-              }}
-            >
-              <div className="flex items-center gap-2">
-                <AlertTriangle size={16} style={{ color: '#f59e0b' }} />
-                <span className="text-sm font-bold" style={{ color: '#f59e0b' }}>
-                  개선 필요 상품 — F·C등급 {needsFixCount}개
-                </span>
-                <span className="text-xs" style={{ color: 'var(--thumb-text-tertiary)' }}>
-                  썸네일 재생성 권장
-                </span>
+          {activeTab === 'needsfix' && (() => {
+            const editPendingCount = needsFixProducts.filter((r) => {
+              const g = genByProductId.get(r.productId);
+              return g && ['pending', 'generating'].includes(g.status);
+            }).length;
+            const editReadyCount = needsFixProducts.filter((r) => {
+              const g = genByProductId.get(r.productId);
+              return g && g.status === 'ready';
+            }).length;
+            const editFailedCount = needsFixProducts.filter((r) => {
+              const g = genByProductId.get(r.productId);
+              return g && g.status === 'failed';
+            }).length;
+            const complianceFailCount = needsFixProducts.filter((r) => r.complianceGrade === 'FAIL' || r.complianceGrade === 'WARN').length;
+            return (
+              <div className="space-y-2">
+                <div
+                  className="flex items-center justify-between p-3 rounded-xl"
+                  style={{ background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.20)' }}
+                >
+                  <div className="flex items-center gap-3">
+                    <AlertTriangle size={16} style={{ color: '#f59e0b' }} />
+                    <span className="text-sm font-bold" style={{ color: '#f59e0b' }}>
+                      개선 필요 {needsFixCount}개
+                    </span>
+                    <span className="text-xs" style={{ color: 'var(--thumb-text-tertiary)' }}>
+                      가이드라인 WARN/FAIL {complianceFailCount}개
+                    </span>
+                  </div>
+                </div>
+                <div className="flex gap-1.5 flex-wrap">
+                  {[
+                    { key: 'all', label: `전체 (${needsFixCount})` },
+                    { key: 'FAIL', label: `위반 (${needsFixProducts.filter((r) => r.complianceGrade === 'FAIL').length})` },
+                    { key: 'WARN', label: `주의 (${needsFixProducts.filter((r) => r.complianceGrade === 'WARN').length})` },
+                    { key: 'edit-pending', label: `편집 중 (${editPendingCount})` },
+                    { key: 'edit-ready', label: `편집 완료 (${editReadyCount})` },
+                    { key: 'edit-failed', label: `편집 실패 (${editFailedCount})` },
+                  ].map((tab) => (
+                    <button
+                      key={tab.key}
+                      onClick={() => { setGradeFilter(tab.key); setPage(1); }}
+                      className="px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors"
+                      style={
+                        gradeFilter === tab.key
+                          ? { background: 'var(--thumb-primary)', color: '#fff' }
+                          : { background: 'var(--thumb-card-bg)', border: '1px solid var(--border)', color: 'var(--thumb-text-secondary)' }
+                      }
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
               </div>
-              <button
-                onClick={() => {
-                  setActiveTab('queue');
-                  generateBatch(pendingProducts.map((p) => p.productId));
-                }}
-                disabled={pendingProducts.length === 0 || batchGenerating}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold text-white transition-colors disabled:opacity-50"
-                style={{ background: '#7048e8' }}
-              >
-                {batchGenerating ? (
-                  <>
-                    <Loader2 size={12} className="animate-spin" /> 생성 중...
-                  </>
-                ) : (
-                  <>
-                    <Wand2 size={12} /> 전체 AI 재생성
-                  </>
-                )}
-              </button>
-            </div>
-          )}
+            );
+          })()}
 
           {activeTab === 'all' && (
             <div className="flex gap-1.5 flex-wrap">
               {[
                 { key: 'all', label: `전체 (${classifiedResults.length})` },
-                { key: 'critical', label: `긴급 (${criticalCount})` },
                 ...['S', 'A', 'B', 'C', 'F'].map((g) => ({
                   key: g,
                   label: `${g} (${gradeDistribution[g] || 0})`,
                 })),
+                { key: 'FAIL', label: `위반 (${classifiedResults.filter((r) => r.complianceGrade === 'FAIL').length})` },
+                { key: 'WARN', label: `주의 (${classifiedResults.filter((r) => r.complianceGrade === 'WARN').length})` },
+                { key: 'PASS', label: `적합 (${classifiedResults.filter((r) => r.complianceGrade === 'PASS').length})` },
               ].map((tab) => (
                 <button
                   key={tab.key}
@@ -1690,7 +1694,7 @@ export default function ThumbnailsPage() {
                     name={item.productName}
                     grade={display.grade}
                     score={display.overallScore}
-                    issueCount={display.issues.filter((i) => i.severity === 'critical').length}
+                    complianceGrade={display.complianceGrade ?? undefined}
                     aiAnalyzed={isAiDone}
                     onClick={() => {
                       setSelectedProduct(item);
@@ -1707,14 +1711,14 @@ export default function ThumbnailsPage() {
       {/* ═══ TAB: 이력 ═══ */}
       {activeTab === 'history' && (
         <div className="space-y-3">
-          {completedGenerations.length === 0 ? (
-            <EmptyState message="완료된 작업이 없습니다" />
+          {historyByProduct.length === 0 ? (
+            <EmptyState message="편집 이력이 없습니다" />
           ) : (
             <>
               <PaginationBar
                 current={historyPage}
                 total={historyTotalPages}
-                count={completedGenerations.length}
+                count={historyByProduct.length}
                 pageSize={pageSize}
                 onChange={setHistoryPage}
                 onPageSizeChange={(s) => {
@@ -1729,7 +1733,17 @@ export default function ThumbnailsPage() {
                     imageUrl={gen.selectedUrl || gen.originalUrl || gen.product.imageUrl}
                     name={gen.product.name}
                     badge={<ThumbnailStatusBadge status={gen.status} />}
-                    overlay={gen.status === 'applied' ? 'applied' : 'skipped'}
+                    overlay={
+                      gen.status === 'generating' || gen.status === 'pending'
+                        ? 'generating'
+                        : gen.status === 'applied'
+                        ? 'applied'
+                        : gen.status === 'skipped'
+                        ? 'skipped'
+                        : gen.status === 'ready'
+                        ? 'selected'
+                        : undefined
+                    }
                     onClick={() => {
                       setSelectedGen(gen);
                       setSelectedProduct(null);
@@ -1747,21 +1761,37 @@ export default function ThumbnailsPage() {
         <DetailModal
           product={selectedProduct}
           gen={selectedGen || activeGenForProduct}
+          productGenerations={generations.filter((g) => g.productId === (selectedProduct?.productId ?? selectedGen?.productId))}
           aiResult={selectedProduct ? aiResults[selectedProduct.productId] : undefined}
           isAiAnalyzing={selectedProduct ? aiAnalyzingId === selectedProduct.productId : false}
-          isGenerating={
-            selectedProduct ? generatingIds.has(selectedProduct.productId) : false
-          }
-          isEditing={false}
+          imageSpec={selectedProduct?.imageSpec ?? null}
           generatedProductIds={generatedProductIds}
           onClose={() => {
             setSelectedProduct(null);
             setSelectedGen(null);
           }}
-          onAiAnalyze={() => selectedProduct && runAiAnalysis(selectedProduct.productId)}
-          onGenerate={() => selectedProduct && generateSingle(selectedProduct.productId)}
-          onEdit={() => {
-            /* compliance auto-edit not wired in this page */
+          onAiAnalyze={() => {
+            const pid = selectedProduct?.productId ?? selectedGen?.productId;
+            if (pid) runAiAnalysis(pid);
+          }}
+          onComplianceCheck={() => {
+            const pid = selectedProduct?.productId ?? selectedGen?.productId;
+            if (pid) {
+              analyzeMutation.mutateAsync({ productId: pid, scope: 'compliance' }).then((data) => {
+                setAiResults((prev) => ({ ...prev, [pid]: data }));
+                toast.success(`가이드라인 체크 완료 — ${data.complianceGrade ?? '미확인'}`);
+              }).catch((err) => {
+                toast.error(err instanceof Error ? err.message : '가이드라인 체크 실패');
+              });
+            }
+          }}
+          onEditCompliance={() => {
+            const pid = selectedProduct?.productId ?? selectedGen?.productId;
+            if (pid) editSingle(pid, 'compliance');
+          }}
+          onEditQuality={() => {
+            const pid = selectedProduct?.productId ?? selectedGen?.productId;
+            if (pid) editSingle(pid, 'quality');
           }}
           onSelectCandidate={(url) => {
             const g = selectedGen || activeGenForProduct;
@@ -1775,6 +1805,11 @@ export default function ThumbnailsPage() {
             const g = selectedGen || activeGenForProduct;
             if (g) skipGeneration(g.id);
           }}
+          onDelete={() => {
+            const g = selectedGen || activeGenForProduct;
+            if (g) deleteGeneration(g.id);
+          }}
+          onSelectGen={(g) => setSelectedGen(g)}
         />
       )}
     </div>

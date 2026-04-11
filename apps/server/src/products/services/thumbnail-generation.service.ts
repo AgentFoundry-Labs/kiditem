@@ -25,68 +25,6 @@ export class ThumbnailGenerationService {
     private readonly trackingService: ThumbnailTrackingService,
   ) {}
 
-  async createJobs(productIds: string[]): Promise<GenerationWithProduct[]> {
-    const results: GenerationWithProduct[] = [];
-
-    for (const productId of productIds) {
-      try {
-        const existing = await this.prisma.thumbnailGeneration.findFirst({
-          where: {
-            productId,
-            status: { in: ['pending', 'generating', 'ready'] },
-          },
-        });
-
-        if (existing) continue;
-
-        const product = await this.prisma.product.findUnique({
-          where: { id: productId },
-        });
-
-        if (!product) continue;
-
-        const generation = await this.prisma.thumbnailGeneration.create({
-          data: {
-            productId,
-            companyId: product.companyId,
-            originalUrl: product.imageUrl ?? product.thumbnailUrl ?? null,
-            status: 'generating',
-          },
-          include: { product: { select: { id: true, name: true, imageUrl: true, coupangProductId: true, category: true } } },
-        });
-
-        let candidates: Array<{ url: string; filename: string }>;
-        let status: string;
-        try {
-          candidates = await this.thumbnailAiService.generateImages(
-            product.name,
-            product.category ?? '일반',
-            productId,
-          );
-          status = 'ready';
-        } catch {
-          candidates = [];
-          status = 'failed';
-        }
-
-        const updated = await this.prisma.thumbnailGeneration.update({
-          where: { id: generation.id },
-          data: {
-            candidates,
-            status,
-          },
-          include: { product: { select: { id: true, name: true, imageUrl: true, coupangProductId: true, category: true } } },
-        });
-
-        results.push(toGeneration(updated));
-      } catch {
-        // continue with remaining
-      }
-    }
-
-    return results;
-  }
-
   async findAll(query: {
     status?: string;
     method?: string;
@@ -130,7 +68,7 @@ export class ThumbnailGenerationService {
 
     const updated = await this.prisma.thumbnailGeneration.update({
       where: { id },
-      data: { selectedUrl, status: 'ready' },
+      data: { selectedUrl: selectedUrl || null, status: 'ready' },
       include: { product: { select: { id: true, name: true, imageUrl: true, coupangProductId: true, category: true } } },
     });
 
@@ -175,5 +113,13 @@ export class ThumbnailGenerationService {
     });
 
     return toGeneration(updated);
+  }
+
+  async deleteGeneration(id: string): Promise<{ ok: true }> {
+    const existing = await this.prisma.thumbnailGeneration.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException(`Generation ${id} not found`);
+
+    await this.prisma.thumbnailGeneration.delete({ where: { id } });
+    return { ok: true };
   }
 }

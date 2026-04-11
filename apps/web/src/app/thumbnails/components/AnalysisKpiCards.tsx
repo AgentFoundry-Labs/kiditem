@@ -51,8 +51,8 @@ interface AnalysisKpiCardsProps {
   avgScore: number;
   goodRate: number;
   needsFixCount: number;
-  fCount: number;
-  cCount: number;
+  complianceFailCount: number;
+  complianceWarnCount: number;
   appliedCount: number;
   avgDaysTracked: number;
   onTabChange: (tab: string) => void;
@@ -66,8 +66,8 @@ export function AnalysisKpiCards({
   avgScore,
   goodRate,
   needsFixCount,
-  fCount,
-  cCount,
+  complianceFailCount,
+  complianceWarnCount,
   appliedCount,
   avgDaysTracked,
   onTabChange,
@@ -104,9 +104,9 @@ export function AnalysisKpiCards({
         borderColor="border-amber-300"
         label="개선 필요"
         count={needsFixCount}
-        sub1={`F등급 ${fCount}개`}
-        sub2={`C등급 ${cCount}개`}
-        urgent={needsFixCount > 0}
+        sub1={`가이드라인 FAIL ${complianceFailCount}개`}
+        sub2={`가이드라인 WARN ${complianceWarnCount}개`}
+        urgent={complianceFailCount > 0}
         onClick={() => onTabChange('needsfix')}
       />
       <ActionCard
