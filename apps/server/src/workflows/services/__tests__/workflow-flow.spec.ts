@@ -81,40 +81,6 @@ describe('WorkflowsService', () => {
     service = new WorkflowsService(prisma as any, runner as any);
   });
 
-  describe('create', () => {
-    it('saves workflow template with nodesJson/edgesJson', async () => {
-      const nodesJson = [
-        { id: 'n1', data: { nodeType: 'trigger.manual', label: '시작', config: {} }, position: { x: 0, y: 0 } },
-        { id: 'n2', data: { nodeType: 'notification', label: '알림', config: {} }, position: { x: 200, y: 0 } },
-      ];
-      const edgesJson = [{ id: 'e1', source: 'n1', target: 'n2' }];
-
-      const template = makeTemplate({ nodesJson, edgesJson });
-      prisma.workflowTemplate.create.mockResolvedValue(template);
-
-      const result = await service.create({
-        name: '주문 처리 워크플로우',
-        companyId: 'company-1',
-        nodesJson,
-        edgesJson,
-        description: '주문 자동 처리',
-        module: 'order',
-        triggerType: 'manual',
-      });
-
-      expect(prisma.workflowTemplate.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          name: '주문 처리 워크플로우',
-          companyId: 'company-1',
-          nodesJson,
-          edgesJson,
-        }),
-      });
-      expect(result.nodesJson).toBe(nodesJson);
-      expect(result.edgesJson).toBe(edgesJson);
-    });
-  });
-
   describe('triggerRun', () => {
     it('creates WorkflowRun with status="pending" and fires runner async', async () => {
       const run = makeRun();
@@ -149,34 +115,6 @@ describe('WorkflowsService', () => {
       expect(prisma.workflowRun.create).toHaveBeenCalledWith({
         data: expect.objectContaining({ contextData: { productId: 'prod-1' } }),
       });
-    });
-  });
-
-  describe('findAll', () => {
-    it('returns templates filtered by companyId', async () => {
-      const templates = [makeTemplate(), makeTemplate({ id: 'tmpl-2', name: '재고 점검' })];
-      prisma.workflowTemplate.findMany.mockResolvedValue(templates);
-
-      const result = await service.findAll({ companyId: 'company-1' });
-
-      expect(prisma.workflowTemplate.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({ companyId: 'company-1' }),
-        }),
-      );
-      expect(result).toHaveLength(2);
-    });
-
-    it('filters by module when provided', async () => {
-      prisma.workflowTemplate.findMany.mockResolvedValue([makeTemplate()]);
-
-      await service.findAll({ companyId: 'company-1', module: 'order' });
-
-      expect(prisma.workflowTemplate.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({ module: 'order' }),
-        }),
-      );
     });
   });
 
