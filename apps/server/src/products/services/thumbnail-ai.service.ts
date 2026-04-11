@@ -129,6 +129,11 @@ export class ThumbnailAiService implements OnModuleInit {
       .replace(/\/thumbnail_/, '/original_');
   }
 
+  fetchImageAsBase64Public(imageUrl: string): Promise<{ data: string; mimeType: string }> {
+    const originalUrl = this.toCoupangOriginal(imageUrl);
+    return this.fetchImageAsBase64(originalUrl);
+  }
+
   private fetchImageAsBase64(imageUrl: string): Promise<{ data: string; mimeType: string }> {
     return new Promise((resolve, reject) => {
       const protocol = imageUrl.startsWith('https') ? https : http;
@@ -452,6 +457,100 @@ Improve the studio lighting to create soft, diffused highlights that reveal prod
 If the composition feels unbalanced, subtly adjust the product positioning to follow the rule of thirds while keeping it centered. Ensure the product fills approximately 85-90% of the frame with even margins. The background should remain pure white.
 
 The final image should look like it was taken by a professional product photographer with a three-point softbox setup, emphasizing the product's key features and creating visual depth through subtle shadow and highlight work.`;
+
+  private readonly GENERATE_PROMPT = `Reference images above show the target style for Coupang marketplace thumbnails.
+
+You are given product photos labeled below.{compositionLine}
+
+Create a single clean e-commerce thumbnail:
+1. Pure white background, no gradients or patterns
+2. Show the main product centered, filling 85-90% of the frame with even margins
+3. If the product is a set/bundle, arrange items neatly as shown in the reference examples
+4. Remove all text overlays, watermarks, and decorative effects
+5. Do NOT add any elements not visible in the provided photos
+6. The result should look like a professional studio product photo with soft, even lighting`;
+
+  async generateFromInputs(
+    images: Array<{ data: string; mimeType: string; label: string }>,
+    composition: string | undefined,
+    purpose: 'compliance' | 'quality',
+  ): Promise<GeneratedImage[]> {
+    try {
+      const client = this.getClient();
+      const timestamp = Date.now();
+
+      const inputParts: Array<{ inlineData?: { data: string; mimeType: string }; text?: string }> = [];
+
+      // 레퍼런스 이미지
+      try {
+        if (!this.referenceCache) {
+          const refDir = ThumbnailAiService.REFERENCE_DIR;
+          const refFiles = fs.existsSync(refDir)
+            ? fs.readdirSync(refDir).filter((f) => /\.(png|jpg|jpeg)$/i.test(f)).sort()
+            : [];
+          this.referenceCache = refFiles.map((f) => {
+            const buffer = fs.readFileSync(path.join(refDir, f));
+            const ext = f.split('.').pop()?.toLowerCase();
+            return { data: buffer.toString('base64'), mimeType: ext === 'png' ? 'image/png' : 'image/jpeg' };
+          });
+        }
+        if (this.referenceCache.length > 0) {
+          inputParts.push({ text: 'Reference examples:' });
+          for (const ref of this.referenceCache) {
+            inputParts.push({ inlineData: { data: ref.data, mimeType: ref.mimeType } });
+          }
+        }
+      } catch {
+        this.logger.warn('레퍼런스 이미지 로드 실패');
+      }
+
+      // 입력 이미지
+      for (const img of images) {
+        inputParts.push({ text: `${img.label}:` });
+        inputParts.push({ inlineData: { data: img.data, mimeType: img.mimeType } });
+      }
+
+      // 프롬프트
+      const compositionLine = composition ? ` Product composition: "${composition}"` : '';
+      const prompt = purpose === 'quality'
+        ? this.QUALITY_EDIT_PROMPT
+        : this.GENERATE_PROMPT.replace('{compositionLine}', compositionLine);
+      inputParts.push({ text: prompt });
+
+      const response = await client.models.generateContent({
+        model: 'gemini-3.1-flash-image-preview',
+        contents: [{ role: 'user', parts: inputParts }],
+        config: {
+          responseModalities: ['TEXT', 'IMAGE'],
+          imageConfig: { aspectRatio: '1:1', imageSize: '2K' },
+        },
+      });
+
+      const outputDir = path.join(process.cwd(), 'generated-thumbnails');
+      if (!fs.existsSync(outputDir)) {
+        fs.mkdirSync(outputDir, { recursive: true });
+      }
+
+      const results: GeneratedImage[] = [];
+      const parts = response.candidates?.[0]?.content?.parts ?? [];
+
+      for (let i = 0; i < parts.length; i++) {
+        const part = parts[i];
+        if (part.inlineData?.data) {
+          const filename = `editor_${timestamp}_${i}.png`;
+          const filePath = path.join(outputDir, filename);
+          const buffer = Buffer.from(part.inlineData.data, 'base64');
+          fs.writeFileSync(filePath, buffer);
+          results.push({ url: `/generated-thumbnails/${filename}`, filename });
+        }
+      }
+
+      return results;
+    } catch (error) {
+      this.logger.error(`썸네일 생성 실패: ${error instanceof Error ? error.message : error}`);
+      throw error;
+    }
+  }
 
   async editImage(
     imageUrl: string,

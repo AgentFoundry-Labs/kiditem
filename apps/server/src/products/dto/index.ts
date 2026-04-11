@@ -15,3 +15,4 @@ export { UpdateMetricsDto } from './update-metrics.dto';
 export { ListTrackingQueryDto } from './list-tracking-query.dto';
 export { CheckImageSpecDto } from './check-image-spec.dto';
 export { PreInspectDto } from './pre-inspect.dto';
+export { ThumbnailEditorDto } from './thumbnail-editor.dto';

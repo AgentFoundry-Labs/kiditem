@@ -1,5 +1,6 @@
 'use client';
 import { useState } from 'react';
+import Link from 'next/link';
 import {
   X, ImageIcon, Eye, Wand2, Zap, ArrowRight, CheckCircle, ExternalLink,
   SkipForward, Download, Copy, Lightbulb, AlertTriangle, XCircle, Clock,
@@ -271,19 +272,12 @@ export function DetailModal({
               )}
 
               <div className="flex items-center gap-2 pt-3 border-t border-slate-100">
-                <span className="text-[10px] text-slate-400 mr-1">다시 편집:</span>
-                <button
-                  onClick={onEditCompliance}
-                  className="flex items-center gap-2 px-3 py-2 bg-amber-600 text-white rounded-lg text-xs font-medium hover:bg-amber-700"
-                >
-                  <Wand2 size={12} /> 가이드라인 수정
-                </button>
-                <button
-                  onClick={onEditQuality}
+                <Link
+                  href={`/thumbnail-editor?productId=${product?.productId ?? gen?.productId ?? ''}`}
                   className="flex items-center gap-2 px-3 py-2 bg-purple-600 text-white rounded-lg text-xs font-medium hover:bg-purple-700"
                 >
-                  <Wand2 size={12} /> 품질 개선
-                </button>
+                  <Wand2 size={12} /> 썸네일 편집
+                </Link>
               </div>
             </>
           ) : (
@@ -336,40 +330,12 @@ export function DetailModal({
                   >
                     <AlertTriangle size={12} /> {isAiAnalyzing ? '체크 중...' : '가이드라인 체크'}
                   </button>
-                  {gen && (gen.status === 'pending' || gen.status === 'generating') && (
-                    <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 text-blue-700 rounded-lg text-xs font-medium">
-                      <Loader2 size={12} className="animate-spin" /> AI 편집 진행 중...
-                    </div>
-                  )}
-                  {gen?.status === 'failed' && (
-                    <div className="flex items-center gap-2">
-                      <span className="flex items-center gap-1 px-3 py-2 bg-red-50 text-red-700 rounded-lg text-xs font-medium">
-                        <XCircle size={12} /> AI 편집 실패
-                      </span>
-                      <button
-                        onClick={onEditCompliance}
-                        className="flex items-center gap-2 px-3 py-2 bg-amber-600 text-white rounded-lg text-xs font-medium hover:bg-amber-700"
-                      >
-                        <Wand2 size={12} /> 재시도
-                      </button>
-                    </div>
-                  )}
-                  {(!gen || gen.status === 'applied' || gen.status === 'skipped' || gen.status === 'ready') && (
-                    <>
-                      <button
-                        onClick={onEditCompliance}
-                        className="flex items-center gap-2 px-3 py-2 bg-amber-600 text-white rounded-lg text-xs font-medium hover:bg-amber-700"
-                      >
-                        <Wand2 size={12} /> 가이드라인 수정
-                      </button>
-                      <button
-                        onClick={onEditQuality}
-                        className="flex items-center gap-2 px-3 py-2 bg-purple-600 text-white rounded-lg text-xs font-medium hover:bg-purple-700"
-                      >
-                        <Wand2 size={12} /> 품질 개선
-                      </button>
-                    </>
-                  )}
+                  <Link
+                    href={`/thumbnail-editor?productId=${product?.productId ?? gen?.productId ?? ''}`}
+                    className="flex items-center gap-2 px-3 py-2 bg-purple-600 text-white rounded-lg text-xs font-medium hover:bg-purple-700"
+                  >
+                    <Wand2 size={12} /> 썸네일 편집
+                  </Link>
                 </div>
 
                 {aiResult && (
