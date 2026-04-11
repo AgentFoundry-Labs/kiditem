@@ -9,6 +9,7 @@ E-commerce operations automation for kids' products. Sourcing → AI processing 
 - **Verify before completing** — backend: `npm run dev:server` boots. Frontend: build succeeds. Schema: `db:push` + `prisma generate` + shared build.
 - **No follow-up issues** — apply changes to ALL files in scope. Never defer to TODO.
 - **Reference first** — research major OSS projects before introducing new patterns.
+- **CLAUDE.md 먼저 읽기** — 코드 수정 전 해당 도메인의 CLAUDE.md를 먼저 읽을 것. subagent 위임 시에도 명시.
 
 ## Structure
 
@@ -38,6 +39,15 @@ extensions/          — Chrome extensions (product-scraper: 1688/Alibaba, coupa
 - [Commands & Environment](.claude/docs/commands.md) — quick start, dev commands, ports, env vars, tests
 - [Workflow & Process](.claude/docs/workflow.md) — autonomy spectrum, verification, collaboration, branches, commits, PRs
 - [Lessons Learned](.claude/docs/lessons.md) — team-shared patterns from past incidents
+- [Server Rules](apps/server/CLAUDE.md) — 도메인 모듈 패턴, API 응답, DTO 규칙
+- [Advertising Rules](apps/server/src/advertising/CLAUDE.md) — 광고 도메인 엔드포인트, 데이터 소스
+- [Agent Registry Rules](apps/server/src/agent-registry/CLAUDE.md) — 에이전트 런타임, 프롬프트, 안전장치
+- [Workflow Rules](apps/server/src/workflows/CLAUDE.md) — 실행 흐름, executor, 카탈로그
+- [Frontend Rules](apps/web/CLAUDE.md) — API 호출, 데이터 페칭, 스타일링
+- [Shared Package Rules](packages/shared/CLAUDE.md) — Zod 스키마, satisfies 패턴
+- [Schema Rules](prisma/CLAUDE.md) — DB 네이밍, 타입, 마이그레이션
+- [Agent Rules](agents/CLAUDE.md) — Python 에이전트 런타임, DB 접근
+- [Templates Rules](packages/templates/CLAUDE.md) — React 상세 페이지 템플릿
 
 ## Skill routing
 
