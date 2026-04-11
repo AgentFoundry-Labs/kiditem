@@ -72,11 +72,12 @@ export default function ProductDetailPage() {
 
   // Workflows fetch
   const { data: workflows = [] } = useQuery({
-    queryKey: [...queryKeys.workflows.list(), "active"],
+    queryKey: [...queryKeys.workflows.list(), "active", product?.companyId],
     queryFn: async () => {
-      const wfs = await apiClient.get<any[]>(`/api/workflows?isActive=true`);
+      const wfs = await apiClient.get<any[]>(`/api/workflows?isActive=true&companyId=${product!.companyId}`);
       return Array.isArray(wfs) ? wfs : [];
     },
+    enabled: !!product?.companyId,
   });
 
   const { showWfMenu, setShowWfMenu, runWorkflow, runBatchWorkflows, handleAction } =
