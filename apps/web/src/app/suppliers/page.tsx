@@ -18,6 +18,7 @@ interface Supplier {
   notes: string | null;
   status: string;
   productCount: number;
+  orderCount: number;
 }
 
 export default function SuppliersPage() {

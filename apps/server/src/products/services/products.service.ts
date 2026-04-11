@@ -452,6 +452,7 @@ export class ProductsService {
       costPrice: resolved.costPrice,
       sellPrice: resolved.sellPrice,
       commissionRate: resolved.commissionRate,
+      isCostMissing: resolved.isCostMissing,
     };
   }
 

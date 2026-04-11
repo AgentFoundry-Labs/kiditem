@@ -79,8 +79,8 @@ export const ProductDetailSchema = z.object({
   // Sourcing
   sourceUrl: z.string().nullable(),
   sourcePlatform: z.string().nullable(),
-  costCny: z.unknown().nullable(),
-  marginRate: z.unknown().nullable(),
+  costCny: z.number().nullable(),
+  marginRate: z.number().nullable(),
   rawData: z.unknown().nullable(),
   processedData: z.unknown().nullable(),
   draftContent: z.unknown().nullable(),
@@ -89,7 +89,7 @@ export const ProductDetailSchema = z.object({
   // Pricing
   costPrice: z.number().nullable(),
   sellPrice: z.number().nullable(),
-  commissionRate: z.unknown().nullable(),
+  commissionRate: z.number().nullable(),
   shippingCost: z.number().nullable(),
   otherCost: z.number().nullable(),
   abcGrade: z.string().nullable(),
@@ -114,6 +114,7 @@ export const ProductDetailSchema = z.object({
   memo: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
+  isCostMissing: z.boolean().optional(),
   // Master Product
   masterProductId: z.string().nullable().optional(),
   masterProduct: z.object({

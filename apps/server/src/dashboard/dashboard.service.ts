@@ -775,7 +775,14 @@ export class DashboardService {
         totalPrice: true,
         quantity: true,
         product: {
-          select: { costPrice: true, commissionRate: true, shippingCost: true, otherCost: true },
+          select: {
+            costPrice: true,
+            costCny: true,
+            commissionRate: true,
+            shippingCost: true,
+            otherCost: true,
+            masterProduct: { select: { costPrice: true, commissionRate: true } },
+          },
         },
       },
     });
@@ -797,9 +804,10 @@ export class DashboardService {
 
       if (!p) continue; // productId nullable → product null이면 비용 스킵
 
+      const resolved = resolvePricing(p);
       // commissionRate는 Decimal(5,4) = 0.108 (분수). /100 하지 않음
-      const commRate = p.commissionRate ? Number(p.commissionRate) : 0.108;
-      costOfGoods += (p.costPrice || 0) * qty;
+      const commRate = resolved.commissionRate || 0.108;
+      costOfGoods += resolved.costPrice * qty;
       commission += amt * commRate;
       shippingCost += p.shippingCost || 0; // 건당 1회
       otherCost += (p.otherCost || 0) * qty;
