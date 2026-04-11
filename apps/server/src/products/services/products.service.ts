@@ -318,7 +318,7 @@ export class ProductsService {
     const resolvedInv = resolveInventory(p);
 
     let revenue: number;
-    let netProfit: number;
+    let netProfit = 0;
     let orderCount: number;
 
     if (pl) {
