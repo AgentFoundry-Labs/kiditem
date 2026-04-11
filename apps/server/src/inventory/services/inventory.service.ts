@@ -40,7 +40,7 @@ export class InventoryService {
 
         // MasterInventory 우선 resolve
         const resolvedInv = inv.product
-          ? resolveInventory(inv.product as any)
+          ? resolveInventory(inv.product)
           : { currentStock: inv.currentStock, safetyStock: inv.safetyStock, reorderPoint: inv.reorderPoint };
         const currentStock = resolvedInv.currentStock;
         const safetyStock = resolvedInv.safetyStock;

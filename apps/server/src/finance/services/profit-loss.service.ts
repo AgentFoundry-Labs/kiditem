@@ -92,7 +92,7 @@ export class ProfitLossService {
           let rate: number;
           let cogs: number;
           if (prod) {
-            const resolved = resolvePricing(prod as any);
+            const resolved = resolvePricing(prod);
             rate = resolved.commissionRate || 0.108;
             cogs = resolved.costPrice * cnt;
           } else {

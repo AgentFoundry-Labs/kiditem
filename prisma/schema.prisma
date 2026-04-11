@@ -2033,6 +2033,7 @@ model MasterSupplierProduct {
   supplyPrice     Int      @default(0) @map("supply_price")
   minOrderQty     Int      @default(1) @map("min_order_qty")
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   masterProduct MasterProduct @relation(fields: [masterProductId], references: [id], onDelete: Cascade)
   supplier      Supplier      @relation(fields: [supplierId], references: [id], onDelete: Cascade)

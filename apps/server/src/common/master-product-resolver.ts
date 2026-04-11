@@ -1,9 +1,25 @@
-import type { MasterProduct, MasterInventory, Product, Inventory } from '@prisma/client';
+const CNY_TO_KRW_RATE = 190;
 
-type ProductWithMaster = Product & {
-  masterProduct?: (MasterProduct & { inventory?: MasterInventory | null }) | null;
-  inventory?: Inventory | null;
-};
+/** Resolver 입력: 가격 resolve에 필요한 최소 필드 */
+export interface ResolvePricingInput {
+  costPrice?: number | null;
+  costCny?: unknown;
+  sellPrice?: number | null;
+  commissionRate?: unknown;
+  masterProduct?: {
+    costPrice?: number | null;
+    sellPrice?: number | null;
+    commissionRate?: unknown;
+  } | null;
+}
+
+/** Resolver 입력: 재고 resolve에 필요한 최소 필드 */
+export interface ResolveInventoryInput {
+  inventory?: { currentStock?: number; safetyStock?: number; reorderPoint?: number } | null;
+  masterProduct?: {
+    inventory?: { currentStock?: number; safetyStock?: number } | null;
+  } | null;
+}
 
 export interface ResolvedPricing {
   costPrice: number;
@@ -23,13 +39,13 @@ export interface ResolvedInventory {
  * sellPrice: product.sellPrice ?? masterProduct.sellPrice ?? 0 (Product(쿠팡) 우선)
  * commissionRate: masterProduct.commissionRate ?? product.commissionRate ?? 0
  */
-export function resolvePricing(p: ProductWithMaster): ResolvedPricing {
+export function resolvePricing(p: ResolvePricingInput): ResolvedPricing {
   const mp = p.masterProduct;
 
   const costPrice =
     mp?.costPrice ??
     p.costPrice ??
-    (p.costCny ? Math.round(Number(p.costCny) * 190) : 0);
+    (p.costCny ? Math.round(Number(p.costCny) * CNY_TO_KRW_RATE) : 0);
 
   const sellPrice = p.sellPrice ?? mp?.sellPrice ?? 0;
 
@@ -49,7 +65,7 @@ export function resolvePricing(p: ProductWithMaster): ResolvedPricing {
  * safetyStock: masterProduct.inventory.safetyStock ?? product.inventory.safetyStock ?? 0
  * reorderPoint: product.inventory.reorderPoint ?? 0 (MasterInventory에 없는 필드)
  */
-export function resolveInventory(p: ProductWithMaster): ResolvedInventory {
+export function resolveInventory(p: ResolveInventoryInput): ResolvedInventory {
   const mi = p.masterProduct?.inventory;
   const inv = p.inventory;
 

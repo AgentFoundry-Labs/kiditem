@@ -396,41 +396,42 @@ export class ProductsService {
     const sku = (body.sku as string) || `AUTO-${Date.now()}`;
 
     try {
-      // MasterProduct 먼저 생성 후 Product에 연결 (Prisma unchecked create 호환)
-      const masterProduct = await this.prisma.masterProduct.create({
-        data: {
-          companyId,
-          sku,
-          name,
-          costPrice: costPrice > 0 ? costPrice : null,
-          sellPrice: sellPrice > 0 ? sellPrice : null,
-        },
-      });
+      return await this.prisma.$transaction(async (tx) => {
+        const masterProduct = await tx.masterProduct.create({
+          data: {
+            companyId,
+            sku,
+            name,
+            costPrice: costPrice > 0 ? costPrice : null,
+            sellPrice: sellPrice > 0 ? sellPrice : null,
+          },
+        });
 
-      return await this.prisma.product.create({
-        data: {
-          name,
-          category: (body.category as string) ?? null,
-          sellPrice: sellPrice > 0 ? sellPrice : null,
-          costPrice: costPrice > 0 ? costPrice : null,
-          commissionRate:
-            Number(body.commissionRate) > 0
-              ? Number(body.commissionRate)
-              : null,
-          shippingCost: shippingCost > 0 ? shippingCost : null,
-          companyId,
-          status: (body.status as string) ?? 'active',
-          abcGrade: (body.abcGrade as string) ?? 'C',
-          adTier: (body.adTier as string) ?? null,
-          masterProductId: masterProduct.id,
-          inventory: {
-            create: {
-              companyId,
-              currentStock: Math.max(0, Number(body.currentStock) || 0),
-              leadTimeDays: Number(body.leadTimeDays) || 14,
+        return await tx.product.create({
+          data: {
+            name,
+            category: (body.category as string) ?? null,
+            sellPrice: sellPrice > 0 ? sellPrice : null,
+            costPrice: costPrice > 0 ? costPrice : null,
+            commissionRate:
+              Number(body.commissionRate) > 0
+                ? Number(body.commissionRate)
+                : null,
+            shippingCost: shippingCost > 0 ? shippingCost : null,
+            companyId,
+            status: (body.status as string) ?? 'active',
+            abcGrade: (body.abcGrade as string) ?? 'C',
+            adTier: (body.adTier as string) ?? null,
+            masterProductId: masterProduct.id,
+            inventory: {
+              create: {
+                companyId,
+                currentStock: Math.max(0, Number(body.currentStock) || 0),
+                leadTimeDays: Number(body.leadTimeDays) || 14,
+              },
             },
           },
-        },
+        });
       });
     } catch {
       throw new InternalServerErrorException('상품 등록 실패');

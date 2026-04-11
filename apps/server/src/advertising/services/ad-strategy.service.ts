@@ -105,8 +105,8 @@ export class AdStrategyService {
       const roas = spend > 0 ? Math.round((revenue / spend) * 100) : 0;
       const ctr = impressions > 0 ? Math.round((clicks / impressions) * 10000) / 100 : 0;
       const cvr = clicks > 0 ? Math.round((conversions / clicks) * 10000) / 100 : 0;
-      const resolvedInv = resolveInventory(p as any);
-      const resolvedPrice = resolvePricing(p as any);
+      const resolvedInv = resolveInventory(p);
+      const resolvedPrice = resolvePricing(p);
       const stock = resolvedInv.currentStock;
       const t14Rev = (p as any).trafficStats?.[0]?.revenue || 0;
       const margin = resolvedPrice.sellPrice > 0 && resolvedPrice.costPrice > 0

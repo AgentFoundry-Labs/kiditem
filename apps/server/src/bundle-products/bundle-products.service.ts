@@ -32,7 +32,7 @@ export class BundleProductsService {
       const items = (bundle.items ?? []) as unknown as BundleItemJson[];
       const totalItemCost = items.reduce((sum, item) => {
         const product = productMap.get(item.productId);
-        const cost = product ? resolvePricing(product as any).costPrice : 0;
+        const cost = product ? resolvePricing(product).costPrice : 0;
         return sum + cost * item.quantity;
       }, 0);
 
