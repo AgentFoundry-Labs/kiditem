@@ -1,4 +1,4 @@
-import type { Product, Company, Inventory, ProfitLoss } from '@prisma/client';
+import type { Product, Company, Inventory, ProfitLoss, MasterProduct, MasterInventory } from '@prisma/client';
 import type { ImageSpec, ImageSpecIssue } from '@kiditem/shared';
 
 // ── Thumbnail types ──
@@ -163,10 +163,11 @@ export interface ThumbnailTrackingListResponse {
   limit: number;
 }
 
-/** Product with relations loaded via `include: { company, inventory }` */
+/** Product with relations loaded via `include: { company, inventory, masterProduct }` */
 export type ProductWithRelations = Product & {
   company?: Company | null;
   inventory?: Inventory | null;
+  masterProduct?: (MasterProduct & { inventory?: MasterInventory | null }) | null;
 };
 
 // ── Enrichment Map value types ──

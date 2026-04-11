@@ -1,5 +1,6 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { resolvePricing } from '../../common/master-product-resolver';
 import type { PLData } from '@kiditem/shared';
 
 @Injectable()
@@ -71,7 +72,7 @@ export class ProfitLossService {
         sellerIds.length > 0
           ? await this.prisma.product.findMany({
               where: { coupangProductId: { in: sellerIds } },
-              include: { company: true },
+              include: { company: true, masterProduct: true },
             })
           : [];
       const productMap = new Map(
@@ -86,14 +87,20 @@ export class ProfitLossService {
         .map((r) => {
           const prod = productMap.get(r.seller_product_id);
           const rev = Number(r.revenue);
-          const rate = prod?.commissionRate
-            ? Number(prod.commissionRate)
-            : 0.108;
-          const comm = Math.round(rev * rate);
           const cnt = Number(r.order_count);
-          const cogs = prod?.costCny
-            ? Math.round(Number(prod.costCny) * 190 * cnt)
-            : 0;
+
+          let rate: number;
+          let cogs: number;
+          if (prod) {
+            const resolved = resolvePricing(prod as any);
+            rate = resolved.commissionRate || 0.108;
+            cogs = resolved.costPrice * cnt;
+          } else {
+            rate = 0.108;
+            cogs = 0;
+          }
+
+          const comm = Math.round(rev * rate);
           const ship = (prod?.shippingCost ?? 0) * cnt;
           const net = rev - comm - cogs - ship;
 
