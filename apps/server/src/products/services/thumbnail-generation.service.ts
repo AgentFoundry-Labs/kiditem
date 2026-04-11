@@ -68,7 +68,7 @@ export class ThumbnailGenerationService {
 
     const updated = await this.prisma.thumbnailGeneration.update({
       where: { id },
-      data: { selectedUrl, status: 'ready' },
+      data: { selectedUrl: selectedUrl || null, status: 'ready' },
       include: { product: { select: { id: true, name: true, imageUrl: true, coupangProductId: true, category: true } } },
     });
 

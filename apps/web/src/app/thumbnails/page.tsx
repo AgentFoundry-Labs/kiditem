@@ -103,13 +103,15 @@ export default function ThumbnailsPage() {
     [generations],
   );
 
-  // selectedGen을 polling 데이터와 동기화
+  // selectedGen을 polling 데이터와 동기화 (status + candidates 변화 감지)
   useEffect(() => {
     if (!selectedGen) return;
     const latest = generations.find((g) => g.id === selectedGen.id);
-    if (latest && latest.status !== selectedGen.status) {
-      setSelectedGen(latest);
-    }
+    if (!latest) return;
+    const changed = latest.status !== selectedGen.status
+      || latest.candidates.length !== selectedGen.candidates.length
+      || latest.selectedUrl !== selectedGen.selectedUrl;
+    if (changed) setSelectedGen(latest);
   }, [generations, selectedGen]);
 
   // 상품별 최신 편집 job 매핑
@@ -123,6 +125,9 @@ export default function ThumbnailsPage() {
     }
     return map;
   }, [generations]);
+
+  // 이력: 상품별 최신 job만 표시
+  const historyByProduct = useMemo(() => Array.from(genByProductId.values()), [genByProductId]);
 
   // filtered는 scanResult 로딩 전에는 빈 배열
   const sq = searchQuery.trim().toLowerCase();
@@ -174,6 +179,8 @@ export default function ThumbnailsPage() {
         const genItem = created.find((d) => d.productId === productId);
         if (genItem) setSelectedGen(genItem);
       }
+      // polling 시작을 위해 generation list 즉시 refetch
+      generationQuery.refetch();
       toast.success('AI 편집 시작');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'AI 편집 실패');
@@ -350,8 +357,8 @@ export default function ThumbnailsPage() {
   const appliedCount = generations.filter((g) => g.status === 'applied').length;
 
 
-  const historyTotalPages = Math.ceil(generations.length / pageSize);
-  const pagedHistory = generations.slice(
+  const historyTotalPages = Math.ceil(historyByProduct.length / pageSize);
+  const pagedHistory = historyByProduct.slice(
     (historyPage - 1) * pageSize,
     historyPage * pageSize,
   );
@@ -1173,7 +1180,7 @@ export default function ThumbnailsPage() {
               count: needsFixCount,
               dot: needsFixCount > 0,
             },
-            { key: 'history' as TabKey, label: '이력', count: generations.length },
+            { key: 'history' as TabKey, label: '이력', count: historyByProduct.length },
             { key: 'tracking' as TabKey, label: '추적', count: appliedCount },
           ]
         ).map((tab) => (
@@ -1704,14 +1711,14 @@ export default function ThumbnailsPage() {
       {/* ═══ TAB: 이력 ═══ */}
       {activeTab === 'history' && (
         <div className="space-y-3">
-          {generations.length === 0 ? (
+          {historyByProduct.length === 0 ? (
             <EmptyState message="편집 이력이 없습니다" />
           ) : (
             <>
               <PaginationBar
                 current={historyPage}
                 total={historyTotalPages}
-                count={generations.length}
+                count={historyByProduct.length}
                 pageSize={pageSize}
                 onChange={setHistoryPage}
                 onPageSizeChange={(s) => {
@@ -1754,6 +1761,7 @@ export default function ThumbnailsPage() {
         <DetailModal
           product={selectedProduct}
           gen={selectedGen || activeGenForProduct}
+          productGenerations={generations.filter((g) => g.productId === (selectedProduct?.productId ?? selectedGen?.productId))}
           aiResult={selectedProduct ? aiResults[selectedProduct.productId] : undefined}
           isAiAnalyzing={selectedProduct ? aiAnalyzingId === selectedProduct.productId : false}
           imageSpec={selectedProduct?.imageSpec ?? null}
@@ -1801,6 +1809,7 @@ export default function ThumbnailsPage() {
             const g = selectedGen || activeGenForProduct;
             if (g) deleteGeneration(g.id);
           }}
+          onSelectGen={(g) => setSelectedGen(g)}
         />
       )}
     </div>

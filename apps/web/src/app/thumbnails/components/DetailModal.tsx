@@ -1,4 +1,5 @@
 'use client';
+import { useState } from 'react';
 import {
   X, ImageIcon, Eye, Wand2, Zap, ArrowRight, CheckCircle, ExternalLink,
   SkipForward, Download, Copy, Lightbulb, AlertTriangle, XCircle, Clock,
@@ -53,6 +54,7 @@ function ScoreBadge({ score, grade }: { score: number; grade: string }) {
 interface DetailModalProps {
   product: ThumbnailAnalysisResult | null;
   gen: ThumbnailGenerationItem | null | undefined;
+  productGenerations: ThumbnailGenerationItem[];
   aiResult?: ThumbnailAnalysisResult;
   isAiAnalyzing: boolean;
   imageSpec?: ImageSpec | null;
@@ -66,11 +68,13 @@ interface DetailModalProps {
   onApply: () => void;
   onSkip: () => void;
   onDelete: () => void;
+  onSelectGen: (gen: ThumbnailGenerationItem) => void;
 }
 
 export function DetailModal({
   product,
   gen,
+  productGenerations,
   aiResult,
   isAiAnalyzing,
   imageSpec,
@@ -84,13 +88,29 @@ export function DetailModal({
   onApply,
   onSkip,
   onDelete,
+  onSelectGen,
 }: DetailModalProps) {
+  const [zoomImage, setZoomImage] = useState<string | null>(null);
   const display = aiResult || product;
   const candidates = gen?.candidates || [];
   const productName = gen?.product.name || product?.productName || '';
   const originalImage = resolveImageUrl(gen?.originalUrl || gen?.product.imageUrl || product?.imageUrl || null);
 
   return (
+    <>
+    {zoomImage && (
+      <div
+        className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 cursor-zoom-out"
+        onClick={() => setZoomImage(null)}
+      >
+        <img
+          src={zoomImage}
+          alt="확대"
+          className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg shadow-2xl"
+          referrerPolicy="no-referrer"
+        />
+      </div>
+    )}
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={onClose}>
       <div
         className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto"
@@ -119,7 +139,13 @@ export function DetailModal({
                   <div className="text-[10px] font-mono text-slate-400 uppercase mb-1.5">Before</div>
                   <div className="aspect-square rounded-xl overflow-hidden border border-slate-200 bg-slate-50">
                     {originalImage ? (
-                      <img src={originalImage} alt="원본" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                      <img
+                        src={originalImage}
+                        alt="원본"
+                        className="w-full h-full object-cover cursor-zoom-in"
+                        referrerPolicy="no-referrer"
+                        onClick={(e) => { e.stopPropagation(); setZoomImage(originalImage); }}
+                      />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center"><ImageIcon size={32} className="text-slate-300" /></div>
                     )}
@@ -151,14 +177,21 @@ export function DetailModal({
                       return (
                         <button
                           key={idx}
-                          onClick={() => onSelectCandidate(imgUrl)}
+                          onClick={() => onSelectCandidate(gen.selectedUrl === imgUrl ? '' : imgUrl)}
                           className={cn(
                             'relative rounded-xl overflow-hidden border-2 transition-all hover:scale-[1.02]',
                             gen.selectedUrl === imgUrl ? 'border-purple-500 ring-2 ring-purple-200' : 'border-slate-200 hover:border-slate-300'
                           )}
                         >
                           <div className="aspect-square bg-slate-100">
-                            <img src={imgUrl} alt={`후보 ${idx + 1}`} className="w-full h-full object-cover" loading="lazy" referrerPolicy="no-referrer" />
+                            <img
+                              src={imgUrl}
+                              alt={`후보 ${idx + 1}`}
+                              className="w-full h-full object-cover cursor-zoom-in"
+                              loading="lazy"
+                              referrerPolicy="no-referrer"
+                              onClick={(e) => { e.stopPropagation(); setZoomImage(imgUrl); }}
+                            />
                           </div>
                           <div className="absolute top-1.5 left-1.5">
                             <span className={cn(
@@ -236,6 +269,22 @@ export function DetailModal({
                   </div>
                 </div>
               )}
+
+              <div className="flex items-center gap-2 pt-3 border-t border-slate-100">
+                <span className="text-[10px] text-slate-400 mr-1">다시 편집:</span>
+                <button
+                  onClick={onEditCompliance}
+                  className="flex items-center gap-2 px-3 py-2 bg-amber-600 text-white rounded-lg text-xs font-medium hover:bg-amber-700"
+                >
+                  <Wand2 size={12} /> 가이드라인 수정
+                </button>
+                <button
+                  onClick={onEditQuality}
+                  className="flex items-center gap-2 px-3 py-2 bg-purple-600 text-white rounded-lg text-xs font-medium hover:bg-purple-700"
+                >
+                  <Wand2 size={12} /> 품질 개선
+                </button>
+              </div>
             </>
           ) : (
             <div className="flex items-start gap-4">
@@ -305,24 +354,20 @@ export function DetailModal({
                       </button>
                     </div>
                   )}
-                  {(!gen || gen.status === 'applied' || gen.status === 'skipped') && (
+                  {(!gen || gen.status === 'applied' || gen.status === 'skipped' || gen.status === 'ready') && (
                     <>
-                      {product && (product.complianceGrade === 'FAIL' || product.complianceGrade === 'WARN') && (
-                        <button
-                          onClick={onEditCompliance}
-                          className="flex items-center gap-2 px-3 py-2 bg-amber-600 text-white rounded-lg text-xs font-medium hover:bg-amber-700"
-                        >
-                          <Wand2 size={12} /> 가이드라인 수정
-                        </button>
-                      )}
-                      {product && (product.grade === 'F' || product.grade === 'C' || product.grade === 'B') && (
-                        <button
-                          onClick={onEditQuality}
-                          className="flex items-center gap-2 px-3 py-2 bg-purple-600 text-white rounded-lg text-xs font-medium hover:bg-purple-700"
-                        >
-                          <Wand2 size={12} /> 품질 개선
-                        </button>
-                      )}
+                      <button
+                        onClick={onEditCompliance}
+                        className="flex items-center gap-2 px-3 py-2 bg-amber-600 text-white rounded-lg text-xs font-medium hover:bg-amber-700"
+                      >
+                        <Wand2 size={12} /> 가이드라인 수정
+                      </button>
+                      <button
+                        onClick={onEditQuality}
+                        className="flex items-center gap-2 px-3 py-2 bg-purple-600 text-white rounded-lg text-xs font-medium hover:bg-purple-700"
+                      >
+                        <Wand2 size={12} /> 품질 개선
+                      </button>
                     </>
                   )}
                 </div>
@@ -433,8 +478,59 @@ export function DetailModal({
               </div>
             </div>
           )}
+
+          {/* 과거 편집 이력 */}
+          {productGenerations.length > 1 && (() => {
+            const pastGens = productGenerations
+              .filter((g) => g.id !== gen?.id)
+              .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+              .slice(0, 3);
+            if (pastGens.length === 0) return null;
+            return (
+              <div className="border-t border-slate-100 pt-4">
+                <div className="text-[10px] font-mono text-slate-500 uppercase mb-2">
+                  과거 편집 이력 ({pastGens.length}건)
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {pastGens.map((pg) => {
+                    const thumbUrl = resolveImageUrl(
+                      pg.selectedUrl || pg.candidates?.[0]?.url || pg.originalUrl,
+                    );
+                    return (
+                      <button
+                        key={pg.id}
+                        className="space-y-1 text-left hover:opacity-80 transition-opacity"
+                        onClick={() => onSelectGen(pg)}
+                        title="이 결과로 전환"
+                      >
+                        <div className="aspect-square rounded-lg overflow-hidden border-2 border-slate-200 bg-slate-50 hover:border-purple-400 transition-colors">
+                          {thumbUrl ? (
+                            <img src={thumbUrl} alt="" className="w-full h-full object-cover" loading="lazy" referrerPolicy="no-referrer" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center">
+                              <ImageIcon size={20} className="text-slate-300" />
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1 text-[10px] text-slate-400">
+                          <span className={cn(
+                            'px-1.5 py-0.5 rounded font-bold text-white',
+                            pg.status === 'applied' ? 'bg-emerald-500' : pg.status === 'skipped' ? 'bg-slate-400' : 'bg-amber-500',
+                          )}>
+                            {pg.status === 'applied' ? '적용' : pg.status === 'skipped' ? '건너뜀' : pg.status}
+                          </span>
+                          <span>{new Date(pg.createdAt).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' })}</span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
         </div>
       </div>
     </div>
+    </>
   );
 }

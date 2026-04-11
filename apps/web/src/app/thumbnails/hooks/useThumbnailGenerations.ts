@@ -12,7 +12,9 @@ export function useGenerationList() {
       return res?.items ?? [];
     },
     refetchInterval: (query) => {
-      const hasActiveJobs = query.state.data?.some((g) => g.status === 'pending' || g.status === 'generating') ?? false;
+      const data = query.state.data;
+      if (!data) return 3000; // 첫 로드 전에는 polling
+      const hasActiveJobs = data.some((g) => g.status === 'pending' || g.status === 'generating');
       return hasActiveJobs ? 3000 : false;
     },
   });

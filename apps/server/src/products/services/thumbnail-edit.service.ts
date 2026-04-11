@@ -30,6 +30,27 @@ export class ThumbnailEditService {
         });
         if (activeJob) continue;
 
+        // 이전 실패/건너뛴 job 정리, ready/applied는 보존 (최근 3개까지)
+        await this.prisma.thumbnailGeneration.deleteMany({
+          where: {
+            productId,
+            method: 'edit',
+            status: { in: ['failed', 'skipped'] },
+          },
+        });
+
+        const completedJobs = await this.prisma.thumbnailGeneration.findMany({
+          where: { productId, method: 'edit', status: { in: ['ready', 'applied'] } },
+          orderBy: { createdAt: 'desc' },
+          select: { id: true },
+        });
+        if (completedJobs.length > 3) {
+          const idsToDelete = completedJobs.slice(3).map((j) => j.id);
+          await this.prisma.thumbnailGeneration.deleteMany({
+            where: { id: { in: idsToDelete } },
+          });
+        }
+
         const product = await this.prisma.product.findUnique({
           where: { id: productId },
         });

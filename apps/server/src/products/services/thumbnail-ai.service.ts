@@ -34,7 +34,7 @@ export class ThumbnailAiService implements OnModuleInit {
 7. has_gradient_background: 배경에 그라데이션/텍스처/패턴
 8. has_background_objects: 배경에 소품/오브젝트 배치
 9. product_fill_low: 상품이 이미지 면적의 85% 미만 차지
-10. not_center_aligned: 상품이 이미지 중앙에 정렬되지 않음
+10. not_center_aligned: 상품의 무게 중심이 이미지 중앙에서 크게(10% 이상) 벗어난 경우만 위반. 약간의 편차는 허용
 11. product_cropped: 상품 일부가 이미지 밖으로 잘림
 12. excessive_editing: 과도한 색보정/합성으로 실물과 괴리
 
@@ -432,13 +432,18 @@ export class ThumbnailAiService implements OnModuleInit {
     };
   }
 
-  private readonly EDIT_PROMPT = `Edit this product thumbnail photo to comply with Coupang marketplace guidelines.
+  private static readonly REFERENCE_DIR = path.join(process.cwd(), 'assets', 'thumbnail-references');
+  private referenceCache: Array<{ data: string; mimeType: string }> | null = null;
 
-The background must be changed to a clean, pure white studio backdrop with no gradients, textures, patterns, or decorative objects visible. Remove all text overlays, watermarks, discount labels, promotional badges, freebie displays, extra logos, drop shadows, borders, and any decorative effects from the image entirely.
+  private readonly EDIT_PROMPT = `Edit this product thumbnail photo to comply with Coupang marketplace guidelines. Reference images above show the target style — match the white background, product centering, fill ratio, and clean studio look.
 
-The product itself should remain exactly as it appears — do not alter, reshape, recolor, or distort the product in any way. Center the product in the frame so it occupies approximately 85-90% of the image area with even margins on all sides. If the product appears cropped or cut off at the edges, extend the visible area to show the complete product.
-
-Maintain the natural color grading and lighting of the product. The final result should look like a professional e-commerce product photo taken in a white-background studio with soft, even lighting and no post-processing artifacts.`;
+Rules:
+1. BACKGROUND: Change to clean, pure white. No gradients, textures, patterns, or decorative objects.
+2. REMOVE: All text overlays, watermarks, discount labels, promotional badges, freebie displays, extra logos, drop shadows, borders, and decorative effects.
+3. MAIN PRODUCT FOCUS: Identify the main product (usually the packaged item or the largest single item). Keep only the main product and remove scattered parts, loose accessories, duplicate angles, or lifestyle props. The thumbnail should show one clean hero shot of the product.
+4. DO NOT ADD: Never add new objects, products, or elements that are not in the original image.
+5. COMPOSITION: Center the main product. It should fill approximately 85-90% of the image area with even margins.
+6. LIGHTING: Maintain natural color grading. The result should look like a professional studio photo with soft, even lighting.`;
 
   private readonly QUALITY_EDIT_PROMPT = `Enhance this product thumbnail photo to maximize click-through rate for e-commerce. Do not change the product itself — only improve the photographic quality.
 
@@ -460,17 +465,40 @@ The final image should look like it was taken by a professional product photogra
       const { data: imageData, mimeType } = await this.fetchImageAsBase64(originalUrl);
       const editPrompt = purpose === 'quality' ? this.QUALITY_EDIT_PROMPT : this.EDIT_PROMPT;
 
+      // compliance 편집 시 레퍼런스 이미지 포함
+      const inputParts: Array<{ inlineData?: { data: string; mimeType: string }; text?: string }> = [];
+      if (purpose === 'compliance') {
+        try {
+          if (!this.referenceCache) {
+            const refDir = ThumbnailAiService.REFERENCE_DIR;
+            const refFiles = fs.existsSync(refDir)
+              ? fs.readdirSync(refDir).filter((f) => /\.(png|jpg|jpeg)$/i.test(f)).sort()
+              : [];
+            this.referenceCache = refFiles.map((f) => {
+              const buffer = fs.readFileSync(path.join(refDir, f));
+              const ext = f.split('.').pop()?.toLowerCase();
+              return { data: buffer.toString('base64'), mimeType: ext === 'png' ? 'image/png' : 'image/jpeg' };
+            });
+          }
+          if (this.referenceCache.length > 0) {
+            inputParts.push({ text: 'These are good examples of compliant product thumbnails:' });
+            for (const ref of this.referenceCache) {
+              inputParts.push({ inlineData: { data: ref.data, mimeType: ref.mimeType } });
+            }
+            inputParts.push({ text: 'Now edit the following product image to match the same style:' });
+          }
+        } catch {
+          this.logger.warn('레퍼런스 이미지 로드 실패, 레퍼런스 없이 편집 진행');
+        }
+      }
+      inputParts.push(
+        { inlineData: { data: imageData, mimeType } },
+        { text: editPrompt },
+      );
+
       const response = await client.models.generateContent({
         model: 'gemini-3.1-flash-image-preview',
-        contents: [
-          {
-            role: 'user',
-            parts: [
-              { inlineData: { data: imageData, mimeType } },
-              { text: editPrompt },
-            ],
-          },
-        ],
+        contents: [{ role: 'user', parts: inputParts }],
         config: {
           responseModalities: ['TEXT', 'IMAGE'],
           imageConfig: {
