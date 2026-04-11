@@ -5,20 +5,17 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { ThumbnailGenerationItem } from '@kiditem/shared';
 
 export function useGenerationList() {
-  const query = useQuery({
+  return useQuery({
     queryKey: queryKeys.thumbnailAnalysis.generations({}),
     queryFn: async () => {
       const res = await apiClient.get<{ items: ThumbnailGenerationItem[]; total: number }>('/api/thumbnail-analysis/generations');
       return res?.items ?? [];
     },
+    refetchInterval: (query) => {
+      const hasActiveJobs = query.state.data?.some((g) => g.status === 'pending' || g.status === 'generating') ?? false;
+      return hasActiveJobs ? 3000 : false;
+    },
   });
-
-  const hasActiveJobs = query.data?.some((g) => g.status === 'pending' || g.status === 'generating') ?? false;
-
-  return {
-    ...query,
-    refetchInterval: hasActiveJobs ? 3000 : false,
-  };
 }
 
 export function useSelectCandidate() {
