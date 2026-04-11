@@ -1,6 +1,7 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateBundleProductDto } from './dto';
+import { resolvePricing } from '../common/master-product-resolver';
 
 interface BundleItemJson {
   productId: string;
@@ -23,7 +24,7 @@ export class BundleProductsService {
 
     const products = await this.prisma.product.findMany({
       where: { id: { in: productIds } },
-      select: { id: true, name: true, costPrice: true, sellPrice: true },
+      select: { id: true, name: true, costPrice: true, costCny: true, sellPrice: true, commissionRate: true, masterProduct: { select: { costPrice: true, sellPrice: true, commissionRate: true } } },
     });
     const productMap = new Map(products.map((p) => [p.id, p]));
 
@@ -31,7 +32,8 @@ export class BundleProductsService {
       const items = (bundle.items ?? []) as unknown as BundleItemJson[];
       const totalItemCost = items.reduce((sum, item) => {
         const product = productMap.get(item.productId);
-        return sum + (product?.costPrice ?? 0) * item.quantity;
+        const cost = product ? resolvePricing(product as any).costPrice : 0;
+        return sum + cost * item.quantity;
       }, 0);
 
       const profit = bundle.sellPrice - totalItemCost;
