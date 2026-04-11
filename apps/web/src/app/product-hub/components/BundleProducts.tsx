@@ -15,7 +15,7 @@ import { formatKRW } from '@/lib/utils';
 interface BundleItem {
   productId: string;
   quantity: number;
-  product: { name: string; costCny: number; sellPrice: number } | null;
+  product: { name: string; costPrice: number; sellPrice: number } | null;
 }
 interface BundleProduct {
   id: string;
@@ -203,7 +203,7 @@ export default function BundleProducts() {
                             <span className="text-slate-400">x{item.quantity}</span>
                           </div>
                           <div className="text-right">
-                            <span className="font-semibold">{formatKRW((item.product?.costCny ?? 0) * item.quantity)}</span>
+                            <span className="font-semibold">{formatKRW((item.product?.costPrice ?? 0) * item.quantity)}</span>
                           </div>
                         </div>
                       ))}

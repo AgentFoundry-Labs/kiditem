@@ -73,7 +73,7 @@ export default function ProductMetrics({ product }: ProductMetricsProps) {
         </span>
       </div>
 
-      {product.sellPrice == null && product.costCny == null && product.marginRate == null && product.commissionRate == null && (
+      {product.sellPrice == null && product.costPrice == null && product.marginRate == null && product.commissionRate == null && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-center text-amber-700">
           쿠팡 동기화를 실행하면 판매 데이터가 표시됩니다{" "}
           <a href="/settings" className="underline font-medium">설정으로 이동</a>
@@ -87,7 +87,7 @@ export default function ProductMetrics({ product }: ProductMetricsProps) {
         />
         <MetricCard
           label="매입가"
-          value={product.costCny ? `¥${product.costCny}` : "-"}
+          value={product.costPrice ? `${formatKRW(product.costPrice)}원` : "-"}
           icon={<TrendingUp size={16} className="text-green-500" />}
         />
         <MetricCard

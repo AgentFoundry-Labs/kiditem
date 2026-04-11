@@ -440,10 +440,19 @@ export class ProductsService {
   }
 
   async findOne(id: string): Promise<any> {
-    return this.prisma.product.findUnique({
+    const product = await this.prisma.product.findUnique({
       where: { id },
       include: { company: true, inventory: true, masterProduct: { include: { inventory: true } } },
     });
+    if (!product) return null;
+
+    const resolved = resolvePricing(product);
+    return {
+      ...product,
+      costPrice: resolved.costPrice,
+      sellPrice: resolved.sellPrice,
+      commissionRate: resolved.commissionRate,
+    };
   }
 
   async remove(id: string): Promise<any> {

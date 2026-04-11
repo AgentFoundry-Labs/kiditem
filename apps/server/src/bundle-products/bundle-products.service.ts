@@ -29,11 +29,20 @@ export class BundleProductsService {
     const productMap = new Map(products.map((p) => [p.id, p]));
 
     return bundles.map((bundle) => {
-      const items = (bundle.items ?? []) as unknown as BundleItemJson[];
-      const totalItemCost = items.reduce((sum, item) => {
+      const rawItems = (bundle.items ?? []) as unknown as BundleItemJson[];
+      const items = rawItems.map((item) => {
         const product = productMap.get(item.productId);
-        const cost = product ? resolvePricing(product).costPrice : 0;
-        return sum + cost * item.quantity;
+        const resolved = product ? resolvePricing(product) : null;
+        return {
+          productId: item.productId,
+          quantity: item.quantity,
+          product: product
+            ? { name: product.name, costPrice: resolved!.costPrice, sellPrice: resolved!.sellPrice }
+            : null,
+        };
+      });
+      const totalItemCost = items.reduce((sum, item) => {
+        return sum + (item.product?.costPrice ?? 0) * item.quantity;
       }, 0);
 
       const profit = bundle.sellPrice - totalItemCost;
@@ -43,6 +52,7 @@ export class BundleProductsService {
 
       return {
         ...bundle,
+        items,
         totalItemCost,
         profit,
         marginRate,
