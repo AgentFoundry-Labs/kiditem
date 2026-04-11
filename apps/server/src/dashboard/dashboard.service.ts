@@ -1,6 +1,7 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { kstDayStart } from '../common/kst';
+import { resolvePricing } from '../common/master-product-resolver';
 import type { DashboardSummary, DashboardTrendItem } from '@kiditem/shared';
 import type { DateRangeContext, AdMetricsSnapshot } from './types';
 
@@ -556,7 +557,7 @@ export class DashboardService {
           sellerIds.length > 0
             ? await this.prisma.product.findMany({
                 where: { coupangProductId: { in: sellerIds } },
-                include: { company: true },
+                include: { company: true, masterProduct: true },
               })
             : [];
         const productMap = new Map(
@@ -588,14 +589,11 @@ export class DashboardService {
           topProducts: topOrderItems.map((r) => {
             const prod = productMap.get(r.seller_product_id);
             const rev = Number(r.revenue);
-            const rate = prod?.commissionRate
-              ? Number(prod.commissionRate)
-              : 0.108;
+            const resolved = prod ? resolvePricing(prod) : { costPrice: 0, sellPrice: 0, commissionRate: 0, isCostMissing: true };
+            const rate = resolved.commissionRate || 0.108;
             const comm = Math.round(rev * rate);
             const cnt = Number(r.order_count);
-            const cogsVal = prod?.costCny
-              ? Math.round(Number(prod.costCny) * 190 * cnt)
-              : 0;
+            const cogsVal = resolved.costPrice * cnt;
             const ship = (prod?.shippingCost ?? 0) * cnt;
             const net = rev - comm - cogsVal - ship;
 
