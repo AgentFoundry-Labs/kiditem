@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import type { Order } from '@prisma/client';
+import type { OrdersResponse, OrderRow } from '@kiditem/shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   confirmOrderSheets,
@@ -11,11 +12,7 @@ import {
 export class OrdersService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll(query: { from?: string; to?: string; status?: string }): Promise<{
-    items: Order[];
-    count: number;
-    deliveryCompanies: typeof DELIVERY_COMPANIES;
-  }> {
+  async findAll(query: { from?: string; to?: string; status?: string }): Promise<OrdersResponse> {
     const dbStatus = query.status || 'ACCEPT';
 
     const orderedAtFilter: Record<string, Date> = {};
@@ -37,18 +34,14 @@ export class OrdersService {
     });
 
     return {
-      items: orders,
-      count: orders.length,
-      deliveryCompanies: DELIVERY_COMPANIES,
-    };
+      items: orders.map((o) => o satisfies OrderRow),
+      total: orders.length,
+      deliveryCompanies: [...DELIVERY_COMPANIES],
+    } satisfies OrdersResponse;
   }
 
-  async findOne(id: string): Promise<{ order: Order | null }> {
-    const order = await this.prisma.order.findUnique({
-      where: { id },
-    });
-
-    return { order };
+  async findOne(id: string): Promise<Order | null> {
+    return this.prisma.order.findUnique({ where: { id } });
   }
 
   async getStats(): Promise<{

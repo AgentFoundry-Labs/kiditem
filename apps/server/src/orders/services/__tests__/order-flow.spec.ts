@@ -54,7 +54,7 @@ describe('OrdersService — order query and actions', () => {
         }),
       );
       expect(result.items).toEqual([MOCK_ORDER]);
-      expect(result.count).toBe(1);
+      expect(result.total).toBe(1);
       expect(result.deliveryCompanies).toBeDefined();
     });
 

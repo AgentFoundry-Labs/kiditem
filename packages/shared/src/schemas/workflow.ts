@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { zIsoDate } from './common.js';
 
 // WorkflowStepRun — WorkflowRun의 steps[] 내 각 item
 // 출처: workflows.service.ts — Prisma WorkflowStepRun 직접 반환
@@ -14,8 +15,8 @@ export const WorkflowStepRunSchema = z.object({
   inputData: z.record(z.unknown()).nullable(),
   outputData: z.record(z.unknown()).nullable(),
   error: z.string().nullable(),
-  startedAt: z.string().nullable(),
-  completedAt: z.string().nullable(),
+  startedAt: zIsoDate.nullable(),
+  completedAt: zIsoDate.nullable(),
 });
 
 // GET /api/workflows 응답의 각 item
@@ -35,8 +36,8 @@ export const WorkflowTemplateSchema = z.object({
   edgesJson: z.any(),
   version: z.number().nullable(),
   marketplaceId: z.string().nullable().optional(),
-  createdAt: z.string(),
-  updatedAt: z.string(),
+  createdAt: zIsoDate,
+  updatedAt: zIsoDate,
 });
 
 // GET /api/workflows/:id/runs, GET /api/workflow-runs/:runId 응답
@@ -51,9 +52,9 @@ export const WorkflowRunSchema = z.object({
   triggeredBy: z.string(),
   contextData: z.record(z.unknown()).nullable(),
   error: z.string().nullable(),
-  startedAt: z.string().nullable(),
-  completedAt: z.string().nullable(),
-  createdAt: z.string(),
+  startedAt: zIsoDate.nullable(),
+  completedAt: zIsoDate.nullable(),
+  createdAt: zIsoDate,
   // include relation (optional)
   steps: z.array(WorkflowStepRunSchema).optional(),
 });

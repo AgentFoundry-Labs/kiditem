@@ -17,3 +17,4 @@ export { CheckImageSpecDto } from './check-image-spec.dto';
 export { PreInspectDto } from './pre-inspect.dto';
 export { ThumbnailEditorDto } from './thumbnail-editor.dto';
 export { UpdateProductImagesDto } from './product-image.dto';
+export { SaveFromUrlDto } from './save-from-url.dto';

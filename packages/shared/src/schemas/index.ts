@@ -1,5 +1,5 @@
 // Common
-export { PaginatedResponseSchema, ApiErrorResponseSchema, SyncInfoSchema } from './common.js';
+export { PaginatedResponseSchema, ApiErrorResponseSchema, SyncInfoSchema, zIsoDate } from './common.js';
 export type { PaginatedResponse, ApiErrorResponse, SyncInfo } from './common.js';
 
 // Product

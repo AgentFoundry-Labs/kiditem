@@ -12,19 +12,13 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { extname } from 'path';
 import { randomUUID } from 'crypto';
-import { IsString, IsOptional } from 'class-validator';
 import { StorageService } from '../../common/storage/storage.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { SaveFromUrlDto } from '../dto';
 import type { ProductImageItem } from '@kiditem/shared';
 
 const ALLOWED_MIMES = ['image/jpeg', 'image/png', 'image/webp'];
 const MAX_SIZE = 5 * 1024 * 1024; // 5MB
-
-class SaveFromUrlDto {
-  @IsString() url: string;
-  @IsString() role: string;
-  @IsOptional() @IsString() label?: string;
-}
 
 @Controller('products')
 export class ProductImagesController {

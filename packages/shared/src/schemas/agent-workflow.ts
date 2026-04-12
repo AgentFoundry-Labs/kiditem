@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { zIsoDate } from './common.js';
 
 export const WorkflowStepSchema = z.object({
   index: z.number(),
@@ -6,8 +7,8 @@ export const WorkflowStepSchema = z.object({
   agentType: z.string().optional(),
   message: z.string().optional(),
   data: z.record(z.unknown()).optional(),
-  startedAt: z.string().optional(),
-  completedAt: z.string().optional(),
+  startedAt: zIsoDate.optional(),
+  completedAt: zIsoDate.optional(),
 });
 
 export const AgentWorkflowSchema = z.object({
@@ -22,8 +23,8 @@ export const AgentWorkflowSchema = z.object({
   input: z.record(z.unknown()).nullable(),
   output: z.record(z.unknown()).nullable(),
   error: z.string().nullable(),
-  createdAt: z.string(),
-  updatedAt: z.string(),
+  createdAt: zIsoDate,
+  updatedAt: zIsoDate,
 });
 
 export type WorkflowStep = z.infer<typeof WorkflowStepSchema>;

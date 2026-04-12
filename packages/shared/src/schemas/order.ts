@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { zIsoDate } from './common.js';
 
 // GET /api/orders 응답의 orders[] 각 item
 // 출처: orders.service.ts findAll() — Prisma Order 직접 반환
@@ -23,18 +24,18 @@ export const OrderRowSchema = z.object({
   receiverPhone: z.string().nullable(),
   receiverAddr: z.string().nullable(),
   memo: z.string().nullable(),
-  orderedAt: z.string(),
-  shippedAt: z.string().nullable(),
-  deliveredAt: z.string().nullable(),
-  createdAt: z.string(),
-  updatedAt: z.string(),
+  orderedAt: zIsoDate,
+  shippedAt: zIsoDate.nullable(),
+  deliveredAt: zIsoDate.nullable(),
+  createdAt: zIsoDate,
+  updatedAt: zIsoDate,
 });
 
 // GET /api/orders 전체 응답
+// 실제 API 응답 형태: { items, total, deliveryCompanies? } — paginated response 관례 따름
 export const OrdersResponseSchema = z.object({
-  success: z.boolean(),
-  orders: z.array(OrderRowSchema),
-  count: z.number(),
+  items: z.array(OrderRowSchema),
+  total: z.number(),
   deliveryCompanies: z.array(z.object({
     code: z.string(),
     name: z.string(),

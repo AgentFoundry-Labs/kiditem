@@ -8,6 +8,7 @@ export class MarketplaceService {
   constructor(private readonly prisma: PrismaService) {}
 
   // ─── Workflow Catalog ───
+  // TODO: satisfies WorkflowCatalogItem 도입 — Prisma JsonValue vs Zod Record<string,unknown> 드리프트 해결 필요 (다음 PR)
 
   async listWorkflows(query: { module?: string; category?: string; companyId?: string }) {
     const items = await this.prisma.marketplace.findMany({

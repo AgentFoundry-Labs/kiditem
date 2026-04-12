@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { zIsoDate } from './common.js';
 
 // 마켓플레이스 항목의 설정 가능한 파라미터
 // 출처: marketplace-types.ts:3-11
@@ -45,8 +46,8 @@ export const MarketplaceCatalogItemSchema = z.object({
   installCount: z.number(),
   isPublished: z.boolean(),
   installed: z.boolean(),
-  createdAt: z.string(),
-  updatedAt: z.string(),
+  createdAt: zIsoDate,
+  updatedAt: zIsoDate,
 });
 
 // 하위 호환 타입 별칭

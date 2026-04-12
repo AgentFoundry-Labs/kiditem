@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, Query, ServiceUnavailableException, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Query, ServiceUnavailableException, BadRequestException, NotFoundException } from '@nestjs/common';
 import { OrdersService } from '../services/orders.service';
 import { ListOrdersQueryDto, OrderActionBodyDto } from '../dto';
 
@@ -17,8 +17,10 @@ export class OrdersController {
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.ordersService.findOne(id);
+  async findOne(@Param('id') id: string) {
+    const order = await this.ordersService.findOne(id);
+    if (!order) throw new NotFoundException('Order not found');
+    return order;
   }
 
   @Post()

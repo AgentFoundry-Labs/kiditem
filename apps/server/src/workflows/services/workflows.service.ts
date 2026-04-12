@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import type { WorkflowTemplate } from '@kiditem/shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import { WorkflowRunnerService } from './workflow-runner.service';
 
@@ -35,8 +36,8 @@ export class WorkflowsService {
     });
   }
 
-  async findAll(query: { companyId: string; module?: string; isActive?: string }) {
-    return this.prisma.workflowTemplate.findMany({
+  async findAll(query: { companyId: string; module?: string; isActive?: string }): Promise<WorkflowTemplate[]> {
+    const templates = await this.prisma.workflowTemplate.findMany({
       where: {
         companyId: query.companyId,
         ...(query.module && { module: query.module }),
@@ -44,6 +45,7 @@ export class WorkflowsService {
       },
       orderBy: { createdAt: 'desc' },
     });
+    return templates.map((t) => t satisfies WorkflowTemplate);
   }
 
   async findOne(id: string) {

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { zIsoDate } from './common.js';
 
 // AgentRuntimeState — 에이전트 누적 상태
 // 출처: agent-registry.service.ts — Prisma AgentRuntimeState 직접 반환
@@ -17,9 +18,9 @@ export const AgentRuntimeStateSchema = z.object({
   totalCostCents: z.number(),
   lastError: z.string().nullable(),
   consecutiveFailCount: z.number(),
-  lastFailedAt: z.string().nullable(),
-  createdAt: z.string(),
-  updatedAt: z.string(),
+  lastFailedAt: zIsoDate.nullable(),
+  createdAt: zIsoDate,
+  updatedAt: zIsoDate,
 });
 
 // GET /api/agent-registry 응답의 각 item
@@ -41,7 +42,7 @@ export const AgentSchema = z.object({
   reportsTo: z.string().nullable(),
   status: z.string(),
   pauseReason: z.string().nullable(),
-  pausedAt: z.string().nullable(),
+  pausedAt: zIsoDate.nullable(),
   permissions: z.record(z.unknown()),
   skills: z.array(z.string()),
   deniedSkills: z.array(z.string()).default([]),
@@ -53,15 +54,15 @@ export const AgentSchema = z.object({
   permissionMode: z.string(),
   monthlyTokenBudget: z.number(),
   tokensUsed: z.number(),
-  budgetResetAt: z.string().nullable(),
+  budgetResetAt: zIsoDate.nullable(),
   schedule: z.string().nullable(),
   timeoutSeconds: z.number(),
   requiresApproval: z.boolean(),
   isActive: z.boolean(),
-  lastHeartbeatAt: z.string().nullable(),
+  lastHeartbeatAt: zIsoDate.nullable(),
   metadata: z.record(z.unknown()).nullable(),
-  createdAt: z.string(),
-  updatedAt: z.string(),
+  createdAt: zIsoDate,
+  updatedAt: zIsoDate,
   // Optional include relation
   runtimeState: AgentRuntimeStateSchema.nullable().optional(),
 });
@@ -77,8 +78,8 @@ export const HeartbeatRunSchema = z.object({
   invocationSource: z.string(),
   triggerDetail: z.string().nullable(),
   status: z.string(),
-  startedAt: z.string().nullable(),
-  finishedAt: z.string().nullable(),
+  startedAt: zIsoDate.nullable(),
+  finishedAt: zIsoDate.nullable(),
   error: z.string().nullable(),
   exitCode: z.number().nullable(),
   signal: z.string().nullable(),
@@ -91,8 +92,8 @@ export const HeartbeatRunSchema = z.object({
   errorCode: z.string().nullable(),
   processPid: z.number().nullable(),
   wakeupRequestId: z.string().nullable(),
-  createdAt: z.string(),
-  updatedAt: z.string(),
+  createdAt: zIsoDate,
+  updatedAt: zIsoDate,
 });
 
 // Cost Analytics — 에이전트 비용 분석 응답
