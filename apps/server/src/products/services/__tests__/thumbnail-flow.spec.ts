@@ -38,6 +38,8 @@ function makeAiService() {
     checkCompliance: vi.fn().mockResolvedValue(new Map()),
     analyzeWithRules: vi.fn(),
     toCoupangOriginal: vi.fn((url: string) => url),
+    checkImageSpec: vi.fn().mockResolvedValue({ width: 1500, height: 1500, aspectRatio: 1, fileSizeKB: 200, format: 'image/jpeg', issues: [] }),
+    editImage: vi.fn().mockResolvedValue([]),
     scoreToGrade: vi.fn((score: number) => {
       if (score >= 90) return 'S';
       if (score >= 75) return 'A';

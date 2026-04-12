@@ -98,4 +98,58 @@ describe('ThumbnailEditService', () => {
       expect(results).toHaveLength(0);
     });
   });
+
+  describe('processEditJob', () => {
+    it('성공 → status: ready + candidates 저장', async () => {
+      const candidates = [
+        { url: 'http://edited-1.png', filename: 'edited-1.png' },
+        { url: 'http://edited-2.png', filename: 'edited-2.png' },
+      ];
+      aiService.editImage.mockResolvedValue(candidates);
+      aiService.checkCompliance.mockResolvedValue(new Map([
+        ['g1', { complianceGrade: 'PASS', complianceScores: { violationCount: 0 } }],
+      ]));
+      prisma.thumbnailGeneration.update.mockResolvedValue({});
+
+      await (service as any).processEditJob('g1', 'http://img.jpg', '테스트', '완구', 'compliance');
+
+      // generating → ready 순서로 update 호출
+      expect(prisma.thumbnailGeneration.update).toHaveBeenCalledTimes(2);
+      expect(prisma.thumbnailGeneration.update).toHaveBeenNthCalledWith(1,
+        expect.objectContaining({ data: { status: 'generating' } }),
+      );
+      expect(prisma.thumbnailGeneration.update).toHaveBeenNthCalledWith(2,
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: 'ready',
+            candidates: expect.arrayContaining([expect.objectContaining({ url: 'http://edited-1.png' })]),
+          }),
+        }),
+      );
+    });
+
+    it('editImage 빈 배열 반환 → status: failed', async () => {
+      aiService.editImage.mockResolvedValue([]);
+      prisma.thumbnailGeneration.update.mockResolvedValue({});
+
+      await (service as any).processEditJob('g2', 'http://img.jpg', '테스트', null, 'compliance');
+
+      expect(prisma.thumbnailGeneration.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'g2' }, data: { status: 'failed' } }),
+      );
+    });
+
+    it('editImage 에러 → status: failed + 에러 로깅', async () => {
+      aiService.editImage.mockRejectedValue(new Error('AI 서버 타임아웃'));
+      prisma.thumbnailGeneration.update.mockResolvedValue({});
+
+      await (service as any).processEditJob('g3', 'http://img.jpg', '테스트', null, 'quality');
+
+      // generating 1회 + failed 1회
+      const failCall = prisma.thumbnailGeneration.update.mock.calls.find(
+        (c: any) => c[0]?.data?.status === 'failed',
+      );
+      expect(failCall).toBeTruthy();
+    });
+  });
 });
