@@ -1,5 +1,5 @@
 import { config } from 'dotenv';
-import { resolve, join } from 'path';
+import { resolve } from 'path';
 
 config({ path: resolve(__dirname, '..', '..', '..', '.env') });
 
@@ -26,9 +26,7 @@ async function bootstrap() {
     transform: true,
   }));
   app.useGlobalFilters(new GlobalExceptionFilter());
-  app.useStaticAssets('/data/products', { prefix: '/processed/' });
-  app.useStaticAssets(join(process.cwd(), 'generated-thumbnails'), { prefix: '/generated-thumbnails/' });
-  app.useStaticAssets(join(process.cwd(), 'data', 'product-images'), { prefix: '/product-images/' });
+  // 이미지는 S3-호환 스토리지(MinIO/R2/S3)에서 직접 서빙 (StorageService 참조)
   await app.listen(4000);
   console.log('Server running on http://localhost:4000');
 }

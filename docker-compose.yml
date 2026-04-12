@@ -17,6 +17,41 @@ services:
       timeout: 5s
       retries: 5
 
+  minio:
+    container_name: kiditem-minio
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"       # S3 API
+      - "9001:9001"       # Web console (http://localhost:9001, minioadmin/minioadmin)
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+      # 브라우저에서 MinIO로 직접 fetch할 수 있도록 CORS 허용
+      MINIO_API_CORS_ALLOW_ORIGIN: "*"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio-init:
+    container_name: kiditem-minio-init
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 minioadmin minioadmin;
+      mc mb --ignore-existing local/kiditem;
+      mc anonymous set public local/kiditem;
+      echo 'MinIO bucket kiditem ready (public read)';
+      "
+    restart: "no"
+
   # NestJS 서버는 로컬 실행 (npm run dev:server)
   # Claude Code CLI 스폰이 필요하므로 Docker에서 분리
   # server:
@@ -56,3 +91,4 @@ services:
 
 volumes:
   pgdata:
+  minio-data:

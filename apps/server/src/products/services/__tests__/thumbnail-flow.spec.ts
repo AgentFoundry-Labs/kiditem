@@ -71,7 +71,8 @@ function makeProduct(overrides: Record<string, any> = {}) {
 // ── ThumbnailAiService (pure) ────────────────────────────────────────────────
 
 describe('ThumbnailAiService', () => {
-  const service = new ThumbnailAiService();
+  const mockStorage = { save: async () => '', copy: async () => '', delete: async () => {}, getUrl: () => '', extractKey: () => null } as any;
+  const service = new ThumbnailAiService(mockStorage);
 
   describe('scoreToGrade', () => {
     it('returns S for score >= 90', () => {

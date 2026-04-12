@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as https from 'https';
 import * as http from 'http';
+import { StorageService } from '../../common/storage/storage.service';
 import type { ThumbnailGrade, AnalysisScores, AnalysisIssue, AiAnalysisResult, GeneratedImage, ComplianceGrade, ComplianceScores, ImageSpec, ImageSpecIssue } from './types';
 
 export type { AnalysisScores, AnalysisIssue, AiAnalysisResult, GeneratedImage, ImageSpec } from './types';
@@ -13,6 +14,8 @@ export class ThumbnailAiService implements OnModuleInit {
   private readonly logger = new Logger(ThumbnailAiService.name);
   private static readonly GEMINI_MODEL = 'gemini-3.1-flash-lite-preview';
   private client: GoogleGenAI | null = null;
+
+  constructor(private readonly storage: StorageService) {}
 
   onModuleInit() {
     if (!process.env.GEMINI_API_KEY) {
@@ -526,11 +529,6 @@ Create a single clean e-commerce thumbnail:
         },
       });
 
-      const outputDir = path.join(process.cwd(), 'generated-thumbnails');
-      if (!fs.existsSync(outputDir)) {
-        fs.mkdirSync(outputDir, { recursive: true });
-      }
-
       const results: GeneratedImage[] = [];
       const parts = response.candidates?.[0]?.content?.parts ?? [];
 
@@ -538,10 +536,10 @@ Create a single clean e-commerce thumbnail:
         const part = parts[i];
         if (part.inlineData?.data) {
           const filename = `editor_${timestamp}_${i}.png`;
-          const filePath = path.join(outputDir, filename);
+          const key = `generated-thumbnails/${filename}`;
           const buffer = Buffer.from(part.inlineData.data, 'base64');
-          fs.writeFileSync(filePath, buffer);
-          results.push({ url: `/generated-thumbnails/${filename}`, filename });
+          const url = await this.storage.save(key, buffer, 'image/png');
+          results.push({ url, filename });
         }
       }
 
@@ -607,11 +605,6 @@ Create a single clean e-commerce thumbnail:
         },
       });
 
-      const outputDir = path.join(process.cwd(), 'generated-thumbnails');
-      if (!fs.existsSync(outputDir)) {
-        fs.mkdirSync(outputDir, { recursive: true });
-      }
-
       const results: GeneratedImage[] = [];
       const parts = response.candidates?.[0]?.content?.parts ?? [];
 
@@ -619,11 +612,11 @@ Create a single clean e-commerce thumbnail:
         const part = parts[i];
         if (part.inlineData?.data) {
           const filename = `${productId}_edit_${timestamp}_${i}.png`;
-          const filePath = path.join(outputDir, filename);
+          const key = `generated-thumbnails/${filename}`;
           const buffer = Buffer.from(part.inlineData.data, 'base64');
-          fs.writeFileSync(filePath, buffer);
+          const url = await this.storage.save(key, buffer, 'image/png');
           results.push({
-            url: `/generated-thumbnails/${filename}`,
+            url,
             filename,
           });
         }

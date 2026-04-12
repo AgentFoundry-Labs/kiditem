@@ -11,6 +11,7 @@
     "test:e2e": "vitest run --config vitest.config.e2e.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1029.0",
     "@copilotkit/runtime": "^1.54.1",
     "@google/genai": "^1.48.0",
     "@kiditem/shared": "*",
