@@ -49,7 +49,7 @@ Adding a new domain: create module + controller + service + dto/ → register in
 | Analytics/Dashboard | Domain-specific | Must define shared type |
 | Error (unified) | `{ statusCode, error, message, timestamp, path }` | GlobalExceptionFilter |
 
-**null 응답 금지**: 서비스에서 단일 리소스 GET 시 null 대신 기본값 객체를 반환. 프론트 `apiClient`가 빈 body를 `{}`로 처리.
+**단일 리소스 GET**: 찾지 못하면 `throw new NotFoundException(...)` (404 응답). 서비스가 던지고 컨트롤러는 그대로 통과. 서비스 반환 타입에 null 포함 금지.
 
 ## Rules
 
@@ -57,6 +57,7 @@ Adding a new domain: create module + controller + service + dto/ → register in
 - Self-contained domain modules — no direct imports of other domain Services
 - Global infrastructure: PrismaService, AgentRegistryService (both `@Global()`, injectable everywhere)
 - New endpoints → class-validator DTO required (no manual if + BadRequestException)
+- DTO → Service: 컨트롤러에서 `as any` 캐스트 금지. 서비스 시그니처를 DTO 모양에 맞춰(필요 시 `string | number` union 허용). 서비스 파라미터 타입으로 `Record<string, unknown>` 쓰지 말 것.
 - Errors → throw HttpException (no `ok: false` in 200 responses)
 - Types → import from `@kiditem/shared`, use `satisfies` pattern in services
 - Service-internal types → `services/types.ts` (interface, not class). API DTOs(`dto/`)와 분리. `@kiditem/shared`에 넣지 않음.

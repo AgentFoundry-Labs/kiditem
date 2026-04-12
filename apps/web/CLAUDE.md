@@ -46,8 +46,13 @@ Env: `.env.local` → `NEXT_PUBLIC_API_URL=http://localhost:4000`
 
 ### Formatting Utilities (`@/lib/utils`)
 - `formatNumber()` — locale-aware number (`Intl.NumberFormat('ko-KR')`)
-- `formatCurrency()` / `formatKRW()` — KRW currency. No direct `toLocaleString()`.
+- `formatCurrency()` / `formatKRW()` — KRW currency
 - `formatPercent()` — percentage (1 decimal)
+- `formatDateTime(date, opts?)` — 날짜+시간 (기본 YYYY-MM-DD HH:mm:ss)
+- `formatDate(date, opts?)` — 날짜만
+- `formatTime(date, opts?)` — 시각만 (HH:mm:ss)
+- `formatDurationMinutes(minutes)` — 분 단위 → "2시간 30분"
+- **금지**: `Intl.*`, `toLocaleString()`, `toLocaleDateString()`, `toLocaleTimeString()` 직접 호출. 항상 위 유틸 경유.
 
 ### UI
 - `'use client'`: 훅(useState, useQuery 등)이나 브라우저 API를 쓰는 파일에 필수. 순수 레이아웃은 예외.

@@ -31,4 +31,7 @@ import { ErrorCodes } from '@kiditem/shared/errors';         // error codes
 
 - Zod 스키마 → `z.infer<typeof Schema>`로 타입 추론. 별도 interface 금지.
 - Backend services에서 `satisfies` 패턴으로 Prisma ↔ Shared 타입 드리프트 감지: `return { ... } satisfies ProductListItem`
+- Date 필드는 `zIsoDate` (`z.union([z.string(), z.date()])`) 사용 — Prisma Date 반환 + JSON string 수신 양쪽 대응.
+- Prisma `JsonValue` 필드는 map 단계에서 좁혀야 satisfies 통과: `permissions: item.permissions as Record<string, unknown> | null`
+- 응답이 엔티티 부분집합일 때 `.omit()` 파생 스키마 사용: `AgentListItemSchema = AgentSchema.omit({ promptTemplate: true })`
 - 도메인별 파일 분리: `schemas/product.ts`, `schemas/order.ts`, etc.
