@@ -9,13 +9,13 @@ import { API_BASE } from '@/lib/api';
 import { useProductImages } from '@/hooks/useProductImages';
 import { ProductSelector } from '@/components/product/ProductSelector';
 import { useGenerateThumbnail } from './hooks/useThumbnailEditor';
+import { useOriginalImage } from './hooks/useOriginalImage';
 import { ImageUploader } from './components/ImageUploader';
 import { EditorResult } from './components/EditorResult';
 
 async function fetchAsBase64(url: string): Promise<string | null> {
   try {
-    const fullUrl = url.startsWith('/') ? `${API_BASE}${url}` : url;
-    const res = await fetch(fullUrl);
+    const res = url.startsWith('/') ? await apiClient.fetchRaw(url) : await fetch(url);
     const blob = await res.blob();
     return new Promise((resolve) => {
       const reader = new FileReader();
@@ -39,7 +39,6 @@ export default function ThumbnailEditorPage() {
   const [packagingImage, setPackagingImage] = useState<string | null>(null);
   const [productImage, setProductImage] = useState<string | null>(null);
   const [isProductImageFromOriginal, setIsProductImageFromOriginal] = useState(false);
-  const [originalLoading, setOriginalLoading] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [pieceCount, setPieceCount] = useState<number | ''>('');
   const [colorCount, setColorCount] = useState<number | ''>('');
@@ -48,6 +47,7 @@ export default function ThumbnailEditorPage() {
 
   const generateMutation = useGenerateThumbnail();
   const { images: hubImages, loading: hubLoading } = useProductImages(productId);
+  const { data: originalImageData, isFetching: originalLoading } = useOriginalImage(productId);
 
   const boxImages = hubImages.filter((img) => img.role === 'box');
   const productImages = hubImages.filter((img) => img.role === 'product');
@@ -77,21 +77,12 @@ export default function ThumbnailEditorPage() {
     setIsProductImageFromOriginal(false);
   };
 
-  // productId 로드 시 원본 이미지 자동 할당
+  // 원본 이미지 로드 완료 시 자동 할당
   useEffect(() => {
-    if (!productId) return;
-    setOriginalLoading(true);
-    apiClient
-      .get<{ dataUrl: string }>(`/api/products/${productId}/original-image-base64`)
-      .then(({ dataUrl }) => {
-        setProductImage(dataUrl);
-        setIsProductImageFromOriginal(true);
-      })
-      .catch(() => {
-        /* 조용히 실패 */
-      })
-      .finally(() => setOriginalLoading(false));
-  }, [productId]);
+    if (!originalImageData?.dataUrl) return;
+    setProductImage(originalImageData.dataUrl);
+    setIsProductImageFromOriginal(true);
+  }, [originalImageData]);
 
   // 허브에 포장 사진 있으면 추가 옵션 자동 펼침
   useEffect(() => {

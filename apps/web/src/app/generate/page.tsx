@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { X } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
-import { API_BASE } from '@/lib/api';
 import { isApiError } from '@/lib/api-error';
 import { useProductImages } from '@/hooks/useProductImages';
 import GenerateResult from './components/GenerateResult';
@@ -16,9 +15,7 @@ import GenerateSubmitButton from './components/GenerateSubmitButton';
 
 async function imageUrlToBase64(url: string): Promise<string | null> {
   try {
-    // 서버 로컬 경로는 API_BASE를 붙여서 fetch
-    const fullUrl = url.startsWith('/') ? `${API_BASE}${url}` : url;
-    const res = await fetch(fullUrl);
+    const res = url.startsWith('/') ? await apiClient.fetchRaw(url) : await fetch(url);
     const blob = await res.blob();
     return new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
