@@ -1,12 +1,10 @@
 import { Controller, Post, Body, BadRequestException } from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service';
 import { ThumbnailAiService } from '../services/thumbnail-ai.service';
 import { ThumbnailEditorDto } from '../dto';
 
 @Controller('thumbnail-editor')
 export class ThumbnailEditorController {
   constructor(
-    private readonly prisma: PrismaService,
     private readonly thumbnailAiService: ThumbnailAiService,
   ) {}
 
@@ -14,31 +12,20 @@ export class ThumbnailEditorController {
   async generate(@Body() body: ThumbnailEditorDto) {
     const images: Array<{ data: string; mimeType: string; label: string }> = [];
 
-    // productId가 있으면 원본 이미지 로드
-    if (body.productId) {
-      const product = await this.prisma.product.findUnique({
-        where: { id: body.productId },
-      });
-      if (product?.imageUrl) {
-        const original = await this.thumbnailAiService.fetchImageAsBase64Public(product.imageUrl);
-        images.push({ ...original, label: 'Original product image' });
-      }
-    }
-
-    // 포장 사진
-    if (body.packagingImage) {
-      const data = this.extractBase64(body.packagingImage);
-      if (data) images.push({ ...data, label: 'Product packaging photo' });
-    }
-
-    // 상품 사진
+    // 상품 사진 (필수 — 클라이언트가 원본 자동 할당 또는 유저 업로드/허브 선택으로 채움)
     if (body.productImage) {
       const data = this.extractBase64(body.productImage);
       if (data) images.push({ ...data, label: 'Product photo' });
     }
 
+    // 포장 사진 (옵션)
+    if (body.packagingImage) {
+      const data = this.extractBase64(body.packagingImage);
+      if (data) images.push({ ...data, label: 'Product packaging photo' });
+    }
+
     if (images.length === 0) {
-      throw new BadRequestException('최소 1개 이미지가 필요합니다 (productId 또는 이미지 업로드)');
+      throw new BadRequestException('상품 사진이 필요합니다');
     }
 
     // 구성 정보 텍스트

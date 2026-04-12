@@ -6,7 +6,7 @@ import { FolderOpen, Save, Loader2, Wand2, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import Link from 'next/link';
 import { useProductImages } from '@/hooks/useProductImages';
-import { ProductSelector } from './components/ProductSelector';
+import { ProductSelector } from '@/components/product/ProductSelector';
 import { ImageGrid } from './components/ImageGrid';
 import type { ProductImageItem } from '@kiditem/shared';
 
