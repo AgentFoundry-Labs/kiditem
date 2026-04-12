@@ -1,5 +1,6 @@
 'use client';
 
+import { useMemo, useState } from 'react';
 import { useQuery } from "@tanstack/react-query";
 import { BarChart3, RefreshCw } from "lucide-react";
 import { usePeriodSelector } from '@/hooks/usePeriodSelector';
@@ -10,6 +11,7 @@ import { queryKeys } from "@/lib/query-keys";
 import { formatKRW, formatPercent } from "@/lib/utils";
 import PageSkeleton from "@/components/ui/PageSkeleton";
 import { ChannelTable } from "./ChannelTable";
+import type { ChannelSortField } from "./ChannelTable";
 
 interface ChannelRow {
   channelName: string;
@@ -36,6 +38,8 @@ interface SalesAnalysisData {
 
 export default function SalesOverview() {
   const { period, setPeriod, periodOptions } = usePeriodSelector({ months: 12, defaultTo: 'prev' });
+  const [sortField, setSortField] = useState<ChannelSortField | null>('totalRevenue');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc' | null>('desc');
 
   const { data, isLoading: loading, error: queryError, refetch } = useQuery({
     queryKey: queryKeys.salesAnalysis.data(period),
@@ -47,6 +51,24 @@ export default function SalesOverview() {
   });
   const error = queryError ? (isApiError(queryError) ? queryError.detail : "매출분석 조회 실패") : null;
 
+  const handleToggleSort = (field: ChannelSortField) => {
+    if (sortField === field) {
+      setSortDirection(prev => prev === 'asc' ? 'desc' : prev === 'desc' ? null : 'asc');
+      if (sortDirection === null) setSortField(null);
+    } else {
+      setSortField(field);
+      setSortDirection('desc');
+    }
+  };
+
+  const sortedChannels = useMemo(() => {
+    if (!data?.channels || !sortField || !sortDirection) return data?.channels ?? [];
+    return [...data.channels].sort((a, b) => {
+      const av = a[sortField];
+      const bv = b[sortField];
+      return sortDirection === 'asc' ? av - bv : bv - av;
+    });
+  }, [data?.channels, sortField, sortDirection]);
 
   if (loading) {
     return <PageSkeleton variant="table" />;
@@ -134,7 +156,12 @@ export default function SalesOverview() {
             </div>
           </div>
 
-          <ChannelTable channels={data.channels} />
+          <ChannelTable
+            channels={sortedChannels}
+            sortField={sortField}
+            sortDirection={sortDirection}
+            onToggleSort={handleToggleSort}
+          />
         </>
       )}
     </div>

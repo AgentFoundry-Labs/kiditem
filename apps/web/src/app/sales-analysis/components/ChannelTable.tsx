@@ -1,5 +1,5 @@
 'use client';
-import { BarChart3 } from 'lucide-react';
+import { ArrowUpDown, ArrowUp, ArrowDown, BarChart3 } from 'lucide-react';
 import { formatKRW, formatNumber, formatPercent } from '@/lib/utils';
 
 interface ChannelRow {
@@ -14,11 +14,17 @@ interface ChannelRow {
   avgOrderValue: number;
 }
 
+export type ChannelSortField =
+  | 'totalOrders' | 'totalRevenue' | 'totalCost' | 'totalProfit' | 'avgOrderValue';
+
 interface Props {
   channels: ChannelRow[];
+  sortField: ChannelSortField | null;
+  sortDirection: 'asc' | 'desc' | null;
+  onToggleSort: (field: ChannelSortField) => void;
 }
 
-export function ChannelTable({ channels }: Props) {
+export function ChannelTable({ channels, sortField, sortDirection, onToggleSort }: Props) {
   if (channels.length === 0) {
     return (
       <div className="card p-12 text-center">
@@ -28,6 +34,29 @@ export function ChannelTable({ channels }: Props) {
     );
   }
 
+  const renderSortIcon = (field: ChannelSortField) => {
+    if (sortField !== field || !sortDirection) {
+      return <ArrowUpDown size={14} className="text-slate-400" />;
+    }
+    return sortDirection === 'asc'
+      ? <ArrowUp size={14} className="text-purple-600" />
+      : <ArrowDown size={14} className="text-purple-600" />;
+  };
+
+  const SortTh = ({ field, children, className = '' }: { field: ChannelSortField; children: React.ReactNode; className?: string }) => (
+    <th className={className}>
+      <button
+        type="button"
+        onClick={() => onToggleSort(field)}
+        className="inline-flex items-center gap-1 hover:text-purple-600"
+        aria-sort={sortField === field ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
+      >
+        {children}
+        {renderSortIcon(field)}
+      </button>
+    </th>
+  );
+
   return (
     <div className="table-card">
       <div className="overflow-x-auto">
@@ -36,14 +65,14 @@ export function ChannelTable({ channels }: Props) {
             <tr>
               <th>채널명</th>
               <th>유형</th>
-              <th className="text-right">주문수</th>
-              <th className="text-right">매출</th>
-              <th className="text-right">비용</th>
-              <th className="text-right">이익</th>
+              <SortTh field="totalOrders" className="text-right">주문수</SortTh>
+              <SortTh field="totalRevenue" className="text-right">매출</SortTh>
+              <SortTh field="totalCost" className="text-right">비용</SortTh>
+              <SortTh field="totalProfit" className="text-right">이익</SortTh>
               <th className="text-right">이익률</th>
               <th className="text-right">반품수</th>
               <th className="text-right">반품률</th>
-              <th className="text-right">평균주문금액</th>
+              <SortTh field="avgOrderValue" className="text-right">평균주문금액</SortTh>
             </tr>
           </thead>
           <tbody>

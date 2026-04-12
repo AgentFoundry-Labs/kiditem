@@ -16,7 +16,7 @@ import type { PLData, SyncInfo } from '@kiditem/shared';
 import type { SortField } from "./components/ProfitLossTable";
 
 export default function ProfitLossPage() {
-  const { period, setPeriod, periodOptions } = usePeriodSelector({ months: 6 });
+  const { period, setPeriod, periodOptions } = usePeriodSelector({ months: 6, defaultTo: 'prev' });
   const [filter, setFilter] = useState("all");
   const [selectedGrades, setSelectedGrades] = useState<string[]>([]);
   const [sortField, setSortField] = useState<SortField | null>(null);
