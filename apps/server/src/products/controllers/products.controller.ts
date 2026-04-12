@@ -19,7 +19,7 @@ export class ProductsController {
 
   @Get()
   findAll(@Query() query: ListProductsQueryDto) {
-    return this.productsService.findAll(query as any);
+    return this.productsService.findAll(query);
   }
 
   @Get('pipeline-stats')
@@ -29,9 +29,7 @@ export class ProductsController {
 
   @Get(':id')
   async findOne(@Param('id') id: string) {
-    const product = await this.productsService.findOne(id);
-    if (!product) throw new NotFoundException('Product not found');
-    return product;
+    return this.productsService.findOne(id);
   }
 
   @Get(':id/preview')
@@ -42,7 +40,7 @@ export class ProductsController {
   @Get(':id/original-image-base64')
   async getOriginalImageBase64(@Param('id') id: string) {
     const product = await this.productsService.findOne(id);
-    if (!product?.imageUrl) {
+    if (!product.imageUrl) {
       throw new NotFoundException('상품에 원본 이미지가 없습니다');
     }
     const { data, mimeType } = await this.thumbnailAiService.fetchImageAsBase64Public(product.imageUrl);
@@ -73,7 +71,7 @@ export class ProductsController {
   @Post()
   @HttpCode(201)
   create(@Body() body: CreateProductBodyDto) {
-    return this.productsService.create(body as any);
+    return this.productsService.create(body);
   }
 
   @Patch(':id/images')

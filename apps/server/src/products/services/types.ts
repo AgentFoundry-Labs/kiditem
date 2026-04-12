@@ -146,6 +146,23 @@ export interface ThumbnailTrackingRecord {
   salesAfter: number | null;
 }
 
+/** Product creation payload — superset of CreateProductBodyDto (allows optional legacy fields) */
+export interface CreateProductInput {
+  name: string;
+  companyId: string;
+  category?: string;
+  sellPrice?: number;
+  costPrice?: number;
+  commissionRate?: number;
+  shippingCost?: number;
+  status?: string;
+  abcGrade?: string;
+  adTier?: string;
+  currentStock?: number;
+  leadTimeDays?: number;
+  sku?: string;
+}
+
 export interface UpdateMetricsInput {
   ctrBefore?: number;
   ctrAfter?: number;

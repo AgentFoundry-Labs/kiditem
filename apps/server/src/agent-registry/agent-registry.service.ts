@@ -1,4 +1,5 @@
 import { Injectable, Logger, OnModuleInit, NotFoundException, BadRequestException, ForbiddenException, Inject, forwardRef } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { HeartbeatService } from './heartbeat/heartbeat.service';
 import type { DailyCost, AgentCostSummary, CostAnalytics } from '@kiditem/shared';
@@ -86,7 +87,14 @@ export class AgentRegistryService implements OnModuleInit {
       }
     }
 
-    const created = await this.prisma.agentDefinition.create({ data: data as any });
+    const created = await this.prisma.agentDefinition.create({
+      data: {
+        ...data,
+        adapterConfig: data.adapterConfig as Prisma.InputJsonValue | undefined,
+        permissions: data.permissions as Prisma.InputJsonValue | undefined,
+        runtimeConfig: data.runtimeConfig as Prisma.InputJsonValue | undefined,
+      },
+    });
     await this.heartbeat.syncTimers();
     return created;
   }

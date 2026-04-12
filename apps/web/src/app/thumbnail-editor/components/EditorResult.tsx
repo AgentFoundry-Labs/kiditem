@@ -4,6 +4,7 @@ import { Download, ArrowRight, ImageIcon, Save, Check, Loader2 } from 'lucide-re
 import { toast } from 'sonner';
 import { resolveImageUrl } from '@/app/thumbnails/lib/resolve-url';
 import { apiClient } from '@/lib/api-client';
+import { isApiError } from '@/lib/api-error';
 
 interface EditorResultProps {
   originalImage: string | null;
@@ -33,9 +34,9 @@ export function EditorResult({ originalImage, candidates, productId }: EditorRes
       });
       setSavedUrls((prev) => new Set(prev).add(url));
       toast.success('허브에 저장되었습니다');
-    } catch (err: any) {
-      const msg = err?.detail || err?.message || '이미지 저장 실패';
-      toast.error(msg);
+    } catch (err: unknown) {
+      if (isApiError(err)) toast.error(err.detail);
+      else toast.error('이미지 저장 실패');
     } finally {
       setSaving(null);
     }

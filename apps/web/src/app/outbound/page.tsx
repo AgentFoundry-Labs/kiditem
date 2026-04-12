@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { PackageCheck, Truck, Clock, CheckCircle, AlertCircle } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
+import { formatDateTime } from '@/lib/utils';
 
 interface OutboundOrder {
   id: string;
@@ -154,7 +155,7 @@ export default function OutboundPage() {
                   <td className="px-4 py-3 text-right tabular-nums">{o.quantity}</td>
                   <td className="px-4 py-3 text-slate-600">{o.receiverName || '-'}</td>
                   <td className="px-4 py-3 text-xs text-slate-500">
-                    {o.confirmedAt ? new Date(o.confirmedAt).toLocaleString('ko-KR') : '-'}
+                    {formatDateTime(o.confirmedAt)}
                   </td>
                   <td className="px-4 py-3">
                     <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700">

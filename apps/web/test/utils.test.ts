@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
-  formatTime,
+  formatDurationMinutes,
   formatNumber,
   formatCurrency,
   formatKRW,
@@ -12,21 +12,21 @@ import {
   getGradeColor,
 } from '@/lib/utils'
 
-describe('formatTime', () => {
+describe('formatDurationMinutes', () => {
   it('returns minutes only when less than 60', () => {
-    expect(formatTime(30)).toBe('30분')
+    expect(formatDurationMinutes(30)).toBe('30분')
   })
 
   it('returns hours only when no remainder', () => {
-    expect(formatTime(120)).toBe('2시간')
+    expect(formatDurationMinutes(120)).toBe('2시간')
   })
 
   it('returns hours and minutes when both present', () => {
-    expect(formatTime(90)).toBe('1시간 30분')
+    expect(formatDurationMinutes(90)).toBe('1시간 30분')
   })
 
   it('handles zero minutes', () => {
-    expect(formatTime(0)).toBe('0분')
+    expect(formatDurationMinutes(0)).toBe('0분')
   })
 })
 

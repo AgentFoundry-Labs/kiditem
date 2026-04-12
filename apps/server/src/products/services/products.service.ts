@@ -11,6 +11,7 @@ import { paginationParams, type PaginatedResponse } from '../../common/paginatio
 import { resolvePricing, resolveInventory } from '../../common/master-product-resolver';
 import type { ProductListItem } from '@kiditem/shared';
 import type {
+  CreateProductInput,
   ProductWithRelations,
   ProductEnrichmentMaps,
   RevenueData,
@@ -31,9 +32,9 @@ export class ProductsService {
     status?: string;
     search?: string;
     company?: string;
-    page?: string;
-    limit?: string;
-    maxProfitRate?: string;
+    page?: string | number;
+    limit?: string | number;
+    maxProfitRate?: string | number;
     period?: string;
     orderBy?: string;
   }): Promise<PaginatedResponse<Record<string, unknown>>> {
@@ -222,7 +223,8 @@ export class ProductsService {
       const sortByRevenue = !query.orderBy || query.orderBy === 'revenue';
 
       if (maxProfitRate !== undefined) {
-        const maxRate = parseFloat(maxProfitRate);
+        const maxRate =
+          typeof maxProfitRate === 'number' ? maxProfitRate : parseFloat(maxProfitRate);
         const allProducts = await this.prisma.product.findMany({
           where,
           include: { company: true, inventory: true, masterProduct: { include: { inventory: true } } },
@@ -384,9 +386,8 @@ export class ProductsService {
     } satisfies ProductListItem;
   }
 
-  async create(body: Record<string, unknown>): Promise<any> {
-    const name = body.name as string | undefined;
-    const companyId = body.companyId as string | undefined;
+  async create(body: CreateProductInput): Promise<any> {
+    const { name, companyId } = body;
     if (!name || !companyId) {
       throw new BadRequestException('상품명과 회사는 필수입니다.');
     }
@@ -394,7 +395,7 @@ export class ProductsService {
     const sellPrice = Number(body.sellPrice) || 0;
     const costPrice = Number(body.costPrice) || 0;
     const shippingCost = Number(body.shippingCost) || 0;
-    const sku = (body.sku as string) || `AUTO-${Date.now()}`;
+    const sku = body.sku || `AUTO-${Date.now()}`;
 
     try {
       return await this.prisma.$transaction(async (tx) => {
@@ -411,18 +412,16 @@ export class ProductsService {
         return await tx.product.create({
           data: {
             name,
-            category: (body.category as string) ?? null,
+            category: body.category ?? null,
             sellPrice: sellPrice > 0 ? sellPrice : null,
             costPrice: costPrice > 0 ? costPrice : null,
             commissionRate:
-              Number(body.commissionRate) > 0
-                ? Number(body.commissionRate)
-                : null,
+              Number(body.commissionRate) > 0 ? Number(body.commissionRate) : null,
             shippingCost: shippingCost > 0 ? shippingCost : null,
             companyId,
-            status: (body.status as string) ?? 'active',
-            abcGrade: (body.abcGrade as string) ?? 'C',
-            adTier: (body.adTier as string) ?? null,
+            status: body.status ?? 'active',
+            abcGrade: body.abcGrade ?? 'C',
+            adTier: body.adTier ?? null,
             masterProductId: masterProduct.id,
             inventory: {
               create: {
@@ -439,12 +438,12 @@ export class ProductsService {
     }
   }
 
-  async findOne(id: string): Promise<any> {
+  async findOne(id: string) {
     const product = await this.prisma.product.findUnique({
       where: { id },
       include: { company: true, inventory: true, masterProduct: { include: { inventory: true } } },
     });
-    if (!product) return null;
+    if (!product) throw new NotFoundException('Product not found');
 
     const resolved = resolvePricing(product);
     return {
@@ -469,7 +468,7 @@ export class ProductsService {
     }
     return this.prisma.product.update({
       where: { id: productId },
-      data: { images: images as any },
+      data: { images: images as unknown as Prisma.InputJsonValue },
       select: { id: true, images: true },
     });
   }
@@ -479,7 +478,7 @@ export class ProductsService {
     if (!product) throw new NotFoundException('Product not found');
     return this.prisma.product.update({
       where: { id },
-      data: { draftContent: body as any },
+      data: { draftContent: body as Prisma.InputJsonValue },
     });
   }
 

@@ -12,6 +12,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { extname } from 'path';
 import { randomUUID } from 'crypto';
+import type { Prisma } from '@prisma/client';
 import { StorageService } from '../../common/storage/storage.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SaveFromUrlDto } from '../dto';
@@ -78,7 +79,7 @@ export class ProductImagesController {
     const newUrl = await this.storage.copy(sourceKey, newKey);
 
     const currentImages: ProductImageItem[] = Array.isArray(product.images)
-      ? (product.images as any)
+      ? (product.images as unknown as ProductImageItem[])
       : [];
 
     if (currentImages.length >= 20) {
@@ -97,7 +98,7 @@ export class ProductImagesController {
 
     await this.prisma.product.update({
       where: { id: productId },
-      data: { images: nextImages as any },
+      data: { images: nextImages as unknown as Prisma.InputJsonValue },
     });
 
     return { url: newUrl, key: newKey };

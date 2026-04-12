@@ -21,8 +21,8 @@ export class ReviewsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async findAll(query: {
-    page?: string;
-    limit?: string;
+    page?: string | number;
+    limit?: string | number;
   }): Promise<ReviewsResponse> {
     try {
       const { page, limit, skip } = paginationParams(query);

@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { CheckCircle, Truck, Package, Clock, MapPin } from "lucide-react";
 import { queryKeys } from "@/lib/query-keys";
 import { apiClient } from "@/lib/api-client";
+import { formatTime } from "@/lib/utils";
 import OrderHeader from "./components/OrderHeader";
 import PipelineVisualization from "./components/PipelineVisualization";
 import OrderTable from "./components/OrderTable";
@@ -61,9 +62,7 @@ export default function OrdersPage() {
   const pipeline = pipelineData?.pipeline ?? {};
   const counts = pipelineData?.counts ?? {};
   const error = queryError ? "주문 조회 실패" : null;
-  const lastUpdated = dataUpdatedAt
-    ? new Date(dataUpdatedAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
-    : "";
+  const lastUpdated = dataUpdatedAt ? formatTime(dataUpdatedAt) : "";
 
   const refetch = () => queryClient.invalidateQueries({ queryKey: queryKeys.orders.all });
 

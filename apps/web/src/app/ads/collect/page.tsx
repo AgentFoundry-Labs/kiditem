@@ -5,7 +5,7 @@ import { Database, Calendar, Wifi } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import PageSkeleton from '@/components/ui/PageSkeleton';
-import { formatNumber } from '@/lib/utils';
+import { formatDateTime, formatNumber } from '@/lib/utils';
 import ScrapeCollector from './components/ScrapeCollector';
 
 interface CollectStatus {
@@ -57,9 +57,7 @@ export default function AdsCollectPage() {
             마지막 수집
           </div>
           <div className="text-lg font-bold text-slate-900">
-            {status?.lastCollectedAt
-              ? new Date(status.lastCollectedAt).toLocaleString('ko-KR')
-              : '기록 없음'}
+            {status?.lastCollectedAt ? formatDateTime(status.lastCollectedAt) : '기록 없음'}
           </div>
         </div>
 

@@ -10,7 +10,7 @@ import {
   ChevronDown,
   ChevronUp,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, formatDateTime } from '@/lib/utils';
 import { mapStepStatus } from '../lib/workflow-types';
 import WorkflowCanvas from './WorkflowCanvas';
 import NodeDetailPopover from './NodeDetailPopover';
@@ -56,9 +56,8 @@ function formatDuration(startedAt: string | null, completedAt: string | null): s
   return `${(diffMs / 1000).toFixed(1)}s`;
 }
 
-function formatTime(dateStr: string | null): string {
-  if (!dateStr) return '-';
-  return new Date(dateStr).toLocaleString('ko-KR', {
+function formatRunTime(dateStr: string | null): string {
+  return formatDateTime(dateStr, {
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
@@ -131,7 +130,7 @@ export default function WorkflowRunView({
 
         <div className="flex items-center gap-1.5 text-xs text-slate-500">
           <Clock className="w-3.5 h-3.5" />
-          {formatTime(run.startedAt)}
+          {formatRunTime(run.startedAt)}
         </div>
 
         <span className="text-xs text-slate-400">

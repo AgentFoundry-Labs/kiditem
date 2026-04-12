@@ -5,12 +5,50 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-export function formatTime(minutes: number): string {
+export function formatDurationMinutes(minutes: number): string {
   const hours = Math.floor(minutes / 60);
   const mins = minutes % 60;
   if (hours === 0) return `${mins}분`;
   if (mins === 0) return `${hours}시간`;
   return `${hours}시간 ${mins}분`;
+}
+
+type DateInput = string | Date | number | null | undefined;
+
+const DEFAULT_DATETIME_OPTS: Intl.DateTimeFormatOptions = {
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+};
+
+const DEFAULT_DATE_OPTS: Intl.DateTimeFormatOptions = {
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+};
+
+const DEFAULT_TIME_OPTS: Intl.DateTimeFormatOptions = {
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+};
+
+export function formatDateTime(date: DateInput, opts?: Intl.DateTimeFormatOptions): string {
+  if (date == null) return '-';
+  return new Intl.DateTimeFormat('ko-KR', opts ?? DEFAULT_DATETIME_OPTS).format(new Date(date));
+}
+
+export function formatDate(date: DateInput, opts?: Intl.DateTimeFormatOptions): string {
+  if (date == null) return '-';
+  return new Intl.DateTimeFormat('ko-KR', opts ?? DEFAULT_DATE_OPTS).format(new Date(date));
+}
+
+export function formatTime(date: DateInput, opts?: Intl.DateTimeFormatOptions): string {
+  if (date == null) return '-';
+  return new Intl.DateTimeFormat('ko-KR', opts ?? DEFAULT_TIME_OPTS).format(new Date(date));
 }
 
 export function formatNumber(num: number | null | undefined): string {

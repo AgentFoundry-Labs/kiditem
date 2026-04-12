@@ -8,6 +8,6 @@ export class ReviewsController {
 
   @Get()
   findAll(@Query() query: ListReviewsQueryDto) {
-    return this.reviewsService.findAll(query as any);
+    return this.reviewsService.findAll(query);
   }
 }
