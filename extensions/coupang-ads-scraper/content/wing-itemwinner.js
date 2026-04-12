@@ -76,18 +76,7 @@
       .catch(() => showBadge("❌ 서버 연결 실패"));
   }
 
-  function showBadge(text) {
-    let el = document.getElementById("kiditem-badge");
-    if (!el) {
-      el = document.createElement("div");
-      el.id = "kiditem-badge";
-      el.style.cssText = "position:fixed;top:12px;right:12px;background:#0f172a;color:#22c55e;padding:10px 18px;border-radius:10px;font-size:13px;font-weight:600;z-index:999999;box-shadow:0 4px 16px rgba(0,0,0,0.4);font-family:-apple-system,sans-serif;transition:opacity 0.5s;";
-      document.body.appendChild(el);
-    }
-    el.textContent = text;
-    el.style.opacity = "1";
-    setTimeout(() => { el.style.opacity = "0"; setTimeout(() => el.remove(), 500); }, 4000);
-  }
+  // showBadge is loaded from utils/dom.js via manifest
 
   // 3초 후 자동 파싱 + 동기화
   setTimeout(() => {

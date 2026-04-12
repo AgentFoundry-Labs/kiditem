@@ -26,12 +26,12 @@ export default function WorkflowCanvas({
   stepStatusMap,
   onNodeClick,
 }: WorkflowCanvasProps) {
-  const nodeTypes: NodeTypes = useMemo(
+  const nodeTypes = useMemo(
     () => ({
       custom: WorkflowNode,
     }),
     [],
-  );
+  ) as NodeTypes;
 
   const rawNodes: any[] = useMemo(() => {
     if (!template.nodesJson) return [];
