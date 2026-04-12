@@ -25,6 +25,7 @@ export type { WorkflowTemplate, WorkflowRun, WorkflowStepRun } from './schemas/w
 // Agent
 export {
   AgentSchema,
+  AgentListItemSchema,
   HeartbeatRunSchema,
   AgentRuntimeStateSchema,
   DailyCostSchema,
@@ -33,6 +34,7 @@ export {
 } from './schemas/agent.js';
 export type {
   Agent,
+  AgentListItem,
   HeartbeatRun,
   AgentRuntimeState,
   DailyCost,

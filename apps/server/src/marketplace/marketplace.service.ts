@@ -1,5 +1,33 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import type { Marketplace } from '@prisma/client';
+import type { MarketplaceCatalogItem, ConfigurableParam } from '@kiditem/shared';
 import { PrismaService } from '../prisma/prisma.service';
+
+function toCatalogItem(item: Marketplace, installed: boolean): MarketplaceCatalogItem {
+  return {
+    id: item.id,
+    type: item.type as 'workflow' | 'agent',
+    name: item.name,
+    description: item.description,
+    category: item.category,
+    icon: item.icon,
+    module: item.module,
+    nodesJson: item.nodesJson,
+    edgesJson: item.edgesJson,
+    role: item.role,
+    adapterType: item.adapterType,
+    promptTemplate: item.promptTemplate,
+    skills: item.skills,
+    permissions: item.permissions as Record<string, unknown> | null,
+    configurableParams: (item.configurableParams ?? []) as unknown as ConfigurableParam[],
+    version: item.version,
+    installCount: item.installCount,
+    isPublished: item.isPublished,
+    installed,
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt,
+  } satisfies MarketplaceCatalogItem;
+}
 
 @Injectable()
 export class MarketplaceService {
@@ -8,9 +36,12 @@ export class MarketplaceService {
   constructor(private readonly prisma: PrismaService) {}
 
   // ─── Workflow Catalog ───
-  // TODO: satisfies WorkflowCatalogItem 도입 — Prisma JsonValue vs Zod Record<string,unknown> 드리프트 해결 필요 (다음 PR)
 
-  async listWorkflows(query: { module?: string; category?: string; companyId?: string }) {
+  async listWorkflows(query: {
+    module?: string;
+    category?: string;
+    companyId?: string;
+  }): Promise<MarketplaceCatalogItem[]> {
     const items = await this.prisma.marketplace.findMany({
       where: {
         type: 'workflow',
@@ -22,7 +53,7 @@ export class MarketplaceService {
     });
 
     if (!query.companyId) {
-      return items.map((i) => ({ ...i, installed: false }));
+      return items.map((i) => toCatalogItem(i, false));
     }
 
     const installed = await this.prisma.workflowTemplate.findMany({
@@ -31,7 +62,7 @@ export class MarketplaceService {
     });
     const installedSet = new Set(installed.map((i) => i.marketplaceId));
 
-    return items.map((item) => ({ ...item, installed: installedSet.has(item.id) }));
+    return items.map((item) => toCatalogItem(item, installedSet.has(item.id)));
   }
 
   async getWorkflow(id: string) {
@@ -88,7 +119,11 @@ export class MarketplaceService {
 
   // ─── Agent Catalog ───
 
-  async listAgents(query: { role?: string; category?: string; companyId?: string }) {
+  async listAgents(query: {
+    role?: string;
+    category?: string;
+    companyId?: string;
+  }): Promise<MarketplaceCatalogItem[]> {
     const items = await this.prisma.marketplace.findMany({
       where: {
         type: 'agent',
@@ -100,7 +135,7 @@ export class MarketplaceService {
     });
 
     if (!query.companyId) {
-      return items.map((i) => ({ ...i, installed: false }));
+      return items.map((i) => toCatalogItem(i, false));
     }
 
     const installed = await this.prisma.agentDefinition.findMany({
@@ -109,7 +144,7 @@ export class MarketplaceService {
     });
     const installedSet = new Set(installed.map((i) => i.marketplaceId));
 
-    return items.map((item) => ({ ...item, installed: installedSet.has(item.id) }));
+    return items.map((item) => toCatalogItem(item, installedSet.has(item.id)));
   }
 
   async getAgent(id: string) {

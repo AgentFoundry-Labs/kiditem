@@ -33,6 +33,7 @@ export type { FeatureGate } from './feature-gate.js';
 // Agent
 export {
   AgentSchema,
+  AgentListItemSchema,
   HeartbeatRunSchema,
   AgentRuntimeStateSchema,
   DailyCostSchema,
@@ -41,6 +42,7 @@ export {
 } from './agent.js';
 export type {
   Agent,
+  AgentListItem,
   HeartbeatRun,
   AgentRuntimeState,
   DailyCost,

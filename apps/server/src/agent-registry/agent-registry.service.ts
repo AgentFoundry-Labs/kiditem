@@ -2,7 +2,7 @@ import { Injectable, Logger, OnModuleInit, NotFoundException, BadRequestExceptio
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { HeartbeatService } from './heartbeat/heartbeat.service';
-import type { DailyCost, AgentCostSummary, CostAnalytics } from '@kiditem/shared';
+import type { AgentListItem, DailyCost, AgentCostSummary, CostAnalytics } from '@kiditem/shared';
 import { validateAllowedTools } from './safety/dangerous-patterns';
 import type { OrgNode } from './types';
 
@@ -34,8 +34,8 @@ export class AgentRegistryService implements OnModuleInit {
 
   // ── CRUD ──
 
-  async list(query: { companyId: string; isActive?: string }) {
-    return this.prisma.agentDefinition.findMany({
+  async list(query: { companyId: string; isActive?: string }): Promise<AgentListItem[]> {
+    const items = await this.prisma.agentDefinition.findMany({
       where: {
         companyId: query.companyId,
         ...(query.isActive !== undefined && { isActive: query.isActive === 'true' }),
@@ -43,6 +43,14 @@ export class AgentRegistryService implements OnModuleInit {
       omit: { promptTemplate: true },
       orderBy: { createdAt: 'desc' },
     });
+    return items.map((a) => ({
+      ...a,
+      adapterConfig: (a.adapterConfig ?? {}) as Record<string, unknown>,
+      runtimeConfig: (a.runtimeConfig ?? {}) as Record<string, unknown>,
+      permissions: (a.permissions ?? {}) as Record<string, unknown>,
+      actionCap: (a.actionCap ?? {}) as Record<string, unknown>,
+      metadata: a.metadata as Record<string, unknown> | null,
+    }) satisfies AgentListItem);
   }
 
   async getById(id: string, companyId?: string) {

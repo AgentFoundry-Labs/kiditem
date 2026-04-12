@@ -67,6 +67,10 @@ export const AgentSchema = z.object({
   runtimeState: AgentRuntimeStateSchema.nullable().optional(),
 });
 
+// GET /api/agent-registry 목록 응답의 각 item
+// 출처: agent-registry.service.ts list() — Prisma AgentDefinition (omit: promptTemplate)
+export const AgentListItemSchema = AgentSchema.omit({ promptTemplate: true });
+
 // HeartbeatRun — 에이전트 실행 기록
 // 출처: agent-registry.service.ts — Prisma HeartbeatRun 직접 반환
 // ⚠️ Date fields: startedAt, finishedAt, createdAt, updatedAt — Prisma Date → JSON string 자동 변환
@@ -128,6 +132,7 @@ export const CostAnalyticsSchema = z.object({
 
 // 타입 export
 export type Agent = z.infer<typeof AgentSchema>;
+export type AgentListItem = z.infer<typeof AgentListItemSchema>;
 export type HeartbeatRun = z.infer<typeof HeartbeatRunSchema>;
 export type AgentRuntimeState = z.infer<typeof AgentRuntimeStateSchema>;
 export type DailyCost = z.infer<typeof DailyCostSchema>;
