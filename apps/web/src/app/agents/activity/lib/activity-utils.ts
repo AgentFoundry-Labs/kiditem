@@ -54,7 +54,7 @@ export function runDescription(run: RunWithAgent): string {
   return `하트비트 실행 ${stat} (${src})`;
 }
 
-export function groupLabel(dateStr: string): string {
+export function groupLabel(dateStr: string | Date): string {
   const today = new Date();
   const d = new Date(dateStr);
   const todayMid = new Date(today.getFullYear(), today.getMonth(), today.getDate());

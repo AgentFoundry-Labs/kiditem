@@ -1,6 +1,6 @@
 'use client';
 
-export function relativeTime(date: string | null): string {
+export function relativeTime(date: string | Date | null): string {
   if (!date) return '—';
   const diff = Date.now() - new Date(date).getTime();
   if (diff < 60_000) return '방금';
@@ -20,7 +20,7 @@ export function formatCost(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
-export function formatDuration(startedAt: string | null, finishedAt: string | null): string {
+export function formatDuration(startedAt: string | Date | null, finishedAt: string | Date | null): string {
   if (!startedAt) return '—';
   const start = new Date(startedAt).getTime();
   const end = finishedAt ? new Date(finishedAt).getTime() : Date.now();

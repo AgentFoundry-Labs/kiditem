@@ -73,7 +73,7 @@ export function getModuleColor(module: string): string {
   return colors[module] || '#6B7280';
 }
 
-export function timeAgo(dateString: string): string {
+export function timeAgo(dateString: string | Date): string {
   const date = new Date(dateString);
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();

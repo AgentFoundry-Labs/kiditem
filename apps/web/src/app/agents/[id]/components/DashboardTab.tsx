@@ -25,7 +25,7 @@ function buildRunActivity(runs: HeartbeatRun[], days: number) {
     const d = new Date(today);
     d.setDate(today.getDate() - i);
     const dateStr = d.toISOString().slice(0, 10);
-    const dayRuns = runs.filter(r => r.createdAt.slice(0, 10) === dateStr);
+    const dayRuns = runs.filter(r => new Date(r.createdAt).toISOString().slice(0, 10) === dateStr);
     result.push({
       date: dateStr,
       total: dayRuns.length,

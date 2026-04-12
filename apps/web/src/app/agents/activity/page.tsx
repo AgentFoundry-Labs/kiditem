@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { RefreshCw, Activity, List, BarChart3 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, formatTime } from '@/lib/utils';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { queryKeys } from '@/lib/query-keys';
 import { agentApi } from '../lib/agent-api';
@@ -98,7 +98,7 @@ export default function ActivityPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <p className="text-xs text-slate-400">
-          마지막 갱신: {lastRefreshed.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+          마지막 갱신: {formatTime(lastRefreshed)}
         </p>
         <div className="flex items-center gap-1">
           <div className="flex items-center border border-slate-200 rounded-lg overflow-hidden mr-2">

@@ -73,10 +73,10 @@ const runStatusColors: Record<string, string> = {
   pending: 'text-slate-500',
 };
 
-function formatDuration(startedAt: string | null, completedAt: string | null): string {
+function formatDuration(startedAt: string | Date | null, completedAt: string | Date | null): string {
   if (!startedAt) return '-';
-  const start = Date.parse(startedAt);
-  const end = completedAt ? Date.parse(completedAt) : Date.now();
+  const start = new Date(startedAt).getTime();
+  const end = completedAt ? new Date(completedAt).getTime() : Date.now();
   const diffMs = end - start;
   if (diffMs < 1000) return `${diffMs}ms`;
   return `${(diffMs / 1000).toFixed(1)}s`;

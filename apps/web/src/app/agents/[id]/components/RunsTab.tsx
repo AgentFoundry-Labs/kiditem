@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Clock, ChevronRight, ChevronDown } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, formatDateTime } from '@/lib/utils';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { relativeTime, formatTokens, formatCost, formatDuration } from '../../lib/agent-utils';
 import { SOURCE_LABELS } from '../../lib/agent-types';
@@ -38,13 +38,13 @@ function RunDetail({ run }: { run: HeartbeatRun }) {
           <div>
             <span className="text-xs text-slate-500 block mb-0.5">시작</span>
             <span className="text-sm text-slate-900">
-              {run.startedAt ? new Date(run.startedAt).toLocaleString('ko-KR') : '—'}
+              {run.startedAt ? formatDateTime(run.startedAt) : '—'}
             </span>
           </div>
           <div>
             <span className="text-xs text-slate-500 block mb-0.5">종료</span>
             <span className="text-sm text-slate-900">
-              {run.finishedAt ? new Date(run.finishedAt).toLocaleString('ko-KR') : '—'}
+              {run.finishedAt ? formatDateTime(run.finishedAt) : '—'}
             </span>
           </div>
           <div>

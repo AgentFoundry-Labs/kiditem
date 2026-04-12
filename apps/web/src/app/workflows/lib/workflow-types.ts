@@ -9,8 +9,8 @@ export interface StepStatusInfo {
   status: 'idle' | 'running' | 'success' | 'error';
   outputData?: Record<string, any> | null;
   error?: string | null;
-  startedAt?: string | null;
-  completedAt?: string | null;
+  startedAt?: string | Date | null;
+  completedAt?: string | Date | null;
 }
 
 /** Map backend step status to frontend display status */
