@@ -5,6 +5,7 @@ import {
   Globe,
   Image as ImageIcon,
   Link as LinkIcon,
+  Loader2,
   Upload,
   X,
 } from 'lucide-react';
@@ -16,9 +17,10 @@ interface ProductInputSectionProps {
   setUrl: (url: string) => void;
   images: string[];
   setImages: (images: string[]) => void;
+  imagesLoading?: boolean;
 }
 
-export default function ProductInputSection({ mode, setMode, url, setUrl, images, setImages }: ProductInputSectionProps) {
+export default function ProductInputSection({ mode, setMode, url, setUrl, images, setImages, imagesLoading }: ProductInputSectionProps) {
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
@@ -122,6 +124,12 @@ export default function ProductInputSection({ mode, setMode, url, setUrl, images
           <label className="block text-sm font-bold text-slate-700">
             상품 이미지 (권장 3~5장)
           </label>
+          {imagesLoading && (
+            <div className="flex items-center gap-2 text-sm text-slate-500 py-2">
+              <Loader2 size={16} className="animate-spin" />
+              허브 이미지를 불러오는 중...
+            </div>
+          )}
           <div className="grid grid-cols-4 gap-4">
             {images.map((img, idx) => (
               <div

@@ -656,7 +656,7 @@ export default function ThumbnailsPage() {
               loading: preInspectMutation.isPending,
               onClick: async () => {
                 try {
-                  const result = await preInspectMutation.mutateAsync();
+                  const result = await preInspectMutation.mutateAsync(undefined);
                   toast.success(`사전 검수 완료 — ${result.processed}개 처리${result.failed > 0 ? `, ${result.failed}개 실패` : ''}`);
                 } catch (err) {
                   toast.error(err instanceof Error ? err.message : '사전 검수 실패');

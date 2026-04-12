@@ -1,9 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { X } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
+import { API_BASE } from '@/lib/api';
 import { isApiError } from '@/lib/api-error';
+import { useProductImages } from '@/hooks/useProductImages';
 import GenerateResult from './components/GenerateResult';
 import ProductInputSection from './components/ProductInputSection';
 import CategorySelect from './components/CategorySelect';
@@ -11,7 +14,28 @@ import GenerateLoadingOverlay from './components/GenerateLoadingOverlay';
 import GeneratePageHeader from './components/GeneratePageHeader';
 import GenerateSubmitButton from './components/GenerateSubmitButton';
 
+async function imageUrlToBase64(url: string): Promise<string | null> {
+  try {
+    // 서버 로컬 경로는 API_BASE를 붙여서 fetch
+    const fullUrl = url.startsWith('/') ? `${API_BASE}${url}` : url;
+    const res = await fetch(fullUrl);
+    const blob = await res.blob();
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  } catch {
+    return null;
+  }
+}
+
 export default function GeneratePage() {
+  const searchParams = useSearchParams();
+  const productId = searchParams.get('productId');
+  const { images: savedImages, loading: imagesLoading } = useProductImages(productId);
+
   const [mode, setMode] = useState<'url' | 'image'>('url');
   const [url, setUrl] = useState('');
   const [images, setImages] = useState<string[]>([]);
@@ -19,6 +43,19 @@ export default function GeneratePage() {
   const [isLoading, setIsLoading] = useState(false);
   const [result, setResult] = useState<Record<string, unknown> | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // 허브 이미지 프리로드: productId로 진입 시 저장된 이미지를 base64로 변환
+  useEffect(() => {
+    if (savedImages.length === 0) return;
+    setMode('image');
+
+    Promise.all(savedImages.map((img) => imageUrlToBase64(img.url))).then(
+      (results) => {
+        const valid = results.filter((r): r is string => r !== null);
+        if (valid.length > 0) setImages(valid);
+      },
+    );
+  }, [savedImages]);
 
   const isFormValid = mode === 'url' ? url.trim() !== '' : images.length > 0;
 
@@ -83,6 +120,7 @@ export default function GeneratePage() {
           setUrl={setUrl}
           images={images}
           setImages={setImages}
+          imagesLoading={imagesLoading}
         />
 
         <CategorySelect category={category} setCategory={setCategory} />

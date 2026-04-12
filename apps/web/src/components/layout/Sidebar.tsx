@@ -40,6 +40,8 @@ import {
   MinusCircle,
   TrendingDown,
   Zap,
+  Wand2,
+  FolderOpen,
   type LucideIcon,
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -77,6 +79,8 @@ const menuSections: MenuSection[] = [
     collapsible: true,
     items: [
       { href: '/sourcing', label: '소싱/수집', icon: Search },
+      { href: '/image-hub', label: '이미지 관리', icon: FolderOpen },
+      { href: '/thumbnail-editor', label: '썸네일 편집기', icon: Wand2 },
       { href: '/generate', label: '콘텐츠 생성', icon: Sparkles },
     ],
   },

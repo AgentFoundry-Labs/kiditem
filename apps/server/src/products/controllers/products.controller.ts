@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query, HttpCode, NotFoundException } from '@nestjs/common';
+import { Controller, Get, Post, Put, Patch, Delete, Body, Param, Query, HttpCode, NotFoundException } from '@nestjs/common';
 import { ProductsService } from '../services/products.service';
 import {
   ListProductsQueryDto,
@@ -6,6 +6,7 @@ import {
   CreateProductBodyDto,
   UpdateDraftContentBodyDto,
   TriggerContentDraftBodyDto,
+  UpdateProductImagesDto,
 } from '../dto';
 
 @Controller('products')
@@ -59,6 +60,14 @@ export class ProductsController {
   @HttpCode(201)
   create(@Body() body: CreateProductBodyDto) {
     return this.productsService.create(body as any);
+  }
+
+  @Patch(':id/images')
+  async updateImages(
+    @Param('id') id: string,
+    @Body() body: UpdateProductImagesDto,
+  ) {
+    return this.productsService.updateImages(id, body.images);
   }
 
   @Delete(':id')

@@ -4,9 +4,10 @@ import { useMutation } from '@tanstack/react-query';
 
 interface GenerateRequest {
   productId?: string;
-  packagingImageUrl?: string;
-  productImageUrl?: string;
-  composition?: string;
+  packagingImage?: string;
+  productImage?: string;
+  pieceCount?: number;
+  colorCount?: number;
   purpose: 'compliance' | 'quality';
 }
 

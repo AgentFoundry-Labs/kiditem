@@ -1,4 +1,5 @@
-import { IsString, IsOptional } from 'class-validator';
+import { IsString, IsOptional, IsInt } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class ThumbnailEditorDto {
   @IsOptional()
@@ -7,15 +8,21 @@ export class ThumbnailEditorDto {
 
   @IsOptional()
   @IsString()
-  packagingImageUrl?: string;
+  packagingImage?: string;
 
   @IsOptional()
   @IsString()
-  productImageUrl?: string;
+  productImage?: string;
 
   @IsOptional()
-  @IsString()
-  composition?: string;
+  @Type(() => Number)
+  @IsInt()
+  pieceCount?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  colorCount?: number;
 
   @IsString()
   purpose: string;

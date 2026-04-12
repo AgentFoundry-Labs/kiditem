@@ -1,28 +1,48 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
-import { Wand2, Loader2, Sparkles } from 'lucide-react';
+import { useSearchParams, useRouter } from 'next/navigation';
+import { ArrowLeft, Wand2, Loader2, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { apiClient } from '@/lib/api-client';
+import { API_BASE } from '@/lib/api';
+import { useProductImages } from '@/hooks/useProductImages';
 import { useGenerateThumbnail } from './hooks/useThumbnailEditor';
 import { ImageUploader } from './components/ImageUploader';
 import { EditorResult } from './components/EditorResult';
 
+async function fetchAsBase64(url: string): Promise<string | null> {
+  try {
+    const fullUrl = url.startsWith('/') ? `${API_BASE}${url}` : url;
+    const res = await fetch(fullUrl);
+    const blob = await res.blob();
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.readAsDataURL(blob);
+    });
+  } catch {
+    return null;
+  }
+}
+
 export default function ThumbnailEditorPage() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const productId = searchParams.get('productId');
 
   const [productName, setProductName] = useState('');
   const [originalImageUrl, setOriginalImageUrl] = useState<string | null>(null);
   const [packagingImage, setPackagingImage] = useState<string | null>(null);
   const [productImage, setProductImage] = useState<string | null>(null);
-  const [composition, setComposition] = useState('');
+  const [pieceCount, setPieceCount] = useState<number | ''>('');
+  const [colorCount, setColorCount] = useState<number | ''>('');
   const [purpose, setPurpose] = useState<'compliance' | 'quality'>('compliance');
   const [result, setResult] = useState<Array<{ url: string; filename: string }>>([]);
 
   const generateMutation = useGenerateThumbnail();
+  const { images: hubImages, loading: hubLoading } = useProductImages(productId);
 
   // productId가 있으면 상품 정보 로드
   useEffect(() => {
@@ -35,13 +55,29 @@ export default function ThumbnailEditorPage() {
     }).catch(() => {});
   }, [productId]);
 
+  // 허브 이미지 자동 배치
+  useEffect(() => {
+    if (hubImages.length === 0) return;
+    const boxImg = hubImages.find(img => img.role === 'box');
+    const prodImg = hubImages.find(img => img.role === 'product');
+
+    if (boxImg && !packagingImage) {
+      fetchAsBase64(boxImg.url).then(b64 => b64 && setPackagingImage(b64));
+    }
+    if (prodImg && !productImage) {
+      fetchAsBase64(prodImg.url).then(b64 => b64 && setProductImage(b64));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hubImages]);
+
   const handleGenerate = async () => {
     try {
       const data = await generateMutation.mutateAsync({
         productId: productId ?? undefined,
-        packagingImageUrl: packagingImage ?? undefined,
-        productImageUrl: productImage ?? undefined,
-        composition: composition || undefined,
+        packagingImage: packagingImage ?? undefined,
+        productImage: productImage ?? undefined,
+        pieceCount: pieceCount || undefined,
+        colorCount: colorCount || undefined,
         purpose,
       });
       if (data?.candidates) {
@@ -59,6 +95,12 @@ export default function ThumbnailEditorPage() {
     <div className="max-w-4xl mx-auto space-y-6 animate-in">
       {/* 헤더 */}
       <div className="flex items-center gap-3">
+        <button
+          onClick={() => router.back()}
+          className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center hover:bg-slate-200 transition-colors"
+        >
+          <ArrowLeft size={18} className="text-slate-600" />
+        </button>
         <div className="w-9 h-9 rounded-xl bg-purple-600 flex items-center justify-center">
           <Sparkles size={18} className="text-white" />
         </div>
@@ -82,32 +124,58 @@ export default function ThumbnailEditorPage() {
           </div>
         )}
 
-        {/* 이미지 업로드 */}
-        <div className="grid grid-cols-2 gap-6">
-          <ImageUploader
-            label="상품 포장 사진"
-            description="패키지 박스, 포장 상태"
-            value={packagingImage}
-            onChange={setPackagingImage}
-          />
-          <ImageUploader
-            label="상품 사진"
-            description="실제 상품 모습"
-            value={productImage}
-            onChange={setProductImage}
-          />
+        {/* 사진 입력 */}
+        <div className="space-y-1.5">
+          <div className="text-sm font-semibold text-slate-700">사진 입력</div>
+          {hubLoading && (
+            <div className="flex items-center gap-2 text-xs text-slate-400">
+              <Loader2 size={14} className="animate-spin" />
+              허브 이미지 로딩 중...
+            </div>
+          )}
+          <div className="grid grid-cols-2 gap-6">
+            <ImageUploader
+              label="📦 포장 사진"
+              description="패키지 박스, 포장 상태"
+              value={packagingImage}
+              onChange={setPackagingImage}
+            />
+            <ImageUploader
+              label="🛍️ 상품 사진"
+              description="실제 상품 모습"
+              value={productImage}
+              onChange={setProductImage}
+            />
+          </div>
         </div>
 
         {/* 상품 구성 */}
         <div className="space-y-1.5">
           <div className="text-sm font-semibold text-slate-700">상품 구성</div>
-          <input
-            type="text"
-            value={composition}
-            onChange={(e) => setComposition(e.target.value)}
-            placeholder="예: 테트리스 블록 40개 + 나무 프레임 1개"
-            className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-purple-200 focus:border-purple-400"
-          />
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1">
+              <label className="text-xs text-slate-500">개입 수</label>
+              <input
+                type="number"
+                min={1}
+                value={pieceCount}
+                onChange={(e) => setPieceCount(e.target.value === '' ? '' : Number(e.target.value))}
+                placeholder="예: 40"
+                className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-purple-200 focus:border-purple-400"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-slate-500">색상 종류</label>
+              <input
+                type="number"
+                min={1}
+                value={colorCount}
+                onChange={(e) => setColorCount(e.target.value === '' ? '' : Number(e.target.value))}
+                placeholder="예: 5"
+                className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-purple-200 focus:border-purple-400"
+              />
+            </div>
+          </div>
         </div>
 
         {/* 편집 목적 */}

@@ -1,0 +1,192 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { FolderOpen, Save, Loader2, Wand2, Sparkles } from 'lucide-react';
+import { toast } from 'sonner';
+import Link from 'next/link';
+
+import { useProductImages } from '@/hooks/useProductImages';
+import { ProductSelector } from './components/ProductSelector';
+import { ImageGrid } from './components/ImageGrid';
+import type { ProductImageItem } from '@kiditem/shared';
+
+interface SelectedProduct {
+  id: string;
+  name: string;
+  imageUrl: string | null;
+  sku: string | null;
+}
+
+export default function ImageHubPage() {
+  const searchParams = useSearchParams();
+  const initialProductId = searchParams.get('productId');
+
+  const [selectedProduct, setSelectedProduct] = useState<SelectedProduct | null>(
+    initialProductId ? { id: initialProductId, name: '', imageUrl: null, sku: null } : null,
+  );
+  const [isDirty, setIsDirty] = useState(false);
+
+  const { images, loading, saving, uploadFile, saveImages, setImages } = useProductImages(
+    selectedProduct?.id ?? null,
+  );
+
+  useEffect(() => {
+    if (!isDirty) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [isDirty]);
+
+  const handleProductSelect = (product: SelectedProduct) => {
+    setSelectedProduct(product);
+  };
+
+  const handleAddImage = async (role: string, file: File) => {
+    if (!selectedProduct) return;
+    const url = await uploadFile(file);
+    if (!url) {
+      toast.error('이미지 업로드 실패');
+      return;
+    }
+    const newImage: ProductImageItem = {
+      url,
+      role,
+      label: '',
+      sortOrder: images.filter((img) => img.role === role).length,
+    };
+    setImages((prev) => [...prev, newImage]);
+    setIsDirty(true);
+    toast.success('이미지 업로드 완료');
+  };
+
+  const handleRemoveImage = (index: number) => {
+    setImages((prev) => prev.filter((_, i) => i !== index));
+    setIsDirty(true);
+  };
+
+  const handleLabelChange = (index: number, label: string) => {
+    setImages((prev) => prev.map((img, i) => (i === index ? { ...img, label } : img)));
+    setIsDirty(true);
+  };
+
+  const handleSave = async () => {
+    try {
+      await saveImages(images);
+      setIsDirty(false);
+      toast.success('이미지가 저장되었습니다');
+    } catch {
+      toast.error('이미지 저장에 실패했습니다');
+    }
+  };
+
+  return (
+    <div className="max-w-5xl mx-auto space-y-6 animate-in">
+      {/* 헤더 */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center">
+            <FolderOpen size={18} className="text-white" />
+          </div>
+          <div>
+            <h1 className="text-lg font-bold text-slate-900">이미지 관리</h1>
+            <p className="text-xs text-slate-400">
+              상품별 이미지를 역할별로 분류하고 관리합니다
+            </p>
+          </div>
+        </div>
+        {selectedProduct && images.length > 0 && (
+          <div className="flex items-center gap-2">
+            <Link
+              href={`/thumbnail-editor?productId=${selectedProduct.id}`}
+              className="flex items-center gap-2 px-4 py-2.5 bg-purple-600 text-white rounded-xl text-sm font-medium hover:bg-purple-700 transition-colors"
+            >
+              <Wand2 size={14} /> 썸네일 편집
+            </Link>
+            <Link
+              href={`/generate?productId=${selectedProduct.id}`}
+              className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-medium hover:bg-emerald-700 transition-colors"
+            >
+              <Sparkles size={14} /> 콘텐츠 생성
+            </Link>
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="flex items-center gap-2 px-4 py-2.5 bg-slate-800 text-white rounded-xl text-sm font-medium hover:bg-slate-900 disabled:opacity-50 transition-colors"
+            >
+              {saving ? (
+                <>
+                  <Loader2 size={14} className="animate-spin" /> 저장 중...
+                </>
+              ) : (
+                <>
+                  <Save size={14} /> 저장
+                </>
+              )}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* 상품 선택 */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-4">
+        <div className="text-sm font-semibold text-slate-700">상품 선택</div>
+        <ProductSelector
+          selectedId={selectedProduct?.id ?? null}
+          onSelect={handleProductSelect}
+        />
+        {selectedProduct && selectedProduct.name && (
+          <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl">
+            {selectedProduct.imageUrl ? (
+              <img
+                src={selectedProduct.imageUrl}
+                alt=""
+                className="w-12 h-12 rounded-lg object-cover border border-slate-200"
+                referrerPolicy="no-referrer"
+              />
+            ) : (
+              <div className="w-12 h-12 rounded-lg bg-slate-200 flex items-center justify-center text-slate-400 text-xs">
+                없음
+              </div>
+            )}
+            <div>
+              <div className="text-sm font-medium text-slate-900">{selectedProduct.name}</div>
+              {selectedProduct.sku && (
+                <div className="text-xs text-slate-400">SKU: {selectedProduct.sku}</div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 이미지 그리드 */}
+      {selectedProduct && (
+        <div className="bg-white rounded-2xl border border-slate-200 p-6">
+          {loading ? (
+            <div className="flex items-center justify-center py-12 text-slate-400">
+              <Loader2 size={20} className="animate-spin mr-2" />
+              이미지 로딩 중...
+            </div>
+          ) : (
+            <ImageGrid
+              images={images}
+              onAdd={handleAddImage}
+              onRemove={handleRemoveImage}
+              onLabelChange={handleLabelChange}
+            />
+          )}
+        </div>
+      )}
+
+      {/* 빈 상태 */}
+      {!selectedProduct && (
+        <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center">
+          <FolderOpen size={40} className="mx-auto text-slate-300 mb-3" />
+          <div className="text-sm text-slate-500">상품을 검색하여 선택하면 이미지를 관리할 수 있습니다</div>
+        </div>
+      )}
+    </div>
+  );
+}

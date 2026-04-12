@@ -3,8 +3,8 @@ export { PaginatedResponseSchema, ApiErrorResponseSchema, SyncInfoSchema } from 
 export type { PaginatedResponse, ApiErrorResponse, SyncInfo } from './schemas/common.js';
 
 // Product
-export { TrafficDataSchema, ProductListItemSchema, ProductDetailSchema, PipelineCountsSchema } from './schemas/product.js';
-export type { TrafficData, ProductListItem, ProductDetail, PipelineCounts } from './schemas/product.js';
+export { TrafficDataSchema, ProductListItemSchema, ProductDetailSchema, PipelineCountsSchema, ProductImageItemSchema, MasterProductSchema } from './schemas/product.js';
+export type { TrafficData, ProductListItem, ProductDetail, PipelineCounts, ProductImageItem, MasterProduct } from './schemas/product.js';
 
 // Order
 export { OrderRowSchema, OrdersResponseSchema } from './schemas/order.js';

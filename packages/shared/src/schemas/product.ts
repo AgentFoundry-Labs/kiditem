@@ -9,6 +9,24 @@ export const TrafficDataSchema = z.object({
   revenue: z.number(),
 });
 
+// MasterProduct (매입 상품 마스터)
+export const MasterProductSchema = z.object({
+  id: z.string(),
+  companyId: z.string(),
+  sku: z.string(),
+  name: z.string(),
+  costPrice: z.number().nullable(),
+  sellPrice: z.number().nullable(),
+  commissionRate: z.number().nullable(),
+  barcode: z.string().nullable(),
+  category: z.string().nullable(),
+  brand: z.string().nullable(),
+  status: z.string(),
+  memo: z.string().nullable(),
+});
+
+export type MasterProduct = z.infer<typeof MasterProductSchema>;
+
 // GET /api/products 응답의 각 item (enrichProduct 반환값)
 // 출처: products.service.ts enrichProduct() line 280-314
 export const ProductListItemSchema = z.object({
@@ -162,8 +180,17 @@ export const PipelineCountsSchema = z.object({
   noAdCount: z.number(),
 });
 
+// Product Image
+export const ProductImageItemSchema = z.object({
+  url: z.string(),
+  role: z.string(),
+  label: z.string().optional(),
+  sortOrder: z.number().optional(),
+});
+
 // 타입 export
 export type TrafficData = z.infer<typeof TrafficDataSchema>;
 export type ProductListItem = z.infer<typeof ProductListItemSchema>;
 export type ProductDetail = z.infer<typeof ProductDetailSchema>;
 export type PipelineCounts = z.infer<typeof PipelineCountsSchema>;
+export type ProductImageItem = z.infer<typeof ProductImageItemSchema>;

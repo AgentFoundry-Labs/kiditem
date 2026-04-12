@@ -26,14 +26,14 @@ export class ThumbnailEditorController {
     }
 
     // 포장 사진
-    if (body.packagingImageUrl) {
-      const data = this.extractBase64(body.packagingImageUrl);
+    if (body.packagingImage) {
+      const data = this.extractBase64(body.packagingImage);
       if (data) images.push({ ...data, label: 'Product packaging photo' });
     }
 
     // 상품 사진
-    if (body.productImageUrl) {
-      const data = this.extractBase64(body.productImageUrl);
+    if (body.productImage) {
+      const data = this.extractBase64(body.productImage);
       if (data) images.push({ ...data, label: 'Product photo' });
     }
 
@@ -41,8 +41,14 @@ export class ThumbnailEditorController {
       throw new BadRequestException('최소 1개 이미지가 필요합니다 (productId 또는 이미지 업로드)');
     }
 
+    // 구성 정보 텍스트
+    const parts: string[] = [];
+    if (body.pieceCount) parts.push(`${body.pieceCount}개입`);
+    if (body.colorCount) parts.push(`${body.colorCount}가지 색상`);
+    const composition = parts.length > 0 ? parts.join(', ') : undefined;
+
     const purpose = body.purpose === 'quality' ? 'quality' as const : 'compliance' as const;
-    const results = await this.thumbnailAiService.generateFromInputs(images, body.composition, purpose);
+    const results = await this.thumbnailAiService.generateFromInputs(images, composition, purpose);
 
     return { candidates: results };
   }

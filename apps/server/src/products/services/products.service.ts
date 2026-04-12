@@ -460,6 +460,20 @@ export class ProductsService {
     return this.prisma.product.delete({ where: { id } });
   }
 
+  async updateImages(
+    productId: string,
+    images: Array<{ url: string; role: string; label?: string; sortOrder?: number }>,
+  ) {
+    if (images.length > 20) {
+      throw new BadRequestException('이미지는 최대 20개까지 등록 가능합니다');
+    }
+    return this.prisma.product.update({
+      where: { id: productId },
+      data: { images: images as any },
+      select: { id: true, images: true },
+    });
+  }
+
   async updateDraftContent(id: string, body: Record<string, unknown>): Promise<any> {
     const product = await this.prisma.product.findUnique({ where: { id } });
     if (!product) throw new NotFoundException('Product not found');
