@@ -1,6 +1,7 @@
 'use client';
 
-import { apiClient } from '@/lib/api-client';
+import type { ReactNode } from 'react';
+import { useCallback, useState } from 'react';
 import {
   Eraser,
   Loader2,
@@ -11,8 +12,7 @@ import {
   Type,
   X,
 } from 'lucide-react';
-import type { ReactNode } from 'react';
-import { useCallback, useState } from 'react';
+import { apiClient } from '@/lib/api-client';
 
 interface AIImageEditPanelProps {
   imageUrl: string;

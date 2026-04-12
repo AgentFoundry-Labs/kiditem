@@ -1,8 +1,8 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import TabLayout from '@/components/ui/TabLayout';
 import { Handshake, History, TrendingUp, ShoppingBag, Receipt, CreditCard, FileText } from 'lucide-react';
+import TabLayout from '@/components/ui/TabLayout';
 
 const SupplierHistoryPage = dynamic(() => import('@/app/supplier-hub/components/SupplierHistory'), { ssr: false });
 const SupplierSalesPage = dynamic(() => import('@/app/supplier-hub/components/SupplierSales'), { ssr: false });

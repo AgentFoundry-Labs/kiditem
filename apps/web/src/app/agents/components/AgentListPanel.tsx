@@ -2,9 +2,9 @@
 
 import Link from 'next/link';
 import { Bot } from 'lucide-react';
-import type { Agent, OrgNode, ViewMode } from '../lib/agent-types';
 import { AgentListRow } from './AgentListRow';
 import { OrgTreeNode } from './OrgTreeNode';
+import type { Agent, OrgNode, ViewMode } from '../lib/agent-types';
 
 interface AgentListPanelProps {
   agents: Agent[];

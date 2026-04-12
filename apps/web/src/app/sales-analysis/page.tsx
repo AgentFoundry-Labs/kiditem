@@ -1,8 +1,8 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import TabLayout from '@/components/ui/TabLayout';
 import { LineChart, Receipt, BarChart3, FileSpreadsheet, Target } from 'lucide-react';
+import TabLayout from '@/components/ui/TabLayout';
 
 const SalesOverviewPage = dynamic(() => import('@/app/sales-analysis/components/SalesOverview'), { ssr: false });
 const SettlementsPage = dynamic(() => import('@/app/sales-analysis/components/Settlements'), { ssr: false });

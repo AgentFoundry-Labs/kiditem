@@ -1,9 +1,9 @@
 'use client';
 
-import { Database, ImageIcon, Package, Tag } from 'lucide-react';
 import type React from 'react';
-import { formatNumber } from '@/lib/utils';
 import { useState } from 'react';
+import { Database, ImageIcon, Package, Tag } from 'lucide-react';
+import { formatNumber } from '@/lib/utils';
 
 interface RawDataTabProps {
   rawData: Record<string, unknown> | null;

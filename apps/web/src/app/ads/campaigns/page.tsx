@@ -7,8 +7,8 @@ import Link from 'next/link';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import { formatKRW } from '@/lib/utils';
-import { roasColor } from '../lib/status-colors';
 import PageSkeleton from '@/components/ui/PageSkeleton';
+import { roasColor } from '../lib/status-colors';
 import { CampaignTable } from './components/CampaignTable';
 import { ProductDrilldown } from './components/ProductDrilldown';
 

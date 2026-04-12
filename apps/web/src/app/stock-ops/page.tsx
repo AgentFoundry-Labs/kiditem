@@ -1,6 +1,5 @@
 'use client';
 
-import TabLayout from '@/components/ui/TabLayout';
 import {
   Boxes,
   AlertOctagon,
@@ -12,6 +11,7 @@ import {
   BarChart3,
   PackageX,
 } from 'lucide-react';
+import TabLayout from '@/components/ui/TabLayout';
 import DeadStock from './components/DeadStock';
 import ZeroItems from './components/ZeroItems';
 import OutOfStock from './components/OutOfStock';

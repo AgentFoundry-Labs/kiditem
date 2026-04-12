@@ -1,9 +1,9 @@
 "use client";
 import { useState } from "react";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { apiClient } from "@/lib/api-client";
 import { isApiError } from "@/lib/api-error";
-import { toast } from "sonner";
 import { queryKeys } from "@/lib/query-keys";
 import type { ProductDetail as Product } from "@kiditem/shared";
 

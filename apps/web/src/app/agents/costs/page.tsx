@@ -2,13 +2,13 @@
 
 import { useState, useMemo } from 'react';
 import { DollarSign, Cpu, Bot, Activity, RefreshCw, Hash } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
+import dynamic from 'next/dynamic';
 import { cn } from '@/lib/utils';
 import PageSkeleton from '@/components/ui/PageSkeleton';
+import { queryKeys } from '@/lib/query-keys';
 import { formatTokens, formatCost } from '../lib/agent-utils';
 import { useAgents, useAgentCostAnalytics } from '../hooks/useAgents';
-import { useQueryClient } from '@tanstack/react-query';
-import { queryKeys } from '@/lib/query-keys';
-import dynamic from 'next/dynamic';
 
 const CostTrendChart = dynamic(() => import('./components/CostTrendChart'), { ssr: false });
 import BudgetGauge from './components/BudgetGauge';

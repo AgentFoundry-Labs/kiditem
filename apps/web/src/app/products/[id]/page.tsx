@@ -1,10 +1,9 @@
 'use client';
 
-import { apiClient } from "@/lib/api-client";
-import PageSkeleton from "@/components/ui/PageSkeleton";
 import { useParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import type { ProductDetail as Product } from "@kiditem/shared";
+import PageSkeleton from "@/components/ui/PageSkeleton";
+import { apiClient } from "@/lib/api-client";
 import { queryKeys } from "@/lib/query-keys";
 import ProductHeader from "./components/ProductHeader";
 import ProductMetrics from "./components/ProductMetrics";
@@ -13,6 +12,7 @@ import ActivityHistory from "./components/ActivityHistory";
 import ProductSidebar from "./components/ProductSidebar";
 import ProductInfoCards, { type InventoryData } from "./components/ProductInfoCards";
 import { useProductActions } from "./hooks/useProductActions";
+import type { ProductDetail as Product } from "@kiditem/shared";
 
 // Re-export types consumed by co-located components
 export type { ActivityEvent, Workflow } from "./hooks/useProductActions";

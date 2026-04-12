@@ -2,15 +2,15 @@
 
 import { useState, useMemo } from 'react';
 import { Puzzle, RefreshCw, Search } from 'lucide-react';
-import PageSkeleton from '@/components/ui/PageSkeleton';
-import { SKILL_DESCRIPTIONS } from '../lib/agent-types';
-import type { Agent } from '../lib/agent-types';
-import { useAgents } from '../hooks/useAgents';
 import { useQueryClient } from '@tanstack/react-query';
+import PageSkeleton from '@/components/ui/PageSkeleton';
 import { queryKeys } from '@/lib/query-keys';
+import { SKILL_DESCRIPTIONS } from '../lib/agent-types';
+import { useAgents } from '../hooks/useAgents';
 import SkillCardGrid from './components/SkillCardGrid';
-import type { SkillEntry } from './components/SkillCardGrid';
 import NoSkillAgentsList from './components/NoSkillAgentsList';
+import type { SkillEntry } from './components/SkillCardGrid';
+import type { Agent } from '../lib/agent-types';
 
 export default function SkillsPage() {
   const queryClient = useQueryClient();

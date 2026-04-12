@@ -3,8 +3,8 @@ import { useState } from 'react';
 import { ImageIcon, Zap, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiClient } from '@/lib/api-client';
-import { ScoreBreakdown } from './ScoreBreakdown';
 import { cn } from '@/lib/utils';
+import { ScoreBreakdown } from './ScoreBreakdown';
 import type { ThumbnailAnalysisResult } from '@kiditem/shared';
 
 const GRADE_BG: Record<string, string> = {

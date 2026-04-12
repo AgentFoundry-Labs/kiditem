@@ -2,17 +2,17 @@
 
 import { useMemo, useState } from "react";
 import { Download } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { usePeriodSelector } from '@/hooks/usePeriodSelector';
 import PeriodSelector from '@/components/ui/PeriodSelector';
 import { timeAgo } from "@/lib/utils";
 import { apiClient } from "@/lib/api-client";
 import { isApiError } from "@/lib/api-error";
 import { queryKeys } from "@/lib/query-keys";
-import { useQuery } from "@tanstack/react-query";
 import PageSkeleton from "@/components/ui/PageSkeleton";
-import type { PLData, SyncInfo } from '@kiditem/shared';
 import ProfitLossSummaryCards from "./components/ProfitLossSummaryCards";
 import ProfitLossTable from "./components/ProfitLossTable";
+import type { PLData, SyncInfo } from '@kiditem/shared';
 import type { SortField } from "./components/ProfitLossTable";
 
 export default function ProfitLossPage() {

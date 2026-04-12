@@ -1,7 +1,7 @@
 'use client';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { ThumbnailAnalysisResult, ThumbnailAnalysisSummary } from '@kiditem/shared';
 
 export type AnalysisScope = 'all' | 'quality' | 'compliance';

@@ -1,7 +1,7 @@
 'use client';
-import { ADAPTER_LABELS, ROLE_LABELS, type OrgNode } from '../../lib/agent-types';
 import { agentStatusDot, agentStatusDotDefault } from '@/lib/status-colors';
 import { cn } from '@/lib/utils';
+import { ADAPTER_LABELS, ROLE_LABELS, type OrgNode } from '../../lib/agent-types';
 
 interface Props {
   node: OrgNode;

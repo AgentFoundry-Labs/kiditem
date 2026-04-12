@@ -1,9 +1,9 @@
 'use client';
 
-import { API_BASE } from '@/lib/api';
-import { apiClient } from '@/lib/api-client';
 import { toast } from 'sonner';
 import grapesjs, { type Editor } from 'grapesjs';
+import { API_BASE } from '@/lib/api';
+import { apiClient } from '@/lib/api-client';
 import 'grapesjs/dist/css/grapes.min.css';
 import './grapesjs-editor.css';
 import GjsEditor, {

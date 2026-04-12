@@ -1,17 +1,16 @@
 'use client';
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { apiClient } from "@/lib/api-client";
-import type { AdsListItem as AdProduct, AdsSummary as AdSummary } from '@kiditem/shared';
-
 import { Megaphone, TrendingDown, AlertTriangle, Download } from "lucide-react";
-import { formatKRW } from "@/lib/utils";
-import { AdsTable } from "./components/AdsTable";
-import { CampaignList } from "./components/CampaignList";
-import PageSkeleton from "@/components/ui/PageSkeleton";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
+import { formatKRW } from "@/lib/utils";
+import PageSkeleton from "@/components/ui/PageSkeleton";
+import { apiClient } from "@/lib/api-client";
 import { queryKeys } from "@/lib/query-keys";
+import { CampaignList } from "./components/CampaignList";
+import { AdsTable } from "./components/AdsTable";
 import { ROAS_STATUS_COLOR, AD_RATE_STATUS_STYLE, AD_RATE_STATUS_TEXT_COLOR } from "./lib/status-colors";
+import type { AdsListItem as AdProduct, AdsSummary as AdSummary } from '@kiditem/shared';
 
 export default function AdsPage() {
   const [filter, setFilter] = useState("all");

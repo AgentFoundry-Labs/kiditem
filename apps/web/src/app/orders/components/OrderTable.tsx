@@ -1,7 +1,7 @@
 'use client';
 import { Check, Printer, FileText } from "lucide-react";
-import type { OrderRow } from "@kiditem/shared";
 import { formatKRW } from "@/lib/utils";
+import type { OrderRow } from "@kiditem/shared";
 
 interface OrderNode {
   key: string;

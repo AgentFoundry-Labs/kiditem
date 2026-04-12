@@ -5,7 +5,6 @@ import {
   ChevronDown, AlertTriangle, Wallet, Download, FileSpreadsheet,
 } from 'lucide-react';
 import { formatKRW, formatNumber } from '@/lib/utils';
-
 import type { AdRulesData, AdWeeklyPlan, AdStrategyAction } from '@kiditem/shared';
 
 interface Props {

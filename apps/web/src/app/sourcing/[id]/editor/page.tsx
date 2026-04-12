@@ -1,19 +1,19 @@
 'use client';
 
-import type { DetailPageData } from '@kiditem/templates';
+import { Suspense } from 'react';
 import { getTemplate, parseDetailPageData, placeholderDetailPageData } from '@kiditem/templates';
-import DetailPageEditor from './components/DetailPageEditor';
+import { Loader2 } from 'lucide-react';
+import { useParams, useRouter } from 'next/navigation';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { API_BASE } from '@/lib/api';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
+import { queryKeys } from '@/lib/query-keys';
 import { renderTemplateToHtml } from '../../lib/template-html';
-import { Loader2 } from 'lucide-react';
 import EditorLoadingScreen from './components/EditorLoadingScreen';
 import EditorErrorScreen from './components/EditorErrorScreen';
-import { useParams, useRouter } from 'next/navigation';
-import { Suspense } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { queryKeys } from '@/lib/query-keys';
+import DetailPageEditor from './components/DetailPageEditor';
+import type { DetailPageData } from '@kiditem/templates';
 
 function extractImageUrls(data: Record<string, unknown> | null | undefined): string[] {
   if (!data) return [];

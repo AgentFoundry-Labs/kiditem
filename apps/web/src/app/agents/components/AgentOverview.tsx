@@ -3,21 +3,21 @@
 import { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
-import PageSkeleton from '@/components/ui/PageSkeleton';
-import { isApiError } from '@/lib/api-error';
 import { toast } from 'sonner';
-import { queryKeys } from '@/lib/query-keys';
-import { useAgents, useAgentOrg, useDeleteAgent, useInvokeAgent } from '../hooks/useAgents';
 import dynamic from 'next/dynamic';
+import { queryKeys } from '@/lib/query-keys';
+import { isApiError } from '@/lib/api-error';
+import PageSkeleton from '@/components/ui/PageSkeleton';
 import { useMarketplaceAgents, useInstallAgent } from '@/hooks/useMarketplace';
 import type { AgentCatalogItem } from '@/app/marketplace/lib/marketplace-types';
+import { useAgents, useAgentOrg, useDeleteAgent, useInvokeAgent } from '../hooks/useAgents';
 
 const AgentDetailModal = dynamic(() => import('@/components/marketplace/AgentDetailModal').then(m => ({ default: m.AgentDetailModal })));
-import type { Agent, OrgNode, FilterTab, ViewMode } from '../lib/agent-types';
-import { AgentToolbar } from './AgentToolbar';
-import { AgentListPanel } from './AgentListPanel';
 import OrgTree from '../org/components/OrgTree';
 import OrgLegend from '../org/components/OrgLegend';
+import { AgentListPanel } from './AgentListPanel';
+import { AgentToolbar } from './AgentToolbar';
+import type { Agent, OrgNode, FilterTab, ViewMode } from '../lib/agent-types';
 
 function matchesFilter(status: string, tab: FilterTab, showTerminated: boolean): boolean {
   if (status === 'terminated') return showTerminated;

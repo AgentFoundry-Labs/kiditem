@@ -3,15 +3,13 @@
 import { useState, useRef, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
-import PageSkeleton from '@/components/ui/PageSkeleton';
 import { ArrowLeft } from 'lucide-react';
+import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { isApiError } from '@/lib/api-error';
-import { toast } from 'sonner';
+import PageSkeleton from '@/components/ui/PageSkeleton';
 import { queryKeys } from '@/lib/query-keys';
 import { useAgent, useAgentRuns, useAgentRuntimeState, useInvokeAgent, usePauseAgent, useResumeAgent, useResetAgentSession } from '../hooks/useAgents';
-import type { AgentDetailTab } from '../lib/agent-types';
-
 import { AgentDetailHeader } from './components/AgentDetailHeader';
 import { AgentConfigSaveBar } from './components/AgentConfigSaveBar';
 import { DashboardTab } from './components/DashboardTab';
@@ -20,6 +18,7 @@ import { SkillsTab } from './components/SkillsTab';
 import { ConfigurationTab } from './components/ConfigurationTab';
 import { RunsTab } from './components/RunsTab';
 import { BudgetTab } from './components/BudgetTab';
+import type { AgentDetailTab } from '../lib/agent-types';
 
 /* ---------- constants ---------- */
 

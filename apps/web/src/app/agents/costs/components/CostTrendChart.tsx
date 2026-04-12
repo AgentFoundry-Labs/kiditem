@@ -1,8 +1,8 @@
 'use client';
 
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
-import type { DailyCost } from '../../lib/agent-types';
 import { formatCost } from '../../lib/agent-utils';
+import type { DailyCost } from '../../lib/agent-types';
 
 interface Props {
   data: DailyCost[];

@@ -3,8 +3,8 @@ import { Fragment, useState } from 'react';
 import { TrendingUp, TrendingDown, Minus, ChevronDown, ChevronUp, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import type { ThumbnailTrackingRecord, UpdateMetricsInput } from '../hooks/useThumbnailTracking';
 import { useUpdateMetrics } from '../hooks/useThumbnailTracking';
+import type { ThumbnailTrackingRecord, UpdateMetricsInput } from '../hooks/useThumbnailTracking';
 
 const GRADE_COLORS: Record<string, string> = {
   S: 'text-emerald-600 bg-emerald-50',

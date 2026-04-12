@@ -1,8 +1,8 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import TabLayout from '@/components/ui/TabLayout';
 import { Package, Layers, Star, Trash2, Image, FolderTree } from 'lucide-react';
+import TabLayout from '@/components/ui/TabLayout';
 
 const ProductsPage = dynamic(() => import('@/app/products/page'), { ssr: false });
 const BundlePage = dynamic(() => import('@/app/product-hub/components/BundleProducts'), { ssr: false });

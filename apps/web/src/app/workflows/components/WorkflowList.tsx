@@ -14,15 +14,15 @@ import {
   Trash2,
 } from 'lucide-react';
 import { cn, getModuleColor, timeAgo } from '@/lib/utils';
+import type { Workflow } from '@/types';
 import { workflowApi } from '../lib/workflow-api';
+import WorkflowCanvas from './WorkflowCanvas';
+import WorkflowRunView from './WorkflowRunView';
 import type {
   WorkflowTemplate,
   WorkflowRun,
   WorkflowRunWithSteps,
 } from '../lib/workflow-types';
-import type { Workflow } from '@/types';
-import WorkflowCanvas from './WorkflowCanvas';
-import WorkflowRunView from './WorkflowRunView';
 
 /** Convert legacy Workflow to WorkflowTemplate shape */
 function legacyToTemplate(wf: Workflow): WorkflowTemplate {

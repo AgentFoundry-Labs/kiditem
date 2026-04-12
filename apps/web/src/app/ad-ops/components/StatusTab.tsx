@@ -10,7 +10,6 @@ import {
 } from 'recharts';
 import { formatKRW, formatNumber } from '@/lib/utils';
 import { AdActionPanel } from './AdActionPanel';
-
 import type { AdTrendsData, AdRulesData, AdWeeklyPlan, AdCampaignSnapshot, AdProductSnapshot } from '@kiditem/shared';
 
 interface Props {

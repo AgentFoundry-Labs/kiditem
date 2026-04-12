@@ -2,13 +2,13 @@
 
 import { useState, useMemo, useEffect } from 'react';
 import { Search, Store } from 'lucide-react';
+import { toast } from 'sonner';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { MarketplaceCard } from '@/components/marketplace/MarketplaceCard';
 import { AgentDetailModal } from '@/components/marketplace/AgentDetailModal';
 import { WorkflowDetailModal } from '@/components/marketplace/WorkflowDetailModal';
 import { useMarketplaceAgents, useMarketplaceWorkflows, useInstallAgent, useInstallWorkflow, useUninstallAgent, useUninstallWorkflow } from '@/hooks/useMarketplace';
 import { isApiError } from '@/lib/api-error';
-import { toast } from 'sonner';
 import type { AgentCatalogItem, WorkflowCatalogItem } from './lib/marketplace-types';
 
 type TypeFilter = 'all' | 'agent' | 'workflow' | 'installed';

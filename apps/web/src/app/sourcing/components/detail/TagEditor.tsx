@@ -1,7 +1,7 @@
 'use client';
 
-import { Plus, X } from 'lucide-react';
 import { useState } from 'react';
+import { Plus, X } from 'lucide-react';
 
 interface TagEditorProps {
   tags: string[];

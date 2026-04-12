@@ -3,8 +3,8 @@
 import { useState, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
-import TabLayout from '@/components/ui/TabLayout';
 import { Bot, Activity, Coins, Puzzle, GitBranch, Store } from 'lucide-react';
+import TabLayout from '@/components/ui/TabLayout';
 
 const AgentOverview = dynamic(() => import('@/app/agents/components/AgentOverview'), { ssr: false });
 const ActivityPage = dynamic(() => import('@/app/agents/activity/page'), { ssr: false });

@@ -1,6 +1,6 @@
 'use client';
 
-import { apiClient } from '@/lib/api-client';
+import { useCallback, useMemo, useState } from 'react';
 import {
   AlignLeft,
   Check,
@@ -10,7 +10,7 @@ import {
   Wand2,
   X,
 } from 'lucide-react';
-import { useCallback, useMemo, useState } from 'react';
+import { apiClient } from '@/lib/api-client';
 
 interface AITextEditPanelProps {
   component: any;

@@ -1,8 +1,8 @@
 'use client';
 
 import { Eye, Loader2, MoreVertical, Sparkles, Trash2 } from 'lucide-react';
-import SourcingStatusBadge from './SourcingStatusBadge';
 import { formatKRW } from '@/lib/utils';
+import SourcingStatusBadge from './SourcingStatusBadge';
 import type { SourcedProduct } from '../../lib/sourcing-api';
 
 interface Props {

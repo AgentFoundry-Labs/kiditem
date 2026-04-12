@@ -13,12 +13,12 @@ import {
   CartesianGrid,
 } from 'recharts';
 import { RotateCcw, TrendingDown, Package } from 'lucide-react';
-import { ReturnFaultSplit, type FaultSplit } from './components/ReturnFaultSplit';
+import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import { useQuery } from '@tanstack/react-query';
 import { formatPercent, cn } from '@/lib/utils';
 import { DateRangePicker } from '@/components/ui/DateRangePicker';
+import { ReturnFaultSplit, type FaultSplit } from './components/ReturnFaultSplit';
 
 function toParam(d: Date) {
   return format(d, 'yyyy-MM-dd');

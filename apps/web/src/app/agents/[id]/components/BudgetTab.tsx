@@ -7,10 +7,10 @@ import {
   Wallet,
   AlertTriangle,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
-import { agentApi } from '../../lib/agent-api';
-import { isApiError } from '@/lib/api-error';
 import { toast } from 'sonner';
+import { cn } from '@/lib/utils';
+import { isApiError } from '@/lib/api-error';
+import { agentApi } from '../../lib/agent-api';
 import { formatTokens, formatCost } from '../../lib/agent-utils';
 import type { Agent, AgentRuntimeState } from '../../lib/agent-types';
 

@@ -6,8 +6,6 @@ import {
   SkipForward, Download, Copy, Lightbulb, AlertTriangle, XCircle, Clock,
   Loader2, Sparkles,
 } from 'lucide-react';
-import { ScoreBreakdown } from './ScoreBreakdown';
-import type { ThumbnailAnalysisResult, ThumbnailGenerationItem, ImageSpec } from '@kiditem/shared';
 import { cn } from '@/lib/utils';
 import {
   COMPLIANCE_GRADE_TEXT,
@@ -16,6 +14,8 @@ import {
   VIOLATION_LABELS,
 } from '../lib/grade-constants';
 import { resolveImageUrl } from '../lib/resolve-url';
+import { ScoreBreakdown } from './ScoreBreakdown';
+import type { ThumbnailAnalysisResult, ThumbnailGenerationItem, ImageSpec } from '@kiditem/shared';
 
 const GRADE_COLORS: Record<string, string> = {
   S: 'bg-emerald-100 text-emerald-700 border-emerald-200',

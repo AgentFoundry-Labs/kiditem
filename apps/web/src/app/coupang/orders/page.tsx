@@ -3,14 +3,14 @@
 import { useState } from 'react';
 import { format, subDays } from 'date-fns';
 import { type DateRange } from 'react-day-picker';
+import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import { useQuery } from '@tanstack/react-query';
 import { KpiBar } from './components/KpiBar';
 import { RevenueTrendChart } from './components/RevenueTrendChart';
-import type { TrendRow } from './components/RevenueTrendChart';
 import OrdersDateFilter from './components/OrdersDateFilter';
 import OrderRankingTable from './components/OrderRankingTable';
+import type { TrendRow } from './components/RevenueTrendChart';
 
 function toParam(d: Date) {
   return format(d, 'yyyy-MM-dd');

@@ -1,8 +1,8 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import TabLayout from '@/components/ui/TabLayout';
 import { Warehouse, Package, ArrowUpDown, BookOpen, ClipboardCheck, DollarSign } from 'lucide-react';
+import TabLayout from '@/components/ui/TabLayout';
 
 const InventoryPage = dynamic(() => import('@/app/inventory/page'), { ssr: false });
 const PurchaseOrdersPage = dynamic(() => import('@/app/purchase-orders/page'), { ssr: false });

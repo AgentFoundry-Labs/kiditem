@@ -1,11 +1,11 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { toast } from 'sonner';
 import { isApiError } from '@/lib/api-error';
 import { formatNumber } from '@/lib/utils';
-import { toast } from 'sonner';
-import type { Agent } from '../../lib/agent-types';
 import { useUpdateAgent } from '../../hooks/useAgents';
+import type { Agent } from '../../lib/agent-types';
 
 export function InstructionsTab({
   agent,

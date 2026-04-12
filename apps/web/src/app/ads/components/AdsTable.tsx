@@ -1,7 +1,7 @@
 'use client';
-import type { AdsListItem as AdProduct } from '@kiditem/shared';
 import { formatKRW, formatPercent, getGradeColor } from '@/lib/utils';
 import { ROAS_STATUS_COLOR } from '../lib/status-colors';
+import type { AdsListItem as AdProduct } from '@kiditem/shared';
 
 interface Props {
   filtered: AdProduct[];

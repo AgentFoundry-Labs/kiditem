@@ -1,7 +1,7 @@
 'use client';
 
-import { formatKRW } from '@/lib/utils';
 import { BarChart3, AlertTriangle, TrendingUp } from 'lucide-react';
+import { formatKRW } from '@/lib/utils';
 
 const BENCH_STATUS: Record<string, { bg: string; text: string; dot: string; label: string }> = {
   excellent: { bg: 'bg-emerald-100', text: 'text-emerald-700', dot: 'bg-emerald-500', label: '우수' },

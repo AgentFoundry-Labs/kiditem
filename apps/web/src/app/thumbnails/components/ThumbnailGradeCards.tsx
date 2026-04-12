@@ -1,7 +1,6 @@
 'use client';
 
 import { cn } from '@/lib/utils';
-import type { ThumbnailSummary } from '@kiditem/shared';
 import {
   QUALITY_GRADE_TEXT,
   QUALITY_GRADE_LABELS,
@@ -9,6 +8,7 @@ import {
   COMPLIANCE_GRADE_LABELS,
   COMPLIANCE_GRADE_BG,
 } from '../lib/grade-constants';
+import type { ThumbnailSummary } from '@kiditem/shared';
 
 interface Props {
   summary: ThumbnailSummary;

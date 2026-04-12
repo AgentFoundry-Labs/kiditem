@@ -2,9 +2,9 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { Sparkles, AlertTriangle, ChevronDown } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import { Sparkles, AlertTriangle, ChevronDown } from 'lucide-react';
 import { roasColor } from '../../lib/status-colors';
 
 const GRADE_STYLES: Record<string, { border: string; bg: string; pillBg: string; moreColor: string; ring: string; headerGrad: string }> = {

@@ -1,8 +1,8 @@
 'use client';
-import type { ReviewListItem as ReviewProduct } from '@kiditem/shared';
 import { Star } from 'lucide-react';
 import { Pagination } from '@/components/ui/Pagination';
 import { getGradeColor } from '@/lib/utils';
+import type { ReviewListItem as ReviewProduct } from '@kiditem/shared';
 
 export type FilterTab = 'all' | 'new' | 'needs-response';
 

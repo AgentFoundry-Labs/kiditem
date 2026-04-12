@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { ArrowLeft, Wand2, Loader2, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
-
 import { apiClient } from '@/lib/api-client';
 import { API_BASE } from '@/lib/api';
 import { useProductImages } from '@/hooks/useProductImages';

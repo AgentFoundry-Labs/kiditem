@@ -12,8 +12,8 @@ import ReactFlow, {
   ConnectionMode,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
-import type { WorkflowTemplate, StepStatusInfo } from '../lib/workflow-types';
 import WorkflowNode from './WorkflowNode';
+import type { WorkflowTemplate, StepStatusInfo } from '../lib/workflow-types';
 
 interface WorkflowCanvasProps {
   template: WorkflowTemplate;

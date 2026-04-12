@@ -5,7 +5,6 @@ import { useSearchParams } from 'next/navigation';
 import { FolderOpen, Save, Loader2, Wand2, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import Link from 'next/link';
-
 import { useProductImages } from '@/hooks/useProductImages';
 import { ProductSelector } from './components/ProductSelector';
 import { ImageGrid } from './components/ImageGrid';

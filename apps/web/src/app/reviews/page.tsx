@@ -1,13 +1,13 @@
 'use client';
 
-import { apiClient } from '@/lib/api-client';
-import { queryKeys } from '@/lib/query-keys';
-import { useQuery } from '@tanstack/react-query';
-import type { ReviewListItem as ReviewProduct } from '@kiditem/shared';
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { MessageSquare, Star, RefreshCw } from 'lucide-react';
+import { queryKeys } from '@/lib/query-keys';
+import { apiClient } from '@/lib/api-client';
 import { cn, formatNumber } from '@/lib/utils';
 import { ReviewTable, type FilterTab } from './components/ReviewTable';
+import type { ReviewListItem as ReviewProduct } from '@kiditem/shared';
 
 interface ReviewSummaryData {
   totalReviewCount: number;

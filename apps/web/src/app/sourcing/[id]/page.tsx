@@ -3,13 +3,12 @@
 import { useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { productsApi } from '../lib/sourcing-api';
-import type { DetailPageData } from '@kiditem/templates';
 import { getTemplate, parseDetailPageData, placeholderDetailPageData } from '@kiditem/templates';
 import { API_BASE } from '@/lib/api';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
+import { productsApi } from '../lib/sourcing-api';
 import { renderTemplateToHtml } from '../lib/template-html';
 import MobilePreview from '../components/detail/MobilePreview';
 import ProductEditHeader from '../components/detail/ProductEditHeader';
@@ -22,6 +21,7 @@ import {
   PLACEHOLDER_DATA,
   mapProcessedData,
 } from './lib/types';
+import type { DetailPageData } from '@kiditem/templates';
 
 export default function ProductDetailPage() {
   const params = useParams();

@@ -1,8 +1,8 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import TabLayout from '@/components/ui/TabLayout';
 import { Wallet, BookOpen, Factory, Calculator, CalendarClock, HandCoins } from 'lucide-react';
+import TabLayout from '@/components/ui/TabLayout';
 
 const ManualLedgerPage = dynamic(() => import('@/app/finance-hub/components/ManualLedger'), { ssr: false });
 const ProcessingCostsPage = dynamic(() => import('@/app/finance-hub/components/ProcessingCosts'), { ssr: false });

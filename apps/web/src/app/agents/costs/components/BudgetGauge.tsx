@@ -1,6 +1,6 @@
-import type { Agent } from '../../lib/agent-types';
-import { formatTokens } from '../../lib/agent-utils';
 import { cn } from '@/lib/utils';
+import { formatTokens } from '../../lib/agent-utils';
+import type { Agent } from '../../lib/agent-types';
 
 interface Props {
   agents: Agent[];

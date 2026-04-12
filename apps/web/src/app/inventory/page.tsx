@@ -1,18 +1,18 @@
 'use client';
 
 import { useState } from "react";
-import { apiClient } from '@/lib/api-client';
-import { isApiError } from '@/lib/api-error';
 import { toast } from 'sonner';
-import { queryKeys } from '@/lib/query-keys';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { isApiError } from '@/lib/api-error';
+import { queryKeys } from '@/lib/query-keys';
+import { apiClient } from '@/lib/api-client';
 import PageSkeleton from "@/components/ui/PageSkeleton";
-import type { InventoryItem, InventorySummary, SyncInfo } from '@kiditem/shared';
 import { InventoryToolbar } from './components/InventoryToolbar';
 import { InventorySummaryCards } from './components/InventorySummaryCards';
 import { InventoryFilterTabs } from './components/InventoryFilterTabs';
 import { InventoryTable } from './components/InventoryTable';
 import { printBarcodeWindow } from './lib/barcode-print';
+import type { InventoryItem, InventorySummary, SyncInfo } from '@kiditem/shared';
 
 const DEFAULT_SUMMARY: InventorySummary = { total: 0, reorderCount: 0, outOfStockCount: 0, unsyncedCount: 0, overstockCount: 0 };
 

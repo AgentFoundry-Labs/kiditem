@@ -11,7 +11,6 @@ import { useAdOpsData, useCampaignProducts, useRefreshAdOps } from './hooks/useA
 import { KpiCards } from './components/KpiCards';
 import { StatusTab } from './components/StatusTab';
 import { StrategyTab } from './components/StrategyTab';
-
 import type { TabKey } from './lib/types';
 
 const TABS: { key: TabKey; label: string; icon: typeof LayoutGrid }[] = [

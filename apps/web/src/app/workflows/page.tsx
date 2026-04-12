@@ -3,9 +3,9 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { Plus, AlertCircle } from 'lucide-react';
+import { toast } from 'sonner';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { isApiError } from '@/lib/api-error';
-import { toast } from 'sonner';
 import { useWorkflows, useToggleWorkflow, useDeleteWorkflow } from './hooks/useWorkflows';
 import { MyWorkflowsSection } from './components/MyWorkflowsSection';
 

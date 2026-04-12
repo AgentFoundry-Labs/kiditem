@@ -17,11 +17,8 @@ import {
   XCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import type { ThumbnailAnalysisResult, ThumbnailGenerationItem } from '@kiditem/shared';
-
 import { ErrorState, EmptyState } from '@/components/ui/EmptyState';
 import PageSkeleton from '@/components/ui/PageSkeleton';
-
 import {
   useAnalysisList,
   useAnalyze,
@@ -38,13 +35,13 @@ import {
   useSkipGeneration,
   useDeleteGeneration,
 } from './hooks/useThumbnailGenerations';
-
 import { ProductCard } from './components/ProductCard';
 import { DetailModal } from './components/DetailModal';
 import { PaginationBar } from './components/PaginationBar';
 import { UploadAnalyzer } from './components/UploadAnalyzer';
 import { ThumbnailStatusBadge } from './components/ThumbnailStatusBadge';
 import { openCoupangWingInventory } from './lib/coupang-wing';
+import type { ThumbnailAnalysisResult, ThumbnailGenerationItem } from '@kiditem/shared';
 
 type TabKey = 'unclassified' | 'all' | 'needsfix' | 'history' | 'tracking';
 

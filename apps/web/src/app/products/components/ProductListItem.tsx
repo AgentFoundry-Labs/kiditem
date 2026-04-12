@@ -1,8 +1,8 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import type { ProductListItem as Product } from '@kiditem/shared';
 import { formatKRW, formatNumber, formatPercent, getProfitColor, getProductStatusBadge } from '@/lib/utils';
+import type { ProductListItem as Product } from '@kiditem/shared';
 
 interface ProductListItemProps {
   product: Product;

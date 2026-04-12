@@ -1,11 +1,11 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { isApiError } from '@/lib/api-error';
 import { toast } from 'sonner';
+import { isApiError } from '@/lib/api-error';
 import { ADAPTER_LABELS, ROLE_LABELS } from '../../lib/agent-types';
-import type { Agent } from '../../lib/agent-types';
 import { useUpdateAgent } from '../../hooks/useAgents';
+import type { Agent } from '../../lib/agent-types';
 
 type ConfigForm = {
   name: string;

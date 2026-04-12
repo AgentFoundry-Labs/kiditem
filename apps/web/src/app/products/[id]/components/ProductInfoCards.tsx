@@ -1,9 +1,9 @@
 'use client';
 import { Package, Box, ExternalLink } from "lucide-react";
 import { formatKRW } from "@/lib/utils";
-import type { ProductDetail as Product } from "@kiditem/shared";
 import { InfoCard, InfoRow } from "./ProductSidebar";
 import { categoryNames } from "./ProductMetrics";
+import type { ProductDetail as Product } from "@kiditem/shared";
 
 export interface InventoryData {
   currentStock: number;

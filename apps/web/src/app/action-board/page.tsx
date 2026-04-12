@@ -13,8 +13,8 @@ import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
 import { cn } from '@/lib/utils';
-import type { ActionTask } from '@kiditem/shared';
 import { parseActionResult, type ActionResult } from './lib/actions';
+import type { ActionTask } from '@kiditem/shared';
 
 type ViewMode = 'status' | 'role' | 'priority';
 

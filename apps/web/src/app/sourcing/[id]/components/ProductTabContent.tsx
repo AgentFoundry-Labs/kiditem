@@ -5,9 +5,9 @@ import { ChevronDown, Download, Pencil, Settings } from 'lucide-react';
 import ThumbnailGrid from '../../components/detail/ThumbnailGrid';
 import TagEditor from '../../components/detail/TagEditor';
 import RawDataTab from '../../components/detail/RawDataTab';
+import { CATEGORIES } from '../lib/types';
 import type { EditTabType } from '../../components/detail/ProductEditTabs';
 import type { ProductEditState } from '../lib/types';
-import { CATEGORIES } from '../lib/types';
 
 interface Props {
   activeTab: EditTabType;

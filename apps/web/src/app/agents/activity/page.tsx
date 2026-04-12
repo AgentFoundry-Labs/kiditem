@@ -5,15 +5,15 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { RefreshCw, Activity, List, BarChart3 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import PageSkeleton from '@/components/ui/PageSkeleton';
-import { agentApi } from '../lib/agent-api';
-import type { Agent, HeartbeatRun } from '../lib/agent-types';
 import { queryKeys } from '@/lib/query-keys';
+import { agentApi } from '../lib/agent-api';
 import { groupLabel } from './lib/activity-utils';
-import type { RunWithAgent } from './lib/activity-utils';
 import { TimelineView } from './components/TimelineView';
 import { ActivityFeed } from './components/ActivityFeed';
 import { ActivityFilters } from './components/ActivityFilters';
 import { ActivityPagination } from './components/ActivityPagination';
+import type { Agent, HeartbeatRun } from '../lib/agent-types';
+import type { RunWithAgent } from './lib/activity-utils';
 
 const PAGE_SIZE = 20;
 

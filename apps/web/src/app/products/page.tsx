@@ -1,16 +1,16 @@
 'use client';
-import { apiClient } from "@/lib/api-client";
-import { isApiError } from "@/lib/api-error";
-import type { ProductListItem as Product, SyncInfo, PipelineCounts } from "@kiditem/shared";
-import { queryKeys } from "@/lib/query-keys";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, useRef } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "@/lib/query-keys";
+import { isApiError } from "@/lib/api-error";
+import { apiClient } from "@/lib/api-client";
 import PageSkeleton from "@/components/ui/PageSkeleton";
 import ProductPipeline from "./components/ProductPipeline";
 import AddProductModal from "./components/AddProductModal";
 import ProductPageHeader from "./components/ProductPageHeader";
 import ProductFilterBar from "./components/ProductFilterBar";
 import ProductListTable from "./components/ProductListTable";
+import type { ProductListItem as Product, SyncInfo, PipelineCounts } from "@kiditem/shared";
 
 const DEFAULT_PIPELINE: PipelineCounts = { total: 0, gradeA: 0, gradeB: 0, gradeC: 0, minus: 0, low: 0, gradeChangeA: 0, gradeChangeB: 0, gradeChangeC: 0, adCount: 0, noAdCount: 0 };
 const PAGE_SIZE = 50;
