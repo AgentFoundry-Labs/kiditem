@@ -15,7 +15,12 @@
   "content_scripts": [
     {
       "matches": ["https://wing.coupang.com/*"],
-      "js": ["content/wing-unified.js", "content/wing-itemwinner.js", "content/wing-traffic.js"],
+      "js": ["content/wing-unified.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://wing.coupang.com/vendor-inventory/list*"],
+      "js": ["content/wing-product-edit.js"],
       "run_at": "document_idle"
     },
     {

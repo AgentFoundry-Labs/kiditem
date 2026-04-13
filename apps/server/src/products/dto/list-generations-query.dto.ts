@@ -11,6 +11,10 @@ export class ListGenerationsQueryDto {
   method?: string;
 
   @IsOptional()
+  @IsString()
+  productId?: string;
+
+  @IsOptional()
   @Type(() => Number)
   @IsInt()
   page?: number;

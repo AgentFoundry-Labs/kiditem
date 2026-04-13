@@ -12,9 +12,9 @@ export class ExtensionSyncDto {
   @IsString()
   campaignName?: string;
 
+  // Wing 익스텐션은 숫자(일수), 광고센터 익스텐션은 "7d"/"14d" 문자열을 보냄
   @IsOptional()
-  @IsString()
-  period?: string;
+  period?: string | number;
 
   @IsOptional()
   @IsArray()
@@ -27,6 +27,22 @@ export class ExtensionSyncDto {
   @IsOptional()
   @IsObject()
   kpis?: Record<string, any>;
+
+  @IsOptional()
+  @IsObject()
+  summary?: Record<string, any>;
+
+  @IsOptional()
+  @IsObject()
+  adSummary?: Record<string, any>;
+
+  @IsOptional()
+  @IsString()
+  startDate?: string;
+
+  @IsOptional()
+  @IsString()
+  endDate?: string;
 
   @IsOptional()
   @IsString()

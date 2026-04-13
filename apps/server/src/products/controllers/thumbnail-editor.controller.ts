@@ -1,24 +1,23 @@
 import { Controller, Post, Body, BadRequestException } from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service';
 import { ThumbnailAiService } from '../services/thumbnail-ai.service';
+import { ThumbnailGenerationService } from '../services/thumbnail-generation.service';
 import { ThumbnailEditorDto } from '../dto';
 
 @Controller('thumbnail-editor')
 export class ThumbnailEditorController {
   constructor(
-    private readonly prisma: PrismaService,
     private readonly thumbnailAiService: ThumbnailAiService,
+    private readonly generationService: ThumbnailGenerationService,
   ) {}
 
   @Post('generate')
   async generate(@Body() body: ThumbnailEditorDto) {
     const images: Array<{ data: string; mimeType: string; label: string }> = [];
+    let product: { id: string; imageUrl: string | null; companyId: string } | null = null;
 
     // productId가 있으면 원본 이미지 로드
     if (body.productId) {
-      const product = await this.prisma.product.findUnique({
-        where: { id: body.productId },
-      });
+      product = await this.generationService.findProductForEditor(body.productId);
       if (product?.imageUrl) {
         const original = await this.thumbnailAiService.fetchImageAsBase64Public(product.imageUrl);
         images.push({ ...original, label: 'Original product image' });
@@ -44,7 +43,18 @@ export class ThumbnailEditorController {
     const purpose = body.purpose === 'quality' ? 'quality' as const : 'compliance' as const;
     const results = await this.thumbnailAiService.generateFromInputs(images, body.composition, purpose);
 
-    return { candidates: results };
+    // productId가 있으면 ThumbnailGeneration 레코드 저장
+    let generationId: string | null = null;
+    if (product) {
+      generationId = await this.generationService.saveEditorResult({
+        productId: product.id,
+        companyId: product.companyId,
+        originalUrl: product.imageUrl,
+        candidates: results as object[],
+      });
+    }
+
+    return { candidates: results, generationId };
   }
 
   private extractBase64(dataUrl: string): { data: string; mimeType: string } | null {

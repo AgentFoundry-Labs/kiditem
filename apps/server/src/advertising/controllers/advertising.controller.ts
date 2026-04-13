@@ -12,7 +12,7 @@ import {
   ListAdsQueryDto, ChangeAdTierBodyDto, CampaignQueryDto, TrendsQueryDto,
   CollectAdsDto, ExtensionSyncDto, CreateScrapeTargetDto, MarkScrapedDto,
   AdActionQueryDto, AdActionCommandDto, LeaseDto, HeartbeatDto, ReportDto,
-  UpdateAdConfigDto,
+  UpdateAdConfigDto, RegisterCampaignDto,
 } from '../dto';
 
 @Controller('ads')
@@ -66,6 +66,11 @@ export class AdvertisingController {
     return this.adCampaignsService.getTrends(query.days);
   }
 
+  @Post('campaigns/register')
+  registerCampaign(@Body() body: RegisterCampaignDto) {
+    return this.adStrategyService.registerCampaign(body);
+  }
+
   @Get('campaigns')
   getCampaigns(@Query() query: CampaignQueryDto) {
     return this.adCampaignsService.getCampaigns(query.period, query.campaign);
@@ -86,6 +91,11 @@ export class AdvertisingController {
   @Get('strategy/recommend')
   getRecommendations() {
     return this.adStrategyService.getRecommendations();
+  }
+
+  @Get('exposure-analysis')
+  getExposureAnalysis() {
+    return this.adStrategyService.getExposureAnalysis();
   }
 
   // === 벤치마크 ===

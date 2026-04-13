@@ -262,6 +262,16 @@ export const AdStrategyActionSchema = z.object({
   maxBidPrice: z.number().default(0),
   targetRoas: z.number().default(0),
   keywords: z.array(z.string()).default([]),
+  // 광고 등록 플로우 연동 필드
+  suggestedKeywords: z.object({
+    main: z.array(z.string()),
+    sub: z.array(z.string()),
+    longtail: z.array(z.string()),
+    negative: z.array(z.string()),
+  }).default({ main: [], sub: [], longtail: [], negative: [] }),
+  campaignStrategy: z.string().default(''),
+  recommendedDailyBudget: z.number().default(0),
+  isExisting: z.boolean().default(false),
 });
 
 export type AdStrategyAction = z.infer<typeof AdStrategyActionSchema>;
@@ -306,3 +316,56 @@ export const AdWeeklyPlanSchema = AdStrategyPlanSchema.extend({
 });
 
 export type AdWeeklyPlan = z.infer<typeof AdWeeklyPlanSchema>;
+
+// ─── GET /api/ads/exposure-analysis — 쿠팡 상위노출 분석 ──────────────────────
+
+export const ExposureFactorScoreSchema = z.object({
+  score: z.number(),       // 0~100
+  label: z.string(),
+  color: z.string(),       // 'blue' | 'purple' | 'emerald' | 'amber' | 'slate'
+  subMetric: z.string(),   // 핵심 서브메트릭 텍스트
+  keyCount: z.number(),    // 핵심 카운트 (상품 수 등)
+});
+
+export const ExposureProductScoreSchema = z.object({
+  productId: z.string(),
+  name: z.string(),
+  grade: z.string().nullable(),
+  totalScore: z.number(),    // 0~100 종합 점수
+  sales: z.number(),         // 판매실적 점수
+  review: z.number(),        // 리뷰활성도 점수
+  ad: z.number(),            // 광고효율 점수
+  fulfillment: z.number(),   // 가격·출고 점수
+  info: z.number(),          // 상품정보 점수
+  topIssue: z.string(),      // 최우선 개선과제 텍스트
+  topIssueFactor: z.string(), // 'sales' | 'review' | 'ad' | 'fulfillment' | 'info'
+});
+
+export const ExposureUrgentActionSchema = z.object({
+  productId: z.string(),
+  name: z.string(),
+  grade: z.string().nullable(),
+  factor: z.string(),
+  factorLabel: z.string(),
+  score: z.number(),
+  action: z.string(),
+  urgency: z.enum(['urgent', 'medium']),
+});
+
+export const ExposureAnalysisDataSchema = z.object({
+  factorSummary: z.object({
+    sales: ExposureFactorScoreSchema,
+    review: ExposureFactorScoreSchema,
+    ad: ExposureFactorScoreSchema,
+    fulfillment: ExposureFactorScoreSchema,
+    info: ExposureFactorScoreSchema,
+  }),
+  products: z.array(ExposureProductScoreSchema),
+  urgentActions: z.array(ExposureUrgentActionSchema),
+  totalProducts: z.number(),
+});
+
+export type ExposureFactorScore = z.infer<typeof ExposureFactorScoreSchema>;
+export type ExposureProductScore = z.infer<typeof ExposureProductScoreSchema>;
+export type ExposureUrgentAction = z.infer<typeof ExposureUrgentActionSchema>;
+export type ExposureAnalysisData = z.infer<typeof ExposureAnalysisDataSchema>;

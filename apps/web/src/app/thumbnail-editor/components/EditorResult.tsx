@@ -1,7 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { Download, ArrowRight, ImageIcon } from 'lucide-react';
-import { resolveImageUrl } from '@/app/thumbnails/lib/resolve-url';
+import { resolveImageUrl } from '@/lib/resolve-url';
 
 interface EditorResultProps {
   originalImage: string | null;

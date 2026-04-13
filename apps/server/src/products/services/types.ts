@@ -105,6 +105,7 @@ export interface ThumbnailAnalysisItem {
   complianceGrade?: string;
   complianceScores?: Record<string, unknown> | null;
   imageSpec?: ImageSpec | null;
+  createdAt?: string;
 }
 
 export interface ThumbnailAnalysisSummaryInternal {
