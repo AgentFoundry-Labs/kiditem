@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsArray, IsObject } from 'class-validator';
+import { IsString, IsOptional, IsArray, IsObject, IsNumber, ValidateIf } from 'class-validator';
 
 export class ExtensionSyncDto {
   @IsString()
@@ -14,6 +14,10 @@ export class ExtensionSyncDto {
 
   // Wing 익스텐션은 숫자(일수), 광고센터 익스텐션은 "7d"/"14d" 문자열을 보냄
   @IsOptional()
+  @ValidateIf((o) => typeof o.period === 'string')
+  @IsString()
+  @ValidateIf((o) => typeof o.period === 'number')
+  @IsNumber()
   period?: string | number;
 
   @IsOptional()

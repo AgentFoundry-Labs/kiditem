@@ -7,6 +7,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AdConfigService } from './ad-config.service';
 import { resolvePricing, resolveInventory } from '../../common/master-product-resolver';
 import type { GradeBudgetAllocation } from './types';
+import type { ExposureAnalysisData } from '@kiditem/shared';
 
 @Injectable()
 export class AdStrategyService {
@@ -685,7 +686,7 @@ export class AdStrategyService {
     const recentReviewMap = new Map(recentReviewAgg.map((r) => [r.productId, r._count.id]));
 
     // t14 revenue 전체 목록 — 퍼센타일 계산용
-    const allT14 = products.map((p) => (p as any).trafficStats?.[0]?.revenue || 0).sort((a, b) => a - b);
+    const allT14 = products.map((p) => p.trafficStats?.[0]?.revenue ?? 0).sort((a, b) => a - b);
     const maxT14 = allT14[allT14.length - 1] || 1;
 
     const productScores = products.map((p) => {
@@ -694,11 +695,11 @@ export class AdStrategyService {
       const recentReviews = recentReviewMap.get(p.id) || 0;
       const totalReviews = reviewInfo?._count.id || 0;
       const avgRating = reviewInfo?._avg.rating || 0;
-      const t14Rev = (p as any).trafficStats?.[0]?.revenue || 0;
-      const t14PrevRev = (p as any).trafficStats?.[1]?.revenue || 0;
-      const t14Orders = (p as any).trafficStats?.[0]?.orders || 0;
-      const stock = (p as any).inventory?.currentStock || 0;
-      const leadTime = (p as any).inventory?.leadTimeDays;
+      const t14Rev = p.trafficStats?.[0]?.revenue ?? 0;
+      const t14PrevRev = p.trafficStats?.[1]?.revenue ?? 0;
+      const t14Orders = p.trafficStats?.[0]?.orders ?? 0;
+      const stock = p.inventory?.currentStock ?? 0;
+      const leadTime = p.inventory?.leadTimeDays;
       const spend = ad?.spend || 0;
       const adRevenue = ad?.revenue || 0;
       const clicks = ad?.clicks || 0;
@@ -826,10 +827,7 @@ export class AdStrategyService {
       fulfillment: {
         score: fulfillAvg, label: '가격·출고', color: scoreColor(fulfillAvg),
         subMetric: '출고 1일 이하',
-        keyCount: productScores.filter((p) => {
-          const pr = products.find((x) => x.id === productScores.find((s) => s.fulfillment === p.fulfillment && s.productId === p.productId)?.productId);
-          return (pr as any)?.inventory?.leadTimeDays <= 1;
-        }).length,
+        keyCount: products.filter((p) => (p.inventory?.leadTimeDays ?? 99) <= 1).length,
       },
       info: {
         score: infoAvg, label: '상품 정보', color: scoreColor(infoAvg),
@@ -882,7 +880,7 @@ export class AdStrategyService {
       products: productScores.sort((a, b) => a.totalScore - b.totalScore),
       urgentActions: urgentActions.slice(0, 30),
       totalProducts: products.length,
-    };
+    } satisfies ExposureAnalysisData;
   }
 
   async registerCampaign(dto: import('../dto/register-campaign.dto').RegisterCampaignDto) {
