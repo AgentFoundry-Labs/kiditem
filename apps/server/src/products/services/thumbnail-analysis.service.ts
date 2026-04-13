@@ -42,14 +42,14 @@ export class ThumbnailAnalysisService {
 
     const products = await this.prisma.product.findMany({
       where,
-      select: { id: true, companyId: true, name: true, imageUrl: true, thumbnailUrl: true, thumbnails: { orderBy: { createdAt: 'desc' as const }, take: 1 } },
+      select: { id: true, companyId: true, name: true, imageUrl: true },
     });
 
     let processed = 0;
     let failed = 0;
 
     for (const product of products) {
-      const rawImageUrl = product.imageUrl ?? product.thumbnails[0]?.imageUrl ?? null;
+      const rawImageUrl = product.imageUrl ?? null;
       if (!rawImageUrl) continue;
 
       const imageUrl = this.thumbnailAiService.toCoupangOriginal(rawImageUrl);
@@ -115,7 +115,7 @@ export class ThumbnailAnalysisService {
     }> = [];
 
     // 2. 이미지 기술 스펙 (severity: fail)
-    const imageUrl = product.imageUrl ?? product.thumbnailUrl ?? null;
+    const imageUrl = product.imageUrl ?? null;
     if (!imageUrl) {
       items.push({ key: 'image_spec', label: '이미지 기술 스펙', status: 'fail', severity: 'fail', message: '이미지가 없습니다' });
     } else {
@@ -175,7 +175,7 @@ export class ThumbnailAnalysisService {
     if (!product.name || product.name.trim() === '') missingFields.push('상품명');
     if (!product.description || product.description.trim() === '') missingFields.push('상세 설명');
     if (!product.category) missingFields.push('카테고리');
-    if (!product.imageUrl && !product.thumbnailUrl) missingFields.push('대표 이미지');
+    if (!product.imageUrl) missingFields.push('대표 이미지');
     const sellPrice = Number(product.sellPrice ?? 0);
     if (sellPrice <= 0) missingFields.push('판매가');
 
@@ -259,7 +259,7 @@ export class ThumbnailAnalysisService {
 
       for (const product of products) {
         const analysis = product.thumbnailAnalysis;
-        const imageUrl = product.imageUrl ?? product.thumbnailUrl ?? null;
+        const imageUrl = product.imageUrl ?? null;
 
         if (analysis) {
           const qualityAnalyzed = !!(analysis as { qualityAnalyzedAt?: Date | null }).qualityAnalyzedAt;
@@ -411,10 +411,7 @@ export class ThumbnailAnalysisService {
       throw new NotFoundException(`Product ${productId} not found`);
     }
 
-    const rawImageUrl =
-      product.imageUrl ??
-      product.thumbnails[0]?.imageUrl ??
-      null;
+    const rawImageUrl = product.imageUrl ?? null;
 
     const imageUrl = rawImageUrl
       ? this.thumbnailAiService.toCoupangOriginal(rawImageUrl)
@@ -572,7 +569,7 @@ export class ThumbnailAnalysisService {
       const product = productMap.get(productId);
       if (!product) continue;
 
-      const rawImageUrl = product.imageUrl ?? product.thumbnails[0]?.imageUrl ?? null;
+      const rawImageUrl = product.imageUrl ?? null;
       if (rawImageUrl) {
         itemsForBatch.push({
           imageUrl: this.thumbnailAiService.toCoupangOriginal(rawImageUrl),

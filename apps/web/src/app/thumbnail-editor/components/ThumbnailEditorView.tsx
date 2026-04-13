@@ -25,7 +25,6 @@ export function ThumbnailEditorView() {
 
   const [packagingImage, setPackagingImage] = useState<string | null>(null);
   const [productImage, setProductImage] = useState<string | null>(null);
-  const [composition, setComposition] = useState('');
   const [purpose, setPurpose] = useState<'compliance' | 'quality'>('compliance');
 
   const [result, setResult] = useState<Array<{ url: string; filename: string }>>([]);
@@ -42,9 +41,8 @@ export function ThumbnailEditorView() {
   const handleGenerate = async () => {
     try {
       const data = await generateMutation.mutateAsync({
-        packagingImageUrl: packagingImage ?? undefined,
-        productImageUrl: productImage ?? undefined,
-        composition: composition || undefined,
+        packagingImage: packagingImage ?? undefined,
+        productImage: productImage ?? undefined,
         purpose,
       });
       if (data?.candidates) {
@@ -102,13 +100,13 @@ export function ThumbnailEditorView() {
         originalImageUrl={null}
         packagingImage={packagingImage}
         productImage={productImage}
-        composition={composition}
+        composition=""
         purpose={purpose}
         isPending={generateMutation.isPending}
         hasInput={hasInput}
         onPackagingChange={setPackagingImage}
         onProductImageChange={setProductImage}
-        onCompositionChange={setComposition}
+        onCompositionChange={() => {}}
         onPurposeChange={setPurpose}
         onGenerate={handleGenerate}
       />

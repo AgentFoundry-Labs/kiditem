@@ -1,10 +1,12 @@
-import { Controller, Post, Body, BadRequestException } from '@nestjs/common';
+import { Controller, Post, Body, BadRequestException, Logger } from '@nestjs/common';
 import { ThumbnailAiService } from '../services/thumbnail-ai.service';
 import { ThumbnailGenerationService } from '../services/thumbnail-generation.service';
 import { ThumbnailEditorDto } from '../dto';
 
 @Controller('thumbnail-editor')
 export class ThumbnailEditorController {
+  private readonly logger = new Logger(ThumbnailEditorController.name);
+
   constructor(
     private readonly thumbnailAiService: ThumbnailAiService,
     private readonly generationService: ThumbnailGenerationService,
@@ -20,15 +22,15 @@ export class ThumbnailEditorController {
       product = await this.generationService.findProductForEditor(body.productId);
     }
 
-    // 상품 사진 (필수 — 클라이언트가 원본 자동 할당 또는 유저 업로드/허브 선택으로 채움)
+    // 상품 사진 (필수 — base64 data URL 또는 http(s) URL)
     if (body.productImage) {
-      const data = this.extractBase64(body.productImage);
+      const data = await this.resolveImage(body.productImage);
       if (data) images.push({ ...data, label: 'Product photo' });
     }
 
     // 포장 사진 (옵션)
     if (body.packagingImage) {
-      const data = this.extractBase64(body.packagingImage);
+      const data = await this.resolveImage(body.packagingImage);
       if (data) images.push({ ...data, label: 'Product packaging photo' });
     }
 
@@ -52,16 +54,29 @@ export class ThumbnailEditorController {
         productId: product.id,
         companyId: product.companyId,
         originalUrl: product.imageUrl,
-        candidates: results as object[],
+        candidates: results,
       });
     }
 
     return { candidates: results, generationId };
   }
 
-  private extractBase64(dataUrl: string): { data: string; mimeType: string } | null {
-    const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
-    if (!match) return null;
-    return { mimeType: match[1], data: match[2] };
+  private async resolveImage(input: string): Promise<{ data: string; mimeType: string } | null> {
+    // base64 data URL
+    const match = input.match(/^data:([^;]+);base64,(.+)$/);
+    if (match) return { mimeType: match[1], data: match[2] };
+
+    // http(s) URL → fetch and convert
+    if (input.startsWith('http')) {
+      try {
+        const result = await this.thumbnailAiService.fetchImageAsBase64Public(input);
+        return result;
+      } catch (err) {
+        this.logger.warn(`이미지 URL fetch 실패 (${input}): ${err instanceof Error ? err.message : err}`);
+        return null;
+      }
+    }
+
+    return null;
   }
 }

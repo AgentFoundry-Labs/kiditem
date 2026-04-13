@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -25,13 +25,23 @@ export default function ThumbnailEditorPage() {
   const imageUrlParam = searchParams.get('imageUrl');
   const queryClient = useQueryClient();
 
+  // 상품 정보 로드 (useQuery)
+  const { data: product } = useQuery({
+    queryKey: queryKeys.products.detail(productId!),
+    queryFn: () => apiClient.get<{ id: string; name: string; imageUrl: string | null }>(`/api/products/${productId}`),
+    enabled: !!productId,
+  });
+
+  const productName = product?.name ?? '';
+  const originalImageUrl = product?.imageUrl ?? null;
+
   // 입력 상태
-  const [productName, setProductName] = useState('');
-  const [originalImageUrl, setOriginalImageUrl] = useState<string | null>(null);
   const [packagingImage, setPackagingImage] = useState<string | null>(null);
   const [productImage, setProductImage] = useState<string | null>(() => imageUrlParam);
-  const [composition, setComposition] = useState('');
   const [purpose, setPurpose] = useState<'compliance' | 'quality'>('compliance');
+
+  // productId 진입 시 imageUrl 파라미터 없으면 상품 이미지 사용
+  const effectiveProductImage = productImage ?? (imageUrlParam ? null : originalImageUrl);
 
   // 결과 상태
   const [result, setResult] = useState<Array<{ url: string; filename: string }>>([]);
@@ -44,29 +54,12 @@ export default function ThumbnailEditorPage() {
   const applyGenerationMutation = useApplyGeneration();
   const skipGenerationMutation = useSkipGeneration();
 
-  // productId가 있으면 상품 정보 로드
-  useEffect(() => {
-    if (!productId) return;
-    apiClient
-      .get<{ id: string; name: string; imageUrl: string | null }>(`/api/products/${productId}`)
-      .then((product) => {
-        if (product) {
-          setProductName(product.name);
-          setOriginalImageUrl(product.imageUrl);
-          // imageUrl 파라미터가 없을 때만 상품 이미지로 대체
-          if (!imageUrlParam) setProductImage(product.imageUrl);
-        }
-      })
-      .catch(() => {});
-  }, [productId, imageUrlParam]);
-
   const handleGenerate = async () => {
     try {
       const data = await generateMutation.mutateAsync({
         productId: productId ?? undefined,
-        packagingImageUrl: packagingImage ?? undefined,
-        productImageUrl: productImage ?? undefined,
-        composition: composition || undefined,
+        packagingImage: packagingImage ?? undefined,
+        productImage: effectiveProductImage ?? undefined,
         purpose,
       });
       if (data?.candidates) {
@@ -147,13 +140,13 @@ export default function ThumbnailEditorPage() {
           originalImageUrl={originalImageUrl}
           packagingImage={packagingImage}
           productImage={productImage}
-          composition={composition}
+          composition=""
           purpose={purpose}
           isPending={generateMutation.isPending}
           hasInput={hasInput}
           onPackagingChange={setPackagingImage}
           onProductImageChange={setProductImage}
-          onCompositionChange={setComposition}
+          onCompositionChange={() => {}}
           onPurposeChange={setPurpose}
           onGenerate={handleGenerate}
         />
