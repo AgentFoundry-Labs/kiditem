@@ -3,7 +3,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import { formatKRW } from '@/lib/utils';
+import { cn, formatKRW } from '@/lib/utils';
 import { roasColor } from '../../lib/status-colors';
 
 interface PlanData {
@@ -63,7 +63,7 @@ export function PlanSummary({ plan }: { plan?: PlanData }) {
 
       <div className="grid grid-cols-3 md:grid-cols-5 gap-3 mb-4">
         {cards.map((c) => (
-          <div key={c.label} className={`rounded-lg p-3 border text-center ${c.color}`}>
+          <div key={c.label} className={cn('rounded-lg p-3 border text-center', c.color)}>
             <div className="card-value">{c.value}</div>
             <div className="text-xs font-medium mt-1">{c.label}</div>
           </div>

@@ -9,6 +9,7 @@ import {
   COMPLIANCE_GRADE_TEXT,
   COMPLIANCE_GRADE_LABELS,
 } from '../lib/grade-constants';
+import { cn } from '@/lib/utils';
 
 interface GradeDonutChartProps {
   gradeDistribution: Record<string, number>;
@@ -110,14 +111,14 @@ export function GradeDonutChart({
             {showCompliance ? (
               <>
                 <span className="text-2xl font-black tabular-nums text-slate-900">{complianceHealthPct}%</span>
-                <span className={`text-xs font-black ${failCount > 0 ? 'text-red-500' : 'text-emerald-500'}`}>
+                <span className={cn('text-xs font-black', failCount > 0 ? 'text-red-500' : 'text-emerald-500')}>
                   {failCount > 0 ? '위반있음' : '준수중'}
                 </span>
               </>
             ) : (
               <>
                 <span className="text-2xl font-black tabular-nums text-slate-900">{avgScore}</span>
-                <span className={`text-xs font-black ${QUALITY_GRADE_TEXT[healthGrade] || 'text-slate-500'}`}>{healthGrade}등급</span>
+                <span className={cn('text-xs font-black', QUALITY_GRADE_TEXT[healthGrade] || 'text-slate-500')}>{healthGrade}등급</span>
               </>
             )}
           </div>
@@ -135,13 +136,13 @@ export function GradeDonutChart({
                 onClick={() => onGradeClick(g)}
                 className="w-full flex items-center gap-2.5 hover:opacity-70 transition-opacity group"
               >
-                <span className={`w-6 h-6 rounded-md flex items-center justify-center text-[9px] font-black text-white flex-shrink-0 ${COMPLIANCE_GRADE_BG[g]}`}>
+                <span className={cn('w-6 h-6 rounded-md flex items-center justify-center text-[9px] font-black text-white flex-shrink-0', COMPLIANCE_GRADE_BG[g])}>
                   {g === 'PASS' ? '✓' : g === 'WARN' ? '!' : '✗'}
                 </span>
                 <div className="flex-1 min-w-0">
                   <div className="h-2.5 rounded-full overflow-hidden bg-slate-200">
                     <div
-                      className={`h-full rounded-full transition-all duration-300 ${COMPLIANCE_GRADE_BG[g]}`}
+                      className={cn('h-full rounded-full transition-all duration-300', COMPLIANCE_GRADE_BG[g])}
                       style={{ width: `${Math.max(pct, pct > 0 ? 4 : 0)}%` }}
                     />
                   </div>
@@ -164,10 +165,10 @@ export function GradeDonutChart({
                 onClick={() => onGradeClick(g)}
                 className="w-full flex items-center gap-2.5 hover:opacity-70 transition-opacity group"
               >
-                <span className={`w-6 h-6 rounded-md flex items-center justify-center text-[11px] font-black text-white flex-shrink-0 ${QUALITY_GRADE_BG[g]}`}>{g}</span>
+                <span className={cn('w-6 h-6 rounded-md flex items-center justify-center text-[11px] font-black text-white flex-shrink-0', QUALITY_GRADE_BG[g])}>{g}</span>
                 <div className="flex-1 min-w-0">
                   <div className="h-2.5 rounded-full overflow-hidden bg-slate-200">
-                    <div className={`h-full rounded-full transition-all duration-300 ${QUALITY_GRADE_BG[g]}`} style={{ width: `${Math.max(pct, pct > 0 ? 4 : 0)}%` }} />
+                    <div className={cn('h-full rounded-full transition-all duration-300', QUALITY_GRADE_BG[g])} style={{ width: `${Math.max(pct, pct > 0 ? 4 : 0)}%` }} />
                   </div>
                 </div>
                 <span className="text-xs font-bold tabular-nums w-14 text-right flex-shrink-0 text-slate-900">

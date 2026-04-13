@@ -1,5 +1,7 @@
 'use client';
 
+import { cn } from '@/lib/utils';
+
 interface StatusTab {
   key: string;
   label: string;
@@ -18,11 +20,7 @@ export function CSFilterTabs({ statusTabs, filter, onChange }: Props) {
         <button
           key={tab.key}
           onClick={() => onChange(tab.key)}
-          className={`px-4 py-2 rounded-lg text-sm font-medium ${
-            filter === tab.key
-              ? 'bg-purple-600 text-white'
-              : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
-          }`}
+          className={cn('px-4 py-2 rounded-lg text-sm font-medium', filter === tab.key ? 'bg-purple-600 text-white' : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50')}
         >
           {tab.label}
         </button>

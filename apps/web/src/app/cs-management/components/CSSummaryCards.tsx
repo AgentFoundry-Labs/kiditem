@@ -1,5 +1,7 @@
 'use client';
 
+import { cn } from '@/lib/utils';
+
 interface CSSummary {
   total: number;
   접수: number;
@@ -22,9 +24,9 @@ export function CSSummaryCards({ summary }: Props) {
   return (
     <div className="grid grid-cols-4 gap-4">
       {cards.map((card) => (
-        <div key={card.label} className={`card ${card.bg}`}>
+        <div key={card.label} className={cn('card', card.bg)}>
           <div className="card-label">{card.label}</div>
-          <div className={`card-value ${card.color}`}>{card.value}</div>
+          <div className={cn('card-value', card.color)}>{card.value}</div>
         </div>
       ))}
     </div>

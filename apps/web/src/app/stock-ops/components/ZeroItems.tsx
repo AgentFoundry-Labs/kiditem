@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ShoppingCart, PackageX } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import { formatNumber, getGradeColor } from '@/lib/utils';
+import { cn, formatNumber, getGradeColor } from '@/lib/utils';
 
 interface ProductItem {
   id: string;
@@ -82,14 +82,14 @@ export default function ZeroItems() {
       <div className="flex gap-2">
         <button
           onClick={() => setTab('zero_sales')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-colors ${tab === 'zero_sales' ? 'bg-orange-600 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+          className={cn('flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-colors', tab === 'zero_sales' ? 'bg-orange-600 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50')}
         >
           <ShoppingCart className="w-4 h-4" /> 판매 0건 (
           {zeroSalesItems.length})
         </button>
         <button
           onClick={() => setTab('zero_stock')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-colors ${tab === 'zero_stock' ? 'bg-red-600 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+          className={cn('flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-colors', tab === 'zero_stock' ? 'bg-red-600 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50')}
         >
           <PackageX className="w-4 h-4" /> 재고 0 ({zeroStockItems.length})
         </button>
@@ -148,7 +148,7 @@ export default function ZeroItems() {
                       </td>
                       <td className="py-2 px-3 text-center">
                         <span
-                          className={`px-2 py-0.5 rounded text-xs font-bold ${getGradeColor(item.abcGrade)}`}
+                          className={cn('px-2 py-0.5 rounded text-xs font-bold', getGradeColor(item.abcGrade))}
                         >
                           {item.abcGrade}
                         </span>
@@ -226,7 +226,7 @@ export default function ZeroItems() {
                       </td>
                       <td className="py-2 px-3 text-center">
                         <span
-                          className={`px-2 py-0.5 rounded text-xs font-bold ${getGradeColor(item.grade)}`}
+                          className={cn('px-2 py-0.5 rounded text-xs font-bold', getGradeColor(item.grade))}
                         >
                           {item.grade}
                         </span>

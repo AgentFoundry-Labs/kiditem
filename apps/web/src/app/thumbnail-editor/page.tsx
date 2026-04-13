@@ -12,6 +12,7 @@ import { useGenerateThumbnail } from './hooks/useThumbnailEditor';
 import { useOriginalImage } from './hooks/useOriginalImage';
 import { ImageUploader } from './components/ImageUploader';
 import { EditorResult } from './components/EditorResult';
+import { cn } from '@/lib/utils';
 
 async function fetchAsBase64(url: string): Promise<string | null> {
   try {
@@ -241,7 +242,7 @@ export default function ThumbnailEditorPage() {
             onClick={() => setOptionsOpen(!optionsOpen)}
             className="flex items-center gap-2 text-sm font-semibold text-slate-700 hover:text-slate-900 transition-colors"
           >
-            <ChevronDown size={16} className={`transition-transform ${optionsOpen ? 'rotate-0' : '-rotate-90'}`} />
+            <ChevronDown size={16} className={cn('transition-transform', optionsOpen ? 'rotate-0' : '-rotate-90')} />
             추가 옵션 (포장 사진, 상품 구성)
             {hubLoading && (
               <span className="flex items-center gap-1 text-xs font-normal text-slate-400 ml-2">
@@ -329,21 +330,13 @@ export default function ThumbnailEditorPage() {
           <div className="flex gap-2">
             <button
               onClick={() => setPurpose('compliance')}
-              className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
-                purpose === 'compliance'
-                  ? 'bg-purple-600 text-white'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
+              className={cn('px-4 py-2 rounded-xl text-sm font-medium transition-colors', purpose === 'compliance' ? 'bg-purple-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200')}
             >
               가이드라인 수정
             </button>
             <button
               onClick={() => setPurpose('quality')}
-              className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
-                purpose === 'quality'
-                  ? 'bg-purple-600 text-white'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
+              className={cn('px-4 py-2 rounded-xl text-sm font-medium transition-colors', purpose === 'quality' ? 'bg-purple-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200')}
             >
               품질 개선
             </button>

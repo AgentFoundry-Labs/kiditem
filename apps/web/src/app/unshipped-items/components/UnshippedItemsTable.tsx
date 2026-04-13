@@ -1,6 +1,7 @@
 'use client';
 
 import { Truck } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import type { UnshippedItem } from '../page';
 
 interface Props {
@@ -44,13 +45,7 @@ export default function UnshippedItemsTable({ items }: Props) {
                 }
               >
                 <td
-                  className={`text-center font-bold tabular-nums ${
-                    item.delayDays >= 3
-                      ? "text-red-600"
-                      : item.delayDays >= 1
-                        ? "text-orange-500"
-                        : "text-slate-400"
-                  }`}
+                  className={cn('text-center font-bold tabular-nums', item.delayDays >= 3 ? 'text-red-600' : item.delayDays >= 1 ? 'text-orange-500' : 'text-slate-400')}
                 >
                   {item.delayDays}일
                 </td>

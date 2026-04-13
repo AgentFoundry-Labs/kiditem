@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { cn } from '@/lib/utils';
 import {
   ClipboardCheck,
   Plus,
@@ -127,21 +128,14 @@ export default function StockAudits() {
                 <div
                   key={audit.id}
                   onClick={() => handleSelect(audit)}
-                  className={`card cursor-pointer transition-all ${
-                    selected?.id === audit.id
-                      ? 'ring-2 ring-blue-500'
-                      : 'hover:border-blue-300'
-                  }`}
+                  className={cn('card cursor-pointer transition-all', selected?.id === audit.id ? 'ring-2 ring-blue-500' : 'hover:border-blue-300')}
                 >
                   <div className="flex items-center justify-between mb-2">
                     <span className="font-mono text-sm font-semibold">
                       {audit.auditNumber || audit.id.slice(0, 8)}
                     </span>
                     <span
-                      className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                        statusConfig[audit.status]?.color ||
-                        'bg-slate-100 text-slate-600'
-                      }`}
+                      className={cn('text-xs px-2 py-0.5 rounded-full font-medium', statusConfig[audit.status]?.color || 'bg-slate-100 text-slate-600')}
                     >
                       {statusConfig[audit.status]?.text || audit.status}
                     </span>
@@ -173,9 +167,7 @@ export default function StockAudits() {
                     {selected.auditNumber || selected.id.slice(0, 8)}
                   </span>
                   <span
-                    className={`text-xs px-2 py-0.5 rounded-full ${
-                      statusConfig[selected.status]?.color || 'bg-slate-100'
-                    }`}
+                    className={cn('text-xs px-2 py-0.5 rounded-full', statusConfig[selected.status]?.color || 'bg-slate-100')}
                   >
                     {statusConfig[selected.status]?.text || selected.status}
                   </span>
@@ -257,9 +249,7 @@ export default function StockAudits() {
                         )}
                       </td>
                       <td
-                        className={`px-4 py-3 text-right tabular-nums font-bold ${
-                          item.diff !== 0 ? 'text-red-600' : 'text-green-600'
-                        }`}
+                        className={cn('px-4 py-3 text-right tabular-nums font-bold', item.diff !== 0 ? 'text-red-600' : 'text-green-600')}
                       >
                         {item.diff > 0 ? '+' : ''}
                         {item.diff}

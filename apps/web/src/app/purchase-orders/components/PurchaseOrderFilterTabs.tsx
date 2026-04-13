@@ -1,5 +1,7 @@
 'use client';
 
+import { cn } from '@/lib/utils';
+
 interface Tab {
   key: string;
   label: string;
@@ -19,11 +21,7 @@ export function PurchaseOrderFilterTabs({ filter, tabs, onFilterChange }: Purcha
         <button
           key={tab.key}
           onClick={() => onFilterChange(tab.key)}
-          className={`px-4 py-2 rounded-lg text-sm font-medium ${
-            filter === tab.key
-              ? 'bg-purple-600 text-white'
-              : 'bg-white border border-slate-200 hover:bg-slate-50'
-          }`}
+          className={cn('px-4 py-2 rounded-lg text-sm font-medium', filter === tab.key ? 'bg-purple-600 text-white' : 'bg-white border border-slate-200 hover:bg-slate-50')}
         >
           {tab.label} ({tab.count})
         </button>

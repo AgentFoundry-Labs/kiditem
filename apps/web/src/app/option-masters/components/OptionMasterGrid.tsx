@@ -1,6 +1,7 @@
 'use client';
 
 import { Tag, Save, Trash2 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 interface OptionMaster {
   id: string;
@@ -50,11 +51,7 @@ export default function OptionMasterGrid({ options, onEdit, onDelete }: Props) {
                   {opt.name}
                 </span>
                 <span
-                  className={`px-2 py-0.5 rounded-full text-xs ${
-                    opt.isActive
-                      ? 'bg-green-100 text-green-700'
-                      : 'bg-slate-100 text-slate-500'
-                  }`}
+                  className={cn('px-2 py-0.5 rounded-full text-xs', opt.isActive ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500')}
                 >
                   {opt.isActive ? '활성' : '비활성'}
                 </span>

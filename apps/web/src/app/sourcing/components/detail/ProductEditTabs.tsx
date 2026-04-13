@@ -1,6 +1,7 @@
 'use client';
 
 import { Database } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 export type EditTabType = 'basic' | 'options' | 'detail' | 'raw';
 
@@ -26,11 +27,7 @@ export default function ProductEditTabs({
         <button
           key={tab.key}
           onClick={() => onTabChange(tab.key)}
-          className={`relative px-6 py-3 text-sm font-medium transition-colors flex items-center gap-1.5 ${
-            activeTab === tab.key
-              ? 'text-emerald-600'
-              : 'text-slate-500 hover:text-slate-700'
-          }`}
+          className={cn('relative px-6 py-3 text-sm font-medium transition-colors flex items-center gap-1.5', activeTab === tab.key ? 'text-emerald-600' : 'text-slate-500 hover:text-slate-700')}
         >
           {tab.icon && <Database size={14} />}
           {tab.label}

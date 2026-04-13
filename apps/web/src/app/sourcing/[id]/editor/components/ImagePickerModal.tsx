@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, ImagePlus, Upload, X } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 type TabType = 'raw' | 'processed' | 'upload';
 
@@ -95,9 +96,7 @@ export function ImagePickerModal({ open, onSelect, onClose, rawImages, processed
                 setTab(t.id);
                 if (t.id !== 'upload') setUploadPreview(null);
               }}
-              className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors ${
-                tab === t.id ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
+              className={cn('px-3 py-1.5 text-xs font-medium rounded-full transition-colors', tab === t.id ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200')}
             >
               {t.label}
             </button>
@@ -108,11 +107,7 @@ export function ImagePickerModal({ open, onSelect, onClose, rawImages, processed
           {tab === 'upload' ? (
             <div className="space-y-3">
               <div
-                className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors ${
-                  dragOver
-                    ? 'border-emerald-400 bg-emerald-50'
-                    : 'border-slate-300 hover:border-emerald-300 hover:bg-slate-50'
-                }`}
+                className={cn('border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors', dragOver ? 'border-emerald-400 bg-emerald-50' : 'border-slate-300 hover:border-emerald-300 hover:bg-slate-50')}
                 onClick={() => fileInputRef.current?.click()}
                 onDragOver={(e) => {
                   e.preventDefault();
@@ -148,11 +143,7 @@ export function ImagePickerModal({ open, onSelect, onClose, rawImages, processed
                   key={url}
                   type="button"
                   onClick={() => setSelected(url)}
-                  className={`relative aspect-square rounded-lg overflow-hidden border-2 transition-all ${
-                    selected === url
-                      ? 'border-emerald-500 ring-2 ring-emerald-500/30'
-                      : 'border-slate-200 hover:border-emerald-300'
-                  }`}
+                  className={cn('relative aspect-square rounded-lg overflow-hidden border-2 transition-all', selected === url ? 'border-emerald-500 ring-2 ring-emerald-500/30' : 'border-slate-200 hover:border-emerald-300')}
                 >
                   <img src={url} alt="" className="w-full h-full object-cover" loading="lazy" />
                   {selected === url && (

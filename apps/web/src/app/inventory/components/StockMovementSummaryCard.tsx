@@ -1,5 +1,7 @@
 'use client';
 
+import { cn } from '@/lib/utils';
+
 interface Props {
   icon: React.ReactNode;
   label: string;
@@ -14,7 +16,7 @@ export function StockMovementSummaryCard({ icon, label, value, color }: Props) {
         {icon}
         <span className="text-xs text-slate-500">{label}</span>
       </div>
-      <div className={`text-lg font-bold tabular-nums ${color}`}>{value}</div>
+      <div className={cn('text-lg font-bold tabular-nums', color)}>{value}</div>
     </div>
   );
 }

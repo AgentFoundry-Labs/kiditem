@@ -11,7 +11,7 @@ import { usePeriodSelector } from '@/hooks/usePeriodSelector';
 import PeriodSelector from '@/components/ui/PeriodSelector';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import { formatNumber } from '@/lib/utils';
+import { cn, formatNumber } from '@/lib/utils';
 
 interface StockTransaction {
   id: string;
@@ -111,21 +111,13 @@ export default function StockIo() {
       <div className="flex gap-2">
         <button
           onClick={() => setTab('inbound')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors ${
-            tab === 'inbound'
-              ? 'bg-green-600 text-white'
-              : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
-          }`}
+          className={cn('flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors', tab === 'inbound' ? 'bg-green-600 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50')}
         >
           <ArrowDownToLine className="w-4 h-4" /> 입고
         </button>
         <button
           onClick={() => setTab('outbound')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors ${
-            tab === 'outbound'
-              ? 'bg-red-600 text-white'
-              : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
-          }`}
+          className={cn('flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors', tab === 'outbound' ? 'bg-red-600 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50')}
         >
           <ArrowUpFromLine className="w-4 h-4" /> 출고
         </button>
@@ -177,9 +169,7 @@ export default function StockIo() {
                     </td>
                     <td className="py-2 px-3">
                       <span
-                        className={`px-2 py-0.5 rounded text-xs font-medium ${
-                          typeLabels[tx.type]?.color || 'bg-slate-100 text-slate-600'
-                        }`}
+                        className={cn('px-2 py-0.5 rounded text-xs font-medium', typeLabels[tx.type]?.color || 'bg-slate-100 text-slate-600')}
                       >
                         {typeLabels[tx.type]?.text || tx.type}
                       </span>

@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from 'react';
 import { Sparkles, AlertTriangle } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import type { AdRulesData, AdWeeklyPlan } from '@kiditem/shared';
 
 interface Props {
@@ -35,12 +36,12 @@ export function AdActionPanel({ rules, strategy }: Props) {
     <div className="rounded-2xl border border-slate-100 overflow-hidden flex flex-col h-full bg-white shadow-md">
       <div className="flex items-center gap-1 px-3 py-2 border-b border-slate-100">
         <button onClick={() => setPanelTab('todos')}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${panelTab === 'todos' ? 'bg-violet-600 text-white' : 'text-slate-400'}`}>
+          className={cn('flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all', panelTab === 'todos' ? 'bg-violet-600 text-white' : 'text-slate-400')}>
           <Sparkles size={13} />
-          할 일 {todoCount > 0 && <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${panelTab === 'todos' ? 'bg-white text-violet-600' : 'bg-violet-600 text-white'}`}>{todoCount}</span>}
+          할 일 {todoCount > 0 && <span className={cn('px-1.5 py-0.5 rounded-full text-[10px]', panelTab === 'todos' ? 'bg-white text-violet-600' : 'bg-violet-600 text-white')}>{todoCount}</span>}
         </button>
         <button onClick={() => setPanelTab('alerts')}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${panelTab === 'alerts' ? 'bg-red-600 text-white' : 'text-slate-400'}`}>
+          className={cn('flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all', panelTab === 'alerts' ? 'bg-red-600 text-white' : 'text-slate-400')}>
           <AlertTriangle size={13} />
           알림 {alertCount > 0 && <span className="px-1.5 py-0.5 rounded-full text-[10px] text-white bg-red-600">{alertCount}</span>}
         </button>

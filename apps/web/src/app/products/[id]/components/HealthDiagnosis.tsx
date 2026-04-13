@@ -6,7 +6,7 @@ import {
   AlertTriangle,
   AlertCircle,
 } from 'lucide-react';
-import { timeAgo } from '@/lib/utils';
+import { cn, timeAgo } from '@/lib/utils';
 import type { ProductDetail as Product } from '@kiditem/shared';
 import type { ActivityEvent } from '../page';
 
@@ -30,28 +30,16 @@ export default function HealthDiagnosis({
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <span className={`text-2xl font-bold ${
-                  product.healthScore >= 70 ? 'text-green-600' :
-                  product.healthScore >= 40 ? 'text-amber-600' :
-                  'text-red-600'
-                }`}>{product.healthScore}</span>
+                <span className={cn('text-2xl font-bold', product.healthScore >= 70 ? 'text-green-600' : product.healthScore >= 40 ? 'text-amber-600' : 'text-red-600')}>{product.healthScore}</span>
                 <span className="text-sm text-slate-400">/ 100</span>
               </div>
-              <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                product.healthScore >= 70 ? 'bg-green-50 text-green-700' :
-                product.healthScore >= 40 ? 'bg-amber-50 text-amber-700' :
-                'bg-red-50 text-red-700'
-              }`}>
+              <span className={cn('px-2 py-0.5 rounded text-xs font-medium', product.healthScore >= 70 ? 'bg-green-50 text-green-700' : product.healthScore >= 40 ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-700')}>
                 {product.healthScore >= 70 ? '정상' : product.healthScore >= 40 ? '주의' : '위험'}
               </span>
             </div>
             <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
               <div
-                className={`h-full rounded-full ${
-                  product.healthScore >= 70 ? 'bg-green-500' :
-                  product.healthScore >= 40 ? 'bg-amber-500' :
-                  'bg-red-500'
-                }`}
+                className={cn('h-full rounded-full', product.healthScore >= 70 ? 'bg-green-500' : product.healthScore >= 40 ? 'bg-amber-500' : 'bg-red-500')}
                 style={{ width: `${product.healthScore}%` }}
               />
             </div>

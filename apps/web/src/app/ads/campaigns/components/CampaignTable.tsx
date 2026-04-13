@@ -3,7 +3,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import { formatKRW, formatNumber } from '@/lib/utils';
+import { cn, formatKRW, formatNumber } from '@/lib/utils';
 import { roasColor } from '../../lib/status-colors';
 
 interface CampaignItem {
@@ -49,7 +49,7 @@ export function CampaignTable({ campaigns, sortBy, onSortChange, selectedCampaig
             <button
               key={key}
               onClick={() => onSortChange(key)}
-              className={`px-3 py-1 rounded text-xs font-medium ${sortBy === key ? 'bg-purple-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+              className={cn('px-3 py-1 rounded text-xs font-medium', sortBy === key ? 'bg-purple-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200')}
             >
               {label}
             </button>
@@ -81,12 +81,12 @@ export function CampaignTable({ campaigns, sortBy, onSortChange, selectedCampaig
               <tr
                 key={c.campaignName}
                 onClick={() => onSelectCampaign(selectedCampaign === c.campaignName ? null : c.campaignName)}
-                className={`cursor-pointer transition-colors ${selectedCampaign === c.campaignName ? 'bg-blue-50' : 'hover:bg-slate-50'}`}
+                className={cn('cursor-pointer transition-colors', selectedCampaign === c.campaignName ? 'bg-blue-50' : 'hover:bg-slate-50')}
               >
                 <td className="font-medium text-slate-900 max-w-[240px] truncate">{c.campaignName}</td>
                 <td className="text-right">{formatKRW(c.adSpend)}</td>
                 <td className="text-right">{formatKRW(c.adRevenue)}</td>
-                <td className={`text-right font-semibold ${roasColor(c.roas ?? 0, roasT)}`}>
+                <td className={cn('text-right font-semibold', roasColor(c.roas ?? 0, roasT))}>
                   {c.roas ?? 0}%
                 </td>
                 <td className="text-right">{formatNumber(c.impressions ?? 0)}</td>

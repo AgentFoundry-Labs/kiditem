@@ -1,6 +1,7 @@
 'use client';
 
 import { MessageSquare, CheckCircle, Clock, AlertTriangle } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { CS_TYPE_LABELS } from './CreateCSModal';
 import type { CSRecord } from '../lib/cs-types';
 
@@ -51,13 +52,7 @@ export function CSTable({ records, onRegisterClick }: Props) {
                 </td>
                 <td>
                   <span
-                    className={`px-2 py-0.5 rounded text-xs font-medium ${
-                      r.csStatus === '접수'
-                        ? 'bg-yellow-100 text-yellow-800'
-                        : r.csStatus === '처리중'
-                          ? 'bg-blue-100 text-blue-800'
-                          : 'bg-green-100 text-green-800'
-                    }`}
+                    className={cn('px-2 py-0.5 rounded text-xs font-medium', r.csStatus === '접수' ? 'bg-yellow-100 text-yellow-800' : r.csStatus === '처리중' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800')}
                   >
                     {r.csStatus}
                   </span>

@@ -8,7 +8,7 @@ import {
   ComposedChart, Bar, Line, XAxis, YAxis, Tooltip,
   ResponsiveContainer, CartesianGrid,
 } from 'recharts';
-import { formatKRW, formatNumber } from '@/lib/utils';
+import { cn, formatKRW, formatNumber } from '@/lib/utils';
 import { AdActionPanel } from './AdActionPanel';
 import type { AdTrendsData, AdRulesData, AdWeeklyPlan, AdCampaignSnapshot, AdProductSnapshot } from '@kiditem/shared';
 
@@ -137,11 +137,11 @@ export function StatusTab({ trends, wingKpis, rules, strategy, campaigns, select
               <tbody>
                 {campaigns.map(c => (
                   <tr key={c.campaignName} onClick={() => handleSelectCampaign(c.campaignName)}
-                    className={`cursor-pointer transition-colors border-b border-slate-100 ${selectedCampaign === c.campaignName ? 'bg-violet-50' : 'hover:bg-slate-50'}`}>
+                    className={cn('cursor-pointer transition-colors border-b border-slate-100', selectedCampaign === c.campaignName ? 'bg-violet-50' : 'hover:bg-slate-50')}>
                     <td className="px-5 py-3 text-sm font-semibold text-slate-900">{c.campaignName}</td>
                     <td className="text-right px-4 py-3 text-sm tabular-nums text-slate-600">{formatKRW(c.adSpend)}원</td>
                     <td className="text-right px-4 py-3 text-sm font-semibold tabular-nums text-emerald-600">{formatKRW(c.adRevenue)}원</td>
-                    <td className={`text-right px-4 py-3 text-sm font-bold tabular-nums ${(c.roas ?? 0) >= 300 ? 'text-emerald-600' : (c.roas ?? 0) >= 100 ? 'text-amber-500' : 'text-red-500'}`}>{Math.round(c.roas ?? 0)}%</td>
+                    <td className={cn('text-right px-4 py-3 text-sm font-bold tabular-nums', (c.roas ?? 0) >= 300 ? 'text-emerald-600' : (c.roas ?? 0) >= 100 ? 'text-amber-500' : 'text-red-500')}>{Math.round(c.roas ?? 0)}%</td>
                     <td className="text-right px-4 py-3 text-sm tabular-nums text-slate-600">{formatNumber(c.clicks)}</td>
                     <td className="text-right px-4 py-3 text-sm tabular-nums text-slate-600">{c.ctr}%</td>
                   </tr>
@@ -198,14 +198,14 @@ export function StatusTab({ trends, wingKpis, rules, strategy, campaigns, select
                     const prodRoas = p.adSpend > 0 ? Math.round((p.adRevenue / p.adSpend) * 100) : 0;
                     return (
                       <tr key={i} className="border-b border-slate-100">
-                        <td className="px-4 py-2.5"><span className={`inline-flex rounded-md px-2 py-0.5 text-[10px] font-bold text-white ${p.onOff === 'ON' ? 'bg-emerald-500' : 'bg-slate-400'}`}>{p.onOff || 'OFF'}</span></td>
+                        <td className="px-4 py-2.5"><span className={cn('inline-flex rounded-md px-2 py-0.5 text-[10px] font-bold text-white', p.onOff === 'ON' ? 'bg-emerald-500' : 'bg-slate-400')}>{p.onOff || 'OFF'}</span></td>
                         <td className="px-4 py-2.5 text-sm font-medium truncate max-w-[300px] text-slate-900">{cleanName}</td>
                         <td className="text-right px-3 py-2.5 text-sm tabular-nums text-slate-600">{formatKRW(p.adSpend)}원</td>
-                        <td className={`text-right px-3 py-2.5 text-sm tabular-nums font-medium ${p.adRevenue > 0 ? 'text-emerald-600' : 'text-slate-300'}`}>{p.adRevenue > 0 ? formatKRW(p.adRevenue) + '원' : '0원'}</td>
+                        <td className={cn('text-right px-3 py-2.5 text-sm tabular-nums font-medium', p.adRevenue > 0 ? 'text-emerald-600' : 'text-slate-300')}>{p.adRevenue > 0 ? formatKRW(p.adRevenue) + '원' : '0원'}</td>
                         <td className="text-right px-3 py-2.5 text-sm tabular-nums text-slate-600">{formatNumber(p.clicks)}</td>
                         <td className="text-right px-3 py-2.5 text-sm tabular-nums text-slate-600">{(p.ctr ?? 0) > 0 ? p.ctr + '%' : '-'}</td>
                         <td className="text-right px-3 py-2.5 text-sm tabular-nums text-slate-600">{p.adConversions}건</td>
-                        <td className={`text-right px-3 py-2.5 text-sm font-bold tabular-nums ${prodRoas >= 300 ? 'text-emerald-600' : prodRoas >= 100 ? 'text-amber-500' : 'text-slate-400'}`}>{prodRoas > 0 ? `${prodRoas}%` : '-'}</td>
+                        <td className={cn('text-right px-3 py-2.5 text-sm font-bold tabular-nums', prodRoas >= 300 ? 'text-emerald-600' : prodRoas >= 100 ? 'text-amber-500' : 'text-slate-400')}>{prodRoas > 0 ? `${prodRoas}%` : '-'}</td>
                       </tr>
                     );
                   })}

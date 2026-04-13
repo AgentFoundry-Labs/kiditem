@@ -10,7 +10,7 @@ import {
   CheckCircle,
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
-import { formatKRW } from '@/lib/utils';
+import { cn, formatKRW } from '@/lib/utils';
 
 interface Settlement {
   id: string;
@@ -72,7 +72,7 @@ export default function ReceivableSchedule() {
             {icon}
             <h3 className="section-title">{title}</h3>
           </div>
-          <span className={`text-xs font-semibold tabular-nums ${colorClass}`}>{formatKRW(groupTotal)}원 ({items.length}건)</span>
+          <span className={cn('text-xs font-semibold tabular-nums', colorClass)}>{formatKRW(groupTotal)}원 ({items.length}건)</span>
         </div>
         <div className="overflow-x-auto">
           <table>
@@ -194,7 +194,7 @@ export default function ReceivableSchedule() {
                       <td className="font-medium text-slate-900">{s.period}</td>
                       <td className="text-right tabular-nums">{formatKRW(s.expectedAmount)}원</td>
                       <td className="text-right tabular-nums font-semibold text-green-600">{formatKRW(s.actualAmount)}원</td>
-                      <td className={`text-right tabular-nums ${s.difference >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      <td className={cn('text-right tabular-nums', s.difference >= 0 ? 'text-green-600' : 'text-red-600')}>
                         {s.difference >= 0 ? '+' : ''}{formatKRW(s.difference)}원
                       </td>
                       <td className="text-xs text-slate-500 tabular-nums">

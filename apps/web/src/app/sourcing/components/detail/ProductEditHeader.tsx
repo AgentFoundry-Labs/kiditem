@@ -1,6 +1,7 @@
 'use client';
 
 import { ArrowLeft, Check, Lock } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 interface ProductEditHeaderProps {
   productName: string;
@@ -44,11 +45,7 @@ export default function ProductEditHeader({
       <div className="flex items-center gap-2 shrink-0 ml-4">
         <label className="flex items-center gap-1.5 cursor-pointer select-none group">
           <div
-            className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-colors ${
-              isEditComplete
-                ? 'bg-emerald-500 border-emerald-500'
-                : 'border-slate-300 group-hover:border-slate-400'
-            }`}
+            className={cn('w-4 h-4 rounded border-2 flex items-center justify-center transition-colors', isEditComplete ? 'bg-emerald-500 border-emerald-500' : 'border-slate-300 group-hover:border-slate-400')}
           >
             {isEditComplete && (
               <Check size={12} className="text-white" strokeWidth={3} />
@@ -65,11 +62,7 @@ export default function ProductEditHeader({
 
         <label className="flex items-center gap-1.5 cursor-pointer select-none group">
           <div
-            className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-colors ${
-              isLocked
-                ? 'bg-amber-500 border-amber-500'
-                : 'border-slate-300 group-hover:border-slate-400'
-            }`}
+            className={cn('w-4 h-4 rounded border-2 flex items-center justify-center transition-colors', isLocked ? 'bg-amber-500 border-amber-500' : 'border-slate-300 group-hover:border-slate-400')}
           >
             {isLocked && (
               <Lock size={10} className="text-white" strokeWidth={3} />

@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { BarChart3, TrendingDown, Package, Percent, Loader2, RefreshCw } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import { formatNumber, getGradeColor } from '@/lib/utils';
+import { cn, formatNumber, getGradeColor } from '@/lib/utils';
 
 interface PurchaseOrder {
   id: string;
@@ -175,21 +175,21 @@ export default function StockRetention() {
               ) : items.length === 0 ? (
                 <tr><td colSpan={8} className="py-12 text-center text-slate-400">데이터 없음 (입고된 발주 없음)</td></tr>
               ) : items.map((item) => (
-                <tr key={item.productId} className={`border-b border-slate-100 hover:bg-slate-50 ${item.retentionRate > 80 ? 'bg-red-50/30' : ''}`}>
+                <tr key={item.productId} className={cn('border-b border-slate-100 hover:bg-slate-50', item.retentionRate > 80 && 'bg-red-50/30')}>
                   <td className="py-2 px-3 font-medium max-w-[180px] truncate">{item.productName}</td>
                   <td className="py-2 px-3 text-xs text-slate-500 font-mono">{item.sku || '-'}</td>
                   <td className="py-2 px-3 text-center">
-                    <span className={`px-2 py-0.5 rounded text-xs font-bold ${getGradeColor(item.grade)}`}>{item.grade}</span>
+                    <span className={cn('px-2 py-0.5 rounded text-xs font-bold', getGradeColor(item.grade))}>{item.grade}</span>
                   </td>
                   <td className="py-2 px-3 text-right">{formatNumber(item.totalInbound)}개</td>
                   <td className="py-2 px-3 text-right text-green-600">{formatNumber(item.soldQuantity)}개</td>
                   <td className="py-2 px-3 text-right font-medium">{formatNumber(item.currentStock)}개</td>
-                  <td className={`py-2 px-3 text-right font-bold ${getRetentionColor(item.retentionRate)}`}>
+                  <td className={cn('py-2 px-3 text-right font-bold', getRetentionColor(item.retentionRate))}>
                     {item.retentionRate}%
                   </td>
                   <td className="py-2 px-3 w-32">
                     <div className="w-full bg-slate-100 rounded-full h-2">
-                      <div className={`h-2 rounded-full ${item.retentionRate > 80 ? 'bg-red-400' : item.retentionRate > 50 ? 'bg-orange-400' : 'bg-green-400'}`}
+                      <div className={cn('h-2 rounded-full', item.retentionRate > 80 ? 'bg-red-400' : item.retentionRate > 50 ? 'bg-orange-400' : 'bg-green-400')}
                         style={{ width: `${Math.min(100, item.retentionRate)}%` }} />
                     </div>
                   </td>

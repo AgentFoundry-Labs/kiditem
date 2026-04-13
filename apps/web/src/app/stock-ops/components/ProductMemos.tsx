@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { StickyNote, Plus, RefreshCw, CheckCircle, Loader2, MessageSquare, AlertTriangle, Truck, ShieldCheck } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
+import { cn } from '@/lib/utils';
 
 interface Product {
   id: string;
@@ -130,11 +131,7 @@ export default function ProductMemos() {
                     <button
                       key={key}
                       onClick={() => setForm({ ...form, memoType: key })}
-                      className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
-                        form.memoType === key
-                          ? `${config.bg} ${config.color} border-current`
-                          : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
-                      }`}
+                      className={cn('flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors', form.memoType === key ? `${config.bg} ${config.color} border-current` : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50')}
                     >
                       <Icon size={12} />
                       {config.text}
@@ -180,17 +177,7 @@ export default function ProductMemos() {
                 return (
                   <div
                     key={memo.id}
-                    className={`card border-l-4 ${
-                      memo.isResolved ? 'opacity-60' : ''
-                    } ${
-                      memo.memoType === 'urgent'
-                        ? 'border-l-red-500'
-                        : memo.memoType === 'shipping'
-                        ? 'border-l-blue-500'
-                        : memo.memoType === 'quality'
-                        ? 'border-l-orange-500'
-                        : 'border-l-slate-300'
-                    }`}
+                    className={cn('card border-l-4', memo.isResolved && 'opacity-60', memo.memoType === 'urgent' ? 'border-l-red-500' : memo.memoType === 'shipping' ? 'border-l-blue-500' : memo.memoType === 'quality' ? 'border-l-orange-500' : 'border-l-slate-300')}
                   >
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
@@ -214,24 +201,14 @@ export default function ProductMemos() {
                             <span className="text-xs text-slate-400">by {memo.author}</span>
                           )}
                         </div>
-                        <p
-                          className={`text-sm ${
-                            memo.isResolved
-                              ? 'text-slate-400 line-through'
-                              : 'text-slate-800'
-                          }`}
-                        >
+                        <p className={cn('text-sm', memo.isResolved ? 'text-slate-400 line-through' : 'text-slate-800')}>
                           {memo.content}
                         </p>
                       </div>
                       <button
                         disabled={togglingId === memo.id}
                         onClick={() => toggleMutation.mutate({ id: memo.id, isResolved: !memo.isResolved })}
-                        className={`ml-4 flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                          memo.isResolved
-                            ? 'border border-slate-300 text-slate-500 hover:bg-slate-50'
-                            : 'bg-green-600 text-white hover:bg-green-700'
-                        } disabled:opacity-50`}
+                        className={cn('ml-4 flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50', memo.isResolved ? 'border border-slate-300 text-slate-500 hover:bg-slate-50' : 'bg-green-600 text-white hover:bg-green-700')}
                       >
                         {togglingId === memo.id ? (
                           <Loader2 size={12} className="animate-spin" />

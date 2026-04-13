@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import { formatNumber } from '@/lib/utils';
+import { cn, formatNumber } from '@/lib/utils';
 
 interface OrderItem {
   id: string;
@@ -157,11 +157,7 @@ export default function SyncCheck() {
                 <div className="bg-white rounded-xl border border-slate-200">
                   <div className="p-4 text-center">
                     <div className="text-sm text-slate-500">차이</div>
-                    <div
-                      className={`text-2xl font-bold mt-1 ${
-                        totalDiff === 0 ? 'text-green-600' : 'text-red-600'
-                      }`}
-                    >
+                    <div className={cn('text-2xl font-bold mt-1', totalDiff === 0 ? 'text-green-600' : 'text-red-600')}>
                       {totalDiff > 0 ? '+' : ''}
                       {totalDiff}건
                     </div>
@@ -170,11 +166,7 @@ export default function SyncCheck() {
                 <div className="bg-white rounded-xl border border-slate-200">
                   <div className="p-4 text-center">
                     <div className="text-sm text-slate-500">누락 의심일</div>
-                    <div
-                      className={`text-2xl font-bold mt-1 ${
-                        missingDays === 0 ? 'text-green-600' : 'text-amber-600'
-                      }`}
-                    >
+                    <div className={cn('text-2xl font-bold mt-1', missingDays === 0 ? 'text-green-600' : 'text-amber-600')}>
                       {missingDays}일
                     </div>
                   </div>
@@ -244,15 +236,7 @@ export default function SyncCheck() {
                             {row.dbCount}건
                           </td>
                           <td className="px-4 py-3 text-right">
-                            <span
-                              className={`text-sm font-medium ${
-                                row.diff === 0
-                                  ? 'text-green-600'
-                                  : row.diff > 0
-                                    ? 'text-red-600'
-                                    : 'text-amber-600'
-                              }`}
-                            >
+                            <span className={cn('text-sm font-medium', row.diff === 0 ? 'text-green-600' : row.diff > 0 ? 'text-red-600' : 'text-amber-600')}>
                               {row.diff > 0 ? '+' : ''}
                               {row.diff}
                             </span>

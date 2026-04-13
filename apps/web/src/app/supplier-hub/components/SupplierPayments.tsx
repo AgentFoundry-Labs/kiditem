@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import { formatKRW } from '@/lib/utils';
+import { cn, formatKRW } from '@/lib/utils';
 
 interface Payment {
   id: string;
@@ -134,9 +134,7 @@ export default function SupplierPayments() {
             <button
               key={key}
               onClick={() => setTab(key)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                tab === key ? 'bg-orange-600 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
-              }`}
+              className={cn('flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors', tab === key ? 'bg-orange-600 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50')}
             >
               <Icon size={12} /> {cfg.label} ({counts[key]})
             </button>
@@ -173,16 +171,14 @@ export default function SupplierPayments() {
                     <td className="font-medium text-slate-900">{p.supplierName}</td>
                     <td className="text-right tabular-nums font-semibold">{formatKRW(p.amount)}원</td>
                     <td className="text-right tabular-nums text-green-600">{formatKRW(p.paidAmount)}원</td>
-                    <td className={`text-right tabular-nums font-semibold ${remaining > 0 ? 'text-red-600' : 'text-slate-400'}`}>
+                    <td className={cn('text-right tabular-nums font-semibold', remaining > 0 ? 'text-red-600' : 'text-slate-400')}>
                       {remaining > 0 ? `${formatKRW(remaining)}원` : '-'}
                     </td>
                     <td className="text-xs text-slate-500 tabular-nums">
                       {p.dueDate ? new Date(p.dueDate).toLocaleDateString('ko-KR') : '-'}
                     </td>
                     <td className="text-center">
-                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs ${
-                        p.status === 'paid' ? 'bg-green-50 text-green-600' : p.status === 'partial' ? 'bg-yellow-50 text-yellow-600' : 'bg-red-50 text-red-600'
-                      }`}>
+                      <span className={cn('inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs', p.status === 'paid' ? 'bg-green-50 text-green-600' : p.status === 'partial' ? 'bg-yellow-50 text-yellow-600' : 'bg-red-50 text-red-600')}>
                         <StatusIcon size={10} /> {cfg.label}
                       </span>
                     </td>

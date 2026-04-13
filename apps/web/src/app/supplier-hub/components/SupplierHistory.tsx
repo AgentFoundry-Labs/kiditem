@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { History, Package, Truck, CreditCard, ArrowDownCircle } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
-import { formatKRW } from '@/lib/utils';
+import { cn, formatKRW } from '@/lib/utils';
 
 interface Supplier {
   id: string;
@@ -126,7 +126,7 @@ export default function SupplierHistory() {
                   <div className="flex items-start gap-4">
                     {/* Timeline dot */}
                     <div className="flex flex-col items-center pt-1">
-                      <div className={`w-3 h-3 rounded-full ${dotColor}`} />
+                      <div className={cn('w-3 h-3 rounded-full', dotColor)} />
                       <div className="w-px h-full bg-slate-200 mt-1" />
                     </div>
 
@@ -137,7 +137,7 @@ export default function SupplierHistory() {
                           <Icon size={14} className="text-slate-500" />
                           <span className="text-sm font-medium text-slate-900">{item.description}</span>
                         </div>
-                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${st.color}`}>{st.label}</span>
+                        <span className={cn('px-2 py-0.5 rounded text-xs font-medium', st.color)}>{st.label}</span>
                       </div>
 
                       {/* Amount & Date */}

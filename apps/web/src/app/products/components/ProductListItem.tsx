@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { formatKRW, formatNumber, formatPercent, getProfitColor, getProductStatusBadge } from '@/lib/utils';
+import { cn, formatKRW, formatNumber, formatPercent, getProfitColor, getProductStatusBadge } from '@/lib/utils';
 import type { ProductListItem as Product } from '@kiditem/shared';
 
 interface ProductListItemProps {
@@ -45,7 +45,7 @@ export default function ProductListItem({ product: p, rank }: ProductListItemPro
       <div className="flex-1 min-w-0 ml-4">
         <p className="text-base font-semibold text-slate-900 truncate">{p.name}</p>
         <div className="flex items-center gap-2 mt-1">
-          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${badge.color}`}>{badge.label}</span>
+          <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium', badge.color)}>{badge.label}</span>
           <span className="text-xs text-slate-400">ID: {p.coupangProductId || p.sku}</span>
         </div>
         {p.category && (
@@ -56,29 +56,32 @@ export default function ProductListItem({ product: p, rank }: ProductListItemPro
         <div className="flex items-center gap-2 mt-1 flex-wrap">
           {p.abcGrade && (
             <>
-              <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+              <span className={cn(
+                'px-1.5 py-0.5 rounded text-[10px] font-bold',
                 p.abcGrade === 'A' ? 'bg-green-100 text-green-700' :
                 p.abcGrade === 'B' ? 'bg-blue-100 text-blue-700' :
-                'bg-red-100 text-red-700'
-              }`}>{p.abcGrade}</span>
+                'bg-red-100 text-red-700',
+              )}>{p.abcGrade}</span>
               {p.gradeScore != null && (
                 <span className="text-xs text-slate-500">{p.gradeScore}점</span>
               )}
             </>
           )}
           {p.healthScore != null && (
-            <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+            <span className={cn(
+              'px-2 py-0.5 rounded text-xs font-medium',
               p.healthScore >= 70 ? 'bg-green-50 text-green-700' :
               p.healthScore >= 40 ? 'bg-amber-50 text-amber-700' :
-              'bg-red-50 text-red-700'
-            }`}>{p.healthScore}</span>
+              'bg-red-50 text-red-700',
+            )}>{p.healthScore}</span>
           )}
           {p.adTier && (
-            <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+            <span className={cn(
+              'px-1.5 py-0.5 rounded text-[10px] font-medium',
               p.adTier === '1차' ? 'bg-purple-50 text-purple-600' :
               p.adTier === '2차' ? 'bg-purple-50 text-purple-600' :
-              'bg-slate-100 text-slate-500'
-            }`}>{p.adTier} 광고</span>
+              'bg-slate-100 text-slate-500',
+            )}>{p.adTier} 광고</span>
           )}
           {p.reviewCount > 0 && (
             <span className="text-[11px] text-slate-500">리뷰 {formatNumber(p.reviewCount)}건</span>
@@ -90,11 +93,12 @@ export default function ProductListItem({ product: p, rank }: ProductListItemPro
             <span className="text-[11px] text-slate-500">CTR {p.thumbnailCTR.toFixed(1)}%</span>
           )}
         </div>
-        <p className={`text-xs mt-0.5 ${
+        <p className={cn(
+          'text-xs mt-0.5',
           p.abcGrade === 'A' ? 'text-green-600' :
           p.abcGrade === 'B' ? 'text-amber-600' :
-          'text-red-500'
-        }`}>
+          'text-red-500',
+        )}>
           {p.abcGrade === 'A'
             ? '→ 핵심 상품 — 매출 집중 관리'
             : p.abcGrade === 'B' && p.profitRate >= 0
@@ -139,7 +143,7 @@ export default function ProductListItem({ product: p, rank }: ProductListItemPro
           <p className="text-xl font-bold text-slate-900 tabular-nums">
             {t?.salesQty != null ? formatNumber(t.salesQty) : <span className="text-slate-300">-</span>}
           </p>
-          <p className={`text-xs ${p.isCostMissing ? 'text-orange-500' : getProfitColor(p.profitRate)}`}>
+          <p className={cn('text-xs', p.isCostMissing ? 'text-orange-500' : getProfitColor(p.profitRate))}>
             {p.isCostMissing ? '원가 미반영' : `이익률 ${formatPercent(p.profitRate)}`}
           </p>
         </div>

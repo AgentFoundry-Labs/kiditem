@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { AlertTriangle, DollarSign, Clock } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import { formatNumber, getGradeColor } from '@/lib/utils';
+import { cn, formatNumber, getGradeColor } from '@/lib/utils';
 
 interface InventoryItem {
   id: string;
@@ -115,7 +115,7 @@ export default function DeadStock() {
                     </td>
                     <td className="py-2 px-3 text-center">
                       <span
-                        className={`px-2 py-0.5 rounded text-xs font-bold ${getGradeColor(item.grade)}`}
+                        className={cn('px-2 py-0.5 rounded text-xs font-bold', getGradeColor(item.grade))}
                       >
                         {item.grade}
                       </span>

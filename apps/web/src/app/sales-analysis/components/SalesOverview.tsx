@@ -8,7 +8,7 @@ import PeriodSelector from '@/components/ui/PeriodSelector';
 import { apiClient } from "@/lib/api-client";
 import { isApiError } from "@/lib/api-error";
 import { queryKeys } from "@/lib/query-keys";
-import { formatKRW, formatPercent } from "@/lib/utils";
+import { cn, formatKRW, formatPercent } from "@/lib/utils";
 import PageSkeleton from "@/components/ui/PageSkeleton";
 import { ChannelTable } from "./ChannelTable";
 import type { ChannelSortField } from "./ChannelTable";
@@ -131,19 +131,11 @@ export default function SalesOverview() {
               </div>
             </div>
             <div
-              className={`rounded-xl p-4 border ${
-                data.totals.totalProfit >= 0
-                  ? "bg-green-50 border-green-200"
-                  : "bg-red-50 border-red-200"
-              }`}
+              className={cn('rounded-xl p-4 border', data.totals.totalProfit >= 0 ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200')}
             >
               <div className="card-label">총이익</div>
               <div
-                className={`card-value ${
-                  data.totals.totalProfit >= 0
-                    ? "text-green-600"
-                    : "text-red-600"
-                }`}
+                className={cn('card-value', data.totals.totalProfit >= 0 ? 'text-green-600' : 'text-red-600')}
               >
                 {formatKRW(data.totals.totalProfit)}원
               </div>

@@ -9,6 +9,7 @@ import {
   Upload,
   X,
 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 interface ProductInputSectionProps {
   mode: 'url' | 'image';
@@ -51,11 +52,7 @@ export default function ProductInputSection({ mode, setMode, url, setUrl, images
       <div className="grid grid-cols-2 gap-4 mb-8">
         <button
           onClick={() => setMode('url')}
-          className={`p-6 rounded-2xl border-2 transition-all flex flex-col items-center justify-center gap-3 ${
-            mode === 'url'
-              ? 'border-slate-900 bg-slate-50'
-              : 'border-slate-100 hover:border-slate-300 hover:bg-slate-50 text-slate-400'
-          }`}
+          className={cn('p-6 rounded-2xl border-2 transition-all flex flex-col items-center justify-center gap-3', mode === 'url' ? 'border-slate-900 bg-slate-50' : 'border-slate-100 hover:border-slate-300 hover:bg-slate-50 text-slate-400')}
         >
           <Globe
             size={32}
@@ -74,11 +71,7 @@ export default function ProductInputSection({ mode, setMode, url, setUrl, images
         </button>
         <button
           onClick={() => setMode('image')}
-          className={`p-6 rounded-2xl border-2 transition-all flex flex-col items-center justify-center gap-3 ${
-            mode === 'image'
-              ? 'border-slate-900 bg-slate-50'
-              : 'border-slate-100 hover:border-slate-300 hover:bg-slate-50 text-slate-400'
-          }`}
+          className={cn('p-6 rounded-2xl border-2 transition-all flex flex-col items-center justify-center gap-3', mode === 'image' ? 'border-slate-900 bg-slate-50' : 'border-slate-100 hover:border-slate-300 hover:bg-slate-50 text-slate-400')}
         >
           <ImageIcon
             size={32}

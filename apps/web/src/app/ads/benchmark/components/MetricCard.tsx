@@ -1,6 +1,7 @@
 'use client';
 
 import { ArrowUp, ArrowDown, Minus, ChevronDown, ChevronUp } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 const STATUS_COLORS: Record<string, { bg: string; text: string; dot: string; label: string }> = {
   excellent: { bg: 'bg-emerald-100', text: 'text-emerald-700', dot: 'bg-emerald-500', label: '우수' },
@@ -51,20 +52,21 @@ export function MetricCard({ comparison: c, isExpanded, onToggle }: Props) {
   return (
     <div
       onClick={onToggle}
-      className={`rounded-xl border-2 transition-all cursor-pointer ${
+      className={cn(
+        'rounded-xl border-2 transition-all cursor-pointer',
         isExpanded
           ? 'col-span-2 lg:col-span-3 border-indigo-300 bg-gradient-to-br from-indigo-50/50 to-purple-50/30 shadow-lg'
-          : 'border-slate-200 hover:border-slate-300 hover:shadow-sm'
-      }`}
+          : 'border-slate-200 hover:border-slate-300 hover:shadow-sm',
+      )}
     >
       <div className="p-4">
         {/* Top row */}
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <div className={`w-2.5 h-2.5 rounded-full ${st.dot}`} />
+            <div className={cn('w-2.5 h-2.5 rounded-full', st.dot)} />
             <span className="text-[13px] font-bold text-slate-700">{c.label}</span>
           </div>
-          <span className={`text-[11px] font-bold px-2 py-0.5 rounded-md ${st.bg} ${st.text}`}>{st.label}</span>
+          <span className={cn('text-[11px] font-bold px-2 py-0.5 rounded-md', st.bg, st.text)}>{st.label}</span>
         </div>
 
         {/* Values */}

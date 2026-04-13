@@ -1,6 +1,6 @@
 'use client';
 import { Check, Printer, FileText } from "lucide-react";
-import { formatKRW } from "@/lib/utils";
+import { cn, formatKRW } from "@/lib/utils";
 import type { OrderRow } from "@kiditem/shared";
 
 interface OrderNode {
@@ -112,7 +112,7 @@ export default function OrderTable({
                     : order.receiverAddr
                   : "-";
                 return (
-                  <tr key={order.id} className={`hover:bg-slate-50 ${isSelected ? "bg-blue-50/50" : ""}`}>
+                  <tr key={order.id} className={cn('hover:bg-slate-50', isSelected && 'bg-blue-50/50')}>
                     <td className="w-10">
                       <input
                         type="checkbox"

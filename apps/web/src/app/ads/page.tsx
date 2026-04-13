@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Megaphone, TrendingDown, AlertTriangle, Download } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
-import { formatKRW } from "@/lib/utils";
+import { cn, formatKRW } from "@/lib/utils";
 import PageSkeleton from "@/components/ui/PageSkeleton";
 import { apiClient } from "@/lib/api-client";
 import { queryKeys } from "@/lib/query-keys";
@@ -127,11 +127,11 @@ export default function AdsPage() {
         </div>
         <div className="card">
           <div className="card-label">ROAS</div>
-          <div className={`card-value ${ROAS_STATUS_COLOR[summary.overallRoasStatus]}`}>{summary.overallRoas}%</div>
+          <div className={cn('card-value', ROAS_STATUS_COLOR[summary.overallRoasStatus])}>{summary.overallRoas}%</div>
         </div>
-        <div className={`rounded-xl p-4 border ${AD_RATE_STATUS_STYLE[summary.overallAdRateStatus]}`}>
+        <div className={cn('rounded-xl p-4 border', AD_RATE_STATUS_STYLE[summary.overallAdRateStatus])}>
           <div className="card-label">광고비율</div>
-          <div className={`card-value ${AD_RATE_STATUS_TEXT_COLOR[summary.overallAdRateStatus]}`}>{summary.overallAdRate}%</div>
+          <div className={cn('card-value', AD_RATE_STATUS_TEXT_COLOR[summary.overallAdRateStatus])}>{summary.overallAdRate}%</div>
           <div className="text-xs text-slate-500 mt-1">목표: 업계평균</div>
         </div>
         <div className="bg-red-50 rounded-xl p-4 border border-red-200">
@@ -213,7 +213,7 @@ export default function AdsPage() {
           { key: "2차", label: "2차 (성장)" },
           { key: "3차", label: "3차 (테스트)" },
         ].map((f) => (
-          <button key={f.key} onClick={() => setFilter(f.key)} className={`px-4 py-2 rounded-lg text-sm font-medium ${filter === f.key ? "bg-purple-600 text-white" : "bg-white border border-slate-200 hover:bg-slate-50"}`}>
+          <button key={f.key} onClick={() => setFilter(f.key)} className={cn('px-4 py-2 rounded-lg text-sm font-medium', filter === f.key ? 'bg-purple-600 text-white' : 'bg-white border border-slate-200 hover:bg-slate-50')}>
             {f.label}
           </button>
         ))}

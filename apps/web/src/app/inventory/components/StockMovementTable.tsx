@@ -1,6 +1,6 @@
 'use client';
 import { ArrowUpDown } from 'lucide-react';
-import { formatKRW } from '@/lib/utils';
+import { cn, formatKRW } from '@/lib/utils';
 
 export interface GroupedRow {
   key: string;
@@ -83,7 +83,7 @@ export function StockMovementTable({ grouped, loading, groupBy }: Props) {
                   <td className="text-right tabular-nums text-red-600">-{formatKRW(row.outQty)}</td>
                   <td className="text-right tabular-nums text-slate-700">{formatKRW(row.inAmt)}원</td>
                   <td className="text-right tabular-nums text-slate-700">{formatKRW(row.outAmt)}원</td>
-                  <td className={`text-right tabular-nums font-semibold ${net > 0 ? 'text-green-600' : net < 0 ? 'text-red-600' : 'text-slate-500'}`}>
+                  <td className={cn('text-right tabular-nums font-semibold', net > 0 ? 'text-green-600' : net < 0 ? 'text-red-600' : 'text-slate-500')}>
                     {net > 0 ? '+' : ''}{formatKRW(net)}
                   </td>
                 </tr>

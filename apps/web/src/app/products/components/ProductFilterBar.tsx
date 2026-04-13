@@ -1,5 +1,6 @@
 'use client';
 import { Search } from "lucide-react";
+import { cn } from "@/lib/utils";
 import type { PipelineCounts } from "@kiditem/shared";
 
 interface ProductFilterBarProps {
@@ -48,9 +49,7 @@ export default function ProductFilterBar({
         <button
           key={f.key}
           onClick={() => onGradeChange(f.key)}
-          className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-            gradeFilter === f.key ? f.color : "bg-slate-100 text-slate-500 hover:bg-slate-200"
-          }`}
+          className={cn('px-3 py-1.5 rounded-lg text-xs font-medium transition-colors', gradeFilter === f.key ? f.color : 'bg-slate-100 text-slate-500 hover:bg-slate-200')}
         >
           {f.label}
         </button>
@@ -70,9 +69,7 @@ export default function ProductFilterBar({
           <button
             key={f.key}
             onClick={() => onAdFilterChange(f.key)}
-            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-              adFilter === f.key ? "bg-white text-blue-700 shadow-sm" : "text-blue-400 hover:text-purple-600"
-            }`}
+            className={cn('px-3 py-1.5 text-xs font-medium rounded-md transition-colors', adFilter === f.key ? 'bg-white text-blue-700 shadow-sm' : 'text-blue-400 hover:text-purple-600')}
           >
             {f.label}
           </button>

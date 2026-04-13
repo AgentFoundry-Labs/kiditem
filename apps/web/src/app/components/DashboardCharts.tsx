@@ -4,7 +4,7 @@ import {
   XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
   AreaChart, Area, BarChart, Bar, Cell,
 } from 'recharts';
-import { formatKRW } from '@/lib/utils';
+import { cn, formatKRW } from '@/lib/utils';
 
 interface TrendItem {
   date: string;
@@ -141,10 +141,10 @@ export function DashboardCharts({ chartTab, dailyTrend, adChartData, benchmarkDa
               return (
                 <div key={item.name} className="text-center">
                   <div className="text-[13px] font-semibold text-slate-500">{item.name}</div>
-                  <div className={`text-[20px] font-bold tabular-nums mt-0.5 ${isGood ? 'text-emerald-500' : 'text-red-500'}`}>
+                  <div className={cn('text-[20px] font-bold tabular-nums mt-0.5', isGood ? 'text-emerald-500' : 'text-red-500')}>
                     {item.my}{item.unit}
                   </div>
-                  <div className={`text-[12px] mt-0.5 ${isGood ? 'text-emerald-500' : 'text-red-500'}`}>
+                  <div className={cn('text-[12px] mt-0.5', isGood ? 'text-emerald-500' : 'text-red-500')}>
                     {isGood ? '\u2713' : '\u2717'} {diffStr}%p vs 평균
                   </div>
                 </div>

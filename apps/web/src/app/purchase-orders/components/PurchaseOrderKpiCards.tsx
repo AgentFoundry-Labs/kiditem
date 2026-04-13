@@ -1,5 +1,7 @@
 'use client';
 
+import { cn } from '@/lib/utils';
+
 interface Kpi {
   label: string;
   value: number;
@@ -12,7 +14,7 @@ export function PurchaseOrderKpiCards({ kpis }: { kpis: Kpi[] }) {
       {kpis.map((kpi) => (
         <div key={kpi.label} className="bg-white rounded-lg border border-slate-200 p-4">
           <div className="flex items-center gap-2 mb-1">
-            <div className={`w-2 h-2 rounded-full ${kpi.dot}`} />
+            <div className={cn('w-2 h-2 rounded-full', kpi.dot)} />
             <span className="text-sm text-slate-500">{kpi.label}</span>
           </div>
           <div className="card-value">{kpi.value}</div>

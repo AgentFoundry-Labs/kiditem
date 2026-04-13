@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Download, Plus, Trash2, ExternalLink, Loader2, X } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
+import { cn } from '@/lib/utils';
 
 interface ScrapeTarget {
   id: string;
@@ -216,7 +217,7 @@ export default function ScrapeCollector({ onComplete }: { onComplete?: () => voi
               <div className="px-6 py-3 bg-slate-50 border-t space-y-1.5">
                 <div className="text-xs font-bold text-slate-700">수집 결과</div>
                 {results.map((r, i) => (
-                  <div key={i} className={`flex items-center gap-2 text-[12px] ${r.success ? 'text-emerald-700' : 'text-red-600'}`}>
+                  <div key={i} className={cn('flex items-center gap-2 text-[12px]', r.success ? 'text-emerald-700' : 'text-red-600')}>
                     <span>{r.success ? '\u2705' : '\u274c'}</span>
                     <span className="font-medium truncate">{r.label || r.url?.substring(0, 40)}</span>
                     {r.success && (r.count ?? 0) > 0 && <span className="text-slate-400 shrink-0">({r.count}건)</span>}
@@ -230,7 +231,7 @@ export default function ScrapeCollector({ onComplete }: { onComplete?: () => voi
             <div className="px-6 py-4 border-t bg-slate-50 space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <span className={`w-2 h-2 rounded-full ${extensionStatus === 'connected' ? 'bg-emerald-400' : extensionStatus === 'checking' ? 'bg-amber-400 animate-pulse' : 'bg-red-400'}`} />
+                  <span className={cn('w-2 h-2 rounded-full', extensionStatus === 'connected' ? 'bg-emerald-400' : extensionStatus === 'checking' ? 'bg-amber-400 animate-pulse' : 'bg-red-400')} />
                   <span className="text-[12px] text-slate-500">
                     {extensionStatus === 'connected' ? '익스텐션 연결됨' : extensionStatus === 'checking' ? '확인 중...' : '익스텐션 미감지'}
                   </span>

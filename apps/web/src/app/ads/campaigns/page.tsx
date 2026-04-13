@@ -6,7 +6,7 @@ import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import { formatKRW } from '@/lib/utils';
+import { cn, formatKRW } from '@/lib/utils';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { roasColor } from '../lib/status-colors';
 import { CampaignTable } from './components/CampaignTable';
@@ -67,7 +67,7 @@ export default function AdsCampaignsPage() {
             <button
               key={key}
               onClick={() => setPeriod(key)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium ${period === key ? 'bg-purple-600 text-white' : 'bg-white border border-slate-200 hover:bg-slate-50'}`}
+              className={cn('px-4 py-2 rounded-lg text-sm font-medium', period === key ? 'bg-purple-600 text-white' : 'bg-white border border-slate-200 hover:bg-slate-50')}
             >
               {label}
             </button>
@@ -97,7 +97,7 @@ export default function AdsCampaignsPage() {
         </div>
         <div className="card">
           <div className="card-label">ROAS</div>
-          <div className={`card-value ${roasColor(kpi.roas ?? 0, roasT)}`}>
+          <div className={cn('card-value', roasColor(kpi.roas ?? 0, roasT))}>
             {kpi.roas ?? 0}%
           </div>
         </div>

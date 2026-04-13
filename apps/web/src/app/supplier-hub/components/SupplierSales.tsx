@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Store, TrendingUp, Package, DollarSign } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
-import { formatKRW } from '@/lib/utils';
+import { cn, formatKRW } from '@/lib/utils';
 
 interface SupplierSale {
   supplierId: string;
@@ -70,7 +70,7 @@ export default function SupplierSales() {
         </div>
         <div className="card">
           <div className="flex items-center gap-2 card-label mb-1"><TrendingUp size={14} className="text-green-500" />총 이익</div>
-          <div className={`card-value ${totalProfit != null ? (totalProfit >= 0 ? 'text-green-600' : 'text-red-600') : 'text-slate-400'}`}>
+          <div className={cn('card-value', totalProfit != null ? (totalProfit >= 0 ? 'text-green-600' : 'text-red-600') : 'text-slate-400')}>
             {totalProfit != null ? `${formatKRW(totalProfit)}원` : '-'}
           </div>
         </div>
@@ -105,15 +105,15 @@ export default function SupplierSales() {
             </thead>
             <tbody >
               {suppliers.map((sup) => (
-                <tr key={sup.id} className={`hover:bg-slate-50 cursor-pointer ${selectedSupplier === sup.id ? 'bg-blue-50' : ''}`} onClick={() => setSelectedSupplier(sup.id)}>
+                <tr key={sup.id} className={cn('hover:bg-slate-50 cursor-pointer', selectedSupplier === sup.id && 'bg-blue-50')} onClick={() => setSelectedSupplier(sup.id)}>
                   <td className="px-4 py-3 font-medium text-slate-900">{sup.name}</td>
                   <td className="px-4 py-3 text-xs text-slate-500">{sup.contactName || '-'}</td>
                   <td className="px-4 py-3 text-right tabular-nums">{sup.productCount}</td>
                   <td className="px-4 py-3 text-right tabular-nums font-semibold">{formatKRW(sup.totalRevenue)}</td>
-                  <td className={`px-4 py-3 text-right tabular-nums font-semibold ${sup.totalProfit != null ? (sup.totalProfit >= 0 ? 'text-green-600' : 'text-red-600') : 'text-slate-400'}`}>
+                  <td className={cn('px-4 py-3 text-right tabular-nums font-semibold', sup.totalProfit != null ? (sup.totalProfit >= 0 ? 'text-green-600' : 'text-red-600') : 'text-slate-400')}>
                     {sup.totalProfit != null ? formatKRW(sup.totalProfit) : '-'}
                   </td>
-                  <td className={`px-4 py-3 text-right tabular-nums ${sup.profitRate != null ? (sup.profitRate >= 5 ? 'text-green-600' : 'text-orange-600') : 'text-slate-400'}`}>
+                  <td className={cn('px-4 py-3 text-right tabular-nums', sup.profitRate != null ? (sup.profitRate >= 5 ? 'text-green-600' : 'text-orange-600') : 'text-slate-400')}>
                     {sup.profitRate != null ? `${sup.profitRate}%` : '-'}
                   </td>
                   <td className="px-4 py-3 text-right tabular-nums">{sup.totalOrders}</td>
@@ -157,7 +157,7 @@ export default function SupplierSales() {
                     <td className="px-4 py-3 text-xs text-slate-500">{p.category}</td>
                     <td className="px-4 py-3 text-right tabular-nums">{formatKRW(p.supplyPrice)}</td>
                     <td className="px-4 py-3 text-right tabular-nums font-semibold">{formatKRW(p.revenue)}</td>
-                    <td className={`px-4 py-3 text-right tabular-nums font-semibold ${p.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatKRW(p.profit)}</td>
+                    <td className={cn('px-4 py-3 text-right tabular-nums font-semibold', p.profit >= 0 ? 'text-green-600' : 'text-red-600')}>{formatKRW(p.profit)}</td>
                     <td className="px-4 py-3 text-right tabular-nums">{p.orderCount}</td>
                   </tr>
                 ))}

@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowRightLeft, Plus, RefreshCw, CheckCircle, Loader2, Building2, Package, Filter } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
+import { cn } from '@/lib/utils';
 
 interface StockTransfer {
   id: string;
@@ -129,11 +130,7 @@ export default function StockTransfers() {
           <button
             key={f.key}
             onClick={() => setFilter(f.key)}
-            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-              filter === f.key
-                ? 'bg-indigo-600 text-white'
-                : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
-            }`}
+            className={cn('px-3 py-1.5 rounded-lg text-sm font-medium transition-colors', filter === f.key ? 'bg-indigo-600 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50')}
           >
             {f.label}
             {f.key !== 'all' && (
@@ -167,9 +164,7 @@ export default function StockTransfers() {
                         {t.id.slice(0, 8)}
                       </span>
                       <span
-                        className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                          statusConfig[t.status]?.color || 'bg-slate-100 text-slate-600'
-                        }`}
+                        className={cn('text-xs px-2 py-0.5 rounded-full font-medium', statusConfig[t.status]?.color || 'bg-slate-100 text-slate-600')}
                       >
                         {statusConfig[t.status]?.text || t.status}
                       </span>

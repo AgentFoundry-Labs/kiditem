@@ -9,7 +9,7 @@ import {
   DollarSign,
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
-import { formatKRW } from '@/lib/utils';
+import { cn, formatKRW } from '@/lib/utils';
 
 interface Payment {
   id: string;
@@ -83,7 +83,7 @@ export default function PaymentSchedule() {
             {icon}
             <h3 className="section-title">{title}</h3>
           </div>
-          <span className={`text-xs font-semibold tabular-nums ${colorClass}`}>{formatKRW(groupTotal)}원 ({items.length}건)</span>
+          <span className={cn('text-xs font-semibold tabular-nums', colorClass)}>{formatKRW(groupTotal)}원 ({items.length}건)</span>
         </div>
         <div className="overflow-x-auto">
           <table>

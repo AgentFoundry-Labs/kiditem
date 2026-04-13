@@ -2,6 +2,7 @@
 
 import { Package, TrendingUp, BarChart3, Star } from 'lucide-react';
 import {
+  cn,
   formatKRW,
   formatPercent,
   getGradeColor,
@@ -47,7 +48,7 @@ function MetricCard({
         {icon}
         <span className="text-xs text-slate-500">{label}</span>
       </div>
-      <p className={`text-lg font-semibold ${valueColor || "text-slate-900"}`}>
+      <p className={cn('text-lg font-semibold', valueColor || 'text-slate-900')}>
         {value}
       </p>
     </div>
@@ -68,13 +69,13 @@ export default function ProductMetrics({ product }: ProductMetricsProps) {
       <div className="flex items-center gap-3 mb-4">
         {product.abcGrade && (
           <span
-            className={`px-2.5 py-1 rounded text-sm font-bold ${getGradeColor(product.abcGrade)}`}
+            className={cn('px-2.5 py-1 rounded text-sm font-bold', getGradeColor(product.abcGrade))}
           >
             {product.abcGrade}
           </span>
         )}
         <h1 className="text-xl font-bold text-slate-900">{product.name}</h1>
-        <span className={`ml-auto px-2.5 py-1 rounded text-xs font-medium ${badge.color}`}>
+        <span className={cn('ml-auto px-2.5 py-1 rounded text-xs font-medium', badge.color)}>
           {badge.label}
         </span>
       </div>

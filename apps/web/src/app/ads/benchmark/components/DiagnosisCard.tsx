@@ -1,7 +1,7 @@
 'use client';
 
 import { BarChart3, AlertTriangle, TrendingUp } from 'lucide-react';
-import { formatKRW } from '@/lib/utils';
+import { cn, formatKRW } from '@/lib/utils';
 
 const BENCH_STATUS: Record<string, { bg: string; text: string; dot: string; label: string }> = {
   excellent: { bg: 'bg-emerald-100', text: 'text-emerald-700', dot: 'bg-emerald-500', label: '우수' },
@@ -47,7 +47,7 @@ export function DiagnosisCard({ diagnosis, dataInfo }: { diagnosis: Diagnosis; d
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <span className={`px-3 py-1 rounded-lg text-[13px] font-extrabold ${gradeColor}`}>
+          <span className={cn('px-3 py-1 rounded-lg text-[13px] font-extrabold', gradeColor)}>
             종합 {diagnosis.overallGrade}
           </span>
           <span className="text-[11px] text-slate-400">{dataInfo.period} · {dataInfo.adRecords}건</span>
@@ -73,7 +73,7 @@ export function DiagnosisCard({ diagnosis, dataInfo }: { diagnosis: Diagnosis; d
                 const unit = c.metric === 'cpc' ? '원' : '%';
                 return (
                   <div key={c.metric} className="flex items-center gap-3 bg-white/70 rounded-lg px-3 py-2">
-                    <span className={`shrink-0 px-2 py-0.5 rounded text-[10px] font-bold ${st.bg} ${st.text}`}>{st.label}</span>
+                    <span className={cn('shrink-0 px-2 py-0.5 rounded text-[10px] font-bold', st.bg, st.text)}>{st.label}</span>
                     <span className="text-[13px] font-semibold text-slate-800">{c.label}</span>
                     {c.myValue !== undefined && (
                       <>
@@ -100,7 +100,7 @@ export function DiagnosisCard({ diagnosis, dataInfo }: { diagnosis: Diagnosis; d
                 const unit = c.metric === 'cpc' ? '원' : '%';
                 return (
                   <div key={c.metric} className="flex items-center gap-3 bg-white/70 rounded-lg px-3 py-2">
-                    <span className={`shrink-0 px-2 py-0.5 rounded text-[10px] font-bold ${st.bg} ${st.text}`}>{st.label}</span>
+                    <span className={cn('shrink-0 px-2 py-0.5 rounded text-[10px] font-bold', st.bg, st.text)}>{st.label}</span>
                     <span className="text-[13px] font-semibold text-slate-800">{c.label}</span>
                     {c.myValue !== undefined && (
                       <span className="text-[12px] text-slate-500 ml-auto tabular-nums">{c.myValue}{unit}</span>

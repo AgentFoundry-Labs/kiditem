@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
+import { cn } from '@/lib/utils';
 
 interface PickingItem {
   id: string;
@@ -169,20 +170,14 @@ export default function SmartPicking() {
             <div
               key={l.id}
               onClick={() => setSelected(l)}
-              className={`card cursor-pointer transition-all ${
-                selected?.id === l.id
-                  ? 'ring-2 ring-blue-500'
-                  : 'hover:border-blue-300'
-              }`}
+              className={cn('card cursor-pointer transition-all', selected?.id === l.id ? 'ring-2 ring-blue-500' : 'hover:border-blue-300')}
             >
               <div className="flex items-center justify-between mb-2">
                 <span className="font-mono text-sm font-semibold">
                   {l.listNumber}
                 </span>
                 <span
-                  className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                    statusLabel[l.status]?.color || 'bg-slate-100 text-slate-600'
-                  }`}
+                  className={cn('text-xs px-2 py-0.5 rounded-full font-medium', statusLabel[l.status]?.color || 'bg-slate-100 text-slate-600')}
                 >
                   {statusLabel[l.status]?.text || l.status}
                 </span>
@@ -224,9 +219,7 @@ export default function SmartPicking() {
                     {activeList.listNumber}
                   </span>
                   <span
-                    className={`ml-2 text-xs px-2 py-0.5 rounded-full ${
-                      statusLabel[activeList.status]?.color
-                    }`}
+                    className={cn('ml-2 text-xs px-2 py-0.5 rounded-full', statusLabel[activeList.status]?.color)}
                   >
                     {statusLabel[activeList.status]?.text}
                   </span>
@@ -304,13 +297,7 @@ export default function SmartPicking() {
                   .map((item) => (
                     <div
                       key={item.id}
-                      className={`p-4 flex items-center gap-4 ${
-                        item.isVerified
-                          ? 'bg-green-50/50'
-                          : item.isPicked
-                            ? 'bg-blue-50/50'
-                            : ''
-                      }`}
+                      className={cn('p-4 flex items-center gap-4', item.isVerified ? 'bg-green-50/50' : item.isPicked ? 'bg-blue-50/50' : '')}
                     >
                       <div className="flex-1">
                         <div className="font-medium text-sm text-slate-900">

@@ -41,6 +41,7 @@ import { PaginationBar } from './components/PaginationBar';
 import { UploadAnalyzer } from './components/UploadAnalyzer';
 import { ThumbnailStatusBadge } from './components/ThumbnailStatusBadge';
 import { openCoupangWingInventory } from './lib/coupang-wing';
+import { cn } from '@/lib/utils';
 import type { ThumbnailAnalysisResult, ThumbnailGenerationItem } from '@kiditem/shared';
 
 type TabKey = 'unclassified' | 'all' | 'needsfix' | 'history' | 'tracking';
@@ -1503,9 +1504,7 @@ export default function ThumbnailsPage() {
                           </td>
                           <td className="text-right px-4 py-3">
                             <span
-                              className={`inline-block px-2 py-0.5 rounded text-[11px] font-bold text-white ${
-                                gradeBg[g.grade as keyof typeof gradeBg] || 'bg-gray-400'
-                              }`}
+                              className={cn('inline-block px-2 py-0.5 rounded text-[11px] font-bold text-white', gradeBg[g.grade as keyof typeof gradeBg] || 'bg-gray-400')}
                             >
                               {g.grade}
                             </span>

@@ -1,5 +1,6 @@
 'use client';
 import { Zap, Plus, RefreshCw } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface OrderHeaderProps {
   totalOrders: number;
@@ -36,9 +37,7 @@ export default function OrderHeader({
         <span className="text-[10px] text-slate-400 font-mono">자동 동기화: 9/12/15/18시</span>
         <button
           onClick={onToggleCompleted}
-          className={`px-3 py-1.5 text-xs rounded-md font-mono transition-colors ${
-            showCompleted ? "bg-slate-200 text-slate-700" : "bg-slate-100 text-slate-400"
-          }`}
+          className={cn('px-3 py-1.5 text-xs rounded-md font-mono transition-colors', showCompleted ? 'bg-slate-200 text-slate-700' : 'bg-slate-100 text-slate-400')}
         >
           {showCompleted ? "배송완료 숨기기" : `배송완료 보기 (${completedCount})`}
         </button>

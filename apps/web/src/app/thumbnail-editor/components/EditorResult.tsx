@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { resolveImageUrl } from '@/app/thumbnails/lib/resolve-url';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
+import { cn } from '@/lib/utils';
 
 interface EditorResultProps {
   originalImage: string | null;
@@ -106,11 +107,7 @@ export function EditorResult({ originalImage, candidates, productId }: EditorRes
                         <button
                           onClick={() => handleSaveToHub(c.url)}
                           disabled={saveDisabled}
-                          className={`flex-1 flex items-center justify-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium transition-colors ${
-                            isSaved
-                              ? 'bg-emerald-50 text-emerald-600'
-                              : 'text-purple-600 hover:bg-purple-50 disabled:opacity-40 disabled:hover:bg-transparent'
-                          }`}
+                          className={cn('flex-1 flex items-center justify-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium transition-colors', isSaved ? 'bg-emerald-50 text-emerald-600' : 'text-purple-600 hover:bg-purple-50 disabled:opacity-40 disabled:hover:bg-transparent')}
                         >
                           {isSavingThis ? (
                             <><Loader2 size={12} className="animate-spin" /> 저장 중</>

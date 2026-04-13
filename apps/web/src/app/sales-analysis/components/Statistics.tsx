@@ -7,7 +7,7 @@ import { usePeriodSelector } from '@/hooks/usePeriodSelector';
 import PeriodSelector from '@/components/ui/PeriodSelector';
 import { Pagination } from '@/components/ui/Pagination';
 import { apiClient } from '@/lib/api-client';
-import { formatKRW, formatPercent, formatDate, getGradeColor } from '@/lib/utils';
+import { cn, formatKRW, formatPercent, formatDate, getGradeColor } from '@/lib/utils';
 
 interface OverviewStats {
   totalProducts: number;
@@ -153,7 +153,7 @@ export default function Statistics() {
       <div className="flex gap-1 flex-wrap">
         {tabs.map(t => (
           <button key={t.key} onClick={() => handleTabChange(t.key)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${tab === t.key ? 'bg-slate-900 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+            className={cn('flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors', tab === t.key ? 'bg-slate-900 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50')}>
             <t.icon size={13} /> {t.label}
           </button>
         ))}
@@ -220,12 +220,12 @@ export default function Statistics() {
                         return (
                         <tr key={p.productId}>
                           <td className="text-slate-400 tabular-nums">{rowNum}</td>
-                          <td><span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${getGradeColor(p.grade)}`}>{p.grade}</span></td>
+                          <td><span className={cn('px-1.5 py-0.5 rounded text-[10px] font-bold', getGradeColor(p.grade))}>{p.grade}</span></td>
                           <td className="font-medium text-slate-900 max-w-[200px] truncate">{p.productName}</td>
                           <td className="text-right tabular-nums">{p.orderCount}</td>
                           <td className="text-right tabular-nums">{formatKRW(p.totalRevenue)}원</td>
-                          <td className={`text-right tabular-nums ${p.netProfit < 0 ? 'text-red-600' : 'text-green-600'}`}>{formatKRW(p.netProfit)}원</td>
-                          <td className={`text-right tabular-nums font-semibold ${rate < 0 ? 'text-red-600' : rate <= 3 ? 'text-orange-500' : 'text-green-600'}`}>{formatPercent(rate)}</td>
+                          <td className={cn('text-right tabular-nums', p.netProfit < 0 ? 'text-red-600' : 'text-green-600')}>{formatKRW(p.netProfit)}원</td>
+                          <td className={cn('text-right tabular-nums font-semibold', rate < 0 ? 'text-red-600' : rate <= 3 ? 'text-orange-500' : 'text-green-600')}>{formatPercent(rate)}</td>
                         </tr>
                         );
                       })}
@@ -251,7 +251,7 @@ export default function Statistics() {
                           <td className="font-medium text-slate-900">{c.name}</td>
                           <td className="text-right tabular-nums">{c.count}개</td>
                           <td className="text-right tabular-nums">{formatKRW(c.revenue)}원</td>
-                          <td className={`text-right tabular-nums ${c.profit < 0 ? 'text-red-600' : 'text-green-600'}`}>{formatKRW(c.profit)}원</td>
+                          <td className={cn('text-right tabular-nums', c.profit < 0 ? 'text-red-600' : 'text-green-600')}>{formatKRW(c.profit)}원</td>
                         </tr>
                       ))}
                     </tbody>
@@ -297,11 +297,11 @@ export default function Statistics() {
             <div className="grid grid-cols-3 gap-3">
               {[...data.grades].sort((a, b) => a.grade.localeCompare(b.grade)).map((g) => (
                 <div key={g.grade} className="bg-white rounded-xl border border-slate-200 px-4 py-4">
-                  <div className={`text-2xl font-bold ${getGradeTextColor(g.grade)}`}>{g.grade}등급</div>
+                  <div className={cn('text-2xl font-bold', getGradeTextColor(g.grade))}>{g.grade}등급</div>
                   <div className="text-xs text-slate-400 mt-1">{g.count}개 상품</div>
                   <div className="mt-3 space-y-1 text-sm">
                     <div className="flex justify-between"><span className="text-slate-500">매출</span><span className="font-semibold tabular-nums">{formatKRW(g.revenue)}원</span></div>
-                    <div className="flex justify-between"><span className="text-slate-500">순이익</span><span className={`font-semibold tabular-nums ${g.profit < 0 ? 'text-red-600' : 'text-green-600'}`}>{formatKRW(g.profit)}원</span></div>
+                    <div className="flex justify-between"><span className="text-slate-500">순이익</span><span className={cn('font-semibold tabular-nums', g.profit < 0 ? 'text-red-600' : 'text-green-600')}>{formatKRW(g.profit)}원</span></div>
                     <div className="flex justify-between"><span className="text-slate-500">광고비</span><span className="font-semibold tabular-nums text-amber-600">{formatKRW(g.adCost)}원</span></div>
                   </div>
                 </div>
@@ -334,16 +334,16 @@ export default function Statistics() {
                           <tr key={p.id} className={!p.gradeMatch ? 'bg-yellow-50/50' : ''}>
                             <td className="text-slate-400 tabular-nums">{p.rank}</td>
                             <td className="font-medium text-slate-900 max-w-[200px] truncate">{p.name}</td>
-                            <td><span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${getGradeColor(p.currentGrade)}`}>{p.currentGrade}</span></td>
+                            <td><span className={cn('px-1.5 py-0.5 rounded text-[10px] font-bold', getGradeColor(p.currentGrade))}>{p.currentGrade}</span></td>
                             <td>
-                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${getGradeColor(p.suggestedGrade)}`}>
+                              <span className={cn('px-1.5 py-0.5 rounded text-[10px] font-bold', getGradeColor(p.suggestedGrade))}>
                                 {p.suggestedGrade}
                               </span>
                               {!p.gradeMatch && <span className="ml-1 text-[9px] text-red-500">불일치</span>}
                             </td>
                             <td className="text-right tabular-nums">{formatKRW(p.revenue)}원</td>
                             <td className="text-right tabular-nums text-slate-500">{p.revenuePercent}%</td>
-                            <td className={`text-right tabular-nums font-medium ${p.cumulativePercent <= 70 ? 'text-green-600' : p.cumulativePercent <= 90 ? 'text-yellow-600' : 'text-red-600'}`}>{p.cumulativePercent}%</td>
+                            <td className={cn('text-right tabular-nums font-medium', p.cumulativePercent <= 70 ? 'text-green-600' : p.cumulativePercent <= 90 ? 'text-yellow-600' : 'text-red-600')}>{p.cumulativePercent}%</td>
                           </tr>
                         ))}
                       </tbody>

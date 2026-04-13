@@ -8,7 +8,7 @@ import {
 import { TrendingUp, ArrowUpRight, ArrowDownRight, Minus } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import { formatKRW, formatNumber } from '@/lib/utils';
+import { cn, formatKRW, formatNumber } from '@/lib/utils';
 import { roasColor } from '../../lib/status-colors';
 
 interface DailyPoint {
@@ -90,9 +90,7 @@ export function TrendsComparison({ daily, comparison, budgetAllocation }: Props)
                   <div className="text-[18px] font-extrabold text-slate-900 tabular-nums mb-1">
                     {fmtVal(m.key, val.after, m.isMoney)}
                   </div>
-                  <div className={`flex items-center gap-1 text-[12px] font-bold ${
-                    isNeutral ? 'text-slate-400' : isGood ? 'text-emerald-600' : 'text-red-500'
-                  }`}>
+                  <div className={cn('flex items-center gap-1 text-[12px] font-bold', isNeutral ? 'text-slate-400' : isGood ? 'text-emerald-600' : 'text-red-500')}>
                     {isNeutral ? <Minus size={12} /> : isUp ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}
                     {isNeutral ? '변동 없음' : `${isUp ? '+' : ''}${change}${m.unit}`}
                   </div>
@@ -172,7 +170,7 @@ export function TrendsComparison({ daily, comparison, budgetAllocation }: Props)
                         </td>
                         <td className="text-right">{item.pct}%</td>
                         <td className="text-right text-slate-400">{item.target}%</td>
-                        <td className={`text-right font-medium ${roasColor(item.roas, roasT)}`}>
+                        <td className={cn('text-right font-medium', roasColor(item.roas, roasT))}>
                           {item.roas}%
                         </td>
                       </tr>

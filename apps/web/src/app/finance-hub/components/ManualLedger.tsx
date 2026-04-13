@@ -7,7 +7,7 @@ import { usePeriodSelector } from '@/hooks/usePeriodSelector';
 import PeriodSelector from '@/components/ui/PeriodSelector';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import { formatKRW } from '@/lib/utils';
+import { cn, formatKRW } from '@/lib/utils';
 
 interface Ledger {
   id: string;
@@ -139,7 +139,7 @@ export default function ManualLedger() {
         </div>
         <div className="card">
           <div className="card-label">차이 (수입-지출)</div>
-          <div className={`card-value ${totalIncome - totalExpense >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+          <div className={cn('card-value', totalIncome - totalExpense >= 0 ? 'text-green-600' : 'text-red-600')}>
             {totalIncome - totalExpense >= 0 ? '+' : ''}{formatKRW(totalIncome - totalExpense)}원
           </div>
         </div>
@@ -147,10 +147,10 @@ export default function ManualLedger() {
 
       {/* 탭 */}
       <div className="flex gap-2">
-        <button onClick={() => setTab('income')} className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${tab === 'income' ? 'bg-green-600 text-white' : 'bg-white border border-slate-200 text-green-600 hover:bg-green-50'}`}>
+        <button onClick={() => setTab('income')} className={cn('px-4 py-2 rounded-lg text-sm font-medium transition-colors', tab === 'income' ? 'bg-green-600 text-white' : 'bg-white border border-slate-200 text-green-600 hover:bg-green-50')}>
           <ArrowDownCircle size={14} className="inline mr-1" />수입 ({ledgers.filter((l) => l.type === 'income').length})
         </button>
-        <button onClick={() => setTab('expense')} className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${tab === 'expense' ? 'bg-red-600 text-white' : 'bg-white border border-slate-200 text-red-600 hover:bg-red-50'}`}>
+        <button onClick={() => setTab('expense')} className={cn('px-4 py-2 rounded-lg text-sm font-medium transition-colors', tab === 'expense' ? 'bg-red-600 text-white' : 'bg-white border border-slate-200 text-red-600 hover:bg-red-50')}>
           <ArrowUpCircle size={14} className="inline mr-1" />지출 ({ledgers.filter((l) => l.type === 'expense').length})
         </button>
       </div>
@@ -180,10 +180,10 @@ export default function ManualLedger() {
               {filtered.map((l) => (
                 <tr key={l.id} className="hover:bg-slate-50">
                   <td className="px-4 py-3 text-slate-900">{new Date(l.date).toLocaleDateString('ko-KR')}</td>
-                  <td className="px-4 py-3"><span className={`px-2 py-0.5 rounded text-xs font-medium ${tab === 'income' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>{CAT_LABELS[l.category] || l.category}</span></td>
+                  <td className="px-4 py-3"><span className={cn('px-2 py-0.5 rounded text-xs font-medium', tab === 'income' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800')}>{CAT_LABELS[l.category] || l.category}</span></td>
                   <td className="px-4 py-3 text-slate-500 text-xs">{l.counterpart || '-'}</td>
                   <td className="px-4 py-3 text-slate-700 text-xs">{l.description || l.memo || '-'}</td>
-                  <td className={`px-4 py-3 text-right tabular-nums font-semibold ${tab === 'income' ? 'text-green-600' : 'text-red-600'}`}>{formatKRW(l.amount)}원</td>
+                  <td className={cn('px-4 py-3 text-right tabular-nums font-semibold', tab === 'income' ? 'text-green-600' : 'text-red-600')}>{formatKRW(l.amount)}원</td>
                   <td className="px-4 py-3 text-right tabular-nums text-slate-400">{l.tax > 0 ? formatKRW(l.tax) : '-'}</td>
                   <td className="px-4 py-3 text-center">
                     <button onClick={() => handleDelete(l.id)} className="text-red-400 hover:text-red-600"><Trash2 size={14} /></button>
@@ -216,7 +216,7 @@ export default function ManualLedger() {
                   <td className="px-4 py-3 font-medium">{m.month}</td>
                   <td className="px-4 py-3 text-right tabular-nums text-green-600">{formatKRW(m.income)}</td>
                   <td className="px-4 py-3 text-right tabular-nums text-red-600">{formatKRW(m.expense)}</td>
-                  <td className={`px-4 py-3 text-right tabular-nums font-semibold ${m.net >= 0 ? 'text-green-600' : 'text-red-600'}`}>{m.net >= 0 ? '+' : ''}{formatKRW(m.net)}</td>
+                  <td className={cn('px-4 py-3 text-right tabular-nums font-semibold', m.net >= 0 ? 'text-green-600' : 'text-red-600')}>{m.net >= 0 ? '+' : ''}{formatKRW(m.net)}</td>
                 </tr>
               ))}
             </tbody>

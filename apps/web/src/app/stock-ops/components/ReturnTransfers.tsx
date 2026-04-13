@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
+import { cn } from '@/lib/utils';
 
 interface ReturnTransfer {
   id: string;
@@ -202,11 +203,7 @@ export default function ReturnTransfers() {
           <button
             key={f.key}
             onClick={() => setFilter(f.key)}
-            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-              filter === f.key
-                ? 'bg-purple-600 text-white'
-                : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
-            }`}
+            className={cn('px-3 py-1.5 rounded-lg text-sm font-medium transition-colors', filter === f.key ? 'bg-purple-600 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50')}
           >
             {f.label}
             {f.key !== 'all' && (
@@ -258,9 +255,7 @@ export default function ReturnTransfers() {
                   <td className="px-4 py-3 text-right tabular-nums">{t.quantity}</td>
                   <td className="px-4 py-3">
                     <span
-                      className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                        statusConfig[t.status]?.color || 'bg-slate-100 text-slate-600'
-                      }`}
+                      className={cn('text-xs px-2 py-0.5 rounded-full font-medium', statusConfig[t.status]?.color || 'bg-slate-100 text-slate-600')}
                     >
                       {statusConfig[t.status]?.text || t.status}
                     </span>
@@ -268,9 +263,7 @@ export default function ReturnTransfers() {
                   <td className="px-4 py-3">
                     {t.condition ? (
                       <span
-                        className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                          conditionConfig[t.condition]?.color || 'bg-slate-100'
-                        }`}
+                        className={cn('text-xs px-2 py-0.5 rounded-full font-medium', conditionConfig[t.condition]?.color || 'bg-slate-100')}
                       >
                         {conditionConfig[t.condition]?.text || t.condition}
                       </span>
@@ -463,25 +456,11 @@ export default function ReturnTransfers() {
                     <button
                       key={opt.key}
                       onClick={() => setInspectForm({ condition: opt.key })}
-                      className={`p-4 rounded-xl border-2 text-center transition-all ${
-                        isActive
-                          ? opt.color === 'green'
-                            ? 'border-green-500 bg-green-50'
-                            : opt.color === 'orange'
-                            ? 'border-orange-500 bg-orange-50'
-                            : 'border-red-500 bg-red-50'
-                          : 'border-slate-200 hover:border-slate-300'
-                      }`}
+                      className={cn('p-4 rounded-xl border-2 text-center transition-all', isActive ? (opt.color === 'green' ? 'border-green-500 bg-green-50' : opt.color === 'orange' ? 'border-orange-500 bg-orange-50' : 'border-red-500 bg-red-50') : 'border-slate-200 hover:border-slate-300')}
                     >
                       <Icon
                         size={24}
-                        className={`mx-auto mb-2 ${
-                          opt.color === 'green'
-                            ? 'text-green-600'
-                            : opt.color === 'orange'
-                            ? 'text-orange-600'
-                            : 'text-red-600'
-                        }`}
+                        className={cn('mx-auto mb-2', opt.color === 'green' ? 'text-green-600' : opt.color === 'orange' ? 'text-orange-600' : 'text-red-600')}
                       />
                       <span className="text-sm font-medium">{opt.label}</span>
                     </button>

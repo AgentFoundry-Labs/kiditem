@@ -1,6 +1,6 @@
 'use client';
 import { Loader2, CheckCircle } from 'lucide-react';
-import { formatKRW } from '@/lib/utils';
+import { cn, formatKRW } from '@/lib/utils';
 
 interface ReturnItem {
   id: string;
@@ -100,7 +100,7 @@ export function ReturnsTable({ returns, processing, onApprove }: ReturnsTablePro
                   <td className="text-xs text-slate-500">{new Date(r.requestedAt || r.createdAt).toLocaleDateString('ko-KR')}</td>
                   <td className="text-sm">{r.requesterName || '-'}</td>
                   <td className="text-sm max-w-[200px] truncate">{reason}</td>
-                  <td><span className={`px-2 py-0.5 rounded text-xs font-medium ${st.color}`}>{st.label}</span></td>
+                  <td><span className={cn('px-2 py-0.5 rounded text-xs font-medium', st.color)}>{st.label}</span></td>
                   <td className="text-right">{r.enclosePrice ? `${formatKRW(r.enclosePrice)}원` : '-'}</td>
                   <td>
                     {r.receiptStatus === 'UC' && (
@@ -151,7 +151,7 @@ export function ExchangesTable({ exchanges }: { exchanges: ReturnItem[] }) {
                     {e.returnItems?.[0]?.sellerProductName || e.returnItems?.[0]?.vendorItemName || '-'}
                   </td>
                   <td className="text-xs text-slate-500">{e.createdAt ? new Date(e.createdAt).toLocaleDateString('ko-KR') : '-'}</td>
-                  <td><span className={`px-2 py-0.5 rounded text-xs font-medium ${st.color}`}>{st.label}</span></td>
+                  <td><span className={cn('px-2 py-0.5 rounded text-xs font-medium', st.color)}>{st.label}</span></td>
                   <td className="text-sm max-w-[250px] truncate">{reason}</td>
                 </tr>
               );

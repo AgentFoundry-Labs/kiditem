@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import { formatKRW } from '@/lib/utils';
+import { cn, formatKRW } from '@/lib/utils';
 
 interface ProcessingCost {
   id: string;
@@ -160,9 +160,7 @@ export default function ProcessingCosts() {
           <button
             key={t.key}
             onClick={() => setFilter(t.key)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-              filter === t.key ? 'bg-violet-600 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
-            }`}
+            className={cn('px-3 py-1.5 rounded-lg text-xs font-medium transition-colors', filter === t.key ? 'bg-violet-600 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50')}
           >
             {t.label}
           </button>
@@ -204,7 +202,7 @@ export default function ProcessingCosts() {
                     <td className="text-right tabular-nums">{c.quantity}</td>
                     <td className="text-right tabular-nums font-semibold">{formatKRW(c.totalCost)}원</td>
                     <td className="text-center">
-                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs ${cfg.bg} ${cfg.color}`}>
+                      <span className={cn('inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs', cfg.bg, cfg.color)}>
                         <StatusIcon size={10} /> {cfg.label}
                       </span>
                     </td>

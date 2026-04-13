@@ -13,6 +13,7 @@ import {
   Edit2,
   Package,
 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 
@@ -183,11 +184,7 @@ export default function WarehousesPage() {
               </div>
             </div>
             <div
-              className={`text-xs px-2 py-1 rounded w-fit ${
-                w.status === 'active'
-                  ? 'bg-green-50 text-green-700'
-                  : 'bg-slate-100 text-slate-500'
-              }`}
+              className={cn('text-xs px-2 py-1 rounded w-fit', w.status === 'active' ? 'bg-green-50 text-green-700' : 'bg-slate-100 text-slate-500')}
             >
               {w.status === 'active' ? '운영중' : '비활성'}
             </div>

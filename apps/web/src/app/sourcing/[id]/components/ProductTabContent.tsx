@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { ChevronDown, Download, Pencil, Settings } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import ThumbnailGrid from '../../components/detail/ThumbnailGrid';
 import TagEditor from '../../components/detail/TagEditor';
 import RawDataTab from '../../components/detail/RawDataTab';
@@ -65,7 +66,7 @@ export default function ProductTabContent({
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <label className="text-sm font-semibold text-slate-700">상품명</label>
-                <span className={`text-xs font-medium ${nameLength > 100 ? 'text-red-500' : 'text-slate-400'}`}>
+                <span className={cn('text-xs font-medium', nameLength > 100 ? 'text-red-500' : 'text-slate-400')}>
                   {nameLength}/100자
                 </span>
               </div>

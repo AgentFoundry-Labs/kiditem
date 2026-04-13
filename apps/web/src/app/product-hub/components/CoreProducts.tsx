@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { RefreshCw } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import { formatKRW, formatNumber, formatPercent, getProfitColor, getGradeColor } from '@/lib/utils';
+import { cn, formatKRW, formatNumber, formatPercent, getProfitColor, getGradeColor } from '@/lib/utils';
 
 interface Product {
   id: string; name: string; sku: string; company: string; abcGrade: string;
@@ -166,11 +166,11 @@ export default function CoreProducts() {
                   {p.category && <span> · {p.category}</span>}
                 </div>
                 <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${getGradeColor('A')}`}>A</span>
+                  <span className={cn('px-1.5 py-0.5 rounded text-[10px] font-bold', getGradeColor('A'))}>A</span>
                   <span className="text-[10px] text-slate-400 font-mono">{p.score}점</span>
                   {p.adTier && <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-50 text-purple-600">{p.adTier} 광고</span>}
                   {(p.roas ?? 0) > 0 && (
-                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${(p.roas ?? 0) >= 3 ? 'bg-green-50 text-green-600' : (p.roas ?? 0) >= 1 ? 'bg-yellow-50 text-yellow-600' : 'bg-red-50 text-red-600'}`}>
+                    <span className={cn('px-1.5 py-0.5 rounded text-[10px] font-medium', (p.roas ?? 0) >= 3 ? 'bg-green-50 text-green-600' : (p.roas ?? 0) >= 1 ? 'bg-yellow-50 text-yellow-600' : 'bg-red-50 text-red-600')}>
                       ROAS {p.roas ?? 0}x
                     </span>
                   )}
@@ -185,12 +185,12 @@ export default function CoreProducts() {
                 <div className="text-center">
                   <div className="text-xl font-bold text-slate-900 tabular-nums">{p.t14?.salesQty ? formatNumber(p.t14.salesQty) : p.orderCount ? formatNumber(p.orderCount) : '-'}</div>
                   <div className="text-[10px] text-slate-400 mt-0.5">{p.t14 ? '판매량' : '주문수'}</div>
-                  <div className={`text-[10px] font-medium ${getProfitColor(p.profitRate ?? 0)}`}>이익률 {formatPercent(p.profitRate ?? 0)}</div>
+                  <div className={cn('text-[10px] font-medium', getProfitColor(p.profitRate ?? 0))}>이익률 {formatPercent(p.profitRate ?? 0)}</div>
                 </div>
                 <div className="text-right">
                   <div className="text-xl font-bold text-slate-900 tabular-nums">{(p.t14?.revenue || p.revenue) ? formatKRW(p.t14?.revenue || p.revenue || 0) : '-'}</div>
                   <div className="text-[10px] text-slate-400 mt-0.5">{p.t14 ? '14일 매출' : '월 매출'}</div>
-                  {(p.adRate ?? 0) > 0 && <div className={`text-[10px] font-medium ${(p.adRate ?? 0) > 15 ? 'text-red-600' : 'text-slate-500'}`}>광고 {formatPercent(p.adRate ?? 0)}</div>}
+                  {(p.adRate ?? 0) > 0 && <div className={cn('text-[10px] font-medium', (p.adRate ?? 0) > 15 ? 'text-red-600' : 'text-slate-500')}>광고 {formatPercent(p.adRate ?? 0)}</div>}
                 </div>
               </div>
             </div>

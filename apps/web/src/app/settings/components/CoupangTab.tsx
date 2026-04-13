@@ -8,6 +8,7 @@ import {
   Package,
   ShoppingCart,
 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import type { SyncResult, HealthResult } from '../page';
 
 interface CoupangTabProps {
@@ -47,7 +48,7 @@ export default function CoupangTab({
           <div className="grid grid-cols-3 gap-4 text-sm">
             <div>
               <span className="text-slate-500">업체코드 (Vendor ID)</span>
-              <div className={`font-mono font-medium mt-1 ${isConnected ? 'text-green-600' : 'text-slate-400'}`}>
+              <div className={cn('font-mono font-medium mt-1', isConnected ? 'text-green-600' : 'text-slate-400')}>
                 {healthResult?.vendorId || '미확인'}
               </div>
             </div>
@@ -108,7 +109,7 @@ export default function CoupangTab({
             </div>
             <div className="flex items-center gap-3">
               {productSyncResult && (
-                <span className={`text-xs ${productSyncResult.errors > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                <span className={cn('text-xs', productSyncResult.errors > 0 ? 'text-red-600' : 'text-green-600')}>
                   완료: {productSyncResult.synced}건 동기화{productSyncResult.errors > 0 ? `, 오류 ${productSyncResult.errors}건` : ''}
                 </span>
               )}
@@ -134,7 +135,7 @@ export default function CoupangTab({
             </div>
             <div className="flex items-center gap-3">
               {orderSyncResult && (
-                <span className={`text-xs ${orderSyncResult.errors > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                <span className={cn('text-xs', orderSyncResult.errors > 0 ? 'text-red-600' : 'text-green-600')}>
                   완료: {orderSyncResult.synced}건 동기화{orderSyncResult.errors > 0 ? `, 오류 ${orderSyncResult.errors}건` : ''}
                 </span>
               )}

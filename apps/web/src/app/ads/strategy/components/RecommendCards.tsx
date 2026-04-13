@@ -1,5 +1,7 @@
 'use client';
 
+import { cn } from '@/lib/utils';
+
 const PRIORITY_STYLE: Record<string, { bg: string; text: string }> = {
   urgent: { bg: 'bg-red-100', text: 'text-red-700' },
   high: { bg: 'bg-orange-100', text: 'text-orange-700' },
@@ -23,7 +25,7 @@ export function RecommendCards({ cards }: { cards: RecommendCardData[] }) {
       <div className="overflow-x-auto">
         <div className="flex gap-4 pb-2" style={{ minWidth: 'max-content' }}>
           {cards.map((card, i) => (
-            <div key={i} className={`rounded-xl border p-4 w-[300px] flex-shrink-0 bg-gradient-to-br ${card.color}`}>
+            <div key={i} className={cn('rounded-xl border p-4 w-[300px] flex-shrink-0 bg-gradient-to-br', card.color)}>
               <div className="font-semibold text-sm text-slate-900 mb-3">{card.title}</div>
               <div className="space-y-2">
                 {card.items.map((item, j) => (
@@ -35,7 +37,7 @@ export function RecommendCards({ cards }: { cards: RecommendCardData[] }) {
                     {item.value && (
                       <div className="text-xs text-slate-400 mt-0.5">{item.value}</div>
                     )}
-                    <span className={`inline-block mt-1 px-1.5 py-0.5 rounded text-[10px] font-bold ${PRIORITY_STYLE[item.priority]?.bg ?? 'bg-slate-100'} ${PRIORITY_STYLE[item.priority]?.text ?? 'text-slate-700'}`}>
+                    <span className={cn('inline-block mt-1 px-1.5 py-0.5 rounded text-[10px] font-bold', PRIORITY_STYLE[item.priority]?.bg ?? 'bg-slate-100', PRIORITY_STYLE[item.priority]?.text ?? 'text-slate-700')}>
                       {item.priority}
                     </span>
                   </div>

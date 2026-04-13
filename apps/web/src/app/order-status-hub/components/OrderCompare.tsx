@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import { formatKRW, formatNumber } from '@/lib/utils';
+import { cn, formatKRW, formatNumber } from '@/lib/utils';
 
 interface CompareResult {
   date: string;
@@ -136,11 +136,7 @@ export default function OrderCompare() {
                 <div className="bg-white rounded-xl border border-slate-200">
                   <div className="p-4 text-center">
                     <div className="text-sm text-slate-500">건수 차이</div>
-                    <div
-                      className={`text-2xl font-bold ${
-                        totalCountDiff === 0 ? 'text-green-600' : 'text-red-600'
-                      }`}
-                    >
+                    <div className={cn('text-2xl font-bold', totalCountDiff === 0 ? 'text-green-600' : 'text-red-600')}>
                       {totalCountDiff > 0 ? '+' : ''}
                       {totalCountDiff}건
                     </div>
@@ -149,13 +145,7 @@ export default function OrderCompare() {
                 <div className="bg-white rounded-xl border border-slate-200">
                   <div className="p-4 text-center">
                     <div className="text-sm text-slate-500">불일치 일수</div>
-                    <div
-                      className={`text-2xl font-bold ${
-                        summary.mismatchDays === 0
-                          ? 'text-green-600'
-                          : 'text-amber-600'
-                      }`}
-                    >
+                    <div className={cn('text-2xl font-bold', summary.mismatchDays === 0 ? 'text-green-600' : 'text-amber-600')}>
                       {summary.mismatchDays}일
                     </div>
                   </div>
@@ -204,13 +194,7 @@ export default function OrderCompare() {
                             {row.dbCount}건
                           </td>
                           <td className="px-4 py-3 text-right">
-                            <span
-                              className={`text-sm font-medium ${
-                                row.countDiff === 0
-                                  ? 'text-green-600'
-                                  : 'text-red-600'
-                              }`}
-                            >
+                            <span className={cn('text-sm font-medium', row.countDiff === 0 ? 'text-green-600' : 'text-red-600')}>
                               {row.countDiff > 0 ? '+' : ''}
                               {row.countDiff}
                             </span>

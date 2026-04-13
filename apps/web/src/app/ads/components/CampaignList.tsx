@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import { formatKRW, formatNumber } from '@/lib/utils';
+import { cn, formatKRW, formatNumber } from '@/lib/utils';
 import { roasColor } from '../lib/status-colors';
 
 interface CampaignItem {
@@ -53,7 +53,7 @@ export function CampaignList({ campaigns }: { campaigns: CampaignItem[] }) {
             </div>
             <div className="text-right">
               <div className="text-sm font-semibold">{formatKRW(c.adRevenue)}원</div>
-              <div className={`text-xs font-medium ${roasColor(c.roas, roasT)}`}>
+              <div className={cn('text-xs font-medium', roasColor(c.roas, roasT))}>
                 ROAS {c.roas}%
               </div>
             </div>

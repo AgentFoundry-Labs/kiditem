@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Trash2, AlertTriangle, MinusCircle } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import { formatKRW, formatPercent, getProfitColor, getGradeColor } from '@/lib/utils';
+import { cn, formatKRW, formatPercent, getProfitColor, getGradeColor } from '@/lib/utils';
 
 interface Product {
   id: string; name: string; sku: string; company: string; abcGrade: string;
@@ -75,9 +75,9 @@ export default function CleanupProducts() {
 
       {/* Filter */}
       <div className="flex gap-2">
-        <button onClick={() => setFilter('all')} className={`px-4 py-2 rounded-lg text-sm font-medium ${filter === 'all' ? 'bg-purple-600 text-white' : 'bg-white border hover:bg-slate-50'}`}>전체 ({products.length})</button>
-        <button onClick={() => setFilter('minus')} className={`px-4 py-2 rounded-lg text-sm font-medium ${filter === 'minus' ? 'bg-red-600 text-white' : 'bg-white border hover:bg-slate-50 text-red-600'}`}>적자 ({minusProducts.length})</button>
-        <button onClick={() => setFilter('low')} className={`px-4 py-2 rounded-lg text-sm font-medium ${filter === 'low' ? 'bg-orange-600 text-white' : 'bg-white border hover:bg-slate-50 text-orange-600'}`}>3%이하 ({lowProducts.length})</button>
+        <button onClick={() => setFilter('all')} className={cn('px-4 py-2 rounded-lg text-sm font-medium', filter === 'all' ? 'bg-purple-600 text-white' : 'bg-white border hover:bg-slate-50')}>전체 ({products.length})</button>
+        <button onClick={() => setFilter('minus')} className={cn('px-4 py-2 rounded-lg text-sm font-medium', filter === 'minus' ? 'bg-red-600 text-white' : 'bg-white border hover:bg-slate-50 text-red-600')}>적자 ({minusProducts.length})</button>
+        <button onClick={() => setFilter('low')} className={cn('px-4 py-2 rounded-lg text-sm font-medium', filter === 'low' ? 'bg-orange-600 text-white' : 'bg-white border hover:bg-slate-50 text-orange-600')}>3%이하 ({lowProducts.length})</button>
       </div>
 
       {/* Table */}
@@ -121,7 +121,7 @@ export default function CleanupProducts() {
 
               return (
                 <tr key={p.id} className={p.profitRate < 0 ? 'bg-red-50/60' : 'bg-orange-50/30'}>
-                  <td><span className={`px-2 py-0.5 rounded text-xs font-bold ${getGradeColor(p.abcGrade)}`}>{p.abcGrade}</span></td>
+                  <td><span className={cn('px-2 py-0.5 rounded text-xs font-bold', getGradeColor(p.abcGrade))}>{p.abcGrade}</span></td>
                   <td>
                     <div className="w-10 h-10 rounded-lg bg-slate-100 overflow-hidden">
                       {(p.thumbnailUrl || p.imageUrl) ? (
@@ -136,11 +136,11 @@ export default function CleanupProducts() {
                   <td className="text-right tabular-nums">{formatKRW(p.sellPrice)}</td>
                   <td className="text-right tabular-nums text-slate-500">{formatKRW(p.costPrice)}</td>
                   <td className="text-right tabular-nums">{formatKRW(p.revenue)}</td>
-                  <td className={`text-right tabular-nums font-semibold ${getProfitColor(p.profitRate)}`}>{formatKRW(p.netProfit)}</td>
-                  <td className={`text-right tabular-nums font-semibold ${getProfitColor(p.profitRate)}`}>{formatPercent(p.profitRate)}</td>
-                  <td className={`text-right tabular-nums ${p.adRate > 15 ? 'text-red-600 font-semibold' : ''}`}>{p.adRate > 0 ? formatPercent(p.adRate) : '-'}</td>
+                  <td className={cn('text-right tabular-nums font-semibold', getProfitColor(p.profitRate))}>{formatKRW(p.netProfit)}</td>
+                  <td className={cn('text-right tabular-nums font-semibold', getProfitColor(p.profitRate))}>{formatPercent(p.profitRate)}</td>
+                  <td className={cn('text-right tabular-nums', p.adRate > 15 ? 'text-red-600 font-semibold' : '')}>{p.adRate > 0 ? formatPercent(p.adRate) : '-'}</td>
                   <td><span className="text-xs text-slate-600">{cause}</span></td>
-                  <td><span className={`px-2 py-0.5 rounded text-xs font-medium ${p.profitRate < -5 ? 'bg-red-100 text-red-800' : 'bg-orange-100 text-orange-800'}`}>{action}</span></td>
+                  <td><span className={cn('px-2 py-0.5 rounded text-xs font-medium', p.profitRate < -5 ? 'bg-red-100 text-red-800' : 'bg-orange-100 text-orange-800')}>{action}</span></td>
                 </tr>
               );
             })}

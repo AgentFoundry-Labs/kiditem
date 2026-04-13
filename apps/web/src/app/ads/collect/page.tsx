@@ -5,7 +5,7 @@ import { Database, Calendar, Wifi } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import PageSkeleton from '@/components/ui/PageSkeleton';
-import { formatDateTime, formatNumber } from '@/lib/utils';
+import { cn, formatDateTime, formatNumber } from '@/lib/utils';
 import ScrapeCollector from './components/ScrapeCollector';
 
 interface CollectStatus {
@@ -87,7 +87,7 @@ export default function AdsCollectPage() {
             익스텐션 상태
           </div>
           <div className="flex items-center gap-2">
-            <span className={`w-2 h-2 rounded-full ${extStatus?.connected ? 'bg-emerald-400' : 'bg-red-400'}`} />
+            <span className={cn('w-2 h-2 rounded-full', extStatus?.connected ? 'bg-emerald-400' : 'bg-red-400')} />
             <span className="text-lg font-bold text-slate-900">
               {extStatus?.connected ? '연결됨' : '미연결'}
             </span>

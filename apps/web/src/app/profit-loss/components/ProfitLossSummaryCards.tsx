@@ -1,6 +1,6 @@
 'use client';
 
-import { formatKRW, formatPercent, getProfitColor } from '@/lib/utils';
+import { cn, formatKRW, formatPercent, getProfitColor } from '@/lib/utils';
 
 interface Props {
   totalRevenue: number;
@@ -18,11 +18,11 @@ export default function ProfitLossSummaryCards({ totalRevenue, totalProfit, tota
       </div>
       <div className="card">
         <div className="card-label">총 순이익</div>
-        <div className={`card-value ${getProfitColor(overallRate)}`}>{formatKRW(totalProfit)}원</div>
+        <div className={cn('card-value', getProfitColor(overallRate))}>{formatKRW(totalProfit)}원</div>
       </div>
       <div className="card">
         <div className="card-label">평균 이익률</div>
-        <div className={`card-value ${getProfitColor(overallRate)}`}>{formatPercent(overallRate)}</div>
+        <div className={cn('card-value', getProfitColor(overallRate))}>{formatPercent(overallRate)}</div>
       </div>
       <div className="card">
         <div className="card-label">총 광고비</div>

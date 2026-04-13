@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import { formatKRW } from '@/lib/utils';
+import { cn, formatKRW } from '@/lib/utils';
 
 interface StatsOverview {
   stats: { total: number; accept: number; [key: string]: number };
@@ -148,11 +148,7 @@ export default function OrderInventory() {
           <button
             key={f.key}
             onClick={() => setFilterStatus(f.key)}
-            className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
-              filterStatus === f.key
-                ? 'bg-purple-600 text-white'
-                : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
-            }`}
+            className={cn('px-3 py-1.5 text-sm rounded-lg transition-colors', filterStatus === f.key ? 'bg-purple-600 text-white' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50')}
           >
             {f.label}
           </button>
@@ -210,37 +206,19 @@ export default function OrderInventory() {
                         {item.avgDailySales.toFixed(1)}개
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <span
-                          className={`text-sm font-semibold ${
-                            item.currentStock === 0
-                              ? 'text-red-600'
-                              : item.status === 'warning'
-                                ? 'text-amber-600'
-                                : 'text-slate-900'
-                          }`}
-                        >
+                        <span className={cn('text-sm font-semibold', item.currentStock === 0 ? 'text-red-600' : item.status === 'warning' ? 'text-amber-600' : 'text-slate-900')}>
                           {item.currentStock}개
                         </span>
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <span
-                          className={`text-sm font-medium ${
-                            item.daysRemaining <= 3
-                              ? 'text-red-600'
-                              : item.daysRemaining <= 7
-                                ? 'text-amber-600'
-                                : 'text-slate-700'
-                          }`}
-                        >
+                        <span className={cn('text-sm font-medium', item.daysRemaining <= 3 ? 'text-red-600' : item.daysRemaining <= 7 ? 'text-amber-600' : 'text-slate-700')}>
                           {item.daysRemaining >= 999
                             ? '-'
                             : `${item.daysRemaining}일`}
                         </span>
                       </td>
                       <td className="px-4 py-3">
-                        <span
-                          className={`px-2 py-0.5 rounded text-xs font-medium ${badge.color}`}
-                        >
+                        <span className={cn('px-2 py-0.5 rounded text-xs font-medium', badge.color)}>
                           {badge.label}
                         </span>
                       </td>

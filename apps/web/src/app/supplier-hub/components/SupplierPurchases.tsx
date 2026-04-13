@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import { formatKRW, formatNumber } from '@/lib/utils';
+import { cn, formatKRW, formatNumber } from '@/lib/utils';
 
 interface Supplier {
   id: string;
@@ -169,7 +169,7 @@ export default function SupplierPurchases() {
                       <td className="text-right tabular-nums">{formatKRW(o.unitCost)}</td>
                       <td className="text-right tabular-nums font-semibold">{formatKRW(o.totalCost)}원</td>
                       <td className="text-center">
-                        <span className={`inline-flex px-2 py-0.5 rounded text-xs ${st.bg} ${st.color}`}>
+                        <span className={cn('inline-flex px-2 py-0.5 rounded text-xs', st.bg, st.color)}>
                           {st.label}
                         </span>
                       </td>

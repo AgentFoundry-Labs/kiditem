@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import { formatKRW } from '@/lib/utils';
+import { cn, formatKRW } from '@/lib/utils';
 
 /* --- Types --- */
 interface BundleItem {
@@ -101,7 +101,7 @@ export default function BundleProducts() {
           </div>
           <div className="bg-slate-50 rounded-lg p-3">
             <div className="text-[10px] text-slate-400">총 이익</div>
-            <div className={`text-[17px] font-bold ${summary.totalProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatKRW(summary.totalProfit)}</div>
+            <div className={cn('text-[17px] font-bold', summary.totalProfit >= 0 ? 'text-green-600' : 'text-red-600')}>{formatKRW(summary.totalProfit)}</div>
           </div>
           <div className="bg-slate-50 rounded-lg p-3">
             <div className="text-[10px] text-slate-400">평균 마진</div>
@@ -154,14 +154,14 @@ export default function BundleProducts() {
           const isExpanded = expandedId === b.id;
 
           return (
-            <div key={b.id} className={`bg-white rounded-xl border ${isExpanded ? 'border-purple-200' : 'border-slate-200'} overflow-hidden transition-all`}>
+            <div key={b.id} className={cn('bg-white rounded-xl border overflow-hidden transition-all', isExpanded ? 'border-purple-200' : 'border-slate-200')}>
               {/* 요약 행 */}
               <button onClick={() => setExpandedId(isExpanded ? null : b.id)}
                 className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-slate-50/50 transition-colors">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="text-[14px] font-medium text-slate-900 truncate">{b.name}</span>
-                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${b.profit >= 0 ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                    <span className={cn('px-1.5 py-0.5 rounded text-[10px] font-medium', b.profit >= 0 ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800')}>
                       {b.profit >= 0 ? '수익' : '적자'}
                     </span>
                   </div>
@@ -178,14 +178,14 @@ export default function BundleProducts() {
                   </div>
                   <div className="text-center">
                     <div className="text-slate-400 text-[10px]">마진</div>
-                    <div className={`font-semibold ${b.marginRate < 0 ? 'text-red-600' : b.marginRate < 10 ? 'text-amber-600' : 'text-green-600'}`}>{b.marginRate}%</div>
+                    <div className={cn('font-semibold', b.marginRate < 0 ? 'text-red-600' : b.marginRate < 10 ? 'text-amber-600' : 'text-green-600')}>{b.marginRate}%</div>
                   </div>
                   <div className="text-center">
                     <div className="text-slate-400 text-[10px]">이익</div>
-                    <div className={`font-semibold ${b.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatKRW(b.profit)}</div>
+                    <div className={cn('font-semibold', b.profit >= 0 ? 'text-green-600' : 'text-red-600')}>{formatKRW(b.profit)}</div>
                   </div>
                 </div>
-                <ChevronDown size={16} className={`text-slate-400 transition-transform shrink-0 ${isExpanded ? 'rotate-180' : ''}`} />
+                <ChevronDown size={16} className={cn('text-slate-400 transition-transform shrink-0', isExpanded ? 'rotate-180' : '')} />
               </button>
 
               {/* 펼침: 구성품 원가 */}

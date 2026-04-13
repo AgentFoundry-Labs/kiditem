@@ -1,5 +1,6 @@
 'use client';
 import { Download } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 interface ReportItem {
   type: string;
@@ -26,7 +27,7 @@ export default function ReportList({ reports, generating, onGenerate }: Props) {
           <button
             onClick={() => onGenerate(r.type)}
             disabled={generating !== null}
-            className={`flex items-center gap-2 px-5 py-2.5 text-white rounded-lg text-sm font-medium ${r.color} disabled:opacity-50`}
+            className={cn('flex items-center gap-2 px-5 py-2.5 text-white rounded-lg text-sm font-medium disabled:opacity-50', r.color)}
           >
             <Download size={16} />
             {generating === r.type ? '생성 중...' : '다운로드'}

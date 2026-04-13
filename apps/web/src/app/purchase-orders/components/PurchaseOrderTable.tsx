@@ -2,7 +2,7 @@
 
 import { Package, Trash2 } from 'lucide-react';
 import { Pagination } from '@/components/ui/Pagination';
-import { formatKRW } from '@/lib/utils';
+import { cn, formatKRW } from '@/lib/utils';
 import type { PurchaseOrder } from '../page';
 
 const STATUS_MAP: Record<string, { label: string; color: string }> = {
@@ -86,7 +86,7 @@ export function PurchaseOrderTable({ orders, loading, actionLoading, page, pageS
               return (
                 <tr key={order.id}>
                   <td>
-                    <span className={`inline-flex px-2 py-0.5 text-xs font-medium rounded-full ${statusInfo.color}`}>
+                    <span className={cn('inline-flex px-2 py-0.5 text-xs font-medium rounded-full', statusInfo.color)}>
                       {statusInfo.label}
                     </span>
                   </td>

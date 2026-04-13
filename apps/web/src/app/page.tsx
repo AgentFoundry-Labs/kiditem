@@ -20,7 +20,7 @@ const DashboardCharts = dynamic(
   { ssr: false, loading: () => <div className="h-[320px] flex items-center justify-center text-sm text-slate-300">차트 로딩 중...</div> },
 );
 import { queryKeys } from '@/lib/query-keys';
-import { formatKRW, formatNumber, formatPercent, getGradeColor, getProfitColor } from '@/lib/utils';
+import { cn, formatKRW, formatNumber, formatPercent, getGradeColor, getProfitColor } from '@/lib/utils';
 import type { DashboardSummary, DashboardTrendItem } from '@kiditem/shared';
 import type { ActionTask } from '@kiditem/shared';
 
@@ -150,12 +150,12 @@ export default function Dashboard() {
               <button
                 key={val}
                 onClick={() => setKpiRange(val)}
-                className={`px-4 py-1.5 rounded-md text-sm font-semibold transition-colors ${kpiRange === val ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-400'}`}
+                className={cn('px-4 py-1.5 rounded-md text-sm font-semibold transition-colors', kpiRange === val ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-400')}
               >{label}</button>
             ))}
             <button
               onClick={() => setKpiRange('custom')}
-              className={`px-3 py-1.5 rounded-md text-sm font-semibold transition-colors flex items-center gap-1 ${kpiRange === 'custom' ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-400'}`}
+              className={cn('px-3 py-1.5 rounded-md text-sm font-semibold transition-colors flex items-center gap-1', kpiRange === 'custom' ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-400')}
             ><Calendar size={13} /> 기간</button>
           </div>
           {kpiRange === 'custom' ? (
@@ -186,7 +186,7 @@ export default function Dashboard() {
             <div className="flex items-center gap-2 mb-2">
               <Wallet size={18} className="text-blue-600" />
               <span className="text-sm font-bold uppercase tracking-wider text-blue-600">{rangeLabel} 매출</span>
-              <span className={`flex items-center gap-0.5 px-2 py-0.5 rounded-full text-sm font-mono ${revenueChange >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}>
+              <span className={cn('flex items-center gap-0.5 px-2 py-0.5 rounded-full text-sm font-mono', revenueChange >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600')}>
                 {revenueChange >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
                 <span>{revenueChange > 0 ? '+' : ''}{revenueChange.toFixed(1)}%</span>
               </span>
@@ -199,7 +199,7 @@ export default function Dashboard() {
             <div className="mt-2 pt-2 border-t border-blue-100">
               <div className="flex items-center justify-between mb-1.5">
                 <span className="text-[12px] font-medium text-blue-400">목표 {formatKRW(revenueGoal)}원</span>
-                <span className={`text-[13px] font-bold tabular-nums ${revenueAchieve >= 100 ? 'text-emerald-600' : 'text-blue-600'}`}>{revenueAchieve}%</span>
+                <span className={cn('text-[13px] font-bold tabular-nums', revenueAchieve >= 100 ? 'text-emerald-600' : 'text-blue-600')}>{revenueAchieve}%</span>
               </div>
               <div className="h-2 rounded-full overflow-hidden bg-blue-50">
                 <div className="h-full rounded-full transition-all duration-500 bg-blue-600" style={{ width: `${revenuePct}%` }} />
@@ -239,7 +239,7 @@ export default function Dashboard() {
             <div className="flex items-center gap-2 mb-2">
               <TrendingUp size={18} className="text-emerald-600" />
               <span className="text-sm font-bold uppercase tracking-wider text-emerald-600">{rangeLabel} 순이익</span>
-              <span className={`flex items-center gap-0.5 px-2 py-0.5 rounded-full text-sm font-mono ${profitChange >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}>
+              <span className={cn('flex items-center gap-0.5 px-2 py-0.5 rounded-full text-sm font-mono', profitChange >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600')}>
                 {profitChange >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
                 <span>{profitChange > 0 ? '+' : ''}{profitChange.toFixed(1)}%</span>
               </span>
@@ -252,7 +252,7 @@ export default function Dashboard() {
             <div className="mt-2 pt-2 border-t border-emerald-100">
               <div className="flex items-center justify-between mb-1.5">
                 <span className="text-[12px] font-medium text-emerald-400">목표 {formatKRW(profitGoal)}원</span>
-                <span className={`text-[13px] font-bold tabular-nums ${profitAchieve >= 100 ? 'text-emerald-600' : 'text-emerald-700'}`}>{profitAchieve}%</span>
+                <span className={cn('text-[13px] font-bold tabular-nums', profitAchieve >= 100 ? 'text-emerald-600' : 'text-emerald-700')}>{profitAchieve}%</span>
               </div>
               <div className="h-2 rounded-full overflow-hidden bg-emerald-50">
                 <div className="h-full rounded-full transition-all duration-500 bg-emerald-600" style={{ width: `${profitPct}%` }} />
@@ -377,7 +377,7 @@ export default function Dashboard() {
               </div>
               <div className="text-2xl font-extrabold tabular-nums text-slate-900">{count}<span className="text-sm ml-0.5">개</span></div>
               <div className="mt-2 h-1.5 rounded-full overflow-hidden bg-slate-100">
-                <div className={`h-full rounded-full ${barColor}`} style={{ width: `${pct}%` }} />
+                <div className={cn('h-full rounded-full', barColor)} style={{ width: `${pct}%` }} />
               </div>
               <div className="text-xs mt-1 text-slate-400">{pct}% of {s.totalProducts}</div>
             </Link>
@@ -429,11 +429,11 @@ export default function Dashboard() {
               {data.topProducts.map((p, i) => (
                 <tr key={p.id} className="border-b border-slate-50">
                   <td className="pl-4 text-sm tabular-nums text-slate-400">{i + 1}</td>
-                  <td><span className={`inline-flex items-center justify-center w-6 h-6 rounded text-xs font-bold ${getGradeColor(p.grade)}`}>{p.grade}</span></td>
+                  <td><span className={cn('inline-flex items-center justify-center w-6 h-6 rounded text-xs font-bold', getGradeColor(p.grade))}>{p.grade}</span></td>
                   <td className="text-sm font-medium max-w-[300px] truncate text-slate-900">{p.name}</td>
                   <td className="text-right text-sm tabular-nums text-slate-900">{formatKRW(p.revenue)}<span className="text-slate-400">원</span></td>
-                  <td className={`text-right text-sm tabular-nums ${getProfitColor(p.profitRate)}`}>{formatKRW(p.netProfit)}<span className="text-slate-400">원</span></td>
-                  <td className={`text-right pr-4 text-sm tabular-nums font-semibold ${getProfitColor(p.profitRate)}`}>{formatPercent(p.profitRate)}</td>
+                  <td className={cn('text-right text-sm tabular-nums', getProfitColor(p.profitRate))}>{formatKRW(p.netProfit)}<span className="text-slate-400">원</span></td>
+                  <td className={cn('text-right pr-4 text-sm tabular-nums font-semibold', getProfitColor(p.profitRate))}>{formatPercent(p.profitRate)}</td>
                 </tr>
               ))}
             </tbody>
@@ -476,11 +476,11 @@ export default function Dashboard() {
                     <div className="flex items-center gap-3">
                       <div className="w-24 h-2 rounded-full overflow-hidden bg-slate-100">
                         <div
-                          className={`h-full rounded-full ${item.negative ? 'bg-red-500' : 'bg-purple-600'}`}
+                          className={cn('h-full rounded-full', item.negative ? 'bg-red-500' : 'bg-purple-600')}
                           style={{ width: `${Math.min(Math.abs(item.value) / Math.max(revenue, 1) * 100, 100)}%` }}
                         />
                       </div>
-                      <span className={`text-sm font-semibold tabular-nums w-24 text-right ${item.value >= 0 ? 'text-slate-900' : 'text-red-600'}`}>
+                      <span className={cn('text-sm font-semibold tabular-nums w-24 text-right', item.value >= 0 ? 'text-slate-900' : 'text-red-600')}>
                         {item.value >= 0 ? '' : '-'}{formatKRW(Math.abs(item.value))}원
                       </span>
                     </div>
@@ -488,7 +488,7 @@ export default function Dashboard() {
                 ))}
                 <div className="pt-3 mt-3 flex items-center justify-between border-t border-slate-200">
                   <span className="text-sm font-bold text-slate-900">순이익</span>
-                  <span className={`text-lg font-extrabold tabular-nums ${netProfit >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                  <span className={cn('text-lg font-extrabold tabular-nums', netProfit >= 0 ? 'text-emerald-600' : 'text-red-600')}>
                     {formatKRW(netProfit)}원
                   </span>
                 </div>
@@ -546,7 +546,7 @@ function MetricCard({ label, value, unit, change, prevLabel, accentColor, icon: 
     : null;
 
   return (
-    <div className={`rounded-2xl transition-all hover:shadow-md h-full${onClick ? ' cursor-pointer' : ''} bg-white border border-slate-100 shadow-sm`} onClick={onClick}>
+    <div className={cn('rounded-2xl transition-all hover:shadow-md h-full bg-white border border-slate-100 shadow-sm', onClick && 'cursor-pointer')} onClick={onClick}>
       <div className="px-4 py-3 h-full flex flex-col">
         <div>
           <div className="flex items-center justify-between mb-1">
@@ -620,7 +620,7 @@ function SidePanel({ alerts, router, queryClient }: {
         {alerts.map(a => {
           const href = a.type === 'strategy_change' ? '/ad-ops' : a.type === 'stock_low' ? '/purchase-orders' : a.type === 'minus_product' ? '/cleanup' : a.type === 'ad_high' ? '/ads-hub' : undefined;
           return (
-            <div key={a.id} onClick={() => href && router.push(href)} className={`flex items-start gap-2.5 px-4 py-2.5 border-b border-slate-50 transition-colors ${href ? 'cursor-pointer' : ''}`}>
+            <div key={a.id} onClick={() => href && router.push(href)} className={cn('flex items-start gap-2.5 px-4 py-2.5 border-b border-slate-50 transition-colors', href && 'cursor-pointer')}>
               <div className="mt-0.5">{alertIcon(a.type)}</div>
               <div className="flex-1 min-w-0">
                 <span className="text-sm leading-relaxed text-slate-500">{a.message}</span>
@@ -674,7 +674,7 @@ function DashboardChart({
         <div className="flex gap-1 rounded-lg p-0.5 bg-slate-100">
           {tabs.map(t => (
             <button key={t.key} onClick={() => setChartTab(t.key)}
-              className={`px-4 py-1.5 rounded-md text-[13px] font-semibold transition-all ${chartTab === t.key ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-500'}`}>
+              className={cn('px-4 py-1.5 rounded-md text-[13px] font-semibold transition-all', chartTab === t.key ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-500')}>
               {t.label}
             </button>
           ))}
@@ -691,7 +691,7 @@ function DashboardChart({
               { label: '높음', color: 'text-amber-600 bg-amber-50 border-amber-200', count: aiActions.filter(a => a.priority === 'high').length },
               { label: '보통', color: 'text-purple-600 bg-purple-50 border-purple-200', count: aiActions.filter(a => a.priority === 'medium').length },
             ].map(g => (
-              <div key={g.label} className={`flex-1 rounded-xl border p-3 text-center ${g.color}`}>
+              <div key={g.label} className={cn('flex-1 rounded-xl border p-3 text-center', g.color)}>
                 <div className="text-2xl font-bold">{g.count}</div>
                 <div className="text-xs font-medium mt-0.5">{g.label}</div>
               </div>
@@ -700,7 +700,7 @@ function DashboardChart({
           <div className="flex-1 space-y-1.5 overflow-y-auto">
             {aiActions.map(a => (
               <div key={a.id} className="flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-slate-50 transition-colors">
-                <span className={`w-2 h-2 rounded-full shrink-0 ${a.priority === 'urgent' ? 'bg-red-500' : a.priority === 'high' ? 'bg-amber-500' : 'bg-blue-500'}`} />
+                <span className={cn('w-2 h-2 rounded-full shrink-0', a.priority === 'urgent' ? 'bg-red-500' : a.priority === 'high' ? 'bg-amber-500' : 'bg-blue-500')} />
                 <span className="text-[13px] text-slate-700 truncate flex-1">{a.label}</span>
                 <span className="text-[11px] text-slate-400 shrink-0">{a.detail?.slice(0, 15)}</span>
               </div>

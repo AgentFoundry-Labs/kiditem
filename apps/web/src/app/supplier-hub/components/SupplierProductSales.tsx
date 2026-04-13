@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Store, Package, ChevronDown } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
-import { formatKRW } from '@/lib/utils';
+import { cn, formatKRW } from '@/lib/utils';
 
 interface Supplier {
   id: string;
@@ -75,7 +75,7 @@ export default function SupplierProductSales() {
           </div>
           <div className="card">
             <div className="card-label mb-1">총 이익</div>
-            <div className={`card-value ${totalProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatKRW(totalProfit)}원</div>
+            <div className={cn('card-value', totalProfit >= 0 ? 'text-green-600' : 'text-red-600')}>{formatKRW(totalProfit)}원</div>
           </div>
           <div className="card">
             <div className="card-label mb-1">총 주문수</div>

@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { AlertTriangle, Clock, Package } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import { formatNumber } from '@/lib/utils';
+import { cn, formatNumber } from '@/lib/utils';
 
 interface PurchaseOrderItem {
   productId: string;
@@ -126,7 +126,7 @@ export default function PendingDelivery() {
           <button
             key={s}
             onClick={() => setFilterStatus(s)}
-            className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${filterStatus === s ? 'bg-purple-600 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+            className={cn('px-4 py-2 rounded-lg font-medium text-sm transition-colors', filterStatus === s ? 'bg-purple-600 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50')}
           >
             {s === 'all' ? '전체' : (statusLabels[s]?.text || s)}
           </button>
@@ -175,7 +175,7 @@ export default function PendingDelivery() {
                   return (
                     <tr
                       key={o.key}
-                      className={`border-b border-slate-100 hover:bg-slate-50 ${delayed ? 'bg-red-50' : ''}`}
+                      className={cn('border-b border-slate-100 hover:bg-slate-50', delayed && 'bg-red-50')}
                     >
                       <td className="py-2 px-3 font-medium max-w-[180px] truncate">
                         {o.productName}
@@ -185,7 +185,7 @@ export default function PendingDelivery() {
                       </td>
                       <td className="py-2 px-3 text-center">
                         <span
-                          className={`px-2 py-0.5 rounded text-xs font-medium ${statusLabels[o.status]?.color || 'bg-slate-100 text-slate-600'}`}
+                          className={cn('px-2 py-0.5 rounded text-xs font-medium', statusLabels[o.status]?.color || 'bg-slate-100 text-slate-600')}
                         >
                           {statusLabels[o.status]?.text || o.status}
                         </span>
@@ -210,7 +210,7 @@ export default function PendingDelivery() {
                       </td>
                       <td className="py-2 px-3 text-center">
                         <span
-                          className={`inline-flex items-center gap-1 ${delayed ? 'text-red-600 font-bold' : 'text-slate-600'}`}
+                          className={cn('inline-flex items-center gap-1', delayed ? 'text-red-600 font-bold' : 'text-slate-600')}
                         >
                           {delayed && <AlertTriangle className="w-3 h-3" />}
                           <Clock className="w-3 h-3" />

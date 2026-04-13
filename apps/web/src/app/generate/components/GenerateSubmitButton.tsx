@@ -1,5 +1,6 @@
 'use client';
 import { Loader2, Sparkles } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 interface Props {
   isLoading: boolean;
@@ -13,13 +14,7 @@ export default function GenerateSubmitButton({ isLoading, isFormValid, onSubmit 
       <button
         onClick={onSubmit}
         disabled={isLoading || !isFormValid}
-        className={`w-full py-5 rounded-2xl font-black text-xl transition-all flex items-center justify-center gap-3 ${
-          isLoading
-            ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
-            : !isFormValid
-              ? 'bg-slate-800 text-slate-400 cursor-not-allowed opacity-50'
-              : 'bg-slate-900 text-white hover:bg-slate-800 shadow-xl shadow-slate-200 active:scale-[0.98]'
-        }`}
+        className={cn('w-full py-5 rounded-2xl font-black text-xl transition-all flex items-center justify-center gap-3', isLoading ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed' : !isFormValid ? 'bg-slate-800 text-slate-400 cursor-not-allowed opacity-50' : 'bg-slate-900 text-white hover:bg-slate-800 shadow-xl shadow-slate-200 active:scale-[0.98]')}
       >
         {isLoading ? (
           <>

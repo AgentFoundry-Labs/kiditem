@@ -3,7 +3,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Scale, CheckCircle, AlertTriangle, ArrowDown, ArrowUp, Minus } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
-import { formatKRW } from '@/lib/utils';
+import { cn, formatKRW } from '@/lib/utils';
 
 interface SupplierPayment {
   id: string;
@@ -78,7 +78,7 @@ export default function SupplierSettlement() {
             {difference === 0 ? <Minus size={12} className="text-slate-400" /> : <AlertTriangle size={12} className="text-red-500" />}
             <span className="card-label">차이 (미정산)</span>
           </div>
-          <div className={`card-value tabular-nums ${difference > 0 ? 'text-red-600' : difference < 0 ? 'text-purple-600' : 'text-slate-400'}`}>
+          <div className={cn('card-value tabular-nums', difference > 0 ? 'text-red-600' : difference < 0 ? 'text-purple-600' : 'text-slate-400')}>
             {difference > 0 ? '+' : ''}{formatKRW(difference)}원
           </div>
         </div>
@@ -113,7 +113,7 @@ export default function SupplierSettlement() {
                     <td className="text-right tabular-nums">{formatKRW(sm.totalOrdered)}원</td>
                     <td className="text-right tabular-nums font-semibold">{formatKRW(sm.totalOrdered)}원</td>
                     <td className="text-right tabular-nums text-green-600">{formatKRW(sm.totalPaid)}원</td>
-                    <td className={`text-right tabular-nums font-semibold ${sm.unpaid > 0 ? 'text-red-600' : 'text-slate-400'}`}>
+                    <td className={cn('text-right tabular-nums font-semibold', sm.unpaid > 0 ? 'text-red-600' : 'text-slate-400')}>
                       {sm.unpaid > 0 ? `${formatKRW(sm.unpaid)}원` : '-'}
                     </td>
                     <td className="text-center">
@@ -148,7 +148,7 @@ export default function SupplierSettlement() {
                   <td className="text-right tabular-nums">{formatKRW(summaries.reduce((s, sm) => s + sm.totalOrdered, 0))}원</td>
                   <td className="text-right tabular-nums">{formatKRW(totalReceived)}원</td>
                   <td className="text-right tabular-nums text-green-600">{formatKRW(totalPaid)}원</td>
-                  <td className={`text-right tabular-nums ${paymentSummary.totalUnpaid > 0 ? 'text-red-600' : 'text-slate-400'}`}>
+                  <td className={cn('text-right tabular-nums', paymentSummary.totalUnpaid > 0 ? 'text-red-600' : 'text-slate-400')}>
                     {paymentSummary.totalUnpaid > 0 ? `${formatKRW(paymentSummary.totalUnpaid)}원` : '-'}
                   </td>
                   <td></td>

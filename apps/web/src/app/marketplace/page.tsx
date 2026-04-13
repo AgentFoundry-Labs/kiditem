@@ -4,6 +4,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { Search, Store } from 'lucide-react';
 import { toast } from 'sonner';
 import PageSkeleton from '@/components/ui/PageSkeleton';
+import { cn } from '@/lib/utils';
 import { MarketplaceCard } from '@/components/marketplace/MarketplaceCard';
 import { AgentDetailModal } from '@/components/marketplace/AgentDetailModal';
 import { WorkflowDetailModal } from '@/components/marketplace/WorkflowDetailModal';
@@ -138,11 +139,7 @@ export default function MarketplacePage({ initialTypeFilter }: { initialTypeFilt
           <button
             key={tab.id}
             onClick={() => setTypeFilter(tab.id)}
-            className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
-              typeFilter === tab.id
-                ? 'border-purple-500 text-purple-600'
-                : 'border-transparent text-slate-500 hover:text-slate-700'
-            }`}
+            className={cn('px-4 py-2.5 text-sm font-medium border-b-2 transition-colors', typeFilter === tab.id ? 'border-purple-500 text-purple-600' : 'border-transparent text-slate-500 hover:text-slate-700')}
           >
             {tab.label}
           </button>
@@ -167,11 +164,7 @@ export default function MarketplacePage({ initialTypeFilter }: { initialTypeFilt
         <div className="flex gap-1 flex-wrap">
           <button
             onClick={() => setCategoryFilter('all')}
-            className={`px-3 py-1.5 rounded-lg text-xs transition-colors ${
-              categoryFilter === 'all'
-                ? 'bg-white text-slate-900 border border-slate-200 shadow-sm'
-                : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50 border border-transparent'
-            }`}
+            className={cn('px-3 py-1.5 rounded-lg text-xs transition-colors', categoryFilter === 'all' ? 'bg-white text-slate-900 border border-slate-200 shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50 border border-transparent')}
           >
             전체
           </button>
@@ -179,11 +172,7 @@ export default function MarketplacePage({ initialTypeFilter }: { initialTypeFilt
             <button
               key={cat}
               onClick={() => setCategoryFilter(cat)}
-              className={`px-3 py-1.5 rounded-lg text-xs transition-colors ${
-                categoryFilter === cat
-                  ? 'bg-white text-slate-900 border border-slate-200 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50 border border-transparent'
-              }`}
+              className={cn('px-3 py-1.5 rounded-lg text-xs transition-colors', categoryFilter === cat ? 'bg-white text-slate-900 border border-slate-200 shadow-sm' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50 border border-transparent')}
             >
               {CATEGORY_LABELS[cat] || cat}
             </button>

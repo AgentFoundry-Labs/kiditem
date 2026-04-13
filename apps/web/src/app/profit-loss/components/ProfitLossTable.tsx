@@ -109,7 +109,7 @@ export default function ProfitLossTable({
                 </tr>
               ) : filtered.map((d) => (
                 <tr key={d.id} className={d.profitRate < 0 ? "bg-red-50/50" : d.profitRate <= 3 ? "bg-orange-50/30" : ""}>
-                  <td><span className={`px-2 py-0.5 rounded text-xs font-bold ${getGradeColor(d.grade)}`}>{d.grade}</span></td>
+                  <td><span className={cn('px-2 py-0.5 rounded text-xs font-bold', getGradeColor(d.grade))}>{d.grade}</span></td>
                   <td className="font-medium text-slate-900">{d.productName}</td>
                   <td className="text-slate-500 text-xs">{d.company}</td>
                   <td className="text-right tabular-nums">{formatKRW(d.revenue)}</td>
@@ -118,8 +118,8 @@ export default function ProfitLossTable({
                   <td className="text-right tabular-nums text-slate-500">{formatKRW(d.shippingCost)}</td>
                   <td className="text-right tabular-nums text-orange-600">{formatKRW(d.adCost)}</td>
                   <td className="text-right tabular-nums text-slate-500">{formatKRW(d.otherCost)}</td>
-                  <td className={`text-right tabular-nums font-semibold ${getProfitColor(d.profitRate)}`}>{formatKRW(d.netProfit)}</td>
-                  <td className={`text-right tabular-nums font-semibold ${getProfitColor(d.profitRate)}`}>{formatPercent(d.profitRate)}</td>
+                  <td className={cn('text-right tabular-nums font-semibold', getProfitColor(d.profitRate))}>{formatKRW(d.netProfit)}</td>
+                  <td className={cn('text-right tabular-nums font-semibold', getProfitColor(d.profitRate))}>{formatPercent(d.profitRate)}</td>
                   <td className="text-right tabular-nums text-slate-600">{d.orderCount}</td>
                 </tr>
               ))}

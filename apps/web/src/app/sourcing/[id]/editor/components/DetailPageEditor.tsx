@@ -49,6 +49,7 @@ import {
 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { cn } from '@/lib/utils';
 import { AIImageEditPanel } from './AIImageEditPanel';
 import { AITextEditPanel } from './AITextEditPanel';
 import { ImagePickerModal } from './ImagePickerModal';
@@ -1235,9 +1236,9 @@ function RightPanel({
                       }
                     }}
                     disabled={aiFillLoading}
-                    className={`relative w-9 h-5 rounded-full transition-colors ${colorGuideEnabled ? 'bg-purple-600' : 'bg-slate-200'}`}
+                    className={cn('relative w-9 h-5 rounded-full transition-colors', colorGuideEnabled ? 'bg-purple-600' : 'bg-slate-200')}
                   >
-                    <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${colorGuideEnabled ? 'translate-x-4' : ''}`} />
+                    <span className={cn('absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform', colorGuideEnabled && 'translate-x-4')} />
                   </button>
                 </div>
                 {colorGuideEnabled && (
@@ -1656,7 +1657,7 @@ export default function DetailPageEditor({
         </WithEditor>
 
         <div className="flex flex-1 overflow-hidden">
-          <div className={`h-full ${showLeftPanel ? '' : 'hidden'}`}>
+          <div className={cn('h-full', !showLeftPanel && 'hidden')}>
             <WithEditor>
               <LeftPanel onClose={() => setShowLeftPanel(false)} rawImages={rawImages} />
             </WithEditor>
@@ -1694,7 +1695,7 @@ export default function DetailPageEditor({
               </button>
             )}
           </div>
-          <div className={`h-full ${showRightPanel ? '' : 'hidden'}`}>
+          <div className={cn('h-full', !showRightPanel && 'hidden')}>
             <WithEditor>
               <RightPanel
                 onClose={() => {

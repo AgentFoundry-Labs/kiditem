@@ -1,7 +1,7 @@
 'use client';
 
 import { Pagination } from '@/components/ui/Pagination';
-import { formatNumber } from '@/lib/utils';
+import { cn, formatNumber } from '@/lib/utils';
 import type { InventoryItem } from '@kiditem/shared';
 
 function isUnsynced(item: InventoryItem): boolean {
@@ -23,7 +23,7 @@ function StatusBadge({ status }: { status: string }) {
     overstock: '과재고',
     unsynced: '동기화 필요',
   };
-  return <span className={`px-2 py-0.5 rounded text-xs font-medium ${styles[status] ?? 'bg-slate-100 text-slate-600'}`}>{labels[status] ?? status}</span>;
+  return <span className={cn('px-2 py-0.5 rounded text-xs font-medium', styles[status] ?? 'bg-slate-100 text-slate-600')}>{labels[status] ?? status}</span>;
 }
 
 interface InventoryTableProps {
@@ -70,20 +70,16 @@ export function InventoryTable({ items, page, pageSize, total, onPageChange }: I
                 <td className="text-slate-500 text-xs font-mono">{i.sku}</td>
                 <td>
                   {i.grade && (
-                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                      i.grade === 'A' ? 'bg-green-100 text-green-700' :
-                      i.grade === 'B' ? 'bg-blue-100 text-blue-700' :
-                      'bg-red-100 text-red-700'
-                    }`}>{i.grade}</span>
+                    <span className={cn('px-1.5 py-0.5 rounded text-[10px] font-bold', i.grade === 'A' ? 'bg-green-100 text-green-700' : i.grade === 'B' ? 'bg-blue-100 text-blue-700' : 'bg-red-100 text-red-700')}>{i.grade}</span>
                   )}
                 </td>
                 <td className="text-slate-500 text-xs">{i.company}</td>
-                <td className={`text-right font-semibold ${unsynced ? 'text-amber-600' : i.currentStock === 0 ? 'text-red-600' : i.currentStock <= i.reorderPoint ? 'text-orange-600' : ''}`}>
+                <td className={cn('text-right font-semibold', unsynced ? 'text-amber-600' : i.currentStock === 0 ? 'text-red-600' : i.currentStock <= i.reorderPoint ? 'text-orange-600' : '')}>
                   {formatNumber(i.currentStock)}
                 </td>
                 <td className="text-right text-slate-500">{formatNumber(i.optimalStock)}</td>
                 <td className="text-right">{i.avgDailySales}</td>
-                <td className={`text-right font-semibold ${unsynced ? '' : i.daysRemaining <= 7 ? 'text-red-600' : i.daysRemaining <= 14 ? 'text-orange-500' : ''}`}>
+                <td className={cn('text-right font-semibold', !unsynced && (i.daysRemaining <= 7 ? 'text-red-600' : i.daysRemaining <= 14 ? 'text-orange-500' : ''))}>
                   {i.daysRemaining}일
                 </td>
                 <td className="text-right font-semibold text-purple-600">

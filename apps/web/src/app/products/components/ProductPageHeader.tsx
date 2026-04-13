@@ -1,7 +1,7 @@
 'use client';
 import { type RefObject } from "react";
 import { Plus, Download, BarChart3 } from "lucide-react";
-import { timeAgo } from "@/lib/utils";
+import { cn, timeAgo } from "@/lib/utils";
 import type { SyncInfo } from "@kiditem/shared";
 
 const PERIOD_OPTIONS = [
@@ -39,9 +39,7 @@ export default function ProductPageHeader({
               <button
                 key={p.days}
                 onClick={() => onPeriodChange(p.days)}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                  period === p.days ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
-                }`}
+                className={cn('px-3 py-1.5 text-xs font-medium rounded-md transition-colors', period === p.days ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700')}
               >
                 {p.label}
               </button>
@@ -72,7 +70,7 @@ export default function ProductPageHeader({
 
       {syncInfo && (
         <div className="flex items-center gap-2 text-xs text-slate-400">
-          <div className={`w-1.5 h-1.5 rounded-full ${syncInfo.lastSyncedAt ? "bg-green-400" : "bg-amber-400"}`} />
+          <div className={cn('w-1.5 h-1.5 rounded-full', syncInfo.lastSyncedAt ? 'bg-green-400' : 'bg-amber-400')} />
           {syncInfo.lastSyncedAt
             ? `최근 동기화: ${timeAgo(syncInfo.lastSyncedAt)}`
             : "동기화 기록 없음 — 설정에서 동기화를 실행하세요"}

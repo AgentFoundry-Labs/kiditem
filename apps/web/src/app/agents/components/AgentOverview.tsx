@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import dynamic from 'next/dynamic';
 import { queryKeys } from '@/lib/query-keys';
 import { isApiError } from '@/lib/api-error';
+import { cn } from '@/lib/utils';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { useMarketplaceAgents, useInstallAgent } from '@/hooks/useMarketplace';
 import type { AgentCatalogItem } from '@/app/marketplace/lib/marketplace-types';
@@ -112,21 +113,13 @@ export default function AgentOverview({ onAddAgent }: { onAddAgent?: () => void 
       <div className="flex items-center gap-1 border-b border-slate-200 mb-5">
         <button
           onClick={() => setPageTab('my')}
-          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
-            pageTab === 'my'
-              ? 'border-purple-500 text-purple-600'
-              : 'border-transparent text-slate-500 hover:text-slate-700'
-          }`}
+          className={cn('px-4 py-2.5 text-sm font-medium border-b-2 transition-colors', pageTab === 'my' ? 'border-purple-500 text-purple-600' : 'border-transparent text-slate-500 hover:text-slate-700')}
         >
           내 에이전트
         </button>
         <button
           onClick={() => setPageTab('org')}
-          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
-            pageTab === 'org'
-              ? 'border-purple-500 text-purple-600'
-              : 'border-transparent text-slate-500 hover:text-slate-700'
-          }`}
+          className={cn('px-4 py-2.5 text-sm font-medium border-b-2 transition-colors', pageTab === 'org' ? 'border-purple-500 text-purple-600' : 'border-transparent text-slate-500 hover:text-slate-700')}
         >
           조직도
         </button>

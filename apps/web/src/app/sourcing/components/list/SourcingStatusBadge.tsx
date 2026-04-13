@@ -1,6 +1,7 @@
 'use client';
 
 import type { ProductStatus } from '../../lib/sourcing-api';
+import { cn } from '@/lib/utils';
 
 const STATUS_STYLES: Record<ProductStatus, string> = {
   DRAFT: 'bg-slate-100 text-slate-600',
@@ -19,7 +20,7 @@ const STATUS_LABELS: Record<ProductStatus, string> = {
 export default function SourcingStatusBadge({ status }: { status: ProductStatus }) {
   return (
     <span
-      className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${STATUS_STYLES[status]}`}
+      className={cn('text-[10px] font-bold px-2 py-0.5 rounded-full', STATUS_STYLES[status])}
     >
       {STATUS_LABELS[status]}
     </span>

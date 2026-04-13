@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import { formatKRW } from '@/lib/utils';
+import { cn, formatKRW } from '@/lib/utils';
 import { usePeriodSelector } from '@/hooks/usePeriodSelector';
 import PeriodSelector from '@/components/ui/PeriodSelector';
 
@@ -188,7 +188,7 @@ export default function Settlements() {
       <div className="grid grid-cols-4 gap-4">
         <div className="card"><div className="card-label">총 예상 정산액</div><div className="card-value">{formatKRW(totalExpected)}</div></div>
         <div className="card"><div className="card-label">확인된 입금액</div><div className="card-value text-green-600">{formatKRW(totalActual)}</div></div>
-        <div className="card"><div className="card-label">차이 합계</div><div className={`card-value ${totalDiff >= 0 ? 'text-green-600' : 'text-red-600'}`}>{totalDiff >= 0 ? '+' : ''}{formatKRW(totalDiff)}</div></div>
+        <div className="card"><div className="card-label">차이 합계</div><div className={cn('card-value', totalDiff >= 0 ? 'text-green-600' : 'text-red-600')}>{totalDiff >= 0 ? '+' : ''}{formatKRW(totalDiff)}</div></div>
         <div className="card"><div className="card-label">미확인 월</div><div className="card-value text-orange-600">{settlements.filter(s => s.status === 'pending').length}건</div></div>
       </div>
 
@@ -232,7 +232,7 @@ export default function Settlements() {
                   </td>
                   <td className="px-4 py-3 text-right">
                     {s.status === 'confirmed' && (
-                      <span className={`flex items-center justify-end gap-0.5 font-medium ${s.difference >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      <span className={cn('flex items-center justify-end gap-0.5 font-medium', s.difference >= 0 ? 'text-green-600' : 'text-red-600')}>
                         {s.difference >= 0 ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}{s.difference >= 0 ? '+' : ''}{formatKRW(s.difference)}
                       </span>
                     )}
@@ -335,7 +335,7 @@ export default function Settlements() {
                       <td className="px-3 py-2 font-medium text-slate-900 max-w-[200px] truncate">{d.productName}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{formatKRW(d.plRevenue)}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{formatKRW(d.orderTotal)}</td>
-                      <td className={`px-3 py-2 text-right tabular-nums font-medium ${d.revenueDiff > 0 ? 'text-green-600' : d.revenueDiff < 0 ? 'text-red-600' : 'text-slate-400'}`}>
+                      <td className={cn('px-3 py-2 text-right tabular-nums font-medium', d.revenueDiff > 0 ? 'text-green-600' : d.revenueDiff < 0 ? 'text-red-600' : 'text-slate-400')}>
                         {d.revenueDiff !== 0 ? `${d.revenueDiff > 0 ? '+' : ''}${formatKRW(d.revenueDiff)}` : '-'}
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums">{d.plOrderCount}</td>

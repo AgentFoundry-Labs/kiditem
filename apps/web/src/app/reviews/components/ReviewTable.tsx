@@ -1,7 +1,7 @@
 'use client';
 import { Star } from 'lucide-react';
 import { Pagination } from '@/components/ui/Pagination';
-import { getGradeColor } from '@/lib/utils';
+import { cn, getGradeColor } from '@/lib/utils';
 import type { ReviewListItem as ReviewProduct } from '@kiditem/shared';
 
 export type FilterTab = 'all' | 'new' | 'needs-response';
@@ -73,7 +73,7 @@ export function ReviewTable({ filteredData, loading, activeFilter, page, total, 
                   }
                 >
                   <td>
-                    <span className={`px-2 py-0.5 rounded text-xs font-bold ${getGradeColor(d.grade)}`}>
+                    <span className={cn('px-2 py-0.5 rounded text-xs font-bold', getGradeColor(d.grade))}>
                       {d.grade}
                     </span>
                   </td>

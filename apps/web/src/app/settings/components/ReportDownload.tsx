@@ -5,6 +5,7 @@ import { FileSpreadsheet, Loader2, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
+import { cn } from '@/lib/utils';
 
 const REPORTS = [
   { type: 'full', title: '통합 리포트', desc: '상품 + 손익 + 재고 + 광고 전체', icon: '📊', color: 'bg-purple-600 hover:bg-purple-700' },
@@ -151,7 +152,7 @@ export default function ReportDownload() {
             <button
               onClick={() => handleDownload(r.type)}
               disabled={generating !== null}
-              className={`flex items-center gap-2 px-4 py-2 text-white rounded-lg text-sm font-medium ${r.color} disabled:opacity-50 transition-colors`}
+              className={cn('flex items-center gap-2 px-4 py-2 text-white rounded-lg text-sm font-medium disabled:opacity-50 transition-colors', r.color)}
             >
               {generating === r.type ? (
                 <>

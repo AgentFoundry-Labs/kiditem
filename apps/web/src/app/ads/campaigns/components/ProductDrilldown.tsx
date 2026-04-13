@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import { formatKRW, formatNumber } from '@/lib/utils';
+import { cn, formatKRW, formatNumber } from '@/lib/utils';
 import { roasColor } from '../../lib/status-colors';
 
 interface ProductItem {
@@ -98,7 +98,7 @@ export function ProductDrilldown({ campaignName, period }: Props) {
                 {paged.map((p, i) => (
                   <tr key={`${p.vendorItemId}-${i}`}>
                     <td>
-                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${p.onOff === 'ON' ? 'bg-green-100 text-green-800' : 'bg-slate-100 text-slate-600'}`}>
+                      <span className={cn('px-2 py-0.5 rounded text-xs font-medium', p.onOff === 'ON' ? 'bg-green-100 text-green-800' : 'bg-slate-100 text-slate-600')}>
                         {p.onOff ?? '-'}
                       </span>
                     </td>
@@ -118,7 +118,7 @@ export function ProductDrilldown({ campaignName, period }: Props) {
                     <td className="text-right">{(p.ctr ?? 0).toFixed(1)}%</td>
                     <td className="text-right">{p.adConversions ?? 0}</td>
                     <td className="text-right">{(p.conversionRate ?? 0).toFixed(1)}%</td>
-                    <td className={`text-right font-semibold ${roasColor(p.roas, roasT)}`}>
+                    <td className={cn('text-right font-semibold', roasColor(p.roas, roasT))}>
                       {p.roas}%
                     </td>
                   </tr>

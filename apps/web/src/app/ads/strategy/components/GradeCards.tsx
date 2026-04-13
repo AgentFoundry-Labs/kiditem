@@ -6,6 +6,7 @@ import { Sparkles, AlertTriangle, ChevronDown } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import { roasColor } from '../../lib/status-colors';
+import { cn } from '@/lib/utils';
 
 const GRADE_STYLES: Record<string, { border: string; bg: string; pillBg: string; moreColor: string; ring: string; headerGrad: string }> = {
   A: { border: 'border-emerald-300', bg: 'bg-gradient-to-br from-emerald-50 to-green-50/50', pillBg: 'bg-emerald-100 text-emerald-700', moreColor: 'text-emerald-600', ring: 'ring-emerald-400', headerGrad: 'from-emerald-600 to-green-600' },
@@ -91,12 +92,15 @@ export function GradeCards({ budgetAllocation, rules }: Props) {
             <button
               key={g.grade}
               onClick={() => setSelectedGrade(isSelected ? null : g.grade)}
-              className={`text-left rounded-2xl border-2 ${g.border} ${g.bg} overflow-hidden transition-all duration-200 ${
-                isSelected ? `ring-2 ${g.ring} shadow-xl scale-[1.01]` : 'hover:shadow-lg hover:scale-[1.005]'
-              }`}
+              className={cn(
+                'text-left rounded-2xl border-2 overflow-hidden transition-all duration-200',
+                g.border,
+                g.bg,
+                isSelected ? `ring-2 ${g.ring} shadow-xl scale-[1.01]` : 'hover:shadow-lg hover:scale-[1.005]',
+              )}
             >
               {/* 등급 헤더 바 */}
-              <div className={`bg-gradient-to-r ${g.headerGrad} px-5 py-3 flex items-center justify-between`}>
+              <div className={cn('bg-gradient-to-r px-5 py-3 flex items-center justify-between', g.headerGrad)}>
                 <div className="flex items-center gap-2">
                   <span className="text-xl font-black text-white">{g.grade}</span>
                   <div>
@@ -121,7 +125,7 @@ export function GradeCards({ budgetAllocation, rules }: Props) {
                   </div>
                   <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
                     <div
-                      className={`h-full rounded-full bg-gradient-to-r ${g.headerGrad} transition-all duration-500`}
+                      className={cn('h-full rounded-full bg-gradient-to-r transition-all duration-500', g.headerGrad)}
                       style={{ width: `${Math.min(g.pct, 100)}%` }}
                     />
                   </div>
@@ -133,7 +137,7 @@ export function GradeCards({ budgetAllocation, rules }: Props) {
                 {/* 태그 */}
                 <div className="flex flex-wrap gap-1.5 mb-4">
                   {g.pills.map((pill) => (
-                    <span key={pill} className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold ${g.pillBg}`}>
+                    <span key={pill} className={cn('px-2.5 py-1 rounded-lg text-[11px] font-semibold', g.pillBg)}>
                       {pill}
                     </span>
                   ))}
@@ -152,9 +156,7 @@ export function GradeCards({ budgetAllocation, rules }: Props) {
                         </div>
                       </div>
                       {(r.priority === 'urgent' || r.priority === 'high') && (
-                        <span className={`shrink-0 px-2 py-0.5 rounded text-[10px] font-bold ${
-                          r.priority === 'urgent' ? 'bg-red-500 text-white' : 'bg-orange-100 text-orange-700'
-                        }`}>
+                        <span className={cn('shrink-0 px-2 py-0.5 rounded text-[10px] font-bold', r.priority === 'urgent' ? 'bg-red-500 text-white' : 'bg-orange-100 text-orange-700')}>
                           {r.priority === 'urgent' ? '긴급' : '높음'}
                         </span>
                       )}
@@ -164,9 +166,9 @@ export function GradeCards({ budgetAllocation, rules }: Props) {
 
                 {/* 더보기 힌트 */}
                 {totalCount > 0 && (
-                  <div className={`flex items-center justify-center gap-1 mt-3 text-[12px] font-semibold ${g.moreColor}`}>
+                  <div className={cn('flex items-center justify-center gap-1 mt-3 text-[12px] font-semibold', g.moreColor)}>
                     {isSelected ? '접기' : `전체 ${totalCount}건 보기`}
-                    <ChevronDown size={14} className={`transition-transform ${isSelected ? 'rotate-180' : ''}`} />
+                    <ChevronDown size={14} className={cn('transition-transform', isSelected ? 'rotate-180' : '')} />
                   </div>
                 )}
 
@@ -191,7 +193,7 @@ export function GradeCards({ budgetAllocation, rules }: Props) {
         );
         return (
           <div className="table-card shadow-sm">
-            <div className={`flex items-center justify-between px-5 py-3 bg-gradient-to-r ${g.headerGrad}`}>
+            <div className={cn('flex items-center justify-between px-5 py-3 bg-gradient-to-r', g.headerGrad)}>
               <h3 className="text-[15px] font-bold text-white">{selectedGrade}등급 전체 제안 — {sorted.length}건</h3>
               <button onClick={() => setSelectedGrade(null)} className="text-white/70 hover:text-white text-sm">닫기</button>
             </div>
@@ -199,12 +201,13 @@ export function GradeCards({ budgetAllocation, rules }: Props) {
               {sorted.map((r, i) => (
                 <div key={i} className="flex items-start gap-3 px-5 py-3">
                   {r.priority && (
-                    <span className={`shrink-0 px-2 py-0.5 rounded text-[10px] font-bold mt-0.5 ${
+                    <span className={cn(
+                      'shrink-0 px-2 py-0.5 rounded text-[10px] font-bold mt-0.5',
                       r.priority === 'urgent' ? 'bg-red-500 text-white' :
                       r.priority === 'high' ? 'bg-orange-100 text-orange-700' :
                       r.priority === 'medium' ? 'bg-blue-100 text-blue-700' :
-                      'bg-slate-100 text-slate-700'
-                    }`}>
+                      'bg-slate-100 text-slate-700',
+                    )}>
                       {r.priority === 'urgent' ? '긴급' : r.priority === 'high' ? '높음' : r.priority === 'medium' ? '보통' : '낮음'}
                     </span>
                   )}
@@ -213,7 +216,7 @@ export function GradeCards({ budgetAllocation, rules }: Props) {
                     <div className="text-[12px] text-slate-500 mt-0.5">{r.action}</div>
                   </div>
                   {r.roas !== undefined && (
-                    <span className={`shrink-0 text-[12px] font-bold tabular-nums ${roasColor(r.roas, roasT)}`}>
+                    <span className={cn('shrink-0 text-[12px] font-bold tabular-nums', roasColor(r.roas, roasT))}>
                       ROAS {r.roas}%
                     </span>
                   )}

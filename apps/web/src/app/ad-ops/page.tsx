@@ -6,6 +6,7 @@ import {
   AlertTriangle, LayoutGrid,
 } from 'lucide-react';
 import PageSkeleton from '@/components/ui/PageSkeleton';
+import { cn } from '@/lib/utils';
 import ScrapeCollector from '@/app/ads/collect/components/ScrapeCollector';
 import { useAdOpsData, useCampaignProducts, useRefreshAdOps } from './hooks/useAdOpsData';
 import { KpiCards } from './components/KpiCards';
@@ -65,7 +66,7 @@ export default function AdOpsPage() {
           <div className="flex rounded-lg p-0.5 bg-slate-100">
             {[{ key: '7d', label: '7일' }, { key: '14d', label: '14일' }, { key: 'month', label: '이번달' }].map(p => (
               <button key={p.key} onClick={() => setPeriod(p.key)}
-                className={`px-4 py-1.5 text-sm font-semibold rounded-md transition-all ${period === p.key ? 'bg-violet-600 text-white shadow-sm' : 'text-slate-400'}`}>
+                className={cn('px-4 py-1.5 text-sm font-semibold rounded-md transition-all', period === p.key ? 'bg-violet-600 text-white shadow-sm' : 'text-slate-400')}>
                 {p.label}
               </button>
             ))}

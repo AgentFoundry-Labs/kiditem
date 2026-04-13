@@ -1,7 +1,7 @@
 'use client';
 
 import { Eye, Loader2, MoreVertical, Sparkles, Trash2 } from 'lucide-react';
-import { formatKRW } from '@/lib/utils';
+import { cn, formatKRW } from '@/lib/utils';
 import SourcingStatusBadge from './SourcingStatusBadge';
 import type { SourcedProduct } from '../../lib/sourcing-api';
 
@@ -24,9 +24,7 @@ export default function ProductCard({
 }: Props) {
   return (
     <div
-      className={`bg-white rounded-xl overflow-hidden shadow-sm border border-slate-100 hover:shadow-lg transition-all group relative ${
-        isDeleting ? 'opacity-50 pointer-events-none' : ''
-      }`}
+      className={cn('bg-white rounded-xl overflow-hidden shadow-sm border border-slate-100 hover:shadow-lg transition-all group relative', isDeleting && 'opacity-50 pointer-events-none')}
     >
       <div
         className="aspect-[4/5] relative overflow-hidden bg-slate-100 cursor-pointer"

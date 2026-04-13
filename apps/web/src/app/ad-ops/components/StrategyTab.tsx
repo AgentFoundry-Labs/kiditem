@@ -4,7 +4,7 @@ import { useState } from 'react';
 import {
   ChevronDown, AlertTriangle, Wallet, Download, FileSpreadsheet,
 } from 'lucide-react';
-import { formatKRW, formatNumber } from '@/lib/utils';
+import { cn, formatKRW, formatNumber } from '@/lib/utils';
 import type { AdRulesData, AdWeeklyPlan, AdStrategyAction } from '@kiditem/shared';
 
 interface Props {
@@ -155,9 +155,9 @@ export function StrategyTab({ rules, strategy }: Props) {
           const urgentCount = gradeActions.filter(a => a.actionPriority === 'urgent').length;
 
           return (
-            <div key={cfg.grade} className={`rounded-2xl overflow-hidden border-2 ${cfg.border} transition-all ${isSelected ? `ring-2 ${cfg.ring} shadow-xl` : 'hover:shadow-lg'}`}>
+            <div key={cfg.grade} className={cn('rounded-2xl overflow-hidden border-2 transition-all', cfg.border, isSelected ? `ring-2 ${cfg.ring} shadow-xl` : 'hover:shadow-lg')}>
               {/* Header */}
-              <button onClick={() => setSelectedGrade(isSelected ? null : cfg.grade)} className={`w-full text-left bg-gradient-to-r ${cfg.headerGrad} px-5 py-4`}>
+              <button onClick={() => setSelectedGrade(isSelected ? null : cfg.grade)} className={cn('w-full text-left bg-gradient-to-r px-5 py-4', cfg.headerGrad)}>
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-3">
                     <span className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center text-2xl font-black text-white">{cfg.grade}</span>
@@ -166,7 +166,7 @@ export function StrategyTab({ rules, strategy }: Props) {
                       <div className="text-[12px] text-white/70">{cfg.subtitle}</div>
                     </div>
                   </div>
-                  <ChevronDown size={18} className={`text-white/70 transition-transform ${isSelected ? 'rotate-180' : ''}`} />
+                  <ChevronDown size={18} className={cn('text-white/70 transition-transform', isSelected ? 'rotate-180' : '')} />
                 </div>
                 <div className="flex items-center justify-between">
                   <div className="text-2xl font-black text-white tabular-nums">{formatKRW(gradeBudget)}<span className="text-sm font-semibold text-white/60 ml-1">원/일</span></div>
@@ -226,7 +226,7 @@ export function StrategyTab({ rules, strategy }: Props) {
                           <div key={i} className="px-5 py-3 hover:bg-slate-50/50">
                             <div className="flex items-center justify-between gap-2 mb-1.5">
                               <span className="text-[13px] font-bold truncate flex-1 text-slate-900">{a.name}</span>
-                              <span className={`text-[15px] font-black tabular-nums shrink-0 ${a.currentRoas >= 300 ? 'text-emerald-600' : a.currentRoas >= 100 ? 'text-amber-600' : a.currentRoas > 0 ? 'text-red-500' : 'text-slate-300'}`}>
+                              <span className={cn('text-[15px] font-black tabular-nums shrink-0', a.currentRoas >= 300 ? 'text-emerald-600' : a.currentRoas >= 100 ? 'text-amber-600' : a.currentRoas > 0 ? 'text-red-500' : 'text-slate-300')}>
                                 {a.currentRoas > 0 ? `${a.currentRoas}%` : '-'}
                               </span>
                             </div>
@@ -235,7 +235,7 @@ export function StrategyTab({ rules, strategy }: Props) {
                               <span>·</span>
                               <span>입찰 <b className="text-slate-900">{a.maxBidPrice > 0 ? `${formatKRW(a.maxBidPrice)}원` : '-'}</b></span>
                               <span>·</span>
-                              <span className={`font-bold ${a.actionPriority === 'urgent' ? 'text-red-600' : a.actionPriority === 'high' ? 'text-orange-600' : ''}`}>
+                              <span className={cn('font-bold', a.actionPriority === 'urgent' ? 'text-red-600' : a.actionPriority === 'high' ? 'text-orange-600' : '')}>
                                 {a.actionPriority === 'urgent' ? '긴급' : a.actionPriority === 'high' ? '높음' : a.actionPriority === 'medium' ? '보통' : '낮음'}
                               </span>
                             </div>

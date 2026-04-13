@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import { formatKRW, formatNumber } from '@/lib/utils';
+import { cn, formatKRW, formatNumber } from '@/lib/utils';
 
 interface SalesPlan {
   id: string;
@@ -292,7 +292,7 @@ function ProgressRow({ label, target, actual, rate, color }: {
         <div className="flex items-center gap-3">
           <span className="text-slate-400">목표: {target}</span>
           <span className="text-slate-700 font-semibold">실적: {actual}</span>
-          <span className={`font-bold ${rate >= 100 ? 'text-green-600' : rate >= 70 ? 'text-purple-600' : 'text-red-600'}`}>
+          <span className={cn('font-bold', rate >= 100 ? 'text-green-600' : rate >= 70 ? 'text-purple-600' : 'text-red-600')}>
             <TrendingUp size={11} className="inline mr-0.5" />
             {rate}%
           </span>
@@ -307,7 +307,7 @@ function ProgressRow({ label, target, actual, rate, color }: {
         aria-label={`${label} 달성률`}
       >
         <div
-          className={`h-full rounded-full transition-all duration-500 ${color}`}
+          className={cn('h-full rounded-full transition-all duration-500', color)}
           style={{ width: `${Math.min(rate, 100)}%` }}
         />
       </div>

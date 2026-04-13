@@ -2,6 +2,7 @@
 
 import { ExternalLink } from 'lucide-react';
 import {
+  cn,
   formatKRW,
   formatPercent,
   getGradeColor,
@@ -54,8 +55,8 @@ export default function ProductSidebar({ product }: ProductSidebarProps) {
   return (
     <div className="w-72 flex-shrink-0 space-y-6">
       <InfoCard title="속성">
-        <InfoRow label="상태" value={<span className={`px-2 py-0.5 rounded text-xs font-medium ${badge.color}`}>{badge.label}</span>} />
-        <InfoRow label="ABC등급" value={product.abcGrade ? <span className={`px-2 py-0.5 rounded text-xs font-bold ${getGradeColor(product.abcGrade)}`}>{product.abcGrade}</span> : "-"} />
+        <InfoRow label="상태" value={<span className={cn('px-2 py-0.5 rounded text-xs font-medium', badge.color)}>{badge.label}</span>} />
+        <InfoRow label="ABC등급" value={product.abcGrade ? <span className={cn('px-2 py-0.5 rounded text-xs font-bold', getGradeColor(product.abcGrade))}>{product.abcGrade}</span> : "-"} />
         <InfoRow label="광고 티어" value={product.adTier ?? "-"} />
         <InfoRow label="수수료율" value={product.commissionRate != null ? formatPercent(Number(product.commissionRate) * 100) : "-"} />
         <InfoRow label="배송비" value={product.shippingCost ? `₩${formatKRW(product.shippingCost)}` : "-"} />
