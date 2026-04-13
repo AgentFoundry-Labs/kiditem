@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Wallet,
@@ -10,13 +10,19 @@ import {
   TrendingUp,
   ArrowDownRight,
   ArrowUpRight,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
   FileSearch,
   Download,
   Loader2,
+  Receipt,
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import { formatKRW } from '@/lib/utils';
+import { usePeriodSelector } from '@/hooks/usePeriodSelector';
+import PeriodSelector from '@/components/ui/PeriodSelector';
 
 interface Settlement {
   id: string;
@@ -66,21 +72,41 @@ interface ReconcileResult {
   details: ReconcileDetail[];
 }
 
+type SortField = 'expectedAmount' | 'actualAmount' | 'difference';
+
 export default function Settlements() {
   const queryClient = useQueryClient();
 
-  const { data: settlements = [] } = useQuery({
-    queryKey: queryKeys.settlements.all,
-    queryFn: () => apiClient.get<Settlement[]>('/api/settlements'),
-  });
+  // All hooks must be called before any conditional returns (Rules of Hooks)
+  const { period, setPeriod, periodOptions } = usePeriodSelector({ months: 24, defaultTo: 'prev' });
 
+  const allPeriodOptions = useMemo(() => [
+    { value: '', label: '전체' },
+    ...Array.from(new Set(periodOptions.map(o => o.value.slice(0, 4)))).map(y => ({
+      value: y,
+      label: `${y}년`,
+    })),
+    ...periodOptions,
+  ], [periodOptions]);
+
+  const [sortField, setSortField] = useState<SortField | null>(null);
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc' | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
   const [actualAmount, setActualAmount] = useState(0);
   const [reconcilePeriod, setReconcilePeriod] = useState('');
 
+  const { data: settlements = [] } = useQuery({
+    queryKey: [...queryKeys.settlements.all, period],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (period) params.set('period', period);
+      return apiClient.get<Settlement[]>(`/api/settlements?${params}`);
+    },
+  });
+
   const reconcileMutation = useMutation({
-    mutationFn: (period: string) =>
-      apiClient.post<ReconcileResult>('/api/settlements/reconcile', { period }),
+    mutationFn: (p: string) =>
+      apiClient.post<ReconcileResult>('/api/settlements/reconcile', { period: p }),
   });
   const reconcile = reconcileMutation.data ?? null;
 
@@ -93,6 +119,29 @@ export default function Settlements() {
     },
   });
 
+  const handleToggleSort = (field: SortField) => {
+    if (sortField === field) {
+      if (sortDirection === 'desc') {
+        setSortDirection('asc');
+      } else if (sortDirection === 'asc') {
+        setSortDirection(null);
+        setSortField(null);
+      }
+    } else {
+      setSortField(field);
+      setSortDirection('desc');
+    }
+  };
+
+  const sorted = useMemo(() => {
+    if (!sortField || !sortDirection) return settlements;
+    return [...settlements].sort((a, b) => {
+      const av = a[sortField];
+      const bv = b[sortField];
+      return sortDirection === 'asc' ? av - bv : bv - av;
+    });
+  }, [settlements, sortField, sortDirection]);
+
   const handleConfirm = (s: Settlement) => {
     confirmMutation.mutate({ id: s.id, actualAmount });
   };
@@ -101,9 +150,39 @@ export default function Settlements() {
   const totalActual = settlements.filter(s => s.status === 'confirmed').reduce((s, t) => s + t.actualAmount, 0);
   const totalDiff = settlements.filter(s => s.status === 'confirmed').reduce((s, t) => s + t.difference, 0);
 
+  const renderSortIcon = (field: SortField) => {
+    if (sortField !== field || !sortDirection) {
+      return <ArrowUpDown size={14} className="text-slate-400" />;
+    }
+    return sortDirection === 'asc'
+      ? <ArrowUp size={14} className="text-purple-600" />
+      : <ArrowDown size={14} className="text-purple-600" />;
+  };
+
+  const SortTh = ({ field, children, className = '' }: { field: SortField; children: React.ReactNode; className?: string }) => (
+    <th className={className}>
+      <button
+        type="button"
+        onClick={() => handleToggleSort(field)}
+        className="inline-flex items-center gap-1 hover:text-purple-600"
+        aria-sort={sortField === field ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
+      >
+        {children}
+        {renderSortIcon(field)}
+      </button>
+    </th>
+  );
+
   return (
     <div className="space-y-6">
-      <h1 className="page-title"><Wallet size={24} className="inline mr-2" />정산 관리</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="page-title"><Wallet size={24} className="inline mr-2" />정산 관리</h1>
+        <PeriodSelector
+          value={period}
+          onChange={setPeriod}
+          options={allPeriodOptions}
+        />
+      </div>
 
       {/* 요약 카드 */}
       <div className="grid grid-cols-4 gap-4">
@@ -114,63 +193,72 @@ export default function Settlements() {
       </div>
 
       {/* 정산 테이블 */}
-      <div className="table-card">
-        <table>
-          <thead>
-            <tr>
-              <th>정산 월</th>
-              <th className="text-right">주문/반품</th>
-              <th className="text-right">수수료</th>
-              <th className="text-right">예상 정산액</th>
-              <th className="text-right">실제 입금액</th>
-              <th className="text-right">차이</th>
-              <th className="text-center">상태</th>
-              <th className="text-center">확인</th>
-            </tr>
-          </thead>
-          <tbody >
-            {settlements.map(s => (
-              <tr key={s.id} className="hover:bg-slate-50">
-                <td className="px-4 py-3 font-medium">{s.period}</td>
-                <td className="px-4 py-3 text-right text-xs"><span className="text-purple-600">{s.orderCount}건</span> / <span className="text-red-500">{s.returnCount}건</span></td>
-                <td className="px-4 py-3 text-right">{formatKRW(s.commission)}</td>
-                <td className="px-4 py-3 text-right font-medium">{formatKRW(s.expectedAmount)}</td>
-                <td className="px-4 py-3 text-right">
-                  {editId === s.id ? (
-                    <input type="number" value={actualAmount} onChange={e => setActualAmount(Number(e.target.value))} className="w-32 px-2 py-1 border rounded text-right text-sm" autoFocus />
-                  ) : (
-                    <span className={s.status === 'confirmed' ? 'font-medium text-green-600' : 'text-slate-400'}>{s.status === 'confirmed' ? formatKRW(s.actualAmount) : '미입력'}</span>
-                  )}
-                </td>
-                <td className="px-4 py-3 text-right">
-                  {s.status === 'confirmed' && (
-                    <span className={`flex items-center justify-end gap-0.5 font-medium ${s.difference >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                      {s.difference >= 0 ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}{s.difference >= 0 ? '+' : ''}{formatKRW(s.difference)}
-                    </span>
-                  )}
-                </td>
-                <td className="px-4 py-3 text-center">
-                  {s.status === 'confirmed' ? (
-                    <span className="inline-flex items-center gap-1 text-xs text-green-600"><CheckCircle size={12} />확인</span>
-                  ) : s.status === 'disputed' ? (
-                    <span className="inline-flex items-center gap-1 text-xs text-red-600"><AlertTriangle size={12} />이의</span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1 text-xs text-slate-400"><Clock size={12} />대기</span>
-                  )}
-                </td>
-                <td className="px-4 py-3 text-center">
-                  {editId === s.id ? (
-                    <button onClick={() => handleConfirm(s)} className="px-3 py-1 bg-green-600 text-white rounded text-xs font-medium hover:bg-green-700">저장</button>
-                  ) : s.status !== 'confirmed' ? (
-                    <button onClick={() => { setEditId(s.id); setActualAmount(s.expectedAmount); }} className="px-3 py-1 bg-purple-600 text-white rounded text-xs font-medium hover:bg-purple-700">입금확인</button>
-                  ) : null}
-                </td>
+      {sorted.length === 0 ? (
+        <div className="card p-12 text-center">
+          <Receipt size={48} className="mx-auto text-slate-300 mb-4" />
+          <p className="text-slate-500 mb-3">선택한 기간에 정산 데이터가 없습니다</p>
+          <button onClick={() => setPeriod('')} className="text-sm text-purple-600 hover:underline">
+            전체 기간 보기
+          </button>
+        </div>
+      ) : (
+        <div className="table-card">
+          <table>
+            <thead>
+              <tr>
+                <th>정산 월</th>
+                <th className="text-right">주문/반품</th>
+                <th className="text-right">수수료</th>
+                <SortTh field="expectedAmount" className="text-right">예상정산액</SortTh>
+                <SortTh field="actualAmount" className="text-right">실제입금액</SortTh>
+                <SortTh field="difference" className="text-right">차이</SortTh>
+                <th className="text-center">상태</th>
+                <th className="text-center">확인</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-        {settlements.length === 0 && <div className="empty-state">정산 데이터가 없습니다. 손익 데이터가 생성되면 자동으로 표시됩니다.</div>}
-      </div>
+            </thead>
+            <tbody>
+              {sorted.map(s => (
+                <tr key={s.id} className="hover:bg-slate-50">
+                  <td className="px-4 py-3 font-medium">{s.period}</td>
+                  <td className="px-4 py-3 text-right text-xs"><span className="text-purple-600">{s.orderCount}건</span> / <span className="text-red-500">{s.returnCount}건</span></td>
+                  <td className="px-4 py-3 text-right">{formatKRW(s.commission)}</td>
+                  <td className="px-4 py-3 text-right font-medium">{formatKRW(s.expectedAmount)}</td>
+                  <td className="px-4 py-3 text-right">
+                    {editId === s.id ? (
+                      <input type="number" value={actualAmount} onChange={e => setActualAmount(Number(e.target.value))} className="w-32 px-2 py-1 border rounded text-right text-sm" autoFocus />
+                    ) : (
+                      <span className={s.status === 'confirmed' ? 'font-medium text-green-600' : 'text-slate-400'}>{s.status === 'confirmed' ? formatKRW(s.actualAmount) : '미입력'}</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    {s.status === 'confirmed' && (
+                      <span className={`flex items-center justify-end gap-0.5 font-medium ${s.difference >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        {s.difference >= 0 ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}{s.difference >= 0 ? '+' : ''}{formatKRW(s.difference)}
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    {s.status === 'confirmed' ? (
+                      <span className="inline-flex items-center gap-1 text-xs text-green-600"><CheckCircle size={12} />확인</span>
+                    ) : s.status === 'disputed' ? (
+                      <span className="inline-flex items-center gap-1 text-xs text-red-600"><AlertTriangle size={12} />이의</span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-xs text-slate-400"><Clock size={12} />대기</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    {editId === s.id ? (
+                      <button onClick={() => handleConfirm(s)} className="px-3 py-1 bg-green-600 text-white rounded text-xs font-medium hover:bg-green-700">저장</button>
+                    ) : s.status !== 'confirmed' ? (
+                      <button onClick={() => { setEditId(s.id); setActualAmount(s.expectedAmount); }} className="px-3 py-1 bg-purple-600 text-white rounded text-xs font-medium hover:bg-purple-700">입금확인</button>
+                    ) : null}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* 정산 대사 매칭 */}
       <div className="card p-5">
@@ -241,7 +329,7 @@ export default function Settlements() {
                     <th className="text-center">상태</th>
                   </tr>
                 </thead>
-                <tbody >
+                <tbody>
                   {reconcile.details.map((d) => (
                     <tr key={d.productId} className={d.status === 'mismatch' ? 'bg-red-50/50' : d.status === 'minor_diff' ? 'bg-yellow-50/50' : ''}>
                       <td className="px-3 py-2 font-medium text-slate-900 max-w-[200px] truncate">{d.productName}</td>

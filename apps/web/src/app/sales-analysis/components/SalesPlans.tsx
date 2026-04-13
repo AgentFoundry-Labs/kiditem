@@ -298,7 +298,14 @@ function ProgressRow({ label, target, actual, rate, color }: {
           </span>
         </div>
       </div>
-      <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+      <div
+        className="w-full h-2 bg-slate-100 rounded-full overflow-hidden"
+        role="progressbar"
+        aria-valuenow={rate}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-label={`${label} 달성률`}
+      >
         <div
           className={`h-full rounded-full transition-all duration-500 ${color}`}
           style={{ width: `${Math.min(rate, 100)}%` }}

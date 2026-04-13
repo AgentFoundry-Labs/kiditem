@@ -37,6 +37,11 @@ export default function ProfitLossTable({
     return <ArrowDown size={14} className="text-purple-600" />;
   };
 
+  const getAriaSort = (field: SortField): 'ascending' | 'descending' | 'none' => {
+    if (sortField !== field || !sortDirection) return 'none';
+    return sortDirection === 'asc' ? 'ascending' : 'descending';
+  };
+
   return (
     <>
       {/* 이익률 필터 */}
@@ -86,15 +91,15 @@ export default function ProfitLossTable({
                 <th>등급</th>
                 <th>상품명</th>
                 <th>회사</th>
-                <SortableHeader label="매출" align="right" icon={renderSortIcon("revenue")} onClick={() => onToggleSort("revenue")} />
-                <SortableHeader label="매입원가" align="right" icon={renderSortIcon("costOfGoods")} onClick={() => onToggleSort("costOfGoods")} />
-                <SortableHeader label="수수료" align="right" icon={renderSortIcon("commission")} onClick={() => onToggleSort("commission")} />
-                <SortableHeader label="배송비" align="right" icon={renderSortIcon("shippingCost")} onClick={() => onToggleSort("shippingCost")} />
-                <SortableHeader label="광고비" align="right" icon={renderSortIcon("adCost")} onClick={() => onToggleSort("adCost")} />
+                <SortableHeader label="매출" align="right" icon={renderSortIcon("revenue")} onClick={() => onToggleSort("revenue")} ariaSort={getAriaSort("revenue")} />
+                <SortableHeader label="매입원가" align="right" icon={renderSortIcon("costOfGoods")} onClick={() => onToggleSort("costOfGoods")} ariaSort={getAriaSort("costOfGoods")} />
+                <SortableHeader label="수수료" align="right" icon={renderSortIcon("commission")} onClick={() => onToggleSort("commission")} ariaSort={getAriaSort("commission")} />
+                <SortableHeader label="배송비" align="right" icon={renderSortIcon("shippingCost")} onClick={() => onToggleSort("shippingCost")} ariaSort={getAriaSort("shippingCost")} />
+                <SortableHeader label="광고비" align="right" icon={renderSortIcon("adCost")} onClick={() => onToggleSort("adCost")} ariaSort={getAriaSort("adCost")} />
                 <th className="text-right">기타비용</th>
-                <SortableHeader label="순이익" align="right" icon={renderSortIcon("netProfit")} onClick={() => onToggleSort("netProfit")} />
-                <SortableHeader label="이익률" align="right" icon={renderSortIcon("profitRate")} onClick={() => onToggleSort("profitRate")} />
-                <SortableHeader label="주문수" align="right" icon={renderSortIcon("orderCount")} onClick={() => onToggleSort("orderCount")} />
+                <SortableHeader label="순이익" align="right" icon={renderSortIcon("netProfit")} onClick={() => onToggleSort("netProfit")} ariaSort={getAriaSort("netProfit")} />
+                <SortableHeader label="이익률" align="right" icon={renderSortIcon("profitRate")} onClick={() => onToggleSort("profitRate")} ariaSort={getAriaSort("profitRate")} />
+                <SortableHeader label="주문수" align="right" icon={renderSortIcon("orderCount")} onClick={() => onToggleSort("orderCount")} ariaSort={getAriaSort("orderCount")} />
               </tr>
             </thead>
             <tbody>
@@ -127,18 +132,20 @@ export default function ProfitLossTable({
 }
 
 function SortableHeader({
-  label, align, icon, onClick,
+  label, align, icon, onClick, ariaSort,
 }: {
   label: string;
   align?: 'left' | 'right';
   icon: ReactNode;
   onClick: () => void;
+  ariaSort?: 'ascending' | 'descending' | 'none';
 }) {
   return (
     <th className={cn(align === 'right' ? 'text-right' : 'text-left')}>
       <button
         type="button"
         onClick={onClick}
+        aria-sort={ariaSort ?? 'none'}
         className={cn('inline-flex items-center gap-1.5 hover:text-slate-900', align === 'right' && 'ml-auto justify-end')}
       >
         <span>{label}</span>

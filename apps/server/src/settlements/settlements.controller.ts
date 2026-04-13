@@ -14,6 +14,7 @@ export class SettlementsController {
   async findAll(@Query() query: ListSettlementsQueryDto) {
     return this.settlementsService.findAll(
       await this.companyResolver.resolve(),
+      query.period,
     );
   }
 

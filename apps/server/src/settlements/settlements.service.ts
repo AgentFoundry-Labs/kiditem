@@ -6,9 +6,16 @@ import { CreateSettlementDto, UpdateSettlementDto } from './dto';
 export class SettlementsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll(companyId: string) {
+  async findAll(companyId: string, period?: string) {
+    const periodFilter =
+      period?.length === 7
+        ? { period }
+        : period?.length === 4
+          ? { period: { startsWith: period } }
+          : undefined;
+
     return this.prisma.settlement.findMany({
-      where: { companyId },
+      where: { companyId, ...periodFilter },
       orderBy: { period: 'desc' },
     });
   }

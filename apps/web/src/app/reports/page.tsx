@@ -2,27 +2,37 @@
 import { useState } from "react";
 import { toast } from 'sonner';
 import { FileSpreadsheet } from "lucide-react";
+import { usePeriodSelector } from '@/hooks/usePeriodSelector';
+import PeriodSelector from '@/components/ui/PeriodSelector';
 import { apiClient } from "@/lib/api-client";
 import { isApiError } from "@/lib/api-error";
 import ReportList from "./components/ReportList";
 
 export default function ReportsPage() {
   const [generating, setGenerating] = useState<string | null>(null);
+  const { period, setPeriod, periodOptions } = usePeriodSelector({ months: 12, defaultTo: 'prev' });
 
   const generateReport = async (type: string) => {
     setGenerating(type);
     try {
       const XLSX = await import("xlsx");
 
+      const periodParam = period ? `period=${period}` : '';
       const [productsRes, profitLoss, inventoryRes, adsData] = await Promise.all([
-        apiClient.get<{ items: any[]; total: number }>('/api/products'),
-        apiClient.get<any>('/api/profit-loss'),
+        apiClient.get<{ items: any[]; total: number }>(`/api/products${periodParam ? `?${periodParam}` : ''}`),
+        apiClient.get<any>(`/api/profit-loss${periodParam ? `?${periodParam}` : ''}`),
         apiClient.get<{ items: any[]; total: number }>('/api/inventory'),
-        apiClient.get<any>('/api/ads'),
+        apiClient.get<any>(`/api/ads${periodParam ? `?${periodParam}` : ''}`),
       ]);
 
       const products = productsRes.items;
       const inventory = inventoryRes.items;
+      const hasData = products.length > 0 || (Array.isArray(profitLoss) && profitLoss.length > 0) || inventory.length > 0;
+
+      if (!hasData) {
+        toast.warning('선택 기간의 데이터가 없습니다. 다른 기간을 선택해주세요.');
+        return;
+      }
 
       const wb = XLSX.utils.book_new();
 
@@ -39,7 +49,7 @@ export default function ReportsPage() {
 
       if (type === "full" || type === "profitloss") {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const ws2 = XLSX.utils.json_to_sheet(profitLoss.map((d: any) => ({
+        const ws2 = XLSX.utils.json_to_sheet((Array.isArray(profitLoss) ? profitLoss : []).map((d: any) => ({
           등급: d.grade, 상품명: d.productName, 회사: d.company,
           매출: d.revenue, 매입원가: d.costOfGoods, 수수료: d.commission,
           배송비: d.shippingCost, 광고비: d.adCost, 순이익: d.netProfit,
@@ -60,8 +70,9 @@ export default function ReportsPage() {
       }
 
       if (type === "full" || type === "ads") {
+        const adProducts = adsData?.products ?? [];
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const ws4 = XLSX.utils.json_to_sheet(adsData.products.map((a: any) => ({
+        const ws4 = XLSX.utils.json_to_sheet(adProducts.map((a: any) => ({
           등급: a.grade, 광고등급: a.adTier, 상품명: a.name, 회사: a.company,
           광고비: a.spend, 광고매출: a.adRevenue, "ROAS(%)": a.roas,
           "CTR(%)": a.ctr, "전환율(%)": a.convRate, "광고비율(%)": a.adRate,
@@ -69,9 +80,10 @@ export default function ReportsPage() {
         XLSX.utils.book_append_sheet(wb, ws4, "광고현황");
       }
 
+      const periodLabel = period || '전체';
       const fileName = type === "full"
-        ? `통합리포트_${new Date().toISOString().slice(0, 10)}.xlsx`
-        : `${type}_리포트_${new Date().toISOString().slice(0, 10)}.xlsx`;
+        ? `통합리포트_${periodLabel}_${new Date().toISOString().slice(0, 10)}.xlsx`
+        : `${type}_리포트_${periodLabel}_${new Date().toISOString().slice(0, 10)}.xlsx`;
 
       XLSX.writeFile(wb, fileName);
     } catch (e) {
@@ -91,13 +103,17 @@ export default function ReportsPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="page-title">
-        <FileSpreadsheet size={24} className="inline mr-2 text-green-600" />
-        리포트 / 엑셀 출력
-      </h1>
+      <div className="flex items-center justify-between">
+        <h1 className="page-title">
+          <FileSpreadsheet size={24} className="inline mr-2 text-green-600" />
+          리포트 / 엑셀 출력
+        </h1>
+        <PeriodSelector value={period} onChange={setPeriod} options={periodOptions} />
+      </div>
 
       <div className="bg-blue-50 rounded-xl p-4 border border-blue-200 text-sm text-blue-800">
         회사별(거영/해피프렌즈) 분리 출력은 각 페이지에서 회사 필터 적용 후 다운로드하세요.
+        {period && <span className="ml-2 font-medium">선택 기간: {period}</span>}
       </div>
 
       <ReportList reports={reports} generating={generating} onGenerate={generateReport} />

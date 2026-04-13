@@ -5,8 +5,9 @@ import { useQuery } from '@tanstack/react-query';
 import { BarChart3, TrendingUp, Package, Truck, Download, PieChart, Users } from 'lucide-react';
 import { usePeriodSelector } from '@/hooks/usePeriodSelector';
 import PeriodSelector from '@/components/ui/PeriodSelector';
+import { Pagination } from '@/components/ui/Pagination';
 import { apiClient } from '@/lib/api-client';
-import { formatKRW, formatPercent, getGradeColor } from '@/lib/utils';
+import { formatKRW, formatPercent, formatDate, getGradeColor } from '@/lib/utils';
 
 interface OverviewStats {
   totalProducts: number;
@@ -95,9 +96,19 @@ interface Stats {
   repurchase?: RepurchaseData;
 }
 
+const PAGE_SIZE = 20;
+
 export default function Statistics() {
   const [tab, setTab] = useState('overview');
+  const [page, setPage] = useState(1);
+  const [pageCustomers, setPageCustomers] = useState(1);
   const { period, setPeriod, periodOptions } = usePeriodSelector({ months: 12, defaultTo: 'prev' });
+
+  const handleTabChange = (key: string) => {
+    setTab(key);
+    setPage(1);
+    setPageCustomers(1);
+  };
 
   const { data = null } = useQuery<Stats>({
     queryKey: ['statistics', tab, period],
@@ -141,7 +152,7 @@ export default function Statistics() {
       {/* Tabs */}
       <div className="flex gap-1 flex-wrap">
         {tabs.map(t => (
-          <button key={t.key} onClick={() => setTab(t.key)}
+          <button key={t.key} onClick={() => handleTabChange(t.key)}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${tab === t.key ? 'bg-slate-900 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
             <t.icon size={13} /> {t.label}
           </button>
@@ -191,81 +202,95 @@ export default function Statistics() {
           )}
 
           {/* Products */}
-          {tab === 'products' && data.products && (
-            <div className="table-card">
-              <div className="overflow-x-auto">
-                <table>
-                  <thead><tr>
-                    <th>#</th><th>등급</th><th>상품명</th><th className="text-right">주문수</th>
-                    <th className="text-right">매출</th>
-                    <th className="text-right">순이익</th><th className="text-right">이익률</th>
-                  </tr></thead>
-                  <tbody>
-                    {data.products.slice(0, 50).map((p, i) => {
-                      const rate = p.profitRate * 100;
-                      return (
-                      <tr key={p.productId}>
-                        <td className="text-slate-400 tabular-nums">{i + 1}</td>
-                        <td><span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${getGradeColor(p.grade)}`}>{p.grade}</span></td>
-                        <td className="font-medium text-slate-900 max-w-[200px] truncate">{p.productName}</td>
-                        <td className="text-right tabular-nums">{p.orderCount}</td>
-                        <td className="text-right tabular-nums">{formatKRW(p.totalRevenue)}원</td>
-                        <td className={`text-right tabular-nums ${p.netProfit < 0 ? 'text-red-600' : 'text-green-600'}`}>{formatKRW(p.netProfit)}원</td>
-                        <td className={`text-right tabular-nums font-semibold ${rate < 0 ? 'text-red-600' : rate <= 3 ? 'text-orange-500' : 'text-green-600'}`}>{formatPercent(rate)}</td>
-                      </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* Categories */}
-          {tab === 'categories' && data.categories && (
-            <div className="table-card">
-              <div className="overflow-x-auto">
-                <table>
-                  <thead><tr><th>카테고리</th><th className="text-right">상품수</th><th className="text-right">매출</th><th className="text-right">순이익</th></tr></thead>
-                  <tbody>
-                    {data.categories.map((c, i) => (
-                      <tr key={i}>
-                        <td className="font-medium text-slate-900">{c.name}</td>
-                        <td className="text-right tabular-nums">{c.count}개</td>
-                        <td className="text-right tabular-nums">{formatKRW(c.revenue)}원</td>
-                        <td className={`text-right tabular-nums ${c.profit < 0 ? 'text-red-600' : 'text-green-600'}`}>{formatKRW(c.profit)}원</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* Delivery / Daily */}
-          {tab === 'delivery' && data.delivery && (
-            <div className="space-y-4">
-              {data.delivery.daily && (
+          {tab === 'products' && data.products && (() => {
+            const pagedProducts = data.products.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+            return (
               <div className="table-card">
                 <div className="overflow-x-auto">
                   <table>
-                    <thead><tr><th>날짜</th><th className="text-right">주문수</th><th className="text-right">매출</th><th className="text-right">수량</th></tr></thead>
+                    <thead><tr>
+                      <th>#</th><th>등급</th><th>상품명</th><th className="text-right">주문수</th>
+                      <th className="text-right">매출</th>
+                      <th className="text-right">순이익</th><th className="text-right">이익률</th>
+                    </tr></thead>
                     <tbody>
-                      {data.delivery.daily.slice(-30).reverse().map((d) => (
-                        <tr key={d.date}>
-                          <td className="font-mono text-slate-600">{d.date}</td>
-                          <td className="text-right tabular-nums">{d.orders}건</td>
-                          <td className="text-right tabular-nums">{formatKRW(d.revenue)}원</td>
-                          <td className="text-right tabular-nums">{d.qty}개</td>
+                      {pagedProducts.map((p, i) => {
+                        const rate = p.profitRate * 100;
+                        const rowNum = (page - 1) * PAGE_SIZE + i + 1;
+                        return (
+                        <tr key={p.productId}>
+                          <td className="text-slate-400 tabular-nums">{rowNum}</td>
+                          <td><span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${getGradeColor(p.grade)}`}>{p.grade}</span></td>
+                          <td className="font-medium text-slate-900 max-w-[200px] truncate">{p.productName}</td>
+                          <td className="text-right tabular-nums">{p.orderCount}</td>
+                          <td className="text-right tabular-nums">{formatKRW(p.totalRevenue)}원</td>
+                          <td className={`text-right tabular-nums ${p.netProfit < 0 ? 'text-red-600' : 'text-green-600'}`}>{formatKRW(p.netProfit)}원</td>
+                          <td className={`text-right tabular-nums font-semibold ${rate < 0 ? 'text-red-600' : rate <= 3 ? 'text-orange-500' : 'text-green-600'}`}>{formatPercent(rate)}</td>
+                        </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <Pagination page={page} limit={PAGE_SIZE} total={data.products.length} onPageChange={setPage} />
+              </div>
+            );
+          })()}
+
+          {/* Categories */}
+          {tab === 'categories' && data.categories && (() => {
+            const pagedCategories = data.categories.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+            return (
+              <div className="table-card">
+                <div className="overflow-x-auto">
+                  <table>
+                    <thead><tr><th>카테고리</th><th className="text-right">상품수</th><th className="text-right">매출</th><th className="text-right">순이익</th></tr></thead>
+                    <tbody>
+                      {pagedCategories.map((c, i) => (
+                        <tr key={i}>
+                          <td className="font-medium text-slate-900">{c.name}</td>
+                          <td className="text-right tabular-nums">{c.count}개</td>
+                          <td className="text-right tabular-nums">{formatKRW(c.revenue)}원</td>
+                          <td className={`text-right tabular-nums ${c.profit < 0 ? 'text-red-600' : 'text-green-600'}`}>{formatKRW(c.profit)}원</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
+                <Pagination page={page} limit={PAGE_SIZE} total={data.categories.length} onPageChange={setPage} />
               </div>
-              )}
-            </div>
-          )}
+            );
+          })()}
+
+          {/* Delivery / Daily */}
+          {tab === 'delivery' && data.delivery && (() => {
+            const dailySorted = [...(data.delivery.daily ?? [])].reverse();
+            const pagedDaily = dailySorted.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+            return (
+              <div className="space-y-4">
+                {data.delivery.daily && (
+                <div className="table-card">
+                  <div className="overflow-x-auto">
+                    <table>
+                      <thead><tr><th>날짜</th><th className="text-right">주문수</th><th className="text-right">매출</th><th className="text-right">수량</th></tr></thead>
+                      <tbody>
+                        {pagedDaily.map((d) => (
+                          <tr key={d.date}>
+                            <td className="font-mono text-slate-600">{d.date}</td>
+                            <td className="text-right tabular-nums">{d.orders}건</td>
+                            <td className="text-right tabular-nums">{formatKRW(d.revenue)}원</td>
+                            <td className="text-right tabular-nums">{d.qty}개</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <Pagination page={page} limit={PAGE_SIZE} total={dailySorted.length} onPageChange={setPage} />
+                </div>
+                )}
+              </div>
+            );
+          })()}
 
           {/* Grades */}
           {tab === 'grades' && data.grades && (
@@ -285,109 +310,121 @@ export default function Statistics() {
           )}
 
           {/* ABC Pareto */}
-          {tab === 'pareto' && data.pareto && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                <StatBox label="총 매출" value={formatKRW(data.pareto.totalRevenue)} unit="원" />
-                <StatBox label="A등급 (70%)" value={data.pareto.gradeDistribution.A} unit="개" />
-                <StatBox label="B등급 (20%)" value={data.pareto.gradeDistribution.B} unit="개" />
-                <StatBox label="등급 불일치" value={data.pareto.mismatchCount} unit="개" />
-              </div>
-
-              {/* 파레토 테이블 */}
-              <div className="table-card">
-                <div className="table-scroll">
-                  <table>
-                    <thead className="sticky top-0"><tr>
-                      <th>#</th><th>상품명</th><th>현재등급</th><th>추천등급</th>
-                      <th className="text-right">매출</th><th className="text-right">매출비율</th><th className="text-right">누적비율</th>
-                    </tr></thead>
-                    <tbody>
-                      {data.pareto.data.map((p) => (
-                        <tr key={p.id} className={!p.gradeMatch ? 'bg-yellow-50/50' : ''}>
-                          <td className="text-slate-400 tabular-nums">{p.rank}</td>
-                          <td className="font-medium text-slate-900 max-w-[200px] truncate">{p.name}</td>
-                          <td><span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${getGradeColor(p.currentGrade)}`}>{p.currentGrade}</span></td>
-                          <td>
-                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${getGradeColor(p.suggestedGrade)}`}>
-                              {p.suggestedGrade}
-                            </span>
-                            {!p.gradeMatch && <span className="ml-1 text-[9px] text-red-500">불일치</span>}
-                          </td>
-                          <td className="text-right tabular-nums">{formatKRW(p.revenue)}원</td>
-                          <td className="text-right tabular-nums text-slate-500">{p.revenuePercent}%</td>
-                          <td className={`text-right tabular-nums font-medium ${p.cumulativePercent <= 70 ? 'text-green-600' : p.cumulativePercent <= 90 ? 'text-yellow-600' : 'text-red-600'}`}>{p.cumulativePercent}%</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+          {tab === 'pareto' && data.pareto && (() => {
+            const pagedPareto = data.pareto.data.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+            return (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                  <StatBox label="총 매출" value={formatKRW(data.pareto.totalRevenue)} unit="원" />
+                  <StatBox label="A등급 (70%)" value={data.pareto.gradeDistribution.A} unit="개" />
+                  <StatBox label="B등급 (20%)" value={data.pareto.gradeDistribution.B} unit="개" />
+                  <StatBox label="등급 불일치" value={data.pareto.mismatchCount} unit="개" />
                 </div>
-              </div>
-            </div>
-          )}
 
-          {/* Repurchase */}
-          {tab === 'repurchase' && data.repurchase && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-3 gap-3">
-                <StatBox label="전체 고객수" value={data.repurchase.totalCustomers} unit="명" />
-                <StatBox label="재구매 고객" value={data.repurchase.repeatCount} unit="명" />
-                <StatBox label="재구매율" value={formatPercent(data.repurchase.repurchaseRate * 100)} unit="" />
-              </div>
-
-              {/* 반복 주문 상품 */}
-              {(data.repurchase.repeatProducts?.length ?? 0) > 0 && (
-              <div className="table-card">
-                <div className="px-4 py-3 border-b border-slate-200">
-                  <h3 className="section-title">재구매 상품</h3>
-                </div>
-                <div className="overflow-x-auto max-h-[300px] overflow-y-auto">
-                  <table>
-                    <thead className="sticky top-0"><tr>
-                      <th>#</th><th>상품명</th><th>카테고리</th><th className="text-right">주문횟수</th>
-                    </tr></thead>
-                    <tbody>
-                      {data.repurchase.repeatProducts?.map((p, i) => (
-                        <tr key={p.productId}>
-                          <td className="text-slate-400 tabular-nums">{i + 1}</td>
-                          <td className="font-medium text-slate-900 max-w-[200px] truncate">{p.productName}</td>
-                          <td className="text-slate-500 text-xs">{p.category}</td>
-                          <td className="text-right tabular-nums font-semibold text-purple-600">{p.orderCount}회</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-              )}
-
-              {/* 재구매 고객 */}
-              {(data.repurchase.repeatCustomers?.length ?? 0) > 0 && (
+                {/* 파레토 테이블 */}
                 <div className="table-card">
-                  <div className="px-4 py-3 border-b border-slate-200">
-                    <h3 className="section-title">재구매 고객</h3>
-                  </div>
-                  <div className="overflow-x-auto max-h-[300px] overflow-y-auto">
+                  <div className="table-scroll">
                     <table>
                       <thead className="sticky top-0"><tr>
-                        <th>고객명</th><th className="text-right">주문횟수</th><th className="text-right">총 주문금액</th><th>마지막 주문</th>
+                        <th>#</th><th>상품명</th><th>현재등급</th><th>추천등급</th>
+                        <th className="text-right">매출</th><th className="text-right">매출비율</th><th className="text-right">누적비율</th>
                       </tr></thead>
                       <tbody>
-                        {data.repurchase.repeatCustomers!.map((c) => (
-                          <tr key={c.name}>
-                            <td className="font-medium text-slate-900">{c.name}</td>
-                            <td className="text-right tabular-nums font-semibold text-purple-600">{c.count}회</td>
-                            <td className="text-right tabular-nums">{formatKRW(c.totalAmount)}원</td>
-                            <td className="text-slate-500 text-xs font-mono">{c.lastOrder ? new Date(c.lastOrder).toLocaleDateString('ko-KR') : '-'}</td>
+                        {pagedPareto.map((p) => (
+                          <tr key={p.id} className={!p.gradeMatch ? 'bg-yellow-50/50' : ''}>
+                            <td className="text-slate-400 tabular-nums">{p.rank}</td>
+                            <td className="font-medium text-slate-900 max-w-[200px] truncate">{p.name}</td>
+                            <td><span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${getGradeColor(p.currentGrade)}`}>{p.currentGrade}</span></td>
+                            <td>
+                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${getGradeColor(p.suggestedGrade)}`}>
+                                {p.suggestedGrade}
+                              </span>
+                              {!p.gradeMatch && <span className="ml-1 text-[9px] text-red-500">불일치</span>}
+                            </td>
+                            <td className="text-right tabular-nums">{formatKRW(p.revenue)}원</td>
+                            <td className="text-right tabular-nums text-slate-500">{p.revenuePercent}%</td>
+                            <td className={`text-right tabular-nums font-medium ${p.cumulativePercent <= 70 ? 'text-green-600' : p.cumulativePercent <= 90 ? 'text-yellow-600' : 'text-red-600'}`}>{p.cumulativePercent}%</td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                   </div>
+                  <Pagination page={page} limit={PAGE_SIZE} total={data.pareto.data.length} onPageChange={setPage} />
                 </div>
-              )}
-            </div>
-          )}
+              </div>
+            );
+          })()}
+
+          {/* Repurchase */}
+          {tab === 'repurchase' && data.repurchase && (() => {
+            const repeatProducts = data.repurchase.repeatProducts ?? [];
+            const repeatCustomers = data.repurchase.repeatCustomers ?? [];
+            const pagedProducts = repeatProducts.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+            const pagedCustomers = repeatCustomers.slice((pageCustomers - 1) * PAGE_SIZE, pageCustomers * PAGE_SIZE);
+            return (
+              <div className="space-y-4">
+                <div className="grid grid-cols-3 gap-3">
+                  <StatBox label="전체 고객수" value={data.repurchase.totalCustomers} unit="명" />
+                  <StatBox label="재구매 고객" value={data.repurchase.repeatCount} unit="명" />
+                  <StatBox label="재구매율" value={formatPercent(data.repurchase.repurchaseRate * 100)} unit="" />
+                </div>
+
+                {/* 반복 주문 상품 */}
+                {repeatProducts.length > 0 && (
+                <div className="table-card">
+                  <div className="px-4 py-3 border-b border-slate-200">
+                    <h3 className="section-title">재구매 상품</h3>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table>
+                      <thead><tr>
+                        <th>#</th><th>상품명</th><th>카테고리</th><th className="text-right">주문횟수</th>
+                      </tr></thead>
+                      <tbody>
+                        {pagedProducts.map((p, i) => (
+                          <tr key={p.productId}>
+                            <td className="text-slate-400 tabular-nums">{(page - 1) * PAGE_SIZE + i + 1}</td>
+                            <td className="font-medium text-slate-900 max-w-[200px] truncate">{p.productName}</td>
+                            <td className="text-slate-500 text-xs">{p.category}</td>
+                            <td className="text-right tabular-nums font-semibold text-purple-600">{p.orderCount}회</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <Pagination page={page} limit={PAGE_SIZE} total={repeatProducts.length} onPageChange={setPage} />
+                </div>
+                )}
+
+                {/* 재구매 고객 */}
+                {repeatCustomers.length > 0 && (
+                  <div className="table-card">
+                    <div className="px-4 py-3 border-b border-slate-200">
+                      <h3 className="section-title">재구매 고객</h3>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table>
+                        <thead><tr>
+                          <th>고객명</th><th className="text-right">주문횟수</th><th className="text-right">총 주문금액</th><th>마지막 주문</th>
+                        </tr></thead>
+                        <tbody>
+                          {pagedCustomers.map((c) => (
+                            <tr key={c.name}>
+                              <td className="font-medium text-slate-900">{c.name}</td>
+                              <td className="text-right tabular-nums font-semibold text-purple-600">{c.count}회</td>
+                              <td className="text-right tabular-nums">{formatKRW(c.totalAmount)}원</td>
+                              <td className="text-slate-500 text-xs font-mono">{c.lastOrder ? formatDate(c.lastOrder) : '-'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <Pagination page={pageCustomers} limit={PAGE_SIZE} total={repeatCustomers.length} onPageChange={setPageCustomers} />
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </>
       )}
     </div>
