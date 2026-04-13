@@ -1,9 +1,9 @@
 import { Logger } from '@nestjs/common';
-import type { AdapterModule, ExecutionContext, ExecutionResult, EnvironmentTestResult } from '../types';
+import type { AdapterModule, ExecutionContext, ExecutionResult, EnvironmentTestResult, StreamEvent } from '../types';
 
 const logger = new Logger('PythonHttpAdapter');
 
-async function execute(ctx: ExecutionContext): Promise<ExecutionResult> {
+async function* execute(ctx: ExecutionContext): AsyncGenerator<StreamEvent, ExecutionResult> {
   const baseUrl = (ctx.config.baseUrl as string) || 'http://localhost:8001';
   const timeoutMs = ctx.timeoutSec * 1000;
 

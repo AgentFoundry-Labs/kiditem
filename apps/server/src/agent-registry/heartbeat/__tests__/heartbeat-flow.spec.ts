@@ -121,6 +121,11 @@ const MOCK_AGENT = {
   rtLastFailedAt: null,
 };
 
+/** Wrap an ExecutionResult into an AsyncGenerator mock (adapter streaming interface) */
+function mockAdapterGen(result: any) {
+  return async function* () { return result; };
+}
+
 const MOCK_WAKEUP = {
   id: 'w-1',
   agentId: 'agent-1',
@@ -240,7 +245,7 @@ describe('HeartbeatService — full execution lifecycle', () => {
       wakeup.requestWakeup.mockResolvedValue({ id: 'w-1' });
       wakeup.claimNext.mockResolvedValue(MOCK_WAKEUP);
       wakeup.finish.mockResolvedValue({});
-      MOCK_ADAPTER.execute.mockResolvedValue(SUCCESS_RESULT);
+      MOCK_ADAPTER.execute.mockImplementation(() => mockAdapterGen(SUCCESS_RESULT)());
       (extractResultJsonFromStdout as any).mockReturnValue({ actions: [] });
       (validateAgentOutput as any).mockReturnValue({ valid: true, data: { actions: [] } });
     }
@@ -320,7 +325,7 @@ describe('HeartbeatService — full execution lifecycle', () => {
       wakeup.requestWakeup.mockResolvedValue({ id: 'w-1' });
       wakeup.claimNext.mockResolvedValue(MOCK_WAKEUP);
       wakeup.finish.mockResolvedValue({});
-      MOCK_ADAPTER.execute.mockResolvedValue(FAIL_RESULT);
+      MOCK_ADAPTER.execute.mockImplementation(() => mockAdapterGen(FAIL_RESULT)());
 
       await service.wakeAgent({ agentId: 'agent-1', source: 'on_demand' });
       await new Promise((r) => setImmediate(r));
@@ -353,7 +358,7 @@ describe('HeartbeatService — full execution lifecycle', () => {
       wakeup.requestWakeup.mockResolvedValue({ id: 'w-1' });
       wakeup.claimNext.mockResolvedValue(MOCK_WAKEUP);
       wakeup.finish.mockResolvedValue({});
-      MOCK_ADAPTER.execute.mockResolvedValue(FAIL_RESULT);
+      MOCK_ADAPTER.execute.mockImplementation(() => mockAdapterGen(FAIL_RESULT)());
 
       await service.wakeAgent({ agentId: 'agent-1', source: 'on_demand' });
       await new Promise((r) => setImmediate(r));

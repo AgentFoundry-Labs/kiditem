@@ -4,7 +4,13 @@
  *
  * Immutable ExecutionContext: Claude Code DeepImmutable 패턴 적용.
  * ctx 객체는 생성 후 변경 불가. session retry 시 새 객체 생성.
+ *
+ * Streaming: execute()는 AsyncGenerator<StreamEvent, ExecutionResult>.
+ * 실행 중 토큰 카운트 등 이벤트를 yield, 완료 시 ExecutionResult를 return.
+ * collectResult()로 기존처럼 Promise<ExecutionResult>로 사용 가능.
  */
+
+import type { ResolvedPermissions } from '../permissions/hierarchy.validator';
 
 export interface ExecutionContext {
   readonly runId: string;
@@ -25,6 +31,7 @@ export interface ExecutionContext {
   readonly allowedTools: string;
   readonly permissionMode: string;
   readonly maxOutputTokens: number;
+  readonly resolvedPermissions?: ResolvedPermissions;
 }
 
 export interface UsageSummary {
@@ -44,6 +51,11 @@ export interface ExecutionResult {
   stopReason?: string;
 }
 
+export interface StreamEvent {
+  type: 'token_count' | 'content' | 'error';
+  data: unknown;
+}
+
 export interface EnvironmentTestResult {
   ok: boolean;
   message: string;
@@ -52,6 +64,17 @@ export interface EnvironmentTestResult {
 
 export interface AdapterModule {
   type: string;
-  execute(ctx: ExecutionContext): Promise<ExecutionResult>;
+  execute(ctx: ExecutionContext): AsyncGenerator<StreamEvent, ExecutionResult>;
   testEnvironment?(config: Record<string, unknown>): Promise<EnvironmentTestResult>;
+}
+
+/** Consume a streaming adapter generator and return just the final result. */
+export async function collectResult(
+  gen: AsyncGenerator<StreamEvent, ExecutionResult>,
+): Promise<ExecutionResult> {
+  let iter: IteratorResult<StreamEvent, ExecutionResult>;
+  do {
+    iter = await gen.next();
+  } while (!iter.done);
+  return iter.value;
 }

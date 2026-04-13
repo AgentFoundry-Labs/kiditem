@@ -1,6 +1,6 @@
 import { spawn, ChildProcess } from 'child_process';
 import { Logger } from '@nestjs/common';
-import type { AdapterModule, ExecutionContext, ExecutionResult, EnvironmentTestResult } from '../types';
+import type { AdapterModule, ExecutionContext, ExecutionResult, EnvironmentTestResult, StreamEvent } from '../types';
 
 const logger = new Logger('ClaudeLocalAdapter');
 
@@ -15,8 +15,6 @@ interface ParsedClaudeOutput {
 }
 
 function parseClaudeOutput(raw: string): ParsedClaudeOutput {
-  // Claude CLI --output-format json outputs a single JSON line with type:"result"
-  // Multi-line output: scan from last line to find the result JSON
   let parsed: any = null;
 
   const lines = raw.trim().split('\n');
@@ -30,7 +28,6 @@ function parseClaudeOutput(raw: string): ParsedClaudeOutput {
     } catch { continue; }
   }
 
-  // Fallback: try parsing entire raw as single JSON
   if (!parsed) {
     try {
       const whole = JSON.parse(raw);
@@ -57,7 +54,6 @@ function parseClaudeOutput(raw: string): ParsedClaudeOutput {
     };
   }
 
-  // Fallback: try to extract JSON block
   const match = raw.match(/```json\n([\s\S]*?)\n```/);
   if (match) {
     try {
@@ -68,83 +64,123 @@ function parseClaudeOutput(raw: string): ParsedClaudeOutput {
   return { sessionId: null, model: null, costUsd: null, usage: null, summary: raw.slice(0, 2000), resultJson: null, stopReason: null };
 }
 
-async function execute(ctx: ExecutionContext): Promise<ExecutionResult> {
+/**
+ * Stream-JSON 라인에서 usage 이벤트 추출.
+ * Claude CLI stream-json 형식: {"type":"result","usage":{"output_tokens":N},...}
+ */
+function tryParseStreamLine(line: string): StreamEvent | null {
+  try {
+    const obj = JSON.parse(line);
+    if (obj?.usage?.output_tokens != null) {
+      return { type: 'token_count', data: obj.usage.output_tokens };
+    }
+    if (obj?.type === 'content_block_delta' || obj?.type === 'message_delta') {
+      const tokens = obj?.usage?.output_tokens;
+      if (tokens != null) return { type: 'token_count', data: tokens };
+    }
+  } catch { /* not valid JSON line */ }
+  return null;
+}
+
+async function* execute(ctx: ExecutionContext): AsyncGenerator<StreamEvent, ExecutionResult> {
   const command = (ctx.config.command as string) || 'claude';
   const extraArgs = (ctx.config.extraArgs as string[]) || [];
   const timeoutMs = ctx.timeoutSec * 1000;
   const graceMs = ctx.graceSec * 1000;
-
   const model = (ctx.config.model as string) || '';
+
+  const useStreaming = ctx.config.streaming !== false;
+  const outputFormat = useStreaming ? 'stream-json' : 'json';
 
   const args = [
     '-p', ctx.prompt,
-    '--output-format', 'json',
+    '--output-format', outputFormat,
     '--allowedTools', ctx.allowedTools,
     '--permission-mode', ctx.permissionMode,
     '--max-tokens', String(ctx.maxOutputTokens),
     ...extraArgs,
   ];
 
-  // Model selection
-  if (model) {
-    args.push('--model', model);
-  }
-
-  // Session resume — skip if agent is already running (session in use)
+  if (model) args.push('--model', model);
   if (ctx.sessionId && !ctx.config._skipSessionResume) {
     args.push('--session-id', ctx.sessionId);
   }
 
-  return new Promise<ExecutionResult>((resolve) => {
-    let child: ChildProcess;
-    try {
-      child = spawn(command, args, {
-        cwd: ctx.cwd,
-        env: { ...process.env, ...ctx.env },
-        stdio: ['ignore', 'pipe', 'pipe'],
-      });
-    } catch (err) {
-      resolve({
-        exitCode: 1,
-        signal: null,
-        timedOut: false,
-        stdout: '',
-        stderr: `Spawn error: ${err}`,
-      });
-      return;
+  // Queue-based bridge: child_process events → AsyncGenerator yields
+  type QueueItem = StreamEvent | { _done: true; result: ExecutionResult };
+  const queue: QueueItem[] = [];
+  let waiting: (() => void) | null = null;
+
+  const push = (item: QueueItem) => {
+    queue.push(item);
+    if (waiting) { waiting(); waiting = null; }
+  };
+
+  let child: ChildProcess;
+  try {
+    child = spawn(command, args, {
+      cwd: ctx.cwd,
+      env: { ...process.env, ...ctx.env },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+  } catch (err) {
+    return {
+      exitCode: 1,
+      signal: null,
+      timedOut: false,
+      stdout: '',
+      stderr: `Spawn error: ${err}`,
+    };
+  }
+
+  let stdout = '';
+  let stderr = '';
+  let timedOut = false;
+  let killed = false;
+  let lineBuf = '';
+
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    child.kill('SIGTERM');
+    setTimeout(() => { if (!killed) child.kill('SIGKILL'); }, graceMs);
+  }, timeoutMs);
+
+  child.stdout?.on('data', (data: Buffer) => {
+    const chunk = data.toString();
+    stdout += chunk;
+
+    if (useStreaming) {
+      lineBuf += chunk;
+      const lines = lineBuf.split('\n');
+      lineBuf = lines.pop() ?? '';
+      for (const line of lines) {
+        const event = tryParseStreamLine(line.trim());
+        if (event) push(event);
+      }
+    }
+  });
+
+  child.stderr?.on('data', (data: Buffer) => { stderr += data.toString(); });
+
+  child.on('close', (code, signal) => {
+    clearTimeout(timeout);
+    killed = true;
+
+    // Process remaining buffer
+    if (lineBuf.trim()) {
+      const event = tryParseStreamLine(lineBuf.trim());
+      if (event) push(event);
     }
 
-    let stdout = '';
-    let stderr = '';
-    let timedOut = false;
-    let killed = false;
+    const parsed = parseClaudeOutput(stdout);
+    logger.debug(`Claude output parsed: session=${parsed.sessionId}, cost=${parsed.costUsd}, usage=${JSON.stringify(parsed.usage)}`);
+    if (!parsed.costUsd && !parsed.usage?.inputTokens) {
+      logger.warn(`No usage/cost data extracted from Claude output (${stdout.length} bytes)`);
+    }
 
-    const timeout = setTimeout(() => {
-      timedOut = true;
-      child.kill('SIGTERM');
-      // Grace period before SIGKILL
-      setTimeout(() => {
-        if (!killed) {
-          child.kill('SIGKILL');
-        }
-      }, graceMs);
-    }, timeoutMs);
-
-    child.stdout?.on('data', (data: Buffer) => { stdout += data.toString(); });
-    child.stderr?.on('data', (data: Buffer) => { stderr += data.toString(); });
-
-    child.on('close', (code, signal) => {
-      clearTimeout(timeout);
-      killed = true;
-
-      // Parse Claude output for session, usage, cost
-      const parsed = parseClaudeOutput(stdout);
-      logger.debug(`Claude output parsed: session=${parsed.sessionId}, cost=${parsed.costUsd}, usage=${JSON.stringify(parsed.usage)}`);
-      if (!parsed.costUsd && !parsed.usage?.inputTokens) {
-        logger.warn(`No usage/cost data extracted from Claude output (${stdout.length} bytes)`);
-      }
-
-      resolve({
+    push({
+      _done: true,
+      result: {
         exitCode: code,
         signal: signal ?? null,
         timedOut,
@@ -157,21 +193,34 @@ async function execute(ctx: ExecutionContext): Promise<ExecutionResult> {
           costCents: parsed.costUsd ? Math.round(parsed.costUsd * 100) : undefined,
         } : undefined,
         stopReason: parsed.stopReason ?? undefined,
-      });
+      },
     });
+  });
 
-    child.on('error', (err) => {
-      clearTimeout(timeout);
-      killed = true;
-      resolve({
+  child.on('error', (err) => {
+    clearTimeout(timeout);
+    killed = true;
+    push({
+      _done: true,
+      result: {
         exitCode: 1,
         signal: null,
         timedOut: false,
         stdout,
         stderr: `Process error: ${err.message}`,
-      });
+      },
     });
   });
+
+  // Generator loop: yield events until done
+  while (true) {
+    if (queue.length === 0) {
+      await new Promise<void>(r => { waiting = r; });
+    }
+    const item = queue.shift()!;
+    if ('_done' in item) return item.result;
+    yield item;
+  }
 }
 
 async function testEnvironment(config: Record<string, unknown>): Promise<EnvironmentTestResult> {
@@ -188,11 +237,11 @@ async function testEnvironment(config: Record<string, unknown>): Promise<Environ
         });
       });
       child.on('error', (err) => {
-        resolve({ ok: false, message: `Claude CLI not found: ${err.message}` });
+        resolve({ ok: false, message: `Cannot find ${command}: ${err.message}` });
       });
     });
-  } catch (err) {
-    return { ok: false, message: `Failed to test: ${err}` };
+  } catch (err: any) {
+    return { ok: false, message: `Error checking Claude CLI: ${err.message}` };
   }
 }
 

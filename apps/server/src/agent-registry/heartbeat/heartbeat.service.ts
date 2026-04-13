@@ -9,6 +9,7 @@ import { WakeupService, WakeupSource } from '../wakeup/wakeup.service';
 import { SkillsService } from '../skills/skills.service';
 import { getAdapter } from '../adapters/registry';
 import type { ExecutionContext } from '../adapters/types';
+import { collectResult } from '../adapters/types';
 import {
   AgentStatusChangedEvent,
   AgentBudgetWarningEvent,
@@ -19,11 +20,25 @@ import {
 import { FeatureGateService } from '../../feature-gate/feature-gate.service';
 import { validateAgentOutput, extractResultJsonFromStdout } from '../schemas/validate-output';
 // Agent OS modules
+import { resolvePermissions } from '../permissions/hierarchy.validator';
 import { SkillFilterService } from '../safety/skill-filter.service';
 import { RetryService } from '../lifecycle/retry.service';
 import { TRANSCRIPT_EVENT } from '../lifecycle/transcript.service';
 import { SafetyPipelineService } from '../business-safety/safety-pipeline.service';
 import { DryRunGateService } from '../business-safety/dry-run-gate.service';
+import type { PermissionLayer } from '../permissions/hierarchy.validator';
+
+/** Extract company-level permission layer from agent.permissions JSON. Future extension point. */
+function extractCompanyLayer(permissions: Record<string, unknown> | null | undefined): PermissionLayer | undefined {
+  if (!permissions?.company) return undefined;
+  return permissions.company as PermissionLayer;
+}
+
+/** Extract agentType-level permission layer from agent.permissions JSON. Future extension point. */
+function extractTypeLayer(permissions: Record<string, unknown> | null | undefined): PermissionLayer | undefined {
+  if (!permissions?.agentType) return undefined;
+  return permissions.agentType as PermissionLayer;
+}
 
 @Injectable()
 export class HeartbeatService {
@@ -151,11 +166,35 @@ export class HeartbeatService {
 
     const companyId = wakeup.companyId;
 
+    // Permission Hierarchy Resolution (Pattern #8)
+    const instanceTools = (agent.allowedTools ?? '').split(/\s+/).filter(Boolean);
+    const resolved = resolvePermissions(
+      [
+        // Layer 1: global defaults — future extension point (returns undefined for now)
+        {},
+        // Layer 2: company-level — future extension point from agent.permissions JSON
+        ...(extractCompanyLayer((agent as any).permissions) ? [extractCompanyLayer((agent as any).permissions)!] : []),
+        // Layer 3: agentType-level — future extension point from agent.permissions JSON
+        ...(extractTypeLayer((agent as any).permissions) ? [extractTypeLayer((agent as any).permissions)!] : []),
+        // Layer 4: instance-level (agent's own fields)
+        {
+          allowedTools: instanceTools,
+          deniedSkills: (agent as any).deniedSkills ?? [],
+          permissionMode: agent.permissionMode,
+        },
+      ],
+      {
+        allowedTools: instanceTools,
+        deniedSkills: [],
+        permissionMode: agent.permissionMode,
+      },
+    );
+
     // #24 Prefetch + Harvest — parallel preparation
     const buildSkillsPromise = (async () => {
       try {
         const filteredSkills = this.skillFilterService
-          ? this.skillFilterService.filterAndSort(agent.skills, (agent as any).deniedSkills ?? [])
+          ? this.skillFilterService.filterAndSort(agent.skills, resolved.deniedSkills)
           : [...agent.skills].sort();
         return await this.skillsService.buildSkillsDir(filteredSkills);
       } catch (err) {
@@ -224,16 +263,17 @@ export class HeartbeatService {
         AGENT_DATABASE_URL: process.env.AGENT_DATABASE_URL || process.env.DATABASE_URL || '',
       }),
       cwd: (adapterConfig.cwd as string) || process.cwd(),
-      allowedTools: agent.allowedTools,
-      permissionMode: agent.permissionMode,
+      allowedTools: resolved.allowedTools.join(' '),
+      permissionMode: resolved.permissionMode,
       maxOutputTokens: agent.maxOutputTokens ?? 16000,
+      resolvedPermissions: Object.freeze(resolved),
     });
 
     this.logger.log(`Heartbeat starting: ${agent.name} (run=${run.id})`);
 
     let result;
     try {
-      result = await adapter.execute(ctx);
+      result = await collectResult(adapter.execute(ctx));
 
       // Session conflict retry — "session already in use" → retry without session (immutable ctx)
       if (result.exitCode !== 0 && result.stderr.includes('already in use') && ctx.sessionId) {
@@ -243,7 +283,7 @@ export class HeartbeatService {
           sessionId: undefined,
           config: Object.freeze({ ...ctx.config, _skipSessionResume: true }),
         });
-        result = await adapter.execute(retryCtx);
+        result = await collectResult(adapter.execute(retryCtx));
       }
 
       // Token escalation — output truncated → retry with doubled maxOutputTokens (max 1 retry)
@@ -255,7 +295,7 @@ export class HeartbeatService {
           ...ctx,
           maxOutputTokens: escalatedTokens,
         });
-        result = await adapter.execute(escalatedCtx);
+        result = await collectResult(adapter.execute(escalatedCtx));
       }
     } catch (err: any) {
       result = {
@@ -304,7 +344,7 @@ export class HeartbeatService {
               prompt: retryPrompt,
               sessionId: result.sessionIdAfter ?? ctx.sessionId,
             });
-            const retryResult = await adapter.execute(retryCtx);
+            const retryResult = await collectResult(adapter.execute(retryCtx));
             const retryJson = extractResultJsonFromStdout(retryResult.stdout);
             if (retryJson) {
               const retryValidation = validateAgentOutput(agent.type, retryJson);
@@ -330,6 +370,14 @@ export class HeartbeatService {
       }
     }
 
+    // #30 Dynamic Cron — 에이전트가 nextSchedule을 반환하면 타이머 교체
+    const nextSchedule = (resultJson as any)?.nextSchedule as string | undefined;
+    if (nextSchedule && status === 'succeeded') {
+      this.replaceAgentTimer(agentId, nextSchedule).catch((err) => {
+        this.logger.error(`replaceAgentTimer failed for ${agentId}: ${err}`);
+      });
+    }
+
     // #17 Async Transcript — Step 1: Blocking save (critical fields only)
     await this.prisma.heartbeatRun.update({
       where: { id: run.id },
@@ -341,6 +389,7 @@ export class HeartbeatService {
         errorCode,
         error: errorCode ? result.stderr.slice(0, 1000) : null,
         resultJson: resultJson as any,
+        nextSchedule: nextSchedule ?? null,
       },
     });
 
@@ -476,6 +525,52 @@ export class HeartbeatService {
   }
 
   // ── Timer 스케줄러 ──
+
+  /**
+   * 단일 에이전트의 cron 타이머를 교체하고 DB schedule을 업데이트.
+   * syncTimers()와 달리 이 에이전트의 타이머만 교체하므로 다른 에이전트에 영향 없음.
+   */
+  async replaceAgentTimer(agentId: string, newSchedule: string): Promise<void> {
+    // Cron 유효성 검사: 5개 필드 (분 시 일 월 요일) 또는 6개 필드 (초 포함)
+    const cronRegex = /^(\S+\s+){4}\S+(\s+\S+)?$/;
+    if (!cronRegex.test(newSchedule.trim())) {
+      this.logger.warn(`replaceAgentTimer: invalid cron string "${newSchedule}" for agent ${agentId}`);
+      return;
+    }
+
+    // 기존 타이머 제거
+    const jobName = `heartbeat-timer-${agentId}`;
+    try {
+      this.schedulerRegistry.deleteCronJob(jobName);
+    } catch { /* 기존 타이머 없는 경우 무시 */ }
+
+    // DB에서 에이전트 정보 조회
+    const agent = await this.prisma.agentDefinition.findUnique({ where: { id: agentId } });
+    if (!agent) {
+      this.logger.warn(`replaceAgentTimer: agent ${agentId} not found`);
+      return;
+    }
+
+    // 새 타이머 등록
+    try {
+      const job = new CronJob(
+        newSchedule,
+        () => this.onTimerFire(agent.id, agent.companyId),
+        null, true, 'Asia/Seoul',
+      );
+      this.schedulerRegistry.addCronJob(jobName, job);
+      this.logger.log(`Timer replaced: ${agent.name} (${newSchedule})`);
+    } catch (e) {
+      this.logger.error(`replaceAgentTimer: invalid cron "${newSchedule}" for ${agent.name}: ${e}`);
+      return;
+    }
+
+    // DB schedule 업데이트
+    await this.prisma.agentDefinition.update({
+      where: { id: agentId },
+      data: { schedule: newSchedule },
+    });
+  }
 
   async syncTimers(): Promise<void> {
     this.clearTimerJobs();

@@ -1,7 +1,13 @@
 import { z } from 'zod';
 
+// 모든 에이전트 결과에 공통으로 포함될 수 있는 필드
+const AgentBaseOutputFields = {
+  nextSchedule: z.string().optional(),
+};
+
 // 광고 전략 에이전트 결과
 export const AdStrategyOutputSchema = z.object({
+  ...AgentBaseOutputFields,
   task_id: z.string().optional(),
   dry_run: z.boolean().optional(),
   actions: z.array(z.object({
@@ -61,6 +67,7 @@ export const AdStrategyOutputSchema = z.object({
 
 // 건강도 평가 에이전트 결과
 export const RulesEvaluationOutputSchema = z.object({
+  ...AgentBaseOutputFields,
   products: z.array(z.object({
     productId: z.string(),
     healthScore: z.number().min(0).max(100),
@@ -85,6 +92,7 @@ export const RulesEvaluationOutputSchema = z.object({
 
 // 규칙 임계값 추천 에이전트 결과
 export const RulesSuggestOutputSchema = z.object({
+  ...AgentBaseOutputFields,
   distributions: z.record(z.unknown()),
   suggestions: z.array(z.object({
     ruleName: z.string().optional(),
@@ -97,6 +105,7 @@ export const RulesSuggestOutputSchema = z.object({
 
 // 매니저 에이전트 결과
 export const ManagerOutputSchema = z.object({
+  ...AgentBaseOutputFields,
   analysis: z.string(),
   recommended_agents: z.array(z.string()),
   priority: z.string().optional(),

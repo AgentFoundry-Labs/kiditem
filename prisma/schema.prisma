@@ -953,6 +953,7 @@ model HeartbeatRun {
   errorCode        String? @map("error_code")
   processPid       Int?    @map("process_pid")
   wakeupRequestId  String? @map("wakeup_request_id") @db.Uuid
+  nextSchedule     String? @map("next_schedule")
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
