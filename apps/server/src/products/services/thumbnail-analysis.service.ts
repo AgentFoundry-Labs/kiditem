@@ -3,7 +3,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ThumbnailAiService } from './thumbnail-ai.service';
 import type { ThumbnailAnalysisItem, ThumbnailAnalysisSummaryInternal, ThumbnailAnalysisListResponse, AiAnalysisResult, ImageSpec } from './types';
-import type { ThumbnailAnalysisSummary as SharedThumbnailAnalysisSummary } from '@kiditem/shared';
+import type { ThumbnailAnalysisSummary as SharedThumbnailAnalysisSummary, InspectionResult } from '@kiditem/shared';
 
 export type { ThumbnailAnalysisItem, ThumbnailAnalysisListResponse } from './types';
 export type ThumbnailAnalysisSummary = ThumbnailAnalysisSummaryInternal;
@@ -25,9 +25,10 @@ export class ThumbnailAnalysisService {
   }
 
   cancelBatch(): { ok: true } {
-    if (!this.batchAbort) throw new NotFoundException('실행 중인 배치 분석이 없습니다');
-    this.batchAbort.abort();
-    this.batchAbort = null;
+    if (this.batchAbort) {
+      this.batchAbort.abort();
+      this.batchAbort = null;
+    }
     return { ok: true };
   }
 
@@ -78,6 +79,160 @@ export class ThumbnailAnalysisService {
     }
 
     return { processed, failed };
+  }
+
+  async runFullInspection(productId: string): Promise<{
+    productId: string;
+    overall: 'pass' | 'warn' | 'fail';
+    items: Array<{
+      key: string;
+      label: string;
+      status: 'pass' | 'warn' | 'fail' | 'pending';
+      severity: 'fail' | 'warn';
+      message: string;
+      detail?: string;
+    }>;
+    checkedAt: string;
+  }> {
+    // 1. Product 조회 (with inventory, thumbnailAnalysis 최신 1건)
+    const product = await this.prisma.product.findUnique({
+      where: { id: productId },
+      include: {
+        inventory: true,
+        thumbnailAnalysis: true,
+      },
+    });
+
+    if (!product) throw new NotFoundException('상품을 찾을 수 없습니다');
+
+    const items: Array<{
+      key: string;
+      label: string;
+      status: 'pass' | 'warn' | 'fail' | 'pending';
+      severity: 'fail' | 'warn';
+      message: string;
+      detail?: string;
+    }> = [];
+
+    // 2. 이미지 기술 스펙 (severity: fail)
+    const imageUrl = product.imageUrl ?? product.thumbnailUrl ?? null;
+    if (!imageUrl) {
+      items.push({ key: 'image_spec', label: '이미지 기술 스펙', status: 'fail', severity: 'fail', message: '이미지가 없습니다' });
+    } else {
+      try {
+        const resolvedUrl = this.thumbnailAiService.toCoupangOriginal(imageUrl);
+        const spec = await this.thumbnailAiService.checkImageSpec(resolvedUrl);
+        const hasFail = spec.issues.some((i) => i.severity === 'fail');
+        const failMessages = spec.issues.filter((i) => i.severity === 'fail').map((i) => i.message).join(', ');
+        items.push({
+          key: 'image_spec',
+          label: '이미지 기술 스펙',
+          status: hasFail ? 'fail' : 'pass',
+          severity: 'fail',
+          message: hasFail ? `스펙 미달: ${failMessages}` : `${spec.width}×${spec.height}px, ${spec.format}`,
+          detail: hasFail ? failMessages : undefined,
+        });
+      } catch {
+        items.push({ key: 'image_spec', label: '이미지 기술 스펙', status: 'warn', severity: 'fail', message: '이미지 스펙 확인 실패', detail: '이미지에 접근할 수 없습니다' });
+      }
+    }
+
+    // 3. 썸네일 품질 등급 (severity: fail)
+    const analysis = product.thumbnailAnalysis;
+    if (!analysis || !analysis.qualityAnalyzedAt) {
+      items.push({ key: 'thumbnail_quality', label: '썸네일 품질', status: 'pending', severity: 'fail', message: 'AI 분석이 필요합니다', detail: '썸네일 탭에서 AI 분류를 먼저 실행하세요' });
+    } else {
+      const grade = analysis.grade;
+      const isFail = grade === 'F';
+      items.push({
+        key: 'thumbnail_quality',
+        label: '썸네일 품질',
+        status: isFail ? 'fail' : 'pass',
+        severity: 'fail',
+        message: isFail ? `F등급 — AI 편집 필요` : `${grade}등급`,
+        detail: isFail ? '썸네일 편집 페이지에서 AI 편집 후 재검수 하세요' : undefined,
+      });
+    }
+
+    // 4. 쿠팡 가이드라인 준수 (severity: fail)
+    if (!analysis || !analysis.complianceAnalyzedAt) {
+      items.push({ key: 'compliance', label: '쿠팡 가이드라인', status: 'pending', severity: 'fail', message: 'AI 준수 검사가 필요합니다', detail: '썸네일 탭에서 AI 분류를 먼저 실행하세요' });
+    } else {
+      const compGrade = analysis.complianceGrade;
+      const isFail = compGrade === 'FAIL';
+      items.push({
+        key: 'compliance',
+        label: '쿠팡 가이드라인',
+        status: isFail ? 'fail' : 'pass',
+        severity: 'fail',
+        message: isFail ? 'FAIL — 가이드라인 위반' : `${compGrade ?? 'PASS'}`,
+        detail: isFail ? '배경, 텍스트, 로고 등 위반 사항을 수정하세요' : undefined,
+      });
+    }
+
+    // 5. 상품 데이터 완성도 (severity: fail)
+    const missingFields: string[] = [];
+    if (!product.name || product.name.trim() === '') missingFields.push('상품명');
+    if (!product.description || product.description.trim() === '') missingFields.push('상세 설명');
+    if (!product.category) missingFields.push('카테고리');
+    if (!product.imageUrl && !product.thumbnailUrl) missingFields.push('대표 이미지');
+    const sellPrice = Number(product.sellPrice ?? 0);
+    if (sellPrice <= 0) missingFields.push('판매가');
+
+    items.push({
+      key: 'data_completeness',
+      label: '상품 데이터 완성도',
+      status: missingFields.length > 0 ? 'fail' : 'pass',
+      severity: 'fail',
+      message: missingFields.length > 0 ? `누락 항목: ${missingFields.join(', ')}` : '모든 항목 완성',
+      detail: missingFields.length > 0 ? missingFields.join(', ') + ' 입력이 필요합니다' : undefined,
+    });
+
+    // 6. 가격 유효성 (severity: warn)
+    const costPrice = Number(product.costPrice ?? 0);
+    const margin = sellPrice > 0 ? Math.round(((sellPrice - costPrice) / sellPrice) * 100) : 0;
+    const isPriceFail = sellPrice <= 0 || (costPrice > 0 && margin <= 0);
+    items.push({
+      key: 'price_validity',
+      label: '가격 유효성',
+      status: isPriceFail ? 'warn' : 'pass',
+      severity: 'warn',
+      message: isPriceFail
+        ? sellPrice <= 0 ? '판매가 미설정' : `마진율 ${margin}% (적자)`
+        : `마진율 ${margin}%`,
+      detail: isPriceFail ? '판매가와 원가를 확인하세요' : undefined,
+    });
+
+    // 7. 재고 존재 (severity: warn)
+    const qty = Number(product.inventory?.currentStock ?? 0);
+    items.push({
+      key: 'inventory',
+      label: '재고',
+      status: qty <= 0 ? 'warn' : 'pass',
+      severity: 'warn',
+      message: qty <= 0 ? '재고 없음' : `${qty}개`,
+      detail: qty <= 0 ? '재고를 등록하세요' : undefined,
+    });
+
+    // 8. overall 계산
+    const hasFatalFail = items.some((i) => i.severity === 'fail' && i.status === 'fail');
+    const hasWarn = items.some((i) => i.status === 'warn');
+    const hasPending = items.some((i) => i.status === 'pending');
+    const overall: 'pass' | 'warn' | 'fail' = hasFatalFail || hasPending ? 'fail' : hasWarn ? 'warn' : 'pass';
+
+    // 9. pipelineStep 업데이트
+    const newStep = overall === 'fail' ? 'inspection_fail' : overall === 'warn' ? 'inspection_warn' : 'inspection_pass';
+    await this.prisma.product.update({
+      where: { id: productId },
+      data: { pipelineStep: newStep },
+    });
+
+    return {
+      productId,
+      overall,
+      items,
+      checkedAt: new Date().toISOString(),
+    } satisfies InspectionResult;
   }
 
   async findAllWithAnalysis(query: {
@@ -138,6 +293,7 @@ export class ThumbnailAnalysisService {
             complianceGrade: complianceGrade ?? undefined,
             complianceScores: (analysis as { complianceScores?: Record<string, unknown> | null }).complianceScores ?? null,
             imageSpec: ((analysis as { imageSpec?: unknown }).imageSpec as ImageSpec | null) ?? null,
+            createdAt: product.createdAt.toISOString(),
           };
 
           if (fullyAnalyzed) {
@@ -163,6 +319,7 @@ export class ThumbnailAnalysisService {
             qualityAnalyzed: false,
             complianceAnalyzed: false,
             imageSpec: null,
+            createdAt: product.createdAt.toISOString(),
           };
           unclassifiedItems.push(item);
         }
@@ -434,11 +591,12 @@ export class ThumbnailAnalysisService {
       const chunk = itemsForBatch.slice(i, i + BATCH_SIZE);
       try {
         const [qualityMap, complianceMap] = await Promise.all([
-          scope !== 'compliance' ? this.thumbnailAiService.analyzeQuality(chunk) : Promise.resolve(new Map()),
-          scope !== 'quality' ? this.thumbnailAiService.checkCompliance(chunk) : Promise.resolve(new Map()),
+          scope !== 'compliance' ? this.thumbnailAiService.analyzeQuality(chunk, signal) : Promise.resolve(new Map()),
+          scope !== 'quality' ? this.thumbnailAiService.checkCompliance(chunk, signal) : Promise.resolve(new Map()),
         ]);
 
         for (const item of chunk) {
+          if (signal.aborted) break;
           const product = productMap.get(item.productId)!;
           const qualityResult = qualityMap.get(item.productId) ?? null;
           const complianceResult = complianceMap.get(item.productId) ?? null;
@@ -475,8 +633,10 @@ export class ThumbnailAnalysisService {
           }
         }
       } catch (err) {
+        if (signal.aborted) break;
         this.logger.warn(`배치 분석 실패, 개별 fallback: ${err instanceof Error ? err.message : err}`);
         for (const item of chunk) {
+          if (signal.aborted) break;
           try {
             const saved = await this.analyzeProduct(item.productId, scope);
             results.push(saved);

@@ -2,38 +2,63 @@
 
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Wand2, Loader2, Sparkles } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
+import { Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { apiClient } from '@/lib/api-client';
+import { queryKeys } from '@/lib/query-keys';
+import {
+  useSelectCandidate,
+  useApplyGeneration,
+  useSkipGeneration,
+} from '@/hooks/useThumbnailGenerations';
+import { openCoupangWingInventory } from '@/lib/coupang-wing';
+
 import { useGenerateThumbnail } from './hooks/useThumbnailEditor';
-import { ImageUploader } from './components/ImageUploader';
-import { EditorResult } from './components/EditorResult';
+import { EditorInputPanel } from './components/EditorInputPanel';
+import { EditorResultPanel } from './components/EditorResultPanel';
 
 export default function ThumbnailEditorPage() {
   const searchParams = useSearchParams();
   const productId = searchParams.get('productId');
+  const imageUrlParam = searchParams.get('imageUrl');
+  const queryClient = useQueryClient();
 
+  // 입력 상태
   const [productName, setProductName] = useState('');
   const [originalImageUrl, setOriginalImageUrl] = useState<string | null>(null);
   const [packagingImage, setPackagingImage] = useState<string | null>(null);
-  const [productImage, setProductImage] = useState<string | null>(null);
+  const [productImage, setProductImage] = useState<string | null>(() => imageUrlParam);
   const [composition, setComposition] = useState('');
   const [purpose, setPurpose] = useState<'compliance' | 'quality'>('compliance');
-  const [result, setResult] = useState<Array<{ url: string; filename: string }>>([]);
 
+  // 결과 상태
+  const [result, setResult] = useState<Array<{ url: string; filename: string }>>([]);
+  const [generationId, setGenerationId] = useState<string | null>(null);
+  const [selectedCandidateUrl, setSelectedCandidateUrl] = useState<string | null>(null);
+
+  // 훅
   const generateMutation = useGenerateThumbnail();
+  const selectCandidateMutation = useSelectCandidate();
+  const applyGenerationMutation = useApplyGeneration();
+  const skipGenerationMutation = useSkipGeneration();
 
   // productId가 있으면 상품 정보 로드
   useEffect(() => {
     if (!productId) return;
-    apiClient.get<{ id: string; name: string; imageUrl: string | null }>(`/api/products/${productId}`).then((product) => {
-      if (product) {
-        setProductName(product.name);
-        setOriginalImageUrl(product.imageUrl);
-      }
-    }).catch(() => {});
-  }, [productId]);
+    apiClient
+      .get<{ id: string; name: string; imageUrl: string | null }>(`/api/products/${productId}`)
+      .then((product) => {
+        if (product) {
+          setProductName(product.name);
+          setOriginalImageUrl(product.imageUrl);
+          // imageUrl 파라미터가 없을 때만 상품 이미지로 대체
+          if (!imageUrlParam) setProductImage(product.imageUrl);
+        }
+      })
+      .catch(() => {});
+  }, [productId, imageUrlParam]);
 
   const handleGenerate = async () => {
     try {
@@ -46,6 +71,10 @@ export default function ThumbnailEditorPage() {
       });
       if (data?.candidates) {
         setResult(data.candidates);
+        setGenerationId(data.generationId ?? null);
+        setSelectedCandidateUrl(null);
+        // 이력 탭 즉시 반영
+        queryClient.invalidateQueries({ queryKey: queryKeys.thumbnailAnalysis.generations() });
         toast.success(`썸네일 ${data.candidates.length}장 생성 완료`);
       }
     } catch (err) {
@@ -53,117 +82,95 @@ export default function ThumbnailEditorPage() {
     }
   };
 
+  const handleSelectCandidate = (url: string) => {
+    setSelectedCandidateUrl(url || null);
+    if (generationId && url) {
+      selectCandidateMutation.mutate({ id: generationId, selectedUrl: url });
+    }
+  };
+
+  const handleCoupang = async () => {
+    try {
+      const status = await apiClient.get<{ connected: boolean; error?: string }>(
+        '/api/thumbnail-analysis/playwriter-status',
+      );
+      if (!status.connected) {
+        toast.error('Playwriter가 연결되어 있지 않습니다. Playwriter를 실행한 후 다시 시도하세요.');
+        return;
+      }
+    } catch {
+      toast.error('Playwriter 상태를 확인할 수 없습니다. 서버 연결을 확인하세요.');
+      return;
+    }
+    openCoupangWingInventory();
+    if (generationId) {
+      applyGenerationMutation.mutate(generationId);
+    }
+    setResult([]);
+    setGenerationId(null);
+    setSelectedCandidateUrl(null);
+  };
+
+  const handleSkip = async () => {
+    if (generationId) {
+      await skipGenerationMutation.mutateAsync(generationId);
+    }
+    setResult([]);
+    setGenerationId(null);
+    setSelectedCandidateUrl(null);
+  };
+
   const hasInput = !!productId || !!packagingImage || !!productImage;
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6 animate-in">
+    <div className="max-w-6xl mx-auto space-y-6 animate-in">
       {/* 헤더 */}
-      <div className="flex items-center gap-3">
-        <div className="w-9 h-9 rounded-xl bg-purple-600 flex items-center justify-center">
-          <Sparkles size={18} className="text-white" />
-        </div>
-        <div>
-          <h1 className="text-lg font-bold text-slate-900">썸네일 편집기</h1>
-          <p className="text-xs text-slate-400">
-            {productName ? productName : '상품 이미지를 업로드하여 쿠팡 가이드라인에 맞는 썸네일을 생성합니다'}
-          </p>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-purple-600 flex items-center justify-center">
+            <Sparkles size={18} className="text-white" />
+          </div>
+          <div>
+            <h1 className="text-lg font-bold text-slate-900">썸네일 편집기</h1>
+            <p className="text-xs text-slate-400">
+              {productName || '이미지를 업로드하여 쿠팡 가이드라인에 맞는 썸네일을 생성합니다'}
+            </p>
+          </div>
         </div>
       </div>
 
-      {/* 입력 영역 */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-6">
-        {/* 원본 이미지 (productId로 진입 시) */}
-        {originalImageUrl && (
-          <div className="space-y-1.5">
-            <div className="text-sm font-semibold text-slate-700">원본 상품 이미지</div>
-            <div className="w-48 aspect-square rounded-xl overflow-hidden border border-slate-200 bg-slate-50">
-              <img src={originalImageUrl} alt={productName} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-            </div>
-          </div>
-        )}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+        {/* 좌: 입력 패널 */}
+        <EditorInputPanel
+          productId={productId}
+          productName={productName}
+          originalImageUrl={originalImageUrl}
+          packagingImage={packagingImage}
+          productImage={productImage}
+          composition={composition}
+          purpose={purpose}
+          isPending={generateMutation.isPending}
+          hasInput={hasInput}
+          onPackagingChange={setPackagingImage}
+          onProductImageChange={setProductImage}
+          onCompositionChange={setComposition}
+          onPurposeChange={setPurpose}
+          onGenerate={handleGenerate}
+        />
 
-        {/* 이미지 업로드 */}
-        <div className="grid grid-cols-2 gap-6">
-          <ImageUploader
-            label="상품 포장 사진"
-            description="패키지 박스, 포장 상태"
-            value={packagingImage}
-            onChange={setPackagingImage}
-          />
-          <ImageUploader
-            label="상품 사진"
-            description="실제 상품 모습"
-            value={productImage}
-            onChange={setProductImage}
-          />
-        </div>
-
-        {/* 상품 구성 */}
-        <div className="space-y-1.5">
-          <div className="text-sm font-semibold text-slate-700">상품 구성</div>
-          <input
-            type="text"
-            value={composition}
-            onChange={(e) => setComposition(e.target.value)}
-            placeholder="예: 테트리스 블록 40개 + 나무 프레임 1개"
-            className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-purple-200 focus:border-purple-400"
-          />
-        </div>
-
-        {/* 편집 목적 */}
-        <div className="space-y-1.5">
-          <div className="text-sm font-semibold text-slate-700">편집 목적</div>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setPurpose('compliance')}
-              className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
-                purpose === 'compliance'
-                  ? 'bg-amber-600 text-white'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              가이드라인 수정
-            </button>
-            <button
-              onClick={() => setPurpose('quality')}
-              className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
-                purpose === 'quality'
-                  ? 'bg-purple-600 text-white'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              품질 개선
-            </button>
-          </div>
-        </div>
-
-        {/* 편집 시작 */}
-        <button
-          onClick={handleGenerate}
-          disabled={!hasInput || generateMutation.isPending}
-          className="flex items-center gap-2 px-6 py-3 bg-purple-600 text-white rounded-xl text-sm font-semibold hover:bg-purple-700 disabled:opacity-50 transition-colors"
-        >
-          {generateMutation.isPending ? (
-            <>
-              <Loader2 size={16} className="animate-spin" /> 편집 중...
-            </>
-          ) : (
-            <>
-              <Wand2 size={16} /> 편집 시작
-            </>
-          )}
-        </button>
+        {/* 우: 결과 패널 */}
+        <EditorResultPanel
+          originalImage={originalImageUrl ?? productImage}
+          candidates={result}
+          selectedCandidateUrl={selectedCandidateUrl}
+          generationId={generationId}
+          isApplying={applyGenerationMutation.isPending}
+          isSkipping={skipGenerationMutation.isPending}
+          onSelectCandidate={handleSelectCandidate}
+          onCoupang={handleCoupang}
+          onSkip={handleSkip}
+        />
       </div>
-
-      {/* 결과 */}
-      {result.length > 0 && (
-        <div className="bg-white rounded-2xl border border-slate-200 p-6">
-          <EditorResult
-            originalImage={originalImageUrl}
-            candidates={result}
-          />
-        </div>
-      )}
     </div>
   );
 }

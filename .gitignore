@@ -56,3 +56,4 @@ coverage/
 data/
 .bkit/
 prisma/init.sql
+tools/telegram-bot/

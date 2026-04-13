@@ -100,6 +100,51 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     sendResponse({ success: true, version: chrome.runtime.getManifest().version });
     return;
   }
+
+  // ── 상품 수정 자동화: Wing 탭 열고 content script에 작업 위임 ──
+  if (msg.action === "openAndEditProduct") {
+    const { productName } = msg;
+    const wingUrl = `https://wing.coupang.com/vendor-inventory/list?searchKeywordType=PRODUCT_NAME&searchKeywords=${encodeURIComponent(productName)}&salesMethod=ALL&productStatus=ALL&stockSearchType=ALL&locale=ko_KR&sortMethod=SORT_BY_ITEM_LEVEL_UNIT_SOLD&countPerPage=50&page=1`;
+
+    // pending 작업 저장 (content script가 페이지 로드 시 읽어서 실행)
+    chrome.storage.local.set({ kiditem_pending_edit: { productName, ts: Date.now() } }, () => {
+      chrome.tabs.create({ url: wingUrl, active: true }, (tab) => {
+        if (!tab?.id) {
+          sendResponse({ success: false, error: "탭 생성 실패" });
+          return;
+        }
+
+        const tabId = tab.id;
+        let resolved = false;
+
+        const timeout = setTimeout(() => {
+          if (!resolved) {
+            resolved = true;
+            sendResponse({ success: false, error: "타임아웃 (30초)" });
+          }
+        }, 30000);
+
+        // 탭 로딩 완료 → content script에 메시지 전송
+        const onUpdated = (updatedTabId, changeInfo) => {
+          if (updatedTabId !== tabId || changeInfo.status !== "complete") return;
+          chrome.tabs.onUpdated.removeListener(onUpdated);
+
+          // 페이지 초기화 대기 후 메시지 전송 (pending 방식으로 이미 처리되지만 직접 전송도 시도)
+          setTimeout(() => {
+            chrome.tabs.sendMessage(tabId, { action: "searchAndEdit", productName }, (response) => {
+              if (resolved) return;
+              resolved = true;
+              clearTimeout(timeout);
+              sendResponse(response || { success: false, error: "content script 미응답" });
+            });
+          }, 3000);
+        };
+
+        chrome.tabs.onUpdated.addListener(onUpdated);
+      });
+    });
+    return true; // async
+  }
 });
 
 /**

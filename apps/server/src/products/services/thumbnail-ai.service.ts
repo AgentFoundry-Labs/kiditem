@@ -187,19 +187,32 @@ export class ThumbnailAiService implements OnModuleInit {
     };
   }
 
+  private raceWithAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+    if (!signal) return promise;
+    if (signal.aborted) return Promise.reject(new Error('ABORTED'));
+    return Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        signal.addEventListener('abort', () => reject(new Error('ABORTED')), { once: true });
+      }),
+    ]);
+  }
+
   /**
    * 가이드라인 준수 체크 (1개 또는 여러 개 이미지)
    */
   async checkCompliance(
     items: Array<{ imageUrl: string; productName: string; productId: string; category?: string }>,
+    signal?: AbortSignal,
   ): Promise<Map<string, { complianceGrade: ComplianceGrade; complianceScores: ComplianceScores }>> {
     const results = new Map<string, { complianceGrade: ComplianceGrade; complianceScores: ComplianceScores }>();
     if (items.length === 0) return results;
+    if (signal?.aborted) return results;
 
     try {
       const client = this.getClient();
 
-      const imageDataList = await Promise.all(
+      const imageDataList = await this.raceWithAbort(Promise.all(
         items.map(async (item) => {
           try {
             return await this.fetchImageAsBase64(this.toCoupangOriginal(item.imageUrl));
@@ -207,7 +220,9 @@ export class ThumbnailAiService implements OnModuleInit {
             return null;
           }
         }),
-      );
+      ), signal);
+
+      if (signal?.aborted) return results;
 
       const validItems: Array<{ item: typeof items[number]; imageData: { data: string; mimeType: string } }> = [];
       for (let i = 0; i < items.length; i++) {
@@ -224,10 +239,10 @@ export class ThumbnailAiService implements OnModuleInit {
         inlineData: { data: v.imageData.data, mimeType: v.imageData.mimeType },
       }));
 
-      const response = await client.models.generateContent({
+      const response = await this.raceWithAbort(client.models.generateContent({
         model: ThumbnailAiService.GEMINI_MODEL,
         contents: [{ role: 'user', parts: [...imageParts, { text: this.COMPLIANCE_PROMPT.replace('{productList}', productList) }] }],
-      });
+      }), signal);
 
       const text = response.text ?? '';
       const jsonMatch = text.match(/\[[\s\S]*\]/);
@@ -259,14 +274,16 @@ export class ThumbnailAiService implements OnModuleInit {
    */
   async analyzeQuality(
     items: Array<{ imageUrl: string; productName: string; productId: string; category?: string }>,
+    signal?: AbortSignal,
   ): Promise<Map<string, AiAnalysisResult>> {
     const results = new Map<string, AiAnalysisResult>();
     if (items.length === 0) return results;
+    if (signal?.aborted) return results;
 
     try {
       const client = this.getClient();
 
-      const imageDataList = await Promise.all(
+      const imageDataList = await this.raceWithAbort(Promise.all(
         items.map(async (item) => {
           try {
             return await this.fetchImageAsBase64(this.toCoupangOriginal(item.imageUrl));
@@ -274,7 +291,9 @@ export class ThumbnailAiService implements OnModuleInit {
             return null;
           }
         }),
-      );
+      ), signal);
+
+      if (signal?.aborted) return results;
 
       const validItems: Array<{ item: typeof items[number]; imageData: { data: string; mimeType: string } }> = [];
       for (let i = 0; i < items.length; i++) {
@@ -291,10 +310,10 @@ export class ThumbnailAiService implements OnModuleInit {
         inlineData: { data: v.imageData.data, mimeType: v.imageData.mimeType },
       }));
 
-      const response = await client.models.generateContent({
+      const response = await this.raceWithAbort(client.models.generateContent({
         model: ThumbnailAiService.GEMINI_MODEL,
         contents: [{ role: 'user', parts: [...imageParts, { text: this.QUALITY_PROMPT.replace('{productList}', productList) }] }],
-      });
+      }), signal);
 
       const text = response.text ?? '';
       const jsonMatch = text.match(/\[[\s\S]*\]/);
@@ -446,9 +465,10 @@ Rules:
 1. BACKGROUND: Change to clean, pure white. No gradients, textures, patterns, or decorative objects.
 2. REMOVE: All text overlays, watermarks, discount labels, promotional badges, freebie displays, extra logos, drop shadows, borders, and decorative effects.
 3. MAIN PRODUCT FOCUS: Identify the main product (usually the packaged item or the largest single item). Keep only the main product and remove scattered parts, loose accessories, duplicate angles, or lifestyle props. The thumbnail should show one clean hero shot of the product.
-4. DO NOT ADD: Never add new objects, products, or elements that are not in the original image.
-5. COMPOSITION: Center the main product. It should fill approximately 85-90% of the image area with even margins.
-6. LIGHTING: Maintain natural color grading. The result should look like a professional studio photo with soft, even lighting.`;
+4. DO NOT MODIFY THE PRODUCT: The product itself must be preserved exactly as-is. Do NOT alter, erase, or simplify any patterns, prints, textures, graphics, text, or design elements that are part of the product (e.g., prints on fabric, packaging graphics, embossed text, logos printed on the item). Only the background and added overlays should be changed.
+5. DO NOT ADD: Never add new objects, products, or elements that are not in the original image.
+6. COMPOSITION: Center the main product. It should fill approximately 85-90% of the image area with even margins.
+7. LIGHTING: Maintain natural color grading. The result should look like a professional studio photo with soft, even lighting.`;
 
   private readonly QUALITY_EDIT_PROMPT = `Enhance this product thumbnail photo to maximize click-through rate for e-commerce. Do not change the product itself — only improve the photographic quality.
 
@@ -466,9 +486,10 @@ Create a single clean e-commerce thumbnail:
 1. Pure white background, no gradients or patterns
 2. Show the main product centered, filling 85-90% of the frame with even margins
 3. If the product is a set/bundle, arrange items neatly as shown in the reference examples
-4. Remove all text overlays, watermarks, and decorative effects
-5. Do NOT add any elements not visible in the provided photos
-6. The result should look like a professional studio product photo with soft, even lighting`;
+4. Remove all text overlays, watermarks, and decorative effects added on top of the image — but do NOT alter the product itself
+5. Do NOT modify, erase, or simplify any patterns, prints, textures, graphics, or design elements that are part of the product (e.g., fabric prints, packaging graphics, logos on the item)
+6. Do NOT add any elements not visible in the provided photos
+7. The result should look like a professional studio product photo with soft, even lighting`;
 
   async generateFromInputs(
     images: Array<{ data: string; mimeType: string; label: string }>,

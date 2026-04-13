@@ -12,6 +12,7 @@ interface GenerateRequest {
 
 interface GenerateResponse {
   candidates: Array<{ url: string; filename: string }>;
+  generationId: string | null;
 }
 
 export function useGenerateThumbnail() {
