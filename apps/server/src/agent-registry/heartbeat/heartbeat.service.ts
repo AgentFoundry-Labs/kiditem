@@ -7,7 +7,8 @@ import { join } from 'path';
 import { PrismaService } from '../../prisma/prisma.service';
 import { WakeupService, WakeupSource } from '../wakeup/wakeup.service';
 import { SkillsService } from '../skills/skills.service';
-import { getAdapter } from '../adapters/registry';
+import { getFallbackChain } from '../adapters/registry';
+import { executeFallbackChain } from '../adapters/fallback-chain';
 import type { ExecutionContext } from '../adapters/types';
 import { collectResult } from '../adapters/types';
 import {
@@ -239,7 +240,6 @@ export class HeartbeatService {
     const prompt = await this.buildPrompt(agent, run.id, wakeup.payload as Record<string, unknown>);
 
     // Adapter 실행
-    const adapter = getAdapter(agent.adapterType);
     const adapterConfig = (agent.adapterConfig as Record<string, unknown>) || {};
 
     const ctx: ExecutionContext = Object.freeze({
@@ -271,9 +271,10 @@ export class HeartbeatService {
 
     this.logger.log(`Heartbeat starting: ${agent.name} (run=${run.id})`);
 
+    const chain = getFallbackChain(agent.type, (agent as any).fallbackChain);
     let result;
     try {
-      result = await collectResult(adapter.execute(ctx));
+      result = await collectResult(executeFallbackChain(chain, ctx, this.eventEmitter));
 
       // Session conflict retry — "session already in use" → retry without session (immutable ctx)
       if (result.exitCode !== 0 && result.stderr.includes('already in use') && ctx.sessionId) {
@@ -283,7 +284,7 @@ export class HeartbeatService {
           sessionId: undefined,
           config: Object.freeze({ ...ctx.config, _skipSessionResume: true }),
         });
-        result = await collectResult(adapter.execute(retryCtx));
+        result = await collectResult(executeFallbackChain(chain, retryCtx, this.eventEmitter));
       }
 
       // Token escalation — output truncated → retry with doubled maxOutputTokens (max 1 retry)
@@ -295,7 +296,7 @@ export class HeartbeatService {
           ...ctx,
           maxOutputTokens: escalatedTokens,
         });
-        result = await collectResult(adapter.execute(escalatedCtx));
+        result = await collectResult(executeFallbackChain(chain, escalatedCtx, this.eventEmitter));
       }
     } catch (err: any) {
       result = {
@@ -344,7 +345,7 @@ export class HeartbeatService {
               prompt: retryPrompt,
               sessionId: result.sessionIdAfter ?? ctx.sessionId,
             });
-            const retryResult = await collectResult(adapter.execute(retryCtx));
+            const retryResult = await collectResult(executeFallbackChain(chain, retryCtx, this.eventEmitter));
             const retryJson = extractResultJsonFromStdout(retryResult.stdout);
             if (retryJson) {
               const retryValidation = validateAgentOutput(agent.type, retryJson);

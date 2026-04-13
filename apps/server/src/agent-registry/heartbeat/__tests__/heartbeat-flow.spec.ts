@@ -2,9 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { HeartbeatService } from '../heartbeat.service';
 import { AGENT_EVENTS } from '../../events/agent-events';
 
-// Mock getAdapter + validateAgentOutput + extractResultJsonFromStdout
+// Mock getAdapter + getFallbackChain + validateAgentOutput + extractResultJsonFromStdout
 vi.mock('../../adapters/registry', () => ({
   getAdapter: vi.fn(),
+  getFallbackChain: vi.fn().mockReturnValue(['claude_local']),
 }));
 
 vi.mock('../../schemas/validate-output', () => ({

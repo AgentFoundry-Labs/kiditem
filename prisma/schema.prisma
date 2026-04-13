@@ -873,8 +873,9 @@ model AgentDefinition {
 
   // Prompt & Tools (기존)
   promptTemplate String @map("prompt_template") @db.Text
-  allowedTools   String @default("Bash(psql:*) Read Grep") @map("allowed_tools")
-  permissionMode String @default("bypassPermissions") @map("permission_mode")
+  allowedTools   String   @default("Bash(psql:*) Read Grep") @map("allowed_tools")
+  permissionMode String   @default("bypassPermissions") @map("permission_mode")
+  fallbackChain  String[] @default(["claude_local"]) @map("fallback_chain")
 
   // Budget (기존)
   monthlyTokenBudget Int       @default(0) @map("monthly_token_budget")
