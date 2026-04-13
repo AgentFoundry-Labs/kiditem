@@ -383,6 +383,7 @@ export class ProductsService {
       healthScore: p.healthScore ?? null,
       masterProductId: p.masterProductId ?? null,
       isCostMissing: resolved.isCostMissing,
+      pipelineStep: p.pipelineStep ?? null,
     } satisfies ProductListItem;
   }
 

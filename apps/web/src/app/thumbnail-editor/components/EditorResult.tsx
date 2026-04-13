@@ -1,47 +1,17 @@
 'use client';
 import { useState } from 'react';
-import { Download, ArrowRight, ImageIcon, Save, Check, Loader2 } from 'lucide-react';
-import { toast } from 'sonner';
-import { resolveImageUrl } from '@/app/thumbnails/lib/resolve-url';
-import { apiClient } from '@/lib/api-client';
-import { isApiError } from '@/lib/api-error';
-import { cn } from '@/lib/utils';
+import { Download, ArrowRight, ImageIcon } from 'lucide-react';
+import { resolveImageUrl } from '@/lib/resolve-url';
 
 interface EditorResultProps {
   originalImage: string | null;
   candidates: Array<{ url: string; filename: string }>;
-  productId?: string | null;
 }
 
-export function EditorResult({ originalImage, candidates, productId }: EditorResultProps) {
+export function EditorResult({ originalImage, candidates }: EditorResultProps) {
   const [zoomImage, setZoomImage] = useState<string | null>(null);
-  const [savedUrls, setSavedUrls] = useState<Set<string>>(new Set());
-  const [saving, setSaving] = useState<string | null>(null);
 
   if (candidates.length === 0) return null;
-
-  const handleSaveToHub = async (url: string) => {
-    if (!productId) return;
-    if (savedUrls.has(url)) return;
-    if (saving !== null) return;
-
-    setSaving(url);
-    try {
-      // 서버가 파일 복사 + Product.images append를 원자적으로 처리
-      await apiClient.post(`/api/products/${productId}/images/save-from-url`, {
-        url,
-        role: 'product',
-        label: 'AI 편집 결과',
-      });
-      setSavedUrls((prev) => new Set(prev).add(url));
-      toast.success('허브에 저장되었습니다');
-    } catch (err: unknown) {
-      if (isApiError(err)) toast.error(err.detail);
-      else toast.error('이미지 저장 실패');
-    } finally {
-      setSaving(null);
-    }
-  };
 
   return (
     <>
@@ -78,9 +48,6 @@ export function EditorResult({ originalImage, candidates, productId }: EditorRes
             <div className="grid grid-cols-2 gap-2">
               {candidates.map((c, i) => {
                 const url = resolveImageUrl(c.url) ?? '';
-                const isSaved = savedUrls.has(c.url);
-                const isSavingThis = saving === c.url;
-                const saveDisabled = saving !== null || isSaved;
                 return (
                   <div key={i} className="space-y-1">
                     <div
@@ -93,32 +60,15 @@ export function EditorResult({ originalImage, candidates, productId }: EditorRes
                         <div className="w-full h-full flex items-center justify-center"><ImageIcon size={32} className="text-slate-300" /></div>
                       )}
                     </div>
-                    <div className="flex gap-1">
-                      <a
-                        href={url}
-                        download={c.filename}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="flex-1 flex items-center justify-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium text-slate-500 hover:bg-slate-100 transition-colors"
-                      >
-                        <Download size={12} /> 다운로드
-                      </a>
-                      {productId && (
-                        <button
-                          onClick={() => handleSaveToHub(c.url)}
-                          disabled={saveDisabled}
-                          className={cn('flex-1 flex items-center justify-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium transition-colors', isSaved ? 'bg-emerald-50 text-emerald-600' : 'text-purple-600 hover:bg-purple-50 disabled:opacity-40 disabled:hover:bg-transparent')}
-                        >
-                          {isSavingThis ? (
-                            <><Loader2 size={12} className="animate-spin" /> 저장 중</>
-                          ) : isSaved ? (
-                            <><Check size={12} /> 저장됨</>
-                          ) : (
-                            <><Save size={12} /> 허브에 저장</>
-                          )}
-                        </button>
-                      )}
-                    </div>
+                    <a
+                      href={url}
+                      download={c.filename}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex items-center justify-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium text-slate-500 hover:bg-slate-100 transition-colors"
+                    >
+                      <Download size={12} /> 다운로드
+                    </a>
                   </div>
                 );
               })}

@@ -63,11 +63,13 @@ export {
   AdsListItemSchema, AdsHubDataSchema, AdCampaignSnapshotSchema, AdProductSnapshotSchema,
   AdBenchmarkDataSchema, AdTrendsDataSchema, AdStrategyPlanSchema, AdRulesDataSchema,
   AdStrategyActionSchema, AdIssuesSchema, AdTierAnalysisSchema, AdTop20ItemSchema, AdWeeklyPlanSchema,
+  ExposureFactorScoreSchema, ExposureProductScoreSchema, ExposureUrgentActionSchema, ExposureAnalysisDataSchema,
 } from './schemas/ads.js';
 export type {
   AdsListItem, AdsHubData, AdsSummary, AdCampaignSnapshot, AdProductSnapshot,
   AdBenchmarkData, AdTrendsData, AdStrategyPlan, AdRulesData,
   AdStrategyAction, AdIssues, AdTierAnalysis, AdTop20Item, AdWeeklyPlan,
+  ExposureFactorScore, ExposureProductScore, ExposureUrgentAction, ExposureAnalysisData,
 } from './schemas/ads.js';
 
 // Alerts
@@ -81,6 +83,10 @@ export type { RuleItem } from './schemas/rules.js';
 // Action Task
 export { ActionTaskSchema, ActionTaskRelatedProductSchema } from './schemas/action-task.js';
 export type { ActionTask, ActionTaskRelatedProduct } from './schemas/action-task.js';
+
+// Inspection
+export { InspectionItemSchema, InspectionResultSchema } from './schemas/inspection.js';
+export type { InspectionItem, InspectionResult } from './schemas/inspection.js';
 
 
 // Feature Gate

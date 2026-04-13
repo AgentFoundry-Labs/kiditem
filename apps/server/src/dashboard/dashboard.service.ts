@@ -3,7 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { kstDayStart } from '../common/kst';
 import { resolvePricing } from '../common/master-product-resolver';
 import type { DashboardSummary, DashboardTrendItem } from '@kiditem/shared';
-import type { DateRangeContext, AdMetricsSnapshot } from './types';
+import type { DateRangeContext, AdMetricsSnapshot, WingMonthlyData, EffectiveMetrics } from './types';
 
 @Injectable()
 export class DashboardService {
@@ -243,59 +243,86 @@ export class DashboardService {
         this.calculateProfitForRange(prevMonthDate, monthStart),
       ]);
 
-      // profitDetail 구성 (Order 기반 calculateProfitForRange)
+      // Wing 월 집계 데이터 — 익스텐션이 Wing 매출분석 페이지에서 보내는
+      // summary/adSummary를 당월 대시보드의 단일 출처로 사용.
+      const wingMonthly = await this.fetchWingMonthly(monthStart);
+
+      // Wing 월 데이터가 있으면 매출/광고비는 Wing 값을 단일 출처로 사용.
+      // 원가/배송비/커미션은 product 기준 계산값 유지 (Wing은 이 정보 없음).
+      const effective = this.computeEffectiveMetrics(wingMonthly, curMonthProfit);
+      const effectiveMonthlyRevenue = effective.revenue;
+      const effectiveMonthlyAdCost = effective.adCost;
+      const effectiveMonthlyAdRevenue = effective.adRevenue;
+      const effectiveMonthlyOrderCount = effective.orderCount;
+      const effectiveMonthlyNetProfit = effective.netProfit;
+      const effectiveMonthlyAdRate = effective.adRate;
+
+      // profitDetail 구성 (Wing 매출/광고비 override, 원가류는 calculateProfitForRange 유지)
       const profitDetail = {
-        revenue: curMonthProfit.revenue,
+        revenue: effectiveMonthlyRevenue,
         costOfGoods: curMonthProfit.costOfGoods,
         commission: curMonthProfit.commission,
         shippingCost: curMonthProfit.shippingCost,
-        adCost: curMonthProfit.adCost,
+        adCost: effectiveMonthlyAdCost,
         otherCost: curMonthProfit.otherCost,
-        netProfit: curMonthProfit.netProfit,
-        orderCount: curMonthProfit.orderCount,
+        netProfit: effectiveMonthlyNetProfit,
+        orderCount: effectiveMonthlyOrderCount,
       };
 
-      // adMetrics를 Order 기반 curMonthProfit/prevMonthProfit으로 보정
-      adMetrics.adRevenue = curMonthProfit.adRevenue;
-      adMetrics.totalAdSpend = curMonthProfit.adCost;
+      // adMetrics 보정 (Wing → curMonthProfit fallback)
+      adMetrics.adRevenue = effectiveMonthlyAdRevenue;
+      adMetrics.totalAdSpend = effectiveMonthlyAdCost;
       adMetrics.prevMonthlyRevenue = prevMonthProfit.revenue;
       adMetrics.prevMonthlyProfit = prevMonthProfit.netProfit;
       adMetrics.prevAdRate = prevMonthProfit.revenue > 0
         ? Math.round((prevMonthProfit.adCost / prevMonthProfit.revenue) * 1000) / 10 : 0;
 
       // rangeKpi 구성 (calculateProfitForRange + aggregateAdForRange 기반)
-      const rangeRevenue = rangeProfitCur.revenue;
-      const prevRangeRevenue = rangeProfitPrev.revenue;
+      // 'month' 범위이고 Wing 데이터가 있으면 Wing 값을 단일 출처로 override
       const rangeLabel = from && to ? 'custom' : effectiveRange;
+      const useWingForRange = rangeLabel === 'month' && wingMonthly;
+      const rangeRevenue = useWingForRange
+        ? effectiveMonthlyRevenue
+        : rangeProfitCur.revenue;
+      const prevRangeRevenue = rangeProfitPrev.revenue;
 
-      const curAdSpend = Number(rangeAdCur.spend);
+      const curAdSpend = useWingForRange
+        ? effectiveMonthlyAdCost
+        : Number(rangeAdCur.spend);
       const prevAdSpend = Number(rangeAdPrev.spend);
-      const curAdConvRevenue = Number(rangeAdCur.revenue);
+      const curAdConvRevenue = useWingForRange
+        ? effectiveMonthlyAdRevenue
+        : Number(rangeAdCur.revenue);
       const prevAdConvRevenue = Number(rangeAdPrev.revenue);
       const curAdRoas = curAdSpend > 0 ? Math.round((curAdConvRevenue / curAdSpend) * 100 * 100) / 100 : 0;
       const prevAdRoas = prevAdSpend > 0 ? Math.round((prevAdConvRevenue / prevAdSpend) * 100 * 100) / 100 : 0;
       const curAdCtr = Number(rangeAdCur.impressions) > 0 ? Math.round((Number(rangeAdCur.clicks) / Number(rangeAdCur.impressions)) * 100 * 100) / 100 : 0;
       const prevAdCtrVal = Number(rangeAdPrev.impressions) > 0 ? Math.round((Number(rangeAdPrev.clicks) / Number(rangeAdPrev.impressions)) * 100 * 100) / 100 : 0;
 
+      const rangeNetProfit = useWingForRange ? effectiveMonthlyNetProfit : rangeProfitCur.netProfit;
+      const rangeAdCostVal = useWingForRange ? effectiveMonthlyAdCost : rangeProfitCur.adCost;
+      const rangeProfitRate = useWingForRange
+        ? (rangeRevenue > 0 ? Math.round((rangeNetProfit / rangeRevenue) * 1000) / 10 : 0)
+        : rangeProfitCur.profitRate;
       const rangeKpi = {
         range: rangeLabel,
         revenue: rangeRevenue,
-        profit: rangeProfitCur.netProfit,
+        profit: rangeNetProfit,
         adSpend: curAdSpend,
         prevRevenue: prevRangeRevenue,
         prevProfit: rangeProfitPrev.netProfit,
         revenueChange: prevRangeRevenue > 0 ? Math.round(((rangeRevenue - prevRangeRevenue) / prevRangeRevenue) * 1000) / 10 : 0,
-        profitChange: prevRangeRevenue > 0 ? Math.round(((rangeProfitCur.netProfit - rangeProfitPrev.netProfit) / Math.abs(rangeProfitPrev.netProfit || 1)) * 1000) / 10 : 0,
+        profitChange: prevRangeRevenue > 0 ? Math.round(((rangeNetProfit - rangeProfitPrev.netProfit) / Math.abs(rangeProfitPrev.netProfit || 1)) * 1000) / 10 : 0,
         adRoas: curAdRoas,
         adConvRevenue: curAdConvRevenue,
-        profitRate: rangeProfitCur.profitRate,
-        adRate: rangeRevenue > 0 ? Math.round((rangeProfitCur.adCost / rangeRevenue) * 1000) / 10 : 0,
-        adCost: rangeProfitCur.adCost,
+        profitRate: rangeProfitRate,
+        adRate: rangeRevenue > 0 ? Math.round((rangeAdCostVal / rangeRevenue) * 1000) / 10 : 0,
+        adCost: rangeAdCostVal,
         prevProfitRate: rangeProfitPrev.profitRate,
         prevAdRate: prevRangeRevenue > 0 ? Math.round((rangeProfitPrev.adCost / prevRangeRevenue) * 1000) / 10 : 0,
         prevAdCost: rangeProfitPrev.adCost,
-        profitRateChange: Math.round((rangeProfitCur.profitRate - rangeProfitPrev.profitRate) * 10) / 10,
-        adRateChange: Math.round(((rangeRevenue > 0 ? (rangeProfitCur.adCost / rangeRevenue) * 100 : 0) - (prevRangeRevenue > 0 ? (rangeProfitPrev.adCost / prevRangeRevenue) * 100 : 0)) * 10) / 10,
+        profitRateChange: Math.round((rangeProfitRate - rangeProfitPrev.profitRate) * 10) / 10,
+        adRateChange: Math.round(((rangeRevenue > 0 ? (rangeAdCostVal / rangeRevenue) * 100 : 0) - (prevRangeRevenue > 0 ? (rangeProfitPrev.adCost / prevRangeRevenue) * 100 : 0)) * 10) / 10,
         adCtr: curAdCtr,
         prevAdSpend: prevAdSpend,
         prevAdConvRevenue: prevAdConvRevenue,
@@ -307,73 +334,38 @@ export class DashboardService {
         adCtrChange: Math.round((curAdCtr - prevAdCtrVal) * 100) / 100,
       };
 
-      // trafficKpi 구성 — Wing adSummary priority, TrafficStats fallback
-      const trafficKpi = await (async () => {
-        try {
-          // 1) AdSnapshot에서 Wing dashboard_kpi 최신 조회 → adSummary
-          const wingKpiSnapshot = await this.prisma.adSnapshot.findFirst({
-            where: { source: 'wing', pageType: 'dashboard_kpi', capturedAt: { gte: monthStart } },
-            orderBy: { capturedAt: 'desc' },
-            select: { rawJson: true },
-          });
-          const adSummary = wingKpiSnapshot?.rawJson
-            ? (wingKpiSnapshot.rawJson as Record<string, unknown>).adSummary as Record<string, unknown> | null ?? null
-            : null;
-
-          // 2) TrafficStats 최신 date 상품별 합산
-          const latest = await this.prisma.trafficStats.findFirst({
-            where: { date: { gte: monthStart, lt: monthEnd } },
-            orderBy: { date: 'desc' },
-            select: { date: true, periodDays: true },
-          });
-
-          if (!latest) {
-            return {
-              visitors: trafficAgg._sum.visitors ?? 0,
-              views: trafficAgg._sum.views ?? 0,
-              orders: trafficAgg._sum.orders ?? 0,
-              salesQty: trafficAgg._sum.salesQty ?? 0,
-              revenue: trafficAgg._sum.revenue ?? 0,
-              cartAdds: trafficAgg._sum.cartAdds ?? 0,
-              adSummary,
-              source: 'aggregate' as const,
-            };
+      // trafficKpi — Wing summary(월 집계)가 있으면 단일 출처, 없으면 TrafficStats 집계 fallback
+      const trafficKpi = wingMonthly
+        ? {
+            date: wingMonthly.endDate ?? undefined,
+            periodDays:
+              wingMonthly.startDate && wingMonthly.endDate
+                ? Math.round(
+                    (new Date(wingMonthly.endDate).getTime() -
+                      new Date(wingMonthly.startDate).getTime()) /
+                      86400000,
+                  ) + 1
+                : undefined,
+            visitors: wingMonthly.visitors,
+            views: wingMonthly.views,
+            cartAdds: wingMonthly.cartAdds,
+            orders: wingMonthly.orders,
+            salesQty: wingMonthly.salesQty,
+            revenue: wingMonthly.revenue,
+            conversionRate: wingMonthly.conversionRate,
+            adSummary: wingMonthly.rawAdSummary,
+            source: 'wing' as const,
           }
-
-          const agg = await this.prisma.trafficStats.aggregate({
-            where: { date: latest.date, periodDays: latest.periodDays },
-            _sum: { visitors: true, views: true, cartAdds: true, orders: true, salesQty: true, revenue: true },
-            _count: true,
-          });
-          const totalVisitors = agg._sum.visitors ?? 0;
-          const totalOrders = agg._sum.orders ?? 0;
-
-          return {
-            date: latest.date.toISOString().slice(0, 10),
-            periodDays: latest.periodDays,
-            productCount: agg._count,
-            visitors: totalVisitors,
-            views: agg._sum.views ?? 0,
-            cartAdds: agg._sum.cartAdds ?? 0,
-            orders: totalOrders,
-            salesQty: agg._sum.salesQty ?? 0,
-            revenue: agg._sum.revenue ?? 0,
-            conversionRate: totalVisitors > 0 ? Math.round((totalOrders / totalVisitors) * 10000) / 100 : 0,
-            adSummary,
-            source: 'products' as const,
-          };
-        } catch {
-          return {
+        : {
             visitors: trafficAgg._sum.visitors ?? 0,
             views: trafficAgg._sum.views ?? 0,
             orders: trafficAgg._sum.orders ?? 0,
             salesQty: trafficAgg._sum.salesQty ?? 0,
             revenue: trafficAgg._sum.revenue ?? 0,
             cartAdds: trafficAgg._sum.cartAdds ?? 0,
+            adSummary: null,
             source: 'aggregate' as const,
           };
-        }
-      })();
 
       // adKpi 구성
       const adSpendVal = Number(curAd.spend);
@@ -384,24 +376,30 @@ export class DashboardService {
       const adCvrVal = adClicksVal > 0 ? Math.round((adConversionsVal / adClicksVal) * 10000) / 100 : 0;
       const prevAdSpendVal = Number(prevAd.spend);
       const prevAdConvRevenueVal = Number(prevAd.revenue);
+      // adKpi — Wing adSummary가 있으면 totalSpend/convRevenue/roas를 Wing 값으로 사용
+      const effectiveAdSpend = wingMonthly?.adSpend ? wingMonthly.adSpend : adSpendVal;
+      const effectiveAdConvRevenue = wingMonthly?.adGmv ? wingMonthly.adGmv : adConvRevenueVal;
+      const effectiveAdRoas = wingMonthly?.adRoas
+        ? wingMonthly.adRoas
+        : Math.round(curRoas * 100) / 100;
       const adKpi = {
-        totalSpend: adSpendVal,
+        totalSpend: effectiveAdSpend,
         impressions: adImpVal,
         clicks: adClicksVal,
-        convRevenue: adConvRevenueVal,
+        convRevenue: effectiveAdConvRevenue,
         ctr: Math.round(curCtr * 100) / 100,
-        roas: Math.round(curRoas * 100) / 100,
+        roas: effectiveAdRoas,
         conversions: adConversionsVal,
         cvr: adCvrVal,
         prevSpend: prevAdSpendVal,
         prevConvRevenue: prevAdConvRevenueVal,
         prevCtr: Math.round(prevCtr * 100) / 100,
         prevRoas: Math.round(prevRoas * 100) / 100,
-        spendChange: prevAdSpendVal > 0 ? Math.round(((adSpendVal - prevAdSpendVal) / prevAdSpendVal) * 1000) / 10 : 0,
-        convRevenueChange: prevAdConvRevenueVal > 0 ? Math.round(((adConvRevenueVal - prevAdConvRevenueVal) / prevAdConvRevenueVal) * 1000) / 10 : 0,
-        roasChange: Math.round((curRoas - prevRoas) * 100) / 100,
+        spendChange: prevAdSpendVal > 0 ? Math.round(((effectiveAdSpend - prevAdSpendVal) / prevAdSpendVal) * 1000) / 10 : 0,
+        convRevenueChange: prevAdConvRevenueVal > 0 ? Math.round(((effectiveAdConvRevenue - prevAdConvRevenueVal) / prevAdConvRevenueVal) * 1000) / 10 : 0,
+        roasChange: Math.round((effectiveAdRoas - prevRoas) * 100) / 100,
         ctrChange: Math.round((curCtr - prevCtr) * 100) / 100,
-        totalRevenue: curMonthProfit.revenue,
+        totalRevenue: effectiveMonthlyRevenue,
       };
 
       // comparison 구성 (Order 기반 curMonthProfit/prevMonthProfit)
@@ -570,9 +568,9 @@ export class DashboardService {
           summary: {
             todayRevenue: todayAgg._sum.totalPrice ?? 0,
             todayOrders: todayAgg._count,
-            monthlyRevenue: curMonthProfit.revenue || monthlyRevenue,
-            monthlyProfit: curMonthProfit.netProfit,
-            adRate: curMonthProfit.revenue > 0 ? Math.round((curMonthProfit.adCost / curMonthProfit.revenue) * 1000) / 10 : 0,
+            monthlyRevenue: effectiveMonthlyRevenue || monthlyRevenue,
+            monthlyProfit: effectiveMonthlyNetProfit,
+            adRate: effectiveMonthlyAdRate,
             totalProducts: totalActiveProducts,
             ...adMetrics,
           },
@@ -663,9 +661,9 @@ export class DashboardService {
         summary: {
           todayRevenue: todayAgg._sum.totalPrice ?? 0,
           todayOrders: todayAgg._count,
-          monthlyRevenue: curMonthProfit.revenue,
-          monthlyProfit: curMonthProfit.netProfit,
-          adRate: curMonthProfit.revenue > 0 ? Math.round((curMonthProfit.adCost / curMonthProfit.revenue) * 1000) / 10 : 0,
+          monthlyRevenue: effectiveMonthlyRevenue,
+          monthlyProfit: effectiveMonthlyNetProfit,
+          adRate: effectiveMonthlyAdRate,
           totalProducts: totalActiveProducts,
           ...adMetrics,
         },
@@ -762,6 +760,87 @@ export class DashboardService {
   }
 
   /**
+   * Wing 월 집계 스냅샷을 조회하고 WingMonthlyData로 파싱.
+   * 최근 20개 후보 중 summary 또는 adSummary가 있는 가장 최신 것을 사용.
+   * 빈 traffic sync가 섞여도 유의미한 값으로 복원됨.
+   */
+  private async fetchWingMonthly(monthStart: Date): Promise<WingMonthlyData | null> {
+    const wingCandidates = await this.prisma.adSnapshot.findMany({
+      where: {
+        source: 'wing',
+        pageType: 'dashboard_kpi',
+        capturedAt: { gte: monthStart },
+      },
+      orderBy: { capturedAt: 'desc' },
+      take: 20,
+      select: { rawJson: true, capturedAt: true },
+    });
+    const wingMonthlySnapshot = wingCandidates.find((s) => {
+      const raw = (s.rawJson as Record<string, unknown>) || {};
+      return raw.summary != null || raw.adSummary != null;
+    }) ?? null;
+    if (!wingMonthlySnapshot?.rawJson) return null;
+    const raw = wingMonthlySnapshot.rawJson as Record<string, unknown>;
+    const summary = (raw.summary as Record<string, unknown>) || null;
+    const adSummary = (raw.adSummary as Record<string, unknown>) || null;
+    if (!summary && !adSummary) return null;
+    const num = (v: unknown) => {
+      const n = Number(String(v ?? '').replace(/,/g, ''));
+      return Number.isFinite(n) ? n : 0;
+    };
+    return {
+      revenue: summary ? num(summary.revenue) : 0,
+      orders: summary ? num(summary.orders) : 0,
+      visitors: summary ? num(summary.visitors) : 0,
+      views: summary ? num(summary.views) : 0,
+      cartAdds: summary ? num(summary.cartAdds) : 0,
+      salesQty: summary ? num(summary.salesQty) : 0,
+      conversionRate: summary ? num(summary.conversionRate) : 0,
+      adSpend: adSummary ? num(adSummary.adSpend) : 0,
+      adGmv: adSummary ? num(adSummary.adGmv) : 0,
+      adRoas: adSummary ? num(adSummary.roas) : 0,
+      startDate: (raw.startDate as string) || null,
+      endDate: (raw.endDate as string) || null,
+      capturedAt: wingMonthlySnapshot.capturedAt,
+      rawAdSummary: adSummary,
+    };
+  }
+
+  /**
+   * Wing 월 데이터(있으면)로 당월 유효 메트릭을 계산.
+   * 매출/광고비는 Wing 단일 출처, 원가류는 calculateProfitForRange 결과 유지.
+   */
+  private computeEffectiveMetrics(
+    wingMonthly: WingMonthlyData | null,
+    curMonthProfit: {
+      revenue: number;
+      adCost: number;
+      adRevenue: number;
+      orderCount: number;
+      costOfGoods: number;
+      commission: number;
+      shippingCost: number;
+      otherCost: number;
+      netProfit: number;
+    },
+  ): EffectiveMetrics {
+    const revenue = wingMonthly?.revenue ? wingMonthly.revenue : curMonthProfit.revenue;
+    const adCost = wingMonthly?.adSpend ? wingMonthly.adSpend : curMonthProfit.adCost;
+    const adRevenue = wingMonthly?.adGmv ? wingMonthly.adGmv : curMonthProfit.adRevenue;
+    const orderCount = wingMonthly?.orders ? wingMonthly.orders : curMonthProfit.orderCount;
+    const netProfit = wingMonthly
+      ? revenue -
+        curMonthProfit.costOfGoods -
+        curMonthProfit.commission -
+        curMonthProfit.shippingCost -
+        adCost -
+        curMonthProfit.otherCost
+      : curMonthProfit.netProfit;
+    const adRate = revenue > 0 ? Math.round((adCost / revenue) * 1000) / 10 : 0;
+    return { revenue, adCost, adRevenue, orderCount, netProfit, adRate };
+  }
+
+  /**
    * 기간별 이익 계산 (Order + Product 기반 실시간)
    * 원본: kiditem_dashboard/src/lib/profit-calculator.ts:182-309
    */
@@ -809,7 +888,7 @@ export class DashboardService {
       const commRate = resolved.commissionRate || 0.108;
       costOfGoods += resolved.costPrice * qty;
       commission += amt * commRate;
-      shippingCost += p.shippingCost || 0; // 건당 1회
+      shippingCost += p.shippingCost || 0;
       otherCost += (p.otherCost || 0) * qty;
     }
 

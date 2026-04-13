@@ -28,6 +28,7 @@ export const queryKeys = {
     list: (params: Record<string, string>) => [...queryKeys.products.all, 'list', params] as const,
     detail: (id: string) => [...queryKeys.products.all, 'detail', id] as const,
     pipelineStats: (status?: string) => [...queryKeys.products.all, 'pipelineStats', status] as const,
+    inspection: (id: string) => [...queryKeys.products.all, 'inspection', id] as const,
   },
   inventory: {
     all: ['inventory'] as const,

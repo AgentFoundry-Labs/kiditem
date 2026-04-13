@@ -12,6 +12,7 @@ import {
 import { ThumbnailAnalysisService } from '../services/thumbnail-analysis.service';
 import { ThumbnailGenerationService } from '../services/thumbnail-generation.service';
 import { ThumbnailEditService } from '../services/thumbnail-edit.service';
+import { ThumbnailWingService } from '../services/thumbnail-wing.service';
 import {
   AnalyzeThumbnailDto,
   AnalyzeBatchDto,
@@ -29,6 +30,7 @@ export class ThumbnailAnalysisController {
     private readonly analysisService: ThumbnailAnalysisService,
     private readonly generationService: ThumbnailGenerationService,
     private readonly editService: ThumbnailEditService,
+    private readonly wingService: ThumbnailWingService,
   ) {}
 
   @Get()
@@ -72,11 +74,17 @@ export class ThumbnailAnalysisController {
     return this.analysisService.preInspect(body.productIds);
   }
 
+  @Post('inspect/:productId')
+  runFullInspection(@Param('productId') productId: string) {
+    return this.analysisService.runFullInspection(productId);
+  }
+
   @Get('generations')
   findGenerations(@Query() query: ListGenerationsQueryDto) {
     return this.generationService.findAll({
       status: query.status,
       method: query.method,
+      productId: query.productId,
       page: query.page,
       limit: query.limit,
     });
@@ -105,5 +113,15 @@ export class ThumbnailAnalysisController {
   @Delete('generations/:id')
   deleteGeneration(@Param('id') id: string) {
     return this.generationService.deleteGeneration(id);
+  }
+
+  @Get('playwriter-status')
+  checkPlaywriterStatus() {
+    return this.wingService.checkPlaywriterStatus();
+  }
+
+  @Post('generations/:id/wing-register')
+  wingRegister(@Param('id') id: string) {
+    return this.wingService.registerToWing(id);
   }
 }

@@ -28,6 +28,7 @@ export class ThumbnailGenerationService {
   async findAll(query: {
     status?: string;
     method?: string;
+    productId?: string;
     page?: number;
     limit?: number;
   }): Promise<{ items: GenerationWithProduct[]; total: number; page: number; limit: number }> {
@@ -39,6 +40,7 @@ export class ThumbnailGenerationService {
       const where: Record<string, unknown> = {};
       if (query.status) where.status = query.status;
       if (query.method) where.method = query.method;
+      if (query.productId) where.productId = query.productId;
 
       const [items, total] = await Promise.all([
         this.prisma.thumbnailGeneration.findMany({
@@ -121,5 +123,38 @@ export class ThumbnailGenerationService {
 
     await this.prisma.thumbnailGeneration.delete({ where: { id } });
     return { ok: true };
+  }
+
+  async findProductForEditor(productId: string): Promise<{ id: string; imageUrl: string | null; companyId: string } | null> {
+    return this.prisma.product.findUnique({
+      where: { id: productId },
+      select: { id: true, imageUrl: true, companyId: true },
+    });
+  }
+
+  async saveEditorResult(params: {
+    productId: string;
+    companyId: string;
+    originalUrl: string | null;
+    candidates: object[];
+  }): Promise<string | null> {
+    try {
+      const gen = await this.prisma.thumbnailGeneration.create({
+        data: {
+          productId: params.productId,
+          companyId: params.companyId,
+          originalUrl: params.originalUrl,
+          candidates: params.candidates,
+          status: 'ready',
+          method: 'generate',
+          grade: '-',
+          score: 0,
+        },
+      });
+      return gen.id;
+    } catch (err) {
+      this.logger.warn(`ThumbnailGeneration DB 저장 실패 (productId=${params.productId}): ${err instanceof Error ? err.message : String(err)}`);
+      return null;
+    }
   }
 }

@@ -44,7 +44,7 @@ export class AdSyncService {
       this.prisma.product.count({ where: { companyId: cid, isDeleted: false } }),
       this.prisma.adSnapshot.count({ where: { companyId: cid } }),
       this.prisma.adSnapshot.findFirst({
-        where: { companyId: cid, source: 'wing' },
+        where: { companyId: cid, source: 'wing', pageType: 'itemwinner_kpi' },
         orderBy: { capturedAt: 'desc' },
         select: { rawJson: true, capturedAt: true },
       }),
@@ -109,7 +109,7 @@ export class AdSyncService {
     productMap: Map<string, string>,
   ) {
     const campaignName = payload.campaignName || '_전체';
-    const period = payload.period || '7d';
+    const period = String(payload.period || '7d');
     const today = new Date(new Date().toISOString().slice(0, 10));
     const kpis = payload.kpis || {};
     const normalizedRows: any[] = payload.normalizedRows || [];
@@ -300,8 +300,9 @@ export class AdSyncService {
 
         // coupangProductId로 매칭, 없으면 상품명
         let productId: string | null = null;
-        if (row.vendorItemId) {
-          productId = productMap.get(String(row.vendorItemId)) || null;
+        const externalId = row.productId || row.vendorItemId;
+        if (externalId) {
+          productId = productMap.get(String(externalId)) || null;
         }
         if (!productId) {
           const found = await this.prisma.product.findFirst({
@@ -329,14 +330,14 @@ export class AdSyncService {
         upserted++;
       }
 
-      // Wing KPI 카드 데이터 저장 (adSummary용)
+      // 아이템위너 페이지 KPI 카드 — dashboard_kpi(sales-analysis)와 분리
       const kpis = payload.kpis || {};
       if (Object.keys(kpis).length > 0) {
         await this.prisma.adSnapshot.create({
           data: {
             companyId,
             source: 'wing',
-            pageType: 'dashboard_kpi',
+            pageType: 'itemwinner_kpi',
             impressions: 0,
             clicks: 0,
             conversions: 0,
@@ -403,7 +404,7 @@ export class AdSyncService {
   }
 
   /**
-   * traffic → TrafficStats upsert
+   * traffic → TrafficStats upsert + Wing dashboard_kpi AdSnapshot 저장
    */
   private async handleTraffic(
     payload: ExtensionSyncDto,
@@ -463,11 +464,47 @@ export class AdSyncService {
       upserted = toUpsert.length;
     }
 
+    // Wing KPI/adSummary/summary 저장 — dashboard.service가 여기서 trafficKpi.adSummary 읽어감
+    const kpis = payload.kpis || {};
+    const adSummary = payload.adSummary || null;
+    const summary = payload.summary || null;
+    const hasWingSignal =
+      Object.keys(kpis).length > 0 || adSummary !== null || summary !== null;
+
+    let wingSnapshotSaved = false;
+    if (hasWingSignal) {
+      await this.prisma.adSnapshot.create({
+        data: {
+          companyId,
+          source: 'wing',
+          pageType: 'dashboard_kpi',
+          impressions: 0,
+          clicks: 0,
+          conversions: 0,
+          spend: 0,
+          revenue: 0,
+          rawJson: {
+            kpis,
+            adSummary,
+            summary,
+            period,
+            startDate: payload.startDate,
+            endDate: payload.endDate,
+            rowCount: data.length,
+            timestamp: payload.timestamp,
+          },
+          capturedAt: payload.timestamp ? new Date(payload.timestamp) : new Date(),
+        },
+      });
+      wingSnapshotSaved = true;
+    }
+
     return {
       success: true,
       type: 'traffic',
       upserted,
       skipped: data.length - upserted,
+      wingSnapshotSaved,
     };
   }
 
