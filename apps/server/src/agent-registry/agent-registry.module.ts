@@ -20,6 +20,7 @@ import { RetryService } from './lifecycle/retry.service';
 import { TranscriptService } from './lifecycle/transcript.service';
 import { DelegationService } from './delegation/delegation.service';
 import { BusinessSafetyModule } from './business-safety/business-safety.module';
+import { ContextManagerModule } from './context-manager/context-manager.module';
 
 @Global()
 @Module({
@@ -30,6 +31,7 @@ import { BusinessSafetyModule } from './business-safety/business-safety.module';
     LifecycleModule,
     DelegationModule,
     BusinessSafetyModule,
+    ContextManagerModule,
   ],
   controllers: [AgentRegistryController, AdStrategyController, ManagerController],
   providers: [

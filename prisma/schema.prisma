@@ -883,11 +883,13 @@ model AgentDefinition {
   budgetResetAt      DateTime? @map("budget_reset_at") @db.Timestamptz
 
   // Schedule & Timeout (기존)
-  schedule         String?
-  timeoutSeconds   Int     @default(300) @map("timeout_seconds")
-  maxOutputTokens  Int     @default(16000) @map("max_output_tokens")
-  requiresApproval Boolean @default(true) @map("requires_approval")
-  isActive         Boolean @default(true) @map("is_active")
+  schedule            String?
+  timeoutSeconds      Int     @default(300) @map("timeout_seconds")
+  maxOutputTokens     Int     @default(16000) @map("max_output_tokens")
+  requiresApproval    Boolean @default(true) @map("requires_approval")
+  isActive            Boolean @default(true) @map("is_active")
+  resultRetentionDays Int     @default(30) @map("result_retention_days")
+  contextStrategy     String  @default("single-shot") @map("context_strategy")
 
   // Runtime tracking
   lastHeartbeatAt DateTime? @map("last_heartbeat_at") @db.Timestamptz
@@ -955,6 +957,8 @@ model HeartbeatRun {
   processPid       Int?    @map("process_pid")
   wakeupRequestId  String? @map("wakeup_request_id") @db.Uuid
   nextSchedule     String? @map("next_schedule")
+  isSummarized     Boolean @default(false) @map("is_summarized")
+  summary          String? @db.Text
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz

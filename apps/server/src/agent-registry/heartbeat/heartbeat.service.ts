@@ -1,4 +1,4 @@
-import { Injectable, Logger, Inject, Optional } from '@nestjs/common';
+import { Injectable, Logger, Inject, Optional, forwardRef } from '@nestjs/common';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { CronJob } from 'cron';
@@ -25,6 +25,7 @@ import { resolvePermissions } from '../permissions/hierarchy.validator';
 import { SkillFilterService } from '../safety/skill-filter.service';
 import { RetryService } from '../lifecycle/retry.service';
 import { TRANSCRIPT_EVENT } from '../lifecycle/transcript.service';
+import { ResultCleanupService } from '../lifecycle/result-cleanup.service';
 import { SafetyPipelineService } from '../business-safety/safety-pipeline.service';
 import { DryRunGateService } from '../business-safety/dry-run-gate.service';
 import type { PermissionLayer } from '../permissions/hierarchy.validator';
@@ -57,6 +58,8 @@ export class HeartbeatService {
     @Optional() private readonly retryService?: RetryService,
     @Optional() private readonly safetyPipeline?: SafetyPipelineService,
     @Optional() private readonly dryRunGate?: DryRunGateService,
+    @Optional() @Inject(forwardRef(() => ResultCleanupService))
+    private readonly resultCleanupService?: ResultCleanupService,
   ) {}
 
   // ── Wakeup 처리 ──
@@ -630,6 +633,16 @@ export class HeartbeatService {
         }
       });
     } catch { /* no intervals */ }
+  }
+
+  async runDailyCleanup(): Promise<void> {
+    if (!this.resultCleanupService) return;
+    try {
+      const result = await this.resultCleanupService.cleanupAll();
+      this.logger.log(`Daily cleanup: ${result.summarized} runs summarized`);
+    } catch (err: any) {
+      this.logger.error(`Daily cleanup failed: ${err.message}`);
+    }
   }
 
   private async onTimerFire(agentId: string, companyId: string | null): Promise<void> {
