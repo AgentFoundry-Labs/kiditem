@@ -81,6 +81,14 @@ export class ThumbnailGenerationService {
     const existing = await this.prisma.thumbnailGeneration.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException(`Generation ${id} not found`);
 
+    // selectedUrl → Product.imageUrl 갱신 (AI 편집 결과를 대표 이미지로 반영)
+    if (existing.selectedUrl) {
+      await this.prisma.product.update({
+        where: { id: existing.productId },
+        data: { imageUrl: existing.selectedUrl },
+      });
+    }
+
     const updated = await this.prisma.thumbnailGeneration.update({
       where: { id },
       data: { status: 'applied' },
@@ -136,7 +144,7 @@ export class ThumbnailGenerationService {
     productId: string;
     companyId: string;
     originalUrl: string | null;
-    candidates: object[];
+    candidates: Array<{ url: string; filename: string }>;
   }): Promise<string | null> {
     try {
       const gen = await this.prisma.thumbnailGeneration.create({

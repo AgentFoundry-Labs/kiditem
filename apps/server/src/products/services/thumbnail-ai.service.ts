@@ -462,16 +462,13 @@ export class ThumbnailAiService implements OnModuleInit {
   private static readonly REFERENCE_DIR = path.join(process.cwd(), 'assets', 'thumbnail-references');
   private referenceCache: Array<{ data: string; mimeType: string }> | null = null;
 
-  private readonly EDIT_PROMPT = `Edit this product thumbnail photo to comply with Coupang marketplace guidelines. Reference images above show the target style — match the white background, product centering, fill ratio, and clean studio look.
+  private readonly EDIT_PROMPT = `Transform this product thumbnail into a clean Coupang marketplace listing photo. The reference images above show the target style.
 
-Rules:
-1. BACKGROUND: Change to clean, pure white. No gradients, textures, patterns, or decorative objects.
-2. REMOVE: All text overlays, watermarks, discount labels, promotional badges, freebie displays, extra logos, drop shadows, borders, and decorative effects.
-3. MAIN PRODUCT FOCUS: Identify the main product (usually the packaged item or the largest single item). Keep only the main product and remove scattered parts, loose accessories, duplicate angles, or lifestyle props. The thumbnail should show one clean hero shot of the product.
-4. DO NOT MODIFY THE PRODUCT: The product itself must be preserved exactly as-is. Do NOT alter, erase, or simplify any patterns, prints, textures, graphics, text, or design elements that are part of the product (e.g., prints on fabric, packaging graphics, embossed text, logos printed on the item). Only the background and added overlays should be changed.
-5. DO NOT ADD: Never add new objects, products, or elements that are not in the original image.
-6. COMPOSITION: Center the main product. It should fill approximately 85-90% of the image area with even margins.
-7. LIGHTING: Maintain natural color grading. The result should look like a professional studio photo with soft, even lighting.`;
+Replace the entire background with pure white — no gradients, textures, or decorative elements. Remove all text overlays, watermarks, discount labels, promotional badges, and any graphics layered on top of the image. Keep only the main product and remove scattered accessories, duplicate angles, or lifestyle props so the thumbnail shows one clean hero shot.
+
+The product itself must be preserved exactly as it appears in the original. Do not alter, erase, or simplify any patterns, prints, textures, graphics, or design elements that are physically part of the product — such as fabric prints, packaging graphics, embossed text, or logos printed on the item. Preserve the original colors faithfully; do not shift hues or saturations. Only the background and overlaid graphics should change.
+
+Center the product so it fills approximately 85–90% of the frame with even margins on all sides. Maintain the natural color grading and apply soft, even studio lighting so the final result looks like a professional product photo. Do not add any objects or elements not present in the original.`;
 
   private readonly QUALITY_EDIT_PROMPT = `Enhance this product thumbnail photo to maximize click-through rate for e-commerce. Do not change the product itself — only improve the photographic quality.
 
@@ -485,14 +482,11 @@ The final image should look like it was taken by a professional product photogra
 
 You are given product photos labeled below.{compositionLine}
 
-Create a single clean e-commerce thumbnail:
-1. Pure white background, no gradients or patterns
-2. Show the main product centered, filling 85-90% of the frame with even margins
-3. If the product is a set/bundle, arrange items neatly as shown in the reference examples
-4. Remove all text overlays, watermarks, and decorative effects added on top of the image — but do NOT alter the product itself
-5. Do NOT modify, erase, or simplify any patterns, prints, textures, graphics, or design elements that are part of the product (e.g., fabric prints, packaging graphics, logos on the item)
-6. Do NOT add any elements not visible in the provided photos
-7. The result should look like a professional studio product photo with soft, even lighting`;
+Create a single clean e-commerce thumbnail with a pure white background. Center the main product so it fills 85–90% of the frame with even margins. If the product is a set or bundle, arrange the items neatly as shown in the reference examples.
+
+Remove all text overlays, watermarks, and decorative effects layered on top of the image, but do not alter the product itself. Do not modify, erase, or simplify any patterns, prints, textures, graphics, or design elements that are physically part of the product — such as fabric prints, packaging graphics, or logos on the item. Preserve the original colors faithfully. Do not add any objects or elements not visible in the provided photos.
+
+The final result should look like a professional studio product photo with soft, even lighting.`;
 
   async generateFromInputs(
     images: Array<{ data: string; mimeType: string; label: string }>,

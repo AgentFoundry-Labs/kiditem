@@ -56,7 +56,7 @@ export class ThumbnailEditService {
         });
         if (!product) continue;
 
-        const imageUrl = product.imageUrl ?? product.thumbnailUrl ?? null;
+        const imageUrl = product.imageUrl ?? null;
         if (!imageUrl) continue;
 
         const generation = await this.prisma.thumbnailGeneration.create({

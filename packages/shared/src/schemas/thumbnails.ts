@@ -97,7 +97,7 @@ export const ThumbnailAnalysisResultSchema = z.object({
   id: z.string(),
   productId: z.string(),
   productName: z.string(),
-  imageUrl: z.string(),
+  imageUrl: z.string().nullable(),
   overallScore: z.number(),
   grade: z.string(),
   scores: ThumbnailScoresSchema.nullable(),

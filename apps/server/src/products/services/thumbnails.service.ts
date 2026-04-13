@@ -103,7 +103,7 @@ export class ThumbnailsService {
       productId: t.productId,
       productName: t.product?.name ?? 'N/A',
       company: t.product?.company?.name ?? 'N/A',
-      imageUrl: t.product?.thumbnailUrl ?? t.product?.imageUrl ?? t.imageUrl,
+      imageUrl: t.product?.imageUrl ?? t.imageUrl,
       ctr,
       prevCtr,
       impressions: t.impressions,
