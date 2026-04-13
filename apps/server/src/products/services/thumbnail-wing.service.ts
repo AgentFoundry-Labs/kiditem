@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { spawn } from 'child_process';
 import * as path from 'path';
@@ -31,6 +31,11 @@ export class ThumbnailWingService {
     const urlPath = gen.selectedUrl.startsWith('http')
       ? new URL(gen.selectedUrl).pathname
       : gen.selectedUrl;
+
+    // path traversal 방지: .. 포함 경로 거부
+    if (!urlPath || urlPath.includes('..')) {
+      throw new BadRequestException('Invalid image path');
+    }
     const imagePath = path.join(process.cwd(), urlPath);
     const screenshotPath = `/tmp/wing-upload-${generationId}.png`;
 

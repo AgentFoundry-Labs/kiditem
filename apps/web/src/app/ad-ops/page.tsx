@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useState, useMemo } from "react";
 import {
   RefreshCw, Megaphone, Sparkles, GripVertical, XCircle, Brain,
   TrendingUp, TrendingDown, AlertTriangle, ChevronDown, ShoppingCart,
@@ -9,8 +9,9 @@ import {
   DollarSign, Target, Search, Tag, Wallet, Settings2, Download, FileSpreadsheet,
   Eye,
 } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import ExposureAnalysis from "./components/ExposureAnalysis";
-import type { ExposureAnalysisData } from "@kiditem/shared";
+import type { ExposureAnalysisData, AdStrategyAction, AdWeeklyPlan } from "@kiditem/shared";
 import { formatKRW, formatPercent, getGradeColor } from "@/lib/utils";
 import { parseKoreanNumber } from "@/lib/parse-korean-number";
 import PageSkeleton from "@/components/ui/PageSkeleton";
@@ -19,68 +20,13 @@ import {
   ResponsiveContainer, CartesianGrid, PieChart, Pie, Cell,
 } from "recharts";
 import ScrapeCollector from "@/app/ads/collect/components/ScrapeCollector";
-import { apiClient } from "@/lib/api-client";
-
-// ===== API 매핑 헬퍼 =====
-// coupang_seller의 Next.js API routes → kiditem NestJS 엔드포인트
-async function adGet<T = unknown>(path: string): Promise<T | null> {
-  try { return await apiClient.get<T>(path); } catch { return null; }
-}
-
-// ===== Types =====
-interface CampaignData {
-  campaignName: string; adSpend: number; adRevenue: number; totalRevenue: number;
-  impressions: number; clicks: number; ctr: number; conversions: number;
-  orders: number; roas: number; conversionRate: number; budget: number; todaySpend: number;
-}
-interface ProductData {
-  productName: string; vendorItemId: string | null; imageUrl?: string;
-  onOff: string | null; status: string | null; keyword: string | null;
-  adSpend: number; adRevenue: number; impressions: number; clicks: number;
-  ctr: number; adConversions: number; conversionRate: number; roas: number;
-}
-interface AdRuleRec {
-  name: string; grade: string; rule: string; action: string; priority: string; roas: number; spend: number;
-}
-interface SuggestedKeywords {
-  main: string[];
-  sub: string[];
-  longtail: string[];
-  negative: string[];
-}
-interface StrategyAction {
-  productId: string; productName: string; grade: string; tier: string | null;
-  isExisting: boolean;
-  action: string;
-  currentRoas: number; currentCtr: number;
-  currentCvr: number; currentAcos: number; currentAdRate: number;
-  recommendedAction: string; actionPriority: "urgent" | "high" | "medium" | "low";
-  actionCategory: string; reason: string;
-  maxBidPrice: number; recommendedDailyBudget: number; targetRoas: number;
-  keywords: string[];
-  suggestedKeywords: SuggestedKeywords;
-  campaignStrategy: string;
-}
-interface AdProduct {
-  id: string; name: string; sku: string; company: string; grade: string;
-  adTier: string; spend: number; impressions: number; clicks: number;
-  conversions: number; adRevenue: number; ctr: number; convRate: number;
-  roas: number; acos: number; adRate: number; revenue: number;
-  netProfit: number; profitRate: number;
-}
-interface AdSummary {
-  totalSpend: number; totalAdRevenue: number; totalRevenue: number;
-  overallAdRate: number; overallRoas: number; highAdCount: number;
-  gradeSpend: Record<string, number>;
-  tierSpend: Record<string, number>;
-  gradeSpendPercent: Record<string, number>;
-}
-interface StrategyData {
-  actions: StrategyAction[];
-  budgetAllocation: { grade: string; currentPercent: number; targetPercent: number; gap: number }[];
-  keyMetrics: { totalAdSpend: number; totalAdRevenue: number; overallRoas: number };
-  adIssues: { zeroConversion: number; lowRoas: number; cGradeHighTier: number; aGradeNoAd: number };
-}
+import {
+  useAdOpsData,
+  useAdOpsSelectedCampaign,
+  useRegisterCampaign,
+} from "./hooks/useAdOpsData";
+import type { RegisterCampaignPayload } from "./hooks/useAdOpsData";
+import { queryKeys } from "@/lib/query-keys";
 
 type TabKey = "status" | "strategy" | "exposure";
 
@@ -93,118 +39,82 @@ const TABS: { key: TabKey; label: string; icon: typeof LayoutGrid }[] = [
 export default function AdOpsPage() {
   const [tab, setTab] = useState<TabKey>("status");
   const [period, setPeriod] = useState("14d");
-  const [totalKpi, setTotalKpi] = useState<Record<string, number>>({});
-  const [campaigns, setCampaigns] = useState<CampaignData[]>([]);
   const [campaignOrder, setCampaignOrder] = useState<string[]>([]);
   const [selectedCampaign, setSelectedCampaign] = useState<string | null>(null);
-  const [products, setProducts] = useState<ProductData[]>([]);
-  const [rules, setRules] = useState<AdRuleRec[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [wingKpis, setWingKpis] = useState<Record<string, string | { value: string; change?: string; numValue?: number }>>({});
   const [prodPage, setProdPage] = useState(1);
   const [prodPageSize] = useState(20);
   const [dragIdx, setDragIdx] = useState<number | null>(null);
-  const [strategy, setStrategy] = useState<StrategyData | null>(null);
   const [selectedGrade, setSelectedGrade] = useState<string | null>(null);
   const [gradeFilter, setGradeFilter] = useState<Record<string, "all" | "existing" | "new" | "recommended">>({ A: "all", B: "all", C: "all" });
   const [gradeSearch, setGradeSearch] = useState<Record<string, string>>({ A: "", B: "", C: "" });
   const [expandedProduct, setExpandedProduct] = useState<string | null>(null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [strategyCards, setStrategyCards] = useState<any[]>([]);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [trends, setTrends] = useState<any>(null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [benchmark, setBenchmark] = useState<any>(null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [wingAdData, setWingAdData] = useState<any>(null);
   const [expandedMetric, setExpandedMetric] = useState<string | null>(null);
-  const [adProducts, setAdProducts] = useState<AdProduct[]>([]);
-  const [adSummary, setAdSummary] = useState<AdSummary | null>(null);
   const [totalBudget, setTotalBudget] = useState<number>(300000);
   const [budgetInput, setBudgetInput] = useState("300,000");
-  const [exposureData, setExposureData] = useState<ExposureAnalysisData | null>(null);
-
-  // ── 광고 등록 모달 ──
-  interface RegisterPayload {
-    grade: string; color: string;
-    campaignName: string; adGroupName: string;
-    dailyBudget: number; operationMode: string;
-    smartTargetingBid: number; nonSearchBid: number; targetRoas: number;
-    keywords: { keyword: string; bidPrice: number }[];
-    products: { productId: string; productName: string }[];
-  }
-  const [registerModal, setRegisterModal] = useState<RegisterPayload | null>(null);
-  const [registerLoading, setRegisterLoading] = useState(false);
+  const [registerModal, setRegisterModal] = useState<RegisterCampaignPayload | null>(null);
   const [registerError, setRegisterError] = useState<string | null>(null);
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
-    const days = period === "month" ? 30 : period === "14d" ? 14 : 7;
-    const campPeriod = period === "month" ? "30d" : "7d";
-    try {
-      const [campRes, rulesRes, extRes, stratRes, adsRes, dashRes] = await Promise.all([
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        adGet<any>(`/api/ads/campaigns?period=${campPeriod}`),
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        adGet<any>(`/api/ads/strategy/rules?days=${days}`),
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        adGet<any>(`/api/ads/extension/status`),
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        adGet<any>(`/api/ads/strategy/plan?days=${days}`),
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        adGet<any>(`/api/ads?days=${days}`),
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        adGet<any>(`/api/dashboard`),
-      ]);
-      // Wing 실데이터 우선, 없으면 캠페인 데이터 폴백
-      const wingAd = dashRes?.trafficKpi?.adSummary;
-      if (wingAd) setWingAdData(wingAd);
-      setTotalKpi(campRes?.totalKpi || {});
-      const sorted = (campRes?.campaigns || []).sort((a: CampaignData, b: CampaignData) => {
+  const queryClient = useQueryClient();
+
+  const {
+    campaigns: campaignsQuery,
+    rules: rulesQuery,
+    wingStatus: wingStatusQuery,
+    strategy: strategyQuery,
+    adsHub: adsHubQuery,
+    dashboard: dashboardQuery,
+    recommend: recommendQuery,
+    trends: trendsQuery,
+    benchmark: benchmarkQuery,
+    exposure: exposureQuery,
+    isLoading,
+  } = useAdOpsData(period, tab);
+
+  const campaignProductsQuery = useAdOpsSelectedCampaign(selectedCampaign, period);
+
+  const registerMutation = useRegisterCampaign();
+
+  // ── Derived data ──
+  const rawCampaigns = campaignsQuery.data?.campaigns ?? [];
+  const totalKpi = campaignsQuery.data?.totalKpi ?? {};
+  const sortedCampaigns = useMemo(
+    () =>
+      [...rawCampaigns].sort((a, b) => {
         if (b.adRevenue !== a.adRevenue) return b.adRevenue - a.adRevenue;
-        if (b.roas !== a.roas) return b.roas - a.roas;
+        if ((b.roas ?? 0) !== (a.roas ?? 0)) return (b.roas ?? 0) - (a.roas ?? 0);
         return b.clicks - a.clicks;
-      });
-      setCampaigns(sorted);
-      setCampaignOrder(sorted.map((c: CampaignData) => c.campaignName));
-      setRules(rulesRes?.recommendations || []);
-      setWingKpis(extRes?.wing?.kpis || {});
-      if (stratRes?.success) setStrategy(stratRes);
-      if (adsRes?.products) { setAdProducts(adsRes.products); setAdSummary(adsRes.summary); }
-      try {
-        const [recRes, trendRes, benchRes] = await Promise.all([
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          adGet<any>(`/api/ads/strategy/recommend?days=${days}`),
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          adGet<any>(`/api/ads/campaigns/trends?days=${days}`),
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          adGet<any>(`/api/ads/benchmark?days=${days}`),
-        ]);
-        setStrategyCards(recRes?.cards || []);
-        if (trendRes?.daily) setTrends(trendRes);
-        if (benchRes?.success) setBenchmark(benchRes);
-      } catch { /* */ }
-    } catch { /* */ }
-    setLoading(false);
-  }, [period]);
+      }),
+    [rawCampaigns],
+  );
 
-  const fetchCampaignProducts = async (name: string) => {
-    setSelectedCampaign(name);
-    setProdPage(1);
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const json = await adGet<any>(`/api/ads/campaigns?campaign=${encodeURIComponent(name)}&period=${period}`);
-      setProducts(json?.products || []);
-    } catch { setProducts([]); }
+  // Sync campaignOrder when sorted campaigns change (only set once)
+  const campaignOrderToUse =
+    campaignOrder.length === sortedCampaigns.length
+      ? campaignOrder
+      : sortedCampaigns.map((c) => c.campaignName);
+
+  const rules = rulesQuery.data?.recommendations ?? [];
+  const wingKpis = wingStatusQuery.data?.wing?.kpis ?? {};
+  const strategy = strategyQuery.data ?? null;
+  const adProducts = adsHubQuery.data?.products ?? [];
+  const adSummary = adsHubQuery.data?.summary ?? null;
+  const wingAdData = dashboardQuery.data?.trafficKpi?.adSummary ?? null;
+  const strategyCards = recommendQuery.data?.cards ?? [];
+  const trends = trendsQuery.data ?? null;
+  const benchmark = benchmarkQuery.data ?? null;
+  const exposureData = exposureQuery.data ?? null;
+  const products = campaignProductsQuery.data?.products ?? [];
+
+  const handleRefresh = () => {
+    queryClient.invalidateQueries({ queryKey: queryKeys.ads.all });
+    queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.summary() });
   };
-
-  useEffect(() => { fetchData(); }, [fetchData]);
 
   const handleDragStart = (idx: number) => setDragIdx(idx);
   const handleDragOver = (e: React.DragEvent, idx: number) => {
     e.preventDefault();
     if (dragIdx === null || dragIdx === idx) return;
-    const newOrder = [...campaignOrder];
+    const newOrder = [...campaignOrderToUse];
     const [moved] = newOrder.splice(dragIdx, 1);
     newOrder.splice(idx, 0, moved);
     setCampaignOrder(newOrder);
@@ -212,21 +122,21 @@ export default function AdOpsPage() {
   };
   const handleDragEnd = () => setDragIdx(null);
 
-  const orderedCampaigns = campaignOrder
-    .map(name => campaigns.find(c => c.campaignName === name))
-    .filter(Boolean) as CampaignData[];
+  const orderedCampaigns = campaignOrderToUse
+    .map((name) => sortedCampaigns.find((c) => c.campaignName === name))
+    .filter(Boolean) as typeof sortedCampaigns;
 
   const roas = totalKpi.roas || 0;
   const roasStatus = roas >= 400 ? "excellent" : roas >= 200 ? "good" : roas > 0 ? "warning" : "neutral";
-  const urgentCount = rules.filter(r => r.priority === "urgent").length;
+  const urgentCount = rules.filter((r) => r.priority === "urgent").length;
 
-  const camp = campaigns.find(c => c.campaignName === selectedCampaign);
+  const camp = sortedCampaigns.find((c) => c.campaignName === selectedCampaign);
   const totalPages = Math.ceil(products.length / prodPageSize);
   const pagedProducts = products.slice((prodPage - 1) * prodPageSize, prodPage * prodPageSize);
 
 
   // ═══ XLSX 내보내기 ═══
-  const exportCampaignXlsx = (grade: string, actions: StrategyAction[], budget: number) => {
+  const exportCampaignXlsx = (grade: string, actions: AdStrategyAction[], budget: number) => {
     import("xlsx").then((XLSX) => {
       const gradeMap: Record<string, { campaignType: string; targetRoas: string; bidMain: string; bidSub: string; bidLongtail: string }> = {
         A: { campaignType: "매출최적화 + 수동 병행", targetRoas: "300~500%", bidMain: "800~1,000", bidSub: "500~700", bidLongtail: "200~400" },
@@ -239,7 +149,7 @@ export default function AdOpsPage() {
 
       for (const g of grades) {
         const cfg = gradeMap[g] || gradeMap.A;
-        const gradeActions = grade === "all" ? actions.filter(a => a.grade === g) : actions;
+        const gradeActions = grade === "all" ? actions.filter((a) => a.grade === g) : actions;
         const gradeBudget = grade === "all" ? Math.round(budget * (g === "A" ? 0.65 : g === "B" ? 0.25 : 0.1)) : budget;
 
         const rows = gradeActions.map((a, i) => {
@@ -249,7 +159,7 @@ export default function AdOpsPage() {
           return {
             "No": i + 1,
             "캠페인명": `${g}등급_캠페인`,
-            "상품명": a.productName,
+            "상품명": a.name,
             "상품ID": a.productId,
             "등급": g,
             "현재 ROAS(%)": a.currentRoas || 0,
@@ -300,7 +210,7 @@ export default function AdOpsPage() {
     });
   };
 
-  if (loading) return <PageSkeleton variant="dashboard" />;
+  if (isLoading) return <PageSkeleton variant="dashboard" />;
 
   return (
     <>
@@ -317,7 +227,7 @@ export default function AdOpsPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <ScrapeCollector onComplete={fetchData} />
+          <ScrapeCollector onComplete={handleRefresh} />
           {urgentCount > 0 && (
             <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold animate-pulse" style={{ background: "var(--danger-subtle)", color: "var(--danger)", border: "1px solid var(--danger)" }}>
               <AlertTriangle size={13} /> 긴급 {urgentCount}건
@@ -332,7 +242,7 @@ export default function AdOpsPage() {
               </button>
             ))}
           </div>
-          <button onClick={fetchData} className="p-2.5 rounded-lg transition-colors" style={{ color: "var(--text-tertiary)" }} title="새로고침">
+          <button onClick={handleRefresh} className="p-2.5 rounded-lg transition-colors" style={{ color: "var(--text-tertiary)" }} title="새로고침">
             <RefreshCw size={16} />
           </button>
         </div>
@@ -501,12 +411,7 @@ export default function AdOpsPage() {
           const Icon = t.icon;
           const isActive = tab === t.key;
           return (
-            <button key={t.key} onClick={() => {
-                setTab(t.key);
-                if (t.key === "exposure" && !exposureData) {
-                  adGet<ExposureAnalysisData>("/api/ads/exposure-analysis").then(d => { if (d) setExposureData(d); });
-                }
-              }}
+            <button key={t.key} onClick={() => setTab(t.key)}
               className="flex items-center gap-2 px-6 py-2.5 text-sm font-semibold rounded-xl transition-all"
               style={isActive ? { background: "#ffffff", color: "var(--primary)", boxShadow: "var(--shadow-sm)" } : { color: "rgba(255,255,255,0.7)" }}>
               <Icon size={15} />
@@ -536,10 +441,9 @@ export default function AdOpsPage() {
                 </div>
               </div>
               <div className="flex-1 p-4" style={{ minHeight: 280 }}>
-                {trends?.daily?.length > 0 ? (() => {
-                  const maxRoas = Math.max(...trends.daily.map((d: { roas: number }) => d.roas || 0), 1);
-                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  const chartData = trends.daily.map((d: any) => ({ ...d }));
+                {trends?.daily && trends.daily.length > 0 ? (() => {
+                  const maxRoas = Math.max(...trends.daily.map((d) => d.roas || 0), 1);
+                  const chartData = trends.daily.map((d) => ({ ...d }));
 
                   return (
                   <ResponsiveContainer width="100%" height="100%">
@@ -561,18 +465,15 @@ export default function AdOpsPage() {
                       <XAxis dataKey="label" tick={{ fontSize: 10, fill: "var(--text-quaternary)", fontWeight: 500 }} tickLine={false} axisLine={false} dy={8} />
                       <YAxis yAxisId="left" tick={{ fontSize: 10, fill: "var(--text-quaternary)" }} tickLine={false} axisLine={false} width={48} tickFormatter={(v: number) => v >= 10000 ? `${Math.round(v / 10000)}만` : v >= 1000 ? `${Math.round(v / 1000)}천` : String(v)} />
                       <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10, fill: "var(--text-quaternary)" }} tickLine={false} axisLine={false} width={42} domain={[0, Math.ceil(maxRoas / 100) * 100 + 100]} tickFormatter={(v: number) => `${v}%`} />
-                      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-                      <Tooltip cursor={{ fill: "var(--primary-subtle)", radius: 8 }} content={({ active, payload, label }: any) => {
+                      <Tooltip cursor={{ fill: "var(--primary-subtle)", radius: 8 }} content={({ active, payload, label }: { active?: boolean; payload?: Array<{ dataKey: string; value: number; color: string }>; label?: string }) => {
                         if (!active || !payload?.length) return null;
-                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                        const roasEntry = payload.find((p: any) => p.dataKey === "roas");
+                        const roasEntry = payload.find((p) => p.dataKey === "roas");
                         const roasVal = roasEntry ? Math.round(roasEntry.value) : 0;
                         const isLow = roasVal < 300;
                         return (
                           <div style={{ background: "rgba(255,255,255,0.96)", backdropFilter: "blur(16px)", color: "var(--text-primary)", borderRadius: 16, padding: "14px 18px", fontSize: 12, fontWeight: 600, boxShadow: "0 8px 32px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.03)" }}>
                             <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginBottom: 10, fontWeight: 500 }}>{label}일</div>
-                            {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-                            {payload.map((p: any) => {
+                            {payload.map((p) => {
                               if (p.dataKey === "breakeven") return null;
                               const isRoas = p.dataKey === "roas";
                               const nameMap: Record<string, string> = { spend: "광고비", revenue: "전환매출", roas: "ROAS" };
@@ -620,8 +521,8 @@ export default function AdOpsPage() {
                 {Object.entries(wingKpis).map(([label, raw]) => {
                   // Wing sales-analysis: {value, change, numValue} 객체 / itemwinner fallback: 문자열
                   const isObj = raw && typeof raw === "object";
-                  const display = isObj ? String((raw as any).value ?? (raw as any).numValue ?? "") : String(raw);
-                  const numeric = isObj ? Number((raw as any).numValue ?? 0) : parseInt(String(raw)) || 0;
+                  const display = isObj ? String((raw as { value?: string; numValue?: number }).value ?? (raw as { numValue?: number }).numValue ?? "") : String(raw);
+                  const numeric = isObj ? Number((raw as { numValue?: number }).numValue ?? 0) : parseInt(String(raw)) || 0;
                   const isWarning = label.includes("노출제한") || label.includes("아이템위너 아닌") || label.includes("미보유");
                   const hasIssue = isWarning && numeric > 0;
                   return (
@@ -659,17 +560,17 @@ export default function AdOpsPage() {
                   </thead>
                   <tbody>
                     {orderedCampaigns.map((c) => {
-                      const roasVal = Math.max(0, c.roas);
+                      const roasVal = Math.max(0, c.roas ?? 0);
                       const isEmpty = c.adSpend === 0 && c.adRevenue === 0;
                       return (
-                      <tr key={c.campaignName} onClick={() => fetchCampaignProducts(c.campaignName)}
+                      <tr key={c.campaignName} onClick={() => { setSelectedCampaign(c.campaignName); setProdPage(1); }}
                         className="cursor-pointer transition-colors" style={{ borderBottom: "1px solid var(--border-subtle)", opacity: isEmpty ? 0.45 : 1 }}>
                         <td className="px-5 py-3 text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{c.campaignName}</td>
                         <td className="text-right px-4 py-3 text-sm tabular-nums" style={{ color: "var(--text-secondary)" }}>{formatKRW(c.adSpend)}원</td>
                         <td className="text-right px-4 py-3 text-sm font-semibold tabular-nums" style={{ color: c.adRevenue > 0 ? "#059669" : "var(--text-quaternary)" }}>{formatKRW(c.adRevenue)}원</td>
                         <td className="text-right px-4 py-3 text-sm font-bold tabular-nums" style={{ color: roasVal >= 300 ? "#059669" : roasVal >= 100 ? "#f59e0b" : roasVal > 0 ? "#dc2626" : "var(--text-quaternary)" }}>{roasVal > 0 ? `${Math.round(roasVal)}%` : "-"}</td>
                         <td className="text-right px-4 py-3 text-sm tabular-nums" style={{ color: "var(--text-secondary)" }}>{c.clicks.toLocaleString()}</td>
-                        <td className="text-right px-4 py-3 text-sm tabular-nums" style={{ color: "var(--text-secondary)" }}>{c.ctr > 0 ? `${c.ctr}%` : "-"}</td>
+                        <td className="text-right px-4 py-3 text-sm tabular-nums" style={{ color: "var(--text-secondary)" }}>{(c.ctr ?? 0) > 0 ? `${c.ctr}%` : "-"}</td>
                       </tr>
                       );
                     })}
@@ -695,8 +596,8 @@ export default function AdOpsPage() {
                   { label: "전환매출", value: formatKRW(camp.adRevenue) + "원" },
                   { label: "노출", value: camp.impressions.toLocaleString() },
                   { label: "클릭", value: camp.clicks.toLocaleString() },
-                  { label: "ROAS", value: Math.round(camp.roas) + "%" },
-                  { label: "전환율", value: camp.conversionRate + "%" },
+                  { label: "ROAS", value: Math.round(camp.roas ?? 0) + "%" },
+                  { label: "전환율", value: (camp.conversionRate ?? 0) + "%" },
                 ].map(k => (
                   <div key={k.label} className="rounded-lg p-2" style={{ background: "var(--surface-sunken)" }}>
                     <div className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>{k.label}</div>
@@ -727,9 +628,9 @@ export default function AdOpsPage() {
                           <td className="text-right px-3 py-2.5 text-sm tabular-nums" style={{ color: "var(--text-secondary)" }}>{formatKRW(p.adSpend)}원</td>
                           <td className="text-right px-3 py-2.5 text-sm tabular-nums font-medium" style={{ color: p.adRevenue > 0 ? "#059669" : "var(--text-quaternary)" }}>{p.adRevenue > 0 ? formatKRW(p.adRevenue) + "원" : "0원"}</td>
                           <td className="text-right px-3 py-2.5 text-sm tabular-nums" style={{ color: "var(--text-secondary)" }}>{p.clicks.toLocaleString()}</td>
-                          <td className="text-right px-3 py-2.5 text-sm tabular-nums" style={{ color: "var(--text-secondary)" }}>{p.ctr > 0 ? p.ctr + "%" : "-"}</td>
+                          <td className="text-right px-3 py-2.5 text-sm tabular-nums" style={{ color: "var(--text-secondary)" }}>{(p.ctr ?? 0) > 0 ? p.ctr + "%" : "-"}</td>
                           <td className="text-right px-3 py-2.5 text-sm tabular-nums" style={{ color: "var(--text-secondary)" }}>{p.adConversions}건</td>
-                          <td className="text-right px-3 py-2.5 text-sm font-bold tabular-nums" style={{ color: p.roas >= 300 ? "#059669" : p.roas >= 100 ? "#f59e0b" : "var(--text-tertiary)" }}>{p.roas}%</td>
+                          <td className="text-right px-3 py-2.5 text-sm font-bold tabular-nums" style={{ color: (p.roas ?? 0) >= 300 ? "#059669" : (p.roas ?? 0) >= 100 ? "#f59e0b" : "var(--text-tertiary)" }}>{p.roas ?? 0}%</td>
                         </tr>
                       ))}
                     </tbody>
@@ -814,7 +715,7 @@ export default function AdOpsPage() {
                   const existingActions = allGradeActions.filter(a => a.isExisting);
                   const newActions = allGradeActions.filter(a => !a.isExisting);
                   const gradeBudget = Math.round(totalBudget * cfg.budgetPct / 100);
-                  const urgentCount = allGradeActions.filter(a => a.actionPriority === "urgent").length;
+                  const urgentGradeCount = allGradeActions.filter(a => a.actionPriority === "urgent").length;
 
                   // C등급 추천 상품: 광고 이력 있거나, 긴급/높음 우선순위
                   const recommendedActions = cfg.grade === "C"
@@ -828,7 +729,7 @@ export default function AdOpsPage() {
                     : filter === "new" ? newActions
                     : filter === "recommended" ? recommendedActions
                     : allGradeActions;
-                  if (search) filteredActions = filteredActions.filter(a => a.productName.toLowerCase().includes(search));
+                  if (search) filteredActions = filteredActions.filter(a => a.name.toLowerCase().includes(search));
                   // C등급은 최대 50개만 (너무 많으므로)
                   const maxShow = cfg.grade === "C" ? 50 : 200;
                   const hasMore = filteredActions.length > maxShow;
@@ -848,7 +749,7 @@ export default function AdOpsPage() {
                         </div>
                         <div className="text-xl font-black text-white tabular-nums mb-1.5">{gradeBudget.toLocaleString()}<span className="text-[13px] font-semibold text-white/50 ml-1">원/일</span></div>
                         <div className="flex flex-wrap items-center gap-1">
-                          {urgentCount > 0 && <span className="px-1.5 py-0.5 bg-red-500/80 rounded text-[11px] font-bold text-white">긴급 {urgentCount}</span>}
+                          {urgentGradeCount > 0 && <span className="px-1.5 py-0.5 bg-red-500/80 rounded text-[11px] font-bold text-white">긴급 {urgentGradeCount}</span>}
                           <span className="px-1.5 py-0.5 bg-white/20 rounded text-[11px] font-bold text-white">기존 {existingActions.length}</span>
                           <span className="px-1.5 py-0.5 bg-white/10 rounded text-[11px] font-bold text-white/70">신규 {newActions.length}</span>
                         </div>
@@ -916,7 +817,7 @@ export default function AdOpsPage() {
                               nonSearchBid: 100,
                               targetRoas,
                               keywords: allKws,
-                              products: productsForCampaign.map(a => ({ productId: a.productId, productName: a.productName })),
+                              products: productsForCampaign.map(a => ({ productId: a.productId, productName: a.name })),
                             });
                           }}
                           className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-[13px] font-bold transition-all hover:shadow-md"
@@ -973,7 +874,7 @@ export default function AdOpsPage() {
                                       <span className="text-[10px] font-bold" style={{ color: cfg.color }}>기존 광고 상품 ({existingActions.length})</span>
                                     </div>
                                     <div className="divide-y" style={{ borderColor: "var(--border-subtle)" }}>
-                                      {(search ? existingActions.filter(a => a.productName.toLowerCase().includes(search)) : existingActions).slice(0, cfg.grade === "C" ? 30 : 100).map((a, i) => (
+                                      {(search ? existingActions.filter(a => a.name.toLowerCase().includes(search)) : existingActions).slice(0, cfg.grade === "C" ? 30 : 100).map((a, i) => (
                                         <ProductStrategyRow key={`e${i}`} action={a} gradeBudget={gradeBudget} gradeCount={allGradeActions.length} color={cfg.color} expanded={expandedProduct === a.productId} onToggle={() => setExpandedProduct(expandedProduct === a.productId ? null : a.productId)} compact />
                                       ))}
                                     </div>
@@ -982,7 +883,7 @@ export default function AdOpsPage() {
                                       <span className="text-[10px] font-bold" style={{ color: "#6366f1" }}>신규 편입 ({newActions.length})</span>
                                     </div>
                                     <div className="divide-y" style={{ borderColor: "var(--border-subtle)" }}>
-                                      {(search ? newActions.filter(a => a.productName.toLowerCase().includes(search)) : newActions).slice(0, cfg.grade === "C" ? 20 : 100).map((a, i) => (
+                                      {(search ? newActions.filter(a => a.name.toLowerCase().includes(search)) : newActions).slice(0, cfg.grade === "C" ? 20 : 100).map((a, i) => (
                                         <ProductStrategyRow key={`n${i}`} action={a} gradeBudget={gradeBudget} gradeCount={allGradeActions.length} color={cfg.color} expanded={expandedProduct === a.productId} onToggle={() => setExpandedProduct(expandedProduct === a.productId ? null : a.productId)} isNew compact />
                                       ))}
                                     </div>
@@ -1170,23 +1071,11 @@ export default function AdOpsPage() {
 
           {/* 확인 버튼 */}
           <button
-            disabled={registerLoading}
+            disabled={registerMutation.isPending}
             onClick={async () => {
-              setRegisterLoading(true);
               setRegisterError(null);
               try {
-                await apiClient.post("/api/ads/campaigns/register", {
-                  campaignName: registerModal.campaignName,
-                  adGroupName: registerModal.adGroupName,
-                  grade: registerModal.grade,
-                  dailyBudget: registerModal.dailyBudget,
-                  operationMode: registerModal.operationMode,
-                  products: registerModal.products,
-                  smartTargetingBid: registerModal.smartTargetingBid,
-                  keywords: registerModal.keywords,
-                  nonSearchBid: registerModal.nonSearchBid,
-                  targetRoas: registerModal.targetRoas,
-                });
+                await registerMutation.mutateAsync(registerModal);
                 setRegisterModal(null);
                 setRegisterError(null);
               } catch (err) {
@@ -1195,15 +1084,13 @@ export default function AdOpsPage() {
                   setRegisterError(err.detail);
                 }
                 // 409 외 에러는 apiClient 전역 toast.error 처리
-              } finally {
-                setRegisterLoading(false);
               }
             }}
             className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-[13px] font-bold text-white transition-all"
-            style={{ background: registerLoading ? "var(--text-quaternary)" : registerModal.color }}
+            style={{ background: registerMutation.isPending ? "var(--text-quaternary)" : registerModal.color }}
           >
             <Megaphone size={14} />
-            {registerLoading ? "등록 중..." : "광고 등록 실행"}
+            {registerMutation.isPending ? "등록 중..." : "광고 등록 실행"}
           </button>
         </div>
       </div>
@@ -1214,7 +1101,7 @@ export default function AdOpsPage() {
 
 // ===== 상품별 전략 행 (키워드 전략 포함) =====
 function ProductStrategyRow({ action: a, gradeBudget, gradeCount, color, expanded, onToggle, isNew, compact }: {
-  action: StrategyAction; gradeBudget: number; gradeCount: number; color: string;
+  action: AdStrategyAction; gradeBudget: number; gradeCount: number; color: string;
   expanded: boolean; onToggle: () => void; isNew?: boolean; compact?: boolean;
 }) {
   const productBudget = gradeCount > 0 ? Math.round(gradeBudget / gradeCount) : 0;
@@ -1229,7 +1116,7 @@ function ProductStrategyRow({ action: a, gradeBudget, gradeCount, color, expande
         <div className="flex items-center justify-between gap-1.5 mb-0.5">
           <div className="flex items-center gap-1.5 flex-1 min-w-0">
             {isNew && <span className="shrink-0 px-1 py-px rounded text-[8px] font-bold text-white" style={{ background: "#6366f1" }}>N</span>}
-            <span className={`${compact ? "text-[11px]" : "text-[13px]"} font-bold truncate`} style={{ color: "var(--text-primary)" }}>{a.productName}</span>
+            <span className={`${compact ? "text-[11px]" : "text-[13px]"} font-bold truncate`} style={{ color: "var(--text-primary)" }}>{a.name}</span>
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
             <span className={`font-black tabular-nums ${compact ? "text-[12px]" : "text-[15px]"} ${a.currentRoas >= 300 ? "text-emerald-600" : a.currentRoas >= 100 ? "text-amber-600" : a.currentRoas > 0 ? "text-red-500" : ""}`} style={a.currentRoas === 0 ? { color: "var(--text-quaternary)" } : {}}>
@@ -1341,7 +1228,9 @@ const BENCH_STATUS: Record<string, { bg: string; text: string; label: string; do
 };
 
 // ===== 광고 AI 액션 / 해야할 일 탭 패널 =====
-function AdSidePanel({ rules, strategy }: { rules: AdRuleRec[]; strategy: StrategyData | null }) {
+type RuleItem = { name: string; grade: string | null; rule: string; action: string; priority: string; roas: number; spend: number };
+
+function AdSidePanel({ rules, strategy }: { rules: RuleItem[]; strategy: AdWeeklyPlan | null }) {
   const [panelTab, setPanelTab] = useState<"todos" | "alerts">("todos");
 
   const todos = useMemo(() => {
@@ -1355,7 +1244,7 @@ function AdSidePanel({ rules, strategy }: { rules: AdRuleRec[]; strategy: Strate
     }
     strategy?.actions?.forEach(a => {
       if (a.actionPriority === "urgent" || a.actionPriority === "high") {
-        items.push({ label: `${a.productName?.substring(0, 18)}`, detail: a.recommendedAction, priority: a.actionPriority });
+        items.push({ label: `${a.name?.substring(0, 18)}`, detail: a.recommendedAction, priority: a.actionPriority });
       }
     });
     return items.slice(0, 15);

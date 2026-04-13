@@ -869,7 +869,7 @@ export class DashboardService {
       const commRate = resolved.commissionRate || 0.108;
       costOfGoods += resolved.costPrice * qty;
       commission += amt * commRate;
-      // shippingCost += p.shippingCost || 0; // TODO: 배송비 데이터 재정비 후 활성화
+      shippingCost += p.shippingCost || 0;
       otherCost += (p.otherCost || 0) * qty;
     }
 
