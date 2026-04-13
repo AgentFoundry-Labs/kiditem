@@ -52,6 +52,10 @@ Shared Zod schemas between frontend and backend. `z.infer<>` for type inference.
 - `satisfies` pattern in services to detect Prisma-Shared type drift (e.g., `satisfies ProductListItem`)
 - Adding types: define Zod schema in `packages/shared/src/schemas/` → export in `index.ts` → `npm run build`
 
+### Agent OS Phase 3+4 (2026-04-13)
+
+8개 패턴 추가: Token Escalation (출력 자동 확장), Dynamic Cron (에이전트 자기 스케줄 설정), Permission Hierarchy (5-layer 퍼미션), Adapter Streaming (AsyncGenerator), Model Fallback (어댑터 체인), Smart Classifier (도구 분류), Selective Clearing (결과 요약/정리), Message Compression (컨텍스트 압축 인프라). 상세: `apps/server/src/agent-registry/CLAUDE.md`.
+
 ## Workflow vs Agent Boundary
 
 | | Workflow | Agent |

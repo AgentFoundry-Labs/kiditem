@@ -83,17 +83,151 @@ Execution failure
 
 Applied in two places: `heartbeat.service.ts:wakeAgent()` + `agent-registry.service.ts:run()`
 
+## Phase 3 Patterns (2026-04-13)
+
+### 6. Token Escalation (#21)
+
+출력이 `maxOutputTokens`에 잘리면 (stop_reason=max_tokens) 자동 2배 확장 후 재실행. 최대 65536, 1회만.
+
+- `AgentDefinition.maxOutputTokens` (default 16000)
+- `claude-local/execute.ts` — `--max-tokens` 플래그 전달
+- `heartbeat.service.ts` — truncation 감지 → escalated ctx 생성 → 재실행
+
+### 7. Dynamic Cron (#30)
+
+에이전트가 output에 `nextSchedule` 포함 → 해당 에이전트의 cron timer만 교체.
+
+- `heartbeat.service.ts:replaceAgentTimer()` — per-agent timer 교체 (syncTimers() 미호출, race-free)
+- `HeartbeatRun.nextSchedule` — 에이전트가 반환한 cron 문자열 기록
+- 공통 output 스키마에 `nextSchedule: z.string().optional()` 포함
+
+### 8. Permission Hierarchy (#8)
+
+5-layer 퍼미션 해석: global → company → agentType → instance → runtime.
+
+```
+permissions/hierarchy.validator.ts
+  resolvePermissions(layers) → { allowedTools, deniedSkills, permissionMode }
+  - deniedSkills: UNION (누적)
+  - allowedTools: INTERSECTION (교집합, 가장 제한적)
+  - permissionMode: 마지막 non-undefined 레이어 우선
+```
+
+`delegation/hierarchy.validator.ts`와는 별개 관심사 (delegation = "누가 누구에게 위임", permission = "어떤 도구 사용 가능").
+
+### 9. Adapter Streaming (#4)
+
+`AdapterModule.execute()` → `AsyncGenerator<StreamEvent, ExecutionResult>`.
+
+```
+adapters/types.ts
+  StreamEvent: { type: 'token_count' | 'content' | 'error', data: unknown }
+  collectResult(gen): Promise<ExecutionResult>  — 기존 호환 헬퍼
+```
+
+- `claude-local/execute.ts` — `--output-format stream-json`, 라인별 이벤트 yield
+- `python-http/execute.ts` — 단일 이벤트 yield (호환성)
+- Diminishing returns: 연속 3회 delta < 500 tokens → 조기 중단 (미래 연결)
+
+### 10. Model Fallback (#6)
+
+Adapter 실패 시 체인 순서대로 다음 adapter 시도.
+
+```
+adapters/fallback-chain.ts
+  executeFallbackChain(adapterTypes[], ctx, eventEmitter)
+  - 에러 계약: 첫 번째 adapter의 에러 타입 throw (3-strike cascade 호환)
+  - 성공 시 agent.fallback 이벤트 발행
+```
+
+- `AgentDefinition.fallbackChain` (String[], default ["claude_local"])
+- HeartbeatService의 4개 실행 경로 모두 fallback chain 경유
+
+### 11. Smart Classifier (#12)
+
+도구 접근 규칙 기반 분류. v1은 LLM 없이 규칙만.
+
+```
+permissions/classifier.ts
+  classifyToolRequest(tool, resolved) → 'allow' | 'deny'
+  filterTools(tools, resolved) → string[]
+  - deniedSkills 매칭 → deny (와일드카드 지원)
+  - allowedTools 화이트리스트 → 목록에 없으면 deny
+  - 빈 allowedTools → 전부 allow (permissive default)
+```
+
+`safety/skill-filter.service.ts:filterWithClassifier()` — 기존 필터 + classifier 통합.
+
+## Phase 4 Patterns (2026-04-13, 인프라만)
+
+### 12. Selective Result Clearing (#10)
+
+오래된 실행 결과를 규칙 기반 요약으로 압축, 스토리지 절감.
+
+```
+lifecycle/result-cleanup.service.ts
+  cleanupAgent(agentId, retentionDays) — retentionDays 초과 → 요약 생성 + excerpts null
+  cleanupAll() — 전체 에이전트 정리 (daily cron 연결 준비)
+  generateSummary(resultJson, errorCode) — 규칙 기반 (LLM 없음)
+```
+
+- `AgentDefinition.resultRetentionDays` (default 30)
+- `HeartbeatRun.isSummarized` + `summary` 필드
+
+### 13. Message Compression (#3, 인프라만)
+
+멀티턴 컨텍스트 압축. 실제 연결은 미래.
+
+```
+context-manager/compressor.service.ts
+  buildCompressedContext(agentId, maxTokens) → string
+  - Layer 1 (최근 3개): full resultJson
+  - Layer 2 (4~10번째): summary만
+  - Layer 3 (11+): 스킵
+  - Layer 4: 토큰 예산 내 truncation
+```
+
+- `AgentDefinition.contextStrategy` (default "single-shot", 미래 "multi-turn")
+- `ContextManagerModule` → agent-registry.module에 등록
+
+## Module Structure
+
+```
+adapters/
+  types.ts              — ExecutionContext, StreamEvent, AsyncGenerator, collectResult
+  registry.ts           — adapter Map + getFallbackChain()
+  fallback-chain.ts     — #6 fallback execution
+  claude-local/         — Claude CLI (stream-json)
+  python-http/          — HTTP adapter
+permissions/            — #8 + #12
+  hierarchy.validator.ts — 5-layer resolver
+  classifier.ts         — rule-based tool classifier
+  permissions.module.ts
+context-manager/        — #3
+  compressor.service.ts — 4-layer context compression
+  context-manager.module.ts
+lifecycle/              — #10 + retry + transcript
+  result-cleanup.service.ts — selective clearing
+  retry.service.ts
+  transcript.service.ts
+  lifecycle.module.ts
+```
+
 ## Modification Map
 
 | When modifying | Also check |
 |---|---|
-| `adapters/types.ts` (ExecutionContext fields) | `heartbeat.service.ts` (ctx assembly + freeze), `claude-local/execute.ts` (field usage) |
+| `adapters/types.ts` (ExecutionContext, StreamEvent) | `heartbeat.service.ts` (ctx assembly + freeze), 모든 adapter execute(), `fallback-chain.ts` |
 | `heartbeat.service.ts` (constructor) | `__tests__/heartbeat.service.spec.ts` (mock args), `agent-registry.module.ts` (providers) |
 | `seed-agents.ts` (agent type) | `schemas/agent-output-schemas.ts` (Zod schema + AGENT_OUTPUT_SCHEMAS map) |
 | `events/agent-events.ts` (events) | `events/agent-sse.service.ts` (@OnEvent), `apps/web/src/hooks/useAgentEvents.ts` |
 | `prisma/schema.prisma` (Agent-related) | `packages/shared/src/schemas/agent.ts`, run `npx prisma generate` |
 | `agent-registry.service.ts:run()` budget logic | `heartbeat.service.ts:wakeAgent()` (keep identical pattern) |
 | `agent-registry.service.ts:resumeAgent()` | Verify failCount reset code is preserved |
+| `permissions/hierarchy.validator.ts` | `heartbeat.service.ts` (resolvePermissions), `classifier.ts` |
+| `adapters/fallback-chain.ts` | `heartbeat.service.ts` (4개 실행 경로 모두 fallback chain 경유) |
+| `context-manager/compressor.service.ts` | `lifecycle/result-cleanup.service.ts` (summary 필드 의존) |
+| `lifecycle/result-cleanup.service.ts` | `heartbeat.service.ts:runDailyCleanup()` |
 
 ## Adding a New Agent
 

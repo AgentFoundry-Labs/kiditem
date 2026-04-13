@@ -489,12 +489,19 @@ erDiagram
         string role "manager|specialist"
         string status "idle|running|paused"
         int trustLevel "0-3"
+        int maxOutputTokens "#21 Token Escalation"
+        string[] fallbackChain "#6 Model Fallback"
+        int resultRetentionDays "#10 Selective Clearing"
+        string contextStrategy "#3 Message Compression"
     }
     HeartbeatRun {
         uuid id PK
         string status "queued|running|succeeded|failed"
         json resultJson "실행 결과"
         json usageJson "토큰 사용량"
+        string nextSchedule "#30 Dynamic Cron"
+        boolean isSummarized "#10 요약 완료 여부"
+        string summary "#10 규칙 기반 실행 요약"
     }
     AgentTask {
         uuid id PK

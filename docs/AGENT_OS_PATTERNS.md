@@ -40,10 +40,10 @@ Reference: https://bits-bytes-nn.github.io/insights/agentic-ai/2026/03/31/claude
 - **Action**: Apply Object.freeze to WorkflowContext step outputs. Each step gets immutable snapshot of previous state.
 - **Files**: `apps/server/src/workflows/context.ts`
 
-### #8 Permission Hierarchy (8-Source Priority)
+### #8 Permission Hierarchy (8-Source Priority) — Implemented (2026-04-13)
 - **Gap**: Single-level `allowedTools` + `permissionMode` strings, delegated to Claude CLI
 - **Action**: Multi-layer resolution: global defaults → company policy → agentType config → instance override → runtime extra. Server-side validation before CLI delegation.
-- **Files**: `adapters/types.ts`, `heartbeat.service.ts`, new `permissions/` module
+- **Files**: `permissions/hierarchy.validator.ts`
 
 ### #14 Coordinator Mode (Privilege Separation)
 - **Gap**: Manager orchestrates specialists but has same tool access (Bash, Read, etc.)
@@ -65,26 +65,24 @@ Reference: https://bits-bytes-nn.github.io/insights/agentic-ai/2026/03/31/claude
 - **Action**: Add `deniedSkills` field on AgentDefinition. Filter skill list before mounting. Prevent dangerous skill injection per agent type.
 - **Files**: `skills/skills.service.ts`, `seed-agents.ts`, schema
 
-### #30 Dynamic Agent Cron
+### #30 Dynamic Agent Cron — Implemented (2026-04-13)
 - **Gap**: Static `schedule` cron field on agent definition, manual sync
 - **Action**: Allow agents to create/modify their own schedules at runtime via structured output field `{ nextSchedule: "0 9 * * *" }`. Auto-sync on result reception.
-- **Files**: `heartbeat.service.ts`, `agent-registry.service.ts`, schema
+- **Files**: `heartbeat.service.ts:replaceAgentTimer()`
 
 ---
 
 ## New Implementation
 
-### #3 Four-Layer Message Compression
+### #3 Four-Layer Message Compression — Implemented (2026-04-13) (infrastructure only, not connected)
 - **Need**: Multi-turn agent conversations will exhaust context window
 - **Approach**: Add `contextStrategy` field on AgentDefinition: `single-shot` (current) / `multi-turn`. For multi-turn: excerpt old results → selective clear → summarize via AI → hard truncate.
-- **When**: Phase 4 (multi-turn transition)
-- **Files**: New `context-manager/` module in agent-registry
+- **Files**: `context-manager/compressor.service.ts`
 
-### #4 Diminishing Returns Detection
+### #4 Diminishing Returns Detection — Implemented (2026-04-13) (adapter AsyncGenerator)
 - **Need**: Prevent token waste when agent spins without progress
 - **Approach**: Switch to `--output-format stream-json`. Monitor token delta per continuation. Stop after 3 consecutive continuations producing < 500 tokens.
-- **When**: Phase 3
-- **Files**: `adapters/claude-local/execute.ts`, `heartbeat.service.ts`
+- **Files**: `adapters/types.ts` (AsyncGenerator), `adapters/claude-local/execute.ts`
 
 ### #5 Concurrent-Safe Parallel Execution
 - **Need**: Workflow DAG has independent branches that run sequentially
@@ -92,17 +90,15 @@ Reference: https://bits-bytes-nn.github.io/insights/agentic-ai/2026/03/31/claude
 - **When**: Phase 2
 - **Files**: `workflow-runner.service.ts`, `executors/types.ts`, `executors/catalog.ts`
 
-### #6 Model Fallback with Tombstoning
+### #6 Model Fallback with Tombstoning — Implemented (2026-04-13)
 - **Need**: Claude API outage shouldn't halt all agents
 - **Approach**: `AdapterModule` gets fallback chain: claude-local → gemini-api (new adapter) → manual-queue. On failure, create tombstone record marking abandoned run, switch to next adapter. Tombstone prevents duplicate execution on recovery.
-- **When**: Phase 3
-- **Files**: `adapters/registry.ts`, new `adapters/gemini-api/`, `heartbeat.service.ts`
+- **Files**: `adapters/fallback-chain.ts`
 
-### #10 Selective Result Clearing (Microcompact)
+### #10 Selective Result Clearing (Microcompact) — Implemented (2026-04-13)
 - **Need**: HeartbeatRun stdout excerpts accumulate without cleanup
 - **Approach**: Keep last N runs at full detail. Older runs: replace stdout with AI-generated summary (single sentence). Configurable retention per agent.
-- **When**: Phase 4 (multi-turn transition)
-- **Files**: New cleanup service, `heartbeat.service.ts`
+- **Files**: `lifecycle/result-cleanup.service.ts`
 
 ### #11 Tool Pool Ordering (Cache Stability)
 - **Need**: Skill list order changes invalidate Claude's prompt cache
@@ -110,11 +106,10 @@ Reference: https://bits-bytes-nn.github.io/insights/agentic-ai/2026/03/31/claude
 - **When**: Phase 1
 - **Files**: `skills/skills.service.ts`
 
-### #12 Transcript Classifier (Smart Permission)
+### #12 Transcript Classifier (Smart Permission) — Implemented (2026-04-13) (rule-based v1)
 - **Need**: Move beyond `bypassPermissions` to intelligent permission decisions
 - **Approach**: Per agent type, define `safeTools` whitelist. Tools outside whitelist → lightweight AI classifier judges safety. 3 consecutive rejections → escalate to human. Track all decisions.
-- **When**: Phase 3
-- **Files**: New `permissions/classifier.ts`, `adapters/types.ts`
+- **Files**: `permissions/classifier.ts`
 
 ### #13 Dangerous Pattern Detection
 - **Need**: Prevent dangerous tool configurations even if Claude CLI allows them
@@ -128,11 +123,10 @@ Reference: https://bits-bytes-nn.github.io/insights/agentic-ai/2026/03/31/claude
 - **When**: Phase 2
 - **Files**: `manager-workflow.service.ts`, `adapters/types.ts`, `heartbeat.service.ts`
 
-### #21 Max Output Tokens Escalation
+### #21 Max Output Tokens Escalation — Implemented (2026-04-13)
 - **Need**: Agent output truncation when response exceeds default limit
 - **Approach**: Add `maxOutputTokens` field on AgentDefinition (default 8192). On 413/overflow detection in adapter output, auto-escalate to 65536 and retry once. Pass `--max-tokens` to Claude CLI.
-- **When**: Phase 3
-- **Files**: `adapters/claude-local/execute.ts`, schema, `heartbeat.service.ts`
+- **Files**: `adapters/claude-local/execute.ts`, `heartbeat.service.ts`
 
 ### #22 Permission Denial Tracking
 - **Need**: Audit trail for agent permission decisions
@@ -178,7 +172,7 @@ Reference: https://bits-bytes-nn.github.io/insights/agentic-ai/2026/03/31/claude
 10. **#22** Permission denial tracking
 11. **#28** Skill deny rules
 
-### Phase 3 — Mid-term (architecture expansion)
+### Phase 3 — Mid-term (architecture expansion) — Implemented (2026-04-13)
 12. **#4** Diminishing returns detection
 13. **#6** Model fallback with tombstoning
 14. **#8** Multi-layer permission hierarchy
@@ -186,6 +180,6 @@ Reference: https://bits-bytes-nn.github.io/insights/agentic-ai/2026/03/31/claude
 16. **#21** Max output tokens escalation
 17. **#30** Dynamic agent cron
 
-### Phase 4 — Long-term (multi-turn transition)
+### Phase 4 — Long-term (multi-turn transition) — Implemented (2026-04-13)
 18. **#3** Four-layer message compression
 19. **#10** Selective result clearing (microcompact)

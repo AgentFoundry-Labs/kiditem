@@ -37,6 +37,19 @@ npm run db:studio     # DB browser (localhost:5555)
 - `AdSnapshot`: level(`campaign`|`product`|null)로 구분. null은 raw 스냅샷.
 - `Marketplace`: type(`agent`|`workflow`)으로 구분.
 
+## Phase 3+4 스키마 필드 (2026-04-13)
+
+AgentDefinition 추가 필드:
+- `maxOutputTokens Int @default(16000)` — #21 Token Escalation. 출력 잘림 시 자동 확장.
+- `fallbackChain String[] @default(["claude_local"])` — #6 Model Fallback. 어댑터 실패 시 체인 실행.
+- `resultRetentionDays Int @default(30)` — #10 Selective Clearing. 오래된 결과 요약 기한.
+- `contextStrategy String @default("single-shot")` — #3 Message Compression. 미래 멀티턴 전환용.
+
+HeartbeatRun 추가 필드:
+- `nextSchedule String?` — #30 Dynamic Cron. 에이전트가 설정한 다음 스케줄.
+- `isSummarized Boolean @default(false)` — #10 요약 완료 여부.
+- `summary String? @db.Text` — #10 규칙 기반 실행 요약.
+
 ## User Types
 
 `User.type` 필드로 사람과 AI를 통합 관리:

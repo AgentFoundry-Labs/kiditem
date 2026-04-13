@@ -40,6 +40,7 @@ Env: `.env.local` → `NEXT_PUBLIC_API_URL=http://localhost:4000`
 
 ### Styling
 - **Tailwind CSS** + `cn()` utility from `@/lib/utils` (clsx + tailwind-merge)
+- **금지**: `className={`...${condition}...`}` 템플릿 리터럴 조건부. 항상 `cn('base', condition && 'class')` 사용. (전체 마이그레이션 완료)
 - Light theme: `bg-white`, `bg-gray-50`, `border-gray-200`, `text-gray-900`
 - Table styles: defined in `globals.css` `@layer base`
 - Icons: **Lucide React** only (`import { Icon } from 'lucide-react'`). No other icon libraries.

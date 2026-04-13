@@ -34,6 +34,7 @@ extensions/          — Chrome extensions (product-scraper: 1688/Alibaba, coupa
 
 ## Reference (read when relevant)
 
+- [Design System](DESIGN.md) — 색상, 타이포, 스페이싱, 컴포넌트 패턴 (Tailwind + Lucide)
 - [ERD](.claude/docs/erd.md) — 도메인별 DB 모델 관계도 (63개 모델, 9개 도메인)
 - [Architecture](.claude/docs/architecture.md) — data flow, agent runtimes, @kiditem/shared, workflow vs agent boundary
 - [Commands & Environment](.claude/docs/commands.md) — quick start, dev commands, ports, env vars, tests
