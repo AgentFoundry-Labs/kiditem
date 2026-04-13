@@ -140,13 +140,13 @@ export default function ThumbnailEditorPage() {
           originalImageUrl={originalImageUrl}
           packagingImage={packagingImage}
           productImage={productImage}
-          composition={composition}
+          composition=""
           purpose={purpose}
           isPending={generateMutation.isPending}
           hasInput={hasInput}
           onPackagingChange={setPackagingImage}
           onProductImageChange={setProductImage}
-          onCompositionChange={setComposition}
+          onCompositionChange={() => {}}
           onPurposeChange={setPurpose}
           onGenerate={handleGenerate}
         />
