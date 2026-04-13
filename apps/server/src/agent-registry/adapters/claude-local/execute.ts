@@ -11,6 +11,7 @@ interface ParsedClaudeOutput {
   usage: { inputTokens: number; cachedInputTokens: number; outputTokens: number } | null;
   summary: string;
   resultJson: Record<string, unknown> | null;
+  stopReason: string | null;
 }
 
 function parseClaudeOutput(raw: string): ParsedClaudeOutput {
@@ -52,6 +53,7 @@ function parseClaudeOutput(raw: string): ParsedClaudeOutput {
       },
       summary: parsed.result || '',
       resultJson: parsed,
+      stopReason: parsed.stop_reason || null,
     };
   }
 
@@ -59,11 +61,11 @@ function parseClaudeOutput(raw: string): ParsedClaudeOutput {
   const match = raw.match(/```json\n([\s\S]*?)\n```/);
   if (match) {
     try {
-      return { sessionId: null, model: null, costUsd: null, usage: null, summary: '', resultJson: JSON.parse(match[1]) };
+      return { sessionId: null, model: null, costUsd: null, usage: null, summary: '', resultJson: JSON.parse(match[1]), stopReason: null };
     } catch { /* ignore */ }
   }
 
-  return { sessionId: null, model: null, costUsd: null, usage: null, summary: raw.slice(0, 2000), resultJson: null };
+  return { sessionId: null, model: null, costUsd: null, usage: null, summary: raw.slice(0, 2000), resultJson: null, stopReason: null };
 }
 
 async function execute(ctx: ExecutionContext): Promise<ExecutionResult> {
@@ -79,6 +81,7 @@ async function execute(ctx: ExecutionContext): Promise<ExecutionResult> {
     '--output-format', 'json',
     '--allowedTools', ctx.allowedTools,
     '--permission-mode', ctx.permissionMode,
+    '--max-tokens', String(ctx.maxOutputTokens),
     ...extraArgs,
   ];
 
@@ -153,6 +156,7 @@ async function execute(ctx: ExecutionContext): Promise<ExecutionResult> {
           outputTokens: parsed.usage.outputTokens,
           costCents: parsed.costUsd ? Math.round(parsed.costUsd * 100) : undefined,
         } : undefined,
+        stopReason: parsed.stopReason ?? undefined,
       });
     });
 

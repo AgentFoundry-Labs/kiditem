@@ -226,6 +226,7 @@ export class HeartbeatService {
       cwd: (adapterConfig.cwd as string) || process.cwd(),
       allowedTools: agent.allowedTools,
       permissionMode: agent.permissionMode,
+      maxOutputTokens: agent.maxOutputTokens ?? 16000,
     });
 
     this.logger.log(`Heartbeat starting: ${agent.name} (run=${run.id})`);
@@ -243,6 +244,18 @@ export class HeartbeatService {
           config: Object.freeze({ ...ctx.config, _skipSessionResume: true }),
         });
         result = await adapter.execute(retryCtx);
+      }
+
+      // Token escalation — output truncated → retry with doubled maxOutputTokens (max 1 retry)
+      const MAX_OUTPUT_TOKENS_LIMIT = 65536;
+      if (result.stopReason === 'max_tokens' && ctx.maxOutputTokens < MAX_OUTPUT_TOKENS_LIMIT) {
+        const escalatedTokens = Math.min(ctx.maxOutputTokens * 2, MAX_OUTPUT_TOKENS_LIMIT);
+        this.logger.warn(`Token escalation for ${agent.name}: ${ctx.maxOutputTokens} → ${escalatedTokens}`);
+        const escalatedCtx: ExecutionContext = Object.freeze({
+          ...ctx,
+          maxOutputTokens: escalatedTokens,
+        });
+        result = await adapter.execute(escalatedCtx);
       }
     } catch (err: any) {
       result = {

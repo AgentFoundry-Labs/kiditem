@@ -24,6 +24,7 @@ export interface ExecutionContext {
   readonly cwd: string;
   readonly allowedTools: string;
   readonly permissionMode: string;
+  readonly maxOutputTokens: number;
 }
 
 export interface UsageSummary {
@@ -40,6 +41,7 @@ export interface ExecutionResult {
   stderr: string;
   sessionIdAfter?: string;
   usage?: UsageSummary;
+  stopReason?: string;
 }
 
 export interface EnvironmentTestResult {
