@@ -3,7 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { kstDayStart } from '../common/kst';
 import { resolvePricing } from '../common/master-product-resolver';
 import type { DashboardSummary, DashboardTrendItem } from '@kiditem/shared';
-import type { DateRangeContext, AdMetricsSnapshot } from './types';
+import type { DateRangeContext, AdMetricsSnapshot, WingMonthlyData, EffectiveMetrics } from './types';
 
 @Injectable()
 export class DashboardService {
@@ -245,79 +245,17 @@ export class DashboardService {
 
       // Wing 월 집계 데이터 — 익스텐션이 Wing 매출분석 페이지에서 보내는
       // summary/adSummary를 당월 대시보드의 단일 출처로 사용.
-      // 매 동기화마다 가장 최신 스냅샷으로 덮어쓰므로 자동 업데이트.
-      // 최근 스냅샷 중 실제 summary/adSummary가 담긴 것만 채택.
-      // 빈 traffic sync가 섞여도 유의미한 값으로 복원됨.
-      const wingCandidates = await this.prisma.adSnapshot.findMany({
-        where: {
-          source: 'wing',
-          pageType: 'dashboard_kpi',
-          capturedAt: { gte: monthStart },
-        },
-        orderBy: { capturedAt: 'desc' },
-        take: 20,
-        select: { rawJson: true, capturedAt: true },
-      });
-      const wingMonthlySnapshot = wingCandidates.find((s) => {
-        const raw = (s.rawJson as Record<string, unknown>) || {};
-        return raw.summary != null || raw.adSummary != null;
-      }) ?? null;
-      const wingMonthly = (() => {
-        if (!wingMonthlySnapshot?.rawJson) return null;
-        const raw = wingMonthlySnapshot.rawJson as Record<string, unknown>;
-        const summary = (raw.summary as Record<string, unknown>) || null;
-        const adSummary = (raw.adSummary as Record<string, unknown>) || null;
-        if (!summary && !adSummary) return null;
-        const num = (v: unknown) => {
-          const n = Number(String(v ?? '').replace(/,/g, ''));
-          return Number.isFinite(n) ? n : 0;
-        };
-        return {
-          revenue: summary ? num(summary.revenue) : 0,
-          orders: summary ? num(summary.orders) : 0,
-          visitors: summary ? num(summary.visitors) : 0,
-          views: summary ? num(summary.views) : 0,
-          cartAdds: summary ? num(summary.cartAdds) : 0,
-          salesQty: summary ? num(summary.salesQty) : 0,
-          conversionRate: summary ? num(summary.conversionRate) : 0,
-          adSpend: adSummary ? num(adSummary.adSpend) : 0,
-          adGmv: adSummary ? num(adSummary.adGmv) : 0,
-          adRoas: adSummary ? num(adSummary.roas) : 0,
-          startDate: (raw.startDate as string) || null,
-          endDate: (raw.endDate as string) || null,
-          capturedAt: wingMonthlySnapshot.capturedAt,
-          rawAdSummary: adSummary,
-        };
-      })();
+      const wingMonthly = await this.fetchWingMonthly(monthStart);
 
       // Wing 월 데이터가 있으면 매출/광고비는 Wing 값을 단일 출처로 사용.
       // 원가/배송비/커미션은 product 기준 계산값 유지 (Wing은 이 정보 없음).
-      const effectiveMonthlyRevenue = wingMonthly?.revenue
-        ? wingMonthly.revenue
-        : curMonthProfit.revenue;
-      const effectiveMonthlyAdCost = wingMonthly?.adSpend
-        ? wingMonthly.adSpend
-        : curMonthProfit.adCost;
-      const effectiveMonthlyAdRevenue = wingMonthly?.adGmv
-        ? wingMonthly.adGmv
-        : curMonthProfit.adRevenue;
-      const effectiveMonthlyOrderCount = wingMonthly?.orders
-        ? wingMonthly.orders
-        : curMonthProfit.orderCount;
-      const effectiveMonthlyNetProfit = wingMonthly
-        ? effectiveMonthlyRevenue -
-          curMonthProfit.costOfGoods -
-          curMonthProfit.commission -
-          curMonthProfit.shippingCost -
-          effectiveMonthlyAdCost -
-          curMonthProfit.otherCost
-        : curMonthProfit.netProfit;
-      const effectiveMonthlyAdRate =
-        effectiveMonthlyRevenue > 0
-          ? Math.round(
-              (effectiveMonthlyAdCost / effectiveMonthlyRevenue) * 1000,
-            ) / 10
-          : 0;
+      const effective = this.computeEffectiveMetrics(wingMonthly, curMonthProfit);
+      const effectiveMonthlyRevenue = effective.revenue;
+      const effectiveMonthlyAdCost = effective.adCost;
+      const effectiveMonthlyAdRevenue = effective.adRevenue;
+      const effectiveMonthlyOrderCount = effective.orderCount;
+      const effectiveMonthlyNetProfit = effective.netProfit;
+      const effectiveMonthlyAdRate = effective.adRate;
 
       // profitDetail 구성 (Wing 매출/광고비 override, 원가류는 calculateProfitForRange 유지)
       const profitDetail = {
@@ -819,6 +757,87 @@ export class DashboardService {
         adCost: adMap.get(r.date) ?? 0,
       } satisfies DashboardTrendItem;
     });
+  }
+
+  /**
+   * Wing 월 집계 스냅샷을 조회하고 WingMonthlyData로 파싱.
+   * 최근 20개 후보 중 summary 또는 adSummary가 있는 가장 최신 것을 사용.
+   * 빈 traffic sync가 섞여도 유의미한 값으로 복원됨.
+   */
+  private async fetchWingMonthly(monthStart: Date): Promise<WingMonthlyData | null> {
+    const wingCandidates = await this.prisma.adSnapshot.findMany({
+      where: {
+        source: 'wing',
+        pageType: 'dashboard_kpi',
+        capturedAt: { gte: monthStart },
+      },
+      orderBy: { capturedAt: 'desc' },
+      take: 20,
+      select: { rawJson: true, capturedAt: true },
+    });
+    const wingMonthlySnapshot = wingCandidates.find((s) => {
+      const raw = (s.rawJson as Record<string, unknown>) || {};
+      return raw.summary != null || raw.adSummary != null;
+    }) ?? null;
+    if (!wingMonthlySnapshot?.rawJson) return null;
+    const raw = wingMonthlySnapshot.rawJson as Record<string, unknown>;
+    const summary = (raw.summary as Record<string, unknown>) || null;
+    const adSummary = (raw.adSummary as Record<string, unknown>) || null;
+    if (!summary && !adSummary) return null;
+    const num = (v: unknown) => {
+      const n = Number(String(v ?? '').replace(/,/g, ''));
+      return Number.isFinite(n) ? n : 0;
+    };
+    return {
+      revenue: summary ? num(summary.revenue) : 0,
+      orders: summary ? num(summary.orders) : 0,
+      visitors: summary ? num(summary.visitors) : 0,
+      views: summary ? num(summary.views) : 0,
+      cartAdds: summary ? num(summary.cartAdds) : 0,
+      salesQty: summary ? num(summary.salesQty) : 0,
+      conversionRate: summary ? num(summary.conversionRate) : 0,
+      adSpend: adSummary ? num(adSummary.adSpend) : 0,
+      adGmv: adSummary ? num(adSummary.adGmv) : 0,
+      adRoas: adSummary ? num(adSummary.roas) : 0,
+      startDate: (raw.startDate as string) || null,
+      endDate: (raw.endDate as string) || null,
+      capturedAt: wingMonthlySnapshot.capturedAt,
+      rawAdSummary: adSummary,
+    };
+  }
+
+  /**
+   * Wing 월 데이터(있으면)로 당월 유효 메트릭을 계산.
+   * 매출/광고비는 Wing 단일 출처, 원가류는 calculateProfitForRange 결과 유지.
+   */
+  private computeEffectiveMetrics(
+    wingMonthly: WingMonthlyData | null,
+    curMonthProfit: {
+      revenue: number;
+      adCost: number;
+      adRevenue: number;
+      orderCount: number;
+      costOfGoods: number;
+      commission: number;
+      shippingCost: number;
+      otherCost: number;
+      netProfit: number;
+    },
+  ): EffectiveMetrics {
+    const revenue = wingMonthly?.revenue ? wingMonthly.revenue : curMonthProfit.revenue;
+    const adCost = wingMonthly?.adSpend ? wingMonthly.adSpend : curMonthProfit.adCost;
+    const adRevenue = wingMonthly?.adGmv ? wingMonthly.adGmv : curMonthProfit.adRevenue;
+    const orderCount = wingMonthly?.orders ? wingMonthly.orders : curMonthProfit.orderCount;
+    const netProfit = wingMonthly
+      ? revenue -
+        curMonthProfit.costOfGoods -
+        curMonthProfit.commission -
+        curMonthProfit.shippingCost -
+        adCost -
+        curMonthProfit.otherCost
+      : curMonthProfit.netProfit;
+    const adRate = revenue > 0 ? Math.round((adCost / revenue) * 1000) / 10 : 0;
+    return { revenue, adCost, adRevenue, orderCount, netProfit, adRate };
   }
 
   /**

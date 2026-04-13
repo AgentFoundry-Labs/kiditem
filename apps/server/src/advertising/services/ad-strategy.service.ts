@@ -713,36 +713,11 @@ export class AdStrategyService {
         ? Math.round(((p.sellPrice - p.costPrice - (p.shippingCost || 0) - (p.sellPrice * commRate / 100)) / p.sellPrice) * 100)
         : 0;
 
-      // ── 판매 실적 (0~100) ──
-      const t14Pct = maxT14 > 0 ? (t14Rev / maxT14) * 60 : 0;
-      const growthScore = t14PrevRev > 0
-        ? t14Rev / t14PrevRev > 1.1 ? 20 : t14Rev / t14PrevRev >= 1.0 ? 10 : 0
-        : t14Rev > 0 ? 10 : 0;
-      const orderScore = t14Orders > 0 ? 20 : 0;
-      const salesScore = Math.min(100, Math.round(t14Pct + growthScore + orderScore));
-
-      // ── 리뷰 활성도 (0~100) ──
-      const totalRevScore = totalReviews >= 50 ? 40 : totalReviews >= 20 ? 30 : totalReviews >= 10 ? 20 : totalReviews >= 1 ? 10 : 0;
-      const recentRevScore = recentReviews >= 10 ? 40 : recentReviews >= 5 ? 25 : recentReviews >= 1 ? 10 : 0;
-      const ratingScore = avgRating > 0 ? Math.round((avgRating / 5) * 20) : 0;
-      const reviewScore = Math.min(100, totalRevScore + recentRevScore + ratingScore);
-
-      // ── 광고 효율 (0~100) ──
-      const roasScore = roas >= 650 ? 40 : roas >= 400 ? 30 : roas >= 200 ? 20 : roas >= 100 ? 10 : 0;
-      const ctrScore = ctr >= 0.5 ? 30 : ctr >= 0.3 ? 20 : ctr >= 0.1 ? 10 : 0;
-      const cvrScore = cvr >= 5 ? 30 : cvr >= 3 ? 20 : cvr >= 1 ? 10 : 0;
-      const adScore = spend === 0 ? 50 : Math.min(100, roasScore + ctrScore + cvrScore); // 광고 없으면 중립 50
-
-      // ── 가격·출고 (0~100) ──
-      const leadScore = leadTime === 0 ? 40 : leadTime === 1 ? 35 : leadTime === 2 ? 25 : leadTime != null ? 10 : 20;
-      const stockScore = stock > 50 ? 30 : stock >= 10 ? 20 : stock >= 1 ? 10 : 0;
-      const profitScore = profitRate > 10 ? 30 : profitRate >= 5 ? 20 : profitRate >= 0 ? 10 : 0;
-      const fulfillmentScore = Math.min(100, leadScore + stockScore + profitScore);
-
-      // ── 상품 정보 (0~100) ──
-      const healthScore = Math.min(80, p.healthScore || 0);
-      const adTierBonus = p.adTier ? 20 : 0;
-      const infoScore = Math.min(100, healthScore + adTierBonus);
+      const salesScore = this.calculateSalesScore({ maxT14, t14Rev, t14PrevRev, t14Orders });
+      const reviewScore = this.calculateReviewScore({ totalReviews, recentReviews, avgRating });
+      const adScore = this.calculateAdScore({ spend, roas, ctr, cvr });
+      const fulfillmentScore = this.calculateFulfillmentScore({ leadTime: leadTime ?? null, stock, profitRate });
+      const infoScore = this.calculateInfoScore({ healthScore: p.healthScore ?? null, adTier: p.adTier ?? null });
 
       // ── 종합 점수 (가중 평균) ──
       const totalScore = Math.round(
@@ -753,35 +728,10 @@ export class AdStrategyService {
         infoScore * 0.10,
       );
 
-      // ── 최우선 개선과제 ──
-      const factors = [
-        { key: 'sales', score: salesScore, label: '판매실적', actions: [
-          t14Orders === 0 ? '판매 실적 없음 — 광고 시작 또는 가격 인하 검토' : '',
-          t14Rev < maxT14 * 0.1 ? '매출 하위권 — 핵심 키워드 집중 필요' : '',
-        ].filter(Boolean) },
-        { key: 'review', score: reviewScore, label: '리뷰활성도', actions: [
-          recentReviews === 0 ? '최근 30일 리뷰 0 — 구매자 리뷰 요청 필요' : '',
-          recentReviews < 10 && recentReviews > 0 ? `최근 리뷰 ${recentReviews}개 — 월 10개 목표 미달` : '',
-          totalReviews === 0 ? '리뷰 없음 — 초기 리뷰 확보 필요' : '',
-        ].filter(Boolean) },
-        { key: 'ad', score: adScore, label: '광고효율', actions: [
-          stock === 0 && spend > 0 ? '재고 0 광고 ON — 즉시 중단' : '',
-          roas < 200 && spend > 0 ? `ROAS ${roas}% — 입찰가 또는 키워드 조정 필요` : '',
-          ctr < 0.1 && impressions > 100 ? `CTR ${ctr}% — 썸네일/제목 개선 필요` : '',
-        ].filter(Boolean) },
-        { key: 'fulfillment', score: fulfillmentScore, label: '가격·출고', actions: [
-          stock === 0 ? '재고 0 — 즉시 재입고 필요' : '',
-          (leadTime ?? 3) >= 3 ? `출고 ${leadTime ?? '?'}일 — 리드타임 단축 검토` : '',
-          profitRate < 0 ? '이익률 마이너스 — 가격 또는 원가 재검토' : '',
-        ].filter(Boolean) },
-        { key: 'info', score: infoScore, label: '상품정보', actions: [
-          !p.adTier ? '광고 등급 미설정 — adTier 배정 필요' : '',
-          (p.healthScore || 0) < 50 ? `헬스점수 ${p.healthScore || 0}점 — 상품 정보 보완 필요` : '',
-        ].filter(Boolean) },
-      ].sort((a, b) => a.score - b.score);
-
-      const worst = factors[0];
-      const topIssue = worst.actions[0] || `${worst.label} 점수 낮음 (${worst.score}점)`;
+      const { topIssue, topIssueFactor } = this.determineTopIssue(
+        { salesScore, reviewScore, adScore, fulfillmentScore, infoScore },
+        { t14Orders, t14Rev, maxT14, recentReviews, totalReviews, stock, spend, roas, ctr, impressions, leadTime: leadTime ?? null, profitRate, healthScore: p.healthScore ?? null, adTier: p.adTier ?? null },
+      );
 
       return {
         productId: p.id,
@@ -794,7 +744,7 @@ export class AdStrategyService {
         fulfillment: fulfillmentScore,
         info: infoScore,
         topIssue,
-        topIssueFactor: worst.key,
+        topIssueFactor,
       };
     });
 
@@ -881,6 +831,86 @@ export class AdStrategyService {
       urgentActions: urgentActions.slice(0, 30),
       totalProducts: products.length,
     } satisfies ExposureAnalysisData;
+  }
+
+  private calculateSalesScore(params: { maxT14: number; t14Rev: number; t14PrevRev: number; t14Orders: number }): number {
+    const { maxT14, t14Rev, t14PrevRev, t14Orders } = params;
+    const t14Pct = maxT14 > 0 ? (t14Rev / maxT14) * 60 : 0;
+    const growthScore = t14PrevRev > 0
+      ? t14Rev / t14PrevRev > 1.1 ? 20 : t14Rev / t14PrevRev >= 1.0 ? 10 : 0
+      : t14Rev > 0 ? 10 : 0;
+    const orderScore = t14Orders > 0 ? 20 : 0;
+    return Math.min(100, Math.round(t14Pct + growthScore + orderScore));
+  }
+
+  private calculateReviewScore(params: { totalReviews: number; recentReviews: number; avgRating: number }): number {
+    const { totalReviews, recentReviews, avgRating } = params;
+    const totalRevScore = totalReviews >= 50 ? 40 : totalReviews >= 20 ? 30 : totalReviews >= 10 ? 20 : totalReviews >= 1 ? 10 : 0;
+    const recentRevScore = recentReviews >= 10 ? 40 : recentReviews >= 5 ? 25 : recentReviews >= 1 ? 10 : 0;
+    const ratingScore = avgRating > 0 ? Math.round((avgRating / 5) * 20) : 0;
+    return Math.min(100, totalRevScore + recentRevScore + ratingScore);
+  }
+
+  private calculateAdScore(params: { spend: number; roas: number; ctr: number; cvr: number }): number {
+    const { spend, roas, ctr, cvr } = params;
+    if (spend === 0) return 50; // 광고 없으면 중립 50
+    const roasScore = roas >= 650 ? 40 : roas >= 400 ? 30 : roas >= 200 ? 20 : roas >= 100 ? 10 : 0;
+    const ctrScore = ctr >= 0.5 ? 30 : ctr >= 0.3 ? 20 : ctr >= 0.1 ? 10 : 0;
+    const cvrScore = cvr >= 5 ? 30 : cvr >= 3 ? 20 : cvr >= 1 ? 10 : 0;
+    return Math.min(100, roasScore + ctrScore + cvrScore);
+  }
+
+  private calculateFulfillmentScore(params: { leadTime: number | null; stock: number; profitRate: number }): number {
+    const { leadTime, stock, profitRate } = params;
+    const leadScore = leadTime === 0 ? 40 : leadTime === 1 ? 35 : leadTime === 2 ? 25 : leadTime != null ? 10 : 20;
+    const stockScore = stock > 50 ? 30 : stock >= 10 ? 20 : stock >= 1 ? 10 : 0;
+    const profitScore = profitRate > 10 ? 30 : profitRate >= 5 ? 20 : profitRate >= 0 ? 10 : 0;
+    return Math.min(100, leadScore + stockScore + profitScore);
+  }
+
+  private calculateInfoScore(params: { healthScore: number | null; adTier: string | null }): number {
+    const { healthScore, adTier } = params;
+    const hs = Math.min(80, healthScore || 0);
+    const adTierBonus = adTier ? 20 : 0;
+    return Math.min(100, hs + adTierBonus);
+  }
+
+  private determineTopIssue(
+    scores: { salesScore: number; reviewScore: number; adScore: number; fulfillmentScore: number; infoScore: number },
+    context: { t14Orders: number; t14Rev: number; maxT14: number; recentReviews: number; totalReviews: number; stock: number; spend: number; roas: number; ctr: number; impressions: number; leadTime: number | null; profitRate: number; healthScore: number | null; adTier: string | null },
+  ): { topIssue: string; topIssueFactor: string } {
+    const { salesScore, reviewScore, adScore, fulfillmentScore, infoScore } = scores;
+    const { t14Orders, t14Rev, maxT14, recentReviews, totalReviews, stock, spend, roas, ctr, impressions, leadTime, profitRate, healthScore, adTier } = context;
+    const factors = [
+      { key: 'sales', score: salesScore, label: '판매실적', actions: [
+        t14Orders === 0 ? '판매 실적 없음 — 광고 시작 또는 가격 인하 검토' : '',
+        t14Rev < maxT14 * 0.1 ? '매출 하위권 — 핵심 키워드 집중 필요' : '',
+      ].filter(Boolean) },
+      { key: 'review', score: reviewScore, label: '리뷰활성도', actions: [
+        recentReviews === 0 ? '최근 30일 리뷰 0 — 구매자 리뷰 요청 필요' : '',
+        recentReviews < 10 && recentReviews > 0 ? `최근 리뷰 ${recentReviews}개 — 월 10개 목표 미달` : '',
+        totalReviews === 0 ? '리뷰 없음 — 초기 리뷰 확보 필요' : '',
+      ].filter(Boolean) },
+      { key: 'ad', score: adScore, label: '광고효율', actions: [
+        stock === 0 && spend > 0 ? '재고 0 광고 ON — 즉시 중단' : '',
+        roas < 200 && spend > 0 ? `ROAS ${roas}% — 입찰가 또는 키워드 조정 필요` : '',
+        ctr < 0.1 && impressions > 100 ? `CTR ${ctr}% — 썸네일/제목 개선 필요` : '',
+      ].filter(Boolean) },
+      { key: 'fulfillment', score: fulfillmentScore, label: '가격·출고', actions: [
+        stock === 0 ? '재고 0 — 즉시 재입고 필요' : '',
+        (leadTime ?? 3) >= 3 ? `출고 ${leadTime ?? '?'}일 — 리드타임 단축 검토` : '',
+        profitRate < 0 ? '이익률 마이너스 — 가격 또는 원가 재검토' : '',
+      ].filter(Boolean) },
+      { key: 'info', score: infoScore, label: '상품정보', actions: [
+        !adTier ? '광고 등급 미설정 — adTier 배정 필요' : '',
+        (healthScore || 0) < 50 ? `헬스점수 ${healthScore || 0}점 — 상품 정보 보완 필요` : '',
+      ].filter(Boolean) },
+    ].sort((a, b) => a.score - b.score);
+    const worst = factors[0];
+    return {
+      topIssue: worst.actions[0] || `${worst.label} 점수 낮음 (${worst.score}점)`,
+      topIssueFactor: worst.key,
+    };
   }
 
   async registerCampaign(dto: import('../dto/register-campaign.dto').RegisterCampaignDto) {
