@@ -14,10 +14,16 @@ import { TraceListQueryDto, TraceParamsDto, TraceQueryDto } from './dto';
  * - Phase 0.3: `@Throttle` 로 관측 계열 burst 제한 (30 req/min).
  *
  * 라우트:
- *   GET /api/agent-registry/tasks              — task 목록 (필터 + pagination)
- *   GET /api/agent-registry/tasks/:id/trace    — 단일 trace (task → wakeup → run → event)
+ *   GET /api/agent-trace              — task 목록 (필터 + pagination)
+ *   GET /api/agent-trace/:id          — 단일 trace (task → wakeup → run → event)
+ *
+ * Prefix 변천:
+ *   v1: `agent-registry/tasks` — AgentRegistryController `:id` 가 `tasks` 를
+ *       UUID 로 파싱 시도해 500.
+ *   v2: `agent-tasks` — companies/agent-tasks.controller.ts 가 동일 prefix 선점.
+ *   v3: `agent-trace` — 독립 resource, 충돌 없음.
  */
-@Controller('agent-registry/tasks')
+@Controller('agent-trace')
 @Roles('owner', 'admin')
 export class AgentTraceController {
   constructor(private readonly svc: AgentTraceService) {}
@@ -31,7 +37,7 @@ export class AgentTraceController {
     return this.svc.listTasks(companyId, q);
   }
 
-  @Get(':id/trace')
+  @Get(':id')
   @Throttle({ default: { limit: 30, ttl: 60_000 } })
   trace(
     @Param() params: TraceParamsDto,

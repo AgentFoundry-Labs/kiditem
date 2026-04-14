@@ -1,8 +1,22 @@
 import { API_BASE } from './api';
 import { ApiError } from './api-error';
 
+// Dev 전용 — DevAuthMiddleware(ADR-0006)가 x-dev-user-id 헤더로 req.authUser 를 채움.
+// 프로덕션 인증 전환 시 실제 토큰 로직으로 교체. EventSource 는 헤더를 못 보내서
+// SSE URL 만 `?devUserId=` 쿼리로 대체.
+const DEV_USER_ID = process.env.NEXT_PUBLIC_DEV_USER_ID;
+
+function withAuthHeaders(init?: RequestInit): RequestInit | undefined {
+  if (!DEV_USER_ID) return init;
+  const headers = new Headers(init?.headers);
+  if (!headers.has('x-dev-user-id')) {
+    headers.set('x-dev-user-id', DEV_USER_ID);
+  }
+  return { ...init, headers };
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, init);
+  const res = await fetch(`${API_BASE}${path}`, withAuthHeaders(init));
   if (!res.ok) {
     let code: string | null = null;
     let detail = `API error: ${res.status}`;
@@ -44,5 +58,5 @@ export const apiClient = {
     request<T>(path, { method: 'POST', body: formData }),
   /** Response 객체 직접 반환 (blob, stream 등 non-JSON 응답용) */
   fetchRaw: (path: string, init?: RequestInit): Promise<Response> =>
-    fetch(`${API_BASE}${path}`, init),
+    fetch(`${API_BASE}${path}`, withAuthHeaders(init)),
 };

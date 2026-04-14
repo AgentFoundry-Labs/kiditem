@@ -56,7 +56,7 @@ export const agentApi = {
  * AgentTrace 상세. 서버 ↔ FE DTO 드리프트 발생 시 즉시 throw (ADR-0002).
  */
 export async function fetchAgentTrace(taskId: string): Promise<AgentTrace> {
-  const raw = await apiClient.get<unknown>(`/api/agent-registry/tasks/${taskId}/trace`);
+  const raw = await apiClient.get<unknown>(`/api/agent-trace/${taskId}`);
   const parsed = AgentTraceSchema.safeParse(raw);
   if (!parsed.success) {
     throw new Error(`AgentTraceSchema drift: ${parsed.error.message}`);
@@ -80,7 +80,7 @@ export async function fetchAgentTasksList(params: {
     if (v !== undefined && v !== '') query.set(k, String(v));
   });
   const qs = query.toString();
-  const raw = await apiClient.get<unknown>(`/api/agent-registry/tasks${qs ? `?${qs}` : ''}`);
+  const raw = await apiClient.get<unknown>(`/api/agent-trace${qs ? `?${qs}` : ''}`);
   const parsed = AgentTaskListResponseSchema.safeParse(raw);
   if (!parsed.success) {
     throw new Error(`AgentTaskListResponseSchema drift: ${parsed.error.message}`);
