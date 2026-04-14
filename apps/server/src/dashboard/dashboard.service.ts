@@ -480,19 +480,24 @@ export class DashboardService {
         }
       }
 
+      const tkVisitors = trafficAgg._sum.visitors ?? 0;
+      const tkOrders = trafficAgg._sum.orders ?? 0;
+      const tkConversionRate = tkVisitors > 0 ? Math.round((tkOrders / tkVisitors) * 1000) / 10 : 0;
+
       const trafficKpi = {
-        visitors: trafficAgg._sum.visitors ?? 0,
+        visitors: tkVisitors,
         views: trafficAgg._sum.views ?? 0,
-        orders: trafficAgg._sum.orders ?? 0,
+        orders: tkOrders,
         salesQty: trafficAgg._sum.salesQty ?? 0,
         revenue: trafficAgg._sum.revenue ?? 0,
         cartAdds: trafficAgg._sum.cartAdds ?? 0,
+        conversionRate: tkConversionRate,
         adSummary: wingAdSummaryRaw,
         source: 'aggregate' as const,
         netProfit: trafficNetProfit,
         profitRate: trafficProfitRate,
         costCoverage: trafficCostCoverage,
-        needsScrape: (trafficAgg._sum.visitors ?? 0) === 0 && (trafficAgg._sum.revenue ?? 0) === 0,
+        needsScrape: tkVisitors === 0 && (trafficAgg._sum.revenue ?? 0) === 0,
       };
 
       // adKpi 구성

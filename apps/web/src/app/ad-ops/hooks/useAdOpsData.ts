@@ -72,7 +72,8 @@ export type RegisterCampaignPayload = {
 
 export function useAdOpsData(period: string, tab: string) {
   const days = period === 'month' ? new Date().getDate() : period === '14d' ? 14 : 7;
-  const campPeriod = period === 'month' ? '30d' : period;
+  // DB에는 7d/30d 스냅샷만 존재 — 14d 선택 시 7d 스냅샷으로 폴백
+  const campPeriod = period === 'month' ? '30d' : period === '14d' ? '7d' : period;
   const trafficDays = days;
 
   const campaigns = useQuery({

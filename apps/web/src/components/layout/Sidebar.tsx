@@ -65,9 +65,9 @@ const menuSections: MenuSection[] = [
     collapsible: false,
     items: [
       { href: '/', label: '대시보드', icon: LayoutDashboard },
-      { href: '/action-board', label: '액션 보드', icon: ClipboardList },
-      { href: '/ad-ops', label: 'AI 광고 전략', icon: Zap },
+      { href: '/ad-ops', label: '광고전략 AI', icon: Zap },
       { href: '/thumbnails', label: '썸네일 AI', icon: ImageIcon },
+      { href: '/action-board', label: '액션 보드', icon: ClipboardList },
     ],
   },
   {

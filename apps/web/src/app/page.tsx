@@ -6,11 +6,11 @@ import Link from 'next/link';
 import {
   TrendingUp, TrendingDown, Minus,
   AlertTriangle, MinusCircle, Megaphone, Truck,
-  Zap,
+  Zap, Play, Loader2,
   BarChart3, Target, ShieldCheck, Wallet,
   ShoppingCart, X, Calendar,
 } from 'lucide-react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import dynamic from 'next/dynamic';
 import { toast } from 'sonner';
 import { apiClient } from '@/lib/api-client';
@@ -22,6 +22,7 @@ const DashboardCharts = dynamic(
 );
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatKRW, formatNumber, formatPercent, formatDateTime, getGradeColor, getProfitColor } from '@/lib/utils';
+import AgentFace from '@/components/AgentFace';
 import type { DashboardSummary, DashboardTrendItem } from '@kiditem/shared';
 import type { ActionTask } from '@kiditem/shared';
 
@@ -120,8 +121,9 @@ export default function Dashboard() {
   const rangeLabel = rk ? rangeLabelMap[rk.range] ?? '월' : '월';
 
   const trafficKpi = (displayData ?? data).trafficKpi;
-  // For week/day: use trafficKpi when orders-based rangeKpi shows 0 revenue
-  const useTrafficSource = (kpiRange === 'week' || kpiRange === 'day') && !(rk?.revenue);
+  // trafficKpi(Wing traffic_stats 기반) 우선 사용 — rangeKpi(Order 기반)는 주문 확정분만
+  // 포함해 Wing 매출 대비 적게 잡힘. 월/주/일 전부 동일 규칙, trafficKpi 없으면 rangeKpi 폴백.
+  const useTrafficSource = !!trafficKpi && (trafficKpi.revenue ?? 0) > 0;
 
   // KPI: rangeKpi 서버 값 우선, 없으면 summary 폴백 (주/일은 trafficKpi 폴백)
   const kpiRevenue = useTrafficSource ? (trafficKpi?.revenue ?? 0) : (rk?.revenue ?? s.monthlyRevenue);
@@ -385,7 +387,7 @@ export default function Dashboard() {
 
 
       {/* 차트 + 사이드패널 */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-3 overflow-hidden" style={{ height: 480 }}>
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-3 overflow-hidden" style={{ height: 620 }}>
         <div className="lg:col-span-3 h-full">
           <DashboardChart
             dailyTrend={dailyTrend}
@@ -680,6 +682,25 @@ function SidePanel({ alerts, router, queryClient }: {
   );
 }
 
+// ===== Agent OS =====
+type OrgNode = { id: string; name: string; type: string; role: string; title: string; status: string; reports?: OrgNode[] };
+type AgentDisplay = { role: string; name: string; title: string; status: string; color: string; currentTask: string | null };
+
+const ROLE_COLORS: Record<string, string> = {
+  ceo: 'violet', ad_manager: 'blue', inventory: 'emerald',
+  finance: 'rose', cs: 'amber',
+  data_ad: 'blue', data_inv: 'emerald', data_fin: 'rose', data_cs: 'amber',
+};
+
+function flattenOrgNodes(nodes: OrgNode[]): AgentDisplay[] {
+  const result: AgentDisplay[] = [];
+  for (const n of nodes) {
+    result.push({ role: n.role, name: n.name, title: n.title, status: n.status, color: ROLE_COLORS[n.role] ?? 'violet', currentTask: null });
+    if (n.reports?.length) result.push(...flattenOrgNodes(n.reports));
+  }
+  return result;
+}
+
 // ===== 대시보드 차트 =====
 function DashboardChart({
   dailyTrend,
@@ -690,12 +711,33 @@ function DashboardChart({
   aiActions: ActionTask[];
   industryBenchmark?: { avgAdRate: number; avgProfitRate: number; avgRoas: number; avgCtr: number; myAdRate?: number; myRoas?: number; myCtr?: number; avgCvr?: number };
 }) {
-  const [chartTab, setChartTab] = useState<'actions' | 'revenue' | 'ad' | 'benchmark'>('actions');
+  const [chartTab, setChartTab] = useState<'agents' | 'revenue' | 'ad' | 'benchmark'>('agents');
   const hasTrend = dailyTrend.length > 0;
   const hasBenchmark = !!industryBenchmark;
 
+  const queryClient = useQueryClient();
+
+  const { data: orgNodes = [] } = useQuery({
+    queryKey: ['agent-registry', 'org'],
+    queryFn: () => apiClient.get<OrgNode[]>('/api/agent-registry/org'),
+    refetchInterval: 30_000,
+    enabled: chartTab === 'agents',
+  });
+
+  const agents: AgentDisplay[] = flattenOrgNodes(orgNodes);
+  const agentLogs: { taskType: string; status: string; timeAgo: string }[] = [];
+
+  const { mutate: executeAction, variables: executingId } = useMutation({
+    mutationFn: (id: string) => apiClient.post<{ ok: boolean }>(`/api/action-tasks/${id}/execute`, {}),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.actionTasks.list() });
+      toast.success('액션을 실행했습니다.');
+    },
+    onError: () => toast.error('실행에 실패했습니다.'),
+  });
+
   const tabs = [
-    { key: 'actions' as const, label: '액션 요약' },
+    { key: 'agents' as const, label: 'Agent OS' },
     { key: 'revenue' as const, label: '매출 · 이익률' },
     { key: 'ad' as const, label: '광고비 · 비율' },
     ...(hasBenchmark ? [{ key: 'benchmark' as const, label: '업계 평균 대비' }] : []),
@@ -708,49 +750,156 @@ function DashboardChart({
     adRate: d.adRate,
   }));
 
+  const DEPT_MAP = [
+    { key: 'ad', label: '광고부', leadRole: 'ad_manager', memberRole: 'data_ad', color: '#3b82f6' },
+    { key: 'inv', label: '재고부', leadRole: 'inventory', memberRole: 'data_inv', color: '#10b981' },
+    { key: 'cs', label: 'CS부', leadRole: 'cs', memberRole: 'data_cs', color: '#f59e0b' },
+    { key: 'fin', label: '분석부', leadRole: 'finance', memberRole: 'data_fin', color: '#ef4444' },
+  ];
+
+  const isAgentOs = chartTab === 'agents';
   return (
-    <div className="rounded-2xl overflow-hidden flex flex-col h-full bg-white border border-slate-100 shadow-sm">
-      <div className="flex items-center justify-between px-5 py-3 border-b border-slate-100 shrink-0">
-        <div className="flex gap-1 rounded-lg p-0.5 bg-slate-100">
-          {tabs.map(t => (
-            <button key={t.key} onClick={() => setChartTab(t.key)}
-              className={cn('px-4 py-1.5 rounded-md text-[13px] font-semibold transition-all', chartTab === t.key ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-500')}>
-              {t.label}
-            </button>
-          ))}
+    <div className={cn('relative rounded-2xl overflow-hidden flex flex-col h-full border shadow-sm transition-all', isAgentOs ? 'border-violet-100 shadow-[0_0_40px_rgba(124,58,237,0.08)]' : 'bg-white border-slate-100')}>
+      {isAgentOs && <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-violet-500 via-purple-500 to-blue-500 z-10" />}
+      <div className={cn('flex items-center justify-between px-5 py-3 border-b shrink-0', isAgentOs ? 'border-violet-100/60 bg-white/60 backdrop-blur-sm' : 'border-slate-100')}>
+        <div className="flex items-center gap-2">
+          <div className="flex gap-1 rounded-lg p-0.5 bg-slate-100">
+            {tabs.map(t => (
+              <button key={t.key} onClick={() => setChartTab(t.key)}
+                className={cn('px-4 py-1.5 rounded-md text-[13px] font-semibold transition-all', chartTab === t.key ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-500')}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+          {isAgentOs && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide uppercase bg-gradient-to-r from-violet-600 to-blue-600 text-white shadow-sm">
+              <Zap size={9} className="fill-white" /> AI Powered
+            </span>
+          )}
         </div>
-        <span className="text-[12px] text-slate-400">{chartTab === 'actions' ? '요약' : '최근 30일'}</span>
+        <span className={cn('text-[12px] flex items-center gap-1.5', isAgentOs ? 'text-violet-600 font-semibold' : 'text-slate-400')}>
+          {isAgentOs && <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />}
+          {isAgentOs ? '실시간' : '최근 30일'}
+        </span>
       </div>
 
-      {/* 액션 요약 */}
-      {chartTab === 'actions' && (
-        <div className="flex-1 flex flex-col p-5 gap-4">
-          <div className="flex gap-6">
-            {[
-              { label: '긴급', color: 'text-red-600 bg-red-50 border-red-200', count: aiActions.filter(a => a.priority === 'urgent').length },
-              { label: '높음', color: 'text-amber-600 bg-amber-50 border-amber-200', count: aiActions.filter(a => a.priority === 'high').length },
-              { label: '보통', color: 'text-purple-600 bg-purple-50 border-purple-200', count: aiActions.filter(a => a.priority === 'medium').length },
-            ].map(g => (
-              <div key={g.label} className={cn('flex-1 rounded-xl border p-3 text-center', g.color)}>
-                <div className="text-2xl font-bold">{g.count}</div>
-                <div className="text-xs font-medium mt-0.5">{g.label}</div>
+      {/* Agent OS — 조직도 */}
+      {chartTab === 'agents' && (() => {
+        const ceo = agents.find(a => a.role === 'ceo');
+        const DEPT_FACE_COLORS: Record<string, string> = { ad: 'blue', inv: 'emerald', cs: 'amber', fin: 'rose' };
+
+        // 부서별 액션 분류: role 필드 우선, 없으면 taskKey+label 키워드 매칭
+        const classify = (a: ActionTask): string => {
+          if (a.role === 'ad_manager') return 'ad';
+          if (a.role === 'inventory') return 'inv';
+          if (a.role === 'cs') return 'cs';
+          if (a.role === 'finance') return 'fin';
+          const key = `${a.taskKey} ${a.label}`.toLowerCase();
+          if (/광고|ad_|roas|campaign|cpc|ctr|클릭|노출|bid/.test(key)) return 'ad';
+          if (/재고|stock|inventory|상품|product|reorder|입고|발주|품절/.test(key)) return 'inv';
+          if (/cs|고객|review|리뷰|반품|return|문의|refund|교환/.test(key)) return 'cs';
+          if (/profit|수익|정산|settlement|category|마진|비용|minus/.test(key)) return 'fin';
+          return 'ad'; // 미분류는 광고부
+        };
+
+        const deptActions: Record<string, ActionTask[]> = { ad: [], inv: [], cs: [], fin: [] };
+        for (const a of aiActions) deptActions[classify(a)].push(a);
+
+        return (
+          <div className="flex-1 flex flex-col p-4 rounded-b-2xl relative" style={{ background: 'linear-gradient(135deg, #faf5ff 0%, #ffffff 45%, #eff6ff 100%)' }}>
+            <div className="absolute inset-0 pointer-events-none" style={{ background: 'radial-gradient(circle at 20% 0%, rgba(139,92,246,0.08) 0%, transparent 40%), radial-gradient(circle at 80% 100%, rgba(59,130,246,0.06) 0%, transparent 40%)' }} />
+            <div className="relative flex-1 flex flex-col min-h-0">
+            {/* CEO */}
+            <div className="flex justify-center mb-1.5">
+              <div className="rounded-full px-3 py-1.5 flex items-center gap-2 bg-purple-600" style={{ boxShadow: '0 2px 8px rgba(124,58,237,0.25)' }}>
+                <div className="w-6 h-6 rounded-full flex items-center justify-center overflow-hidden shrink-0" style={{ background: 'rgba(255,255,255,0.85)' }}>
+                  <AgentFace color={ceo?.color || 'violet'} role="ceo" size={24} />
+                </div>
+                <span className="text-xs font-semibold text-white">{ceo?.name || 'CEO'}</span>
+                <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', ceo?.status === 'running' ? 'bg-green-400 animate-pulse' : 'bg-white/40')} />
               </div>
-            ))}
+            </div>
+
+            {/* CEO → 연결선 */}
+            <div className="flex justify-center">
+              <div style={{ width: 1.5, height: 8, background: '#7c3aed', opacity: 0.3 }} />
+            </div>
+
+            {/* 부서별 에이전트 + 액션 */}
+            <div className="grid grid-cols-4 gap-2 flex-1 min-h-0">
+              {DEPT_MAP.map(dept => {
+                const lead = agents.find(a => a.role === dept.leadRole);
+                const isWorking = lead?.status === 'running';
+                const faceColor = lead?.color || DEPT_FACE_COLORS[dept.key] || 'violet';
+                const faceRole = lead?.role || dept.leadRole;
+                const actions = deptActions[dept.key] ?? [];
+
+                return (
+                  <div key={dept.key} className="flex flex-col min-h-0">
+                    {/* 에이전트 카드 */}
+                    <div className="rounded-xl p-3 flex items-center gap-2.5 border border-slate-100 shrink-0" style={{ boxShadow: isWorking ? `0 3px 12px ${dept.color}20` : '0 1px 4px rgba(0,0,0,0.04)', background: '#ffffff' }}>
+                      <div className="relative shrink-0">
+                        <div className="w-12 h-12 rounded-full overflow-hidden" style={{ background: `${dept.color}08`, boxShadow: isWorking ? `0 0 0 2px ${dept.color}40` : 'none', transition: 'box-shadow 0.3s' }}>
+                          <AgentFace color={faceColor} role={faceRole} size={48} />
+                        </div>
+                        {isWorking && (
+                          <div className="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full flex items-center justify-center" style={{ background: '#059669' }}>
+                            <Zap size={8} className="text-white" />
+                          </div>
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-base font-bold truncate" style={{ color: lead ? '#0f172a' : dept.color }}>{lead?.name || dept.label}</div>
+                        <div className="flex items-center gap-1 mt-0.5">
+                          <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', isWorking ? 'bg-green-500 animate-pulse' : 'bg-gray-300')} />
+                          <span className="text-xs" style={{ color: isWorking ? '#059669' : '#94a3b8' }}>{isWorking ? '업무 중' : '대기'}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 연결선 */}
+                    <div className="flex justify-center">
+                      <div style={{ width: 1, height: 6, background: dept.color, opacity: 0.25 }} />
+                    </div>
+
+                    {/* 액션 목록 */}
+                    <div className="rounded-xl border border-slate-100 flex-1 min-h-0 overflow-y-auto" style={{ background: `${dept.color}04` }}>
+                      {actions.length === 0 ? (
+                        <div className="flex items-center justify-center h-full py-4">
+                          <span className="text-sm text-slate-300">할일 없음</span>
+                        </div>
+                      ) : (
+                        <div className="p-2 space-y-1.5">
+                          {actions.map(a => {
+                            const isRunning = executingId === a.id;
+                            const dot = a.priority === 'urgent' ? '#ef4444' : a.priority === 'high' ? '#f59e0b' : '#94a3b8';
+                            return (
+                              <div key={a.id} className="rounded-lg px-2.5 py-2 flex items-start gap-2 bg-white border border-slate-50 hover:border-slate-200 transition-colors">
+                                <span className="w-2 h-2 rounded-full mt-1.5 shrink-0" style={{ background: dot }} />
+                                <span className="text-[15px] text-slate-800 flex-1 leading-snug line-clamp-2 font-medium">{a.label}</span>
+                                <button
+                                  onClick={() => executeAction(a.id)}
+                                  disabled={isRunning}
+                                  className="shrink-0 flex items-center justify-center w-7 h-7 rounded-md mt-0.5 transition-all disabled:opacity-50"
+                                  style={{ background: isRunning ? '#e2e8f0' : `${dept.color}15`, color: isRunning ? '#94a3b8' : dept.color }}
+                                  title="실행"
+                                >
+                                  {isRunning ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            </div>
           </div>
-          <div className="flex-1 space-y-1.5 overflow-y-auto">
-            {aiActions.map(a => (
-              <div key={a.id} className="flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-slate-50 transition-colors">
-                <span className={cn('w-2 h-2 rounded-full shrink-0', a.priority === 'urgent' ? 'bg-red-500' : a.priority === 'high' ? 'bg-amber-500' : 'bg-blue-500')} />
-                <span className="text-[13px] text-slate-700 truncate flex-1">{a.label}</span>
-                <span className="text-[11px] text-slate-400 shrink-0">{a.detail?.slice(0, 15)}</span>
-              </div>
-            ))}
-          </div>
-          <Link href="/action-board" className="shrink-0 text-center px-4 py-2 rounded-lg bg-purple-600 text-white text-sm font-semibold hover:bg-purple-700 transition-colors">
-            액션 보드에서 보기 →
-          </Link>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Charts - lazy loaded to reduce initial bundle */}
       <DashboardCharts
