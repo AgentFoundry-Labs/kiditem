@@ -75,6 +75,19 @@ Adding a new domain: create module + controller + service + dto/ → register in
 - **Chat**: `src/chat/` — CopilotKit 런타임 + ClaudeCliAdapter
 - **Action Tasks**: `src/action-task/` — 액션 보드 CRUD API
 
+## Notable Sub-Domains (LOW signal — 별도 CLAUDE.md 없음)
+
+부모 NestJS 패턴(이 문서) 으로 거의 커버되지만, 아래 도메인은 한 가지 특이점이 있다. 별도 문서화 비용이 효익 대비 작아 inline 정리.
+
+- **`src/sourcing/`** — 익스텐션이 product 데이터를 push (POST `/api/sourcing/extension/products`). AgentRegistry 와 cross-coupling: `sourcing.service.ts` 가 `agentRegistry.runByType('sourcing_*')` 호출. 외부 push + 비동기 trigger 패턴.
+- **`src/action-task/`** — `task.service.ts` 가 비즈 룰 임계값(low CTR / low profit / 고비용 광고 / 재주문) 으로 task seed 자동 생성. cron 으로 일일 실행. 룰 임계 변경은 hardcode (DB 아님).
+- **`src/procurement/`** — Purchase Order **state machine** (`draft → pending → ordered → shipped → received`). 상태 전이 검증 + status groupBy 카운트. `__tests__/procurement.spec.ts` 로 흐름 보호.
+- **`src/picking/`** — 확정 주문에서 PickingList 생성 + 아이템 단위 verification (`isPicked`, `isVerified`). 출고 단계와 연결 (orders → picking → shipment).
+- **`src/ontology/`** — `$queryRaw` 로 카테고리/브랜드 그래프 구축 (node/edge 변환). 분석/검색 보조용. Prisma 표준 query 로 안 되는 graph traversal 만 raw SQL.
+- **`src/feature-gate/`** — Feature flag 도메인. `allowedCompanies: string[]` array 로 회사별 enable. 멀티-레벨 enable 로직 (global / per-company). agent-registry 의 FeatureGateService 와 별개 (이건 endpoint, 그건 runtime 평가).
+
+각 도메인 작업 시 위 특이점만 의식하면 부모 NestJS 패턴으로 충분.
+
 ## Tests
 
 ```bash

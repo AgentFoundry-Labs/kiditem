@@ -1,0 +1,1425 @@
+{
+  "directed": false,
+  "multigraph": false,
+  "graph": {},
+  "nodes": [
+    {
+      "label": "page.tsx",
+      "file_type": "code",
+      "source_file": "page.tsx",
+      "source_location": "L1",
+      "id": "page_tsx",
+      "community": 0,
+      "norm_label": "page.tsx"
+    },
+    {
+      "label": "toggleNeedsFixSelection()",
+      "file_type": "code",
+      "source_file": "page.tsx",
+      "source_location": "L119",
+      "id": "page_toggleneedsfixselection",
+      "community": 0,
+      "norm_label": "toggleneedsfixselection()"
+    },
+    {
+      "label": "editSingle()",
+      "file_type": "code",
+      "source_file": "page.tsx",
+      "source_location": "L229",
+      "id": "page_editsingle",
+      "community": 0,
+      "norm_label": "editsingle()"
+    },
+    {
+      "label": "editBatch()",
+      "file_type": "code",
+      "source_file": "page.tsx",
+      "source_location": "L244",
+      "id": "page_editbatch",
+      "community": 0,
+      "norm_label": "editbatch()"
+    },
+    {
+      "label": "selectCandidate()",
+      "file_type": "code",
+      "source_file": "page.tsx",
+      "source_location": "L254",
+      "id": "page_selectcandidate",
+      "community": 0,
+      "norm_label": "selectcandidate()"
+    },
+    {
+      "label": "markApplied()",
+      "file_type": "code",
+      "source_file": "page.tsx",
+      "source_location": "L267",
+      "id": "page_markapplied",
+      "community": 0,
+      "norm_label": "markapplied()"
+    },
+    {
+      "label": "skipGeneration()",
+      "file_type": "code",
+      "source_file": "page.tsx",
+      "source_location": "L275",
+      "id": "page_skipgeneration",
+      "community": 0,
+      "norm_label": "skipgeneration()"
+    },
+    {
+      "label": "deleteGeneration()",
+      "file_type": "code",
+      "source_file": "page.tsx",
+      "source_location": "L286",
+      "id": "page_deletegeneration",
+      "community": 0,
+      "norm_label": "deletegeneration()"
+    },
+    {
+      "label": "openCoupangEdit()",
+      "file_type": "code",
+      "source_file": "page.tsx",
+      "source_location": "L299",
+      "id": "page_opencoupangedit",
+      "community": 0,
+      "norm_label": "opencoupangedit()"
+    },
+    {
+      "label": "runAiAnalysis()",
+      "file_type": "code",
+      "source_file": "page.tsx",
+      "source_location": "L329",
+      "id": "page_runaianalysis",
+      "community": 0,
+      "norm_label": "runaianalysis()"
+    },
+    {
+      "label": "runBatchAiAnalysis()",
+      "file_type": "code",
+      "source_file": "page.tsx",
+      "source_location": "L343",
+      "id": "page_runbatchaianalysis",
+      "community": 0,
+      "norm_label": "runbatchaianalysis()"
+    },
+    {
+      "label": "searchFilter()",
+      "file_type": "code",
+      "source_file": "page.tsx",
+      "source_location": "L447",
+      "id": "page_searchfilter",
+      "community": 0,
+      "norm_label": "searchfilter()"
+    },
+    {
+      "label": "fmt()",
+      "file_type": "code",
+      "source_file": "page.tsx",
+      "source_location": "L597",
+      "id": "page_fmt",
+      "community": 0,
+      "norm_label": "fmt()"
+    },
+    {
+      "label": "byNewest()",
+      "file_type": "code",
+      "source_file": "page.tsx",
+      "source_location": "L1861",
+      "id": "page_bynewest",
+      "community": 0,
+      "norm_label": "bynewest()"
+    },
+    {
+      "label": "byNewestAnalysis()",
+      "file_type": "code",
+      "source_file": "page.tsx",
+      "source_location": "L1863",
+      "id": "page_bynewestanalysis",
+      "community": 0,
+      "norm_label": "bynewestanalysis()"
+    },
+    {
+      "label": "GenerationQueue.tsx",
+      "file_type": "code",
+      "source_file": "components/GenerationQueue.tsx",
+      "source_location": "L1",
+      "id": "components_generationqueue_tsx",
+      "community": 13,
+      "norm_label": "generationqueue.tsx"
+    },
+    {
+      "label": "RegenerationPipeline.tsx",
+      "file_type": "code",
+      "source_file": "components/RegenerationPipeline.tsx",
+      "source_location": "L1",
+      "id": "components_regenerationpipeline_tsx",
+      "community": 14,
+      "norm_label": "regenerationpipeline.tsx"
+    },
+    {
+      "label": "PaginationBar.tsx",
+      "file_type": "code",
+      "source_file": "components/PaginationBar.tsx",
+      "source_location": "L1",
+      "id": "components_paginationbar_tsx",
+      "community": 15,
+      "norm_label": "paginationbar.tsx"
+    },
+    {
+      "label": "ScoreBreakdown.tsx",
+      "file_type": "code",
+      "source_file": "components/ScoreBreakdown.tsx",
+      "source_location": "L1",
+      "id": "components_scorebreakdown_tsx",
+      "community": 16,
+      "norm_label": "scorebreakdown.tsx"
+    },
+    {
+      "label": "GradeDonutChart.tsx",
+      "file_type": "code",
+      "source_file": "components/GradeDonutChart.tsx",
+      "source_location": "L1",
+      "id": "components_gradedonutchart_tsx",
+      "community": 17,
+      "norm_label": "gradedonutchart.tsx"
+    },
+    {
+      "label": "ThumbnailGradeCards.tsx",
+      "file_type": "code",
+      "source_file": "components/ThumbnailGradeCards.tsx",
+      "source_location": "L1",
+      "id": "components_thumbnailgradecards_tsx",
+      "community": 10,
+      "norm_label": "thumbnailgradecards.tsx"
+    },
+    {
+      "label": "cn()",
+      "file_type": "code",
+      "source_file": "components/ThumbnailGradeCards.tsx",
+      "source_location": "L41",
+      "id": "thumbnailgradecards_cn",
+      "community": 10,
+      "norm_label": "cn()"
+    },
+    {
+      "label": "ProductCard.tsx",
+      "file_type": "code",
+      "source_file": "components/ProductCard.tsx",
+      "source_location": "L1",
+      "id": "components_productcard_tsx",
+      "community": 18,
+      "norm_label": "productcard.tsx"
+    },
+    {
+      "label": "TrackingTab.tsx",
+      "file_type": "code",
+      "source_file": "components/TrackingTab.tsx",
+      "source_location": "L1",
+      "id": "components_trackingtab_tsx",
+      "community": 5,
+      "norm_label": "trackingtab.tsx"
+    },
+    {
+      "label": "toggleSort()",
+      "file_type": "code",
+      "source_file": "components/TrackingTab.tsx",
+      "source_location": "L144",
+      "id": "trackingtab_togglesort",
+      "community": 5,
+      "norm_label": "togglesort()"
+    },
+    {
+      "label": "SortIcon()",
+      "file_type": "code",
+      "source_file": "components/TrackingTab.tsx",
+      "source_location": "L149",
+      "id": "trackingtab_sorticon",
+      "community": 5,
+      "norm_label": "sorticon()"
+    },
+    {
+      "label": "AnalysisKpiCards.tsx",
+      "file_type": "code",
+      "source_file": "components/AnalysisKpiCards.tsx",
+      "source_location": "L1",
+      "id": "components_analysiskpicards_tsx",
+      "community": 6,
+      "norm_label": "analysiskpicards.tsx"
+    },
+    {
+      "label": "ActionCard()",
+      "file_type": "code",
+      "source_file": "components/AnalysisKpiCards.tsx",
+      "source_location": "L18",
+      "id": "analysiskpicards_actioncard",
+      "community": 6,
+      "norm_label": "actioncard()"
+    },
+    {
+      "label": "AnalysisKpiCards()",
+      "file_type": "code",
+      "source_file": "components/AnalysisKpiCards.tsx",
+      "source_location": "L61",
+      "id": "analysiskpicards_analysiskpicards",
+      "community": 6,
+      "norm_label": "analysiskpicards()"
+    },
+    {
+      "label": "ThumbnailCard.tsx",
+      "file_type": "code",
+      "source_file": "components/ThumbnailCard.tsx",
+      "source_location": "L1",
+      "id": "components_thumbnailcard_tsx",
+      "community": 19,
+      "norm_label": "thumbnailcard.tsx"
+    },
+    {
+      "label": "InspectionDrawer.tsx",
+      "file_type": "code",
+      "source_file": "components/InspectionDrawer.tsx",
+      "source_location": "L1",
+      "id": "components_inspectiondrawer_tsx",
+      "community": 11,
+      "norm_label": "inspectiondrawer.tsx"
+    },
+    {
+      "label": "handler()",
+      "file_type": "code",
+      "source_file": "components/InspectionDrawer.tsx",
+      "source_location": "L18",
+      "id": "inspectiondrawer_handler",
+      "community": 11,
+      "norm_label": "handler()"
+    },
+    {
+      "label": "UploadAnalyzer.tsx",
+      "file_type": "code",
+      "source_file": "components/UploadAnalyzer.tsx",
+      "source_location": "L1",
+      "id": "components_uploadanalyzer_tsx",
+      "community": 7,
+      "norm_label": "uploadanalyzer.tsx"
+    },
+    {
+      "label": "analyzeUrl()",
+      "file_type": "code",
+      "source_file": "components/UploadAnalyzer.tsx",
+      "source_location": "L31",
+      "id": "uploadanalyzer_analyzeurl",
+      "community": 7,
+      "norm_label": "analyzeurl()"
+    },
+    {
+      "label": "handleFileUpload()",
+      "file_type": "code",
+      "source_file": "components/UploadAnalyzer.tsx",
+      "source_location": "L52",
+      "id": "uploadanalyzer_handlefileupload",
+      "community": 7,
+      "norm_label": "handlefileupload()"
+    },
+    {
+      "label": "ThumbnailStatusBadge.tsx",
+      "file_type": "code",
+      "source_file": "components/ThumbnailStatusBadge.tsx",
+      "source_location": "L1",
+      "id": "components_thumbnailstatusbadge_tsx",
+      "community": 20,
+      "norm_label": "thumbnailstatusbadge.tsx"
+    },
+    {
+      "label": "DetailModal.tsx",
+      "file_type": "code",
+      "source_file": "components/DetailModal.tsx",
+      "source_location": "L1",
+      "id": "components_detailmodal_tsx",
+      "community": 21,
+      "norm_label": "detailmodal.tsx"
+    },
+    {
+      "label": "GenerationHistory.tsx",
+      "file_type": "code",
+      "source_file": "components/GenerationHistory.tsx",
+      "source_location": "L1",
+      "id": "components_generationhistory_tsx",
+      "community": 22,
+      "norm_label": "generationhistory.tsx"
+    },
+    {
+      "label": "ThumbnailFilterTabs.tsx",
+      "file_type": "code",
+      "source_file": "components/ThumbnailFilterTabs.tsx",
+      "source_location": "L1",
+      "id": "components_thumbnailfiltertabs_tsx",
+      "community": 12,
+      "norm_label": "thumbnailfiltertabs.tsx"
+    },
+    {
+      "label": "ThumbnailFilterTabs()",
+      "file_type": "code",
+      "source_file": "components/ThumbnailFilterTabs.tsx",
+      "source_location": "L17",
+      "id": "thumbnailfiltertabs_thumbnailfiltertabs",
+      "community": 12,
+      "norm_label": "thumbnailfiltertabs()"
+    },
+    {
+      "label": "useThumbnailTracking.ts",
+      "file_type": "code",
+      "source_file": "hooks/useThumbnailTracking.ts",
+      "source_location": "L1",
+      "id": "hooks_usethumbnailtracking_ts",
+      "community": 8,
+      "norm_label": "usethumbnailtracking.ts"
+    },
+    {
+      "label": "useTrackingList()",
+      "file_type": "code",
+      "source_file": "hooks/useThumbnailTracking.ts",
+      "source_location": "L41",
+      "id": "usethumbnailtracking_usetrackinglist",
+      "community": 8,
+      "norm_label": "usetrackinglist()"
+    },
+    {
+      "label": "useUpdateMetrics()",
+      "file_type": "code",
+      "source_file": "hooks/useThumbnailTracking.ts",
+      "source_location": "L51",
+      "id": "usethumbnailtracking_useupdatemetrics",
+      "community": 8,
+      "norm_label": "useupdatemetrics()"
+    },
+    {
+      "label": "useThumbnailAnalysis.ts",
+      "file_type": "code",
+      "source_file": "hooks/useThumbnailAnalysis.ts",
+      "source_location": "L1",
+      "id": "hooks_usethumbnailanalysis_ts",
+      "community": 2,
+      "norm_label": "usethumbnailanalysis.ts"
+    },
+    {
+      "label": "useAnalysisList()",
+      "file_type": "code",
+      "source_file": "hooks/useThumbnailAnalysis.ts",
+      "source_location": "L20",
+      "id": "usethumbnailanalysis_useanalysislist",
+      "community": 2,
+      "norm_label": "useanalysislist()"
+    },
+    {
+      "label": "useAnalysisSummary()",
+      "file_type": "code",
+      "source_file": "hooks/useThumbnailAnalysis.ts",
+      "source_location": "L27",
+      "id": "usethumbnailanalysis_useanalysissummary",
+      "community": 2,
+      "norm_label": "useanalysissummary()"
+    },
+    {
+      "label": "useAnalyze()",
+      "file_type": "code",
+      "source_file": "hooks/useThumbnailAnalysis.ts",
+      "source_location": "L34",
+      "id": "usethumbnailanalysis_useanalyze",
+      "community": 2,
+      "norm_label": "useanalyze()"
+    },
+    {
+      "label": "useAnalyzeBatch()",
+      "file_type": "code",
+      "source_file": "hooks/useThumbnailAnalysis.ts",
+      "source_location": "L45",
+      "id": "usethumbnailanalysis_useanalyzebatch",
+      "community": 2,
+      "norm_label": "useanalyzebatch()"
+    },
+    {
+      "label": "useCheckImageSpec()",
+      "file_type": "code",
+      "source_file": "hooks/useThumbnailAnalysis.ts",
+      "source_location": "L59",
+      "id": "usethumbnailanalysis_usecheckimagespec",
+      "community": 2,
+      "norm_label": "usecheckimagespec()"
+    },
+    {
+      "label": "usePreInspect()",
+      "file_type": "code",
+      "source_file": "hooks/useThumbnailAnalysis.ts",
+      "source_location": "L66",
+      "id": "usethumbnailanalysis_usepreinspect",
+      "community": 2,
+      "norm_label": "usepreinspect()"
+    },
+    {
+      "label": "useCancelBatch()",
+      "file_type": "code",
+      "source_file": "hooks/useThumbnailAnalysis.ts",
+      "source_location": "L77",
+      "id": "usethumbnailanalysis_usecancelbatch",
+      "community": 2,
+      "norm_label": "usecancelbatch()"
+    },
+    {
+      "label": "useThumbnailGenerations.ts",
+      "file_type": "code",
+      "source_file": "hooks/useThumbnailGenerations.ts",
+      "source_location": "L1",
+      "id": "hooks_usethumbnailgenerations_ts",
+      "community": 23,
+      "norm_label": "usethumbnailgenerations.ts"
+    },
+    {
+      "label": "coupang-wing.ts",
+      "file_type": "code",
+      "source_file": "lib/coupang-wing.ts",
+      "source_location": "L1",
+      "id": "lib_coupang_wing_ts",
+      "community": 24,
+      "norm_label": "coupang-wing.ts"
+    },
+    {
+      "label": "resolve-url.ts",
+      "file_type": "code",
+      "source_file": "lib/resolve-url.ts",
+      "source_location": "L1",
+      "id": "lib_resolve_url_ts",
+      "community": 25,
+      "norm_label": "resolve-url.ts"
+    },
+    {
+      "label": "grade-constants.ts",
+      "file_type": "code",
+      "source_file": "lib/grade-constants.ts",
+      "source_location": "L1",
+      "id": "lib_grade_constants_ts",
+      "community": 26,
+      "norm_label": "grade-constants.ts"
+    },
+    {
+      "label": "Smart Polling \u2014 Dynamic refetchInterval",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_pattern_smart_polling_dynamic_refetch",
+      "community": 1,
+      "norm_label": "smart polling \u2014 dynamic refetchinterval"
+    },
+    {
+      "label": "Optimistic UI + Rollback",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_pattern_optimistic_ui_rollback",
+      "community": 1,
+      "norm_label": "optimistic ui + rollback"
+    },
+    {
+      "label": "Batch Progress + AbortController",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_pattern_batch_progress_abortcontroller",
+      "community": 3,
+      "norm_label": "batch progress + abortcontroller"
+    },
+    {
+      "label": "File Upload \u2014 FileReader base64 no form submission",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_pattern_file_upload_filereader",
+      "community": 4,
+      "norm_label": "file upload \u2014 filereader base64 no form submission"
+    },
+    {
+      "label": "\ubaa8\ub4e0 fetch\ub294 queryKeys.thumbnailAnalysis.* + apiClient \uc0ac\uc6a9",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rule_querykeys_apiclient",
+      "community": 1,
+      "norm_label": "\u1106\u1169\u1103\u1173\u11ab fetch\u1102\u1173\u11ab querykeys.thumbnailanalysis.* + apiclient \u1109\u1161\u110b\u116d\u11bc"
+    },
+    {
+      "label": "\ud0ed/pagination\uc740 \ub85c\uceec state (URL/server state \uc544\ub2d8)",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rule_tab_pagination_local_state",
+      "community": 27,
+      "norm_label": "\u1110\u1162\u11b8/pagination\u110b\u1173\u11ab \u1105\u1169\u110f\u1165\u11af state (url/server state \u110b\u1161\u1102\u1175\u11b7)"
+    },
+    {
+      "label": "Grade \uc0c9\uc0c1\uc740 gradeBg map \ud558\ub4dc\ucf54\ub529 (S\u2192emerald, A\u2192blue, B\u2192amber, C\u2192orange, F\u2192red)",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rule_grade_color_hardcoded",
+      "community": 28,
+      "norm_label": "grade \u1109\u1162\u11a8\u1109\u1161\u11bc\u110b\u1173\u11ab gradebg map \u1112\u1161\u1103\u1173\u110f\u1169\u1103\u1175\u11bc (s\u2192emerald, a\u2192blue, b\u2192amber, c\u2192orange, f\u2192red)"
+    },
+    {
+      "label": "@kiditem/shared \ud0c0\uc785 \ud544\uc218 (ThumbnailAnalysisResult, ThumbnailGenerationItem)",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rule_shared_types_required",
+      "community": 29,
+      "norm_label": "@kiditem/shared \u1110\u1161\u110b\u1175\u11b8 \u1111\u1175\u11af\u1109\u116e (thumbnailanalysisresult, thumbnailgenerationitem)"
+    },
+    {
+      "label": "Mutation \ud6c4 \uba85\uc2dc\uc801 invalidateQueries + onSettled\ub85c race \ubc29\uc9c0",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rule_mutation_invalidate_onsettled",
+      "community": 1,
+      "norm_label": "mutation \u1112\u116e \u1106\u1167\u11bc\u1109\u1175\u110c\u1165\u11a8 invalidatequeries + onsettled\u1105\u1169 race \u1107\u1161\u11bc\u110c\u1175"
+    },
+    {
+      "label": "Image URL\uc740 resolveImageUrl() \uc720\ud2f8 \uacbd\uc720",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rule_image_url_resolve",
+      "community": 30,
+      "norm_label": "image url\u110b\u1173\u11ab resolveimageurl() \u110b\u1172\u1110\u1175\u11af \u1100\u1167\u11bc\u110b\u1172"
+    },
+    {
+      "label": "setInterval \uae08\uc9c0 (refetchInterval\ub9cc)",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_prohibit_setinterval",
+      "community": 1,
+      "norm_label": "setinterval \u1100\u1173\u11b7\u110c\u1175 (refetchinterval\u1106\u1161\u11ab)"
+    },
+    {
+      "label": "EventSource/WebSocket \uae08\uc9c0 (polling\ub9cc)",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_prohibit_eventsource_websocket",
+      "community": 3,
+      "norm_label": "eventsource/websocket \u1100\u1173\u11b7\u110c\u1175 (polling\u1106\u1161\u11ab)"
+    },
+    {
+      "label": "Canvas/image manipulation \uae08\uc9c0 (\uc678\ubd80 API\ub9cc)",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_prohibit_canvas_image_manipulation",
+      "community": 4,
+      "norm_label": "canvas/image manipulation \u1100\u1173\u11b7\u110c\u1175 (\u110b\u116c\u1107\u116e api\u1106\u1161\u11ab)"
+    },
+    {
+      "label": "raw fetch \uc808\ub300 \uae08\uc9c0",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_prohibit_raw_fetch",
+      "community": 1,
+      "norm_label": "raw fetch \u110c\u1165\u11af\u1103\u1162 \u1100\u1173\u11b7\u110c\u1175"
+    },
+    {
+      "label": "Fast UX \u2014 form submission \uc5c6\uc774 \uc989\uc2dc API \ud638\ucd9c",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rationale_fast_ux",
+      "community": 4,
+      "norm_label": "fast ux \u2014 form submission \u110b\u1165\u11b9\u110b\u1175 \u110c\u1173\u11a8\u1109\u1175 api \u1112\u1169\u110e\u116e\u11af"
+    },
+    {
+      "label": "\ub370\uc774\ud130 \uc0c1\ud0dc \ubcf4\uace0 \uc790\ub3d9 \ud3f4\ub9c1 on/off \u2014 pending/generating \uc788\uc73c\uba74 3000ms \uc544\ub2c8\uba74 false",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rationale_auto_polling_onoff",
+      "community": 1,
+      "norm_label": "\u1103\u1166\u110b\u1175\u1110\u1165 \u1109\u1161\u11bc\u1110\u1162 \u1107\u1169\u1100\u1169 \u110c\u1161\u1103\u1169\u11bc \u1111\u1169\u11af\u1105\u1175\u11bc on/off \u2014 pending/generating \u110b\u1175\u11bb\u110b\u1173\u1106\u1167\u11ab 3000ms \u110b\u1161\u1102\u1175\u1106\u1167\u11ab false"
+    },
+    {
+      "label": "Mutation \uc2e4\ud328 \uc2dc \uc774\uc804 cache \ubcf5\uc6d0 (rollback)",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rationale_rollback_on_failure",
+      "community": 1,
+      "norm_label": "mutation \u1109\u1175\u11af\u1111\u1162 \u1109\u1175 \u110b\u1175\u110c\u1165\u11ab cache \u1107\u1169\u11a8\u110b\u116f\u11ab (rollback)"
+    },
+    {
+      "label": "\uc0ac\uc6a9\uc790 cancel \u2192 AbortController.abort() \u2192 \uc11c\ubc84 cancel + UI \uc989\uc2dc \ubc18\uc601",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rationale_cancel_server_ui",
+      "community": 3,
+      "norm_label": "\u1109\u1161\u110b\u116d\u11bc\u110c\u1161 cancel \u2192 abortcontroller.abort() \u2192 \u1109\u1165\u1107\u1165 cancel + ui \u110c\u1173\u11a8\u1109\u1175 \u1107\u1161\u11ab\u110b\u1167\u11bc"
+    },
+    {
+      "label": "thumbnails/page.tsx (6 tabs)",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_page_tsx",
+      "community": 3,
+      "norm_label": "thumbnails/page.tsx (6 tabs)"
+    },
+    {
+      "label": "thumbnails/components/",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_components_dir",
+      "community": 31,
+      "norm_label": "thumbnails/components/"
+    },
+    {
+      "label": "thumbnails/hooks/",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_hooks_dir",
+      "community": 32,
+      "norm_label": "thumbnails/hooks/"
+    },
+    {
+      "label": "thumbnails/lib/ (coupang-wing.ts, resolve-url.ts, grade-constants.ts)",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_lib_dir",
+      "community": 33,
+      "norm_label": "thumbnails/lib/ (coupang-wing.ts, resolve-url.ts, grade-constants.ts)"
+    },
+    {
+      "label": "src/hooks/useThumbnailGenerations.ts",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_use_thumbnail_generations",
+      "community": 1,
+      "norm_label": "src/hooks/usethumbnailgenerations.ts"
+    },
+    {
+      "label": "UploadAnalyzer.tsx",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_upload_analyzer",
+      "community": 4,
+      "norm_label": "uploadanalyzer.tsx"
+    },
+    {
+      "label": "ThumbnailFilterTabs.tsx",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_thumbnail_filter_tabs",
+      "community": 3,
+      "norm_label": "thumbnailfiltertabs.tsx"
+    },
+    {
+      "label": "lib/grade-constants.ts",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_grade_constants",
+      "community": 9,
+      "norm_label": "lib/grade-constants.ts"
+    },
+    {
+      "label": "lib/coupang-wing.ts",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_coupang_wing",
+      "community": 3,
+      "norm_label": "lib/coupang-wing.ts"
+    },
+    {
+      "label": "GradeDonutChart component",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_grade_donut_chart",
+      "community": 9,
+      "norm_label": "gradedonutchart component"
+    },
+    {
+      "label": "ScoreBreakdown component",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_score_breakdown",
+      "community": 9,
+      "norm_label": "scorebreakdown component"
+    },
+    {
+      "label": "@kiditem/shared",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_shared_package",
+      "community": 1,
+      "norm_label": "@kiditem/shared"
+    },
+    {
+      "label": "apiClient (/api/thumbnail-analysis/*)",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_api_client",
+      "community": 1,
+      "norm_label": "apiclient (/api/thumbnail-analysis/*)"
+    }
+  ],
+  "links": [
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "page.tsx",
+      "source_location": "L119",
+      "weight": 1.0,
+      "_src": "page_tsx",
+      "_tgt": "page_toggleneedsfixselection",
+      "source": "page_tsx",
+      "target": "page_toggleneedsfixselection",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "page.tsx",
+      "source_location": "L229",
+      "weight": 1.0,
+      "_src": "page_tsx",
+      "_tgt": "page_editsingle",
+      "source": "page_tsx",
+      "target": "page_editsingle",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "page.tsx",
+      "source_location": "L244",
+      "weight": 1.0,
+      "_src": "page_tsx",
+      "_tgt": "page_editbatch",
+      "source": "page_tsx",
+      "target": "page_editbatch",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "page.tsx",
+      "source_location": "L254",
+      "weight": 1.0,
+      "_src": "page_tsx",
+      "_tgt": "page_selectcandidate",
+      "source": "page_tsx",
+      "target": "page_selectcandidate",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "page.tsx",
+      "source_location": "L267",
+      "weight": 1.0,
+      "_src": "page_tsx",
+      "_tgt": "page_markapplied",
+      "source": "page_tsx",
+      "target": "page_markapplied",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "page.tsx",
+      "source_location": "L275",
+      "weight": 1.0,
+      "_src": "page_tsx",
+      "_tgt": "page_skipgeneration",
+      "source": "page_tsx",
+      "target": "page_skipgeneration",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "page.tsx",
+      "source_location": "L286",
+      "weight": 1.0,
+      "_src": "page_tsx",
+      "_tgt": "page_deletegeneration",
+      "source": "page_tsx",
+      "target": "page_deletegeneration",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "page.tsx",
+      "source_location": "L299",
+      "weight": 1.0,
+      "_src": "page_tsx",
+      "_tgt": "page_opencoupangedit",
+      "source": "page_tsx",
+      "target": "page_opencoupangedit",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "page.tsx",
+      "source_location": "L329",
+      "weight": 1.0,
+      "_src": "page_tsx",
+      "_tgt": "page_runaianalysis",
+      "source": "page_tsx",
+      "target": "page_runaianalysis",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "page.tsx",
+      "source_location": "L343",
+      "weight": 1.0,
+      "_src": "page_tsx",
+      "_tgt": "page_runbatchaianalysis",
+      "source": "page_tsx",
+      "target": "page_runbatchaianalysis",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "page.tsx",
+      "source_location": "L447",
+      "weight": 1.0,
+      "_src": "page_tsx",
+      "_tgt": "page_searchfilter",
+      "source": "page_tsx",
+      "target": "page_searchfilter",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "page.tsx",
+      "source_location": "L597",
+      "weight": 1.0,
+      "_src": "page_tsx",
+      "_tgt": "page_fmt",
+      "source": "page_tsx",
+      "target": "page_fmt",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "page.tsx",
+      "source_location": "L1861",
+      "weight": 1.0,
+      "_src": "page_tsx",
+      "_tgt": "page_bynewest",
+      "source": "page_tsx",
+      "target": "page_bynewest",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "page.tsx",
+      "source_location": "L1863",
+      "weight": 1.0,
+      "_src": "page_tsx",
+      "_tgt": "page_bynewestanalysis",
+      "source": "page_tsx",
+      "target": "page_bynewestanalysis",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "source_file": "page.tsx",
+      "source_location": "L312",
+      "weight": 1.0,
+      "_src": "page_opencoupangedit",
+      "_tgt": "page_markapplied",
+      "source": "page_markapplied",
+      "target": "page_opencoupangedit",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "components/ThumbnailGradeCards.tsx",
+      "source_location": "L41",
+      "weight": 1.0,
+      "_src": "components_thumbnailgradecards_tsx",
+      "_tgt": "thumbnailgradecards_cn",
+      "source": "components_thumbnailgradecards_tsx",
+      "target": "thumbnailgradecards_cn",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "components/TrackingTab.tsx",
+      "source_location": "L144",
+      "weight": 1.0,
+      "_src": "components_trackingtab_tsx",
+      "_tgt": "trackingtab_togglesort",
+      "source": "components_trackingtab_tsx",
+      "target": "trackingtab_togglesort",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "components/TrackingTab.tsx",
+      "source_location": "L149",
+      "weight": 1.0,
+      "_src": "components_trackingtab_tsx",
+      "_tgt": "trackingtab_sorticon",
+      "source": "components_trackingtab_tsx",
+      "target": "trackingtab_sorticon",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "components/AnalysisKpiCards.tsx",
+      "source_location": "L18",
+      "weight": 1.0,
+      "_src": "components_analysiskpicards_tsx",
+      "_tgt": "analysiskpicards_actioncard",
+      "source": "components_analysiskpicards_tsx",
+      "target": "analysiskpicards_actioncard",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "components/AnalysisKpiCards.tsx",
+      "source_location": "L61",
+      "weight": 1.0,
+      "_src": "components_analysiskpicards_tsx",
+      "_tgt": "analysiskpicards_analysiskpicards",
+      "source": "components_analysiskpicards_tsx",
+      "target": "analysiskpicards_analysiskpicards",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "components/InspectionDrawer.tsx",
+      "source_location": "L18",
+      "weight": 1.0,
+      "_src": "components_inspectiondrawer_tsx",
+      "_tgt": "inspectiondrawer_handler",
+      "source": "components_inspectiondrawer_tsx",
+      "target": "inspectiondrawer_handler",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "components/UploadAnalyzer.tsx",
+      "source_location": "L31",
+      "weight": 1.0,
+      "_src": "components_uploadanalyzer_tsx",
+      "_tgt": "uploadanalyzer_analyzeurl",
+      "source": "components_uploadanalyzer_tsx",
+      "target": "uploadanalyzer_analyzeurl",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "components/UploadAnalyzer.tsx",
+      "source_location": "L52",
+      "weight": 1.0,
+      "_src": "components_uploadanalyzer_tsx",
+      "_tgt": "uploadanalyzer_handlefileupload",
+      "source": "components_uploadanalyzer_tsx",
+      "target": "uploadanalyzer_handlefileupload",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "components/ThumbnailFilterTabs.tsx",
+      "source_location": "L17",
+      "weight": 1.0,
+      "_src": "components_thumbnailfiltertabs_tsx",
+      "_tgt": "thumbnailfiltertabs_thumbnailfiltertabs",
+      "source": "components_thumbnailfiltertabs_tsx",
+      "target": "thumbnailfiltertabs_thumbnailfiltertabs",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "hooks/useThumbnailTracking.ts",
+      "source_location": "L41",
+      "weight": 1.0,
+      "_src": "hooks_usethumbnailtracking_ts",
+      "_tgt": "usethumbnailtracking_usetrackinglist",
+      "source": "hooks_usethumbnailtracking_ts",
+      "target": "usethumbnailtracking_usetrackinglist",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "hooks/useThumbnailTracking.ts",
+      "source_location": "L51",
+      "weight": 1.0,
+      "_src": "hooks_usethumbnailtracking_ts",
+      "_tgt": "usethumbnailtracking_useupdatemetrics",
+      "source": "hooks_usethumbnailtracking_ts",
+      "target": "usethumbnailtracking_useupdatemetrics",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "hooks/useThumbnailAnalysis.ts",
+      "source_location": "L20",
+      "weight": 1.0,
+      "_src": "hooks_usethumbnailanalysis_ts",
+      "_tgt": "usethumbnailanalysis_useanalysislist",
+      "source": "hooks_usethumbnailanalysis_ts",
+      "target": "usethumbnailanalysis_useanalysislist",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "hooks/useThumbnailAnalysis.ts",
+      "source_location": "L27",
+      "weight": 1.0,
+      "_src": "hooks_usethumbnailanalysis_ts",
+      "_tgt": "usethumbnailanalysis_useanalysissummary",
+      "source": "hooks_usethumbnailanalysis_ts",
+      "target": "usethumbnailanalysis_useanalysissummary",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "hooks/useThumbnailAnalysis.ts",
+      "source_location": "L34",
+      "weight": 1.0,
+      "_src": "hooks_usethumbnailanalysis_ts",
+      "_tgt": "usethumbnailanalysis_useanalyze",
+      "source": "hooks_usethumbnailanalysis_ts",
+      "target": "usethumbnailanalysis_useanalyze",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "hooks/useThumbnailAnalysis.ts",
+      "source_location": "L45",
+      "weight": 1.0,
+      "_src": "hooks_usethumbnailanalysis_ts",
+      "_tgt": "usethumbnailanalysis_useanalyzebatch",
+      "source": "hooks_usethumbnailanalysis_ts",
+      "target": "usethumbnailanalysis_useanalyzebatch",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "hooks/useThumbnailAnalysis.ts",
+      "source_location": "L59",
+      "weight": 1.0,
+      "_src": "hooks_usethumbnailanalysis_ts",
+      "_tgt": "usethumbnailanalysis_usecheckimagespec",
+      "source": "hooks_usethumbnailanalysis_ts",
+      "target": "usethumbnailanalysis_usecheckimagespec",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "hooks/useThumbnailAnalysis.ts",
+      "source_location": "L66",
+      "weight": 1.0,
+      "_src": "hooks_usethumbnailanalysis_ts",
+      "_tgt": "usethumbnailanalysis_usepreinspect",
+      "source": "hooks_usethumbnailanalysis_ts",
+      "target": "usethumbnailanalysis_usepreinspect",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "hooks/useThumbnailAnalysis.ts",
+      "source_location": "L77",
+      "weight": 1.0,
+      "_src": "hooks_usethumbnailanalysis_ts",
+      "_tgt": "usethumbnailanalysis_usecancelbatch",
+      "source": "hooks_usethumbnailanalysis_ts",
+      "target": "usethumbnailanalysis_usecancelbatch",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_smart_polling_dynamic_refetch",
+      "_tgt": "claude_file_use_thumbnail_generations",
+      "source": "claude_pattern_smart_polling_dynamic_refetch",
+      "target": "claude_file_use_thumbnail_generations"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_smart_polling_dynamic_refetch",
+      "_tgt": "claude_rationale_auto_polling_onoff",
+      "source": "claude_pattern_smart_polling_dynamic_refetch",
+      "target": "claude_rationale_auto_polling_onoff"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_smart_polling_dynamic_refetch",
+      "_tgt": "claude_rule_mutation_invalidate_onsettled",
+      "source": "claude_pattern_smart_polling_dynamic_refetch",
+      "target": "claude_rule_mutation_invalidate_onsettled"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_smart_polling_dynamic_refetch",
+      "_tgt": "claude_rule_querykeys_apiclient",
+      "source": "claude_pattern_smart_polling_dynamic_refetch",
+      "target": "claude_rule_querykeys_apiclient"
+    },
+    {
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_smart_polling_dynamic_refetch",
+      "_tgt": "claude_prohibit_setinterval",
+      "source": "claude_pattern_smart_polling_dynamic_refetch",
+      "target": "claude_prohibit_setinterval"
+    },
+    {
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_smart_polling_dynamic_refetch",
+      "_tgt": "claude_prohibit_eventsource_websocket",
+      "source": "claude_pattern_smart_polling_dynamic_refetch",
+      "target": "claude_prohibit_eventsource_websocket"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_optimistic_ui_rollback",
+      "_tgt": "claude_file_use_thumbnail_generations",
+      "source": "claude_pattern_optimistic_ui_rollback",
+      "target": "claude_file_use_thumbnail_generations"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_optimistic_ui_rollback",
+      "_tgt": "claude_rationale_rollback_on_failure",
+      "source": "claude_pattern_optimistic_ui_rollback",
+      "target": "claude_rationale_rollback_on_failure"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_optimistic_ui_rollback",
+      "_tgt": "claude_rule_mutation_invalidate_onsettled",
+      "source": "claude_pattern_optimistic_ui_rollback",
+      "target": "claude_rule_mutation_invalidate_onsettled"
+    },
+    {
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_optimistic_ui_rollback",
+      "_tgt": "claude_prohibit_raw_fetch",
+      "source": "claude_pattern_optimistic_ui_rollback",
+      "target": "claude_prohibit_raw_fetch"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_batch_progress_abortcontroller",
+      "_tgt": "claude_file_page_tsx",
+      "source": "claude_pattern_batch_progress_abortcontroller",
+      "target": "claude_file_page_tsx"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_batch_progress_abortcontroller",
+      "_tgt": "claude_rationale_cancel_server_ui",
+      "source": "claude_pattern_batch_progress_abortcontroller",
+      "target": "claude_rationale_cancel_server_ui"
+    },
+    {
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_batch_progress_abortcontroller",
+      "_tgt": "claude_prohibit_eventsource_websocket",
+      "source": "claude_pattern_batch_progress_abortcontroller",
+      "target": "claude_prohibit_eventsource_websocket"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_file_upload_filereader",
+      "_tgt": "claude_file_upload_analyzer",
+      "source": "claude_pattern_file_upload_filereader",
+      "target": "claude_file_upload_analyzer"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_file_upload_filereader",
+      "_tgt": "claude_rationale_fast_ux",
+      "source": "claude_pattern_file_upload_filereader",
+      "target": "claude_rationale_fast_ux"
+    },
+    {
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_file_upload_filereader",
+      "_tgt": "claude_prohibit_canvas_image_manipulation",
+      "source": "claude_pattern_file_upload_filereader",
+      "target": "claude_prohibit_canvas_image_manipulation"
+    },
+    {
+      "relation": "modification_triggers",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_file_page_tsx",
+      "_tgt": "claude_file_thumbnail_filter_tabs",
+      "source": "claude_file_page_tsx",
+      "target": "claude_file_thumbnail_filter_tabs"
+    },
+    {
+      "relation": "modification_triggers",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_file_page_tsx",
+      "_tgt": "claude_file_use_thumbnail_generations",
+      "source": "claude_file_page_tsx",
+      "target": "claude_file_use_thumbnail_generations"
+    },
+    {
+      "relation": "modification_triggers",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_file_coupang_wing",
+      "_tgt": "claude_file_page_tsx",
+      "source": "claude_file_page_tsx",
+      "target": "claude_file_coupang_wing"
+    },
+    {
+      "relation": "modification_triggers",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_file_shared_package",
+      "_tgt": "claude_file_use_thumbnail_generations",
+      "source": "claude_file_use_thumbnail_generations",
+      "target": "claude_file_shared_package"
+    },
+    {
+      "relation": "modification_triggers",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_file_api_client",
+      "_tgt": "claude_file_use_thumbnail_generations",
+      "source": "claude_file_use_thumbnail_generations",
+      "target": "claude_file_api_client"
+    },
+    {
+      "relation": "modification_triggers",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_file_grade_constants",
+      "_tgt": "claude_file_grade_donut_chart",
+      "source": "claude_file_grade_constants",
+      "target": "claude_file_grade_donut_chart"
+    },
+    {
+      "relation": "modification_triggers",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_file_grade_constants",
+      "_tgt": "claude_file_score_breakdown",
+      "source": "claude_file_grade_constants",
+      "target": "claude_file_score_breakdown"
+    }
+  ],
+  "hyperedges": []
+}

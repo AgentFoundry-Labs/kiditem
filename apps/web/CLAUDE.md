@@ -94,6 +94,17 @@ Shared directories (`src/components/`, `src/hooks/`, `src/lib/`) contain ONLY cr
 - Zustand: sidebar state only (`store/`)
 - Server state: all via React Query
 
+## Notable Sub-Domains (LOW signal — 별도 CLAUDE.md 없음)
+
+부모 Next.js 패턴(이 문서) 으로 거의 커버되지만, 아래 도메인은 한 가지 특이점이 있다.
+
+- **`app/inventory/`** — `lib/barcode-print.ts` 의 `printBarcodeWindow()` (window.open + `<style>` 인쇄) + xlsx import/export. 브라우저 print API 직접 사용 케이스.
+- **`app/settings/`** — 다양한 file upload (CSV/Image), printer 연결 (`PrinterSettings` 컴포넌트), health check + sync 운영 액션. system-level operations 가 한 페이지에 모임.
+- **`app/sales-analysis/`** — `Settlements` 탭이 streaming 패턴 (스트림 chunked download). xlsx export 도 함.
+- **`app/orders/`** — Pipeline state UI (ACCEPT → INSTRUCT → DEPARTURE → DELIVERING 시각화) + scheduled sync polling (`SYNC_HOURS` 상수로 정해진 시각마다 자동 sync invoke).
+
+각 도메인 작업 시 위 특이점만 의식하면 부모 Next.js 패턴으로 충분.
+
 ## Tests
 
 - Vitest + @testing-library/react

@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>graphify - /Users/yhc125/workspace/kiditem/apps/web/src/app/workflows/graphify-out/graph.html</title>
+<script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0f0f1a; color: #e0e0e0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; display: flex; height: 100vh; overflow: hidden; }
+  #graph { flex: 1; }
+  #sidebar { width: 280px; background: #1a1a2e; border-left: 1px solid #2a2a4e; display: flex; flex-direction: column; overflow: hidden; }
+  #search-wrap { padding: 12px; border-bottom: 1px solid #2a2a4e; }
+  #search { width: 100%; background: #0f0f1a; border: 1px solid #3a3a5e; color: #e0e0e0; padding: 7px 10px; border-radius: 6px; font-size: 13px; outline: none; }
+  #search:focus { border-color: #4E79A7; }
+  #search-results { max-height: 140px; overflow-y: auto; padding: 4px 12px; border-bottom: 1px solid #2a2a4e; display: none; }
+  .search-item { padding: 4px 6px; cursor: pointer; border-radius: 4px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .search-item:hover { background: #2a2a4e; }
+  #info-panel { padding: 14px; border-bottom: 1px solid #2a2a4e; min-height: 140px; }
+  #info-panel h3 { font-size: 13px; color: #aaa; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em; }
+  #info-content { font-size: 13px; color: #ccc; line-height: 1.6; }
+  #info-content .field { margin-bottom: 5px; }
+  #info-content .field b { color: #e0e0e0; }
+  #info-content .empty { color: #555; font-style: italic; }
+  .neighbor-link { display: block; padding: 2px 6px; margin: 2px 0; border-radius: 3px; cursor: pointer; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-left: 3px solid #333; }
+  .neighbor-link:hover { background: #2a2a4e; }
+  #neighbors-list { max-height: 160px; overflow-y: auto; margin-top: 4px; }
+  #legend-wrap { flex: 1; overflow-y: auto; padding: 12px; }
+  #legend-wrap h3 { font-size: 13px; color: #aaa; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .legend-item { display: flex; align-items: center; gap: 8px; padding: 4px 0; cursor: pointer; border-radius: 4px; font-size: 12px; }
+  .legend-item:hover { background: #2a2a4e; padding-left: 4px; }
+  .legend-item.dimmed { opacity: 0.35; }
+  .legend-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+  .legend-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .legend-count { color: #666; font-size: 11px; }
+  #stats { padding: 10px 14px; border-top: 1px solid #2a2a4e; font-size: 11px; color: #555; }
+</style>
+</head>
+<body>
+<div id="graph"></div>
+<div id="sidebar">
+  <div id="search-wrap">
+    <input id="search" type="text" placeholder="Search nodes..." autocomplete="off">
+    <div id="search-results"></div>
+  </div>
+  <div id="info-panel">
+    <h3>Node Info</h3>
+    <div id="info-content"><span class="empty">Click a node to inspect it</span></div>
+  </div>
+  <div id="legend-wrap">
+    <h3>Communities</h3>
+    <div id="legend"></div>
+  </div>
+  <div id="stats">57 nodes &middot; 45 edges &middot; 16 communities</div>
+</div>
+<script>
+const RAW_NODES = [{"id": "page_tsx", "label": "page.tsx", "color": {"background": "#9C755F", "border": "#9C755F", "highlight": {"background": "#ffffff", "border": "#9C755F"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "page.tsx", "community": 8, "community_name": "Cluster 8 (2n)", "source_file": "page.tsx", "file_type": "code", "degree": 1}, {"id": "page_workflowspage", "label": "WorkflowsPage()", "color": {"background": "#9C755F", "border": "#9C755F", "highlight": {"background": "#ffffff", "border": "#9C755F"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "WorkflowsPage()", "community": 8, "community_name": "Cluster 8 (2n)", "source_file": "page.tsx", "file_type": "code", "degree": 1}, {"id": "components_workflowrunview_tsx", "label": "WorkflowRunView.tsx", "color": {"background": "#59A14F", "border": "#59A14F", "highlight": {"background": "#ffffff", "border": "#59A14F"}}, "size": 22.9, "font": {"size": 12, "color": "#ffffff"}, "title": "WorkflowRunView.tsx", "community": 4, "community_name": "Cluster 4 (4n)", "source_file": "components/WorkflowRunView.tsx", "file_type": "code", "degree": 3}, {"id": "workflowrunview_formatduration", "label": "formatDuration()", "color": {"background": "#59A14F", "border": "#59A14F", "highlight": {"background": "#ffffff", "border": "#59A14F"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "formatDuration()", "community": 4, "community_name": "Cluster 4 (4n)", "source_file": "components/WorkflowRunView.tsx", "file_type": "code", "degree": 1}, {"id": "workflowrunview_formatruntime", "label": "formatRunTime()", "color": {"background": "#59A14F", "border": "#59A14F", "highlight": {"background": "#ffffff", "border": "#59A14F"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "formatRunTime()", "community": 4, "community_name": "Cluster 4 (4n)", "source_file": "components/WorkflowRunView.tsx", "file_type": "code", "degree": 1}, {"id": "workflowrunview_cn", "label": "cn()", "color": {"background": "#59A14F", "border": "#59A14F", "highlight": {"background": "#ffffff", "border": "#59A14F"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "cn()", "community": 4, "community_name": "Cluster 4 (4n)", "source_file": "components/WorkflowRunView.tsx", "file_type": "code", "degree": 1}, {"id": "components_workflowlist_tsx", "label": "WorkflowList.tsx", "color": {"background": "#E15759", "border": "#E15759", "highlight": {"background": "#ffffff", "border": "#E15759"}}, "size": 35.7, "font": {"size": 12, "color": "#ffffff"}, "title": "WorkflowList.tsx", "community": 2, "community_name": "Cluster 2 (7n)", "source_file": "components/WorkflowList.tsx", "file_type": "code", "degree": 6}, {"id": "workflowlist_legacytotemplate", "label": "legacyToTemplate()", "color": {"background": "#E15759", "border": "#E15759", "highlight": {"background": "#ffffff", "border": "#E15759"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "legacyToTemplate()", "community": 2, "community_name": "Cluster 2 (7n)", "source_file": "components/WorkflowList.tsx", "file_type": "code", "degree": 1}, {"id": "workflowlist_formatduration", "label": "formatDuration()", "color": {"background": "#E15759", "border": "#E15759", "highlight": {"background": "#ffffff", "border": "#E15759"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "formatDuration()", "community": 2, "community_name": "Cluster 2 (7n)", "source_file": "components/WorkflowList.tsx", "file_type": "code", "degree": 1}, {"id": "workflowlist_handleexpand", "label": "handleExpand()", "color": {"background": "#E15759", "border": "#E15759", "highlight": {"background": "#ffffff", "border": "#E15759"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "handleExpand()", "community": 2, "community_name": "Cluster 2 (7n)", "source_file": "components/WorkflowList.tsx", "file_type": "code", "degree": 1}, {"id": "workflowlist_handleselectrun", "label": "handleSelectRun()", "color": {"background": "#E15759", "border": "#E15759", "highlight": {"background": "#ffffff", "border": "#E15759"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "handleSelectRun()", "community": 2, "community_name": "Cluster 2 (7n)", "source_file": "components/WorkflowList.tsx", "file_type": "code", "degree": 1}, {"id": "workflowlist_handlebacktotemplate", "label": "handleBackToTemplate()", "color": {"background": "#E15759", "border": "#E15759", "highlight": {"background": "#ffffff", "border": "#E15759"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "handleBackToTemplate()", "community": 2, "community_name": "Cluster 2 (7n)", "source_file": "components/WorkflowList.tsx", "file_type": "code", "degree": 1}, {"id": "workflowlist_cn", "label": "cn()", "color": {"background": "#E15759", "border": "#E15759", "highlight": {"background": "#ffffff", "border": "#E15759"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "cn()", "community": 2, "community_name": "Cluster 2 (7n)", "source_file": "components/WorkflowList.tsx", "file_type": "code", "degree": 1}, {"id": "components_nodedetailpopover_tsx", "label": "NodeDetailPopover.tsx", "color": {"background": "#EDC948", "border": "#EDC948", "highlight": {"background": "#ffffff", "border": "#EDC948"}}, "size": 22.9, "font": {"size": 12, "color": "#ffffff"}, "title": "NodeDetailPopover.tsx", "community": 5, "community_name": "Cluster 5 (4n)", "source_file": "components/NodeDetailPopover.tsx", "file_type": "code", "degree": 3}, {"id": "nodedetailpopover_formatduration", "label": "formatDuration()", "color": {"background": "#EDC948", "border": "#EDC948", "highlight": {"background": "#ffffff", "border": "#EDC948"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "formatDuration()", "community": 5, "community_name": "Cluster 5 (4n)", "source_file": "components/NodeDetailPopover.tsx", "file_type": "code", "degree": 1}, {"id": "nodedetailpopover_truncatejson", "label": "truncateJson()", "color": {"background": "#EDC948", "border": "#EDC948", "highlight": {"background": "#ffffff", "border": "#EDC948"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "truncateJson()", "community": 5, "community_name": "Cluster 5 (4n)", "source_file": "components/NodeDetailPopover.tsx", "file_type": "code", "degree": 1}, {"id": "nodedetailpopover_nodedetailpopover", "label": "NodeDetailPopover()", "color": {"background": "#EDC948", "border": "#EDC948", "highlight": {"background": "#ffffff", "border": "#EDC948"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "NodeDetailPopover()", "community": 5, "community_name": "Cluster 5 (4n)", "source_file": "components/NodeDetailPopover.tsx", "file_type": "code", "degree": 1}, {"id": "components_workflowcanvas_tsx", "label": "WorkflowCanvas.tsx", "color": {"background": "#BAB0AC", "border": "#BAB0AC", "highlight": {"background": "#ffffff", "border": "#BAB0AC"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "WorkflowCanvas.tsx", "community": 9, "community_name": "Cluster 9 (2n)", "source_file": "components/WorkflowCanvas.tsx", "file_type": "code", "degree": 1}, {"id": "workflowcanvas_workflowcanvas", "label": "WorkflowCanvas()", "color": {"background": "#BAB0AC", "border": "#BAB0AC", "highlight": {"background": "#ffffff", "border": "#BAB0AC"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "WorkflowCanvas()", "community": 9, "community_name": "Cluster 9 (2n)", "source_file": "components/WorkflowCanvas.tsx", "file_type": "code", "degree": 1}, {"id": "components_workflownode_tsx", "label": "WorkflowNode.tsx", "color": {"background": "#E15759", "border": "#E15759", "highlight": {"background": "#ffffff", "border": "#E15759"}}, "size": 10.0, "font": {"size": 0, "color": "#ffffff"}, "title": "WorkflowNode.tsx", "community": 12, "community_name": "Cluster 12 (1n)", "source_file": "components/WorkflowNode.tsx", "file_type": "code", "degree": 0}, {"id": "components_myworkflowssection_tsx", "label": "MyWorkflowsSection.tsx", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "MyWorkflowsSection.tsx", "community": 10, "community_name": "Cluster 10 (2n)", "source_file": "components/MyWorkflowsSection.tsx", "file_type": "code", "degree": 1}, {"id": "myworkflowssection_myworkflowssection", "label": "MyWorkflowsSection()", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "MyWorkflowsSection()", "community": 10, "community_name": "Cluster 10 (2n)", "source_file": "components/MyWorkflowsSection.tsx", "file_type": "code", "degree": 1}, {"id": "hooks_useworkflows_ts", "label": "useWorkflows.ts", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 40.0, "font": {"size": 12, "color": "#ffffff"}, "title": "useWorkflows.ts", "community": 0, "community_name": "Cluster 0 (8n)", "source_file": "hooks/useWorkflows.ts", "file_type": "code", "degree": 7}, {"id": "useworkflows_useworkflows", "label": "useWorkflows()", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "useWorkflows()", "community": 0, "community_name": "Cluster 0 (8n)", "source_file": "hooks/useWorkflows.ts", "file_type": "code", "degree": 1}, {"id": "useworkflows_useworkflow", "label": "useWorkflow()", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "useWorkflow()", "community": 0, "community_name": "Cluster 0 (8n)", "source_file": "hooks/useWorkflows.ts", "file_type": "code", "degree": 1}, {"id": "useworkflows_useworkflowruns", "label": "useWorkflowRuns()", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "useWorkflowRuns()", "community": 0, "community_name": "Cluster 0 (8n)", "source_file": "hooks/useWorkflows.ts", "file_type": "code", "degree": 1}, {"id": "useworkflows_useworkflowrundetail", "label": "useWorkflowRunDetail()", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "useWorkflowRunDetail()", "community": 0, "community_name": "Cluster 0 (8n)", "source_file": "hooks/useWorkflows.ts", "file_type": "code", "degree": 1}, {"id": "useworkflows_usetriggerworkflow", "label": "useTriggerWorkflow()", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "useTriggerWorkflow()", "community": 0, "community_name": "Cluster 0 (8n)", "source_file": "hooks/useWorkflows.ts", "file_type": "code", "degree": 1}, {"id": "useworkflows_usetoggleworkflow", "label": "useToggleWorkflow()", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "useToggleWorkflow()", "community": 0, "community_name": "Cluster 0 (8n)", "source_file": "hooks/useWorkflows.ts", "file_type": "code", "degree": 1}, {"id": "useworkflows_usedeleteworkflow", "label": "useDeleteWorkflow()", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "useDeleteWorkflow()", "community": 0, "community_name": "Cluster 0 (8n)", "source_file": "hooks/useWorkflows.ts", "file_type": "code", "degree": 1}, {"id": "lib_workflow_types_ts", "label": "workflow-types.ts", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "workflow-types.ts", "community": 11, "community_name": "Cluster 11 (2n)", "source_file": "lib/workflow-types.ts", "file_type": "code", "degree": 1}, {"id": "workflow_types_mapstepstatus", "label": "mapStepStatus()", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "mapStepStatus()", "community": 11, "community_name": "Cluster 11 (2n)", "source_file": "lib/workflow-types.ts", "file_type": "code", "degree": 1}, {"id": "lib_workflow_api_ts", "label": "workflow-api.ts", "color": {"background": "#76B7B2", "border": "#76B7B2", "highlight": {"background": "#ffffff", "border": "#76B7B2"}}, "size": 10.0, "font": {"size": 0, "color": "#ffffff"}, "title": "workflow-api.ts", "community": 13, "community_name": "Cluster 13 (1n)", "source_file": "lib/workflow-api.ts", "file_type": "code", "degree": 0}, {"id": "claude_pattern_wildcard_invalidation", "label": "Wildcard Invalidation", "color": {"background": "#B07AA1", "border": "#B07AA1", "highlight": {"background": "#ffffff", "border": "#B07AA1"}}, "size": 27.1, "font": {"size": 12, "color": "#ffffff"}, "title": "Wildcard Invalidation", "community": 6, "community_name": "Cluster 6 (4n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 4}, {"id": "claude_pattern_usequeryoptions_forwarding", "label": "UseQueryOptions Forwarding", "color": {"background": "#FF9DA7", "border": "#FF9DA7", "highlight": {"background": "#ffffff", "border": "#FF9DA7"}}, "size": 27.1, "font": {"size": 12, "color": "#ffffff"}, "title": "UseQueryOptions Forwarding", "community": 7, "community_name": "Cluster 7 (4n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 4}, {"id": "claude_pattern_company_id_injection", "label": "Company ID \uc790\ub3d9 \uc8fc\uc785", "color": {"background": "#76B7B2", "border": "#76B7B2", "highlight": {"background": "#ffffff", "border": "#76B7B2"}}, "size": 22.9, "font": {"size": 12, "color": "#ffffff"}, "title": "Company ID \uc790\ub3d9 \uc8fc\uc785", "community": 3, "community_name": "Cluster 3 (6n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 3}, {"id": "claude_pattern_thin_page_composition", "label": "Thin Page Composition", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 35.7, "font": {"size": 12, "color": "#ffffff"}, "title": "Thin Page Composition", "community": 1, "community_name": "Cluster 1 (8n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 6}, {"id": "claude_rule_auth_company_scope", "label": "\ubaa8\ub4e0 workflow \ub294 \uc778\uc99d \ud68c\uc0ac \uc2a4\ucf54\ud504 (getCompanyId \uac15\uc81c)", "color": {"background": "#76B7B2", "border": "#76B7B2", "highlight": {"background": "#ffffff", "border": "#76B7B2"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "\ubaa8\ub4e0 workflow \ub294 \uc778\uc99d \ud68c\uc0ac \uc2a4\ucf54\ud504 (getCompanyId \uac15\uc81c)", "community": 3, "community_name": "Cluster 3 (6n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}, {"id": "claude_rule_no_polling", "label": "Polling \uc5c6\uc74c (refetchInterval \uc0ac\uc6a9 \uc548 \ud568, static list)", "color": {"background": "#59A14F", "border": "#59A14F", "highlight": {"background": "#ffffff", "border": "#59A14F"}}, "size": 10.0, "font": {"size": 0, "color": "#ffffff"}, "title": "Polling \uc5c6\uc74c (refetchInterval \uc0ac\uc6a9 \uc548 \ud568, static list)", "community": 14, "community_name": "Cluster 14 (1n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 0}, {"id": "claude_rule_error_in_page", "label": "Hook \ub808\uc774\uc5b4\uc5d0\uc11c error \ucc98\ub9ac \uc548 \ud568 \u2014 page.tsx \uac00 isApiError \ubd84\uae30", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "Hook \ub808\uc774\uc5b4\uc5d0\uc11c error \ucc98\ub9ac \uc548 \ud568 \u2014 page.tsx \uac00 isApiError \ubd84\uae30", "community": 1, "community_name": "Cluster 1 (8n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}, {"id": "claude_rule_filter_ui_only", "label": "Filter state (useState) \ub294 UI only, API \ud638\ucd9c\uc5d0 \ubc18\uc601 \uc548 \ud568", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "Filter state (useState) \ub294 UI only, API \ud638\ucd9c\uc5d0 \ubc18\uc601 \uc548 \ud568", "community": 1, "community_name": "Cluster 1 (8n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}, {"id": "claude_rule_unified_invalidation", "label": "Activation/Delete/Trigger \ubaa8\ub450 \ub3d9\uc77c invalidation \uc804\ub7b5", "color": {"background": "#B07AA1", "border": "#B07AA1", "highlight": {"background": "#ffffff", "border": "#B07AA1"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "Activation/Delete/Trigger \ubaa8\ub450 \ub3d9\uc77c invalidation \uc804\ub7b5", "community": 6, "community_name": "Cluster 6 (4n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}, {"id": "claude_prohibit_inline_usequery", "label": "Page \uc548\uc5d0\uc11c inline useQuery \uae08\uc9c0 (\uc804\uc6a9 hook \ub9cc)", "color": {"background": "#FF9DA7", "border": "#FF9DA7", "highlight": {"background": "#ffffff", "border": "#FF9DA7"}}, "size": 18.6, "font": {"size": 12, "color": "#ffffff"}, "title": "Page \uc548\uc5d0\uc11c inline useQuery \uae08\uc9c0 (\uc804\uc6a9 hook \ub9cc)", "community": 7, "community_name": "Cluster 7 (4n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 2}, {"id": "claude_prohibit_polling", "label": "Polling \uae08\uc9c0 (static list \uc758\ub3c4)", "color": {"background": "#FF9DA7", "border": "#FF9DA7", "highlight": {"background": "#ffffff", "border": "#FF9DA7"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "Polling \uae08\uc9c0 (static list \uc758\ub3c4)", "community": 7, "community_name": "Cluster 7 (4n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}, {"id": "claude_prohibit_client_transform", "label": "Workflow data \ud074\ub77c\uc774\uc5b8\ud2b8 \ubcc0\ud658 \uae08\uc9c0 (\uc11c\ubc84 \uc751\ub2f5 \uadf8\ub300\ub85c)", "color": {"background": "#B07AA1", "border": "#B07AA1", "highlight": {"background": "#ffffff", "border": "#B07AA1"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "Workflow data \ud074\ub77c\uc774\uc5b8\ud2b8 \ubcc0\ud658 \uae08\uc9c0 (\uc11c\ubc84 \uc751\ub2f5 \uadf8\ub300\ub85c)", "community": 6, "community_name": "Cluster 6 (4n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}, {"id": "claude_rationale_consistency_via_refresh", "label": "workflow \ubcc0\uacbd\uc740 list/detail/runs \ubaa8\ub450 \uc601\ud5a5 \u2192 \uc804\uccb4 \uc0c8\ub85c\uace0\uce68\uc774 \uc77c\uad00\uc131 \ubcf4\uc7a5", "color": {"background": "#B07AA1", "border": "#B07AA1", "highlight": {"background": "#ffffff", "border": "#B07AA1"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "workflow \ubcc0\uacbd\uc740 list/detail/runs \ubaa8\ub450 \uc601\ud5a5 \u2192 \uc804\uccb4 \uc0c8\ub85c\uace0\uce68\uc774 \uc77c\uad00\uc131 \ubcf4\uc7a5", "community": 6, "community_name": "Cluster 6 (4n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}, {"id": "claude_rationale_hook_composability", "label": "caller\uac00 refetchInterval/enabled/staleTime \ub4f1 override \uac00\ub2a5 \u2192 \ud569\uc131\uc131", "color": {"background": "#FF9DA7", "border": "#FF9DA7", "highlight": {"background": "#ffffff", "border": "#FF9DA7"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "caller\uac00 refetchInterval/enabled/staleTime \ub4f1 override \uac00\ub2a5 \u2192 \ud569\uc131\uc131", "community": 7, "community_name": "Cluster 7 (4n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}, {"id": "claude_rationale_hide_companyid", "label": "getCompanyId baked in \u2192 Hook \ud638\ucd9c\uc790\ub294 companyId \ubaa8\ub984", "color": {"background": "#76B7B2", "border": "#76B7B2", "highlight": {"background": "#ffffff", "border": "#76B7B2"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "getCompanyId baked in \u2192 Hook \ud638\ucd9c\uc790\ub294 companyId \ubaa8\ub984", "community": 3, "community_name": "Cluster 3 (6n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}, {"id": "claude_rationale_thin_page", "label": "\ub2e8\uc77c useState + hook data pass \u2192 \ubaa8\ub2ec/\ud0ed/\ubcf5\uc7a1 state \uc5c6\uc74c", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "\ub2e8\uc77c useState + hook data pass \u2192 \ubaa8\ub2ec/\ud0ed/\ubcf5\uc7a1 state \uc5c6\uc74c", "community": 1, "community_name": "Cluster 1 (8n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}, {"id": "claude_file_page_tsx", "label": "workflows/page.tsx", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 18.6, "font": {"size": 12, "color": "#ffffff"}, "title": "workflows/page.tsx", "community": 1, "community_name": "Cluster 1 (8n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 2}, {"id": "claude_file_my_workflows_section", "label": "components/MyWorkflowsSection.tsx", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "components/MyWorkflowsSection.tsx", "community": 1, "community_name": "Cluster 1 (8n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}, {"id": "claude_file_use_workflows", "label": "hooks/useWorkflows.ts", "color": {"background": "#76B7B2", "border": "#76B7B2", "highlight": {"background": "#ffffff", "border": "#76B7B2"}}, "size": 31.4, "font": {"size": 12, "color": "#ffffff"}, "title": "hooks/useWorkflows.ts", "community": 3, "community_name": "Cluster 3 (6n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 5}, {"id": "claude_file_workflow_api", "label": "lib/workflow-api.ts", "color": {"background": "#76B7B2", "border": "#76B7B2", "highlight": {"background": "#ffffff", "border": "#76B7B2"}}, "size": 18.6, "font": {"size": 12, "color": "#ffffff"}, "title": "lib/workflow-api.ts", "community": 3, "community_name": "Cluster 3 (6n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 2}, {"id": "claude_file_workflow_types", "label": "lib/workflow-types.ts", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 18.6, "font": {"size": 12, "color": "#ffffff"}, "title": "lib/workflow-types.ts", "community": 1, "community_name": "Cluster 1 (8n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 2}, {"id": "claude_file_shared_workflows_schema", "label": "@kiditem/shared/schemas/workflows.ts", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 18.6, "font": {"size": 12, "color": "#ffffff"}, "title": "@kiditem/shared/schemas/workflows.ts", "community": 1, "community_name": "Cluster 1 (8n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 2}, {"id": "claude_file_api_client", "label": "src/lib/api (apiClient, getCompanyId)", "color": {"background": "#EDC948", "border": "#EDC948", "highlight": {"background": "#ffffff", "border": "#EDC948"}}, "size": 10.0, "font": {"size": 0, "color": "#ffffff"}, "title": "src/lib/api (apiClient, getCompanyId)", "community": 15, "community_name": "Cluster 15 (1n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 0}, {"id": "claude_file_backend_endpoint", "label": "\ubc31\uc5d4\ub4dc endpoint (/api/workflows/*, /api/workflow-runs/*)", "color": {"background": "#76B7B2", "border": "#76B7B2", "highlight": {"background": "#ffffff", "border": "#76B7B2"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "\ubc31\uc5d4\ub4dc endpoint (/api/workflows/*, /api/workflow-runs/*)", "community": 3, "community_name": "Cluster 3 (6n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}];
+const RAW_EDGES = [{"from": "page_tsx", "to": "page_workflowspage", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "components_workflowrunview_tsx", "to": "workflowrunview_formatduration", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "components_workflowrunview_tsx", "to": "workflowrunview_formatruntime", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "components_workflowrunview_tsx", "to": "workflowrunview_cn", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "components_workflowlist_tsx", "to": "workflowlist_legacytotemplate", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "components_workflowlist_tsx", "to": "workflowlist_formatduration", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "components_workflowlist_tsx", "to": "workflowlist_handleexpand", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "components_workflowlist_tsx", "to": "workflowlist_handleselectrun", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "components_workflowlist_tsx", "to": "workflowlist_handlebacktotemplate", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "components_workflowlist_tsx", "to": "workflowlist_cn", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "components_nodedetailpopover_tsx", "to": "nodedetailpopover_formatduration", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "components_nodedetailpopover_tsx", "to": "nodedetailpopover_truncatejson", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "components_nodedetailpopover_tsx", "to": "nodedetailpopover_nodedetailpopover", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "components_workflowcanvas_tsx", "to": "workflowcanvas_workflowcanvas", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "components_myworkflowssection_tsx", "to": "myworkflowssection_myworkflowssection", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "hooks_useworkflows_ts", "to": "useworkflows_useworkflows", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "hooks_useworkflows_ts", "to": "useworkflows_useworkflow", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "hooks_useworkflows_ts", "to": "useworkflows_useworkflowruns", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "hooks_useworkflows_ts", "to": "useworkflows_useworkflowrundetail", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "hooks_useworkflows_ts", "to": "useworkflows_usetriggerworkflow", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "hooks_useworkflows_ts", "to": "useworkflows_usetoggleworkflow", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "hooks_useworkflows_ts", "to": "useworkflows_usedeleteworkflow", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "lib_workflow_types_ts", "to": "workflow_types_mapstepstatus", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_pattern_wildcard_invalidation", "to": "claude_rule_unified_invalidation", "label": "rationale_for", "title": "rationale_for [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_pattern_wildcard_invalidation", "to": "claude_rationale_consistency_via_refresh", "label": "rationale_for", "title": "rationale_for [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_pattern_wildcard_invalidation", "to": "claude_file_use_workflows", "label": "rationale_for", "title": "rationale_for [INFERRED]", "dashes": true, "width": 1, "color": {"opacity": 0.35}, "confidence": "INFERRED"}, {"from": "claude_pattern_wildcard_invalidation", "to": "claude_prohibit_client_transform", "label": "conceptually_related_to", "title": "conceptually_related_to [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_pattern_usequeryoptions_forwarding", "to": "claude_rationale_hook_composability", "label": "rationale_for", "title": "rationale_for [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_pattern_usequeryoptions_forwarding", "to": "claude_file_use_workflows", "label": "rationale_for", "title": "rationale_for [INFERRED]", "dashes": true, "width": 1, "color": {"opacity": 0.35}, "confidence": "INFERRED"}, {"from": "claude_pattern_usequeryoptions_forwarding", "to": "claude_prohibit_inline_usequery", "label": "conceptually_related_to", "title": "conceptually_related_to [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_pattern_usequeryoptions_forwarding", "to": "claude_prohibit_polling", "label": "conceptually_related_to", "title": "conceptually_related_to [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_pattern_company_id_injection", "to": "claude_rule_auth_company_scope", "label": "rationale_for", "title": "rationale_for [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_pattern_company_id_injection", "to": "claude_rationale_hide_companyid", "label": "rationale_for", "title": "rationale_for [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_pattern_company_id_injection", "to": "claude_file_workflow_api", "label": "rationale_for", "title": "rationale_for [INFERRED]", "dashes": true, "width": 1, "color": {"opacity": 0.35}, "confidence": "INFERRED"}, {"from": "claude_pattern_thin_page_composition", "to": "claude_rule_error_in_page", "label": "rationale_for", "title": "rationale_for [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_pattern_thin_page_composition", "to": "claude_rule_filter_ui_only", "label": "rationale_for", "title": "rationale_for [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_pattern_thin_page_composition", "to": "claude_rationale_thin_page", "label": "rationale_for", "title": "rationale_for [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_pattern_thin_page_composition", "to": "claude_file_page_tsx", "label": "rationale_for", "title": "rationale_for [INFERRED]", "dashes": true, "width": 1, "color": {"opacity": 0.35}, "confidence": "INFERRED"}, {"from": "claude_pattern_thin_page_composition", "to": "claude_file_my_workflows_section", "label": "rationale_for", "title": "rationale_for [INFERRED]", "dashes": true, "width": 1, "color": {"opacity": 0.35}, "confidence": "INFERRED"}, {"from": "claude_pattern_thin_page_composition", "to": "claude_prohibit_inline_usequery", "label": "conceptually_related_to", "title": "conceptually_related_to [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_file_page_tsx", "to": "claude_file_workflow_types", "label": "modification_triggers", "title": "modification_triggers [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_file_use_workflows", "to": "claude_file_workflow_api", "label": "modification_triggers", "title": "modification_triggers [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_file_use_workflows", "to": "claude_file_backend_endpoint", "label": "modification_triggers", "title": "modification_triggers [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_file_use_workflows", "to": "claude_file_shared_workflows_schema", "label": "modification_triggers", "title": "modification_triggers [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_file_workflow_types", "to": "claude_file_shared_workflows_schema", "label": "modification_triggers", "title": "modification_triggers [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}];
+const LEGEND = [{"cid": 0, "color": "#4E79A7", "label": "Cluster 0 (8n)", "count": 8}, {"cid": 1, "color": "#F28E2B", "label": "Cluster 1 (8n)", "count": 8}, {"cid": 2, "color": "#E15759", "label": "Cluster 2 (7n)", "count": 7}, {"cid": 3, "color": "#76B7B2", "label": "Cluster 3 (6n)", "count": 6}, {"cid": 4, "color": "#59A14F", "label": "Cluster 4 (4n)", "count": 4}, {"cid": 5, "color": "#EDC948", "label": "Cluster 5 (4n)", "count": 4}, {"cid": 6, "color": "#B07AA1", "label": "Cluster 6 (4n)", "count": 4}, {"cid": 7, "color": "#FF9DA7", "label": "Cluster 7 (4n)", "count": 4}, {"cid": 8, "color": "#9C755F", "label": "Cluster 8 (2n)", "count": 2}, {"cid": 9, "color": "#BAB0AC", "label": "Cluster 9 (2n)", "count": 2}, {"cid": 10, "color": "#4E79A7", "label": "Cluster 10 (2n)", "count": 2}, {"cid": 11, "color": "#F28E2B", "label": "Cluster 11 (2n)", "count": 2}, {"cid": 12, "color": "#E15759", "label": "Cluster 12 (1n)", "count": 1}, {"cid": 13, "color": "#76B7B2", "label": "Cluster 13 (1n)", "count": 1}, {"cid": 14, "color": "#59A14F", "label": "Cluster 14 (1n)", "count": 1}, {"cid": 15, "color": "#EDC948", "label": "Cluster 15 (1n)", "count": 1}];
+
+// HTML-escape helper — prevents XSS when injecting graph data into innerHTML
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+// Build vis datasets
+const nodesDS = new vis.DataSet(RAW_NODES.map(n => ({
+  id: n.id, label: n.label, color: n.color, size: n.size,
+  font: n.font, title: n.title,
+  _community: n.community, _community_name: n.community_name,
+  _source_file: n.source_file, _file_type: n.file_type, _degree: n.degree,
+})));
+
+const edgesDS = new vis.DataSet(RAW_EDGES.map((e, i) => ({
+  id: i, from: e.from, to: e.to,
+  label: '',
+  title: e.title,
+  dashes: e.dashes,
+  width: e.width,
+  color: e.color,
+  arrows: { to: { enabled: true, scaleFactor: 0.5 } },
+})));
+
+const container = document.getElementById('graph');
+const network = new vis.Network(container, { nodes: nodesDS, edges: edgesDS }, {
+  physics: {
+    enabled: true,
+    solver: 'forceAtlas2Based',
+    forceAtlas2Based: {
+      gravitationalConstant: -60,
+      centralGravity: 0.005,
+      springLength: 120,
+      springConstant: 0.08,
+      damping: 0.4,
+      avoidOverlap: 0.8,
+    },
+    stabilization: { iterations: 200, fit: true },
+  },
+  interaction: {
+    hover: true,
+    tooltipDelay: 100,
+    hideEdgesOnDrag: true,
+    navigationButtons: false,
+    keyboard: false,
+  },
+  nodes: { shape: 'dot', borderWidth: 1.5 },
+  edges: { smooth: { type: 'continuous', roundness: 0.2 }, selectionWidth: 3 },
+});
+
+network.once('stabilizationIterationsDone', () => {
+  network.setOptions({ physics: { enabled: false } });
+});
+
+function showInfo(nodeId) {
+  const n = nodesDS.get(nodeId);
+  if (!n) return;
+  const neighborIds = network.getConnectedNodes(nodeId);
+  const neighborItems = neighborIds.map(nid => {
+    const nb = nodesDS.get(nid);
+    const color = nb ? nb.color.background : '#555';
+    return `<span class="neighbor-link" style="border-left-color:${esc(color)}" onclick="focusNode(${JSON.stringify(nid)})">${esc(nb ? nb.label : nid)}</span>`;
+  }).join('');
+  document.getElementById('info-content').innerHTML = `
+    <div class="field"><b>${esc(n.label)}</b></div>
+    <div class="field">Type: ${esc(n._file_type || 'unknown')}</div>
+    <div class="field">Community: ${esc(n._community_name)}</div>
+    <div class="field">Source: ${esc(n._source_file || '-')}</div>
+    <div class="field">Degree: ${n._degree}</div>
+    ${neighborIds.length ? `<div class="field" style="margin-top:8px;color:#aaa;font-size:11px">Neighbors (${neighborIds.length})</div><div id="neighbors-list">${neighborItems}</div>` : ''}
+  `;
+}
+
+function focusNode(nodeId) {
+  network.focus(nodeId, { scale: 1.4, animation: true });
+  network.selectNodes([nodeId]);
+  showInfo(nodeId);
+}
+
+// Track hovered node — hover detection is more reliable than click params
+let hoveredNodeId = null;
+network.on('hoverNode', params => {
+  hoveredNodeId = params.node;
+  container.style.cursor = 'pointer';
+});
+network.on('blurNode', () => {
+  hoveredNodeId = null;
+  container.style.cursor = 'default';
+});
+container.addEventListener('click', () => {
+  if (hoveredNodeId !== null) {
+    showInfo(hoveredNodeId);
+    network.selectNodes([hoveredNodeId]);
+  }
+});
+network.on('click', params => {
+  if (params.nodes.length > 0) {
+    showInfo(params.nodes[0]);
+  } else if (hoveredNodeId === null) {
+    document.getElementById('info-content').innerHTML = '<span class="empty">Click a node to inspect it</span>';
+  }
+});
+
+const searchInput = document.getElementById('search');
+const searchResults = document.getElementById('search-results');
+searchInput.addEventListener('input', () => {
+  const q = searchInput.value.toLowerCase().trim();
+  searchResults.innerHTML = '';
+  if (!q) { searchResults.style.display = 'none'; return; }
+  const matches = RAW_NODES.filter(n => n.label.toLowerCase().includes(q)).slice(0, 20);
+  if (!matches.length) { searchResults.style.display = 'none'; return; }
+  searchResults.style.display = 'block';
+  matches.forEach(n => {
+    const el = document.createElement('div');
+    el.className = 'search-item';
+    el.textContent = n.label;
+    el.style.borderLeft = `3px solid ${n.color.background}`;
+    el.style.paddingLeft = '8px';
+    el.onclick = () => {
+      network.focus(n.id, { scale: 1.5, animation: true });
+      network.selectNodes([n.id]);
+      showInfo(n.id);
+      searchResults.style.display = 'none';
+      searchInput.value = '';
+    };
+    searchResults.appendChild(el);
+  });
+});
+document.addEventListener('click', e => {
+  if (!searchResults.contains(e.target) && e.target !== searchInput)
+    searchResults.style.display = 'none';
+});
+
+const hiddenCommunities = new Set();
+const legendEl = document.getElementById('legend');
+LEGEND.forEach(c => {
+  const item = document.createElement('div');
+  item.className = 'legend-item';
+  item.innerHTML = `<div class="legend-dot" style="background:${c.color}"></div>
+    <span class="legend-label">${c.label}</span>
+    <span class="legend-count">${c.count}</span>`;
+  item.onclick = () => {
+    if (hiddenCommunities.has(c.cid)) {
+      hiddenCommunities.delete(c.cid);
+      item.classList.remove('dimmed');
+    } else {
+      hiddenCommunities.add(c.cid);
+      item.classList.add('dimmed');
+    }
+    const updates = RAW_NODES
+      .filter(n => n.community === c.cid)
+      .map(n => ({ id: n.id, hidden: hiddenCommunities.has(c.cid) }));
+    nodesDS.update(updates);
+  };
+  legendEl.appendChild(item);
+});
+</script>
+<script>
+// Render hyperedges as shaded regions
+const hyperedges = [];
+function drawHyperedges() {
+    const canvas = network.canvas.frame.canvas;
+    const ctx = canvas.getContext('2d');
+    hyperedges.forEach(h => {
+        const positions = h.nodes
+            .map(nid => network.getPositions([nid])[nid])
+            .filter(p => p !== undefined);
+        if (positions.length < 2) return;
+        // Draw convex hull as filled polygon
+        ctx.save();
+        ctx.globalAlpha = 0.12;
+        ctx.fillStyle = '#6366f1';
+        ctx.strokeStyle = '#6366f1';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        const scale = network.getScale();
+        const offset = network.getViewPosition();
+        const toCanvas = (p) => ({
+            x: (p.x - offset.x) * scale + canvas.width / 2,
+            y: (p.y - offset.y) * scale + canvas.height / 2
+        });
+        const pts = positions.map(toCanvas);
+        // Expand hull slightly
+        const cx = pts.reduce((s, p) => s + p.x, 0) / pts.length;
+        const cy = pts.reduce((s, p) => s + p.y, 0) / pts.length;
+        const expanded = pts.map(p => ({
+            x: cx + (p.x - cx) * 1.15,
+            y: cy + (p.y - cy) * 1.15
+        }));
+        ctx.moveTo(expanded[0].x, expanded[0].y);
+        expanded.slice(1).forEach(p => ctx.lineTo(p.x, p.y));
+        ctx.closePath();
+        ctx.fill();
+        ctx.globalAlpha = 0.4;
+        ctx.stroke();
+        // Label
+        ctx.globalAlpha = 0.8;
+        ctx.fillStyle = '#4f46e5';
+        ctx.font = 'bold 11px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(h.label, cx, cy - 5);
+        ctx.restore();
+    });
+}
+network.on('afterDrawing', drawHyperedges);
+</script>
+</body>
+</html>

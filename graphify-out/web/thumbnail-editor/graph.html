@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>graphify - /Users/yhc125/workspace/kiditem/apps/web/src/app/thumbnail-editor/graphify-out/graph.html</title>
+<script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0f0f1a; color: #e0e0e0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; display: flex; height: 100vh; overflow: hidden; }
+  #graph { flex: 1; }
+  #sidebar { width: 280px; background: #1a1a2e; border-left: 1px solid #2a2a4e; display: flex; flex-direction: column; overflow: hidden; }
+  #search-wrap { padding: 12px; border-bottom: 1px solid #2a2a4e; }
+  #search { width: 100%; background: #0f0f1a; border: 1px solid #3a3a5e; color: #e0e0e0; padding: 7px 10px; border-radius: 6px; font-size: 13px; outline: none; }
+  #search:focus { border-color: #4E79A7; }
+  #search-results { max-height: 140px; overflow-y: auto; padding: 4px 12px; border-bottom: 1px solid #2a2a4e; display: none; }
+  .search-item { padding: 4px 6px; cursor: pointer; border-radius: 4px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .search-item:hover { background: #2a2a4e; }
+  #info-panel { padding: 14px; border-bottom: 1px solid #2a2a4e; min-height: 140px; }
+  #info-panel h3 { font-size: 13px; color: #aaa; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em; }
+  #info-content { font-size: 13px; color: #ccc; line-height: 1.6; }
+  #info-content .field { margin-bottom: 5px; }
+  #info-content .field b { color: #e0e0e0; }
+  #info-content .empty { color: #555; font-style: italic; }
+  .neighbor-link { display: block; padding: 2px 6px; margin: 2px 0; border-radius: 3px; cursor: pointer; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-left: 3px solid #333; }
+  .neighbor-link:hover { background: #2a2a4e; }
+  #neighbors-list { max-height: 160px; overflow-y: auto; margin-top: 4px; }
+  #legend-wrap { flex: 1; overflow-y: auto; padding: 12px; }
+  #legend-wrap h3 { font-size: 13px; color: #aaa; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .legend-item { display: flex; align-items: center; gap: 8px; padding: 4px 0; cursor: pointer; border-radius: 4px; font-size: 12px; }
+  .legend-item:hover { background: #2a2a4e; padding-left: 4px; }
+  .legend-item.dimmed { opacity: 0.35; }
+  .legend-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+  .legend-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .legend-count { color: #666; font-size: 11px; }
+  #stats { padding: 10px 14px; border-top: 1px solid #2a2a4e; font-size: 11px; color: #555; }
+</style>
+</head>
+<body>
+<div id="graph"></div>
+<div id="sidebar">
+  <div id="search-wrap">
+    <input id="search" type="text" placeholder="Search nodes..." autocomplete="off">
+    <div id="search-results"></div>
+  </div>
+  <div id="info-panel">
+    <h3>Node Info</h3>
+    <div id="info-content"><span class="empty">Click a node to inspect it</span></div>
+  </div>
+  <div id="legend-wrap">
+    <h3>Communities</h3>
+    <div id="legend"></div>
+  </div>
+  <div id="stats">47 nodes &middot; 32 edges &middot; 16 communities</div>
+</div>
+<script>
+const RAW_NODES = [{"id": "page_tsx", "label": "page.tsx", "color": {"background": "#EDC948", "border": "#EDC948", "highlight": {"background": "#ffffff", "border": "#EDC948"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": "page.tsx", "community": 5, "community_name": "Cluster 5 (2n)", "source_file": "page.tsx", "file_type": "code", "degree": 1}, {"id": "page_thumbnaileditorpage", "label": "ThumbnailEditorPage()", "color": {"background": "#EDC948", "border": "#EDC948", "highlight": {"background": "#ffffff", "border": "#EDC948"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": "ThumbnailEditorPage()", "community": 5, "community_name": "Cluster 5 (2n)", "source_file": "page.tsx", "file_type": "code", "degree": 1}, {"id": "components_imageuploader_tsx", "label": "ImageUploader.tsx", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 10.0, "font": {"size": 0, "color": "#ffffff"}, "title": "ImageUploader.tsx", "community": 11, "community_name": "Cluster 11 (1n)", "source_file": "components/ImageUploader.tsx", "file_type": "code", "degree": 0}, {"id": "components_thumbnaileditorview_tsx", "label": "ThumbnailEditorView.tsx", "color": {"background": "#B07AA1", "border": "#B07AA1", "highlight": {"background": "#ffffff", "border": "#B07AA1"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": "ThumbnailEditorView.tsx", "community": 6, "community_name": "Cluster 6 (2n)", "source_file": "components/ThumbnailEditorView.tsx", "file_type": "code", "degree": 1}, {"id": "thumbnaileditorview_thumbnaileditorview", "label": "ThumbnailEditorView()", "color": {"background": "#B07AA1", "border": "#B07AA1", "highlight": {"background": "#ffffff", "border": "#B07AA1"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": "ThumbnailEditorView()", "community": 6, "community_name": "Cluster 6 (2n)", "source_file": "components/ThumbnailEditorView.tsx", "file_type": "code", "degree": 1}, {"id": "components_editorresultpanel_tsx", "label": "EditorResultPanel.tsx", "color": {"background": "#FF9DA7", "border": "#FF9DA7", "highlight": {"background": "#ffffff", "border": "#FF9DA7"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": "EditorResultPanel.tsx", "community": 7, "community_name": "Cluster 7 (2n)", "source_file": "components/EditorResultPanel.tsx", "file_type": "code", "degree": 1}, {"id": "editorresultpanel_cn", "label": "cn()", "color": {"background": "#FF9DA7", "border": "#FF9DA7", "highlight": {"background": "#ffffff", "border": "#FF9DA7"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": "cn()", "community": 7, "community_name": "Cluster 7 (2n)", "source_file": "components/EditorResultPanel.tsx", "file_type": "code", "degree": 1}, {"id": "components_editorinputpanel_tsx", "label": "EditorInputPanel.tsx", "color": {"background": "#9C755F", "border": "#9C755F", "highlight": {"background": "#ffffff", "border": "#9C755F"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": "EditorInputPanel.tsx", "community": 8, "community_name": "Cluster 8 (2n)", "source_file": "components/EditorInputPanel.tsx", "file_type": "code", "degree": 1}, {"id": "editorinputpanel_cn", "label": "cn()", "color": {"background": "#9C755F", "border": "#9C755F", "highlight": {"background": "#ffffff", "border": "#9C755F"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": "cn()", "community": 8, "community_name": "Cluster 8 (2n)", "source_file": "components/EditorInputPanel.tsx", "file_type": "code", "degree": 1}, {"id": "components_editorhistorytab_tsx", "label": "EditorHistoryTab.tsx", "color": {"background": "#E15759", "border": "#E15759", "highlight": {"background": "#ffffff", "border": "#E15759"}}, "size": 34.0, "font": {"size": 12, "color": "#ffffff"}, "title": "EditorHistoryTab.tsx", "community": 2, "community_name": "Cluster 2 (5n)", "source_file": "components/EditorHistoryTab.tsx", "file_type": "code", "degree": 4}, {"id": "editorhistorytab_handleselectcandidate", "label": "handleSelectCandidate()", "color": {"background": "#E15759", "border": "#E15759", "highlight": {"background": "#ffffff", "border": "#E15759"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": "handleSelectCandidate()", "community": 2, "community_name": "Cluster 2 (5n)", "source_file": "components/EditorHistoryTab.tsx", "file_type": "code", "degree": 1}, {"id": "editorhistorytab_handleapply", "label": "handleApply()", "color": {"background": "#E15759", "border": "#E15759", "highlight": {"background": "#ffffff", "border": "#E15759"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": "handleApply()", "community": 2, "community_name": "Cluster 2 (5n)", "source_file": "components/EditorHistoryTab.tsx", "file_type": "code", "degree": 1}, {"id": "editorhistorytab_handleskip", "label": "handleSkip()", "color": {"background": "#E15759", "border": "#E15759", "highlight": {"background": "#ffffff", "border": "#E15759"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": "handleSkip()", "community": 2, "community_name": "Cluster 2 (5n)", "source_file": "components/EditorHistoryTab.tsx", "file_type": "code", "degree": 1}, {"id": "editorhistorytab_handledelete", "label": "handleDelete()", "color": {"background": "#E15759", "border": "#E15759", "highlight": {"background": "#ffffff", "border": "#E15759"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": "handleDelete()", "community": 2, "community_name": "Cluster 2 (5n)", "source_file": "components/EditorHistoryTab.tsx", "file_type": "code", "degree": 1}, {"id": "components_editorresult_tsx", "label": "EditorResult.tsx", "color": {"background": "#E15759", "border": "#E15759", "highlight": {"background": "#ffffff", "border": "#E15759"}}, "size": 10.0, "font": {"size": 0, "color": "#ffffff"}, "title": "EditorResult.tsx", "community": 12, "community_name": "Cluster 12 (1n)", "source_file": "components/EditorResult.tsx", "file_type": "code", "degree": 0}, {"id": "hooks_usethumbnaileditor_ts", "label": "useThumbnailEditor.ts", "color": {"background": "#BAB0AC", "border": "#BAB0AC", "highlight": {"background": "#ffffff", "border": "#BAB0AC"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": "useThumbnailEditor.ts", "community": 9, "community_name": "Cluster 9 (2n)", "source_file": "hooks/useThumbnailEditor.ts", "file_type": "code", "degree": 1}, {"id": "usethumbnaileditor_usegeneratethumbnail", "label": "useGenerateThumbnail()", "color": {"background": "#BAB0AC", "border": "#BAB0AC", "highlight": {"background": "#ffffff", "border": "#BAB0AC"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": "useGenerateThumbnail()", "community": 9, "community_name": "Cluster 9 (2n)", "source_file": "hooks/useThumbnailEditor.ts", "file_type": "code", "degree": 1}, {"id": "hooks_useoriginalimage_ts", "label": "useOriginalImage.ts", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": "useOriginalImage.ts", "community": 10, "community_name": "Cluster 10 (2n)", "source_file": "hooks/useOriginalImage.ts", "file_type": "code", "degree": 1}, {"id": "useoriginalimage_useoriginalimage", "label": "useOriginalImage()", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": "useOriginalImage()", "community": 10, "community_name": "Cluster 10 (2n)", "source_file": "hooks/useOriginalImage.ts", "file_type": "code", "degree": 1}, {"id": "claude_pattern_standalone_generation", "label": "Standalone Generation \u2014 productId optional", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 34.0, "font": {"size": 12, "color": "#ffffff"}, "title": "Standalone Generation \u2014 productId optional", "community": 0, "community_name": "Cluster 0 (8n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 4}, {"id": "claude_pattern_mutation_driven_workflow", "label": "Mutation-Driven Workflow (no polling)", "color": {"background": "#76B7B2", "border": "#76B7B2", "highlight": {"background": "#ffffff", "border": "#76B7B2"}}, "size": 40.0, "font": {"size": 12, "color": "#ffffff"}, "title": "Mutation-Driven Workflow (no polling)", "community": 3, "community_name": "Cluster 3 (5n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 5}, {"id": "claude_pattern_immediate_history_sync", "label": "Immediate History Sync via invalidateQueries", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 22.0, "font": {"size": 12, "color": "#ffffff"}, "title": "Immediate History Sync via invalidateQueries", "community": 0, "community_name": "Cluster 0 (8n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 2}, {"id": "claude_pattern_split_panel", "label": "Split Panel \u2014 independent input/result panels", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 34.0, "font": {"size": 12, "color": "#ffffff"}, "title": "Split Panel \u2014 independent input/result panels", "community": 1, "community_name": "Cluster 1 (7n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 4}, {"id": "claude_pattern_image_uploader_filereader", "label": "ImageUploader \u2014 FileReader abstraction", "color": {"background": "#59A14F", "border": "#59A14F", "highlight": {"background": "#ffffff", "border": "#59A14F"}}, "size": 34.0, "font": {"size": 12, "color": "#ffffff"}, "title": "ImageUploader \u2014 FileReader abstraction", "community": 4, "community_name": "Cluster 4 (5n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 4}, {"id": "claude_rule_purpose_required", "label": "purpose (compliance | quality) required for generation", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": "purpose (compliance | quality) required for generation", "community": 0, "community_name": "Cluster 0 (8n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}, {"id": "claude_rule_result_panel_reads_page_state", "label": "EditorResultPanel reads page.tsx result state (not query)", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": "EditorResultPanel reads page.tsx result state (not query)", "community": 1, "community_name": "Cluster 1 (7n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}, {"id": "claude_rule_data_url_format", "label": "Image URL is data URL format (no external CDN upload)", "color": {"background": "#59A14F", "border": "#59A14F", "highlight": {"background": "#ffffff", "border": "#59A14F"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": "Image URL is data URL format (no external CDN upload)", "community": 4, "community_name": "Cluster 4 (5n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}, {"id": "claude_rule_product_detail_for_context", "label": "queryKeys.products.detail(productId) for product context only", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": "queryKeys.products.detail(productId) for product context only", "community": 0, "community_name": "Cluster 0 (8n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}, {"id": "claude_rule_selected_candidate_gate", "label": "selectedCandidateUrl gates apply/skip button activation", "color": {"background": "#76B7B2", "border": "#76B7B2", "highlight": {"background": "#ffffff", "border": "#76B7B2"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": "selectedCandidateUrl gates apply/skip button activation", "community": 3, "community_name": "Cluster 3 (5n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}, {"id": "claude_prohibit_result_polling", "label": "Prohibit result state polling", "color": {"background": "#76B7B2", "border": "#76B7B2", "highlight": {"background": "#ffffff", "border": "#76B7B2"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": "Prohibit result state polling", "community": 3, "community_name": "Cluster 3 (5n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}, {"id": "claude_prohibit_canvas_transform", "label": "Prohibit canvas transformation (API only)", "color": {"background": "#76B7B2", "border": "#76B7B2", "highlight": {"background": "#ffffff", "border": "#76B7B2"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": "Prohibit canvas transformation (API only)", "community": 3, "community_name": "Cluster 3 (5n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}, {"id": "claude_prohibit_upload_resize_validation", "label": "Prohibit upload image resize/validation (raw transmit)", "color": {"background": "#59A14F", "border": "#59A14F", "highlight": {"background": "#ffffff", "border": "#59A14F"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": "Prohibit upload image resize/validation (raw transmit)", "community": 4, "community_name": "Cluster 4 (5n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}, {"id": "claude_rationale_standalone_pre_registration", "label": "Enable thumbnail preview before product registration", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": "Enable thumbnail preview before product registration", "community": 0, "community_name": "Cluster 0 (8n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}, {"id": "claude_rationale_instant_response", "label": "Immediate response removes polling need", "color": {"background": "#76B7B2", "border": "#76B7B2", "highlight": {"background": "#ffffff", "border": "#76B7B2"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": "Immediate response removes polling need", "community": 3, "community_name": "Cluster 3 (5n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}, {"id": "claude_rationale_cross_page_consistency", "label": "Cross-page consistency \u2014 thumbnails history tab refresh", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": "Cross-page consistency \u2014 thumbnails history tab refresh", "community": 0, "community_name": "Cluster 0 (8n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}, {"id": "claude_rationale_props_drilling", "label": "Panels share state via page.tsx props drilling (no local shared state)", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": "Panels share state via page.tsx props drilling (no local shared state)", "community": 1, "community_name": "Cluster 1 (7n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}, {"id": "claude_rationale_reusable_uploader", "label": "FileReader componentized for cross-domain reuse", "color": {"background": "#59A14F", "border": "#59A14F", "highlight": {"background": "#ffffff", "border": "#59A14F"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": "FileReader componentized for cross-domain reuse", "community": 4, "community_name": "Cluster 4 (5n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}, {"id": "claude_file_page_tsx", "label": "page.tsx", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 28.0, "font": {"size": 12, "color": "#ffffff"}, "title": "page.tsx", "community": 0, "community_name": "Cluster 0 (8n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 3}, {"id": "claude_file_editor_input_panel", "label": "components/EditorInputPanel.tsx", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": "components/EditorInputPanel.tsx", "community": 1, "community_name": "Cluster 1 (7n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}, {"id": "claude_file_editor_result_panel", "label": "components/EditorResultPanel.tsx", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 28.0, "font": {"size": 12, "color": "#ffffff"}, "title": "components/EditorResultPanel.tsx", "community": 1, "community_name": "Cluster 1 (7n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 3}, {"id": "claude_file_editor_result", "label": "components/EditorResult.tsx", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": "components/EditorResult.tsx", "community": 1, "community_name": "Cluster 1 (7n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}, {"id": "claude_file_editor_history_tab", "label": "components/EditorHistoryTab.tsx", "color": {"background": "#76B7B2", "border": "#76B7B2", "highlight": {"background": "#ffffff", "border": "#76B7B2"}}, "size": 10.0, "font": {"size": 0, "color": "#ffffff"}, "title": "components/EditorHistoryTab.tsx", "community": 13, "community_name": "Cluster 13 (1n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 0}, {"id": "claude_file_image_uploader", "label": "components/ImageUploader.tsx", "color": {"background": "#59A14F", "border": "#59A14F", "highlight": {"background": "#ffffff", "border": "#59A14F"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": "components/ImageUploader.tsx", "community": 4, "community_name": "Cluster 4 (5n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}, {"id": "claude_file_thumbnail_editor_view", "label": "components/ThumbnailEditorView.tsx", "color": {"background": "#59A14F", "border": "#59A14F", "highlight": {"background": "#ffffff", "border": "#59A14F"}}, "size": 10.0, "font": {"size": 0, "color": "#ffffff"}, "title": "components/ThumbnailEditorView.tsx", "community": 14, "community_name": "Cluster 14 (1n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 0}, {"id": "claude_file_use_thumbnail_editor", "label": "hooks/useThumbnailEditor.ts", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 22.0, "font": {"size": 12, "color": "#ffffff"}, "title": "hooks/useThumbnailEditor.ts", "community": 1, "community_name": "Cluster 1 (7n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 2}, {"id": "claude_file_use_original_image", "label": "hooks/useOriginalImage.ts", "color": {"background": "#EDC948", "border": "#EDC948", "highlight": {"background": "#ffffff", "border": "#EDC948"}}, "size": 10.0, "font": {"size": 0, "color": "#ffffff"}, "title": "hooks/useOriginalImage.ts", "community": 15, "community_name": "Cluster 15 (1n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 0}, {"id": "claude_file_thumbnail_editor_controller", "label": "apps/server/.../thumbnail-editor.controller.ts", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": "apps/server/.../thumbnail-editor.controller.ts", "community": 0, "community_name": "Cluster 0 (8n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}];
+const RAW_EDGES = [{"from": "page_tsx", "to": "page_thumbnaileditorpage", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "components_thumbnaileditorview_tsx", "to": "thumbnaileditorview_thumbnaileditorview", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "components_editorresultpanel_tsx", "to": "editorresultpanel_cn", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "components_editorinputpanel_tsx", "to": "editorinputpanel_cn", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "components_editorhistorytab_tsx", "to": "editorhistorytab_handleselectcandidate", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "components_editorhistorytab_tsx", "to": "editorhistorytab_handleapply", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "components_editorhistorytab_tsx", "to": "editorhistorytab_handleskip", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "components_editorhistorytab_tsx", "to": "editorhistorytab_handledelete", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "hooks_usethumbnaileditor_ts", "to": "usethumbnaileditor_usegeneratethumbnail", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "hooks_useoriginalimage_ts", "to": "useoriginalimage_useoriginalimage", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_pattern_standalone_generation", "to": "claude_rule_purpose_required", "label": "rationale_for", "title": "rationale_for [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_pattern_standalone_generation", "to": "claude_rule_product_detail_for_context", "label": "rationale_for", "title": "rationale_for [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_pattern_standalone_generation", "to": "claude_rationale_standalone_pre_registration", "label": "rationale_for", "title": "rationale_for [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_pattern_standalone_generation", "to": "claude_file_page_tsx", "label": "rationale_for", "title": "rationale_for [INFERRED]", "dashes": true, "width": 1, "color": {"opacity": 0.35}, "confidence": "INFERRED"}, {"from": "claude_pattern_mutation_driven_workflow", "to": "claude_rule_selected_candidate_gate", "label": "rationale_for", "title": "rationale_for [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_pattern_mutation_driven_workflow", "to": "claude_rationale_instant_response", "label": "rationale_for", "title": "rationale_for [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_pattern_mutation_driven_workflow", "to": "claude_prohibit_result_polling", "label": "conceptually_related_to", "title": "conceptually_related_to [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_pattern_mutation_driven_workflow", "to": "claude_prohibit_canvas_transform", "label": "conceptually_related_to", "title": "conceptually_related_to [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_pattern_mutation_driven_workflow", "to": "claude_file_use_thumbnail_editor", "label": "rationale_for", "title": "rationale_for [INFERRED]", "dashes": true, "width": 1, "color": {"opacity": 0.35}, "confidence": "INFERRED"}, {"from": "claude_pattern_immediate_history_sync", "to": "claude_rationale_cross_page_consistency", "label": "rationale_for", "title": "rationale_for [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_pattern_immediate_history_sync", "to": "claude_file_page_tsx", "label": "rationale_for", "title": "rationale_for [INFERRED]", "dashes": true, "width": 1, "color": {"opacity": 0.35}, "confidence": "INFERRED"}, {"from": "claude_pattern_split_panel", "to": "claude_rule_result_panel_reads_page_state", "label": "rationale_for", "title": "rationale_for [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_pattern_split_panel", "to": "claude_rationale_props_drilling", "label": "rationale_for", "title": "rationale_for [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_pattern_split_panel", "to": "claude_file_editor_input_panel", "label": "rationale_for", "title": "rationale_for [INFERRED]", "dashes": true, "width": 1, "color": {"opacity": 0.35}, "confidence": "INFERRED"}, {"from": "claude_pattern_split_panel", "to": "claude_file_editor_result_panel", "label": "rationale_for", "title": "rationale_for [INFERRED]", "dashes": true, "width": 1, "color": {"opacity": 0.35}, "confidence": "INFERRED"}, {"from": "claude_pattern_image_uploader_filereader", "to": "claude_rule_data_url_format", "label": "rationale_for", "title": "rationale_for [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_pattern_image_uploader_filereader", "to": "claude_rationale_reusable_uploader", "label": "rationale_for", "title": "rationale_for [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_pattern_image_uploader_filereader", "to": "claude_prohibit_upload_resize_validation", "label": "conceptually_related_to", "title": "conceptually_related_to [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_pattern_image_uploader_filereader", "to": "claude_file_image_uploader", "label": "rationale_for", "title": "rationale_for [INFERRED]", "dashes": true, "width": 1, "color": {"opacity": 0.35}, "confidence": "INFERRED"}, {"from": "claude_file_page_tsx", "to": "claude_file_thumbnail_editor_controller", "label": "modification_triggers", "title": "modification_triggers [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_file_editor_result_panel", "to": "claude_file_editor_result", "label": "modification_triggers", "title": "modification_triggers [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_file_editor_result_panel", "to": "claude_file_use_thumbnail_editor", "label": "modification_triggers", "title": "modification_triggers [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}];
+const LEGEND = [{"cid": 0, "color": "#4E79A7", "label": "Cluster 0 (8n)", "count": 8}, {"cid": 1, "color": "#F28E2B", "label": "Cluster 1 (7n)", "count": 7}, {"cid": 2, "color": "#E15759", "label": "Cluster 2 (5n)", "count": 5}, {"cid": 3, "color": "#76B7B2", "label": "Cluster 3 (5n)", "count": 5}, {"cid": 4, "color": "#59A14F", "label": "Cluster 4 (5n)", "count": 5}, {"cid": 5, "color": "#EDC948", "label": "Cluster 5 (2n)", "count": 2}, {"cid": 6, "color": "#B07AA1", "label": "Cluster 6 (2n)", "count": 2}, {"cid": 7, "color": "#FF9DA7", "label": "Cluster 7 (2n)", "count": 2}, {"cid": 8, "color": "#9C755F", "label": "Cluster 8 (2n)", "count": 2}, {"cid": 9, "color": "#BAB0AC", "label": "Cluster 9 (2n)", "count": 2}, {"cid": 10, "color": "#4E79A7", "label": "Cluster 10 (2n)", "count": 2}, {"cid": 11, "color": "#F28E2B", "label": "Cluster 11 (1n)", "count": 1}, {"cid": 12, "color": "#E15759", "label": "Cluster 12 (1n)", "count": 1}, {"cid": 13, "color": "#76B7B2", "label": "Cluster 13 (1n)", "count": 1}, {"cid": 14, "color": "#59A14F", "label": "Cluster 14 (1n)", "count": 1}, {"cid": 15, "color": "#EDC948", "label": "Cluster 15 (1n)", "count": 1}];
+
+// HTML-escape helper — prevents XSS when injecting graph data into innerHTML
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+// Build vis datasets
+const nodesDS = new vis.DataSet(RAW_NODES.map(n => ({
+  id: n.id, label: n.label, color: n.color, size: n.size,
+  font: n.font, title: n.title,
+  _community: n.community, _community_name: n.community_name,
+  _source_file: n.source_file, _file_type: n.file_type, _degree: n.degree,
+})));
+
+const edgesDS = new vis.DataSet(RAW_EDGES.map((e, i) => ({
+  id: i, from: e.from, to: e.to,
+  label: '',
+  title: e.title,
+  dashes: e.dashes,
+  width: e.width,
+  color: e.color,
+  arrows: { to: { enabled: true, scaleFactor: 0.5 } },
+})));
+
+const container = document.getElementById('graph');
+const network = new vis.Network(container, { nodes: nodesDS, edges: edgesDS }, {
+  physics: {
+    enabled: true,
+    solver: 'forceAtlas2Based',
+    forceAtlas2Based: {
+      gravitationalConstant: -60,
+      centralGravity: 0.005,
+      springLength: 120,
+      springConstant: 0.08,
+      damping: 0.4,
+      avoidOverlap: 0.8,
+    },
+    stabilization: { iterations: 200, fit: true },
+  },
+  interaction: {
+    hover: true,
+    tooltipDelay: 100,
+    hideEdgesOnDrag: true,
+    navigationButtons: false,
+    keyboard: false,
+  },
+  nodes: { shape: 'dot', borderWidth: 1.5 },
+  edges: { smooth: { type: 'continuous', roundness: 0.2 }, selectionWidth: 3 },
+});
+
+network.once('stabilizationIterationsDone', () => {
+  network.setOptions({ physics: { enabled: false } });
+});
+
+function showInfo(nodeId) {
+  const n = nodesDS.get(nodeId);
+  if (!n) return;
+  const neighborIds = network.getConnectedNodes(nodeId);
+  const neighborItems = neighborIds.map(nid => {
+    const nb = nodesDS.get(nid);
+    const color = nb ? nb.color.background : '#555';
+    return `<span class="neighbor-link" style="border-left-color:${esc(color)}" onclick="focusNode(${JSON.stringify(nid)})">${esc(nb ? nb.label : nid)}</span>`;
+  }).join('');
+  document.getElementById('info-content').innerHTML = `
+    <div class="field"><b>${esc(n.label)}</b></div>
+    <div class="field">Type: ${esc(n._file_type || 'unknown')}</div>
+    <div class="field">Community: ${esc(n._community_name)}</div>
+    <div class="field">Source: ${esc(n._source_file || '-')}</div>
+    <div class="field">Degree: ${n._degree}</div>
+    ${neighborIds.length ? `<div class="field" style="margin-top:8px;color:#aaa;font-size:11px">Neighbors (${neighborIds.length})</div><div id="neighbors-list">${neighborItems}</div>` : ''}
+  `;
+}
+
+function focusNode(nodeId) {
+  network.focus(nodeId, { scale: 1.4, animation: true });
+  network.selectNodes([nodeId]);
+  showInfo(nodeId);
+}
+
+// Track hovered node — hover detection is more reliable than click params
+let hoveredNodeId = null;
+network.on('hoverNode', params => {
+  hoveredNodeId = params.node;
+  container.style.cursor = 'pointer';
+});
+network.on('blurNode', () => {
+  hoveredNodeId = null;
+  container.style.cursor = 'default';
+});
+container.addEventListener('click', () => {
+  if (hoveredNodeId !== null) {
+    showInfo(hoveredNodeId);
+    network.selectNodes([hoveredNodeId]);
+  }
+});
+network.on('click', params => {
+  if (params.nodes.length > 0) {
+    showInfo(params.nodes[0]);
+  } else if (hoveredNodeId === null) {
+    document.getElementById('info-content').innerHTML = '<span class="empty">Click a node to inspect it</span>';
+  }
+});
+
+const searchInput = document.getElementById('search');
+const searchResults = document.getElementById('search-results');
+searchInput.addEventListener('input', () => {
+  const q = searchInput.value.toLowerCase().trim();
+  searchResults.innerHTML = '';
+  if (!q) { searchResults.style.display = 'none'; return; }
+  const matches = RAW_NODES.filter(n => n.label.toLowerCase().includes(q)).slice(0, 20);
+  if (!matches.length) { searchResults.style.display = 'none'; return; }
+  searchResults.style.display = 'block';
+  matches.forEach(n => {
+    const el = document.createElement('div');
+    el.className = 'search-item';
+    el.textContent = n.label;
+    el.style.borderLeft = `3px solid ${n.color.background}`;
+    el.style.paddingLeft = '8px';
+    el.onclick = () => {
+      network.focus(n.id, { scale: 1.5, animation: true });
+      network.selectNodes([n.id]);
+      showInfo(n.id);
+      searchResults.style.display = 'none';
+      searchInput.value = '';
+    };
+    searchResults.appendChild(el);
+  });
+});
+document.addEventListener('click', e => {
+  if (!searchResults.contains(e.target) && e.target !== searchInput)
+    searchResults.style.display = 'none';
+});
+
+const hiddenCommunities = new Set();
+const legendEl = document.getElementById('legend');
+LEGEND.forEach(c => {
+  const item = document.createElement('div');
+  item.className = 'legend-item';
+  item.innerHTML = `<div class="legend-dot" style="background:${c.color}"></div>
+    <span class="legend-label">${c.label}</span>
+    <span class="legend-count">${c.count}</span>`;
+  item.onclick = () => {
+    if (hiddenCommunities.has(c.cid)) {
+      hiddenCommunities.delete(c.cid);
+      item.classList.remove('dimmed');
+    } else {
+      hiddenCommunities.add(c.cid);
+      item.classList.add('dimmed');
+    }
+    const updates = RAW_NODES
+      .filter(n => n.community === c.cid)
+      .map(n => ({ id: n.id, hidden: hiddenCommunities.has(c.cid) }));
+    nodesDS.update(updates);
+  };
+  legendEl.appendChild(item);
+});
+</script>
+<script>
+// Render hyperedges as shaded regions
+const hyperedges = [];
+function drawHyperedges() {
+    const canvas = network.canvas.frame.canvas;
+    const ctx = canvas.getContext('2d');
+    hyperedges.forEach(h => {
+        const positions = h.nodes
+            .map(nid => network.getPositions([nid])[nid])
+            .filter(p => p !== undefined);
+        if (positions.length < 2) return;
+        // Draw convex hull as filled polygon
+        ctx.save();
+        ctx.globalAlpha = 0.12;
+        ctx.fillStyle = '#6366f1';
+        ctx.strokeStyle = '#6366f1';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        const scale = network.getScale();
+        const offset = network.getViewPosition();
+        const toCanvas = (p) => ({
+            x: (p.x - offset.x) * scale + canvas.width / 2,
+            y: (p.y - offset.y) * scale + canvas.height / 2
+        });
+        const pts = positions.map(toCanvas);
+        // Expand hull slightly
+        const cx = pts.reduce((s, p) => s + p.x, 0) / pts.length;
+        const cy = pts.reduce((s, p) => s + p.y, 0) / pts.length;
+        const expanded = pts.map(p => ({
+            x: cx + (p.x - cx) * 1.15,
+            y: cy + (p.y - cy) * 1.15
+        }));
+        ctx.moveTo(expanded[0].x, expanded[0].y);
+        expanded.slice(1).forEach(p => ctx.lineTo(p.x, p.y));
+        ctx.closePath();
+        ctx.fill();
+        ctx.globalAlpha = 0.4;
+        ctx.stroke();
+        // Label
+        ctx.globalAlpha = 0.8;
+        ctx.fillStyle = '#4f46e5';
+        ctx.font = 'bold 11px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(h.label, cx, cy - 5);
+        ctx.restore();
+    });
+}
+network.on('afterDrawing', drawHyperedges);
+</script>
+</body>
+</html>
