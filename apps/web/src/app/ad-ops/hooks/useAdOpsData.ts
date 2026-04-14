@@ -37,6 +37,20 @@ export type DashboardResponse = {
   };
 };
 
+export type TrafficSummaryResponse = {
+  days: number;
+  revenue: number;
+  orders: number;
+  salesQty: number;
+  visitors: number;
+  views: number;
+  cartAdds: number;
+  prevRevenue: number;
+  prevOrders: number;
+  revenueChange: number;
+  ordersChange: number;
+};
+
 export type RecommendResponse = {
   cards: Record<string, unknown>[];
   keyMetrics: Record<string, unknown> | null;
@@ -57,8 +71,9 @@ export type RegisterCampaignPayload = {
 };
 
 export function useAdOpsData(period: string, tab: string) {
-  const days = period === 'month' ? 30 : period === '14d' ? 14 : 7;
-  const campPeriod = period === 'month' ? '30d' : '7d';
+  const days = period === 'month' ? new Date().getDate() : period === '14d' ? 14 : 7;
+  const campPeriod = period === 'month' ? '30d' : period;
+  const trafficDays = days;
 
   const campaigns = useQuery({
     queryKey: queryKeys.ads.campaigns(campPeriod),
@@ -67,9 +82,9 @@ export function useAdOpsData(period: string, tab: string) {
   });
 
   const rules = useQuery({
-    queryKey: queryKeys.ads.rules(),
+    queryKey: queryKeys.ads.rules(period),
     queryFn: () =>
-      apiClient.get<AdRulesData>(`/api/ads/strategy/rules?days=${days}`),
+      apiClient.get<AdRulesData>(`/api/ads/strategy/rules?period=${period}`),
   });
 
   const wingStatus = useQuery({
@@ -79,9 +94,9 @@ export function useAdOpsData(period: string, tab: string) {
   });
 
   const strategy = useQuery({
-    queryKey: queryKeys.ads.plan(),
+    queryKey: queryKeys.ads.plan(period),
     queryFn: () =>
-      apiClient.get<AdWeeklyPlan>(`/api/ads/strategy/plan?days=${days}`),
+      apiClient.get<AdWeeklyPlan>(`/api/ads/strategy/plan?period=${period}`),
   });
 
   const adsHub = useQuery({
@@ -97,21 +112,27 @@ export function useAdOpsData(period: string, tab: string) {
   });
 
   const recommend = useQuery({
-    queryKey: queryKeys.ads.recommend(),
+    queryKey: queryKeys.ads.recommend(period),
     queryFn: () =>
-      apiClient.get<RecommendResponse>(`/api/ads/strategy/recommend?days=${days}`),
+      apiClient.get<RecommendResponse>(`/api/ads/strategy/recommend`),
   });
 
   const trends = useQuery({
-    queryKey: queryKeys.ads.trends(days),
+    queryKey: queryKeys.ads.trends(period),
     queryFn: () =>
-      apiClient.get<AdTrendsData>(`/api/ads/campaigns/trends?days=${days}`),
+      apiClient.get<AdTrendsData>(`/api/ads/campaigns/trends?period=${period}`),
   });
 
   const benchmark = useQuery({
-    queryKey: queryKeys.ads.benchmark(),
+    queryKey: queryKeys.ads.benchmark(period),
     queryFn: () =>
       apiClient.get<AdBenchmarkData>(`/api/ads/benchmark?days=${days}`),
+  });
+
+  const trafficSummary = useQuery({
+    queryKey: ['traffic', 'summary', trafficDays] as const,
+    queryFn: () =>
+      apiClient.get<TrafficSummaryResponse>(`/api/traffic/summary?days=${trafficDays}`),
   });
 
   const exposure = useQuery({
@@ -140,6 +161,7 @@ export function useAdOpsData(period: string, tab: string) {
     trends,
     benchmark,
     exposure,
+    trafficSummary,
     isLoading,
   };
 }
@@ -176,6 +198,17 @@ export function useRegisterCampaign() {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.ads.campaigns() });
+    },
+  });
+}
+
+export function useAiRefreshPlan(period: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiClient.post<AdWeeklyPlan>(`/api/ads/strategy/ai-plan?period=${period}`, {}),
+    onSuccess: (data) => {
+      queryClient.setQueryData(queryKeys.ads.plan(period), data);
     },
   });
 }

@@ -247,6 +247,11 @@ export class ThumbnailAnalysisService {
         include: {
           thumbnailAnalysis: true,
           thumbnails: true,
+          trafficStats: {
+            where: { periodDays: 365 },
+            orderBy: { date: 'desc' },
+            take: 1,
+          },
         },
         orderBy: { updatedAt: 'desc' },
       });
@@ -260,6 +265,13 @@ export class ThumbnailAnalysisService {
       for (const product of products) {
         const analysis = product.thumbnailAnalysis;
         const imageUrl = product.imageUrl ?? null;
+
+        // TrafficStats(365일)에서 CTR 계산: 방문자 / 조회 * 100
+        const traffic = (product as { trafficStats?: Array<{ visitors: number; views: number; orders: number }> }).trafficStats?.[0];
+        // 구매전환율 = 주문수 / 조회수 × 100
+        const ctr = traffic && traffic.views > 0
+          ? Math.round((traffic.orders / traffic.views) * 10000) / 100
+          : null;
 
         if (analysis) {
           const qualityAnalyzed = !!(analysis as { qualityAnalyzedAt?: Date | null }).qualityAnalyzedAt;
@@ -294,6 +306,7 @@ export class ThumbnailAnalysisService {
             complianceScores: (analysis as { complianceScores?: Record<string, unknown> | null }).complianceScores ?? null,
             imageSpec: ((analysis as { imageSpec?: unknown }).imageSpec as ImageSpec | null) ?? null,
             createdAt: product.createdAt.toISOString(),
+            ctr,
           };
 
           if (fullyAnalyzed) {
@@ -320,6 +333,7 @@ export class ThumbnailAnalysisService {
             complianceAnalyzed: false,
             imageSpec: null,
             createdAt: product.createdAt.toISOString(),
+            ctr,
           };
           unclassifiedItems.push(item);
         }
@@ -551,6 +565,7 @@ export class ThumbnailAnalysisService {
     }
 
     const BATCH_SIZE = 10;
+    const CHUNK_DELAY_MS = 1500;
     const results: ThumbnailAnalysisItem[] = [];
     this.batchAbort = new AbortController();
     const signal = this.batchAbort.signal;
@@ -585,6 +600,7 @@ export class ThumbnailAnalysisService {
     // 배치 분석: 청크 단위로 멀티이미지 API 호출
     for (let i = 0; i < itemsForBatch.length; i += BATCH_SIZE) {
       if (signal.aborted) break;
+      if (i > 0) await new Promise<void>((r) => setTimeout(r, CHUNK_DELAY_MS));
       const chunk = itemsForBatch.slice(i, i + BATCH_SIZE);
       try {
         const [qualityMap, complianceMap] = await Promise.all([

@@ -9,7 +9,7 @@ import { AdActionService } from '../services/ad-action.service';
 import { AdExecutionService } from '../services/ad-execution.service';
 import { AdConfigService } from '../services/ad-config.service';
 import {
-  ListAdsQueryDto, ChangeAdTierBodyDto, CampaignQueryDto, TrendsQueryDto,
+  ListAdsQueryDto, ChangeAdTierBodyDto, CampaignQueryDto, TrendsQueryDto, StrategyQueryDto,
   CollectAdsDto, ExtensionSyncDto, CreateScrapeTargetDto, MarkScrapedDto,
   AdActionQueryDto, AdActionCommandDto, LeaseDto, HeartbeatDto, ReportDto,
   UpdateAdConfigDto, RegisterCampaignDto,
@@ -63,7 +63,7 @@ export class AdvertisingController {
 
   @Get('campaigns/trends')
   getTrends(@Query() query: TrendsQueryDto) {
-    return this.adCampaignsService.getTrends(query.days);
+    return this.adCampaignsService.getTrends(query.period, query.days);
   }
 
   @Post('campaigns/register')
@@ -79,13 +79,18 @@ export class AdvertisingController {
   // === 전략 ===
 
   @Get('strategy/rules')
-  getRules() {
-    return this.adStrategyService.getRules();
+  getRules(@Query() query: StrategyQueryDto) {
+    return this.adStrategyService.getRules(query.period);
   }
 
   @Get('strategy/plan')
-  getWeeklyPlan() {
-    return this.adStrategyService.getWeeklyPlan();
+  getWeeklyPlan(@Query() query: StrategyQueryDto) {
+    return this.adStrategyService.getWeeklyPlan(query.period);
+  }
+
+  @Post('strategy/ai-plan')
+  getAiPlan(@Query() query: StrategyQueryDto) {
+    return this.adStrategyService.getAiEnhancedPlan(query.period);
   }
 
   @Get('strategy/recommend')

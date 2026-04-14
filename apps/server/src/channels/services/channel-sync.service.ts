@@ -355,7 +355,11 @@ export class ChannelSyncService {
         },
       });
 
-      await this.upsertProductItems(existingProduct.id, items);
+      await this.upsertProductItems(existingProduct.id, items, {
+        name: pd.sellerProductName,
+        sellPrice: primaryItem?.salePrice ?? existingProduct.sellPrice,
+        costPrice: existingProduct.costPrice,
+      });
     } else {
       const newProduct = await this.prisma.product.create({
         data: {
@@ -377,13 +381,18 @@ export class ChannelSyncService {
         },
       });
 
-      await this.upsertProductItems(newProduct.id, items);
+      await this.upsertProductItems(newProduct.id, items, {
+        name: newProduct.name,
+        sellPrice: newProduct.sellPrice,
+        costPrice: newProduct.costPrice,
+      });
     }
   }
 
   private async upsertProductItems(
     productId: string,
     items: NonNullable<SellerProductDetailResponse['data']>['items'],
+    productData: { name: string; sellPrice: number | null; costPrice: number | null },
   ): Promise<void> {
     for (const item of items ?? []) {
       const vendorItemId = String(item.vendorItemId);
@@ -392,10 +401,10 @@ export class ChannelSyncService {
       });
 
       const itemData = {
-        itemName: item.itemName ?? '',
-        originalPrice: item.originalPrice ?? 0,
-        salePrice: item.salePrice ?? 0,
-        supplyPrice: item.supplyPrice ?? 0,
+        itemName: productData.name || item.itemName || '',
+        originalPrice: productData.sellPrice ?? item.originalPrice ?? 0,
+        salePrice: productData.sellPrice ?? item.salePrice ?? 0,
+        supplyPrice: productData.costPrice ?? item.supplyPrice ?? 0,
       };
 
       if (existingItem) {

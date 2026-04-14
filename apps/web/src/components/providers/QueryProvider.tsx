@@ -10,12 +10,14 @@ const ReactQueryDevtools = dynamic(
   { ssr: false },
 );
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export default function QueryProvider({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(makeQueryClient);
+  const safeChildren = children as any;
 
   return (
     <QueryClientProvider client={queryClient}>
-      {children}
+      {safeChildren}
       {process.env.NODE_ENV === 'development' && <ReactQueryDevtools initialIsOpen={false} />}
     </QueryClientProvider>
   );

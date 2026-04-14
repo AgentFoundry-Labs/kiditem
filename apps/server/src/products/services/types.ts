@@ -106,6 +106,7 @@ export interface ThumbnailAnalysisItem {
   complianceScores?: Record<string, unknown> | null;
   imageSpec?: ImageSpec | null;
   createdAt?: string;
+  ctr?: number | null;
 }
 
 export interface ThumbnailAnalysisSummaryInternal {
@@ -202,6 +203,9 @@ export interface TrafficMetrics {
   orders: number;
   salesQty: number;
   revenue: number;
+  netProfit?: number;
+  profitRate?: number;
+  costCoverage?: number;
 }
 
 export interface T14Metrics {

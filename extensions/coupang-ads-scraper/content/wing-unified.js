@@ -132,68 +132,61 @@
     return kpis;
   }
 
-  // ===== 광고 성과 요약 파싱 =====
+  // ===== 광고 성과 요약 파싱 (dt/dd 직접 파싱 + fallback) =====
   function parseAdSummary() {
-    // 1차: 기존 클래스 셀렉터
-    let wrapper = document.querySelector('[class*="wrapper_xtnmd"]');
-
-    // 2차: class에 "wrapper_" 포함 + 광고 키워드 포함하는 요소
-    if (!wrapper) {
-      const candidates = document.querySelectorAll('[class*="wrapper_"]');
-      for (const el of candidates) {
-        const t = (el.textContent || "").substring(0, 1000);
-        if ((t.includes("Ad GMV") || t.includes("ROAS") || t.includes("광고 수익률") || t.includes("광고매출")) && t.length < 800) {
-          wrapper = el;
-          break;
-        }
-      }
+    // 1차: dt/dd 패턴 직접 파싱 (wing 현행 구조: <dt>광고 매출</dt><dd>256.6만원</dd>)
+    const dls = document.querySelectorAll("dl");
+    let adGmvRaw = null, adSpendRaw = null, roasRaw = null;
+    for (const dl of dls) {
+      const dts = dl.querySelectorAll("dt");
+      const dds = dl.querySelectorAll("dd");
+      dts.forEach((dt, i) => {
+        const label = dt.textContent.trim();
+        const val = dds[i] ? dds[i].textContent.trim() : "";
+        if (!adGmvRaw && (label.includes("광고 매출") || label.includes("Ad GMV"))) adGmvRaw = val;
+        if (!adSpendRaw && (label.includes("집행 광고비") || label.includes("Ad Spend") || label.includes("광고비"))) adSpendRaw = val;
+        if (!roasRaw && (label.includes("광고수익률") || label.includes("ROAS") || label.includes("광고 수익률"))) roasRaw = val;
+      });
     }
 
-    // 3차: data-testid 또는 role로 탐색
-    if (!wrapper) {
-      const sections = document.querySelectorAll('[data-testid*="ad"], [class*="ad-summary"], [class*="adSummary"], [class*="ad_summary"]');
-      for (const el of sections) {
-        if (el.textContent && el.textContent.length < 800) {
-          wrapper = el;
-          break;
-        }
-      }
+    if (adGmvRaw || adSpendRaw || roasRaw) {
+      const gmvVal = adGmvRaw ? parseKoreanNumber(adGmvRaw) : null;
+      const spendVal = adSpendRaw ? parseKoreanNumber(adSpendRaw) : null;
+      const roasMatch = roasRaw ? roasRaw.match(/([\d,.]+)/) : null;
+      return {
+        adGmv: gmvVal !== null ? String(gmvVal) : null,
+        adSpend: spendVal !== null ? String(spendVal) : null,
+        roas: roasMatch ? roasMatch[1] : null,
+      };
     }
 
-    // 4차: 페이지 전체에서 광고 지표 텍스트가 있는 가장 작은 컨테이너 탐색
-    if (!wrapper) {
-      const divs = document.querySelectorAll("div, section");
-      let bestLen = Infinity;
-      for (const el of divs) {
-        const t = el.textContent || "";
-        const hasAdKeyword = (t.includes("Ad GMV") || t.includes("Ad Spend") || t.includes("광고매출") || t.includes("광고비")) && (t.includes("ROAS") || t.includes("광고 수익률") || t.includes("광고수익률"));
-        if (hasAdKeyword && t.length < bestLen && t.length > 20 && t.length < 600) {
-          wrapper = el;
-          bestLen = t.length;
-        }
+    // 2차: 텍스트 패턴 매칭 fallback
+    let wrapper = null;
+    const divs = document.querySelectorAll("div, section");
+    let bestLen = Infinity;
+    for (const el of divs) {
+      const t = el.textContent || "";
+      const hasAdKeyword = (t.includes("Ad GMV") || t.includes("Ad Spend") || t.includes("광고 매출") || t.includes("광고비")) && (t.includes("ROAS") || t.includes("광고 수익률") || t.includes("광고수익률"));
+      if (hasAdKeyword && t.length < bestLen && t.length > 20 && t.length < 600) {
+        wrapper = el;
+        bestLen = t.length;
       }
     }
 
     if (!wrapper) return null;
     const text = wrapper.textContent || "";
-
-    // 영문 + 국문 패턴 모두 시도 (만/억/K/M 단위 포함 캡처)
     const numPattern = "([\\d,.]+\\s*(?:만|억|K|M|B)?)";
-    const adGmv = text.match(new RegExp("Ad\\s*GMV[^\\d]*" + numPattern, "i"))
+    const adGmvM = text.match(new RegExp("Ad\\s*GMV[^\\d]*" + numPattern, "i"))
       || text.match(new RegExp("광고\\s*(?:전환\\s*)?매출[^\\d]*" + numPattern));
-    const adSpend = text.match(new RegExp("Ad\\s*Spend[^\\d]*" + numPattern, "i"))
+    const adSpendM = text.match(new RegExp("Ad\\s*Spend[^\\d]*" + numPattern, "i"))
       || text.match(new RegExp("(?:집행\\s*)?광고비[^\\d]*" + numPattern));
-    const roas = text.match(/ROAS[^\d]*([\d,.]+)%/i)
-      || text.match(/광고\s*수익률[^\d]*([\d,.]+)%/);
-
-    // 숫자로 변환해서 저장 (만/억 → 원 단위)
-    const gmvVal = adGmv ? parseKoreanNumber(adGmv[1]) : null;
-    const spendVal = adSpend ? parseKoreanNumber(adSpend[1]) : null;
-    const roasVal = roas ? roas[1] : null;
+    const roasM = text.match(/ROAS[^\d]*([\d,.]+)%/i) || text.match(/광고\s*수익률[^\d]*([\d,.]+)%/);
+    const gmvVal = adGmvM ? parseKoreanNumber(adGmvM[1]) : null;
+    const spendVal = adSpendM ? parseKoreanNumber(adSpendM[1]) : null;
     return {
       adGmv: gmvVal !== null ? String(gmvVal) : null,
       adSpend: spendVal !== null ? String(spendVal) : null,
-      roas: roasVal,
+      roas: roasM ? roasM[1] : null,
     };
   }
 
@@ -232,39 +225,65 @@
       let optionId = "";
       let adStatus = "";
 
-      const spans = productCell.querySelectorAll("span");
-      for (const span of spans) {
-        const text = span.textContent.trim();
-        if (!text) continue;
-
-        const invMatch = text.match(/Inventory\s*ID:\s*(\d+)/);
-        if (invMatch) {
-          inventoryId = invMatch[1];
-          const optMatch = text.match(/Option\s*ID:\s*(\d+)/);
-          if (optMatch) optionId = optMatch[1];
-          continue;
-        }
-        if (text.startsWith("Category:")) continue;
-        if (text === "Fulfilled by Seller" || text === "Fulfilled by Coupang" || text === "로켓배송") continue;
-        if (text.includes("상품 상태")) continue;
-        if (text.includes("광고 운영")) { adStatus = "running"; continue; }
-        if (text.includes("광고 중지")) { adStatus = "paused"; continue; }
-
-        // 상품명 후보: 5자 이상이고 위 패턴에 안 걸린 것
-        if (!productName && text.length > 5) {
-          productName = text.substring(0, 100);
+      // 상품 ID: <p> 태그에서 "등록상품 ID: ..." 또는 "Inventory ID: ..."
+      for (const pEl of productCell.querySelectorAll("p")) {
+        const text = pEl.textContent.trim();
+        const imKo = text.match(/등록상품\s*ID:\s*(\d+)/);
+        const imEn = text.match(/Inventory\s*ID:\s*(\d+)/);
+        const im = imKo || imEn;
+        if (im) {
+          inventoryId = im[1];
+          const omKo = text.match(/옵션\s*ID:\s*(\d+)/);
+          const omEn = text.match(/Option\s*ID:\s*(\d+)/);
+          const om = omKo || omEn;
+          if (om) optionId = om[1];
+          break;
         }
       }
 
-      // offset+9: anchor 셀에서 vendorItemId 추출
+      // 상품명: <strong> 태그가 있는 span 우선 → 없으면 span 텍스트 폴백
+      const SKIP_TEXTS = ["판매자 배송", "로켓배송", "Fulfilled by Seller", "Fulfilled by Coupang", "상품 상태"];
+      for (const span of productCell.querySelectorAll("span")) {
+        if (span.querySelector("strong")) {
+          productName = (span.querySelector("strong")?.textContent || "").trim().substring(0, 100);
+          break;
+        }
+      }
+      if (!productName) {
+        for (const span of productCell.querySelectorAll("span")) {
+          const text = span.textContent.trim();
+          if (!text || text.length < 5) continue;
+          if (SKIP_TEXTS.includes(text)) continue;
+          if (text.startsWith("Category:") || text.startsWith("카테고리:")) continue;
+          if (text.includes("광고")) { if (text.includes("운영")) adStatus = "running"; else if (text.includes("중지")) adStatus = "paused"; continue; }
+          if (/^외 \d/.test(text)) continue;
+          productName = text.substring(0, 100);
+          break;
+        }
+      }
+
+      // 광고 상태: 상품 셀 전체 텍스트에서 추출
+      if (!adStatus) {
+        const cellText = productCell.textContent || "";
+        if (cellText.includes("광고 운영")) adStatus = "running";
+        else if (cellText.includes("광고 중지")) adStatus = "paused";
+      }
+
+      // vendorItemId: 상품 셀(offset+1) 내 anchor href 또는 anchor 셀(offset+9) 에서 추출
       let vendorItemId = optionId;
-      const anchorCell = children[offset + 9];
-      if (anchorCell) {
-        const link = anchorCell.querySelector("a");
-        if (link) {
-          const href = link.getAttribute("href") || "";
-          const vidMatch = href.match(/vendorItemId=(\d+)/);
-          if (vidMatch) vendorItemId = vidMatch[1];
+      const productHref = productCell.querySelector("a")?.getAttribute("href") || "";
+      const productVid = productHref.match(/vendorItemId=(\d+)/);
+      if (productVid) {
+        vendorItemId = productVid[1];
+      } else {
+        const anchorCell = children[offset + 9];
+        if (anchorCell) {
+          const link = anchorCell.querySelector("a");
+          if (link) {
+            const href = link.getAttribute("href") || "";
+            const vidMatch = href.match(/vendorItemId=(\d+)/);
+            if (vidMatch) vendorItemId = vidMatch[1];
+          }
         }
       }
 
@@ -308,6 +327,107 @@
     }
 
     return products;
+  }
+
+  // ===== 페이지네이션 전체 상품 파싱 =====
+
+  function getTotalPages() {
+    let max = 1;
+    document.querySelectorAll('[data-wuic-attrs]').forEach(el => {
+      const m = el.getAttribute('data-wuic-attrs').match(/^page:(\d+)/);
+      if (m) {
+        const n = parseInt(m[1]);
+        if (n > max) max = n;
+      }
+    });
+    return max;
+  }
+
+  function getCurrentPage() {
+    const active = document.querySelector('[data-wuic-attrs*=" active"]');
+    if (!active) return 1;
+    const m = active.getAttribute('data-wuic-attrs').match(/page:(\d+)/);
+    return m ? parseInt(m[1]) : 1;
+  }
+
+  // 특정 페이지 번호로 이동 (링크가 없으면 next 버튼 사용)
+  function clickPage(n) {
+    // data-wuic-attrs="page:N" 로 직접 클릭
+    const span = document.querySelector(`[data-wuic-attrs^="page:${n}"]`);
+    if (span) {
+      const a = span.querySelector('a');
+      if (a) { a.click(); return true; }
+    }
+    // 링크가 없으면 next 버튼 클릭
+    const nextBtn = document.querySelector('[data-wuic-partial="next"] a');
+    if (nextBtn) { nextBtn.click(); return true; }
+    return false;
+  }
+
+  // 페이지 전환 대기: active 페이지 번호가 expected로 바뀔 때까지
+  function waitForPage(expectedPage, timeoutMs) {
+    return new Promise(resolve => {
+      const deadline = Date.now() + (timeoutMs || 10000);
+      const check = () => {
+        if (getCurrentPage() === expectedPage) { setTimeout(resolve, 800); return; }
+        if (Date.now() > deadline) { resolve(); return; }
+        setTimeout(check, 400);
+      };
+      setTimeout(check, 400);
+    });
+  }
+
+  // 페이지당 표시 개수를 최대로 변경
+  async function setMaxPageSize() {
+    // Wing의 페이지 크기 선택 버튼: 보통 [20] [50] [100] 형태
+    // 가장 큰 숫자 버튼 클릭
+    const sizeButtons = [...document.querySelectorAll('[data-wuic-attrs^="pageSize:"]')];
+    if (sizeButtons.length === 0) return;
+
+    let maxBtn = null;
+    let maxSize = 0;
+    for (const btn of sizeButtons) {
+      const m = btn.getAttribute('data-wuic-attrs').match(/pageSize:(\d+)/);
+      if (m) {
+        const size = parseInt(m[1]);
+        if (size > maxSize) { maxSize = size; maxBtn = btn; }
+      }
+    }
+
+    if (maxBtn) {
+      const currentActive = maxBtn.classList.contains('active') ||
+                            maxBtn.getAttribute('data-wuic-attrs')?.includes('active');
+      if (!currentActive) {
+        const a = maxBtn.querySelector('a') || maxBtn;
+        a.click();
+        console.log('[KIDITEM] 페이지 크기 변경:', maxSize, '개');
+        // 데이터 리로드 대기
+        await new Promise(r => setTimeout(r, 2000));
+      }
+    }
+  }
+
+  // 전체 페이지 순회하며 상품 수집
+  async function parseAllProductsWithPagination() {
+    await setMaxPageSize();
+    const allProducts = parseProductGrid();
+    const totalPages = getTotalPages();
+    console.log("[KIDITEM] 총 페이지:", totalPages, "/ 1페이지 상품:", allProducts.length);
+
+    for (let page = 2; page <= totalPages; page++) {
+      const clicked = clickPage(page);
+      if (!clicked) {
+        console.log("[KIDITEM] 페이지", page, "이동 실패 — 중단");
+        break;
+      }
+      await waitForPage(page, 12000);
+      const pageProducts = parseProductGrid();
+      console.log("[KIDITEM] 페이지", page, "상품:", pageProducts.length);
+      for (const p of pageProducts) allProducts.push(p);
+    }
+
+    console.log("[KIDITEM] 전체 상품 수집 완료:", allProducts.length);
+    return allProducts;
   }
 
   // ===== 아이템위너 테이블 파싱 (기존) =====
@@ -417,6 +537,7 @@
       type: "traffic",
       data: products.map(p => ({
         productId: p.inventoryId || p.vendorItemId,
+        productName: p.productName,
         visitors: p.visitors,
         views: p.views,
         cartAdds: p.cartAdds,
@@ -424,6 +545,7 @@
         salesQty: p.salesQty,
         revenue: p.revenue,
         conversionRate: p.conversionRate,
+        adStatus: p.adStatus || null,
       })),
       summary,
       period: periodDays,
@@ -456,9 +578,13 @@
     console.log("[KIDITEM] 페이지 타입:", pageType, "URL:", location.href);
 
     if (pageType === "sales-analysis") {
-      const products = parseProductGrid();
+      // KPI + 광고 요약은 1페이지에서 한 번만 파싱
       const kpis = parseKpiCards();
       const adSummary = parseAdSummary();
+      console.log("[KIDITEM] 광고 요약:", JSON.stringify(adSummary));
+
+      // 전체 페이지 순회하며 상품 수집
+      const products = await parseAllProductsWithPagination();
 
       console.log("[KIDITEM] 파싱 결과:", products.length, "상품, KPI:", Object.keys(kpis).length);
 

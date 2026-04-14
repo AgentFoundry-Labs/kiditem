@@ -39,20 +39,22 @@ interface Props {
 const PIE_COLORS = ['#3b82f6', '#94a3b8', '#f97316'];
 
 const METRIC_DEFS: Array<{
-  key: string; label: string; unit: string; isMoney: boolean; isPositiveGood: boolean;
+  key: string; label: string; unit: string; isMoney: boolean; isPositiveGood: boolean; isCount?: boolean; isFloat?: boolean;
 }> = [
   { key: 'roas', label: 'ROAS', unit: '%p', isMoney: false, isPositiveGood: true },
-  { key: 'revenue', label: '전환 매출', unit: '%', isMoney: true, isPositiveGood: true },
-  { key: 'spend', label: '광고비', unit: '%', isMoney: true, isPositiveGood: false },
-  { key: 'ctr', label: 'CTR', unit: '', isMoney: false, isPositiveGood: true },
-  { key: 'cvr', label: '전환율', unit: '', isMoney: false, isPositiveGood: true },
-  { key: 'conversions', label: '전환수', unit: '건', isMoney: false, isPositiveGood: true },
+  { key: 'revenue', label: '광고전환매출', unit: '%', isMoney: true, isPositiveGood: true },
+  { key: 'spend', label: '집행광고비', unit: '%', isMoney: true, isPositiveGood: false },
+  { key: 'impressions', label: '노출수', unit: '회', isMoney: false, isPositiveGood: true, isCount: true },
+  { key: 'clicks', label: '클릭수', unit: '회', isMoney: false, isPositiveGood: true, isCount: true },
+  { key: 'conversions', label: '전환수', unit: '건', isMoney: false, isPositiveGood: true, isCount: true },
+  { key: 'ctr', label: '클릭률(CTR)', unit: '%p', isMoney: false, isPositiveGood: true, isFloat: true },
+  { key: 'cvr', label: '구매전환율(CVR)', unit: '%p', isMoney: false, isPositiveGood: true, isFloat: true },
 ];
 
-function fmtVal(key: string, v: number, isMoney: boolean): string {
+function fmtVal(key: string, v: number, isMoney: boolean, isCount?: boolean, isFloat?: boolean): string {
   if (isMoney) return formatKRW(v) + '원';
-  if (key === 'conversions') return formatNumber(v) + '건';
-  if (key === 'ctr' || key === 'cvr') return (v / 100).toFixed(2) + '%';
+  if (isCount) return formatNumber(v) + (key === 'conversions' ? '건' : '회');
+  if (isFloat) return v.toFixed(2) + '%';
   return v + '%';
 }
 
@@ -72,7 +74,7 @@ export function TrendsComparison({ daily, comparison, budgetAllocation }: Props)
             <h2 className="text-lg font-bold text-slate-900">전략 성과 변화</h2>
             <span className="text-[12px] text-slate-400 ml-1">전반기 vs 후반기 비교</span>
           </div>
-          <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-8 gap-3">
             {METRIC_DEFS.map((m) => {
               const val = comparison[m.key] ?? comparison[m.key === 'revenue' ? 'adRevenue' : m.key === 'spend' ? 'adSpend' : m.key];
               if (!val) return null;
@@ -87,15 +89,15 @@ export function TrendsComparison({ daily, comparison, budgetAllocation }: Props)
               return (
                 <div key={m.key} className="rounded-lg border border-slate-100 p-3">
                   <div className="text-[12px] font-medium text-slate-500 mb-2">{m.label}</div>
-                  <div className="text-[18px] font-extrabold text-slate-900 tabular-nums mb-1">
-                    {fmtVal(m.key, val.after, m.isMoney)}
+                  <div className="text-[16px] font-extrabold text-slate-900 tabular-nums mb-1">
+                    {fmtVal(m.key, val.after, m.isMoney, m.isCount, m.isFloat)}
                   </div>
-                  <div className={cn('flex items-center gap-1 text-[12px] font-bold', isNeutral ? 'text-slate-400' : isGood ? 'text-emerald-600' : 'text-red-500')}>
+                  <div className={cn('flex items-center gap-1 text-[11px] font-bold', isNeutral ? 'text-slate-400' : isGood ? 'text-emerald-600' : 'text-red-500')}>
                     {isNeutral ? <Minus size={12} /> : isUp ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}
-                    {isNeutral ? '변동 없음' : `${isUp ? '+' : ''}${change}${m.unit}`}
+                    {isNeutral ? '변동없음' : `${isUp ? '+' : ''}${change}${m.unit}`}
                   </div>
                   <div className="text-[11px] text-slate-400 mt-0.5">
-                    이전: {fmtVal(m.key, val.before, m.isMoney)}
+                    이전: {fmtVal(m.key, val.before, m.isMoney, m.isCount, m.isFloat)}
                   </div>
                 </div>
               );
@@ -119,9 +121,28 @@ export function TrendsComparison({ daily, comparison, budgetAllocation }: Props)
                     name === 'roas' ? `${v}%` : formatKRW(Number(v)) + '원'
                   }
                 />
-                <Bar dataKey="spend" fill="#f97316" fillOpacity={0.7} name="광고비" />
-                <Bar dataKey="revenue" fill="#3b82f6" fillOpacity={0.7} name="매출" />
+                <Bar dataKey="spend" fill="#f97316" fillOpacity={0.7} name="집행광고비" />
+                <Bar dataKey="revenue" fill="#3b82f6" fillOpacity={0.7} name="광고전환매출" />
                 <Line type="monotone" dataKey="roas" stroke="#8b5cf6" strokeWidth={2} dot={false} name="ROAS" />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+
+        {/* 노출수/클릭수/전환수 차트 */}
+        {daily.length > 0 && (
+          <div className="card p-5">
+            <h3 className="font-semibold text-slate-900 mb-4">노출/클릭/전환</h3>
+            <ResponsiveContainer width="100%" height={200} minWidth={0} minHeight={0}>
+              <ComposedChart data={daily}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                <XAxis dataKey="date" fontSize={10} tickFormatter={(v: string) => v.slice(5)} />
+                <YAxis yAxisId="left" fontSize={10} />
+                <YAxis yAxisId="right" orientation="right" fontSize={10} />
+                <Tooltip formatter={(v, name) => [formatNumber(Number(v)), name]} />
+                <Bar yAxisId="left" dataKey="impressions" fill="#94a3b8" fillOpacity={0.5} name="노출수" />
+                <Line yAxisId="right" type="monotone" dataKey="clicks" stroke="#3b82f6" strokeWidth={2} dot={false} name="클릭수" />
+                <Line yAxisId="right" type="monotone" dataKey="conversions" stroke="#22c55e" strokeWidth={2} dot={false} name="전환수" />
               </ComposedChart>
             </ResponsiveContainer>
           </div>

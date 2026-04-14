@@ -10,6 +10,7 @@ import {
   useAdOpsData,
   useAdOpsSelectedCampaign,
   useRegisterCampaign,
+  useAiRefreshPlan,
 } from "./hooks/useAdOpsData";
 import type { RegisterCampaignPayload } from "./hooks/useAdOpsData";
 import { TABS } from "./lib/types";
@@ -47,6 +48,7 @@ export default function AdOpsPage() {
     dashboard: dashboardQuery,
     trends: trendsQuery,
     exposure: exposureQuery,
+    trafficSummary: trafficSummaryQuery,
     isLoading,
   } = useAdOpsData(period, tab);
 
@@ -75,6 +77,7 @@ export default function AdOpsPage() {
   const wingKpis = wingStatusQuery.data?.wing?.kpis ?? {};
   const strategy = strategyQuery.data ?? null;
   const wingAdData = dashboardQuery.data?.trafficKpi?.adSummary ?? null;
+  const trafficSummary = trafficSummaryQuery.data ?? null;
   const trends = trendsQuery.data ?? null;
   const exposureData = exposureQuery.data ?? null;
   const products = campaignProductsQuery.data?.products ?? [];
@@ -89,6 +92,8 @@ export default function AdOpsPage() {
   const orderedCampaigns = campaignOrderToUse
     .map((name) => sortedCampaigns.find((c) => c.campaignName === name))
     .filter(Boolean) as typeof sortedCampaigns;
+
+  const aiRefreshMutation = useAiRefreshPlan(period);
 
   const handleRefresh = () => {
     queryClient.invalidateQueries({ queryKey: queryKeys.ads.all });
@@ -135,7 +140,7 @@ export default function AdOpsPage() {
             </div>
             <div className="flex items-baseline gap-3">
               <h1 className="text-2xl font-extrabold tracking-tight" style={{ color: "var(--text-primary)" }}>광고 전략 AI</h1>
-              <span className="text-2xl font-extrabold tracking-tight" style={{ color: "var(--text-tertiary)" }}>14일 기준</span>
+              <span className="text-2xl font-extrabold tracking-tight" style={{ color: "var(--text-tertiary)" }}>{period === 'month' ? '이번달 기준' : period === '14d' ? '14일 기준' : '7일 기준'}</span>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -166,6 +171,7 @@ export default function AdOpsPage() {
           wingAdData={wingAdData}
           period={period}
           roas={roas}
+          trendsDaily={(trendsQuery.data as any)?.daily ?? null}
         />
 
         {/* ════════ 탭 네비게이션 ════════ */}
@@ -226,6 +232,8 @@ export default function AdOpsPage() {
               onGradeSearch={(grade, search) => setGradeSearch(prev => ({ ...prev, [grade]: search }))}
               onSelectGrade={setSelectedGrade}
               onOpenRegisterModal={(payload) => { setRegisterError(null); setRegisterModal(payload); }}
+              onAiRefresh={() => aiRefreshMutation.mutate()}
+              isAiRefreshing={aiRefreshMutation.isPending}
             />
           )}
 

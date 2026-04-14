@@ -6,22 +6,51 @@ import {
 import { formatKRW } from "@/lib/utils";
 import { parseKoreanNumber } from "@/lib/parse-korean-number";
 
+interface DailyPoint {
+  spend: number;
+  revenue: number;
+  clicks: number;
+  impressions: number;
+  conversions: number;
+  roas: number;
+  ctr: number;
+  cvr: number;
+}
+
 interface KpiDashboardProps {
   totalKpi: Record<string, number>;
   wingAdData: Record<string, string> | null;
   period: string;
   roas: number;
+  trendsDaily?: DailyPoint[] | null;
 }
 
-export default function KpiDashboard({ totalKpi, wingAdData, period, roas }: KpiDashboardProps) {
+export default function KpiDashboard({ totalKpi, wingAdData, period, roas, trendsDaily }: KpiDashboardProps) {
   const parseWing = parseKoreanNumber;
-  const adSpend = wingAdData?.adSpend ? parseWing(wingAdData.adSpend) : (totalKpi.adSpend || 0);
-  const adRevenue = wingAdData?.adGmv ? parseWing(wingAdData.adGmv) : (totalKpi.adRevenue || 0);
-  const wingRoas = wingAdData?.roas ? parseFloat(wingAdData.roas) : roas;
-  const impressions = totalKpi.impressions || 0;
-  const clicks = totalKpi.clicks || 0;
-  const conversions = totalKpi.conversions || 0;
-  const ctr = totalKpi.ctr || 0;
+
+  // trends daily 집계 (coupang_ads_daily 스냅샷 기반 — 기간별 정확한 값)
+  const hasTrends = trendsDaily && trendsDaily.length > 0;
+  const adSpend = hasTrends
+    ? trendsDaily!.reduce((s, d) => s + d.spend, 0)
+    : (wingAdData?.adSpend ? parseWing(wingAdData.adSpend) : (totalKpi.adSpend || 0));
+  const adRevenue = hasTrends
+    ? trendsDaily!.reduce((s, d) => s + d.revenue, 0)
+    : (wingAdData?.adGmv ? parseWing(wingAdData.adGmv) : (totalKpi.adRevenue || 0));
+  const impressions = hasTrends
+    ? trendsDaily!.reduce((s, d) => s + d.impressions, 0)
+    : (totalKpi.impressions || 0);
+  const clicks = hasTrends
+    ? trendsDaily!.reduce((s, d) => s + d.clicks, 0)
+    : (totalKpi.clicks || 0);
+  const conversions = hasTrends
+    ? trendsDaily!.reduce((s, d) => s + d.conversions, 0)
+    : (totalKpi.conversions || 0);
+  const wingRoas = hasTrends
+    ? (adSpend > 0 ? Math.round((adRevenue / adSpend) * 100) : 0)
+    : (wingAdData?.roas ? parseFloat(wingAdData.roas) : roas);
+  const ctr = hasTrends
+    ? (impressions > 0 ? Math.round((clicks / impressions) * 10000) / 100 : 0)
+    : (totalKpi.ctr || 0);
   const cvr = clicks > 0 ? Math.round((conversions / clicks) * 10000) / 100 : 0;
   const cpc = clicks > 0 ? Math.round(adSpend / clicks) : 0;
   const adRate = adRevenue > 0 ? Math.round((adSpend / adRevenue) * 10000) / 100 : 0;
@@ -33,7 +62,8 @@ export default function KpiDashboard({ totalKpi, wingAdData, period, roas }: Kpi
   const spendPct = Math.min((adSpend / spendGoal) * 100, 100);
   const spendOver = adSpend > spendGoal;
 
-  const periodLabel = period === "month" ? "30일" : period === "14d" ? "14일" : "7일";
+  const periodDays = period === 'month' ? new Date().getDate() : period === '14d' ? 14 : 7;
+  const periodLabel = period === "month" ? "이번달" : period === "14d" ? "14일" : "7일";
 
   const renderSmallCard = (kpi: { label: string; value: string; unit: string; current: number; goal: number; goalLabel: string; invertGoal: boolean; accentColor: string; icon: typeof BarChart3; avg: number | null }) => {
     const pct = kpi.invertGoal
@@ -149,7 +179,7 @@ export default function KpiDashboard({ totalKpi, wingAdData, period, roas }: Kpi
           </div>
           <div className="flex justify-between text-[13px]">
             <span style={{ color: "var(--text-secondary)" }}>일평균 광고비</span>
-            <span className="font-bold tabular-nums" style={{ color: "var(--text-primary)" }}>{formatKRW(Math.round(adSpend / (period === "month" ? 30 : period === "14d" ? 14 : 7)))}원</span>
+            <span className="font-bold tabular-nums" style={{ color: "var(--text-primary)" }}>{formatKRW(Math.round(adSpend / periodDays))}원</span>
           </div>
           <div className="flex justify-between text-[13px]">
             <span style={{ color: "var(--text-secondary)" }}>건당 광고비</span>

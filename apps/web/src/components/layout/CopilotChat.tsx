@@ -10,7 +10,9 @@ interface CopilotChatProps {
   onChatOpenChange?: (open: boolean) => void;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export default function CopilotChat({ children, onChatOpenChange }: CopilotChatProps) {
+  const safeChildren = children as any;
   const [chatOpen, setChatOpen] = useState(false);
 
   const handleSetOpen = useCallback((open: boolean) => {
@@ -20,7 +22,7 @@ export default function CopilotChat({ children, onChatOpenChange }: CopilotChatP
 
   return (
     <CopilotKit runtimeUrl="http://localhost:4000/api/chat/copilot">
-      {children}
+      {safeChildren}
       <CopilotSidebar
         defaultOpen={false}
         clickOutsideToClose

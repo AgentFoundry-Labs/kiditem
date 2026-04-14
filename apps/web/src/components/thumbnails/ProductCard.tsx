@@ -16,6 +16,7 @@ interface ProductCardProps {
   aiAnalyzed?: boolean;
   isGenerating?: boolean;
   complianceGrade?: string;
+  ctr?: number | null;
   onGenerate?: () => void;
   onClick?: () => void;
 }
@@ -31,6 +32,7 @@ export function ProductCard({
   aiAnalyzed,
   isGenerating,
   complianceGrade,
+  ctr,
   onGenerate,
   onClick,
 }: ProductCardProps) {
@@ -158,12 +160,19 @@ export function ProductCard({
 
       <div className="p-3">
         <div className="text-[14px] font-medium text-slate-900 line-clamp-2 leading-5 min-h-[40px]">{name}</div>
-        <div className="mt-1.5">
-          {badge || (grade && (
-            <span className={cn('text-[12px] font-mono', QUALITY_GRADE_TEXT[grade] || 'text-slate-400')}>
-              {QUALITY_GRADE_LABELS[grade] || grade}
+        <div className="mt-1.5 flex items-center justify-between gap-1">
+          <span>
+            {badge || (grade && (
+              <span className={cn('text-[12px] font-mono', QUALITY_GRADE_TEXT[grade] || 'text-slate-400')}>
+                {QUALITY_GRADE_LABELS[grade] || grade}
+              </span>
+            ))}
+          </span>
+          {ctr != null && (
+            <span className="text-[11px] font-mono font-semibold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">
+              CTR {ctr.toFixed(2)}%
             </span>
-          ))}
+          )}
         </div>
       </div>
     </div>

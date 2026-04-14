@@ -1,6 +1,8 @@
 import {
   Controller,
+  Get,
   Post,
+  Query,
   UploadedFile,
   UseInterceptors,
   BadRequestException,
@@ -20,6 +22,23 @@ interface MulterFile {
 @Controller('traffic')
 export class TrafficController {
   constructor(private readonly trafficService: TrafficService) {}
+
+  @Get('summary')
+  async summary(@Query('days') days?: string) {
+    const d = days ? parseInt(days, 10) : 30;
+    return this.trafficService.getTrafficSummary(d);
+  }
+
+  @Get('monthly')
+  async monthly(
+    @Query('year') year?: string,
+    @Query('month') month?: string,
+  ) {
+    const now = new Date();
+    const y = year ? parseInt(year, 10) : now.getFullYear();
+    const m = month ? parseInt(month, 10) : now.getMonth() + 1;
+    return this.trafficService.getMonthlyRevenue(y, m);
+  }
 
   @Post('upload')
   @UseInterceptors(FileInterceptor('file'))

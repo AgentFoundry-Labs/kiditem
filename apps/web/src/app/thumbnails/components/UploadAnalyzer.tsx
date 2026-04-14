@@ -221,7 +221,7 @@ export function UploadAnalyzer({ onAnalyzed }: UploadAnalyzerProps) {
                               </div>
                             )}
                             <button
-                              onClick={() => router.push(`/thumbnail-editor?imageUrl=${encodeURIComponent(r.imageUrl)}`)}
+                              onClick={() => router.push(`/thumbnail-editor?imageUrl=${encodeURIComponent(r.imageUrl ?? '')}`)}
                               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold text-white bg-amber-500 hover:bg-amber-600 transition-colors"
                             >
                               <Wand2 size={12} /> AI 편집으로 개선하기
@@ -244,7 +244,7 @@ export function UploadAnalyzer({ onAnalyzed }: UploadAnalyzerProps) {
                               </div>
                             )}
                             <button
-                              onClick={() => router.push(`/thumbnail-editor?imageUrl=${encodeURIComponent(r.imageUrl)}`)}
+                              onClick={() => router.push(`/thumbnail-editor?imageUrl=${encodeURIComponent(r.imageUrl ?? '')}`)}
                               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold text-white bg-purple-600 hover:bg-purple-700 transition-colors"
                             >
                               <Wand2 size={12} /> AI 편집으로 개선하기

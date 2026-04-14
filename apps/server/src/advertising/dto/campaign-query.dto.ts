@@ -1,4 +1,4 @@
-import { IsOptional, IsString, IsInt, Min, Max } from 'class-validator';
+import { IsOptional, IsString, IsInt, Min, Max, IsIn } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class CampaignQueryDto {
@@ -17,5 +17,15 @@ export class TrendsQueryDto {
   @IsInt()
   @Min(1)
   @Max(90)
-  days?: number = 14;
+  days?: number;
+
+  @IsOptional()
+  @IsIn(['7d', '14d', 'month'])
+  period?: '7d' | '14d' | 'month';
+}
+
+export class StrategyQueryDto {
+  @IsOptional()
+  @IsIn(['7d', '14d', 'month'])
+  period?: '7d' | '14d' | 'month' = '14d';
 }

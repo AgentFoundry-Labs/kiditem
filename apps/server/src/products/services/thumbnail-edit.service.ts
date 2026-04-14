@@ -20,15 +20,33 @@ export class ThumbnailEditService {
 
     for (const productId of productIds) {
       try {
-        // 이미 진행 중인 job이 있으면 skip
-        const activeJob = await this.prisma.thumbnailGeneration.findFirst({
-          where: {
-            productId,
-            method: 'edit',
-            status: { in: ['pending', 'generating'] },
-          },
+        // 이미 generating 중이면 skip
+        const generatingJob = await this.prisma.thumbnailGeneration.findFirst({
+          where: { productId, method: 'edit', status: 'generating' },
         });
-        if (activeJob) continue;
+        if (generatingJob) continue;
+
+        // pending 잡이 있으면 백그라운드 처리 재시작
+        const pendingJob = await this.prisma.thumbnailGeneration.findFirst({
+          where: { productId, method: 'edit', status: 'pending' },
+          include: { product: { select: PRODUCT_SELECT } },
+        });
+        if (pendingJob) {
+          const imageUrl = pendingJob.originalUrl ?? pendingJob.product?.imageUrl ?? null;
+          if (imageUrl) {
+            setImmediate(() => {
+              this.processEditJob(pendingJob.id, imageUrl, pendingJob.product.name, pendingJob.product.category, purpose).catch((err) => {
+                this.logger.error(`pending job 재처리 실패 (${pendingJob.id}): ${err instanceof Error ? err.message : err}`);
+              });
+            });
+          }
+          results.push({
+            ...pendingJob,
+            candidates: pendingJob.candidates as Array<{ url: string; filename: string }>,
+            editAnalysis: null,
+          });
+          continue;
+        }
 
         // 이전 실패/건너뛴 job 정리, ready/applied는 보존 (최근 3개까지)
         await this.prisma.thumbnailGeneration.deleteMany({
@@ -89,6 +107,31 @@ export class ThumbnailEditService {
     }
 
     return results;
+  }
+
+  /** after 이미지가 깨진 ready/applied 잡을 즉시 재편집 */
+  async reEditJob(generationId: string, purpose: 'compliance' | 'quality' = 'compliance'): Promise<{ ok: true }> {
+    const job = await this.prisma.thumbnailGeneration.findUnique({
+      where: { id: generationId },
+      include: { product: { select: PRODUCT_SELECT } },
+    });
+    if (!job) return { ok: true };
+
+    const imageUrl = job.originalUrl ?? job.product?.imageUrl ?? null;
+    if (!imageUrl) return { ok: true };
+
+    await this.prisma.thumbnailGeneration.update({
+      where: { id: generationId },
+      data: { status: 'pending', candidates: [], selectedUrl: null },
+    });
+
+    setImmediate(() => {
+      this.processEditJob(generationId, imageUrl, job.product.name, job.product.category, purpose).catch((err) => {
+        this.logger.error(`재편집 실패 (${generationId}): ${err instanceof Error ? err.message : err}`);
+      });
+    });
+
+    return { ok: true };
   }
 
   private static readonly EDIT_TIMEOUT_MS = 5 * 60 * 1000; // 5분

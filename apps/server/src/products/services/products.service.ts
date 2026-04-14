@@ -125,7 +125,7 @@ export class ProductsService {
               SUM(sales_qty)::int AS sales_qty,
               SUM(revenue)::int AS revenue
             FROM traffic_stats
-            WHERE period_days = ${periodDays}
+            WHERE period_days = 1
               AND date >= ${periodStart}
             GROUP BY product_id
           `,
@@ -137,34 +137,61 @@ export class ProductsService {
             FROM grade_histories
             ORDER BY product_id, calculated_at DESC
           `,
-          // t14: 최근 14일 트래픽
+          // t14: 최근 14일 트래픽 — period_days>=14 집계 레코드 우선, 없으면 일별(period_days=1) 합산
           this.prisma.$queryRaw<
             { product_id: string; revenue: number; sales_qty: number; orders: number; conversion_rate: number; date: string }[]
           >`
-            SELECT
-              product_id,
-              SUM(revenue)::int AS revenue,
-              SUM(sales_qty)::int AS sales_qty,
-              SUM(orders)::int AS orders,
-              CASE WHEN SUM(views) > 0 THEN ROUND(SUM(orders)::numeric / SUM(views) * 100, 2) ELSE 0 END AS conversion_rate,
-              MAX(date)::text AS date
-            FROM traffic_stats
-            WHERE date >= ${t14Start}
-            GROUP BY product_id
+            WITH agg14 AS (
+              SELECT DISTINCT ON (product_id)
+                product_id, revenue, sales_qty, orders, views, conversion_rate, date
+              FROM traffic_stats
+              WHERE period_days >= 14 AND date >= ${t14Start}
+              ORDER BY product_id, period_days DESC, date DESC
+            ),
+            daily_sum AS (
+              SELECT
+                ts.product_id,
+                SUM(ts.revenue)::int AS revenue,
+                SUM(ts.sales_qty)::int AS sales_qty,
+                SUM(ts.orders)::int AS orders,
+                SUM(ts.views)::int AS views,
+                CASE WHEN SUM(ts.views) > 0 THEN ROUND(SUM(ts.orders)::numeric / SUM(ts.views) * 100, 2) ELSE 0 END AS conversion_rate,
+                MAX(ts.date)::text AS date
+              FROM traffic_stats ts
+              WHERE ts.period_days = 1 AND ts.date >= ${t14Start}
+                AND NOT EXISTS (SELECT 1 FROM agg14 a WHERE a.product_id = ts.product_id)
+              GROUP BY ts.product_id
+            )
+            SELECT product_id, revenue::int, sales_qty::int, orders::int, conversion_rate, date::text FROM agg14
+            UNION ALL
+            SELECT product_id, revenue, sales_qty, orders, conversion_rate, date FROM daily_sum
           `,
-          // t14prev: 이전 14일 트래픽 (14~28일 전)
+          // t14prev: 이전 14일 트래픽 — period_days>=14 우선, 없으면 일별 합산
           this.prisma.$queryRaw<
             { product_id: string; revenue: number; sales_qty: number; orders: number; date: string }[]
           >`
-            SELECT
-              product_id,
-              SUM(revenue)::int AS revenue,
-              SUM(sales_qty)::int AS sales_qty,
-              SUM(orders)::int AS orders,
-              MAX(date)::text AS date
-            FROM traffic_stats
-            WHERE date >= ${t14PrevStart} AND date < ${t14PrevEnd}
-            GROUP BY product_id
+            WITH agg14prev AS (
+              SELECT DISTINCT ON (product_id)
+                product_id, revenue, sales_qty, orders, date
+              FROM traffic_stats
+              WHERE period_days >= 14 AND date >= ${t14PrevStart} AND date < ${t14PrevEnd}
+              ORDER BY product_id, period_days DESC, date DESC
+            ),
+            daily_prev AS (
+              SELECT
+                ts.product_id,
+                SUM(ts.revenue)::int AS revenue,
+                SUM(ts.sales_qty)::int AS sales_qty,
+                SUM(ts.orders)::int AS orders,
+                MAX(ts.date)::text AS date
+              FROM traffic_stats ts
+              WHERE ts.period_days = 1 AND ts.date >= ${t14PrevStart} AND ts.date < ${t14PrevEnd}
+                AND NOT EXISTS (SELECT 1 FROM agg14prev a WHERE a.product_id = ts.product_id)
+              GROUP BY ts.product_id
+            )
+            SELECT product_id, revenue::int, sales_qty::int, orders::int, date::text FROM agg14prev
+            UNION ALL
+            SELECT product_id, revenue, sales_qty, orders, date FROM daily_prev
           `,
         ]);
 
@@ -340,6 +367,28 @@ export class ProductsService {
       revenue = 0;
       netProfit = 0;
       orderCount = 0;
+    }
+
+    // TrafficStats 폴백: ProfitLoss/Order 기반 이익이 없고 traffic revenue가 있으면 traffic 기반으로 수익 계산
+    const trafficData = maps.traffic.get(p.id);
+    if (trafficData && trafficData.revenue > 0 && trafficData.salesQty > 0 && !resolved.isCostMissing) {
+      const tRevenue = trafficData.revenue;
+      const tSalesQty = trafficData.salesQty;
+      const commRate = resolved.commissionRate || 0.108;
+      const tNetProfit = Math.round(
+        tRevenue -
+        resolved.costPrice * tSalesQty -
+        tRevenue * commRate -
+        (p.shippingCost ? Number(p.shippingCost) : 0) * tSalesQty,
+      );
+      // traffic 객체에 수익 정보 추가 (frontended에서 표시용)
+      trafficData.netProfit = tNetProfit;
+      trafficData.profitRate = tRevenue > 0 ? Math.round((tNetProfit / tRevenue) * 1000) / 10 : 0;
+      // ProfitLoss/Order 기반 수익이 없으면 traffic 기반으로 폴백
+      if (netProfit === 0) {
+        netProfit = tNetProfit;
+        if (revenue === 0) revenue = tRevenue;
+      }
     }
 
     const adRate = revenue > 0 ? (totalAdSpend / revenue) * 100 : 0;
@@ -532,6 +581,12 @@ export class ProductsService {
     gradeChangeC: number;
     adCount: number;
     noAdCount: number;
+    gradeRevA: number;
+    gradeRevB: number;
+    gradeRevC: number;
+    gradeAdA: number;
+    gradeAdB: number;
+    gradeAdC: number;
   }> {
     try {
       const statusWhere = statusFilter && statusFilter !== 'all'
@@ -608,6 +663,54 @@ export class ProductsService {
         WHERE p.is_deleted = false ${statusWhere}
       `);
 
+      // 6. 등급별 14일 매출 — 상품당 최신 레코드 1건씩만 (이전 업로드 제외)
+      const t14Start = new Date();
+      t14Start.setDate(t14Start.getDate() - 14);
+      const t14StartStr = t14Start.toISOString().slice(0, 10);
+
+      const gradeRevRows = await this.prisma.$queryRawUnsafe<
+        { abc_grade: string | null; total_revenue: number; total_ad_cost: number }[]
+      >(`
+        WITH agg14 AS (
+          SELECT DISTINCT ON (product_id) product_id, revenue
+          FROM traffic_stats
+          WHERE period_days >= 14 AND date >= '${t14StartStr}'
+          ORDER BY product_id, period_days DESC, date DESC
+        ),
+        daily_sum AS (
+          SELECT ts.product_id, SUM(ts.revenue)::int AS revenue
+          FROM traffic_stats ts
+          WHERE ts.period_days = 1 AND ts.date >= '${t14StartStr}'
+            AND NOT EXISTS (SELECT 1 FROM agg14 a WHERE a.product_id = ts.product_id)
+          GROUP BY ts.product_id
+        ),
+        traffic AS (
+          SELECT product_id, revenue FROM agg14
+          UNION ALL
+          SELECT product_id, revenue FROM daily_sum
+        )
+        SELECT p.abc_grade,
+               COALESCE(SUM(tr.revenue), 0)::float AS total_revenue,
+               COALESCE(SUM(pl.ad_cost), 0)::float AS total_ad_cost
+        FROM products p
+        LEFT JOIN traffic tr ON tr.product_id = p.id
+        LEFT JOIN (
+          SELECT product_id, SUM(ad_cost)::float AS ad_cost
+          FROM profit_loss
+          GROUP BY product_id
+        ) pl ON pl.product_id = p.id
+        WHERE p.is_deleted = false ${statusWhere}
+        GROUP BY p.abc_grade
+      `);
+
+      let gradeRevA = 0, gradeRevB = 0, gradeRevC = 0;
+      let gradeAdA = 0, gradeAdB = 0, gradeAdC = 0;
+      for (const row of gradeRevRows) {
+        if (row.abc_grade === 'A') { gradeRevA = Number(row.total_revenue); gradeAdA = Number(row.total_ad_cost); }
+        else if (row.abc_grade === 'B') { gradeRevB = Number(row.total_revenue); gradeAdB = Number(row.total_ad_cost); }
+        else if (row.abc_grade === 'C') { gradeRevC = Number(row.total_revenue); gradeAdC = Number(row.total_ad_cost); }
+      }
+
       return {
         total,
         gradeA,
@@ -620,10 +723,221 @@ export class ProductsService {
         gradeChangeC: changeMap['C'] ?? 0,
         adCount: Number(adRow?.ad_count ?? 0),
         noAdCount: Number(adRow?.no_ad_count ?? 0),
+        gradeRevA: Math.round(gradeRevA),
+        gradeRevB: Math.round(gradeRevB),
+        gradeRevC: Math.round(gradeRevC),
+        gradeAdA: Math.round(gradeAdA),
+        gradeAdB: Math.round(gradeAdB),
+        gradeAdC: Math.round(gradeAdC),
       };
     } catch {
       throw new InternalServerErrorException('파이프라인 통계 조회 실패');
     }
+  }
+
+  /**
+   * ABC 등급 자동 분류
+   * A: 매출 상위 누적 75% 기여 상품
+   * B: 다음 20% (75~95%)
+   * C: 나머지 5% (95~100%) + 매출 없는 상품
+   */
+  async classifyAbcGrades(): Promise<{
+    updated: number;
+    summary: { A: number; B: number; C: number; new: number };
+  }> {
+    const t14Start = new Date();
+    t14Start.setDate(t14Start.getDate() - 14);
+
+    // 상품별 14일 매출 (period_days>=14 우선, 없으면 일별 합산)
+    // 14일 미만 신상품은 ABC 분류에서 제외 (AND p.created_at < NOW() - INTERVAL '14 days')
+    const revenueRows = await this.prisma.$queryRaw<
+      { product_id: string; revenue: number }[]
+    >`
+      WITH agg14 AS (
+        SELECT DISTINCT ON (product_id) product_id, revenue
+        FROM traffic_stats
+        WHERE period_days >= 14 AND date >= ${t14Start}
+        ORDER BY product_id, period_days DESC, date DESC
+      ),
+      daily_sum AS (
+        SELECT ts.product_id, SUM(ts.revenue)::int AS revenue
+        FROM traffic_stats ts
+        WHERE ts.period_days = 1 AND ts.date >= ${t14Start}
+          AND NOT EXISTS (SELECT 1 FROM agg14 a WHERE a.product_id = ts.product_id)
+        GROUP BY ts.product_id
+      ),
+      traffic AS (
+        SELECT product_id, revenue FROM agg14
+        UNION ALL
+        SELECT product_id, revenue FROM daily_sum
+      )
+      SELECT p.id AS product_id, COALESCE(t.revenue, 0)::int AS revenue
+      FROM products p
+      LEFT JOIN traffic t ON t.product_id = p.id
+      WHERE p.is_deleted = false AND p.status = 'active'
+        AND p.created_at < NOW() - INTERVAL '14 days'
+    `;
+
+    // 매출 내림차순 정렬
+    const sorted = [...revenueRows].sort(
+      (a, b) => Number(b.revenue) - Number(a.revenue),
+    );
+    const totalRevenue = sorted.reduce((sum, r) => sum + Number(r.revenue), 0);
+
+    // 누적 매출 기준 A/B/C 분류
+    let cumulativeBefore = 0;
+    const classified = sorted.map((r) => {
+      const pct = totalRevenue > 0 ? cumulativeBefore / totalRevenue : 1;
+      const grade = pct < 0.75 ? 'A' : pct < 0.95 ? 'B' : 'C';
+      cumulativeBefore += Number(r.revenue);
+      return { productId: r.product_id, newGrade: grade };
+    });
+
+    // 현재 등급 조회 (ABC 분류 대상 상품)
+    const currentGrades = await this.prisma.product.findMany({
+      where: {
+        isDeleted: false,
+        status: 'active',
+        createdAt: { lte: new Date(Date.now() - 14 * 86400000) },
+      },
+      select: { id: true, abcGrade: true },
+    });
+    const gradeMap = new Map(currentGrades.map((p) => [p.id, p.abcGrade]));
+
+    // 변경된 상품만 필터
+    const changed = classified.filter(
+      (c) => gradeMap.get(c.productId) !== c.newGrade,
+    );
+
+    if (changed.length > 0) {
+      const now = new Date();
+      await this.prisma.$transaction([
+        ...changed.map((c) =>
+          this.prisma.product.update({
+            where: { id: c.productId },
+            data: { abcGrade: c.newGrade },
+          }),
+        ),
+        this.prisma.gradeHistory.createMany({
+          data: changed.map((c) => ({
+            productId: c.productId,
+            oldGrade: gradeMap.get(c.productId) ?? null,
+            newGrade: c.newGrade,
+            score: 0,
+            revenueScore: 0,
+            marginScore: 0,
+            velocityScore: 0,
+            reason: 'auto_abc_revenue',
+            calculatedAt: now,
+          })),
+        }),
+      ]);
+    }
+
+    // 14일 미만 신상품 — abcGrade = 'NEW' 로 업데이트
+    const newProducts = await this.prisma.product.findMany({
+      where: {
+        isDeleted: false,
+        status: 'active',
+        createdAt: { gt: new Date(Date.now() - 14 * 86400000) },
+      },
+      select: { id: true, abcGrade: true },
+    });
+    const newProductsToUpdate = newProducts.filter((p) => p.abcGrade !== 'NEW');
+    if (newProductsToUpdate.length > 0) {
+      await this.prisma.$transaction(
+        newProductsToUpdate.map((p) =>
+          this.prisma.product.update({
+            where: { id: p.id },
+            data: { abcGrade: 'NEW' },
+          }),
+        ),
+      );
+    }
+
+    const summary = { A: 0, B: 0, C: 0, new: newProducts.length };
+    for (const c of classified) {
+      summary[c.newGrade as 'A' | 'B' | 'C']++;
+    }
+
+    return { updated: changed.length + newProductsToUpdate.length, summary };
+  }
+
+  /**
+   * 손익 기반 상품 분류
+   * - 적자: (매출 - 매입가 - 광고비 - 수수료 - 배송비) < 0
+   * - 저마진: 0 ≤ 이익률 ≤ 3%
+   *
+   * TODO: 현재 상품별 광고비 미집계 (ad_cost는 profit_loss 테이블 월별 집계값 사용)
+   *       상품별 일별 광고비 추적 연동 후 ad_cost 컬럼 업데이트 필요
+   */
+  async classifyProfitLossGrades(): Promise<{
+    updated: number;
+    minus: number;
+    lowMargin: number;
+    normal: number;
+  }> {
+    const rows = await this.prisma.$queryRaw<
+      { product_id: string; revenue: number; cost_of_goods: number; ad_cost: number; net_profit: number; profit_rate: number }[]
+    >`
+      SELECT
+        pl.product_id,
+        COALESCE(SUM(pl.revenue), 0)::float          AS revenue,
+        COALESCE(SUM(pl.cost_of_goods), 0)::float    AS cost_of_goods,
+        COALESCE(SUM(pl.ad_cost), 0)::float          AS ad_cost,
+        COALESCE(SUM(pl.net_profit), 0)::float       AS net_profit,
+        CASE
+          WHEN COALESCE(SUM(pl.revenue), 0) > 0
+          THEN ROUND((COALESCE(SUM(pl.net_profit), 0) / SUM(pl.revenue) * 100)::numeric, 2)::float
+          ELSE 0
+        END AS profit_rate
+      FROM profit_loss pl
+      JOIN products p ON p.id = pl.product_id
+      WHERE p.is_deleted = false AND p.status = 'active'
+      GROUP BY pl.product_id
+      HAVING COALESCE(SUM(pl.revenue), 0) > 0
+    `;
+
+    // 각 상품의 새 profitTag 계산
+    const tagged = rows.map((row) => {
+      const np = Number(row.net_profit);
+      const rate = Number(row.profit_rate);
+      const newTag = np < 0 ? 'minus' : rate <= 3 ? 'low_margin' : 'normal';
+      return { productId: row.product_id, newTag };
+    });
+
+    // 현재 profitTag 조회
+    const productIds = tagged.map((t) => t.productId);
+    const currentTags = await this.prisma.product.findMany({
+      where: { id: { in: productIds } },
+      select: { id: true, profitTag: true },
+    });
+    const tagMap = new Map(currentTags.map((p) => [p.id, p.profitTag]));
+
+    // 변경된 것만 필터
+    const changed = tagged.filter((t) => tagMap.get(t.productId) !== t.newTag);
+
+    let minus = 0;
+    let lowMargin = 0;
+    let normal = 0;
+    for (const t of tagged) {
+      if (t.newTag === 'minus') minus++;
+      else if (t.newTag === 'low_margin') lowMargin++;
+      else normal++;
+    }
+
+    if (changed.length > 0) {
+      await this.prisma.$transaction(
+        changed.map((t) =>
+          this.prisma.product.update({
+            where: { id: t.productId },
+            data: { profitTag: t.newTag },
+          }),
+        ),
+      );
+    }
+
+    return { updated: changed.length, minus, lowMargin, normal };
   }
 
   async triggerImageGeneration(id: string): Promise<{ ok: true; taskId: string }> {

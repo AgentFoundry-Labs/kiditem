@@ -6,9 +6,15 @@ interface GenerateRequest {
   productId?: string;
   packagingImage?: string;
   productImage?: string;
+  composition?: string;
+  userPrompt?: string;
   pieceCount?: number;
   colorCount?: number;
   purpose: 'compliance' | 'quality';
+  mode?: 'edit' | 'creative';
+  sceneType?: string;
+  styleType?: string;
+  productDescription?: string;
 }
 
 interface GenerateResponse {

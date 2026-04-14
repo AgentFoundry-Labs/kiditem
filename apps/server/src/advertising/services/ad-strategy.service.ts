@@ -7,7 +7,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AdConfigService } from './ad-config.service';
 import { resolvePricing, resolveInventory } from '../../common/master-product-resolver';
 import type { GradeBudgetAllocation } from './types';
-import type { ExposureAnalysisData } from '@kiditem/shared';
+import type { AdStrategyAction, ExposureAnalysisData } from '@kiditem/shared';
 
 @Injectable()
 export class AdStrategyService {
@@ -71,8 +71,9 @@ export class AdStrategyService {
     }));
   }
 
-  async getRules() {
+  async getRules(period: '7d' | '14d' | 'month' = '14d') {
     const companyId = await this.getDefaultCompanyId();
+    const snapshotMetrics = await this.calcSnapshotKeyMetrics(companyId, period);
 
     const [adAgg, products] = await Promise.all([
       this.prisma.ad.groupBy({
@@ -327,7 +328,36 @@ export class AdStrategyService {
         .reduce((s, r) => s + (typeof r.spend === 'number' ? r.spend : 0), 0),
     };
 
-    return { summary, recommendations };
+    return { summary, recommendations, period, keyMetrics: snapshotMetrics, hasSnapshotData: !!snapshotMetrics };
+  }
+
+  private async calcSnapshotKeyMetrics(
+    companyId: string,
+    period: '7d' | '14d' | 'month' = '14d',
+  ) {
+    const days = period === '7d' ? 7 : period === 'month' ? Math.max(new Date().getDate(), 1) : 14;
+    const since = new Date();
+    since.setDate(since.getDate() - days);
+    since.setHours(0, 0, 0, 0);
+
+    const snaps = await this.prisma.adSnapshot.findMany({
+      where: { companyId, source: 'coupang_ads', pageType: 'dashboard_daily', date: { gte: since } },
+      select: { adSpend: true, adRevenue: true, clicks: true, impressions: true, conversions: true, roas: true },
+    });
+
+    if (snaps.length === 0) return null;
+
+    const totalAdSpend = snaps.reduce((s, r) => s + r.adSpend, 0);
+    const totalAdRevenue = snaps.reduce((s, r) => s + r.adRevenue, 0);
+    const totalImpressions = snaps.reduce((s, r) => s + r.impressions, 0);
+    const totalClicks = snaps.reduce((s, r) => s + r.clicks, 0);
+    const totalConversions = snaps.reduce((s, r) => s + r.conversions, 0);
+    const overallRoas = totalAdSpend > 0 ? Math.round((totalAdRevenue / totalAdSpend) * 100) : 0;
+    const ctr = totalImpressions > 0 ? Math.round((totalClicks / totalImpressions) * 10000) / 100 : 0;
+    const cvr = totalClicks > 0 ? Math.round((totalConversions / totalClicks) * 10000) / 100 : 0;
+    const adRatio = totalAdRevenue > 0 ? Math.round((totalAdSpend / totalAdRevenue) * 10000) / 100 : 0;
+
+    return { totalAdSpend, totalAdRevenue, overallRoas, totalImpressions, totalClicks, totalConversions, ctr, cvr, adRatio };
   }
 
   private getCurrentPeriod(): { year: number; month: number } {
@@ -596,7 +626,7 @@ export class AdStrategyService {
     });
   }
 
-  async getWeeklyPlan() {
+  async getWeeklyPlan(period: '7d' | '14d' | 'month' = '14d') {
     const [latest, companyId] = await Promise.all([
       this.getLatestAgentResult(),
       this.getDefaultCompanyId(),
@@ -604,14 +634,39 @@ export class AdStrategyService {
 
     const { year, month } = this.getCurrentPeriod();
 
-    const [budgetAllocation, actions, adIssues, tierAnalysis, top20] =
+    const [budgetAllocation, rawActions, adIssues, tierAnalysis, top20, snapshotMetrics] =
       await Promise.all([
         this.calcBudgetAllocation(),
         this.calcActions(companyId, year, month),
         this.calcAdIssues(companyId, year, month),
         this.calcTierAnalysis(companyId),
         this.calcTop20(companyId, year, month),
+        this.calcSnapshotKeyMetrics(companyId, period),
       ]);
+
+    // name 기반으로 실제 DB products와 grade/productId 동기화
+    const productNames = rawActions.map((a) => a.name);
+    const dbProducts = await this.prisma.product.findMany({
+      where: {
+        name: { in: productNames },
+        isDeleted: false,
+      },
+      select: { id: true, name: true, abcGrade: true, adTier: true },
+    });
+    const dbMap = new Map(dbProducts.map((p) => [p.name, p]));
+
+    const actions = rawActions.map((a) => {
+      const dbP = dbMap.get(a.name);
+      if (dbP) {
+        return {
+          ...a,
+          productId: dbP.id,
+          grade: dbP.abcGrade ?? a.grade,
+          isExisting: !!dbP.adTier,
+        };
+      }
+      return a;
+    });
 
     if (!latest?.plan) {
       return {
@@ -620,6 +675,9 @@ export class AdStrategyService {
         summary: { scaleUp: 0, optimize: 0, reduce: 0, stop: 0, newStart: 0 },
         budgetAllocation,
         keyMetrics: { totalAdSpend: 0, totalAdRevenue: 0, overallRoas: 0 },
+        snapshotKeyMetrics: snapshotMetrics,
+        hasSnapshotData: !!snapshotMetrics,
+        period,
         actions,
         adIssues,
         tierAnalysis,
@@ -631,11 +689,116 @@ export class AdStrategyService {
       ...latest.plan,
       budgetAllocation,
       generatedAt: latest.generatedAt,
+      snapshotKeyMetrics: snapshotMetrics,
+      hasSnapshotData: !!snapshotMetrics,
+      period,
       actions,
       adIssues,
       tierAnalysis,
       top20,
     };
+  }
+
+  private async enhanceActionsWithAi(
+    actions: AdStrategyAction[],
+  ): Promise<Map<string, { campaignStrategy: string; longtailKeywords: string[]; negativeKeywords: string[]; weeklyAction: string }>> {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey || actions.length === 0) return new Map();
+
+    const model = 'gemini-2.5-flash';
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+    const batch = actions.slice(0, 30).map((a) => ({
+      productId: a.productId,
+      name: a.name,
+      grade: a.grade,
+      roas: a.roas,
+      ctr: a.currentCtr,
+      cvr: a.currentCvr,
+      spend: a.spend,
+      action: a.action,
+      existingKeywords: a.keywords.slice(0, 8),
+    }));
+
+    const prompt = `당신은 쿠팡 셀러 광고 최적화 전문가입니다. 아래 상품들의 광고 성과를 분석하여 구체적인 전략을 JSON으로 반환하세요.
+
+[전략 기준]
+- ROAS ≥480%: 공격적 확장, 입찰가 10%↑, 일예산 20%↑, 신규 키워드 발굴
+- ROAS 300~480%: 유지·최적화, 롱테일 확장, 제외 키워드 정리
+- ROAS 200~300%: 입찰가·소재 점검, 전환 높은 키워드 집중
+- ROAS 100~200%: 예산 축소, 성과 키워드만 유지, 롱테일로 전환
+- ROAS <100%: 즉시 중단 또는 최소 테스트
+- CTR <0.15%: 썸네일/소재 개선 우선
+- CVR <5%: 상세페이지·가격·리뷰 점검 필요
+
+[출력 JSON 형식]
+{ "results": [{ "productId": "...", "campaignStrategy": "3-4문장 구체적 전략 (입찰가·예산·타겟·시즌 포함)", "longtailKeywords": ["5-8개 롱테일 키워드"], "negativeKeywords": ["3-5개 제외 키워드"], "weeklyAction": "이번 주 최우선 실행 사항 (수치 포함)" }] }
+
+키워드는 반드시 한국어. 롱테일은 상품명+특성+용도 조합. 제외키워드는 구매의도 낮은 광의어.
+상품 데이터: ${JSON.stringify(batch)}`;
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 25000);
+
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        signal: controller.signal,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.4, responseMimeType: 'application/json' },
+        }),
+      });
+
+      if (!res.ok) return new Map();
+
+      const data = await res.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+      const parsed = JSON.parse(text) as { results?: Array<{ productId: string; campaignStrategy: string; longtailKeywords: string[]; negativeKeywords: string[]; weeklyAction: string }> };
+
+      const resultMap = new Map<string, { campaignStrategy: string; longtailKeywords: string[]; negativeKeywords: string[]; weeklyAction: string }>();
+      for (const item of parsed.results ?? []) {
+        if (item.productId) {
+          resultMap.set(item.productId, {
+            campaignStrategy: item.campaignStrategy ?? '',
+            longtailKeywords: item.longtailKeywords ?? [],
+            negativeKeywords: item.negativeKeywords ?? [],
+            weeklyAction: item.weeklyAction ?? '',
+          });
+        }
+      }
+      return resultMap;
+    } catch {
+      return new Map();
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  async getAiEnhancedPlan(period: '7d' | '14d' | 'month' = '14d') {
+    const plan = await this.getWeeklyPlan(period);
+    const actions = plan.actions as AdStrategyAction[];
+    const aiMap = await this.enhanceActionsWithAi(actions);
+
+    if (aiMap.size === 0) return plan;
+
+    const enhancedActions = actions.map((a) => {
+      const ai = aiMap.get(a.productId);
+      if (!ai) return a;
+      return {
+        ...a,
+        campaignStrategy: ai.campaignStrategy || a.campaignStrategy,
+        recommendedAction: ai.weeklyAction || a.recommendedAction,
+        suggestedKeywords: {
+          ...a.suggestedKeywords,
+          longtail: ai.longtailKeywords,
+          negative: ai.negativeKeywords,
+        },
+      };
+    });
+
+    return { ...plan, actions: enhancedActions };
   }
 
   async getRecommendations() {

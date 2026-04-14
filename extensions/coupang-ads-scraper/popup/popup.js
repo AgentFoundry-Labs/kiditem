@@ -140,6 +140,56 @@ document.getElementById("btnRunApproved").addEventListener("click", async () => 
   }
 });
 
+// 월별 일별 동기화
+(function () {
+  const now = new Date();
+  const defaultMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  document.getElementById("monthInput").value = defaultMonth;
+})();
+
+document.getElementById("btnMonthlySync").addEventListener("click", () => {
+  const monthVal = document.getElementById("monthInput").value; // "2026-04"
+  if (!monthVal) return;
+
+  const [year, month] = monthVal.split("-").map(Number);
+  const progressEl = document.getElementById("monthlySyncProgress");
+  progressEl.style.display = "block";
+  progressEl.className = "sync-progress";
+  progressEl.textContent = "수집 준비 중...";
+
+  let pollInterval = null;
+
+  chrome.runtime.sendMessage({ action: "monthlyScrape", year, month }, (response) => {
+    if (chrome.runtime.lastError || !response?.success) {
+      progressEl.className = "sync-progress error";
+      progressEl.textContent = "❌ " + (chrome.runtime.lastError?.message || response?.error || "실패");
+      return;
+    }
+
+    // 진행상황 polling
+    pollInterval = setInterval(() => {
+      chrome.storage.local.get(["kiditem_monthly_sync"], (data) => {
+        const s = data.kiditem_monthly_sync;
+        if (!s || s.year !== year || s.month !== month) return;
+
+        if (s.status === "running") {
+          progressEl.className = "sync-progress";
+          progressEl.textContent = `📊 ${s.completed} / ${s.total}일 수집 중...`;
+        } else if (s.status === "done") {
+          progressEl.className = "sync-progress done";
+          progressEl.textContent = `✅ ${s.completed}일 동기화 완료 (${year}-${String(month).padStart(2, "0")})`;
+          clearInterval(pollInterval);
+          setTimeout(init, 1000);
+        } else if (s.status === "error") {
+          progressEl.className = "sync-progress error";
+          progressEl.textContent = `❌ 오류: ${s.error || "알 수 없는 오류"}`;
+          clearInterval(pollInterval);
+        }
+      });
+    }, 1000);
+  });
+});
+
 // 대시보드 열기
 document.getElementById("btnOpen").addEventListener("click", () => {
   chrome.tabs.create({ url: API_URL });

@@ -30,6 +30,8 @@ export class AdSyncService {
         return this.handleRawScrape(payload, companyId, productMap);
       case 'traffic':
         return this.handleTraffic(payload, companyId, productMap);
+      case 'coupang_ads_daily':
+        return this.handleCoupangAdsDaily(payload, companyId);
       default:
         return { success: false, error: `알 수 없는 type: ${payload.type}` };
     }
@@ -412,7 +414,11 @@ export class AdSyncService {
     productMap: Map<string, string>,
   ) {
     const period = Number(payload.period) || 14;
-    const today = new Date(new Date().toISOString().slice(0, 10));
+    // startDate가 있으면 실제 데이터 날짜 사용 (일별 스크래핑 지원), 없으면 오늘
+    const dateStr = payload.startDate
+      ? payload.startDate.slice(0, 10)
+      : new Date().toISOString().slice(0, 10);
+    const today = new Date(dateStr);
     const data: any[] = payload.data || [];
     let upserted = 0;
 
@@ -499,6 +505,11 @@ export class AdSyncService {
       wingSnapshotSaved = true;
     }
 
+    // traffic 동기화 완료 후 ABC 등급 자동 재분류
+    if (upserted > 0) {
+      fetch('http://localhost:4000/api/products/classify-grades', { method: 'POST' }).catch(() => {});
+    }
+
     return {
       success: true,
       type: 'traffic',
@@ -506,6 +517,66 @@ export class AdSyncService {
       skipped: data.length - upserted,
       wingSnapshotSaved,
     };
+  }
+
+  /**
+   * coupang_ads_daily → AdSnapshot(source='coupang_ads', pageType='dashboard_daily') upsert
+   * data: [{ date, adSpend, adRevenue, impressions, clicks, conversions, orders, roas, ctr, conversionRate }]
+   */
+  private async handleCoupangAdsDaily(payload: ExtensionSyncDto, companyId: string) {
+    const rows: any[] = payload.data || [];
+    let upserted = 0;
+
+    for (const row of rows) {
+      if (!row.date) continue;
+      const date = new Date(row.date);
+      const adSpend = Math.round(Number(row.adSpend) || 0);
+      const adRevenue = Math.round(Number(row.adRevenue) || 0);
+      const impressions = Math.round(Number(row.impressions) || 0);
+      const clicks = Math.round(Number(row.clicks) || 0);
+      const conversions = Math.round(Number(row.conversions) || 0);
+      const orders = Math.round(Number(row.orders) || 0);
+      const roas = Number(row.roas) || 0;
+      const ctr = Number(row.ctr) || 0;
+      const conversionRate = Number(row.conversionRate) || 0;
+
+      const existing = await this.prisma.adSnapshot.findFirst({
+        where: { companyId, source: 'coupang_ads', pageType: 'dashboard_daily', date },
+        select: { id: true },
+      });
+
+      if (existing) {
+        await this.prisma.adSnapshot.update({
+          where: { id: existing.id },
+          data: { adSpend, adRevenue, impressions, clicks, conversions, orders, roas, ctr, conversionRate },
+        });
+      } else {
+        await this.prisma.adSnapshot.create({
+          data: {
+            companyId,
+            source: 'coupang_ads',
+            pageType: 'dashboard_daily',
+            level: 'campaign',
+            period: '1d',
+            date,
+            adSpend,
+            adRevenue,
+            impressions,
+            clicks,
+            conversions,
+            orders,
+            spend: adSpend,
+            revenue: adRevenue,
+            roas,
+            ctr,
+            conversionRate,
+          },
+        });
+      }
+      upserted++;
+    }
+
+    return { success: true, type: 'coupang_ads_daily', upserted };
   }
 
   // === Scrape Targets ===
