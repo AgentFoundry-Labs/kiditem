@@ -75,3 +75,16 @@ Key routing rules:
 - Architecture review → invoke plan-eng-review
 - Save progress, checkpoint, resume → invoke checkpoint
 - Code quality, health check → invoke health
+
+## graphify
+
+Per-domain knowledge graphs live under `graphify-out/{domain}/`:
+- `graphify-out/erd/` — Prisma 모델 관계도 (67 모델 / 9 도메인 hyperedges)
+- `graphify-out/server/agent-registry/` — agent-registry 코드 + CLAUDE.md 규칙 통합 그래프
+
+Rules:
+- 아키텍처/코드베이스 질문 답변 전 해당 도메인의 `GRAPH_REPORT.md` 먼저 읽기. god nodes·hyperedges·surprise edges가 핵심.
+- **파일→규칙** 쿼리는 BFS 2-hop: `/graphify query "rules for apps/server/src/agent-registry/events/agent-events.ts"` — Prohibit/Rule은 Pattern 경유라 1-hop `explain`은 부족함.
+- 그래프 재생성 (schema/코드 변경 시):
+  - ERD: `./scripts/graphify-erd.sh` → `/graphify graphify-out/.erd-corpus --wiki`
+  - 코드 도메인: `/graphify <path> --wiki` → `./scripts/graphify-rebuild-domain.sh <path>` (파일 노드 merge + 테스트 노이즈 제거)
