@@ -1,8 +1,11 @@
 import { IsString, IsOptional, IsUUID, IsInt, IsDateString } from 'class-validator';
 import { Type } from 'class-transformer';
 
+/**
+ * companyId 는 `req.authUser.companyId` 에서 주입 — DTO 에는 포함하지 않는다.
+ * (ADR-0006)
+ */
 export class CreateSupplierPaymentDto {
-  @IsUUID() companyId: string;
   @IsUUID() supplierId: string;
   @Type(() => Number) @IsInt() amount: number;
   @IsDateString() @IsOptional() dueDate?: string;

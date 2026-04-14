@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { Marketplace } from '@prisma/client';
 import type { MarketplaceCatalogItem, ConfigurableParam } from '@kiditem/shared';
 import { PrismaService } from '../prisma/prisma.service';
@@ -66,10 +66,9 @@ export class MarketplaceService {
 
   async installWorkflow(
     marketplaceId: string,
-    companyId: string | undefined,
+    companyId: string,
     params?: Record<string, any>,
   ) {
-    if (!companyId) throw new BadRequestException('companyId is required');
     const catalog = await this.prisma.marketplace.findUnique({
       where: { id: marketplaceId },
     });
@@ -143,10 +142,9 @@ export class MarketplaceService {
 
   async installAgent(
     marketplaceId: string,
-    companyId: string | undefined,
+    companyId: string,
     params?: Record<string, any>,
   ) {
-    if (!companyId) throw new BadRequestException('companyId is required');
     const catalog = await this.prisma.marketplace.findUnique({
       where: { id: marketplaceId },
     });

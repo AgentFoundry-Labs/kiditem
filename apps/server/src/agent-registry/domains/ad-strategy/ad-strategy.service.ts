@@ -14,7 +14,7 @@ export class AdStrategyService {
   ) {}
 
   async run(input: {
-    companyId?: string;
+    companyId: string;
     dryRun?: boolean;
   }) {
     const def = await this.agentRegistry.findByType('ad_strategy');
@@ -70,15 +70,15 @@ export class AdStrategyService {
     });
   }
 
-  async getRuns(query: { companyId?: string; limit?: string }) {
+  async getRuns(query: { companyId: string; limit?: number | string }) {
     return this.prisma.agentTask.findMany({
       where: {
         agentType: 'ad_strategy',
-        ...(query.companyId && { companyId: query.companyId }),
+        companyId: query.companyId,
       },
       include: { logs: { orderBy: { createdAt: 'desc' }, take: 3 } },
       orderBy: { createdAt: 'desc' },
-      take: parseInt(query.limit || '10'),
+      take: parseInt(String(query.limit ?? 10)),
     });
   }
 }

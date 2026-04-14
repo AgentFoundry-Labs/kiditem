@@ -1,11 +1,12 @@
 import { IsString, IsOptional, IsObject } from 'class-validator';
 
+/**
+ * companyId 는 `req.authUser.companyId` 에서 주입 — DTO 에는 포함하지 않는다.
+ * (ADR-0006)
+ */
 export class DelegateAgentBodyDto {
   @IsString()
   childAgentType: string;
-
-  @IsString()
-  companyId: string;
 
   @IsString()
   parentRunId: string;

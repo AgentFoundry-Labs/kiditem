@@ -16,8 +16,8 @@ export class SupplierPaymentsController {
   }
 
   @Post()
-  create(@Body() dto: CreateSupplierPaymentDto) {
-    return this.supplierPaymentsService.create(dto);
+  create(@Body() dto: CreateSupplierPaymentDto, @CurrentCompany() companyId: string) {
+    return this.supplierPaymentsService.create(companyId, dto);
   }
 
   @Patch(':id')

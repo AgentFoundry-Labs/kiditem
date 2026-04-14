@@ -13,8 +13,8 @@ export class StockAuditsController {
   }
 
   @Post()
-  create(@Body() dto: CreateStockAuditDto) {
-    return this.stockAuditsService.create(dto);
+  create(@Body() dto: CreateStockAuditDto, @CurrentCompany() companyId: string) {
+    return this.stockAuditsService.create(companyId, dto);
   }
 
   @Patch(':id')

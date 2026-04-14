@@ -21,8 +21,8 @@ export class ProcessingCostsController {
   }
 
   @Post()
-  create(@Body() dto: CreateProcessingCostDto) {
-    return this.processingCostsService.create(dto);
+  create(@Body() dto: CreateProcessingCostDto, @CurrentCompany() companyId: string) {
+    return this.processingCostsService.create(companyId, dto);
   }
 
   @Patch(':id')

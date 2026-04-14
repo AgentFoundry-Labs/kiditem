@@ -182,7 +182,6 @@ describe('SettlementsService — settlement create and update flow', () => {
 
   it('create settlement → calls prisma.settlement.create with correct fields', async () => {
     const dto = {
-      companyId: 'company-1',
       period: '2026-01',
       expectedAmount: 3000000,
       commission: 324000,
@@ -190,10 +189,10 @@ describe('SettlementsService — settlement create and update flow', () => {
       orderCount: 85,
       returnCount: 3,
     };
-    const created = { id: 's-new', ...dto };
+    const created = { id: 's-new', companyId: 'company-1', ...dto };
     prisma.settlement.create.mockResolvedValue(created);
 
-    const result = await service.create(dto as any);
+    const result = await service.create('company-1', dto as any);
 
     expect(prisma.settlement.create).toHaveBeenCalledWith({
       data: expect.objectContaining({

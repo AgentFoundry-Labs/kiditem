@@ -13,8 +13,8 @@ export class BundleProductsController {
   }
 
   @Post()
-  create(@Body() dto: CreateBundleProductDto) {
-    return this.bundleProductsService.create(dto);
+  create(@Body() dto: CreateBundleProductDto, @CurrentCompany() companyId: string) {
+    return this.bundleProductsService.create(companyId, dto);
   }
 
   @Delete(':id')

@@ -8,13 +8,13 @@ export class PurchaseOrderItemDto {
   @IsNumber() unitPriceCny: number;
 }
 
+/**
+ * companyId 는 `req.authUser.companyId` 에서 주입 — DTO 에는 포함하지 않는다.
+ * (ADR-0006)
+ */
 export class PurchaseOrderActionBodyDto {
   @IsIn(['create', 'updateStatus', 'delete'])
   action: string;
-
-  // create 전용
-  @ValidateIf(o => o.action === 'create')
-  @IsUUID() companyId?: string;
 
   @ValidateIf(o => o.action === 'create')
   @IsString() @MinLength(1) supplierName?: string;
@@ -31,7 +31,7 @@ export class PurchaseOrderActionBodyDto {
   @ValidateIf(o => o.action === 'create')
   @IsString() @IsOptional() expectedDeliveryDate?: string;
 
-  // updateStatus 전용
+  // updateStatus / delete 전용
   @ValidateIf(o => o.action === 'updateStatus' || o.action === 'delete')
   @IsUUID() id?: string;
 

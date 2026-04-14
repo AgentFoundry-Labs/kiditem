@@ -1,6 +1,6 @@
 import { Controller, Get, Post, Patch, Param, Body } from '@nestjs/common';
 import { PickingService } from './picking.service';
-import { GeneratePickingDto, UpdatePickingItemDto } from './dto';
+import { UpdatePickingItemDto } from './dto';
 import { CurrentCompany } from '../auth/decorators/current-company.decorator';
 
 @Controller('picking')
@@ -13,8 +13,8 @@ export class PickingController {
   }
 
   @Post('generate')
-  generate(@Body() dto: GeneratePickingDto) {
-    return this.pickingService.generate(dto.companyId);
+  generate(@CurrentCompany() companyId: string) {
+    return this.pickingService.generate(companyId);
   }
 
   @Patch(':id/items/:itemId')

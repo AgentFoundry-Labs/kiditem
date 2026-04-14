@@ -8,8 +8,8 @@ export class AdStrategyController {
   constructor(private readonly adStrategyService: AdStrategyService) {}
 
   @Post('run')
-  run(@Body() body: RunAdStrategyBodyDto) {
-    return this.adStrategyService.run(body);
+  run(@Body() body: RunAdStrategyBodyDto, @CurrentCompany() companyId: string) {
+    return this.adStrategyService.run({ ...body, companyId });
   }
 
   @Get('status/:taskId')
@@ -23,7 +23,7 @@ export class AdStrategyController {
   }
 
   @Get('runs')
-  getRuns(@Query() query: ListAdRunsQueryDto) {
-    return this.adStrategyService.getRuns(query as any);
+  getRuns(@CurrentCompany() companyId: string, @Query() query: ListAdRunsQueryDto) {
+    return this.adStrategyService.getRuns({ ...query, companyId });
   }
 }

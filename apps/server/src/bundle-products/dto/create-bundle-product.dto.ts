@@ -6,8 +6,11 @@ class BundleItemDto {
   @Type(() => Number) @IsInt() @Min(1) quantity: number;
 }
 
+/**
+ * companyId 는 `req.authUser.companyId` 에서 주입 — DTO 에는 포함하지 않는다.
+ * (ADR-0006)
+ */
 export class CreateBundleProductDto {
-  @IsUUID() companyId: string;
   @IsString() name: string;
   @IsString() @IsOptional() sku?: string;
   @Type(() => Number) @IsInt() sellPrice: number;

@@ -16,8 +16,8 @@ export class ManualLedgerController {
   }
 
   @Post()
-  create(@Body() dto: CreateManualLedgerDto) {
-    return this.manualLedgerService.create(dto);
+  create(@Body() dto: CreateManualLedgerDto, @CurrentCompany() companyId: string) {
+    return this.manualLedgerService.create(companyId, dto);
   }
 
   @Delete(':id')

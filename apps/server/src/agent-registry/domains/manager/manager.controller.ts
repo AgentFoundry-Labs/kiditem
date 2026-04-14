@@ -4,6 +4,7 @@ import {
   ManagerAskBodyDto,
   ListConversationsQueryDto,
 } from './dto';
+import { CurrentCompany } from '../../../auth/decorators/current-company.decorator';
 
 @Controller('manager')
 export class ManagerController {
@@ -12,12 +13,15 @@ export class ManagerController {
   ) {}
 
   @Post('ask')
-  ask(@Body() body: ManagerAskBodyDto) {
-    return this.managerService.ask(body);
+  ask(@Body() body: ManagerAskBodyDto, @CurrentCompany() companyId: string) {
+    return this.managerService.ask({ ...body, companyId });
   }
 
   @Get('conversations')
-  getConversations(@Query() query: ListConversationsQueryDto) {
-    return this.managerService.getConversations(query.companyId, query.limit);
+  getConversations(
+    @CurrentCompany() companyId: string,
+    @Query() query: ListConversationsQueryDto,
+  ) {
+    return this.managerService.getConversations(companyId, query.limit);
   }
 }

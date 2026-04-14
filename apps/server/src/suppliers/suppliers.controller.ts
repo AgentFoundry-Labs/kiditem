@@ -13,8 +13,8 @@ export class SuppliersController {
   }
 
   @Post()
-  create(@Body() dto: CreateSupplierDto) {
-    return this.suppliersService.create(dto);
+  create(@Body() dto: CreateSupplierDto, @CurrentCompany() companyId: string) {
+    return this.suppliersService.create(companyId, dto);
   }
 
   @Patch(':id')

@@ -59,9 +59,9 @@ export class AgentRegistryController {
   }
 
   @Post('run-by-type')
-  runByType(@Body() body: RunByTypeBodyDto) {
+  runByType(@Body() body: RunByTypeBodyDto, @CurrentCompany() companyId: string) {
     return this.service.runByType(body.type, {
-      companyId: body.companyId,
+      companyId,
     });
   }
 
@@ -71,8 +71,8 @@ export class AgentRegistryController {
   }
 
   @Post()
-  create(@Body() body: CreateAgentBodyDto) {
-    return this.service.create(body);
+  create(@Body() body: CreateAgentBodyDto, @CurrentCompany() companyId: string) {
+    return this.service.create({ ...body, companyId });
   }
 
   @Patch(':id')
@@ -88,8 +88,8 @@ export class AgentRegistryController {
   // ── 실행 ──
 
   @Post(':id/run')
-  run(@Param('id') id: string, @Body() body: RunAgentBodyDto) {
-    return this.service.run(id, body);
+  run(@Param('id') id: string, @Body() body: RunAgentBodyDto, @CurrentCompany() companyId: string) {
+    return this.service.run(id, { ...body, companyId });
   }
 
   // ── 스케줄 & 관리 ──
@@ -135,13 +135,14 @@ export class AgentRegistryController {
   delegate(
     @Param('parentId') parentId: string,
     @Body() body: DelegateAgentBodyDto,
+    @CurrentCompany() companyId: string,
   ) {
     if (!this.delegationService) throw new ServiceUnavailableException('delegation_not_available');
     return this.delegationService.delegate({
       parentAgentId: parentId,
       childAgentType: body.childAgentType,
       parentRunId: body.parentRunId,
-      companyId: body.companyId,
+      companyId,
       payload: body.payload,
       reason: body.reason,
     });

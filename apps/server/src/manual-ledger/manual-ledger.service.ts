@@ -27,10 +27,10 @@ export class ManualLedgerService {
     });
   }
 
-  async create(dto: CreateManualLedgerDto) {
+  async create(companyId: string, dto: CreateManualLedgerDto) {
     return this.prisma.manualLedger.create({
       data: {
-        companyId: dto.companyId,
+        companyId,
         date: new Date(dto.date),
         type: dto.type,
         category: dto.category,

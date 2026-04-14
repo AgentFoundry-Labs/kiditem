@@ -19,12 +19,12 @@ export class ProcessingCostsService {
     });
   }
 
-  async create(dto: CreateProcessingCostDto) {
+  async create(companyId: string, dto: CreateProcessingCostDto) {
     const totalCost = dto.unitCost * dto.quantity;
 
     return this.prisma.processingCost.create({
       data: {
-        companyId: dto.companyId,
+        companyId,
         productId: dto.productId,
         processType: dto.processType,
         unitCost: dto.unitCost,

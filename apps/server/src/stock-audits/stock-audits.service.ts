@@ -7,25 +7,17 @@ import { UpdateStockAuditDto } from './dto';
 export class StockAuditsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  private async resolveCompanyId(companyId?: string): Promise<string> {
-    if (companyId) return companyId;
-    const first = await this.prisma.company.findFirst({ select: { id: true } });
-    if (!first) throw new BadRequestException('회사를 찾을 수 없습니다');
-    return first.id;
-  }
-
-  async findAll(companyId?: string) {
-    const resolved = await this.resolveCompanyId(companyId);
+  async findAll(companyId: string) {
     return this.prisma.stockAudit.findMany({
-      where: { companyId: resolved },
+      where: { companyId },
       orderBy: { createdAt: 'desc' },
     });
   }
 
-  async create(dto: CreateStockAuditDto) {
+  async create(companyId: string, dto: CreateStockAuditDto) {
     return this.prisma.stockAudit.create({
       data: {
-        companyId: dto.companyId,
+        companyId,
         auditNumber: dto.auditNumber,
         items: dto.items ?? undefined,
         totalProducts: dto.totalProducts,

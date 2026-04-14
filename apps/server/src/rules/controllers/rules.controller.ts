@@ -2,11 +2,9 @@ import { Controller, Get, Post, Patch, Param, Query, Body } from '@nestjs/common
 import { RulesService } from '../services/rules.service';
 import { AgentRegistryService } from '../../agent-registry/agent-registry.service';
 import { HeartbeatService } from '../../agent-registry/heartbeat/heartbeat.service';
-import { CompanyResolverService } from '../../common/company-resolver.service';
 import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
 import {
   ListRulesQueryDto,
-  EvaluateRulesQueryDto,
   UpdateRuleBodyDto,
   UpdateScheduleBodyDto,
 } from '../dto';
@@ -17,12 +15,11 @@ export class RulesController {
     private readonly rulesService: RulesService,
     private readonly agentRegistry: AgentRegistryService,
     private readonly heartbeat: HeartbeatService,
-    private readonly companyResolver: CompanyResolverService,
   ) {}
 
   @Post('evaluate')
-  async evaluate(@Query() query: EvaluateRulesQueryDto) {
-    return this.rulesService.evaluateAll(await this.companyResolver.resolve());
+  async evaluate(@CurrentCompany() companyId: string) {
+    return this.rulesService.evaluateAll(companyId);
   }
 
   @Get('evaluate/status/:taskId')

@@ -13,8 +13,8 @@ export class SalesPlansController {
   }
 
   @Post()
-  create(@Body() dto: CreateSalesPlanDto) {
-    return this.salesPlansService.create(dto);
+  create(@Body() dto: CreateSalesPlanDto, @CurrentCompany() companyId: string) {
+    return this.salesPlansService.create(companyId, dto);
   }
 
   @Patch(':id')

@@ -1,8 +1,11 @@
-import { IsString, IsOptional, IsUUID, IsInt, MinLength } from 'class-validator';
+import { IsString, IsOptional, IsInt, MinLength } from 'class-validator';
 import { Type } from 'class-transformer';
 
+/**
+ * companyId 는 `req.authUser.companyId` 에서 주입 — DTO 에는 포함하지 않는다.
+ * (ADR-0006)
+ */
 export class CreateSalesPlanDto {
-  @IsUUID() companyId: string;
   @IsString() @MinLength(1) period: string; // "YYYY-MM"
   @Type(() => Number) @IsInt() @IsOptional() targetRevenue?: number;
   @Type(() => Number) @IsInt() @IsOptional() targetOrders?: number;

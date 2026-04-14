@@ -1,5 +1,4 @@
 import { Controller, Get, Post, Patch, Param, Query, Body } from '@nestjs/common';
-import { CompanyResolverService } from '../common/company-resolver.service';
 import { SettlementsService } from './settlements.service';
 import { ListSettlementsQueryDto, CreateSettlementDto, UpdateSettlementDto, ReconcileSettlementDto } from './dto';
 import { CurrentCompany } from '../auth/decorators/current-company.decorator';
@@ -8,7 +7,6 @@ import { CurrentCompany } from '../auth/decorators/current-company.decorator';
 export class SettlementsController {
   constructor(
     private readonly settlementsService: SettlementsService,
-    private readonly companyResolver: CompanyResolverService,
   ) {}
 
   @Get()
@@ -20,13 +18,15 @@ export class SettlementsController {
   }
 
   @Post()
-  create(@Body() dto: CreateSettlementDto) {
-    return this.settlementsService.create(dto);
+  create(@Body() dto: CreateSettlementDto, @CurrentCompany() companyId: string) {
+    return this.settlementsService.create(companyId, dto);
   }
 
   @Post('reconcile')
-  async reconcile(@Body() dto: ReconcileSettlementDto) {
-    const companyId = await this.companyResolver.resolve();
+  async reconcile(
+    @Body() dto: ReconcileSettlementDto,
+    @CurrentCompany() companyId: string,
+  ) {
     return this.settlementsService.reconcile(companyId, dto.period);
   }
 

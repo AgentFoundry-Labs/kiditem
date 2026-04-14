@@ -13,8 +13,8 @@ export class OptionMastersController {
   }
 
   @Post()
-  create(@Body() dto: CreateOptionMasterDto) {
-    return this.optionMastersService.create(dto);
+  create(@Body() dto: CreateOptionMasterDto, @CurrentCompany() companyId: string) {
+    return this.optionMastersService.create(companyId, dto);
   }
 
   @Patch(':id')

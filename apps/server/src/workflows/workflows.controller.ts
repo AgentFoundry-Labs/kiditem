@@ -7,19 +7,20 @@ import {
   RunWorkflowBodyDto,
   BatchRunWorkflowBodyDto,
 } from './dto';
+import { CurrentCompany } from '../auth/decorators/current-company.decorator';
 
 @Controller('workflows')
 export class WorkflowsController {
   constructor(private readonly workflowsService: WorkflowsService) {}
 
   @Post()
-  create(@Body() body: CreateWorkflowBodyDto) {
-    return this.workflowsService.create(body as any);
+  create(@Body() body: CreateWorkflowBodyDto, @CurrentCompany() companyId: string) {
+    return this.workflowsService.create({ ...body, companyId } as any);
   }
 
   @Get()
-  findAll(@Query() query: ListWorkflowsQueryDto) {
-    return this.workflowsService.findAll(query);
+  findAll(@CurrentCompany() companyId: string, @Query() query: ListWorkflowsQueryDto) {
+    return this.workflowsService.findAll({ ...query, companyId });
   }
 
   @Get(':id')

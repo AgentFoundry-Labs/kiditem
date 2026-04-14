@@ -13,10 +13,10 @@ export class OptionMastersService {
     });
   }
 
-  async create(dto: CreateOptionMasterDto) {
+  async create(companyId: string, dto: CreateOptionMasterDto) {
     return this.prisma.optionMaster.create({
       data: {
-        companyId: dto.companyId,
+        companyId,
         name: dto.name,
         values: dto.values,
         isActive: dto.isActive ?? true,

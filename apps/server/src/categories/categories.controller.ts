@@ -13,8 +13,8 @@ export class CategoriesController {
   }
 
   @Post()
-  create(@Body() dto: CreateCategoryDto) {
-    return this.categoriesService.create(dto);
+  create(@Body() dto: CreateCategoryDto, @CurrentCompany() companyId: string) {
+    return this.categoriesService.create(companyId, dto);
   }
 
   @Patch(':id')

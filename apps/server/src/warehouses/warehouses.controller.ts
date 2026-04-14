@@ -13,8 +13,8 @@ export class WarehousesController {
   }
 
   @Post()
-  create(@Body() dto: CreateWarehouseDto) {
-    return this.warehousesService.create(dto);
+  create(@Body() dto: CreateWarehouseDto, @CurrentCompany() companyId: string) {
+    return this.warehousesService.create(companyId, dto);
   }
 
   @Patch(':id')
