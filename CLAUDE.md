@@ -78,13 +78,18 @@ Key routing rules:
 
 ## graphify
 
-Per-domain knowledge graphs live under `graphify-out/{domain}/`:
-- `graphify-out/erd/` — Prisma 모델 관계도 (67 모델 / 9 도메인 hyperedges)
-- `graphify-out/server/agent-registry/` — agent-registry 코드 + CLAUDE.md 규칙 통합 그래프
+Per-domain knowledge graphs live under `graphify-out/{domain}/`. 세션 시작 시
+`scripts/graphify-distill.py`가 god nodes / Patterns / Prohibits / Rules 요약을
+자동 주입한다 (~3KB, SessionStart 훅 경유).
+
+Architecture principle: CLAUDE.md = source of truth, graph = derived view.
+Rule 수정은 **오직 CLAUDE.md에서** → 재빌드하면 graph/distill 자동 갱신.
 
 Rules:
-- 아키텍처/코드베이스 질문 답변 전 해당 도메인의 `GRAPH_REPORT.md` 먼저 읽기. god nodes·hyperedges·surprise edges가 핵심.
-- **파일→규칙** 쿼리는 BFS 2-hop: `/graphify query "rules for apps/server/src/agent-registry/events/agent-events.ts"` — Prohibit/Rule은 Pattern 경유라 1-hop `explain`은 부족함.
-- 그래프 재생성 (schema/코드 변경 시):
+- 세션 초입 자동 주입 요약을 기본 신뢰. 특정 도메인 깊이 필요하면 `graphify-out/{domain}/GRAPH_REPORT.md` 또는 해당 도메인 `CLAUDE.md` 직접 Read.
+- **파일→규칙** 쿼리: `/graphify query "rules for <filepath>"` (BFS 2-hop — Prohibit/Rule이 Pattern 경유라 1-hop `explain`은 부족).
+- 그래프 아직 없는 도메인은 기존 방식(도메인 CLAUDE.md 직접 Read) 유지.
+- 그래프 재생성:
   - ERD: `./scripts/graphify-erd.sh` → `/graphify graphify-out/.erd-corpus --wiki`
   - 코드 도메인: `/graphify <path> --wiki` → `./scripts/graphify-rebuild-domain.sh <path>` (파일 노드 merge + 테스트 노이즈 제거)
+- 현재 graphified: `erd`, `server/agent-registry`. 추가 도메인은 필요 시 Phase B에서 확장.

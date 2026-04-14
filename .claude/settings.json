@@ -25,6 +25,16 @@
           }
         ]
       }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/scripts/graphify-distill.py\" 2>/dev/null | python3 -c 'import json,sys; ctx=sys.stdin.read(); ctx and print(json.dumps({\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":ctx}}))' || true"
+          }
+        ]
+      }
     ]
   }
 }
