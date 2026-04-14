@@ -13,8 +13,13 @@ TARGET="${1:?target domain path required (e.g. apps/server/src/agent-registry)}"
 shift || true
 EXTRA_FLAGS="$*"
 
-# Slug mapping: apps/server/src/X -> server/X, apps/web/src/X -> web/X, packages/X -> X
-SLUG=$(echo "$TARGET" | sed 's|apps/server/src/|server/|; s|apps/web/src/|web/|; s|packages/||')
+# Slug mapping:
+#   apps/server/src/X -> server/X
+#   apps/web/src/X    -> web/X
+#   apps/web          -> web
+#   apps/server       -> server
+#   packages/X        -> X
+SLUG=$(echo "$TARGET" | sed -E 's|^apps/server/src/|server/|; s|^apps/web/src/|web/|; s|^apps/web$|web|; s|^apps/server$|server|; s|^packages/||')
 OUT="$ROOT/graphify-out/$SLUG"
 GDIR="$ROOT/$TARGET/graphify-out"
 EXTRACT="$GDIR/.graphify_extract.json"
