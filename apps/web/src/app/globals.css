@@ -265,3 +265,9 @@ body {
   from { opacity: 0; transform: scale(0.96); }
   to { opacity: 1; transform: scale(1); }
 }
+
+/* Hide CopilotKit development/announcement banners */
+.usage-banner,
+.copilotKitDevConsole {
+  display: none !important;
+}
