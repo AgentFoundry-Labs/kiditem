@@ -41,7 +41,8 @@ describe('Products CRUD — /api/products', () => {
     });
 
     it('returns paginated product list', async () => {
-      const res = await api().get('/api/products').query({ companyId: COMPANY_ID });
+      // companyId 는 DevAuthMiddleware + @CurrentCompany() 로 자동 주입 — 쿼리 불필요
+      const res = await api().get('/api/products');
 
       expect(res.status).toBe(200);
       expect(res.body).toHaveProperty('items');

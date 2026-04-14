@@ -1,21 +1,18 @@
 import { Controller, Get, Post, Patch, Param, Query, Body } from '@nestjs/common';
-import { CompanyResolverService } from '../common/company-resolver.service';
 import { SupplierPaymentsService } from './supplier-payments.service';
 import { ListSupplierPaymentsQueryDto, CreateSupplierPaymentDto, UpdateSupplierPaymentDto } from './dto';
+import { CurrentCompany } from '../auth/decorators/current-company.decorator';
 
 @Controller('supplier-payments')
 export class SupplierPaymentsController {
-  constructor(
-    private readonly supplierPaymentsService: SupplierPaymentsService,
-    private readonly companyResolver: CompanyResolverService,
-  ) {}
+  constructor(private readonly supplierPaymentsService: SupplierPaymentsService) {}
 
   @Get()
-  async findAll(@Query() query: ListSupplierPaymentsQueryDto) {
-    return this.supplierPaymentsService.findAll(
-      await this.companyResolver.resolve(),
-      query.status,
-    );
+  async findAll(
+    @CurrentCompany() companyId: string,
+    @Query() query: ListSupplierPaymentsQueryDto,
+  ) {
+    return this.supplierPaymentsService.findAll(companyId, query.status);
   }
 
   @Post()

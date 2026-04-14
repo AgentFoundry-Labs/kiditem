@@ -5,6 +5,7 @@ import {
   InstallMarketplaceBodyDto,
   UninstallMarketplaceBodyDto,
 } from './dto';
+import { CurrentCompany } from '../auth/decorators/current-company.decorator';
 
 @Controller('marketplace')
 export class MarketplaceController {
@@ -13,8 +14,11 @@ export class MarketplaceController {
   // ─── Workflows ────────────────────────────────────────────────────────────
 
   @Get('workflows')
-  listWorkflows(@Query() query: ListMarketplaceQueryDto) {
-    return this.service.listWorkflows(query);
+  listWorkflows(
+    @CurrentCompany() companyId: string,
+    @Query() query: ListMarketplaceQueryDto,
+  ) {
+    return this.service.listWorkflows(companyId, query);
   }
 
   @Get('workflows/:id')
@@ -37,8 +41,11 @@ export class MarketplaceController {
   // ─── Agents ───────────────────────────────────────────────────────────────
 
   @Get('agents')
-  listAgents(@Query() query: ListMarketplaceQueryDto) {
-    return this.service.listAgents(query);
+  listAgents(
+    @CurrentCompany() companyId: string,
+    @Query() query: ListMarketplaceQueryDto,
+  ) {
+    return this.service.listAgents(companyId, query);
   }
 
   @Get('agents/:id')

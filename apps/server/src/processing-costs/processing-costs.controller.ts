@@ -1,28 +1,23 @@
 import { Controller, Get, Post, Patch, Param, Query, Body } from '@nestjs/common';
-import { CompanyResolverService } from '../common/company-resolver.service';
 import { ProcessingCostsService } from './processing-costs.service';
 import { ListProcessingCostsQueryDto, CreateProcessingCostDto, UpdateProcessingCostDto } from './dto';
+import { CurrentCompany } from '../auth/decorators/current-company.decorator';
 
 @Controller('processing-costs')
 export class ProcessingCostsController {
-  constructor(
-    private readonly processingCostsService: ProcessingCostsService,
-    private readonly companyResolver: CompanyResolverService,
-  ) {}
+  constructor(private readonly processingCostsService: ProcessingCostsService) {}
 
   @Get()
-  async findAll(@Query() query: ListProcessingCostsQueryDto) {
-    return this.processingCostsService.findAll(
-      await this.companyResolver.resolve(),
-      query.status,
-    );
+  async findAll(
+    @CurrentCompany() companyId: string,
+    @Query() query: ListProcessingCostsQueryDto,
+  ) {
+    return this.processingCostsService.findAll(companyId, query.status);
   }
 
   @Get('monthly')
-  async monthly(@Query() query: ListProcessingCostsQueryDto) {
-    return this.processingCostsService.monthly(
-      await this.companyResolver.resolve(),
-    );
+  async monthly(@CurrentCompany() companyId: string) {
+    return this.processingCostsService.monthly(companyId);
   }
 
   @Post()

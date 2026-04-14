@@ -2,6 +2,7 @@ import { Controller, Get, Post, Patch, Param, Query, Body } from '@nestjs/common
 import { CompanyResolverService } from '../common/company-resolver.service';
 import { SettlementsService } from './settlements.service';
 import { ListSettlementsQueryDto, CreateSettlementDto, UpdateSettlementDto, ReconcileSettlementDto } from './dto';
+import { CurrentCompany } from '../auth/decorators/current-company.decorator';
 
 @Controller('settlements')
 export class SettlementsController {
@@ -11,11 +12,11 @@ export class SettlementsController {
   ) {}
 
   @Get()
-  async findAll(@Query() query: ListSettlementsQueryDto) {
-    return this.settlementsService.findAll(
-      await this.companyResolver.resolve(),
-      query.period,
-    );
+  async findAll(
+    @CurrentCompany() companyId: string,
+    @Query() query: ListSettlementsQueryDto,
+  ) {
+    return this.settlementsService.findAll(companyId, query.period);
   }
 
   @Post()

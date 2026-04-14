@@ -1,19 +1,17 @@
 import { Controller, Get, Query, BadRequestException } from '@nestjs/common';
-import { CompanyResolverService } from '../common/company-resolver.service';
 import { SupplierStatsService } from './supplier-stats.service';
 import { SupplierStatsQueryDto } from './dto';
+import { CurrentCompany } from '../auth/decorators/current-company.decorator';
 
 @Controller('supplier-stats')
 export class SupplierStatsController {
-  constructor(
-    private readonly supplierStatsService: SupplierStatsService,
-    private readonly companyResolver: CompanyResolverService,
-  ) {}
+  constructor(private readonly supplierStatsService: SupplierStatsService) {}
 
   @Get()
-  async getStats(@Query() query: SupplierStatsQueryDto) {
-    const companyId = await this.companyResolver.resolve();
-
+  async getStats(
+    @CurrentCompany() companyId: string,
+    @Query() query: SupplierStatsQueryDto,
+  ) {
     switch (query.type) {
       case 'sales':
         return this.supplierStatsService.getSalesBySupplier(companyId);

@@ -1,6 +1,7 @@
 import { Controller, Post, Get, Body, Query, Param } from '@nestjs/common';
 import { AdStrategyService } from './ad-strategy.service';
 import { RunAdStrategyBodyDto, ListAdRunsQueryDto } from './dto';
+import { CurrentCompany } from '../../../auth/decorators/current-company.decorator';
 
 @Controller('ad-agent')
 export class AdStrategyController {
@@ -17,7 +18,7 @@ export class AdStrategyController {
   }
 
   @Get('latest')
-  getLatest(@Query('companyId') companyId?: string) {
+  getLatest(@CurrentCompany() companyId: string) {
     return this.adStrategyService.getLatestRun(companyId);
   }
 

@@ -18,6 +18,8 @@ import {
 import { DelegationService } from './delegation/delegation.service';
 import { DenialTrackerService } from './safety/denial-tracker.service';
 import { SnapshotService } from './business-safety/snapshot.service';
+import { CurrentCompany } from '../auth/decorators/current-company.decorator';
+import { SkipAuth } from '../auth/decorators/skip-auth.decorator';
 
 @Controller('agent-registry')
 export class AgentRegistryController {
@@ -30,15 +32,16 @@ export class AgentRegistryController {
   ) {}
 
   @Get()
-  list(@Query() query: ListAgentsQueryDto) {
-    return this.service.list(query);
+  list(@CurrentCompany() companyId: string, @Query() query: ListAgentsQueryDto) {
+    return this.service.list(companyId, query);
   }
 
   @Get('org')
-  getOrgTree(@Query() query: OrgTreeQueryDto) {
-    return this.service.getOrgTree(query.companyId);
+  getOrgTree(@CurrentCompany() companyId: string, @Query() _query: OrgTreeQueryDto) {
+    return this.service.getOrgTree(companyId);
   }
 
+  @SkipAuth()
   @Sse('events')
   agentEvents(): Observable<MessageEvent> {
     return this.sseService.getStream();
@@ -50,7 +53,7 @@ export class AgentRegistryController {
   }
 
   @Get('denials/summary')
-  getDenialsSummary(@Query('companyId') companyId: string) {
+  getDenialsSummary(@CurrentCompany() companyId: string) {
     if (!this.denialTracker) return { total: 0, byCategory: {} };
     return this.denialTracker.getSummary(companyId);
   }
@@ -63,7 +66,7 @@ export class AgentRegistryController {
   }
 
   @Get(':id')
-  getById(@Param('id') id: string, @Query('companyId') companyId?: string) {
+  getById(@Param('id') id: string, @CurrentCompany() companyId: string) {
     return this.service.getById(id, companyId);
   }
 

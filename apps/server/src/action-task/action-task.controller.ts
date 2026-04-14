@@ -1,13 +1,14 @@
-import { Controller, Get, Patch, Post, Param, Query, Body } from '@nestjs/common';
+import { Controller, Get, Patch, Post, Param, Body } from '@nestjs/common';
 import { ActionTaskService } from './action-task.service';
 import { UpdateTaskDto, AddNoteDto } from './dto';
+import { CurrentCompany } from '../auth/decorators/current-company.decorator';
 
 @Controller('action-tasks')
 export class ActionTaskController {
   constructor(private readonly actionTaskService: ActionTaskService) {}
 
   @Get()
-  getTasks(@Query('companyId') companyId?: string) {
+  getTasks(@CurrentCompany() companyId: string) {
     return this.actionTaskService.getTasks(companyId);
   }
 

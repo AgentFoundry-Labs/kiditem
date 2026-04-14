@@ -1,6 +1,11 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule, RequestMethod } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { PrismaModule } from './prisma/prisma.module';
 import { CommonModule } from './common/common.module';
+import { AuthModule } from './auth/auth.module';
+import { DevAuthMiddleware } from './auth/middleware/dev-auth.middleware';
+import { CompanyScopeGuard } from './auth/guards/company-scope.guard';
+import { RolesGuard } from './auth/guards/roles.guard';
 import { StorageModule } from './common/storage/storage.module';
 import { ProductsModule } from './products/products.module';
 import { OrdersModule } from './orders/orders.module';
@@ -45,6 +50,7 @@ import { ActionTaskModule } from './action-task/action-task.module';
 @Module({
   imports: [
     PrismaModule,
+    AuthModule,
     CommonModule,
     StorageModule,
     FeatureGateModule,
@@ -87,5 +93,16 @@ import { ActionTaskModule } from './action-task/action-task.module';
     TrafficModule,
     ActionTaskModule,
   ],
+  providers: [
+    { provide: APP_GUARD, useClass: CompanyScopeGuard },
+    { provide: APP_GUARD, useClass: RolesGuard },
+  ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer): void {
+    consumer
+      .apply(DevAuthMiddleware)
+      .exclude({ path: 'api/agent-registry/events', method: RequestMethod.GET })
+      .forRoutes('*');
+  }
+}

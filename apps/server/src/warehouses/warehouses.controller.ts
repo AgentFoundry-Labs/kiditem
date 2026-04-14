@@ -1,18 +1,15 @@
-import { Controller, Get, Post, Patch, Delete, Param, Query, Body } from '@nestjs/common';
-import { CompanyResolverService } from '../common/company-resolver.service';
+import { Controller, Get, Post, Patch, Delete, Param, Body } from '@nestjs/common';
 import { WarehousesService } from './warehouses.service';
 import { CreateWarehouseDto, UpdateWarehouseDto } from './dto';
+import { CurrentCompany } from '../auth/decorators/current-company.decorator';
 
 @Controller('warehouses')
 export class WarehousesController {
-  constructor(
-    private readonly warehousesService: WarehousesService,
-    private readonly companyResolver: CompanyResolverService,
-  ) {}
+  constructor(private readonly warehousesService: WarehousesService) {}
 
   @Get()
-  async findAll(@Query('companyId') companyId?: string) {
-    return this.warehousesService.findAll(await this.companyResolver.resolve());
+  async findAll(@CurrentCompany() companyId: string) {
+    return this.warehousesService.findAll(companyId);
   }
 
   @Post()

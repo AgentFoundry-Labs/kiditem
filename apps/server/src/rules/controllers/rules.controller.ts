@@ -3,6 +3,7 @@ import { RulesService } from '../services/rules.service';
 import { AgentRegistryService } from '../../agent-registry/agent-registry.service';
 import { HeartbeatService } from '../../agent-registry/heartbeat/heartbeat.service';
 import { CompanyResolverService } from '../../common/company-resolver.service';
+import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
 import {
   ListRulesQueryDto,
   EvaluateRulesQueryDto,
@@ -30,16 +31,13 @@ export class RulesController {
   }
 
   @Get('summary')
-  async summary(@Query('companyId') companyId?: string) {
-    return this.rulesService.getSummary(await this.companyResolver.resolve());
+  async summary(@CurrentCompany() companyId: string) {
+    return this.rulesService.getSummary(companyId);
   }
 
   @Get()
-  async findAll(@Query() query: ListRulesQueryDto) {
-    return this.rulesService.findAllRules(
-      await this.companyResolver.resolve(),
-      query.category,
-    );
+  async findAll(@CurrentCompany() companyId: string, @Query() query: ListRulesQueryDto) {
+    return this.rulesService.findAllRules(companyId, query.category);
   }
 
   @Get('schedule')
@@ -57,8 +55,8 @@ export class RulesController {
   }
 
   @Get('suggest-thresholds')
-  async suggestThresholds(@Query('companyId') companyId?: string) {
-    return this.rulesService.suggestThresholds(await this.companyResolver.resolve());
+  async suggestThresholds(@CurrentCompany() companyId: string) {
+    return this.rulesService.suggestThresholds(companyId);
   }
 
   @Patch('schedule')

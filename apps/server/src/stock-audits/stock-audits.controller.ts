@@ -1,13 +1,14 @@
-import { Controller, Get, Post, Patch, Param, Query, Body } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Param, Body } from '@nestjs/common';
 import { StockAuditsService } from './stock-audits.service';
 import { CreateStockAuditDto, UpdateStockAuditDto } from './dto';
+import { CurrentCompany } from '../auth/decorators/current-company.decorator';
 
 @Controller('stock-audits')
 export class StockAuditsController {
   constructor(private readonly stockAuditsService: StockAuditsService) {}
 
   @Get()
-  findAll(@Query('companyId') companyId?: string) {
+  findAll(@CurrentCompany() companyId: string) {
     return this.stockAuditsService.findAll(companyId);
   }
 
