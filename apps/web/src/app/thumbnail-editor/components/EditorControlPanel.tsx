@@ -92,7 +92,7 @@ export function EditorControlPanel({
               <label className="text-xs font-semibold block text-gray-600">편집 목적</label>
               <div className="flex flex-col gap-2">
                 {[
-                  { value: 'compliance', label: '가이드라인 수정', sub: '쿠팡 광고 기준 준수', color: '#f59e0b' },
+                  { value: 'compliance', label: '가이드라인 수정', sub: '쿠팡 광고 기준 준수', color: accent },
                   { value: 'quality',    label: '품질 개선',       sub: '시각적 완성도 향상', color: accent },
                 ].map((opt) => {
                   const active = purpose === opt.value;
