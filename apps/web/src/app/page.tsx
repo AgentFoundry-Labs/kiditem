@@ -725,7 +725,6 @@ function DashboardChart({
   });
 
   const agents: AgentDisplay[] = flattenOrgNodes(orgNodes);
-  const agentLogs: { taskType: string; status: string; timeAgo: string }[] = [];
 
   const { mutate: executeAction, variables: executingId } = useMutation({
     mutationFn: (id: string) => apiClient.post<{ ok: boolean }>(`/api/action-tasks/${id}/execute`, {}),

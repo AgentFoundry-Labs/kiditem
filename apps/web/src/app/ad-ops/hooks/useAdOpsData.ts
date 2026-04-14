@@ -15,7 +15,10 @@ import type {
 } from '@kiditem/shared';
 
 // Fields returned by /api/ads/campaigns that aren't in the base snapshot schema
-export type CampaignProductData = AdProductSnapshot & { roas?: number };
+export type CampaignProductData = AdProductSnapshot & {
+  roas?: number;
+  imageUrl?: string | null;
+};
 
 export type CampaignsResponse = {
   campaigns: AdCampaignSnapshot[];
