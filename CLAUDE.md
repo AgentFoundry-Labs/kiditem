@@ -37,7 +37,10 @@ extensions/          — Chrome extensions (product-scraper: 1688/Alibaba, coupa
 
 - [Design System](DESIGN.md) — 색상, 타이포, 스페이싱, 컴포넌트 패턴 (Tailwind + Lucide)
 - [ERD](.claude/docs/erd.md) — 사람이 정리한 도메인별 관계도 (9도메인). 자동 추출 보강: [graphify-out/erd/GRAPH_REPORT.md](graphify-out/erd/GRAPH_REPORT.md) — god nodes / 파이프라인 hyperedges / drift 감지. 재생성: `./scripts/graphify-erd.sh` 후 Claude Code에서 `/graphify graphify-out/.erd-corpus --wiki`.
-- **코드 지식그래프**: `graphify-out/{도메인}/` — CLAUDE.md 규칙+패턴이 해당 코드와 함께 클러스터됨. 현재: [server/agent-registry](graphify-out/server/agent-registry/GRAPH_REPORT.md). 새 도메인 빌드: `cd <domain-path> && /graphify . --wiki` 후 `graphify-out/{도메인}/`로 이동. 쿼리 예: `/graphify query "Observer 패턴 관련 파일과 규칙은?"`
+- **코드 지식그래프**: `graphify-out/{도메인}/` — CLAUDE.md 규칙+패턴이 해당 코드와 함께 클러스터됨. 현재: [server/agent-registry](graphify-out/server/agent-registry/GRAPH_REPORT.md). 재생성 2단계:
+  1. Claude Code에서 `/graphify apps/server/src/<domain> --wiki` (AST + CLAUDE.md 추출, 5~10분)
+  2. 셸에서 `./scripts/graphify-rebuild-domain.sh apps/server/src/<domain>` (파일 노드 merge + 테스트 노이즈 제거 + 재클러스터링)
+  쿼리: `/graphify query "..."` — 2-hop BFS라 파일 편집 시 "이 파일에 적용되는 규칙·Prohibit" 회수는 Pattern 경유라 **2-hop 필요**.
 - [Architecture](.claude/docs/architecture.md) — data flow, agent runtimes, @kiditem/shared, workflow vs agent boundary
 - [Commands & Environment](.claude/docs/commands.md) — quick start, dev commands, ports, env vars, tests
 - [Workflow & Process](.claude/docs/workflow.md) — autonomy spectrum, verification, collaboration, branches, commits, PRs
