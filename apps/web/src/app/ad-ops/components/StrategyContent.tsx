@@ -169,9 +169,9 @@ function ProductStrategyRow({ action: a, gradeBudget, gradeCount, color, expande
 }
 
 const GRADE_CONFIGS = [
-  { grade: "A", title: "핵심 상품 캠페인", subtitle: "공격적 확장 — 매출 상위 70%", budgetPct: 65, color: "#059669", headerGrad: "from-emerald-600 to-green-600", border: "border-emerald-300", ring: "ring-emerald-400", campaignType: "매출최적화 + 수동 병행", targetRoasLabel: "300~500%", bidGuide: { main: "800~1,000", sub: "500~700", longtail: "200~400" } },
-  { grade: "B", title: "성장 후보 캠페인", subtitle: "최적화 집중 — 매출 70~90%", budgetPct: 25, color: "#f59e0b", headerGrad: "from-amber-500 to-yellow-500", border: "border-amber-300", ring: "ring-amber-400", campaignType: "수동 성과형 위주", targetRoasLabel: "300~480%", bidGuide: { main: "500~700", sub: "300~500", longtail: "100~300" } },
-  { grade: "C", title: "정리/테스트 캠페인", subtitle: "손절 · 재구성 — 나머지", budgetPct: 10, color: "#ef4444", headerGrad: "from-red-500 to-pink-500", border: "border-red-300", ring: "ring-red-400", campaignType: "최소 테스트 or OFF", targetRoasLabel: "500%+", bidGuide: { main: "OFF", sub: "200~300", longtail: "100~200" } },
+  { grade: "A", title: "핵심 상품 캠페인", subtitle: "공격적 확장 — 매출 상위 70%", budgetPct: 65, color: "#059669", headerBg: "bg-emerald-600", border: "border-emerald-300", ring: "ring-emerald-400", campaignType: "매출최적화 + 수동 병행", targetRoasLabel: "300~500%", bidGuide: { main: "800~1,000", sub: "500~700", longtail: "200~400" } },
+  { grade: "B", title: "성장 후보 캠페인", subtitle: "최적화 집중 — 매출 70~90%", budgetPct: 25, color: "#f59e0b", headerBg: "bg-amber-500", border: "border-amber-300", ring: "ring-amber-400", campaignType: "수동 성과형 위주", targetRoasLabel: "300~480%", bidGuide: { main: "500~700", sub: "300~500", longtail: "100~300" } },
+  { grade: "C", title: "정리/테스트 캠페인", subtitle: "손절 · 재구성 — 나머지", budgetPct: 10, color: "#ef4444", headerBg: "bg-red-500", border: "border-red-300", ring: "ring-red-400", campaignType: "최소 테스트 or OFF", targetRoasLabel: "500%+", bidGuide: { main: "OFF", sub: "200~300", longtail: "100~200" } },
 ];
 
 type GradeCfg = typeof GRADE_CONFIGS[number];
@@ -216,7 +216,7 @@ function GradeCardPanel({
   return (
     <div className={`rounded-2xl overflow-hidden border-2 ${cfg.border} flex flex-col shadow-sm`}>
       {/* 헤더 */}
-      <div className={`bg-gradient-to-r ${cfg.headerGrad} px-4 py-3`}>
+      <div className={`${cfg.headerBg} px-4 py-3`}>
         <div className="flex items-center gap-2.5 mb-2">
           <span className="w-9 h-9 rounded-lg bg-white/20 flex items-center justify-center text-xl font-black text-white">{cfg.grade}</span>
           <div className="flex-1 min-w-0">
