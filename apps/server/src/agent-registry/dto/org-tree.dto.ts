@@ -1,5 +1,5 @@
-import { IsUUID } from 'class-validator';
+import { IsOptional, IsUUID } from 'class-validator';
 
 export class OrgTreeQueryDto {
-  @IsUUID() companyId: string;
+  @IsUUID() @IsOptional() companyId?: string;
 }

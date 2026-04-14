@@ -395,7 +395,18 @@ export class AgentRegistryService implements OnModuleInit {
 
   // ── Org Chart ──
 
-  async getOrgTree(companyId: string): Promise<OrgNode[]> {
+  async getOrgTree(companyId?: string): Promise<OrgNode[]> {
+    // companyId 미지정 시 기본 활성 회사로 폴백
+    let resolvedCompanyId = companyId;
+    if (!resolvedCompanyId) {
+      const defaultCompany = await this.prisma.company.findFirst({
+        where: { isActive: true },
+        select: { id: true },
+      });
+      if (!defaultCompany) return [];
+      resolvedCompanyId = defaultCompany.id;
+    }
+
     // 마켓플레이스 전체 카탈로그 (claude_local만 — 조직도 대상)
     const catalog = await this.prisma.marketplace.findMany({
       where: { type: 'agent', isPublished: true, adapterType: 'claude_local' },
@@ -404,7 +415,7 @@ export class AgentRegistryService implements OnModuleInit {
 
     // 해당 company에서 고용한 에이전트
     const hired = await this.prisma.agentDefinition.findMany({
-      where: { companyId, adapterType: 'claude_local', isActive: true },
+      where: { companyId: resolvedCompanyId, adapterType: 'claude_local', isActive: true },
     });
     const hiredByMarketplaceId = new Map(
       hired.filter(h => h.marketplaceId).map(h => [h.marketplaceId!, h]),
