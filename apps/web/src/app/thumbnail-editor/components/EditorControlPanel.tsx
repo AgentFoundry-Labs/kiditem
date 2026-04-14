@@ -29,7 +29,6 @@ interface EditorControlPanelProps {
 }
 
 const primaryColor = { edit: '#8b5cf6', creative: '#d946ef' };
-const primaryDark  = { edit: '#7c3aed', creative: '#c026d3' };
 
 const lightInput: React.CSSProperties = {
   background: '#fff',
@@ -67,7 +66,6 @@ export function EditorControlPanel({
   onSkip,
 }: EditorControlPanelProps) {
   const accent = primaryColor[mode];
-  const accentDark = primaryDark[mode];
 
   return (
     <div
@@ -150,7 +148,7 @@ export function EditorControlPanel({
               onClick={onGenerate}
               disabled={!hasInput || isPending}
               className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold text-white transition-all duration-200 disabled:opacity-40"
-              style={{ background: `linear-gradient(135deg, ${accent}, ${accentDark})` }}
+              style={{ background: accent }}
             >
               {isPending ? <><Loader2 size={15} className="animate-spin" /> 편집 중...</> : <><Wand2 size={15} /> 편집 시작</>}
             </button>
@@ -248,7 +246,7 @@ export function EditorControlPanel({
               onClick={onGenerate}
               disabled={!hasInput || isPending}
               className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold text-white transition-all duration-200 disabled:opacity-40"
-              style={{ background: `linear-gradient(135deg, ${accent}, ${accentDark})` }}
+              style={{ background: accent }}
             >
               {isPending ? <><Loader2 size={15} className="animate-spin" /> 생성 중...</> : <><Sparkles size={15} /> AI 연출 생성</>}
             </button>
@@ -274,7 +272,7 @@ export function EditorControlPanel({
             onClick={onCoupang}
             disabled={!selectedCandidateUrl || isApplying}
             className="w-full flex items-center justify-center gap-2 text-white rounded-xl py-2.5 text-sm font-semibold transition-all duration-200 disabled:opacity-40"
-            style={{ background: `linear-gradient(135deg, ${accent}, ${accentDark})` }}
+            style={{ background: accent }}
           >
             {isApplying ? <Loader2 size={14} className="animate-spin" /> : <ExternalLink size={14} />}
             쿠팡 등록하러가기
