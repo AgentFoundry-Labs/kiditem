@@ -10,7 +10,7 @@ import Link from "next/link";
 import type { AdWeeklyPlan, AdStrategyAction } from "@kiditem/shared";
 import { apiClient } from "@/lib/api-client";
 import { queryKeys } from "@/lib/query-keys";
-import { formatKRW } from "@/lib/utils";
+import { formatKRW, formatNumber } from "@/lib/utils";
 import { exportCampaignXlsx } from "../lib/xlsx-export";
 import type { RegisterCampaignPayload } from "../hooks/useAdOpsData";
 
@@ -73,9 +73,9 @@ function ProductStrategyRow({ action: a, gradeBudget, gradeCount, color, expande
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px] tabular-nums" style={{ color: "var(--text-tertiary)" }}>
-          <span>{recBudget.toLocaleString()}원/일</span>
+          <span>{formatNumber(recBudget)}원/일</span>
           <span>·</span>
-          <span>입찰 {a.maxBidPrice > 0 ? `${a.maxBidPrice.toLocaleString()}원` : "-"}</span>
+          <span>입찰 {a.maxBidPrice > 0 ? `${formatNumber(a.maxBidPrice)}원` : "-"}</span>
           <span>·</span>
           <span className={`font-bold ${a.actionPriority === "urgent" ? "text-red-600" : a.actionPriority === "high" ? "text-orange-600" : ""}`}>
             {a.actionPriority === "urgent" ? "긴급" : a.actionPriority === "high" ? "높음" : a.actionPriority === "medium" ? "보통" : "낮음"}
@@ -89,7 +89,7 @@ function ProductStrategyRow({ action: a, gradeBudget, gradeCount, color, expande
             <div className="flex gap-3 text-[11px] px-1 mb-1" style={{ color: "var(--text-tertiary)" }}>
               {a.currentCtr > 0 && <span>CTR <b className="font-bold" style={{ color: "var(--text-secondary)" }}>{a.currentCtr.toFixed(2)}%</b></span>}
               {a.currentCvr > 0 && <span>CVR <b className="font-bold" style={{ color: "var(--text-secondary)" }}>{a.currentCvr.toFixed(2)}%</b></span>}
-              {a.spend > 0 && <span>광고비 <b className="font-bold" style={{ color: "var(--text-secondary)" }}>{a.spend.toLocaleString()}원</b></span>}
+              {a.spend > 0 && <span>광고비 <b className="font-bold" style={{ color: "var(--text-secondary)" }}>{formatNumber(a.spend)}원</b></span>}
             </div>
           )}
           <div className="rounded-lg p-2.5" style={{ background: `${color}06`, border: `1px solid ${color}18` }}>
@@ -228,7 +228,7 @@ function GradeCardPanel({
             <div className="text-[11px] text-white/60">상품</div>
           </div>
         </div>
-        <div className="text-xl font-black text-white tabular-nums mb-1.5">{gradeBudget.toLocaleString()}<span className="text-[13px] font-semibold text-white/50 ml-1">원/일</span></div>
+        <div className="text-xl font-black text-white tabular-nums mb-1.5">{formatNumber(gradeBudget)}<span className="text-[13px] font-semibold text-white/50 ml-1">원/일</span></div>
         <div className="flex flex-wrap items-center gap-1">
           {urgentGradeCount > 0 && <span className="px-1.5 py-0.5 bg-red-500/80 rounded text-[11px] font-bold text-white">긴급 {urgentGradeCount}</span>}
           <span className="px-1.5 py-0.5 bg-white/20 rounded text-[11px] font-bold text-white">광고중 {adProducts.length}</span>
@@ -442,7 +442,7 @@ export default function StrategyContent({
               onChange={e => {
                 const raw = e.target.value.replace(/[^0-9]/g, "");
                 const num = parseInt(raw) || 0;
-                onBudgetChange(num, num.toLocaleString());
+                onBudgetChange(num, formatNumber(num));
               }}
               className="w-32 text-right pr-8 pl-3 py-1.5 rounded-lg text-[15px] font-black tabular-nums"
               style={{ background: "var(--surface-sunken)", border: "1.5px solid var(--primary)", color: "var(--text-primary)" }}
@@ -456,9 +456,9 @@ export default function StrategyContent({
           <div style={{ width: "10%", background: "linear-gradient(90deg, #ef4444, #f87171)" }} />
         </div>
         <div className="flex gap-3 text-[10px] font-semibold shrink-0" style={{ color: "var(--text-secondary)" }}>
-          <span><span className="inline-block w-2 h-2 rounded-full bg-emerald-500 mr-1" />A {Math.round(totalBudget * 0.65).toLocaleString()}</span>
-          <span><span className="inline-block w-2 h-2 rounded-full bg-amber-500 mr-1" />B {Math.round(totalBudget * 0.25).toLocaleString()}</span>
-          <span><span className="inline-block w-2 h-2 rounded-full bg-red-500 mr-1" />C {Math.round(totalBudget * 0.1).toLocaleString()}</span>
+          <span><span className="inline-block w-2 h-2 rounded-full bg-emerald-500 mr-1" />A {formatNumber(Math.round(totalBudget * 0.65))}</span>
+          <span><span className="inline-block w-2 h-2 rounded-full bg-amber-500 mr-1" />B {formatNumber(Math.round(totalBudget * 0.25))}</span>
+          <span><span className="inline-block w-2 h-2 rounded-full bg-red-500 mr-1" />C {formatNumber(Math.round(totalBudget * 0.1))}</span>
         </div>
         <button
           onClick={onAiRefresh}
