@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>graphify - /Users/yhc125/workspace/kiditem/packages/shared/graphify-out/graph.html</title>
+<script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0f0f1a; color: #e0e0e0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; display: flex; height: 100vh; overflow: hidden; }
+  #graph { flex: 1; }
+  #sidebar { width: 280px; background: #1a1a2e; border-left: 1px solid #2a2a4e; display: flex; flex-direction: column; overflow: hidden; }
+  #search-wrap { padding: 12px; border-bottom: 1px solid #2a2a4e; }
+  #search { width: 100%; background: #0f0f1a; border: 1px solid #3a3a5e; color: #e0e0e0; padding: 7px 10px; border-radius: 6px; font-size: 13px; outline: none; }
+  #search:focus { border-color: #4E79A7; }
+  #search-results { max-height: 140px; overflow-y: auto; padding: 4px 12px; border-bottom: 1px solid #2a2a4e; display: none; }
+  .search-item { padding: 4px 6px; cursor: pointer; border-radius: 4px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .search-item:hover { background: #2a2a4e; }
+  #info-panel { padding: 14px; border-bottom: 1px solid #2a2a4e; min-height: 140px; }
+  #info-panel h3 { font-size: 13px; color: #aaa; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em; }
+  #info-content { font-size: 13px; color: #ccc; line-height: 1.6; }
+  #info-content .field { margin-bottom: 5px; }
+  #info-content .field b { color: #e0e0e0; }
+  #info-content .empty { color: #555; font-style: italic; }
+  .neighbor-link { display: block; padding: 2px 6px; margin: 2px 0; border-radius: 3px; cursor: pointer; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-left: 3px solid #333; }
+  .neighbor-link:hover { background: #2a2a4e; }
+  #neighbors-list { max-height: 160px; overflow-y: auto; margin-top: 4px; }
+  #legend-wrap { flex: 1; overflow-y: auto; padding: 12px; }
+  #legend-wrap h3 { font-size: 13px; color: #aaa; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .legend-item { display: flex; align-items: center; gap: 8px; padding: 4px 0; cursor: pointer; border-radius: 4px; font-size: 12px; }
+  .legend-item:hover { background: #2a2a4e; padding-left: 4px; }
+  .legend-item.dimmed { opacity: 0.35; }
+  .legend-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+  .legend-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .legend-count { color: #666; font-size: 11px; }
+  #stats { padding: 10px 14px; border-top: 1px solid #2a2a4e; font-size: 11px; color: #555; }
+</style>
+</head>
+<body>
+<div id="graph"></div>
+<div id="sidebar">
+  <div id="search-wrap">
+    <input id="search" type="text" placeholder="Search nodes..." autocomplete="off">
+    <div id="search-results"></div>
+  </div>
+  <div id="info-panel">
+    <h3>Node Info</h3>
+    <div id="info-content"><span class="empty">Click a node to inspect it</span></div>
+  </div>
+  <div id="legend-wrap">
+    <h3>Communities</h3>
+    <div id="legend"></div>
+  </div>
+  <div id="stats">65 nodes &middot; 46 edges &middot; 26 communities</div>
+</div>
+<script>
+const RAW_NODES = [{"id": "tsup_config_ts", "label": "tsup.config.ts", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 10.0, "font": {"size": 0, "color": "#ffffff"}, "title": "tsup.config.ts", "community": 10, "community_name": "Cluster 10 (1n)", "source_file": "tsup.config.ts", "file_type": "code", "degree": 0}, {"id": "src_index_ts", "label": "index.ts", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 22.9, "font": {"size": 12, "color": "#ffffff"}, "title": "index.ts", "community": 0, "community_name": "Cluster 0 (9n)", "source_file": "src/index.ts", "file_type": "code", "degree": 3}, {"id": "src_security_scrub_ts", "label": "scrub.ts", "color": {"background": "#E15759", "border": "#E15759", "highlight": {"background": "#ffffff", "border": "#E15759"}}, "size": 31.4, "font": {"size": 12, "color": "#ffffff"}, "title": "scrub.ts", "community": 2, "community_name": "Cluster 2 (6n)", "source_file": "src/security/scrub.ts", "file_type": "code", "degree": 5}, {"id": "scrub_scrubsecrets", "label": "scrubSecrets()", "color": {"background": "#E15759", "border": "#E15759", "highlight": {"background": "#ffffff", "border": "#E15759"}}, "size": 18.6, "font": {"size": 12, "color": "#ffffff"}, "title": "scrubSecrets()", "community": 2, "community_name": "Cluster 2 (6n)", "source_file": "src/security/scrub.ts", "file_type": "code", "degree": 2}, {"id": "scrub_isplainobject", "label": "isPlainObject()", "color": {"background": "#E15759", "border": "#E15759", "highlight": {"background": "#ffffff", "border": "#E15759"}}, "size": 18.6, "font": {"size": 12, "color": "#ffffff"}, "title": "isPlainObject()", "community": 2, "community_name": "Cluster 2 (6n)", "source_file": "src/security/scrub.ts", "file_type": "code", "degree": 2}, {"id": "scrub_scrubdeep", "label": "scrubDeep()", "color": {"background": "#E15759", "border": "#E15759", "highlight": {"background": "#ffffff", "border": "#E15759"}}, "size": 18.6, "font": {"size": 12, "color": "#ffffff"}, "title": "scrubDeep()", "community": 2, "community_name": "Cluster 2 (6n)", "source_file": "src/security/scrub.ts", "file_type": "code", "degree": 2}, {"id": "scrub_walk", "label": "walk()", "color": {"background": "#E15759", "border": "#E15759", "highlight": {"background": "#ffffff", "border": "#E15759"}}, "size": 27.1, "font": {"size": 12, "color": "#ffffff"}, "title": "walk()", "community": 2, "community_name": "Cluster 2 (6n)", "source_file": "src/security/scrub.ts", "file_type": "code", "degree": 4}, {"id": "src_security_index_ts", "label": "index.ts", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 10.0, "font": {"size": 0, "color": "#ffffff"}, "title": "index.ts", "community": 11, "community_name": "Cluster 11 (1n)", "source_file": "src/security/index.ts", "file_type": "code", "degree": 0}, {"id": "src_security_patterns_ts", "label": "patterns.ts", "color": {"background": "#E15759", "border": "#E15759", "highlight": {"background": "#ffffff", "border": "#E15759"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "patterns.ts", "community": 2, "community_name": "Cluster 2 (6n)", "source_file": "src/security/patterns.ts", "file_type": "code", "degree": 1}, {"id": "src_schemas_inventory_ts", "label": "inventory.ts", "color": {"background": "#E15759", "border": "#E15759", "highlight": {"background": "#ffffff", "border": "#E15759"}}, "size": 10.0, "font": {"size": 0, "color": "#ffffff"}, "title": "inventory.ts", "community": 12, "community_name": "Cluster 12 (1n)", "source_file": "src/schemas/inventory.ts", "file_type": "code", "degree": 0}, {"id": "src_schemas_profit_loss_ts", "label": "profit-loss.ts", "color": {"background": "#76B7B2", "border": "#76B7B2", "highlight": {"background": "#ffffff", "border": "#76B7B2"}}, "size": 10.0, "font": {"size": 0, "color": "#ffffff"}, "title": "profit-loss.ts", "community": 13, "community_name": "Cluster 13 (1n)", "source_file": "src/schemas/profit-loss.ts", "file_type": "code", "degree": 0}, {"id": "src_schemas_feature_gate_ts", "label": "feature-gate.ts", "color": {"background": "#59A14F", "border": "#59A14F", "highlight": {"background": "#ffffff", "border": "#59A14F"}}, "size": 10.0, "font": {"size": 0, "color": "#ffffff"}, "title": "feature-gate.ts", "community": 14, "community_name": "Cluster 14 (1n)", "source_file": "src/schemas/feature-gate.ts", "file_type": "code", "degree": 0}, {"id": "src_schemas_thumbnails_ts", "label": "thumbnails.ts", "color": {"background": "#EDC948", "border": "#EDC948", "highlight": {"background": "#ffffff", "border": "#EDC948"}}, "size": 10.0, "font": {"size": 0, "color": "#ffffff"}, "title": "thumbnails.ts", "community": 15, "community_name": "Cluster 15 (1n)", "source_file": "src/schemas/thumbnails.ts", "file_type": "code", "degree": 0}, {"id": "src_schemas_workflow_ts", "label": "workflow.ts", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 18.6, "font": {"size": 12, "color": "#ffffff"}, "title": "workflow.ts", "community": 1, "community_name": "Cluster 1 (8n)", "source_file": "src/schemas/workflow.ts", "file_type": "code", "degree": 2}, {"id": "src_schemas_product_ts", "label": "product.ts", "color": {"background": "#B07AA1", "border": "#B07AA1", "highlight": {"background": "#ffffff", "border": "#B07AA1"}}, "size": 10.0, "font": {"size": 0, "color": "#ffffff"}, "title": "product.ts", "community": 16, "community_name": "Cluster 16 (1n)", "source_file": "src/schemas/product.ts", "file_type": "code", "degree": 0}, {"id": "src_schemas_marketplace_ts", "label": "marketplace.ts", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "marketplace.ts", "community": 1, "community_name": "Cluster 1 (8n)", "source_file": "src/schemas/marketplace.ts", "file_type": "code", "degree": 1}, {"id": "src_schemas_agent_ts", "label": "agent.ts", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 18.6, "font": {"size": 12, "color": "#ffffff"}, "title": "agent.ts", "community": 1, "community_name": "Cluster 1 (8n)", "source_file": "src/schemas/agent.ts", "file_type": "code", "degree": 2}, {"id": "src_schemas_common_ts", "label": "common.ts", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 40.0, "font": {"size": 12, "color": "#ffffff"}, "title": "common.ts", "community": 1, "community_name": "Cluster 1 (8n)", "source_file": "src/schemas/common.ts", "file_type": "code", "degree": 7}, {"id": "common_paginatedresponseschema", "label": "PaginatedResponseSchema()", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "PaginatedResponseSchema()", "community": 1, "community_name": "Cluster 1 (8n)", "source_file": "src/schemas/common.ts", "file_type": "code", "degree": 1}, {"id": "src_schemas_dashboard_ts", "label": "dashboard.ts", "color": {"background": "#FF9DA7", "border": "#FF9DA7", "highlight": {"background": "#ffffff", "border": "#FF9DA7"}}, "size": 10.0, "font": {"size": 0, "color": "#ffffff"}, "title": "dashboard.ts", "community": 17, "community_name": "Cluster 17 (1n)", "source_file": "src/schemas/dashboard.ts", "file_type": "code", "degree": 0}, {"id": "src_schemas_inspection_ts", "label": "inspection.ts", "color": {"background": "#9C755F", "border": "#9C755F", "highlight": {"background": "#ffffff", "border": "#9C755F"}}, "size": 10.0, "font": {"size": 0, "color": "#ffffff"}, "title": "inspection.ts", "community": 18, "community_name": "Cluster 18 (1n)", "source_file": "src/schemas/inspection.ts", "file_type": "code", "degree": 0}, {"id": "src_schemas_agent_workflow_ts", "label": "agent-workflow.ts", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "agent-workflow.ts", "community": 1, "community_name": "Cluster 1 (8n)", "source_file": "src/schemas/agent-workflow.ts", "file_type": "code", "degree": 1}, {"id": "src_schemas_rules_ts", "label": "rules.ts", "color": {"background": "#BAB0AC", "border": "#BAB0AC", "highlight": {"background": "#ffffff", "border": "#BAB0AC"}}, "size": 10.0, "font": {"size": 0, "color": "#ffffff"}, "title": "rules.ts", "community": 19, "community_name": "Cluster 19 (1n)", "source_file": "src/schemas/rules.ts", "file_type": "code", "degree": 0}, {"id": "src_schemas_action_task_ts", "label": "action-task.ts", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 10.0, "font": {"size": 0, "color": "#ffffff"}, "title": "action-task.ts", "community": 20, "community_name": "Cluster 20 (1n)", "source_file": "src/schemas/action-task.ts", "file_type": "code", "degree": 0}, {"id": "src_schemas_order_ts", "label": "order.ts", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "order.ts", "community": 1, "community_name": "Cluster 1 (8n)", "source_file": "src/schemas/order.ts", "file_type": "code", "degree": 1}, {"id": "src_schemas_ads_ts", "label": "ads.ts", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 10.0, "font": {"size": 0, "color": "#ffffff"}, "title": "ads.ts", "community": 21, "community_name": "Cluster 21 (1n)", "source_file": "src/schemas/ads.ts", "file_type": "code", "degree": 0}, {"id": "src_schemas_index_ts", "label": "index.ts", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 22.9, "font": {"size": 12, "color": "#ffffff"}, "title": "index.ts", "community": 0, "community_name": "Cluster 0 (9n)", "source_file": "src/schemas/index.ts", "file_type": "code", "degree": 3}, {"id": "src_schemas_agent_trace_ts", "label": "agent-trace.ts", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 22.9, "font": {"size": 12, "color": "#ffffff"}, "title": "agent-trace.ts", "community": 1, "community_name": "Cluster 1 (8n)", "source_file": "src/schemas/agent-trace.ts", "file_type": "code", "degree": 3}, {"id": "src_schemas_reviews_ts", "label": "reviews.ts", "color": {"background": "#E15759", "border": "#E15759", "highlight": {"background": "#ffffff", "border": "#E15759"}}, "size": 10.0, "font": {"size": 0, "color": "#ffffff"}, "title": "reviews.ts", "community": 22, "community_name": "Cluster 22 (1n)", "source_file": "src/schemas/reviews.ts", "file_type": "code", "degree": 0}, {"id": "src_schemas_alerts_ts", "label": "alerts.ts", "color": {"background": "#76B7B2", "border": "#76B7B2", "highlight": {"background": "#ffffff", "border": "#76B7B2"}}, "size": 10.0, "font": {"size": 0, "color": "#ffffff"}, "title": "alerts.ts", "community": 23, "community_name": "Cluster 23 (1n)", "source_file": "src/schemas/alerts.ts", "file_type": "code", "degree": 0}, {"id": "src_errors_app_exception_ts", "label": "app-exception.ts", "color": {"background": "#B07AA1", "border": "#B07AA1", "highlight": {"background": "#ffffff", "border": "#B07AA1"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "app-exception.ts", "community": 6, "community_name": "Cluster 6 (3n)", "source_file": "src/errors/app-exception.ts", "file_type": "code", "degree": 1}, {"id": "app_exception_appexception", "label": "AppException", "color": {"background": "#B07AA1", "border": "#B07AA1", "highlight": {"background": "#ffffff", "border": "#B07AA1"}}, "size": 18.6, "font": {"size": 12, "color": "#ffffff"}, "title": "AppException", "community": 6, "community_name": "Cluster 6 (3n)", "source_file": "src/errors/app-exception.ts", "file_type": "code", "degree": 2}, {"id": "app_exception_appexception_constructor", "label": ".constructor()", "color": {"background": "#B07AA1", "border": "#B07AA1", "highlight": {"background": "#ffffff", "border": "#B07AA1"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": ".constructor()", "community": 6, "community_name": "Cluster 6 (3n)", "source_file": "src/errors/app-exception.ts", "file_type": "code", "degree": 1}, {"id": "src_errors_codes_ts", "label": "codes.ts", "color": {"background": "#59A14F", "border": "#59A14F", "highlight": {"background": "#ffffff", "border": "#59A14F"}}, "size": 10.0, "font": {"size": 0, "color": "#ffffff"}, "title": "codes.ts", "community": 24, "community_name": "Cluster 24 (1n)", "source_file": "src/errors/codes.ts", "file_type": "code", "degree": 0}, {"id": "src_errors_index_ts", "label": "index.ts", "color": {"background": "#EDC948", "border": "#EDC948", "highlight": {"background": "#ffffff", "border": "#EDC948"}}, "size": 10.0, "font": {"size": 0, "color": "#ffffff"}, "title": "index.ts", "community": 25, "community_name": "Cluster 25 (1n)", "source_file": "src/errors/index.ts", "file_type": "code", "degree": 0}, {"id": "claude_pattern_zod_infer_types", "label": "Pattern: Zod infer types", "color": {"background": "#9C755F", "border": "#9C755F", "highlight": {"background": "#ffffff", "border": "#9C755F"}}, "size": 18.6, "font": {"size": 12, "color": "#ffffff"}, "title": "Pattern: Zod infer types", "community": 8, "community_name": "Cluster 8 (3n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 2}, {"id": "claude_pattern_satisfies_drift_detection", "label": "Pattern: satisfies drift detection", "color": {"background": "#FF9DA7", "border": "#FF9DA7", "highlight": {"background": "#ffffff", "border": "#FF9DA7"}}, "size": 18.6, "font": {"size": 12, "color": "#ffffff"}, "title": "Pattern: satisfies drift detection", "community": 7, "community_name": "Cluster 7 (3n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 2}, {"id": "claude_pattern_ziso_date_union", "label": "Pattern: zIsoDate union", "color": {"background": "#59A14F", "border": "#59A14F", "highlight": {"background": "#ffffff", "border": "#59A14F"}}, "size": 18.6, "font": {"size": 12, "color": "#ffffff"}, "title": "Pattern: zIsoDate union", "community": 4, "community_name": "Cluster 4 (5n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 2}, {"id": "claude_pattern_jsonvalue_narrowing", "label": "Pattern: JsonValue narrowing", "color": {"background": "#59A14F", "border": "#59A14F", "highlight": {"background": "#ffffff", "border": "#59A14F"}}, "size": 18.6, "font": {"size": 12, "color": "#ffffff"}, "title": "Pattern: JsonValue narrowing", "community": 4, "community_name": "Cluster 4 (5n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 2}, {"id": "claude_pattern_omit_derived_schema", "label": "Pattern: omit derived schema", "color": {"background": "#BAB0AC", "border": "#BAB0AC", "highlight": {"background": "#ffffff", "border": "#BAB0AC"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "Pattern: omit derived schema", "community": 9, "community_name": "Cluster 9 (2n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}, {"id": "claude_pattern_domain_file_split", "label": "Pattern: domain file split", "color": {"background": "#EDC948", "border": "#EDC948", "highlight": {"background": "#ffffff", "border": "#EDC948"}}, "size": 22.9, "font": {"size": 12, "color": "#ffffff"}, "title": "Pattern: domain file split", "community": 5, "community_name": "Cluster 5 (4n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 3}, {"id": "claude_pattern_subpath_exports", "label": "Pattern: subpath exports", "color": {"background": "#76B7B2", "border": "#76B7B2", "highlight": {"background": "#ffffff", "border": "#76B7B2"}}, "size": 31.4, "font": {"size": 12, "color": "#ffffff"}, "title": "Pattern: subpath exports", "community": 3, "community_name": "Cluster 3 (6n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 5}, {"id": "claude_pattern_esm_cjs_dual_build", "label": "Pattern: ESM+CJS dual build via tsup", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 22.9, "font": {"size": 12, "color": "#ffffff"}, "title": "Pattern: ESM+CJS dual build via tsup", "community": 0, "community_name": "Cluster 0 (9n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 3}, {"id": "claude_pattern_add_schema_workflow", "label": "Pattern: Add schema workflow", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 27.1, "font": {"size": 12, "color": "#ffffff"}, "title": "Pattern: Add schema workflow", "community": 0, "community_name": "Cluster 0 (9n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 4}, {"id": "claude_rule_build_after_modify", "label": "Rule: Run npm run build after modifying shared", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "Rule: Run npm run build after modifying shared", "community": 0, "community_name": "Cluster 0 (9n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}, {"id": "claude_rule_use_zinfer", "label": "Rule: Use z.infer for type derivation", "color": {"background": "#9C755F", "border": "#9C755F", "highlight": {"background": "#ffffff", "border": "#9C755F"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "Rule: Use z.infer for type derivation", "community": 8, "community_name": "Cluster 8 (3n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}, {"id": "claude_rule_satisfies_in_backend", "label": "Rule: Use satisfies pattern in backend services to detect Prisma/Shared drift", "color": {"background": "#FF9DA7", "border": "#FF9DA7", "highlight": {"background": "#ffffff", "border": "#FF9DA7"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "Rule: Use satisfies pattern in backend services to detect Prisma/Shared drift", "community": 7, "community_name": "Cluster 7 (3n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}, {"id": "claude_rule_date_as_ziso", "label": "Rule: Date fields use zIsoDate union", "color": {"background": "#59A14F", "border": "#59A14F", "highlight": {"background": "#ffffff", "border": "#59A14F"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "Rule: Date fields use zIsoDate union", "community": 4, "community_name": "Cluster 4 (5n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}, {"id": "claude_rule_narrow_jsonvalue", "label": "Rule: Narrow Prisma JsonValue at map step for satisfies", "color": {"background": "#59A14F", "border": "#59A14F", "highlight": {"background": "#ffffff", "border": "#59A14F"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "Rule: Narrow Prisma JsonValue at map step for satisfies", "community": 4, "community_name": "Cluster 4 (5n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}, {"id": "claude_rule_use_omit_for_subset", "label": "Rule: Use .omit() derived schema for subset responses", "color": {"background": "#BAB0AC", "border": "#BAB0AC", "highlight": {"background": "#ffffff", "border": "#BAB0AC"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "Rule: Use .omit() derived schema for subset responses", "community": 9, "community_name": "Cluster 9 (2n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}, {"id": "claude_rule_split_by_domain", "label": "Rule: Split schemas by domain file", "color": {"background": "#EDC948", "border": "#EDC948", "highlight": {"background": "#ffffff", "border": "#EDC948"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "Rule: Split schemas by domain file", "community": 5, "community_name": "Cluster 5 (4n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}, {"id": "claude_rule_add_schema_four_steps", "label": "Rule: Adding schema follows 4-step workflow", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "Rule: Adding schema follows 4-step workflow", "community": 0, "community_name": "Cluster 0 (9n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}, {"id": "claude_prohibit_separate_interface", "label": "Prohibit: Defining separate interface instead of z.infer", "color": {"background": "#9C755F", "border": "#9C755F", "highlight": {"background": "#ffffff", "border": "#9C755F"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "Prohibit: Defining separate interface instead of z.infer", "community": 8, "community_name": "Cluster 8 (3n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}, {"id": "claude_prohibit_internal_import", "label": "Prohibit: Direct import of @kiditem/shared/internal/*", "color": {"background": "#76B7B2", "border": "#76B7B2", "highlight": {"background": "#ffffff", "border": "#76B7B2"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "Prohibit: Direct import of @kiditem/shared/internal/*", "community": 3, "community_name": "Cluster 3 (6n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}, {"id": "claude_rationale_drift_detection", "label": "Rationale: satisfies pattern detects Prisma-Shared type drift at compile time", "color": {"background": "#FF9DA7", "border": "#FF9DA7", "highlight": {"background": "#ffffff", "border": "#FF9DA7"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "Rationale: satisfies pattern detects Prisma-Shared type drift at compile time", "community": 7, "community_name": "Cluster 7 (3n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}, {"id": "claude_rationale_prisma_json_boundary", "label": "Rationale: Prisma Date + JSON string boundary dual compatibility", "color": {"background": "#59A14F", "border": "#59A14F", "highlight": {"background": "#ffffff", "border": "#59A14F"}}, "size": 18.6, "font": {"size": 12, "color": "#ffffff"}, "title": "Rationale: Prisma Date + JSON string boundary dual compatibility", "community": 4, "community_name": "Cluster 4 (5n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 2}, {"id": "claude_rationale_dist_consumption", "label": "Rationale: dist must be refreshed to be referenced by other packages", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "Rationale: dist must be refreshed to be referenced by other packages", "community": 0, "community_name": "Cluster 0 (9n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}, {"id": "claude_rationale_internal_boundary", "label": "Rationale: Internal subpath blocks leakage of implementation details", "color": {"background": "#76B7B2", "border": "#76B7B2", "highlight": {"background": "#ffffff", "border": "#76B7B2"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "Rationale: Internal subpath blocks leakage of implementation details", "community": 3, "community_name": "Cluster 3 (6n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}, {"id": "claude_file_src_schemas_domain_ts", "label": "File: src/schemas/{domain}.ts", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 18.6, "font": {"size": 12, "color": "#ffffff"}, "title": "File: src/schemas/{domain}.ts", "community": 0, "community_name": "Cluster 0 (9n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 2}, {"id": "claude_file_dist", "label": "File: dist/", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 18.6, "font": {"size": 12, "color": "#ffffff"}, "title": "File: dist/", "community": 0, "community_name": "Cluster 0 (9n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 2}, {"id": "claude_file_schemas_product_ts", "label": "File: schemas/product.ts", "color": {"background": "#EDC948", "border": "#EDC948", "highlight": {"background": "#ffffff", "border": "#EDC948"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "File: schemas/product.ts", "community": 5, "community_name": "Cluster 5 (4n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}, {"id": "claude_file_schemas_order_ts", "label": "File: schemas/order.ts", "color": {"background": "#EDC948", "border": "#EDC948", "highlight": {"background": "#ffffff", "border": "#EDC948"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "File: schemas/order.ts", "community": 5, "community_name": "Cluster 5 (4n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}, {"id": "claude_file_kiditem_shared_schemas", "label": "File: @kiditem/shared/schemas", "color": {"background": "#76B7B2", "border": "#76B7B2", "highlight": {"background": "#ffffff", "border": "#76B7B2"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "File: @kiditem/shared/schemas", "community": 3, "community_name": "Cluster 3 (6n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}, {"id": "claude_file_kiditem_shared_errors", "label": "File: @kiditem/shared/errors", "color": {"background": "#76B7B2", "border": "#76B7B2", "highlight": {"background": "#ffffff", "border": "#76B7B2"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "File: @kiditem/shared/errors", "community": 3, "community_name": "Cluster 3 (6n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}, {"id": "claude_file_kiditem_shared_internal", "label": "File: @kiditem/shared/internal/*", "color": {"background": "#76B7B2", "border": "#76B7B2", "highlight": {"background": "#ffffff", "border": "#76B7B2"}}, "size": 14.3, "font": {"size": 0, "color": "#ffffff"}, "title": "File: @kiditem/shared/internal/*", "community": 3, "community_name": "Cluster 3 (6n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}];
+const RAW_EDGES = [{"from": "src_index_ts", "to": "claude_pattern_add_schema_workflow", "label": "rationale_for", "title": "rationale_for [INFERRED]", "dashes": true, "width": 1, "color": {"opacity": 0.35}, "confidence": "INFERRED"}, {"from": "src_index_ts", "to": "src_schemas_index_ts", "label": "modification_triggers", "title": "modification_triggers [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "src_index_ts", "to": "claude_file_dist", "label": "modification_triggers", "title": "modification_triggers [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "src_security_scrub_ts", "to": "src_security_patterns_ts", "label": "imports_from", "title": "imports_from [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "src_security_scrub_ts", "to": "scrub_scrubsecrets", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "src_security_scrub_ts", "to": "scrub_isplainobject", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "src_security_scrub_ts", "to": "scrub_scrubdeep", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "src_security_scrub_ts", "to": "scrub_walk", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "scrub_scrubsecrets", "to": "scrub_walk", "label": "calls", "title": "calls [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "scrub_isplainobject", "to": "scrub_walk", "label": "calls", "title": "calls [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "scrub_scrubdeep", "to": "scrub_walk", "label": "calls", "title": "calls [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "src_schemas_workflow_ts", "to": "src_schemas_common_ts", "label": "imports_from", "title": "imports_from [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "src_schemas_workflow_ts", "to": "src_schemas_agent_trace_ts", "label": "imports_from", "title": "imports_from [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "src_schemas_marketplace_ts", "to": "src_schemas_common_ts", "label": "imports_from", "title": "imports_from [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "src_schemas_agent_ts", "to": "src_schemas_common_ts", "label": "imports_from", "title": "imports_from [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "src_schemas_agent_ts", "to": "src_schemas_agent_trace_ts", "label": "imports_from", "title": "imports_from [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "src_schemas_common_ts", "to": "common_paginatedresponseschema", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "src_schemas_common_ts", "to": "src_schemas_agent_workflow_ts", "label": "imports_from", "title": "imports_from [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "src_schemas_common_ts", "to": "src_schemas_order_ts", "label": "imports_from", "title": "imports_from [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "src_schemas_common_ts", "to": "src_schemas_agent_trace_ts", "label": "imports_from", "title": "imports_from [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "src_schemas_index_ts", "to": "claude_pattern_add_schema_workflow", "label": "rationale_for", "title": "rationale_for [INFERRED]", "dashes": true, "width": 1, "color": {"opacity": 0.35}, "confidence": "INFERRED"}, {"from": "src_schemas_index_ts", "to": "claude_file_src_schemas_domain_ts", "label": "modification_triggers", "title": "modification_triggers [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "src_errors_app_exception_ts", "to": "app_exception_appexception", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "app_exception_appexception", "to": "app_exception_appexception_constructor", "label": "method", "title": "method [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_pattern_zod_infer_types", "to": "claude_rule_use_zinfer", "label": "rationale_for", "title": "rationale_for [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_pattern_zod_infer_types", "to": "claude_prohibit_separate_interface", "label": "conceptually_related_to", "title": "conceptually_related_to [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_pattern_satisfies_drift_detection", "to": "claude_rule_satisfies_in_backend", "label": "rationale_for", "title": "rationale_for [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_pattern_satisfies_drift_detection", "to": "claude_rationale_drift_detection", "label": "rationale_for", "title": "rationale_for [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_pattern_ziso_date_union", "to": "claude_rule_date_as_ziso", "label": "rationale_for", "title": "rationale_for [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_pattern_ziso_date_union", "to": "claude_rationale_prisma_json_boundary", "label": "rationale_for", "title": "rationale_for [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_pattern_jsonvalue_narrowing", "to": "claude_rule_narrow_jsonvalue", "label": "rationale_for", "title": "rationale_for [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_pattern_jsonvalue_narrowing", "to": "claude_rationale_prisma_json_boundary", "label": "rationale_for", "title": "rationale_for [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_pattern_omit_derived_schema", "to": "claude_rule_use_omit_for_subset", "label": "rationale_for", "title": "rationale_for [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_pattern_domain_file_split", "to": "claude_rule_split_by_domain", "label": "rationale_for", "title": "rationale_for [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_pattern_domain_file_split", "to": "claude_file_schemas_product_ts", "label": "rationale_for", "title": "rationale_for [INFERRED]", "dashes": true, "width": 1, "color": {"opacity": 0.35}, "confidence": "INFERRED"}, {"from": "claude_pattern_domain_file_split", "to": "claude_file_schemas_order_ts", "label": "rationale_for", "title": "rationale_for [INFERRED]", "dashes": true, "width": 1, "color": {"opacity": 0.35}, "confidence": "INFERRED"}, {"from": "claude_pattern_subpath_exports", "to": "claude_prohibit_internal_import", "label": "conceptually_related_to", "title": "conceptually_related_to [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_pattern_subpath_exports", "to": "claude_file_kiditem_shared_schemas", "label": "rationale_for", "title": "rationale_for [INFERRED]", "dashes": true, "width": 1, "color": {"opacity": 0.35}, "confidence": "INFERRED"}, {"from": "claude_pattern_subpath_exports", "to": "claude_file_kiditem_shared_errors", "label": "rationale_for", "title": "rationale_for [INFERRED]", "dashes": true, "width": 1, "color": {"opacity": 0.35}, "confidence": "INFERRED"}, {"from": "claude_pattern_subpath_exports", "to": "claude_file_kiditem_shared_internal", "label": "rationale_for", "title": "rationale_for [INFERRED]", "dashes": true, "width": 1, "color": {"opacity": 0.35}, "confidence": "INFERRED"}, {"from": "claude_pattern_subpath_exports", "to": "claude_rationale_internal_boundary", "label": "rationale_for", "title": "rationale_for [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_pattern_esm_cjs_dual_build", "to": "claude_rule_build_after_modify", "label": "rationale_for", "title": "rationale_for [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_pattern_esm_cjs_dual_build", "to": "claude_file_dist", "label": "rationale_for", "title": "rationale_for [INFERRED]", "dashes": true, "width": 1, "color": {"opacity": 0.35}, "confidence": "INFERRED"}, {"from": "claude_pattern_esm_cjs_dual_build", "to": "claude_rationale_dist_consumption", "label": "rationale_for", "title": "rationale_for [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_pattern_add_schema_workflow", "to": "claude_rule_add_schema_four_steps", "label": "rationale_for", "title": "rationale_for [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_pattern_add_schema_workflow", "to": "claude_file_src_schemas_domain_ts", "label": "rationale_for", "title": "rationale_for [INFERRED]", "dashes": true, "width": 1, "color": {"opacity": 0.35}, "confidence": "INFERRED"}];
+const LEGEND = [{"cid": 0, "color": "#4E79A7", "label": "Cluster 0 (9n)", "count": 9}, {"cid": 1, "color": "#F28E2B", "label": "Cluster 1 (8n)", "count": 8}, {"cid": 2, "color": "#E15759", "label": "Cluster 2 (6n)", "count": 6}, {"cid": 3, "color": "#76B7B2", "label": "Cluster 3 (6n)", "count": 6}, {"cid": 4, "color": "#59A14F", "label": "Cluster 4 (5n)", "count": 5}, {"cid": 5, "color": "#EDC948", "label": "Cluster 5 (4n)", "count": 4}, {"cid": 6, "color": "#B07AA1", "label": "Cluster 6 (3n)", "count": 3}, {"cid": 7, "color": "#FF9DA7", "label": "Cluster 7 (3n)", "count": 3}, {"cid": 8, "color": "#9C755F", "label": "Cluster 8 (3n)", "count": 3}, {"cid": 9, "color": "#BAB0AC", "label": "Cluster 9 (2n)", "count": 2}, {"cid": 10, "color": "#4E79A7", "label": "Cluster 10 (1n)", "count": 1}, {"cid": 11, "color": "#F28E2B", "label": "Cluster 11 (1n)", "count": 1}, {"cid": 12, "color": "#E15759", "label": "Cluster 12 (1n)", "count": 1}, {"cid": 13, "color": "#76B7B2", "label": "Cluster 13 (1n)", "count": 1}, {"cid": 14, "color": "#59A14F", "label": "Cluster 14 (1n)", "count": 1}, {"cid": 15, "color": "#EDC948", "label": "Cluster 15 (1n)", "count": 1}, {"cid": 16, "color": "#B07AA1", "label": "Cluster 16 (1n)", "count": 1}, {"cid": 17, "color": "#FF9DA7", "label": "Cluster 17 (1n)", "count": 1}, {"cid": 18, "color": "#9C755F", "label": "Cluster 18 (1n)", "count": 1}, {"cid": 19, "color": "#BAB0AC", "label": "Cluster 19 (1n)", "count": 1}, {"cid": 20, "color": "#4E79A7", "label": "Cluster 20 (1n)", "count": 1}, {"cid": 21, "color": "#F28E2B", "label": "Cluster 21 (1n)", "count": 1}, {"cid": 22, "color": "#E15759", "label": "Cluster 22 (1n)", "count": 1}, {"cid": 23, "color": "#76B7B2", "label": "Cluster 23 (1n)", "count": 1}, {"cid": 24, "color": "#59A14F", "label": "Cluster 24 (1n)", "count": 1}, {"cid": 25, "color": "#EDC948", "label": "Cluster 25 (1n)", "count": 1}];
+
+// HTML-escape helper — prevents XSS when injecting graph data into innerHTML
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+// Build vis datasets
+const nodesDS = new vis.DataSet(RAW_NODES.map(n => ({
+  id: n.id, label: n.label, color: n.color, size: n.size,
+  font: n.font, title: n.title,
+  _community: n.community, _community_name: n.community_name,
+  _source_file: n.source_file, _file_type: n.file_type, _degree: n.degree,
+})));
+
+const edgesDS = new vis.DataSet(RAW_EDGES.map((e, i) => ({
+  id: i, from: e.from, to: e.to,
+  label: '',
+  title: e.title,
+  dashes: e.dashes,
+  width: e.width,
+  color: e.color,
+  arrows: { to: { enabled: true, scaleFactor: 0.5 } },
+})));
+
+const container = document.getElementById('graph');
+const network = new vis.Network(container, { nodes: nodesDS, edges: edgesDS }, {
+  physics: {
+    enabled: true,
+    solver: 'forceAtlas2Based',
+    forceAtlas2Based: {
+      gravitationalConstant: -60,
+      centralGravity: 0.005,
+      springLength: 120,
+      springConstant: 0.08,
+      damping: 0.4,
+      avoidOverlap: 0.8,
+    },
+    stabilization: { iterations: 200, fit: true },
+  },
+  interaction: {
+    hover: true,
+    tooltipDelay: 100,
+    hideEdgesOnDrag: true,
+    navigationButtons: false,
+    keyboard: false,
+  },
+  nodes: { shape: 'dot', borderWidth: 1.5 },
+  edges: { smooth: { type: 'continuous', roundness: 0.2 }, selectionWidth: 3 },
+});
+
+network.once('stabilizationIterationsDone', () => {
+  network.setOptions({ physics: { enabled: false } });
+});
+
+function showInfo(nodeId) {
+  const n = nodesDS.get(nodeId);
+  if (!n) return;
+  const neighborIds = network.getConnectedNodes(nodeId);
+  const neighborItems = neighborIds.map(nid => {
+    const nb = nodesDS.get(nid);
+    const color = nb ? nb.color.background : '#555';
+    return `<span class="neighbor-link" style="border-left-color:${esc(color)}" onclick="focusNode(${JSON.stringify(nid)})">${esc(nb ? nb.label : nid)}</span>`;
+  }).join('');
+  document.getElementById('info-content').innerHTML = `
+    <div class="field"><b>${esc(n.label)}</b></div>
+    <div class="field">Type: ${esc(n._file_type || 'unknown')}</div>
+    <div class="field">Community: ${esc(n._community_name)}</div>
+    <div class="field">Source: ${esc(n._source_file || '-')}</div>
+    <div class="field">Degree: ${n._degree}</div>
+    ${neighborIds.length ? `<div class="field" style="margin-top:8px;color:#aaa;font-size:11px">Neighbors (${neighborIds.length})</div><div id="neighbors-list">${neighborItems}</div>` : ''}
+  `;
+}
+
+function focusNode(nodeId) {
+  network.focus(nodeId, { scale: 1.4, animation: true });
+  network.selectNodes([nodeId]);
+  showInfo(nodeId);
+}
+
+// Track hovered node — hover detection is more reliable than click params
+let hoveredNodeId = null;
+network.on('hoverNode', params => {
+  hoveredNodeId = params.node;
+  container.style.cursor = 'pointer';
+});
+network.on('blurNode', () => {
+  hoveredNodeId = null;
+  container.style.cursor = 'default';
+});
+container.addEventListener('click', () => {
+  if (hoveredNodeId !== null) {
+    showInfo(hoveredNodeId);
+    network.selectNodes([hoveredNodeId]);
+  }
+});
+network.on('click', params => {
+  if (params.nodes.length > 0) {
+    showInfo(params.nodes[0]);
+  } else if (hoveredNodeId === null) {
+    document.getElementById('info-content').innerHTML = '<span class="empty">Click a node to inspect it</span>';
+  }
+});
+
+const searchInput = document.getElementById('search');
+const searchResults = document.getElementById('search-results');
+searchInput.addEventListener('input', () => {
+  const q = searchInput.value.toLowerCase().trim();
+  searchResults.innerHTML = '';
+  if (!q) { searchResults.style.display = 'none'; return; }
+  const matches = RAW_NODES.filter(n => n.label.toLowerCase().includes(q)).slice(0, 20);
+  if (!matches.length) { searchResults.style.display = 'none'; return; }
+  searchResults.style.display = 'block';
+  matches.forEach(n => {
+    const el = document.createElement('div');
+    el.className = 'search-item';
+    el.textContent = n.label;
+    el.style.borderLeft = `3px solid ${n.color.background}`;
+    el.style.paddingLeft = '8px';
+    el.onclick = () => {
+      network.focus(n.id, { scale: 1.5, animation: true });
+      network.selectNodes([n.id]);
+      showInfo(n.id);
+      searchResults.style.display = 'none';
+      searchInput.value = '';
+    };
+    searchResults.appendChild(el);
+  });
+});
+document.addEventListener('click', e => {
+  if (!searchResults.contains(e.target) && e.target !== searchInput)
+    searchResults.style.display = 'none';
+});
+
+const hiddenCommunities = new Set();
+const legendEl = document.getElementById('legend');
+LEGEND.forEach(c => {
+  const item = document.createElement('div');
+  item.className = 'legend-item';
+  item.innerHTML = `<div class="legend-dot" style="background:${c.color}"></div>
+    <span class="legend-label">${c.label}</span>
+    <span class="legend-count">${c.count}</span>`;
+  item.onclick = () => {
+    if (hiddenCommunities.has(c.cid)) {
+      hiddenCommunities.delete(c.cid);
+      item.classList.remove('dimmed');
+    } else {
+      hiddenCommunities.add(c.cid);
+      item.classList.add('dimmed');
+    }
+    const updates = RAW_NODES
+      .filter(n => n.community === c.cid)
+      .map(n => ({ id: n.id, hidden: hiddenCommunities.has(c.cid) }));
+    nodesDS.update(updates);
+  };
+  legendEl.appendChild(item);
+});
+</script>
+<script>
+// Render hyperedges as shaded regions
+const hyperedges = [];
+function drawHyperedges() {
+    const canvas = network.canvas.frame.canvas;
+    const ctx = canvas.getContext('2d');
+    hyperedges.forEach(h => {
+        const positions = h.nodes
+            .map(nid => network.getPositions([nid])[nid])
+            .filter(p => p !== undefined);
+        if (positions.length < 2) return;
+        // Draw convex hull as filled polygon
+        ctx.save();
+        ctx.globalAlpha = 0.12;
+        ctx.fillStyle = '#6366f1';
+        ctx.strokeStyle = '#6366f1';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        const scale = network.getScale();
+        const offset = network.getViewPosition();
+        const toCanvas = (p) => ({
+            x: (p.x - offset.x) * scale + canvas.width / 2,
+            y: (p.y - offset.y) * scale + canvas.height / 2
+        });
+        const pts = positions.map(toCanvas);
+        // Expand hull slightly
+        const cx = pts.reduce((s, p) => s + p.x, 0) / pts.length;
+        const cy = pts.reduce((s, p) => s + p.y, 0) / pts.length;
+        const expanded = pts.map(p => ({
+            x: cx + (p.x - cx) * 1.15,
+            y: cy + (p.y - cy) * 1.15
+        }));
+        ctx.moveTo(expanded[0].x, expanded[0].y);
+        expanded.slice(1).forEach(p => ctx.lineTo(p.x, p.y));
+        ctx.closePath();
+        ctx.fill();
+        ctx.globalAlpha = 0.4;
+        ctx.stroke();
+        // Label
+        ctx.globalAlpha = 0.8;
+        ctx.fillStyle = '#4f46e5';
+        ctx.font = 'bold 11px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(h.label, cx, cy - 5);
+        ctx.restore();
+    });
+}
+network.on('afterDrawing', drawHyperedges);
+</script>
+</body>
+</html>

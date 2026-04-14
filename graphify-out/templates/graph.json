@@ -1,0 +1,502 @@
+{
+  "directed": false,
+  "multigraph": false,
+  "graph": {
+    "hyperedges": [
+      {
+        "id": "claude_hyper_template_authoring",
+        "label": "Template authoring workflow",
+        "nodes": [
+          "claude_pattern_snake_to_camel_parsing",
+          "claude_pattern_template_registration",
+          "claude_pattern_theme_customization"
+        ],
+        "source_file": "CLAUDE.md"
+      }
+    ]
+  },
+  "nodes": [
+    {
+      "label": "tsup.config.ts",
+      "file_type": "code",
+      "source_file": "tsup.config.ts",
+      "source_location": "L1",
+      "id": "tsup_config_ts",
+      "community": 7,
+      "norm_label": "tsup.config.ts"
+    },
+    {
+      "label": "schemas.ts",
+      "file_type": "code",
+      "source_file": "src/schemas.ts",
+      "source_location": "L1",
+      "id": "src_schemas_ts",
+      "community": 2,
+      "norm_label": "schemas.ts"
+    },
+    {
+      "label": "transformKeys()",
+      "file_type": "code",
+      "source_file": "src/schemas.ts",
+      "source_location": "L195",
+      "id": "schemas_transformkeys",
+      "community": 2,
+      "norm_label": "transformkeys()"
+    },
+    {
+      "label": "parseDetailPageData()",
+      "file_type": "code",
+      "source_file": "src/schemas.ts",
+      "source_location": "L214",
+      "id": "schemas_parsedetailpagedata",
+      "community": 2,
+      "norm_label": "parsedetailpagedata()"
+    },
+    {
+      "label": "types.ts",
+      "file_type": "code",
+      "source_file": "src/types.ts",
+      "source_location": "L1",
+      "id": "src_types_ts",
+      "community": 8,
+      "norm_label": "types.ts"
+    },
+    {
+      "label": "registry.ts",
+      "file_type": "code",
+      "source_file": "src/registry.ts",
+      "source_location": "L1",
+      "id": "src_registry_ts",
+      "community": 4,
+      "norm_label": "registry.ts"
+    },
+    {
+      "label": "getTemplate()",
+      "file_type": "code",
+      "source_file": "src/registry.ts",
+      "source_location": "L50",
+      "id": "registry_gettemplate",
+      "community": 4,
+      "norm_label": "gettemplate()"
+    },
+    {
+      "label": "index.ts",
+      "file_type": "code",
+      "source_file": "src/index.ts",
+      "source_location": "L1",
+      "id": "src_index_ts",
+      "community": 9,
+      "norm_label": "index.ts"
+    },
+    {
+      "label": "placeholder.ts",
+      "file_type": "code",
+      "source_file": "src/placeholder.ts",
+      "source_location": "L1",
+      "id": "src_placeholder_ts",
+      "community": 10,
+      "norm_label": "placeholder.ts"
+    },
+    {
+      "label": "index.tsx",
+      "file_type": "code",
+      "source_file": "src/bold-vertical/index.tsx",
+      "source_location": "L1",
+      "id": "src_bold_vertical_index_tsx",
+      "community": 0,
+      "norm_label": "index.tsx"
+    },
+    {
+      "label": "getDisabledSections()",
+      "file_type": "code",
+      "source_file": "src/simple-vertical/index.tsx",
+      "source_location": "L29",
+      "id": "index_getdisabledsections",
+      "community": 0,
+      "norm_label": "getdisabledsections()"
+    },
+    {
+      "label": "themeVars()",
+      "file_type": "code",
+      "source_file": "src/simple-vertical/index.tsx",
+      "source_location": "L15",
+      "id": "index_themevars",
+      "community": 0,
+      "norm_label": "themevars()"
+    },
+    {
+      "label": "config.ts",
+      "file_type": "code",
+      "source_file": "src/bold-vertical/config.ts",
+      "source_location": "L1",
+      "id": "src_bold_vertical_config_ts",
+      "community": 11,
+      "norm_label": "config.ts"
+    },
+    {
+      "label": "generate-json-schema.ts",
+      "file_type": "code",
+      "source_file": "src/scripts/generate-json-schema.ts",
+      "source_location": "L1",
+      "id": "src_scripts_generate_json_schema_ts",
+      "community": 12,
+      "norm_label": "generate-json-schema.ts"
+    },
+    {
+      "label": "index.tsx",
+      "file_type": "code",
+      "source_file": "src/simple-vertical/index.tsx",
+      "source_location": "L1",
+      "id": "src_simple_vertical_index_tsx",
+      "community": 0,
+      "norm_label": "index.tsx"
+    },
+    {
+      "label": "config.ts",
+      "file_type": "code",
+      "source_file": "src/simple-vertical/config.ts",
+      "source_location": "L1",
+      "id": "src_simple_vertical_config_ts",
+      "community": 13,
+      "norm_label": "config.ts"
+    },
+    {
+      "label": "Pattern: Detail Page Templates",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "description": "React template components + Zod schemas for Coupang product detail pages",
+      "metadata": null,
+      "tags": null,
+      "id": "claude_pattern_detail_page_templates",
+      "community": 6,
+      "norm_label": "pattern: detail page templates"
+    },
+    {
+      "label": "Pattern: Template Registration via getTemplate()",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "description": "Adding templates: create src/templates/{id}/ folder then register in getTemplate()",
+      "metadata": null,
+      "tags": null,
+      "id": "claude_pattern_template_registration",
+      "community": 1,
+      "norm_label": "pattern: template registration via gettemplate()"
+    },
+    {
+      "label": "Pattern: Theme Customization via CSS Variables",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "description": "Theme customization using CSS custom properties like --theme-color-main",
+      "metadata": null,
+      "tags": null,
+      "id": "claude_pattern_theme_customization",
+      "community": 5,
+      "norm_label": "pattern: theme customization via css variables"
+    },
+    {
+      "label": "Pattern: parseDetailPageData snake_case to camelCase conversion",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "description": "parseDetailPageData() converts snake_case API response to camelCase",
+      "metadata": null,
+      "tags": null,
+      "id": "claude_pattern_snake_to_camel_parsing",
+      "community": 3,
+      "norm_label": "pattern: parsedetailpagedata snake_case to camelcase conversion"
+    },
+    {
+      "label": "Rule: parseDetailPageData() converts snake_case API response to camelCase",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "description": null,
+      "metadata": null,
+      "tags": null,
+      "id": "claude_rule_parse_detail_page_data",
+      "community": 3,
+      "norm_label": "rule: parsedetailpagedata() converts snake_case api response to camelcase"
+    },
+    {
+      "label": "Rule: Theme customization uses CSS custom properties (--theme-color-main, etc.)",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "description": null,
+      "metadata": null,
+      "tags": null,
+      "id": "claude_rule_theme_css_properties",
+      "community": 5,
+      "norm_label": "rule: theme customization uses css custom properties (--theme-color-main, etc.)"
+    },
+    {
+      "label": "Rule: layout.components[].enabled controls per-section show/hide",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "description": null,
+      "metadata": null,
+      "tags": null,
+      "id": "claude_rule_layout_enabled_toggle",
+      "community": 14,
+      "norm_label": "rule: layout.components[].enabled controls per-section show/hide"
+    },
+    {
+      "label": "Rule: Package name is @kiditem/templates",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "description": null,
+      "metadata": null,
+      "tags": null,
+      "id": "claude_rule_package_name",
+      "community": 6,
+      "norm_label": "rule: package name is @kiditem/templates"
+    },
+    {
+      "label": "Rule: Adding templates requires creating src/templates/{id}/ folder and registering in getTemplate()",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "description": null,
+      "metadata": null,
+      "tags": null,
+      "id": "claude_rule_adding_templates",
+      "community": 1,
+      "norm_label": "rule: adding templates requires creating src/templates/{id}/ folder and registering in gettemplate()"
+    },
+    {
+      "label": "File: src/templates/{id}/",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "description": "Per-template folder under src/templates/",
+      "metadata": null,
+      "tags": null,
+      "id": "claude_file_src_templates",
+      "community": 1,
+      "norm_label": "file: src/templates/{id}/"
+    },
+    {
+      "label": "File: getTemplate()",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "description": "Template registry function",
+      "metadata": null,
+      "tags": null,
+      "id": "claude_file_get_template",
+      "community": 1,
+      "norm_label": "file: gettemplate()"
+    },
+    {
+      "label": "File: parseDetailPageData()",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "description": "API response parser converting snake_case to camelCase",
+      "metadata": null,
+      "tags": null,
+      "id": "claude_file_parse_detail_page_data",
+      "community": 3,
+      "norm_label": "file: parsedetailpagedata()"
+    }
+  ],
+  "links": [
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "src/schemas.ts",
+      "source_location": "L195",
+      "weight": 1.0,
+      "_src": "src_schemas_ts",
+      "_tgt": "schemas_transformkeys",
+      "source": "src_schemas_ts",
+      "target": "schemas_transformkeys",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "src/schemas.ts",
+      "source_location": "L214",
+      "weight": 1.0,
+      "_src": "src_schemas_ts",
+      "_tgt": "schemas_parsedetailpagedata",
+      "source": "src_schemas_ts",
+      "target": "schemas_parsedetailpagedata",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "source_file": "src/schemas.ts",
+      "source_location": "L215",
+      "weight": 1.0,
+      "_src": "schemas_parsedetailpagedata",
+      "_tgt": "schemas_transformkeys",
+      "source": "schemas_transformkeys",
+      "target": "schemas_parsedetailpagedata",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "src/registry.ts",
+      "source_location": "L50",
+      "weight": 1.0,
+      "_src": "src_registry_ts",
+      "_tgt": "registry_gettemplate",
+      "source": "src_registry_ts",
+      "target": "registry_gettemplate",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "src/bold-vertical/index.tsx",
+      "source_location": "L14",
+      "weight": 1.0,
+      "_src": "src_bold_vertical_index_tsx",
+      "_tgt": "index_getdisabledsections",
+      "source": "src_bold_vertical_index_tsx",
+      "target": "index_getdisabledsections",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "src/bold-vertical/index.tsx",
+      "source_location": "L25",
+      "weight": 1.0,
+      "_src": "src_bold_vertical_index_tsx",
+      "_tgt": "index_themevars",
+      "source": "src_bold_vertical_index_tsx",
+      "target": "index_themevars",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "src/simple-vertical/index.tsx",
+      "source_location": "L29",
+      "weight": 1.0,
+      "_src": "src_simple_vertical_index_tsx",
+      "_tgt": "index_getdisabledsections",
+      "source": "index_getdisabledsections",
+      "target": "src_simple_vertical_index_tsx",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "src/simple-vertical/index.tsx",
+      "source_location": "L15",
+      "weight": 1.0,
+      "_src": "src_simple_vertical_index_tsx",
+      "_tgt": "index_themevars",
+      "source": "index_themevars",
+      "target": "src_simple_vertical_index_tsx",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_detail_page_templates",
+      "_tgt": "claude_rule_package_name",
+      "source": "claude_pattern_detail_page_templates",
+      "target": "claude_rule_package_name"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_template_registration",
+      "_tgt": "claude_rule_adding_templates",
+      "source": "claude_pattern_template_registration",
+      "target": "claude_rule_adding_templates"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_template_registration",
+      "_tgt": "claude_file_src_templates",
+      "source": "claude_pattern_template_registration",
+      "target": "claude_file_src_templates"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_template_registration",
+      "_tgt": "claude_file_get_template",
+      "source": "claude_pattern_template_registration",
+      "target": "claude_file_get_template"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_theme_customization",
+      "_tgt": "claude_rule_theme_css_properties",
+      "source": "claude_pattern_theme_customization",
+      "target": "claude_rule_theme_css_properties"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_snake_to_camel_parsing",
+      "_tgt": "claude_rule_parse_detail_page_data",
+      "source": "claude_pattern_snake_to_camel_parsing",
+      "target": "claude_rule_parse_detail_page_data"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_snake_to_camel_parsing",
+      "_tgt": "claude_file_parse_detail_page_data",
+      "source": "claude_pattern_snake_to_camel_parsing",
+      "target": "claude_file_parse_detail_page_data"
+    },
+    {
+      "relation": "modification_triggers",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_file_src_templates",
+      "_tgt": "claude_file_get_template",
+      "source": "claude_file_src_templates",
+      "target": "claude_file_get_template"
+    }
+  ],
+  "hyperedges": [
+    {
+      "id": "claude_hyper_template_authoring",
+      "label": "Template authoring workflow",
+      "nodes": [
+        "claude_pattern_snake_to_camel_parsing",
+        "claude_pattern_template_registration",
+        "claude_pattern_theme_customization"
+      ],
+      "source_file": "CLAUDE.md"
+    }
+  ]
+}
