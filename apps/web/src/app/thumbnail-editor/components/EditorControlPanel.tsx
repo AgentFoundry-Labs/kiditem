@@ -160,25 +160,24 @@ export function EditorControlPanel({
               <label className="text-xs font-semibold block text-gray-600">촬영 씬</label>
               <div className="grid grid-cols-2 gap-2">
                 {[
-                  { value: 'white-studio', emoji: '⬜', label: '화이트 스튜디오' },
-                  { value: 'lifestyle',    emoji: '🏠', label: '생활 인테리어' },
-                  { value: 'outdoor',      emoji: '🌿', label: '야외 / 자연' },
-                  { value: 'concept',      emoji: '✨', label: '컨셉 / 무드' },
+                  { value: 'white-studio', label: '화이트 스튜디오' },
+                  { value: 'lifestyle',    label: '생활 인테리어' },
+                  { value: 'outdoor',      label: '야외 / 자연' },
+                  { value: 'concept',      label: '컨셉 / 무드' },
                 ].map((opt) => {
                   const active = sceneType === opt.value;
                   return (
                     <button
                       key={opt.value}
                       onClick={() => onSceneTypeChange(opt.value)}
-                      className="flex flex-col items-center justify-center gap-1 px-3 py-3 rounded-xl text-xs font-medium transition-all duration-200"
+                      className="flex items-center justify-center px-3 py-2.5 rounded-xl text-xs font-medium transition-all duration-200"
                       style={{
                         background: active ? `${accent}12` : '#f9fafb',
                         border: active ? `1px solid ${accent}55` : '1px solid #e5e7eb',
                         color: active ? accent : '#6b7280',
                       }}
                     >
-                      <span className="text-lg">{opt.emoji}</span>
-                      <span>{opt.label}</span>
+                      {opt.label}
                     </button>
                   );
                 })}
