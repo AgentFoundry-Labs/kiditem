@@ -3,7 +3,9 @@ import {
   InternalServerErrorException,
   BadRequestException,
   NotFoundException,
+  Logger,
 } from '@nestjs/common';
+import { OnEvent } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AgentRegistryService } from '../../agent-registry/agent-registry.service';
 import type { Prisma } from '@prisma/client';
@@ -22,10 +24,21 @@ import type {
 
 @Injectable()
 export class ProductsService {
+  private readonly logger = new Logger(ProductsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly agentRegistry: AgentRegistryService,
   ) {}
+
+  @OnEvent('products.classify-grades')
+  async onClassifyGradesEvent(): Promise<void> {
+    try {
+      await this.classifyAbcGrades();
+    } catch (err) {
+      this.logger.warn('products.classify-grades 이벤트 처리 실패', err);
+    }
+  }
 
   async findAll(query: {
     grade?: string;
@@ -589,19 +602,22 @@ export class ProductsService {
     gradeAdC: number;
   }> {
     try {
-      const statusWhere = statusFilter && statusFilter !== 'all'
-        ? `AND p.status = '${statusFilter}'`
-        : '';
+      // statusFilter 허용 목록으로 화이트리스트 검증 (SQL Injection 방지)
+      const ALLOWED_STATUSES = ['active', 'inactive', 'draft', 'discontinued'] as const;
+      const safeStatus = ALLOWED_STATUSES.includes(statusFilter as typeof ALLOWED_STATUSES[number])
+        ? statusFilter
+        : null;
 
       // 1. Grade counts + total
-      const gradeCounts = await this.prisma.$queryRawUnsafe<
+      const gradeCounts = await this.prisma.$queryRaw<
         { abc_grade: string | null; cnt: number }[]
-      >(`
+      >`
         SELECT p.abc_grade, COUNT(*)::int AS cnt
         FROM products p
-        WHERE p.is_deleted = false ${statusWhere}
+        WHERE p.is_deleted = false
+          AND (${safeStatus}::text IS NULL OR p.status = ${safeStatus})
         GROUP BY p.abc_grade
-      `);
+      `;
 
       let total = 0;
       let gradeA = 0;
@@ -616,24 +632,26 @@ export class ProductsService {
       }
 
       // 2. 적자 (net_profit < 0) — distinct product count
-      const [minusRow] = await this.prisma.$queryRawUnsafe<{ cnt: number }[]>(`
+      const [minusRow] = await this.prisma.$queryRaw<{ cnt: number }[]>`
         SELECT COUNT(DISTINCT pl.product_id)::int AS cnt
         FROM profit_loss pl
         JOIN products p ON p.id = pl.product_id
         WHERE pl.net_profit < 0
-          AND p.is_deleted = false ${statusWhere}
-      `);
+          AND p.is_deleted = false
+          AND (${safeStatus}::text IS NULL OR p.status = ${safeStatus})
+      `;
 
       // 3. 3%이하 (0 <= profit rate <= 3%) — net_profit >= 0, revenue > 0, rate <= 3
-      const [lowRow] = await this.prisma.$queryRawUnsafe<{ cnt: number }[]>(`
+      const [lowRow] = await this.prisma.$queryRaw<{ cnt: number }[]>`
         SELECT COUNT(DISTINCT pl.product_id)::int AS cnt
         FROM profit_loss pl
         JOIN products p ON p.id = pl.product_id
         WHERE pl.net_profit >= 0
           AND pl.revenue > 0
           AND (CAST(pl.net_profit AS FLOAT) / pl.revenue * 100) <= 3
-          AND p.is_deleted = false ${statusWhere}
-      `);
+          AND p.is_deleted = false
+          AND (${safeStatus}::text IS NULL OR p.status = ${safeStatus})
+      `;
 
       // 4. Grade changes — net change per grade from grade_histories
       const gradeChanges = await this.prisma.$queryRaw<
@@ -655,32 +673,32 @@ export class ProductsService {
       }
 
       // 5. Ad counts
-      const [adRow] = await this.prisma.$queryRawUnsafe<{ ad_count: number; no_ad_count: number }[]>(`
+      const [adRow] = await this.prisma.$queryRaw<{ ad_count: number; no_ad_count: number }[]>`
         SELECT
           COUNT(*) FILTER (WHERE p.ad_tier IS NOT NULL AND p.ad_tier != '')::int AS ad_count,
           COUNT(*) FILTER (WHERE p.ad_tier IS NULL OR p.ad_tier = '')::int AS no_ad_count
         FROM products p
-        WHERE p.is_deleted = false ${statusWhere}
-      `);
+        WHERE p.is_deleted = false
+          AND (${safeStatus}::text IS NULL OR p.status = ${safeStatus})
+      `;
 
       // 6. 등급별 14일 매출 — 상품당 최신 레코드 1건씩만 (이전 업로드 제외)
       const t14Start = new Date();
       t14Start.setDate(t14Start.getDate() - 14);
-      const t14StartStr = t14Start.toISOString().slice(0, 10);
 
-      const gradeRevRows = await this.prisma.$queryRawUnsafe<
+      const gradeRevRows = await this.prisma.$queryRaw<
         { abc_grade: string | null; total_revenue: number; total_ad_cost: number }[]
-      >(`
+      >`
         WITH agg14 AS (
           SELECT DISTINCT ON (product_id) product_id, revenue
           FROM traffic_stats
-          WHERE period_days >= 14 AND date >= '${t14StartStr}'
+          WHERE period_days >= 14 AND date >= ${t14Start}
           ORDER BY product_id, period_days DESC, date DESC
         ),
         daily_sum AS (
           SELECT ts.product_id, SUM(ts.revenue)::int AS revenue
           FROM traffic_stats ts
-          WHERE ts.period_days = 1 AND ts.date >= '${t14StartStr}'
+          WHERE ts.period_days = 1 AND ts.date >= ${t14Start}
             AND NOT EXISTS (SELECT 1 FROM agg14 a WHERE a.product_id = ts.product_id)
           GROUP BY ts.product_id
         ),
@@ -699,9 +717,10 @@ export class ProductsService {
           FROM profit_loss
           GROUP BY product_id
         ) pl ON pl.product_id = p.id
-        WHERE p.is_deleted = false ${statusWhere}
+        WHERE p.is_deleted = false
+          AND (${safeStatus}::text IS NULL OR p.status = ${safeStatus})
         GROUP BY p.abc_grade
-      `);
+      `;
 
       let gradeRevA = 0, gradeRevB = 0, gradeRevC = 0;
       let gradeAdA = 0, gradeAdB = 0, gradeAdC = 0;

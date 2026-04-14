@@ -1,37 +1,77 @@
 "use client";
 
-import { Megaphone, AlertTriangle } from "lucide-react";
+import { Megaphone, AlertTriangle, ChevronRight } from "lucide-react";
 import {
   ComposedChart, Bar, Line, XAxis, YAxis, Tooltip,
   ResponsiveContainer, CartesianGrid,
 } from "recharts";
-import { formatKRW } from "@/lib/utils";
+import { useQuery } from "@tanstack/react-query";
+import { cn, formatKRW, formatNumber } from "@/lib/utils";
+import { apiClient } from "@/lib/api-client";
+import { queryKeys } from "@/lib/query-keys";
+import { roasColor } from "../lib/status-colors";
 import type { AdWeeklyPlan, AdTrendsData, AdCampaignSnapshot } from "@kiditem/shared";
-import type { CampaignProductData } from "../hooks/useAdOpsData";
 import AdSidePanel from "./AdSidePanel";
 
 type RuleItem = { name: string; grade: string | null; rule: string; action: string; priority: string; roas: number; spend: number };
+
+function CampaignSummary({ campaigns, onSelect }: { campaigns: AdCampaignSnapshot[]; onSelect: (name?: string) => void }) {
+  const { data: adsConfig } = useQuery({
+    queryKey: queryKeys.ads.config(),
+    queryFn: () =>
+      apiClient.get<{ roas: { thresholds: { excellent: number; warning: number; poor: number } } }>(
+        "/api/ads/config",
+      ),
+  });
+  const roasT = adsConfig?.roas?.thresholds ?? { excellent: 300, warning: 200, poor: 100 };
+
+  const top = campaigns.slice(0, 5);
+  if (top.length === 0) return null;
+
+  return (
+    <div className="rounded-2xl overflow-hidden" style={{ background: "var(--card-bg)", boxShadow: "var(--shadow-md)", border: "1px solid var(--border-subtle)" }}>
+      <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+        <div className="flex items-center gap-2">
+          <Megaphone size={14} style={{ color: "var(--primary)" }} />
+          <h3 className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>캠페인 현황</h3>
+        </div>
+        <button onClick={() => onSelect()} className="text-xs font-semibold flex items-center gap-0.5" style={{ color: "var(--primary)" }}>
+          전체보기 <ChevronRight size={12} />
+        </button>
+      </div>
+      <div className="divide-y" style={{ borderColor: "var(--border-subtle)" }}>
+        {top.map((c) => (
+          <button
+            key={c.campaignName}
+            onClick={() => onSelect(c.campaignName)}
+            className="w-full flex items-center justify-between px-5 py-3 transition-colors text-left hover:bg-[var(--surface-sunken)]"
+          >
+            <div>
+              <div className="text-[13px] font-semibold" style={{ color: "var(--text-primary)" }}>{c.campaignName}</div>
+              <div className="text-[11px] mt-0.5" style={{ color: "var(--text-tertiary)" }}>
+                클릭 {formatNumber(c.clicks)} · 전환 {c.conversions}
+              </div>
+            </div>
+            <div className="text-right">
+              <div className="text-[13px] font-semibold tabular-nums" style={{ color: "var(--text-primary)" }}>{formatKRW(c.adRevenue)}원</div>
+              <div className={cn("text-[11px] font-semibold tabular-nums", roasColor(c.roas ?? 0, roasT))}>
+                ROAS {c.roas ?? 0}%
+              </div>
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 interface StatusContentProps {
   rules: RuleItem[];
   strategy: AdWeeklyPlan | null;
   trends: AdTrendsData | null;
   wingKpis: Record<string, string | { value: string; change?: string; numValue?: number }>;
-  orderedCampaigns: AdCampaignSnapshot[];
-  selectedCampaign: string | null;
-  camp: AdCampaignSnapshot | undefined;
-  pagedProducts: CampaignProductData[];
-  products: CampaignProductData[];
-  prodPage: number;
-  prodPageSize: number;
-  totalPages: number;
-  period: string;
-  onSelectCampaign: (name: string) => void;
-  onClearCampaign: () => void;
-  onSetProdPage: (updater: (p: number) => number) => void;
-  onDragStart: (idx: number) => void;
-  onDragOver: (e: React.DragEvent, idx: number) => void;
-  onDragEnd: () => void;
+  campaigns: AdCampaignSnapshot[];
+  onGoToCampaign: (name?: string) => void;
 }
 
 export default function StatusContent({
@@ -39,17 +79,8 @@ export default function StatusContent({
   strategy,
   trends,
   wingKpis,
-  orderedCampaigns,
-  selectedCampaign,
-  camp,
-  pagedProducts,
-  products,
-  prodPage,
-  prodPageSize,
-  totalPages,
-  onSelectCampaign,
-  onClearCampaign,
-  onSetProdPage,
+  campaigns,
+  onGoToCampaign,
 }: StatusContentProps) {
   return (
     <div className="space-y-5">
@@ -161,119 +192,8 @@ export default function StatusContent({
         </div>
       )}
 
-      {/* 캠페인 리스트 */}
-      {orderedCampaigns.length > 0 && (
-        <div className="rounded-2xl overflow-hidden" style={{ background: "var(--card-bg)", boxShadow: "var(--shadow-md)", border: "1px solid var(--border-subtle)" }}>
-          <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
-            <div className="flex items-center gap-2">
-              <Megaphone size={15} style={{ color: "var(--primary)" }} />
-              <h3 className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>캠페인</h3>
-              <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: "var(--primary-subtle)", color: "var(--primary)" }}>{orderedCampaigns.length}개</span>
-            </div>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="text-[11px] font-semibold uppercase" style={{ background: "var(--surface-sunken)", color: "var(--text-secondary)" }}>
-                  <th className="text-left px-5 py-2.5">캠페인명</th>
-                  <th className="text-right px-4 py-2.5">광고비</th>
-                  <th className="text-right px-4 py-2.5">전환매출</th>
-                  <th className="text-right px-4 py-2.5">ROAS</th>
-                  <th className="text-right px-4 py-2.5">클릭</th>
-                  <th className="text-right px-4 py-2.5">CTR</th>
-                </tr>
-              </thead>
-              <tbody>
-                {orderedCampaigns.map((c) => {
-                  const roasVal = Math.max(0, c.roas ?? 0);
-                  const isEmpty = c.adSpend === 0 && c.adRevenue === 0;
-                  return (
-                    <tr key={c.campaignName} onClick={() => { onSelectCampaign(c.campaignName); }}
-                      className="cursor-pointer transition-colors" style={{ borderBottom: "1px solid var(--border-subtle)", opacity: isEmpty ? 0.45 : 1 }}>
-                      <td className="px-5 py-3 text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{c.campaignName}</td>
-                      <td className="text-right px-4 py-3 text-sm tabular-nums" style={{ color: "var(--text-secondary)" }}>{formatKRW(c.adSpend)}원</td>
-                      <td className="text-right px-4 py-3 text-sm font-semibold tabular-nums" style={{ color: c.adRevenue > 0 ? "#059669" : "var(--text-quaternary)" }}>{formatKRW(c.adRevenue)}원</td>
-                      <td className="text-right px-4 py-3 text-sm font-bold tabular-nums" style={{ color: roasVal >= 300 ? "#059669" : roasVal >= 100 ? "#f59e0b" : roasVal > 0 ? "#dc2626" : "var(--text-quaternary)" }}>{roasVal > 0 ? `${Math.round(roasVal)}%` : "-"}</td>
-                      <td className="text-right px-4 py-3 text-sm tabular-nums" style={{ color: "var(--text-secondary)" }}>{c.clicks.toLocaleString()}</td>
-                      <td className="text-right px-4 py-3 text-sm tabular-nums" style={{ color: "var(--text-secondary)" }}>{(c.ctr ?? 0) > 0 ? `${c.ctr}%` : "-"}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* 캠페인 상세 — 상품 리스트 */}
-      {selectedCampaign && camp && (
-        <div className="rounded-2xl overflow-hidden" style={{ background: "var(--card-bg)", boxShadow: "var(--shadow-md)", border: "1px solid var(--border-subtle)" }}>
-          <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
-            <div className="flex items-center gap-2">
-              <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>캠페인</span>
-              <span className="text-sm font-bold" style={{ color: "var(--primary)" }}>{selectedCampaign}</span>
-            </div>
-            <button onClick={onClearCampaign} className="text-xs px-2 py-1 rounded-lg" style={{ color: "var(--text-tertiary)" }}>닫기</button>
-          </div>
-          <div className="grid grid-cols-6 gap-3 px-5 py-3" style={{ borderBottom: "1px solid var(--border-subtle)" }}>
-            {[
-              { label: "광고비", value: formatKRW(camp.adSpend) + "원" },
-              { label: "전환매출", value: formatKRW(camp.adRevenue) + "원" },
-              { label: "노출", value: camp.impressions.toLocaleString() },
-              { label: "클릭", value: camp.clicks.toLocaleString() },
-              { label: "ROAS", value: Math.round(camp.roas ?? 0) + "%" },
-              { label: "전환율", value: (camp.conversionRate ?? 0) + "%" },
-            ].map(k => (
-              <div key={k.label} className="rounded-lg p-2" style={{ background: "var(--surface-sunken)" }}>
-                <div className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>{k.label}</div>
-                <div className="text-base font-bold tabular-nums" style={{ color: "var(--text-primary)" }}>{k.value}</div>
-              </div>
-            ))}
-          </div>
-          {products.length > 0 && (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="text-[11px] font-semibold uppercase" style={{ background: "var(--surface-sunken)", color: "var(--text-secondary)" }}>
-                    <th className="text-left px-4 py-2.5 w-[60px]">상태</th>
-                    <th className="text-left px-4 py-2.5">상품명</th>
-                    <th className="text-right px-3 py-2.5">광고비</th>
-                    <th className="text-right px-3 py-2.5">전환매출</th>
-                    <th className="text-right px-3 py-2.5">클릭</th>
-                    <th className="text-right px-3 py-2.5">CTR</th>
-                    <th className="text-right px-3 py-2.5">전환수</th>
-                    <th className="text-right px-3 py-2.5">ROAS</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pagedProducts.map((p, i) => (
-                    <tr key={i} style={{ borderBottom: "1px solid var(--border-subtle)" }}>
-                      <td className="px-4 py-2.5"><span className="inline-flex rounded-md px-2 py-0.5 text-[10px] font-bold" style={{ background: p.onOff === "ON" ? "#059669" : "var(--text-quaternary)", color: "#fff" }}>{p.onOff || "OFF"}</span></td>
-                      <td className="px-4 py-2.5 text-sm font-medium truncate max-w-[300px]" style={{ color: "var(--text-primary)" }}>{p.productName.replace(/\s*ID\s*:\s*\d+/, "").trim()}</td>
-                      <td className="text-right px-3 py-2.5 text-sm tabular-nums" style={{ color: "var(--text-secondary)" }}>{formatKRW(p.adSpend)}원</td>
-                      <td className="text-right px-3 py-2.5 text-sm tabular-nums font-medium" style={{ color: p.adRevenue > 0 ? "#059669" : "var(--text-quaternary)" }}>{p.adRevenue > 0 ? formatKRW(p.adRevenue) + "원" : "0원"}</td>
-                      <td className="text-right px-3 py-2.5 text-sm tabular-nums" style={{ color: "var(--text-secondary)" }}>{p.clicks.toLocaleString()}</td>
-                      <td className="text-right px-3 py-2.5 text-sm tabular-nums" style={{ color: "var(--text-secondary)" }}>{(p.ctr ?? 0) > 0 ? p.ctr + "%" : "-"}</td>
-                      <td className="text-right px-3 py-2.5 text-sm tabular-nums" style={{ color: "var(--text-secondary)" }}>{p.adConversions}건</td>
-                      <td className="text-right px-3 py-2.5 text-sm font-bold tabular-nums" style={{ color: (p.roas ?? 0) >= 300 ? "#059669" : (p.roas ?? 0) >= 100 ? "#f59e0b" : "var(--text-tertiary)" }}>{p.roas ?? 0}%</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-          {products.length > prodPageSize && (
-            <div className="flex items-center justify-between px-5 py-2.5 text-xs" style={{ borderTop: "1px solid var(--border-subtle)", background: "var(--surface-sunken)" }}>
-              <span style={{ color: "var(--text-secondary)" }}>{products.length}개 중 {(prodPage-1)*prodPageSize+1}~{Math.min(prodPage*prodPageSize, products.length)}</span>
-              <div className="flex items-center gap-2">
-                <button onClick={() => onSetProdPage(p => Math.max(1, p-1))} disabled={prodPage<=1} className="px-2.5 py-1 rounded-lg disabled:opacity-30" style={{ border: "1px solid var(--border-subtle)" }}>◀</button>
-                <span>{prodPage}/{totalPages}</span>
-                <button onClick={() => onSetProdPage(p => Math.min(totalPages, p+1))} disabled={prodPage>=totalPages} className="px-2.5 py-1 rounded-lg disabled:opacity-30" style={{ border: "1px solid var(--border-subtle)" }}>▶</button>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
+      {/* 캠페인 현황 요약 */}
+      <CampaignSummary campaigns={campaigns} onSelect={onGoToCampaign} />
     </div>
   );
 }

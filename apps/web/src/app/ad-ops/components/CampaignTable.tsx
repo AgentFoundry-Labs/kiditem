@@ -4,25 +4,11 @@ import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatKRW, formatNumber } from '@/lib/utils';
-import { roasColor } from '../../lib/status-colors';
-
-interface CampaignItem {
-  campaignName: string;
-  date: string;
-  adSpend: number;
-  adRevenue: number;
-  impressions: number;
-  clicks: number;
-  ctr: number | null;
-  conversions: number;
-  roas: number | null;
-  conversionRate: number | null;
-  budget: number | null;
-  todaySpend: number | null;
-}
+import { roasColor } from '../lib/status-colors';
+import type { AdCampaignSnapshot } from '@kiditem/shared';
 
 interface Props {
-  campaigns: CampaignItem[];
+  campaigns: AdCampaignSnapshot[];
   sortBy: 'revenue' | 'roas';
   onSortChange: (sort: 'revenue' | 'roas') => void;
   selectedCampaign: string | null;

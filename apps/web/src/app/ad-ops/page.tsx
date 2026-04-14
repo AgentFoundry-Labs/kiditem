@@ -1,14 +1,13 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import { RefreshCw, Brain, AlertTriangle } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query-keys";
 import PageSkeleton from "@/components/ui/PageSkeleton";
-import ScrapeCollector from "@/app/ads/collect/components/ScrapeCollector";
+import ScrapeCollector from "./components/ScrapeCollector";
 import {
   useAdOpsData,
-  useAdOpsSelectedCampaign,
   useRegisterCampaign,
   useAiRefreshPlan,
 } from "./hooks/useAdOpsData";
@@ -18,17 +17,13 @@ import type { TabKey } from "./lib/types";
 import KpiDashboard from "./components/KpiDashboard";
 import StatusContent from "./components/StatusContent";
 import StrategyContent from "./components/StrategyContent";
+import CampaignContent from "./components/CampaignContent";
 import RegisterCampaignModal from "./components/RegisterCampaignModal";
 import ExposureAnalysis from "./components/ExposureAnalysis";
 
 export default function AdOpsPage() {
   const [tab, setTab] = useState<TabKey>("status");
   const [period, setPeriod] = useState("14d");
-  const [campaignOrder, setCampaignOrder] = useState<string[]>([]);
-  const [selectedCampaign, setSelectedCampaign] = useState<string | null>(null);
-  const [prodPage, setProdPage] = useState(1);
-  const [prodPageSize] = useState(20);
-  const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [selectedGrade, setSelectedGrade] = useState<string | null>(null);
   const [gradeFilter, setGradeFilter] = useState<Record<string, "all" | "existing" | "new" | "recommended">>({ A: "all", B: "all", C: "all" });
   const [gradeSearch, setGradeSearch] = useState<Record<string, string>>({ A: "", B: "", C: "" });
@@ -37,6 +32,7 @@ export default function AdOpsPage() {
   const [budgetInput, setBudgetInput] = useState("300,000");
   const [registerModal, setRegisterModal] = useState<RegisterCampaignPayload | null>(null);
   const [registerError, setRegisterError] = useState<string | null>(null);
+  const [initialCampaign, setInitialCampaign] = useState<string | null>(null);
 
   const queryClient = useQueryClient();
 
@@ -48,50 +44,22 @@ export default function AdOpsPage() {
     dashboard: dashboardQuery,
     trends: trendsQuery,
     exposure: exposureQuery,
-    trafficSummary: trafficSummaryQuery,
     isLoading,
   } = useAdOpsData(period, tab);
 
-  const campaignProductsQuery = useAdOpsSelectedCampaign(selectedCampaign, period);
   const registerMutation = useRegisterCampaign();
 
-  // ── Derived data ──
-  const rawCampaigns = campaignsQuery.data?.campaigns ?? [];
+  const campaigns = campaignsQuery.data?.campaigns ?? [];
   const totalKpi = campaignsQuery.data?.totalKpi ?? {};
-  const sortedCampaigns = useMemo(
-    () =>
-      [...rawCampaigns].sort((a, b) => {
-        if (b.adRevenue !== a.adRevenue) return b.adRevenue - a.adRevenue;
-        if ((b.roas ?? 0) !== (a.roas ?? 0)) return (b.roas ?? 0) - (a.roas ?? 0);
-        return b.clicks - a.clicks;
-      }),
-    [rawCampaigns],
-  );
-
-  const campaignOrderToUse =
-    campaignOrder.length === sortedCampaigns.length
-      ? campaignOrder
-      : sortedCampaigns.map((c) => c.campaignName);
-
   const rules = rulesQuery.data?.recommendations ?? [];
   const wingKpis = wingStatusQuery.data?.wing?.kpis ?? {};
   const strategy = strategyQuery.data ?? null;
   const wingAdData = dashboardQuery.data?.trafficKpi?.adSummary ?? null;
-  const trafficSummary = trafficSummaryQuery.data ?? null;
   const trends = trendsQuery.data ?? null;
   const exposureData = exposureQuery.data ?? null;
-  const products = campaignProductsQuery.data?.products ?? [];
 
   const roas = totalKpi.roas || 0;
   const urgentCount = rules.filter((r) => r.priority === "urgent").length;
-
-  const camp = sortedCampaigns.find((c) => c.campaignName === selectedCampaign);
-  const totalPages = Math.ceil(products.length / prodPageSize);
-  const pagedProducts = products.slice((prodPage - 1) * prodPageSize, prodPage * prodPageSize);
-
-  const orderedCampaigns = campaignOrderToUse
-    .map((name) => sortedCampaigns.find((c) => c.campaignName === name))
-    .filter(Boolean) as typeof sortedCampaigns;
 
   const aiRefreshMutation = useAiRefreshPlan(period);
 
@@ -100,17 +68,10 @@ export default function AdOpsPage() {
     queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.summary() });
   };
 
-  const handleDragStart = (idx: number) => setDragIdx(idx);
-  const handleDragOver = (e: React.DragEvent, idx: number) => {
-    e.preventDefault();
-    if (dragIdx === null || dragIdx === idx) return;
-    const newOrder = [...campaignOrderToUse];
-    const [moved] = newOrder.splice(dragIdx, 1);
-    newOrder.splice(idx, 0, moved);
-    setCampaignOrder(newOrder);
-    setDragIdx(idx);
+  const handleGoToCampaign = (name?: string) => {
+    setInitialCampaign(name ?? null);
+    setTab("campaign");
   };
-  const handleDragEnd = () => setDragIdx(null);
 
   const handleRegisterSubmit = async () => {
     if (!registerModal) return;
@@ -171,7 +132,7 @@ export default function AdOpsPage() {
           wingAdData={wingAdData}
           period={period}
           roas={roas}
-          trendsDaily={(trendsQuery.data as any)?.daily ?? null}
+          trendsDaily={(trendsQuery.data as { daily?: unknown[] } | undefined)?.daily ?? null}
         />
 
         {/* ════════ 탭 네비게이션 ════════ */}
@@ -198,21 +159,8 @@ export default function AdOpsPage() {
               strategy={strategy}
               trends={trends}
               wingKpis={wingKpis}
-              orderedCampaigns={orderedCampaigns}
-              selectedCampaign={selectedCampaign}
-              camp={camp}
-              pagedProducts={pagedProducts}
-              products={products}
-              prodPage={prodPage}
-              prodPageSize={prodPageSize}
-              totalPages={totalPages}
-              period={period}
-              onSelectCampaign={(name) => { setSelectedCampaign(name); setProdPage(1); }}
-              onClearCampaign={() => setSelectedCampaign(null)}
-              onSetProdPage={setProdPage}
-              onDragStart={handleDragStart}
-              onDragOver={handleDragOver}
-              onDragEnd={handleDragEnd}
+              campaigns={campaigns}
+              onGoToCampaign={handleGoToCampaign}
             />
           )}
 
@@ -235,6 +183,10 @@ export default function AdOpsPage() {
               onAiRefresh={() => aiRefreshMutation.mutate()}
               isAiRefreshing={aiRefreshMutation.isPending}
             />
+          )}
+
+          {tab === "campaign" && (
+            <CampaignContent initialCampaign={initialCampaign} />
           )}
 
           {tab === "exposure" && (

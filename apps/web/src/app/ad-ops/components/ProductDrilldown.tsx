@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatKRW, formatNumber } from '@/lib/utils';
-import { roasColor } from '../../lib/status-colors';
+import { roasColor } from '../lib/status-colors';
 
 interface ProductItem {
   imageUrl: string | null;

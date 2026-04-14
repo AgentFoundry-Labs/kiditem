@@ -1,11 +1,15 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ExtensionSyncDto } from '../dto';
 import type { NormalizedCampaignKpi } from './types';
 
 @Injectable()
 export class AdSyncService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly eventEmitter: EventEmitter2,
+  ) {}
 
   private async getDefaultCompanyId(): Promise<string> {
     const company = await this.prisma.company.findFirst({
@@ -114,7 +118,7 @@ export class AdSyncService {
     const period = String(payload.period || '7d');
     const today = new Date(new Date().toISOString().slice(0, 10));
     const kpis = payload.kpis || {};
-    const normalizedRows: any[] = payload.normalizedRows || [];
+    const normalizedRows = payload.normalizedRows ?? [];
     const capturedAt = payload.timestamp ? new Date(payload.timestamp) : new Date();
 
     // 전체 KPI 스냅샷 저장 (level=campaign, campaignName=_전체)
@@ -291,7 +295,7 @@ export class AdSyncService {
     productMap: Map<string, string>,
   ) {
     const source = payload.source || 'unknown';
-    const rows: any[] = payload.data || [];
+    const rows = payload.data ?? [];
     let upserted = 0;
 
     // Wing 아이템위너 데이터 저장
@@ -353,7 +357,7 @@ export class AdSyncService {
     }
 
     // 광고센터 normalizedRows가 있으면 AdSnapshot 저장
-    const normalizedRows: any[] = payload.normalizedRows || [];
+    const normalizedRows = payload.normalizedRows ?? [];
     let snapshotCount = 0;
     if (source === 'advertising' && normalizedRows.length > 0) {
       for (const row of normalizedRows) {
@@ -419,10 +423,23 @@ export class AdSyncService {
       ? payload.startDate.slice(0, 10)
       : new Date().toISOString().slice(0, 10);
     const today = new Date(dateStr);
-    const data: any[] = payload.data || [];
+    const data = payload.data ?? [];
     let upserted = 0;
 
-    const toUpsert: any[] = [];
+    type TrafficUpsertRow = {
+      productId: string;
+      date: Date;
+      periodDays: number;
+      visitors: number;
+      views: number;
+      cartAdds: number;
+      orders: number;
+      salesQty: number;
+      revenue: number;
+      conversionRate: number;
+    };
+
+    const toUpsert: TrafficUpsertRow[] = [];
     for (const item of data) {
       const productId = productMap.get(String(item.productId || item.vendorItemId));
       if (!productId) continue;
@@ -507,7 +524,7 @@ export class AdSyncService {
 
     // traffic 동기화 완료 후 ABC 등급 자동 재분류
     if (upserted > 0) {
-      fetch('http://localhost:4000/api/products/classify-grades', { method: 'POST' }).catch(() => {});
+      this.eventEmitter.emit('products.classify-grades');
     }
 
     return {
@@ -524,7 +541,7 @@ export class AdSyncService {
    * data: [{ date, adSpend, adRevenue, impressions, clicks, conversions, orders, roas, ctr, conversionRate }]
    */
   private async handleCoupangAdsDaily(payload: ExtensionSyncDto, companyId: string) {
-    const rows: any[] = payload.data || [];
+    const rows = payload.data ?? [];
     let upserted = 0;
 
     for (const row of rows) {
