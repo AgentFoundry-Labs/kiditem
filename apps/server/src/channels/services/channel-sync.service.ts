@@ -57,15 +57,10 @@ export class ChannelSyncService {
     }
   }
 
-  async syncProducts(): Promise<SyncResult> {
+  async syncProducts(companyId: string): Promise<SyncResult> {
     const result: SyncResult = { synced: 0, errors: 0, details: [] };
 
     try {
-      const company = await this.getDefaultCompany();
-      if (!company) {
-        return { synced: 0, errors: 1, details: ['활성 회사가 없습니다'] };
-      }
-
       const allSellerProductIds = await this.fetchAllSellerProductIds(result);
 
       this.logger.log(
@@ -74,7 +69,7 @@ export class ChannelSyncService {
 
       for (const sellerProductId of allSellerProductIds) {
         try {
-          await this.syncSingleProduct(sellerProductId, company.id);
+          await this.syncSingleProduct(sellerProductId, companyId);
           result.synced++;
         } catch (error: unknown) {
           result.errors++;
@@ -100,15 +95,10 @@ export class ChannelSyncService {
     return result;
   }
 
-  async syncOrders(from?: Date, to?: Date): Promise<SyncResult> {
+  async syncOrders(companyId: string, from?: Date, to?: Date): Promise<SyncResult> {
     const result: SyncResult = { synced: 0, errors: 0, details: [] };
 
     try {
-      const company = await this.getDefaultCompany();
-      if (!company) {
-        return { synced: 0, errors: 1, details: ['활성 회사가 없습니다'] };
-      }
-
       const dateTo = to ?? new Date();
       const dateFrom =
         from ?? new Date(dateTo.getTime() - 7 * 24 * 60 * 60 * 1000);
@@ -134,7 +124,7 @@ export class ChannelSyncService {
 
       for (const order of orders) {
         try {
-          await this.syncSingleOrder(order, company.id);
+          await this.syncSingleOrder(order, companyId);
           result.synced++;
         } catch (error: unknown) {
           result.errors++;
@@ -160,18 +150,13 @@ export class ChannelSyncService {
     return result;
   }
 
-  async syncInventory(): Promise<SyncResult> {
+  async syncInventory(companyId: string): Promise<SyncResult> {
     const result: SyncResult = { synced: 0, errors: 0, details: [] };
 
     try {
-      const company = await this.getDefaultCompany();
-      if (!company) {
-        return { synced: 0, errors: 1, details: ['활성 회사가 없습니다'] };
-      }
-
       const syncedProducts = await this.prisma.product.findMany({
         where: {
-          companyId: company.id,
+          companyId,
           coupangProductId: { not: null },
         },
         include: {
@@ -205,7 +190,7 @@ export class ChannelSyncService {
             } else {
               await this.prisma.inventory.create({
               data: {
-                companyId: company.id,
+                companyId: companyId,
                 productId: product.id,
                 currentStock: totalStock,
                 reservedStock: 0,
@@ -248,7 +233,7 @@ export class ChannelSyncService {
               where: { masterProductId },
               update: { currentStock: totalStock },
               create: {
-                companyId: company.id,
+                companyId: companyId,
                 masterProductId,
                 currentStock: totalStock,
                 safetyStock: 0,
@@ -272,13 +257,6 @@ export class ChannelSyncService {
       `Inventory sync complete: ${result.synced} synced, ${result.errors} errors`,
     );
     return result;
-  }
-
-  private async getDefaultCompany() {
-    return this.prisma.company.findFirst({
-      where: { isActive: true },
-      select: { id: true },
-    });
   }
 
   private async fetchAllSellerProductIds(

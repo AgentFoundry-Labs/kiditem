@@ -7,7 +7,7 @@ import type { MulterFile } from '../common/types';
 export class TrafficService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async uploadTrafficStats(file: MulterFile) {
+  async uploadTrafficStats(file: MulterFile, companyId: string) {
     if (file.size > 10 * 1024 * 1024) {
       throw new BadRequestException('파일 크기 10MB 초과');
     }
@@ -59,7 +59,7 @@ export class TrafficService {
     }
 
     const products = await this.prisma.product.findMany({
-      where: { coupangProductId: { not: null } },
+      where: { companyId, coupangProductId: { not: null } },
       select: { id: true, coupangProductId: true },
     });
     const productMap = new Map(

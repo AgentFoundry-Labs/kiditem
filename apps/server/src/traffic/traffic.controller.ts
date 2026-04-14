@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { TrafficService } from './traffic.service';
+import { CurrentCompany } from '../auth/decorators/current-company.decorator';
 
 interface MulterFile {
   fieldname: string;
@@ -42,10 +43,13 @@ export class TrafficController {
       },
     }),
   )
-  async upload(@UploadedFile() file: MulterFile) {
+  async upload(
+    @UploadedFile() file: MulterFile,
+    @CurrentCompany() companyId: string,
+  ) {
     if (!file) {
       throw new BadRequestException('파일이 필요합니다.');
     }
-    return this.trafficService.uploadTrafficStats(file);
+    return this.trafficService.uploadTrafficStats(file, companyId);
   }
 }

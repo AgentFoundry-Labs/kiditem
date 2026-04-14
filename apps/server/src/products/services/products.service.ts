@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AgentRegistryService } from '../../agent-registry/agent-registry.service';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { paginationParams, type PaginatedResponse } from '../../common/pagination';
 import { resolvePricing, resolveInventory } from '../../common/master-product-resolver';
 import type { ProductListItem } from '@kiditem/shared';
@@ -587,14 +587,17 @@ export class ProductsService {
     noAdCount: number;
   }> {
     try {
-      const statusWhere = statusFilter && statusFilter !== 'all'
-        ? `AND p.status = '${statusFilter}'`
-        : '';
+      // statusFilter 는 DTO `@IsIn(PIPELINE_STATS_STATUS_VALUES)` 로 검증됨.
+      // Prisma.sql fragment 로 안전한 조건부 WHERE 조립.
+      const statusWhere =
+        statusFilter && statusFilter !== 'all'
+          ? Prisma.sql`AND p.status = ${statusFilter}`
+          : Prisma.empty;
 
       // 1. Grade counts + total
-      const gradeCounts = await this.prisma.$queryRawUnsafe<
+      const gradeCounts = await this.prisma.$queryRaw<
         { abc_grade: string | null; cnt: number }[]
-      >(`
+      >(Prisma.sql`
         SELECT p.abc_grade, COUNT(*)::int AS cnt
         FROM products p
         WHERE p.is_deleted = false ${statusWhere}
@@ -614,7 +617,7 @@ export class ProductsService {
       }
 
       // 2. 적자 (net_profit < 0) — distinct product count
-      const [minusRow] = await this.prisma.$queryRawUnsafe<{ cnt: number }[]>(`
+      const [minusRow] = await this.prisma.$queryRaw<{ cnt: number }[]>(Prisma.sql`
         SELECT COUNT(DISTINCT pl.product_id)::int AS cnt
         FROM profit_loss pl
         JOIN products p ON p.id = pl.product_id
@@ -623,7 +626,7 @@ export class ProductsService {
       `);
 
       // 3. 3%이하 (0 <= profit rate <= 3%) — net_profit >= 0, revenue > 0, rate <= 3
-      const [lowRow] = await this.prisma.$queryRawUnsafe<{ cnt: number }[]>(`
+      const [lowRow] = await this.prisma.$queryRaw<{ cnt: number }[]>(Prisma.sql`
         SELECT COUNT(DISTINCT pl.product_id)::int AS cnt
         FROM profit_loss pl
         JOIN products p ON p.id = pl.product_id
@@ -653,7 +656,7 @@ export class ProductsService {
       }
 
       // 5. Ad counts
-      const [adRow] = await this.prisma.$queryRawUnsafe<{ ad_count: number; no_ad_count: number }[]>(`
+      const [adRow] = await this.prisma.$queryRaw<{ ad_count: number; no_ad_count: number }[]>(Prisma.sql`
         SELECT
           COUNT(*) FILTER (WHERE p.ad_tier IS NOT NULL AND p.ad_tier != '')::int AS ad_count,
           COUNT(*) FILTER (WHERE p.ad_tier IS NULL OR p.ad_tier = '')::int AS no_ad_count

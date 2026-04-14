@@ -17,6 +17,7 @@ import { StorageService } from '../../common/storage/storage.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SaveFromUrlDto } from '../dto';
 import type { ProductImageItem } from '@kiditem/shared';
+import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
 
 const ALLOWED_MIMES = ['image/jpeg', 'image/png', 'image/webp'];
 const MAX_SIZE = 5 * 1024 * 1024; // 5MB
@@ -50,8 +51,15 @@ export class ProductImagesController {
   async uploadImage(
     @Param('id') productId: string,
     @UploadedFile() file: Express.Multer.File,
+    @CurrentCompany() companyId: string,
   ) {
     if (!file) throw new BadRequestException('파일이 필요합니다');
+    const product = await this.prisma.product.findFirst({
+      where: { id: productId, companyId },
+      select: { id: true },
+    });
+    if (!product) throw new NotFoundException('Product not found');
+
     const ext = extname(file.originalname) || '.png';
     const key = `product-images/${productId}/${randomUUID()}${ext}`;
     const url = await this.storage.save(key, file.buffer, file.mimetype);
@@ -65,13 +73,19 @@ export class ProductImagesController {
    *       Product.images JSON에 새 URL append (원자적).
    */
   @Post(':id/images/save-from-url')
-  async saveFromUrl(@Param('id') productId: string, @Body() body: SaveFromUrlDto) {
+  async saveFromUrl(
+    @Param('id') productId: string,
+    @Body() body: SaveFromUrlDto,
+    @CurrentCompany() companyId: string,
+  ) {
     const sourceKey = this.storage.extractKey(body.url);
     if (!sourceKey) {
       throw new BadRequestException('스토리지 URL이 아닙니다');
     }
 
-    const product = await this.prisma.product.findUnique({ where: { id: productId } });
+    const product = await this.prisma.product.findFirst({
+      where: { id: productId, companyId },
+    });
     if (!product) throw new NotFoundException('Product not found');
 
     const ext = extname(sourceKey) || '.png';
