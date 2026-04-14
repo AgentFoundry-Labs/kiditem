@@ -29,6 +29,7 @@ extensions/          — Chrome extensions (product-scraper: 1688/Alibaba, coupa
 - **Workflows must never call LLMs directly** — delegate to agents via `agent_task.create`.
 - **No silent model fallback** — `model = model or default` pattern prohibited.
 - **No native PG enums** — `String` + app-level validation. Production cast error experience.
+- **아키텍처 결정 기록** — 경계·정책·폐기 선언·cross-domain 규칙 전복은 `.claude/docs/decisions/NNNN-*.md` 에 ADR 작성. 트리거·운영 규칙은 [decisions/README](.claude/docs/decisions/README.md). 기존 ADR 불변, 뒤집을 땐 새 ADR + `superseded-by`.
 - **PR 생성 시** — `.github/PULL_REQUEST_TEMPLATE.md` 템플릿 내용을 body에 포함하고 체크리스트를 작성할 것. DB 변경/backfill/init.sql.gz 갱신 여부를 반드시 명시.
 - **PR 생성 전 체크** — `gh pr create` 시 pre-hook이 자동 실행. 코드 컨벤션 + 문서 업데이트 체크리스트 확인 후 PR 생성.
 
@@ -40,6 +41,7 @@ extensions/          — Chrome extensions (product-scraper: 1688/Alibaba, coupa
 - [Commands & Environment](.claude/docs/commands.md) — quick start, dev commands, ports, env vars, tests
 - [Workflow & Process](.claude/docs/workflow.md) — autonomy spectrum, verification, collaboration, branches, commits, PRs
 - [Lessons Learned](.claude/docs/lessons.md) — team-shared patterns from past incidents
+- [Architecture Decisions (ADR)](.claude/docs/decisions/README.md) — 아키텍처 결정 이력(불변). 트리거·규칙·도메인별 인덱스
 - [Server Rules](apps/server/CLAUDE.md) — 도메인 모듈 패턴, API 응답, DTO 규칙
 - [Advertising Rules](apps/server/src/advertising/CLAUDE.md) — 광고 도메인 엔드포인트, 데이터 소스
 - [Agent Registry Rules](apps/server/src/agent-registry/CLAUDE.md) — 에이전트 런타임, 프롬프트, 안전장치
