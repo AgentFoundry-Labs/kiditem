@@ -101,7 +101,7 @@ export class HeartbeatService {
           AGENT_EVENTS.BUDGET_WARNING,
           new AgentBudgetWarningEvent(
             agent.id, agent.name, 'exceeded', usageRatio,
-            agent.tokensUsed, agent.monthlyTokenBudget,
+            agent.tokensUsed, agent.monthlyTokenBudget, companyId,
           ),
         );
         return { ok: false, error: 'budget_exceeded', agentId: input.agentId };
@@ -112,7 +112,7 @@ export class HeartbeatService {
           AGENT_EVENTS.BUDGET_WARNING,
           new AgentBudgetWarningEvent(
             agent.id, agent.name, 'critical', usageRatio,
-            agent.tokensUsed, agent.monthlyTokenBudget,
+            agent.tokensUsed, agent.monthlyTokenBudget, companyId,
           ),
         );
       } else if (usageRatio >= 0.80) {
@@ -121,7 +121,7 @@ export class HeartbeatService {
           AGENT_EVENTS.BUDGET_WARNING,
           new AgentBudgetWarningEvent(
             agent.id, agent.name, 'warning', usageRatio,
-            agent.tokensUsed, agent.monthlyTokenBudget,
+            agent.tokensUsed, agent.monthlyTokenBudget, companyId,
           ),
         );
       }
@@ -235,7 +235,7 @@ export class HeartbeatService {
 
     this.eventEmitter.emit(
       AGENT_EVENTS.STATUS_CHANGED,
-      new AgentStatusChangedEvent(agent.id, agent.name, 'running', run.id),
+      new AgentStatusChangedEvent(agent.id, agent.name, 'running', companyId, run.id),
     );
 
     // Skills already built in prefetch above
@@ -480,13 +480,14 @@ export class HeartbeatService {
 
       this.eventEmitter.emit(
         AGENT_EVENTS.STATUS_CHANGED,
-        new AgentStatusChangedEvent(agent.id, agent.name, 'paused', run.id),
+        new AgentStatusChangedEvent(agent.id, agent.name, 'paused', companyId, run.id),
       );
       this.eventEmitter.emit(
         AGENT_EVENTS.AUTO_PAUSED,
         new AgentAutoPausedEvent(
           agent.id, agent.name,
           (updatedAgent as any).rtConsecutiveFailCount,
+          companyId,
           (updatedAgent as any).rtLastError ?? undefined,
         ),
       );
@@ -501,7 +502,7 @@ export class HeartbeatService {
       const finalStatus = status === 'succeeded' ? 'succeeded' : 'failed';
       this.eventEmitter.emit(
         AGENT_EVENTS.STATUS_CHANGED,
-        new AgentStatusChangedEvent(agent.id, agent.name, finalStatus as any, run.id),
+        new AgentStatusChangedEvent(agent.id, agent.name, finalStatus as any, companyId, run.id),
       );
     }
 

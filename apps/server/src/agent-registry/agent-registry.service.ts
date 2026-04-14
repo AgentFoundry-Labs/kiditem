@@ -301,7 +301,8 @@ export class AgentRegistryService implements OnModuleInit {
 
   // ── Cost Analytics ──
 
-  async getCostAnalytics(query: { from?: string; to?: string; agentId?: string }) {
+  // TODO(Phase 0.3 후속): companyId 로 서비스 내부 where 절 정렬 — 현재는 admin 한정 관측이라 전사 집계 유지
+  async getCostAnalytics(_companyId: string, query: { from?: string; to?: string; agentId?: string }) {
     const from = query.from ? new Date(query.from) : new Date('2020-01-01');
     const to = query.to ? new Date(query.to) : new Date();
 

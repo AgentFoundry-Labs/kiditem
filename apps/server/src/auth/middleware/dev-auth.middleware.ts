@@ -30,7 +30,14 @@ export class DevAuthMiddleware implements NestMiddleware {
   async use(req: Request, _res: Response, next: NextFunction): Promise<void> {
     const header = req.headers['x-dev-user-id'];
     const headerValue = Array.isArray(header) ? header[0] : header;
-    const userId = headerValue ?? process.env.DEV_DEFAULT_USER_ID;
+    // SSE용 쿼리 파라미터 fallback — EventSource 는 커스텀 헤더를 보낼 수 없다.
+    // dev 전용: 프로덕션에서는 생성자가 throw 하므로 이 코드 경로 자체가 prod 에서 살아있지 않음.
+    const queryValue = req.query?.devUserId;
+    const queryUserId = Array.isArray(queryValue) ? queryValue[0] : queryValue;
+    const userId =
+      (headerValue as string | undefined)
+      ?? (typeof queryUserId === 'string' ? queryUserId : undefined)
+      ?? process.env.DEV_DEFAULT_USER_ID;
 
     if (!userId) {
       // 인증 정보 없음 — Guard 에서 401 처리

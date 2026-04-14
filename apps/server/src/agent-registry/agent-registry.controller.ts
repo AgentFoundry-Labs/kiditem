@@ -19,7 +19,7 @@ import { DelegationService } from './delegation/delegation.service';
 import { DenialTrackerService } from './safety/denial-tracker.service';
 import { SnapshotService } from './business-safety/snapshot.service';
 import { CurrentCompany } from '../auth/decorators/current-company.decorator';
-import { SkipAuth } from '../auth/decorators/skip-auth.decorator';
+import { Roles } from '../auth/decorators/roles.decorator';
 
 @Controller('agent-registry')
 export class AgentRegistryController {
@@ -41,17 +41,19 @@ export class AgentRegistryController {
     return this.service.getOrgTree(companyId);
   }
 
-  @SkipAuth()
+  @Roles('admin')
   @Sse('events')
-  agentEvents(): Observable<MessageEvent> {
-    return this.sseService.getStream();
+  agentEvents(@CurrentCompany() companyId: string): Observable<MessageEvent> {
+    return this.sseService.getStream(companyId);
   }
 
+  @Roles('admin')
   @Get('cost-analytics')
-  getCostAnalytics(@Query() query: CostAnalyticsQueryDto) {
-    return this.service.getCostAnalytics(query);
+  getCostAnalytics(@CurrentCompany() companyId: string, @Query() query: CostAnalyticsQueryDto) {
+    return this.service.getCostAnalytics(companyId, query);
   }
 
+  @Roles('admin')
   @Get('denials/summary')
   getDenialsSummary(@CurrentCompany() companyId: string) {
     if (!this.denialTracker) return { total: 0, byCategory: {} };
@@ -150,6 +152,7 @@ export class AgentRegistryController {
 
   // ── Permission Denials (#22) ──
 
+  @Roles('admin')
   @Get(':id/denials')
   getDenials(@Param('id') id: string) {
     if (!this.denialTracker) return [];
@@ -158,12 +161,14 @@ export class AgentRegistryController {
 
   // ── Business Safety: Snapshots + Rollback ──
 
+  @Roles('admin')
   @Get('runs/:runId/snapshots')
   getSnapshots(@Param('runId') runId: string) {
     if (!this.snapshotService) return [];
     return this.snapshotService.getSnapshots(runId);
   }
 
+  @Roles('admin')
   @Get('runs/:runId/reasoning')
   async getReasoning(@Param('runId') runId: string) {
     const run = await this.service.getRunById(runId);
@@ -178,6 +183,7 @@ export class AgentRegistryController {
     return { actions };
   }
 
+  @Roles('admin')
   @Post('runs/:runId/rollback')
   rollback(@Param('runId') runId: string) {
     if (!this.snapshotService) return { restored: 0 };

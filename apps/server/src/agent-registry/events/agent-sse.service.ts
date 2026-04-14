@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { Subject, Observable } from 'rxjs';
-import { map } from 'rxjs/operators';
+import { filter, map } from 'rxjs/operators';
 import {
   AgentStatusChangedEvent,
   AgentBudgetWarningEvent,
@@ -9,9 +9,14 @@ import {
   AGENT_EVENTS,
 } from './agent-events';
 
+/**
+ * Internal SSE payload — `companyId` 는 라우팅 전용이며 구독자에게는 직렬화되지 않는다.
+ * (ADR-0008 "Admin role-gated observability" — company 스코프 격리)
+ */
 interface SsePayload {
   type: string;
   data: Record<string, unknown>;
+  companyId: string;
   timestamp: string;
 }
 
@@ -29,6 +34,7 @@ export class AgentSseService {
         status: event.status,
         runId: event.runId,
       },
+      companyId: event.companyId,
       timestamp: new Date().toISOString(),
     });
   }
@@ -45,6 +51,7 @@ export class AgentSseService {
         tokensUsed: event.tokensUsed,
         budget: event.budget,
       },
+      companyId: event.companyId,
       timestamp: new Date().toISOString(),
     });
   }
@@ -59,16 +66,22 @@ export class AgentSseService {
         consecutiveFailCount: event.consecutiveFailCount,
         lastError: event.lastError,
       },
+      companyId: event.companyId,
       timestamp: new Date().toISOString(),
     });
   }
 
   /**
-   * SSE 스트림. companyId로 필터링 가능 (향후 멀티테넌트).
+   * SSE 스트림. 구독자의 `companyId` 와 일치하는 이벤트만 통과.
+   * 클라이언트 응답 직전 `companyId` 는 제거 (내부 라우팅 전용).
    */
-  getStream(): Observable<MessageEvent> {
+  getStream(subscriberCompanyId: string): Observable<MessageEvent> {
     return this.subject.asObservable().pipe(
-      map((payload) => ({ data: payload }) as MessageEvent),
+      filter((payload) => payload.companyId === subscriberCompanyId),
+      map((payload) => {
+        const { companyId: _drop, ...publicPayload } = payload;
+        return { data: publicPayload } as MessageEvent;
+      }),
     );
   }
 }

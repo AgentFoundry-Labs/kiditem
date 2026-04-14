@@ -1,5 +1,6 @@
-import { MiddlewareConsumer, Module, NestModule, RequestMethod } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { PrismaModule } from './prisma/prisma.module';
 import { CommonModule } from './common/common.module';
 import { AuthModule } from './auth/auth.module';
@@ -49,6 +50,9 @@ import { ActionTaskModule } from './action-task/action-task.module';
 
 @Module({
   imports: [
+    // 120 req / 60s / IP — SSE 재연결 폭주 및 brute force 완화.
+    // ThrottlerGuard 는 CompanyScope/Roles 이후 평가되어 비인증 요청은 카운터 영향 없음.
+    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 120 }]),
     PrismaModule,
     AuthModule,
     CommonModule,
@@ -94,15 +98,16 @@ import { ActionTaskModule } from './action-task/action-task.module';
     ActionTaskModule,
   ],
   providers: [
+    // 가드 실행 순서 (providers 선언 순서 = 평가 순서):
+    // CompanyScope → Roles → Throttler. 비인증 요청은 먼저 401 로 탈락해 Throttler 카운터에 영향 없음.
     { provide: APP_GUARD, useClass: CompanyScopeGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
   ],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
-    consumer
-      .apply(DevAuthMiddleware)
-      .exclude({ path: 'api/agent-registry/events', method: RequestMethod.GET })
-      .forRoutes('*');
+    // SSE (`/api/agent-registry/events`) 도 DevAuth 통과 필요 — 쿼리 파라미터 fallback 사용 (dev 전용).
+    consumer.apply(DevAuthMiddleware).forRoutes('*');
   }
 }
