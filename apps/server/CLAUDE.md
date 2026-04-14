@@ -66,6 +66,39 @@ Adding a new domain: create module + controller + service + dto/ → register in
 - Agent prompts: stored in `agent-config/prompts/`, NOT in DB. DB `prompt_template` field holds file path.
 - No data injection in prompts — agents fetch what they need via db-query skill.
 
+## 멀티테넌트 격리 — 회사 스코프 (ADR-0006 연장)
+
+서비스 로직에서 companyId 는 **반드시 `@CurrentCompany()` 데코레이터가 주입한 값** 사용.
+
+### 금지 (Hard bans)
+
+- ❌ **`prisma.company.findFirst({ where: { isActive: true } })` 로 "기본 회사" 집기** — 멀티테넌트에서 타 회사 데이터 섞임. cs.service 와 channel-sync.service 에서 두 번 재발했던 anti-pattern.
+- ❌ **`findUnique({ where: { id } })` 로 리소스 GET/PATCH/DELETE** — id 만으로 크로스-테넌트 접근 가능 (IDOR). 항상 `findFirst({ where: { id, companyId } })` 사용.
+- ❌ `@Body() / @Query()` 에서 `companyId` 수신 — DTO 에 필드 포함 금지 (ADR-0006).
+- ❌ Service 내부에서 `companyId` 기본값 폴백 생성 — 항상 매개변수로 받고, 없으면 throw.
+
+### 패턴
+
+```typescript
+// ✓ 컨트롤러
+@Post('upload')
+async upload(
+  @UploadedFile() file: MulterFile,
+  @CurrentCompany() companyId: string,   // 항상 데코레이터 경유
+) {
+  return this.service.upload(file, companyId);
+}
+
+// ✓ 서비스 — id + companyId 조합으로 접근 권한 검증
+async getProduct(id: string, companyId: string) {
+  const product = await this.prisma.product.findFirst({
+    where: { id, companyId },  // cross-tenant 접근 차단
+  });
+  if (!product) throw new NotFoundException('Product not found');
+  return product;
+}
+```
+
 ## Domain Guides
 
 - **Workflows**: see `src/workflows/CLAUDE.md`

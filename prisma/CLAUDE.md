@@ -83,6 +83,8 @@ docker exec kiditem-postgres pg_dump -U kiditem --data-only --column-inserts \
 - After schema changes: always run `npm run db:push` + `npx prisma generate`
 - Keep Zod schemas in sync: use `satisfies z.infer<typeof Schema>` pattern in services
 - Json 흡수 패턴: 부모의 `items Json @default("[]")` 사용 (CoupangReturn, BundleProduct, WorkflowRun). 서비스에서 `as unknown as T[]` 캐스트.
+- **FK 컬럼에 `@@index` 명시 필수** — Prisma 는 FK 에 자동 인덱스를 만들지 **않는다**. JOIN/역방향 조회가 있는 FK (대부분) 는 명시적 `@@index([foreignKey])` 추가. 복합이 자주 쓰이면 `@@index([companyId, foreignKey])` 등 조합 인덱스도 함께.
+- **Optional FK (`Foo?`) 에도 `onDelete` 명시** — default 동작에 의존하지 말 것. 부모 삭제 시 동작(`SetNull` / `Restrict` / `Cascade`)을 의도에 맞게 기입해 리뷰어가 정책을 바로 읽을 수 있게.
 
 ## 통합 모델 규칙
 
