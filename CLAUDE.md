@@ -37,6 +37,7 @@ extensions/          — Chrome extensions (product-scraper: 1688/Alibaba, coupa
 
 - [Design System](DESIGN.md) — 색상, 타이포, 스페이싱, 컴포넌트 패턴 (Tailwind + Lucide)
 - [ERD](.claude/docs/erd.md) — 사람이 정리한 도메인별 관계도 (9도메인). 자동 추출 보강: [graphify-out/erd/GRAPH_REPORT.md](graphify-out/erd/GRAPH_REPORT.md) — god nodes / 파이프라인 hyperedges / drift 감지. 재생성: `./scripts/graphify-erd.sh` 후 Claude Code에서 `/graphify graphify-out/.erd-corpus --wiki`.
+- **코드 지식그래프**: `graphify-out/{도메인}/` — CLAUDE.md 규칙+패턴이 해당 코드와 함께 클러스터됨. 현재: [server/agent-registry](graphify-out/server/agent-registry/GRAPH_REPORT.md). 새 도메인 빌드: `cd <domain-path> && /graphify . --wiki` 후 `graphify-out/{도메인}/`로 이동. 쿼리 예: `/graphify query "Observer 패턴 관련 파일과 규칙은?"`
 - [Architecture](.claude/docs/architecture.md) — data flow, agent runtimes, @kiditem/shared, workflow vs agent boundary
 - [Commands & Environment](.claude/docs/commands.md) — quick start, dev commands, ports, env vars, tests
 - [Workflow & Process](.claude/docs/workflow.md) — autonomy spectrum, verification, collaboration, branches, commits, PRs
