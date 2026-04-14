@@ -29,6 +29,7 @@ import { ResultCleanupService } from '../lifecycle/result-cleanup.service';
 import { SafetyPipelineService } from '../business-safety/safety-pipeline.service';
 import { DryRunGateService } from '../business-safety/dry-run-gate.service';
 import type { PermissionLayer } from '../permissions/hierarchy.validator';
+import { scrubSecrets } from '@kiditem/shared';
 
 /** Extract company-level permission layer from agent.permissions JSON. Future extension point. */
 function extractCompanyLayer(permissions: Record<string, unknown> | null | undefined): PermissionLayer | undefined {
@@ -391,7 +392,7 @@ export class HeartbeatService {
         exitCode: result.exitCode,
         signal: result.signal,
         errorCode,
-        error: errorCode ? result.stderr.slice(0, 1000) : null,
+        error: errorCode ? scrubSecrets(result.stderr.slice(0, 1000)) : null,
         resultJson: resultJson as any,
         nextSchedule: nextSchedule ?? null,
       },
@@ -437,8 +438,8 @@ export class HeartbeatService {
     // #17 Async Transcript — Step 2: Fire-and-forget (non-critical fields)
     this.eventEmitter.emit(TRANSCRIPT_EVENT, {
       runId: run.id,
-      stdoutExcerpt: result.stdout.slice(0, 5000),
-      stderrExcerpt: result.stderr.slice(0, 2000),
+      stdoutExcerpt: scrubSecrets(result.stdout.slice(0, 5000)),
+      stderrExcerpt: scrubSecrets(result.stderr.slice(0, 2000)),
       usageJson: result.usage ?? null,
       sessionIdAfter: result.sessionIdAfter,
     });
@@ -454,7 +455,7 @@ export class HeartbeatService {
         rtSessionId: result.sessionIdAfter ?? (agentWithRt as any)?.rtSessionId,
         rtLastRunId: run.id,
         rtLastRunStatus: status,
-        rtLastError: errorCode ? result.stderr.slice(0, 500) : null,
+        rtLastError: errorCode ? scrubSecrets(result.stderr.slice(0, 500)) : null,
         rtTotalInputTokens: { increment: result.usage?.inputTokens ?? 0 },
         rtTotalOutputTokens: { increment: result.usage?.outputTokens ?? 0 },
         rtTotalCostCents: { increment: result.usage?.costCents ?? 0 },
@@ -505,7 +506,7 @@ export class HeartbeatService {
     }
 
     // Wakeup 완료
-    await this.wakeupService.finish(wakeup.id, run.id, errorCode ? result.stderr.slice(0, 500) : undefined);
+    await this.wakeupService.finish(wakeup.id, run.id, errorCode ? scrubSecrets(result.stderr.slice(0, 500)) : undefined);
 
     // Legacy AgentTask 동기화 — run() 경유로 생성된 task가 있으면 업데이트
     const payload = wakeup.payload as Record<string, unknown> | null;
@@ -516,7 +517,7 @@ export class HeartbeatService {
           where: { id: legacyTaskId },
           data: {
             status: status === 'succeeded' ? 'completed' : 'failed',
-            error: errorCode ? result.stderr.slice(0, 1000) : null,
+            error: errorCode ? scrubSecrets(result.stderr.slice(0, 1000)) : null,
             completedAt: new Date(),
           },
         });

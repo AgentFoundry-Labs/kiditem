@@ -5,6 +5,7 @@ import { HeartbeatService } from './heartbeat/heartbeat.service';
 import type { AgentListItem, DailyCost, AgentCostSummary, CostAnalytics } from '@kiditem/shared';
 import { validateAllowedTools } from './safety/dangerous-patterns';
 import type { OrgNode } from './types';
+import { scrubSecrets } from '@kiditem/shared';
 
 export type { OrgNode } from './types';
 
@@ -205,7 +206,7 @@ export class AgentRegistryService implements OnModuleInit {
     } catch (err) {
       await this.prisma.agentTask.update({
         where: { id: task.id },
-        data: { status: 'failed', error: `Wakeup failed: ${err instanceof Error ? err.message : err}`, completedAt: new Date() },
+        data: { status: 'failed', error: `Wakeup failed: ${scrubSecrets(err instanceof Error ? err.message : String(err))}`, completedAt: new Date() },
       });
       throw err;
     }

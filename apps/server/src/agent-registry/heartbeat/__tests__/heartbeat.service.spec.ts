@@ -1,4 +1,14 @@
 import { describe, it, expect, vi } from 'vitest';
+
+// Mock adapter execution so executeHeartbeat runs deterministically.
+// Must be declared before `HeartbeatService` import (vi.mock is hoisted).
+let nextAdapterResult: any = null;
+vi.mock('../../adapters/fallback-chain', () => ({
+  executeFallbackChain: async function* () {
+    return nextAdapterResult;
+  },
+}));
+
 import { HeartbeatService } from '../heartbeat.service';
 
 function makePrisma() {
@@ -182,6 +192,88 @@ describe('HeartbeatService', () => {
 
       expect(scheduler.addCronJob).not.toHaveBeenCalled();
       expect(scheduler.addInterval).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('secret scrub (Phase 0.2)', () => {
+    // Stderr contains an OpenAI-style key + JWT. scrubSecrets should replace both
+    // with [REDACTED] before persistence.
+    const SECRET_STDERR = 'fatal: token=sk-abcdefghij1234567890xyz\n';
+
+    function setupScrubRun() {
+      const harness = makeService();
+      const { prisma, wakeup } = harness;
+
+      // agent lookup — called twice (once by executeHeartbeat, once for agentWithRt)
+      prisma.agentDefinition.findUnique.mockResolvedValue({
+        ...MOCK_AGENT,
+        maxOutputTokens: 16000,
+        rtConsecutiveFailCount: 0,
+      });
+      prisma.agentDefinition.update.mockResolvedValue({
+        ...MOCK_AGENT,
+        rtConsecutiveFailCount: 1,
+        rtLastError: null,
+      });
+
+      wakeup.claimNext.mockResolvedValue({
+        id: 'w-1',
+        agentId: 'agent-1',
+        companyId: 'c-1',
+        source: 'on_demand',
+        triggerDetail: null,
+        payload: null,
+      });
+
+      prisma.heartbeatRun.create.mockResolvedValue({ id: 'run-1' });
+
+      // adapter returns failing exit with secret-laden stderr
+      nextAdapterResult = {
+        exitCode: 1,
+        signal: null,
+        timedOut: false,
+        stdout: '',
+        stderr: SECRET_STDERR,
+        usage: null,
+        stopReason: null,
+        sessionIdAfter: null,
+      };
+
+      return harness;
+    }
+
+    it('scrubs stderr secrets before saving to heartbeat_runs', async () => {
+      const { service, prisma } = setupScrubRun();
+
+      await (service as any).executeHeartbeat('agent-1');
+
+      // heartbeat_runs.update — the persistence call that stores `error` + `stderrExcerpt`.
+      // stderrExcerpt is written by TranscriptService (event handler, sync in this test),
+      // so we only verify the critical-path write (error field).
+      const updateCalls = prisma.heartbeatRun.update.mock.calls;
+      const criticalCall = updateCalls.find(
+        (c: any[]) => c[0]?.data?.error !== undefined && c[0]?.where?.id === 'run-1',
+      );
+      expect(criticalCall).toBeDefined();
+      const criticalError = criticalCall![0].data.error as string;
+      expect(criticalError).toContain('[REDACTED]');
+      expect(criticalError).not.toContain('sk-abcdefghij1234567890xyz');
+    });
+
+    it('scrubs stderr secrets before saving rtLastError', async () => {
+      const { service, prisma } = setupScrubRun();
+
+      await (service as any).executeHeartbeat('agent-1');
+
+      // agent_definitions.update with rtLastError — written after the run's update.
+      const updateCalls = prisma.agentDefinition.update.mock.calls;
+      const rtCall = updateCalls.find(
+        (c: any[]) => c[0]?.data?.rtLastError !== undefined,
+      );
+      expect(rtCall).toBeDefined();
+      const rtLastError = rtCall![0].data.rtLastError as string;
+      expect(rtLastError).toContain('[REDACTED]');
+      expect(rtLastError).not.toContain('sk-abcdefghij1234567890xyz');
     });
   });
 });

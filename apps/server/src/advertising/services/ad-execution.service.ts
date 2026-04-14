@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { scrubSecrets } from '@kiditem/shared';
 
 const DEFAULT_LIMIT = 3;
 const MAX_SCAN = 50;
@@ -229,7 +230,7 @@ export class AdExecutionService {
             beforeJson: json(body.before) ?? json(task.beforeJson),
             afterJson: json(body.after) ?? json(task.afterJson),
             screenshotPath: body.screenshotPath || task.screenshotPath,
-            errorMessage: body.errorMessage || '실행 실패',
+            errorMessage: scrubSecrets(body.errorMessage || '실행 실패'),
           },
         });
         await tx.adAction.update({
@@ -238,7 +239,7 @@ export class AdExecutionService {
             executeStatus: 'failed',
             beforeJson: json(body.before) ?? json(task.action.beforeJson),
             afterJson: json(body.after) ?? json(task.action.afterJson),
-            errorMessage: body.errorMessage || '실행 실패',
+            errorMessage: scrubSecrets(body.errorMessage || '실행 실패'),
           },
         });
       }
