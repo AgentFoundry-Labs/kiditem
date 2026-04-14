@@ -37,13 +37,21 @@ async function bootstrap() {
     new ExpressAdapter(expressApp),
   );
   chatServiceRef = app.get(ChatService);
+  // 프로덕션은 CORS_ORIGINS(쉼표 구분) 화이트리스트 필수. 미지정이면 전부 차단.
+  const isProd = process.env.NODE_ENV === 'production';
+  const prodOrigins = (process.env.CORS_ORIGINS ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
   app.enableCors({
-    origin: [
-      'http://localhost:3000',
-      'http://localhost:3001',
-      'http://localhost:3002',
-      /^http:\/\/localhost:\d+$/,
-    ],
+    origin: isProd
+      ? prodOrigins
+      : [
+          'http://localhost:3000',
+          'http://localhost:3001',
+          'http://localhost:3002',
+          /^http:\/\/localhost:\d+$/,
+        ],
   });
   app.useBodyParser('json', { limit: '5mb' });
   app.setGlobalPrefix('api');

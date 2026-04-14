@@ -47,7 +47,7 @@ describe('SourcingService — extension data → product creation', () => {
     );
 
     expect(prisma.product.findFirst).toHaveBeenCalledWith({
-      where: { sourceUrl: 'https://1688.com/item/12345' },
+      where: { sourceUrl: 'https://1688.com/item/12345', companyId: 'company-1' },
     });
     expect(prisma.product.create).toHaveBeenCalledWith(
       expect.objectContaining({

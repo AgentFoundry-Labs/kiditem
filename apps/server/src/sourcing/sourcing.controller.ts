@@ -30,7 +30,10 @@ export class SourcingController {
   }
 
   @Get('extension/products')
-  listProducts(@Query() query: ListExtensionProductsQueryDto) {
-    return this.sourcingService.listProducts(query as any);
+  listProducts(
+    @Query() query: ListExtensionProductsQueryDto,
+    @CurrentCompany() companyId: string,
+  ) {
+    return this.sourcingService.listProducts(query, companyId);
   }
 }

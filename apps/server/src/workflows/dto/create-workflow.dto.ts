@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsBoolean, MinLength } from 'class-validator';
+import { IsString, IsOptional, IsBoolean, IsArray, IsDefined, MinLength } from 'class-validator';
 
 /**
  * companyId 는 `req.authUser.companyId` 에서 주입 — DTO 에는 포함하지 않는다.
@@ -10,7 +10,7 @@ export class CreateWorkflowBodyDto {
   @IsString() @IsOptional() module?: string = 'general';
   @IsString() @IsOptional() triggerType?: string = 'manual';
   @IsString() @IsOptional() schedule?: string | null;
-  nodesJson: any;
-  edgesJson: any;
+  @IsDefined() @IsArray() nodesJson: unknown[];
+  @IsDefined() @IsArray() edgesJson: unknown[];
   @IsBoolean() @IsOptional() isActive?: boolean = true;
 }

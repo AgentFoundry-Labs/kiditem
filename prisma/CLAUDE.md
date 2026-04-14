@@ -13,6 +13,60 @@ npm run db:studio     # DB browser (localhost:5555)
 
 `DATABASE_URL` env required: `postgresql://kiditem:kiditem@localhost:5433/kiditem`
 
+## DB 동기화 — schema vs. data (중요)
+
+`git pull` 은 **코드만** 받는다. DB 는 로컬 볼륨에 남아있으므로 pull 후 스키마/데이터 동기화는 각자 수동으로 해야 한다.
+
+### 3-tier 모델
+
+| 계층 | 전달 수단 | 특성 |
+|---|---|---|
+| **스키마 (DDL)** | `schema.prisma` + `db:push` | 매 pull 후 실행. 안전 |
+| **초기 시드 데이터 (스냅샷)** | `prisma/init.sql.gz` (`--data-only` pg_dump) | **fresh volume 에서만** 로드 |
+| **운영 중 데이터 이전** | 명시적 SQL/seed 스크립트 (예: `scripts/migrate-dashboard-data.ts`) | 기존 DB 에 incremental 적용 |
+
+### init.sql.gz 의 정확한 의미
+
+- Postgres 도커 이미지의 `docker-entrypoint-initdb.d/` 패턴. **빈 볼륨 초기화 시에만** 자동 로드.
+- 기존 볼륨이 있으면 **스킵** → `git pull` 로 새 `init.sql.gz` 받아도 아무 일도 안 일어남.
+- 적용하려면 `docker compose down -v` 로 볼륨 삭제 후 재기동. **기존 로컬 데이터 손실 주의**.
+- 즉 "팀원 간 실시간 데이터 동기화" 수단이 **아님** — "새 환경 셋업용 스냅샷"이다.
+
+### 스키마 변경 PR 받는 사람 플로우
+
+```bash
+git pull
+npm install --legacy-peer-deps
+npm run db:push -- --accept-data-loss   # drop 이 포함됐으면 플래그 필요
+npx prisma generate
+```
+
+`--accept-data-loss` 는 **삭제(drop)** 가 있을 때만 필수. PR 설명에 drop 포함 여부 명시한다.
+
+### init.sql.gz 재생성 시점
+
+다음 중 하나 발생하면 재생성:
+1. 스키마 변경으로 기존 `init.sql.gz` 의 INSERT 가 fresh setup 에서 깨짐 (예: drop 된 테이블에 대한 INSERT)
+2. 신규 팀원 온보딩을 위한 기본 데모 데이터 갱신 필요
+3. PR 템플릿의 `init.sql.gz 갱신` 체크 항목에 해당
+
+```bash
+docker exec kiditem-postgres pg_dump -U kiditem --data-only --column-inserts \
+  --no-owner --no-privileges kiditem | gzip > prisma/init.sql.gz
+```
+
+`--data-only` 이므로 스키마는 제외되고 INSERT 만 포함. 스키마는 항상 `prisma db push` 가 책임진다.
+
+### 팀원 간 incremental 데이터 공유
+
+기존 로컬 데이터를 **유지하면서** 새 데이터(예: 신규 상품, 테스트 캠페인)를 추가해야 하면 `init.sql.gz` 쓰지 말 것. 대신:
+
+- `prisma/backfill-*.sql` — idempotent SQL 스크립트 (ON CONFLICT, IF NOT EXISTS 활용)
+- `scripts/seed-*.ts` — TypeScript seed
+- PR 에 "post-pull 수동 실행" 명령 명시
+
+## Prisma v7 Config
+
 ## Prisma v7 Config
 
 `prisma.config.ts` (root) sets datasource URL. No `url` in `schema.prisma` (v7 pattern).

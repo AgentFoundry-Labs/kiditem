@@ -1823,7 +1823,8 @@ model AdSnapshot {
   adActions    AdAction[]
 
   @@index([companyId, source])
-  @@index([companyId, level, date])
+  @@index([companyId, date, level])
+  @@index([companyId, capturedAt])
   @@index([capturedAt])
   @@map("ad_snapshots")
 }
@@ -1881,6 +1882,7 @@ model AdAction {
   @@index([companyId, approvalStatus])
   @@index([executeStatus])
   @@index([externalId])
+  @@index([snapshotId])
   @@index([createdAt])
   @@map("ad_actions")
 }
@@ -1929,10 +1931,9 @@ model ExecutionTask {
   worker         ExecutionWorker?  @relation(fields: [workerId], references: [id], onDelete: SetNull)
   logs           ExecutionLog[]
 
-  @@index([actionId])
+  @@index([actionId, status, createdAt])
   @@index([workerId])
   @@index([status])
-  @@index([createdAt])
   @@map("execution_tasks")
 }
 

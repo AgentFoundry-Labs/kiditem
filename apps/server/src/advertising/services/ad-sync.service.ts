@@ -1,4 +1,4 @@
-import { Injectable, InternalServerErrorException } from '@nestjs/common';
+import { Injectable, InternalServerErrorException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ExtensionSyncDto } from '../dto';
 import type { NormalizedCampaignKpi } from './types';
@@ -31,7 +31,9 @@ export class AdSyncService {
       case 'traffic':
         return this.handleTraffic(payload, companyId, productMap);
       default:
-        return { success: false, error: `알 수 없는 type: ${payload.type}` };
+        throw new BadRequestException(
+          `알 수 없는 type: ${(payload as { type?: string }).type ?? 'undefined'}`,
+        );
     }
   }
 

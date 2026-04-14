@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { ReactElement } from 'react';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
@@ -18,7 +19,7 @@ import AgentTasksPage from '../page';
 
 const mockFetch = fetchAgentTasksList as ReturnType<typeof vi.fn>;
 
-function wrap(node: JSX.Element) {
+function wrap(node: ReactElement) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return <QueryClientProvider client={qc}>{node}</QueryClientProvider>;
 }

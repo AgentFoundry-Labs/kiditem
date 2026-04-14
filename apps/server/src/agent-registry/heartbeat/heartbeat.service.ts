@@ -1,4 +1,12 @@
-import { Injectable, Logger, Inject, Optional, forwardRef } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  Inject,
+  Optional,
+  forwardRef,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { CronJob } from 'cron';
@@ -79,13 +87,13 @@ export class HeartbeatService {
     requestedById?: string;
   }) {
     const agent = await this.prisma.agentDefinition.findUnique({ where: { id: input.agentId } });
-    if (!agent) throw new Error(`Agent ${input.agentId} not found`);
+    if (!agent) throw new NotFoundException(`Agent ${input.agentId} not found`);
     if (agent.status === 'paused' || agent.status === 'disabled') {
       return { ok: false, error: 'agent_paused', agentId: input.agentId };
     }
 
     const companyId = input.companyId || agent.companyId;
-    if (!companyId) throw new Error(`No companyId for agent ${agent.name}`);
+    if (!companyId) throw new BadRequestException(`No companyId for agent ${agent.name}`);
 
     // 피처 게이트 체크
     const gateAllowed = await this.featureGateService.isEnabled(`agent:${agent.type}`, companyId);

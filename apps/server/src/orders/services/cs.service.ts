@@ -6,29 +6,14 @@ import { paginationParams } from '../../common/pagination';
 export class CsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  private async getCompanyId(): Promise<string> {
-    const company = await this.prisma.company.findFirst({
-      select: { id: true },
-    });
-    return company?.id ?? '';
-  }
-
-  async findAll(query: {
-    page?: string;
-    limit?: string;
-    csStatus?: string;
-  }) {
-    const companyId = await this.getCompanyId();
-    if (!companyId) {
-      return {
-        items: [],
-        total: 0,
-        page: 1,
-        limit: 50,
-        summary: { total: 0, '접수': 0, '처리중': 0, '완료': 0 },
-      };
-    }
-
+  async findAll(
+    query: {
+      page?: string | number;
+      limit?: string | number;
+      csStatus?: string;
+    },
+    companyId: string,
+  ) {
     const { page, limit, skip } = paginationParams(query);
 
     const where = {
@@ -72,20 +57,18 @@ export class CsService {
     };
   }
 
-  async create(data: {
-    csType: string;
-    content: string;
-    priority?: string;
-    assignee?: string;
-    orderId?: string;
-    productId?: string;
-  }) {
-    const companyId = await this.getCompanyId();
-    if (!companyId) {
-      return { success: false, message: 'No company found' };
-    }
-
-    const record = await this.prisma.cSRecord.create({
+  async create(
+    data: {
+      csType: string;
+      content: string;
+      priority?: string;
+      assignee?: string;
+      orderId?: string;
+      productId?: string;
+    },
+    companyId: string,
+  ) {
+    return this.prisma.cSRecord.create({
       data: {
         companyId,
         csType: data.csType,
@@ -97,7 +80,5 @@ export class CsService {
         csStatus: '접수',
       },
     });
-
-    return { success: true, record };
   }
 }

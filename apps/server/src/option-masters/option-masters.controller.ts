@@ -18,12 +18,16 @@ export class OptionMastersController {
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() dto: UpdateOptionMasterDto) {
-    return this.optionMastersService.update(id, dto);
+  update(
+    @Param('id') id: string,
+    @Body() dto: UpdateOptionMasterDto,
+    @CurrentCompany() companyId: string,
+  ) {
+    return this.optionMastersService.update(id, dto, companyId);
   }
 
   @Delete(':id')
-  delete(@Param('id') id: string) {
-    return this.optionMastersService.delete(id);
+  delete(@Param('id') id: string, @CurrentCompany() companyId: string) {
+    return this.optionMastersService.delete(id, companyId);
   }
 }

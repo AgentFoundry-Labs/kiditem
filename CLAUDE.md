@@ -30,6 +30,7 @@ extensions/          — Chrome extensions (product-scraper: 1688/Alibaba, coupa
 - **No silent model fallback** — `model = model or default` pattern prohibited.
 - **No native PG enums** — `String` + app-level validation. Production cast error experience.
 - **아키텍처 결정 기록** — 경계·정책·폐기 선언·cross-domain 규칙 전복은 `.claude/docs/decisions/NNNN-*.md` 에 ADR 작성. 트리거·운영 규칙은 [decisions/README](.claude/docs/decisions/README.md). 기존 ADR 불변, 뒤집을 땐 새 ADR + `superseded-by`.
+- **DB 동기화** — `git pull` 은 DB 를 자동 갱신하지 않는다. 스키마/데이터/init.sql.gz 역할과 pull 후 필수 실행 명령은 [prisma/CLAUDE.md — DB 동기화](prisma/CLAUDE.md#db-동기화--schema-vs-data-중요) 참조.
 - **PR 생성 시** — `.github/PULL_REQUEST_TEMPLATE.md` 템플릿 내용을 body에 포함하고 체크리스트를 작성할 것. DB 변경/backfill/init.sql.gz 갱신 여부를 반드시 명시.
 - **PR 생성 전 체크** — `gh pr create` 시 pre-hook이 자동 실행. 코드 컨벤션 + 문서 업데이트 체크리스트 확인 후 PR 생성.
 

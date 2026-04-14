@@ -225,16 +225,69 @@ export class ProductsService {
       if (maxProfitRate !== undefined) {
         const maxRate =
           typeof maxProfitRate === 'number' ? maxProfitRate : parseFloat(maxProfitRate);
-        const allProducts = await this.prisma.product.findMany({
+
+        // 1단계: filter 계산에 필요한 최소 필드만 조회 (full include 로 인한 메모리 폭증 방지)
+        const lightProducts = await this.prisma.product.findMany({
           where,
-          include: { company: true, inventory: true, masterProduct: { include: { inventory: true } } },
+          select: {
+            id: true,
+            coupangProductId: true,
+            costCny: true,
+            costPrice: true,
+            sellPrice: true,
+            commissionRate: true,
+            shippingCost: true,
+            masterProductId: true,
+            masterProduct: {
+              select: { costPrice: true, sellPrice: true, commissionRate: true },
+            },
+          },
           orderBy: { createdAt: 'desc' },
         });
-        const allEnriched = allProducts.map((p) => this.enrichProduct(p, maps));
-        const filtered = allEnriched.filter((p) => p.profitRate <= maxRate);
-        if (sortByRevenue) filtered.sort((a, b) => b.revenue - a.revenue);
-        const total = filtered.length;
-        const items = filtered.slice(skip, skip + limit);
+
+        const rateById = new Map<string, { profitRate: number; revenue: number }>();
+        for (const lp of lightProducts) {
+          const resolved = resolvePricing(lp as any);
+          const pl = maps.profitLoss.get(lp.id);
+          const orderData = maps.revenue.get(lp.coupangProductId ?? '');
+          const totalAdSpend = maps.ads.get(lp.id) ?? 0;
+          let revenue = 0;
+          let netProfit = 0;
+          if (pl) {
+            revenue = pl.revenue;
+            netProfit = pl.netProfit;
+          } else if (orderData) {
+            revenue = orderData.revenue;
+            const comm = Math.round(revenue * (resolved.commissionRate ?? 0.108));
+            const cogs = resolved.costPrice * orderData.orderCount;
+            const ship = (lp.shippingCost ?? 0) * orderData.orderCount;
+            netProfit = revenue - comm - cogs - ship - totalAdSpend;
+          }
+          const profitRate = revenue > 0 ? Math.round((netProfit / revenue) * 1000) / 10 : 0;
+          rateById.set(lp.id, { profitRate, revenue });
+        }
+
+        // 필터 + 정렬 + 페이지 slice (id 레벨에서만 수행)
+        const filteredIds = lightProducts
+          .map((lp) => ({ id: lp.id, ...rateById.get(lp.id)! }))
+          .filter((r) => r.profitRate <= maxRate);
+        if (sortByRevenue) filteredIds.sort((a, b) => b.revenue - a.revenue);
+        const total = filteredIds.length;
+        const pageIds = filteredIds.slice(skip, skip + limit).map((r) => r.id);
+
+        // 2단계: 페이지에 해당하는 제품만 full include 로 재조회
+        if (pageIds.length === 0) {
+          return { items: [], total, page, limit };
+        }
+        const pageProducts = await this.prisma.product.findMany({
+          where: { id: { in: pageIds } },
+          include: { company: true, inventory: true, masterProduct: { include: { inventory: true } } },
+        });
+        const pageById = new Map(pageProducts.map((p) => [p.id, p]));
+        const items = pageIds
+          .map((id) => pageById.get(id))
+          .filter((p): p is NonNullable<typeof p> => !!p)
+          .map((p) => this.enrichProduct(p, maps));
         return { items, total, page, limit };
       }
 
