@@ -1,7 +1,10 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import type { WorkflowTemplate } from '@kiditem/shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import { WorkflowRunnerService } from './workflow-runner.service';
+import { PANEL_EVENTS } from '../../panel/events/panel-events';
+import { buildWorkflowPanelItem } from '../../panel/adapters/workflow-run-mapper';
 
 @Injectable()
 export class WorkflowsService {
@@ -10,7 +13,18 @@ export class WorkflowsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly runner: WorkflowRunnerService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
+
+  private async emitPanelUpsert(runId: string): Promise<void> {
+    try {
+      const result = await buildWorkflowPanelItem(this.prisma, runId);
+      if (!result) return;
+      this.eventEmitter.emit(PANEL_EVENTS.UPSERT, result);
+    } catch (err) {
+      this.logger.warn(`[workflows] Panel emit failed for run ${runId}: ${err}`);
+    }
+  }
 
   async create(data: {
     name: string;
@@ -93,6 +107,7 @@ export class WorkflowsService {
         contextData: context ?? undefined,
       },
     });
+    await this.emitPanelUpsert(run.id);
 
     this.runner.runWorkflow(run.id, templateId).catch((err) => {
       this.logger.error(`Workflow run ${run.id} failed: ${err.message}`);
@@ -122,6 +137,7 @@ export class WorkflowsService {
         }),
       ),
     );
+    await Promise.all(runs.map((r) => this.emitPanelUpsert(r.id)));
 
     this.runner
       .runBatch(

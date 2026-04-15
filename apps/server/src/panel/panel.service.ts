@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import type { PanelItem } from '@kiditem/shared';
 import { workflowPanelAdapter } from './adapters/workflow.adapter';
+import { normalizeWorkflowStatus } from './adapters/workflow-run-mapper';
 
 @Injectable()
 export class PanelService {
@@ -31,15 +32,11 @@ export class PanelService {
 
     const items: Array<Omit<PanelItem, 'seq' | 'updatedAt'>> = [];
 
-    // workflow-runner uses 'completed'; Panel enum uses 'succeeded' — normalize at boundary
-    const normalizeStatus = (s: string | null | undefined) =>
-      s === 'completed' ? 'succeeded' : (s ?? 'pending');
-
     for (const run of workflowRuns) {
       // steps는 JsonValue. 배열 여부 체크 후 narrowing
       const steps = Array.isArray(run.steps)
         ? (run.steps as Array<{ status?: string }>).map((s) => ({
-            status: normalizeStatus(s?.status),
+            status: normalizeWorkflowStatus(s?.status),
           }))
         : [];
 
@@ -47,7 +44,7 @@ export class PanelService {
         workflowPanelAdapter.mapToItem(
           {
             id: run.id,
-            status: normalizeStatus(run.status),
+            status: normalizeWorkflowStatus(run.status),
             templateName: run.template?.name ?? '',
             steps,
             parentRunId: null,

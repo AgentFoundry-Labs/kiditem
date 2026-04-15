@@ -55,8 +55,10 @@ function makeRun(overrides: Record<string, any> = {}) {
   return {
     id: 'run-1',
     templateId: 'tmpl-1',
+    companyId: 'company-1',
     status: 'pending',
     triggeredBy: 'manual',
+    triggeredByUserId: null,
     contextData: null,
     steps: [],
     error: null,
@@ -78,7 +80,8 @@ describe('WorkflowsService', () => {
   beforeEach(() => {
     prisma = makePrisma();
     runner = { runWorkflow: vi.fn(), runBatch: vi.fn() };
-    service = new WorkflowsService(prisma as any, runner as any);
+    const eventEmitter = { emit: vi.fn() };
+    service = new WorkflowsService(prisma as any, runner as any, eventEmitter as any);
   });
 
   describe('triggerRun', () => {
@@ -169,7 +172,8 @@ describe('WorkflowRunnerService', () => {
 
   beforeEach(() => {
     prisma = makePrisma();
-    runner = new WorkflowRunnerService(prisma as any);
+    const eventEmitter = { emit: vi.fn() };
+    runner = new WorkflowRunnerService(prisma as any, eventEmitter as any);
   });
 
   // Helper to build a run DB fixture (with step tracking state)
