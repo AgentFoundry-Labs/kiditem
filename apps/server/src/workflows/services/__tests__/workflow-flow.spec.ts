@@ -148,9 +148,9 @@ describe('WorkflowsService', () => {
   describe('findRunDetail', () => {
     it('returns run detail with steps', async () => {
       const run = makeRun({
-        status: 'completed',
+        status: 'succeeded',
         steps: [
-          { nodeId: 'n1', nodeType: 'trigger.manual', status: 'completed', outputData: { triggeredAt: '2026-01-01' } },
+          { nodeId: 'n1', nodeType: 'trigger.manual', status: 'succeeded', outputData: { triggeredAt: '2026-01-01' } },
         ],
       });
       prisma.workflowRun.findUnique.mockResolvedValue(run);
@@ -158,7 +158,7 @@ describe('WorkflowsService', () => {
       const result = await service.findRunDetail('run-1');
 
       expect(prisma.workflowRun.findUnique).toHaveBeenCalledWith({ where: { id: 'run-1' } });
-      expect(result?.status).toBe('completed');
+      expect(result?.status).toBe('succeeded');
       expect(result?.steps).toHaveLength(1);
     });
   });
@@ -228,9 +228,9 @@ describe('WorkflowRunnerService', () => {
 
       expect(executionOrder).toEqual(['first', 'second']);
 
-      // Final update should be 'completed'
+      // Final update should be 'succeeded'
       const completedCall = prisma.workflowRun.update.mock.calls.find(
-        ([args]: any[]) => args.data?.status === 'completed',
+        ([args]: any[]) => args.data?.status === 'succeeded',
       );
       expect(completedCall).toBeDefined();
     });
@@ -281,7 +281,7 @@ describe('WorkflowRunnerService', () => {
       ).filter(Boolean);
 
       expect(statusUpdates).toContain('running');
-      expect(statusUpdates).toContain('completed');
+      expect(statusUpdates).toContain('succeeded');
     });
 
     it('node failure → run status="failed", error recorded', async () => {

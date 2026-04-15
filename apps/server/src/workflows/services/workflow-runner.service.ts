@@ -138,7 +138,7 @@ export class WorkflowRunnerService {
 
     await this.prisma.workflowRun.update({
       where: { id: runId },
-      data: { status: 'completed', completedAt: new Date() },
+      data: { status: 'succeeded', completedAt: new Date() },
     });
     await this.emitPanelUpsert(runId);
   }
@@ -198,7 +198,7 @@ export class WorkflowRunnerService {
       const output = await executor(this.prisma, resolvedConfig, context, this.executorServices);
       context.setOutput(nodeId, output);
 
-      stepEntry.status = 'completed';
+      stepEntry.status = 'succeeded';
       stepEntry.outputData = output;
       stepEntry.completedAt = new Date().toISOString();
       steps[stepIndex] = stepEntry;
