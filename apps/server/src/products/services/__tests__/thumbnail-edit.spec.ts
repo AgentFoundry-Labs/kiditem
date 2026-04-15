@@ -8,6 +8,7 @@ function makePrisma() {
     },
     thumbnailGeneration: {
       findFirst: vi.fn(),
+      findUnique: vi.fn(),
       findMany: vi.fn().mockResolvedValue([]),
       create: vi.fn(),
       update: vi.fn(),
@@ -47,6 +48,7 @@ describe('ThumbnailEditService', () => {
         candidates: [],
         selectedUrl: null,
         status: 'pending',
+        phase: null,
         grade: 'F',
         score: 0,
         prompt: null,
@@ -81,7 +83,7 @@ describe('ThumbnailEditService', () => {
     });
 
     it('기존 활성 edit job → skip', async () => {
-      prisma.thumbnailGeneration.findFirst.mockResolvedValue({ id: 'existing', status: 'generating' });
+      prisma.thumbnailGeneration.findFirst.mockResolvedValue({ id: 'existing', status: 'running', phase: null });
 
       const results = await service.createEditJobs(['p3']);
 
@@ -116,12 +118,13 @@ describe('ThumbnailEditService', () => {
       // generating → ready 순서로 update 호출
       expect(prisma.thumbnailGeneration.update).toHaveBeenCalledTimes(2);
       expect(prisma.thumbnailGeneration.update).toHaveBeenNthCalledWith(1,
-        expect.objectContaining({ data: { status: 'generating' } }),
+        expect.objectContaining({ data: { status: 'running', phase: null } }),
       );
       expect(prisma.thumbnailGeneration.update).toHaveBeenNthCalledWith(2,
         expect.objectContaining({
           data: expect.objectContaining({
-            status: 'ready',
+            status: 'succeeded',
+            phase: 'ready',
             candidates: expect.arrayContaining([expect.objectContaining({ url: 'http://edited-1.png' })]),
           }),
         }),
@@ -135,7 +138,7 @@ describe('ThumbnailEditService', () => {
       await (service as any).processEditJob('g2', 'http://img.jpg', '테스트', null, 'compliance');
 
       expect(prisma.thumbnailGeneration.update).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { id: 'g2' }, data: { status: 'failed' } }),
+        expect.objectContaining({ where: { id: 'g2' }, data: { status: 'failed', phase: null } }),
       );
     });
 
@@ -150,6 +153,45 @@ describe('ThumbnailEditService', () => {
         (c: any) => c[0]?.data?.status === 'failed',
       );
       expect(failCall).toBeTruthy();
+    });
+  });
+
+  describe('reEditJob (phase reset invariant)', () => {
+    it("resets status='pending' AND phase=null when re-editing a succeeded+ready job", async () => {
+      const job = {
+        id: 'gen-ready',
+        status: 'succeeded',
+        phase: 'ready',
+        originalUrl: 'https://example.com/a.jpg',
+        product: { id: 'p1', name: 'X', imageUrl: null, coupangProductId: null, category: null },
+      };
+      prisma.thumbnailGeneration.findUnique.mockResolvedValue(job as any);
+
+      await service.reEditJob('gen-ready');
+
+      const updateCall = prisma.thumbnailGeneration.update.mock.calls.find(
+        (c: any) => c[0]?.where?.id === 'gen-ready',
+      );
+      expect(updateCall).toBeDefined();
+      expect(updateCall![0].data).toMatchObject({ status: 'pending', phase: null });
+    });
+
+    it("resets phase when re-editing a succeeded+applied job (stale phase → null)", async () => {
+      const job = {
+        id: 'gen-applied',
+        status: 'succeeded',
+        phase: 'applied',
+        originalUrl: 'https://example.com/a.jpg',
+        product: { id: 'p1', name: 'X', imageUrl: null, coupangProductId: null, category: null },
+      };
+      prisma.thumbnailGeneration.findUnique.mockResolvedValue(job as any);
+
+      await service.reEditJob('gen-applied');
+
+      const updateCall = prisma.thumbnailGeneration.update.mock.calls.find(
+        (c: any) => c[0]?.where?.id === 'gen-applied',
+      );
+      expect(updateCall![0].data).toMatchObject({ status: 'pending', phase: null });
     });
   });
 });
