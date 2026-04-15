@@ -664,6 +664,7 @@ model ThumbnailGeneration {
   candidates  Json    @default("[]")
   selectedUrl String? @map("selected_url")
   status      String  @default("pending")
+  phase       String? @map("phase")
   grade       String  @default("F")
   score       Int     @default(0)
   prompt       String?
