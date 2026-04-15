@@ -1,27 +1,9 @@
 'use client';
-import { Sparkles, Wand2, Loader2, Clock, CheckCircle, SkipForward } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { Sparkles, Wand2, Loader2 } from 'lucide-react';
 import { ProductCard } from './ProductCard';
 import { PaginationBar } from './PaginationBar';
+import { ThumbnailStatusBadge } from '@/components/thumbnails/ThumbnailStatusBadge';
 import type { ThumbnailAnalysisResult, ThumbnailGenerationItem } from '@kiditem/shared';
-
-function StatusBadge({ status }: { status: string }) {
-  const config: Record<string, { label: string; color: string; icon: React.ElementType }> = {
-    pending: { label: '대기중', color: 'bg-slate-100 text-slate-600', icon: Clock },
-    generating: { label: '생성중', color: 'bg-blue-100 text-blue-700', icon: Loader2 },
-    ready: { label: '후보 선택', color: 'bg-amber-100 text-amber-700', icon: Sparkles },
-    applied: { label: '적용 완료', color: 'bg-emerald-100 text-emerald-700', icon: CheckCircle },
-    skipped: { label: '건너뜀', color: 'bg-slate-100 text-slate-500', icon: SkipForward },
-    failed: { label: '생성 실패', color: 'bg-red-100 text-red-700', icon: Clock },
-  };
-  const c = config[status] || config.pending;
-  const Icon = c.icon;
-  return (
-    <span className={cn('inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium', c.color)}>
-      <Icon size={10} className={status === 'generating' ? 'animate-spin' : ''} /> {c.label}
-    </span>
-  );
-}
 
 interface GenerationQueueProps {
   pendingProducts: ThumbnailAnalysisResult[];
@@ -145,8 +127,8 @@ export function GenerationQueue({
                 key={item.gen.id}
                 imageUrl={item.gen.selectedUrl || item.gen.originalUrl || item.gen.product.imageUrl}
                 name={item.gen.product.name}
-                badge={<StatusBadge status={item.gen.status} />}
-                overlay={item.gen.status === 'generating' ? 'generating' : item.gen.selectedUrl ? 'selected' : 'ready'}
+                badge={<ThumbnailStatusBadge status={item.gen.status} phase={item.gen.phase ?? null} />}
+                overlay={item.gen.status === 'running' ? 'generating' : item.gen.selectedUrl ? 'selected' : 'ready'}
                 candidateCount={item.gen.candidates.length}
                 onClick={() => onSelectGen(item.gen)}
               />

@@ -1,27 +1,9 @@
 'use client';
-import { Clock, Loader2, CheckCircle, SkipForward, Sparkles } from 'lucide-react';
-import { cn } from '@/lib/utils';
 import { ProductCard } from './ProductCard';
 import { PaginationBar } from './PaginationBar';
+import { ThumbnailStatusBadge } from '@/components/thumbnails/ThumbnailStatusBadge';
+import { isApplied } from '@/lib/thumbnail-status';
 import type { ThumbnailGenerationItem } from '@kiditem/shared';
-
-function StatusBadge({ status }: { status: string }) {
-  const config: Record<string, { label: string; color: string; icon: React.ElementType }> = {
-    pending: { label: '대기중', color: 'bg-slate-100 text-slate-600', icon: Clock },
-    generating: { label: '생성중', color: 'bg-blue-100 text-blue-700', icon: Loader2 },
-    ready: { label: '후보 선택', color: 'bg-amber-100 text-amber-700', icon: Sparkles },
-    applied: { label: '적용 완료', color: 'bg-emerald-100 text-emerald-700', icon: CheckCircle },
-    skipped: { label: '건너뜀', color: 'bg-slate-100 text-slate-500', icon: SkipForward },
-    failed: { label: '생성 실패', color: 'bg-red-100 text-red-700', icon: Clock },
-  };
-  const c = config[status] || config.pending;
-  const Icon = c.icon;
-  return (
-    <span className={cn('inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium', c.color)}>
-      <Icon size={10} className={status === 'generating' ? 'animate-spin' : ''} /> {c.label}
-    </span>
-  );
-}
 
 interface GenerationHistoryProps {
   completedGenerations: ThumbnailGenerationItem[];
@@ -65,8 +47,8 @@ export function GenerationHistory({
             key={gen.id}
             imageUrl={gen.selectedUrl || gen.originalUrl || gen.product.imageUrl}
             name={gen.product.name}
-            badge={<StatusBadge status={gen.status} />}
-            overlay={gen.status === 'applied' ? 'applied' : 'skipped'}
+            badge={<ThumbnailStatusBadge status={gen.status} phase={gen.phase ?? null} />}
+            overlay={isApplied(gen) ? 'applied' : 'skipped'}
             onClick={() => onSelectGen(gen)}
           />
         ))}
