@@ -3,14 +3,7 @@
 import { useRef } from 'react';
 import { Plus, X } from 'lucide-react';
 import type { ProductImageItem } from '@kiditem/shared';
-
-const ROLE_CONFIG = [
-  { role: 'box', label: '📦 포장 사진', description: '패키지 박스, 포장 상태' },
-  { role: 'product', label: '🛍️ 상품 사진', description: '실제 상품 모습' },
-  { role: 'color_variant', label: '🎨 색상별 사진', description: '색상/옵션별 상품' },
-  { role: 'size_chart', label: '📐 사이즈 차트', description: '사이즈 가이드' },
-  { role: 'detail', label: '📄 상세 이미지', description: '상세 설명 이미지' },
-] as const;
+import { HUB_ROLE_CONFIG, type HubRoleConfig } from '@/lib/hub-roles';
 
 interface Props {
   images: ProductImageItem[];
@@ -27,7 +20,7 @@ function RoleSection({
   onLabelChange,
   startIndex,
 }: {
-  config: (typeof ROLE_CONFIG)[number];
+  config: HubRoleConfig;
   images: ProductImageItem[];
   onAdd: (role: string, file: File) => void;
   onRemove: (index: number) => void;
@@ -65,6 +58,7 @@ function RoleSection({
                   src={img.url}
                   alt={img.label || ''}
                   className="w-full h-full object-cover"
+                  loading="lazy"
                   referrerPolicy="no-referrer"
                 />
                 <button
@@ -84,7 +78,6 @@ function RoleSection({
             </div>
           );
         })}
-        {/* 추가 버튼 */}
         <button
           onClick={() => fileRef.current?.click()}
           className="aspect-square rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 flex flex-col items-center justify-center gap-1 text-slate-400 hover:border-purple-300 hover:text-purple-500 transition-colors"
@@ -111,10 +104,9 @@ function RoleSection({
 
 export function ImageGrid({ images, onAdd, onRemove, onLabelChange }: Props) {
   let offset = 0;
-
   return (
     <div className="space-y-6">
-      {ROLE_CONFIG.map((config) => {
+      {HUB_ROLE_CONFIG.map((config) => {
         const roleImages = images.filter((img) => img.role === config.role);
         const startIndex = images.findIndex((img) => img.role === config.role);
         const section = (
