@@ -7,7 +7,6 @@ type EditorMode = 'edit' | 'creative';
 interface Props {
   mode: EditorMode;
   editCase: EditUseCase | null;
-  purpose: 'compliance' | 'quality';
   pieceCount: number | null;
   userPrompt: string;
   sceneType: string;
@@ -19,7 +18,6 @@ interface Props {
   generationId: string | null;
   isApplying: boolean;
   isSkipping: boolean;
-  onPurposeChange: (v: 'compliance' | 'quality') => void;
   onPieceCountChange: (v: number | null) => void;
   onUserPromptChange: (v: string) => void;
   onSceneTypeChange: (v: string) => void;
@@ -61,7 +59,6 @@ const STYLE_PRESETS = [
 export function EditorControlPanel({
   mode,
   editCase,
-  purpose,
   pieceCount,
   userPrompt,
   sceneType,
@@ -73,7 +70,6 @@ export function EditorControlPanel({
   generationId,
   isApplying,
   isSkipping,
-  onPurposeChange,
   onPieceCountChange,
   onUserPromptChange,
   onSceneTypeChange,
@@ -104,35 +100,6 @@ export function EditorControlPanel({
       <div className="flex-1 overflow-y-auto px-5 py-5 space-y-5">
         {mode === 'edit' ? (
           <>
-            {/* 편집 목적 (공통) */}
-            <div className="space-y-2">
-              <label className="text-xs font-semibold block text-gray-600">편집 목적</label>
-              <div className="flex flex-col gap-2">
-                {[
-                  { value: 'compliance', label: '가이드라인 수정', sub: '쿠팡 광고 기준 준수' },
-                  { value: 'quality',    label: '품질 개선',       sub: '시각적 완성도 향상' },
-                ].map((opt) => {
-                  const active = purpose === opt.value;
-                  return (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      onClick={() => onPurposeChange(opt.value as 'compliance' | 'quality')}
-                      className="w-full px-4 py-2.5 rounded-xl text-left transition-all duration-200"
-                      style={{
-                        background: active ? `${accent}12` : '#f9fafb',
-                        border: active ? `1px solid ${accent}55` : '1px solid #e5e7eb',
-                        color: active ? accent : '#6b7280',
-                      }}
-                    >
-                      <div className="text-sm font-semibold">{opt.label}</div>
-                      <div className="text-[10px] mt-0.5 opacity-70">{opt.sub}</div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
             {/* compose 전용: 개입 수 */}
             {editCase === 'compose' && (
               <div className="space-y-2">
