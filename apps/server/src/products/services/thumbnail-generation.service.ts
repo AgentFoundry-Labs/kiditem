@@ -3,6 +3,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ThumbnailAiService } from './thumbnail-ai.service';
 import { ThumbnailTrackingService } from './thumbnail-tracking.service';
 import type { GenerationWithProduct, EditAnalysisResult } from './types';
+import { markReady, markApplied } from './thumbnail-status.helpers';
 
 export type { GenerationWithProduct } from './types';
 
@@ -37,9 +38,10 @@ export class ThumbnailGenerationService {
       // candidates가 비어있거나, 첫 번째 URL이 상대경로(로컬 파일, HTTP 서빙 안 됨)인 경우
       await this.prisma.$executeRaw`
         UPDATE thumbnail_generations
-        SET status = 'pending', selected_url = NULL
+        SET status = 'pending', phase = NULL, selected_url = NULL
         WHERE method = 'edit'
-          AND status IN ('ready', 'applied')
+          AND status = 'succeeded'
+          AND phase IN ('ready', 'applied')
           AND (
             candidates = '[]'::jsonb
             OR (
@@ -86,11 +88,12 @@ export class ThumbnailGenerationService {
     const existing = await this.prisma.thumbnailGeneration.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException(`Generation ${id} not found`);
 
-    const updated = await this.prisma.thumbnailGeneration.update({
-      where: { id },
-      data: { selectedUrl: selectedUrl || null, status: 'ready' },
-      include: { product: { select: { id: true, name: true, imageUrl: true, coupangProductId: true, category: true } } },
-    });
+    const updated = await markReady(
+      this.prisma,
+      id,
+      { selectedUrl: selectedUrl || null },
+      { include: { product: { select: { id: true, name: true, imageUrl: true, coupangProductId: true, category: true } } } },
+    );
 
     return toGeneration(updated);
   }
@@ -107,11 +110,11 @@ export class ThumbnailGenerationService {
       });
     }
 
-    const updated = await this.prisma.thumbnailGeneration.update({
-      where: { id },
-      data: { status: 'applied' },
-      include: { product: { select: { id: true, name: true, imageUrl: true, coupangProductId: true, category: true } } },
-    });
+    const updated = await markApplied(
+      this.prisma,
+      id,
+      { include: { product: { select: { id: true, name: true, imageUrl: true, coupangProductId: true, category: true } } } },
+    );
 
     // 추적 레코드 생성 (이미 있으면 upsert 처리됨)
     const analysis = await this.prisma.thumbnailAnalysis.findUnique({ where: { productId: existing.productId } });
@@ -136,7 +139,7 @@ export class ThumbnailGenerationService {
 
     const updated = await this.prisma.thumbnailGeneration.update({
       where: { id },
-      data: { status: 'skipped' },
+      data: { status: 'cancelled', phase: null },
       include: { product: { select: { id: true, name: true, imageUrl: true, coupangProductId: true, category: true } } },
     });
 
@@ -172,7 +175,8 @@ export class ThumbnailGenerationService {
           companyId: params.companyId,
           originalUrl: params.originalUrl,
           candidates: params.candidates,
-          status: 'ready',
+          status: 'succeeded',
+          phase: 'ready',
           method: params.method ?? 'generate',
           grade: '-',
           score: 0,

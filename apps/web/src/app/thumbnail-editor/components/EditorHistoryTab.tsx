@@ -12,6 +12,7 @@ import {
 import { ProductCard } from '@/components/thumbnails/ProductCard';
 import { DetailModal } from '@/components/thumbnails/DetailModal';
 import { ThumbnailStatusBadge } from '@/components/thumbnails/ThumbnailStatusBadge';
+import { isReady, isApplied } from '@/lib/thumbnail-status';
 import { openCoupangWingInventory } from '@/lib/coupang-wing';
 
 export function EditorHistoryTab() {
@@ -41,7 +42,7 @@ export function EditorHistoryTab() {
   const handleSelectCandidate = async (selectedUrl: string) => {
     if (!selectedGen) return;
     await selectCandidateMutation.mutateAsync({ id: selectedGen.id, selectedUrl });
-    setSelectedGen((prev) => (prev ? { ...prev, selectedUrl, status: 'ready' } : prev));
+    setSelectedGen((prev) => (prev ? { ...prev, selectedUrl, status: 'succeeded', phase: 'ready' } : prev));
   };
 
   const handleApply = () => {
@@ -87,15 +88,15 @@ export function EditorHistoryTab() {
             key={gen.id}
             imageUrl={gen.selectedUrl ?? gen.originalUrl ?? gen.product.imageUrl}
             name={gen.product.name}
-            badge={<ThumbnailStatusBadge status={gen.status} />}
+            badge={<ThumbnailStatusBadge status={gen.status} phase={gen.phase ?? null} />}
             overlay={
-              gen.status === 'generating' || gen.status === 'pending'
+              gen.status === 'running' || gen.status === 'pending'
                 ? 'generating'
-                : gen.status === 'applied'
+                : isApplied(gen)
                 ? 'applied'
-                : gen.status === 'skipped'
+                : gen.status === 'cancelled'
                 ? 'skipped'
-                : gen.status === 'ready'
+                : isReady(gen)
                 ? 'selected'
                 : undefined
             }
