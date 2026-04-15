@@ -18,7 +18,7 @@ export function mapStepStatus(
   backendStatus: string,
 ): 'idle' | 'running' | 'success' | 'error' {
   switch (backendStatus) {
-    case 'completed':
+    case 'succeeded':
       return 'success';
     case 'failed':
       return 'error';
