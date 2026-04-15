@@ -943,7 +943,8 @@ model HeartbeatRun {
   agentId          String  @map("agent_id") @db.Uuid
   invocationSource String  @default("on_demand") @map("invocation_source")
   triggerDetail    String? @map("trigger_detail")
-  status           String  @default("queued")
+  status           String  @default("pending")
+  failureType      String? @map("failure_type")
   startedAt        DateTime? @map("started_at") @db.Timestamptz
   finishedAt       DateTime? @map("finished_at") @db.Timestamptz
   error            String?
