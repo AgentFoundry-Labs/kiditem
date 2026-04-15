@@ -1,5 +1,6 @@
 'use client';
-import { Package } from 'lucide-react';
+import { Package, FolderOpen } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { ImageUploader } from './ImageUploader';
 import { ColorVariantsUploader } from './ColorVariantsUploader';
 import { EditCaseBreadcrumb } from './EditCaseBreadcrumb';
@@ -33,6 +34,8 @@ interface Props {
   onColorImagesChange: (v: string[]) => void;
   onBackgroundReferenceChange: (v: string | null) => void;
   onResetEditCase: () => void;
+  hasProductId: boolean;
+  onOpenHubModal: () => void;
 }
 
 export function EditorInputPanel({
@@ -52,6 +55,8 @@ export function EditorInputPanel({
   onColorImagesChange,
   onBackgroundReferenceChange,
   onResetEditCase,
+  hasProductId,
+  onOpenHubModal,
 }: Props) {
   const showBreadcrumb = mode === 'edit' && editCase !== null;
 
@@ -63,6 +68,28 @@ export function EditorInputPanel({
       {showBreadcrumb && editCase && (
         <EditCaseBreadcrumb caseName={CASE_NAMES[editCase]} onChange={onResetEditCase} />
       )}
+
+      {/* 이미지 허브 버튼 */}
+      <div
+        className="flex-shrink-0 px-4 py-3"
+        style={{ borderBottom: '1px solid #e5e7eb' }}
+      >
+        <button
+          type="button"
+          onClick={onOpenHubModal}
+          disabled={!hasProductId}
+          title={!hasProductId ? '상품 선택 후 사용 가능' : undefined}
+          className={cn(
+            'w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-xs font-medium transition-all',
+            hasProductId
+              ? 'bg-violet-50 text-violet-700 border border-violet-200 hover:bg-violet-100'
+              : 'bg-gray-50 text-gray-400 border border-gray-200 cursor-not-allowed',
+          )}
+        >
+          <FolderOpen size={14} />
+          이미지 허브에서 불러오기
+        </button>
+      </div>
 
       <div
         className="flex-shrink-0 px-4 py-3.5"
