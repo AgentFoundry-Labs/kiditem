@@ -3,6 +3,7 @@ import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ThumbnailAiService } from './thumbnail-ai.service';
 import type { GenerationWithProduct, EditAnalysisResult } from './types';
+import { markReady, resetToPending } from './thumbnail-status.helpers';
 
 const PRODUCT_SELECT = { id: true, name: true, imageUrl: true, coupangProductId: true, category: true } as const;
 
@@ -22,7 +23,7 @@ export class ThumbnailEditService {
       try {
         // 이미 generating 중이면 skip
         const generatingJob = await this.prisma.thumbnailGeneration.findFirst({
-          where: { productId, method: 'edit', status: 'generating' },
+          where: { productId, method: 'edit', status: 'running' },
         });
         if (generatingJob) continue;
 
@@ -53,12 +54,12 @@ export class ThumbnailEditService {
           where: {
             productId,
             method: 'edit',
-            status: { in: ['failed', 'skipped'] },
+            status: { in: ['failed', 'cancelled'] },
           },
         });
 
         const completedJobs = await this.prisma.thumbnailGeneration.findMany({
-          where: { productId, method: 'edit', status: { in: ['ready', 'applied'] } },
+          where: { productId, method: 'edit', status: 'succeeded', phase: { in: ['ready', 'applied'] } },
           orderBy: { createdAt: 'desc' },
           select: { id: true },
         });
@@ -120,10 +121,7 @@ export class ThumbnailEditService {
     const imageUrl = job.originalUrl ?? job.product?.imageUrl ?? null;
     if (!imageUrl) return { ok: true };
 
-    await this.prisma.thumbnailGeneration.update({
-      where: { id: generationId },
-      data: { status: 'pending', candidates: [], selectedUrl: null },
-    });
+    await resetToPending(this.prisma, generationId, { candidates: [], selectedUrl: null });
 
     setImmediate(() => {
       this.processEditJob(generationId, imageUrl, job.product.name, job.product.category, purpose).catch((err) => {
@@ -136,6 +134,16 @@ export class ThumbnailEditService {
 
   private static readonly EDIT_TIMEOUT_MS = 5 * 60 * 1000; // 5분
 
+  /**
+   * Edit job state transitions:
+   *   (caller state)                   (processEditJob writes)
+   *   pending|running  ─────────►  running (phase=null)
+   *     │                              │
+   *     │                              ├─► succeeded + phase='ready'   (markReady, happy path)
+   *     │                              ├─► failed + phase=null          (0 candidates / timeout / generic error)
+   *     │
+   *     reEditJob: succeeded+{ready|applied} ─► pending+phase=null (resetToPending)
+   */
   private async processEditJob(
     generationId: string,
     imageUrl: string,
@@ -150,7 +158,7 @@ export class ThumbnailEditService {
     try {
       await this.prisma.thumbnailGeneration.update({
         where: { id: generationId },
-        data: { status: 'generating' },
+        data: { status: 'running', phase: null },
       });
 
       // 1. 이미지 편집 (타임아웃 적용)
@@ -162,7 +170,7 @@ export class ThumbnailEditService {
       if (candidates.length === 0) {
         await this.prisma.thumbnailGeneration.update({
           where: { id: generationId },
-          data: { status: 'failed' },
+          data: { status: 'failed', phase: null },
         });
         return;
       }
@@ -189,19 +197,15 @@ export class ThumbnailEditService {
       }
 
       // 3. 결과 저장
-      await this.prisma.thumbnailGeneration.update({
-        where: { id: generationId },
-        data: {
-          candidates: candidates as unknown as Prisma.InputJsonValue,
-          status: 'ready',
-          editAnalysis: editAnalysis as unknown as Prisma.InputJsonValue,
-        },
+      await markReady(this.prisma, generationId, {
+        candidates: candidates as unknown as Prisma.InputJsonValue,
+        editAnalysis: editAnalysis as unknown as Prisma.InputJsonValue,
       });
     } catch (error) {
       this.logger.error(`편집 처리 실패 (${generationId}): ${error instanceof Error ? error.message : error}`);
       await this.prisma.thumbnailGeneration.update({
         where: { id: generationId },
-        data: { status: 'failed' },
+        data: { status: 'failed', phase: null },
       }).catch(() => {});
     }
   }
