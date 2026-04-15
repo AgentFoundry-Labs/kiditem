@@ -4,12 +4,14 @@ import { apiClient } from '@/lib/api-client';
 
 interface GenerateRequest {
   productId?: string;
-  packagingImage?: string;
   productImage?: string;
-  composition?: string;
-  userPrompt?: string;
+  packagingImage?: string;
+  supplementaryLabel?: string;
+  colorImages?: string[];
   pieceCount?: number;
   colorCount?: number;
+  backgroundReference?: string;
+  userPrompt?: string;
   purpose: 'compliance' | 'quality';
   mode?: 'edit' | 'creative';
   sceneType?: string;
