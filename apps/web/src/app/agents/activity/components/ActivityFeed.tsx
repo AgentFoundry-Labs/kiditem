@@ -2,7 +2,7 @@
 
 import { ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { statusBadge, statusBadgeDefault } from '@/lib/status-colors';
+import { statusColor } from '@/lib/status-colors';
 import { relativeTime } from '../../lib/agent-utils';
 import { SOURCE_LABELS } from '../../lib/agent-types';
 import { agentColor, agentInitials, statusLabel, runDescription, SOURCE_COLORS } from '../lib/activity-utils';
@@ -33,7 +33,7 @@ export function ActivityFeed({
               const colorClass = agentColor(run.agentName);
               const initials = agentInitials(run.agentName);
               const srcColor = SOURCE_COLORS[run.invocationSource] ?? 'bg-slate-100 text-slate-600';
-              const badgeClass = statusBadge[run.status] ?? statusBadgeDefault;
+              const badgeClass = statusColor(run.status, run.failureType);
               const isLast = idx === group.runs.length - 1;
               const hasError = run.status === 'failed' && (run.error || run.stderrExcerpt);
               const isExpanded = expandedRunId === run.id;

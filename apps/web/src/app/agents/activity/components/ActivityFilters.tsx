@@ -44,7 +44,6 @@ export function ActivityFilters({
             { key: 'all', label: '전체' },
             { key: 'succeeded', label: '완료' },
             { key: 'failed', label: '실패' },
-            { key: 'timed_out', label: '시간초과' },
             { key: 'running', label: '실행중' },
           ] as const).map((s) => (
             <button

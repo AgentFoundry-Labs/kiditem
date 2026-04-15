@@ -14,7 +14,7 @@ import { cn } from '@/lib/utils';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { relativeTime, formatTokens, formatCost, formatDuration } from '../../lib/agent-utils';
 import { SOURCE_LABELS } from '../../lib/agent-types';
-import { RUN_STATUS_ICONS, SOURCE_BADGE_COLORS } from '../lib/constants';
+import { RUN_STATUS_ICONS, FAILURE_TYPE_ICONS, SOURCE_BADGE_COLORS } from '../lib/constants';
 import type { Agent, HeartbeatRun, AgentRuntimeState } from '../../lib/agent-types';
 
 function buildRunActivity(runs: HeartbeatRun[], days: number) {
@@ -46,7 +46,7 @@ function computeSuccessRate(runs: HeartbeatRun[]): number {
 }
 
 function LatestRunCard({ run, isLive }: { run: HeartbeatRun; isLive: boolean }) {
-  const statusInfo = RUN_STATUS_ICONS[run.status] ?? { icon: Clock, colorClass: 'text-slate-400' };
+  const statusInfo = (run.failureType ? FAILURE_TYPE_ICONS[run.failureType] : undefined) ?? RUN_STATUS_ICONS[run.status] ?? { icon: Clock, colorClass: 'text-slate-400' };
   const StatusIcon = statusInfo.icon;
   const sourceBadgeClass = SOURCE_BADGE_COLORS[run.invocationSource] ?? 'bg-slate-100 text-slate-600';
 

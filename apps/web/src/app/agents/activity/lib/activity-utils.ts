@@ -37,12 +37,12 @@ export function agentInitials(name: string): string {
 }
 
 export function statusLabel(run: HeartbeatRun): string {
+  if (run.failureType === 'timeout') return '시간 초과';
   const labels: Record<string, string> = {
     succeeded: '완료',
     failed: '실패',
     running: '실행 중',
     queued: '대기 중',
-    timed_out: '시간 초과',
     cancelled: '취소됨',
   };
   return labels[run.status] ?? run.status;
