@@ -1,10 +1,13 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AgentRegistryService } from '../../agent-registry/agent-registry.service';
 import { DAG } from './dag';
 import { WorkflowContext } from './context';
 import { getExecutor, isConcurrencySafe, type ExecutorServices } from '../executors/index';
 import '../executors/builtin';
+import { PANEL_EVENTS } from '../../panel/events/panel-events';
+import { buildWorkflowPanelItem } from '../../panel/adapters/workflow-run-mapper';
 
 /** Subset of WorkflowTemplate fields needed for node execution */
 interface WorkflowTemplateRef {
@@ -21,9 +24,20 @@ export class WorkflowRunnerService {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly eventEmitter: EventEmitter2,
     @Optional() private readonly agentRegistry?: AgentRegistryService,
   ) {
     this.executorServices = { agentRegistry: this.agentRegistry };
+  }
+
+  private async emitPanelUpsert(runId: string): Promise<void> {
+    try {
+      const result = await buildWorkflowPanelItem(this.prisma, runId);
+      if (!result) return;
+      this.eventEmitter.emit(PANEL_EVENTS.UPSERT, result);
+    } catch (err) {
+      this.logger.warn(`[workflow-runner] Panel emit failed for run ${runId}: ${err}`);
+    }
   }
 
   async runWorkflow(runId: string, templateId: string): Promise<void> {
@@ -35,6 +49,7 @@ export class WorkflowRunnerService {
         where: { id: runId },
         data: { status: 'failed', error: 'Template not found' },
       });
+      await this.emitPanelUpsert(runId);
       return;
     }
 
@@ -51,6 +66,7 @@ export class WorkflowRunnerService {
       where: { id: runId },
       data: { status: 'running', startedAt: new Date() },
     });
+    await this.emitPanelUpsert(runId);
 
     const stack = dag.getStartNodes();
     const visited = new Set<string>();
@@ -124,6 +140,7 @@ export class WorkflowRunnerService {
       where: { id: runId },
       data: { status: 'completed', completedAt: new Date() },
     });
+    await this.emitPanelUpsert(runId);
   }
 
   async runBatch(
@@ -170,6 +187,7 @@ export class WorkflowRunnerService {
     const stepIndex = steps.length;
     steps.push(stepEntry);
     await this.prisma.workflowRun.update({ where: { id: runId }, data: { steps: steps as any } });
+    await this.emitPanelUpsert(runId);
 
     try {
       const resolvedConfig = context.resolveConfig({
@@ -185,6 +203,7 @@ export class WorkflowRunnerService {
       stepEntry.completedAt = new Date().toISOString();
       steps[stepIndex] = stepEntry;
       await this.prisma.workflowRun.update({ where: { id: runId }, data: { steps: steps as any } });
+      await this.emitPanelUpsert(runId);
 
       const branch = nodeDef.type.startsWith('condition.')
         ? (output.branch as string) ?? null
@@ -200,6 +219,7 @@ export class WorkflowRunnerService {
       stepEntry.completedAt = new Date().toISOString();
       steps[stepIndex] = stepEntry;
       await this.prisma.workflowRun.update({ where: { id: runId }, data: { steps: steps as any } });
+      await this.emitPanelUpsert(runId);
 
       throw err;
     }
@@ -223,6 +243,7 @@ export class WorkflowRunnerService {
       outputData: null,
     });
     await this.prisma.workflowRun.update({ where: { id: runId }, data: { steps: steps as any } });
+    await this.emitPanelUpsert(runId);
   }
 
   private async recordRunError(runId: string, error: string) {
@@ -230,6 +251,7 @@ export class WorkflowRunnerService {
       where: { id: runId },
       data: { status: 'failed', error, completedAt: new Date() },
     });
+    await this.emitPanelUpsert(runId);
   }
 
 }

@@ -8,6 +8,12 @@ import {
   BatchRunWorkflowBodyDto,
 } from './dto';
 import { CurrentCompany } from '../auth/decorators/current-company.decorator';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import type { AuthUser } from '../auth/auth.types';
+
+function resolveTriggeredByUserId(triggeredBy: string | undefined, user: AuthUser): string | undefined {
+  return triggeredBy === 'manual' ? user.id : undefined;
+}
 
 @Controller('workflows')
 export class WorkflowsController {
@@ -39,13 +45,13 @@ export class WorkflowsController {
   }
 
   @Post('batch-run')
-  batchRun(@Body() body: BatchRunWorkflowBodyDto) {
-    return this.workflowsService.batchRun(body.workflowIds, body.triggeredBy, body.context);
+  batchRun(@Body() body: BatchRunWorkflowBodyDto, @CurrentUser() user: AuthUser) {
+    return this.workflowsService.batchRun(body.workflowIds, body.triggeredBy, body.context, resolveTriggeredByUserId(body.triggeredBy, user));
   }
 
   @Post(':id/run')
-  triggerRun(@Param('id') id: string, @Body() body: RunWorkflowBodyDto) {
-    return this.workflowsService.triggerRun(id, body.triggeredBy, body.context);
+  triggerRun(@Param('id') id: string, @Body() body: RunWorkflowBodyDto, @CurrentUser() user: AuthUser) {
+    return this.workflowsService.triggerRun(id, body.triggeredBy, body.context, resolveTriggeredByUserId(body.triggeredBy, user));
   }
 
   @Get(':id/runs')

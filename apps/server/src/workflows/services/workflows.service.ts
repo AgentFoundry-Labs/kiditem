@@ -1,7 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import type { WorkflowTemplate } from '@kiditem/shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import { WorkflowRunnerService } from './workflow-runner.service';
+import { PANEL_EVENTS } from '../../panel/events/panel-events';
+import { buildWorkflowPanelItem } from '../../panel/adapters/workflow-run-mapper';
 
 @Injectable()
 export class WorkflowsService {
@@ -10,7 +13,18 @@ export class WorkflowsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly runner: WorkflowRunnerService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
+
+  private async emitPanelUpsert(runId: string): Promise<void> {
+    try {
+      const result = await buildWorkflowPanelItem(this.prisma, runId);
+      if (!result) return;
+      this.eventEmitter.emit(PANEL_EVENTS.UPSERT, result);
+    } catch (err) {
+      this.logger.warn(`[workflows] Panel emit failed for run ${runId}: ${err}`);
+    }
+  }
 
   async create(data: {
     name: string;
@@ -76,15 +90,24 @@ export class WorkflowsService {
     return this.prisma.workflowTemplate.delete({ where: { id } });
   }
 
-  async triggerRun(templateId: string, triggeredBy = 'manual', context?: Record<string, any>) {
+  async triggerRun(templateId: string, triggeredBy = 'manual', context?: Record<string, any>, triggeredByUserId?: string) {
+    const template = await this.prisma.workflowTemplate.findUnique({
+      where: { id: templateId },
+      select: { companyId: true },
+    });
+    if (!template) throw new NotFoundException(`워크플로우 템플릿(${templateId})을 찾을 수 없습니다`);
+
     const run = await this.prisma.workflowRun.create({
       data: {
         templateId,
         status: 'pending',
         triggeredBy,
+        triggeredByUserId: triggeredByUserId ?? null,
+        companyId: template.companyId ?? null,
         contextData: context ?? undefined,
       },
     });
+    await this.emitPanelUpsert(run.id);
 
     this.runner.runWorkflow(run.id, templateId).catch((err) => {
       this.logger.error(`Workflow run ${run.id} failed: ${err.message}`);
@@ -93,14 +116,28 @@ export class WorkflowsService {
     return run;
   }
 
-  async batchRun(templateIds: string[], triggeredBy = 'manual', context?: Record<string, any>) {
+  async batchRun(templateIds: string[], triggeredBy = 'manual', context?: Record<string, any>, triggeredByUserId?: string) {
+    const templates = await this.prisma.workflowTemplate.findMany({
+      where: { id: { in: templateIds } },
+      select: { id: true, companyId: true },
+    });
+    const companyIdByTemplateId = new Map(templates.map((t) => [t.id, t.companyId]));
+
     const runs = await Promise.all(
       templateIds.map((templateId) =>
         this.prisma.workflowRun.create({
-          data: { templateId, status: 'pending', triggeredBy, contextData: context ?? undefined },
+          data: {
+            templateId,
+            status: 'pending',
+            triggeredBy,
+            triggeredByUserId: triggeredByUserId ?? null,
+            companyId: companyIdByTemplateId.get(templateId) ?? null,
+            contextData: context ?? undefined,
+          },
         }),
       ),
     );
+    await Promise.all(runs.map((r) => this.emitPanelUpsert(r.id)));
 
     this.runner
       .runBatch(

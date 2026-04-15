@@ -1,0 +1,15 @@
+{
+  "apps/server/src/panel/panel.service.ts": 1776237439.133456,
+  "apps/server/src/panel/panel.controller.ts": 1776236357.6141102,
+  "apps/server/src/panel/panel.module.ts": 1776236362.1981266,
+  "apps/server/src/panel/adapters/workflow-run-mapper.ts": 1776237397.3186166,
+  "apps/server/src/panel/adapters/types.ts": 1776235350.8496604,
+  "apps/server/src/panel/adapters/registry.ts": 1776235698.9800096,
+  "apps/server/src/panel/adapters/workflow.adapter.ts": 1776235726.410553,
+  "apps/server/src/panel/adapters/__tests__/workflow.adapter.spec.ts": 1776235704.6396828,
+  "apps/server/src/panel/__tests__/panel.service.spec.ts": 1776236241.6461582,
+  "apps/server/src/panel/__tests__/integration.spec.ts": 1776238958.223746,
+  "apps/server/src/panel/events/panel-sse.service.ts": 1776235245.0638041,
+  "apps/server/src/panel/events/panel-events.ts": 1776234819.5313985,
+  "apps/server/src/panel/events/__tests__/panel-sse.service.spec.ts": 1776235255.091504
+}

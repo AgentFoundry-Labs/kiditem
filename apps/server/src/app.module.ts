@@ -1,5 +1,6 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { PrismaModule } from './prisma/prisma.module';
 import { CommonModule } from './common/common.module';
@@ -47,9 +48,13 @@ import { ChatModule } from './chat/chat.module';
 import { UploadsModule } from './uploads/uploads.module';
 import { TrafficModule } from './traffic/traffic.module';
 import { ActionTaskModule } from './action-task/action-task.module';
+import { PanelModule } from './panel/panel.module';
 
 @Module({
   imports: [
+    // 전역 이벤트 이미터 — PanelSseService(@OnEvent), 기타 도메인 이벤트 버스 공유.
+    // agent-registry.module.ts 의 forRoot() 는 NestJS 싱글턴이므로 중복 무해.
+    EventEmitterModule.forRoot(),
     // 120 req / 60s / IP — SSE 재연결 폭주 및 brute force 완화.
     // ThrottlerGuard 는 CompanyScope/Roles 이후 평가되어 비인증 요청은 카운터 영향 없음.
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 120 }]),
@@ -96,6 +101,7 @@ import { ActionTaskModule } from './action-task/action-task.module';
     UploadsModule,
     TrafficModule,
     ActionTaskModule,
+    PanelModule,
   ],
   providers: [
     // 가드 실행 순서 (providers 선언 순서 = 평가 순서):

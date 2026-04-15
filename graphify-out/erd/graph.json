@@ -4,168 +4,46 @@
   "graph": {
     "hyperedges": [
       {
-        "id": "order_pipeline_flow",
-        "label": "Order Pipeline (Coupang intake \u2192 internal order \u2192 shipment \u2192 unshipped/settlement)",
+        "id": "panel_visibility_workflow_user_relation",
+        "label": "Panel visibility uses User-WorkflowRun relation",
         "nodes": [
-          "schema_CoupangOrder",
-          "schema_CoupangOrderItem",
-          "schema_Order",
-          "schema_Shipment",
-          "schema_UnshippedItem",
-          "schema_Settlement",
-          "schema_Inventory"
-        ],
-        "relation": "participate_in",
-        "confidence": "INFERRED",
-        "confidence_score": 0.85,
-        "source_file": "erd.md"
-      },
-      {
-        "id": "ad_automation_pipeline",
-        "label": "Ad Automation Pipeline (Snapshot \u2192 Action \u2192 ExecutionTask \u2192 ExecutionLog, Worker)",
-        "nodes": [
-          "schema_AdSnapshot",
-          "schema_AdAction",
-          "schema_ExecutionTask",
-          "schema_ExecutionWorker",
-          "schema_ExecutionLog"
+          "erd_workflow_run",
+          "erd_workflow_run_triggered_by_user",
+          "erd_user_unified"
         ],
         "relation": "participate_in",
         "confidence": "EXTRACTED",
-        "confidence_score": 1.0,
-        "source_file": "erd.md"
+        "confidence_score": 0.9,
+        "source_file": "schema-models.md",
+        "source_location": "L289"
       },
       {
-        "id": "thumbnail_ai_pipeline",
-        "label": "Thumbnail AI Pipeline (Analysis \u2192 Generation \u2192 Tracking \u2192 Thumbnail CTR)",
+        "id": "ads_execution_pipeline",
+        "label": "Ads execution pipeline (AdSnapshot -> AdAction -> ExecutionTask)",
         "nodes": [
-          "schema_Thumbnail",
-          "schema_ThumbnailAnalysis",
-          "schema_ThumbnailGeneration",
-          "schema_ThumbnailTracking"
-        ],
-        "relation": "participate_in",
-        "confidence": "EXTRACTED",
-        "confidence_score": 1.0,
-        "source_file": "erd.md"
-      },
-      {
-        "id": "agent_runtime_loop",
-        "label": "Agent Runtime Loop (Definition \u2192 WakeupRequest \u2192 HeartbeatRun \u2192 AgentEvent)",
-        "nodes": [
-          "schema_AgentDefinition",
-          "schema_AgentWakeupRequest",
-          "schema_HeartbeatRun",
-          "schema_AgentEvent"
-        ],
-        "relation": "participate_in",
-        "confidence": "EXTRACTED",
-        "confidence_score": 1.0,
-        "source_file": "erd.md"
-      },
-      {
-        "id": "workflow_execution",
-        "label": "Workflow Execution (Template \u2192 Run, delegates to AgentTask)",
-        "nodes": [
-          "schema_WorkflowTemplate",
-          "schema_WorkflowRun",
-          "schema_AgentTask",
-          "schema_AgentLog"
-        ],
-        "relation": "participate_in",
-        "confidence": "INFERRED",
-        "confidence_score": 0.8,
-        "source_file": "architecture.md"
-      },
-      {
-        "id": "purchase_receiving_flow",
-        "label": "Purchase Receiving (Supplier \u2192 PurchaseOrder \u2192 PurchaseOrderItem \u2192 SupplierPayment \u2192 Inventory/StockTransaction)",
-        "nodes": [
-          "schema_Supplier",
-          "schema_PurchaseOrder",
-          "schema_PurchaseOrderItem",
-          "schema_SupplierPayment",
-          "schema_StockTransaction"
-        ],
-        "relation": "participate_in",
-        "confidence": "INFERRED",
-        "confidence_score": 0.85,
-        "source_file": "erd.md"
-      },
-      {
-        "id": "warehouse_movement_flow",
-        "label": "Warehouse Movement (Warehouse \u2192 StockTransfer from/to \u2192 StockTransaction \u2192 Inventory)",
-        "nodes": [
-          "schema_Warehouse",
-          "schema_StockTransfer",
-          "schema_StockTransaction",
-          "schema_Inventory"
-        ],
-        "relation": "participate_in",
-        "confidence": "EXTRACTED",
-        "confidence_score": 1.0,
-        "source_file": "schema-models.md"
-      },
-      {
-        "id": "picking_fulfillment_flow",
-        "label": "Picking Fulfillment (PickingList \u2192 PickingItem \u2192 Shipment)",
-        "nodes": [
-          "schema_PickingList",
-          "schema_PickingItem",
-          "schema_Shipment"
-        ],
-        "relation": "participate_in",
-        "confidence": "INFERRED",
-        "confidence_score": 0.8,
-        "source_file": "erd.md"
-      },
-      {
-        "id": "master_normalization_layer",
-        "label": "Master normalization layer (Master* tables shadow operational)",
-        "nodes": [
-          "schema_MasterProduct",
-          "schema_MasterInventory",
-          "schema_MasterSupplierProduct",
-          "schema_Product",
-          "schema_Inventory",
-          "schema_SupplierProduct"
-        ],
-        "relation": "form",
-        "confidence": "INFERRED",
-        "confidence_score": 0.7,
-        "source_file": "schema-models.md"
-      },
-      {
-        "id": "marketplace_distribution",
-        "label": "Marketplace distribution (type=agent|workflow, publishes AgentDefinition + WorkflowTemplate)",
-        "nodes": [
-          "schema_Marketplace",
-          "schema_AgentDefinition",
-          "schema_WorkflowTemplate"
+          "erd_ad_snapshot",
+          "erd_ad_action",
+          "erd_execution_task"
         ],
         "relation": "form",
         "confidence": "EXTRACTED",
-        "confidence_score": 1.0,
-        "source_file": "schema-models.md"
+        "confidence_score": 0.95,
+        "source_file": "erd.md",
+        "source_location": "L334-348"
       },
       {
-        "id": "nine_domain_partition",
-        "label": "Nine-domain partition of 67 models",
+        "id": "agent_runtime_state_cluster",
+        "label": "Agent runtime state (AgentDefinition + HeartbeatRun + AgentEvent)",
         "nodes": [
-          "erd_domain_core",
-          "erd_domain_order",
-          "erd_domain_stock",
-          "erd_domain_supply",
-          "erd_domain_ads",
-          "erd_domain_finance",
-          "erd_domain_ai",
-          "erd_domain_agent",
-          "erd_domain_system"
+          "erd_agent_definition",
+          "erd_heartbeat_run",
+          "erd_agent_event"
         ],
-        "relation": "form",
+        "relation": "participate_in",
         "confidence": "EXTRACTED",
-        "confidence_score": 1.0,
-        "source_file": "erd.md"
+        "confidence_score": 0.9,
+        "source_file": "erd.md",
+        "source_location": "L484-549"
       }
     ]
   },
@@ -179,9 +57,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "erd_domain_core",
-      "community": 8,
-      "norm_label": "core domain (company/user/product)"
+      "community": 0,
+      "norm_label": "core domain (company/user/product)",
+      "id": "erd_domain_core"
     },
     {
       "label": "Order/Delivery Domain",
@@ -192,9 +70,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "erd_domain_order",
       "community": 5,
-      "norm_label": "order/delivery domain"
+      "norm_label": "order/delivery domain",
+      "id": "erd_domain_order"
     },
     {
       "label": "Stock/Logistics Domain",
@@ -205,9 +83,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "erd_domain_stock",
-      "community": 1,
-      "norm_label": "stock/logistics domain"
+      "community": 0,
+      "norm_label": "stock/logistics domain",
+      "id": "erd_domain_stock"
     },
     {
       "label": "Supply/Purchase Domain",
@@ -218,9 +96,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "erd_domain_supply",
       "community": 6,
-      "norm_label": "supply/purchase domain"
+      "norm_label": "supply/purchase domain",
+      "id": "erd_domain_supply"
     },
     {
       "label": "Ads/Marketing Domain",
@@ -231,9 +109,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "erd_domain_ads",
-      "community": 3,
-      "norm_label": "ads/marketing domain"
+      "community": 4,
+      "norm_label": "ads/marketing domain",
+      "id": "erd_domain_ads"
     },
     {
       "label": "Finance/Analytics Domain",
@@ -244,9 +122,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "erd_domain_finance",
-      "community": 0,
-      "norm_label": "finance/analytics domain"
+      "community": 2,
+      "norm_label": "finance/analytics domain",
+      "id": "erd_domain_finance"
     },
     {
       "label": "AI/Thumbnail Domain",
@@ -257,9 +135,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "erd_domain_ai",
-      "community": 0,
-      "norm_label": "ai/thumbnail domain"
+      "community": 2,
+      "norm_label": "ai/thumbnail domain",
+      "id": "erd_domain_ai"
     },
     {
       "label": "Agent/Workflow Domain",
@@ -270,9 +148,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "erd_domain_agent",
-      "community": 2,
-      "norm_label": "agent/workflow domain"
+      "community": 3,
+      "norm_label": "agent/workflow domain",
+      "id": "erd_domain_agent"
     },
     {
       "label": "System/Settings Domain",
@@ -283,9 +161,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "erd_domain_system",
-      "community": 4,
-      "norm_label": "system/settings domain"
+      "community": 0,
+      "norm_label": "system/settings domain",
+      "id": "erd_domain_system"
     },
     {
       "label": "Company",
@@ -296,9 +174,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_Company",
-      "community": 4,
-      "norm_label": "company"
+      "community": 0,
+      "norm_label": "company",
+      "id": "schema_Company"
     },
     {
       "label": "User",
@@ -309,9 +187,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_User",
-      "community": 8,
-      "norm_label": "user"
+      "community": 0,
+      "norm_label": "user",
+      "id": "schema_User"
     },
     {
       "label": "Product",
@@ -322,9 +200,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_Product",
-      "community": 0,
-      "norm_label": "product"
+      "community": 2,
+      "norm_label": "product",
+      "id": "schema_Product"
     },
     {
       "label": "Inventory",
@@ -335,9 +213,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_Inventory",
-      "community": 1,
-      "norm_label": "inventory"
+      "community": 0,
+      "norm_label": "inventory",
+      "id": "schema_Inventory"
     },
     {
       "label": "Order",
@@ -348,9 +226,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_Order",
       "community": 5,
-      "norm_label": "order"
+      "norm_label": "order",
+      "id": "schema_Order"
     },
     {
       "label": "CoupangOrder",
@@ -361,9 +239,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_CoupangOrder",
       "community": 5,
-      "norm_label": "coupangorder"
+      "norm_label": "coupangorder",
+      "id": "schema_CoupangOrder"
     },
     {
       "label": "CoupangOrderItem",
@@ -374,9 +252,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_CoupangOrderItem",
       "community": 5,
-      "norm_label": "coupangorderitem"
+      "norm_label": "coupangorderitem",
+      "id": "schema_CoupangOrderItem"
     },
     {
       "label": "CoupangReturn",
@@ -387,9 +265,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_CoupangReturn",
-      "community": 1,
-      "norm_label": "coupangreturn"
+      "community": 0,
+      "norm_label": "coupangreturn",
+      "id": "schema_CoupangReturn"
     },
     {
       "label": "ProductItem",
@@ -400,9 +278,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_ProductItem",
-      "community": 1,
-      "norm_label": "productitem"
+      "community": 0,
+      "norm_label": "productitem",
+      "id": "schema_ProductItem"
     },
     {
       "label": "PurchaseOrder",
@@ -413,9 +291,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_PurchaseOrder",
       "community": 6,
-      "norm_label": "purchaseorder"
+      "norm_label": "purchaseorder",
+      "id": "schema_PurchaseOrder"
     },
     {
       "label": "PurchaseOrderItem",
@@ -426,9 +304,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_PurchaseOrderItem",
       "community": 6,
-      "norm_label": "purchaseorderitem"
+      "norm_label": "purchaseorderitem",
+      "id": "schema_PurchaseOrderItem"
     },
     {
       "label": "Ad",
@@ -439,9 +317,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_Ad",
-      "community": 3,
-      "norm_label": "ad"
+      "community": 4,
+      "norm_label": "ad",
+      "id": "schema_Ad"
     },
     {
       "label": "ProfitLoss",
@@ -452,9 +330,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_ProfitLoss",
-      "community": 0,
-      "norm_label": "profitloss"
+      "community": 2,
+      "norm_label": "profitloss",
+      "id": "schema_ProfitLoss"
     },
     {
       "label": "Thumbnail",
@@ -465,9 +343,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_Thumbnail",
-      "community": 0,
-      "norm_label": "thumbnail"
+      "community": 2,
+      "norm_label": "thumbnail",
+      "id": "schema_Thumbnail"
     },
     {
       "label": "ThumbnailAnalysis",
@@ -478,9 +356,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_ThumbnailAnalysis",
-      "community": 0,
-      "norm_label": "thumbnailanalysis"
+      "community": 2,
+      "norm_label": "thumbnailanalysis",
+      "id": "schema_ThumbnailAnalysis"
     },
     {
       "label": "ThumbnailGeneration",
@@ -491,9 +369,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_ThumbnailGeneration",
-      "community": 0,
-      "norm_label": "thumbnailgeneration"
+      "community": 2,
+      "norm_label": "thumbnailgeneration",
+      "id": "schema_ThumbnailGeneration"
     },
     {
       "label": "ThumbnailTracking",
@@ -504,9 +382,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_ThumbnailTracking",
-      "community": 0,
-      "norm_label": "thumbnailtracking"
+      "community": 2,
+      "norm_label": "thumbnailtracking",
+      "id": "schema_ThumbnailTracking"
     },
     {
       "label": "Review",
@@ -517,9 +395,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_Review",
-      "community": 0,
-      "norm_label": "review"
+      "community": 2,
+      "norm_label": "review",
+      "id": "schema_Review"
     },
     {
       "label": "ActivityEvent",
@@ -530,9 +408,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_ActivityEvent",
-      "community": 4,
-      "norm_label": "activityevent"
+      "community": 0,
+      "norm_label": "activityevent",
+      "id": "schema_ActivityEvent"
     },
     {
       "label": "Alert",
@@ -543,9 +421,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_Alert",
-      "community": 4,
-      "norm_label": "alert"
+      "community": 0,
+      "norm_label": "alert",
+      "id": "schema_Alert"
     },
     {
       "label": "AgentTask",
@@ -556,9 +434,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_AgentTask",
-      "community": 3,
-      "norm_label": "agenttask"
+      "community": 4,
+      "norm_label": "agenttask",
+      "id": "schema_AgentTask"
     },
     {
       "label": "AgentLog",
@@ -569,9 +447,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_AgentLog",
-      "community": 3,
-      "norm_label": "agentlog"
+      "community": 4,
+      "norm_label": "agentlog",
+      "id": "schema_AgentLog"
     },
     {
       "label": "AgentDefinition",
@@ -582,9 +460,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_AgentDefinition",
-      "community": 2,
-      "norm_label": "agentdefinition"
+      "community": 3,
+      "norm_label": "agentdefinition",
+      "id": "schema_AgentDefinition"
     },
     {
       "label": "HeartbeatRun",
@@ -595,9 +473,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_HeartbeatRun",
-      "community": 2,
-      "norm_label": "heartbeatrun"
+      "community": 3,
+      "norm_label": "heartbeatrun",
+      "id": "schema_HeartbeatRun"
     },
     {
       "label": "FeatureGate",
@@ -608,9 +486,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_FeatureGate",
-      "community": 4,
-      "norm_label": "featuregate"
+      "community": 0,
+      "norm_label": "featuregate",
+      "id": "schema_FeatureGate"
     },
     {
       "label": "AgentWakeupRequest",
@@ -621,9 +499,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_AgentWakeupRequest",
-      "community": 2,
-      "norm_label": "agentwakeuprequest"
+      "community": 3,
+      "norm_label": "agentwakeuprequest",
+      "id": "schema_AgentWakeupRequest"
     },
     {
       "label": "AgentEvent",
@@ -634,9 +512,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_AgentEvent",
-      "community": 2,
-      "norm_label": "agentevent"
+      "community": 3,
+      "norm_label": "agentevent",
+      "id": "schema_AgentEvent"
     },
     {
       "label": "ContentGeneration",
@@ -647,9 +525,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_ContentGeneration",
-      "community": 0,
-      "norm_label": "contentgeneration"
+      "community": 2,
+      "norm_label": "contentgeneration",
+      "id": "schema_ContentGeneration"
     },
     {
       "label": "WorkflowTemplate",
@@ -660,9 +538,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_WorkflowTemplate",
-      "community": 2,
-      "norm_label": "workflowtemplate"
+      "community": 3,
+      "norm_label": "workflowtemplate",
+      "id": "schema_WorkflowTemplate"
     },
     {
       "label": "WorkflowRun",
@@ -673,9 +551,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_WorkflowRun",
-      "community": 2,
-      "norm_label": "workflowrun"
+      "community": 3,
+      "norm_label": "workflowrun",
+      "id": "schema_WorkflowRun"
     },
     {
       "label": "Supplier",
@@ -686,9 +564,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_Supplier",
       "community": 6,
-      "norm_label": "supplier"
+      "norm_label": "supplier",
+      "id": "schema_Supplier"
     },
     {
       "label": "SupplierProduct",
@@ -699,9 +577,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_SupplierProduct",
       "community": 6,
-      "norm_label": "supplierproduct"
+      "norm_label": "supplierproduct",
+      "id": "schema_SupplierProduct"
     },
     {
       "label": "SupplierPayment",
@@ -712,9 +590,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_SupplierPayment",
       "community": 6,
-      "norm_label": "supplierpayment"
+      "norm_label": "supplierpayment",
+      "id": "schema_SupplierPayment"
     },
     {
       "label": "Warehouse",
@@ -725,9 +603,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_Warehouse",
-      "community": 1,
-      "norm_label": "warehouse"
+      "community": 0,
+      "norm_label": "warehouse",
+      "id": "schema_Warehouse"
     },
     {
       "label": "StockTransfer",
@@ -738,9 +616,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_StockTransfer",
-      "community": 1,
-      "norm_label": "stocktransfer"
+      "community": 0,
+      "norm_label": "stocktransfer",
+      "id": "schema_StockTransfer"
     },
     {
       "label": "StockTransaction",
@@ -751,9 +629,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_StockTransaction",
-      "community": 1,
-      "norm_label": "stocktransaction"
+      "community": 0,
+      "norm_label": "stocktransaction",
+      "id": "schema_StockTransaction"
     },
     {
       "label": "StockAudit",
@@ -764,9 +642,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_StockAudit",
-      "community": 1,
-      "norm_label": "stockaudit"
+      "community": 0,
+      "norm_label": "stockaudit",
+      "id": "schema_StockAudit"
     },
     {
       "label": "Shipment",
@@ -777,9 +655,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_Shipment",
       "community": 5,
-      "norm_label": "shipment"
+      "norm_label": "shipment",
+      "id": "schema_Shipment"
     },
     {
       "label": "UnshippedItem",
@@ -790,9 +668,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_UnshippedItem",
       "community": 5,
-      "norm_label": "unshippeditem"
+      "norm_label": "unshippeditem",
+      "id": "schema_UnshippedItem"
     },
     {
       "label": "PickingList",
@@ -803,9 +681,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_PickingList",
-      "community": 1,
-      "norm_label": "pickinglist"
+      "community": 0,
+      "norm_label": "pickinglist",
+      "id": "schema_PickingList"
     },
     {
       "label": "PickingItem",
@@ -816,9 +694,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_PickingItem",
-      "community": 1,
-      "norm_label": "pickingitem"
+      "community": 0,
+      "norm_label": "pickingitem",
+      "id": "schema_PickingItem"
     },
     {
       "label": "ReturnTransfer",
@@ -829,9 +707,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_ReturnTransfer",
-      "community": 1,
-      "norm_label": "returntransfer"
+      "community": 0,
+      "norm_label": "returntransfer",
+      "id": "schema_ReturnTransfer"
     },
     {
       "label": "BundleProduct",
@@ -842,9 +720,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_BundleProduct",
-      "community": 1,
-      "norm_label": "bundleproduct"
+      "community": 0,
+      "norm_label": "bundleproduct",
+      "id": "schema_BundleProduct"
     },
     {
       "label": "ProductMemo",
@@ -855,9 +733,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_ProductMemo",
-      "community": 0,
-      "norm_label": "productmemo"
+      "community": 2,
+      "norm_label": "productmemo",
+      "id": "schema_ProductMemo"
     },
     {
       "label": "ProcessingCost",
@@ -868,9 +746,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_ProcessingCost",
-      "community": 0,
-      "norm_label": "processingcost"
+      "community": 2,
+      "norm_label": "processingcost",
+      "id": "schema_ProcessingCost"
     },
     {
       "label": "Settlement",
@@ -881,9 +759,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_Settlement",
       "community": 5,
-      "norm_label": "settlement"
+      "norm_label": "settlement",
+      "id": "schema_Settlement"
     },
     {
       "label": "ManualLedger",
@@ -894,9 +772,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_ManualLedger",
-      "community": 0,
-      "norm_label": "manualledger"
+      "community": 2,
+      "norm_label": "manualledger",
+      "id": "schema_ManualLedger"
     },
     {
       "label": "CSRecord",
@@ -907,9 +785,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_CSRecord",
-      "community": 0,
-      "norm_label": "csrecord"
+      "community": 2,
+      "norm_label": "csrecord",
+      "id": "schema_CSRecord"
     },
     {
       "label": "CategoryMapping",
@@ -920,9 +798,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_CategoryMapping",
-      "community": 4,
-      "norm_label": "categorymapping"
+      "community": 0,
+      "norm_label": "categorymapping",
+      "id": "schema_CategoryMapping"
     },
     {
       "label": "OptionMaster",
@@ -933,9 +811,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_OptionMaster",
-      "community": 4,
-      "norm_label": "optionmaster"
+      "community": 0,
+      "norm_label": "optionmaster",
+      "id": "schema_OptionMaster"
     },
     {
       "label": "SalesPlan",
@@ -946,9 +824,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_SalesPlan",
-      "community": 0,
-      "norm_label": "salesplan"
+      "community": 2,
+      "norm_label": "salesplan",
+      "id": "schema_SalesPlan"
     },
     {
       "label": "TrafficStats",
@@ -959,9 +837,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_TrafficStats",
-      "community": 3,
-      "norm_label": "trafficstats"
+      "community": 4,
+      "norm_label": "trafficstats",
+      "id": "schema_TrafficStats"
     },
     {
       "label": "GradeHistory",
@@ -972,9 +850,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_GradeHistory",
-      "community": 0,
-      "norm_label": "gradehistory"
+      "community": 2,
+      "norm_label": "gradehistory",
+      "id": "schema_GradeHistory"
     },
     {
       "label": "SystemSetting",
@@ -985,9 +863,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_SystemSetting",
-      "community": 4,
-      "norm_label": "systemsetting"
+      "community": 0,
+      "norm_label": "systemsetting",
+      "id": "schema_SystemSetting"
     },
     {
       "label": "BusinessRule",
@@ -998,9 +876,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_BusinessRule",
-      "community": 4,
-      "norm_label": "businessrule"
+      "community": 0,
+      "norm_label": "businessrule",
+      "id": "schema_BusinessRule"
     },
     {
       "label": "Marketplace",
@@ -1011,9 +889,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_Marketplace",
-      "community": 2,
-      "norm_label": "marketplace"
+      "community": 3,
+      "norm_label": "marketplace",
+      "id": "schema_Marketplace"
     },
     {
       "label": "ScrapeTarget",
@@ -1024,9 +902,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_ScrapeTarget",
-      "community": 3,
-      "norm_label": "scrapetarget"
+      "community": 4,
+      "norm_label": "scrapetarget",
+      "id": "schema_ScrapeTarget"
     },
     {
       "label": "AdSnapshot",
@@ -1037,9 +915,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_AdSnapshot",
-      "community": 3,
-      "norm_label": "adsnapshot"
+      "community": 4,
+      "norm_label": "adsnapshot",
+      "id": "schema_AdSnapshot"
     },
     {
       "label": "ItemWinner",
@@ -1050,9 +928,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_ItemWinner",
-      "community": 3,
-      "norm_label": "itemwinner"
+      "community": 4,
+      "norm_label": "itemwinner",
+      "id": "schema_ItemWinner"
     },
     {
       "label": "AdAction",
@@ -1063,9 +941,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_AdAction",
-      "community": 3,
-      "norm_label": "adaction"
+      "community": 4,
+      "norm_label": "adaction",
+      "id": "schema_AdAction"
     },
     {
       "label": "ExecutionWorker",
@@ -1076,9 +954,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_ExecutionWorker",
-      "community": 3,
-      "norm_label": "executionworker"
+      "community": 4,
+      "norm_label": "executionworker",
+      "id": "schema_ExecutionWorker"
     },
     {
       "label": "ExecutionTask",
@@ -1089,9 +967,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_ExecutionTask",
-      "community": 3,
-      "norm_label": "executiontask"
+      "community": 4,
+      "norm_label": "executiontask",
+      "id": "schema_ExecutionTask"
     },
     {
       "label": "ExecutionLog",
@@ -1102,9 +980,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_ExecutionLog",
-      "community": 3,
-      "norm_label": "executionlog"
+      "community": 4,
+      "norm_label": "executionlog",
+      "id": "schema_ExecutionLog"
     },
     {
       "label": "ActionTask",
@@ -1115,9 +993,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_ActionTask",
-      "community": 4,
-      "norm_label": "actiontask"
+      "community": 0,
+      "norm_label": "actiontask",
+      "id": "schema_ActionTask"
     },
     {
       "label": "MasterProduct",
@@ -1128,9 +1006,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_MasterProduct",
-      "community": 1,
-      "norm_label": "masterproduct"
+      "community": 0,
+      "norm_label": "masterproduct",
+      "id": "schema_MasterProduct"
     },
     {
       "label": "MasterInventory",
@@ -1141,9 +1019,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_MasterInventory",
-      "community": 1,
-      "norm_label": "masterinventory"
+      "community": 0,
+      "norm_label": "masterinventory",
+      "id": "schema_MasterInventory"
     },
     {
       "label": "MasterSupplierProduct",
@@ -1154,9 +1032,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "schema_MasterSupplierProduct",
       "community": 6,
-      "norm_label": "mastersupplierproduct"
+      "norm_label": "mastersupplierproduct",
+      "id": "schema_MasterSupplierProduct"
     },
     {
       "label": "Rule: No native PG enums \u2014 String + app-level validation",
@@ -1167,9 +1045,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "rule_no_native_pg_enums",
       "community": 5,
-      "norm_label": "rule: no native pg enums \u2014 string + app-level validation"
+      "norm_label": "rule: no native pg enums \u2014 string + app-level validation",
+      "id": "rule_no_native_pg_enums"
     },
     {
       "label": "Rule: PascalCase model with @@map to snake_case table",
@@ -1180,9 +1058,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "rule_pascalcase_model_snake_map",
       "community": 9,
-      "norm_label": "rule: pascalcase model with @@map to snake_case table"
+      "norm_label": "rule: pascalcase model with @@map to snake_case table",
+      "id": "rule_pascalcase_model_snake_map"
     },
     {
       "label": "Rule: UUID PK @default(uuid()) @db.Uuid",
@@ -1193,9 +1071,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "rule_uuid_pk",
       "community": 10,
-      "norm_label": "rule: uuid pk @default(uuid()) @db.uuid"
+      "norm_label": "rule: uuid pk @default(uuid()) @db.uuid",
+      "id": "rule_uuid_pk"
     },
     {
       "label": "Rule: Timestamps use @db.Timestamptz",
@@ -1206,9 +1084,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "rule_timestamptz",
       "community": 11,
-      "norm_label": "rule: timestamps use @db.timestamptz"
+      "norm_label": "rule: timestamps use @db.timestamptz",
+      "id": "rule_timestamptz"
     },
     {
       "label": "Rule: Currency \u2014 Int(KRW) or Decimal(12,2)(CNY)",
@@ -1219,9 +1097,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "rule_currency_types",
       "community": 6,
-      "norm_label": "rule: currency \u2014 int(krw) or decimal(12,2)(cny)"
+      "norm_label": "rule: currency \u2014 int(krw) or decimal(12,2)(cny)",
+      "id": "rule_currency_types"
     },
     {
       "label": "Rule: Json absorption pattern for embedded child items",
@@ -1232,9 +1110,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "rule_json_absorption",
-      "community": 1,
-      "norm_label": "rule: json absorption pattern for embedded child items"
+      "community": 0,
+      "norm_label": "rule: json absorption pattern for embedded child items",
+      "id": "rule_json_absorption"
     },
     {
       "label": "Rule: satisfies z.infer<typeof Schema> pattern to detect drift",
@@ -1245,9 +1123,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "rule_satisfies_pattern",
       "community": 12,
-      "norm_label": "rule: satisfies z.infer<typeof schema> pattern to detect drift"
+      "norm_label": "rule: satisfies z.infer<typeof schema> pattern to detect drift",
+      "id": "rule_satisfies_pattern"
     },
     {
       "label": "Rule: AgentDefinition.rt_* runtime state fields \u2014 no separate table",
@@ -1258,9 +1136,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "rule_agent_rt_fields",
-      "community": 2,
-      "norm_label": "rule: agentdefinition.rt_* runtime state fields \u2014 no separate table"
+      "community": 3,
+      "norm_label": "rule: agentdefinition.rt_* runtime state fields \u2014 no separate table",
+      "id": "rule_agent_rt_fields"
     },
     {
       "label": "Rule: AgentEvent eventType discriminates permission_denied|action_snapshot",
@@ -1271,9 +1149,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "rule_agentevent_discriminated",
-      "community": 2,
-      "norm_label": "rule: agentevent eventtype discriminates permission_denied|action_snapshot"
+      "community": 3,
+      "norm_label": "rule: agentevent eventtype discriminates permission_denied|action_snapshot",
+      "id": "rule_agentevent_discriminated"
     },
     {
       "label": "Rule: AdSnapshot.level discriminates campaign|product|null",
@@ -1284,9 +1162,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "rule_adsnapshot_level_discriminated",
-      "community": 3,
-      "norm_label": "rule: adsnapshot.level discriminates campaign|product|null"
+      "community": 4,
+      "norm_label": "rule: adsnapshot.level discriminates campaign|product|null",
+      "id": "rule_adsnapshot_level_discriminated"
     },
     {
       "label": "Rule: Marketplace.type discriminates agent|workflow",
@@ -1297,9 +1175,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "rule_marketplace_type_discriminated",
-      "community": 2,
-      "norm_label": "rule: marketplace.type discriminates agent|workflow"
+      "community": 3,
+      "norm_label": "rule: marketplace.type discriminates agent|workflow",
+      "id": "rule_marketplace_type_discriminated"
     },
     {
       "label": "Rule: User.type unifies human|agent|system",
@@ -1310,9 +1188,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "rule_user_type_unified",
-      "community": 8,
-      "norm_label": "rule: user.type unifies human|agent|system"
+      "community": 0,
+      "norm_label": "rule: user.type unifies human|agent|system",
+      "id": "rule_user_type_unified"
     },
     {
       "label": "Rule: RLS on chatbot_readonly user via app.company_id session var",
@@ -1323,9 +1201,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "rule_rls_chatbot_readonly",
-      "community": 4,
-      "norm_label": "rule: rls on chatbot_readonly user via app.company_id session var"
+      "community": 0,
+      "norm_label": "rule: rls on chatbot_readonly user via app.company_id session var",
+      "id": "rule_rls_chatbot_readonly"
     },
     {
       "label": "Frontend: Next.js (apiClient + TanStack Query)",
@@ -1336,9 +1214,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "arch_frontend_nextjs",
       "community": 7,
-      "norm_label": "frontend: next.js (apiclient + tanstack query)"
+      "norm_label": "frontend: next.js (apiclient + tanstack query)",
+      "id": "arch_frontend_nextjs"
     },
     {
       "label": "Backend: NestJS (ValidationPipe/DTO/GlobalExceptionFilter)",
@@ -1349,9 +1227,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "arch_backend_nestjs",
       "community": 7,
-      "norm_label": "backend: nestjs (validationpipe/dto/globalexceptionfilter)"
+      "norm_label": "backend: nestjs (validationpipe/dto/globalexceptionfilter)",
+      "id": "arch_backend_nestjs"
     },
     {
       "label": "DB: PostgreSQL (with RLS)",
@@ -1362,9 +1240,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "arch_db_postgres",
       "community": 7,
-      "norm_label": "db: postgresql (with rls)"
+      "norm_label": "db: postgresql (with rls)",
+      "id": "arch_db_postgres"
     },
     {
       "label": "Claude CLI Agents (spawn claude -p) \u2014 judgment/analysis",
@@ -1375,9 +1253,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "arch_agent_claude_cli",
       "community": 7,
-      "norm_label": "claude cli agents (spawn claude -p) \u2014 judgment/analysis"
+      "norm_label": "claude cli agents (spawn claude -p) \u2014 judgment/analysis",
+      "id": "arch_agent_claude_cli"
     },
     {
       "label": "Python Agents (FastAPI HTTP) \u2014 generation/processing",
@@ -1388,9 +1266,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "arch_agent_python",
       "community": 7,
-      "norm_label": "python agents (fastapi http) \u2014 generation/processing"
+      "norm_label": "python agents (fastapi http) \u2014 generation/processing",
+      "id": "arch_agent_python"
     },
     {
       "label": "Chatbot (CopilotKit sidebar + ClaudeCliAdapter)",
@@ -1401,9 +1279,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "arch_chatbot_copilotkit",
       "community": 7,
-      "norm_label": "chatbot (copilotkit sidebar + claudecliadapter)"
+      "norm_label": "chatbot (copilotkit sidebar + claudecliadapter)",
+      "id": "arch_chatbot_copilotkit"
     },
     {
       "label": "@kiditem/shared Zod schemas (ESM+CJS)",
@@ -1414,9 +1292,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "arch_shared_package",
       "community": 7,
-      "norm_label": "@kiditem/shared zod schemas (esm+cjs)"
+      "norm_label": "@kiditem/shared zod schemas (esm+cjs)",
+      "id": "arch_shared_package"
     },
     {
       "label": "Rationale: Workflows never call LLMs \u2014 delegate to agents",
@@ -1427,9 +1305,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "rationale_workflow_vs_agent",
-      "community": 2,
-      "norm_label": "rationale: workflows never call llms \u2014 delegate to agents"
+      "community": 3,
+      "norm_label": "rationale: workflows never call llms \u2014 delegate to agents",
+      "id": "rationale_workflow_vs_agent"
     },
     {
       "label": "Rationale: Unify human+AI+system into users table",
@@ -1440,9 +1318,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "rationale_users_unification",
-      "community": 8,
-      "norm_label": "rationale: unify human+ai+system into users table"
+      "community": 0,
+      "norm_label": "rationale: unify human+ai+system into users table",
+      "id": "rationale_users_unification"
     },
     {
       "label": "Rationale: RLS isolates chatbot tenant data at DB layer",
@@ -1453,9 +1331,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "rationale_rls_security",
-      "community": 4,
-      "norm_label": "rationale: rls isolates chatbot tenant data at db layer"
+      "community": 0,
+      "norm_label": "rationale: rls isolates chatbot tenant data at db layer",
+      "id": "rationale_rls_security"
     },
     {
       "label": "Rationale: AgentDefinition.rt_* embedded to avoid table proliferation",
@@ -1466,9 +1344,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "rationale_rt_fields_embedded",
-      "community": 2,
-      "norm_label": "rationale: agentdefinition.rt_* embedded to avoid table proliferation"
+      "community": 3,
+      "norm_label": "rationale: agentdefinition.rt_* embedded to avoid table proliferation",
+      "id": "rationale_rt_fields_embedded"
     },
     {
       "label": "Rationale: Json absorption (items[]) avoids child tables for small collections",
@@ -1479,9 +1357,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "rationale_json_absorption",
-      "community": 1,
-      "norm_label": "rationale: json absorption (items[]) avoids child tables for small collections"
+      "community": 0,
+      "norm_label": "rationale: json absorption (items[]) avoids child tables for small collections",
+      "id": "rationale_json_absorption"
     },
     {
       "label": "Rationale: Agent OS Phase 3+4 \u2014 8 new patterns (Token Escalation, Fallback, Cron...)",
@@ -1492,9 +1370,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "rationale_phase34_agent_os",
-      "community": 2,
-      "norm_label": "rationale: agent os phase 3+4 \u2014 8 new patterns (token escalation, fallback, cron...)"
+      "community": 3,
+      "norm_label": "rationale: agent os phase 3+4 \u2014 8 new patterns (token escalation, fallback, cron...)",
+      "id": "rationale_phase34_agent_os"
     },
     {
       "label": "Concept: Order pipeline (Coupang intake \u2192 internal order \u2192 shipment)",
@@ -1505,9 +1383,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "concept_order_pipeline",
       "community": 5,
-      "norm_label": "concept: order pipeline (coupang intake \u2192 internal order \u2192 shipment)"
+      "norm_label": "concept: order pipeline (coupang intake \u2192 internal order \u2192 shipment)",
+      "id": "concept_order_pipeline"
     },
     {
       "label": "Concept: Ad automation (Snapshot\u2192Action\u2192Task\u2192Log)",
@@ -1518,9 +1396,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "concept_ad_automation_pipeline",
-      "community": 3,
-      "norm_label": "concept: ad automation (snapshot\u2192action\u2192task\u2192log)"
+      "community": 4,
+      "norm_label": "concept: ad automation (snapshot\u2192action\u2192task\u2192log)",
+      "id": "concept_ad_automation_pipeline"
     },
     {
       "label": "Concept: Thumbnail pipeline (analyze\u2192generate\u2192track)",
@@ -1531,9 +1409,9 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "concept_thumbnail_pipeline",
-      "community": 0,
-      "norm_label": "concept: thumbnail pipeline (analyze\u2192generate\u2192track)"
+      "community": 2,
+      "norm_label": "concept: thumbnail pipeline (analyze\u2192generate\u2192track)",
+      "id": "concept_thumbnail_pipeline"
     },
     {
       "label": "Concept: Agent hierarchy (manager\u2192specialist via reportsTo self-ref)",
@@ -1544,9 +1422,412 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "id": "concept_agent_hierarchy",
-      "community": 2,
-      "norm_label": "concept: agent hierarchy (manager\u2192specialist via reportsto self-ref)"
+      "community": 3,
+      "norm_label": "concept: agent hierarchy (manager\u2192specialist via reportsto self-ref)",
+      "id": "concept_agent_hierarchy"
+    },
+    {
+      "label": "WorkflowRun.triggeredByUserId (Panel visibility)",
+      "file_type": "document",
+      "source_file": "schema-models.md",
+      "source_location": "L289",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "erd_workflow_run_triggered_by_user",
+      "community": 1,
+      "norm_label": "workflowrun.triggeredbyuserid (panel visibility)"
+    },
+    {
+      "label": "No native PG enums rule",
+      "file_type": "document",
+      "source_file": "prisma-CLAUDE.md",
+      "source_location": "L76",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "prisma_no_native_enums",
+      "community": 1,
+      "norm_label": "no native pg enums rule"
+    },
+    {
+      "label": "FK columns require explicit @@index",
+      "file_type": "document",
+      "source_file": "prisma-CLAUDE.md",
+      "source_location": "L86",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "prisma_fk_index_required",
+      "community": 13,
+      "norm_label": "fk columns require explicit @@index"
+    },
+    {
+      "label": "Optional FK (Foo?) requires explicit onDelete",
+      "file_type": "document",
+      "source_file": "prisma-CLAUDE.md",
+      "source_location": "L87",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "prisma_optional_fk_ondelete",
+      "community": 14,
+      "norm_label": "optional fk (foo?) requires explicit ondelete"
+    },
+    {
+      "label": "DB sync 3-tier model (DDL | init.sql.gz | incremental)",
+      "file_type": "document",
+      "source_file": "prisma-CLAUDE.md",
+      "source_location": "L17-44",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "prisma_3tier_db_sync",
+      "community": 15,
+      "norm_label": "db sync 3-tier model (ddl | init.sql.gz | incremental)"
+    },
+    {
+      "label": "init.sql.gz loads on fresh volume only",
+      "file_type": "document",
+      "source_file": "prisma-CLAUDE.md",
+      "source_location": "L29-33",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "prisma_init_sql_fresh_only",
+      "community": 16,
+      "norm_label": "init.sql.gz loads on fresh volume only"
+    },
+    {
+      "label": "Json absorb pattern (parent items Json default [])",
+      "file_type": "document",
+      "source_file": "prisma-CLAUDE.md",
+      "source_location": "L85",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "prisma_json_absorb_pattern",
+      "community": 1,
+      "norm_label": "json absorb pattern (parent items json default [])"
+    },
+    {
+      "label": "Phase 3+4 schema fields (maxOutputTokens, fallbackChain, ...)",
+      "file_type": "document",
+      "source_file": "prisma-CLAUDE.md",
+      "source_location": "L96-107",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "prisma_phase_3_4_fields",
+      "community": 1,
+      "norm_label": "phase 3+4 schema fields (maxoutputtokens, fallbackchain, ...)"
+    },
+    {
+      "label": "Company (root)",
+      "file_type": "document",
+      "source_file": "erd.md",
+      "source_location": "L35-69",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "erd_company_root",
+      "community": 1,
+      "norm_label": "company (root)"
+    },
+    {
+      "label": "User (human|agent|system unified)",
+      "file_type": "document",
+      "source_file": "erd.md",
+      "source_location": "L47-53",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "erd_user_unified",
+      "community": 1,
+      "norm_label": "user (human|agent|system unified)"
+    },
+    {
+      "label": "Product (god node)",
+      "file_type": "document",
+      "source_file": "erd.md",
+      "source_location": "L54-64",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "erd_product_hub",
+      "community": 1,
+      "norm_label": "product (god node)"
+    },
+    {
+      "label": "WorkflowRun",
+      "file_type": "document",
+      "source_file": "erd.md",
+      "source_location": "L535-540",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "erd_workflow_run",
+      "community": 1,
+      "norm_label": "workflowrun"
+    },
+    {
+      "label": "WorkflowTemplate",
+      "file_type": "document",
+      "source_file": "erd.md",
+      "source_location": "L528-534",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "erd_workflow_template",
+      "community": 1,
+      "norm_label": "workflowtemplate"
+    },
+    {
+      "label": "AgentDefinition",
+      "file_type": "document",
+      "source_file": "erd.md",
+      "source_location": "L484-496",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "erd_agent_definition",
+      "community": 1,
+      "norm_label": "agentdefinition"
+    },
+    {
+      "label": "HeartbeatRun",
+      "file_type": "document",
+      "source_file": "erd.md",
+      "source_location": "L497-505",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "erd_heartbeat_run",
+      "community": 1,
+      "norm_label": "heartbeatrun"
+    },
+    {
+      "label": "AgentEvent (permission_denied|action_snapshot)",
+      "file_type": "document",
+      "source_file": "erd.md",
+      "source_location": "L523-527",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "erd_agent_event",
+      "community": 1,
+      "norm_label": "agentevent (permission_denied|action_snapshot)"
+    },
+    {
+      "label": "AdSnapshot (level: campaign|product|null)",
+      "file_type": "document",
+      "source_file": "erd.md",
+      "source_location": "L292-298",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "erd_ad_snapshot",
+      "community": 1,
+      "norm_label": "adsnapshot (level: campaign|product|null)"
+    },
+    {
+      "label": "AdAction",
+      "file_type": "document",
+      "source_file": "erd.md",
+      "source_location": "L299-303",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "erd_ad_action",
+      "community": 1,
+      "norm_label": "adaction"
+    },
+    {
+      "label": "ExecutionTask",
+      "file_type": "document",
+      "source_file": "erd.md",
+      "source_location": "L308-311",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "erd_execution_task",
+      "community": 1,
+      "norm_label": "executiontask"
+    },
+    {
+      "label": "ThumbnailAnalysis (1:1 with Product)",
+      "file_type": "document",
+      "source_file": "erd.md",
+      "source_location": "L433-445",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "erd_thumbnail_analysis",
+      "community": 1,
+      "norm_label": "thumbnailanalysis (1:1 with product)"
+    },
+    {
+      "label": "ThumbnailGeneration (edit pipeline)",
+      "file_type": "document",
+      "source_file": "erd.md",
+      "source_location": "L446-453",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "erd_thumbnail_generation",
+      "community": 1,
+      "norm_label": "thumbnailgeneration (edit pipeline)"
+    },
+    {
+      "label": "Inventory (1:1 with Product, productId UK)",
+      "file_type": "document",
+      "source_file": "erd.md",
+      "source_location": "L151-158",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "erd_inventory_1to1",
+      "community": 1,
+      "norm_label": "inventory (1:1 with product, productid uk)"
+    },
+    {
+      "label": "Marketplace (type: agent|workflow)",
+      "file_type": "document",
+      "source_file": "erd.md",
+      "source_location": "L594-599",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "erd_marketplace_unified",
+      "community": 1,
+      "norm_label": "marketplace (type: agent|workflow)"
+    },
+    {
+      "label": "ActionTask (Action Board)",
+      "file_type": "document",
+      "source_file": "erd.md",
+      "source_location": "L605-610",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "erd_action_task_board",
+      "community": 8,
+      "norm_label": "actiontask (action board)"
+    },
+    {
+      "label": "Alert",
+      "file_type": "document",
+      "source_file": "erd.md",
+      "source_location": "L565-570",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "erd_alert",
+      "community": 8,
+      "norm_label": "alert"
+    },
+    {
+      "label": "Agent Runtimes (claude_local | python_http)",
+      "file_type": "document",
+      "source_file": "architecture.md",
+      "source_location": "L21-26",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "arch_agent_runtimes",
+      "community": 1,
+      "norm_label": "agent runtimes (claude_local | python_http)"
+    },
+    {
+      "label": "Chatbot vs Agent role boundary",
+      "file_type": "document",
+      "source_file": "architecture.md",
+      "source_location": "L27-31",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "arch_chatbot_vs_agent",
+      "community": 1,
+      "norm_label": "chatbot vs agent role boundary"
+    },
+    {
+      "label": "Workflows must never call LLMs directly",
+      "file_type": "document",
+      "source_file": "architecture.md",
+      "source_location": "L60-67",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "arch_workflow_no_llm",
+      "community": 1,
+      "norm_label": "workflows must never call llms directly"
+    },
+    {
+      "label": "@kiditem/shared (Zod schemas + satisfies pattern)",
+      "file_type": "document",
+      "source_file": "architecture.md",
+      "source_location": "L46-54",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "arch_kiditem_shared",
+      "community": 1,
+      "norm_label": "@kiditem/shared (zod schemas + satisfies pattern)"
+    },
+    {
+      "label": "RLS chatbot_readonly DB user (11 tables)",
+      "file_type": "document",
+      "source_file": "architecture.md",
+      "source_location": "L40-44",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "arch_rls_chatbot_readonly",
+      "community": 1,
+      "norm_label": "rls chatbot_readonly db user (11 tables)"
+    },
+    {
+      "label": "Agent OS Phase 3+4 (8 patterns)",
+      "file_type": "document",
+      "source_file": "architecture.md",
+      "source_location": "L55-57",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null,
+      "id": "arch_phase_3_4",
+      "community": 1,
+      "norm_label": "agent os phase 3+4 (8 patterns)"
     }
   ],
   "links": [
@@ -1797,8 +2078,8 @@
       "source_file": "erd.md",
       "source_location": "\uc804\uccb4 \ub3c4\uba54\uc778 \ub9f5",
       "weight": 1.0,
-      "_src": "erd_domain_supply",
-      "_tgt": "erd_domain_stock",
+      "_src": "erd_domain_stock",
+      "_tgt": "erd_domain_supply",
       "source": "erd_domain_stock",
       "target": "erd_domain_supply"
     },
@@ -2493,8 +2774,8 @@
       "source_file": "schema-models.md",
       "source_location": "User.company",
       "weight": 1.0,
-      "_src": "schema_User",
-      "_tgt": "schema_Company",
+      "_src": "schema_Company",
+      "_tgt": "schema_User",
       "source": "schema_Company",
       "target": "schema_User"
     },
@@ -2505,8 +2786,8 @@
       "source_file": "schema-models.md",
       "source_location": "Product.company",
       "weight": 1.0,
-      "_src": "schema_Product",
-      "_tgt": "schema_Company",
+      "_src": "schema_Company",
+      "_tgt": "schema_Product",
       "source": "schema_Company",
       "target": "schema_Product"
     },
@@ -2517,8 +2798,8 @@
       "source_file": "schema-models.md",
       "source_location": "Inventory.company",
       "weight": 1.0,
-      "_src": "schema_Inventory",
-      "_tgt": "schema_Company",
+      "_src": "schema_Company",
+      "_tgt": "schema_Inventory",
       "source": "schema_Company",
       "target": "schema_Inventory"
     },
@@ -2529,8 +2810,8 @@
       "source_file": "schema-models.md",
       "source_location": "Order.company",
       "weight": 1.0,
-      "_src": "schema_Order",
-      "_tgt": "schema_Company",
+      "_src": "schema_Company",
+      "_tgt": "schema_Order",
       "source": "schema_Company",
       "target": "schema_Order"
     },
@@ -2541,8 +2822,8 @@
       "source_file": "schema-models.md",
       "source_location": "CoupangOrder.company",
       "weight": 1.0,
-      "_src": "schema_CoupangOrder",
-      "_tgt": "schema_Company",
+      "_src": "schema_Company",
+      "_tgt": "schema_CoupangOrder",
       "source": "schema_Company",
       "target": "schema_CoupangOrder"
     },
@@ -2553,8 +2834,8 @@
       "source_file": "schema-models.md",
       "source_location": "CoupangReturn.company",
       "weight": 1.0,
-      "_src": "schema_CoupangReturn",
-      "_tgt": "schema_Company",
+      "_src": "schema_Company",
+      "_tgt": "schema_CoupangReturn",
       "source": "schema_Company",
       "target": "schema_CoupangReturn"
     },
@@ -2565,8 +2846,8 @@
       "source_file": "schema-models.md",
       "source_location": "PurchaseOrder.company",
       "weight": 1.0,
-      "_src": "schema_PurchaseOrder",
-      "_tgt": "schema_Company",
+      "_src": "schema_Company",
+      "_tgt": "schema_PurchaseOrder",
       "source": "schema_Company",
       "target": "schema_PurchaseOrder"
     },
@@ -2577,8 +2858,8 @@
       "source_file": "schema-models.md",
       "source_location": "Ad.company",
       "weight": 1.0,
-      "_src": "schema_Ad",
-      "_tgt": "schema_Company",
+      "_src": "schema_Company",
+      "_tgt": "schema_Ad",
       "source": "schema_Company",
       "target": "schema_Ad"
     },
@@ -2589,8 +2870,8 @@
       "source_file": "schema-models.md",
       "source_location": "ProfitLoss.company",
       "weight": 1.0,
-      "_src": "schema_ProfitLoss",
-      "_tgt": "schema_Company",
+      "_src": "schema_Company",
+      "_tgt": "schema_ProfitLoss",
       "source": "schema_Company",
       "target": "schema_ProfitLoss"
     },
@@ -2601,8 +2882,8 @@
       "source_file": "schema-models.md",
       "source_location": "Thumbnail.company",
       "weight": 1.0,
-      "_src": "schema_Thumbnail",
-      "_tgt": "schema_Company",
+      "_src": "schema_Company",
+      "_tgt": "schema_Thumbnail",
       "source": "schema_Company",
       "target": "schema_Thumbnail"
     },
@@ -2613,8 +2894,8 @@
       "source_file": "schema-models.md",
       "source_location": "ThumbnailGeneration.company",
       "weight": 1.0,
-      "_src": "schema_ThumbnailGeneration",
-      "_tgt": "schema_Company",
+      "_src": "schema_Company",
+      "_tgt": "schema_ThumbnailGeneration",
       "source": "schema_Company",
       "target": "schema_ThumbnailGeneration"
     },
@@ -2625,8 +2906,8 @@
       "source_file": "schema-models.md",
       "source_location": "ThumbnailTracking.company",
       "weight": 1.0,
-      "_src": "schema_ThumbnailTracking",
-      "_tgt": "schema_Company",
+      "_src": "schema_Company",
+      "_tgt": "schema_ThumbnailTracking",
       "source": "schema_Company",
       "target": "schema_ThumbnailTracking"
     },
@@ -2637,8 +2918,8 @@
       "source_file": "schema-models.md",
       "source_location": "Review.company",
       "weight": 1.0,
-      "_src": "schema_Review",
-      "_tgt": "schema_Company",
+      "_src": "schema_Company",
+      "_tgt": "schema_Review",
       "source": "schema_Company",
       "target": "schema_Review"
     },
@@ -2649,8 +2930,8 @@
       "source_file": "schema-models.md",
       "source_location": "ActivityEvent.company",
       "weight": 1.0,
-      "_src": "schema_ActivityEvent",
-      "_tgt": "schema_Company",
+      "_src": "schema_Company",
+      "_tgt": "schema_ActivityEvent",
       "source": "schema_Company",
       "target": "schema_ActivityEvent"
     },
@@ -2661,8 +2942,8 @@
       "source_file": "schema-models.md",
       "source_location": "Alert.company",
       "weight": 1.0,
-      "_src": "schema_Alert",
-      "_tgt": "schema_Company",
+      "_src": "schema_Company",
+      "_tgt": "schema_Alert",
       "source": "schema_Company",
       "target": "schema_Alert"
     },
@@ -2673,8 +2954,8 @@
       "source_file": "schema-models.md",
       "source_location": "HeartbeatRun.company",
       "weight": 1.0,
-      "_src": "schema_HeartbeatRun",
-      "_tgt": "schema_Company",
+      "_src": "schema_Company",
+      "_tgt": "schema_HeartbeatRun",
       "source": "schema_Company",
       "target": "schema_HeartbeatRun"
     },
@@ -2685,8 +2966,8 @@
       "source_file": "schema-models.md",
       "source_location": "AgentWakeupRequest.company",
       "weight": 1.0,
-      "_src": "schema_AgentWakeupRequest",
-      "_tgt": "schema_Company",
+      "_src": "schema_Company",
+      "_tgt": "schema_AgentWakeupRequest",
       "source": "schema_Company",
       "target": "schema_AgentWakeupRequest"
     },
@@ -2697,8 +2978,8 @@
       "source_file": "schema-models.md",
       "source_location": "AgentEvent.company",
       "weight": 1.0,
-      "_src": "schema_AgentEvent",
-      "_tgt": "schema_Company",
+      "_src": "schema_Company",
+      "_tgt": "schema_AgentEvent",
       "source": "schema_Company",
       "target": "schema_AgentEvent"
     },
@@ -2709,8 +2990,8 @@
       "source_file": "erd.md",
       "source_location": "\u00a78",
       "weight": 1.0,
-      "_src": "schema_AgentDefinition",
-      "_tgt": "schema_Company",
+      "_src": "schema_Company",
+      "_tgt": "schema_AgentDefinition",
       "source": "schema_Company",
       "target": "schema_AgentDefinition"
     },
@@ -2721,8 +3002,8 @@
       "source_file": "schema-models.md",
       "source_location": "ContentGeneration.company",
       "weight": 1.0,
-      "_src": "schema_ContentGeneration",
-      "_tgt": "schema_Company",
+      "_src": "schema_Company",
+      "_tgt": "schema_ContentGeneration",
       "source": "schema_Company",
       "target": "schema_ContentGeneration"
     },
@@ -2733,8 +3014,8 @@
       "source_file": "schema-models.md",
       "source_location": "WorkflowTemplate.company",
       "weight": 1.0,
-      "_src": "schema_WorkflowTemplate",
-      "_tgt": "schema_Company",
+      "_src": "schema_Company",
+      "_tgt": "schema_WorkflowTemplate",
       "source": "schema_Company",
       "target": "schema_WorkflowTemplate"
     },
@@ -2745,8 +3026,8 @@
       "source_file": "schema-models.md",
       "source_location": "Supplier.company",
       "weight": 1.0,
-      "_src": "schema_Supplier",
-      "_tgt": "schema_Company",
+      "_src": "schema_Company",
+      "_tgt": "schema_Supplier",
       "source": "schema_Company",
       "target": "schema_Supplier"
     },
@@ -2757,8 +3038,8 @@
       "source_file": "schema-models.md",
       "source_location": "SupplierPayment.company",
       "weight": 1.0,
-      "_src": "schema_SupplierPayment",
-      "_tgt": "schema_Company",
+      "_src": "schema_Company",
+      "_tgt": "schema_SupplierPayment",
       "source": "schema_Company",
       "target": "schema_SupplierPayment"
     },
@@ -2769,8 +3050,8 @@
       "source_file": "schema-models.md",
       "source_location": "Warehouse.company",
       "weight": 1.0,
-      "_src": "schema_Warehouse",
-      "_tgt": "schema_Company",
+      "_src": "schema_Company",
+      "_tgt": "schema_Warehouse",
       "source": "schema_Company",
       "target": "schema_Warehouse"
     },
@@ -2781,8 +3062,8 @@
       "source_file": "schema-models.md",
       "source_location": "StockTransfer.company",
       "weight": 1.0,
-      "_src": "schema_StockTransfer",
-      "_tgt": "schema_Company",
+      "_src": "schema_Company",
+      "_tgt": "schema_StockTransfer",
       "source": "schema_Company",
       "target": "schema_StockTransfer"
     },
@@ -2793,8 +3074,8 @@
       "source_file": "schema-models.md",
       "source_location": "StockTransaction.company",
       "weight": 1.0,
-      "_src": "schema_StockTransaction",
-      "_tgt": "schema_Company",
+      "_src": "schema_Company",
+      "_tgt": "schema_StockTransaction",
       "source": "schema_Company",
       "target": "schema_StockTransaction"
     },
@@ -2805,8 +3086,8 @@
       "source_file": "schema-models.md",
       "source_location": "StockAudit.company",
       "weight": 1.0,
-      "_src": "schema_StockAudit",
-      "_tgt": "schema_Company",
+      "_src": "schema_Company",
+      "_tgt": "schema_StockAudit",
       "source": "schema_Company",
       "target": "schema_StockAudit"
     },
@@ -2817,8 +3098,8 @@
       "source_file": "schema-models.md",
       "source_location": "Shipment.company",
       "weight": 1.0,
-      "_src": "schema_Shipment",
-      "_tgt": "schema_Company",
+      "_src": "schema_Company",
+      "_tgt": "schema_Shipment",
       "source": "schema_Company",
       "target": "schema_Shipment"
     },
@@ -2829,8 +3110,8 @@
       "source_file": "schema-models.md",
       "source_location": "UnshippedItem.company",
       "weight": 1.0,
-      "_src": "schema_UnshippedItem",
-      "_tgt": "schema_Company",
+      "_src": "schema_Company",
+      "_tgt": "schema_UnshippedItem",
       "source": "schema_Company",
       "target": "schema_UnshippedItem"
     },
@@ -2841,8 +3122,8 @@
       "source_file": "schema-models.md",
       "source_location": "PickingList.company",
       "weight": 1.0,
-      "_src": "schema_PickingList",
-      "_tgt": "schema_Company",
+      "_src": "schema_Company",
+      "_tgt": "schema_PickingList",
       "source": "schema_Company",
       "target": "schema_PickingList"
     },
@@ -2853,8 +3134,8 @@
       "source_file": "schema-models.md",
       "source_location": "ReturnTransfer.company",
       "weight": 1.0,
-      "_src": "schema_ReturnTransfer",
-      "_tgt": "schema_Company",
+      "_src": "schema_Company",
+      "_tgt": "schema_ReturnTransfer",
       "source": "schema_Company",
       "target": "schema_ReturnTransfer"
     },
@@ -2865,8 +3146,8 @@
       "source_file": "schema-models.md",
       "source_location": "BundleProduct.company",
       "weight": 1.0,
-      "_src": "schema_BundleProduct",
-      "_tgt": "schema_Company",
+      "_src": "schema_Company",
+      "_tgt": "schema_BundleProduct",
       "source": "schema_Company",
       "target": "schema_BundleProduct"
     },
@@ -2877,8 +3158,8 @@
       "source_file": "schema-models.md",
       "source_location": "ProcessingCost.company",
       "weight": 1.0,
-      "_src": "schema_ProcessingCost",
-      "_tgt": "schema_Company",
+      "_src": "schema_Company",
+      "_tgt": "schema_ProcessingCost",
       "source": "schema_Company",
       "target": "schema_ProcessingCost"
     },
@@ -2889,8 +3170,8 @@
       "source_file": "schema-models.md",
       "source_location": "Settlement.company",
       "weight": 1.0,
-      "_src": "schema_Settlement",
-      "_tgt": "schema_Company",
+      "_src": "schema_Company",
+      "_tgt": "schema_Settlement",
       "source": "schema_Company",
       "target": "schema_Settlement"
     },
@@ -2901,8 +3182,8 @@
       "source_file": "schema-models.md",
       "source_location": "ManualLedger.company",
       "weight": 1.0,
-      "_src": "schema_ManualLedger",
-      "_tgt": "schema_Company",
+      "_src": "schema_Company",
+      "_tgt": "schema_ManualLedger",
       "source": "schema_Company",
       "target": "schema_ManualLedger"
     },
@@ -2913,8 +3194,8 @@
       "source_file": "schema-models.md",
       "source_location": "CSRecord.company",
       "weight": 1.0,
-      "_src": "schema_CSRecord",
-      "_tgt": "schema_Company",
+      "_src": "schema_Company",
+      "_tgt": "schema_CSRecord",
       "source": "schema_Company",
       "target": "schema_CSRecord"
     },
@@ -2925,8 +3206,8 @@
       "source_file": "schema-models.md",
       "source_location": "CategoryMapping.company",
       "weight": 1.0,
-      "_src": "schema_CategoryMapping",
-      "_tgt": "schema_Company",
+      "_src": "schema_Company",
+      "_tgt": "schema_CategoryMapping",
       "source": "schema_Company",
       "target": "schema_CategoryMapping"
     },
@@ -2937,8 +3218,8 @@
       "source_file": "schema-models.md",
       "source_location": "OptionMaster.company",
       "weight": 1.0,
-      "_src": "schema_OptionMaster",
-      "_tgt": "schema_Company",
+      "_src": "schema_Company",
+      "_tgt": "schema_OptionMaster",
       "source": "schema_Company",
       "target": "schema_OptionMaster"
     },
@@ -2949,8 +3230,8 @@
       "source_file": "schema-models.md",
       "source_location": "SalesPlan.company",
       "weight": 1.0,
-      "_src": "schema_SalesPlan",
-      "_tgt": "schema_Company",
+      "_src": "schema_Company",
+      "_tgt": "schema_SalesPlan",
       "source": "schema_Company",
       "target": "schema_SalesPlan"
     },
@@ -2961,8 +3242,8 @@
       "source_file": "schema-models.md",
       "source_location": "SystemSetting.company",
       "weight": 1.0,
-      "_src": "schema_SystemSetting",
-      "_tgt": "schema_Company",
+      "_src": "schema_Company",
+      "_tgt": "schema_SystemSetting",
       "source": "schema_Company",
       "target": "schema_SystemSetting"
     },
@@ -2973,8 +3254,8 @@
       "source_file": "erd.md",
       "source_location": "\u00a79",
       "weight": 1.0,
-      "_src": "schema_BusinessRule",
-      "_tgt": "schema_Company",
+      "_src": "schema_Company",
+      "_tgt": "schema_BusinessRule",
       "source": "schema_Company",
       "target": "schema_BusinessRule"
     },
@@ -2985,8 +3266,8 @@
       "source_file": "schema-models.md",
       "source_location": "ScrapeTarget.company",
       "weight": 1.0,
-      "_src": "schema_ScrapeTarget",
-      "_tgt": "schema_Company",
+      "_src": "schema_Company",
+      "_tgt": "schema_ScrapeTarget",
       "source": "schema_Company",
       "target": "schema_ScrapeTarget"
     },
@@ -2997,8 +3278,8 @@
       "source_file": "schema-models.md",
       "source_location": "AdSnapshot.company",
       "weight": 1.0,
-      "_src": "schema_AdSnapshot",
-      "_tgt": "schema_Company",
+      "_src": "schema_Company",
+      "_tgt": "schema_AdSnapshot",
       "source": "schema_Company",
       "target": "schema_AdSnapshot"
     },
@@ -3009,8 +3290,8 @@
       "source_file": "schema-models.md",
       "source_location": "ItemWinner.company",
       "weight": 1.0,
-      "_src": "schema_ItemWinner",
-      "_tgt": "schema_Company",
+      "_src": "schema_Company",
+      "_tgt": "schema_ItemWinner",
       "source": "schema_Company",
       "target": "schema_ItemWinner"
     },
@@ -3021,8 +3302,8 @@
       "source_file": "schema-models.md",
       "source_location": "AdAction.company",
       "weight": 1.0,
-      "_src": "schema_AdAction",
-      "_tgt": "schema_Company",
+      "_src": "schema_Company",
+      "_tgt": "schema_AdAction",
       "source": "schema_Company",
       "target": "schema_AdAction"
     },
@@ -3033,8 +3314,8 @@
       "source_file": "schema-models.md",
       "source_location": "ExecutionWorker.company",
       "weight": 1.0,
-      "_src": "schema_ExecutionWorker",
-      "_tgt": "schema_Company",
+      "_src": "schema_Company",
+      "_tgt": "schema_ExecutionWorker",
       "source": "schema_Company",
       "target": "schema_ExecutionWorker"
     },
@@ -3045,8 +3326,8 @@
       "source_file": "schema-models.md",
       "source_location": "ActionTask.company",
       "weight": 1.0,
-      "_src": "schema_ActionTask",
-      "_tgt": "schema_Company",
+      "_src": "schema_Company",
+      "_tgt": "schema_ActionTask",
       "source": "schema_Company",
       "target": "schema_ActionTask"
     },
@@ -3057,8 +3338,8 @@
       "source_file": "schema-models.md",
       "source_location": "MasterProduct.company",
       "weight": 1.0,
-      "_src": "schema_MasterProduct",
-      "_tgt": "schema_Company",
+      "_src": "schema_Company",
+      "_tgt": "schema_MasterProduct",
       "source": "schema_Company",
       "target": "schema_MasterProduct"
     },
@@ -3069,8 +3350,8 @@
       "source_file": "schema-models.md",
       "source_location": "MasterInventory.company",
       "weight": 1.0,
-      "_src": "schema_MasterInventory",
-      "_tgt": "schema_Company",
+      "_src": "schema_Company",
+      "_tgt": "schema_MasterInventory",
       "source": "schema_Company",
       "target": "schema_MasterInventory"
     },
@@ -3081,8 +3362,8 @@
       "source_file": "prisma-CLAUDE.md",
       "source_location": "## RLS",
       "weight": 1.0,
-      "_src": "rule_rls_chatbot_readonly",
-      "_tgt": "schema_Company",
+      "_src": "schema_Company",
+      "_tgt": "rule_rls_chatbot_readonly",
       "source": "schema_Company",
       "target": "rule_rls_chatbot_readonly"
     },
@@ -3105,8 +3386,8 @@
       "source_file": "prisma-CLAUDE.md",
       "source_location": "## User Types",
       "weight": 1.0,
-      "_src": "rule_user_type_unified",
-      "_tgt": "schema_User",
+      "_src": "schema_User",
+      "_tgt": "rule_user_type_unified",
       "source": "schema_User",
       "target": "rule_user_type_unified"
     },
@@ -3129,8 +3410,8 @@
       "source_file": "schema-models.md",
       "source_location": "Inventory.product",
       "weight": 1.0,
-      "_src": "schema_Inventory",
-      "_tgt": "schema_Product",
+      "_src": "schema_Product",
+      "_tgt": "schema_Inventory",
       "source": "schema_Product",
       "target": "schema_Inventory"
     },
@@ -3141,8 +3422,8 @@
       "source_file": "schema-models.md",
       "source_location": "Order.product",
       "weight": 1.0,
-      "_src": "schema_Order",
-      "_tgt": "schema_Product",
+      "_src": "schema_Product",
+      "_tgt": "schema_Order",
       "source": "schema_Product",
       "target": "schema_Order"
     },
@@ -3153,8 +3434,8 @@
       "source_file": "schema-models.md",
       "source_location": "ProductItem.product",
       "weight": 1.0,
-      "_src": "schema_ProductItem",
-      "_tgt": "schema_Product",
+      "_src": "schema_Product",
+      "_tgt": "schema_ProductItem",
       "source": "schema_Product",
       "target": "schema_ProductItem"
     },
@@ -3165,8 +3446,8 @@
       "source_file": "schema-models.md",
       "source_location": "PurchaseOrderItem.product",
       "weight": 1.0,
-      "_src": "schema_PurchaseOrderItem",
-      "_tgt": "schema_Product",
+      "_src": "schema_Product",
+      "_tgt": "schema_PurchaseOrderItem",
       "source": "schema_Product",
       "target": "schema_PurchaseOrderItem"
     },
@@ -3177,8 +3458,8 @@
       "source_file": "schema-models.md",
       "source_location": "Ad.product",
       "weight": 1.0,
-      "_src": "schema_Ad",
-      "_tgt": "schema_Product",
+      "_src": "schema_Product",
+      "_tgt": "schema_Ad",
       "source": "schema_Product",
       "target": "schema_Ad"
     },
@@ -3189,8 +3470,8 @@
       "source_file": "schema-models.md",
       "source_location": "ProfitLoss.product",
       "weight": 1.0,
-      "_src": "schema_ProfitLoss",
-      "_tgt": "schema_Product",
+      "_src": "schema_Product",
+      "_tgt": "schema_ProfitLoss",
       "source": "schema_Product",
       "target": "schema_ProfitLoss"
     },
@@ -3201,8 +3482,8 @@
       "source_file": "schema-models.md",
       "source_location": "Thumbnail.product",
       "weight": 1.0,
-      "_src": "schema_Thumbnail",
-      "_tgt": "schema_Product",
+      "_src": "schema_Product",
+      "_tgt": "schema_Thumbnail",
       "source": "schema_Product",
       "target": "schema_Thumbnail"
     },
@@ -3213,8 +3494,8 @@
       "source_file": "erd.md",
       "source_location": "\u00a77 1:1",
       "weight": 1.0,
-      "_src": "schema_ThumbnailAnalysis",
-      "_tgt": "schema_Product",
+      "_src": "schema_Product",
+      "_tgt": "schema_ThumbnailAnalysis",
       "source": "schema_Product",
       "target": "schema_ThumbnailAnalysis"
     },
@@ -3225,8 +3506,8 @@
       "source_file": "schema-models.md",
       "source_location": "ThumbnailGeneration.product",
       "weight": 1.0,
-      "_src": "schema_ThumbnailGeneration",
-      "_tgt": "schema_Product",
+      "_src": "schema_Product",
+      "_tgt": "schema_ThumbnailGeneration",
       "source": "schema_Product",
       "target": "schema_ThumbnailGeneration"
     },
@@ -3237,8 +3518,8 @@
       "source_file": "schema-models.md",
       "source_location": "ThumbnailTracking.product",
       "weight": 1.0,
-      "_src": "schema_ThumbnailTracking",
-      "_tgt": "schema_Product",
+      "_src": "schema_Product",
+      "_tgt": "schema_ThumbnailTracking",
       "source": "schema_Product",
       "target": "schema_ThumbnailTracking"
     },
@@ -3249,8 +3530,8 @@
       "source_file": "schema-models.md",
       "source_location": "Review.product",
       "weight": 1.0,
-      "_src": "schema_Review",
-      "_tgt": "schema_Product",
+      "_src": "schema_Product",
+      "_tgt": "schema_Review",
       "source": "schema_Product",
       "target": "schema_Review"
     },
@@ -3261,8 +3542,8 @@
       "source_file": "schema-models.md",
       "source_location": "Alert.product",
       "weight": 1.0,
-      "_src": "schema_Alert",
-      "_tgt": "schema_Product",
+      "_src": "schema_Product",
+      "_tgt": "schema_Alert",
       "source": "schema_Product",
       "target": "schema_Alert"
     },
@@ -3273,8 +3554,8 @@
       "source_file": "schema-models.md",
       "source_location": "ContentGeneration.product",
       "weight": 1.0,
-      "_src": "schema_ContentGeneration",
-      "_tgt": "schema_Product",
+      "_src": "schema_Product",
+      "_tgt": "schema_ContentGeneration",
       "source": "schema_Product",
       "target": "schema_ContentGeneration"
     },
@@ -3285,8 +3566,8 @@
       "source_file": "schema-models.md",
       "source_location": "SupplierProduct.product",
       "weight": 1.0,
-      "_src": "schema_SupplierProduct",
-      "_tgt": "schema_Product",
+      "_src": "schema_Product",
+      "_tgt": "schema_SupplierProduct",
       "source": "schema_Product",
       "target": "schema_SupplierProduct"
     },
@@ -3297,8 +3578,8 @@
       "source_file": "schema-models.md",
       "source_location": "StockTransfer.product",
       "weight": 1.0,
-      "_src": "schema_StockTransfer",
-      "_tgt": "schema_Product",
+      "_src": "schema_Product",
+      "_tgt": "schema_StockTransfer",
       "source": "schema_Product",
       "target": "schema_StockTransfer"
     },
@@ -3309,8 +3590,8 @@
       "source_file": "schema-models.md",
       "source_location": "StockTransaction.product",
       "weight": 1.0,
-      "_src": "schema_StockTransaction",
-      "_tgt": "schema_Product",
+      "_src": "schema_Product",
+      "_tgt": "schema_StockTransaction",
       "source": "schema_Product",
       "target": "schema_StockTransaction"
     },
@@ -3321,8 +3602,8 @@
       "source_file": "schema-models.md",
       "source_location": "Shipment.product",
       "weight": 1.0,
-      "_src": "schema_Shipment",
-      "_tgt": "schema_Product",
+      "_src": "schema_Product",
+      "_tgt": "schema_Shipment",
       "source": "schema_Product",
       "target": "schema_Shipment"
     },
@@ -3333,8 +3614,8 @@
       "source_file": "schema-models.md",
       "source_location": "UnshippedItem.product",
       "weight": 1.0,
-      "_src": "schema_UnshippedItem",
-      "_tgt": "schema_Product",
+      "_src": "schema_Product",
+      "_tgt": "schema_UnshippedItem",
       "source": "schema_Product",
       "target": "schema_UnshippedItem"
     },
@@ -3345,8 +3626,8 @@
       "source_file": "schema-models.md",
       "source_location": "PickingItem.product",
       "weight": 1.0,
-      "_src": "schema_PickingItem",
-      "_tgt": "schema_Product",
+      "_src": "schema_Product",
+      "_tgt": "schema_PickingItem",
       "source": "schema_Product",
       "target": "schema_PickingItem"
     },
@@ -3357,8 +3638,8 @@
       "source_file": "schema-models.md",
       "source_location": "ReturnTransfer.product",
       "weight": 1.0,
-      "_src": "schema_ReturnTransfer",
-      "_tgt": "schema_Product",
+      "_src": "schema_Product",
+      "_tgt": "schema_ReturnTransfer",
       "source": "schema_Product",
       "target": "schema_ReturnTransfer"
     },
@@ -3369,8 +3650,8 @@
       "source_file": "schema-models.md",
       "source_location": "ProductMemo.product",
       "weight": 1.0,
-      "_src": "schema_ProductMemo",
-      "_tgt": "schema_Product",
+      "_src": "schema_Product",
+      "_tgt": "schema_ProductMemo",
       "source": "schema_Product",
       "target": "schema_ProductMemo"
     },
@@ -3381,8 +3662,8 @@
       "source_file": "schema-models.md",
       "source_location": "ProcessingCost.product",
       "weight": 1.0,
-      "_src": "schema_ProcessingCost",
-      "_tgt": "schema_Product",
+      "_src": "schema_Product",
+      "_tgt": "schema_ProcessingCost",
       "source": "schema_Product",
       "target": "schema_ProcessingCost"
     },
@@ -3393,8 +3674,8 @@
       "source_file": "schema-models.md",
       "source_location": "CSRecord.product",
       "weight": 1.0,
-      "_src": "schema_CSRecord",
-      "_tgt": "schema_Product",
+      "_src": "schema_Product",
+      "_tgt": "schema_CSRecord",
       "source": "schema_Product",
       "target": "schema_CSRecord"
     },
@@ -3405,8 +3686,8 @@
       "source_file": "schema-models.md",
       "source_location": "TrafficStats.product",
       "weight": 1.0,
-      "_src": "schema_TrafficStats",
-      "_tgt": "schema_Product",
+      "_src": "schema_Product",
+      "_tgt": "schema_TrafficStats",
       "source": "schema_Product",
       "target": "schema_TrafficStats"
     },
@@ -3417,8 +3698,8 @@
       "source_file": "schema-models.md",
       "source_location": "GradeHistory.product",
       "weight": 1.0,
-      "_src": "schema_GradeHistory",
-      "_tgt": "schema_Product",
+      "_src": "schema_Product",
+      "_tgt": "schema_GradeHistory",
       "source": "schema_Product",
       "target": "schema_GradeHistory"
     },
@@ -3429,8 +3710,8 @@
       "source_file": "schema-models.md",
       "source_location": "AdSnapshot.product",
       "weight": 1.0,
-      "_src": "schema_AdSnapshot",
-      "_tgt": "schema_Product",
+      "_src": "schema_Product",
+      "_tgt": "schema_AdSnapshot",
       "source": "schema_Product",
       "target": "schema_AdSnapshot"
     },
@@ -3441,8 +3722,8 @@
       "source_file": "schema-models.md",
       "source_location": "ItemWinner.product",
       "weight": 1.0,
-      "_src": "schema_ItemWinner",
-      "_tgt": "schema_Product",
+      "_src": "schema_Product",
+      "_tgt": "schema_ItemWinner",
       "source": "schema_Product",
       "target": "schema_ItemWinner"
     },
@@ -3453,8 +3734,8 @@
       "source_file": "schema-models.md",
       "source_location": "AdAction.product",
       "weight": 1.0,
-      "_src": "schema_AdAction",
-      "_tgt": "schema_Product",
+      "_src": "schema_Product",
+      "_tgt": "schema_AdAction",
       "source": "schema_Product",
       "target": "schema_AdAction"
     },
@@ -3465,8 +3746,8 @@
       "source_file": "prisma-CLAUDE.md",
       "source_location": "## Rules",
       "weight": 1.0,
-      "_src": "rule_no_native_pg_enums",
-      "_tgt": "schema_Product",
+      "_src": "schema_Product",
+      "_tgt": "rule_no_native_pg_enums",
       "source": "schema_Product",
       "target": "rule_no_native_pg_enums"
     },
@@ -3489,8 +3770,8 @@
       "source_file": "schema-models.md",
       "source_location": "Shipment.order",
       "weight": 1.0,
-      "_src": "schema_Shipment",
-      "_tgt": "schema_Order",
+      "_src": "schema_Order",
+      "_tgt": "schema_Shipment",
       "source": "schema_Order",
       "target": "schema_Shipment"
     },
@@ -3501,8 +3782,8 @@
       "source_file": "erd.md",
       "source_location": "\u00a72 Order vs CoupangOrder",
       "weight": 1.0,
-      "_src": "schema_CoupangOrder",
-      "_tgt": "schema_Order",
+      "_src": "schema_Order",
+      "_tgt": "schema_CoupangOrder",
       "source": "schema_Order",
       "target": "schema_CoupangOrder"
     },
@@ -3513,8 +3794,8 @@
       "source_file": "prisma-CLAUDE.md",
       "source_location": "## Rules",
       "weight": 1.0,
-      "_src": "rule_no_native_pg_enums",
-      "_tgt": "schema_Order",
+      "_src": "schema_Order",
+      "_tgt": "rule_no_native_pg_enums",
       "source": "schema_Order",
       "target": "rule_no_native_pg_enums"
     },
@@ -3525,8 +3806,8 @@
       "source_file": "erd.md",
       "source_location": "\u00a72",
       "weight": 1.0,
-      "_src": "concept_order_pipeline",
-      "_tgt": "schema_Order",
+      "_src": "schema_Order",
+      "_tgt": "concept_order_pipeline",
       "source": "schema_Order",
       "target": "concept_order_pipeline"
     },
@@ -3537,8 +3818,8 @@
       "source_file": "schema-models.md",
       "source_location": "CoupangOrderItem.order",
       "weight": 1.0,
-      "_src": "schema_CoupangOrderItem",
-      "_tgt": "schema_CoupangOrder",
+      "_src": "schema_CoupangOrder",
+      "_tgt": "schema_CoupangOrderItem",
       "source": "schema_CoupangOrder",
       "target": "schema_CoupangOrderItem"
     },
@@ -3549,8 +3830,8 @@
       "source_file": "prisma-CLAUDE.md",
       "source_location": "## Rules",
       "weight": 1.0,
-      "_src": "rule_no_native_pg_enums",
-      "_tgt": "schema_CoupangOrder",
+      "_src": "schema_CoupangOrder",
+      "_tgt": "rule_no_native_pg_enums",
       "source": "schema_CoupangOrder",
       "target": "rule_no_native_pg_enums"
     },
@@ -3561,8 +3842,8 @@
       "source_file": "erd.md",
       "source_location": "\u00a72",
       "weight": 1.0,
-      "_src": "concept_order_pipeline",
-      "_tgt": "schema_CoupangOrder",
+      "_src": "schema_CoupangOrder",
+      "_tgt": "concept_order_pipeline",
       "source": "schema_CoupangOrder",
       "target": "concept_order_pipeline"
     },
@@ -3573,8 +3854,8 @@
       "source_file": "erd.md",
       "source_location": "\u00a72",
       "weight": 1.0,
-      "_src": "concept_order_pipeline",
-      "_tgt": "schema_CoupangOrderItem",
+      "_src": "schema_CoupangOrderItem",
+      "_tgt": "concept_order_pipeline",
       "source": "schema_CoupangOrderItem",
       "target": "concept_order_pipeline"
     },
@@ -3597,8 +3878,8 @@
       "source_file": "prisma-CLAUDE.md",
       "source_location": "## Rules",
       "weight": 1.0,
-      "_src": "rule_json_absorption",
-      "_tgt": "schema_CoupangReturn",
+      "_src": "schema_CoupangReturn",
+      "_tgt": "rule_json_absorption",
       "source": "schema_CoupangReturn",
       "target": "rule_json_absorption"
     },
@@ -3621,8 +3902,8 @@
       "source_file": "schema-models.md",
       "source_location": "PurchaseOrderItem.order",
       "weight": 1.0,
-      "_src": "schema_PurchaseOrderItem",
-      "_tgt": "schema_PurchaseOrder",
+      "_src": "schema_PurchaseOrder",
+      "_tgt": "schema_PurchaseOrderItem",
       "source": "schema_PurchaseOrder",
       "target": "schema_PurchaseOrderItem"
     },
@@ -3633,8 +3914,8 @@
       "source_file": "schema-models.md",
       "source_location": "SupplierPayment.purchaseOrder",
       "weight": 1.0,
-      "_src": "schema_SupplierPayment",
-      "_tgt": "schema_PurchaseOrder",
+      "_src": "schema_PurchaseOrder",
+      "_tgt": "schema_SupplierPayment",
       "source": "schema_PurchaseOrder",
       "target": "schema_SupplierPayment"
     },
@@ -3645,8 +3926,8 @@
       "source_file": "prisma-CLAUDE.md",
       "source_location": "## Rules",
       "weight": 1.0,
-      "_src": "rule_currency_types",
-      "_tgt": "schema_PurchaseOrder",
+      "_src": "schema_PurchaseOrder",
+      "_tgt": "rule_currency_types",
       "source": "schema_PurchaseOrder",
       "target": "rule_currency_types"
     },
@@ -3657,8 +3938,8 @@
       "source_file": "prisma-CLAUDE.md",
       "source_location": "## Rules",
       "weight": 1.0,
-      "_src": "rule_currency_types",
-      "_tgt": "schema_PurchaseOrderItem",
+      "_src": "schema_PurchaseOrderItem",
+      "_tgt": "rule_currency_types",
       "source": "schema_PurchaseOrderItem",
       "target": "rule_currency_types"
     },
@@ -3681,8 +3962,8 @@
       "source_file": "prisma-CLAUDE.md",
       "source_location": "## Rules",
       "weight": 1.0,
-      "_src": "rule_currency_types",
-      "_tgt": "schema_ProfitLoss",
+      "_src": "schema_ProfitLoss",
+      "_tgt": "rule_currency_types",
       "source": "schema_ProfitLoss",
       "target": "rule_currency_types"
     },
@@ -3705,8 +3986,8 @@
       "source_file": "erd.md",
       "source_location": "\u00a77",
       "weight": 1.0,
-      "_src": "concept_thumbnail_pipeline",
-      "_tgt": "schema_ThumbnailAnalysis",
+      "_src": "schema_ThumbnailAnalysis",
+      "_tgt": "concept_thumbnail_pipeline",
       "source": "schema_ThumbnailAnalysis",
       "target": "concept_thumbnail_pipeline"
     },
@@ -3717,8 +3998,8 @@
       "source_file": "schema-models.md",
       "source_location": "ThumbnailTracking.generation",
       "weight": 1.0,
-      "_src": "schema_ThumbnailTracking",
-      "_tgt": "schema_ThumbnailGeneration",
+      "_src": "schema_ThumbnailGeneration",
+      "_tgt": "schema_ThumbnailTracking",
       "source": "schema_ThumbnailGeneration",
       "target": "schema_ThumbnailTracking"
     },
@@ -3729,8 +4010,8 @@
       "source_file": "erd.md",
       "source_location": "\u00a77",
       "weight": 1.0,
-      "_src": "concept_thumbnail_pipeline",
-      "_tgt": "schema_ThumbnailGeneration",
+      "_src": "schema_ThumbnailGeneration",
+      "_tgt": "concept_thumbnail_pipeline",
       "source": "schema_ThumbnailGeneration",
       "target": "concept_thumbnail_pipeline"
     },
@@ -3741,8 +4022,8 @@
       "source_file": "erd.md",
       "source_location": "\u00a77",
       "weight": 1.0,
-      "_src": "concept_thumbnail_pipeline",
-      "_tgt": "schema_ThumbnailTracking",
+      "_src": "schema_ThumbnailTracking",
+      "_tgt": "concept_thumbnail_pipeline",
       "source": "schema_ThumbnailTracking",
       "target": "concept_thumbnail_pipeline"
     },
@@ -3753,8 +4034,8 @@
       "source_file": "schema-models.md",
       "source_location": "AgentLog.task",
       "weight": 1.0,
-      "_src": "schema_AgentLog",
-      "_tgt": "schema_AgentTask",
+      "_src": "schema_AgentTask",
+      "_tgt": "schema_AgentLog",
       "source": "schema_AgentTask",
       "target": "schema_AgentLog"
     },
@@ -3777,8 +4058,8 @@
       "source_file": "architecture.md",
       "source_location": "agent_tasks INSERT",
       "weight": 1.0,
-      "_src": "arch_backend_nestjs",
-      "_tgt": "schema_AgentTask",
+      "_src": "schema_AgentTask",
+      "_tgt": "arch_backend_nestjs",
       "source": "schema_AgentTask",
       "target": "arch_backend_nestjs"
     },
@@ -3801,8 +4082,8 @@
       "source_file": "schema-models.md",
       "source_location": "HeartbeatRun.agent",
       "weight": 1.0,
-      "_src": "schema_HeartbeatRun",
-      "_tgt": "schema_AgentDefinition",
+      "_src": "schema_AgentDefinition",
+      "_tgt": "schema_HeartbeatRun",
       "source": "schema_AgentDefinition",
       "target": "schema_HeartbeatRun"
     },
@@ -3813,8 +4094,8 @@
       "source_file": "schema-models.md",
       "source_location": "AgentWakeupRequest.agent",
       "weight": 1.0,
-      "_src": "schema_AgentWakeupRequest",
-      "_tgt": "schema_AgentDefinition",
+      "_src": "schema_AgentDefinition",
+      "_tgt": "schema_AgentWakeupRequest",
       "source": "schema_AgentDefinition",
       "target": "schema_AgentWakeupRequest"
     },
@@ -3825,8 +4106,8 @@
       "source_file": "schema-models.md",
       "source_location": "AgentEvent.agent",
       "weight": 1.0,
-      "_src": "schema_AgentEvent",
-      "_tgt": "schema_AgentDefinition",
+      "_src": "schema_AgentDefinition",
+      "_tgt": "schema_AgentEvent",
       "source": "schema_AgentDefinition",
       "target": "schema_AgentEvent"
     },
@@ -3849,8 +4130,8 @@
       "source_file": "schema-models.md",
       "source_location": "Marketplace.installedAgents",
       "weight": 1.0,
-      "_src": "schema_Marketplace",
-      "_tgt": "schema_AgentDefinition",
+      "_src": "schema_AgentDefinition",
+      "_tgt": "schema_Marketplace",
       "source": "schema_AgentDefinition",
       "target": "schema_Marketplace"
     },
@@ -3861,8 +4142,8 @@
       "source_file": "prisma-CLAUDE.md",
       "source_location": "## Rules",
       "weight": 1.0,
-      "_src": "rule_no_native_pg_enums",
-      "_tgt": "schema_AgentDefinition",
+      "_src": "schema_AgentDefinition",
+      "_tgt": "rule_no_native_pg_enums",
       "source": "schema_AgentDefinition",
       "target": "rule_no_native_pg_enums"
     },
@@ -3873,8 +4154,8 @@
       "source_file": "prisma-CLAUDE.md",
       "source_location": "## \ud1b5\ud569 \ubaa8\ub378 \uaddc\uce59",
       "weight": 1.0,
-      "_src": "rule_agent_rt_fields",
-      "_tgt": "schema_AgentDefinition",
+      "_src": "schema_AgentDefinition",
+      "_tgt": "rule_agent_rt_fields",
       "source": "schema_AgentDefinition",
       "target": "rule_agent_rt_fields"
     },
@@ -3885,8 +4166,8 @@
       "source_file": "architecture.md",
       "source_location": "## Workflow vs Agent Boundary",
       "weight": 1.0,
-      "_src": "rationale_workflow_vs_agent",
-      "_tgt": "schema_AgentDefinition",
+      "_src": "schema_AgentDefinition",
+      "_tgt": "rationale_workflow_vs_agent",
       "source": "schema_AgentDefinition",
       "target": "rationale_workflow_vs_agent"
     },
@@ -3897,8 +4178,8 @@
       "source_file": "architecture.md",
       "source_location": "### Agent OS Phase 3+4",
       "weight": 1.0,
-      "_src": "rationale_phase34_agent_os",
-      "_tgt": "schema_AgentDefinition",
+      "_src": "schema_AgentDefinition",
+      "_tgt": "rationale_phase34_agent_os",
       "source": "schema_AgentDefinition",
       "target": "rationale_phase34_agent_os"
     },
@@ -3909,8 +4190,8 @@
       "source_file": "erd.md",
       "source_location": "\u00a78 reportsTo",
       "weight": 1.0,
-      "_src": "concept_agent_hierarchy",
-      "_tgt": "schema_AgentDefinition",
+      "_src": "schema_AgentDefinition",
+      "_tgt": "concept_agent_hierarchy",
       "source": "schema_AgentDefinition",
       "target": "concept_agent_hierarchy"
     },
@@ -3933,8 +4214,8 @@
       "source_file": "architecture.md",
       "source_location": "### Agent OS Phase 3+4",
       "weight": 1.0,
-      "_src": "rationale_phase34_agent_os",
-      "_tgt": "schema_HeartbeatRun",
+      "_src": "schema_HeartbeatRun",
+      "_tgt": "rationale_phase34_agent_os",
       "source": "schema_HeartbeatRun",
       "target": "rationale_phase34_agent_os"
     },
@@ -3945,8 +4226,8 @@
       "source_file": "prisma-CLAUDE.md",
       "source_location": "## \ud1b5\ud569 \ubaa8\ub378 \uaddc\uce59",
       "weight": 1.0,
-      "_src": "rule_agentevent_discriminated",
-      "_tgt": "schema_AgentEvent",
+      "_src": "schema_AgentEvent",
+      "_tgt": "rule_agentevent_discriminated",
       "source": "schema_AgentEvent",
       "target": "rule_agentevent_discriminated"
     },
@@ -3957,8 +4238,8 @@
       "source_file": "schema-models.md",
       "source_location": "Marketplace.installedWorkflows",
       "weight": 1.0,
-      "_src": "schema_Marketplace",
-      "_tgt": "schema_WorkflowTemplate",
+      "_src": "schema_WorkflowTemplate",
+      "_tgt": "schema_Marketplace",
       "source": "schema_WorkflowTemplate",
       "target": "schema_Marketplace"
     },
@@ -3969,8 +4250,8 @@
       "source_file": "schema-models.md",
       "source_location": "WorkflowRun.template",
       "weight": 1.0,
-      "_src": "schema_WorkflowRun",
-      "_tgt": "schema_WorkflowTemplate",
+      "_src": "schema_WorkflowTemplate",
+      "_tgt": "schema_WorkflowRun",
       "source": "schema_WorkflowTemplate",
       "target": "schema_WorkflowRun"
     },
@@ -3981,8 +4262,8 @@
       "source_file": "architecture.md",
       "source_location": "## Workflow vs Agent Boundary",
       "weight": 1.0,
-      "_src": "rationale_workflow_vs_agent",
-      "_tgt": "schema_WorkflowTemplate",
+      "_src": "schema_WorkflowTemplate",
+      "_tgt": "rationale_workflow_vs_agent",
       "source": "schema_WorkflowTemplate",
       "target": "rationale_workflow_vs_agent"
     },
@@ -3993,8 +4274,8 @@
       "source_file": "prisma-CLAUDE.md",
       "source_location": "## Rules",
       "weight": 1.0,
-      "_src": "rule_json_absorption",
-      "_tgt": "schema_WorkflowRun",
+      "_src": "schema_WorkflowRun",
+      "_tgt": "rule_json_absorption",
       "source": "schema_WorkflowRun",
       "target": "rule_json_absorption"
     },
@@ -4005,8 +4286,8 @@
       "source_file": "schema-models.md",
       "source_location": "SupplierProduct.supplier",
       "weight": 1.0,
-      "_src": "schema_SupplierProduct",
-      "_tgt": "schema_Supplier",
+      "_src": "schema_Supplier",
+      "_tgt": "schema_SupplierProduct",
       "source": "schema_Supplier",
       "target": "schema_SupplierProduct"
     },
@@ -4017,8 +4298,8 @@
       "source_file": "schema-models.md",
       "source_location": "SupplierPayment.supplier",
       "weight": 1.0,
-      "_src": "schema_SupplierPayment",
-      "_tgt": "schema_Supplier",
+      "_src": "schema_Supplier",
+      "_tgt": "schema_SupplierPayment",
       "source": "schema_Supplier",
       "target": "schema_SupplierPayment"
     },
@@ -4029,8 +4310,8 @@
       "source_file": "schema-models.md",
       "source_location": "MasterSupplierProduct.supplier",
       "weight": 1.0,
-      "_src": "schema_MasterSupplierProduct",
-      "_tgt": "schema_Supplier",
+      "_src": "schema_Supplier",
+      "_tgt": "schema_MasterSupplierProduct",
       "source": "schema_Supplier",
       "target": "schema_MasterSupplierProduct"
     },
@@ -4053,8 +4334,8 @@
       "source_file": "schema-models.md",
       "source_location": "StockTransfer.fromWarehouse/toWarehouse",
       "weight": 2.0,
-      "_src": "schema_StockTransfer",
-      "_tgt": "schema_Warehouse",
+      "_src": "schema_Warehouse",
+      "_tgt": "schema_StockTransfer",
       "source": "schema_Warehouse",
       "target": "schema_StockTransfer"
     },
@@ -4065,8 +4346,8 @@
       "source_file": "schema-models.md",
       "source_location": "StockTransaction.warehouse",
       "weight": 1.0,
-      "_src": "schema_StockTransaction",
-      "_tgt": "schema_Warehouse",
+      "_src": "schema_Warehouse",
+      "_tgt": "schema_StockTransaction",
       "source": "schema_Warehouse",
       "target": "schema_StockTransaction"
     },
@@ -4077,8 +4358,8 @@
       "source_file": "schema-models.md",
       "source_location": "Shipment.warehouse",
       "weight": 1.0,
-      "_src": "schema_Shipment",
-      "_tgt": "schema_Warehouse",
+      "_src": "schema_Warehouse",
+      "_tgt": "schema_Shipment",
       "source": "schema_Warehouse",
       "target": "schema_Shipment"
     },
@@ -4089,8 +4370,8 @@
       "source_file": "erd.md",
       "source_location": "\u00a72",
       "weight": 1.0,
-      "_src": "concept_order_pipeline",
-      "_tgt": "schema_Shipment",
+      "_src": "schema_Shipment",
+      "_tgt": "concept_order_pipeline",
       "source": "schema_Shipment",
       "target": "concept_order_pipeline"
     },
@@ -4101,8 +4382,8 @@
       "source_file": "schema-models.md",
       "source_location": "PickingItem.pickingList",
       "weight": 1.0,
-      "_src": "schema_PickingItem",
-      "_tgt": "schema_PickingList",
+      "_src": "schema_PickingList",
+      "_tgt": "schema_PickingItem",
       "source": "schema_PickingList",
       "target": "schema_PickingItem"
     },
@@ -4113,8 +4394,8 @@
       "source_file": "prisma-CLAUDE.md",
       "source_location": "## Rules",
       "weight": 1.0,
-      "_src": "rule_json_absorption",
-      "_tgt": "schema_BundleProduct",
+      "_src": "schema_BundleProduct",
+      "_tgt": "rule_json_absorption",
       "source": "schema_BundleProduct",
       "target": "rule_json_absorption"
     },
@@ -4125,8 +4406,8 @@
       "source_file": "prisma-CLAUDE.md",
       "source_location": "## \ud1b5\ud569 \ubaa8\ub378 \uaddc\uce59",
       "weight": 1.0,
-      "_src": "rule_marketplace_type_discriminated",
-      "_tgt": "schema_Marketplace",
+      "_src": "schema_Marketplace",
+      "_tgt": "rule_marketplace_type_discriminated",
       "source": "schema_Marketplace",
       "target": "rule_marketplace_type_discriminated"
     },
@@ -4137,8 +4418,8 @@
       "source_file": "schema-models.md",
       "source_location": "AdAction.snapshot",
       "weight": 1.0,
-      "_src": "schema_AdAction",
-      "_tgt": "schema_AdSnapshot",
+      "_src": "schema_AdSnapshot",
+      "_tgt": "schema_AdAction",
       "source": "schema_AdSnapshot",
       "target": "schema_AdAction"
     },
@@ -4149,8 +4430,8 @@
       "source_file": "prisma-CLAUDE.md",
       "source_location": "## \ud1b5\ud569 \ubaa8\ub378 \uaddc\uce59",
       "weight": 1.0,
-      "_src": "rule_adsnapshot_level_discriminated",
-      "_tgt": "schema_AdSnapshot",
+      "_src": "schema_AdSnapshot",
+      "_tgt": "rule_adsnapshot_level_discriminated",
       "source": "schema_AdSnapshot",
       "target": "rule_adsnapshot_level_discriminated"
     },
@@ -4161,8 +4442,8 @@
       "source_file": "erd.md",
       "source_location": "\u00a75",
       "weight": 1.0,
-      "_src": "concept_ad_automation_pipeline",
-      "_tgt": "schema_AdSnapshot",
+      "_src": "schema_AdSnapshot",
+      "_tgt": "concept_ad_automation_pipeline",
       "source": "schema_AdSnapshot",
       "target": "concept_ad_automation_pipeline"
     },
@@ -4173,8 +4454,8 @@
       "source_file": "schema-models.md",
       "source_location": "ExecutionTask.action",
       "weight": 1.0,
-      "_src": "schema_ExecutionTask",
-      "_tgt": "schema_AdAction",
+      "_src": "schema_AdAction",
+      "_tgt": "schema_ExecutionTask",
       "source": "schema_AdAction",
       "target": "schema_ExecutionTask"
     },
@@ -4185,8 +4466,8 @@
       "source_file": "erd.md",
       "source_location": "\u00a75,\u00a79",
       "weight": 1.0,
-      "_src": "schema_ActionTask",
-      "_tgt": "schema_AdAction",
+      "_src": "schema_AdAction",
+      "_tgt": "schema_ActionTask",
       "source": "schema_AdAction",
       "target": "schema_ActionTask"
     },
@@ -4197,8 +4478,8 @@
       "source_file": "erd.md",
       "source_location": "\u00a75",
       "weight": 1.0,
-      "_src": "concept_ad_automation_pipeline",
-      "_tgt": "schema_AdAction",
+      "_src": "schema_AdAction",
+      "_tgt": "concept_ad_automation_pipeline",
       "source": "schema_AdAction",
       "target": "concept_ad_automation_pipeline"
     },
@@ -4209,8 +4490,8 @@
       "source_file": "schema-models.md",
       "source_location": "ExecutionTask.worker",
       "weight": 1.0,
-      "_src": "schema_ExecutionTask",
-      "_tgt": "schema_ExecutionWorker",
+      "_src": "schema_ExecutionWorker",
+      "_tgt": "schema_ExecutionTask",
       "source": "schema_ExecutionWorker",
       "target": "schema_ExecutionTask"
     },
@@ -4221,8 +4502,8 @@
       "source_file": "schema-models.md",
       "source_location": "ExecutionLog.task",
       "weight": 1.0,
-      "_src": "schema_ExecutionLog",
-      "_tgt": "schema_ExecutionTask",
+      "_src": "schema_ExecutionTask",
+      "_tgt": "schema_ExecutionLog",
       "source": "schema_ExecutionTask",
       "target": "schema_ExecutionLog"
     },
@@ -4233,8 +4514,8 @@
       "source_file": "erd.md",
       "source_location": "\u00a75",
       "weight": 1.0,
-      "_src": "concept_ad_automation_pipeline",
-      "_tgt": "schema_ExecutionTask",
+      "_src": "schema_ExecutionTask",
+      "_tgt": "concept_ad_automation_pipeline",
       "source": "schema_ExecutionTask",
       "target": "concept_ad_automation_pipeline"
     },
@@ -4245,8 +4526,8 @@
       "source_file": "erd.md",
       "source_location": "\u00a75",
       "weight": 1.0,
-      "_src": "concept_ad_automation_pipeline",
-      "_tgt": "schema_ExecutionLog",
+      "_src": "schema_ExecutionLog",
+      "_tgt": "concept_ad_automation_pipeline",
       "source": "schema_ExecutionLog",
       "target": "concept_ad_automation_pipeline"
     },
@@ -4257,8 +4538,8 @@
       "source_file": "schema-models.md",
       "source_location": "MasterInventory.masterProduct",
       "weight": 1.0,
-      "_src": "schema_MasterInventory",
-      "_tgt": "schema_MasterProduct",
+      "_src": "schema_MasterProduct",
+      "_tgt": "schema_MasterInventory",
       "source": "schema_MasterProduct",
       "target": "schema_MasterInventory"
     },
@@ -4269,8 +4550,8 @@
       "source_file": "schema-models.md",
       "source_location": "MasterSupplierProduct.masterProduct",
       "weight": 1.0,
-      "_src": "schema_MasterSupplierProduct",
-      "_tgt": "schema_MasterProduct",
+      "_src": "schema_MasterProduct",
+      "_tgt": "schema_MasterSupplierProduct",
       "source": "schema_MasterProduct",
       "target": "schema_MasterSupplierProduct"
     },
@@ -4281,8 +4562,8 @@
       "source_file": "erd.md",
       "source_location": "\u00a72,\u00a73,\u00a78",
       "weight": 1.0,
-      "_src": "rationale_json_absorption",
-      "_tgt": "rule_json_absorption",
+      "_src": "rule_json_absorption",
+      "_tgt": "rationale_json_absorption",
       "source": "rule_json_absorption",
       "target": "rationale_json_absorption"
     },
@@ -4293,8 +4574,8 @@
       "source_file": "erd.md",
       "source_location": "\u00a78",
       "weight": 1.0,
-      "_src": "rationale_rt_fields_embedded",
-      "_tgt": "rule_agent_rt_fields",
+      "_src": "rule_agent_rt_fields",
+      "_tgt": "rationale_rt_fields_embedded",
       "source": "rule_agent_rt_fields",
       "target": "rationale_rt_fields_embedded"
     },
@@ -4305,8 +4586,8 @@
       "source_file": "architecture.md",
       "source_location": "## Users \ud14c\uc774\ube14 \ud1b5\ud569",
       "weight": 1.0,
-      "_src": "rationale_users_unification",
-      "_tgt": "rule_user_type_unified",
+      "_src": "rule_user_type_unified",
+      "_tgt": "rationale_users_unification",
       "source": "rule_user_type_unified",
       "target": "rationale_users_unification"
     },
@@ -4317,8 +4598,8 @@
       "source_file": "architecture.md",
       "source_location": "## RLS",
       "weight": 1.0,
-      "_src": "rationale_rls_security",
-      "_tgt": "rule_rls_chatbot_readonly",
+      "_src": "rule_rls_chatbot_readonly",
+      "_tgt": "rationale_rls_security",
       "source": "rule_rls_chatbot_readonly",
       "target": "rationale_rls_security"
     },
@@ -4401,8 +4682,8 @@
       "source_file": "architecture.md",
       "source_location": "## AI \ucc57\ubd07 (CHATBOT_DATABASE_URL)",
       "weight": 1.0,
-      "_src": "arch_chatbot_copilotkit",
-      "_tgt": "arch_db_postgres",
+      "_src": "arch_db_postgres",
+      "_tgt": "arch_chatbot_copilotkit",
       "source": "arch_db_postgres",
       "target": "arch_chatbot_copilotkit"
     },
@@ -4412,176 +4693,402 @@
       "confidence_score": 1.0,
       "source_file": "agents/CLAUDE.md implied by schema rules",
       "weight": 1.0,
-      "_src": "arch_agent_python",
-      "_tgt": "arch_db_postgres",
+      "_src": "arch_db_postgres",
+      "_tgt": "arch_agent_python",
       "source": "arch_db_postgres",
       "target": "arch_agent_python"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "schema-models.md",
+      "source_location": "L289",
+      "weight": 1.0,
+      "_src": "erd_workflow_run_triggered_by_user",
+      "_tgt": "erd_workflow_run",
+      "source": "erd_workflow_run_triggered_by_user",
+      "target": "erd_workflow_run"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "schema-models.md",
+      "source_location": "L289",
+      "weight": 1.0,
+      "_src": "erd_workflow_run_triggered_by_user",
+      "_tgt": "erd_user_unified",
+      "source": "erd_workflow_run_triggered_by_user",
+      "target": "erd_user_unified"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.7,
+      "source_file": "prisma-CLAUDE.md",
+      "source_location": "L76",
+      "weight": 1.0,
+      "_src": "prisma_no_native_enums",
+      "_tgt": "erd_ad_snapshot",
+      "source": "prisma_no_native_enums",
+      "target": "erd_ad_snapshot"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.7,
+      "source_file": "prisma-CLAUDE.md",
+      "source_location": "L76",
+      "weight": 1.0,
+      "_src": "prisma_no_native_enums",
+      "_tgt": "erd_marketplace_unified",
+      "source": "prisma_no_native_enums",
+      "target": "erd_marketplace_unified"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.7,
+      "source_file": "prisma-CLAUDE.md",
+      "source_location": "L76",
+      "weight": 1.0,
+      "_src": "prisma_no_native_enums",
+      "_tgt": "erd_agent_event",
+      "source": "prisma_no_native_enums",
+      "target": "erd_agent_event"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "prisma-CLAUDE.md",
+      "source_location": "L85",
+      "weight": 1.0,
+      "_src": "prisma_json_absorb_pattern",
+      "_tgt": "erd_workflow_run",
+      "source": "prisma_json_absorb_pattern",
+      "target": "erd_workflow_run"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "prisma-CLAUDE.md",
+      "source_location": "L98-102",
+      "weight": 1.0,
+      "_src": "prisma_phase_3_4_fields",
+      "_tgt": "erd_agent_definition",
+      "source": "prisma_phase_3_4_fields",
+      "target": "erd_agent_definition"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "prisma-CLAUDE.md",
+      "source_location": "L104-107",
+      "weight": 1.0,
+      "_src": "prisma_phase_3_4_fields",
+      "_tgt": "erd_heartbeat_run",
+      "source": "prisma_phase_3_4_fields",
+      "target": "erd_heartbeat_run"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "architecture.md",
+      "source_location": "L57",
+      "weight": 1.0,
+      "_src": "prisma_phase_3_4_fields",
+      "_tgt": "arch_phase_3_4",
+      "source": "prisma_phase_3_4_fields",
+      "target": "arch_phase_3_4"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "schema-models.md",
+      "source_location": "L132",
+      "weight": 1.0,
+      "_src": "erd_company_root",
+      "_tgt": "erd_user_unified",
+      "source": "erd_company_root",
+      "target": "erd_user_unified"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "erd.md",
+      "source_location": "L66",
+      "weight": 1.0,
+      "_src": "erd_company_root",
+      "_tgt": "erd_product_hub",
+      "source": "erd_company_root",
+      "target": "erd_product_hub"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "schema-models.md",
+      "source_location": "L133",
+      "weight": 1.0,
+      "_src": "erd_user_unified",
+      "_tgt": "erd_agent_definition",
+      "source": "erd_user_unified",
+      "target": "erd_agent_definition"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "architecture.md",
+      "source_location": "L27-38",
+      "weight": 1.0,
+      "_src": "erd_user_unified",
+      "_tgt": "arch_chatbot_vs_agent",
+      "source": "erd_user_unified",
+      "target": "arch_chatbot_vs_agent"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "architecture.md",
+      "source_location": "L40-44",
+      "weight": 1.0,
+      "_src": "erd_user_unified",
+      "_tgt": "arch_rls_chatbot_readonly",
+      "source": "erd_user_unified",
+      "target": "arch_rls_chatbot_readonly"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "erd.md",
+      "source_location": "L209",
+      "weight": 1.0,
+      "_src": "erd_product_hub",
+      "_tgt": "erd_inventory_1to1",
+      "source": "erd_product_hub",
+      "target": "erd_inventory_1to1"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "erd.md",
+      "source_location": "L463",
+      "weight": 1.0,
+      "_src": "erd_product_hub",
+      "_tgt": "erd_thumbnail_analysis",
+      "source": "erd_product_hub",
+      "target": "erd_thumbnail_analysis"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "erd.md",
+      "source_location": "L464",
+      "weight": 1.0,
+      "_src": "erd_product_hub",
+      "_tgt": "erd_thumbnail_generation",
+      "source": "erd_product_hub",
+      "target": "erd_thumbnail_generation"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "erd.md",
+      "source_location": "L335",
+      "weight": 1.0,
+      "_src": "erd_product_hub",
+      "_tgt": "erd_ad_snapshot",
+      "source": "erd_product_hub",
+      "target": "erd_ad_snapshot"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "erd.md",
+      "source_location": "L547",
+      "weight": 1.0,
+      "_src": "erd_workflow_run",
+      "_tgt": "erd_workflow_template",
+      "source": "erd_workflow_run",
+      "target": "erd_workflow_template"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "architecture.md",
+      "source_location": "L67",
+      "weight": 1.0,
+      "_src": "erd_workflow_run",
+      "_tgt": "arch_workflow_no_llm",
+      "source": "erd_workflow_run",
+      "target": "arch_workflow_no_llm"
+    },
+    {
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.6,
+      "source_file": "architecture.md",
+      "source_location": "L46-54",
+      "weight": 1.0,
+      "_src": "erd_workflow_run",
+      "_tgt": "arch_kiditem_shared",
+      "source": "erd_workflow_run",
+      "target": "arch_kiditem_shared"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "erd.md",
+      "source_location": "L619",
+      "weight": 1.0,
+      "_src": "erd_workflow_template",
+      "_tgt": "erd_marketplace_unified",
+      "source": "erd_workflow_template",
+      "target": "erd_marketplace_unified"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "erd.md",
+      "source_location": "L542",
+      "weight": 1.0,
+      "_src": "erd_agent_definition",
+      "_tgt": "erd_heartbeat_run",
+      "source": "erd_agent_definition",
+      "target": "erd_heartbeat_run"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "erd.md",
+      "source_location": "L544",
+      "weight": 1.0,
+      "_src": "erd_agent_definition",
+      "_tgt": "erd_agent_event",
+      "source": "erd_agent_definition",
+      "target": "erd_agent_event"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "erd.md",
+      "source_location": "L618",
+      "weight": 1.0,
+      "_src": "erd_agent_definition",
+      "_tgt": "erd_marketplace_unified",
+      "source": "erd_agent_definition",
+      "target": "erd_marketplace_unified"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "architecture.md",
+      "source_location": "L21-26",
+      "weight": 1.0,
+      "_src": "erd_agent_definition",
+      "_tgt": "arch_agent_runtimes",
+      "source": "erd_agent_definition",
+      "target": "arch_agent_runtimes"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "erd.md",
+      "source_location": "L339",
+      "weight": 1.0,
+      "_src": "erd_ad_snapshot",
+      "_tgt": "erd_ad_action",
+      "source": "erd_ad_snapshot",
+      "target": "erd_ad_action"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "erd.md",
+      "source_location": "L340",
+      "weight": 1.0,
+      "_src": "erd_ad_action",
+      "_tgt": "erd_execution_task",
+      "source": "erd_ad_action",
+      "target": "erd_execution_task"
+    },
+    {
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.75,
+      "source_file": "erd.md",
+      "source_location": "L565-616",
+      "weight": 1.0,
+      "_src": "erd_action_task_board",
+      "_tgt": "erd_alert",
+      "source": "erd_action_task_board",
+      "target": "erd_alert"
     }
   ],
   "hyperedges": [
     {
-      "id": "order_pipeline_flow",
-      "label": "Order Pipeline (Coupang intake \u2192 internal order \u2192 shipment \u2192 unshipped/settlement)",
+      "id": "panel_visibility_workflow_user_relation",
+      "label": "Panel visibility uses User-WorkflowRun relation",
       "nodes": [
-        "schema_CoupangOrder",
-        "schema_CoupangOrderItem",
-        "schema_Order",
-        "schema_Shipment",
-        "schema_UnshippedItem",
-        "schema_Settlement",
-        "schema_Inventory"
-      ],
-      "relation": "participate_in",
-      "confidence": "INFERRED",
-      "confidence_score": 0.85,
-      "source_file": "erd.md"
-    },
-    {
-      "id": "ad_automation_pipeline",
-      "label": "Ad Automation Pipeline (Snapshot \u2192 Action \u2192 ExecutionTask \u2192 ExecutionLog, Worker)",
-      "nodes": [
-        "schema_AdSnapshot",
-        "schema_AdAction",
-        "schema_ExecutionTask",
-        "schema_ExecutionWorker",
-        "schema_ExecutionLog"
+        "erd_workflow_run",
+        "erd_workflow_run_triggered_by_user",
+        "erd_user_unified"
       ],
       "relation": "participate_in",
       "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "erd.md"
+      "confidence_score": 0.9,
+      "source_file": "schema-models.md",
+      "source_location": "L289"
     },
     {
-      "id": "thumbnail_ai_pipeline",
-      "label": "Thumbnail AI Pipeline (Analysis \u2192 Generation \u2192 Tracking \u2192 Thumbnail CTR)",
+      "id": "ads_execution_pipeline",
+      "label": "Ads execution pipeline (AdSnapshot -> AdAction -> ExecutionTask)",
       "nodes": [
-        "schema_Thumbnail",
-        "schema_ThumbnailAnalysis",
-        "schema_ThumbnailGeneration",
-        "schema_ThumbnailTracking"
-      ],
-      "relation": "participate_in",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "erd.md"
-    },
-    {
-      "id": "agent_runtime_loop",
-      "label": "Agent Runtime Loop (Definition \u2192 WakeupRequest \u2192 HeartbeatRun \u2192 AgentEvent)",
-      "nodes": [
-        "schema_AgentDefinition",
-        "schema_AgentWakeupRequest",
-        "schema_HeartbeatRun",
-        "schema_AgentEvent"
-      ],
-      "relation": "participate_in",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "erd.md"
-    },
-    {
-      "id": "workflow_execution",
-      "label": "Workflow Execution (Template \u2192 Run, delegates to AgentTask)",
-      "nodes": [
-        "schema_WorkflowTemplate",
-        "schema_WorkflowRun",
-        "schema_AgentTask",
-        "schema_AgentLog"
-      ],
-      "relation": "participate_in",
-      "confidence": "INFERRED",
-      "confidence_score": 0.8,
-      "source_file": "architecture.md"
-    },
-    {
-      "id": "purchase_receiving_flow",
-      "label": "Purchase Receiving (Supplier \u2192 PurchaseOrder \u2192 PurchaseOrderItem \u2192 SupplierPayment \u2192 Inventory/StockTransaction)",
-      "nodes": [
-        "schema_Supplier",
-        "schema_PurchaseOrder",
-        "schema_PurchaseOrderItem",
-        "schema_SupplierPayment",
-        "schema_StockTransaction"
-      ],
-      "relation": "participate_in",
-      "confidence": "INFERRED",
-      "confidence_score": 0.85,
-      "source_file": "erd.md"
-    },
-    {
-      "id": "warehouse_movement_flow",
-      "label": "Warehouse Movement (Warehouse \u2192 StockTransfer from/to \u2192 StockTransaction \u2192 Inventory)",
-      "nodes": [
-        "schema_Warehouse",
-        "schema_StockTransfer",
-        "schema_StockTransaction",
-        "schema_Inventory"
-      ],
-      "relation": "participate_in",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "schema-models.md"
-    },
-    {
-      "id": "picking_fulfillment_flow",
-      "label": "Picking Fulfillment (PickingList \u2192 PickingItem \u2192 Shipment)",
-      "nodes": [
-        "schema_PickingList",
-        "schema_PickingItem",
-        "schema_Shipment"
-      ],
-      "relation": "participate_in",
-      "confidence": "INFERRED",
-      "confidence_score": 0.8,
-      "source_file": "erd.md"
-    },
-    {
-      "id": "master_normalization_layer",
-      "label": "Master normalization layer (Master* tables shadow operational)",
-      "nodes": [
-        "schema_MasterProduct",
-        "schema_MasterInventory",
-        "schema_MasterSupplierProduct",
-        "schema_Product",
-        "schema_Inventory",
-        "schema_SupplierProduct"
-      ],
-      "relation": "form",
-      "confidence": "INFERRED",
-      "confidence_score": 0.7,
-      "source_file": "schema-models.md"
-    },
-    {
-      "id": "marketplace_distribution",
-      "label": "Marketplace distribution (type=agent|workflow, publishes AgentDefinition + WorkflowTemplate)",
-      "nodes": [
-        "schema_Marketplace",
-        "schema_AgentDefinition",
-        "schema_WorkflowTemplate"
+        "erd_ad_snapshot",
+        "erd_ad_action",
+        "erd_execution_task"
       ],
       "relation": "form",
       "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "schema-models.md"
+      "confidence_score": 0.95,
+      "source_file": "erd.md",
+      "source_location": "L334-348"
     },
     {
-      "id": "nine_domain_partition",
-      "label": "Nine-domain partition of 67 models",
+      "id": "agent_runtime_state_cluster",
+      "label": "Agent runtime state (AgentDefinition + HeartbeatRun + AgentEvent)",
       "nodes": [
-        "erd_domain_core",
-        "erd_domain_order",
-        "erd_domain_stock",
-        "erd_domain_supply",
-        "erd_domain_ads",
-        "erd_domain_finance",
-        "erd_domain_ai",
-        "erd_domain_agent",
-        "erd_domain_system"
+        "erd_agent_definition",
+        "erd_heartbeat_run",
+        "erd_agent_event"
       ],
-      "relation": "form",
+      "relation": "participate_in",
       "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "erd.md"
+      "confidence_score": 0.9,
+      "source_file": "erd.md",
+      "source_location": "L484-549"
     }
   ]
 }

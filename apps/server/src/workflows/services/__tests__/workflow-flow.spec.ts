@@ -55,8 +55,10 @@ function makeRun(overrides: Record<string, any> = {}) {
   return {
     id: 'run-1',
     templateId: 'tmpl-1',
+    companyId: 'company-1',
     status: 'pending',
     triggeredBy: 'manual',
+    triggeredByUserId: null,
     contextData: null,
     steps: [],
     error: null,
@@ -78,12 +80,14 @@ describe('WorkflowsService', () => {
   beforeEach(() => {
     prisma = makePrisma();
     runner = { runWorkflow: vi.fn(), runBatch: vi.fn() };
-    service = new WorkflowsService(prisma as any, runner as any);
+    const eventEmitter = { emit: vi.fn() };
+    service = new WorkflowsService(prisma as any, runner as any, eventEmitter as any);
   });
 
   describe('triggerRun', () => {
     it('creates WorkflowRun with status="pending" and fires runner async', async () => {
       const run = makeRun();
+      prisma.workflowTemplate.findUnique.mockResolvedValue(makeTemplate());
       prisma.workflowRun.create.mockResolvedValue(run);
       runner.runWorkflow.mockResolvedValue(undefined);
 
@@ -105,8 +109,31 @@ describe('WorkflowsService', () => {
       expect(runner.runWorkflow).toHaveBeenCalledWith('run-1', 'tmpl-1');
     });
 
+    it('stores companyId from template and triggeredByUserId for manual trigger', async () => {
+      const run = makeRun({ companyId: 'company-1', triggeredByUserId: 'user-x' });
+      prisma.workflowTemplate.findUnique.mockResolvedValue(makeTemplate({ companyId: 'company-1' }));
+      prisma.workflowRun.create.mockResolvedValue(run);
+      runner.runWorkflow.mockResolvedValue(undefined);
+
+      await service.triggerRun('tmpl-1', 'manual', undefined, 'user-x');
+
+      expect(prisma.workflowRun.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          companyId: 'company-1',
+          triggeredByUserId: 'user-x',
+        }),
+      });
+    });
+
+    it('throws NotFoundException when template does not exist', async () => {
+      prisma.workflowTemplate.findUnique.mockResolvedValue(null);
+
+      await expect(service.triggerRun('nonexistent', 'manual')).rejects.toThrow('nonexistent');
+    });
+
     it('passes context data when provided', async () => {
       const run = makeRun({ contextData: { productId: 'prod-1' } });
+      prisma.workflowTemplate.findUnique.mockResolvedValue(makeTemplate());
       prisma.workflowRun.create.mockResolvedValue(run);
       runner.runWorkflow.mockResolvedValue(undefined);
 
@@ -145,7 +172,8 @@ describe('WorkflowRunnerService', () => {
 
   beforeEach(() => {
     prisma = makePrisma();
-    runner = new WorkflowRunnerService(prisma as any);
+    const eventEmitter = { emit: vi.fn() };
+    runner = new WorkflowRunnerService(prisma as any, eventEmitter as any);
   });
 
   // Helper to build a run DB fixture (with step tracking state)

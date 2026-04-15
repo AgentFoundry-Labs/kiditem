@@ -1,208 +1,230 @@
-# Graph Report - packages/shared  (2026-04-14)
+# Graph Report - packages/shared/src  (2026-04-15)
 
 ## Corpus Check
-- Corpus is ~7,516 words - fits in a single context window. You may not need a graph.
+- Corpus is ~7,791 words - fits in a single context window. You may not need a graph.
 
 ## Summary
-- 65 nodes · 46 edges · 26 communities detected
-- Extraction: 80% EXTRACTED · 20% INFERRED · 0% AMBIGUOUS · INFERRED: 9 edges (avg confidence: 0.8)
+- 66 nodes · 56 edges · 26 communities detected
+- Extraction: 91% EXTRACTED · 9% INFERRED · 0% AMBIGUOUS · INFERRED: 5 edges (avg confidence: 0.77)
 - Token cost: 0 input · 0 output
 
 ## Community Hubs (Navigation)
-- [[_COMMUNITY_Cluster 0 (9n)|Cluster 0 (9n)]]
-- [[_COMMUNITY_Cluster 1 (8n)|Cluster 1 (8n)]]
-- [[_COMMUNITY_Cluster 2 (6n)|Cluster 2 (6n)]]
-- [[_COMMUNITY_Cluster 3 (6n)|Cluster 3 (6n)]]
-- [[_COMMUNITY_Cluster 4 (5n)|Cluster 4 (5n)]]
-- [[_COMMUNITY_Cluster 5 (4n)|Cluster 5 (4n)]]
-- [[_COMMUNITY_Cluster 6 (3n)|Cluster 6 (3n)]]
-- [[_COMMUNITY_Cluster 7 (3n)|Cluster 7 (3n)]]
-- [[_COMMUNITY_Cluster 8 (3n)|Cluster 8 (3n)]]
-- [[_COMMUNITY_Cluster 9 (2n)|Cluster 9 (2n)]]
-- [[_COMMUNITY_Cluster 10 (1n)|Cluster 10 (1n)]]
-- [[_COMMUNITY_Cluster 11 (1n)|Cluster 11 (1n)]]
-- [[_COMMUNITY_Cluster 12 (1n)|Cluster 12 (1n)]]
-- [[_COMMUNITY_Cluster 13 (1n)|Cluster 13 (1n)]]
-- [[_COMMUNITY_Cluster 14 (1n)|Cluster 14 (1n)]]
-- [[_COMMUNITY_Cluster 15 (1n)|Cluster 15 (1n)]]
-- [[_COMMUNITY_Cluster 16 (1n)|Cluster 16 (1n)]]
-- [[_COMMUNITY_Cluster 17 (1n)|Cluster 17 (1n)]]
-- [[_COMMUNITY_Cluster 18 (1n)|Cluster 18 (1n)]]
-- [[_COMMUNITY_Cluster 19 (1n)|Cluster 19 (1n)]]
-- [[_COMMUNITY_Cluster 20 (1n)|Cluster 20 (1n)]]
-- [[_COMMUNITY_Cluster 21 (1n)|Cluster 21 (1n)]]
-- [[_COMMUNITY_Cluster 22 (1n)|Cluster 22 (1n)]]
-- [[_COMMUNITY_Cluster 23 (1n)|Cluster 23 (1n)]]
-- [[_COMMUNITY_Cluster 24 (1n)|Cluster 24 (1n)]]
-- [[_COMMUNITY_Cluster 25 (1n)|Cluster 25 (1n)]]
+- [[_COMMUNITY_Panel Events & Index Module|Panel Events & Index Module]]
+- [[_COMMUNITY_Agent  Workflow  Common Schemas|Agent / Workflow / Common Schemas]]
+- [[_COMMUNITY_Security Scrub & Patterns|Security: Scrub & Patterns]]
+- [[_COMMUNITY_Agent Trace Test Helpers|Agent Trace Test Helpers]]
+- [[_COMMUNITY_Panel Item Base & Run|Panel Item Base & Run]]
+- [[_COMMUNITY_AppException|AppException]]
+- [[_COMMUNITY_Panel sourcestypes files|Panel sources/types files]]
+- [[_COMMUNITY_Panel test fixtures|Panel test fixtures]]
+- [[_COMMUNITY_Community 8|Community 8]]
+- [[_COMMUNITY_Community 9|Community 9]]
+- [[_COMMUNITY_Community 10|Community 10]]
+- [[_COMMUNITY_Community 11|Community 11]]
+- [[_COMMUNITY_Community 12|Community 12]]
+- [[_COMMUNITY_Community 13|Community 13]]
+- [[_COMMUNITY_Community 14|Community 14]]
+- [[_COMMUNITY_Community 15|Community 15]]
+- [[_COMMUNITY_Community 16|Community 16]]
+- [[_COMMUNITY_Community 17|Community 17]]
+- [[_COMMUNITY_Community 18|Community 18]]
+- [[_COMMUNITY_Community 19|Community 19]]
+- [[_COMMUNITY_Community 20|Community 20]]
+- [[_COMMUNITY_Community 21|Community 21]]
+- [[_COMMUNITY_Community 22|Community 22]]
+- [[_COMMUNITY_Community 23|Community 23]]
+- [[_COMMUNITY_Community 24|Community 24]]
+- [[_COMMUNITY_Community 25|Community 25]]
 
 ## God Nodes (most connected - your core abstractions)
-1. `Pattern: subpath exports` - 5 edges
-2. `walk()` - 4 edges
-3. `Pattern: Add schema workflow` - 4 edges
-4. `Pattern: domain file split` - 3 edges
-5. `Pattern: ESM+CJS dual build via tsup` - 3 edges
-6. `scrubSecrets()` - 2 edges
-7. `isPlainObject()` - 2 edges
-8. `scrubDeep()` - 2 edges
-9. `AppException` - 2 edges
-10. `Pattern: Zod infer types` - 2 edges
+1. `PanelItem (z.discriminatedUnion 'kind')` - 7 edges
+2. `makeTrace()` - 5 edges
+3. `PanelEvent (z.discriminatedUnion 'type')` - 5 edges
+4. `panel/index.ts barrel (exports types + sources)` - 5 edges
+5. `walk()` - 4 edges
+6. `PanelItemBase (id, seq, createdAt, visibility, ...)` - 4 edges
+7. `PanelRunItem (kind: 'run', source, status, deepLink)` - 3 edges
+8. `PanelSnapshotEvent (type: 'snapshot', items, resetClient: true)` - 3 edges
+9. `PANEL_RUN_SOURCES (workflow {label, iconName, deepLinkPattern})` - 3 edges
+10. `scrubSecrets()` - 2 edges
 
 ## Surprising Connections (you probably didn't know these)
-- None detected - all connections are within the same source files.
+- `Rule: z.infer<typeof Schema> (no separate interface)` --rationale_for--> `PanelItem (z.discriminatedUnion 'kind')`  [INFERRED]
+  packages/shared/CLAUDE.md → packages/shared/src/panel/types.ts
+- `Rule: satisfies pattern in services (Prisma drift detection)` --rationale_for--> `PanelItem (z.discriminatedUnion 'kind')`  [INFERRED]
+  packages/shared/CLAUDE.md → packages/shared/src/panel/types.ts
+- `Rule: z.infer<typeof Schema> (no separate interface)` --rationale_for--> `PanelEvent (z.discriminatedUnion 'type')`  [INFERRED]
+  packages/shared/CLAUDE.md → packages/shared/src/panel/types.ts
+- `Rule: @kiditem/shared subpath exports (/schemas, /errors)` --rationale_for--> `panel/index.ts barrel (exports types + sources)`  [INFERRED]
+  packages/shared/CLAUDE.md → packages/shared/src/panel/index.ts
+- `Rule: npm run build required after schema change (dist refresh)` --rationale_for--> `panel/index.ts barrel (exports types + sources)`  [INFERRED]
+  packages/shared/CLAUDE.md → packages/shared/src/panel/index.ts
+
+## Hyperedges (group relationships)
+- **PanelEvent 3-type discriminated union (upsert | dismiss | snapshot)** — shared_panel_upsert_event, shared_panel_dismiss_event, shared_panel_snapshot_event, shared_panel_event_union [EXTRACTED 1.00]
+- **Panel wire safety rules (companyId strip, dismiss itemId-only, resetClient handshake)** — shared_panel_company_id_strip, shared_panel_dismiss_itemid_only, shared_panel_reset_client_handshake [EXTRACTED 0.95]
+- **Pluggable run source pattern (registry + Zod enum + PR2 extension point)** — shared_panel_run_sources_registry, shared_panel_run_source_schema, shared_panel_pr2_extension [EXTRACTED 0.90]
 
 ## Communities
 
-### Community 0 - "Cluster 0 (9n)"
-Cohesion: 0.28
-Nodes (7): File: dist/, File: src/schemas/{domain}.ts, Pattern: Add schema workflow, Pattern: ESM+CJS dual build via tsup, Rationale: dist must be refreshed to be referenced by other packages, Rule: Adding schema follows 4-step workflow, Rule: Run npm run build after modifying shared
+### Community 0 - "Panel Events & Index Module"
+Cohesion: 0.19
+Nodes (14): Rule: npm run build required after schema change (dist refresh), PanelDismissEvent (type: 'dismiss', seq, itemId), Rule: dismiss event sends itemId only (IMPORTANT #2), PanelEvent (z.discriminatedUnion 'type'), panel/index.ts barrel (exports types + sources), PanelItem (z.discriminatedUnion 'kind'), PR2: PanelAlertItem + agent/image_edit sources to be added, Rule: resetClient: z.literal(true) — server restart seq reset (CRITICAL #9) (+6 more)
 
-### Community 1 - "Cluster 1 (8n)"
+### Community 1 - "Agent / Workflow / Common Schemas"
 Cohesion: 0.32
 Nodes (0): 
 
-### Community 2 - "Cluster 2 (6n)"
-Cohesion: 0.53
+### Community 2 - "Security: Scrub & Patterns"
+Cohesion: 0.43
 Nodes (4): isPlainObject(), scrubDeep(), scrubSecrets(), walk()
 
-### Community 3 - "Cluster 3 (6n)"
+### Community 3 - "Agent Trace Test Helpers"
+Cohesion: 0.6
+Nodes (5): makeEvent(), makeHeartbeat(), makeLog(), makeTask(), makeTrace()
+
+### Community 4 - "Panel Item Base & Run"
 Cohesion: 0.33
-Nodes (6): File: @kiditem/shared/errors, File: @kiditem/shared/internal/*, File: @kiditem/shared/schemas, Pattern: subpath exports, Prohibit: Direct import of @kiditem/shared/internal/*, Rationale: Internal subpath blocks leakage of implementation details
+Nodes (6): Rule: companyId server-only, dropped from wire, PanelItemBase (id, seq, createdAt, visibility, ...), PanelRunItem (kind: 'run', source, status, deepLink), PanelRunSourceSchema (z.enum from PANEL_RUN_SOURCES keys), visibility: 'company' | 'user' (Panel filter axis), zod (Panel schema lib)
 
-### Community 4 - "Cluster 4 (5n)"
-Cohesion: 0.4
-Nodes (5): Pattern: JsonValue narrowing, Pattern: zIsoDate union, Rationale: Prisma Date + JSON string boundary dual compatibility, Rule: Date fields use zIsoDate union, Rule: Narrow Prisma JsonValue at map step for satisfies
-
-### Community 5 - "Cluster 5 (4n)"
-Cohesion: 0.5
-Nodes (4): File: schemas/order.ts, File: schemas/product.ts, Pattern: domain file split, Rule: Split schemas by domain file
-
-### Community 6 - "Cluster 6 (3n)"
+### Community 5 - "AppException"
 Cohesion: 0.67
 Nodes (1): AppException
 
-### Community 7 - "Cluster 7 (3n)"
-Cohesion: 0.67
-Nodes (3): Pattern: satisfies drift detection, Rationale: satisfies pattern detects Prisma-Shared type drift at compile time, Rule: Use satisfies pattern in backend services to detect Prisma/Shared drift
-
-### Community 8 - "Cluster 8 (3n)"
-Cohesion: 0.67
-Nodes (3): Pattern: Zod infer types, Prohibit: Defining separate interface instead of z.infer, Rule: Use z.infer for type derivation
-
-### Community 9 - "Cluster 9 (2n)"
-Cohesion: 1.0
-Nodes (2): Pattern: omit derived schema, Rule: Use .omit() derived schema for subset responses
-
-### Community 10 - "Cluster 10 (1n)"
+### Community 6 - "Panel sources/types files"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 11 - "Cluster 11 (1n)"
+### Community 7 - "Panel test fixtures"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 12 - "Cluster 12 (1n)"
+### Community 8 - "Community 8"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 13 - "Cluster 13 (1n)"
+### Community 9 - "Community 9"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 14 - "Cluster 14 (1n)"
+### Community 10 - "Community 10"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 15 - "Cluster 15 (1n)"
+### Community 11 - "Community 11"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 16 - "Cluster 16 (1n)"
+### Community 12 - "Community 12"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 17 - "Cluster 17 (1n)"
+### Community 13 - "Community 13"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 18 - "Cluster 18 (1n)"
+### Community 14 - "Community 14"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 19 - "Cluster 19 (1n)"
+### Community 15 - "Community 15"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 20 - "Cluster 20 (1n)"
+### Community 16 - "Community 16"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 21 - "Cluster 21 (1n)"
+### Community 17 - "Community 17"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 22 - "Cluster 22 (1n)"
+### Community 18 - "Community 18"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 23 - "Cluster 23 (1n)"
+### Community 19 - "Community 19"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 24 - "Cluster 24 (1n)"
+### Community 20 - "Community 20"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 25 - "Cluster 25 (1n)"
+### Community 21 - "Community 21"
+Cohesion: 1.0
+Nodes (0): 
+
+### Community 22 - "Community 22"
+Cohesion: 1.0
+Nodes (0): 
+
+### Community 23 - "Community 23"
+Cohesion: 1.0
+Nodes (0): 
+
+### Community 24 - "Community 24"
+Cohesion: 1.0
+Nodes (0): 
+
+### Community 25 - "Community 25"
 Cohesion: 1.0
 Nodes (0): 
 
 ## Knowledge Gaps
-- **19 isolated node(s):** `Pattern: omit derived schema`, `Rule: Run npm run build after modifying shared`, `Rule: Use z.infer for type derivation`, `Rule: Use satisfies pattern in backend services to detect Prisma/Shared drift`, `Rule: Date fields use zIsoDate union` (+14 more)
+- **8 isolated node(s):** `visibility: 'company' | 'user' (Panel filter axis)`, `Rule: companyId server-only, dropped from wire`, `Rule: dismiss event sends itemId only (IMPORTANT #2)`, `Rule: resetClient: z.literal(true) — server restart seq reset (CRITICAL #9)`, `zod (Panel schema lib)` (+3 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **Thin community `Cluster 9 (2n)`** (2 nodes): `Pattern: omit derived schema`, `Rule: Use .omit() derived schema for subset responses`
+- **Thin community `Panel sources/types files`** (2 nodes): `sources.ts`, `types.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 10 (1n)`** (1 nodes): `tsup.config.ts`
+- **Thin community `Panel test fixtures`** (2 nodes): `types.spec.ts`, `makeRun()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 11 (1n)`** (1 nodes): `index.ts`
+- **Thin community `Community 8`** (1 nodes): `index.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 12 (1n)`** (1 nodes): `inventory.ts`
+- **Thin community `Community 9`** (1 nodes): `index.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 13 (1n)`** (1 nodes): `profit-loss.ts`
+- **Thin community `Community 10`** (1 nodes): `index.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 14 (1n)`** (1 nodes): `feature-gate.ts`
+- **Thin community `Community 11`** (1 nodes): `inventory.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 15 (1n)`** (1 nodes): `thumbnails.ts`
+- **Thin community `Community 12`** (1 nodes): `profit-loss.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 16 (1n)`** (1 nodes): `product.ts`
+- **Thin community `Community 13`** (1 nodes): `feature-gate.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 17 (1n)`** (1 nodes): `dashboard.ts`
+- **Thin community `Community 14`** (1 nodes): `thumbnails.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 18 (1n)`** (1 nodes): `inspection.ts`
+- **Thin community `Community 15`** (1 nodes): `product.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 19 (1n)`** (1 nodes): `rules.ts`
+- **Thin community `Community 16`** (1 nodes): `dashboard.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 20 (1n)`** (1 nodes): `action-task.ts`
+- **Thin community `Community 17`** (1 nodes): `inspection.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 21 (1n)`** (1 nodes): `ads.ts`
+- **Thin community `Community 18`** (1 nodes): `rules.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 22 (1n)`** (1 nodes): `reviews.ts`
+- **Thin community `Community 19`** (1 nodes): `action-task.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 23 (1n)`** (1 nodes): `alerts.ts`
+- **Thin community `Community 20`** (1 nodes): `ads.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 24 (1n)`** (1 nodes): `codes.ts`
+- **Thin community `Community 21`** (1 nodes): `index.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 25 (1n)`** (1 nodes): `index.ts`
+- **Thin community `Community 22`** (1 nodes): `reviews.ts`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Community 23`** (1 nodes): `alerts.ts`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Community 24`** (1 nodes): `codes.ts`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Community 25`** (1 nodes): `index.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Are the 3 inferred relationships involving `Pattern: subpath exports` (e.g. with `File: @kiditem/shared/schemas` and `File: @kiditem/shared/errors`) actually correct?**
-  _`Pattern: subpath exports` has 3 INFERRED edges - model-reasoned connections that need verification._
-- **Are the 3 inferred relationships involving `Pattern: Add schema workflow` (e.g. with `File: src/schemas/{domain}.ts` and `index.ts`) actually correct?**
-  _`Pattern: Add schema workflow` has 3 INFERRED edges - model-reasoned connections that need verification._
-- **Are the 2 inferred relationships involving `Pattern: domain file split` (e.g. with `File: schemas/product.ts` and `File: schemas/order.ts`) actually correct?**
-  _`Pattern: domain file split` has 2 INFERRED edges - model-reasoned connections that need verification._
-- **What connects `Pattern: omit derived schema`, `Rule: Run npm run build after modifying shared`, `Rule: Use z.infer for type derivation` to the rest of the system?**
-  _19 weakly-connected nodes found - possible documentation gaps or missing edges._
+- **Why does `PanelItem (z.discriminatedUnion 'kind')` connect `Panel Events & Index Module` to `Panel Item Base & Run`?**
+  _High betweenness centrality (0.046) - this node is a cross-community bridge._
+- **Why does `PanelRunItem (kind: 'run', source, status, deepLink)` connect `Panel Item Base & Run` to `Panel Events & Index Module`?**
+  _High betweenness centrality (0.032) - this node is a cross-community bridge._
+- **Are the 2 inferred relationships involving `PanelItem (z.discriminatedUnion 'kind')` (e.g. with `Rule: z.infer<typeof Schema> (no separate interface)` and `Rule: satisfies pattern in services (Prisma drift detection)`) actually correct?**
+  _`PanelItem (z.discriminatedUnion 'kind')` has 2 INFERRED edges - model-reasoned connections that need verification._
+- **Are the 2 inferred relationships involving `panel/index.ts barrel (exports types + sources)` (e.g. with `Rule: @kiditem/shared subpath exports (/schemas, /errors)` and `Rule: npm run build required after schema change (dist refresh)`) actually correct?**
+  _`panel/index.ts barrel (exports types + sources)` has 2 INFERRED edges - model-reasoned connections that need verification._
+- **What connects `visibility: 'company' | 'user' (Panel filter axis)`, `Rule: companyId server-only, dropped from wire`, `Rule: dismiss event sends itemId only (IMPORTANT #2)` to the rest of the system?**
+  _8 weakly-connected nodes found - possible documentation gaps or missing edges._

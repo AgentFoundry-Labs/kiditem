@@ -107,6 +107,7 @@ async getProduct(id: string, companyId: string) {
 - **Thumbnails**: `src/products/services/thumbnail-*.ts` — 썸네일 AI 분석/편집. 3단계: 사전 검수(이미지 스펙) → AI 분류(품질+가이드라인) → AI 편집(가이드라인 수정/품질 개선). Gemini API 사용. 모델명은 `ThumbnailAiService.GEMINI_MODEL` 상수.
 - **Chat**: `src/chat/` — CopilotKit 런타임 + ClaudeCliAdapter
 - **Action Tasks**: `src/action-task/` — 액션 보드 CRUD API
+- **Panel (Live Ops)**: `src/panel/` — SSE multiplex 채널. `EventEmitter2` 버스로 도메인(workflow/agent/image/alert) 이벤트 받아 companyId 필터 + strip + ring buffer + monotonic seq → `@Sse()` 로 Observable<MessageEvent> 내보냄. Workflow 도메인 hook이 상태 전이 지점에서 `PANEL_EVENTS.UPSERT` emit ('completed' → 'succeeded' 정규화는 shared `panel/adapters/workflow-run-mapper.ts` 경유). 단일 인스턴스 전제 (prod 멀티 인스턴스 시 pg LISTEN/Redis 도입 필요).
 
 ## Notable Sub-Domains (LOW signal — 별도 CLAUDE.md 없음)
 

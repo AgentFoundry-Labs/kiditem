@@ -127,3 +127,6 @@ export { AppException } from './errors/app-exception.js';
 
 // Security
 export { scrubSecrets, scrubDeep, REDACTED_PLACEHOLDER, SECRET_PATTERNS, SENSITIVE_FIELD_KEYS } from './security/index.js';
+
+// Panel
+export * from './panel/index.js';
