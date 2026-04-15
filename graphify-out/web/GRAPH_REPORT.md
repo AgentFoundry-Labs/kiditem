@@ -1,2271 +1,2198 @@
-# Graph Report - apps/web  (2026-04-14)
+# Graph Report - apps/web/src  (2026-04-15)
 
 ## Corpus Check
-- Large corpus: 338 files · ~154,633 words. Semantic extraction will be expensive (many Claude tokens). Consider running on a subfolder, or use --no-semantic to run AST-only.
+- Large corpus: 334 files · ~155,532 words. Semantic extraction will be expensive (many Claude tokens). Consider running on a subfolder, or use --no-semantic to run AST-only.
 
 ## Summary
-- 820 nodes · 496 edges · 341 communities detected
-- Extraction: 97% EXTRACTED · 3% INFERRED · 0% AMBIGUOUS · INFERRED: 16 edges (avg confidence: 0.82)
+- 786 nodes · 480 edges · 328 communities detected
+- Extraction: 100% EXTRACTED · 0% INFERRED · 0% AMBIGUOUS
 - Token cost: 0 input · 0 output
 
 ## Community Hubs (Navigation)
-- [[_COMMUNITY_Cluster 0 (18n)|Cluster 0 (18n)]]
-- [[_COMMUNITY_Cluster 1 (17n)|Cluster 1 (17n)]]
-- [[_COMMUNITY_Cluster 2 (15n)|Cluster 2 (15n)]]
-- [[_COMMUNITY_Cluster 3 (15n)|Cluster 3 (15n)]]
-- [[_COMMUNITY_Cluster 4 (13n)|Cluster 4 (13n)]]
-- [[_COMMUNITY_Cluster 5 (12n)|Cluster 5 (12n)]]
-- [[_COMMUNITY_Cluster 6 (12n)|Cluster 6 (12n)]]
-- [[_COMMUNITY_Cluster 7 (10n)|Cluster 7 (10n)]]
-- [[_COMMUNITY_Cluster 8 (9n)|Cluster 8 (9n)]]
-- [[_COMMUNITY_Cluster 9 (8n)|Cluster 9 (8n)]]
-- [[_COMMUNITY_Cluster 10 (8n)|Cluster 10 (8n)]]
-- [[_COMMUNITY_Cluster 11 (8n)|Cluster 11 (8n)]]
-- [[_COMMUNITY_Cluster 12 (8n)|Cluster 12 (8n)]]
-- [[_COMMUNITY_Cluster 13 (8n)|Cluster 13 (8n)]]
-- [[_COMMUNITY_Cluster 14 (7n)|Cluster 14 (7n)]]
-- [[_COMMUNITY_Cluster 15 (7n)|Cluster 15 (7n)]]
-- [[_COMMUNITY_Cluster 16 (7n)|Cluster 16 (7n)]]
-- [[_COMMUNITY_Cluster 17 (7n)|Cluster 17 (7n)]]
-- [[_COMMUNITY_Cluster 18 (7n)|Cluster 18 (7n)]]
-- [[_COMMUNITY_Cluster 19 (7n)|Cluster 19 (7n)]]
-- [[_COMMUNITY_Cluster 20 (6n)|Cluster 20 (6n)]]
-- [[_COMMUNITY_Cluster 21 (6n)|Cluster 21 (6n)]]
-- [[_COMMUNITY_Cluster 22 (6n)|Cluster 22 (6n)]]
-- [[_COMMUNITY_Cluster 23 (6n)|Cluster 23 (6n)]]
-- [[_COMMUNITY_Cluster 24 (6n)|Cluster 24 (6n)]]
-- [[_COMMUNITY_Cluster 25 (5n)|Cluster 25 (5n)]]
-- [[_COMMUNITY_Cluster 26 (5n)|Cluster 26 (5n)]]
-- [[_COMMUNITY_Cluster 27 (5n)|Cluster 27 (5n)]]
-- [[_COMMUNITY_Cluster 28 (5n)|Cluster 28 (5n)]]
-- [[_COMMUNITY_Cluster 29 (5n)|Cluster 29 (5n)]]
-- [[_COMMUNITY_Cluster 30 (5n)|Cluster 30 (5n)]]
-- [[_COMMUNITY_Cluster 31 (5n)|Cluster 31 (5n)]]
-- [[_COMMUNITY_Cluster 32 (4n)|Cluster 32 (4n)]]
-- [[_COMMUNITY_Cluster 33 (4n)|Cluster 33 (4n)]]
-- [[_COMMUNITY_Cluster 34 (4n)|Cluster 34 (4n)]]
-- [[_COMMUNITY_Cluster 35 (4n)|Cluster 35 (4n)]]
-- [[_COMMUNITY_Cluster 36 (4n)|Cluster 36 (4n)]]
-- [[_COMMUNITY_Cluster 37 (4n)|Cluster 37 (4n)]]
-- [[_COMMUNITY_Cluster 38 (4n)|Cluster 38 (4n)]]
-- [[_COMMUNITY_Cluster 39 (4n)|Cluster 39 (4n)]]
-- [[_COMMUNITY_Cluster 40 (4n)|Cluster 40 (4n)]]
-- [[_COMMUNITY_Cluster 41 (4n)|Cluster 41 (4n)]]
-- [[_COMMUNITY_Cluster 42 (4n)|Cluster 42 (4n)]]
-- [[_COMMUNITY_Cluster 43 (4n)|Cluster 43 (4n)]]
-- [[_COMMUNITY_Cluster 44 (4n)|Cluster 44 (4n)]]
-- [[_COMMUNITY_Cluster 45 (4n)|Cluster 45 (4n)]]
-- [[_COMMUNITY_Cluster 46 (4n)|Cluster 46 (4n)]]
-- [[_COMMUNITY_Cluster 47 (4n)|Cluster 47 (4n)]]
-- [[_COMMUNITY_Cluster 48 (3n)|Cluster 48 (3n)]]
-- [[_COMMUNITY_Cluster 49 (3n)|Cluster 49 (3n)]]
-- [[_COMMUNITY_Cluster 50 (3n)|Cluster 50 (3n)]]
-- [[_COMMUNITY_Cluster 51 (3n)|Cluster 51 (3n)]]
-- [[_COMMUNITY_Cluster 52 (3n)|Cluster 52 (3n)]]
-- [[_COMMUNITY_Cluster 53 (3n)|Cluster 53 (3n)]]
-- [[_COMMUNITY_Cluster 54 (3n)|Cluster 54 (3n)]]
-- [[_COMMUNITY_Cluster 55 (3n)|Cluster 55 (3n)]]
-- [[_COMMUNITY_Cluster 56 (3n)|Cluster 56 (3n)]]
-- [[_COMMUNITY_Cluster 57 (3n)|Cluster 57 (3n)]]
-- [[_COMMUNITY_Cluster 58 (3n)|Cluster 58 (3n)]]
-- [[_COMMUNITY_Cluster 59 (3n)|Cluster 59 (3n)]]
-- [[_COMMUNITY_Cluster 60 (3n)|Cluster 60 (3n)]]
-- [[_COMMUNITY_Cluster 61 (3n)|Cluster 61 (3n)]]
-- [[_COMMUNITY_Cluster 62 (3n)|Cluster 62 (3n)]]
-- [[_COMMUNITY_Cluster 63 (3n)|Cluster 63 (3n)]]
-- [[_COMMUNITY_Cluster 64 (3n)|Cluster 64 (3n)]]
-- [[_COMMUNITY_Cluster 65 (3n)|Cluster 65 (3n)]]
-- [[_COMMUNITY_Cluster 66 (3n)|Cluster 66 (3n)]]
-- [[_COMMUNITY_Cluster 67 (3n)|Cluster 67 (3n)]]
-- [[_COMMUNITY_Cluster 68 (3n)|Cluster 68 (3n)]]
-- [[_COMMUNITY_Cluster 69 (3n)|Cluster 69 (3n)]]
-- [[_COMMUNITY_Cluster 70 (3n)|Cluster 70 (3n)]]
-- [[_COMMUNITY_Cluster 71 (3n)|Cluster 71 (3n)]]
-- [[_COMMUNITY_Cluster 72 (3n)|Cluster 72 (3n)]]
-- [[_COMMUNITY_Cluster 73 (3n)|Cluster 73 (3n)]]
-- [[_COMMUNITY_Cluster 74 (3n)|Cluster 74 (3n)]]
-- [[_COMMUNITY_Cluster 75 (3n)|Cluster 75 (3n)]]
-- [[_COMMUNITY_Cluster 76 (3n)|Cluster 76 (3n)]]
-- [[_COMMUNITY_Cluster 77 (3n)|Cluster 77 (3n)]]
-- [[_COMMUNITY_Cluster 78 (3n)|Cluster 78 (3n)]]
-- [[_COMMUNITY_Cluster 79 (3n)|Cluster 79 (3n)]]
-- [[_COMMUNITY_Cluster 80 (3n)|Cluster 80 (3n)]]
-- [[_COMMUNITY_Cluster 81 (3n)|Cluster 81 (3n)]]
-- [[_COMMUNITY_Cluster 82 (3n)|Cluster 82 (3n)]]
-- [[_COMMUNITY_Cluster 83 (3n)|Cluster 83 (3n)]]
-- [[_COMMUNITY_Cluster 84 (3n)|Cluster 84 (3n)]]
-- [[_COMMUNITY_Cluster 85 (2n)|Cluster 85 (2n)]]
-- [[_COMMUNITY_Cluster 86 (2n)|Cluster 86 (2n)]]
-- [[_COMMUNITY_Cluster 87 (2n)|Cluster 87 (2n)]]
-- [[_COMMUNITY_Cluster 88 (2n)|Cluster 88 (2n)]]
-- [[_COMMUNITY_Cluster 89 (2n)|Cluster 89 (2n)]]
-- [[_COMMUNITY_Cluster 90 (2n)|Cluster 90 (2n)]]
-- [[_COMMUNITY_Cluster 91 (2n)|Cluster 91 (2n)]]
-- [[_COMMUNITY_Cluster 92 (2n)|Cluster 92 (2n)]]
-- [[_COMMUNITY_Cluster 93 (2n)|Cluster 93 (2n)]]
-- [[_COMMUNITY_Cluster 94 (2n)|Cluster 94 (2n)]]
-- [[_COMMUNITY_Cluster 95 (2n)|Cluster 95 (2n)]]
-- [[_COMMUNITY_Cluster 96 (2n)|Cluster 96 (2n)]]
-- [[_COMMUNITY_Cluster 97 (2n)|Cluster 97 (2n)]]
-- [[_COMMUNITY_Cluster 98 (2n)|Cluster 98 (2n)]]
-- [[_COMMUNITY_Cluster 99 (2n)|Cluster 99 (2n)]]
-- [[_COMMUNITY_Cluster 100 (2n)|Cluster 100 (2n)]]
-- [[_COMMUNITY_Cluster 101 (2n)|Cluster 101 (2n)]]
-- [[_COMMUNITY_Cluster 102 (2n)|Cluster 102 (2n)]]
-- [[_COMMUNITY_Cluster 103 (2n)|Cluster 103 (2n)]]
-- [[_COMMUNITY_Cluster 104 (2n)|Cluster 104 (2n)]]
-- [[_COMMUNITY_Cluster 105 (2n)|Cluster 105 (2n)]]
-- [[_COMMUNITY_Cluster 106 (2n)|Cluster 106 (2n)]]
-- [[_COMMUNITY_Cluster 107 (2n)|Cluster 107 (2n)]]
-- [[_COMMUNITY_Cluster 108 (2n)|Cluster 108 (2n)]]
-- [[_COMMUNITY_Cluster 109 (2n)|Cluster 109 (2n)]]
-- [[_COMMUNITY_Cluster 110 (2n)|Cluster 110 (2n)]]
-- [[_COMMUNITY_Cluster 111 (2n)|Cluster 111 (2n)]]
-- [[_COMMUNITY_Cluster 112 (2n)|Cluster 112 (2n)]]
-- [[_COMMUNITY_Cluster 113 (2n)|Cluster 113 (2n)]]
-- [[_COMMUNITY_Cluster 114 (2n)|Cluster 114 (2n)]]
-- [[_COMMUNITY_Cluster 115 (2n)|Cluster 115 (2n)]]
-- [[_COMMUNITY_Cluster 116 (2n)|Cluster 116 (2n)]]
-- [[_COMMUNITY_Cluster 117 (2n)|Cluster 117 (2n)]]
-- [[_COMMUNITY_Cluster 118 (2n)|Cluster 118 (2n)]]
-- [[_COMMUNITY_Cluster 119 (2n)|Cluster 119 (2n)]]
-- [[_COMMUNITY_Cluster 120 (2n)|Cluster 120 (2n)]]
-- [[_COMMUNITY_Cluster 121 (2n)|Cluster 121 (2n)]]
-- [[_COMMUNITY_Cluster 122 (2n)|Cluster 122 (2n)]]
-- [[_COMMUNITY_Cluster 123 (2n)|Cluster 123 (2n)]]
-- [[_COMMUNITY_Cluster 124 (2n)|Cluster 124 (2n)]]
-- [[_COMMUNITY_Cluster 125 (2n)|Cluster 125 (2n)]]
-- [[_COMMUNITY_Cluster 126 (2n)|Cluster 126 (2n)]]
-- [[_COMMUNITY_Cluster 127 (2n)|Cluster 127 (2n)]]
-- [[_COMMUNITY_Cluster 128 (2n)|Cluster 128 (2n)]]
-- [[_COMMUNITY_Cluster 129 (2n)|Cluster 129 (2n)]]
-- [[_COMMUNITY_Cluster 130 (2n)|Cluster 130 (2n)]]
-- [[_COMMUNITY_Cluster 131 (2n)|Cluster 131 (2n)]]
-- [[_COMMUNITY_Cluster 132 (2n)|Cluster 132 (2n)]]
-- [[_COMMUNITY_Cluster 133 (2n)|Cluster 133 (2n)]]
-- [[_COMMUNITY_Cluster 134 (2n)|Cluster 134 (2n)]]
-- [[_COMMUNITY_Cluster 135 (2n)|Cluster 135 (2n)]]
-- [[_COMMUNITY_Cluster 136 (2n)|Cluster 136 (2n)]]
-- [[_COMMUNITY_Cluster 137 (2n)|Cluster 137 (2n)]]
-- [[_COMMUNITY_Cluster 138 (2n)|Cluster 138 (2n)]]
-- [[_COMMUNITY_Cluster 139 (2n)|Cluster 139 (2n)]]
-- [[_COMMUNITY_Cluster 140 (2n)|Cluster 140 (2n)]]
-- [[_COMMUNITY_Cluster 141 (2n)|Cluster 141 (2n)]]
-- [[_COMMUNITY_Cluster 142 (2n)|Cluster 142 (2n)]]
-- [[_COMMUNITY_Cluster 143 (2n)|Cluster 143 (2n)]]
-- [[_COMMUNITY_Cluster 144 (2n)|Cluster 144 (2n)]]
-- [[_COMMUNITY_Cluster 145 (2n)|Cluster 145 (2n)]]
-- [[_COMMUNITY_Cluster 146 (2n)|Cluster 146 (2n)]]
-- [[_COMMUNITY_Cluster 147 (2n)|Cluster 147 (2n)]]
-- [[_COMMUNITY_Cluster 148 (2n)|Cluster 148 (2n)]]
-- [[_COMMUNITY_Cluster 149 (2n)|Cluster 149 (2n)]]
-- [[_COMMUNITY_Cluster 150 (2n)|Cluster 150 (2n)]]
-- [[_COMMUNITY_Cluster 151 (2n)|Cluster 151 (2n)]]
-- [[_COMMUNITY_Cluster 152 (2n)|Cluster 152 (2n)]]
-- [[_COMMUNITY_Cluster 153 (2n)|Cluster 153 (2n)]]
-- [[_COMMUNITY_Cluster 154 (2n)|Cluster 154 (2n)]]
-- [[_COMMUNITY_Cluster 155 (2n)|Cluster 155 (2n)]]
-- [[_COMMUNITY_Cluster 156 (2n)|Cluster 156 (2n)]]
-- [[_COMMUNITY_Cluster 157 (2n)|Cluster 157 (2n)]]
-- [[_COMMUNITY_Cluster 158 (2n)|Cluster 158 (2n)]]
-- [[_COMMUNITY_Cluster 159 (2n)|Cluster 159 (2n)]]
-- [[_COMMUNITY_Cluster 160 (2n)|Cluster 160 (2n)]]
-- [[_COMMUNITY_Cluster 161 (2n)|Cluster 161 (2n)]]
-- [[_COMMUNITY_Cluster 162 (2n)|Cluster 162 (2n)]]
-- [[_COMMUNITY_Cluster 163 (2n)|Cluster 163 (2n)]]
-- [[_COMMUNITY_Cluster 164 (2n)|Cluster 164 (2n)]]
-- [[_COMMUNITY_Cluster 165 (2n)|Cluster 165 (2n)]]
-- [[_COMMUNITY_Cluster 166 (2n)|Cluster 166 (2n)]]
-- [[_COMMUNITY_Cluster 167 (2n)|Cluster 167 (2n)]]
-- [[_COMMUNITY_Cluster 168 (2n)|Cluster 168 (2n)]]
-- [[_COMMUNITY_Cluster 169 (2n)|Cluster 169 (2n)]]
-- [[_COMMUNITY_Cluster 170 (2n)|Cluster 170 (2n)]]
-- [[_COMMUNITY_Cluster 171 (2n)|Cluster 171 (2n)]]
-- [[_COMMUNITY_Cluster 172 (2n)|Cluster 172 (2n)]]
-- [[_COMMUNITY_Cluster 173 (2n)|Cluster 173 (2n)]]
-- [[_COMMUNITY_Cluster 174 (2n)|Cluster 174 (2n)]]
-- [[_COMMUNITY_Cluster 175 (2n)|Cluster 175 (2n)]]
-- [[_COMMUNITY_Cluster 176 (2n)|Cluster 176 (2n)]]
-- [[_COMMUNITY_Cluster 177 (2n)|Cluster 177 (2n)]]
-- [[_COMMUNITY_Cluster 178 (2n)|Cluster 178 (2n)]]
-- [[_COMMUNITY_Cluster 179 (2n)|Cluster 179 (2n)]]
-- [[_COMMUNITY_Cluster 180 (2n)|Cluster 180 (2n)]]
-- [[_COMMUNITY_Cluster 181 (2n)|Cluster 181 (2n)]]
-- [[_COMMUNITY_Cluster 182 (2n)|Cluster 182 (2n)]]
-- [[_COMMUNITY_Cluster 183 (2n)|Cluster 183 (2n)]]
-- [[_COMMUNITY_Cluster 184 (2n)|Cluster 184 (2n)]]
-- [[_COMMUNITY_Cluster 185 (2n)|Cluster 185 (2n)]]
-- [[_COMMUNITY_Cluster 186 (2n)|Cluster 186 (2n)]]
-- [[_COMMUNITY_Cluster 187 (2n)|Cluster 187 (2n)]]
-- [[_COMMUNITY_Cluster 188 (2n)|Cluster 188 (2n)]]
-- [[_COMMUNITY_Cluster 189 (2n)|Cluster 189 (2n)]]
-- [[_COMMUNITY_Cluster 190 (2n)|Cluster 190 (2n)]]
-- [[_COMMUNITY_Cluster 191 (2n)|Cluster 191 (2n)]]
-- [[_COMMUNITY_Cluster 192 (2n)|Cluster 192 (2n)]]
-- [[_COMMUNITY_Cluster 193 (2n)|Cluster 193 (2n)]]
-- [[_COMMUNITY_Cluster 194 (2n)|Cluster 194 (2n)]]
-- [[_COMMUNITY_Cluster 195 (2n)|Cluster 195 (2n)]]
-- [[_COMMUNITY_Cluster 196 (2n)|Cluster 196 (2n)]]
-- [[_COMMUNITY_Cluster 197 (2n)|Cluster 197 (2n)]]
-- [[_COMMUNITY_Cluster 198 (2n)|Cluster 198 (2n)]]
-- [[_COMMUNITY_Cluster 199 (2n)|Cluster 199 (2n)]]
-- [[_COMMUNITY_Cluster 200 (2n)|Cluster 200 (2n)]]
-- [[_COMMUNITY_Cluster 201 (2n)|Cluster 201 (2n)]]
-- [[_COMMUNITY_Cluster 202 (2n)|Cluster 202 (2n)]]
-- [[_COMMUNITY_Cluster 203 (2n)|Cluster 203 (2n)]]
-- [[_COMMUNITY_Cluster 204 (2n)|Cluster 204 (2n)]]
-- [[_COMMUNITY_Cluster 205 (2n)|Cluster 205 (2n)]]
-- [[_COMMUNITY_Cluster 206 (1n)|Cluster 206 (1n)]]
-- [[_COMMUNITY_Cluster 207 (1n)|Cluster 207 (1n)]]
-- [[_COMMUNITY_Cluster 208 (1n)|Cluster 208 (1n)]]
-- [[_COMMUNITY_Cluster 209 (1n)|Cluster 209 (1n)]]
-- [[_COMMUNITY_Cluster 210 (1n)|Cluster 210 (1n)]]
-- [[_COMMUNITY_Cluster 211 (1n)|Cluster 211 (1n)]]
-- [[_COMMUNITY_Cluster 212 (1n)|Cluster 212 (1n)]]
-- [[_COMMUNITY_Cluster 213 (1n)|Cluster 213 (1n)]]
-- [[_COMMUNITY_Cluster 214 (1n)|Cluster 214 (1n)]]
-- [[_COMMUNITY_Cluster 215 (1n)|Cluster 215 (1n)]]
-- [[_COMMUNITY_Cluster 216 (1n)|Cluster 216 (1n)]]
-- [[_COMMUNITY_Cluster 217 (1n)|Cluster 217 (1n)]]
-- [[_COMMUNITY_Cluster 218 (1n)|Cluster 218 (1n)]]
-- [[_COMMUNITY_Cluster 219 (1n)|Cluster 219 (1n)]]
-- [[_COMMUNITY_Cluster 220 (1n)|Cluster 220 (1n)]]
-- [[_COMMUNITY_Cluster 221 (1n)|Cluster 221 (1n)]]
-- [[_COMMUNITY_Cluster 222 (1n)|Cluster 222 (1n)]]
-- [[_COMMUNITY_Cluster 223 (1n)|Cluster 223 (1n)]]
-- [[_COMMUNITY_Cluster 224 (1n)|Cluster 224 (1n)]]
-- [[_COMMUNITY_Cluster 225 (1n)|Cluster 225 (1n)]]
-- [[_COMMUNITY_Cluster 226 (1n)|Cluster 226 (1n)]]
-- [[_COMMUNITY_Cluster 227 (1n)|Cluster 227 (1n)]]
-- [[_COMMUNITY_Cluster 228 (1n)|Cluster 228 (1n)]]
-- [[_COMMUNITY_Cluster 229 (1n)|Cluster 229 (1n)]]
-- [[_COMMUNITY_Cluster 230 (1n)|Cluster 230 (1n)]]
-- [[_COMMUNITY_Cluster 231 (1n)|Cluster 231 (1n)]]
-- [[_COMMUNITY_Cluster 232 (1n)|Cluster 232 (1n)]]
-- [[_COMMUNITY_Cluster 233 (1n)|Cluster 233 (1n)]]
-- [[_COMMUNITY_Cluster 234 (1n)|Cluster 234 (1n)]]
-- [[_COMMUNITY_Cluster 235 (1n)|Cluster 235 (1n)]]
-- [[_COMMUNITY_Cluster 236 (1n)|Cluster 236 (1n)]]
-- [[_COMMUNITY_Cluster 237 (1n)|Cluster 237 (1n)]]
-- [[_COMMUNITY_Cluster 238 (1n)|Cluster 238 (1n)]]
-- [[_COMMUNITY_Cluster 239 (1n)|Cluster 239 (1n)]]
-- [[_COMMUNITY_Cluster 240 (1n)|Cluster 240 (1n)]]
-- [[_COMMUNITY_Cluster 241 (1n)|Cluster 241 (1n)]]
-- [[_COMMUNITY_Cluster 242 (1n)|Cluster 242 (1n)]]
-- [[_COMMUNITY_Cluster 243 (1n)|Cluster 243 (1n)]]
-- [[_COMMUNITY_Cluster 244 (1n)|Cluster 244 (1n)]]
-- [[_COMMUNITY_Cluster 245 (1n)|Cluster 245 (1n)]]
-- [[_COMMUNITY_Cluster 246 (1n)|Cluster 246 (1n)]]
-- [[_COMMUNITY_Cluster 247 (1n)|Cluster 247 (1n)]]
-- [[_COMMUNITY_Cluster 248 (1n)|Cluster 248 (1n)]]
-- [[_COMMUNITY_Cluster 249 (1n)|Cluster 249 (1n)]]
-- [[_COMMUNITY_Cluster 250 (1n)|Cluster 250 (1n)]]
-- [[_COMMUNITY_Cluster 251 (1n)|Cluster 251 (1n)]]
-- [[_COMMUNITY_Cluster 252 (1n)|Cluster 252 (1n)]]
-- [[_COMMUNITY_Cluster 253 (1n)|Cluster 253 (1n)]]
-- [[_COMMUNITY_Cluster 254 (1n)|Cluster 254 (1n)]]
-- [[_COMMUNITY_Cluster 255 (1n)|Cluster 255 (1n)]]
-- [[_COMMUNITY_Cluster 256 (1n)|Cluster 256 (1n)]]
-- [[_COMMUNITY_Cluster 257 (1n)|Cluster 257 (1n)]]
-- [[_COMMUNITY_Cluster 258 (1n)|Cluster 258 (1n)]]
-- [[_COMMUNITY_Cluster 259 (1n)|Cluster 259 (1n)]]
-- [[_COMMUNITY_Cluster 260 (1n)|Cluster 260 (1n)]]
-- [[_COMMUNITY_Cluster 261 (1n)|Cluster 261 (1n)]]
-- [[_COMMUNITY_Cluster 262 (1n)|Cluster 262 (1n)]]
-- [[_COMMUNITY_Cluster 263 (1n)|Cluster 263 (1n)]]
-- [[_COMMUNITY_Cluster 264 (1n)|Cluster 264 (1n)]]
-- [[_COMMUNITY_Cluster 265 (1n)|Cluster 265 (1n)]]
-- [[_COMMUNITY_Cluster 266 (1n)|Cluster 266 (1n)]]
-- [[_COMMUNITY_Cluster 267 (1n)|Cluster 267 (1n)]]
-- [[_COMMUNITY_Cluster 268 (1n)|Cluster 268 (1n)]]
-- [[_COMMUNITY_Cluster 269 (1n)|Cluster 269 (1n)]]
-- [[_COMMUNITY_Cluster 270 (1n)|Cluster 270 (1n)]]
-- [[_COMMUNITY_Cluster 271 (1n)|Cluster 271 (1n)]]
-- [[_COMMUNITY_Cluster 272 (1n)|Cluster 272 (1n)]]
-- [[_COMMUNITY_Cluster 273 (1n)|Cluster 273 (1n)]]
-- [[_COMMUNITY_Cluster 274 (1n)|Cluster 274 (1n)]]
-- [[_COMMUNITY_Cluster 275 (1n)|Cluster 275 (1n)]]
-- [[_COMMUNITY_Cluster 276 (1n)|Cluster 276 (1n)]]
-- [[_COMMUNITY_Cluster 277 (1n)|Cluster 277 (1n)]]
-- [[_COMMUNITY_Cluster 278 (1n)|Cluster 278 (1n)]]
-- [[_COMMUNITY_Cluster 279 (1n)|Cluster 279 (1n)]]
-- [[_COMMUNITY_Cluster 280 (1n)|Cluster 280 (1n)]]
-- [[_COMMUNITY_Cluster 281 (1n)|Cluster 281 (1n)]]
-- [[_COMMUNITY_Cluster 282 (1n)|Cluster 282 (1n)]]
-- [[_COMMUNITY_Cluster 283 (1n)|Cluster 283 (1n)]]
-- [[_COMMUNITY_Cluster 284 (1n)|Cluster 284 (1n)]]
-- [[_COMMUNITY_Cluster 285 (1n)|Cluster 285 (1n)]]
-- [[_COMMUNITY_Cluster 286 (1n)|Cluster 286 (1n)]]
-- [[_COMMUNITY_Cluster 287 (1n)|Cluster 287 (1n)]]
-- [[_COMMUNITY_Cluster 288 (1n)|Cluster 288 (1n)]]
-- [[_COMMUNITY_Cluster 289 (1n)|Cluster 289 (1n)]]
-- [[_COMMUNITY_Cluster 290 (1n)|Cluster 290 (1n)]]
-- [[_COMMUNITY_Cluster 291 (1n)|Cluster 291 (1n)]]
-- [[_COMMUNITY_Cluster 292 (1n)|Cluster 292 (1n)]]
-- [[_COMMUNITY_Cluster 293 (1n)|Cluster 293 (1n)]]
-- [[_COMMUNITY_Cluster 294 (1n)|Cluster 294 (1n)]]
-- [[_COMMUNITY_Cluster 295 (1n)|Cluster 295 (1n)]]
-- [[_COMMUNITY_Cluster 296 (1n)|Cluster 296 (1n)]]
-- [[_COMMUNITY_Cluster 297 (1n)|Cluster 297 (1n)]]
-- [[_COMMUNITY_Cluster 298 (1n)|Cluster 298 (1n)]]
-- [[_COMMUNITY_Cluster 299 (1n)|Cluster 299 (1n)]]
-- [[_COMMUNITY_Cluster 300 (1n)|Cluster 300 (1n)]]
-- [[_COMMUNITY_Cluster 301 (1n)|Cluster 301 (1n)]]
-- [[_COMMUNITY_Cluster 302 (1n)|Cluster 302 (1n)]]
-- [[_COMMUNITY_Cluster 303 (1n)|Cluster 303 (1n)]]
-- [[_COMMUNITY_Cluster 304 (1n)|Cluster 304 (1n)]]
-- [[_COMMUNITY_Cluster 305 (1n)|Cluster 305 (1n)]]
-- [[_COMMUNITY_Cluster 306 (1n)|Cluster 306 (1n)]]
-- [[_COMMUNITY_Cluster 307 (1n)|Cluster 307 (1n)]]
-- [[_COMMUNITY_Cluster 308 (1n)|Cluster 308 (1n)]]
-- [[_COMMUNITY_Cluster 309 (1n)|Cluster 309 (1n)]]
-- [[_COMMUNITY_Cluster 310 (1n)|Cluster 310 (1n)]]
-- [[_COMMUNITY_Cluster 311 (1n)|Cluster 311 (1n)]]
-- [[_COMMUNITY_Cluster 312 (1n)|Cluster 312 (1n)]]
-- [[_COMMUNITY_Cluster 313 (1n)|Cluster 313 (1n)]]
-- [[_COMMUNITY_Cluster 314 (1n)|Cluster 314 (1n)]]
-- [[_COMMUNITY_Cluster 315 (1n)|Cluster 315 (1n)]]
-- [[_COMMUNITY_Cluster 316 (1n)|Cluster 316 (1n)]]
-- [[_COMMUNITY_Cluster 317 (1n)|Cluster 317 (1n)]]
-- [[_COMMUNITY_Cluster 318 (1n)|Cluster 318 (1n)]]
-- [[_COMMUNITY_Cluster 319 (1n)|Cluster 319 (1n)]]
-- [[_COMMUNITY_Cluster 320 (1n)|Cluster 320 (1n)]]
-- [[_COMMUNITY_Cluster 321 (1n)|Cluster 321 (1n)]]
-- [[_COMMUNITY_Cluster 322 (1n)|Cluster 322 (1n)]]
-- [[_COMMUNITY_Cluster 323 (1n)|Cluster 323 (1n)]]
-- [[_COMMUNITY_Cluster 324 (1n)|Cluster 324 (1n)]]
-- [[_COMMUNITY_Cluster 325 (1n)|Cluster 325 (1n)]]
-- [[_COMMUNITY_Cluster 326 (1n)|Cluster 326 (1n)]]
-- [[_COMMUNITY_Cluster 327 (1n)|Cluster 327 (1n)]]
-- [[_COMMUNITY_Cluster 328 (1n)|Cluster 328 (1n)]]
-- [[_COMMUNITY_Cluster 329 (1n)|Cluster 329 (1n)]]
-- [[_COMMUNITY_Cluster 330 (1n)|Cluster 330 (1n)]]
-- [[_COMMUNITY_Cluster 331 (1n)|Cluster 331 (1n)]]
-- [[_COMMUNITY_Cluster 332 (1n)|Cluster 332 (1n)]]
-- [[_COMMUNITY_Cluster 333 (1n)|Cluster 333 (1n)]]
-- [[_COMMUNITY_Cluster 334 (1n)|Cluster 334 (1n)]]
-- [[_COMMUNITY_Cluster 335 (1n)|Cluster 335 (1n)]]
-- [[_COMMUNITY_Cluster 336 (1n)|Cluster 336 (1n)]]
-- [[_COMMUNITY_Cluster 337 (1n)|Cluster 337 (1n)]]
-- [[_COMMUNITY_Cluster 338 (1n)|Cluster 338 (1n)]]
-- [[_COMMUNITY_Cluster 339 (1n)|Cluster 339 (1n)]]
-- [[_COMMUNITY_Cluster 340 (1n)|Cluster 340 (1n)]]
+- [[_COMMUNITY_Panel SSE Domain (PR1)|Panel SSE Domain (PR1)]]
+- [[_COMMUNITY_Products & Profit-Loss Pages|Products & Profit-Loss Pages]]
+- [[_COMMUNITY_Thumbnails Page|Thumbnails Page]]
+- [[_COMMUNITY_Shared Utilities (cn, format)|Shared Utilities (cn, format)]]
+- [[_COMMUNITY_Agents Hooks|Agents Hooks]]
+- [[_COMMUNITY_Image Hub & Sourcing Editor|Image Hub & Sourcing Editor]]
+- [[_COMMUNITY_Purchase Orders & Sourcing Pages|Purchase Orders & Sourcing Pages]]
+- [[_COMMUNITY_Workflows Hooks|Workflows Hooks]]
+- [[_COMMUNITY_Action Board Page|Action Board Page]]
+- [[_COMMUNITY_Thumbnail Analysis Hooks|Thumbnail Analysis Hooks]]
+- [[_COMMUNITY_ChatBot Component|ChatBot Component]]
+- [[_COMMUNITY_Thumbnail Generations Hooks|Thumbnail Generations Hooks]]
+- [[_COMMUNITY_WorkflowList Component|WorkflowList Component]]
+- [[_COMMUNITY_Agent Trace Utilities|Agent Trace Utilities]]
+- [[_COMMUNITY_DetailPageEditor (Sourcing)|DetailPageEditor (Sourcing)]]
+- [[_COMMUNITY_Sales Plans Component|Sales Plans Component]]
+- [[_COMMUNITY_Marketplace Hooks|Marketplace Hooks]]
+- [[_COMMUNITY_Scrape Collector (Ad-Ops)|Scrape Collector (Ad-Ops)]]
+- [[_COMMUNITY_Agent Activity Lib|Agent Activity Lib]]
+- [[_COMMUNITY_Coupang OrdersReturns|Coupang Orders/Returns]]
+- [[_COMMUNITY_Thumbnail Tracking Tab|Thumbnail Tracking Tab]]
+- [[_COMMUNITY_Option Master Form|Option Master Form]]
+- [[_COMMUNITY_Excel Upload Modal|Excel Upload Modal]]
+- [[_COMMUNITY_Create Purchase Order Modal|Create Purchase Order Modal]]
+- [[_COMMUNITY_Thumbnail Editor Page|Thumbnail Editor Page]]
+- [[_COMMUNITY_Community 25|Community 25]]
+- [[_COMMUNITY_Community 26|Community 26]]
+- [[_COMMUNITY_Community 27|Community 27]]
+- [[_COMMUNITY_Community 28|Community 28]]
+- [[_COMMUNITY_Community 29|Community 29]]
+- [[_COMMUNITY_Community 30|Community 30]]
+- [[_COMMUNITY_Community 31|Community 31]]
+- [[_COMMUNITY_Community 32|Community 32]]
+- [[_COMMUNITY_Community 33|Community 33]]
+- [[_COMMUNITY_Community 34|Community 34]]
+- [[_COMMUNITY_Community 35|Community 35]]
+- [[_COMMUNITY_Community 36|Community 36]]
+- [[_COMMUNITY_Community 37|Community 37]]
+- [[_COMMUNITY_Community 38|Community 38]]
+- [[_COMMUNITY_Community 39|Community 39]]
+- [[_COMMUNITY_Community 40|Community 40]]
+- [[_COMMUNITY_Community 41|Community 41]]
+- [[_COMMUNITY_Community 42|Community 42]]
+- [[_COMMUNITY_Community 43|Community 43]]
+- [[_COMMUNITY_Community 44|Community 44]]
+- [[_COMMUNITY_Community 45|Community 45]]
+- [[_COMMUNITY_Community 46|Community 46]]
+- [[_COMMUNITY_Community 47|Community 47]]
+- [[_COMMUNITY_Community 48|Community 48]]
+- [[_COMMUNITY_Community 49|Community 49]]
+- [[_COMMUNITY_Community 50|Community 50]]
+- [[_COMMUNITY_Community 51|Community 51]]
+- [[_COMMUNITY_Community 52|Community 52]]
+- [[_COMMUNITY_Community 53|Community 53]]
+- [[_COMMUNITY_Community 54|Community 54]]
+- [[_COMMUNITY_Community 55|Community 55]]
+- [[_COMMUNITY_Community 56|Community 56]]
+- [[_COMMUNITY_Community 57|Community 57]]
+- [[_COMMUNITY_Community 58|Community 58]]
+- [[_COMMUNITY_Community 59|Community 59]]
+- [[_COMMUNITY_Community 60|Community 60]]
+- [[_COMMUNITY_Community 61|Community 61]]
+- [[_COMMUNITY_Community 62|Community 62]]
+- [[_COMMUNITY_Community 63|Community 63]]
+- [[_COMMUNITY_Community 64|Community 64]]
+- [[_COMMUNITY_Community 65|Community 65]]
+- [[_COMMUNITY_Community 66|Community 66]]
+- [[_COMMUNITY_Community 67|Community 67]]
+- [[_COMMUNITY_Community 68|Community 68]]
+- [[_COMMUNITY_Community 69|Community 69]]
+- [[_COMMUNITY_Community 70|Community 70]]
+- [[_COMMUNITY_Community 71|Community 71]]
+- [[_COMMUNITY_Community 72|Community 72]]
+- [[_COMMUNITY_Community 73|Community 73]]
+- [[_COMMUNITY_Community 74|Community 74]]
+- [[_COMMUNITY_Community 75|Community 75]]
+- [[_COMMUNITY_Community 76|Community 76]]
+- [[_COMMUNITY_Community 77|Community 77]]
+- [[_COMMUNITY_Community 78|Community 78]]
+- [[_COMMUNITY_Community 79|Community 79]]
+- [[_COMMUNITY_Community 80|Community 80]]
+- [[_COMMUNITY_Community 81|Community 81]]
+- [[_COMMUNITY_Community 82|Community 82]]
+- [[_COMMUNITY_Community 83|Community 83]]
+- [[_COMMUNITY_Community 84|Community 84]]
+- [[_COMMUNITY_Community 85|Community 85]]
+- [[_COMMUNITY_Community 86|Community 86]]
+- [[_COMMUNITY_Community 87|Community 87]]
+- [[_COMMUNITY_Community 88|Community 88]]
+- [[_COMMUNITY_Community 89|Community 89]]
+- [[_COMMUNITY_Community 90|Community 90]]
+- [[_COMMUNITY_Community 91|Community 91]]
+- [[_COMMUNITY_Community 92|Community 92]]
+- [[_COMMUNITY_Community 93|Community 93]]
+- [[_COMMUNITY_Community 94|Community 94]]
+- [[_COMMUNITY_Community 95|Community 95]]
+- [[_COMMUNITY_Community 96|Community 96]]
+- [[_COMMUNITY_Community 97|Community 97]]
+- [[_COMMUNITY_Community 98|Community 98]]
+- [[_COMMUNITY_Community 99|Community 99]]
+- [[_COMMUNITY_Community 100|Community 100]]
+- [[_COMMUNITY_Community 101|Community 101]]
+- [[_COMMUNITY_Community 102|Community 102]]
+- [[_COMMUNITY_Community 103|Community 103]]
+- [[_COMMUNITY_Community 104|Community 104]]
+- [[_COMMUNITY_Community 105|Community 105]]
+- [[_COMMUNITY_Community 106|Community 106]]
+- [[_COMMUNITY_Community 107|Community 107]]
+- [[_COMMUNITY_Community 108|Community 108]]
+- [[_COMMUNITY_Community 109|Community 109]]
+- [[_COMMUNITY_Community 110|Community 110]]
+- [[_COMMUNITY_Community 111|Community 111]]
+- [[_COMMUNITY_Community 112|Community 112]]
+- [[_COMMUNITY_Community 113|Community 113]]
+- [[_COMMUNITY_Community 114|Community 114]]
+- [[_COMMUNITY_Community 115|Community 115]]
+- [[_COMMUNITY_Community 116|Community 116]]
+- [[_COMMUNITY_Community 117|Community 117]]
+- [[_COMMUNITY_Community 118|Community 118]]
+- [[_COMMUNITY_Community 119|Community 119]]
+- [[_COMMUNITY_Community 120|Community 120]]
+- [[_COMMUNITY_Community 121|Community 121]]
+- [[_COMMUNITY_Community 122|Community 122]]
+- [[_COMMUNITY_Community 123|Community 123]]
+- [[_COMMUNITY_Community 124|Community 124]]
+- [[_COMMUNITY_Community 125|Community 125]]
+- [[_COMMUNITY_Community 126|Community 126]]
+- [[_COMMUNITY_Community 127|Community 127]]
+- [[_COMMUNITY_Community 128|Community 128]]
+- [[_COMMUNITY_Community 129|Community 129]]
+- [[_COMMUNITY_Community 130|Community 130]]
+- [[_COMMUNITY_Community 131|Community 131]]
+- [[_COMMUNITY_Community 132|Community 132]]
+- [[_COMMUNITY_Community 133|Community 133]]
+- [[_COMMUNITY_Community 134|Community 134]]
+- [[_COMMUNITY_Community 135|Community 135]]
+- [[_COMMUNITY_Community 136|Community 136]]
+- [[_COMMUNITY_Community 137|Community 137]]
+- [[_COMMUNITY_Community 138|Community 138]]
+- [[_COMMUNITY_Community 139|Community 139]]
+- [[_COMMUNITY_Community 140|Community 140]]
+- [[_COMMUNITY_Community 141|Community 141]]
+- [[_COMMUNITY_Community 142|Community 142]]
+- [[_COMMUNITY_Community 143|Community 143]]
+- [[_COMMUNITY_Community 144|Community 144]]
+- [[_COMMUNITY_Community 145|Community 145]]
+- [[_COMMUNITY_Community 146|Community 146]]
+- [[_COMMUNITY_Community 147|Community 147]]
+- [[_COMMUNITY_Community 148|Community 148]]
+- [[_COMMUNITY_Community 149|Community 149]]
+- [[_COMMUNITY_Community 150|Community 150]]
+- [[_COMMUNITY_Community 151|Community 151]]
+- [[_COMMUNITY_Community 152|Community 152]]
+- [[_COMMUNITY_Community 153|Community 153]]
+- [[_COMMUNITY_Community 154|Community 154]]
+- [[_COMMUNITY_Community 155|Community 155]]
+- [[_COMMUNITY_Community 156|Community 156]]
+- [[_COMMUNITY_Community 157|Community 157]]
+- [[_COMMUNITY_Community 158|Community 158]]
+- [[_COMMUNITY_Community 159|Community 159]]
+- [[_COMMUNITY_Community 160|Community 160]]
+- [[_COMMUNITY_Community 161|Community 161]]
+- [[_COMMUNITY_Community 162|Community 162]]
+- [[_COMMUNITY_Community 163|Community 163]]
+- [[_COMMUNITY_Community 164|Community 164]]
+- [[_COMMUNITY_Community 165|Community 165]]
+- [[_COMMUNITY_Community 166|Community 166]]
+- [[_COMMUNITY_Community 167|Community 167]]
+- [[_COMMUNITY_Community 168|Community 168]]
+- [[_COMMUNITY_Community 169|Community 169]]
+- [[_COMMUNITY_Community 170|Community 170]]
+- [[_COMMUNITY_Community 171|Community 171]]
+- [[_COMMUNITY_Community 172|Community 172]]
+- [[_COMMUNITY_Community 173|Community 173]]
+- [[_COMMUNITY_Community 174|Community 174]]
+- [[_COMMUNITY_Community 175|Community 175]]
+- [[_COMMUNITY_Community 176|Community 176]]
+- [[_COMMUNITY_Community 177|Community 177]]
+- [[_COMMUNITY_Community 178|Community 178]]
+- [[_COMMUNITY_Community 179|Community 179]]
+- [[_COMMUNITY_Community 180|Community 180]]
+- [[_COMMUNITY_Community 181|Community 181]]
+- [[_COMMUNITY_Community 182|Community 182]]
+- [[_COMMUNITY_Community 183|Community 183]]
+- [[_COMMUNITY_Community 184|Community 184]]
+- [[_COMMUNITY_Community 185|Community 185]]
+- [[_COMMUNITY_Community 186|Community 186]]
+- [[_COMMUNITY_Community 187|Community 187]]
+- [[_COMMUNITY_Community 188|Community 188]]
+- [[_COMMUNITY_Community 189|Community 189]]
+- [[_COMMUNITY_Community 190|Community 190]]
+- [[_COMMUNITY_Community 191|Community 191]]
+- [[_COMMUNITY_Community 192|Community 192]]
+- [[_COMMUNITY_Community 193|Community 193]]
+- [[_COMMUNITY_Community 194|Community 194]]
+- [[_COMMUNITY_Community 195|Community 195]]
+- [[_COMMUNITY_Community 196|Community 196]]
+- [[_COMMUNITY_Community 197|Community 197]]
+- [[_COMMUNITY_Community 198|Community 198]]
+- [[_COMMUNITY_Community 199|Community 199]]
+- [[_COMMUNITY_Community 200|Community 200]]
+- [[_COMMUNITY_Community 201|Community 201]]
+- [[_COMMUNITY_Community 202|Community 202]]
+- [[_COMMUNITY_Community 203|Community 203]]
+- [[_COMMUNITY_Community 204|Community 204]]
+- [[_COMMUNITY_Community 205|Community 205]]
+- [[_COMMUNITY_Community 206|Community 206]]
+- [[_COMMUNITY_Community 207|Community 207]]
+- [[_COMMUNITY_Community 208|Community 208]]
+- [[_COMMUNITY_Community 209|Community 209]]
+- [[_COMMUNITY_Community 210|Community 210]]
+- [[_COMMUNITY_Community 211|Community 211]]
+- [[_COMMUNITY_Community 212|Community 212]]
+- [[_COMMUNITY_Community 213|Community 213]]
+- [[_COMMUNITY_Community 214|Community 214]]
+- [[_COMMUNITY_Community 215|Community 215]]
+- [[_COMMUNITY_Community 216|Community 216]]
+- [[_COMMUNITY_Community 217|Community 217]]
+- [[_COMMUNITY_Community 218|Community 218]]
+- [[_COMMUNITY_Community 219|Community 219]]
+- [[_COMMUNITY_Community 220|Community 220]]
+- [[_COMMUNITY_Community 221|Community 221]]
+- [[_COMMUNITY_Community 222|Community 222]]
+- [[_COMMUNITY_Community 223|Community 223]]
+- [[_COMMUNITY_Community 224|Community 224]]
+- [[_COMMUNITY_Community 225|Community 225]]
+- [[_COMMUNITY_Community 226|Community 226]]
+- [[_COMMUNITY_Community 227|Community 227]]
+- [[_COMMUNITY_Community 228|Community 228]]
+- [[_COMMUNITY_Community 229|Community 229]]
+- [[_COMMUNITY_Community 230|Community 230]]
+- [[_COMMUNITY_Community 231|Community 231]]
+- [[_COMMUNITY_Community 232|Community 232]]
+- [[_COMMUNITY_Community 233|Community 233]]
+- [[_COMMUNITY_Community 234|Community 234]]
+- [[_COMMUNITY_Community 235|Community 235]]
+- [[_COMMUNITY_Community 236|Community 236]]
+- [[_COMMUNITY_Community 237|Community 237]]
+- [[_COMMUNITY_Community 238|Community 238]]
+- [[_COMMUNITY_Community 239|Community 239]]
+- [[_COMMUNITY_Community 240|Community 240]]
+- [[_COMMUNITY_Community 241|Community 241]]
+- [[_COMMUNITY_Community 242|Community 242]]
+- [[_COMMUNITY_Community 243|Community 243]]
+- [[_COMMUNITY_Community 244|Community 244]]
+- [[_COMMUNITY_Community 245|Community 245]]
+- [[_COMMUNITY_Community 246|Community 246]]
+- [[_COMMUNITY_Community 247|Community 247]]
+- [[_COMMUNITY_Community 248|Community 248]]
+- [[_COMMUNITY_Community 249|Community 249]]
+- [[_COMMUNITY_Community 250|Community 250]]
+- [[_COMMUNITY_Community 251|Community 251]]
+- [[_COMMUNITY_Community 252|Community 252]]
+- [[_COMMUNITY_Community 253|Community 253]]
+- [[_COMMUNITY_Community 254|Community 254]]
+- [[_COMMUNITY_Community 255|Community 255]]
+- [[_COMMUNITY_Community 256|Community 256]]
+- [[_COMMUNITY_Community 257|Community 257]]
+- [[_COMMUNITY_Community 258|Community 258]]
+- [[_COMMUNITY_Community 259|Community 259]]
+- [[_COMMUNITY_Community 260|Community 260]]
+- [[_COMMUNITY_Community 261|Community 261]]
+- [[_COMMUNITY_Community 262|Community 262]]
+- [[_COMMUNITY_Community 263|Community 263]]
+- [[_COMMUNITY_Community 264|Community 264]]
+- [[_COMMUNITY_Community 265|Community 265]]
+- [[_COMMUNITY_Community 266|Community 266]]
+- [[_COMMUNITY_Community 267|Community 267]]
+- [[_COMMUNITY_Community 268|Community 268]]
+- [[_COMMUNITY_Community 269|Community 269]]
+- [[_COMMUNITY_Community 270|Community 270]]
+- [[_COMMUNITY_Community 271|Community 271]]
+- [[_COMMUNITY_Community 272|Community 272]]
+- [[_COMMUNITY_Community 273|Community 273]]
+- [[_COMMUNITY_Community 274|Community 274]]
+- [[_COMMUNITY_Community 275|Community 275]]
+- [[_COMMUNITY_Community 276|Community 276]]
+- [[_COMMUNITY_Community 277|Community 277]]
+- [[_COMMUNITY_Community 278|Community 278]]
+- [[_COMMUNITY_Community 279|Community 279]]
+- [[_COMMUNITY_Community 280|Community 280]]
+- [[_COMMUNITY_Community 281|Community 281]]
+- [[_COMMUNITY_Community 282|Community 282]]
+- [[_COMMUNITY_Community 283|Community 283]]
+- [[_COMMUNITY_Community 284|Community 284]]
+- [[_COMMUNITY_Community 285|Community 285]]
+- [[_COMMUNITY_Community 286|Community 286]]
+- [[_COMMUNITY_Community 287|Community 287]]
+- [[_COMMUNITY_Community 288|Community 288]]
+- [[_COMMUNITY_Community 289|Community 289]]
+- [[_COMMUNITY_Community 290|Community 290]]
+- [[_COMMUNITY_Community 291|Community 291]]
+- [[_COMMUNITY_Community 292|Community 292]]
+- [[_COMMUNITY_Community 293|Community 293]]
+- [[_COMMUNITY_Community 294|Community 294]]
+- [[_COMMUNITY_Community 295|Community 295]]
+- [[_COMMUNITY_Community 296|Community 296]]
+- [[_COMMUNITY_Community 297|Community 297]]
+- [[_COMMUNITY_Community 298|Community 298]]
+- [[_COMMUNITY_Community 299|Community 299]]
+- [[_COMMUNITY_Community 300|Community 300]]
+- [[_COMMUNITY_Community 301|Community 301]]
+- [[_COMMUNITY_Community 302|Community 302]]
+- [[_COMMUNITY_Community 303|Community 303]]
+- [[_COMMUNITY_Community 304|Community 304]]
+- [[_COMMUNITY_Community 305|Community 305]]
+- [[_COMMUNITY_Community 306|Community 306]]
+- [[_COMMUNITY_Community 307|Community 307]]
+- [[_COMMUNITY_Community 308|Community 308]]
+- [[_COMMUNITY_Community 309|Community 309]]
+- [[_COMMUNITY_Community 310|Community 310]]
+- [[_COMMUNITY_Community 311|Community 311]]
+- [[_COMMUNITY_Community 312|Community 312]]
+- [[_COMMUNITY_Community 313|Community 313]]
+- [[_COMMUNITY_Community 314|Community 314]]
+- [[_COMMUNITY_Community 315|Community 315]]
+- [[_COMMUNITY_Community 316|Community 316]]
+- [[_COMMUNITY_Community 317|Community 317]]
+- [[_COMMUNITY_Community 318|Community 318]]
+- [[_COMMUNITY_Community 319|Community 319]]
+- [[_COMMUNITY_Community 320|Community 320]]
+- [[_COMMUNITY_Community 321|Community 321]]
+- [[_COMMUNITY_Community 322|Community 322]]
+- [[_COMMUNITY_Community 323|Community 323]]
+- [[_COMMUNITY_Community 324|Community 324]]
+- [[_COMMUNITY_Community 325|Community 325]]
+- [[_COMMUNITY_Community 326|Community 326]]
+- [[_COMMUNITY_Community 327|Community 327]]
 
 ## God Nodes (most connected - your core abstractions)
-1. `Pattern: cn() utility (clsx + tailwind-merge) for conditional className` - 7 edges
-2. `Pattern: apiClient/fetchRaw wrapper for all HTTP calls` - 6 edges
-3. `Pattern: TanStack Query for data fetching` - 6 edges
-4. `Pattern: Co-located domain hooks per route` - 6 edges
-5. `Pattern: Co-located directory structure per domain route` - 5 edges
-6. `Pattern: Shared API response types from @kiditem/shared` - 4 edges
-7. `Pattern: Centralized formatting utilities (formatDateTime/formatDate/formatTime/formatKRW)` - 4 edges
-8. `getPreset()` - 3 edges
-9. `handlePreset()` - 3 edges
-10. `Pattern: sonner toast for user notifications` - 3 edges
+1. `usePanelStore (Zustand store)` - 12 edges
+2. `PanelSseClient (fetch-event-source wrapper)` - 11 edges
+3. `PanelSheet (Radix Dialog slide-out)` - 6 edges
+4. `PanelErrorBoundary` - 4 edges
+5. `PanelSseClient` - 4 edges
+6. `getPreset()` - 3 edges
+7. `handlePreset()` - 3 edges
+8. `PanelItemRow (RunRow with deepLink)` - 3 edges
+9. `usePanelStream (SSE lifecycle hook)` - 3 edges
+10. `applyEvent (upsert | dismiss | snapshot dispatcher)` - 3 edges
 
 ## Surprising Connections (you probably didn't know these)
-- None detected - all connections are within the same source files.
+- `PanelSheet mounted in AppLayout (always-on)` --references--> `PanelSheet (Radix Dialog slide-out)`  [EXTRACTED]
+  apps/web/CLAUDE.md → apps/web/src/components/panel/PanelSheet.tsx
+- `Sidebar Bell single-toggle entry (P3)` --references--> `PanelSheet (Radix Dialog slide-out)`  [EXTRACTED]
+  apps/web/CLAUDE.md → apps/web/src/components/panel/PanelSheet.tsx
+- `Rule: SSE prohibited globally; Panel domain ADR-0010 exception` --rationale_for--> `PanelSseClient (fetch-event-source wrapper)`  [EXTRACTED]
+  apps/web/CLAUDE.md → apps/web/src/components/panel/lib/panel-sse-client.ts
+- `Rule: Zustand selector returning array/object => infinite loop (use byId + useMemo)` --rationale_for--> `usePanelStore (Zustand store)`  [EXTRACTED]
+  apps/web/CLAUDE.md → apps/web/src/components/panel/lib/panel-store.ts
+- `Rule: Zustand for client state, React Query for server state` --rationale_for--> `usePanelStore (Zustand store)`  [EXTRACTED]
+  apps/web/CLAUDE.md → apps/web/src/components/panel/lib/panel-store.ts
 
 ## Hyperedges (group relationships)
-- **All apps/web Patterns** — claude_pattern_api_client_wrapper, claude_pattern_cn_utility, claude_pattern_colocated_domain_hooks, claude_pattern_directory_structure, claude_pattern_file_naming, claude_pattern_format_utils, claude_pattern_import_order, claude_pattern_invalidate_after_mutation, claude_pattern_isapierror_branching, claude_pattern_lucide_icons, claude_pattern_polling_refetchinterval, claude_pattern_radix_primitives, claude_pattern_shared_types, claude_pattern_sonner_toast, claude_pattern_tanstack_query, claude_pattern_use_client_directive, claude_pattern_zustand_sidebar [EXTRACTED 1.00]
-- **All apps/web Prohibits** — claude_prohibit_alert, claude_prohibit_api_routes, claude_prohibit_export_props, claude_prohibit_intl_locale_string, claude_prohibit_other_icon_libs, claude_prohibit_raw_fetch, claude_prohibit_setinterval, claude_prohibit_template_literal_classname, claude_prohibit_useeffect_fetch [EXTRACTED 1.00]
+- **Panel SSE pipeline (server -> SseClient -> store -> Sheet)** — panel_sse_endpoint, panel_sse_client, panel_use_panel_stream, panel_store, panel_sheet_component [EXTRACTED 0.95]
+- **PanelEvent dispatch (upsert, dismiss, snapshot)** — panel_apply_event, panel_store, panel_handle_snapshot [EXTRACTED 1.00]
+- **Panel resilience (Last-Event-ID + retry + visibility + polling fallback)** — panel_last_event_id_resume, panel_max_retries, panel_visibility_close_rule, panel_polling_fallback_phase2 [EXTRACTED 0.90]
 
 ## Communities
 
-### Community 0 - "Cluster 0 (18n)"
-Cohesion: 0.11
-Nodes (11): File: app/agents/hooks/useAgents.ts, File: app/workflows/hooks/useWorkflows.ts, File: src/components/layout/, File: src/components/marketplace/, File: src/components/ui/, Pattern: Co-located domain hooks per route, Pattern: Co-located directory structure per domain route, Rationale: Co-locating domain hooks/components keeps cross-domain shared code minimal and discoverable (+3 more)
+### Community 0 - "Panel SSE Domain (PR1)"
+Cohesion: 0.07
+Nodes (31): ADR-0010 (Panel SSE via fetch-event-source), PanelSheet mounted in AppLayout (always-on), applyEvent (upsert | dismiss | snapshot dispatcher), x-dev-user-id header (DevAuthMiddleware ADR-0006 compat), handleSnapshot (clear + replace, resetClient param), PanelItemRow (RunRow with deepLink), last-event-id header (SSE resume after disconnect), MAX_RETRIES = 5 (PanelSseClient retry cap) (+23 more)
 
-### Community 1 - "Cluster 1 (17n)"
+### Community 1 - "Products & Profit-Loss Pages"
 Cohesion: 0.12
-Nodes (2): handleExcel(), toggleSort()
+Nodes (1): toggleSort()
 
-### Community 2 - "Cluster 2 (15n)"
+### Community 2 - "Thumbnails Page"
 Cohesion: 0.14
 Nodes (2): markApplied(), openCoupangEdit()
 
-### Community 3 - "Cluster 3 (15n)"
+### Community 3 - "Shared Utilities (cn, format)"
 Cohesion: 0.13
 Nodes (0): 
 
-### Community 4 - "Cluster 4 (13n)"
+### Community 4 - "Agents Hooks"
 Cohesion: 0.15
 Nodes (0): 
 
-### Community 5 - "Cluster 5 (12n)"
-Cohesion: 0.17
-Nodes (12): File: globals.css, File: @/lib/utils, Pattern: cn() utility (clsx + tailwind-merge) for conditional className, Pattern: Centralized formatting utilities (formatDateTime/formatDate/formatTime/formatKRW), Prohibit: Direct Intl.* / toLocaleString / toLocaleDateString / toLocaleTimeString calls, Prohibit: className with template literal conditionals (use cn('base', cond && 'class')), Rationale: cn() with tailwind-merge prevents conflicting Tailwind classes vs template literals, Rationale: Centralizing format utilities ensures consistent locale + KRW + datetime output across pages (+4 more)
-
-### Community 6 - "Cluster 6 (12n)"
-Cohesion: 0.17
-Nodes (12): File: lib/query-keys.ts, File: store/, Pattern: Invalidate queries after mutation via queryClient.invalidateQueries, Pattern: TanStack Query for data fetching, Pattern: Zustand only for sidebar state, server state via React Query, Prohibit: useState+useEffect+fetch pattern (use TanStack Query), Rationale: TanStack Query handles caching/refetch/invalidation that ad-hoc useEffect+fetch cannot, Rule: For domains without custom hooks use inline useQuery + queryKeys (+4 more)
-
-### Community 7 - "Cluster 7 (10n)"
+### Community 5 - "Image Hub & Sourcing Editor"
 Cohesion: 0.2
 Nodes (1): handleSave()
 
-### Community 8 - "Cluster 8 (9n)"
+### Community 6 - "Purchase Orders & Sourcing Pages"
 Cohesion: 0.25
 Nodes (3): handleDelete(), handleScrapeKeyDown(), handleScrapeUrl()
 
-### Community 9 - "Cluster 9 (8n)"
+### Community 7 - "Workflows Hooks"
 Cohesion: 0.25
 Nodes (0): 
 
-### Community 10 - "Cluster 10 (8n)"
+### Community 8 - "Action Board Page"
 Cohesion: 0.29
 Nodes (2): getColumnKey(), getRole()
 
-### Community 11 - "Cluster 11 (8n)"
+### Community 9 - "Thumbnail Analysis Hooks"
 Cohesion: 0.25
 Nodes (0): 
 
-### Community 12 - "Cluster 12 (8n)"
+### Community 10 - "ChatBot Component"
 Cohesion: 0.29
 Nodes (2): handleKeyDown(), sendMessage()
 
-### Community 13 - "Cluster 13 (8n)"
-Cohesion: 0.29
-Nodes (2): findActiveSection(), isItemActive()
+### Community 11 - "Thumbnail Generations Hooks"
+Cohesion: 0.25
+Nodes (0): 
 
-### Community 14 - "Cluster 14 (7n)"
+### Community 12 - "WorkflowList Component"
 Cohesion: 0.29
 Nodes (0): 
 
-### Community 15 - "Cluster 15 (7n)"
+### Community 13 - "Agent Trace Utilities"
 Cohesion: 0.29
 Nodes (0): 
 
-### Community 16 - "Cluster 16 (7n)"
+### Community 14 - "DetailPageEditor (Sourcing)"
 Cohesion: 0.29
 Nodes (0): 
 
-### Community 17 - "Cluster 17 (7n)"
+### Community 15 - "Sales Plans Component"
 Cohesion: 0.29
 Nodes (0): 
 
-### Community 18 - "Cluster 18 (7n)"
+### Community 16 - "Marketplace Hooks"
 Cohesion: 0.29
 Nodes (0): 
 
-### Community 19 - "Cluster 19 (7n)"
-Cohesion: 0.29
-Nodes (7): File: @/lib/api-client, Pattern: apiClient/fetchRaw wrapper for all HTTP calls, Prohibit: Raw fetch() calls (use apiClient instead), Rationale: apiClient enforces base URL, error normalization, and global error toast, Rule: Direct API_BASE usage only for non-fetch purposes (image URL resolution), Rule: Use apiClient.get/post/patch/delete from @/lib/api-client (no raw fetch), Rule: Use apiClient.fetchRaw() for blob responses
-
-### Community 20 - "Cluster 20 (6n)"
+### Community 17 - "Scrape Collector (Ad-Ops)"
 Cohesion: 0.4
 Nodes (2): sendToExtension(), startCollect()
 
-### Community 21 - "Cluster 21 (6n)"
-Cohesion: 0.33
-Nodes (0): 
-
-### Community 22 - "Cluster 22 (6n)"
+### Community 18 - "Agent Activity Lib"
 Cohesion: 0.4
 Nodes (2): runDescription(), statusLabel()
 
-### Community 23 - "Cluster 23 (6n)"
+### Community 19 - "Coupang Orders/Returns"
 Cohesion: 0.6
 Nodes (4): getPreset(), handleCustomRange(), handlePreset(), toParam()
 
-### Community 24 - "Cluster 24 (6n)"
+### Community 20 - "Thumbnail Tracking Tab"
 Cohesion: 0.33
 Nodes (0): 
 
-### Community 25 - "Cluster 25 (5n)"
+### Community 21 - "Option Master Form"
 Cohesion: 0.5
 Nodes (2): addTag(), handleKeyDown()
 
-### Community 26 - "Cluster 26 (5n)"
+### Community 22 - "Excel Upload Modal"
 Cohesion: 0.4
 Nodes (0): 
 
-### Community 27 - "Cluster 27 (5n)"
+### Community 23 - "Create Purchase Order Modal"
 Cohesion: 0.4
 Nodes (0): 
 
-### Community 28 - "Cluster 28 (5n)"
+### Community 24 - "Thumbnail Editor Page"
 Cohesion: 0.4
 Nodes (0): 
 
-### Community 29 - "Cluster 29 (5n)"
+### Community 25 - "Community 25"
 Cohesion: 0.4
 Nodes (0): 
 
-### Community 30 - "Cluster 30 (5n)"
+### Community 26 - "Community 26"
 Cohesion: 0.4
 Nodes (0): 
 
-### Community 31 - "Cluster 31 (5n)"
+### Community 27 - "Community 27"
 Cohesion: 0.4
-Nodes (5): File: @kiditem/shared, Pattern: Shared API response types from @kiditem/shared, Prohibit: Exporting component Props types (keep inline), Rule: Component props defined inline, not exported, Rule: Import API response types from @kiditem/shared
+Nodes (0): 
 
-### Community 32 - "Cluster 32 (4n)"
+### Community 28 - "Community 28"
+Cohesion: 0.4
+Nodes (0): 
+
+### Community 29 - "Community 29"
+Cohesion: 0.4
+Nodes (1): PanelErrorBoundary
+
+### Community 30 - "Community 30"
+Cohesion: 0.4
+Nodes (1): PanelSseClient
+
+### Community 31 - "Community 31"
 Cohesion: 0.5
 Nodes (0): 
 
-### Community 33 - "Cluster 33 (4n)"
+### Community 32 - "Community 32"
 Cohesion: 0.5
 Nodes (0): 
 
-### Community 34 - "Cluster 34 (4n)"
+### Community 33 - "Community 33"
 Cohesion: 0.5
 Nodes (0): 
 
-### Community 35 - "Cluster 35 (4n)"
+### Community 34 - "Community 34"
 Cohesion: 0.5
 Nodes (0): 
 
-### Community 36 - "Cluster 36 (4n)"
+### Community 35 - "Community 35"
+Cohesion: 0.5
+Nodes (1): wrap()
+
+### Community 36 - "Community 36"
 Cohesion: 0.5
 Nodes (0): 
 
-### Community 37 - "Cluster 37 (4n)"
+### Community 37 - "Community 37"
 Cohesion: 0.5
 Nodes (0): 
 
-### Community 38 - "Cluster 38 (4n)"
+### Community 38 - "Community 38"
 Cohesion: 0.5
 Nodes (0): 
 
-### Community 39 - "Cluster 39 (4n)"
+### Community 39 - "Community 39"
 Cohesion: 0.5
 Nodes (0): 
 
-### Community 40 - "Cluster 40 (4n)"
+### Community 40 - "Community 40"
 Cohesion: 0.5
 Nodes (0): 
 
-### Community 41 - "Cluster 41 (4n)"
+### Community 41 - "Community 41"
 Cohesion: 0.67
 Nodes (2): handleAdd(), handleKeyDown()
 
-### Community 42 - "Cluster 42 (4n)"
+### Community 42 - "Community 42"
 Cohesion: 0.5
 Nodes (0): 
 
-### Community 43 - "Cluster 43 (4n)"
+### Community 43 - "Community 43"
 Cohesion: 0.67
 Nodes (2): generatePeriodOptions(), usePeriodSelector()
 
-### Community 44 - "Cluster 44 (4n)"
+### Community 44 - "Community 44"
 Cohesion: 0.5
 Nodes (1): ApiError
 
-### Community 45 - "Cluster 45 (4n)"
-Cohesion: 0.5
-Nodes (4): Pattern: sonner toast for user notifications, Prohibit: alert() for notifications (use toast; prompt/confirm allowed), Rule: Global errors auto-toast via QueryCache onError, Rule: Use toast.error/success from sonner for user notifications
-
-### Community 46 - "Cluster 46 (4n)"
-Cohesion: 0.5
-Nodes (4): Pattern: Radix UI primitives for Popover/Select/Tabs/DropdownMenu, Pattern: 'use client' only when hooks or browser APIs are used, Rule: Pure layout files exempt from 'use client', Rule: 'use client' required when using hooks or browser APIs
-
-### Community 47 - "Cluster 47 (4n)"
-Cohesion: 0.5
-Nodes (4): Pattern: PascalCase components / camelCase hooks / kebab-case utilities, Rule: Components must be PascalCase.tsx, Rule: Hooks must be camelCase and start with 'use', Rule: Utilities/constants/types must be kebab-case.ts
-
-### Community 48 - "Cluster 48 (3n)"
+### Community 45 - "Community 45"
 Cohesion: 0.67
 Nodes (0): 
 
-### Community 49 - "Cluster 49 (3n)"
+### Community 46 - "Community 46"
 Cohesion: 0.67
 Nodes (0): 
 
-### Community 50 - "Cluster 50 (3n)"
+### Community 47 - "Community 47"
 Cohesion: 0.67
 Nodes (0): 
 
-### Community 51 - "Cluster 51 (3n)"
+### Community 48 - "Community 48"
 Cohesion: 0.67
 Nodes (0): 
 
-### Community 52 - "Cluster 52 (3n)"
+### Community 49 - "Community 49"
 Cohesion: 0.67
 Nodes (0): 
 
-### Community 53 - "Cluster 53 (3n)"
+### Community 50 - "Community 50"
 Cohesion: 0.67
 Nodes (0): 
 
-### Community 54 - "Cluster 54 (3n)"
+### Community 51 - "Community 51"
 Cohesion: 0.67
 Nodes (0): 
 
-### Community 55 - "Cluster 55 (3n)"
+### Community 52 - "Community 52"
 Cohesion: 0.67
 Nodes (0): 
 
-### Community 56 - "Cluster 56 (3n)"
+### Community 53 - "Community 53"
 Cohesion: 0.67
 Nodes (0): 
 
-### Community 57 - "Cluster 57 (3n)"
+### Community 54 - "Community 54"
 Cohesion: 0.67
 Nodes (0): 
 
-### Community 58 - "Cluster 58 (3n)"
+### Community 55 - "Community 55"
 Cohesion: 0.67
 Nodes (0): 
 
-### Community 59 - "Cluster 59 (3n)"
+### Community 56 - "Community 56"
 Cohesion: 0.67
 Nodes (0): 
 
-### Community 60 - "Cluster 60 (3n)"
+### Community 57 - "Community 57"
 Cohesion: 0.67
 Nodes (0): 
 
-### Community 61 - "Cluster 61 (3n)"
+### Community 58 - "Community 58"
 Cohesion: 0.67
 Nodes (0): 
 
-### Community 62 - "Cluster 62 (3n)"
+### Community 59 - "Community 59"
 Cohesion: 0.67
 Nodes (0): 
 
-### Community 63 - "Cluster 63 (3n)"
+### Community 60 - "Community 60"
 Cohesion: 0.67
 Nodes (0): 
 
-### Community 64 - "Cluster 64 (3n)"
+### Community 61 - "Community 61"
 Cohesion: 0.67
 Nodes (0): 
 
-### Community 65 - "Cluster 65 (3n)"
+### Community 62 - "Community 62"
 Cohesion: 0.67
 Nodes (0): 
 
-### Community 66 - "Cluster 66 (3n)"
-Cohesion: 0.67
-Nodes (0): 
-
-### Community 67 - "Cluster 67 (3n)"
+### Community 63 - "Community 63"
 Cohesion: 1.0
 Nodes (2): handleKeyDown(), handleSearch()
 
-### Community 68 - "Cluster 68 (3n)"
+### Community 64 - "Community 64"
 Cohesion: 0.67
 Nodes (0): 
 
-### Community 69 - "Cluster 69 (3n)"
+### Community 65 - "Community 65"
 Cohesion: 0.67
 Nodes (0): 
 
-### Community 70 - "Cluster 70 (3n)"
+### Community 66 - "Community 66"
 Cohesion: 1.0
 Nodes (2): buildThemeVarsCss(), renderTemplateToHtml()
 
-### Community 71 - "Cluster 71 (3n)"
+### Community 67 - "Community 67"
 Cohesion: 0.67
 Nodes (0): 
 
-### Community 72 - "Cluster 72 (3n)"
+### Community 68 - "Community 68"
 Cohesion: 0.67
 Nodes (0): 
 
-### Community 73 - "Cluster 73 (3n)"
+### Community 69 - "Community 69"
 Cohesion: 0.67
 Nodes (0): 
 
-### Community 74 - "Cluster 74 (3n)"
+### Community 70 - "Community 70"
 Cohesion: 0.67
 Nodes (0): 
 
-### Community 75 - "Cluster 75 (3n)"
+### Community 71 - "Community 71"
 Cohesion: 0.67
 Nodes (0): 
 
-### Community 76 - "Cluster 76 (3n)"
+### Community 72 - "Community 72"
 Cohesion: 0.67
 Nodes (0): 
 
-### Community 77 - "Cluster 77 (3n)"
+### Community 73 - "Community 73"
 Cohesion: 0.67
 Nodes (0): 
 
-### Community 78 - "Cluster 78 (3n)"
+### Community 74 - "Community 74"
 Cohesion: 0.67
 Nodes (0): 
 
-### Community 79 - "Cluster 79 (3n)"
+### Community 75 - "Community 75"
 Cohesion: 0.67
 Nodes (0): 
 
-### Community 80 - "Cluster 80 (3n)"
+### Community 76 - "Community 76"
 Cohesion: 0.67
 Nodes (0): 
 
-### Community 81 - "Cluster 81 (3n)"
+### Community 77 - "Community 77"
 Cohesion: 0.67
 Nodes (0): 
 
-### Community 82 - "Cluster 82 (3n)"
+### Community 78 - "Community 78"
 Cohesion: 1.0
 Nodes (2): request(), withAuthHeaders()
 
-### Community 83 - "Cluster 83 (3n)"
-Cohesion: 0.67
-Nodes (3): File: @/lib/api-error, Pattern: isApiError branching for error handling, Rule: Branch error handling with isApiError(err) from @/lib/api-error
-
-### Community 84 - "Cluster 84 (3n)"
-Cohesion: 0.67
-Nodes (3): Pattern: Lucide React icons only, Prohibit: Icon libraries other than Lucide React, Rule: Use only Lucide React icons
-
-### Community 85 - "Cluster 85 (2n)"
-Cohesion: 1.0
-Nodes (0): 
-
-### Community 86 - "Cluster 86 (2n)"
-Cohesion: 1.0
-Nodes (0): 
-
-### Community 87 - "Cluster 87 (2n)"
-Cohesion: 1.0
-Nodes (0): 
-
-### Community 88 - "Cluster 88 (2n)"
+### Community 79 - "Community 79"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 89 - "Cluster 89 (2n)"
+### Community 80 - "Community 80"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 90 - "Cluster 90 (2n)"
+### Community 81 - "Community 81"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 91 - "Cluster 91 (2n)"
+### Community 82 - "Community 82"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 92 - "Cluster 92 (2n)"
+### Community 83 - "Community 83"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 93 - "Cluster 93 (2n)"
+### Community 84 - "Community 84"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 94 - "Cluster 94 (2n)"
+### Community 85 - "Community 85"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 95 - "Cluster 95 (2n)"
+### Community 86 - "Community 86"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 96 - "Cluster 96 (2n)"
+### Community 87 - "Community 87"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 97 - "Cluster 97 (2n)"
+### Community 88 - "Community 88"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 98 - "Cluster 98 (2n)"
+### Community 89 - "Community 89"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 99 - "Cluster 99 (2n)"
+### Community 90 - "Community 90"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 100 - "Cluster 100 (2n)"
+### Community 91 - "Community 91"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 101 - "Cluster 101 (2n)"
+### Community 92 - "Community 92"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 102 - "Cluster 102 (2n)"
+### Community 93 - "Community 93"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 103 - "Cluster 103 (2n)"
+### Community 94 - "Community 94"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 104 - "Cluster 104 (2n)"
+### Community 95 - "Community 95"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 105 - "Cluster 105 (2n)"
+### Community 96 - "Community 96"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 106 - "Cluster 106 (2n)"
+### Community 97 - "Community 97"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 107 - "Cluster 107 (2n)"
+### Community 98 - "Community 98"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 108 - "Cluster 108 (2n)"
+### Community 99 - "Community 99"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 109 - "Cluster 109 (2n)"
+### Community 100 - "Community 100"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 110 - "Cluster 110 (2n)"
+### Community 101 - "Community 101"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 111 - "Cluster 111 (2n)"
+### Community 102 - "Community 102"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 112 - "Cluster 112 (2n)"
+### Community 103 - "Community 103"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 113 - "Cluster 113 (2n)"
+### Community 104 - "Community 104"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 114 - "Cluster 114 (2n)"
+### Community 105 - "Community 105"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 115 - "Cluster 115 (2n)"
+### Community 106 - "Community 106"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 116 - "Cluster 116 (2n)"
+### Community 107 - "Community 107"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 117 - "Cluster 117 (2n)"
+### Community 108 - "Community 108"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 118 - "Cluster 118 (2n)"
+### Community 109 - "Community 109"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 119 - "Cluster 119 (2n)"
+### Community 110 - "Community 110"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 120 - "Cluster 120 (2n)"
+### Community 111 - "Community 111"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 121 - "Cluster 121 (2n)"
+### Community 112 - "Community 112"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 122 - "Cluster 122 (2n)"
+### Community 113 - "Community 113"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 123 - "Cluster 123 (2n)"
+### Community 114 - "Community 114"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 124 - "Cluster 124 (2n)"
+### Community 115 - "Community 115"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 125 - "Cluster 125 (2n)"
+### Community 116 - "Community 116"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 126 - "Cluster 126 (2n)"
+### Community 117 - "Community 117"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 127 - "Cluster 127 (2n)"
+### Community 118 - "Community 118"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 128 - "Cluster 128 (2n)"
+### Community 119 - "Community 119"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 129 - "Cluster 129 (2n)"
+### Community 120 - "Community 120"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 130 - "Cluster 130 (2n)"
+### Community 121 - "Community 121"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 131 - "Cluster 131 (2n)"
+### Community 122 - "Community 122"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 132 - "Cluster 132 (2n)"
+### Community 123 - "Community 123"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 133 - "Cluster 133 (2n)"
+### Community 124 - "Community 124"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 134 - "Cluster 134 (2n)"
+### Community 125 - "Community 125"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 135 - "Cluster 135 (2n)"
+### Community 126 - "Community 126"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 136 - "Cluster 136 (2n)"
+### Community 127 - "Community 127"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 137 - "Cluster 137 (2n)"
+### Community 128 - "Community 128"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 138 - "Cluster 138 (2n)"
+### Community 129 - "Community 129"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 139 - "Cluster 139 (2n)"
+### Community 130 - "Community 130"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 140 - "Cluster 140 (2n)"
+### Community 131 - "Community 131"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 141 - "Cluster 141 (2n)"
+### Community 132 - "Community 132"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 142 - "Cluster 142 (2n)"
+### Community 133 - "Community 133"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 143 - "Cluster 143 (2n)"
+### Community 134 - "Community 134"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 144 - "Cluster 144 (2n)"
+### Community 135 - "Community 135"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 145 - "Cluster 145 (2n)"
+### Community 136 - "Community 136"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 146 - "Cluster 146 (2n)"
+### Community 137 - "Community 137"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 147 - "Cluster 147 (2n)"
+### Community 138 - "Community 138"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 148 - "Cluster 148 (2n)"
+### Community 139 - "Community 139"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 149 - "Cluster 149 (2n)"
+### Community 140 - "Community 140"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 150 - "Cluster 150 (2n)"
+### Community 141 - "Community 141"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 151 - "Cluster 151 (2n)"
+### Community 142 - "Community 142"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 152 - "Cluster 152 (2n)"
+### Community 143 - "Community 143"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 153 - "Cluster 153 (2n)"
+### Community 144 - "Community 144"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 154 - "Cluster 154 (2n)"
+### Community 145 - "Community 145"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 155 - "Cluster 155 (2n)"
+### Community 146 - "Community 146"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 156 - "Cluster 156 (2n)"
+### Community 147 - "Community 147"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 157 - "Cluster 157 (2n)"
+### Community 148 - "Community 148"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 158 - "Cluster 158 (2n)"
+### Community 149 - "Community 149"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 159 - "Cluster 159 (2n)"
+### Community 150 - "Community 150"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 160 - "Cluster 160 (2n)"
+### Community 151 - "Community 151"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 161 - "Cluster 161 (2n)"
+### Community 152 - "Community 152"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 162 - "Cluster 162 (2n)"
+### Community 153 - "Community 153"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 163 - "Cluster 163 (2n)"
+### Community 154 - "Community 154"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 164 - "Cluster 164 (2n)"
+### Community 155 - "Community 155"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 165 - "Cluster 165 (2n)"
+### Community 156 - "Community 156"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 166 - "Cluster 166 (2n)"
+### Community 157 - "Community 157"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 167 - "Cluster 167 (2n)"
+### Community 158 - "Community 158"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 168 - "Cluster 168 (2n)"
+### Community 159 - "Community 159"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 169 - "Cluster 169 (2n)"
+### Community 160 - "Community 160"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 170 - "Cluster 170 (2n)"
+### Community 161 - "Community 161"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 171 - "Cluster 171 (2n)"
+### Community 162 - "Community 162"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 172 - "Cluster 172 (2n)"
+### Community 163 - "Community 163"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 173 - "Cluster 173 (2n)"
+### Community 164 - "Community 164"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 174 - "Cluster 174 (2n)"
+### Community 165 - "Community 165"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 175 - "Cluster 175 (2n)"
+### Community 166 - "Community 166"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 176 - "Cluster 176 (2n)"
+### Community 167 - "Community 167"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 177 - "Cluster 177 (2n)"
+### Community 168 - "Community 168"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 178 - "Cluster 178 (2n)"
+### Community 169 - "Community 169"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 179 - "Cluster 179 (2n)"
+### Community 170 - "Community 170"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 180 - "Cluster 180 (2n)"
+### Community 171 - "Community 171"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 181 - "Cluster 181 (2n)"
+### Community 172 - "Community 172"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 182 - "Cluster 182 (2n)"
+### Community 173 - "Community 173"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 183 - "Cluster 183 (2n)"
+### Community 174 - "Community 174"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 184 - "Cluster 184 (2n)"
+### Community 175 - "Community 175"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 185 - "Cluster 185 (2n)"
+### Community 176 - "Community 176"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 186 - "Cluster 186 (2n)"
+### Community 177 - "Community 177"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 187 - "Cluster 187 (2n)"
+### Community 178 - "Community 178"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 188 - "Cluster 188 (2n)"
+### Community 179 - "Community 179"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 189 - "Cluster 189 (2n)"
+### Community 180 - "Community 180"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 190 - "Cluster 190 (2n)"
+### Community 181 - "Community 181"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 191 - "Cluster 191 (2n)"
+### Community 182 - "Community 182"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 192 - "Cluster 192 (2n)"
+### Community 183 - "Community 183"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 193 - "Cluster 193 (2n)"
+### Community 184 - "Community 184"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 194 - "Cluster 194 (2n)"
+### Community 185 - "Community 185"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 195 - "Cluster 195 (2n)"
+### Community 186 - "Community 186"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 196 - "Cluster 196 (2n)"
+### Community 187 - "Community 187"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 197 - "Cluster 197 (2n)"
+### Community 188 - "Community 188"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 198 - "Cluster 198 (2n)"
+### Community 189 - "Community 189"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 199 - "Cluster 199 (2n)"
+### Community 190 - "Community 190"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 200 - "Cluster 200 (2n)"
+### Community 191 - "Community 191"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 201 - "Cluster 201 (2n)"
+### Community 192 - "Community 192"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 202 - "Cluster 202 (2n)"
+### Community 193 - "Community 193"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 203 - "Cluster 203 (2n)"
+### Community 194 - "Community 194"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 204 - "Cluster 204 (2n)"
+### Community 195 - "Community 195"
 Cohesion: 1.0
-Nodes (2): Pattern: Strict import order (use client > react > 3rd-party > absolute > relative > types), Rule: Follow strict import order (use client > React > 3rd party > absolute > relative > type)
-
-### Community 205 - "Cluster 205 (2n)"
-Cohesion: 1.0
-Nodes (2): Pattern: Polling via refetchInterval option, Prohibit: setInterval for polling (use refetchInterval)
-
-### Community 206 - "Cluster 206 (1n)"
-Cohesion: 1.0
-Nodes (0): 
-
-### Community 207 - "Cluster 207 (1n)"
-Cohesion: 1.0
-Nodes (0): 
-
-### Community 208 - "Cluster 208 (1n)"
-Cohesion: 1.0
 Nodes (0): 
 
-### Community 209 - "Cluster 209 (1n)"
+### Community 196 - "Community 196"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 210 - "Cluster 210 (1n)"
+### Community 197 - "Community 197"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 211 - "Cluster 211 (1n)"
+### Community 198 - "Community 198"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 212 - "Cluster 212 (1n)"
+### Community 199 - "Community 199"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 213 - "Cluster 213 (1n)"
+### Community 200 - "Community 200"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 214 - "Cluster 214 (1n)"
+### Community 201 - "Community 201"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 215 - "Cluster 215 (1n)"
+### Community 202 - "Community 202"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 216 - "Cluster 216 (1n)"
+### Community 203 - "Community 203"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 217 - "Cluster 217 (1n)"
+### Community 204 - "Community 204"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 218 - "Cluster 218 (1n)"
+### Community 205 - "Community 205"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 219 - "Cluster 219 (1n)"
+### Community 206 - "Community 206"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 220 - "Cluster 220 (1n)"
+### Community 207 - "Community 207"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 221 - "Cluster 221 (1n)"
+### Community 208 - "Community 208"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 222 - "Cluster 222 (1n)"
+### Community 209 - "Community 209"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 223 - "Cluster 223 (1n)"
+### Community 210 - "Community 210"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 224 - "Cluster 224 (1n)"
+### Community 211 - "Community 211"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 225 - "Cluster 225 (1n)"
+### Community 212 - "Community 212"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 226 - "Cluster 226 (1n)"
+### Community 213 - "Community 213"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 227 - "Cluster 227 (1n)"
+### Community 214 - "Community 214"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 228 - "Cluster 228 (1n)"
+### Community 215 - "Community 215"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 229 - "Cluster 229 (1n)"
+### Community 216 - "Community 216"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 230 - "Cluster 230 (1n)"
+### Community 217 - "Community 217"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 231 - "Cluster 231 (1n)"
+### Community 218 - "Community 218"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 232 - "Cluster 232 (1n)"
+### Community 219 - "Community 219"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 233 - "Cluster 233 (1n)"
+### Community 220 - "Community 220"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 234 - "Cluster 234 (1n)"
+### Community 221 - "Community 221"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 235 - "Cluster 235 (1n)"
+### Community 222 - "Community 222"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 236 - "Cluster 236 (1n)"
+### Community 223 - "Community 223"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 237 - "Cluster 237 (1n)"
+### Community 224 - "Community 224"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 238 - "Cluster 238 (1n)"
+### Community 225 - "Community 225"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 239 - "Cluster 239 (1n)"
+### Community 226 - "Community 226"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 240 - "Cluster 240 (1n)"
+### Community 227 - "Community 227"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 241 - "Cluster 241 (1n)"
+### Community 228 - "Community 228"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 242 - "Cluster 242 (1n)"
+### Community 229 - "Community 229"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 243 - "Cluster 243 (1n)"
+### Community 230 - "Community 230"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 244 - "Cluster 244 (1n)"
+### Community 231 - "Community 231"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 245 - "Cluster 245 (1n)"
+### Community 232 - "Community 232"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 246 - "Cluster 246 (1n)"
+### Community 233 - "Community 233"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 247 - "Cluster 247 (1n)"
+### Community 234 - "Community 234"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 248 - "Cluster 248 (1n)"
+### Community 235 - "Community 235"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 249 - "Cluster 249 (1n)"
+### Community 236 - "Community 236"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 250 - "Cluster 250 (1n)"
+### Community 237 - "Community 237"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 251 - "Cluster 251 (1n)"
+### Community 238 - "Community 238"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 252 - "Cluster 252 (1n)"
+### Community 239 - "Community 239"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 253 - "Cluster 253 (1n)"
+### Community 240 - "Community 240"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 254 - "Cluster 254 (1n)"
+### Community 241 - "Community 241"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 255 - "Cluster 255 (1n)"
+### Community 242 - "Community 242"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 256 - "Cluster 256 (1n)"
+### Community 243 - "Community 243"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 257 - "Cluster 257 (1n)"
+### Community 244 - "Community 244"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 258 - "Cluster 258 (1n)"
+### Community 245 - "Community 245"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 259 - "Cluster 259 (1n)"
+### Community 246 - "Community 246"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 260 - "Cluster 260 (1n)"
+### Community 247 - "Community 247"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 261 - "Cluster 261 (1n)"
+### Community 248 - "Community 248"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 262 - "Cluster 262 (1n)"
+### Community 249 - "Community 249"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 263 - "Cluster 263 (1n)"
+### Community 250 - "Community 250"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 264 - "Cluster 264 (1n)"
+### Community 251 - "Community 251"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 265 - "Cluster 265 (1n)"
+### Community 252 - "Community 252"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 266 - "Cluster 266 (1n)"
+### Community 253 - "Community 253"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 267 - "Cluster 267 (1n)"
+### Community 254 - "Community 254"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 268 - "Cluster 268 (1n)"
+### Community 255 - "Community 255"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 269 - "Cluster 269 (1n)"
+### Community 256 - "Community 256"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 270 - "Cluster 270 (1n)"
+### Community 257 - "Community 257"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 271 - "Cluster 271 (1n)"
+### Community 258 - "Community 258"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 272 - "Cluster 272 (1n)"
+### Community 259 - "Community 259"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 273 - "Cluster 273 (1n)"
+### Community 260 - "Community 260"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 274 - "Cluster 274 (1n)"
+### Community 261 - "Community 261"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 275 - "Cluster 275 (1n)"
+### Community 262 - "Community 262"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 276 - "Cluster 276 (1n)"
+### Community 263 - "Community 263"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 277 - "Cluster 277 (1n)"
+### Community 264 - "Community 264"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 278 - "Cluster 278 (1n)"
+### Community 265 - "Community 265"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 279 - "Cluster 279 (1n)"
+### Community 266 - "Community 266"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 280 - "Cluster 280 (1n)"
+### Community 267 - "Community 267"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 281 - "Cluster 281 (1n)"
+### Community 268 - "Community 268"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 282 - "Cluster 282 (1n)"
+### Community 269 - "Community 269"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 283 - "Cluster 283 (1n)"
+### Community 270 - "Community 270"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 284 - "Cluster 284 (1n)"
+### Community 271 - "Community 271"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 285 - "Cluster 285 (1n)"
+### Community 272 - "Community 272"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 286 - "Cluster 286 (1n)"
+### Community 273 - "Community 273"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 287 - "Cluster 287 (1n)"
+### Community 274 - "Community 274"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 288 - "Cluster 288 (1n)"
+### Community 275 - "Community 275"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 289 - "Cluster 289 (1n)"
+### Community 276 - "Community 276"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 290 - "Cluster 290 (1n)"
+### Community 277 - "Community 277"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 291 - "Cluster 291 (1n)"
+### Community 278 - "Community 278"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 292 - "Cluster 292 (1n)"
+### Community 279 - "Community 279"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 293 - "Cluster 293 (1n)"
+### Community 280 - "Community 280"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 294 - "Cluster 294 (1n)"
+### Community 281 - "Community 281"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 295 - "Cluster 295 (1n)"
+### Community 282 - "Community 282"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 296 - "Cluster 296 (1n)"
+### Community 283 - "Community 283"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 297 - "Cluster 297 (1n)"
+### Community 284 - "Community 284"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 298 - "Cluster 298 (1n)"
+### Community 285 - "Community 285"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 299 - "Cluster 299 (1n)"
+### Community 286 - "Community 286"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 300 - "Cluster 300 (1n)"
+### Community 287 - "Community 287"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 301 - "Cluster 301 (1n)"
+### Community 288 - "Community 288"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 302 - "Cluster 302 (1n)"
+### Community 289 - "Community 289"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 303 - "Cluster 303 (1n)"
+### Community 290 - "Community 290"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 304 - "Cluster 304 (1n)"
+### Community 291 - "Community 291"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 305 - "Cluster 305 (1n)"
+### Community 292 - "Community 292"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 306 - "Cluster 306 (1n)"
+### Community 293 - "Community 293"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 307 - "Cluster 307 (1n)"
+### Community 294 - "Community 294"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 308 - "Cluster 308 (1n)"
+### Community 295 - "Community 295"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 309 - "Cluster 309 (1n)"
+### Community 296 - "Community 296"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 310 - "Cluster 310 (1n)"
+### Community 297 - "Community 297"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 311 - "Cluster 311 (1n)"
+### Community 298 - "Community 298"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 312 - "Cluster 312 (1n)"
+### Community 299 - "Community 299"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 313 - "Cluster 313 (1n)"
+### Community 300 - "Community 300"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 314 - "Cluster 314 (1n)"
+### Community 301 - "Community 301"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 315 - "Cluster 315 (1n)"
+### Community 302 - "Community 302"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 316 - "Cluster 316 (1n)"
+### Community 303 - "Community 303"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 317 - "Cluster 317 (1n)"
+### Community 304 - "Community 304"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 318 - "Cluster 318 (1n)"
+### Community 305 - "Community 305"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 319 - "Cluster 319 (1n)"
+### Community 306 - "Community 306"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 320 - "Cluster 320 (1n)"
+### Community 307 - "Community 307"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 321 - "Cluster 321 (1n)"
+### Community 308 - "Community 308"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 322 - "Cluster 322 (1n)"
+### Community 309 - "Community 309"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 323 - "Cluster 323 (1n)"
+### Community 310 - "Community 310"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 324 - "Cluster 324 (1n)"
+### Community 311 - "Community 311"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 325 - "Cluster 325 (1n)"
+### Community 312 - "Community 312"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 326 - "Cluster 326 (1n)"
+### Community 313 - "Community 313"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 327 - "Cluster 327 (1n)"
+### Community 314 - "Community 314"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 328 - "Cluster 328 (1n)"
+### Community 315 - "Community 315"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 329 - "Cluster 329 (1n)"
+### Community 316 - "Community 316"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 330 - "Cluster 330 (1n)"
+### Community 317 - "Community 317"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 331 - "Cluster 331 (1n)"
+### Community 318 - "Community 318"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 332 - "Cluster 332 (1n)"
+### Community 319 - "Community 319"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 333 - "Cluster 333 (1n)"
+### Community 320 - "Community 320"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 334 - "Cluster 334 (1n)"
+### Community 321 - "Community 321"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 335 - "Cluster 335 (1n)"
+### Community 322 - "Community 322"
 Cohesion: 1.0
 Nodes (0): 
 
-### Community 336 - "Cluster 336 (1n)"
+### Community 323 - "Community 323"
 Cohesion: 1.0
-Nodes (0): 
+Nodes (1): PanelErrorBoundary (class component)
 
-### Community 337 - "Cluster 337 (1n)"
+### Community 324 - "Community 324"
 Cohesion: 1.0
-Nodes (1): Rule: No Next.js API Routes — all data fetched from NestJS at localhost:4000
+Nodes (1): Rule: apiClient.get/post (no raw fetch)
 
-### Community 338 - "Cluster 338 (1n)"
+### Community 325 - "Community 325"
 Cohesion: 1.0
-Nodes (1): Rule: Test infrastructure core only (api-client, api-error); no implementation detail tests
+Nodes (1): Rule: useQuery/useMutation (no useEffect+fetch)
 
-### Community 339 - "Cluster 339 (1n)"
+### Community 326 - "Community 326"
 Cohesion: 1.0
-Nodes (1): Prohibit: Next.js API Routes in this app
+Nodes (1): Prohibit: template literal conditional className (use cn())
 
-### Community 340 - "Cluster 340 (1n)"
+### Community 327 - "Community 327"
 Cohesion: 1.0
-Nodes (1): File: .env.local
+Nodes (1): Rule: Lucide React only (no other icon libraries)
 
 ## Knowledge Gaps
-- **55 isolated node(s):** `Pattern: Radix UI primitives for Popover/Select/Tabs/DropdownMenu`, `Pattern: Strict import order (use client > react > 3rd-party > absolute > relative > types)`, `Pattern: Polling via refetchInterval option`, `Rule: Use apiClient.get/post/patch/delete from @/lib/api-client (no raw fetch)`, `Rule: Use apiClient.fetchRaw() for blob responses` (+50 more)
+- **24 isolated node(s):** `PanelErrorBoundary (class component)`, `PANEL_OPEN_LS_KEY (kiditem.panel.open localStorage)`, `MAX_RETRIES = 5 (PanelSseClient retry cap)`, `Rule: panel-store seq-based dedup (existing.seq >= item.seq -> skip)`, `Rule: SSE prohibited globally; Panel domain ADR-0010 exception` (+19 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **Thin community `Cluster 85 (2n)`** (2 nodes): `RootLayout()`, `layout.tsx`
+- **Thin community `Community 79`** (2 nodes): `layout.tsx`, `RootLayout()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 86 (2n)`** (2 nodes): `UnshippedSummaryCards.tsx`, `UnshippedSummaryCards()`
+- **Thin community `Community 80`** (2 nodes): `page.tsx`, `alertIcon()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 87 (2n)`** (2 nodes): `cn()`, `AdsTable.tsx`
+- **Thin community `Community 81`** (2 nodes): `UnshippedSummaryCards.tsx`, `UnshippedSummaryCards()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 88 (2n)`** (2 nodes): `formatNumber()`, `CampaignList.tsx`
+- **Thin community `Community 82`** (2 nodes): `page.tsx`, `SettingsPage()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 89 (2n)`** (2 nodes): `status-colors.ts`, `roasColor()`
+- **Thin community `Community 83`** (2 nodes): `TrafficUpload.tsx`, `handleUpload()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 90 (2n)`** (2 nodes): `TrendsComparison.tsx`, `fmtVal()`
+- **Thin community `Community 84`** (2 nodes): `PrinterSettings.tsx`, `PrinterSettings()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 91 (2n)`** (2 nodes): `cn()`, `GradeCards.tsx`
+- **Thin community `Community 85`** (2 nodes): `ReportDownload.tsx`, `handleDownload()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 92 (2n)`** (2 nodes): `SettingsPage()`, `page.tsx`
+- **Thin community `Community 86`** (2 nodes): `handleUpload()`, `AdsCsvUpload.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 93 (2n)`** (2 nodes): `TrafficUpload.tsx`, `handleUpload()`
+- **Thin community `Community 87`** (2 nodes): `page.tsx`, `OptionMastersPage()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 94 (2n)`** (2 nodes): `PrinterSettings()`, `PrinterSettings.tsx`
+- **Thin community `Community 88`** (2 nodes): `OptionMasterHeader.tsx`, `OptionMasterHeader()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 95 (2n)`** (2 nodes): `handleDownload()`, `ReportDownload.tsx`
+- **Thin community `Community 89`** (2 nodes): `OptionMasterGrid.tsx`, `parseValues()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 96 (2n)`** (2 nodes): `handleUpload()`, `AdsCsvUpload.tsx`
+- **Thin community `Community 90`** (2 nodes): `ProductListItem.tsx`, `formatNumber()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 97 (2n)`** (2 nodes): `OptionMastersPage()`, `page.tsx`
+- **Thin community `Community 91`** (2 nodes): `handleSubmit()`, `AddProductModal.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 98 (2n)`** (2 nodes): `OptionMasterHeader()`, `OptionMasterHeader.tsx`
+- **Thin community `Community 92`** (2 nodes): `page.tsx`, `ProductDetailPage()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 99 (2n)`** (2 nodes): `parseValues()`, `OptionMasterGrid.tsx`
+- **Thin community `Community 93`** (2 nodes): `useProductActions.ts`, `useProductActions()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 100 (2n)`** (2 nodes): `formatNumber()`, `ProductListItem.tsx`
+- **Thin community `Community 94`** (2 nodes): `page.tsx`, `CSManagementPage()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 101 (2n)`** (2 nodes): `handleSubmit()`, `AddProductModal.tsx`
+- **Thin community `Community 95`** (2 nodes): `CSHeader.tsx`, `CSHeader()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 102 (2n)`** (2 nodes): `ProductDetailPage()`, `page.tsx`
+- **Thin community `Community 96`** (2 nodes): `CSSummaryCards.tsx`, `CSSummaryCards()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 103 (2n)`** (2 nodes): `useProductActions.ts`, `useProductActions()`
+- **Thin community `Community 97`** (2 nodes): `CreateCSModal.tsx`, `handleSubmit()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 104 (2n)`** (2 nodes): `CSManagementPage()`, `page.tsx`
+- **Thin community `Community 98`** (2 nodes): `CSFilterTabs.tsx`, `CSFilterTabs()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 105 (2n)`** (2 nodes): `CSHeader()`, `CSHeader.tsx`
+- **Thin community `Community 99`** (2 nodes): `PurchaseOrderHeader.tsx`, `PurchaseOrderHeader()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 106 (2n)`** (2 nodes): `CSSummaryCards()`, `CSSummaryCards.tsx`
+- **Thin community `Community 100`** (2 nodes): `PurchaseOrderKpiCards.tsx`, `PurchaseOrderKpiCards()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 107 (2n)`** (2 nodes): `handleSubmit()`, `CreateCSModal.tsx`
+- **Thin community `Community 101`** (2 nodes): `ThumbnailEditorView.tsx`, `ThumbnailEditorView()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 108 (2n)`** (2 nodes): `CSFilterTabs()`, `CSFilterTabs.tsx`
+- **Thin community `Community 102`** (2 nodes): `useThumbnailEditor.ts`, `useGenerateThumbnail()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 109 (2n)`** (2 nodes): `PurchaseOrderHeader()`, `PurchaseOrderHeader.tsx`
+- **Thin community `Community 103`** (2 nodes): `useOriginalImage.ts`, `useOriginalImage()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 110 (2n)`** (2 nodes): `PurchaseOrderKpiCards()`, `PurchaseOrderKpiCards.tsx`
+- **Thin community `Community 104`** (2 nodes): `ProfitLossSummaryCards.tsx`, `ProfitLossSummaryCards()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 111 (2n)`** (2 nodes): `ThumbnailEditorPage()`, `page.tsx`
+- **Thin community `Community 105`** (2 nodes): `StatusContent.tsx`, `formatNumber()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 112 (2n)`** (2 nodes): `ThumbnailEditorView.tsx`, `ThumbnailEditorView()`
+- **Thin community `Community 106`** (2 nodes): `xlsx-export.ts`, `exportCampaignXlsx()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 113 (2n)`** (2 nodes): `cn()`, `EditorResultPanel.tsx`
+- **Thin community `Community 107`** (2 nodes): `status-colors.ts`, `roasColor()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 114 (2n)`** (2 nodes): `cn()`, `EditorInputPanel.tsx`
+- **Thin community `Community 108`** (2 nodes): `StockIo.tsx`, `fmtDate()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 115 (2n)`** (2 nodes): `useThumbnailEditor.ts`, `useGenerateThumbnail()`
+- **Thin community `Community 109`** (2 nodes): `OrderMatching.tsx`, `handleMatch()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 116 (2n)`** (2 nodes): `useOriginalImage.ts`, `useOriginalImage()`
+- **Thin community `Community 110`** (2 nodes): `page.tsx`, `WorkflowsPage()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 117 (2n)`** (2 nodes): `ProfitLossSummaryCards()`, `ProfitLossSummaryCards.tsx`
+- **Thin community `Community 111`** (2 nodes): `WorkflowCanvas.tsx`, `WorkflowCanvas()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 118 (2n)`** (2 nodes): `xlsx-export.ts`, `exportCampaignXlsx()`
+- **Thin community `Community 112`** (2 nodes): `MyWorkflowsSection.tsx`, `MyWorkflowsSection()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 119 (2n)`** (2 nodes): `StockIo.tsx`, `fmtDate()`
+- **Thin community `Community 113`** (2 nodes): `workflow-types.ts`, `mapStepStatus()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 120 (2n)`** (2 nodes): `handleMatch()`, `OrderMatching.tsx`
+- **Thin community `Community 114`** (2 nodes): `layout.tsx`, `AgentsLayout()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 121 (2n)`** (2 nodes): `WorkflowsPage()`, `page.tsx`
+- **Thin community `Community 115`** (2 nodes): `page.tsx`, `periodRange()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 122 (2n)`** (2 nodes): `WorkflowCanvas.tsx`, `WorkflowCanvas()`
+- **Thin community `Community 116`** (2 nodes): `BudgetGauge.tsx`, `formatTokens()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 123 (2n)`** (2 nodes): `MyWorkflowsSection()`, `MyWorkflowsSection.tsx`
+- **Thin community `Community 117`** (2 nodes): `CostSummaryCard.tsx`, `CostSummaryCard()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 124 (2n)`** (2 nodes): `workflow-types.ts`, `mapStepStatus()`
+- **Thin community `Community 118`** (2 nodes): `page.tsx`, `toYmd()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 125 (2n)`** (2 nodes): `AgentsLayout()`, `layout.tsx`
+- **Thin community `Community 119`** (2 nodes): `TraceView.tsx`, `TraceView()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 126 (2n)`** (2 nodes): `periodRange()`, `page.tsx`
+- **Thin community `Community 120`** (2 nodes): `page.tsx`, `TaskTracePage()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 127 (2n)`** (2 nodes): `formatTokens()`, `BudgetGauge.tsx`
+- **Thin community `Community 121`** (2 nodes): `EventDetailModal.tsx`, `safeJson()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 128 (2n)`** (2 nodes): `CostSummaryCard()`, `CostSummaryCard.tsx`
+- **Thin community `Community 122`** (2 nodes): `PythonFallbackBox.tsx`, `PythonFallbackBox()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 129 (2n)`** (2 nodes): `toYmd()`, `page.tsx`
+- **Thin community `Community 123`** (2 nodes): `TraceTimeline.tsx`, `formatDateTime()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 130 (2n)`** (2 nodes): `TraceView.tsx`, `TraceView()`
+- **Thin community `Community 124`** (2 nodes): `TraceWarningBanner.tsx`, `TraceWarningBanner()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 131 (2n)`** (2 nodes): `TaskTracePage()`, `page.tsx`
+- **Thin community `Community 125`** (2 nodes): `page.tsx`, `fetchAllActivity()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 132 (2n)`** (2 nodes): `safeJson()`, `EventDetailModal.tsx`
+- **Thin community `Community 126`** (2 nodes): `cn()`, `ActivityFeed.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 133 (2n)`** (2 nodes): `PythonFallbackBox()`, `PythonFallbackBox.tsx`
+- **Thin community `Community 127`** (2 nodes): `OrgLegend.tsx`, `OrgLegend()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 134 (2n)`** (2 nodes): `TraceTimeline.tsx`, `formatDateTime()`
+- **Thin community `Community 128`** (2 nodes): `OrgTree.tsx`, `EmptySlot()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 135 (2n)`** (2 nodes): `TraceWarningBanner.tsx`, `TraceWarningBanner()`
+- **Thin community `Community 129`** (2 nodes): `NoSkillAgentsList.tsx`, `NoSkillAgentsList()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 136 (2n)`** (2 nodes): `fetchAllActivity()`, `page.tsx`
+- **Thin community `Community 130`** (2 nodes): `AgentConfigSaveBar()`, `AgentConfigSaveBar.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 137 (2n)`** (2 nodes): `cn()`, `ActivityFeed.tsx`
+- **Thin community `Community 131`** (2 nodes): `InstructionsTab.tsx`, `InstructionsTab()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 138 (2n)`** (2 nodes): `OrgLegend()`, `OrgLegend.tsx`
+- **Thin community `Community 132`** (2 nodes): `BudgetTab.tsx`, `handleSetBudget()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 139 (2n)`** (2 nodes): `EmptySlot()`, `OrgTree.tsx`
+- **Thin community `Community 133`** (2 nodes): `StockRetention.tsx`, `getRetentionColor()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 140 (2n)`** (2 nodes): `NoSkillAgentsList()`, `NoSkillAgentsList.tsx`
+- **Thin community `Community 134`** (2 nodes): `ZeroItems.tsx`, `isLoading()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 141 (2n)`** (2 nodes): `AgentConfigSaveBar()`, `AgentConfigSaveBar.tsx`
+- **Thin community `Community 135`** (2 nodes): `ProductMemos.tsx`, `handleSelectProduct()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 142 (2n)`** (2 nodes): `InstructionsTab()`, `InstructionsTab.tsx`
+- **Thin community `Community 136`** (2 nodes): `OutOfStock.tsx`, `isLoading()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 143 (2n)`** (2 nodes): `handleSetBudget()`, `BudgetTab.tsx`
+- **Thin community `Community 137`** (2 nodes): `ImageGrid.tsx`, `handleDrop()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 144 (2n)`** (2 nodes): `StockRetention.tsx`, `getRetentionColor()`
+- **Thin community `Community 138`** (2 nodes): `PaymentSchedule.tsx`, `formatKRW()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 145 (2n)`** (2 nodes): `ZeroItems.tsx`, `isLoading()`
+- **Thin community `Community 139`** (2 nodes): `parseActionResult()`, `actions.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 146 (2n)`** (2 nodes): `handleSelectProduct()`, `ProductMemos.tsx`
+- **Thin community `Community 140`** (2 nodes): `KpiBar.tsx`, `KpiBar()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 147 (2n)`** (2 nodes): `isLoading()`, `OutOfStock.tsx`
+- **Thin community `Community 141`** (2 nodes): `page.tsx`, `InventoryPage()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 148 (2n)`** (2 nodes): `handleDrop()`, `ImageGrid.tsx`
+- **Thin community `Community 142`** (2 nodes): `StockMovementSummaryCard.tsx`, `StockMovementSummaryCard()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 149 (2n)`** (2 nodes): `formatKRW()`, `PaymentSchedule.tsx`
+- **Thin community `Community 143`** (2 nodes): `InventoryToolbar.tsx`, `InventoryToolbar()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 150 (2n)`** (2 nodes): `parseActionResult()`, `actions.ts`
+- **Thin community `Community 144`** (2 nodes): `InventorySummaryCards.tsx`, `InventorySummaryCards()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 151 (2n)`** (2 nodes): `KpiBar()`, `KpiBar.tsx`
+- **Thin community `Community 145`** (2 nodes): `StockMovementTable.tsx`, `formatGroupKey()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 152 (2n)`** (2 nodes): `InventoryPage()`, `page.tsx`
+- **Thin community `Community 146`** (2 nodes): `barcode-print.ts`, `printBarcodeWindow()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 153 (2n)`** (2 nodes): `StockMovementSummaryCard.tsx`, `StockMovementSummaryCard()`
+- **Thin community `Community 147`** (2 nodes): `GenerateLoadingOverlay.tsx`, `GenerateLoadingOverlay()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 154 (2n)`** (2 nodes): `InventoryToolbar()`, `InventoryToolbar.tsx`
+- **Thin community `Community 148`** (2 nodes): `GeneratePageHeader.tsx`, `GeneratePageHeader()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 155 (2n)`** (2 nodes): `InventorySummaryCards()`, `InventorySummaryCards.tsx`
+- **Thin community `Community 149`** (2 nodes): `GenerateResult.tsx`, `GenerateResult()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 156 (2n)`** (2 nodes): `StockMovementTable.tsx`, `formatGroupKey()`
+- **Thin community `Community 150`** (2 nodes): `CategorySelect.tsx`, `CategorySelect()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 157 (2n)`** (2 nodes): `printBarcodeWindow()`, `barcode-print.ts`
+- **Thin community `Community 151`** (2 nodes): `SyncCheck.tsx`, `handleCheck()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 158 (2n)`** (2 nodes): `GenerateLoadingOverlay()`, `GenerateLoadingOverlay.tsx`
+- **Thin community `Community 152`** (2 nodes): `OrderInventory.tsx`, `getStatusBadge()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 159 (2n)`** (2 nodes): `GeneratePageHeader()`, `GeneratePageHeader.tsx`
+- **Thin community `Community 153`** (2 nodes): `OrderCompare.tsx`, `handleCompare()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 160 (2n)`** (2 nodes): `GenerateResult()`, `GenerateResult.tsx`
+- **Thin community `Community 154`** (2 nodes): `ReturnScanHeader.tsx`, `ReturnScanHeader()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 161 (2n)`** (2 nodes): `CategorySelect()`, `CategorySelect.tsx`
+- **Thin community `Community 155`** (2 nodes): `BarcodeScanInput.tsx`, `handleKeyDown()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 162 (2n)`** (2 nodes): `SyncCheck.tsx`, `handleCheck()`
+- **Thin community `Community 156`** (2 nodes): `page.tsx`, `handleApproveReturn()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 163 (2n)`** (2 nodes): `getStatusBadge()`, `OrderInventory.tsx`
+- **Thin community `Community 157`** (2 nodes): `page.tsx`, `OrdersPage()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 164 (2n)`** (2 nodes): `handleCompare()`, `OrderCompare.tsx`
+- **Thin community `Community 158`** (2 nodes): `PipelineVisualization.tsx`, `getNodeX()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 165 (2n)`** (2 nodes): `ReturnScanHeader()`, `ReturnScanHeader.tsx`
+- **Thin community `Community 159`** (2 nodes): `RawDataTab.tsx`, `formatNumber()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 166 (2n)`** (2 nodes): `handleKeyDown()`, `BarcodeScanInput.tsx`
+- **Thin community `Community 160`** (2 nodes): `ThumbnailGrid.tsx`, `ThumbnailGrid()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 167 (2n)`** (2 nodes): `handleApproveReturn()`, `page.tsx`
+- **Thin community `Community 161`** (2 nodes): `SourcingStatusBadge.tsx`, `SourcingStatusBadge()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 168 (2n)`** (2 nodes): `OrdersPage()`, `page.tsx`
+- **Thin community `Community 162`** (2 nodes): `SkeletonCard.tsx`, `SkeletonCard()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 169 (2n)`** (2 nodes): `getNodeX()`, `PipelineVisualization.tsx`
+- **Thin community `Community 163`** (2 nodes): `SourcingHeader.tsx`, `SourcingHeader()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 170 (2n)`** (2 nodes): `formatNumber()`, `RawDataTab.tsx`
+- **Thin community `Community 164`** (2 nodes): `ProductErrorView.tsx`, `ProductErrorView()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 171 (2n)`** (2 nodes): `ThumbnailGrid.tsx`, `ThumbnailGrid()`
+- **Thin community `Community 165`** (2 nodes): `ProductLoadingView.tsx`, `ProductLoadingView()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 172 (2n)`** (2 nodes): `SourcingStatusBadge()`, `SourcingStatusBadge.tsx`
+- **Thin community `Community 166`** (2 nodes): `ProductTabContent.tsx`, `ProductTabContent()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 173 (2n)`** (2 nodes): `SkeletonCard()`, `SkeletonCard.tsx`
+- **Thin community `Community 167`** (2 nodes): `types.ts`, `mapProcessedData()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 174 (2n)`** (2 nodes): `SourcingHeader()`, `SourcingHeader.tsx`
+- **Thin community `Community 168`** (2 nodes): `ColorPickerField.tsx`, `ColorPickerField()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 175 (2n)`** (2 nodes): `ProductErrorView()`, `ProductErrorView.tsx`
+- **Thin community `Community 169`** (2 nodes): `EditorErrorScreen.tsx`, `EditorErrorScreen()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 176 (2n)`** (2 nodes): `ProductLoadingView()`, `ProductLoadingView.tsx`
+- **Thin community `Community 170`** (2 nodes): `EditorLoadingScreen.tsx`, `EditorLoadingScreen()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 177 (2n)`** (2 nodes): `ProductTabContent()`, `ProductTabContent.tsx`
+- **Thin community `Community 171`** (2 nodes): `SalesOverview.tsx`, `handleToggleSort()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 178 (2n)`** (2 nodes): `types.ts`, `mapProcessedData()`
+- **Thin community `Community 172`** (2 nodes): `SupplierPayments.tsx`, `openPayModal()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 179 (2n)`** (2 nodes): `ColorPickerField()`, `ColorPickerField.tsx`
+- **Thin community `Community 173`** (2 nodes): `SupplierSales.tsx`, `SupplierSales()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 180 (2n)`** (2 nodes): `EditorErrorScreen()`, `EditorErrorScreen.tsx`
+- **Thin community `Community 174`** (2 nodes): `page.tsx`, `ReportsPage()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 181 (2n)`** (2 nodes): `EditorLoadingScreen()`, `EditorLoadingScreen.tsx`
+- **Thin community `Community 175`** (2 nodes): `ReportList.tsx`, `ReportList()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 182 (2n)`** (2 nodes): `handleToggleSort()`, `SalesOverview.tsx`
+- **Thin community `Community 176`** (2 nodes): `ThumbnailGradeCards.tsx`, `cn()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 183 (2n)`** (2 nodes): `SupplierPayments.tsx`, `openPayModal()`
+- **Thin community `Community 177`** (2 nodes): `InspectionDrawer.tsx`, `handler()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 184 (2n)`** (2 nodes): `SupplierSales.tsx`, `SupplierSales()`
+- **Thin community `Community 178`** (2 nodes): `ThumbnailFilterTabs.tsx`, `ThumbnailFilterTabs()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 185 (2n)`** (2 nodes): `ReportsPage()`, `page.tsx`
+- **Thin community `Community 179`** (2 nodes): `ReviewTable.tsx`, `getReviewStatus()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 186 (2n)`** (2 nodes): `ReportList()`, `ReportList.tsx`
+- **Thin community `Community 180`** (2 nodes): `PeriodSelector.tsx`, `PeriodSelector()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 187 (2n)`** (2 nodes): `ThumbnailGradeCards.tsx`, `cn()`
+- **Thin community `Community 181`** (2 nodes): `DateRangePicker.tsx`, `DateRangePicker()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 188 (2n)`** (2 nodes): `handler()`, `InspectionDrawer.tsx`
+- **Thin community `Community 182`** (2 nodes): `PanelItemRow.tsx`, `PanelItemRow()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 189 (2n)`** (2 nodes): `ThumbnailFilterTabs.tsx`, `ThumbnailFilterTabs()`
+- **Thin community `Community 183`** (2 nodes): `usePanelStream.ts`, `usePanelStream()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 190 (2n)`** (2 nodes): `getReviewStatus()`, `ReviewTable.tsx`
+- **Thin community `Community 184`** (2 nodes): `panel-store.spec.ts`, `makeItem()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 191 (2n)`** (2 nodes): `PeriodSelector()`, `PeriodSelector.tsx`
+- **Thin community `Community 185`** (2 nodes): `PanelMount()`, `AppLayout.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 192 (2n)`** (2 nodes): `DateRangePicker()`, `DateRangePicker.tsx`
+- **Thin community `Community 186`** (2 nodes): `CopilotChat.tsx`, `CopilotChat()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 193 (2n)`** (2 nodes): `AppLayout()`, `AppLayout.tsx`
+- **Thin community `Community 187`** (2 nodes): `QueryProvider.tsx`, `QueryProvider()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 194 (2n)`** (2 nodes): `CopilotChat()`, `CopilotChat.tsx`
+- **Thin community `Community 188`** (2 nodes): `setValue()`, `AgentDetailModal.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 195 (2n)`** (2 nodes): `QueryProvider()`, `QueryProvider.tsx`
+- **Thin community `Community 189`** (2 nodes): `WorkflowDetailModal.tsx`, `setValue()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 196 (2n)`** (2 nodes): `setValue()`, `AgentDetailModal.tsx`
+- **Thin community `Community 190`** (2 nodes): `DetailModal.tsx`, `url()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 197 (2n)`** (2 nodes): `WorkflowDetailModal.tsx`, `setValue()`
+- **Thin community `Community 191`** (2 nodes): `useProductImages.ts`, `useProductImages()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 198 (2n)`** (2 nodes): `url()`, `DetailModal.tsx`
+- **Thin community `Community 192`** (2 nodes): `parse-korean-number.ts`, `parseKoreanNumber()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 199 (2n)`** (2 nodes): `useProductImages.ts`, `useProductImages()`
+- **Thin community `Community 193`** (2 nodes): `coupang-wing.ts`, `openCoupangWingInventory()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 200 (2n)`** (2 nodes): `parseKoreanNumber()`, `parse-korean-number.ts`
+- **Thin community `Community 194`** (2 nodes): `resolve-url.ts`, `resolveImageUrl()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 201 (2n)`** (2 nodes): `openCoupangWingInventory()`, `coupang-wing.ts`
+- **Thin community `Community 195`** (2 nodes): `getCompanyId()`, `api.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 202 (2n)`** (2 nodes): `resolveImageUrl()`, `resolve-url.ts`
+- **Thin community `Community 196`** (1 nodes): `index.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 203 (2n)`** (2 nodes): `getCompanyId()`, `api.ts`
+- **Thin community `Community 197`** (1 nodes): `page.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 204 (2n)`** (2 nodes): `Pattern: Strict import order (use client > react > 3rd-party > absolute > relative > types)`, `Rule: Follow strict import order (use client > React > 3rd party > absolute > relative > type)`
+- **Thin community `Community 198`** (1 nodes): `UnshippedItemsTable.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 205 (2n)`** (2 nodes): `Pattern: Polling via refetchInterval option`, `Prohibit: setInterval for polling (use refetchInterval)`
+- **Thin community `Community 199`** (1 nodes): `CoupangTab.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 206 (1n)`** (1 nodes): `next-env.d.ts`
+- **Thin community `Community 200`** (1 nodes): `page.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 207 (1n)`** (1 nodes): `tailwind.config.ts`
+- **Thin community `Community 201`** (1 nodes): `ProductPipeline.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 208 (1n)`** (1 nodes): `vitest.config.ts`
+- **Thin community `Community 202`** (1 nodes): `ProductListTable.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 209 (1n)`** (1 nodes): `setup.ts`
+- **Thin community `Community 203`** (1 nodes): `ProductPageHeader.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 210 (1n)`** (1 nodes): `index.ts`
+- **Thin community `Community 204`** (1 nodes): `ProductFilterBar.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 211 (1n)`** (1 nodes): `page.tsx`
+- **Thin community `Community 205`** (1 nodes): `ProductInfoCards.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 212 (1n)`** (1 nodes): `UnshippedItemsTable.tsx`
+- **Thin community `Community 206`** (1 nodes): `ActivityHistory.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 213 (1n)`** (1 nodes): `page.tsx`
+- **Thin community `Community 207`** (1 nodes): `HealthDiagnosis.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 214 (1n)`** (1 nodes): `DiagnosisCard.tsx`
+- **Thin community `Community 208`** (1 nodes): `ProductHeader.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 215 (1n)`** (1 nodes): `MetricCard.tsx`
+- **Thin community `Community 209`** (1 nodes): `CSTable.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 216 (1n)`** (1 nodes): `page.tsx`
+- **Thin community `Community 210`** (1 nodes): `cs-types.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 217 (1n)`** (1 nodes): `page.tsx`
+- **Thin community `Community 211`** (1 nodes): `PurchaseOrderFilterTabs.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 218 (1n)`** (1 nodes): `ProductDrilldown.tsx`
+- **Thin community `Community 212`** (1 nodes): `PurchaseOrderTable.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 219 (1n)`** (1 nodes): `CampaignTable.tsx`
+- **Thin community `Community 213`** (1 nodes): `page.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 220 (1n)`** (1 nodes): `page.tsx`
+- **Thin community `Community 214`** (1 nodes): `ImageUploader.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 221 (1n)`** (1 nodes): `RecommendCards.tsx`
+- **Thin community `Community 215`** (1 nodes): `EditorControlPanel.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 222 (1n)`** (1 nodes): `PlanSummary.tsx`
+- **Thin community `Community 216`** (1 nodes): `EditorResultPanel.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 223 (1n)`** (1 nodes): `CoupangTab.tsx`
+- **Thin community `Community 217`** (1 nodes): `EditorInputPanel.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 224 (1n)`** (1 nodes): `page.tsx`
+- **Thin community `Community 218`** (1 nodes): `EditorResult.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 225 (1n)`** (1 nodes): `ProductPipeline.tsx`
+- **Thin community `Community 219`** (1 nodes): `ProductDrilldown.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 226 (1n)`** (1 nodes): `ProductListTable.tsx`
+- **Thin community `Community 220`** (1 nodes): `AdSidePanel.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 227 (1n)`** (1 nodes): `ProductPageHeader.tsx`
+- **Thin community `Community 221`** (1 nodes): `CampaignContent.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 228 (1n)`** (1 nodes): `ProductFilterBar.tsx`
+- **Thin community `Community 222`** (1 nodes): `KpiDashboard.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 229 (1n)`** (1 nodes): `ProductInfoCards.tsx`
+- **Thin community `Community 223`** (1 nodes): `StrategyContent.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 230 (1n)`** (1 nodes): `ActivityHistory.tsx`
+- **Thin community `Community 224`** (1 nodes): `CampaignTable.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 231 (1n)`** (1 nodes): `HealthDiagnosis.tsx`
+- **Thin community `Community 225`** (1 nodes): `RegisterCampaignModal.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 232 (1n)`** (1 nodes): `ProductHeader.tsx`
+- **Thin community `Community 226`** (1 nodes): `types.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 233 (1n)`** (1 nodes): `CSTable.tsx`
+- **Thin community `Community 227`** (1 nodes): `page.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 234 (1n)`** (1 nodes): `cs-types.ts`
+- **Thin community `Community 228`** (1 nodes): `StockLedger.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 235 (1n)`** (1 nodes): `PurchaseOrderFilterTabs.tsx`
+- **Thin community `Community 229`** (1 nodes): `page.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 236 (1n)`** (1 nodes): `PurchaseOrderTable.tsx`
+- **Thin community `Community 230`** (1 nodes): `BundleProducts.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 237 (1n)`** (1 nodes): `page.tsx`
+- **Thin community `Community 231`** (1 nodes): `CleanupProducts.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 238 (1n)`** (1 nodes): `ImageUploader.tsx`
+- **Thin community `Community 232`** (1 nodes): `CoreProducts.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 239 (1n)`** (1 nodes): `EditorResult.tsx`
+- **Thin community `Community 233`** (1 nodes): `Categories.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 240 (1n)`** (1 nodes): `AdSidePanel.tsx`
+- **Thin community `Community 234`** (1 nodes): `page.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 241 (1n)`** (1 nodes): `KpiDashboard.tsx`
+- **Thin community `Community 235`** (1 nodes): `marketplace-types.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 242 (1n)`** (1 nodes): `StrategyContent.tsx`
+- **Thin community `Community 236`** (1 nodes): `marketplace-api.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 243 (1n)`** (1 nodes): `StatusContent.tsx`
+- **Thin community `Community 237`** (1 nodes): `WorkflowNode.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 244 (1n)`** (1 nodes): `RegisterCampaignModal.tsx`
+- **Thin community `Community 238`** (1 nodes): `workflow-api.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 245 (1n)`** (1 nodes): `types.ts`
+- **Thin community `Community 239`** (1 nodes): `page.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 246 (1n)`** (1 nodes): `page.tsx`
+- **Thin community `Community 240`** (1 nodes): `CostBreakdownTable.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 247 (1n)`** (1 nodes): `StockLedger.tsx`
+- **Thin community `Community 241`** (1 nodes): `CostTrendChart.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 248 (1n)`** (1 nodes): `page.tsx`
+- **Thin community `Community 242`** (1 nodes): `AgentLogsSection.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 249 (1n)`** (1 nodes): `BundleProducts.tsx`
+- **Thin community `Community 243`** (1 nodes): `TraceHeader.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 250 (1n)`** (1 nodes): `CleanupProducts.tsx`
+- **Thin community `Community 244`** (1 nodes): `ActivityPagination.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 251 (1n)`** (1 nodes): `CoreProducts.tsx`
+- **Thin community `Community 245`** (1 nodes): `ActivityFilters.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 252 (1n)`** (1 nodes): `Categories.tsx`
+- **Thin community `Community 246`** (1 nodes): `page.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 253 (1n)`** (1 nodes): `page.tsx`
+- **Thin community `Community 247`** (1 nodes): `AgentCard.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 254 (1n)`** (1 nodes): `marketplace-types.ts`
+- **Thin community `Community 248`** (1 nodes): `OrgTreeNode.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 255 (1n)`** (1 nodes): `marketplace-api.ts`
+- **Thin community `Community 249`** (1 nodes): `AgentListRow.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 256 (1n)`** (1 nodes): `WorkflowNode.tsx`
+- **Thin community `Community 250`** (1 nodes): `AgentToolbar.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 257 (1n)`** (1 nodes): `workflow-api.ts`
+- **Thin community `Community 251`** (1 nodes): `AgentListPanel.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 258 (1n)`** (1 nodes): `page.tsx`
+- **Thin community `Community 252`** (1 nodes): `agent-types.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 259 (1n)`** (1 nodes): `CostBreakdownTable.tsx`
+- **Thin community `Community 253`** (1 nodes): `page.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 260 (1n)`** (1 nodes): `CostTrendChart.tsx`
+- **Thin community `Community 254`** (1 nodes): `SkillCardGrid.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 261 (1n)`** (1 nodes): `AgentLogsSection.tsx`
+- **Thin community `Community 255`** (1 nodes): `AgentDetailHeader.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 262 (1n)`** (1 nodes): `TraceHeader.tsx`
+- **Thin community `Community 256`** (1 nodes): `SkillsTab.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 263 (1n)`** (1 nodes): `ActivityPagination.tsx`
+- **Thin community `Community 257`** (1 nodes): `constants.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 264 (1n)`** (1 nodes): `ActivityFilters.tsx`
+- **Thin community `Community 258`** (1 nodes): `page.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 265 (1n)`** (1 nodes): `page.tsx`
+- **Thin community `Community 259`** (1 nodes): `StockTransfers.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 266 (1n)`** (1 nodes): `AgentCard.tsx`
+- **Thin community `Community 260`** (1 nodes): `DeadStock.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 267 (1n)`** (1 nodes): `OrgTreeNode.tsx`
+- **Thin community `Community 261`** (1 nodes): `ReturnTransfers.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 268 (1n)`** (1 nodes): `AgentListRow.tsx`
+- **Thin community `Community 262`** (1 nodes): `page.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 269 (1n)`** (1 nodes): `AgentToolbar.tsx`
+- **Thin community `Community 263`** (1 nodes): `ReturnFaultSplit.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 270 (1n)`** (1 nodes): `AgentListPanel.tsx`
+- **Thin community `Community 264`** (1 nodes): `RevenueTrendChart.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 271 (1n)`** (1 nodes): `agent-types.ts`
+- **Thin community `Community 265`** (1 nodes): `OrderRankingTable.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 272 (1n)`** (1 nodes): `page.tsx`
+- **Thin community `Community 266`** (1 nodes): `OrdersDateFilter.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 273 (1n)`** (1 nodes): `SkillCardGrid.tsx`
+- **Thin community `Community 267`** (1 nodes): `DashboardCharts.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 274 (1n)`** (1 nodes): `AgentDetailHeader.tsx`
+- **Thin community `Community 268`** (1 nodes): `InventoryFilterTabs.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 275 (1n)`** (1 nodes): `SkillsTab.tsx`
+- **Thin community `Community 269`** (1 nodes): `StockMovementTab.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 276 (1n)`** (1 nodes): `constants.ts`
+- **Thin community `Community 270`** (1 nodes): `GenerateSubmitButton.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 277 (1n)`** (1 nodes): `page.tsx`
+- **Thin community `Community 271`** (1 nodes): `page.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 278 (1n)`** (1 nodes): `StockTransfers.tsx`
+- **Thin community `Community 272`** (1 nodes): `ReturnProductInfo.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 279 (1n)`** (1 nodes): `DeadStock.tsx`
+- **Thin community `Community 273`** (1 nodes): `ScanLogTable.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 280 (1n)`** (1 nodes): `ReturnTransfers.tsx`
+- **Thin community `Community 274`** (1 nodes): `OrderTable.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 281 (1n)`** (1 nodes): `page.tsx`
+- **Thin community `Community 275`** (1 nodes): `OrderHeader.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 282 (1n)`** (1 nodes): `ReturnFaultSplit.tsx`
+- **Thin community `Community 276`** (1 nodes): `MobilePreview.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 283 (1n)`** (1 nodes): `RevenueTrendChart.tsx`
+- **Thin community `Community 277`** (1 nodes): `ProductEditHeader.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 284 (1n)`** (1 nodes): `OrderRankingTable.tsx`
+- **Thin community `Community 278`** (1 nodes): `ProductEditTabs.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 285 (1n)`** (1 nodes): `OrdersDateFilter.tsx`
+- **Thin community `Community 279`** (1 nodes): `ProductList.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 286 (1n)`** (1 nodes): `DashboardCharts.tsx`
+- **Thin community `Community 280`** (1 nodes): `SourcingToolbar.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 287 (1n)`** (1 nodes): `InventoryFilterTabs.tsx`
+- **Thin community `Community 281`** (1 nodes): `ProductCard.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 288 (1n)`** (1 nodes): `StockMovementTab.tsx`
+- **Thin community `Community 282`** (1 nodes): `ScrapeUrlInput.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 289 (1n)`** (1 nodes): `GenerateSubmitButton.tsx`
+- **Thin community `Community 283`** (1 nodes): `SourcingStats.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 290 (1n)`** (1 nodes): `page.tsx`
+- **Thin community `Community 284`** (1 nodes): `sourcing-api.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 291 (1n)`** (1 nodes): `ReturnProductInfo.tsx`
+- **Thin community `Community 285`** (1 nodes): `ImagePickerModal.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 292 (1n)`** (1 nodes): `ScanLogTable.tsx`
+- **Thin community `Community 286`** (1 nodes): `AIImageEditPanel.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 293 (1n)`** (1 nodes): `OrderTable.tsx`
+- **Thin community `Community 287`** (1 nodes): `page.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 294 (1n)`** (1 nodes): `OrderHeader.tsx`
+- **Thin community `Community 288`** (1 nodes): `ChannelTable.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 295 (1n)`** (1 nodes): `MobilePreview.tsx`
+- **Thin community `Community 289`** (1 nodes): `WingDailySales.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 296 (1n)`** (1 nodes): `ProductEditHeader.tsx`
+- **Thin community `Community 290`** (1 nodes): `page.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 297 (1n)`** (1 nodes): `ProductEditTabs.tsx`
+- **Thin community `Community 291`** (1 nodes): `SupplierSettlement.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 298 (1n)`** (1 nodes): `ProductList.tsx`
+- **Thin community `Community 292`** (1 nodes): `SupplierHistory.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 299 (1n)`** (1 nodes): `SourcingToolbar.tsx`
+- **Thin community `Community 293`** (1 nodes): `SupplierPurchases.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 300 (1n)`** (1 nodes): `ProductCard.tsx`
+- **Thin community `Community 294`** (1 nodes): `SupplierProductSales.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 301 (1n)`** (1 nodes): `ScrapeUrlInput.tsx`
+- **Thin community `Community 295`** (1 nodes): `GenerationQueue.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 302 (1n)`** (1 nodes): `SourcingStats.tsx`
+- **Thin community `Community 296`** (1 nodes): `RegenerationPipeline.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 303 (1n)`** (1 nodes): `sourcing-api.ts`
+- **Thin community `Community 297`** (1 nodes): `PaginationBar.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 304 (1n)`** (1 nodes): `ImagePickerModal.tsx`
+- **Thin community `Community 298`** (1 nodes): `ScoreBreakdown.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 305 (1n)`** (1 nodes): `AIImageEditPanel.tsx`
+- **Thin community `Community 299`** (1 nodes): `GradeDonutChart.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 306 (1n)`** (1 nodes): `page.tsx`
+- **Thin community `Community 300`** (1 nodes): `ProductCard.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 307 (1n)`** (1 nodes): `ChannelTable.tsx`
+- **Thin community `Community 301`** (1 nodes): `ThumbnailCard.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 308 (1n)`** (1 nodes): `page.tsx`
+- **Thin community `Community 302`** (1 nodes): `ThumbnailStatusBadge.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 309 (1n)`** (1 nodes): `SupplierSettlement.tsx`
+- **Thin community `Community 303`** (1 nodes): `DetailModal.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 310 (1n)`** (1 nodes): `SupplierHistory.tsx`
+- **Thin community `Community 304`** (1 nodes): `GenerationHistory.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 311 (1n)`** (1 nodes): `SupplierPurchases.tsx`
+- **Thin community `Community 305`** (1 nodes): `useThumbnailGenerations.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 312 (1n)`** (1 nodes): `SupplierProductSales.tsx`
+- **Thin community `Community 306`** (1 nodes): `coupang-wing.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 313 (1n)`** (1 nodes): `GenerationQueue.tsx`
+- **Thin community `Community 307`** (1 nodes): `resolve-url.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 314 (1n)`** (1 nodes): `RegenerationPipeline.tsx`
+- **Thin community `Community 308`** (1 nodes): `grade-constants.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 315 (1n)`** (1 nodes): `PaginationBar.tsx`
+- **Thin community `Community 309`** (1 nodes): `page.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 316 (1n)`** (1 nodes): `ScoreBreakdown.tsx`
+- **Thin community `Community 310`** (1 nodes): `AgentFace.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 317 (1n)`** (1 nodes): `GradeDonutChart.tsx`
+- **Thin community `Community 311`** (1 nodes): `Pagination.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 318 (1n)`** (1 nodes): `ProductCard.tsx`
+- **Thin community `Community 312`** (1 nodes): `EmptyState.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 319 (1n)`** (1 nodes): `ThumbnailCard.tsx`
+- **Thin community `Community 313`** (1 nodes): `PanelSheet.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 320 (1n)`** (1 nodes): `ThumbnailStatusBadge.tsx`
+- **Thin community `Community 314`** (1 nodes): `panel-sse-client.spec.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 321 (1n)`** (1 nodes): `DetailModal.tsx`
+- **Thin community `Community 315`** (1 nodes): `MarketplaceCard.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 322 (1n)`** (1 nodes): `GenerationHistory.tsx`
+- **Thin community `Community 316`** (1 nodes): `ProductSelector.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 323 (1n)`** (1 nodes): `useThumbnailGenerations.ts`
+- **Thin community `Community 317`** (1 nodes): `ProductCard.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 324 (1n)`** (1 nodes): `coupang-wing.ts`
+- **Thin community `Community 318`** (1 nodes): `ThumbnailStatusBadge.tsx`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 325 (1n)`** (1 nodes): `resolve-url.ts`
+- **Thin community `Community 319`** (1 nodes): `useProductImages.test.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 326 (1n)`** (1 nodes): `grade-constants.ts`
+- **Thin community `Community 320`** (1 nodes): `status-colors.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 327 (1n)`** (1 nodes): `page.tsx`
+- **Thin community `Community 321`** (1 nodes): `query-keys.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 328 (1n)`** (1 nodes): `Pagination.tsx`
+- **Thin community `Community 322`** (1 nodes): `useStore.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 329 (1n)`** (1 nodes): `EmptyState.tsx`
+- **Thin community `Community 323`** (1 nodes): `PanelErrorBoundary (class component)`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 330 (1n)`** (1 nodes): `MarketplaceCard.tsx`
+- **Thin community `Community 324`** (1 nodes): `Rule: apiClient.get/post (no raw fetch)`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 331 (1n)`** (1 nodes): `ProductSelector.tsx`
+- **Thin community `Community 325`** (1 nodes): `Rule: useQuery/useMutation (no useEffect+fetch)`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 332 (1n)`** (1 nodes): `ProductCard.tsx`
+- **Thin community `Community 326`** (1 nodes): `Prohibit: template literal conditional className (use cn())`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 333 (1n)`** (1 nodes): `ThumbnailStatusBadge.tsx`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 334 (1n)`** (1 nodes): `status-colors.ts`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 335 (1n)`** (1 nodes): `query-keys.ts`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 336 (1n)`** (1 nodes): `useStore.ts`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 337 (1n)`** (1 nodes): `Rule: No Next.js API Routes — all data fetched from NestJS at localhost:4000`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 338 (1n)`** (1 nodes): `Rule: Test infrastructure core only (api-client, api-error); no implementation detail tests`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 339 (1n)`** (1 nodes): `Prohibit: Next.js API Routes in this app`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Cluster 340 (1n)`** (1 nodes): `File: .env.local`
+- **Thin community `Community 327`** (1 nodes): `Rule: Lucide React only (no other icon libraries)`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Are the 2 inferred relationships involving `Pattern: cn() utility (clsx + tailwind-merge) for conditional className` (e.g. with `File: @/lib/utils` and `File: globals.css`) actually correct?**
-  _`Pattern: cn() utility (clsx + tailwind-merge) for conditional className` has 2 INFERRED edges - model-reasoned connections that need verification._
-- **Are the 3 inferred relationships involving `Pattern: Co-located domain hooks per route` (e.g. with `File: app/agents/hooks/useAgents.ts` and `File: app/workflows/hooks/useWorkflows.ts`) actually correct?**
-  _`Pattern: Co-located domain hooks per route` has 3 INFERRED edges - model-reasoned connections that need verification._
-- **Are the 3 inferred relationships involving `Pattern: Co-located directory structure per domain route` (e.g. with `File: src/components/ui/` and `File: src/components/layout/`) actually correct?**
-  _`Pattern: Co-located directory structure per domain route` has 3 INFERRED edges - model-reasoned connections that need verification._
-- **What connects `Pattern: Radix UI primitives for Popover/Select/Tabs/DropdownMenu`, `Pattern: Strict import order (use client > react > 3rd-party > absolute > relative > types)`, `Pattern: Polling via refetchInterval option` to the rest of the system?**
-  _55 weakly-connected nodes found - possible documentation gaps or missing edges._
-- **Should `Cluster 0 (18n)` be split into smaller, more focused modules?**
-  _Cohesion score 0.11 - nodes in this community are weakly interconnected._
-- **Should `Cluster 1 (17n)` be split into smaller, more focused modules?**
+- **What connects `PanelErrorBoundary (class component)`, `PANEL_OPEN_LS_KEY (kiditem.panel.open localStorage)`, `MAX_RETRIES = 5 (PanelSseClient retry cap)` to the rest of the system?**
+  _24 weakly-connected nodes found - possible documentation gaps or missing edges._
+- **Should `Panel SSE Domain (PR1)` be split into smaller, more focused modules?**
+  _Cohesion score 0.07 - nodes in this community are weakly interconnected._
+- **Should `Products & Profit-Loss Pages` be split into smaller, more focused modules?**
   _Cohesion score 0.12 - nodes in this community are weakly interconnected._
-- **Should `Cluster 2 (15n)` be split into smaller, more focused modules?**
+- **Should `Thumbnails Page` be split into smaller, more focused modules?**
   _Cohesion score 0.14 - nodes in this community are weakly interconnected._
+- **Should `Shared Utilities (cn, format)` be split into smaller, more focused modules?**
+  _Cohesion score 0.13 - nodes in this community are weakly interconnected._

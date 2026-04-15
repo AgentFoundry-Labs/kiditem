@@ -1,27 +1,31 @@
-# Graph Report - /tmp/kiditem-erd-corpus  (2026-04-14)
+# Graph Report - graphify-out/.erd-corpus  (2026-04-15)
 
 ## Corpus Check
-- Corpus is ~8,633 words - fits in a single context window. You may not need a graph.
+- Corpus is ~9,052 words - fits in a single context window. You may not need a graph.
 
 ## Summary
-- 106 nodes · 239 edges · 13 communities detected
-- Extraction: 62% EXTRACTED · 38% INFERRED · 0% AMBIGUOUS · INFERRED: 90 edges (avg confidence: 0.86)
+- 137 nodes · 268 edges · 17 communities detected
+- Extraction: 63% EXTRACTED · 37% INFERRED · 0% AMBIGUOUS · INFERRED: 98 edges (avg confidence: 0.85)
 - Token cost: 0 input · 0 output
 
 ## Community Hubs (Navigation)
-- [[_COMMUNITY_Thumbnail AI & Finance|Thumbnail AI & Finance]]
-- [[_COMMUNITY_Stock & Master Catalog|Stock & Master Catalog]]
-- [[_COMMUNITY_Agent Runtime|Agent Runtime]]
-- [[_COMMUNITY_Ads Automation|Ads Automation]]
-- [[_COMMUNITY_System & Config|System & Config]]
-- [[_COMMUNITY_Order Pipeline (Coupang)|Order Pipeline (Coupang)]]
-- [[_COMMUNITY_Supply Chain|Supply Chain]]
-- [[_COMMUNITY_Stack Components|Stack Components]]
-- [[_COMMUNITY_Core Tenancy (CompanyUser)|Core Tenancy (Company/User)]]
-- [[_COMMUNITY_Rule PascalCase mapping|Rule: PascalCase mapping]]
-- [[_COMMUNITY_Rule UUID PK|Rule: UUID PK]]
+- [[_COMMUNITY_CoreStockSystem Domain|Core/Stock/System Domain]]
+- [[_COMMUNITY_Architecture & Cross-Domain Rules|Architecture & Cross-Domain Rules]]
+- [[_COMMUNITY_ThumbnailFinanceContent|Thumbnail/Finance/Content]]
+- [[_COMMUNITY_Agent Runtime & Workflow|Agent Runtime & Workflow]]
+- [[_COMMUNITY_Ads Automation Pipeline|Ads Automation Pipeline]]
+- [[_COMMUNITY_Order Pipeline|Order Pipeline]]
+- [[_COMMUNITY_SupplyPurchase Domain|Supply/Purchase Domain]]
+- [[_COMMUNITY_System Topology (FEBEAgents)|System Topology (FE/BE/Agents)]]
+- [[_COMMUNITY_Action Board & Alerts|Action Board & Alerts]]
+- [[_COMMUNITY_Rule PascalCase Mapping|Rule: PascalCase Mapping]]
+- [[_COMMUNITY_Rule UUID Primary Key|Rule: UUID Primary Key]]
 - [[_COMMUNITY_Rule Timestamptz|Rule: Timestamptz]]
-- [[_COMMUNITY_Rule satisfies drift detection|Rule: satisfies drift detection]]
+- [[_COMMUNITY_Rule Zod satisfies Pattern|Rule: Zod satisfies Pattern]]
+- [[_COMMUNITY_Rule FK Index Required|Rule: FK Index Required]]
+- [[_COMMUNITY_Rule Optional FK onDelete|Rule: Optional FK onDelete]]
+- [[_COMMUNITY_DB Sync 3-Tier Model|DB Sync 3-Tier Model]]
+- [[_COMMUNITY_init.sql.gz Fresh Volume Rule|init.sql.gz Fresh Volume Rule]]
 
 ## God Nodes (most connected - your core abstractions)
 1. `Company` - 51 edges
@@ -38,71 +42,63 @@
 ## Surprising Connections (you probably didn't know these)
 - `System/Settings Domain` --references--> `ProductMemo`  [INFERRED]
   erd.md → schema-models.md
-- `Core Domain (Company/User/Product)` --references--> `Company`  [INFERRED]
-  erd.md → schema-models.md
 - `Core Domain (Company/User/Product)` --references--> `Product`  [INFERRED]
-  erd.md → schema-models.md
-- `Core Domain (Company/User/Product)` --references--> `MasterProduct`  [INFERRED]
   erd.md → schema-models.md
 - `Order/Delivery Domain` --references--> `CoupangReturn`  [INFERRED]
   erd.md → schema-models.md
+- `Order/Delivery Domain` --references--> `Settlement`  [INFERRED]
+  erd.md → schema-models.md
+- `Stock/Logistics Domain` --references--> `StockAudit`  [INFERRED]
+  erd.md → schema-models.md
 
 ## Hyperedges (group relationships)
-- **Order Pipeline (Coupang intake → internal order → shipment → unshipped/settlement)** — schema_CoupangOrder, schema_CoupangOrderItem, schema_Order, schema_Shipment, schema_UnshippedItem, schema_Settlement, schema_Inventory [INFERRED 0.85]
-- **Ad Automation Pipeline (Snapshot → Action → ExecutionTask → ExecutionLog, Worker)** — schema_AdSnapshot, schema_AdAction, schema_ExecutionTask, schema_ExecutionWorker, schema_ExecutionLog [EXTRACTED 1.00]
-- **Thumbnail AI Pipeline (Analysis → Generation → Tracking → Thumbnail CTR)** — schema_Thumbnail, schema_ThumbnailAnalysis, schema_ThumbnailGeneration, schema_ThumbnailTracking [EXTRACTED 1.00]
-- **Agent Runtime Loop (Definition → WakeupRequest → HeartbeatRun → AgentEvent)** — schema_AgentDefinition, schema_AgentWakeupRequest, schema_HeartbeatRun, schema_AgentEvent [EXTRACTED 1.00]
-- **Workflow Execution (Template → Run, delegates to AgentTask)** — schema_WorkflowTemplate, schema_WorkflowRun, schema_AgentTask, schema_AgentLog [INFERRED 0.80]
-- **Purchase Receiving (Supplier → PurchaseOrder → PurchaseOrderItem → SupplierPayment → Inventory/StockTransaction)** — schema_Supplier, schema_PurchaseOrder, schema_PurchaseOrderItem, schema_SupplierPayment, schema_StockTransaction [INFERRED 0.85]
-- **Warehouse Movement (Warehouse → StockTransfer from/to → StockTransaction → Inventory)** — schema_Warehouse, schema_StockTransfer, schema_StockTransaction, schema_Inventory [EXTRACTED 1.00]
-- **Picking Fulfillment (PickingList → PickingItem → Shipment)** — schema_PickingList, schema_PickingItem, schema_Shipment [INFERRED 0.80]
-- **Master normalization layer (Master* tables shadow operational)** — schema_MasterProduct, schema_MasterInventory, schema_MasterSupplierProduct, schema_Product, schema_Inventory, schema_SupplierProduct [INFERRED 0.70]
-- **Marketplace distribution (type=agent|workflow, publishes AgentDefinition + WorkflowTemplate)** — schema_Marketplace, schema_AgentDefinition, schema_WorkflowTemplate [EXTRACTED 1.00]
-- **Nine-domain partition of 67 models** — erd_domain_core, erd_domain_order, erd_domain_stock, erd_domain_supply, erd_domain_ads, erd_domain_finance, erd_domain_ai, erd_domain_agent, erd_domain_system [EXTRACTED 1.00]
+- **Panel visibility uses User-WorkflowRun relation** — erd_workflow_run, erd_workflow_run_triggered_by_user, erd_user_unified [EXTRACTED 0.90]
+- **Ads execution pipeline (AdSnapshot -> AdAction -> ExecutionTask)** — erd_ad_snapshot, erd_ad_action, erd_execution_task [EXTRACTED 0.95]
+- **Agent runtime state (AgentDefinition + HeartbeatRun + AgentEvent)** — erd_agent_definition, erd_heartbeat_run, erd_agent_event [EXTRACTED 0.90]
 
 ## Communities
 
-### Community 0 - "Thumbnail AI & Finance"
+### Community 0 - "Core/Stock/System Domain"
+Cohesion: 0.11
+Nodes (32): Core Domain (Company/User/Product), Stock/Logistics Domain, System/Settings Domain, Rationale: Json absorption (items[]) avoids child tables for small collections, Rationale: RLS isolates chatbot tenant data at DB layer, Rationale: Unify human+AI+system into users table, Rule: Json absorption pattern for embedded child items, Rule: RLS on chatbot_readonly user via app.company_id session var (+24 more)
+
+### Community 1 - "Architecture & Cross-Domain Rules"
+Cohesion: 0.09
+Nodes (25): Agent Runtimes (claude_local | python_http), Chatbot vs Agent role boundary, @kiditem/shared (Zod schemas + satisfies pattern), Agent OS Phase 3+4 (8 patterns), RLS chatbot_readonly DB user (11 tables), Workflows must never call LLMs directly, AdAction, AdSnapshot (level: campaign|product|null) (+17 more)
+
+### Community 2 - "Thumbnail/Finance/Content"
 Cohesion: 0.21
 Nodes (17): Concept: Thumbnail pipeline (analyze→generate→track), AI/Thumbnail Domain, Finance/Analytics Domain, CSRecord, ContentGeneration, GradeHistory, ManualLedger, ProcessingCost (+9 more)
 
-### Community 1 - "Stock & Master Catalog"
-Cohesion: 0.17
-Nodes (16): Stock/Logistics Domain, Rationale: Json absorption (items[]) avoids child tables for small collections, Rule: Json absorption pattern for embedded child items, BundleProduct, CoupangReturn, Inventory, MasterInventory, MasterProduct (+8 more)
-
-### Community 2 - "Agent Runtime"
+### Community 3 - "Agent Runtime & Workflow"
 Cohesion: 0.22
 Nodes (15): Concept: Agent hierarchy (manager→specialist via reportsTo self-ref), Agent/Workflow Domain, Rationale: Agent OS Phase 3+4 — 8 new patterns (Token Escalation, Fallback, Cron...), Rationale: AgentDefinition.rt_* embedded to avoid table proliferation, Rationale: Workflows never call LLMs — delegate to agents, Rule: AgentDefinition.rt_* runtime state fields — no separate table, Rule: AgentEvent eventType discriminates permission_denied|action_snapshot, Rule: Marketplace.type discriminates agent|workflow (+7 more)
 
-### Community 3 - "Ads Automation"
+### Community 4 - "Ads Automation Pipeline"
 Cohesion: 0.24
 Nodes (14): Concept: Ad automation (Snapshot→Action→Task→Log), Ads/Marketing Domain, Rule: AdSnapshot.level discriminates campaign|product|null, Ad, AdAction, AdSnapshot, AgentLog, AgentTask (+6 more)
 
-### Community 4 - "System & Config"
-Cohesion: 0.26
-Nodes (12): System/Settings Domain, Rationale: RLS isolates chatbot tenant data at DB layer, Rule: RLS on chatbot_readonly user via app.company_id session var, ActionTask, ActivityEvent, Alert, BusinessRule, CategoryMapping (+4 more)
-
-### Community 5 - "Order Pipeline (Coupang)"
+### Community 5 - "Order Pipeline"
 Cohesion: 0.42
 Nodes (9): Concept: Order pipeline (Coupang intake → internal order → shipment), Order/Delivery Domain, Rule: No native PG enums — String + app-level validation, CoupangOrder, CoupangOrderItem, Order, Settlement, Shipment (+1 more)
 
-### Community 6 - "Supply Chain"
+### Community 6 - "Supply/Purchase Domain"
 Cohesion: 0.54
 Nodes (8): Supply/Purchase Domain, Rule: Currency — Int(KRW) or Decimal(12,2)(CNY), MasterSupplierProduct, PurchaseOrder, PurchaseOrderItem, Supplier, SupplierPayment, SupplierProduct
 
-### Community 7 - "Stack Components"
+### Community 7 - "System Topology (FE/BE/Agents)"
 Cohesion: 0.38
 Nodes (7): Claude CLI Agents (spawn claude -p) — judgment/analysis, Python Agents (FastAPI HTTP) — generation/processing, Backend: NestJS (ValidationPipe/DTO/GlobalExceptionFilter), Chatbot (CopilotKit sidebar + ClaudeCliAdapter), DB: PostgreSQL (with RLS), Frontend: Next.js (apiClient + TanStack Query), @kiditem/shared Zod schemas (ESM+CJS)
 
-### Community 8 - "Core Tenancy (Company/User)"
-Cohesion: 0.5
-Nodes (4): Core Domain (Company/User/Product), Rationale: Unify human+AI+system into users table, Rule: User.type unifies human|agent|system, User
+### Community 8 - "Action Board & Alerts"
+Cohesion: 1.0
+Nodes (2): ActionTask (Action Board), Alert
 
-### Community 9 - "Rule: PascalCase mapping"
+### Community 9 - "Rule: PascalCase Mapping"
 Cohesion: 1.0
 Nodes (1): Rule: PascalCase model with @@map to snake_case table
 
-### Community 10 - "Rule: UUID PK"
+### Community 10 - "Rule: UUID Primary Key"
 Cohesion: 1.0
 Nodes (1): Rule: UUID PK @default(uuid()) @db.Uuid
 
@@ -110,31 +106,57 @@ Nodes (1): Rule: UUID PK @default(uuid()) @db.Uuid
 Cohesion: 1.0
 Nodes (1): Rule: Timestamps use @db.Timestamptz
 
-### Community 12 - "Rule: satisfies drift detection"
+### Community 12 - "Rule: Zod satisfies Pattern"
 Cohesion: 1.0
 Nodes (1): Rule: satisfies z.infer<typeof Schema> pattern to detect drift
 
+### Community 13 - "Rule: FK Index Required"
+Cohesion: 1.0
+Nodes (1): FK columns require explicit @@index
+
+### Community 14 - "Rule: Optional FK onDelete"
+Cohesion: 1.0
+Nodes (1): Optional FK (Foo?) requires explicit onDelete
+
+### Community 15 - "DB Sync 3-Tier Model"
+Cohesion: 1.0
+Nodes (1): DB sync 3-tier model (DDL | init.sql.gz | incremental)
+
+### Community 16 - "init.sql.gz Fresh Volume Rule"
+Cohesion: 1.0
+Nodes (1): init.sql.gz loads on fresh volume only
+
 ## Knowledge Gaps
-- **15 isolated node(s):** `FeatureGate`, `Rule: PascalCase model with @@map to snake_case table`, `Rule: UUID PK @default(uuid()) @db.Uuid`, `Rule: Timestamps use @db.Timestamptz`, `Rule: satisfies z.infer<typeof Schema> pattern to detect drift` (+10 more)
+- **32 isolated node(s):** `FeatureGate`, `Rule: PascalCase model with @@map to snake_case table`, `Rule: UUID PK @default(uuid()) @db.Uuid`, `Rule: Timestamps use @db.Timestamptz`, `Rule: satisfies z.infer<typeof Schema> pattern to detect drift` (+27 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **Thin community `Rule: PascalCase mapping`** (1 nodes): `Rule: PascalCase model with @@map to snake_case table`
+- **Thin community `Action Board & Alerts`** (2 nodes): `ActionTask (Action Board)`, `Alert`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Rule: UUID PK`** (1 nodes): `Rule: UUID PK @default(uuid()) @db.Uuid`
+- **Thin community `Rule: PascalCase Mapping`** (1 nodes): `Rule: PascalCase model with @@map to snake_case table`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Rule: UUID Primary Key`** (1 nodes): `Rule: UUID PK @default(uuid()) @db.Uuid`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
 - **Thin community `Rule: Timestamptz`** (1 nodes): `Rule: Timestamps use @db.Timestamptz`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Rule: satisfies drift detection`** (1 nodes): `Rule: satisfies z.infer<typeof Schema> pattern to detect drift`
+- **Thin community `Rule: Zod satisfies Pattern`** (1 nodes): `Rule: satisfies z.infer<typeof Schema> pattern to detect drift`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Rule: FK Index Required`** (1 nodes): `FK columns require explicit @@index`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Rule: Optional FK onDelete`** (1 nodes): `Optional FK (Foo?) requires explicit onDelete`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `DB Sync 3-Tier Model`** (1 nodes): `DB sync 3-tier model (DDL | init.sql.gz | incremental)`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `init.sql.gz Fresh Volume Rule`** (1 nodes): `init.sql.gz loads on fresh volume only`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `Company` connect `System & Config` to `Thumbnail AI & Finance`, `Stock & Master Catalog`, `Agent Runtime`, `Ads Automation`, `Order Pipeline (Coupang)`, `Supply Chain`, `Core Tenancy (Company/User)`?**
-  _High betweenness centrality (0.529) - this node is a cross-community bridge._
-- **Why does `Product` connect `Thumbnail AI & Finance` to `Stock & Master Catalog`, `Ads Automation`, `System & Config`, `Order Pipeline (Coupang)`, `Supply Chain`, `Core Tenancy (Company/User)`?**
-  _High betweenness centrality (0.160) - this node is a cross-community bridge._
-- **Why does `Agent/Workflow Domain` connect `Agent Runtime` to `Core Tenancy (Company/User)`, `Ads Automation`?**
-  _High betweenness centrality (0.135) - this node is a cross-community bridge._
+- **Why does `Company` connect `Core/Stock/System Domain` to `Thumbnail/Finance/Content`, `Agent Runtime & Workflow`, `Ads Automation Pipeline`, `Order Pipeline`, `Supply/Purchase Domain`?**
+  _High betweenness centrality (0.315) - this node is a cross-community bridge._
+- **Why does `Product` connect `Thumbnail/Finance/Content` to `Core/Stock/System Domain`, `Ads Automation Pipeline`, `Order Pipeline`, `Supply/Purchase Domain`?**
+  _High betweenness centrality (0.095) - this node is a cross-community bridge._
+- **Why does `Agent/Workflow Domain` connect `Agent Runtime & Workflow` to `Core/Stock/System Domain`, `Ads Automation Pipeline`?**
+  _High betweenness centrality (0.080) - this node is a cross-community bridge._
 - **Are the 2 inferred relationships involving `Company` (e.g. with `Core Domain (Company/User/Product)` and `BusinessRule`) actually correct?**
   _`Company` has 2 INFERRED edges - model-reasoned connections that need verification._
 - **Are the 2 inferred relationships involving `Product` (e.g. with `Core Domain (Company/User/Product)` and `MasterProduct`) actually correct?**

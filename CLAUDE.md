@@ -93,4 +93,4 @@ Rules:
 - 그래프 재생성:
   - ERD: `./scripts/graphify-erd.sh` → `/graphify graphify-out/.erd-corpus --wiki`
   - 코드 도메인: `/graphify <path> --wiki` → `./scripts/graphify-rebuild-domain.sh <path>` (파일 노드 merge + 테스트 노이즈 제거)
-- 현재 graphified: `erd`, `server/agent-registry`. 추가 도메인은 필요 시 Phase B에서 확장.
+- 현재 graphified: `erd`, `server/agent-registry`, `server/panel`, `web`, `shared`, `agents`, `templates`. 추가 도메인은 필요 시 확장.
