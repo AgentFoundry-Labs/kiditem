@@ -6,8 +6,16 @@ import { usePathname } from 'next/navigation';
 import { useStore } from '@/store/useStore';
 import { cn } from '@/lib/utils';
 import Sidebar from './Sidebar';
+import { PanelSheet } from '@/components/panel/PanelSheet';
+import { PanelErrorBoundary } from '@/components/panel/PanelErrorBoundary';
+import { usePanelStream } from '@/components/panel/hooks/usePanelStream';
 
 const CopilotChat = dynamic(() => import('./CopilotChat'), { ssr: false });
+
+function PanelMount() {
+  usePanelStream();
+  return <PanelSheet />;
+}
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { sidebarOpen } = useStore();
@@ -34,6 +42,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       >
         <main className="p-6">{children}</main>
       </div>
+      <PanelErrorBoundary>
+        <PanelMount />
+      </PanelErrorBoundary>
     </div>
   );
 
