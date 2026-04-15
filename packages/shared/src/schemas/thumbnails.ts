@@ -37,7 +37,7 @@ export const ThumbnailListItemSchema = z.object({
   prevCtr: z.number(),
   impressions: z.number(),
   clicks: z.number(),
-  status: z.string(),
+  status: z.enum(['pending', 'running', 'succeeded', 'failed', 'cancelled']),
   strategy: z.string(),
   grade: z.string(),
   issues: z.array(z.object({
@@ -130,13 +130,18 @@ export const EditAnalysisResultSchema = z.object({
   grade: z.string(),
 });
 
+// ─── ADR-0011 Phase 3: Canonical status + phase ─────────────────────────
+export const THUMBNAIL_PHASES = ['ready', 'applied'] as const;
+export type ThumbnailPhase = typeof THUMBNAIL_PHASES[number];
+
 export const ThumbnailGenerationItemSchema = z.object({
   id: z.string(),
   productId: z.string(),
   originalUrl: z.string().nullable(),
   candidates: z.array(z.object({ url: z.string(), filename: z.string() })),
   selectedUrl: z.string().nullable(),
-  status: z.string(),
+  status: z.enum(['pending', 'running', 'succeeded', 'failed', 'cancelled']),
+  phase: z.enum(THUMBNAIL_PHASES).nullable().optional(),
   grade: z.string(),
   score: z.number(),
   method: z.string().default('generate'),
