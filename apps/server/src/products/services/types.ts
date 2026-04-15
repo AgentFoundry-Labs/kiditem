@@ -78,6 +78,7 @@ export interface GenerationWithProduct {
   candidates: Array<{ url: string; filename: string }>;
   selectedUrl: string | null;
   status: string;
+  phase: string | null;
   grade: string;
   score: number;
   prompt: string | null;

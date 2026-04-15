@@ -37,7 +37,7 @@ export const ThumbnailListItemSchema = z.object({
   prevCtr: z.number(),
   impressions: z.number(),
   clicks: z.number(),
-  status: z.enum(['pending', 'running', 'succeeded', 'failed', 'cancelled']),
+  status: z.string(),
   strategy: z.string(),
   grade: z.string(),
   issues: z.array(z.object({
