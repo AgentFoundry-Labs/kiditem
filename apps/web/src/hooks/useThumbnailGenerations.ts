@@ -3,6 +3,7 @@ import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { ThumbnailGenerationItem } from '@kiditem/shared';
+import { isActive } from '@/lib/thumbnail-status';
 
 export function useGenerationList() {
   return useQuery({
@@ -14,7 +15,7 @@ export function useGenerationList() {
     refetchInterval: (query) => {
       const data = query.state.data;
       if (!data) return 3000; // 첫 로드 전에는 polling
-      const hasActiveJobs = data.some((g) => g.status === 'pending' || g.status === 'generating');
+      const hasActiveJobs = data.some(isActive);
       return hasActiveJobs ? 3000 : false;
     },
   });
@@ -30,7 +31,7 @@ export function useSelectCandidate() {
       await queryClient.cancelQueries({ queryKey: qKey });
       const previous = queryClient.getQueryData<ThumbnailGenerationItem[]>(qKey);
       queryClient.setQueryData<ThumbnailGenerationItem[]>(qKey, (old) =>
-        old?.map((g) => g.id === id ? { ...g, selectedUrl: selectedUrl || null, status: 'ready' } : g) ?? [],
+        old?.map((g) => g.id === id ? { ...g, selectedUrl: selectedUrl || null, status: 'succeeded' as const, phase: 'ready' as const } : g) ?? [],
       );
       return { previous };
     },
@@ -87,7 +88,7 @@ export function useReEditGeneration() {
       const previous = queryClient.getQueryData<ThumbnailGenerationItem[]>(qKey);
       // 즉시 generating으로 낙관적 업데이트 (UI에서 생성 중 탭으로 이동)
       queryClient.setQueryData<ThumbnailGenerationItem[]>(qKey, (old) =>
-        old?.map((g) => g.id === id ? { ...g, status: 'generating', candidates: [] } : g) ?? [],
+        old?.map((g) => g.id === id ? { ...g, status: 'running' as const, phase: null, candidates: [] } : g) ?? [],
       );
       return { previous };
     },
