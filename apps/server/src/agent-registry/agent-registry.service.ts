@@ -328,7 +328,7 @@ export class AgentRegistryService implements OnModuleInit {
         COUNT(*)::int as run_count
       FROM heartbeat_runs
       WHERE started_at >= $1 AND started_at <= $2
-        AND status IN ('succeeded', 'failed', 'timed_out')
+        AND status IN ('succeeded', 'failed')
         AND usage_json IS NOT NULL
         ${dailyAgentFilter}
       GROUP BY DATE(started_at) ORDER BY date ASC`,
@@ -359,7 +359,7 @@ export class AgentRegistryService implements OnModuleInit {
       FROM heartbeat_runs h
       LEFT JOIN agent_definitions d ON h.agent_id = d.id
       WHERE h.started_at >= $1 AND h.started_at <= $2
-        AND h.status IN ('succeeded', 'failed', 'timed_out')
+        AND h.status IN ('succeeded', 'failed')
         AND h.usage_json IS NOT NULL
         ${agentFilter}
       GROUP BY h.agent_id, d.name ORDER BY total_cost_cents DESC`,
