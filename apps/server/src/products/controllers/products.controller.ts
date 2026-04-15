@@ -9,6 +9,7 @@ import {
   TriggerContentDraftBodyDto,
   UpdateProductImagesDto,
 } from '../dto';
+import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
 
 @Controller('products')
 export class ProductsController {
@@ -76,8 +77,8 @@ export class ProductsController {
 
   @Post()
   @HttpCode(201)
-  create(@Body() body: CreateProductBodyDto) {
-    return this.productsService.create(body);
+  create(@Body() body: CreateProductBodyDto, @CurrentCompany() companyId: string) {
+    return this.productsService.create({ ...body, companyId });
   }
 
   @Patch(':id/images')

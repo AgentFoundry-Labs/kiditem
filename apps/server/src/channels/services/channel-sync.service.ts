@@ -57,15 +57,10 @@ export class ChannelSyncService {
     }
   }
 
-  async syncProducts(): Promise<SyncResult> {
+  async syncProducts(companyId: string): Promise<SyncResult> {
     const result: SyncResult = { synced: 0, errors: 0, details: [] };
 
     try {
-      const company = await this.getDefaultCompany();
-      if (!company) {
-        return { synced: 0, errors: 1, details: ['활성 회사가 없습니다'] };
-      }
-
       const allSellerProductIds = await this.fetchAllSellerProductIds(result);
 
       this.logger.log(
@@ -74,7 +69,7 @@ export class ChannelSyncService {
 
       for (const sellerProductId of allSellerProductIds) {
         try {
-          await this.syncSingleProduct(sellerProductId, company.id);
+          await this.syncSingleProduct(sellerProductId, companyId);
           result.synced++;
         } catch (error: unknown) {
           result.errors++;
@@ -100,15 +95,10 @@ export class ChannelSyncService {
     return result;
   }
 
-  async syncOrders(from?: Date, to?: Date): Promise<SyncResult> {
+  async syncOrders(companyId: string, from?: Date, to?: Date): Promise<SyncResult> {
     const result: SyncResult = { synced: 0, errors: 0, details: [] };
 
     try {
-      const company = await this.getDefaultCompany();
-      if (!company) {
-        return { synced: 0, errors: 1, details: ['활성 회사가 없습니다'] };
-      }
-
       const dateTo = to ?? new Date();
       const dateFrom =
         from ?? new Date(dateTo.getTime() - 7 * 24 * 60 * 60 * 1000);
@@ -134,7 +124,7 @@ export class ChannelSyncService {
 
       for (const order of orders) {
         try {
-          await this.syncSingleOrder(order, company.id);
+          await this.syncSingleOrder(order, companyId);
           result.synced++;
         } catch (error: unknown) {
           result.errors++;
@@ -160,18 +150,13 @@ export class ChannelSyncService {
     return result;
   }
 
-  async syncInventory(): Promise<SyncResult> {
+  async syncInventory(companyId: string): Promise<SyncResult> {
     const result: SyncResult = { synced: 0, errors: 0, details: [] };
 
     try {
-      const company = await this.getDefaultCompany();
-      if (!company) {
-        return { synced: 0, errors: 1, details: ['활성 회사가 없습니다'] };
-      }
-
       const syncedProducts = await this.prisma.product.findMany({
         where: {
-          companyId: company.id,
+          companyId,
           coupangProductId: { not: null },
         },
         include: {
@@ -205,7 +190,7 @@ export class ChannelSyncService {
             } else {
               await this.prisma.inventory.create({
               data: {
-                companyId: company.id,
+                companyId: companyId,
                 productId: product.id,
                 currentStock: totalStock,
                 reservedStock: 0,
@@ -241,23 +226,25 @@ export class ChannelSyncService {
         const current = masterStockMap.get(product.masterProductId) ?? 0;
         masterStockMap.set(product.masterProductId, current + stock);
       }
-      for (const [masterProductId, totalStock] of masterStockMap) {
-        try {
-          await this.prisma.masterInventory.upsert({
-            where: { masterProductId },
-            update: { currentStock: totalStock },
-            create: {
-              companyId: company.id,
-              masterProductId,
-              currentStock: totalStock,
-              safetyStock: 0,
-            },
-          });
-        } catch (e: unknown) {
-          const msg = e instanceof Error ? e.message : 'Unknown error';
-          this.logger.error(`MasterInventory sync failed for ${masterProductId}: ${msg}`);
-        }
-      }
+      await Promise.all(
+        Array.from(masterStockMap.entries()).map(([masterProductId, totalStock]) =>
+          this.prisma.masterInventory
+            .upsert({
+              where: { masterProductId },
+              update: { currentStock: totalStock },
+              create: {
+                companyId: companyId,
+                masterProductId,
+                currentStock: totalStock,
+                safetyStock: 0,
+              },
+            })
+            .catch((e: unknown) => {
+              const msg = e instanceof Error ? e.message : 'Unknown error';
+              this.logger.error(`MasterInventory sync failed for ${masterProductId}: ${msg}`);
+            }),
+        ),
+      );
     } catch (error: unknown) {
       const message =
         error instanceof Error ? error.message : 'Unknown error';
@@ -270,13 +257,6 @@ export class ChannelSyncService {
       `Inventory sync complete: ${result.synced} synced, ${result.errors} errors`,
     );
     return result;
-  }
-
-  private async getDefaultCompany() {
-    return this.prisma.company.findFirst({
-      where: { isActive: true },
-      select: { id: true },
-    });
   }
 
   private async fetchAllSellerProductIds(
@@ -355,11 +335,7 @@ export class ChannelSyncService {
         },
       });
 
-      await this.upsertProductItems(existingProduct.id, items, {
-        name: pd.sellerProductName,
-        sellPrice: primaryItem?.salePrice ?? existingProduct.sellPrice,
-        costPrice: existingProduct.costPrice,
-      });
+      await this.upsertProductItems(existingProduct.id, items);
     } else {
       const newProduct = await this.prisma.product.create({
         data: {
@@ -381,43 +357,48 @@ export class ChannelSyncService {
         },
       });
 
-      await this.upsertProductItems(newProduct.id, items, {
-        name: newProduct.name,
-        sellPrice: newProduct.sellPrice,
-        costPrice: newProduct.costPrice,
-      });
+      await this.upsertProductItems(newProduct.id, items);
     }
   }
 
   private async upsertProductItems(
     productId: string,
     items: NonNullable<SellerProductDetailResponse['data']>['items'],
-    productData: { name: string; sellPrice: number | null; costPrice: number | null },
   ): Promise<void> {
-    for (const item of items ?? []) {
-      const vendorItemId = String(item.vendorItemId);
-      const existingItem = await this.prisma.productItem.findFirst({
-        where: { productId, vendorItemId },
-      });
+    if (!items?.length) return;
 
-      const itemData = {
-        itemName: productData.name || item.itemName || '',
-        originalPrice: productData.sellPrice ?? item.originalPrice ?? 0,
-        salePrice: productData.sellPrice ?? item.salePrice ?? 0,
-        supplyPrice: productData.costPrice ?? item.supplyPrice ?? 0,
-      };
+    // 한 번의 쿼리로 기존 아이템 맵 구성 → vendorItemId 기준으로 매칭
+    const vendorItemIds = items.map((item) => String(item.vendorItemId));
+    const existingItems = await this.prisma.productItem.findMany({
+      where: { productId, vendorItemId: { in: vendorItemIds } },
+      select: { id: true, vendorItemId: true },
+    });
+    const existingByVendorId = new Map(
+      existingItems.map((it) => [it.vendorItemId, it.id]),
+    );
 
-      if (existingItem) {
-        await this.prisma.productItem.update({
-          where: { id: existingItem.id },
-          data: itemData,
-        });
-      } else {
-        await this.prisma.productItem.create({
+    // update / create 를 병렬 실행 (같은 vendorItemId 는 호출 내 중복 없다는 가정)
+    await Promise.all(
+      items.map((item) => {
+        const vendorItemId = String(item.vendorItemId);
+        const itemData = {
+          itemName: item.itemName ?? '',
+          originalPrice: item.originalPrice ?? 0,
+          salePrice: item.salePrice ?? 0,
+          supplyPrice: item.supplyPrice ?? 0,
+        };
+        const existingId = existingByVendorId.get(vendorItemId);
+        if (existingId) {
+          return this.prisma.productItem.update({
+            where: { id: existingId },
+            data: itemData,
+          });
+        }
+        return this.prisma.productItem.create({
           data: { productId, vendorItemId, ...itemData },
         });
-      }
-    }
+      }),
+    );
   }
 
   private async syncSingleOrder(

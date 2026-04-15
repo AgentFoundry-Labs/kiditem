@@ -1,15 +1,12 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { ChannelDashboardService } from '../services/channel-dashboard.service';
-import { CompanyResolverService } from '../../common/company-resolver.service';
 import { kstDayStart } from '../../common/kst';
 import { CoupangDateRangeQueryDto } from '../dto';
+import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
 
 @Controller('coupang-dashboard')
 export class ChannelDashboardController {
-  constructor(
-    private readonly service: ChannelDashboardService,
-    private readonly companyResolver: CompanyResolverService,
-  ) {}
+  constructor(private readonly service: ChannelDashboardService) {}
 
   private resolveDateRange(fromStr?: string, toStr?: string): { from: Date; to: Date } {
     const defaultFrom = kstDayStart(new Date(Date.now() - 30 * 86400000));
@@ -22,42 +19,51 @@ export class ChannelDashboardController {
   }
 
   @Get()
-  async getSummary() {
-    const companyId = await this.companyResolver.resolve();
+  async getSummary(@CurrentCompany() companyId: string) {
     return this.service.getSummary(companyId);
   }
 
   @Get('trend')
-  async getRevenueTrend(@Query() query: CoupangDateRangeQueryDto) {
-    const companyId = await this.companyResolver.resolve();
+  async getRevenueTrend(
+    @CurrentCompany() companyId: string,
+    @Query() query: CoupangDateRangeQueryDto,
+  ) {
     const { from, to } = this.resolveDateRange(query.from, query.to);
     return this.service.getRevenueTrend(companyId, from, to);
   }
 
   @Get('ranking')
-  async getProductRanking(@Query() query: CoupangDateRangeQueryDto) {
-    const companyId = await this.companyResolver.resolve();
+  async getProductRanking(
+    @CurrentCompany() companyId: string,
+    @Query() query: CoupangDateRangeQueryDto,
+  ) {
     const { from, to } = this.resolveDateRange(query.from, query.to);
     return this.service.getProductRanking(companyId, from, to);
   }
 
   @Get('return-summary')
-  async getReturnSummary(@Query() query: CoupangDateRangeQueryDto) {
-    const companyId = await this.companyResolver.resolve();
+  async getReturnSummary(
+    @CurrentCompany() companyId: string,
+    @Query() query: CoupangDateRangeQueryDto,
+  ) {
     const { from, to } = this.resolveDateRange(query.from, query.to);
     return this.service.getReturnSummary(companyId, from, to);
   }
 
   @Get('return-reasons')
-  async getReturnReasonBreakdown(@Query() query: CoupangDateRangeQueryDto) {
-    const companyId = await this.companyResolver.resolve();
+  async getReturnReasonBreakdown(
+    @CurrentCompany() companyId: string,
+    @Query() query: CoupangDateRangeQueryDto,
+  ) {
     const { from, to } = this.resolveDateRange(query.from, query.to);
     return this.service.getReturnReasonBreakdown(companyId, from, to);
   }
 
   @Get('return-fault-split')
-  async getReturnFaultSplit(@Query() query: CoupangDateRangeQueryDto) {
-    const companyId = await this.companyResolver.resolve();
+  async getReturnFaultSplit(
+    @CurrentCompany() companyId: string,
+    @Query() query: CoupangDateRangeQueryDto,
+  ) {
     const { from, to } = this.resolveDateRange(query.from, query.to);
     return this.service.getReturnFaultSplit(companyId, from, to);
   }

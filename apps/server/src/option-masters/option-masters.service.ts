@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateOptionMasterDto, UpdateOptionMasterDto } from './dto';
 
@@ -13,10 +13,10 @@ export class OptionMastersService {
     });
   }
 
-  async create(dto: CreateOptionMasterDto) {
+  async create(companyId: string, dto: CreateOptionMasterDto) {
     return this.prisma.optionMaster.create({
       data: {
-        companyId: dto.companyId,
+        companyId,
         name: dto.name,
         values: dto.values,
         isActive: dto.isActive ?? true,
@@ -24,10 +24,12 @@ export class OptionMastersService {
     });
   }
 
-  async update(id: string, dto: UpdateOptionMasterDto) {
-    const existing = await this.prisma.optionMaster.findUnique({ where: { id } });
+  async update(id: string, dto: UpdateOptionMasterDto, companyId: string) {
+    const existing = await this.prisma.optionMaster.findFirst({
+      where: { id, companyId },
+    });
     if (!existing) {
-      throw new BadRequestException('옵션 마스터를 찾을 수 없습니다');
+      throw new NotFoundException('옵션 마스터를 찾을 수 없습니다');
     }
 
     return this.prisma.optionMaster.update({
@@ -36,10 +38,12 @@ export class OptionMastersService {
     });
   }
 
-  async delete(id: string) {
-    const existing = await this.prisma.optionMaster.findUnique({ where: { id } });
+  async delete(id: string, companyId: string) {
+    const existing = await this.prisma.optionMaster.findFirst({
+      where: { id, companyId },
+    });
     if (!existing) {
-      throw new BadRequestException('옵션 마스터를 찾을 수 없습니다');
+      throw new NotFoundException('옵션 마스터를 찾을 수 없습니다');
     }
 
     await this.prisma.optionMaster.delete({ where: { id } });

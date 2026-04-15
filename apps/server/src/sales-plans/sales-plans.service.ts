@@ -13,11 +13,11 @@ export class SalesPlansService {
     });
   }
 
-  async create(dto: CreateSalesPlanDto) {
+  async create(companyId: string, dto: CreateSalesPlanDto) {
     const existing = await this.prisma.salesPlan.findUnique({
       where: {
         companyId_period: {
-          companyId: dto.companyId,
+          companyId,
           period: dto.period,
         },
       },
@@ -29,7 +29,7 @@ export class SalesPlansService {
 
     return this.prisma.salesPlan.create({
       data: {
-        companyId: dto.companyId,
+        companyId,
         period: dto.period,
         targetRevenue: dto.targetRevenue ?? 0,
         targetOrders: dto.targetOrders ?? 0,

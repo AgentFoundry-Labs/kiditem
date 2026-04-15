@@ -1,25 +1,20 @@
-import { Controller, Get, Post, Patch, Param, Query, Body } from '@nestjs/common';
-import { CompanyResolverService } from '../common/company-resolver.service';
+import { Controller, Get, Post, Patch, Param, Body } from '@nestjs/common';
 import { PickingService } from './picking.service';
-import { ListPickingQueryDto, GeneratePickingDto, UpdatePickingItemDto } from './dto';
+import { UpdatePickingItemDto } from './dto';
+import { CurrentCompany } from '../auth/decorators/current-company.decorator';
 
 @Controller('picking')
 export class PickingController {
-  constructor(
-    private readonly pickingService: PickingService,
-    private readonly companyResolver: CompanyResolverService,
-  ) {}
+  constructor(private readonly pickingService: PickingService) {}
 
   @Get()
-  async findAll(@Query() query: ListPickingQueryDto) {
-    return this.pickingService.findAll(
-      await this.companyResolver.resolve(),
-    );
+  async findAll(@CurrentCompany() companyId: string) {
+    return this.pickingService.findAll(companyId);
   }
 
   @Post('generate')
-  generate(@Body() dto: GeneratePickingDto) {
-    return this.pickingService.generate(dto.companyId);
+  generate(@CurrentCompany() companyId: string) {
+    return this.pickingService.generate(companyId);
   }
 
   @Patch(':id/items/:itemId')

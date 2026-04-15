@@ -132,7 +132,7 @@ export default function AdOpsPage() {
           wingAdData={wingAdData}
           period={period}
           roas={roas}
-          trendsDaily={(trendsQuery.data as { daily?: unknown[] } | undefined)?.daily ?? null}
+          trendsDaily={trendsQuery.data?.daily ?? null}
         />
 
         {/* ════════ 탭 네비게이션 ════════ */}

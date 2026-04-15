@@ -3,8 +3,8 @@ import { MarketplaceService } from './marketplace.service';
 import {
   ListMarketplaceQueryDto,
   InstallMarketplaceBodyDto,
-  UninstallMarketplaceBodyDto,
 } from './dto';
+import { CurrentCompany } from '../auth/decorators/current-company.decorator';
 
 @Controller('marketplace')
 export class MarketplaceController {
@@ -13,8 +13,11 @@ export class MarketplaceController {
   // ─── Workflows ────────────────────────────────────────────────────────────
 
   @Get('workflows')
-  listWorkflows(@Query() query: ListMarketplaceQueryDto) {
-    return this.service.listWorkflows(query);
+  listWorkflows(
+    @CurrentCompany() companyId: string,
+    @Query() query: ListMarketplaceQueryDto,
+  ) {
+    return this.service.listWorkflows(companyId, query);
   }
 
   @Get('workflows/:id')
@@ -25,20 +28,30 @@ export class MarketplaceController {
   }
 
   @Post('workflows/:id/install')
-  installWorkflow(@Param('id') id: string, @Body() body: InstallMarketplaceBodyDto) {
-    return this.service.installWorkflow(id, body.companyId, body.params);
+  installWorkflow(
+    @Param('id') id: string,
+    @Body() body: InstallMarketplaceBodyDto,
+    @CurrentCompany() companyId: string,
+  ) {
+    return this.service.installWorkflow(id, companyId, body.params);
   }
 
   @Post('workflows/:id/uninstall')
-  uninstallWorkflow(@Param('id') id: string, @Body() body: UninstallMarketplaceBodyDto) {
-    return this.service.uninstallWorkflow(id, body.companyId);
+  uninstallWorkflow(
+    @Param('id') id: string,
+    @CurrentCompany() companyId: string,
+  ) {
+    return this.service.uninstallWorkflow(id, companyId);
   }
 
   // ─── Agents ───────────────────────────────────────────────────────────────
 
   @Get('agents')
-  listAgents(@Query() query: ListMarketplaceQueryDto) {
-    return this.service.listAgents(query);
+  listAgents(
+    @CurrentCompany() companyId: string,
+    @Query() query: ListMarketplaceQueryDto,
+  ) {
+    return this.service.listAgents(companyId, query);
   }
 
   @Get('agents/:id')
@@ -49,12 +62,19 @@ export class MarketplaceController {
   }
 
   @Post('agents/:id/install')
-  installAgent(@Param('id') id: string, @Body() body: InstallMarketplaceBodyDto) {
-    return this.service.installAgent(id, body.companyId, body.params);
+  installAgent(
+    @Param('id') id: string,
+    @Body() body: InstallMarketplaceBodyDto,
+    @CurrentCompany() companyId: string,
+  ) {
+    return this.service.installAgent(id, companyId, body.params);
   }
 
   @Post('agents/:id/uninstall')
-  uninstallAgent(@Param('id') id: string, @Body() body: UninstallMarketplaceBodyDto) {
-    return this.service.uninstallAgent(id, body.companyId);
+  uninstallAgent(
+    @Param('id') id: string,
+    @CurrentCompany() companyId: string,
+  ) {
+    return this.service.uninstallAgent(id, companyId);
   }
 }

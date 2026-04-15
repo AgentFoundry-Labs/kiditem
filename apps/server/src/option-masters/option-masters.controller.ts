@@ -1,32 +1,33 @@
-import { Controller, Get, Post, Patch, Delete, Param, Query, Body } from '@nestjs/common';
-import { CompanyResolverService } from '../common/company-resolver.service';
+import { Controller, Get, Post, Patch, Delete, Param, Body } from '@nestjs/common';
 import { OptionMastersService } from './option-masters.service';
 import { CreateOptionMasterDto, UpdateOptionMasterDto } from './dto';
+import { CurrentCompany } from '../auth/decorators/current-company.decorator';
 
 @Controller('option-masters')
 export class OptionMastersController {
-  constructor(
-    private readonly optionMastersService: OptionMastersService,
-    private readonly companyResolver: CompanyResolverService,
-  ) {}
+  constructor(private readonly optionMastersService: OptionMastersService) {}
 
   @Get()
-  async findAll(@Query('companyId') companyId?: string) {
-    return this.optionMastersService.findAll(await this.companyResolver.resolve());
+  async findAll(@CurrentCompany() companyId: string) {
+    return this.optionMastersService.findAll(companyId);
   }
 
   @Post()
-  create(@Body() dto: CreateOptionMasterDto) {
-    return this.optionMastersService.create(dto);
+  create(@Body() dto: CreateOptionMasterDto, @CurrentCompany() companyId: string) {
+    return this.optionMastersService.create(companyId, dto);
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() dto: UpdateOptionMasterDto) {
-    return this.optionMastersService.update(id, dto);
+  update(
+    @Param('id') id: string,
+    @Body() dto: UpdateOptionMasterDto,
+    @CurrentCompany() companyId: string,
+  ) {
+    return this.optionMastersService.update(id, dto, companyId);
   }
 
   @Delete(':id')
-  delete(@Param('id') id: string) {
-    return this.optionMastersService.delete(id);
+  delete(@Param('id') id: string, @CurrentCompany() companyId: string) {
+    return this.optionMastersService.delete(id, companyId);
   }
 }

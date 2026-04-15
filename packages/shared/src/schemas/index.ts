@@ -50,6 +50,30 @@ export type {
   CostAnalytics,
 } from './agent.js';
 
+// Agent Trace
+export {
+  AgentTaskSchema,
+  WorkflowRunTraceSchema,
+  AgentWakeupRequestSchema,
+  AgentEventSchema,
+  AgentLogSchema,
+  TraceabilitySchema,
+  TracePaginationSchema,
+  AgentTraceSchema,
+  AgentTaskListResponseSchema,
+} from './agent-trace.js';
+export type {
+  AgentTask,
+  WorkflowRunTrace,
+  AgentWakeupRequest,
+  AgentEvent,
+  AgentLog,
+  Traceability,
+  TracePagination,
+  AgentTrace,
+  AgentTaskListResponse,
+} from './agent-trace.js';
+
 // Marketplace
 export { ConfigurableParamSchema, MarketplaceCatalogItemSchema, WorkflowCatalogItemSchema, AgentCatalogItemSchema } from './marketplace.js';
 export type { ConfigurableParam, MarketplaceCatalogItem, WorkflowCatalogItem, AgentCatalogItem } from './marketplace.js';

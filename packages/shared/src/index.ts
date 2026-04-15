@@ -42,6 +42,30 @@ export type {
   CostAnalytics,
 } from './schemas/agent.js';
 
+// Agent Trace
+export {
+  AgentTaskSchema,
+  WorkflowRunTraceSchema,
+  AgentWakeupRequestSchema,
+  AgentEventSchema,
+  AgentLogSchema,
+  TraceabilitySchema,
+  TracePaginationSchema,
+  AgentTraceSchema,
+  AgentTaskListResponseSchema,
+} from './schemas/agent-trace.js';
+export type {
+  AgentTask,
+  WorkflowRunTrace,
+  AgentWakeupRequest,
+  AgentEvent,
+  AgentLog,
+  Traceability,
+  TracePagination,
+  AgentTrace,
+  AgentTaskListResponse,
+} from './schemas/agent-trace.js';
+
 // Marketplace
 export { ConfigurableParamSchema, MarketplaceCatalogItemSchema, WorkflowCatalogItemSchema, AgentCatalogItemSchema } from './schemas/marketplace.js';
 export type { ConfigurableParam, MarketplaceCatalogItem, WorkflowCatalogItem, AgentCatalogItem } from './schemas/marketplace.js';
@@ -100,3 +124,6 @@ export type { WorkflowStep, AgentWorkflow, WorkflowYield } from './schemas/agent
 // Errors
 export { ErrorCodes } from './errors/codes.js';
 export { AppException } from './errors/app-exception.js';
+
+// Security
+export { scrubSecrets, scrubDeep, REDACTED_PLACEHOLDER, SECRET_PATTERNS, SENSITIVE_FIELD_KEYS } from './security/index.js';

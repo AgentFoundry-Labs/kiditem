@@ -19,10 +19,10 @@ export class SupplierPaymentsService {
     });
   }
 
-  async create(dto: CreateSupplierPaymentDto) {
+  async create(companyId: string, dto: CreateSupplierPaymentDto) {
     return this.prisma.supplierPayment.create({
       data: {
-        companyId: dto.companyId,
+        companyId,
         supplierId: dto.supplierId,
         amount: dto.amount,
         dueDate: dto.dueDate ? new Date(dto.dueDate) : undefined,

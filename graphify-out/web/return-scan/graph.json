@@ -1,0 +1,499 @@
+{
+  "directed": false,
+  "multigraph": false,
+  "graph": {},
+  "nodes": [
+    {
+      "label": "page.tsx",
+      "file_type": "code",
+      "source_file": "page.tsx",
+      "source_location": "L1",
+      "id": "page_tsx",
+      "community": 3,
+      "norm_label": "page.tsx"
+    },
+    {
+      "label": "handleSubmit()",
+      "file_type": "code",
+      "source_file": "page.tsx",
+      "source_location": "L55",
+      "id": "page_handlesubmit",
+      "community": 3,
+      "norm_label": "handlesubmit()"
+    },
+    {
+      "label": "handleRecovery()",
+      "file_type": "code",
+      "source_file": "page.tsx",
+      "source_location": "L62",
+      "id": "page_handlerecovery",
+      "community": 3,
+      "norm_label": "handlerecovery()"
+    },
+    {
+      "label": "ReturnScanHeader.tsx",
+      "file_type": "code",
+      "source_file": "components/ReturnScanHeader.tsx",
+      "source_location": "L1",
+      "id": "components_returnscanheader_tsx",
+      "community": 4,
+      "norm_label": "returnscanheader.tsx"
+    },
+    {
+      "label": "ReturnScanHeader()",
+      "file_type": "code",
+      "source_file": "components/ReturnScanHeader.tsx",
+      "source_location": "L7",
+      "id": "returnscanheader_returnscanheader",
+      "community": 4,
+      "norm_label": "returnscanheader()"
+    },
+    {
+      "label": "BarcodeScanInput.tsx",
+      "file_type": "code",
+      "source_file": "components/BarcodeScanInput.tsx",
+      "source_location": "L1",
+      "id": "components_barcodescaninput_tsx",
+      "community": 5,
+      "norm_label": "barcodescaninput.tsx"
+    },
+    {
+      "label": "handleKeyDown()",
+      "file_type": "code",
+      "source_file": "components/BarcodeScanInput.tsx",
+      "source_location": "L20",
+      "id": "barcodescaninput_handlekeydown",
+      "community": 5,
+      "norm_label": "handlekeydown()"
+    },
+    {
+      "label": "ReturnProductInfo.tsx",
+      "file_type": "code",
+      "source_file": "components/ReturnProductInfo.tsx",
+      "source_location": "L1",
+      "id": "components_returnproductinfo_tsx",
+      "community": 6,
+      "norm_label": "returnproductinfo.tsx"
+    },
+    {
+      "label": "ScanLogTable.tsx",
+      "file_type": "code",
+      "source_file": "components/ScanLogTable.tsx",
+      "source_location": "L1",
+      "id": "components_scanlogtable_tsx",
+      "community": 7,
+      "norm_label": "scanlogtable.tsx"
+    },
+    {
+      "label": "Stateless Barcode Flow",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_pattern_stateless_barcode_flow",
+      "community": 0,
+      "norm_label": "stateless barcode flow"
+    },
+    {
+      "label": "Local-Only Scan Log",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_pattern_local_only_scan_log",
+      "community": 2,
+      "norm_label": "local-only scan log"
+    },
+    {
+      "label": "Local Sync Exception (auto-select)",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_pattern_local_sync_exception_auto_select",
+      "community": 0,
+      "norm_label": "local sync exception (auto-select)"
+    },
+    {
+      "label": "Barcode Input UX",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_pattern_barcode_input_ux",
+      "community": 1,
+      "norm_label": "barcode input ux"
+    },
+    {
+      "label": "Scan log is client-side array only (no mutation)",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rule_scanlog_client_side_only",
+      "community": 2,
+      "norm_label": "scan log is client-side array only (no mutation)"
+    },
+    {
+      "label": "Product lookup is search-only via /api/products?search=X",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rule_product_lookup_search_only",
+      "community": 0,
+      "norm_label": "product lookup is search-only via /api/products?search=x"
+    },
+    {
+      "label": "ScanLogTable columns: timestamp / barcode / product name / status",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rule_scanlog_columns",
+      "community": 2,
+      "norm_label": "scanlogtable columns: timestamp / barcode / product name / status"
+    },
+    {
+      "label": "Input field monospace enforced (barcode UX)",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rule_input_monospace",
+      "community": 1,
+      "norm_label": "input field monospace enforced (barcode ux)"
+    },
+    {
+      "label": "Reset error/successMsg on every new scan",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rule_reset_on_new_scan",
+      "community": 1,
+      "norm_label": "reset error/successmsg on every new scan"
+    },
+    {
+      "label": "No server persistence of scan results (ephemeral intent)",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_prohibit_server_persist",
+      "community": 2,
+      "norm_label": "no server persistence of scan results (ephemeral intent)"
+    },
+    {
+      "label": "No keyboard scanner abstraction library (raw input + Enter)",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_prohibit_scanner_abstraction_lib",
+      "community": 1,
+      "norm_label": "no keyboard scanner abstraction library (raw input + enter)"
+    },
+    {
+      "label": "No UX changes beyond auto-select (scan speed priority)",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_prohibit_ux_changes_beyond_autoselect",
+      "community": 0,
+      "norm_label": "no ux changes beyond auto-select (scan speed priority)"
+    },
+    {
+      "label": "Fast return-receiving UX priority; permanent log is separate system",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rationale_ephemeral_ux_priority",
+      "community": 8,
+      "norm_label": "fast return-receiving ux priority; permanent log is separate system"
+    },
+    {
+      "label": "Scanner UX simplification justifies useQuery pattern violation",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rationale_scanner_ux_simplification",
+      "community": 9,
+      "norm_label": "scanner ux simplification justifies usequery pattern violation"
+    },
+    {
+      "label": "Pure search \u2014 no server mutation",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rationale_no_server_mutation",
+      "community": 10,
+      "norm_label": "pure search \u2014 no server mutation"
+    },
+    {
+      "label": "page.tsx",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_page_tsx",
+      "community": 0,
+      "norm_label": "page.tsx"
+    },
+    {
+      "label": "components/BarcodeScanInput.tsx",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_barcode_scan_input",
+      "community": 1,
+      "norm_label": "components/barcodescaninput.tsx"
+    },
+    {
+      "label": "components/ReturnProductInfo.tsx",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_return_product_info",
+      "community": 11,
+      "norm_label": "components/returnproductinfo.tsx"
+    },
+    {
+      "label": "components/ReturnScanHeader.tsx",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_return_scan_header",
+      "community": 12,
+      "norm_label": "components/returnscanheader.tsx"
+    },
+    {
+      "label": "components/ScanLogTable.tsx",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_scan_log_table",
+      "community": 0,
+      "norm_label": "components/scanlogtable.tsx"
+    },
+    {
+      "label": "prisma/schema.prisma",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_prisma_schema",
+      "community": 0,
+      "norm_label": "prisma/schema.prisma"
+    }
+  ],
+  "links": [
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "page.tsx",
+      "source_location": "L55",
+      "weight": 1.0,
+      "_src": "page_tsx",
+      "_tgt": "page_handlesubmit",
+      "source": "page_tsx",
+      "target": "page_handlesubmit",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "page.tsx",
+      "source_location": "L62",
+      "weight": 1.0,
+      "_src": "page_tsx",
+      "_tgt": "page_handlerecovery",
+      "source": "page_tsx",
+      "target": "page_handlerecovery",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "components/ReturnScanHeader.tsx",
+      "source_location": "L7",
+      "weight": 1.0,
+      "_src": "components_returnscanheader_tsx",
+      "_tgt": "returnscanheader_returnscanheader",
+      "source": "components_returnscanheader_tsx",
+      "target": "returnscanheader_returnscanheader",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "components/BarcodeScanInput.tsx",
+      "source_location": "L20",
+      "weight": 1.0,
+      "_src": "components_barcodescaninput_tsx",
+      "_tgt": "barcodescaninput_handlekeydown",
+      "source": "components_barcodescaninput_tsx",
+      "target": "barcodescaninput_handlekeydown",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_stateless_barcode_flow",
+      "_tgt": "claude_file_page_tsx",
+      "source": "claude_pattern_stateless_barcode_flow",
+      "target": "claude_file_page_tsx"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_stateless_barcode_flow",
+      "_tgt": "claude_rule_product_lookup_search_only",
+      "source": "claude_pattern_stateless_barcode_flow",
+      "target": "claude_rule_product_lookup_search_only"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_local_only_scan_log",
+      "_tgt": "claude_file_page_tsx",
+      "source": "claude_pattern_local_only_scan_log",
+      "target": "claude_file_page_tsx"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_local_only_scan_log",
+      "_tgt": "claude_rule_scanlog_client_side_only",
+      "source": "claude_pattern_local_only_scan_log",
+      "target": "claude_rule_scanlog_client_side_only"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_local_only_scan_log",
+      "_tgt": "claude_rule_scanlog_columns",
+      "source": "claude_pattern_local_only_scan_log",
+      "target": "claude_rule_scanlog_columns"
+    },
+    {
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_local_only_scan_log",
+      "_tgt": "claude_prohibit_server_persist",
+      "source": "claude_pattern_local_only_scan_log",
+      "target": "claude_prohibit_server_persist"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_local_sync_exception_auto_select",
+      "_tgt": "claude_file_page_tsx",
+      "source": "claude_pattern_local_sync_exception_auto_select",
+      "target": "claude_file_page_tsx"
+    },
+    {
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_local_sync_exception_auto_select",
+      "_tgt": "claude_prohibit_ux_changes_beyond_autoselect",
+      "source": "claude_pattern_local_sync_exception_auto_select",
+      "target": "claude_prohibit_ux_changes_beyond_autoselect"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_barcode_input_ux",
+      "_tgt": "claude_file_barcode_scan_input",
+      "source": "claude_pattern_barcode_input_ux",
+      "target": "claude_file_barcode_scan_input"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_barcode_input_ux",
+      "_tgt": "claude_file_scan_log_table",
+      "source": "claude_pattern_barcode_input_ux",
+      "target": "claude_file_scan_log_table"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_barcode_input_ux",
+      "_tgt": "claude_rule_input_monospace",
+      "source": "claude_pattern_barcode_input_ux",
+      "target": "claude_rule_input_monospace"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_barcode_input_ux",
+      "_tgt": "claude_rule_reset_on_new_scan",
+      "source": "claude_pattern_barcode_input_ux",
+      "target": "claude_rule_reset_on_new_scan"
+    },
+    {
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_barcode_input_ux",
+      "_tgt": "claude_prohibit_scanner_abstraction_lib",
+      "source": "claude_pattern_barcode_input_ux",
+      "target": "claude_prohibit_scanner_abstraction_lib"
+    },
+    {
+      "relation": "modification_triggers",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_file_page_tsx",
+      "_tgt": "claude_file_prisma_schema",
+      "source": "claude_file_page_tsx",
+      "target": "claude_file_prisma_schema"
+    },
+    {
+      "relation": "modification_triggers",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_file_barcode_scan_input",
+      "_tgt": "claude_file_page_tsx",
+      "source": "claude_file_page_tsx",
+      "target": "claude_file_barcode_scan_input"
+    },
+    {
+      "relation": "modification_triggers",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_file_page_tsx",
+      "_tgt": "claude_file_scan_log_table",
+      "source": "claude_file_page_tsx",
+      "target": "claude_file_scan_log_table"
+    }
+  ],
+  "hyperedges": []
+}

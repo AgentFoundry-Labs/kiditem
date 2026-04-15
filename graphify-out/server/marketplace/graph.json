@@ -1,0 +1,964 @@
+{
+  "directed": false,
+  "multigraph": false,
+  "graph": {},
+  "nodes": [
+    {
+      "label": "marketplace.controller.ts",
+      "file_type": "code",
+      "source_file": "marketplace.controller.ts",
+      "source_location": "L1",
+      "id": "marketplace_controller_ts",
+      "community": 1,
+      "norm_label": "marketplace.controller.ts"
+    },
+    {
+      "label": "MarketplaceController",
+      "file_type": "code",
+      "source_file": "marketplace.controller.ts",
+      "source_location": "L10",
+      "id": "marketplace_controller_marketplacecontroller",
+      "community": 1,
+      "norm_label": "marketplacecontroller"
+    },
+    {
+      "label": ".constructor()",
+      "file_type": "code",
+      "source_file": "marketplace.controller.ts",
+      "source_location": "L11",
+      "id": "marketplace_controller_marketplacecontroller_constructor",
+      "community": 1,
+      "norm_label": ".constructor()"
+    },
+    {
+      "label": ".listWorkflows()",
+      "file_type": "code",
+      "source_file": "marketplace.controller.ts",
+      "source_location": "L16",
+      "id": "marketplace_controller_marketplacecontroller_listworkflows",
+      "community": 1,
+      "norm_label": ".listworkflows()"
+    },
+    {
+      "label": ".getWorkflow()",
+      "file_type": "code",
+      "source_file": "marketplace.controller.ts",
+      "source_location": "L24",
+      "id": "marketplace_controller_marketplacecontroller_getworkflow",
+      "community": 1,
+      "norm_label": ".getworkflow()"
+    },
+    {
+      "label": ".installWorkflow()",
+      "file_type": "code",
+      "source_file": "marketplace.controller.ts",
+      "source_location": "L31",
+      "id": "marketplace_controller_marketplacecontroller_installworkflow",
+      "community": 1,
+      "norm_label": ".installworkflow()"
+    },
+    {
+      "label": ".uninstallWorkflow()",
+      "file_type": "code",
+      "source_file": "marketplace.controller.ts",
+      "source_location": "L40",
+      "id": "marketplace_controller_marketplacecontroller_uninstallworkflow",
+      "community": 1,
+      "norm_label": ".uninstallworkflow()"
+    },
+    {
+      "label": ".listAgents()",
+      "file_type": "code",
+      "source_file": "marketplace.controller.ts",
+      "source_location": "L50",
+      "id": "marketplace_controller_marketplacecontroller_listagents",
+      "community": 1,
+      "norm_label": ".listagents()"
+    },
+    {
+      "label": ".getAgent()",
+      "file_type": "code",
+      "source_file": "marketplace.controller.ts",
+      "source_location": "L58",
+      "id": "marketplace_controller_marketplacecontroller_getagent",
+      "community": 1,
+      "norm_label": ".getagent()"
+    },
+    {
+      "label": ".installAgent()",
+      "file_type": "code",
+      "source_file": "marketplace.controller.ts",
+      "source_location": "L65",
+      "id": "marketplace_controller_marketplacecontroller_installagent",
+      "community": 1,
+      "norm_label": ".installagent()"
+    },
+    {
+      "label": ".uninstallAgent()",
+      "file_type": "code",
+      "source_file": "marketplace.controller.ts",
+      "source_location": "L74",
+      "id": "marketplace_controller_marketplacecontroller_uninstallagent",
+      "community": 1,
+      "norm_label": ".uninstallagent()"
+    },
+    {
+      "label": "marketplace.service.ts",
+      "file_type": "code",
+      "source_file": "marketplace.service.ts",
+      "source_location": "L1",
+      "id": "marketplace_service_ts",
+      "community": 0,
+      "norm_label": "marketplace.service.ts"
+    },
+    {
+      "label": "toCatalogItem()",
+      "file_type": "code",
+      "source_file": "marketplace.service.ts",
+      "source_location": "L6",
+      "id": "marketplace_service_tocatalogitem",
+      "community": 0,
+      "norm_label": "tocatalogitem()"
+    },
+    {
+      "label": "MarketplaceService",
+      "file_type": "code",
+      "source_file": "marketplace.service.ts",
+      "source_location": "L33",
+      "id": "marketplace_service_marketplaceservice",
+      "community": 0,
+      "norm_label": "marketplaceservice"
+    },
+    {
+      "label": ".constructor()",
+      "file_type": "code",
+      "source_file": "marketplace.service.ts",
+      "source_location": "L36",
+      "id": "marketplace_service_marketplaceservice_constructor",
+      "community": 0,
+      "norm_label": ".constructor()"
+    },
+    {
+      "label": ".listWorkflows()",
+      "file_type": "code",
+      "source_file": "marketplace.service.ts",
+      "source_location": "L40",
+      "id": "marketplace_service_marketplaceservice_listworkflows",
+      "community": 0,
+      "norm_label": ".listworkflows()"
+    },
+    {
+      "label": ".getWorkflow()",
+      "file_type": "code",
+      "source_file": "marketplace.service.ts",
+      "source_location": "L63",
+      "id": "marketplace_service_marketplaceservice_getworkflow",
+      "community": 0,
+      "norm_label": ".getworkflow()"
+    },
+    {
+      "label": ".installWorkflow()",
+      "file_type": "code",
+      "source_file": "marketplace.service.ts",
+      "source_location": "L67",
+      "id": "marketplace_service_marketplaceservice_installworkflow",
+      "community": 0,
+      "norm_label": ".installworkflow()"
+    },
+    {
+      "label": ".listAgents()",
+      "file_type": "code",
+      "source_file": "marketplace.service.ts",
+      "source_location": "L116",
+      "id": "marketplace_service_marketplaceservice_listagents",
+      "community": 0,
+      "norm_label": ".listagents()"
+    },
+    {
+      "label": ".getAgent()",
+      "file_type": "code",
+      "source_file": "marketplace.service.ts",
+      "source_location": "L139",
+      "id": "marketplace_service_marketplaceservice_getagent",
+      "community": 0,
+      "norm_label": ".getagent()"
+    },
+    {
+      "label": ".installAgent()",
+      "file_type": "code",
+      "source_file": "marketplace.service.ts",
+      "source_location": "L143",
+      "id": "marketplace_service_marketplaceservice_installagent",
+      "community": 0,
+      "norm_label": ".installagent()"
+    },
+    {
+      "label": ".uninstallWorkflow()",
+      "file_type": "code",
+      "source_file": "marketplace.service.ts",
+      "source_location": "L204",
+      "id": "marketplace_service_marketplaceservice_uninstallworkflow",
+      "community": 0,
+      "norm_label": ".uninstallworkflow()"
+    },
+    {
+      "label": ".uninstallAgent()",
+      "file_type": "code",
+      "source_file": "marketplace.service.ts",
+      "source_location": "L225",
+      "id": "marketplace_service_marketplaceservice_uninstallagent",
+      "community": 0,
+      "norm_label": ".uninstallagent()"
+    },
+    {
+      "label": "marketplace.module.ts",
+      "file_type": "code",
+      "source_file": "marketplace.module.ts",
+      "source_location": "L1",
+      "id": "marketplace_module_ts",
+      "community": 5,
+      "norm_label": "marketplace.module.ts"
+    },
+    {
+      "label": "MarketplaceModule",
+      "file_type": "code",
+      "source_file": "marketplace.module.ts",
+      "source_location": "L9",
+      "id": "marketplace_module_marketplacemodule",
+      "community": 5,
+      "norm_label": "marketplacemodule"
+    },
+    {
+      "label": "list-marketplace.dto.ts",
+      "file_type": "code",
+      "source_file": "dto/list-marketplace.dto.ts",
+      "source_location": "L1",
+      "id": "dto_list_marketplace_dto_ts",
+      "community": 6,
+      "norm_label": "list-marketplace.dto.ts"
+    },
+    {
+      "label": "ListMarketplaceQueryDto",
+      "file_type": "code",
+      "source_file": "dto/list-marketplace.dto.ts",
+      "source_location": "L7",
+      "id": "list_marketplace_dto_listmarketplacequerydto",
+      "community": 6,
+      "norm_label": "listmarketplacequerydto"
+    },
+    {
+      "label": "install-marketplace.dto.ts",
+      "file_type": "code",
+      "source_file": "dto/install-marketplace.dto.ts",
+      "source_location": "L1",
+      "id": "dto_install_marketplace_dto_ts",
+      "community": 7,
+      "norm_label": "install-marketplace.dto.ts"
+    },
+    {
+      "label": "InstallMarketplaceBodyDto",
+      "file_type": "code",
+      "source_file": "dto/install-marketplace.dto.ts",
+      "source_location": "L7",
+      "id": "install_marketplace_dto_installmarketplacebodydto",
+      "community": 7,
+      "norm_label": "installmarketplacebodydto"
+    },
+    {
+      "label": "index.ts",
+      "file_type": "code",
+      "source_file": "dto/index.ts",
+      "source_location": "L1",
+      "id": "dto_index_ts",
+      "community": 8,
+      "norm_label": "index.ts"
+    },
+    {
+      "label": "Catalog + Installation Tracking",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_pattern_catalog_installation_tracking",
+      "community": 2,
+      "norm_label": "catalog + installation tracking"
+    },
+    {
+      "label": "Parametrized Install \u2014 Param Override",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_pattern_parametrized_install_param_override",
+      "community": 3,
+      "norm_label": "parametrized install \u2014 param override"
+    },
+    {
+      "label": "installCount \uc99d\uac10",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_pattern_install_count_increment",
+      "community": 2,
+      "norm_label": "installcount \u110c\u1173\u11bc\u1100\u1161\u11b7"
+    },
+    {
+      "label": "Trigger Type \uc790\ub3d9 \uac10\uc9c0",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_pattern_trigger_type_auto_detect",
+      "community": 4,
+      "norm_label": "trigger type \u110c\u1161\u1103\u1169\u11bc \u1100\u1161\u11b7\u110c\u1175"
+    },
+    {
+      "label": "\uce74\ud0c8\ub85c\uadf8\ub294 read-only (DB \uc9c1\uc811 update \uae08\uc9c0)",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rule_catalog_read_only",
+      "community": 2,
+      "norm_label": "\u110f\u1161\u1110\u1161\u11af\u1105\u1169\u1100\u1173\u1102\u1173\u11ab read-only (db \u110c\u1175\u11a8\u110c\u1165\u11b8 update \u1100\u1173\u11b7\u110c\u1175)"
+    },
+    {
+      "label": "Module default 'order' if not in catalog",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rule_module_default_order",
+      "community": 3,
+      "norm_label": "module default 'order' if not in catalog"
+    },
+    {
+      "label": "Trigger type\uc740 params.schedule \uc720\ubb34\ub85c \uacb0\uc815",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rule_trigger_type_by_schedule",
+      "community": 4,
+      "norm_label": "trigger type\u110b\u1173\u11ab params.schedule \u110b\u1172\u1106\u116e\u1105\u1169 \u1100\u1167\u11af\u110c\u1165\u11bc"
+    },
+    {
+      "label": "\ud68c\uc0ac \uc2a4\ucf54\ud504 \ud544\uc218 (@CurrentCompany())",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rule_company_scope_required",
+      "community": 2,
+      "norm_label": "\u1112\u116c\u1109\u1161 \u1109\u1173\u110f\u1169\u1111\u1173 \u1111\u1175\u11af\u1109\u116e (@currentcompany())"
+    },
+    {
+      "label": "Marketplace \ud14c\uc774\ube14 \uc9c1\uc811 update \uae08\uc9c0",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_prohibit_marketplace_direct_update",
+      "community": 2,
+      "norm_label": "marketplace \u1110\u1166\u110b\u1175\u1107\u1173\u11af \u110c\u1175\u11a8\u110c\u1165\u11b8 update \u1100\u1173\u11b7\u110c\u1175"
+    },
+    {
+      "label": "\uc0ac\uc6a9\uc790\uac00 trigger type \uc9c1\uc811 \uc9c0\uc815 \uae08\uc9c0",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_prohibit_user_trigger_type_specify",
+      "community": 4,
+      "norm_label": "\u1109\u1161\u110b\u116d\u11bc\u110c\u1161\u1100\u1161 trigger type \u110c\u1175\u11a8\u110c\u1165\u11b8 \u110c\u1175\u110c\u1165\u11bc \u1100\u1173\u11b7\u110c\u1175"
+    },
+    {
+      "label": "Install \uc2dc nodesJson \uc804\uccb4 override \uae08\uc9c0 (configurableParams \ub9cc \ud5c8\uc6a9)",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_prohibit_nodesjson_full_override",
+      "community": 3,
+      "norm_label": "install \u1109\u1175 nodesjson \u110c\u1165\u11ab\u110e\u1166 override \u1100\u1173\u11b7\u110c\u1175 (configurableparams \u1106\u1161\u11ab \u1112\u1165\u110b\u116d\u11bc)"
+    },
+    {
+      "label": "\ud154\ub808\uba54\ud2b8\ub9ac + \uc778\uae30\ub3c4 sort \uc6a9\ub3c4",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rationale_telemetry_popularity_sort",
+      "community": 2,
+      "norm_label": "\u1110\u1166\u11af\u1105\u1166\u1106\u1166\u1110\u1173\u1105\u1175 + \u110b\u1175\u11ab\u1100\u1175\u1103\u1169 sort \u110b\u116d\u11bc\u1103\u1169"
+    },
+    {
+      "label": "\uce74\ud0c8\ub85c\uadf8 \uc6d0\ubcf8\uc740 \uadf8\ub300\ub85c, \ud68c\uc0ac\ubcc4 \uc124\uce58\ubcf8\ub9cc \ucee4\uc2a4\ud130\ub9c8\uc774\uc988",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rationale_catalog_immutable_per_company_customize",
+      "community": 3,
+      "norm_label": "\u110f\u1161\u1110\u1161\u11af\u1105\u1169\u1100\u1173 \u110b\u116f\u11ab\u1107\u1169\u11ab\u110b\u1173\u11ab \u1100\u1173\u1103\u1162\u1105\u1169, \u1112\u116c\u1109\u1161\u1107\u1167\u11af \u1109\u1165\u11af\u110e\u1175\u1107\u1169\u11ab\u1106\u1161\u11ab \u110f\u1165\u1109\u1173\u1110\u1165\u1106\u1161\u110b\u1175\u110c\u1173"
+    },
+    {
+      "label": "marketplace.controller.ts",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_marketplace_controller",
+      "community": 9,
+      "norm_label": "marketplace.controller.ts"
+    },
+    {
+      "label": "marketplace.service.ts",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_marketplace_service",
+      "community": 2,
+      "norm_label": "marketplace.service.ts"
+    },
+    {
+      "label": "marketplace.module.ts",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_marketplace_module",
+      "community": 10,
+      "norm_label": "marketplace.module.ts"
+    },
+    {
+      "label": "dto/ (list, install)",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_marketplace_dto",
+      "community": 3,
+      "norm_label": "dto/ (list, install)"
+    },
+    {
+      "label": "prisma/schema.prisma",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_prisma_schema",
+      "community": 2,
+      "norm_label": "prisma/schema.prisma"
+    },
+    {
+      "label": "catalog seed (marketplace \ud14c\uc774\ube14)",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_catalog_seed",
+      "community": 2,
+      "norm_label": "catalog seed (marketplace \u1110\u1166\u110b\u1175\u1107\u1173\u11af)"
+    },
+    {
+      "label": "\ud504\ub860\ud2b8 install modal",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_frontend_install_modal",
+      "community": 2,
+      "norm_label": "\u1111\u1173\u1105\u1169\u11ab\u1110\u1173 install modal"
+    },
+    {
+      "label": "workflowTemplate.triggerType enum",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_workflow_template",
+      "community": 2,
+      "norm_label": "workflowtemplate.triggertype enum"
+    }
+  ],
+  "links": [
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "marketplace.controller.ts",
+      "source_location": "L10",
+      "weight": 1.0,
+      "_src": "marketplace_controller_ts",
+      "_tgt": "marketplace_controller_marketplacecontroller",
+      "source": "marketplace_controller_ts",
+      "target": "marketplace_controller_marketplacecontroller",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "marketplace.controller.ts",
+      "source_location": "L11",
+      "weight": 1.0,
+      "_src": "marketplace_controller_marketplacecontroller",
+      "_tgt": "marketplace_controller_marketplacecontroller_constructor",
+      "source": "marketplace_controller_marketplacecontroller",
+      "target": "marketplace_controller_marketplacecontroller_constructor",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "marketplace.controller.ts",
+      "source_location": "L16",
+      "weight": 1.0,
+      "_src": "marketplace_controller_marketplacecontroller",
+      "_tgt": "marketplace_controller_marketplacecontroller_listworkflows",
+      "source": "marketplace_controller_marketplacecontroller",
+      "target": "marketplace_controller_marketplacecontroller_listworkflows",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "marketplace.controller.ts",
+      "source_location": "L24",
+      "weight": 1.0,
+      "_src": "marketplace_controller_marketplacecontroller",
+      "_tgt": "marketplace_controller_marketplacecontroller_getworkflow",
+      "source": "marketplace_controller_marketplacecontroller",
+      "target": "marketplace_controller_marketplacecontroller_getworkflow",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "marketplace.controller.ts",
+      "source_location": "L31",
+      "weight": 1.0,
+      "_src": "marketplace_controller_marketplacecontroller",
+      "_tgt": "marketplace_controller_marketplacecontroller_installworkflow",
+      "source": "marketplace_controller_marketplacecontroller",
+      "target": "marketplace_controller_marketplacecontroller_installworkflow",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "marketplace.controller.ts",
+      "source_location": "L40",
+      "weight": 1.0,
+      "_src": "marketplace_controller_marketplacecontroller",
+      "_tgt": "marketplace_controller_marketplacecontroller_uninstallworkflow",
+      "source": "marketplace_controller_marketplacecontroller",
+      "target": "marketplace_controller_marketplacecontroller_uninstallworkflow",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "marketplace.controller.ts",
+      "source_location": "L50",
+      "weight": 1.0,
+      "_src": "marketplace_controller_marketplacecontroller",
+      "_tgt": "marketplace_controller_marketplacecontroller_listagents",
+      "source": "marketplace_controller_marketplacecontroller",
+      "target": "marketplace_controller_marketplacecontroller_listagents",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "marketplace.controller.ts",
+      "source_location": "L58",
+      "weight": 1.0,
+      "_src": "marketplace_controller_marketplacecontroller",
+      "_tgt": "marketplace_controller_marketplacecontroller_getagent",
+      "source": "marketplace_controller_marketplacecontroller",
+      "target": "marketplace_controller_marketplacecontroller_getagent",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "marketplace.controller.ts",
+      "source_location": "L65",
+      "weight": 1.0,
+      "_src": "marketplace_controller_marketplacecontroller",
+      "_tgt": "marketplace_controller_marketplacecontroller_installagent",
+      "source": "marketplace_controller_marketplacecontroller",
+      "target": "marketplace_controller_marketplacecontroller_installagent",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "marketplace.controller.ts",
+      "source_location": "L74",
+      "weight": 1.0,
+      "_src": "marketplace_controller_marketplacecontroller",
+      "_tgt": "marketplace_controller_marketplacecontroller_uninstallagent",
+      "source": "marketplace_controller_marketplacecontroller",
+      "target": "marketplace_controller_marketplacecontroller_uninstallagent",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "marketplace.service.ts",
+      "source_location": "L6",
+      "weight": 1.0,
+      "_src": "marketplace_service_ts",
+      "_tgt": "marketplace_service_tocatalogitem",
+      "source": "marketplace_service_ts",
+      "target": "marketplace_service_tocatalogitem",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "marketplace.service.ts",
+      "source_location": "L33",
+      "weight": 1.0,
+      "_src": "marketplace_service_ts",
+      "_tgt": "marketplace_service_marketplaceservice",
+      "source": "marketplace_service_ts",
+      "target": "marketplace_service_marketplaceservice",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "marketplace.service.ts",
+      "source_location": "L36",
+      "weight": 1.0,
+      "_src": "marketplace_service_marketplaceservice",
+      "_tgt": "marketplace_service_marketplaceservice_constructor",
+      "source": "marketplace_service_marketplaceservice",
+      "target": "marketplace_service_marketplaceservice_constructor",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "marketplace.service.ts",
+      "source_location": "L40",
+      "weight": 1.0,
+      "_src": "marketplace_service_marketplaceservice",
+      "_tgt": "marketplace_service_marketplaceservice_listworkflows",
+      "source": "marketplace_service_marketplaceservice",
+      "target": "marketplace_service_marketplaceservice_listworkflows",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "marketplace.service.ts",
+      "source_location": "L63",
+      "weight": 1.0,
+      "_src": "marketplace_service_marketplaceservice",
+      "_tgt": "marketplace_service_marketplaceservice_getworkflow",
+      "source": "marketplace_service_marketplaceservice",
+      "target": "marketplace_service_marketplaceservice_getworkflow",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "marketplace.service.ts",
+      "source_location": "L67",
+      "weight": 1.0,
+      "_src": "marketplace_service_marketplaceservice",
+      "_tgt": "marketplace_service_marketplaceservice_installworkflow",
+      "source": "marketplace_service_marketplaceservice",
+      "target": "marketplace_service_marketplaceservice_installworkflow",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "marketplace.service.ts",
+      "source_location": "L116",
+      "weight": 1.0,
+      "_src": "marketplace_service_marketplaceservice",
+      "_tgt": "marketplace_service_marketplaceservice_listagents",
+      "source": "marketplace_service_marketplaceservice",
+      "target": "marketplace_service_marketplaceservice_listagents",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "marketplace.service.ts",
+      "source_location": "L139",
+      "weight": 1.0,
+      "_src": "marketplace_service_marketplaceservice",
+      "_tgt": "marketplace_service_marketplaceservice_getagent",
+      "source": "marketplace_service_marketplaceservice",
+      "target": "marketplace_service_marketplaceservice_getagent",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "marketplace.service.ts",
+      "source_location": "L143",
+      "weight": 1.0,
+      "_src": "marketplace_service_marketplaceservice",
+      "_tgt": "marketplace_service_marketplaceservice_installagent",
+      "source": "marketplace_service_marketplaceservice",
+      "target": "marketplace_service_marketplaceservice_installagent",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "marketplace.service.ts",
+      "source_location": "L204",
+      "weight": 1.0,
+      "_src": "marketplace_service_marketplaceservice",
+      "_tgt": "marketplace_service_marketplaceservice_uninstallworkflow",
+      "source": "marketplace_service_marketplaceservice",
+      "target": "marketplace_service_marketplaceservice_uninstallworkflow",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "marketplace.service.ts",
+      "source_location": "L225",
+      "weight": 1.0,
+      "_src": "marketplace_service_marketplaceservice",
+      "_tgt": "marketplace_service_marketplaceservice_uninstallagent",
+      "source": "marketplace_service_marketplaceservice",
+      "target": "marketplace_service_marketplaceservice_uninstallagent",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "marketplace.module.ts",
+      "source_location": "L9",
+      "weight": 1.0,
+      "_src": "marketplace_module_ts",
+      "_tgt": "marketplace_module_marketplacemodule",
+      "source": "marketplace_module_ts",
+      "target": "marketplace_module_marketplacemodule",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dto/list-marketplace.dto.ts",
+      "source_location": "L7",
+      "weight": 1.0,
+      "_src": "dto_list_marketplace_dto_ts",
+      "_tgt": "list_marketplace_dto_listmarketplacequerydto",
+      "source": "dto_list_marketplace_dto_ts",
+      "target": "list_marketplace_dto_listmarketplacequerydto",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dto/install-marketplace.dto.ts",
+      "source_location": "L7",
+      "weight": 1.0,
+      "_src": "dto_install_marketplace_dto_ts",
+      "_tgt": "install_marketplace_dto_installmarketplacebodydto",
+      "source": "dto_install_marketplace_dto_ts",
+      "target": "install_marketplace_dto_installmarketplacebodydto",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_catalog_installation_tracking",
+      "_tgt": "claude_file_marketplace_service",
+      "source": "claude_pattern_catalog_installation_tracking",
+      "target": "claude_file_marketplace_service"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_catalog_installation_tracking",
+      "_tgt": "claude_file_prisma_schema",
+      "source": "claude_pattern_catalog_installation_tracking",
+      "target": "claude_file_prisma_schema"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_catalog_installation_tracking",
+      "_tgt": "claude_rule_catalog_read_only",
+      "source": "claude_pattern_catalog_installation_tracking",
+      "target": "claude_rule_catalog_read_only"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_catalog_installation_tracking",
+      "_tgt": "claude_rule_company_scope_required",
+      "source": "claude_pattern_catalog_installation_tracking",
+      "target": "claude_rule_company_scope_required"
+    },
+    {
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_catalog_installation_tracking",
+      "_tgt": "claude_prohibit_marketplace_direct_update",
+      "source": "claude_pattern_catalog_installation_tracking",
+      "target": "claude_prohibit_marketplace_direct_update"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_parametrized_install_param_override",
+      "_tgt": "claude_file_marketplace_service",
+      "source": "claude_pattern_parametrized_install_param_override",
+      "target": "claude_file_marketplace_service"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_parametrized_install_param_override",
+      "_tgt": "claude_file_marketplace_dto",
+      "source": "claude_pattern_parametrized_install_param_override",
+      "target": "claude_file_marketplace_dto"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_parametrized_install_param_override",
+      "_tgt": "claude_rule_module_default_order",
+      "source": "claude_pattern_parametrized_install_param_override",
+      "target": "claude_rule_module_default_order"
+    },
+    {
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_parametrized_install_param_override",
+      "_tgt": "claude_prohibit_nodesjson_full_override",
+      "source": "claude_pattern_parametrized_install_param_override",
+      "target": "claude_prohibit_nodesjson_full_override"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_parametrized_install_param_override",
+      "_tgt": "claude_rationale_catalog_immutable_per_company_customize",
+      "source": "claude_pattern_parametrized_install_param_override",
+      "target": "claude_rationale_catalog_immutable_per_company_customize"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_install_count_increment",
+      "_tgt": "claude_file_marketplace_service",
+      "source": "claude_pattern_install_count_increment",
+      "target": "claude_file_marketplace_service"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_install_count_increment",
+      "_tgt": "claude_rationale_telemetry_popularity_sort",
+      "source": "claude_pattern_install_count_increment",
+      "target": "claude_rationale_telemetry_popularity_sort"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_trigger_type_auto_detect",
+      "_tgt": "claude_file_marketplace_service",
+      "source": "claude_pattern_trigger_type_auto_detect",
+      "target": "claude_file_marketplace_service"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_trigger_type_auto_detect",
+      "_tgt": "claude_rule_trigger_type_by_schedule",
+      "source": "claude_pattern_trigger_type_auto_detect",
+      "target": "claude_rule_trigger_type_by_schedule"
+    },
+    {
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_trigger_type_auto_detect",
+      "_tgt": "claude_prohibit_user_trigger_type_specify",
+      "source": "claude_pattern_trigger_type_auto_detect",
+      "target": "claude_prohibit_user_trigger_type_specify"
+    },
+    {
+      "relation": "modification_triggers",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_file_marketplace_service",
+      "_tgt": "claude_file_catalog_seed",
+      "source": "claude_file_marketplace_service",
+      "target": "claude_file_catalog_seed"
+    },
+    {
+      "relation": "modification_triggers",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_file_marketplace_service",
+      "_tgt": "claude_file_frontend_install_modal",
+      "source": "claude_file_marketplace_service",
+      "target": "claude_file_frontend_install_modal"
+    },
+    {
+      "relation": "modification_triggers",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_file_marketplace_service",
+      "_tgt": "claude_file_workflow_template",
+      "source": "claude_file_marketplace_service",
+      "target": "claude_file_workflow_template"
+    },
+    {
+      "relation": "modification_triggers",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_file_prisma_schema",
+      "_tgt": "claude_file_marketplace_service",
+      "source": "claude_file_marketplace_service",
+      "target": "claude_file_prisma_schema"
+    }
+  ],
+  "hyperedges": []
+}

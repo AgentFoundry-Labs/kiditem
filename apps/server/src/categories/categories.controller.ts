@@ -1,23 +1,20 @@
-import { Controller, Get, Post, Patch, Delete, Param, Query, Body } from '@nestjs/common';
-import { CompanyResolverService } from '../common/company-resolver.service';
+import { Controller, Get, Post, Patch, Delete, Param, Body } from '@nestjs/common';
 import { CategoriesService } from './categories.service';
 import { CreateCategoryDto, UpdateCategoryDto } from './dto';
+import { CurrentCompany } from '../auth/decorators/current-company.decorator';
 
 @Controller('categories')
 export class CategoriesController {
-  constructor(
-    private readonly categoriesService: CategoriesService,
-    private readonly companyResolver: CompanyResolverService,
-  ) {}
+  constructor(private readonly categoriesService: CategoriesService) {}
 
   @Get()
-  async findAll(@Query('companyId') companyId?: string) {
-    return this.categoriesService.findAll(await this.companyResolver.resolve());
+  async findAll(@CurrentCompany() companyId: string) {
+    return this.categoriesService.findAll(companyId);
   }
 
   @Post()
-  create(@Body() dto: CreateCategoryDto) {
-    return this.categoriesService.create(dto);
+  create(@Body() dto: CreateCategoryDto, @CurrentCompany() companyId: string) {
+    return this.categoriesService.create(companyId, dto);
   }
 
   @Patch(':id')

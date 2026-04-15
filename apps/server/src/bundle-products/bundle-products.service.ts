@@ -60,10 +60,10 @@ export class BundleProductsService {
     });
   }
 
-  async create(dto: CreateBundleProductDto) {
+  async create(companyId: string, dto: CreateBundleProductDto) {
     return this.prisma.bundleProduct.create({
       data: {
-        companyId: dto.companyId,
+        companyId,
         name: dto.name,
         sku: dto.sku,
         sellPrice: dto.sellPrice,

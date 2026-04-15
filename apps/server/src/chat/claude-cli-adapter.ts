@@ -7,6 +7,7 @@ import type {
   CopilotRuntimeChatCompletionRequest,
   CopilotRuntimeChatCompletionResponse,
 } from '@copilotkit/runtime';
+import { buildClaudeCliEnv } from './claude-cli-env';
 
 const FALLBACK_PROMPT = `당신은 KIDITEM 운영 AI 어시스턴트입니다.
 사용자의 질문에 실시간 데이터를 기반으로 답변합니다.
@@ -77,14 +78,7 @@ export class ClaudeCliAdapter implements CopilotServiceAdapter {
         try {
           child = spawn('claude', args, {
             cwd: process.cwd(),
-            env: {
-              ...process.env,
-              AGENT_DATABASE_URL:
-                process.env.CHATBOT_DATABASE_URL ||
-                process.env.AGENT_DATABASE_URL ||
-                process.env.DATABASE_URL ||
-                '',
-            },
+            env: buildClaudeCliEnv(),
             stdio: ['ignore', 'pipe', 'pipe'],
           });
         } catch (err) {

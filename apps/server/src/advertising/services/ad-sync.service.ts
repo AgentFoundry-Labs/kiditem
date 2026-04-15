@@ -1,4 +1,4 @@
-import { Injectable, InternalServerErrorException } from '@nestjs/common';
+import { Injectable, InternalServerErrorException, BadRequestException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ExtensionSyncDto } from '../dto';
@@ -37,7 +37,9 @@ export class AdSyncService {
       case 'coupang_ads_daily':
         return this.handleCoupangAdsDaily(payload, companyId);
       default:
-        return { success: false, error: `알 수 없는 type: ${payload.type}` };
+        throw new BadRequestException(
+          `알 수 없는 type: ${(payload as { type?: string }).type ?? 'undefined'}`,
+        );
     }
   }
 

@@ -14,7 +14,7 @@
     };
     window.postMessage(
       { type: "__ps_detail_data", payload: JSON.stringify(slim) },
-      "*"
+      window.location.origin
     );
   } catch (e) {
     console.debug('[bridge] error:', e.message);

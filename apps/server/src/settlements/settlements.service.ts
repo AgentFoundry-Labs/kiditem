@@ -20,10 +20,10 @@ export class SettlementsService {
     });
   }
 
-  async create(dto: CreateSettlementDto) {
+  async create(companyId: string, dto: CreateSettlementDto) {
     return this.prisma.settlement.create({
       data: {
-        companyId: dto.companyId,
+        companyId,
         period: dto.period,
         expectedAmount: dto.expectedAmount,
         commission: dto.commission,

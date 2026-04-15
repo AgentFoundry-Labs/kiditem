@@ -28,10 +28,10 @@ export class SuppliersService {
     }));
   }
 
-  async create(dto: CreateSupplierDto) {
+  async create(companyId: string, dto: CreateSupplierDto) {
     return this.prisma.supplier.create({
       data: {
-        companyId: dto.companyId,
+        companyId,
         name: dto.name,
         contactName: dto.contactName,
         phone: dto.phone,

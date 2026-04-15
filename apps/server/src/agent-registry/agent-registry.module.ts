@@ -21,6 +21,7 @@ import { TranscriptService } from './lifecycle/transcript.service';
 import { DelegationService } from './delegation/delegation.service';
 import { BusinessSafetyModule } from './business-safety/business-safety.module';
 import { ContextManagerModule } from './context-manager/context-manager.module';
+import { AgentTraceModule } from './trace/agent-trace.module';
 
 @Global()
 @Module({
@@ -32,6 +33,7 @@ import { ContextManagerModule } from './context-manager/context-manager.module';
     DelegationModule,
     BusinessSafetyModule,
     ContextManagerModule,
+    AgentTraceModule,
   ],
   controllers: [AgentRegistryController, AdStrategyController, ManagerController],
   providers: [

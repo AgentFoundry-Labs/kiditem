@@ -1,9 +1,12 @@
-import { IsString, IsOptional, IsNumber, IsUUID, MinLength } from 'class-validator';
+import { IsString, IsOptional, IsNumber, MinLength } from 'class-validator';
 import { Type } from 'class-transformer';
 
+/**
+ * companyId 는 `req.authUser.companyId` 에서 주입 — DTO 에는 포함하지 않는다.
+ * (ADR-0006)
+ */
 export class CreateProductBodyDto {
   @IsString() @MinLength(1) name: string;
-  @IsUUID() companyId: string;
   @IsString() @IsOptional() category?: string;
   @Type(() => Number) @IsNumber() @IsOptional() sellPrice?: number;
   @Type(() => Number) @IsNumber() @IsOptional() commissionRate?: number;

@@ -71,7 +71,7 @@ export class SourcingService {
       };
 
       const existing = await this.prisma.product.findFirst({
-        where: { sourceUrl: data.source_url },
+        where: { sourceUrl: data.source_url, companyId },
       });
 
       if (existing) {
@@ -111,9 +111,13 @@ export class SourcingService {
     };
   }
 
-  async listProducts(query: { page?: string; limit?: string; platform?: string }) {
+  async listProducts(
+    query: { page?: string | number; limit?: string | number; platform?: string },
+    companyId: string,
+  ) {
     const { page, limit, skip } = paginationParams(query);
     const where = {
+      companyId,
       status: { in: ['draft', 'processing', 'processed'] as string[] },
       ...(query.platform && {
         sourcePlatform: PLATFORM_MAP[query.platform.toLowerCase()] || query.platform,

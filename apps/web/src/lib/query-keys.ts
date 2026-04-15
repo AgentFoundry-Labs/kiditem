@@ -8,6 +8,9 @@ export const queryKeys = {
     runtimeState: (id: string) => [...queryKeys.agents.all, 'runtimeState', id] as const,
     costAnalytics: (params?: { from?: string; to?: string; agentId?: string }) =>
       [...queryKeys.agents.all, 'costAnalytics', params] as const,
+    trace: (taskId: string) => [...queryKeys.agents.all, 'trace', taskId] as const,
+    tasksList: (params: Record<string, string | number | undefined>) =>
+      [...queryKeys.agents.all, 'tasksList', params] as const,
   },
   workflows: {
     all: ['workflows'] as const,

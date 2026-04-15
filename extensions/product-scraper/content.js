@@ -18,6 +18,10 @@
   }
 
   window.addEventListener("message", (e) => {
+    // Origin check: 브리지 스크립트는 같은 window 에서 주입되므로 e.source===window + 동일 origin 만 신뢰.
+    // 교차 origin 프레임이나 외부 창에서 오는 postMessage 는 스푸핑으로 간주하고 무시.
+    if (e.source !== window) return;
+    if (e.origin !== window.location.origin) return;
     if (!e.data) return;
     if (e.data.type === "__ps_detail_data") {
       try {

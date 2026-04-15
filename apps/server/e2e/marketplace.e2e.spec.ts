@@ -4,7 +4,6 @@ import { createApp, closeApp } from './setup';
 let api: ReturnType<Awaited<ReturnType<typeof createApp>>['request']>;
 let prisma: Awaited<ReturnType<typeof createApp>>['prisma'];
 
-const COMPANY_ID = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
 const MARKETPLACE_AGENT_ID = 'b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e';
 const MARKETPLACE_WF_ID = 'c3d4e5f6-a7b8-4c9d-0e1f-2a3b4c5d6e7f';
 const INSTALLED_AGENT_ID = 'd4e5f6a7-b8c9-4d0e-1f2a-3b4c5d6e7f80';
@@ -64,7 +63,8 @@ describe('Marketplace Agent CRUD — /api/marketplace/agents', () => {
     });
 
     it('lists available agents with installed status', async () => {
-      const res = await api().get('/api/marketplace/agents').query({ companyId: COMPANY_ID });
+      // companyId 는 DevAuthMiddleware + @CurrentCompany() 로 자동 주입 — 쿼리 불필요
+      const res = await api().get('/api/marketplace/agents');
 
       expect(res.status).toBe(200);
       expect(Array.isArray(res.body)).toBe(true);
@@ -77,7 +77,7 @@ describe('Marketplace Agent CRUD — /api/marketplace/agents', () => {
         { marketplaceId: MARKETPLACE_AGENT_ID },
       ]);
 
-      const res = await api().get('/api/marketplace/agents').query({ companyId: COMPANY_ID });
+      const res = await api().get('/api/marketplace/agents');
 
       expect(res.body[0].installed).toBe(true);
     });
@@ -94,9 +94,10 @@ describe('Marketplace Agent CRUD — /api/marketplace/agents', () => {
     });
 
     it('installs agent and returns created definition', async () => {
+      // body 는 비어 있어도 되고 — companyId 는 auth context 에서 주입
       const res = await api()
         .post(`/api/marketplace/agents/${MARKETPLACE_AGENT_ID}/install`)
-        .send({ companyId: COMPANY_ID });
+        .send({});
 
       expect(res.status).toBe(201);
       expect(res.body).toHaveProperty('id');
@@ -104,20 +105,12 @@ describe('Marketplace Agent CRUD — /api/marketplace/agents', () => {
       expect(prisma.marketplace.update).toHaveBeenCalled();
     });
 
-    it('rejects without companyId', async () => {
-      const res = await api()
-        .post(`/api/marketplace/agents/${MARKETPLACE_AGENT_ID}/install`)
-        .send({});
-
-      expect(res.status).toBe(400);
-    });
-
     it('returns 404 for non-existent catalog item', async () => {
       (prisma.marketplace.findUnique as any).mockResolvedValue(null);
 
       const res = await api()
         .post('/api/marketplace/agents/non-existent-id/install')
-        .send({ companyId: COMPANY_ID });
+        .send({});
 
       expect(res.status).toBe(404);
     });
@@ -132,7 +125,7 @@ describe('Marketplace Workflow CRUD — /api/marketplace/workflows', () => {
     });
 
     it('lists available workflows', async () => {
-      const res = await api().get('/api/marketplace/workflows').query({ companyId: COMPANY_ID });
+      const res = await api().get('/api/marketplace/workflows');
 
       expect(res.status).toBe(200);
       expect(res.body[0].name).toBe('주문 자동 처리');
@@ -152,7 +145,7 @@ describe('Marketplace Workflow CRUD — /api/marketplace/workflows', () => {
     it('installs workflow and returns created template', async () => {
       const res = await api()
         .post(`/api/marketplace/workflows/${MARKETPLACE_WF_ID}/install`)
-        .send({ companyId: COMPANY_ID });
+        .send({});
 
       expect(res.status).toBe(201);
       expect(prisma.workflowTemplate.create).toHaveBeenCalled();
@@ -170,7 +163,7 @@ describe('Marketplace Workflow CRUD — /api/marketplace/workflows', () => {
     it('uninstalls workflow and decrements install count', async () => {
       const res = await api()
         .post(`/api/marketplace/workflows/${MARKETPLACE_WF_ID}/uninstall`)
-        .send({ companyId: COMPANY_ID });
+        .send({});
 
       expect(res.status).toBe(201);
       expect(res.body).toEqual({ ok: true });
@@ -182,7 +175,7 @@ describe('Marketplace Workflow CRUD — /api/marketplace/workflows', () => {
 
       const res = await api()
         .post(`/api/marketplace/workflows/${MARKETPLACE_WF_ID}/uninstall`)
-        .send({ companyId: COMPANY_ID });
+        .send({});
 
       expect(res.status).toBe(404);
     });

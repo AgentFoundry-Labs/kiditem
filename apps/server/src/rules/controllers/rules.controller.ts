@@ -2,10 +2,9 @@ import { Controller, Get, Post, Patch, Param, Query, Body } from '@nestjs/common
 import { RulesService } from '../services/rules.service';
 import { AgentRegistryService } from '../../agent-registry/agent-registry.service';
 import { HeartbeatService } from '../../agent-registry/heartbeat/heartbeat.service';
-import { CompanyResolverService } from '../../common/company-resolver.service';
+import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
 import {
   ListRulesQueryDto,
-  EvaluateRulesQueryDto,
   UpdateRuleBodyDto,
   UpdateScheduleBodyDto,
 } from '../dto';
@@ -16,12 +15,11 @@ export class RulesController {
     private readonly rulesService: RulesService,
     private readonly agentRegistry: AgentRegistryService,
     private readonly heartbeat: HeartbeatService,
-    private readonly companyResolver: CompanyResolverService,
   ) {}
 
   @Post('evaluate')
-  async evaluate(@Query() query: EvaluateRulesQueryDto) {
-    return this.rulesService.evaluateAll(await this.companyResolver.resolve());
+  async evaluate(@CurrentCompany() companyId: string) {
+    return this.rulesService.evaluateAll(companyId);
   }
 
   @Get('evaluate/status/:taskId')
@@ -30,16 +28,13 @@ export class RulesController {
   }
 
   @Get('summary')
-  async summary(@Query('companyId') companyId?: string) {
-    return this.rulesService.getSummary(await this.companyResolver.resolve());
+  async summary(@CurrentCompany() companyId: string) {
+    return this.rulesService.getSummary(companyId);
   }
 
   @Get()
-  async findAll(@Query() query: ListRulesQueryDto) {
-    return this.rulesService.findAllRules(
-      await this.companyResolver.resolve(),
-      query.category,
-    );
+  async findAll(@CurrentCompany() companyId: string, @Query() query: ListRulesQueryDto) {
+    return this.rulesService.findAllRules(companyId, query.category);
   }
 
   @Get('schedule')
@@ -57,8 +52,8 @@ export class RulesController {
   }
 
   @Get('suggest-thresholds')
-  async suggestThresholds(@Query('companyId') companyId?: string) {
-    return this.rulesService.suggestThresholds(await this.companyResolver.resolve());
+  async suggestThresholds(@CurrentCompany() companyId: string) {
+    return this.rulesService.suggestThresholds(companyId);
   }
 
   @Patch('schedule')

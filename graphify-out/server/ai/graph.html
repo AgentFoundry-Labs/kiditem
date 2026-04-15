@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>graphify - /Users/yhc125/workspace/kiditem/apps/server/src/ai/graphify-out/graph.html</title>
+<script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0f0f1a; color: #e0e0e0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; display: flex; height: 100vh; overflow: hidden; }
+  #graph { flex: 1; }
+  #sidebar { width: 280px; background: #1a1a2e; border-left: 1px solid #2a2a4e; display: flex; flex-direction: column; overflow: hidden; }
+  #search-wrap { padding: 12px; border-bottom: 1px solid #2a2a4e; }
+  #search { width: 100%; background: #0f0f1a; border: 1px solid #3a3a5e; color: #e0e0e0; padding: 7px 10px; border-radius: 6px; font-size: 13px; outline: none; }
+  #search:focus { border-color: #4E79A7; }
+  #search-results { max-height: 140px; overflow-y: auto; padding: 4px 12px; border-bottom: 1px solid #2a2a4e; display: none; }
+  .search-item { padding: 4px 6px; cursor: pointer; border-radius: 4px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .search-item:hover { background: #2a2a4e; }
+  #info-panel { padding: 14px; border-bottom: 1px solid #2a2a4e; min-height: 140px; }
+  #info-panel h3 { font-size: 13px; color: #aaa; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em; }
+  #info-content { font-size: 13px; color: #ccc; line-height: 1.6; }
+  #info-content .field { margin-bottom: 5px; }
+  #info-content .field b { color: #e0e0e0; }
+  #info-content .empty { color: #555; font-style: italic; }
+  .neighbor-link { display: block; padding: 2px 6px; margin: 2px 0; border-radius: 3px; cursor: pointer; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-left: 3px solid #333; }
+  .neighbor-link:hover { background: #2a2a4e; }
+  #neighbors-list { max-height: 160px; overflow-y: auto; margin-top: 4px; }
+  #legend-wrap { flex: 1; overflow-y: auto; padding: 12px; }
+  #legend-wrap h3 { font-size: 13px; color: #aaa; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .legend-item { display: flex; align-items: center; gap: 8px; padding: 4px 0; cursor: pointer; border-radius: 4px; font-size: 12px; }
+  .legend-item:hover { background: #2a2a4e; padding-left: 4px; }
+  .legend-item.dimmed { opacity: 0.35; }
+  .legend-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+  .legend-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .legend-count { color: #666; font-size: 11px; }
+  #stats { padding: 10px 14px; border-top: 1px solid #2a2a4e; font-size: 11px; color: #555; }
+</style>
+</head>
+<body>
+<div id="graph"></div>
+<div id="sidebar">
+  <div id="search-wrap">
+    <input id="search" type="text" placeholder="Search nodes..." autocomplete="off">
+    <div id="search-results"></div>
+  </div>
+  <div id="info-panel">
+    <h3>Node Info</h3>
+    <div id="info-content"><span class="empty">Click a node to inspect it</span></div>
+  </div>
+  <div id="legend-wrap">
+    <h3>Communities</h3>
+    <div id="legend"></div>
+  </div>
+  <div id="stats">49 nodes &middot; 40 edges &middot; 15 communities</div>
+</div>
+<script>
+const RAW_NODES = [{"id": "ai_module_ts", "label": "ai.module.ts", "color": {"background": "#FF9DA7", "border": "#FF9DA7", "highlight": {"background": "#ffffff", "border": "#FF9DA7"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": "ai.module.ts", "community": 7, "community_name": "Cluster 7 (2n)", "source_file": "ai.module.ts", "file_type": "code", "degree": 1}, {"id": "ai_module_aimodule", "label": "AiModule", "color": {"background": "#FF9DA7", "border": "#FF9DA7", "highlight": {"background": "#ffffff", "border": "#FF9DA7"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": "AiModule", "community": 7, "community_name": "Cluster 7 (2n)", "source_file": "ai.module.ts", "file_type": "code", "degree": 1}, {"id": "dto_image_edit_dto_ts", "label": "image-edit.dto.ts", "color": {"background": "#9C755F", "border": "#9C755F", "highlight": {"background": "#ffffff", "border": "#9C755F"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": "image-edit.dto.ts", "community": 8, "community_name": "Cluster 8 (2n)", "source_file": "dto/image-edit.dto.ts", "file_type": "code", "degree": 1}, {"id": "image_edit_dto_imageeditbodydto", "label": "ImageEditBodyDto", "color": {"background": "#9C755F", "border": "#9C755F", "highlight": {"background": "#ffffff", "border": "#9C755F"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": "ImageEditBodyDto", "community": 8, "community_name": "Cluster 8 (2n)", "source_file": "dto/image-edit.dto.ts", "file_type": "code", "degree": 1}, {"id": "dto_render_image_dto_ts", "label": "render-image.dto.ts", "color": {"background": "#BAB0AC", "border": "#BAB0AC", "highlight": {"background": "#ffffff", "border": "#BAB0AC"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": "render-image.dto.ts", "community": 9, "community_name": "Cluster 9 (2n)", "source_file": "dto/render-image.dto.ts", "file_type": "code", "degree": 1}, {"id": "render_image_dto_renderimagebodydto", "label": "RenderImageBodyDto", "color": {"background": "#BAB0AC", "border": "#BAB0AC", "highlight": {"background": "#ffffff", "border": "#BAB0AC"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": "RenderImageBodyDto", "community": 9, "community_name": "Cluster 9 (2n)", "source_file": "dto/render-image.dto.ts", "file_type": "code", "degree": 1}, {"id": "dto_text_transform_dto_ts", "label": "text-transform.dto.ts", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": "text-transform.dto.ts", "community": 10, "community_name": "Cluster 10 (2n)", "source_file": "dto/text-transform.dto.ts", "file_type": "code", "degree": 1}, {"id": "text_transform_dto_texttransformbodydto", "label": "TextTransformBodyDto", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": "TextTransformBodyDto", "community": 10, "community_name": "Cluster 10 (2n)", "source_file": "dto/text-transform.dto.ts", "file_type": "code", "degree": 1}, {"id": "dto_index_ts", "label": "index.ts", "color": {"background": "#E15759", "border": "#E15759", "highlight": {"background": "#ffffff", "border": "#E15759"}}, "size": 10.0, "font": {"size": 0, "color": "#ffffff"}, "title": "index.ts", "community": 12, "community_name": "Cluster 12 (1n)", "source_file": "dto/index.ts", "file_type": "code", "degree": 0}, {"id": "controllers_image_ai_controller_ts", "label": "image-ai.controller.ts", "color": {"background": "#E15759", "border": "#E15759", "highlight": {"background": "#ffffff", "border": "#E15759"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": "image-ai.controller.ts", "community": 2, "community_name": "Cluster 2 (4n)", "source_file": "controllers/image-ai.controller.ts", "file_type": "code", "degree": 1}, {"id": "image_ai_controller_imageaicontroller", "label": "ImageAiController", "color": {"background": "#E15759", "border": "#E15759", "highlight": {"background": "#ffffff", "border": "#E15759"}}, "size": 28.0, "font": {"size": 12, "color": "#ffffff"}, "title": "ImageAiController", "community": 2, "community_name": "Cluster 2 (4n)", "source_file": "controllers/image-ai.controller.ts", "file_type": "code", "degree": 3}, {"id": "image_ai_controller_imageaicontroller_constructor", "label": ".constructor()", "color": {"background": "#E15759", "border": "#E15759", "highlight": {"background": "#ffffff", "border": "#E15759"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": ".constructor()", "community": 2, "community_name": "Cluster 2 (4n)", "source_file": "controllers/image-ai.controller.ts", "file_type": "code", "degree": 1}, {"id": "image_ai_controller_imageaicontroller_edit", "label": ".edit()", "color": {"background": "#E15759", "border": "#E15759", "highlight": {"background": "#ffffff", "border": "#E15759"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": ".edit()", "community": 2, "community_name": "Cluster 2 (4n)", "source_file": "controllers/image-ai.controller.ts", "file_type": "code", "degree": 1}, {"id": "controllers_text_ai_controller_ts", "label": "text-ai.controller.ts", "color": {"background": "#76B7B2", "border": "#76B7B2", "highlight": {"background": "#ffffff", "border": "#76B7B2"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": "text-ai.controller.ts", "community": 3, "community_name": "Cluster 3 (4n)", "source_file": "controllers/text-ai.controller.ts", "file_type": "code", "degree": 1}, {"id": "text_ai_controller_textaicontroller", "label": "TextAiController", "color": {"background": "#76B7B2", "border": "#76B7B2", "highlight": {"background": "#ffffff", "border": "#76B7B2"}}, "size": 28.0, "font": {"size": 12, "color": "#ffffff"}, "title": "TextAiController", "community": 3, "community_name": "Cluster 3 (4n)", "source_file": "controllers/text-ai.controller.ts", "file_type": "code", "degree": 3}, {"id": "text_ai_controller_textaicontroller_constructor", "label": ".constructor()", "color": {"background": "#76B7B2", "border": "#76B7B2", "highlight": {"background": "#ffffff", "border": "#76B7B2"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": ".constructor()", "community": 3, "community_name": "Cluster 3 (4n)", "source_file": "controllers/text-ai.controller.ts", "file_type": "code", "degree": 1}, {"id": "text_ai_controller_textaicontroller_transform", "label": ".transform()", "color": {"background": "#76B7B2", "border": "#76B7B2", "highlight": {"background": "#ffffff", "border": "#76B7B2"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": ".transform()", "community": 3, "community_name": "Cluster 3 (4n)", "source_file": "controllers/text-ai.controller.ts", "file_type": "code", "degree": 1}, {"id": "controllers_render_image_controller_ts", "label": "render-image.controller.ts", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 34.0, "font": {"size": 12, "color": "#ffffff"}, "title": "render-image.controller.ts", "community": 1, "community_name": "Cluster 1 (6n)", "source_file": "controllers/render-image.controller.ts", "file_type": "code", "degree": 4}, {"id": "render_image_controller_mimefromext", "label": "mimeFromExt()", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 22.0, "font": {"size": 12, "color": "#ffffff"}, "title": "mimeFromExt()", "community": 1, "community_name": "Cluster 1 (6n)", "source_file": "controllers/render-image.controller.ts", "file_type": "code", "degree": 2}, {"id": "render_image_controller_todatauri", "label": "toDataUri()", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 22.0, "font": {"size": 12, "color": "#ffffff"}, "title": "toDataUri()", "community": 1, "community_name": "Cluster 1 (6n)", "source_file": "controllers/render-image.controller.ts", "file_type": "code", "degree": 2}, {"id": "render_image_controller_inlineimages", "label": "inlineImages()", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 22.0, "font": {"size": 12, "color": "#ffffff"}, "title": "inlineImages()", "community": 1, "community_name": "Cluster 1 (6n)", "source_file": "controllers/render-image.controller.ts", "file_type": "code", "degree": 2}, {"id": "render_image_controller_renderimagecontroller", "label": "RenderImageController", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 22.0, "font": {"size": 12, "color": "#ffffff"}, "title": "RenderImageController", "community": 1, "community_name": "Cluster 1 (6n)", "source_file": "controllers/render-image.controller.ts", "file_type": "code", "degree": 2}, {"id": "render_image_controller_renderimagecontroller_render", "label": ".render()", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 22.0, "font": {"size": 12, "color": "#ffffff"}, "title": ".render()", "community": 1, "community_name": "Cluster 1 (6n)", "source_file": "controllers/render-image.controller.ts", "file_type": "code", "degree": 2}, {"id": "services_image_ai_service_ts", "label": "image-ai.service.ts", "color": {"background": "#59A14F", "border": "#59A14F", "highlight": {"background": "#ffffff", "border": "#59A14F"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": "image-ai.service.ts", "community": 4, "community_name": "Cluster 4 (4n)", "source_file": "services/image-ai.service.ts", "file_type": "code", "degree": 1}, {"id": "image_ai_service_imageaiservice", "label": "ImageAiService", "color": {"background": "#59A14F", "border": "#59A14F", "highlight": {"background": "#ffffff", "border": "#59A14F"}}, "size": 28.0, "font": {"size": 12, "color": "#ffffff"}, "title": "ImageAiService", "community": 4, "community_name": "Cluster 4 (4n)", "source_file": "services/image-ai.service.ts", "file_type": "code", "degree": 3}, {"id": "image_ai_service_imageaiservice_constructor", "label": ".constructor()", "color": {"background": "#59A14F", "border": "#59A14F", "highlight": {"background": "#ffffff", "border": "#59A14F"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": ".constructor()", "community": 4, "community_name": "Cluster 4 (4n)", "source_file": "services/image-ai.service.ts", "file_type": "code", "degree": 1}, {"id": "image_ai_service_imageaiservice_createedittask", "label": ".createEditTask()", "color": {"background": "#59A14F", "border": "#59A14F", "highlight": {"background": "#ffffff", "border": "#59A14F"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": ".createEditTask()", "community": 4, "community_name": "Cluster 4 (4n)", "source_file": "services/image-ai.service.ts", "file_type": "code", "degree": 1}, {"id": "services_text_ai_service_ts", "label": "text-ai.service.ts", "color": {"background": "#EDC948", "border": "#EDC948", "highlight": {"background": "#ffffff", "border": "#EDC948"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": "text-ai.service.ts", "community": 5, "community_name": "Cluster 5 (4n)", "source_file": "services/text-ai.service.ts", "file_type": "code", "degree": 1}, {"id": "text_ai_service_textaiservice", "label": "TextAiService", "color": {"background": "#EDC948", "border": "#EDC948", "highlight": {"background": "#ffffff", "border": "#EDC948"}}, "size": 28.0, "font": {"size": 12, "color": "#ffffff"}, "title": "TextAiService", "community": 5, "community_name": "Cluster 5 (4n)", "source_file": "services/text-ai.service.ts", "file_type": "code", "degree": 3}, {"id": "text_ai_service_textaiservice_transform", "label": ".transform()", "color": {"background": "#EDC948", "border": "#EDC948", "highlight": {"background": "#ffffff", "border": "#EDC948"}}, "size": 22.0, "font": {"size": 12, "color": "#ffffff"}, "title": ".transform()", "community": 5, "community_name": "Cluster 5 (4n)", "source_file": "services/text-ai.service.ts", "file_type": "code", "degree": 2}, {"id": "text_ai_service_textaiservice_buildsystemprompt", "label": ".buildSystemPrompt()", "color": {"background": "#EDC948", "border": "#EDC948", "highlight": {"background": "#ffffff", "border": "#EDC948"}}, "size": 22.0, "font": {"size": 12, "color": "#ffffff"}, "title": ".buildSystemPrompt()", "community": 5, "community_name": "Cluster 5 (4n)", "source_file": "services/text-ai.service.ts", "file_type": "code", "degree": 2}, {"id": "claude_pattern_dual_path_image_agent_text_direct", "label": "Dual-path: Image=Agent / Text=Direct", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 34.0, "font": {"size": 12, "color": "#ffffff"}, "title": "Dual-path: Image=Agent / Text=Direct", "community": 0, "community_name": "Cluster 0 (10n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 4}, {"id": "claude_pattern_preset_hardcoded_system_prompt", "label": "Preset \u2192 Hardcoded System Prompt \ub9e4\ud551", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 34.0, "font": {"size": 12, "color": "#ffffff"}, "title": "Preset \u2192 Hardcoded System Prompt \ub9e4\ud551", "community": 0, "community_name": "Cluster 0 (10n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 4}, {"id": "claude_pattern_gemini_direct_call_text_only", "label": "Gemini Direct Call (text only)", "color": {"background": "#B07AA1", "border": "#B07AA1", "highlight": {"background": "#ffffff", "border": "#B07AA1"}}, "size": 34.0, "font": {"size": 12, "color": "#ffffff"}, "title": "Gemini Direct Call (text only)", "community": 6, "community_name": "Cluster 6 (4n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 4}, {"id": "claude_rule_image_must_delegate_to_agent", "label": "Image\uc740 \ubc18\ub4dc\uc2dc agent \uc704\uc784, text\ub9cc \uc9c1\uc811 \ud638\ucd9c \ud5c8\uc6a9", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": "Image\uc740 \ubc18\ub4dc\uc2dc agent \uc704\uc784, text\ub9cc \uc9c1\uc811 \ud638\ucd9c \ud5c8\uc6a9", "community": 0, "community_name": "Cluster 0 (10n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}, {"id": "claude_rule_text_temperature_change_requires_prompt_validation", "label": "Text temperature \ubcc0\uacbd \uc2dc prompt \uc77c\uad00\uc131 \uac80\uc99d \ud544\uc694", "color": {"background": "#B07AA1", "border": "#B07AA1", "highlight": {"background": "#ffffff", "border": "#B07AA1"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": "Text temperature \ubcc0\uacbd \uc2dc prompt \uc77c\uad00\uc131 \uac80\uc99d \ud544\uc694", "community": 6, "community_name": "Cluster 6 (4n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}, {"id": "claude_rule_custom_preset_length_limit_review", "label": "Custom preset\ub294 \uc0ac\uc6a9\uc790 system prompt \ubc1b\uc9c0\ub9cc \ud14d\uc2a4\ud2b8 \uae38\uc774 \uc81c\ud55c \uac80\ud1a0", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": "Custom preset\ub294 \uc0ac\uc6a9\uc790 system prompt \ubc1b\uc9c0\ub9cc \ud14d\uc2a4\ud2b8 \uae38\uc774 \uc81c\ud55c \uac80\ud1a0", "community": 0, "community_name": "Cluster 0 (10n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}, {"id": "claude_rule_error_expose_api_status_and_body", "label": "Error \uc2dc API status + truncated response body \ub178\ucd9c (debugging)", "color": {"background": "#B07AA1", "border": "#B07AA1", "highlight": {"background": "#ffffff", "border": "#B07AA1"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": "Error \uc2dc API status + truncated response body \ub178\ucd9c (debugging)", "community": 6, "community_name": "Cluster 6 (4n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}, {"id": "claude_prohibit_image_edit_sync_call", "label": "Image edit \ub3d9\uae30 \ud638\ucd9c \uae08\uc9c0 (agent \uc704\uc784 \uac15\uc81c)", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": "Image edit \ub3d9\uae30 \ud638\ucd9c \uae08\uc9c0 (agent \uc704\uc784 \uac15\uc81c)", "community": 0, "community_name": "Cluster 0 (10n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}, {"id": "claude_prohibit_text_string_concat_injection", "label": "Text\uc5d0 \uc0ac\uc6a9\uc790 \ubcc0\uc218 string concat injection \uae08\uc9c0 (prompt \ud568\uc218\ud615 \ube4c\ub4dc)", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": "Text\uc5d0 \uc0ac\uc6a9\uc790 \ubcc0\uc218 string concat injection \uae08\uc9c0 (prompt \ud568\uc218\ud615 \ube4c\ub4dc)", "community": 0, "community_name": "Cluster 0 (10n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}, {"id": "claude_prohibit_other_llm_direct_call", "label": "Gemini API \uc678 \ub2e4\ub978 \ubaa8\ub378 \uc9c1\uc811 \ud638\ucd9c \uae08\uc9c0 (\uc0c8 LLM \ucd94\uac00 \uc2dc ADR)", "color": {"background": "#B07AA1", "border": "#B07AA1", "highlight": {"background": "#ffffff", "border": "#B07AA1"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": "Gemini API \uc678 \ub2e4\ub978 \ubaa8\ub378 \uc9c1\uc811 \ud638\ucd9c \uae08\uc9c0 (\uc0c8 LLM \ucd94\uac00 \uc2dc ADR)", "community": 6, "community_name": "Cluster 6 (4n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}, {"id": "claude_rationale_image_heavy_slow_text_fast", "label": "Image\uc740 \ubb34\uac70\uc6c0/\ub290\ub9bc \u2192 agent \ube44\ub3d9\uae30 \ud050, text\ub294 \ube60\ub984 \u2192 \ub3d9\uae30 OK", "color": {"background": "#76B7B2", "border": "#76B7B2", "highlight": {"background": "#ffffff", "border": "#76B7B2"}}, "size": 10.0, "font": {"size": 0, "color": "#ffffff"}, "title": "Image\uc740 \ubb34\uac70\uc6c0/\ub290\ub9bc \u2192 agent \ube44\ub3d9\uae30 \ud050, text\ub294 \ube60\ub984 \u2192 \ub3d9\uae30 OK", "community": 13, "community_name": "Cluster 13 (1n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 0}, {"id": "claude_file_image_ai_service", "label": "services/image-ai.service.ts", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 22.0, "font": {"size": 12, "color": "#ffffff"}, "title": "services/image-ai.service.ts", "community": 0, "community_name": "Cluster 0 (10n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 2}, {"id": "claude_file_text_ai_service", "label": "services/text-ai.service.ts", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 40.0, "font": {"size": 12, "color": "#ffffff"}, "title": "services/text-ai.service.ts", "community": 0, "community_name": "Cluster 0 (10n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 5}, {"id": "claude_file_render_image_controller", "label": "controllers/render-image.controller.ts", "color": {"background": "#59A14F", "border": "#59A14F", "highlight": {"background": "#ffffff", "border": "#59A14F"}}, "size": 10.0, "font": {"size": 0, "color": "#ffffff"}, "title": "controllers/render-image.controller.ts", "community": 14, "community_name": "Cluster 14 (1n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 0}, {"id": "claude_file_text_transform_dto", "label": "dto/text-transform.dto.ts", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 22.0, "font": {"size": 12, "color": "#ffffff"}, "title": "dto/text-transform.dto.ts", "community": 0, "community_name": "Cluster 0 (10n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 2}, {"id": "claude_file_image_edit_dto", "label": "dto/image-edit.dto.ts", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": "dto/image-edit.dto.ts", "community": 11, "community_name": "Cluster 11 (2n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}, {"id": "claude_file_ai_module", "label": "ai.module.ts", "color": {"background": "#4E79A7", "border": "#4E79A7", "highlight": {"background": "#ffffff", "border": "#4E79A7"}}, "size": 22.0, "font": {"size": 12, "color": "#ffffff"}, "title": "ai.module.ts", "community": 0, "community_name": "Cluster 0 (10n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 2}, {"id": "claude_file_agent_prompt_image_edit_md", "label": "agent-config/prompts/agents/image-edit.md", "color": {"background": "#F28E2B", "border": "#F28E2B", "highlight": {"background": "#ffffff", "border": "#F28E2B"}}, "size": 16.0, "font": {"size": 12, "color": "#ffffff"}, "title": "agent-config/prompts/agents/image-edit.md", "community": 11, "community_name": "Cluster 11 (2n)", "source_file": "CLAUDE.md", "file_type": "document", "degree": 1}];
+const RAW_EDGES = [{"from": "ai_module_ts", "to": "ai_module_aimodule", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "dto_image_edit_dto_ts", "to": "image_edit_dto_imageeditbodydto", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "dto_render_image_dto_ts", "to": "render_image_dto_renderimagebodydto", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "dto_text_transform_dto_ts", "to": "text_transform_dto_texttransformbodydto", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "controllers_image_ai_controller_ts", "to": "image_ai_controller_imageaicontroller", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "image_ai_controller_imageaicontroller", "to": "image_ai_controller_imageaicontroller_constructor", "label": "method", "title": "method [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "image_ai_controller_imageaicontroller", "to": "image_ai_controller_imageaicontroller_edit", "label": "method", "title": "method [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "controllers_text_ai_controller_ts", "to": "text_ai_controller_textaicontroller", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "text_ai_controller_textaicontroller", "to": "text_ai_controller_textaicontroller_constructor", "label": "method", "title": "method [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "text_ai_controller_textaicontroller", "to": "text_ai_controller_textaicontroller_transform", "label": "method", "title": "method [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "controllers_render_image_controller_ts", "to": "render_image_controller_mimefromext", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "controllers_render_image_controller_ts", "to": "render_image_controller_todatauri", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "controllers_render_image_controller_ts", "to": "render_image_controller_inlineimages", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "controllers_render_image_controller_ts", "to": "render_image_controller_renderimagecontroller", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "render_image_controller_mimefromext", "to": "render_image_controller_todatauri", "label": "calls", "title": "calls [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "render_image_controller_inlineimages", "to": "render_image_controller_renderimagecontroller_render", "label": "calls", "title": "calls [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "render_image_controller_renderimagecontroller", "to": "render_image_controller_renderimagecontroller_render", "label": "method", "title": "method [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "services_image_ai_service_ts", "to": "image_ai_service_imageaiservice", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "image_ai_service_imageaiservice", "to": "image_ai_service_imageaiservice_constructor", "label": "method", "title": "method [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "image_ai_service_imageaiservice", "to": "image_ai_service_imageaiservice_createedittask", "label": "method", "title": "method [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "services_text_ai_service_ts", "to": "text_ai_service_textaiservice", "label": "contains", "title": "contains [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "text_ai_service_textaiservice", "to": "text_ai_service_textaiservice_transform", "label": "method", "title": "method [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "text_ai_service_textaiservice", "to": "text_ai_service_textaiservice_buildsystemprompt", "label": "method", "title": "method [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "text_ai_service_textaiservice_transform", "to": "text_ai_service_textaiservice_buildsystemprompt", "label": "calls", "title": "calls [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_pattern_dual_path_image_agent_text_direct", "to": "claude_file_image_ai_service", "label": "rationale_for", "title": "rationale_for [INFERRED]", "dashes": true, "width": 1, "color": {"opacity": 0.35}, "confidence": "INFERRED"}, {"from": "claude_pattern_dual_path_image_agent_text_direct", "to": "claude_file_text_ai_service", "label": "rationale_for", "title": "rationale_for [INFERRED]", "dashes": true, "width": 1, "color": {"opacity": 0.35}, "confidence": "INFERRED"}, {"from": "claude_pattern_dual_path_image_agent_text_direct", "to": "claude_rule_image_must_delegate_to_agent", "label": "rationale_for", "title": "rationale_for [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_pattern_dual_path_image_agent_text_direct", "to": "claude_prohibit_image_edit_sync_call", "label": "conceptually_related_to", "title": "conceptually_related_to [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_pattern_preset_hardcoded_system_prompt", "to": "claude_file_text_ai_service", "label": "rationale_for", "title": "rationale_for [INFERRED]", "dashes": true, "width": 1, "color": {"opacity": 0.35}, "confidence": "INFERRED"}, {"from": "claude_pattern_preset_hardcoded_system_prompt", "to": "claude_file_text_transform_dto", "label": "rationale_for", "title": "rationale_for [INFERRED]", "dashes": true, "width": 1, "color": {"opacity": 0.35}, "confidence": "INFERRED"}, {"from": "claude_pattern_preset_hardcoded_system_prompt", "to": "claude_rule_custom_preset_length_limit_review", "label": "rationale_for", "title": "rationale_for [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_pattern_preset_hardcoded_system_prompt", "to": "claude_prohibit_text_string_concat_injection", "label": "conceptually_related_to", "title": "conceptually_related_to [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_pattern_gemini_direct_call_text_only", "to": "claude_file_text_ai_service", "label": "rationale_for", "title": "rationale_for [INFERRED]", "dashes": true, "width": 1, "color": {"opacity": 0.35}, "confidence": "INFERRED"}, {"from": "claude_pattern_gemini_direct_call_text_only", "to": "claude_rule_text_temperature_change_requires_prompt_validation", "label": "rationale_for", "title": "rationale_for [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_pattern_gemini_direct_call_text_only", "to": "claude_rule_error_expose_api_status_and_body", "label": "rationale_for", "title": "rationale_for [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_pattern_gemini_direct_call_text_only", "to": "claude_prohibit_other_llm_direct_call", "label": "conceptually_related_to", "title": "conceptually_related_to [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_file_image_ai_service", "to": "claude_file_ai_module", "label": "modification_triggers", "title": "modification_triggers [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_file_text_ai_service", "to": "claude_file_text_transform_dto", "label": "modification_triggers", "title": "modification_triggers [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_file_text_ai_service", "to": "claude_file_ai_module", "label": "modification_triggers", "title": "modification_triggers [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}, {"from": "claude_file_image_edit_dto", "to": "claude_file_agent_prompt_image_edit_md", "label": "modification_triggers", "title": "modification_triggers [EXTRACTED]", "dashes": false, "width": 2, "color": {"opacity": 0.7}, "confidence": "EXTRACTED"}];
+const LEGEND = [{"cid": 0, "color": "#4E79A7", "label": "Cluster 0 (10n)", "count": 10}, {"cid": 1, "color": "#F28E2B", "label": "Cluster 1 (6n)", "count": 6}, {"cid": 2, "color": "#E15759", "label": "Cluster 2 (4n)", "count": 4}, {"cid": 3, "color": "#76B7B2", "label": "Cluster 3 (4n)", "count": 4}, {"cid": 4, "color": "#59A14F", "label": "Cluster 4 (4n)", "count": 4}, {"cid": 5, "color": "#EDC948", "label": "Cluster 5 (4n)", "count": 4}, {"cid": 6, "color": "#B07AA1", "label": "Cluster 6 (4n)", "count": 4}, {"cid": 7, "color": "#FF9DA7", "label": "Cluster 7 (2n)", "count": 2}, {"cid": 8, "color": "#9C755F", "label": "Cluster 8 (2n)", "count": 2}, {"cid": 9, "color": "#BAB0AC", "label": "Cluster 9 (2n)", "count": 2}, {"cid": 10, "color": "#4E79A7", "label": "Cluster 10 (2n)", "count": 2}, {"cid": 11, "color": "#F28E2B", "label": "Cluster 11 (2n)", "count": 2}, {"cid": 12, "color": "#E15759", "label": "Cluster 12 (1n)", "count": 1}, {"cid": 13, "color": "#76B7B2", "label": "Cluster 13 (1n)", "count": 1}, {"cid": 14, "color": "#59A14F", "label": "Cluster 14 (1n)", "count": 1}];
+
+// HTML-escape helper — prevents XSS when injecting graph data into innerHTML
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+// Build vis datasets
+const nodesDS = new vis.DataSet(RAW_NODES.map(n => ({
+  id: n.id, label: n.label, color: n.color, size: n.size,
+  font: n.font, title: n.title,
+  _community: n.community, _community_name: n.community_name,
+  _source_file: n.source_file, _file_type: n.file_type, _degree: n.degree,
+})));
+
+const edgesDS = new vis.DataSet(RAW_EDGES.map((e, i) => ({
+  id: i, from: e.from, to: e.to,
+  label: '',
+  title: e.title,
+  dashes: e.dashes,
+  width: e.width,
+  color: e.color,
+  arrows: { to: { enabled: true, scaleFactor: 0.5 } },
+})));
+
+const container = document.getElementById('graph');
+const network = new vis.Network(container, { nodes: nodesDS, edges: edgesDS }, {
+  physics: {
+    enabled: true,
+    solver: 'forceAtlas2Based',
+    forceAtlas2Based: {
+      gravitationalConstant: -60,
+      centralGravity: 0.005,
+      springLength: 120,
+      springConstant: 0.08,
+      damping: 0.4,
+      avoidOverlap: 0.8,
+    },
+    stabilization: { iterations: 200, fit: true },
+  },
+  interaction: {
+    hover: true,
+    tooltipDelay: 100,
+    hideEdgesOnDrag: true,
+    navigationButtons: false,
+    keyboard: false,
+  },
+  nodes: { shape: 'dot', borderWidth: 1.5 },
+  edges: { smooth: { type: 'continuous', roundness: 0.2 }, selectionWidth: 3 },
+});
+
+network.once('stabilizationIterationsDone', () => {
+  network.setOptions({ physics: { enabled: false } });
+});
+
+function showInfo(nodeId) {
+  const n = nodesDS.get(nodeId);
+  if (!n) return;
+  const neighborIds = network.getConnectedNodes(nodeId);
+  const neighborItems = neighborIds.map(nid => {
+    const nb = nodesDS.get(nid);
+    const color = nb ? nb.color.background : '#555';
+    return `<span class="neighbor-link" style="border-left-color:${esc(color)}" onclick="focusNode(${JSON.stringify(nid)})">${esc(nb ? nb.label : nid)}</span>`;
+  }).join('');
+  document.getElementById('info-content').innerHTML = `
+    <div class="field"><b>${esc(n.label)}</b></div>
+    <div class="field">Type: ${esc(n._file_type || 'unknown')}</div>
+    <div class="field">Community: ${esc(n._community_name)}</div>
+    <div class="field">Source: ${esc(n._source_file || '-')}</div>
+    <div class="field">Degree: ${n._degree}</div>
+    ${neighborIds.length ? `<div class="field" style="margin-top:8px;color:#aaa;font-size:11px">Neighbors (${neighborIds.length})</div><div id="neighbors-list">${neighborItems}</div>` : ''}
+  `;
+}
+
+function focusNode(nodeId) {
+  network.focus(nodeId, { scale: 1.4, animation: true });
+  network.selectNodes([nodeId]);
+  showInfo(nodeId);
+}
+
+// Track hovered node — hover detection is more reliable than click params
+let hoveredNodeId = null;
+network.on('hoverNode', params => {
+  hoveredNodeId = params.node;
+  container.style.cursor = 'pointer';
+});
+network.on('blurNode', () => {
+  hoveredNodeId = null;
+  container.style.cursor = 'default';
+});
+container.addEventListener('click', () => {
+  if (hoveredNodeId !== null) {
+    showInfo(hoveredNodeId);
+    network.selectNodes([hoveredNodeId]);
+  }
+});
+network.on('click', params => {
+  if (params.nodes.length > 0) {
+    showInfo(params.nodes[0]);
+  } else if (hoveredNodeId === null) {
+    document.getElementById('info-content').innerHTML = '<span class="empty">Click a node to inspect it</span>';
+  }
+});
+
+const searchInput = document.getElementById('search');
+const searchResults = document.getElementById('search-results');
+searchInput.addEventListener('input', () => {
+  const q = searchInput.value.toLowerCase().trim();
+  searchResults.innerHTML = '';
+  if (!q) { searchResults.style.display = 'none'; return; }
+  const matches = RAW_NODES.filter(n => n.label.toLowerCase().includes(q)).slice(0, 20);
+  if (!matches.length) { searchResults.style.display = 'none'; return; }
+  searchResults.style.display = 'block';
+  matches.forEach(n => {
+    const el = document.createElement('div');
+    el.className = 'search-item';
+    el.textContent = n.label;
+    el.style.borderLeft = `3px solid ${n.color.background}`;
+    el.style.paddingLeft = '8px';
+    el.onclick = () => {
+      network.focus(n.id, { scale: 1.5, animation: true });
+      network.selectNodes([n.id]);
+      showInfo(n.id);
+      searchResults.style.display = 'none';
+      searchInput.value = '';
+    };
+    searchResults.appendChild(el);
+  });
+});
+document.addEventListener('click', e => {
+  if (!searchResults.contains(e.target) && e.target !== searchInput)
+    searchResults.style.display = 'none';
+});
+
+const hiddenCommunities = new Set();
+const legendEl = document.getElementById('legend');
+LEGEND.forEach(c => {
+  const item = document.createElement('div');
+  item.className = 'legend-item';
+  item.innerHTML = `<div class="legend-dot" style="background:${c.color}"></div>
+    <span class="legend-label">${c.label}</span>
+    <span class="legend-count">${c.count}</span>`;
+  item.onclick = () => {
+    if (hiddenCommunities.has(c.cid)) {
+      hiddenCommunities.delete(c.cid);
+      item.classList.remove('dimmed');
+    } else {
+      hiddenCommunities.add(c.cid);
+      item.classList.add('dimmed');
+    }
+    const updates = RAW_NODES
+      .filter(n => n.community === c.cid)
+      .map(n => ({ id: n.id, hidden: hiddenCommunities.has(c.cid) }));
+    nodesDS.update(updates);
+  };
+  legendEl.appendChild(item);
+});
+</script>
+<script>
+// Render hyperedges as shaded regions
+const hyperedges = [];
+function drawHyperedges() {
+    const canvas = network.canvas.frame.canvas;
+    const ctx = canvas.getContext('2d');
+    hyperedges.forEach(h => {
+        const positions = h.nodes
+            .map(nid => network.getPositions([nid])[nid])
+            .filter(p => p !== undefined);
+        if (positions.length < 2) return;
+        // Draw convex hull as filled polygon
+        ctx.save();
+        ctx.globalAlpha = 0.12;
+        ctx.fillStyle = '#6366f1';
+        ctx.strokeStyle = '#6366f1';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        const scale = network.getScale();
+        const offset = network.getViewPosition();
+        const toCanvas = (p) => ({
+            x: (p.x - offset.x) * scale + canvas.width / 2,
+            y: (p.y - offset.y) * scale + canvas.height / 2
+        });
+        const pts = positions.map(toCanvas);
+        // Expand hull slightly
+        const cx = pts.reduce((s, p) => s + p.x, 0) / pts.length;
+        const cy = pts.reduce((s, p) => s + p.y, 0) / pts.length;
+        const expanded = pts.map(p => ({
+            x: cx + (p.x - cx) * 1.15,
+            y: cy + (p.y - cy) * 1.15
+        }));
+        ctx.moveTo(expanded[0].x, expanded[0].y);
+        expanded.slice(1).forEach(p => ctx.lineTo(p.x, p.y));
+        ctx.closePath();
+        ctx.fill();
+        ctx.globalAlpha = 0.4;
+        ctx.stroke();
+        // Label
+        ctx.globalAlpha = 0.8;
+        ctx.fillStyle = '#4f46e5';
+        ctx.font = 'bold 11px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(h.label, cx, cy - 5);
+        ctx.restore();
+    });
+}
+network.on('afterDrawing', drawHyperedges);
+</script>
+</body>
+</html>

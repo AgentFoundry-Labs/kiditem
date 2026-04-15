@@ -1,14 +1,15 @@
 import { Controller, Post, Get, Body, Query, Param } from '@nestjs/common';
 import { AdStrategyService } from './ad-strategy.service';
 import { RunAdStrategyBodyDto, ListAdRunsQueryDto } from './dto';
+import { CurrentCompany } from '../../../auth/decorators/current-company.decorator';
 
 @Controller('ad-agent')
 export class AdStrategyController {
   constructor(private readonly adStrategyService: AdStrategyService) {}
 
   @Post('run')
-  run(@Body() body: RunAdStrategyBodyDto) {
-    return this.adStrategyService.run(body);
+  run(@Body() body: RunAdStrategyBodyDto, @CurrentCompany() companyId: string) {
+    return this.adStrategyService.run({ ...body, companyId });
   }
 
   @Get('status/:taskId')
@@ -17,12 +18,12 @@ export class AdStrategyController {
   }
 
   @Get('latest')
-  getLatest(@Query('companyId') companyId?: string) {
+  getLatest(@CurrentCompany() companyId: string) {
     return this.adStrategyService.getLatestRun(companyId);
   }
 
   @Get('runs')
-  getRuns(@Query() query: ListAdRunsQueryDto) {
-    return this.adStrategyService.getRuns(query as any);
+  getRuns(@CurrentCompany() companyId: string, @Query() query: ListAdRunsQueryDto) {
+    return this.adStrategyService.getRuns({ ...query, companyId });
   }
 }

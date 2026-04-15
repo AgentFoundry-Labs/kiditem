@@ -1,0 +1,1131 @@
+{
+  "directed": false,
+  "multigraph": false,
+  "graph": {},
+  "nodes": [
+    {
+      "label": "chat.service.ts",
+      "file_type": "code",
+      "source_file": "chat.service.ts",
+      "source_location": "L1",
+      "id": "chat_service_ts",
+      "community": 2,
+      "norm_label": "chat.service.ts"
+    },
+    {
+      "label": "ChatService",
+      "file_type": "code",
+      "source_file": "chat.service.ts",
+      "source_location": "L30",
+      "id": "chat_service_chatservice",
+      "community": 2,
+      "norm_label": "chatservice"
+    },
+    {
+      "label": ".onModuleInit()",
+      "file_type": "code",
+      "source_file": "chat.service.ts",
+      "source_location": "L34",
+      "id": "chat_service_chatservice_onmoduleinit",
+      "community": 2,
+      "norm_label": ".onmoduleinit()"
+    },
+    {
+      "label": ".handleCopilotRequest()",
+      "file_type": "code",
+      "source_file": "chat.service.ts",
+      "source_location": "L45",
+      "id": "chat_service_chatservice_handlecopilotrequest",
+      "community": 2,
+      "norm_label": ".handlecopilotrequest()"
+    },
+    {
+      "label": ".loadPrompt()",
+      "file_type": "code",
+      "source_file": "chat.service.ts",
+      "source_location": "L49",
+      "id": "chat_service_chatservice_loadprompt",
+      "community": 2,
+      "norm_label": ".loadprompt()"
+    },
+    {
+      "label": ".stream()",
+      "file_type": "code",
+      "source_file": "chat.service.ts",
+      "source_location": "L60",
+      "id": "chat_service_chatservice_stream",
+      "community": 2,
+      "norm_label": ".stream()"
+    },
+    {
+      "label": ".emit()",
+      "file_type": "code",
+      "source_file": "chat.service.ts",
+      "source_location": "L187",
+      "id": "chat_service_chatservice_emit",
+      "community": 2,
+      "norm_label": ".emit()"
+    },
+    {
+      "label": "chat.controller.ts",
+      "file_type": "code",
+      "source_file": "chat.controller.ts",
+      "source_location": "L1",
+      "id": "chat_controller_ts",
+      "community": 6,
+      "norm_label": "chat.controller.ts"
+    },
+    {
+      "label": "ChatController",
+      "file_type": "code",
+      "source_file": "chat.controller.ts",
+      "source_location": "L13",
+      "id": "chat_controller_chatcontroller",
+      "community": 6,
+      "norm_label": "chatcontroller"
+    },
+    {
+      "label": ".constructor()",
+      "file_type": "code",
+      "source_file": "chat.controller.ts",
+      "source_location": "L14",
+      "id": "chat_controller_chatcontroller_constructor",
+      "community": 6,
+      "norm_label": ".constructor()"
+    },
+    {
+      "label": ".chat()",
+      "file_type": "code",
+      "source_file": "chat.controller.ts",
+      "source_location": "L17",
+      "id": "chat_controller_chatcontroller_chat",
+      "community": 6,
+      "norm_label": ".chat()"
+    },
+    {
+      "label": "chat.module.ts",
+      "file_type": "code",
+      "source_file": "chat.module.ts",
+      "source_location": "L1",
+      "id": "chat_module_ts",
+      "community": 8,
+      "norm_label": "chat.module.ts"
+    },
+    {
+      "label": "ChatModule",
+      "file_type": "code",
+      "source_file": "chat.module.ts",
+      "source_location": "L9",
+      "id": "chat_module_chatmodule",
+      "community": 8,
+      "norm_label": "chatmodule"
+    },
+    {
+      "label": "claude-cli-adapter.ts",
+      "file_type": "code",
+      "source_file": "claude-cli-adapter.ts",
+      "source_location": "L1",
+      "id": "claude_cli_adapter_ts",
+      "community": 3,
+      "norm_label": "claude-cli-adapter.ts"
+    },
+    {
+      "label": "ClaudeCliAdapter",
+      "file_type": "code",
+      "source_file": "claude-cli-adapter.ts",
+      "source_location": "L23",
+      "id": "claude_cli_adapter_claudecliadapter",
+      "community": 3,
+      "norm_label": "claudecliadapter"
+    },
+    {
+      "label": ".name()",
+      "file_type": "code",
+      "source_file": "claude-cli-adapter.ts",
+      "source_location": "L27",
+      "id": "claude_cli_adapter_claudecliadapter_name",
+      "community": 3,
+      "norm_label": ".name()"
+    },
+    {
+      "label": ".loadPrompt()",
+      "file_type": "code",
+      "source_file": "claude-cli-adapter.ts",
+      "source_location": "L31",
+      "id": "claude_cli_adapter_claudecliadapter_loadprompt",
+      "community": 3,
+      "norm_label": ".loadprompt()"
+    },
+    {
+      "label": ".process()",
+      "file_type": "code",
+      "source_file": "claude-cli-adapter.ts",
+      "source_location": "L42",
+      "id": "claude_cli_adapter_claudecliadapter_process",
+      "community": 3,
+      "norm_label": ".process()"
+    },
+    {
+      "label": "index.ts",
+      "file_type": "code",
+      "source_file": "dto/index.ts",
+      "source_location": "L1",
+      "id": "dto_index_ts",
+      "community": 10,
+      "norm_label": "index.ts"
+    },
+    {
+      "label": "chat.dto.ts",
+      "file_type": "code",
+      "source_file": "dto/chat.dto.ts",
+      "source_location": "L1",
+      "id": "dto_chat_dto_ts",
+      "community": 9,
+      "norm_label": "chat.dto.ts"
+    },
+    {
+      "label": "ChatRequestDto",
+      "file_type": "code",
+      "source_file": "dto/chat.dto.ts",
+      "source_location": "L3",
+      "id": "chat_dto_chatrequestdto",
+      "community": 9,
+      "norm_label": "chatrequestdto"
+    },
+    {
+      "label": "Process per request \u2014 no pooling, short lifetime (2-120s)",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_pattern_process_per_request",
+      "community": 7,
+      "norm_label": "process per request \u2014 no pooling, short lifetime (2-120s)"
+    },
+    {
+      "label": "Token buffering \u2014 newline-bounded, partial JSON accumulation",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_pattern_token_buffering",
+      "community": 1,
+      "norm_label": "token buffering \u2014 newline-bounded, partial json accumulation"
+    },
+    {
+      "label": "Silent JSON failure \u2014 corruption recovery",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_pattern_silent_json_failure",
+      "community": 1,
+      "norm_label": "silent json failure \u2014 corruption recovery"
+    },
+    {
+      "label": "SIGTERM \u2192 SIGKILL grace \u2014 zombie prevention",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_pattern_sigterm_sigkill_grace",
+      "community": 5,
+      "norm_label": "sigterm \u2192 sigkill grace \u2014 zombie prevention"
+    },
+    {
+      "label": "Tool allowlist for safety \u2014 --permission-mode + --allowedTools read-only enforcement",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_pattern_tool_allowlist",
+      "community": 4,
+      "norm_label": "tool allowlist for safety \u2014 --permission-mode + --allowedtools read-only enforcement"
+    },
+    {
+      "label": "No data injection in prompts \u2014 agent queries DB dynamically",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_pattern_no_data_injection",
+      "community": 1,
+      "norm_label": "no data injection in prompts \u2014 agent queries db dynamically"
+    },
+    {
+      "label": "Express pre-registration bypassing NestJS for CopilotKit Hono router sub-routes",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_pattern_express_pre_registration",
+      "community": 0,
+      "norm_label": "express pre-registration bypassing nestjs for copilotkit hono router sub-routes"
+    },
+    {
+      "label": "Dual mount \u2014 /api/chat (NestJS) + /api/chat/copilot/* (CopilotKit Hono)",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_pattern_dual_mount",
+      "community": 0,
+      "norm_label": "dual mount \u2014 /api/chat (nestjs) + /api/chat/copilot/* (copilotkit hono)"
+    },
+    {
+      "label": "ENV priority \u2014 CHATBOT_DATABASE_URL > AGENT_DATABASE_URL > DATABASE_URL",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_pattern_env_priority",
+      "community": 1,
+      "norm_label": "env priority \u2014 chatbot_database_url > agent_database_url > database_url"
+    },
+    {
+      "label": "SSE stream \u2014 Observable \u2192 MessageEvent per token via text/event-stream headers",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_pattern_sse_stream",
+      "community": 0,
+      "norm_label": "sse stream \u2014 observable \u2192 messageevent per token via text/event-stream headers"
+    },
+    {
+      "label": "Args changes (model, tools) require claude-cli-adapter.ts:args + tests + security review",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rule_args_change_review",
+      "community": 4,
+      "norm_label": "args changes (model, tools) require claude-cli-adapter.ts:args + tests + security review"
+    },
+    {
+      "label": "ENV priority changes require updating operations env var documentation",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rule_env_priority_doc",
+      "community": 1,
+      "norm_label": "env priority changes require updating operations env var documentation"
+    },
+    {
+      "label": "Timeout/grace constants (TIMEOUT_MS, GRACE_MS) require load test before change",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rule_timeout_loadtest",
+      "community": 5,
+      "norm_label": "timeout/grace constants (timeout_ms, grace_ms) require load test before change"
+    },
+    {
+      "label": "Prompts live in agent-config/prompts/agents/chat.md, not in DB",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rule_prompt_location",
+      "community": 1,
+      "norm_label": "prompts live in agent-config/prompts/agents/chat.md, not in db"
+    },
+    {
+      "label": "New endpoints must follow Express pre-registration pattern in main.ts",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rule_new_endpoint_pattern",
+      "community": 0,
+      "norm_label": "new endpoints must follow express pre-registration pattern in main.ts"
+    },
+    {
+      "label": "CopilotKit upgrades require chat.service.ts + main.ts Hono compatibility check",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rule_copilotkit_upgrade",
+      "community": 0,
+      "norm_label": "copilotkit upgrades require chat.service.ts + main.ts hono compatibility check"
+    },
+    {
+      "label": "Multi-tenant credential injection requires ADR",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rule_multitenant_adr",
+      "community": 7,
+      "norm_label": "multi-tenant credential injection requires adr"
+    },
+    {
+      "label": "Read-only PostgreSQL access via Bash(psql:*) tool only",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rule_readonly_db",
+      "community": 4,
+      "norm_label": "read-only postgresql access via bash(psql:*) tool only"
+    },
+    {
+      "label": "Timeout 120s (SIGTERM) with 10s grace (SIGKILL)",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rule_timeout_values",
+      "community": 5,
+      "norm_label": "timeout 120s (sigterm) with 10s grace (sigkill)"
+    },
+    {
+      "label": "Subscriber unsubscribe must trigger child.kill('SIGTERM') for cleanup",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rule_subscriber_cleanup",
+      "community": 5,
+      "norm_label": "subscriber unsubscribe must trigger child.kill('sigterm') for cleanup"
+    },
+    {
+      "label": "No tool allowlist changes without security audit (current: Bash(psql:*) Read Grep)",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_prohibit_tool_allowlist_change",
+      "community": 4,
+      "norm_label": "no tool allowlist changes without security audit (current: bash(psql:*) read grep)"
+    },
+    {
+      "label": "No data variable injection in prompts",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_prohibit_data_in_prompt",
+      "community": 1,
+      "norm_label": "no data variable injection in prompts"
+    },
+    {
+      "label": "No timeout logic removal (resource exhaustion guard)",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_prohibit_remove_timeout",
+      "community": 5,
+      "norm_label": "no timeout logic removal (resource exhaustion guard)"
+    },
+    {
+      "label": "No child process sharing (breaks request isolation, multi-tenant risk)",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_prohibit_shared_child_process",
+      "community": 7,
+      "norm_label": "no child process sharing (breaks request isolation, multi-tenant risk)"
+    },
+    {
+      "label": "No shell interpolation \u2014 spawn args must be explicit array",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_prohibit_shell_interpolation",
+      "community": 4,
+      "norm_label": "no shell interpolation \u2014 spawn args must be explicit array"
+    },
+    {
+      "label": "No stderr logging (silent failure is intentional)",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_prohibit_stderr_logging",
+      "community": 1,
+      "norm_label": "no stderr logging (silent failure is intentional)"
+    },
+    {
+      "label": "Hono router has /info and other sub-routes that NestJS @All('copilot') exact-match would block",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rationale_hono_subroute",
+      "community": 11,
+      "norm_label": "hono router has /info and other sub-routes that nestjs @all('copilot') exact-match would block"
+    },
+    {
+      "label": "req.url = req.originalUrl patch compensates for Express prefix strip",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rationale_url_patch",
+      "community": 12,
+      "norm_label": "req.url = req.originalurl patch compensates for express prefix strip"
+    },
+    {
+      "label": "Incomplete lines kept in buffer, resumed on next chunk; close handler drains remainder",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rationale_buffer_mgmt",
+      "community": 13,
+      "norm_label": "incomplete lines kept in buffer, resumed on next chunk; close handler drains remainder"
+    },
+    {
+      "label": "Malformed JSON lines skipped to maintain stream robustness",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rationale_malformed_skip",
+      "community": 14,
+      "norm_label": "malformed json lines skipped to maintain stream robustness"
+    },
+    {
+      "label": "chat is self-contained and independent from agent-registry despite shared DB pattern",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rationale_independence",
+      "community": 15,
+      "norm_label": "chat is self-contained and independent from agent-registry despite shared db pattern"
+    },
+    {
+      "label": "chat.module.ts",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_chat_module",
+      "community": 0,
+      "norm_label": "chat.module.ts"
+    },
+    {
+      "label": "chat.controller.ts \u2014 POST /api/chat (SSE)",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_chat_controller",
+      "community": 0,
+      "norm_label": "chat.controller.ts \u2014 post /api/chat (sse)"
+    },
+    {
+      "label": "chat.service.ts \u2014 CopilotKit runtime init + Observable stream",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_chat_service",
+      "community": 0,
+      "norm_label": "chat.service.ts \u2014 copilotkit runtime init + observable stream"
+    },
+    {
+      "label": "claude-cli-adapter.ts \u2014 CopilotServiceAdapter implementation, spawns Claude CLI",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_claude_cli_adapter",
+      "community": 1,
+      "norm_label": "claude-cli-adapter.ts \u2014 copilotserviceadapter implementation, spawns claude cli"
+    },
+    {
+      "label": "dto/chat.dto.ts \u2014 ChatRequestDto",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_chat_dto",
+      "community": 0,
+      "norm_label": "dto/chat.dto.ts \u2014 chatrequestdto"
+    },
+    {
+      "label": "dto/index.ts",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_dto_index",
+      "community": 0,
+      "norm_label": "dto/index.ts"
+    },
+    {
+      "label": "main.ts \u2014 Express pre-registration for /api/chat/copilot",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_main_ts",
+      "community": 0,
+      "norm_label": "main.ts \u2014 express pre-registration for /api/chat/copilot"
+    },
+    {
+      "label": "agent-config/prompts/agents/chat.md \u2014 runtime prompt",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_agent_config_prompt",
+      "community": 1,
+      "norm_label": "agent-config/prompts/agents/chat.md \u2014 runtime prompt"
+    },
+    {
+      "label": "apps/server/package.json \u2014 @copilotkit/runtime@^1.54.1",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_server_package",
+      "community": 0,
+      "norm_label": "apps/server/package.json \u2014 @copilotkit/runtime@^1.54.1"
+    }
+  ],
+  "links": [
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "chat.service.ts",
+      "source_location": "L30",
+      "weight": 1.0,
+      "_src": "chat_service_ts",
+      "_tgt": "chat_service_chatservice",
+      "source": "chat_service_ts",
+      "target": "chat_service_chatservice",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "chat.service.ts",
+      "source_location": "L34",
+      "weight": 1.0,
+      "_src": "chat_service_chatservice",
+      "_tgt": "chat_service_chatservice_onmoduleinit",
+      "source": "chat_service_chatservice",
+      "target": "chat_service_chatservice_onmoduleinit",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "chat.service.ts",
+      "source_location": "L45",
+      "weight": 1.0,
+      "_src": "chat_service_chatservice",
+      "_tgt": "chat_service_chatservice_handlecopilotrequest",
+      "source": "chat_service_chatservice",
+      "target": "chat_service_chatservice_handlecopilotrequest",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "chat.service.ts",
+      "source_location": "L49",
+      "weight": 1.0,
+      "_src": "chat_service_chatservice",
+      "_tgt": "chat_service_chatservice_loadprompt",
+      "source": "chat_service_chatservice",
+      "target": "chat_service_chatservice_loadprompt",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "chat.service.ts",
+      "source_location": "L60",
+      "weight": 1.0,
+      "_src": "chat_service_chatservice",
+      "_tgt": "chat_service_chatservice_stream",
+      "source": "chat_service_chatservice",
+      "target": "chat_service_chatservice_stream",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "chat.service.ts",
+      "source_location": "L187",
+      "weight": 1.0,
+      "_src": "chat_service_chatservice",
+      "_tgt": "chat_service_chatservice_emit",
+      "source": "chat_service_chatservice",
+      "target": "chat_service_chatservice_emit",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "chat.controller.ts",
+      "source_location": "L13",
+      "weight": 1.0,
+      "_src": "chat_controller_ts",
+      "_tgt": "chat_controller_chatcontroller",
+      "source": "chat_controller_ts",
+      "target": "chat_controller_chatcontroller",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "chat.controller.ts",
+      "source_location": "L14",
+      "weight": 1.0,
+      "_src": "chat_controller_chatcontroller",
+      "_tgt": "chat_controller_chatcontroller_constructor",
+      "source": "chat_controller_chatcontroller",
+      "target": "chat_controller_chatcontroller_constructor",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "chat.controller.ts",
+      "source_location": "L17",
+      "weight": 1.0,
+      "_src": "chat_controller_chatcontroller",
+      "_tgt": "chat_controller_chatcontroller_chat",
+      "source": "chat_controller_chatcontroller",
+      "target": "chat_controller_chatcontroller_chat",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "chat.module.ts",
+      "source_location": "L9",
+      "weight": 1.0,
+      "_src": "chat_module_ts",
+      "_tgt": "chat_module_chatmodule",
+      "source": "chat_module_ts",
+      "target": "chat_module_chatmodule",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "claude-cli-adapter.ts",
+      "source_location": "L23",
+      "weight": 1.0,
+      "_src": "claude_cli_adapter_ts",
+      "_tgt": "claude_cli_adapter_claudecliadapter",
+      "source": "claude_cli_adapter_ts",
+      "target": "claude_cli_adapter_claudecliadapter",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "claude-cli-adapter.ts",
+      "source_location": "L27",
+      "weight": 1.0,
+      "_src": "claude_cli_adapter_claudecliadapter",
+      "_tgt": "claude_cli_adapter_claudecliadapter_name",
+      "source": "claude_cli_adapter_claudecliadapter",
+      "target": "claude_cli_adapter_claudecliadapter_name",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "claude-cli-adapter.ts",
+      "source_location": "L31",
+      "weight": 1.0,
+      "_src": "claude_cli_adapter_claudecliadapter",
+      "_tgt": "claude_cli_adapter_claudecliadapter_loadprompt",
+      "source": "claude_cli_adapter_claudecliadapter",
+      "target": "claude_cli_adapter_claudecliadapter_loadprompt",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "claude-cli-adapter.ts",
+      "source_location": "L42",
+      "weight": 1.0,
+      "_src": "claude_cli_adapter_claudecliadapter",
+      "_tgt": "claude_cli_adapter_claudecliadapter_process",
+      "source": "claude_cli_adapter_claudecliadapter",
+      "target": "claude_cli_adapter_claudecliadapter_process",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "source_file": "claude-cli-adapter.ts",
+      "source_location": "L61",
+      "weight": 1.0,
+      "_src": "claude_cli_adapter_claudecliadapter_process",
+      "_tgt": "claude_cli_adapter_claudecliadapter_loadprompt",
+      "source": "claude_cli_adapter_claudecliadapter_loadprompt",
+      "target": "claude_cli_adapter_claudecliadapter_process",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dto/chat.dto.ts",
+      "source_location": "L3",
+      "weight": 1.0,
+      "_src": "dto_chat_dto_ts",
+      "_tgt": "chat_dto_chatrequestdto",
+      "source": "dto_chat_dto_ts",
+      "target": "chat_dto_chatrequestdto",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_process_per_request",
+      "_tgt": "claude_file_claude_cli_adapter",
+      "source": "claude_pattern_process_per_request",
+      "target": "claude_file_claude_cli_adapter"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_process_per_request",
+      "_tgt": "claude_rule_multitenant_adr",
+      "source": "claude_pattern_process_per_request",
+      "target": "claude_rule_multitenant_adr"
+    },
+    {
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_process_per_request",
+      "_tgt": "claude_prohibit_shared_child_process",
+      "source": "claude_pattern_process_per_request",
+      "target": "claude_prohibit_shared_child_process"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_token_buffering",
+      "_tgt": "claude_file_claude_cli_adapter",
+      "source": "claude_pattern_token_buffering",
+      "target": "claude_file_claude_cli_adapter"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_silent_json_failure",
+      "_tgt": "claude_file_claude_cli_adapter",
+      "source": "claude_pattern_silent_json_failure",
+      "target": "claude_file_claude_cli_adapter"
+    },
+    {
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_silent_json_failure",
+      "_tgt": "claude_prohibit_stderr_logging",
+      "source": "claude_pattern_silent_json_failure",
+      "target": "claude_prohibit_stderr_logging"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_sigterm_sigkill_grace",
+      "_tgt": "claude_file_claude_cli_adapter",
+      "source": "claude_pattern_sigterm_sigkill_grace",
+      "target": "claude_file_claude_cli_adapter"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_sigterm_sigkill_grace",
+      "_tgt": "claude_rule_timeout_loadtest",
+      "source": "claude_pattern_sigterm_sigkill_grace",
+      "target": "claude_rule_timeout_loadtest"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_sigterm_sigkill_grace",
+      "_tgt": "claude_rule_timeout_values",
+      "source": "claude_pattern_sigterm_sigkill_grace",
+      "target": "claude_rule_timeout_values"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_sigterm_sigkill_grace",
+      "_tgt": "claude_rule_subscriber_cleanup",
+      "source": "claude_pattern_sigterm_sigkill_grace",
+      "target": "claude_rule_subscriber_cleanup"
+    },
+    {
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_sigterm_sigkill_grace",
+      "_tgt": "claude_prohibit_remove_timeout",
+      "source": "claude_pattern_sigterm_sigkill_grace",
+      "target": "claude_prohibit_remove_timeout"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_tool_allowlist",
+      "_tgt": "claude_file_claude_cli_adapter",
+      "source": "claude_pattern_tool_allowlist",
+      "target": "claude_file_claude_cli_adapter"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_tool_allowlist",
+      "_tgt": "claude_rule_args_change_review",
+      "source": "claude_pattern_tool_allowlist",
+      "target": "claude_rule_args_change_review"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_tool_allowlist",
+      "_tgt": "claude_rule_readonly_db",
+      "source": "claude_pattern_tool_allowlist",
+      "target": "claude_rule_readonly_db"
+    },
+    {
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_tool_allowlist",
+      "_tgt": "claude_prohibit_tool_allowlist_change",
+      "source": "claude_pattern_tool_allowlist",
+      "target": "claude_prohibit_tool_allowlist_change"
+    },
+    {
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_tool_allowlist",
+      "_tgt": "claude_prohibit_shell_interpolation",
+      "source": "claude_pattern_tool_allowlist",
+      "target": "claude_prohibit_shell_interpolation"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_no_data_injection",
+      "_tgt": "claude_file_claude_cli_adapter",
+      "source": "claude_pattern_no_data_injection",
+      "target": "claude_file_claude_cli_adapter"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_no_data_injection",
+      "_tgt": "claude_rule_prompt_location",
+      "source": "claude_pattern_no_data_injection",
+      "target": "claude_rule_prompt_location"
+    },
+    {
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_no_data_injection",
+      "_tgt": "claude_prohibit_data_in_prompt",
+      "source": "claude_pattern_no_data_injection",
+      "target": "claude_prohibit_data_in_prompt"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_express_pre_registration",
+      "_tgt": "claude_file_main_ts",
+      "source": "claude_pattern_express_pre_registration",
+      "target": "claude_file_main_ts"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_express_pre_registration",
+      "_tgt": "claude_rule_new_endpoint_pattern",
+      "source": "claude_pattern_express_pre_registration",
+      "target": "claude_rule_new_endpoint_pattern"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_dual_mount",
+      "_tgt": "claude_file_chat_controller",
+      "source": "claude_pattern_dual_mount",
+      "target": "claude_file_chat_controller"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_dual_mount",
+      "_tgt": "claude_rule_copilotkit_upgrade",
+      "source": "claude_pattern_dual_mount",
+      "target": "claude_rule_copilotkit_upgrade"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_env_priority",
+      "_tgt": "claude_file_claude_cli_adapter",
+      "source": "claude_pattern_env_priority",
+      "target": "claude_file_claude_cli_adapter"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_env_priority",
+      "_tgt": "claude_rule_env_priority_doc",
+      "source": "claude_pattern_env_priority",
+      "target": "claude_rule_env_priority_doc"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_sse_stream",
+      "_tgt": "claude_file_chat_controller",
+      "source": "claude_pattern_sse_stream",
+      "target": "claude_file_chat_controller"
+    },
+    {
+      "relation": "modification_triggers",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_file_chat_module",
+      "_tgt": "claude_file_chat_controller",
+      "source": "claude_file_chat_module",
+      "target": "claude_file_chat_controller"
+    },
+    {
+      "relation": "modification_triggers",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_file_chat_module",
+      "_tgt": "claude_file_chat_service",
+      "source": "claude_file_chat_module",
+      "target": "claude_file_chat_service"
+    },
+    {
+      "relation": "modification_triggers",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_file_chat_controller",
+      "_tgt": "claude_file_main_ts",
+      "source": "claude_file_chat_controller",
+      "target": "claude_file_main_ts"
+    },
+    {
+      "relation": "modification_triggers",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_file_chat_controller",
+      "_tgt": "claude_file_chat_dto",
+      "source": "claude_file_chat_controller",
+      "target": "claude_file_chat_dto"
+    },
+    {
+      "relation": "modification_triggers",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_file_claude_cli_adapter",
+      "_tgt": "claude_file_chat_service",
+      "source": "claude_file_chat_service",
+      "target": "claude_file_claude_cli_adapter"
+    },
+    {
+      "relation": "modification_triggers",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_file_chat_service",
+      "_tgt": "claude_file_main_ts",
+      "source": "claude_file_chat_service",
+      "target": "claude_file_main_ts"
+    },
+    {
+      "relation": "modification_triggers",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_file_chat_service",
+      "_tgt": "claude_file_server_package",
+      "source": "claude_file_chat_service",
+      "target": "claude_file_server_package"
+    },
+    {
+      "relation": "modification_triggers",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_file_claude_cli_adapter",
+      "_tgt": "claude_file_agent_config_prompt",
+      "source": "claude_file_claude_cli_adapter",
+      "target": "claude_file_agent_config_prompt"
+    },
+    {
+      "relation": "modification_triggers",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_file_chat_dto",
+      "_tgt": "claude_file_dto_index",
+      "source": "claude_file_chat_dto",
+      "target": "claude_file_dto_index"
+    }
+  ],
+  "hyperedges": []
+}

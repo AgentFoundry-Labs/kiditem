@@ -2,7 +2,15 @@
 
 import { getCompanyId } from '@/lib/api';
 import { apiClient } from '@/lib/api-client';
-import type { Agent, HeartbeatRun, AgentRuntimeState, CostAnalytics } from '@kiditem/shared';
+import type {
+  Agent,
+  HeartbeatRun,
+  AgentRuntimeState,
+  CostAnalytics,
+  AgentTrace,
+  AgentTaskListResponse,
+} from '@kiditem/shared';
+import { AgentTraceSchema, AgentTaskListResponseSchema } from '@kiditem/shared/schemas';
 import type { OrgNode } from './agent-types';
 
 export const agentApi = {
@@ -43,3 +51,39 @@ export const agentApi = {
     return apiClient.get<CostAnalytics>(`/api/agent-registry/cost-analytics${query ? `?${query}` : ''}`);
   },
 };
+
+/**
+ * AgentTrace 상세. 서버 ↔ FE DTO 드리프트 발생 시 즉시 throw (ADR-0002).
+ */
+export async function fetchAgentTrace(taskId: string): Promise<AgentTrace> {
+  const raw = await apiClient.get<unknown>(`/api/agent-trace/${taskId}`);
+  const parsed = AgentTraceSchema.safeParse(raw);
+  if (!parsed.success) {
+    throw new Error(`AgentTraceSchema drift: ${parsed.error.message}`);
+  }
+  return parsed.data;
+}
+
+/**
+ * AgentTask 목록 (status/agentType/from/to/page/limit 필터).
+ */
+export async function fetchAgentTasksList(params: {
+  status?: string;
+  agentType?: string;
+  from?: string;
+  to?: string;
+  page?: number;
+  limit?: number;
+}): Promise<AgentTaskListResponse> {
+  const query = new URLSearchParams();
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== undefined && v !== '') query.set(k, String(v));
+  });
+  const qs = query.toString();
+  const raw = await apiClient.get<unknown>(`/api/agent-trace${qs ? `?${qs}` : ''}`);
+  const parsed = AgentTaskListResponseSchema.safeParse(raw);
+  if (!parsed.success) {
+    throw new Error(`AgentTaskListResponseSchema drift: ${parsed.error.message}`);
+  }
+  return parsed.data;
+}

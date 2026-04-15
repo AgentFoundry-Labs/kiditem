@@ -87,7 +87,8 @@ async function* execute(ctx: ExecutionContext): AsyncGenerator<StreamEvent, Exec
   const extraArgs = (ctx.config.extraArgs as string[]) || [];
   const timeoutMs = ctx.timeoutSec * 1000;
   const graceMs = ctx.graceSec * 1000;
-  const model = (ctx.config.model as string) || '';
+  const model = ctx.config.model as string | undefined;
+  if (!model) throw new Error('Model not configured in AgentDefinition.config.model');
 
   const useStreaming = ctx.config.streaming !== false;
   const outputFormat = useStreaming ? 'stream-json' : 'json';
@@ -101,7 +102,7 @@ async function* execute(ctx: ExecutionContext): AsyncGenerator<StreamEvent, Exec
     ...extraArgs,
   ];
 
-  if (model) args.push('--model', model);
+  args.push('--model', model);
   if (ctx.sessionId && !ctx.config._skipSessionResume) {
     args.push('--session-id', ctx.sessionId);
   }

@@ -1,0 +1,980 @@
+{
+  "directed": false,
+  "multigraph": false,
+  "graph": {},
+  "nodes": [
+    {
+      "label": "dashboard.controller.ts",
+      "file_type": "code",
+      "source_file": "dashboard.controller.ts",
+      "source_location": "L1",
+      "id": "dashboard_controller_ts",
+      "community": 4,
+      "norm_label": "dashboard.controller.ts"
+    },
+    {
+      "label": "DashboardController",
+      "file_type": "code",
+      "source_file": "dashboard.controller.ts",
+      "source_location": "L6",
+      "id": "dashboard_controller_dashboardcontroller",
+      "community": 4,
+      "norm_label": "dashboardcontroller"
+    },
+    {
+      "label": ".constructor()",
+      "file_type": "code",
+      "source_file": "dashboard.controller.ts",
+      "source_location": "L7",
+      "id": "dashboard_controller_dashboardcontroller_constructor",
+      "community": 4,
+      "norm_label": ".constructor()"
+    },
+    {
+      "label": ".getSummary()",
+      "file_type": "code",
+      "source_file": "dashboard.controller.ts",
+      "source_location": "L10",
+      "id": "dashboard_controller_dashboardcontroller_getsummary",
+      "community": 4,
+      "norm_label": ".getsummary()"
+    },
+    {
+      "label": ".getTrend()",
+      "file_type": "code",
+      "source_file": "dashboard.controller.ts",
+      "source_location": "L15",
+      "id": "dashboard_controller_dashboardcontroller_gettrend",
+      "community": 4,
+      "norm_label": ".gettrend()"
+    },
+    {
+      "label": "dashboard.service.ts",
+      "file_type": "code",
+      "source_file": "dashboard.service.ts",
+      "source_location": "L1",
+      "id": "dashboard_service_ts",
+      "community": 0,
+      "norm_label": "dashboard.service.ts"
+    },
+    {
+      "label": "DashboardService",
+      "file_type": "code",
+      "source_file": "dashboard.service.ts",
+      "source_location": "L9",
+      "id": "dashboard_service_dashboardservice",
+      "community": 0,
+      "norm_label": "dashboardservice"
+    },
+    {
+      "label": ".constructor()",
+      "file_type": "code",
+      "source_file": "dashboard.service.ts",
+      "source_location": "L10",
+      "id": "dashboard_service_dashboardservice_constructor",
+      "community": 0,
+      "norm_label": ".constructor()"
+    },
+    {
+      "label": ".getSummary()",
+      "file_type": "code",
+      "source_file": "dashboard.service.ts",
+      "source_location": "L12",
+      "id": "dashboard_service_dashboardservice_getsummary",
+      "community": 0,
+      "norm_label": ".getsummary()"
+    },
+    {
+      "label": ".getTrend()",
+      "file_type": "code",
+      "source_file": "dashboard.service.ts",
+      "source_location": "L714",
+      "id": "dashboard_service_dashboardservice_gettrend",
+      "community": 0,
+      "norm_label": ".gettrend()"
+    },
+    {
+      "label": ".fetchWingMonthly()",
+      "file_type": "code",
+      "source_file": "dashboard.service.ts",
+      "source_location": "L767",
+      "id": "dashboard_service_dashboardservice_fetchwingmonthly",
+      "community": 0,
+      "norm_label": ".fetchwingmonthly()"
+    },
+    {
+      "label": ".computeEffectiveMetrics()",
+      "file_type": "code",
+      "source_file": "dashboard.service.ts",
+      "source_location": "L813",
+      "id": "dashboard_service_dashboardservice_computeeffectivemetrics",
+      "community": 0,
+      "norm_label": ".computeeffectivemetrics()"
+    },
+    {
+      "label": ".calculateProfitForRange()",
+      "file_type": "code",
+      "source_file": "dashboard.service.ts",
+      "source_location": "L847",
+      "id": "dashboard_service_dashboardservice_calculateprofitforrange",
+      "community": 0,
+      "norm_label": ".calculateprofitforrange()"
+    },
+    {
+      "label": ".aggregateAdForRange()",
+      "file_type": "code",
+      "source_file": "dashboard.service.ts",
+      "source_location": "L985",
+      "id": "dashboard_service_dashboardservice_aggregateadforrange",
+      "community": 0,
+      "norm_label": ".aggregateadforrange()"
+    },
+    {
+      "label": "dashboard.module.ts",
+      "file_type": "code",
+      "source_file": "dashboard.module.ts",
+      "source_location": "L1",
+      "id": "dashboard_module_ts",
+      "community": 6,
+      "norm_label": "dashboard.module.ts"
+    },
+    {
+      "label": "DashboardModule",
+      "file_type": "code",
+      "source_file": "dashboard.module.ts",
+      "source_location": "L9",
+      "id": "dashboard_module_dashboardmodule",
+      "community": 6,
+      "norm_label": "dashboardmodule"
+    },
+    {
+      "label": "types.ts",
+      "file_type": "code",
+      "source_file": "types.ts",
+      "source_location": "L1",
+      "id": "types_ts",
+      "community": 9,
+      "norm_label": "types.ts"
+    },
+    {
+      "label": "dashboard-summary-query.dto.ts",
+      "file_type": "code",
+      "source_file": "dto/dashboard-summary-query.dto.ts",
+      "source_location": "L1",
+      "id": "dto_dashboard_summary_query_dto_ts",
+      "community": 7,
+      "norm_label": "dashboard-summary-query.dto.ts"
+    },
+    {
+      "label": "DashboardSummaryQueryDto",
+      "file_type": "code",
+      "source_file": "dto/dashboard-summary-query.dto.ts",
+      "source_location": "L3",
+      "id": "dashboard_summary_query_dto_dashboardsummaryquerydto",
+      "community": 7,
+      "norm_label": "dashboardsummaryquerydto"
+    },
+    {
+      "label": "index.ts",
+      "file_type": "code",
+      "source_file": "dto/index.ts",
+      "source_location": "L1",
+      "id": "dto_index_ts",
+      "community": 10,
+      "norm_label": "index.ts"
+    },
+    {
+      "label": "dashboard-trend.dto.ts",
+      "file_type": "code",
+      "source_file": "dto/dashboard-trend.dto.ts",
+      "source_location": "L1",
+      "id": "dto_dashboard_trend_dto_ts",
+      "community": 8,
+      "norm_label": "dashboard-trend.dto.ts"
+    },
+    {
+      "label": "DashboardTrendQueryDto",
+      "file_type": "code",
+      "source_file": "dto/dashboard-trend.dto.ts",
+      "source_location": "L3",
+      "id": "dashboard_trend_dto_dashboardtrendquerydto",
+      "community": 8,
+      "norm_label": "dashboardtrendquerydto"
+    },
+    {
+      "label": "Massive Parallel \u2014 Promise.all() 11+ queries",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_pattern_massive_parallel",
+      "community": 2,
+      "norm_label": "massive parallel \u2014 promise.all() 11+ queries"
+    },
+    {
+      "label": "KST \uacbd\uacc4 \uc815\uaddc\ud654",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_pattern_kst_boundary",
+      "community": 3,
+      "norm_label": "kst \u1100\u1167\u11bc\u1100\u1168 \u110c\u1165\u11bc\u1100\u1172\u1112\u116a"
+    },
+    {
+      "label": "Month-over-Month Snapshot",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_pattern_month_over_month",
+      "community": 2,
+      "norm_label": "month-over-month snapshot"
+    },
+    {
+      "label": "Ad Metrics \u2014 $queryRaw",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_pattern_ad_metrics_queryraw",
+      "community": 1,
+      "norm_label": "ad metrics \u2014 $queryraw"
+    },
+    {
+      "label": "Inventory Reorder Point \u2014 \uc571 \ub808\uc774\uc5b4 \uacc4\uc0b0",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_pattern_inventory_reorder_app_layer",
+      "community": 5,
+      "norm_label": "inventory reorder point \u2014 \u110b\u1162\u11b8 \u1105\u1166\u110b\u1175\u110b\u1165 \u1100\u1168\u1109\u1161\u11ab"
+    },
+    {
+      "label": "Summary \ub294 \ud56d\uc0c1 current month + today snapshot",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rule_summary_current_month_today",
+      "community": 2,
+      "norm_label": "summary \u1102\u1173\u11ab \u1112\u1161\u11bc\u1109\u1161\u11bc current month + today snapshot"
+    },
+    {
+      "label": "Ad metrics \ub294 ads \ud14c\uc774\ube14 (NOT profitLoss.adCost)",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rule_ad_metrics_source",
+      "community": 1,
+      "norm_label": "ad metrics \u1102\u1173\u11ab ads \u1110\u1166\u110b\u1175\u1107\u1173\u11af (not profitloss.adcost)"
+    },
+    {
+      "label": "\uc54c\ub9bc\uc740 top-10, recency \uc815\ub82c",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rule_alerts_top10_recency",
+      "community": 5,
+      "norm_label": "\u110b\u1161\u11af\u1105\u1175\u11b7\u110b\u1173\u11ab top-10, recency \u110c\u1165\u11bc\u1105\u1167\u11af"
+    },
+    {
+      "label": "Grade breakdown \uc740 active products \ub9cc \uce74\uc6b4\ud2b8",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rule_grade_active_only",
+      "community": 11,
+      "norm_label": "grade breakdown \u110b\u1173\u11ab active products \u1106\u1161\u11ab \u110f\u1161\u110b\u116e\u11ab\u1110\u1173"
+    },
+    {
+      "label": "KST \uacbd\uacc4 \uc0ac\uc6a9 (UTC \uc808\ub300 \uae08\uc9c0)",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rule_kst_boundary_required",
+      "community": 3,
+      "norm_label": "kst \u1100\u1167\u11bc\u1100\u1168 \u1109\u1161\u110b\u116d\u11bc (utc \u110c\u1165\u11af\u1103\u1162 \u1100\u1173\u11b7\u110c\u1175)"
+    },
+    {
+      "label": "Summary \uc5d0 custom date range \uae08\uc9c0",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_prohibit_summary_custom_date_range",
+      "community": 2,
+      "norm_label": "summary \u110b\u1166 custom date range \u1100\u1173\u11b7\u110c\u1175"
+    },
+    {
+      "label": "UTC \uacbd\uacc4 \uae08\uc9c0 (KST \uac15\uc81c)",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_prohibit_utc_boundary",
+      "community": 3,
+      "norm_label": "utc \u1100\u1167\u11bc\u1100\u1168 \u1100\u1173\u11b7\u110c\u1175 (kst \u1100\u1161\u11bc\u110c\u1166)"
+    },
+    {
+      "label": "alert filter by type in summary \uae08\uc9c0",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_prohibit_alert_filter_by_type",
+      "community": 2,
+      "norm_label": "alert filter by type in summary \u1100\u1173\u11b7\u110c\u1175"
+    },
+    {
+      "label": "\uac1c\ubcc4 \ucffc\ub9ac \ucd94\uac00 \uc2dc Promise.all \uae38\uc774 + types.ts \uc751\ub2f5 \ud0c0\uc785 \ub3d9\uc2dc \uac31\uc2e0",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rationale_promise_all_types_sync",
+      "community": 2,
+      "norm_label": "\u1100\u1162\u1107\u1167\u11af \u110f\u116f\u1105\u1175 \u110e\u116e\u1100\u1161 \u1109\u1175 promise.all \u1100\u1175\u11af\u110b\u1175 + types.ts \u110b\u1173\u11bc\u1103\u1161\u11b8 \u1110\u1161\u110b\u1175\u11b8 \u1103\u1169\u11bc\u1109\u1175 \u1100\u1162\u11bc\u1109\u1175\u11ab"
+    },
+    {
+      "label": "\ud55c\uad6d \uc0ac\uc6a9\uc790 \uc2dc\uac04\ub300 \uc77c\uce58 \uc704\ud574 KST \uc790\uc815 \uae30\uc900",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rationale_kst_user_tz",
+      "community": 3,
+      "norm_label": "\u1112\u1161\u11ab\u1100\u116e\u11a8 \u1109\u1161\u110b\u116d\u11bc\u110c\u1161 \u1109\u1175\u1100\u1161\u11ab\u1103\u1162 \u110b\u1175\u11af\u110e\u1175 \u110b\u1171\u1112\u1162 kst \u110c\u1161\u110c\u1165\u11bc \u1100\u1175\u110c\u116e\u11ab"
+    },
+    {
+      "label": "Prisma aggregate \uac00 NULL \ucc98\ub9ac \ubd80\uc871\ud574 raw SQL \ud544\uc694",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rationale_prisma_null_handling",
+      "community": 1,
+      "norm_label": "prisma aggregate \u1100\u1161 null \u110e\u1165\u1105\u1175 \u1107\u116e\u110c\u1169\u11a8\u1112\u1162 raw sql \u1111\u1175\u11af\u110b\u116d"
+    },
+    {
+      "label": "\ub3d9\uc801 reorder point \uac00 DB column \uc544\ub2cc \uacc4\uc0b0 \ud544\ub4dc\ub77c \uc571\uc5d0\uc11c \ube44\uad50",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rationale_dynamic_reorder_calc_field",
+      "community": 5,
+      "norm_label": "\u1103\u1169\u11bc\u110c\u1165\u11a8 reorder point \u1100\u1161 db column \u110b\u1161\u1102\u1175\u11ab \u1100\u1168\u1109\u1161\u11ab \u1111\u1175\u11af\u1103\u1173\u1105\u1161 \u110b\u1162\u11b8\u110b\u1166\u1109\u1165 \u1107\u1175\u1100\u116d"
+    },
+    {
+      "label": "\ud2b8\ub80c\ub4dc KPI (\uc774\ubc88 \ub2ec \ub300\ube44 % \uc99d\uac10) \uacc4\uc0b0\uc6a9 \uc774\uc911 \uc2a4\ub0c5\uc0f7",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rationale_mom_trend_kpi",
+      "community": 2,
+      "norm_label": "\u1110\u1173\u1105\u1166\u11ab\u1103\u1173 kpi (\u110b\u1175\u1107\u1165\u11ab \u1103\u1161\u11af \u1103\u1162\u1107\u1175 % \u110c\u1173\u11bc\u1100\u1161\u11b7) \u1100\u1168\u1109\u1161\u11ab\u110b\u116d\u11bc \u110b\u1175\u110c\u116e\u11bc \u1109\u1173\u1102\u1162\u11b8\u1109\u1163\u11ba"
+    },
+    {
+      "label": "dashboard.controller.ts",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_dashboard_controller",
+      "community": 12,
+      "norm_label": "dashboard.controller.ts"
+    },
+    {
+      "label": "dashboard.service.ts",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_dashboard_service",
+      "community": 1,
+      "norm_label": "dashboard.service.ts"
+    },
+    {
+      "label": "dashboard.module.ts",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_dashboard_module",
+      "community": 13,
+      "norm_label": "dashboard.module.ts"
+    },
+    {
+      "label": "types.ts",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_types_ts",
+      "community": 1,
+      "norm_label": "types.ts"
+    },
+    {
+      "label": "dto/ (DashboardTrendDto \ub4f1)",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_dto_dir",
+      "community": 14,
+      "norm_label": "dto/ (dashboardtrenddto \u1103\u1173\u11bc)"
+    },
+    {
+      "label": "common/kstDayStart.ts",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_common_kstdaystart",
+      "community": 3,
+      "norm_label": "common/kstdaystart.ts"
+    },
+    {
+      "label": "common/resolvePricing",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_common_resolvepricing",
+      "community": 15,
+      "norm_label": "common/resolvepricing"
+    },
+    {
+      "label": "ads \ud14c\uc774\ube14 schema",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_ads_schema",
+      "community": 1,
+      "norm_label": "ads \u1110\u1166\u110b\u1175\u1107\u1173\u11af schema"
+    },
+    {
+      "label": "dashboard-trend.dto.ts",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_dashboard_trend_dto",
+      "community": 1,
+      "norm_label": "dashboard-trend.dto.ts"
+    },
+    {
+      "label": "\ud504\ub860\ud2b8 dashboard \ud398\uc774\uc9c0",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_frontend_dashboard_page",
+      "community": 1,
+      "norm_label": "\u1111\u1173\u1105\u1169\u11ab\u1110\u1173 dashboard \u1111\u1166\u110b\u1175\u110c\u1175"
+    },
+    {
+      "label": "finance / profit-loss \ud638\ucd9c\uc790",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_finance_profitloss_callers",
+      "community": 3,
+      "norm_label": "finance / profit-loss \u1112\u1169\u110e\u116e\u11af\u110c\u1161"
+    }
+  ],
+  "links": [
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dashboard.controller.ts",
+      "source_location": "L6",
+      "weight": 1.0,
+      "_src": "dashboard_controller_ts",
+      "_tgt": "dashboard_controller_dashboardcontroller",
+      "source": "dashboard_controller_ts",
+      "target": "dashboard_controller_dashboardcontroller",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "dashboard.controller.ts",
+      "source_location": "L7",
+      "weight": 1.0,
+      "_src": "dashboard_controller_dashboardcontroller",
+      "_tgt": "dashboard_controller_dashboardcontroller_constructor",
+      "source": "dashboard_controller_dashboardcontroller",
+      "target": "dashboard_controller_dashboardcontroller_constructor",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "dashboard.controller.ts",
+      "source_location": "L10",
+      "weight": 1.0,
+      "_src": "dashboard_controller_dashboardcontroller",
+      "_tgt": "dashboard_controller_dashboardcontroller_getsummary",
+      "source": "dashboard_controller_dashboardcontroller",
+      "target": "dashboard_controller_dashboardcontroller_getsummary",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "dashboard.controller.ts",
+      "source_location": "L15",
+      "weight": 1.0,
+      "_src": "dashboard_controller_dashboardcontroller",
+      "_tgt": "dashboard_controller_dashboardcontroller_gettrend",
+      "source": "dashboard_controller_dashboardcontroller",
+      "target": "dashboard_controller_dashboardcontroller_gettrend",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dashboard.service.ts",
+      "source_location": "L9",
+      "weight": 1.0,
+      "_src": "dashboard_service_ts",
+      "_tgt": "dashboard_service_dashboardservice",
+      "source": "dashboard_service_ts",
+      "target": "dashboard_service_dashboardservice",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "dashboard.service.ts",
+      "source_location": "L10",
+      "weight": 1.0,
+      "_src": "dashboard_service_dashboardservice",
+      "_tgt": "dashboard_service_dashboardservice_constructor",
+      "source": "dashboard_service_dashboardservice",
+      "target": "dashboard_service_dashboardservice_constructor",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "dashboard.service.ts",
+      "source_location": "L12",
+      "weight": 1.0,
+      "_src": "dashboard_service_dashboardservice",
+      "_tgt": "dashboard_service_dashboardservice_getsummary",
+      "source": "dashboard_service_dashboardservice",
+      "target": "dashboard_service_dashboardservice_getsummary",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "dashboard.service.ts",
+      "source_location": "L714",
+      "weight": 1.0,
+      "_src": "dashboard_service_dashboardservice",
+      "_tgt": "dashboard_service_dashboardservice_gettrend",
+      "source": "dashboard_service_dashboardservice",
+      "target": "dashboard_service_dashboardservice_gettrend",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "dashboard.service.ts",
+      "source_location": "L767",
+      "weight": 1.0,
+      "_src": "dashboard_service_dashboardservice",
+      "_tgt": "dashboard_service_dashboardservice_fetchwingmonthly",
+      "source": "dashboard_service_dashboardservice",
+      "target": "dashboard_service_dashboardservice_fetchwingmonthly",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "dashboard.service.ts",
+      "source_location": "L813",
+      "weight": 1.0,
+      "_src": "dashboard_service_dashboardservice",
+      "_tgt": "dashboard_service_dashboardservice_computeeffectivemetrics",
+      "source": "dashboard_service_dashboardservice",
+      "target": "dashboard_service_dashboardservice_computeeffectivemetrics",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "dashboard.service.ts",
+      "source_location": "L847",
+      "weight": 1.0,
+      "_src": "dashboard_service_dashboardservice",
+      "_tgt": "dashboard_service_dashboardservice_calculateprofitforrange",
+      "source": "dashboard_service_dashboardservice",
+      "target": "dashboard_service_dashboardservice_calculateprofitforrange",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "dashboard.service.ts",
+      "source_location": "L985",
+      "weight": 1.0,
+      "_src": "dashboard_service_dashboardservice",
+      "_tgt": "dashboard_service_dashboardservice_aggregateadforrange",
+      "source": "dashboard_service_dashboardservice",
+      "target": "dashboard_service_dashboardservice_aggregateadforrange",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "source_file": "dashboard.service.ts",
+      "source_location": "L205",
+      "weight": 1.0,
+      "_src": "dashboard_service_dashboardservice_getsummary",
+      "_tgt": "dashboard_service_dashboardservice_calculateprofitforrange",
+      "source": "dashboard_service_dashboardservice_getsummary",
+      "target": "dashboard_service_dashboardservice_calculateprofitforrange",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "source_file": "dashboard.service.ts",
+      "source_location": "L207",
+      "weight": 1.0,
+      "_src": "dashboard_service_dashboardservice_getsummary",
+      "_tgt": "dashboard_service_dashboardservice_aggregateadforrange",
+      "source": "dashboard_service_dashboardservice_getsummary",
+      "target": "dashboard_service_dashboardservice_aggregateadforrange",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "source_file": "dashboard.service.ts",
+      "source_location": "L248",
+      "weight": 1.0,
+      "_src": "dashboard_service_dashboardservice_getsummary",
+      "_tgt": "dashboard_service_dashboardservice_fetchwingmonthly",
+      "source": "dashboard_service_dashboardservice_getsummary",
+      "target": "dashboard_service_dashboardservice_fetchwingmonthly",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "source_file": "dashboard.service.ts",
+      "source_location": "L252",
+      "weight": 1.0,
+      "_src": "dashboard_service_dashboardservice_getsummary",
+      "_tgt": "dashboard_service_dashboardservice_computeeffectivemetrics",
+      "source": "dashboard_service_dashboardservice_getsummary",
+      "target": "dashboard_service_dashboardservice_computeeffectivemetrics",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dashboard.module.ts",
+      "source_location": "L9",
+      "weight": 1.0,
+      "_src": "dashboard_module_ts",
+      "_tgt": "dashboard_module_dashboardmodule",
+      "source": "dashboard_module_ts",
+      "target": "dashboard_module_dashboardmodule",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dto/dashboard-summary-query.dto.ts",
+      "source_location": "L3",
+      "weight": 1.0,
+      "_src": "dto_dashboard_summary_query_dto_ts",
+      "_tgt": "dashboard_summary_query_dto_dashboardsummaryquerydto",
+      "source": "dto_dashboard_summary_query_dto_ts",
+      "target": "dashboard_summary_query_dto_dashboardsummaryquerydto",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "dto/dashboard-trend.dto.ts",
+      "source_location": "L3",
+      "weight": 1.0,
+      "_src": "dto_dashboard_trend_dto_ts",
+      "_tgt": "dashboard_trend_dto_dashboardtrendquerydto",
+      "source": "dto_dashboard_trend_dto_ts",
+      "target": "dashboard_trend_dto_dashboardtrendquerydto",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_massive_parallel",
+      "_tgt": "claude_file_dashboard_service",
+      "source": "claude_pattern_massive_parallel",
+      "target": "claude_file_dashboard_service"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_massive_parallel",
+      "_tgt": "claude_rule_summary_current_month_today",
+      "source": "claude_pattern_massive_parallel",
+      "target": "claude_rule_summary_current_month_today"
+    },
+    {
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_massive_parallel",
+      "_tgt": "claude_prohibit_alert_filter_by_type",
+      "source": "claude_pattern_massive_parallel",
+      "target": "claude_prohibit_alert_filter_by_type"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_massive_parallel",
+      "_tgt": "claude_rationale_promise_all_types_sync",
+      "source": "claude_pattern_massive_parallel",
+      "target": "claude_rationale_promise_all_types_sync"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_kst_boundary",
+      "_tgt": "claude_file_dashboard_service",
+      "source": "claude_pattern_kst_boundary",
+      "target": "claude_file_dashboard_service"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_kst_boundary",
+      "_tgt": "claude_file_common_kstdaystart",
+      "source": "claude_pattern_kst_boundary",
+      "target": "claude_file_common_kstdaystart"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_kst_boundary",
+      "_tgt": "claude_rule_kst_boundary_required",
+      "source": "claude_pattern_kst_boundary",
+      "target": "claude_rule_kst_boundary_required"
+    },
+    {
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_kst_boundary",
+      "_tgt": "claude_prohibit_utc_boundary",
+      "source": "claude_pattern_kst_boundary",
+      "target": "claude_prohibit_utc_boundary"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_kst_boundary",
+      "_tgt": "claude_rationale_kst_user_tz",
+      "source": "claude_pattern_kst_boundary",
+      "target": "claude_rationale_kst_user_tz"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_month_over_month",
+      "_tgt": "claude_file_dashboard_service",
+      "source": "claude_pattern_month_over_month",
+      "target": "claude_file_dashboard_service"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_month_over_month",
+      "_tgt": "claude_rule_summary_current_month_today",
+      "source": "claude_pattern_month_over_month",
+      "target": "claude_rule_summary_current_month_today"
+    },
+    {
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_month_over_month",
+      "_tgt": "claude_prohibit_summary_custom_date_range",
+      "source": "claude_pattern_month_over_month",
+      "target": "claude_prohibit_summary_custom_date_range"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_month_over_month",
+      "_tgt": "claude_rationale_mom_trend_kpi",
+      "source": "claude_pattern_month_over_month",
+      "target": "claude_rationale_mom_trend_kpi"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_ad_metrics_queryraw",
+      "_tgt": "claude_file_dashboard_service",
+      "source": "claude_pattern_ad_metrics_queryraw",
+      "target": "claude_file_dashboard_service"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_ad_metrics_queryraw",
+      "_tgt": "claude_file_ads_schema",
+      "source": "claude_pattern_ad_metrics_queryraw",
+      "target": "claude_file_ads_schema"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_ad_metrics_queryraw",
+      "_tgt": "claude_rule_ad_metrics_source",
+      "source": "claude_pattern_ad_metrics_queryraw",
+      "target": "claude_rule_ad_metrics_source"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_ad_metrics_queryraw",
+      "_tgt": "claude_rationale_prisma_null_handling",
+      "source": "claude_pattern_ad_metrics_queryraw",
+      "target": "claude_rationale_prisma_null_handling"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_inventory_reorder_app_layer",
+      "_tgt": "claude_file_dashboard_service",
+      "source": "claude_pattern_inventory_reorder_app_layer",
+      "target": "claude_file_dashboard_service"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_inventory_reorder_app_layer",
+      "_tgt": "claude_rule_alerts_top10_recency",
+      "source": "claude_pattern_inventory_reorder_app_layer",
+      "target": "claude_rule_alerts_top10_recency"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_inventory_reorder_app_layer",
+      "_tgt": "claude_rationale_dynamic_reorder_calc_field",
+      "source": "claude_pattern_inventory_reorder_app_layer",
+      "target": "claude_rationale_dynamic_reorder_calc_field"
+    },
+    {
+      "relation": "modification_triggers",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_file_dashboard_service",
+      "_tgt": "claude_file_types_ts",
+      "source": "claude_file_dashboard_service",
+      "target": "claude_file_types_ts"
+    },
+    {
+      "relation": "modification_triggers",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_file_dashboard_service",
+      "_tgt": "claude_file_frontend_dashboard_page",
+      "source": "claude_file_dashboard_service",
+      "target": "claude_file_frontend_dashboard_page"
+    },
+    {
+      "relation": "modification_triggers",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_file_common_kstdaystart",
+      "_tgt": "claude_file_dashboard_service",
+      "source": "claude_file_dashboard_service",
+      "target": "claude_file_common_kstdaystart"
+    },
+    {
+      "relation": "modification_triggers",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_file_ads_schema",
+      "_tgt": "claude_file_dashboard_service",
+      "source": "claude_file_dashboard_service",
+      "target": "claude_file_ads_schema"
+    },
+    {
+      "relation": "modification_triggers",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_file_dashboard_trend_dto",
+      "_tgt": "claude_file_dashboard_service",
+      "source": "claude_file_dashboard_service",
+      "target": "claude_file_dashboard_trend_dto"
+    },
+    {
+      "relation": "modification_triggers",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_file_common_kstdaystart",
+      "_tgt": "claude_file_finance_profitloss_callers",
+      "source": "claude_file_common_kstdaystart",
+      "target": "claude_file_finance_profitloss_callers"
+    }
+  ],
+  "hyperedges": []
+}

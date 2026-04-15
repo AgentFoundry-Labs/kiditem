@@ -13,10 +13,10 @@ export class CategoriesService {
     });
   }
 
-  async create(dto: CreateCategoryDto) {
+  async create(companyId: string, dto: CreateCategoryDto) {
     return this.prisma.categoryMapping.create({
       data: {
-        companyId: dto.companyId,
+        companyId,
         internalCategory: dto.internalCategory,
         coupangCategoryId: dto.coupangCategoryId,
         coupangCategoryName: dto.coupangCategoryName,

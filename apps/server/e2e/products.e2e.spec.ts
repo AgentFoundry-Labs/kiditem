@@ -41,7 +41,8 @@ describe('Products CRUD — /api/products', () => {
     });
 
     it('returns paginated product list', async () => {
-      const res = await api().get('/api/products').query({ companyId: COMPANY_ID });
+      // companyId 는 DevAuthMiddleware + @CurrentCompany() 로 자동 주입 — 쿼리 불필요
+      const res = await api().get('/api/products');
 
       expect(res.status).toBe(200);
       expect(res.body).toHaveProperty('items');
@@ -87,9 +88,10 @@ describe('Products CRUD — /api/products', () => {
     });
 
     it('creates a product with valid data', async () => {
+      // companyId 는 DevAuthMiddleware + @CurrentCompany() 로 자동 주입 — body 불필요
       const res = await api()
         .post('/api/products')
-        .send({ name: '신규 상품', companyId: COMPANY_ID, sellPrice: 15000 });
+        .send({ name: '신규 상품', sellPrice: 15000 });
 
       expect(res.status).toBe(201);
       expect(res.body).toHaveProperty('id');
@@ -99,18 +101,10 @@ describe('Products CRUD — /api/products', () => {
     it('rejects product without required name', async () => {
       const res = await api()
         .post('/api/products')
-        .send({ companyId: COMPANY_ID });
+        .send({});
 
       expect(res.status).toBe(400);
       expect(res.body).toHaveProperty('message');
-    });
-
-    it('rejects product without companyId', async () => {
-      const res = await api()
-        .post('/api/products')
-        .send({ name: '이름만' });
-
-      expect(res.status).toBe(400);
     });
   });
 

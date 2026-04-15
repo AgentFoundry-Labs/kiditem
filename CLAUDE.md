@@ -29,17 +29,24 @@ extensions/          — Chrome extensions (product-scraper: 1688/Alibaba, coupa
 - **Workflows must never call LLMs directly** — delegate to agents via `agent_task.create`.
 - **No silent model fallback** — `model = model or default` pattern prohibited.
 - **No native PG enums** — `String` + app-level validation. Production cast error experience.
+- **아키텍처 결정 기록** — 경계·정책·폐기 선언·cross-domain 규칙 전복은 `.claude/docs/decisions/NNNN-*.md` 에 ADR 작성. 트리거·운영 규칙은 [decisions/README](.claude/docs/decisions/README.md). 기존 ADR 불변, 뒤집을 땐 새 ADR + `superseded-by`.
+- **DB 동기화** — `git pull` 은 DB 를 자동 갱신하지 않는다. 스키마/데이터/init.sql.gz 역할과 pull 후 필수 실행 명령은 [prisma/CLAUDE.md — DB 동기화](prisma/CLAUDE.md#db-동기화--schema-vs-data-중요) 참조.
 - **PR 생성 시** — `.github/PULL_REQUEST_TEMPLATE.md` 템플릿 내용을 body에 포함하고 체크리스트를 작성할 것. DB 변경/backfill/init.sql.gz 갱신 여부를 반드시 명시.
 - **PR 생성 전 체크** — `gh pr create` 시 pre-hook이 자동 실행. 코드 컨벤션 + 문서 업데이트 체크리스트 확인 후 PR 생성.
 
 ## Reference (read when relevant)
 
 - [Design System](DESIGN.md) — 색상, 타이포, 스페이싱, 컴포넌트 패턴 (Tailwind + Lucide)
-- [ERD](.claude/docs/erd.md) — 도메인별 DB 모델 관계도 (63개 모델, 9개 도메인)
+- [ERD](.claude/docs/erd.md) — 사람이 정리한 도메인별 관계도 (9도메인). 자동 추출 보강: [graphify-out/erd/GRAPH_REPORT.md](graphify-out/erd/GRAPH_REPORT.md) — god nodes / 파이프라인 hyperedges / drift 감지. 재생성: `./scripts/graphify-erd.sh` 후 Claude Code에서 `/graphify graphify-out/.erd-corpus --wiki`.
+- **코드 지식그래프**: `graphify-out/{도메인}/` — CLAUDE.md 규칙+패턴이 해당 코드와 함께 클러스터됨. 현재: [server/agent-registry](graphify-out/server/agent-registry/GRAPH_REPORT.md). 재생성 2단계:
+  1. Claude Code에서 `/graphify apps/server/src/<domain> --wiki` (AST + CLAUDE.md 추출, 5~10분)
+  2. 셸에서 `./scripts/graphify-rebuild-domain.sh apps/server/src/<domain>` (파일 노드 merge + 테스트 노이즈 제거 + 재클러스터링)
+  쿼리: `/graphify query "..."` — 2-hop BFS라 파일 편집 시 "이 파일에 적용되는 규칙·Prohibit" 회수는 Pattern 경유라 **2-hop 필요**.
 - [Architecture](.claude/docs/architecture.md) — data flow, agent runtimes, @kiditem/shared, workflow vs agent boundary
 - [Commands & Environment](.claude/docs/commands.md) — quick start, dev commands, ports, env vars, tests
 - [Workflow & Process](.claude/docs/workflow.md) — autonomy spectrum, verification, collaboration, branches, commits, PRs
 - [Lessons Learned](.claude/docs/lessons.md) — team-shared patterns from past incidents
+- [Architecture Decisions (ADR)](.claude/docs/decisions/README.md) — 아키텍처 결정 이력(불변). 트리거·규칙·도메인별 인덱스
 - [Server Rules](apps/server/CLAUDE.md) — 도메인 모듈 패턴, API 응답, DTO 규칙
 - [Advertising Rules](apps/server/src/advertising/CLAUDE.md) — 광고 도메인 엔드포인트, 데이터 소스
 - [Agent Registry Rules](apps/server/src/agent-registry/CLAUDE.md) — 에이전트 런타임, 프롬프트, 안전장치
@@ -69,3 +76,21 @@ Key routing rules:
 - Architecture review → invoke plan-eng-review
 - Save progress, checkpoint, resume → invoke checkpoint
 - Code quality, health check → invoke health
+
+## graphify
+
+Per-domain knowledge graphs live under `graphify-out/{domain}/`. 세션 시작 시
+`scripts/graphify-distill.py`가 god nodes / Patterns / Prohibits / Rules 요약을
+자동 주입한다 (~3KB, SessionStart 훅 경유).
+
+Architecture principle: CLAUDE.md = source of truth, graph = derived view.
+Rule 수정은 **오직 CLAUDE.md에서** → 재빌드하면 graph/distill 자동 갱신.
+
+Rules:
+- 세션 초입 자동 주입 요약을 기본 신뢰. 특정 도메인 깊이 필요하면 `graphify-out/{domain}/GRAPH_REPORT.md` 또는 해당 도메인 `CLAUDE.md` 직접 Read.
+- **파일→규칙** 쿼리: `/graphify query "rules for <filepath>"` (BFS 2-hop — Prohibit/Rule이 Pattern 경유라 1-hop `explain`은 부족).
+- 그래프 아직 없는 도메인은 기존 방식(도메인 CLAUDE.md 직접 Read) 유지.
+- 그래프 재생성:
+  - ERD: `./scripts/graphify-erd.sh` → `/graphify graphify-out/.erd-corpus --wiki`
+  - 코드 도메인: `/graphify <path> --wiki` → `./scripts/graphify-rebuild-domain.sh <path>` (파일 노드 merge + 테스트 노이즈 제거)
+- 현재 graphified: `erd`, `server/agent-registry`. 추가 도메인은 필요 시 Phase B에서 확장.

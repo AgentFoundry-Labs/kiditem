@@ -1,6 +1,7 @@
 import { Controller, Get, Post, Patch, Body, Param, Query } from '@nestjs/common';
 import { ThumbnailTrackingService } from '../services/thumbnail-tracking.service';
 import { CreateTrackingDto, UpdateMetricsDto, ListTrackingQueryDto } from '../dto';
+import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
 
 @Controller('thumbnail-tracking')
 export class ThumbnailTrackingController {
@@ -16,8 +17,8 @@ export class ThumbnailTrackingController {
   }
 
   @Post()
-  create(@Body() body: CreateTrackingDto) {
-    return this.trackingService.create(body);
+  create(@Body() body: CreateTrackingDto, @CurrentCompany() companyId: string) {
+    return this.trackingService.create({ ...body, companyId });
   }
 
   @Patch(':id')

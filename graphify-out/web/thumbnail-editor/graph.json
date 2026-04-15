@@ -1,0 +1,789 @@
+{
+  "directed": false,
+  "multigraph": false,
+  "graph": {},
+  "nodes": [
+    {
+      "label": "page.tsx",
+      "file_type": "code",
+      "source_file": "page.tsx",
+      "source_location": "L1",
+      "id": "page_tsx",
+      "community": 5,
+      "norm_label": "page.tsx"
+    },
+    {
+      "label": "ThumbnailEditorPage()",
+      "file_type": "code",
+      "source_file": "page.tsx",
+      "source_location": "L22",
+      "id": "page_thumbnaileditorpage",
+      "community": 5,
+      "norm_label": "thumbnaileditorpage()"
+    },
+    {
+      "label": "ImageUploader.tsx",
+      "file_type": "code",
+      "source_file": "components/ImageUploader.tsx",
+      "source_location": "L1",
+      "id": "components_imageuploader_tsx",
+      "community": 11,
+      "norm_label": "imageuploader.tsx"
+    },
+    {
+      "label": "ThumbnailEditorView.tsx",
+      "file_type": "code",
+      "source_file": "components/ThumbnailEditorView.tsx",
+      "source_location": "L1",
+      "id": "components_thumbnaileditorview_tsx",
+      "community": 6,
+      "norm_label": "thumbnaileditorview.tsx"
+    },
+    {
+      "label": "ThumbnailEditorView()",
+      "file_type": "code",
+      "source_file": "components/ThumbnailEditorView.tsx",
+      "source_location": "L23",
+      "id": "thumbnaileditorview_thumbnaileditorview",
+      "community": 6,
+      "norm_label": "thumbnaileditorview()"
+    },
+    {
+      "label": "EditorResultPanel.tsx",
+      "file_type": "code",
+      "source_file": "components/EditorResultPanel.tsx",
+      "source_location": "L1",
+      "id": "components_editorresultpanel_tsx",
+      "community": 7,
+      "norm_label": "editorresultpanel.tsx"
+    },
+    {
+      "label": "cn()",
+      "file_type": "code",
+      "source_file": "components/EditorResultPanel.tsx",
+      "source_location": "L124",
+      "id": "editorresultpanel_cn",
+      "community": 7,
+      "norm_label": "cn()"
+    },
+    {
+      "label": "EditorInputPanel.tsx",
+      "file_type": "code",
+      "source_file": "components/EditorInputPanel.tsx",
+      "source_location": "L1",
+      "id": "components_editorinputpanel_tsx",
+      "community": 8,
+      "norm_label": "editorinputpanel.tsx"
+    },
+    {
+      "label": "cn()",
+      "file_type": "code",
+      "source_file": "components/EditorInputPanel.tsx",
+      "source_location": "L102",
+      "id": "editorinputpanel_cn",
+      "community": 8,
+      "norm_label": "cn()"
+    },
+    {
+      "label": "EditorHistoryTab.tsx",
+      "file_type": "code",
+      "source_file": "components/EditorHistoryTab.tsx",
+      "source_location": "L1",
+      "id": "components_editorhistorytab_tsx",
+      "community": 2,
+      "norm_label": "editorhistorytab.tsx"
+    },
+    {
+      "label": "handleSelectCandidate()",
+      "file_type": "code",
+      "source_file": "components/EditorHistoryTab.tsx",
+      "source_location": "L41",
+      "id": "editorhistorytab_handleselectcandidate",
+      "community": 2,
+      "norm_label": "handleselectcandidate()"
+    },
+    {
+      "label": "handleApply()",
+      "file_type": "code",
+      "source_file": "components/EditorHistoryTab.tsx",
+      "source_location": "L47",
+      "id": "editorhistorytab_handleapply",
+      "community": 2,
+      "norm_label": "handleapply()"
+    },
+    {
+      "label": "handleSkip()",
+      "file_type": "code",
+      "source_file": "components/EditorHistoryTab.tsx",
+      "source_location": "L54",
+      "id": "editorhistorytab_handleskip",
+      "community": 2,
+      "norm_label": "handleskip()"
+    },
+    {
+      "label": "handleDelete()",
+      "file_type": "code",
+      "source_file": "components/EditorHistoryTab.tsx",
+      "source_location": "L60",
+      "id": "editorhistorytab_handledelete",
+      "community": 2,
+      "norm_label": "handledelete()"
+    },
+    {
+      "label": "EditorResult.tsx",
+      "file_type": "code",
+      "source_file": "components/EditorResult.tsx",
+      "source_location": "L1",
+      "id": "components_editorresult_tsx",
+      "community": 12,
+      "norm_label": "editorresult.tsx"
+    },
+    {
+      "label": "useThumbnailEditor.ts",
+      "file_type": "code",
+      "source_file": "hooks/useThumbnailEditor.ts",
+      "source_location": "L1",
+      "id": "hooks_usethumbnaileditor_ts",
+      "community": 9,
+      "norm_label": "usethumbnaileditor.ts"
+    },
+    {
+      "label": "useGenerateThumbnail()",
+      "file_type": "code",
+      "source_file": "hooks/useThumbnailEditor.ts",
+      "source_location": "L19",
+      "id": "usethumbnaileditor_usegeneratethumbnail",
+      "community": 9,
+      "norm_label": "usegeneratethumbnail()"
+    },
+    {
+      "label": "useOriginalImage.ts",
+      "file_type": "code",
+      "source_file": "hooks/useOriginalImage.ts",
+      "source_location": "L1",
+      "id": "hooks_useoriginalimage_ts",
+      "community": 10,
+      "norm_label": "useoriginalimage.ts"
+    },
+    {
+      "label": "useOriginalImage()",
+      "file_type": "code",
+      "source_file": "hooks/useOriginalImage.ts",
+      "source_location": "L5",
+      "id": "useoriginalimage_useoriginalimage",
+      "community": 10,
+      "norm_label": "useoriginalimage()"
+    },
+    {
+      "label": "Standalone Generation \u2014 productId optional",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_pattern_standalone_generation",
+      "community": 0,
+      "norm_label": "standalone generation \u2014 productid optional"
+    },
+    {
+      "label": "Mutation-Driven Workflow (no polling)",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_pattern_mutation_driven_workflow",
+      "community": 3,
+      "norm_label": "mutation-driven workflow (no polling)"
+    },
+    {
+      "label": "Immediate History Sync via invalidateQueries",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_pattern_immediate_history_sync",
+      "community": 0,
+      "norm_label": "immediate history sync via invalidatequeries"
+    },
+    {
+      "label": "Split Panel \u2014 independent input/result panels",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_pattern_split_panel",
+      "community": 1,
+      "norm_label": "split panel \u2014 independent input/result panels"
+    },
+    {
+      "label": "ImageUploader \u2014 FileReader abstraction",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_pattern_image_uploader_filereader",
+      "community": 4,
+      "norm_label": "imageuploader \u2014 filereader abstraction"
+    },
+    {
+      "label": "purpose (compliance | quality) required for generation",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rule_purpose_required",
+      "community": 0,
+      "norm_label": "purpose (compliance | quality) required for generation"
+    },
+    {
+      "label": "EditorResultPanel reads page.tsx result state (not query)",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rule_result_panel_reads_page_state",
+      "community": 1,
+      "norm_label": "editorresultpanel reads page.tsx result state (not query)"
+    },
+    {
+      "label": "Image URL is data URL format (no external CDN upload)",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rule_data_url_format",
+      "community": 4,
+      "norm_label": "image url is data url format (no external cdn upload)"
+    },
+    {
+      "label": "queryKeys.products.detail(productId) for product context only",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rule_product_detail_for_context",
+      "community": 0,
+      "norm_label": "querykeys.products.detail(productid) for product context only"
+    },
+    {
+      "label": "selectedCandidateUrl gates apply/skip button activation",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rule_selected_candidate_gate",
+      "community": 3,
+      "norm_label": "selectedcandidateurl gates apply/skip button activation"
+    },
+    {
+      "label": "Prohibit result state polling",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_prohibit_result_polling",
+      "community": 3,
+      "norm_label": "prohibit result state polling"
+    },
+    {
+      "label": "Prohibit canvas transformation (API only)",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_prohibit_canvas_transform",
+      "community": 3,
+      "norm_label": "prohibit canvas transformation (api only)"
+    },
+    {
+      "label": "Prohibit upload image resize/validation (raw transmit)",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_prohibit_upload_resize_validation",
+      "community": 4,
+      "norm_label": "prohibit upload image resize/validation (raw transmit)"
+    },
+    {
+      "label": "Enable thumbnail preview before product registration",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rationale_standalone_pre_registration",
+      "community": 0,
+      "norm_label": "enable thumbnail preview before product registration"
+    },
+    {
+      "label": "Immediate response removes polling need",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rationale_instant_response",
+      "community": 3,
+      "norm_label": "immediate response removes polling need"
+    },
+    {
+      "label": "Cross-page consistency \u2014 thumbnails history tab refresh",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rationale_cross_page_consistency",
+      "community": 0,
+      "norm_label": "cross-page consistency \u2014 thumbnails history tab refresh"
+    },
+    {
+      "label": "Panels share state via page.tsx props drilling (no local shared state)",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rationale_props_drilling",
+      "community": 1,
+      "norm_label": "panels share state via page.tsx props drilling (no local shared state)"
+    },
+    {
+      "label": "FileReader componentized for cross-domain reuse",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_rationale_reusable_uploader",
+      "community": 4,
+      "norm_label": "filereader componentized for cross-domain reuse"
+    },
+    {
+      "label": "page.tsx",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_page_tsx",
+      "community": 0,
+      "norm_label": "page.tsx"
+    },
+    {
+      "label": "components/EditorInputPanel.tsx",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_editor_input_panel",
+      "community": 1,
+      "norm_label": "components/editorinputpanel.tsx"
+    },
+    {
+      "label": "components/EditorResultPanel.tsx",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_editor_result_panel",
+      "community": 1,
+      "norm_label": "components/editorresultpanel.tsx"
+    },
+    {
+      "label": "components/EditorResult.tsx",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_editor_result",
+      "community": 1,
+      "norm_label": "components/editorresult.tsx"
+    },
+    {
+      "label": "components/EditorHistoryTab.tsx",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_editor_history_tab",
+      "community": 13,
+      "norm_label": "components/editorhistorytab.tsx"
+    },
+    {
+      "label": "components/ImageUploader.tsx",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_image_uploader",
+      "community": 4,
+      "norm_label": "components/imageuploader.tsx"
+    },
+    {
+      "label": "components/ThumbnailEditorView.tsx",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_thumbnail_editor_view",
+      "community": 14,
+      "norm_label": "components/thumbnaileditorview.tsx"
+    },
+    {
+      "label": "hooks/useThumbnailEditor.ts",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_use_thumbnail_editor",
+      "community": 1,
+      "norm_label": "hooks/usethumbnaileditor.ts"
+    },
+    {
+      "label": "hooks/useOriginalImage.ts",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_use_original_image",
+      "community": 15,
+      "norm_label": "hooks/useoriginalimage.ts"
+    },
+    {
+      "label": "apps/server/.../thumbnail-editor.controller.ts",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "id": "claude_file_thumbnail_editor_controller",
+      "community": 0,
+      "norm_label": "apps/server/.../thumbnail-editor.controller.ts"
+    }
+  ],
+  "links": [
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "page.tsx",
+      "source_location": "L22",
+      "weight": 1.0,
+      "_src": "page_tsx",
+      "_tgt": "page_thumbnaileditorpage",
+      "source": "page_tsx",
+      "target": "page_thumbnaileditorpage",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "components/ThumbnailEditorView.tsx",
+      "source_location": "L23",
+      "weight": 1.0,
+      "_src": "components_thumbnaileditorview_tsx",
+      "_tgt": "thumbnaileditorview_thumbnaileditorview",
+      "source": "components_thumbnaileditorview_tsx",
+      "target": "thumbnaileditorview_thumbnaileditorview",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "components/EditorResultPanel.tsx",
+      "source_location": "L124",
+      "weight": 1.0,
+      "_src": "components_editorresultpanel_tsx",
+      "_tgt": "editorresultpanel_cn",
+      "source": "components_editorresultpanel_tsx",
+      "target": "editorresultpanel_cn",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "components/EditorInputPanel.tsx",
+      "source_location": "L102",
+      "weight": 1.0,
+      "_src": "components_editorinputpanel_tsx",
+      "_tgt": "editorinputpanel_cn",
+      "source": "components_editorinputpanel_tsx",
+      "target": "editorinputpanel_cn",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "components/EditorHistoryTab.tsx",
+      "source_location": "L41",
+      "weight": 1.0,
+      "_src": "components_editorhistorytab_tsx",
+      "_tgt": "editorhistorytab_handleselectcandidate",
+      "source": "components_editorhistorytab_tsx",
+      "target": "editorhistorytab_handleselectcandidate",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "components/EditorHistoryTab.tsx",
+      "source_location": "L47",
+      "weight": 1.0,
+      "_src": "components_editorhistorytab_tsx",
+      "_tgt": "editorhistorytab_handleapply",
+      "source": "components_editorhistorytab_tsx",
+      "target": "editorhistorytab_handleapply",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "components/EditorHistoryTab.tsx",
+      "source_location": "L54",
+      "weight": 1.0,
+      "_src": "components_editorhistorytab_tsx",
+      "_tgt": "editorhistorytab_handleskip",
+      "source": "components_editorhistorytab_tsx",
+      "target": "editorhistorytab_handleskip",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "components/EditorHistoryTab.tsx",
+      "source_location": "L60",
+      "weight": 1.0,
+      "_src": "components_editorhistorytab_tsx",
+      "_tgt": "editorhistorytab_handledelete",
+      "source": "components_editorhistorytab_tsx",
+      "target": "editorhistorytab_handledelete",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "hooks/useThumbnailEditor.ts",
+      "source_location": "L19",
+      "weight": 1.0,
+      "_src": "hooks_usethumbnaileditor_ts",
+      "_tgt": "usethumbnaileditor_usegeneratethumbnail",
+      "source": "hooks_usethumbnaileditor_ts",
+      "target": "usethumbnaileditor_usegeneratethumbnail",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "hooks/useOriginalImage.ts",
+      "source_location": "L5",
+      "weight": 1.0,
+      "_src": "hooks_useoriginalimage_ts",
+      "_tgt": "useoriginalimage_useoriginalimage",
+      "source": "hooks_useoriginalimage_ts",
+      "target": "useoriginalimage_useoriginalimage",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_standalone_generation",
+      "_tgt": "claude_rule_purpose_required",
+      "source": "claude_pattern_standalone_generation",
+      "target": "claude_rule_purpose_required"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_standalone_generation",
+      "_tgt": "claude_rule_product_detail_for_context",
+      "source": "claude_pattern_standalone_generation",
+      "target": "claude_rule_product_detail_for_context"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_standalone_generation",
+      "_tgt": "claude_rationale_standalone_pre_registration",
+      "source": "claude_pattern_standalone_generation",
+      "target": "claude_rationale_standalone_pre_registration"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_standalone_generation",
+      "_tgt": "claude_file_page_tsx",
+      "source": "claude_pattern_standalone_generation",
+      "target": "claude_file_page_tsx"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_mutation_driven_workflow",
+      "_tgt": "claude_rule_selected_candidate_gate",
+      "source": "claude_pattern_mutation_driven_workflow",
+      "target": "claude_rule_selected_candidate_gate"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_mutation_driven_workflow",
+      "_tgt": "claude_rationale_instant_response",
+      "source": "claude_pattern_mutation_driven_workflow",
+      "target": "claude_rationale_instant_response"
+    },
+    {
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_mutation_driven_workflow",
+      "_tgt": "claude_prohibit_result_polling",
+      "source": "claude_pattern_mutation_driven_workflow",
+      "target": "claude_prohibit_result_polling"
+    },
+    {
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_mutation_driven_workflow",
+      "_tgt": "claude_prohibit_canvas_transform",
+      "source": "claude_pattern_mutation_driven_workflow",
+      "target": "claude_prohibit_canvas_transform"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_mutation_driven_workflow",
+      "_tgt": "claude_file_use_thumbnail_editor",
+      "source": "claude_pattern_mutation_driven_workflow",
+      "target": "claude_file_use_thumbnail_editor"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_immediate_history_sync",
+      "_tgt": "claude_rationale_cross_page_consistency",
+      "source": "claude_pattern_immediate_history_sync",
+      "target": "claude_rationale_cross_page_consistency"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_immediate_history_sync",
+      "_tgt": "claude_file_page_tsx",
+      "source": "claude_pattern_immediate_history_sync",
+      "target": "claude_file_page_tsx"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_split_panel",
+      "_tgt": "claude_rule_result_panel_reads_page_state",
+      "source": "claude_pattern_split_panel",
+      "target": "claude_rule_result_panel_reads_page_state"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_split_panel",
+      "_tgt": "claude_rationale_props_drilling",
+      "source": "claude_pattern_split_panel",
+      "target": "claude_rationale_props_drilling"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_split_panel",
+      "_tgt": "claude_file_editor_input_panel",
+      "source": "claude_pattern_split_panel",
+      "target": "claude_file_editor_input_panel"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_split_panel",
+      "_tgt": "claude_file_editor_result_panel",
+      "source": "claude_pattern_split_panel",
+      "target": "claude_file_editor_result_panel"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_image_uploader_filereader",
+      "_tgt": "claude_rule_data_url_format",
+      "source": "claude_pattern_image_uploader_filereader",
+      "target": "claude_rule_data_url_format"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_image_uploader_filereader",
+      "_tgt": "claude_rationale_reusable_uploader",
+      "source": "claude_pattern_image_uploader_filereader",
+      "target": "claude_rationale_reusable_uploader"
+    },
+    {
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_image_uploader_filereader",
+      "_tgt": "claude_prohibit_upload_resize_validation",
+      "source": "claude_pattern_image_uploader_filereader",
+      "target": "claude_prohibit_upload_resize_validation"
+    },
+    {
+      "relation": "rationale_for",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_pattern_image_uploader_filereader",
+      "_tgt": "claude_file_image_uploader",
+      "source": "claude_pattern_image_uploader_filereader",
+      "target": "claude_file_image_uploader"
+    },
+    {
+      "relation": "modification_triggers",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_file_page_tsx",
+      "_tgt": "claude_file_thumbnail_editor_controller",
+      "source": "claude_file_page_tsx",
+      "target": "claude_file_thumbnail_editor_controller"
+    },
+    {
+      "relation": "modification_triggers",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_file_editor_result_panel",
+      "_tgt": "claude_file_editor_result",
+      "source": "claude_file_editor_result_panel",
+      "target": "claude_file_editor_result"
+    },
+    {
+      "relation": "modification_triggers",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "CLAUDE.md",
+      "source_location": null,
+      "weight": 1.0,
+      "_src": "claude_file_use_thumbnail_editor",
+      "_tgt": "claude_file_editor_result_panel",
+      "source": "claude_file_editor_result_panel",
+      "target": "claude_file_use_thumbnail_editor"
+    }
+  ],
+  "hyperedges": []
+}

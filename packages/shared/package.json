@@ -20,6 +20,11 @@
       "import": "./dist/errors/index.js",
       "require": "./dist/errors/index.cjs"
     },
+    "./security": {
+      "types": "./dist/security/index.d.ts",
+      "import": "./dist/security/index.js",
+      "require": "./dist/security/index.cjs"
+    },
     "./internal/*": null
   },
   "types": "./dist/index.d.ts",

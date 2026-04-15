@@ -27,5 +27,10 @@
   },
   "dependencies": {
     "@nestjs/event-emitter": "^3.0.1"
+  },
+  "overrides": {
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "express": "^5.2.0"
   }
 }

@@ -1206,6 +1206,7 @@ model SupplierPayment {
   @@index([companyId])
   @@index([companyId, status])
   @@index([supplierId])
+  @@index([purchaseOrderId])
   @@index([status])
   @@map("supplier_payments")
 }
@@ -1403,7 +1404,7 @@ model PickingItem {
   createdAt     DateTime    @default(now()) @map("created_at") @db.Timestamptz
 
   pickingList PickingList  @relation(fields: [pickingListId], references: [id], onDelete: Cascade)
-  product     Product?     @relation(fields: [productId], references: [id])
+  product     Product?     @relation(fields: [productId], references: [id], onDelete: SetNull)
 
   @@index([pickingListId])
   @@index([productId])
@@ -1496,6 +1497,7 @@ model ProcessingCost {
   product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
 
   @@index([companyId])
+  @@index([companyId, date])
   @@index([productId])
   @@map("processing_costs")
 }
@@ -1565,11 +1567,12 @@ model CSRecord {
   updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   company Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  product Product? @relation(fields: [productId], references: [id])
+  product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
 
   @@index([companyId])
   @@index([companyId, csStatus, createdAt])
   @@index([orderId])
+  @@index([productId])
   @@index([csType])
   @@index([csStatus])
   @@index([createdAt])
@@ -1824,7 +1827,8 @@ model AdSnapshot {
   adActions    AdAction[]
 
   @@index([companyId, source])
-  @@index([companyId, level, date])
+  @@index([companyId, date, level])
+  @@index([companyId, capturedAt])
   @@index([capturedAt])
   @@map("ad_snapshots")
 }
@@ -1882,6 +1886,7 @@ model AdAction {
   @@index([companyId, approvalStatus])
   @@index([executeStatus])
   @@index([externalId])
+  @@index([snapshotId])
   @@index([createdAt])
   @@map("ad_actions")
 }
@@ -1930,10 +1935,9 @@ model ExecutionTask {
   worker         ExecutionWorker?  @relation(fields: [workerId], references: [id], onDelete: SetNull)
   logs           ExecutionLog[]
 
-  @@index([actionId])
+  @@index([actionId, status, createdAt])
   @@index([workerId])
   @@index([status])
-  @@index([createdAt])
   @@map("execution_tasks")
 }
 

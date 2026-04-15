@@ -130,8 +130,8 @@ export default function StatusContent({
                       return (
                         <div style={{ background: "rgba(255,255,255,0.96)", backdropFilter: "blur(16px)", color: "var(--text-primary)", borderRadius: 16, padding: "14px 18px", fontSize: 12, fontWeight: 600, boxShadow: "0 8px 32px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.03)" }}>
                           <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginBottom: 10, fontWeight: 500 }}>{label}일</div>
-                          {payload.map((p: { dataKey: string; value: number; color: string }) => {
-                            if (p.dataKey === "breakeven") return null;
+                          {payload.map((p: { dataKey: string; value: number; color: string; name?: string }) => {
+                            if (p.name === "breakeven") return null;
                             const isRoas = p.dataKey === "roas";
                             const nameMap: Record<string, string> = { spend: "광고비", revenue: "전환매출", roas: "ROAS" };
                             const colorMap: Record<string, string> = { spend: "#b0b8c1", revenue: "#3182f6", roas: isLow ? "#f04452" : "#00c471" };

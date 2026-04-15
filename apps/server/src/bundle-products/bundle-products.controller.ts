@@ -1,25 +1,20 @@
-import { Controller, Get, Post, Delete, Param, Query, Body } from '@nestjs/common';
-import { CompanyResolverService } from '../common/company-resolver.service';
+import { Controller, Get, Post, Delete, Param, Body } from '@nestjs/common';
 import { BundleProductsService } from './bundle-products.service';
-import { AnalyzeBundleQueryDto, CreateBundleProductDto } from './dto';
+import { CreateBundleProductDto } from './dto';
+import { CurrentCompany } from '../auth/decorators/current-company.decorator';
 
 @Controller('bundle-products')
 export class BundleProductsController {
-  constructor(
-    private readonly bundleProductsService: BundleProductsService,
-    private readonly companyResolver: CompanyResolverService,
-  ) {}
+  constructor(private readonly bundleProductsService: BundleProductsService) {}
 
   @Get('analyze')
-  async analyze(@Query() query: AnalyzeBundleQueryDto) {
-    return this.bundleProductsService.analyze(
-      await this.companyResolver.resolve(),
-    );
+  async analyze(@CurrentCompany() companyId: string) {
+    return this.bundleProductsService.analyze(companyId);
   }
 
   @Post()
-  create(@Body() dto: CreateBundleProductDto) {
-    return this.bundleProductsService.create(dto);
+  create(@Body() dto: CreateBundleProductDto, @CurrentCompany() companyId: string) {
+    return this.bundleProductsService.create(companyId, dto);
   }
 
   @Delete(':id')

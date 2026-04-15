@@ -18,6 +18,8 @@ import {
 import { DelegationService } from './delegation/delegation.service';
 import { DenialTrackerService } from './safety/denial-tracker.service';
 import { SnapshotService } from './business-safety/snapshot.service';
+import { CurrentCompany } from '../auth/decorators/current-company.decorator';
+import { Roles } from '../auth/decorators/roles.decorator';
 
 @Controller('agent-registry')
 export class AgentRegistryController {
@@ -30,46 +32,49 @@ export class AgentRegistryController {
   ) {}
 
   @Get()
-  list(@Query() query: ListAgentsQueryDto) {
-    return this.service.list(query);
+  list(@CurrentCompany() companyId: string, @Query() query: ListAgentsQueryDto) {
+    return this.service.list(companyId, query);
   }
 
   @Get('org')
-  getOrgTree(@Query() query: OrgTreeQueryDto) {
-    return this.service.getOrgTree(query.companyId);
+  getOrgTree(@CurrentCompany() companyId: string, @Query() _query: OrgTreeQueryDto) {
+    return this.service.getOrgTree(companyId);
   }
 
+  @Roles('admin')
   @Sse('events')
-  agentEvents(): Observable<MessageEvent> {
-    return this.sseService.getStream();
+  agentEvents(@CurrentCompany() companyId: string): Observable<MessageEvent> {
+    return this.sseService.getStream(companyId);
   }
 
+  @Roles('admin')
   @Get('cost-analytics')
-  getCostAnalytics(@Query() query: CostAnalyticsQueryDto) {
-    return this.service.getCostAnalytics(query);
+  getCostAnalytics(@CurrentCompany() companyId: string, @Query() query: CostAnalyticsQueryDto) {
+    return this.service.getCostAnalytics(companyId, query);
   }
 
+  @Roles('admin')
   @Get('denials/summary')
-  getDenialsSummary(@Query('companyId') companyId: string) {
+  getDenialsSummary(@CurrentCompany() companyId: string) {
     if (!this.denialTracker) return { total: 0, byCategory: {} };
     return this.denialTracker.getSummary(companyId);
   }
 
   @Post('run-by-type')
-  runByType(@Body() body: RunByTypeBodyDto) {
+  runByType(@Body() body: RunByTypeBodyDto, @CurrentCompany() companyId: string) {
     return this.service.runByType(body.type, {
-      companyId: body.companyId,
+      companyId,
     });
   }
 
   @Get(':id')
-  getById(@Param('id') id: string, @Query('companyId') companyId?: string) {
+  getById(@Param('id') id: string, @CurrentCompany() companyId: string) {
     return this.service.getById(id, companyId);
   }
 
   @Post()
-  create(@Body() body: CreateAgentBodyDto) {
-    return this.service.create(body);
+  create(@Body() body: CreateAgentBodyDto, @CurrentCompany() companyId: string) {
+    return this.service.create({ ...body, companyId });
   }
 
   @Patch(':id')
@@ -85,8 +90,8 @@ export class AgentRegistryController {
   // ── 실행 ──
 
   @Post(':id/run')
-  run(@Param('id') id: string, @Body() body: RunAgentBodyDto) {
-    return this.service.run(id, body);
+  run(@Param('id') id: string, @Body() body: RunAgentBodyDto, @CurrentCompany() companyId: string) {
+    return this.service.run(id, { ...body, companyId });
   }
 
   // ── 스케줄 & 관리 ──
@@ -132,13 +137,14 @@ export class AgentRegistryController {
   delegate(
     @Param('parentId') parentId: string,
     @Body() body: DelegateAgentBodyDto,
+    @CurrentCompany() companyId: string,
   ) {
     if (!this.delegationService) throw new ServiceUnavailableException('delegation_not_available');
     return this.delegationService.delegate({
       parentAgentId: parentId,
       childAgentType: body.childAgentType,
       parentRunId: body.parentRunId,
-      companyId: body.companyId,
+      companyId,
       payload: body.payload,
       reason: body.reason,
     });
@@ -146,6 +152,7 @@ export class AgentRegistryController {
 
   // ── Permission Denials (#22) ──
 
+  @Roles('admin')
   @Get(':id/denials')
   getDenials(@Param('id') id: string) {
     if (!this.denialTracker) return [];
@@ -154,12 +161,14 @@ export class AgentRegistryController {
 
   // ── Business Safety: Snapshots + Rollback ──
 
+  @Roles('admin')
   @Get('runs/:runId/snapshots')
   getSnapshots(@Param('runId') runId: string) {
     if (!this.snapshotService) return [];
     return this.snapshotService.getSnapshots(runId);
   }
 
+  @Roles('admin')
   @Get('runs/:runId/reasoning')
   async getReasoning(@Param('runId') runId: string) {
     const run = await this.service.getRunById(runId);
@@ -174,6 +183,7 @@ export class AgentRegistryController {
     return { actions };
   }
 
+  @Roles('admin')
   @Post('runs/:runId/rollback')
   rollback(@Param('runId') runId: string) {
     if (!this.snapshotService) return { restored: 0 };

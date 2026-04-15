@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { kstDayStart } from '../common/kst';
 import type { TaskSeed, RelatedProduct } from './types';
+import { scrubSecrets } from '@kiditem/shared';
 
 export type { RelatedProduct } from './types';
 
@@ -217,7 +218,7 @@ export class ActionTaskService {
       return this.prisma.actionTask.update({
         where: { id },
         data: {
-          result: { error: err instanceof Error ? err.message : 'Unknown error' } as Prisma.InputJsonValue,
+          result: { error: scrubSecrets(err instanceof Error ? err.message : String(err)) } as Prisma.InputJsonValue,
           status: 'done',
           activityLog: log as unknown as Prisma.InputJsonValue,
         },

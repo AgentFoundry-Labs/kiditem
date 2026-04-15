@@ -8,7 +8,7 @@ import {
 import { OnEvent } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AgentRegistryService } from '../../agent-registry/agent-registry.service';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { paginationParams, type PaginatedResponse } from '../../common/pagination';
 import { resolvePricing, resolveInventory } from '../../common/master-product-resolver';
 import type { ProductListItem } from '@kiditem/shared';
@@ -602,22 +602,23 @@ export class ProductsService {
     gradeAdC: number;
   }> {
     try {
-      // statusFilter 허용 목록으로 화이트리스트 검증 (SQL Injection 방지)
-      const ALLOWED_STATUSES = ['active', 'inactive', 'draft', 'discontinued'] as const;
-      const safeStatus = ALLOWED_STATUSES.includes(statusFilter as typeof ALLOWED_STATUSES[number])
-        ? statusFilter
-        : null;
+      // statusFilter 는 DTO `@IsIn(PIPELINE_STATS_STATUS_VALUES)` 로 검증됨.
+      // Prisma.sql fragment 로 안전한 조건부 WHERE 조립.
+      const statusWhere =
+        statusFilter && statusFilter !== 'all'
+          ? Prisma.sql`AND p.status = ${statusFilter}`
+          : Prisma.empty;
 
       // 1. Grade counts + total
       const gradeCounts = await this.prisma.$queryRaw<
         { abc_grade: string | null; cnt: number }[]
-      >`
+      >(Prisma.sql`
         SELECT p.abc_grade, COUNT(*)::int AS cnt
         FROM products p
         WHERE p.is_deleted = false
-          AND (${safeStatus}::text IS NULL OR p.status = ${safeStatus})
+          ${statusWhere}
         GROUP BY p.abc_grade
-      `;
+      `);
 
       let total = 0;
       let gradeA = 0;
@@ -632,17 +633,17 @@ export class ProductsService {
       }
 
       // 2. 적자 (net_profit < 0) — distinct product count
-      const [minusRow] = await this.prisma.$queryRaw<{ cnt: number }[]>`
+      const [minusRow] = await this.prisma.$queryRaw<{ cnt: number }[]>(Prisma.sql`
         SELECT COUNT(DISTINCT pl.product_id)::int AS cnt
         FROM profit_loss pl
         JOIN products p ON p.id = pl.product_id
         WHERE pl.net_profit < 0
           AND p.is_deleted = false
-          AND (${safeStatus}::text IS NULL OR p.status = ${safeStatus})
-      `;
+          ${statusWhere}
+      `);
 
       // 3. 3%이하 (0 <= profit rate <= 3%) — net_profit >= 0, revenue > 0, rate <= 3
-      const [lowRow] = await this.prisma.$queryRaw<{ cnt: number }[]>`
+      const [lowRow] = await this.prisma.$queryRaw<{ cnt: number }[]>(Prisma.sql`
         SELECT COUNT(DISTINCT pl.product_id)::int AS cnt
         FROM profit_loss pl
         JOIN products p ON p.id = pl.product_id
@@ -650,8 +651,8 @@ export class ProductsService {
           AND pl.revenue > 0
           AND (CAST(pl.net_profit AS FLOAT) / pl.revenue * 100) <= 3
           AND p.is_deleted = false
-          AND (${safeStatus}::text IS NULL OR p.status = ${safeStatus})
-      `;
+          ${statusWhere}
+      `);
 
       // 4. Grade changes — net change per grade from grade_histories
       const gradeChanges = await this.prisma.$queryRaw<
@@ -673,14 +674,14 @@ export class ProductsService {
       }
 
       // 5. Ad counts
-      const [adRow] = await this.prisma.$queryRaw<{ ad_count: number; no_ad_count: number }[]>`
+      const [adRow] = await this.prisma.$queryRaw<{ ad_count: number; no_ad_count: number }[]>(Prisma.sql`
         SELECT
           COUNT(*) FILTER (WHERE p.ad_tier IS NOT NULL AND p.ad_tier != '')::int AS ad_count,
           COUNT(*) FILTER (WHERE p.ad_tier IS NULL OR p.ad_tier = '')::int AS no_ad_count
         FROM products p
         WHERE p.is_deleted = false
-          AND (${safeStatus}::text IS NULL OR p.status = ${safeStatus})
-      `;
+          ${statusWhere}
+      `);
 
       // 6. 등급별 14일 매출 — 상품당 최신 레코드 1건씩만 (이전 업로드 제외)
       const t14Start = new Date();
@@ -688,7 +689,7 @@ export class ProductsService {
 
       const gradeRevRows = await this.prisma.$queryRaw<
         { abc_grade: string | null; total_revenue: number; total_ad_cost: number }[]
-      >`
+      >(Prisma.sql`
         WITH agg14 AS (
           SELECT DISTINCT ON (product_id) product_id, revenue
           FROM traffic_stats
@@ -718,9 +719,9 @@ export class ProductsService {
           GROUP BY product_id
         ) pl ON pl.product_id = p.id
         WHERE p.is_deleted = false
-          AND (${safeStatus}::text IS NULL OR p.status = ${safeStatus})
+          ${statusWhere}
         GROUP BY p.abc_grade
-      `;
+      `);
 
       let gradeRevA = 0, gradeRevB = 0, gradeRevC = 0;
       let gradeAdA = 0, gradeAdB = 0, gradeAdC = 0;

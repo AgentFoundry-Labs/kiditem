@@ -1,4 +1,12 @@
-import { Injectable, Logger, Inject, Optional, forwardRef } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  Inject,
+  Optional,
+  forwardRef,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { CronJob } from 'cron';
@@ -29,6 +37,7 @@ import { ResultCleanupService } from '../lifecycle/result-cleanup.service';
 import { SafetyPipelineService } from '../business-safety/safety-pipeline.service';
 import { DryRunGateService } from '../business-safety/dry-run-gate.service';
 import type { PermissionLayer } from '../permissions/hierarchy.validator';
+import { scrubSecrets } from '@kiditem/shared';
 
 /** Extract company-level permission layer from agent.permissions JSON. Future extension point. */
 function extractCompanyLayer(permissions: Record<string, unknown> | null | undefined): PermissionLayer | undefined {
@@ -78,13 +87,13 @@ export class HeartbeatService {
     requestedById?: string;
   }) {
     const agent = await this.prisma.agentDefinition.findUnique({ where: { id: input.agentId } });
-    if (!agent) throw new Error(`Agent ${input.agentId} not found`);
+    if (!agent) throw new NotFoundException(`Agent ${input.agentId} not found`);
     if (agent.status === 'paused' || agent.status === 'disabled') {
       return { ok: false, error: 'agent_paused', agentId: input.agentId };
     }
 
     const companyId = input.companyId || agent.companyId;
-    if (!companyId) throw new Error(`No companyId for agent ${agent.name}`);
+    if (!companyId) throw new BadRequestException(`No companyId for agent ${agent.name}`);
 
     // 피처 게이트 체크
     const gateAllowed = await this.featureGateService.isEnabled(`agent:${agent.type}`, companyId);
@@ -100,7 +109,7 @@ export class HeartbeatService {
           AGENT_EVENTS.BUDGET_WARNING,
           new AgentBudgetWarningEvent(
             agent.id, agent.name, 'exceeded', usageRatio,
-            agent.tokensUsed, agent.monthlyTokenBudget,
+            agent.tokensUsed, agent.monthlyTokenBudget, companyId,
           ),
         );
         return { ok: false, error: 'budget_exceeded', agentId: input.agentId };
@@ -111,7 +120,7 @@ export class HeartbeatService {
           AGENT_EVENTS.BUDGET_WARNING,
           new AgentBudgetWarningEvent(
             agent.id, agent.name, 'critical', usageRatio,
-            agent.tokensUsed, agent.monthlyTokenBudget,
+            agent.tokensUsed, agent.monthlyTokenBudget, companyId,
           ),
         );
       } else if (usageRatio >= 0.80) {
@@ -120,7 +129,7 @@ export class HeartbeatService {
           AGENT_EVENTS.BUDGET_WARNING,
           new AgentBudgetWarningEvent(
             agent.id, agent.name, 'warning', usageRatio,
-            agent.tokensUsed, agent.monthlyTokenBudget,
+            agent.tokensUsed, agent.monthlyTokenBudget, companyId,
           ),
         );
       }
@@ -234,7 +243,7 @@ export class HeartbeatService {
 
     this.eventEmitter.emit(
       AGENT_EVENTS.STATUS_CHANGED,
-      new AgentStatusChangedEvent(agent.id, agent.name, 'running', run.id),
+      new AgentStatusChangedEvent(agent.id, agent.name, 'running', companyId, run.id),
     );
 
     // Skills already built in prefetch above
@@ -391,7 +400,7 @@ export class HeartbeatService {
         exitCode: result.exitCode,
         signal: result.signal,
         errorCode,
-        error: errorCode ? result.stderr.slice(0, 1000) : null,
+        error: errorCode ? scrubSecrets(result.stderr.slice(0, 1000)) : null,
         resultJson: resultJson as any,
         nextSchedule: nextSchedule ?? null,
       },
@@ -437,8 +446,8 @@ export class HeartbeatService {
     // #17 Async Transcript — Step 2: Fire-and-forget (non-critical fields)
     this.eventEmitter.emit(TRANSCRIPT_EVENT, {
       runId: run.id,
-      stdoutExcerpt: result.stdout.slice(0, 5000),
-      stderrExcerpt: result.stderr.slice(0, 2000),
+      stdoutExcerpt: scrubSecrets(result.stdout.slice(0, 5000)),
+      stderrExcerpt: scrubSecrets(result.stderr.slice(0, 2000)),
       usageJson: result.usage ?? null,
       sessionIdAfter: result.sessionIdAfter,
     });
@@ -454,7 +463,7 @@ export class HeartbeatService {
         rtSessionId: result.sessionIdAfter ?? (agentWithRt as any)?.rtSessionId,
         rtLastRunId: run.id,
         rtLastRunStatus: status,
-        rtLastError: errorCode ? result.stderr.slice(0, 500) : null,
+        rtLastError: errorCode ? scrubSecrets(result.stderr.slice(0, 500)) : null,
         rtTotalInputTokens: { increment: result.usage?.inputTokens ?? 0 },
         rtTotalOutputTokens: { increment: result.usage?.outputTokens ?? 0 },
         rtTotalCostCents: { increment: result.usage?.costCents ?? 0 },
@@ -479,13 +488,14 @@ export class HeartbeatService {
 
       this.eventEmitter.emit(
         AGENT_EVENTS.STATUS_CHANGED,
-        new AgentStatusChangedEvent(agent.id, agent.name, 'paused', run.id),
+        new AgentStatusChangedEvent(agent.id, agent.name, 'paused', companyId, run.id),
       );
       this.eventEmitter.emit(
         AGENT_EVENTS.AUTO_PAUSED,
         new AgentAutoPausedEvent(
           agent.id, agent.name,
           (updatedAgent as any).rtConsecutiveFailCount,
+          companyId,
           (updatedAgent as any).rtLastError ?? undefined,
         ),
       );
@@ -500,12 +510,12 @@ export class HeartbeatService {
       const finalStatus = status === 'succeeded' ? 'succeeded' : 'failed';
       this.eventEmitter.emit(
         AGENT_EVENTS.STATUS_CHANGED,
-        new AgentStatusChangedEvent(agent.id, agent.name, finalStatus as any, run.id),
+        new AgentStatusChangedEvent(agent.id, agent.name, finalStatus as any, companyId, run.id),
       );
     }
 
     // Wakeup 완료
-    await this.wakeupService.finish(wakeup.id, run.id, errorCode ? result.stderr.slice(0, 500) : undefined);
+    await this.wakeupService.finish(wakeup.id, run.id, errorCode ? scrubSecrets(result.stderr.slice(0, 500)) : undefined);
 
     // Legacy AgentTask 동기화 — run() 경유로 생성된 task가 있으면 업데이트
     const payload = wakeup.payload as Record<string, unknown> | null;
@@ -516,7 +526,7 @@ export class HeartbeatService {
           where: { id: legacyTaskId },
           data: {
             status: status === 'succeeded' ? 'completed' : 'failed',
-            error: errorCode ? result.stderr.slice(0, 1000) : null,
+            error: errorCode ? scrubSecrets(result.stderr.slice(0, 1000)) : null,
             completedAt: new Date(),
           },
         });

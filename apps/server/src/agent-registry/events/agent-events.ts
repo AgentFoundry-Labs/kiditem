@@ -3,6 +3,7 @@ export class AgentStatusChangedEvent {
     public readonly agentId: string,
     public readonly agentName: string,
     public readonly status: 'running' | 'succeeded' | 'failed' | 'paused' | 'idle',
+    public readonly companyId: string,
     public readonly runId?: string,
     public readonly data?: Record<string, unknown>,
   ) {}
@@ -16,6 +17,7 @@ export class AgentBudgetWarningEvent {
     public readonly usageRatio: number,
     public readonly tokensUsed: number,
     public readonly budget: number,
+    public readonly companyId: string,
   ) {}
 }
 
@@ -24,6 +26,7 @@ export class AgentAutoPausedEvent {
     public readonly agentId: string,
     public readonly agentName: string,
     public readonly consecutiveFailCount: number,
+    public readonly companyId: string,
     public readonly lastError?: string,
   ) {}
 }

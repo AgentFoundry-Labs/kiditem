@@ -210,7 +210,7 @@ describe('HeartbeatService — full execution lifecycle', () => {
       expect(result).toEqual({ ok: false, error: 'budget_exceeded', agentId: 'agent-1' });
       expect(eventEmitter.emit).toHaveBeenCalledWith(
         AGENT_EVENTS.BUDGET_WARNING,
-        expect.objectContaining({ level: 'exceeded' }),
+        expect.objectContaining({ level: 'exceeded', companyId: 'c-1' }),
       );
     });
 
@@ -270,7 +270,7 @@ describe('HeartbeatService — full execution lifecycle', () => {
       );
       expect(eventEmitter.emit).toHaveBeenCalledWith(
         AGENT_EVENTS.STATUS_CHANGED,
-        expect.objectContaining({ status: 'running' }),
+        expect.objectContaining({ status: 'running', companyId: 'c-1' }),
       );
     });
 
@@ -289,6 +289,11 @@ describe('HeartbeatService — full execution lifecycle', () => {
       expect(eventEmitter.emit).toHaveBeenCalledWith(
         AGENT_EVENTS.RESULT_READY,
         expect.objectContaining({ agentType: 'ad_strategy', companyId: 'c-1' }),
+      );
+      // Phase 0.3: status_changed 이벤트도 companyId 포함
+      expect(eventEmitter.emit).toHaveBeenCalledWith(
+        AGENT_EVENTS.STATUS_CHANGED,
+        expect.objectContaining({ companyId: 'c-1' }),
       );
     });
 
@@ -375,7 +380,7 @@ describe('HeartbeatService — full execution lifecycle', () => {
       );
       expect(eventEmitter.emit).toHaveBeenCalledWith(
         AGENT_EVENTS.AUTO_PAUSED,
-        expect.objectContaining({ agentId: 'agent-1' }),
+        expect.objectContaining({ agentId: 'agent-1', companyId: 'c-1' }),
       );
     });
 

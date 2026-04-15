@@ -118,7 +118,7 @@
 
     window.postMessage(
       { type: "__ps_1688_detail_data", payload: JSON.stringify(data), source: source },
-      "*"
+      window.location.origin
     );
   } catch (e) {
     console.debug('[bridge] error:', e.message);

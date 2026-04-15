@@ -6,13 +6,6 @@ import { CreateReturnTransferDto, UpdateReturnTransferDto } from './dto';
 export class ReturnTransfersService {
   constructor(private readonly prisma: PrismaService) {}
 
-  private async resolveCompanyId(companyId?: string): Promise<string> {
-    if (companyId) return companyId;
-    const first = await this.prisma.company.findFirst({ select: { id: true } });
-    if (!first) throw new BadRequestException('회사를 찾을 수 없습니다');
-    return first.id;
-  }
-
   private async generateRtNumber(companyId: string): Promise<string> {
     const now = new Date();
     const yy = String(now.getFullYear()).slice(2);
@@ -30,9 +23,8 @@ export class ReturnTransfersService {
     return `${prefix}-${todayCount + 1}`;
   }
 
-  async findAll(query: { companyId?: string; status?: string }) {
-    const resolved = await this.resolveCompanyId(query.companyId);
-    const where: Record<string, unknown> = { companyId: resolved };
+  async findAll(companyId: string, query: { status?: string }) {
+    const where: Record<string, unknown> = { companyId };
     if (query.status) where.status = query.status;
 
     return this.prisma.returnTransfer.findMany({
@@ -42,12 +34,12 @@ export class ReturnTransfersService {
     });
   }
 
-  async create(dto: CreateReturnTransferDto) {
-    const rtNumber = await this.generateRtNumber(dto.companyId);
+  async create(companyId: string, dto: CreateReturnTransferDto) {
+    const rtNumber = await this.generateRtNumber(companyId);
 
     return this.prisma.returnTransfer.create({
       data: {
-        companyId: dto.companyId,
+        companyId,
         rtNumber,
         orderId: dto.orderId,
         productId: dto.productId,

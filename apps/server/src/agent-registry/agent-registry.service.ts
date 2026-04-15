@@ -5,6 +5,7 @@ import { HeartbeatService } from './heartbeat/heartbeat.service';
 import type { AgentListItem, DailyCost, AgentCostSummary, CostAnalytics } from '@kiditem/shared';
 import { validateAllowedTools } from './safety/dangerous-patterns';
 import type { OrgNode } from './types';
+import { scrubSecrets } from '@kiditem/shared';
 
 export type { OrgNode } from './types';
 
@@ -34,10 +35,10 @@ export class AgentRegistryService implements OnModuleInit {
 
   // ── CRUD ──
 
-  async list(query: { companyId: string; isActive?: string }): Promise<AgentListItem[]> {
+  async list(companyId: string, query: { isActive?: string } = {}): Promise<AgentListItem[]> {
     const items = await this.prisma.agentDefinition.findMany({
       where: {
-        companyId: query.companyId,
+        companyId,
         ...(query.isActive !== undefined && { isActive: query.isActive === 'true' }),
       },
       omit: { promptTemplate: true },
@@ -205,7 +206,7 @@ export class AgentRegistryService implements OnModuleInit {
     } catch (err) {
       await this.prisma.agentTask.update({
         where: { id: task.id },
-        data: { status: 'failed', error: `Wakeup failed: ${err instanceof Error ? err.message : err}`, completedAt: new Date() },
+        data: { status: 'failed', error: `Wakeup failed: ${scrubSecrets(err instanceof Error ? err.message : String(err))}`, completedAt: new Date() },
       });
       throw err;
     }
@@ -300,7 +301,8 @@ export class AgentRegistryService implements OnModuleInit {
 
   // ── Cost Analytics ──
 
-  async getCostAnalytics(query: { from?: string; to?: string; agentId?: string }) {
+  // TODO(Phase 0.3 후속): companyId 로 서비스 내부 where 절 정렬 — 현재는 admin 한정 관측이라 전사 집계 유지
+  async getCostAnalytics(_companyId: string, query: { from?: string; to?: string; agentId?: string }) {
     const from = query.from ? new Date(query.from) : new Date('2020-01-01');
     const to = query.to ? new Date(query.to) : new Date();
 
@@ -395,18 +397,7 @@ export class AgentRegistryService implements OnModuleInit {
 
   // ── Org Chart ──
 
-  async getOrgTree(companyId?: string): Promise<OrgNode[]> {
-    // companyId 미지정 시 기본 활성 회사로 폴백
-    let resolvedCompanyId = companyId;
-    if (!resolvedCompanyId) {
-      const defaultCompany = await this.prisma.company.findFirst({
-        where: { isActive: true },
-        select: { id: true },
-      });
-      if (!defaultCompany) return [];
-      resolvedCompanyId = defaultCompany.id;
-    }
-
+  async getOrgTree(companyId: string): Promise<OrgNode[]> {
     // 마켓플레이스 전체 카탈로그 (claude_local만 — 조직도 대상)
     const catalog = await this.prisma.marketplace.findMany({
       where: { type: 'agent', isPublished: true, adapterType: 'claude_local' },
@@ -415,7 +406,7 @@ export class AgentRegistryService implements OnModuleInit {
 
     // 해당 company에서 고용한 에이전트
     const hired = await this.prisma.agentDefinition.findMany({
-      where: { companyId: resolvedCompanyId, adapterType: 'claude_local', isActive: true },
+      where: { companyId, adapterType: 'claude_local', isActive: true },
     });
     const hiredByMarketplaceId = new Map(
       hired.filter(h => h.marketplaceId).map(h => [h.marketplaceId!, h]),

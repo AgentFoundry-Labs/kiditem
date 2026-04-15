@@ -253,17 +253,16 @@ describe('AdSyncService — extension data sync', () => {
   });
 
   describe('sync: unknown type', () => {
-    it('returns success:false for unknown type', async () => {
+    it('throws BadRequestException for unknown type', async () => {
       const prisma = makePrisma();
       prisma.company.findFirst.mockResolvedValue({ id: 'c-1' });
       prisma.product.findMany.mockResolvedValue([]);
 
       const service = new AdSyncService(prisma as any, { emit: () => true } as any);
 
-      const result = await service.sync({ type: 'unknown_type' } as any);
-
-      expect(result.success).toBe(false);
-      expect((result as any).error).toContain('unknown_type');
+      await expect(service.sync({ type: 'unknown_type' } as any)).rejects.toThrow(
+        /알 수 없는 type: unknown_type/,
+      );
     });
   });
 });

@@ -1,25 +1,20 @@
-import { Controller, Get, Post, Patch, Delete, Param, Query, Body } from '@nestjs/common';
-import { CompanyResolverService } from '../common/company-resolver.service';
+import { Controller, Get, Post, Patch, Delete, Param, Body } from '@nestjs/common';
 import { SuppliersService } from './suppliers.service';
-import { ListSuppliersQueryDto, CreateSupplierDto, UpdateSupplierDto } from './dto';
+import { CreateSupplierDto, UpdateSupplierDto } from './dto';
+import { CurrentCompany } from '../auth/decorators/current-company.decorator';
 
 @Controller('suppliers')
 export class SuppliersController {
-  constructor(
-    private readonly suppliersService: SuppliersService,
-    private readonly companyResolver: CompanyResolverService,
-  ) {}
+  constructor(private readonly suppliersService: SuppliersService) {}
 
   @Get()
-  async findAll(@Query() query: ListSuppliersQueryDto) {
-    return this.suppliersService.findAll(
-      await this.companyResolver.resolve(),
-    );
+  async findAll(@CurrentCompany() companyId: string) {
+    return this.suppliersService.findAll(companyId);
   }
 
   @Post()
-  create(@Body() dto: CreateSupplierDto) {
-    return this.suppliersService.create(dto);
+  create(@Body() dto: CreateSupplierDto, @CurrentCompany() companyId: string) {
+    return this.suppliersService.create(companyId, dto);
   }
 
   @Patch(':id')
