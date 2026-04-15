@@ -255,3 +255,43 @@ Non-goals:
 ## Open Questions
 
 없음. 모든 결정 브레인스토밍 단계에서 확정.
+
+---
+
+## Eng Review Findings (2026-04-16)
+
+`/plan-eng-review` 통과. 11개 이슈 · 0 critical gaps · 0 unresolved. Plan 에 반영 필요한 보강:
+
+**Architecture:**
+1. `ROLE_CONFIG` 공유 상수 추출 (`apps/web/src/lib/hub-roles.ts` 신규) — `image-hub/components/ImageGrid.tsx` + `HubImagePickerModal.tsx` 양쪽에서 import. drift 방지.
+2. `productId` null 가드: `{hubModalOpen && productId && <HubImagePickerModal productId={productId} ... />}` 로 narrowing.
+
+**Code Quality:**
+3. 로딩 상태 UI: 모달 content 에 `loading` 시 Loader2 스피너 (`/image-hub/page.tsx:167-170` 패턴 재사용).
+4. Modal max-height: Dialog.Content `max-h-[85vh] overflow-hidden`, body `overflow-y-auto`, footer sticky.
+5. Stale 데이터 refresh: "🔗 이미지 허브에서 편집 →" 링크 클릭 시 `onClose()` 호출 → 재오픈 시 useEffect 재실행되며 fresh fetch.
+6. Compose role→slot 매핑 규칙 명확화: product → 상품 슬롯 (기본), box → 보조 슬롯 (기본), product 2장 시 첫번째 상품 / 두번째 보조.
+
+**Test:**
+7. QA 시나리오 (i) 로딩 상태 — 네트워크 throttle 로 스피너 확인
+8. QA 시나리오 (j) 단일 선택 라디오 — single/creative 에서 A→B 체크 시 A 자동 해제
+9. QA 시나리오 (k) "가져오기" disabled — 0장 선택 상태
+10. QA 시나리오 (l) 취소 → 재오픈 시 state 리셋
+
+**Performance:**
+11. 모든 `<img>` 에 `loading="lazy"` 속성.
+
+**Critical gap (NOT blocking, TODO 로 이월)**: `useProductImages` silent fail → `TODOS.md` 에 후속 PR 등록.
+
+## GSTACK REVIEW REPORT
+
+| Review | Trigger | Why | Runs | Status | Findings |
+|--------|---------|-----|------|--------|----------|
+| CEO Review | `/plan-ceo-review` | Scope & strategy | 0 | — | — |
+| Codex Review | `/codex review` | Independent 2nd opinion | 0 | — | — |
+| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | ✅ CLEAR (PLAN) | 11 issues, 0 critical gaps |
+| Design Review | `/plan-design-review` | UI/UX gaps | 0 | — | — |
+| DX Review | `/plan-devex-review` | Developer experience gaps | 0 | — | — |
+
+**UNRESOLVED:** 0 decisions.
+**VERDICT:** ENG CLEARED — 11 보강 사항을 plan (`writing-plans` 단계) 에 반영하면 구현 가능.
