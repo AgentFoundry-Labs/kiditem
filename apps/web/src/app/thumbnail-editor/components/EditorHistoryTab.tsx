@@ -87,7 +87,7 @@ export function EditorHistoryTab() {
             key={gen.id}
             imageUrl={gen.selectedUrl ?? gen.originalUrl ?? gen.product.imageUrl}
             name={gen.product.name}
-            badge={<ThumbnailStatusBadge status={gen.status} />}
+            badge={<ThumbnailStatusBadge status={gen.status} phase={gen.phase ?? null} />}
             overlay={
               gen.status === 'generating' || gen.status === 'pending'
                 ? 'generating'

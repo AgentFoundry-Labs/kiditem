@@ -1978,7 +1978,7 @@ export default function ThumbnailsPage() {
                         key={g.id}
                         imageUrl={g.originalUrl ?? g.product?.imageUrl ?? null}
                         name={g.product?.name ?? ''}
-                        badge={<ThumbnailStatusBadge status={g.status} />}
+                        badge={<ThumbnailStatusBadge status={g.status} phase={g.phase ?? null} />}
                         overlay="generating"
                         onClick={() => setSelectedGen(g)}
                       />
@@ -2138,7 +2138,7 @@ export default function ThumbnailsPage() {
                         key={g.id}
                         imageUrl={g.selectedUrl ?? g.originalUrl ?? g.product?.imageUrl ?? null}
                         name={g.product?.name ?? ''}
-                        badge={<ThumbnailStatusBadge status={g.status} />}
+                        badge={<ThumbnailStatusBadge status={g.status} phase={g.phase ?? null} />}
                         overlay="applied"
                         onClick={() => setSelectedGen(g)}
                       />
@@ -2215,7 +2215,7 @@ export default function ThumbnailsPage() {
                         key={gen.id}
                         imageUrl={gen.selectedUrl || gen.originalUrl || gen.product.imageUrl}
                         name={gen.product.name}
-                        badge={<ThumbnailStatusBadge status={gen.status} />}
+                        badge={<ThumbnailStatusBadge status={gen.status} phase={gen.phase ?? null} />}
                         overlay={
                           gen.status === 'generating' || gen.status === 'pending'
                             ? 'generating'
