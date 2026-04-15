@@ -126,8 +126,9 @@ model User {
   createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  company         Company?         @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  agentDefinition AgentDefinition? @relation(fields: [agentDefinitionId], references: [id])
+  company                   Company?         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  agentDefinition           AgentDefinition? @relation(fields: [agentDefinitionId], references: [id])
+  triggeredWorkflowRuns     WorkflowRun[]    @relation("WorkflowRunTriggeredBy")
 
   @@index([companyId])
   @@map("users")
@@ -1112,24 +1113,28 @@ model WorkflowTemplate {
 }
 
 model WorkflowRun {
-  id          String    @id @default(uuid()) @db.Uuid
-  companyId   String?   @map("company_id") @db.Uuid
-  templateId  String    @map("template_id") @db.Uuid
-  status      String    @default("pending")
-  triggeredBy String    @default("manual") @map("triggered_by")
-  contextData Json?     @map("context_data")
-  steps       Json      @default("[]") @db.JsonB
-  error       String?
-  startedAt   DateTime? @map("started_at") @db.Timestamptz
-  completedAt DateTime? @map("completed_at") @db.Timestamptz
-  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  id                 String    @id @default(uuid()) @db.Uuid
+  companyId          String?   @map("company_id") @db.Uuid
+  templateId         String    @map("template_id") @db.Uuid
+  status             String    @default("pending")
+  triggeredBy        String    @default("manual") @map("triggered_by")
+  triggeredByUserId  String?   @map("triggered_by_user_id") @db.Uuid
+  contextData        Json?     @map("context_data")
+  steps              Json      @default("[]") @db.JsonB
+  error              String?
+  startedAt          DateTime? @map("started_at") @db.Timestamptz
+  completedAt        DateTime? @map("completed_at") @db.Timestamptz
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  template WorkflowTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  template          WorkflowTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  triggeredByUser   User?            @relation("WorkflowRunTriggeredBy", fields: [triggeredByUserId], references: [id], onDelete: SetNull)
+
   @@index([companyId])
   @@index([templateId])
   @@index([status])
   @@index([createdAt])
+  @@index([companyId, triggeredByUserId])
   @@map("workflow_runs")
 }
 

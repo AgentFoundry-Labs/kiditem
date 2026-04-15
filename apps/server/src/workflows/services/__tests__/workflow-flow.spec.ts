@@ -84,6 +84,7 @@ describe('WorkflowsService', () => {
   describe('triggerRun', () => {
     it('creates WorkflowRun with status="pending" and fires runner async', async () => {
       const run = makeRun();
+      prisma.workflowTemplate.findUnique.mockResolvedValue(makeTemplate());
       prisma.workflowRun.create.mockResolvedValue(run);
       runner.runWorkflow.mockResolvedValue(undefined);
 
@@ -105,8 +106,31 @@ describe('WorkflowsService', () => {
       expect(runner.runWorkflow).toHaveBeenCalledWith('run-1', 'tmpl-1');
     });
 
+    it('stores companyId from template and triggeredByUserId for manual trigger', async () => {
+      const run = makeRun({ companyId: 'company-1', triggeredByUserId: 'user-x' });
+      prisma.workflowTemplate.findUnique.mockResolvedValue(makeTemplate({ companyId: 'company-1' }));
+      prisma.workflowRun.create.mockResolvedValue(run);
+      runner.runWorkflow.mockResolvedValue(undefined);
+
+      await service.triggerRun('tmpl-1', 'manual', undefined, 'user-x');
+
+      expect(prisma.workflowRun.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          companyId: 'company-1',
+          triggeredByUserId: 'user-x',
+        }),
+      });
+    });
+
+    it('throws NotFoundException when template does not exist', async () => {
+      prisma.workflowTemplate.findUnique.mockResolvedValue(null);
+
+      await expect(service.triggerRun('nonexistent', 'manual')).rejects.toThrow('nonexistent');
+    });
+
     it('passes context data when provided', async () => {
       const run = makeRun({ contextData: { productId: 'prod-1' } });
+      prisma.workflowTemplate.findUnique.mockResolvedValue(makeTemplate());
       prisma.workflowRun.create.mockResolvedValue(run);
       runner.runWorkflow.mockResolvedValue(undefined);
 
