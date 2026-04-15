@@ -110,6 +110,11 @@ export class ThumbnailAnalysisController {
     return this.generationService.skipGeneration(id);
   }
 
+  @Post('generations/:id/re-edit')
+  reEditGeneration(@Param('id') id: string) {
+    return this.editService.reEditJob(id);
+  }
+
   @Delete('generations/:id')
   deleteGeneration(@Param('id') id: string) {
     return this.generationService.deleteGeneration(id);

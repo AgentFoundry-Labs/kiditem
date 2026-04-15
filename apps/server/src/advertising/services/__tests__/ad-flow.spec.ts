@@ -106,7 +106,7 @@ describe('AdSyncService — extension data sync', () => {
       prisma.product.findMany.mockResolvedValue([]);
       prisma.adSnapshot.findFirst.mockResolvedValue(null); // no existing snapshot
 
-      const service = new AdSyncService(prisma as any);
+      const service = new AdSyncService(prisma as any, { emit: () => true } as any);
 
       const result = await service.sync({
         type: 'ad_campaign',
@@ -144,7 +144,7 @@ describe('AdSyncService — extension data sync', () => {
       // Existing snapshot found
       prisma.adSnapshot.findFirst.mockResolvedValue({ id: 'snap-existing' });
 
-      const service = new AdSyncService(prisma as any);
+      const service = new AdSyncService(prisma as any, { emit: () => true } as any);
 
       const result = await service.sync({
         type: 'ad_campaign',
@@ -173,7 +173,7 @@ describe('AdSyncService — extension data sync', () => {
       prisma.adSnapshot.findFirst.mockResolvedValue(null);
       prisma.product.findFirst.mockResolvedValue(null);
 
-      const service = new AdSyncService(prisma as any);
+      const service = new AdSyncService(prisma as any, { emit: () => true } as any);
 
       const result = await service.sync({
         type: 'ad_campaign',
@@ -208,7 +208,7 @@ describe('AdSyncService — extension data sync', () => {
       ]);
       prisma.$transaction.mockResolvedValue([{}]);
 
-      const service = new AdSyncService(prisma as any);
+      const service = new AdSyncService(prisma as any, { emit: () => true } as any);
 
       const result = await service.sync({
         type: 'traffic',
@@ -236,7 +236,7 @@ describe('AdSyncService — extension data sync', () => {
       prisma.company.findFirst.mockResolvedValue({ id: 'c-1' });
       prisma.product.findMany.mockResolvedValue([]); // no products in productMap
 
-      const service = new AdSyncService(prisma as any);
+      const service = new AdSyncService(prisma as any, { emit: () => true } as any);
 
       const result = await service.sync({
         type: 'traffic',
@@ -258,7 +258,7 @@ describe('AdSyncService — extension data sync', () => {
       prisma.company.findFirst.mockResolvedValue({ id: 'c-1' });
       prisma.product.findMany.mockResolvedValue([]);
 
-      const service = new AdSyncService(prisma as any);
+      const service = new AdSyncService(prisma as any, { emit: () => true } as any);
 
       await expect(service.sync({ type: 'unknown_type' } as any)).rejects.toThrow(
         /알 수 없는 type: unknown_type/,

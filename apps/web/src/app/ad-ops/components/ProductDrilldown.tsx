@@ -5,24 +5,8 @@ import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatKRW, formatNumber } from '@/lib/utils';
-import { roasColor } from '../../lib/status-colors';
-
-interface ProductItem {
-  imageUrl: string | null;
-  productName: string;
-  vendorItemId: string | null;
-  onOff: string | null;
-  status: string | null;
-  keyword: string | null;
-  adSpend: number;
-  adRevenue: number;
-  impressions: number;
-  clicks: number;
-  ctr: number | null;
-  adConversions: number;
-  conversionRate: number | null;
-  roas: number;
-}
+import { roasColor } from '../lib/status-colors';
+import type { CampaignProductData } from '../hooks/useAdOpsData';
 
 interface Props {
   campaignName: string;
@@ -44,7 +28,7 @@ export function ProductDrilldown({ campaignName, period }: Props) {
   const { data } = useQuery({
     queryKey: queryKeys.ads.campaignProducts(campaignName, period),
     queryFn: () =>
-      apiClient.get<{ products: ProductItem[] }>(
+      apiClient.get<{ products: CampaignProductData[] }>(
         `/api/ads/campaigns?period=${period}&campaign=${encodeURIComponent(campaignName)}`,
       ),
   });
@@ -118,8 +102,8 @@ export function ProductDrilldown({ campaignName, period }: Props) {
                     <td className="text-right">{(p.ctr ?? 0).toFixed(1)}%</td>
                     <td className="text-right">{p.adConversions ?? 0}</td>
                     <td className="text-right">{(p.conversionRate ?? 0).toFixed(1)}%</td>
-                    <td className={cn('text-right font-semibold', roasColor(p.roas, roasT))}>
-                      {p.roas}%
+                    <td className={cn('text-right font-semibold', roasColor(p.roas ?? 0, roasT))}>
+                      {p.roas ?? 0}%
                     </td>
                   </tr>
                 ))}

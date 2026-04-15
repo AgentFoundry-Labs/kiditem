@@ -54,6 +54,16 @@ export class ThumbnailTrackingService {
 
   constructor(private readonly prisma: PrismaService) {}
 
+  /** TrafficStats에서 상품의 구매전환율 조회 (주문수 / 조회수 × 100) */
+  private async fetchCtrFromTraffic(productId: string): Promise<number | null> {
+    const traffic = await this.prisma.trafficStats.findFirst({
+      where: { productId, periodDays: 365 },
+      orderBy: { date: 'desc' },
+    });
+    if (!traffic || traffic.views === 0) return null;
+    return Math.round((traffic.orders / traffic.views) * 10000) / 100;
+  }
+
   async findAll(query: {
     page?: number;
     limit?: number;
@@ -69,7 +79,9 @@ export class ThumbnailTrackingService {
     const [rows, total] = await Promise.all([
       this.prisma.thumbnailTracking.findMany({
         where,
-        include: { product: { select: { id: true, name: true } } },
+        include: {
+          product: { select: { id: true, name: true } },
+        },
         orderBy: { appliedAt: 'desc' },
         skip,
         take: limit,
@@ -77,13 +89,26 @@ export class ThumbnailTrackingService {
       this.prisma.thumbnailTracking.count({ where }),
     ]);
 
+    // ctrBefore가 없는 레코드는 TrafficStats에서 자동 보정
     const now = Date.now();
-    return {
-      items: rows.map((r) => toRecord(r as TrackingRow, now)),
-      total,
-      page,
-      limit,
-    };
+    const enriched = await Promise.all(
+      rows.map(async (r) => {
+        const row = r as TrackingRow;
+        if (row.ctrBefore == null) {
+          const ctr = await this.fetchCtrFromTraffic(row.productId);
+          if (ctr != null) {
+            await this.prisma.thumbnailTracking.update({
+              where: { id: row.id },
+              data: { ctrBefore: ctr },
+            });
+            row.ctrBefore = ctr;
+          }
+        }
+        return toRecord(row, now);
+      }),
+    );
+
+    return { items: enriched, total, page, limit };
   }
 
   async create(data: {
@@ -100,6 +125,9 @@ export class ThumbnailTrackingService {
 
     if (existing) return toRecord(existing as TrackingRow);
 
+    // 생성 시 TrafficStats에서 기존 CTR 자동 세팅
+    const ctrBefore = await this.fetchCtrFromTraffic(data.productId);
+
     const row = await this.prisma.thumbnailTracking.create({
       data: {
         companyId: data.companyId,
@@ -107,6 +135,7 @@ export class ThumbnailTrackingService {
         generationId: data.generationId,
         originalGrade: data.originalGrade,
         originalScore: data.originalScore,
+        ...(ctrBefore != null ? { ctrBefore } : {}),
       },
       include: { product: { select: { id: true, name: true } } },
     });

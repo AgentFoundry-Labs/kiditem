@@ -98,6 +98,10 @@ export const DashboardSummarySchema = z.object({
     conversionRate: z.number().optional(),
     adSummary: z.record(z.any()).nullable().optional(),
     source: z.string().optional(),
+    netProfit: z.number().optional(),
+    profitRate: z.number().optional(),
+    costCoverage: z.number().optional(),
+    needsScrape: z.boolean().optional(),
   }).optional(),
   adKpi: z.object({
     totalSpend: z.number(),
@@ -168,6 +172,7 @@ export const DashboardSummarySchema = z.object({
     confirmedUntil: z.string().optional(),
     note: z.string().optional(),
   }).optional(),
+  lastSyncAt: z.union([z.string(), z.date()]).nullable().optional(),
 });
 
 // GET /api/dashboard/trend 응답

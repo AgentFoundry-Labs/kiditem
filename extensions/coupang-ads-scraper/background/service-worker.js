@@ -64,6 +64,24 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.action === "monthlyScrape") {
+    const { year, month } = msg;
+    if (!year || !month) {
+      sendResponse({ success: false, error: "year/month 필수" });
+      return;
+    }
+    chrome.storage.local.set({
+      kiditem_monthly_sync: { year, month, completed: 0, total: 0, status: "starting" }
+    });
+    doMonthlyScrape(year, month).catch((e) => {
+      chrome.storage.local.set({
+        kiditem_monthly_sync: { year, month, completed: 0, total: 0, status: "error", error: e.message }
+      });
+    });
+    sendResponse({ success: true, message: `${year}-${String(month).padStart(2, "0")} 일별 수집 시작` });
+    return; // sync response, no need for return true
+  }
+
   if (msg.action === "syncToServer") {
     const payload = msg.payload || {};
     fetch(`${API_URL}/api/ads/extension/sync`, {
@@ -228,6 +246,48 @@ async function autoScrape() {
       kiditem_auto_scrape: { time: Date.now(), count: 0, status: "error", error: e.message }
     });
   }
+}
+
+/**
+ * 월별 일별 동기화 — 하루씩 Wing 매출분석 페이지 열고 스크래핑
+ */
+async function doMonthlyScrape(year, month) {
+  const today = new Date();
+  const lastDay = new Date(year, month, 0).getDate();
+  // 미래 날짜는 수집 불필요 (당월이면 오늘까지만)
+  const endDay =
+    year === today.getFullYear() && month === today.getMonth() + 1
+      ? Math.min(today.getDate(), lastDay)
+      : lastDay;
+
+  const total = endDay;
+  chrome.storage.local.set({
+    kiditem_monthly_sync: { year, month, completed: 0, total, status: "running" }
+  });
+
+  let completed = 0;
+
+  for (let day = 1; day <= endDay; day++) {
+    const dateStr = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    const url = `https://wing.coupang.com/tenants/business-insight/sales-analysis?start_date=${dateStr}&end_date=${dateStr}`;
+
+    await scrapeUrl(url, null, `매출분석 ${dateStr}`);
+    completed++;
+
+    chrome.storage.local.set({
+      kiditem_monthly_sync: { year, month, completed, total, status: "running" }
+    });
+
+    // 다음 날짜 로드 전 1초 대기
+    if (day < endDay) {
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+  }
+
+  chrome.storage.local.set({
+    kiditem_monthly_sync: { year, month, completed, total, status: "done" }
+  });
+  notifyDashboard();
 }
 
 function scrapeUrl(url, targetId, label) {

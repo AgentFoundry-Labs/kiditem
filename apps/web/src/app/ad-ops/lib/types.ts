@@ -1,10 +1,11 @@
-import { LayoutGrid, Sparkles, Eye } from "lucide-react";
+import { LayoutGrid, Sparkles, Eye, Megaphone } from "lucide-react";
 
-export type TabKey = "status" | "strategy" | "exposure";
+export type TabKey = "status" | "strategy" | "campaign" | "exposure";
 
 export const TABS: { key: TabKey; label: string; icon: typeof LayoutGrid }[] = [
   { key: "status", label: "분석", icon: LayoutGrid },
   { key: "strategy", label: "전략", icon: Sparkles },
+  { key: "campaign", label: "캠페인", icon: Megaphone },
   { key: "exposure", label: "상위노출", icon: Eye },
 ];
 

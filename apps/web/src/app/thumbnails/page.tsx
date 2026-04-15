@@ -46,6 +46,7 @@ import {
   useApplyGeneration,
   useSkipGeneration,
   useDeleteGeneration,
+  useReEditGeneration,
 } from './hooks/useThumbnailGenerations';
 
 import { ProductCard } from './components/ProductCard';
@@ -54,6 +55,8 @@ import { PaginationBar } from './components/PaginationBar';
 import { UploadAnalyzer } from './components/UploadAnalyzer';
 import { InspectionDrawer } from './components/InspectionDrawer';
 import { ThumbnailStatusBadge } from './components/ThumbnailStatusBadge';
+import { TrackingTab } from './components/TrackingTab';
+import { useTrackingList } from './hooks/useThumbnailTracking';
 import { openCoupangWingInventory } from './lib/coupang-wing';
 import { resolveImageUrl } from './lib/resolve-url';
 import { cn } from '@/lib/utils';
@@ -77,6 +80,7 @@ export default function ThumbnailsPage() {
   // ─── Server state via React Query ──────────────────────────
   const analysisQuery = useAnalysisList();
   const generationQuery = useGenerationList();
+  const trackingQuery = useTrackingList();
 
   const analyzeMutation = useAnalyze();
   const analyzeBatchMutation = useAnalyzeBatch();
@@ -86,6 +90,7 @@ export default function ThumbnailsPage() {
   const applyGenerationMutation = useApplyGeneration();
   const skipGenerationMutation = useSkipGeneration();
   const deleteGenerationMutation = useDeleteGeneration();
+  const reEditMutation = useReEditGeneration();
 
   // ─── Local UI state ────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<TabKey>('all');
@@ -123,6 +128,9 @@ export default function ThumbnailsPage() {
       else next.add(id);
       return next;
     });
+
+  // 이력 서브탭
+  const [historySubTab, setHistorySubTab] = useState<'history' | 'tracking'>('history');
 
   // Pagination
   const [gradeFilter, setGradeFilter] = useState('all');
@@ -358,25 +366,21 @@ export default function ThumbnailsPage() {
     batchCancelRef.current = false;
     batchAbortRef.current = new AbortController();
 
-    const CONCURRENCY = 3;
+    const BATCH_SIZE = 10;
     const allResults: ThumbnailAnalysisResult[] = [];
     const signal = batchAbortRef.current.signal;
 
     try {
-      for (let i = 0; i < targets.length; i += CONCURRENCY) {
+      for (let i = 0; i < targets.length; i += BATCH_SIZE) {
         if (batchCancelRef.current || signal.aborted) break;
 
-        const chunk = targets.slice(i, i + CONCURRENCY);
-        const chunkResults = await Promise.all(
-          chunk.map((t) =>
-            apiClient
-              .post<ThumbnailAnalysisResult>('/api/thumbnail-analysis/analyze', {
-                productId: t.productId,
-                scope,
-              }, { signal })
-              .catch(() => null),
-          ),
-        );
+        const chunk = targets.slice(i, i + BATCH_SIZE);
+        const chunkResults = await apiClient
+          .post<ThumbnailAnalysisResult[]>('/api/thumbnail-analysis/analyze-batch', {
+            productIds: chunk.map((t) => t.productId),
+            scope,
+          }, { signal })
+          .catch(() => [] as ThumbnailAnalysisResult[]);
 
         const valid = chunkResults.filter(Boolean) as ThumbnailAnalysisResult[];
         allResults.push(...valid);
@@ -393,6 +397,11 @@ export default function ThumbnailsPage() {
 
         // 쿼리 무효화 → 파이프라인 카운트 실시간 동기화
         queryClient.invalidateQueries({ queryKey: queryKeys.thumbnailAnalysis.all });
+
+        // Gemini rate limit 방지: 다음 배치 전 대기
+        if (i + BATCH_SIZE < targets.length) {
+          await new Promise<void>((r) => setTimeout(r, 2000));
+        }
       }
 
       const needsFix = allResults.filter((r) => r.grade === 'C' || r.grade === 'F');
@@ -1801,6 +1810,7 @@ export default function ThumbnailsPage() {
                       score={display.overallScore}
                       complianceGrade={display.complianceGrade ?? undefined}
                       aiAnalyzed={isAiDone}
+                      ctr={item.ctr ?? null}
                       overlay={isEditing ? 'generating' : isReady ? 'selected' : undefined}
                       onClick={() => {
                         setSelectedProduct(item);
@@ -2056,7 +2066,9 @@ export default function ThumbnailsPage() {
                               >
                                 <div className="absolute top-1 left-1 text-[8px] font-bold uppercase tracking-wider text-white/80 bg-black/30 px-1 rounded z-10">A</div>
                                 {gImgUrl
-                                  ? <img key={gImgUrl} src={gImgUrl} alt="after" className="w-full h-full object-cover transition-opacity duration-150" loading="lazy" referrerPolicy="no-referrer" />
+                                  ? <img key={gImgUrl} src={gImgUrl} alt="after" className="w-full h-full object-cover transition-opacity duration-150" loading="lazy" referrerPolicy="no-referrer"
+                                      onError={() => { reEditMutation.mutate(g.id); }}
+                                    />
                                   : <div className="w-full h-full bg-slate-100 flex items-center justify-center"><ImageIcon size={16} className="text-slate-300" /></div>
                                 }
                                 {/* 선택됨 체크 */}
@@ -2142,147 +2154,102 @@ export default function ThumbnailsPage() {
 
       {/* ═══ TAB: 이력 ═══ */}
       {activeTab === 'history' && (
-        <div className="space-y-6">
-          {/* 편집 이력 그리드 */}
-          <div className="space-y-3">
-            {historyByProduct.length === 0 ? (
-              <EmptyState message="편집 이력이 없습니다" />
-            ) : (
-              <>
-                <PaginationBar
-                  current={historyPage}
-                  total={historyTotalPages}
-                  count={historyByProduct.length}
-                  pageSize={pageSize}
-                  onChange={setHistoryPage}
-                  onPageSizeChange={(s) => {
-                    setPageSize(s);
-                    setHistoryPage(1);
-                  }}
-                />
-                <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
-                  {pagedHistory.map((gen) => (
-                    <ProductCard
-                      key={gen.id}
-                      imageUrl={gen.selectedUrl || gen.originalUrl || gen.product.imageUrl}
-                      name={gen.product.name}
-                      badge={<ThumbnailStatusBadge status={gen.status} />}
-                      overlay={
-                        gen.status === 'generating' || gen.status === 'pending'
-                          ? 'generating'
-                          : gen.status === 'applied'
-                          ? 'applied'
-                          : gen.status === 'skipped'
-                          ? 'skipped'
-                          : gen.status === 'ready'
-                          ? 'selected'
-                          : undefined
-                      }
-                      onClick={() => {
-                        setSelectedGen(gen);
-                        setSelectedProduct(null);
-                      }}
-                    />
-                  ))}
-                </div>
-              </>
-            )}
+        <div className="space-y-4">
+          {/* 서브탭: 이력 / 추적 */}
+          <div
+            className="flex gap-1 p-1 rounded-xl w-fit"
+            style={{ background: 'var(--thumb-surface-sunken)', border: '1px solid var(--thumb-border-subtle)' }}
+          >
+            {([
+              { key: 'history' as const, label: '편집 이력', count: historyByProduct.length },
+              { key: 'tracking' as const, label: '추적 분석', count: trackingQuery.data?.total ?? 0 },
+            ]).map((st) => (
+              <button
+                key={st.key}
+                onClick={() => setHistorySubTab(st.key)}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg text-[13px] font-semibold transition-colors"
+                style={
+                  historySubTab === st.key
+                    ? { background: 'var(--thumb-card-bg)', color: 'var(--thumb-primary)', boxShadow: 'var(--thumb-shadow-sm)' }
+                    : { color: 'var(--thumb-text-tertiary)' }
+                }
+              >
+                {st.label}
+                {st.count > 0 && (
+                  <span
+                    className="text-[11px] font-bold px-1.5 py-0.5 rounded-md tabular-nums"
+                    style={
+                      historySubTab === st.key
+                        ? { background: 'var(--thumb-surface-sunken)', color: 'var(--thumb-primary)' }
+                        : { background: 'var(--thumb-border-subtle)', color: 'var(--thumb-text-tertiary)' }
+                    }
+                  >
+                    {st.count}
+                  </span>
+                )}
+              </button>
+            ))}
           </div>
 
-          {/* CTR 추적 */}
-          {(() => {
-            const appliedGens = generations.filter((g) => g.status === 'applied');
-            return (
-              <div
-                className="rounded-2xl overflow-hidden"
-                style={{
-                  background: 'var(--thumb-card-bg)',
-                  boxShadow: 'var(--thumb-shadow-md)',
-                  border: '1px solid var(--thumb-border-subtle)',
-                }}
-              >
-                <div
-                  className="px-5 py-4 flex items-center justify-between"
-                  style={{ borderBottom: '1px solid var(--thumb-border-subtle)' }}
-                >
-                  <div className="flex items-center gap-2">
-                    <TrendingUp size={18} style={{ color: '#0891b2' }} />
-                    <h3 className="text-base font-bold" style={{ color: 'var(--thumb-text-primary)' }}>
-                      CTR 변화 추적
-                    </h3>
-                    <span
-                      className="text-xs px-2 py-0.5 rounded-md"
-                      style={{
-                        background: 'var(--thumb-surface-sunken)',
-                        color: 'var(--thumb-text-secondary)',
-                      }}
-                    >
-                      {appliedGens.length}개 모니터링 중
-                    </span>
+          {/* 서브탭: 편집 이력 */}
+          {historySubTab === 'history' && (
+            <div className="space-y-3">
+              {historyByProduct.length === 0 ? (
+                <EmptyState message="편집 이력이 없습니다" />
+              ) : (
+                <>
+                  <PaginationBar
+                    current={historyPage}
+                    total={historyTotalPages}
+                    count={historyByProduct.length}
+                    pageSize={pageSize}
+                    onChange={setHistoryPage}
+                    onPageSizeChange={(s) => {
+                      setPageSize(s);
+                      setHistoryPage(1);
+                    }}
+                  />
+                  <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
+                    {pagedHistory.map((gen) => (
+                      <ProductCard
+                        key={gen.id}
+                        imageUrl={gen.selectedUrl || gen.originalUrl || gen.product.imageUrl}
+                        name={gen.product.name}
+                        badge={<ThumbnailStatusBadge status={gen.status} />}
+                        overlay={
+                          gen.status === 'generating' || gen.status === 'pending'
+                            ? 'generating'
+                            : gen.status === 'applied'
+                            ? 'applied'
+                            : gen.status === 'skipped'
+                            ? 'skipped'
+                            : gen.status === 'ready'
+                            ? 'selected'
+                            : undefined
+                        }
+                        onClick={() => {
+                          setSelectedGen(gen);
+                          setSelectedProduct(null);
+                        }}
+                      />
+                    ))}
                   </div>
-                </div>
-                {appliedGens.length === 0 ? (
-                  <div className="px-5 py-10 text-center text-[13px]" style={{ color: 'var(--thumb-text-quaternary)' }}>
-                    썸네일을 적용한 후 CTR 변화를 모니터링할 수 있습니다
-                  </div>
-                ) : (
-                  <table className="w-full">
-                    <thead>
-                      <tr style={{ background: 'var(--thumb-surface-sunken)' }}>
-                        {['상품', '적용 전 등급', '적용일', '경과일', '상태'].map((h, i) => (
-                          <th
-                            key={h}
-                            className={`py-2.5 text-[11px] font-semibold uppercase ${i === 0 ? 'text-left px-5' : 'text-right px-4'} ${i === 4 ? 'px-5' : ''}`}
-                            style={{ color: 'var(--thumb-text-secondary)' }}
-                          >
-                            {h}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {appliedGens.map((g) => {
-                        const daysAgo = Math.floor(
-                          (Date.now() - new Date(g.createdAt).getTime()) / (1000 * 60 * 60 * 24),
-                        );
-                        return (
-                          <tr
-                            key={g.id}
-                            className="cursor-pointer hover:bg-black/[0.015] transition-colors"
-                            style={{ borderBottom: '1px solid var(--thumb-border-subtle)' }}
-                            onClick={() => { setSelectedGen(g); setSelectedProduct(null); }}
-                          >
-                            <td className="px-5 py-3 text-[13px] font-semibold" style={{ color: 'var(--thumb-text-primary)' }}>
-                              {g.product.name}
-                            </td>
-                            <td className="text-right px-4 py-3">
-                              <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-bold text-white ${gradeBg[g.grade as keyof typeof gradeBg] || 'bg-gray-400'}`}>
-                                {g.grade}
-                              </span>
-                            </td>
-                            <td className="text-right px-4 py-3 text-[12px] tabular-nums" style={{ color: 'var(--thumb-text-secondary)' }}>
-                              {new Date(g.createdAt).toLocaleDateString('ko-KR')}
-                            </td>
-                            <td className="text-right px-4 py-3 text-[12px] font-bold tabular-nums" style={{ color: 'var(--thumb-text-primary)' }}>
-                              {daysAgo}일
-                            </td>
-                            <td className="text-right px-5 py-3">
-                              <span
-                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold"
-                                style={{ background: '#0891b215', color: '#0891b2' }}
-                              >
-                                추적 중
-                              </span>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                )}
+                </>
+              )}
+            </div>
+          )}
+
+          {/* 서브탭: 추적 분석 */}
+          {historySubTab === 'tracking' && (
+            trackingQuery.isLoading ? (
+              <div className="flex items-center justify-center py-16 text-slate-400">
+                <Loader2 size={24} className="animate-spin mr-2" />
+                <span className="text-sm">추적 데이터 로딩 중...</span>
               </div>
-            );
-          })()}
+            ) : (
+              <TrackingTab records={trackingQuery.data?.items ?? []} />
+            )
+          )}
         </div>
       )}
 

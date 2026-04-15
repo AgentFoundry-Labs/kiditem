@@ -1,11 +1,15 @@
 import { Injectable, InternalServerErrorException, BadRequestException } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ExtensionSyncDto } from '../dto';
 import type { NormalizedCampaignKpi } from './types';
 
 @Injectable()
 export class AdSyncService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly eventEmitter: EventEmitter2,
+  ) {}
 
   private async getDefaultCompanyId(): Promise<string> {
     const company = await this.prisma.company.findFirst({
@@ -30,6 +34,8 @@ export class AdSyncService {
         return this.handleRawScrape(payload, companyId, productMap);
       case 'traffic':
         return this.handleTraffic(payload, companyId, productMap);
+      case 'coupang_ads_daily':
+        return this.handleCoupangAdsDaily(payload, companyId);
       default:
         throw new BadRequestException(
           `알 수 없는 type: ${(payload as { type?: string }).type ?? 'undefined'}`,
@@ -114,7 +120,7 @@ export class AdSyncService {
     const period = String(payload.period || '7d');
     const today = new Date(new Date().toISOString().slice(0, 10));
     const kpis = payload.kpis || {};
-    const normalizedRows: any[] = payload.normalizedRows || [];
+    const normalizedRows = payload.normalizedRows ?? [];
     const capturedAt = payload.timestamp ? new Date(payload.timestamp) : new Date();
 
     // 전체 KPI 스냅샷 저장 (level=campaign, campaignName=_전체)
@@ -291,7 +297,7 @@ export class AdSyncService {
     productMap: Map<string, string>,
   ) {
     const source = payload.source || 'unknown';
-    const rows: any[] = payload.data || [];
+    const rows = payload.data ?? [];
     let upserted = 0;
 
     // Wing 아이템위너 데이터 저장
@@ -353,7 +359,7 @@ export class AdSyncService {
     }
 
     // 광고센터 normalizedRows가 있으면 AdSnapshot 저장
-    const normalizedRows: any[] = payload.normalizedRows || [];
+    const normalizedRows = payload.normalizedRows ?? [];
     let snapshotCount = 0;
     if (source === 'advertising' && normalizedRows.length > 0) {
       for (const row of normalizedRows) {
@@ -414,11 +420,28 @@ export class AdSyncService {
     productMap: Map<string, string>,
   ) {
     const period = Number(payload.period) || 14;
-    const today = new Date(new Date().toISOString().slice(0, 10));
-    const data: any[] = payload.data || [];
+    // startDate가 있으면 실제 데이터 날짜 사용 (일별 스크래핑 지원), 없으면 오늘
+    const dateStr = payload.startDate
+      ? payload.startDate.slice(0, 10)
+      : new Date().toISOString().slice(0, 10);
+    const today = new Date(dateStr);
+    const data = payload.data ?? [];
     let upserted = 0;
 
-    const toUpsert: any[] = [];
+    type TrafficUpsertRow = {
+      productId: string;
+      date: Date;
+      periodDays: number;
+      visitors: number;
+      views: number;
+      cartAdds: number;
+      orders: number;
+      salesQty: number;
+      revenue: number;
+      conversionRate: number;
+    };
+
+    const toUpsert: TrafficUpsertRow[] = [];
     for (const item of data) {
       const productId = productMap.get(String(item.productId || item.vendorItemId));
       if (!productId) continue;
@@ -501,6 +524,11 @@ export class AdSyncService {
       wingSnapshotSaved = true;
     }
 
+    // traffic 동기화 완료 후 ABC 등급 자동 재분류
+    if (upserted > 0) {
+      this.eventEmitter.emit('products.classify-grades');
+    }
+
     return {
       success: true,
       type: 'traffic',
@@ -508,6 +536,66 @@ export class AdSyncService {
       skipped: data.length - upserted,
       wingSnapshotSaved,
     };
+  }
+
+  /**
+   * coupang_ads_daily → AdSnapshot(source='coupang_ads', pageType='dashboard_daily') upsert
+   * data: [{ date, adSpend, adRevenue, impressions, clicks, conversions, orders, roas, ctr, conversionRate }]
+   */
+  private async handleCoupangAdsDaily(payload: ExtensionSyncDto, companyId: string) {
+    const rows = payload.data ?? [];
+    let upserted = 0;
+
+    for (const row of rows) {
+      if (!row.date) continue;
+      const date = new Date(row.date);
+      const adSpend = Math.round(Number(row.adSpend) || 0);
+      const adRevenue = Math.round(Number(row.adRevenue) || 0);
+      const impressions = Math.round(Number(row.impressions) || 0);
+      const clicks = Math.round(Number(row.clicks) || 0);
+      const conversions = Math.round(Number(row.conversions) || 0);
+      const orders = Math.round(Number(row.orders) || 0);
+      const roas = Number(row.roas) || 0;
+      const ctr = Number(row.ctr) || 0;
+      const conversionRate = Number(row.conversionRate) || 0;
+
+      const existing = await this.prisma.adSnapshot.findFirst({
+        where: { companyId, source: 'coupang_ads', pageType: 'dashboard_daily', date },
+        select: { id: true },
+      });
+
+      if (existing) {
+        await this.prisma.adSnapshot.update({
+          where: { id: existing.id },
+          data: { adSpend, adRevenue, impressions, clicks, conversions, orders, roas, ctr, conversionRate },
+        });
+      } else {
+        await this.prisma.adSnapshot.create({
+          data: {
+            companyId,
+            source: 'coupang_ads',
+            pageType: 'dashboard_daily',
+            level: 'campaign',
+            period: '1d',
+            date,
+            adSpend,
+            adRevenue,
+            impressions,
+            clicks,
+            conversions,
+            orders,
+            spend: adSpend,
+            revenue: adRevenue,
+            roas,
+            ctr,
+            conversionRate,
+          },
+        });
+      }
+      upserted++;
+    }
+
+    return { success: true, type: 'coupang_ads_daily', upserted };
   }
 
   // === Scrape Targets ===

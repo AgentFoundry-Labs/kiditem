@@ -8,7 +8,6 @@ import {
   ShoppingCart,
   RotateCcw,
   Package,
-  BarChart3,
   Warehouse,
   Megaphone,
   MessageSquare,
@@ -22,10 +21,7 @@ import {
   Headphones,
   AlertTriangle,
   Bot,
-  Target,
   LineChart,
-  Activity,
-  Download,
   Layers,
   ClipboardList,
   Boxes,
@@ -69,9 +65,9 @@ const menuSections: MenuSection[] = [
     collapsible: false,
     items: [
       { href: '/', label: '대시보드', icon: LayoutDashboard },
-      { href: '/action-board', label: '액션 보드', icon: ClipboardList },
-      { href: '/ad-ops', label: 'AI 광고 전략', icon: Zap },
+      { href: '/ad-ops', label: '광고전략 AI', icon: Zap },
       { href: '/thumbnails', label: '썸네일 AI', icon: ImageIcon },
+      { href: '/action-board', label: '액션 보드', icon: ClipboardList },
     ],
   },
   {
@@ -127,17 +123,6 @@ const menuSections: MenuSection[] = [
     items: [
       { href: '/supplier-hub', label: '거래처 관리', icon: Handshake },
       { href: '/suppliers', label: '거래처 목록', icon: Users },
-    ],
-  },
-  {
-    label: '광고관리',
-    collapsible: true,
-    items: [
-      { href: '/ads', label: '광고 대시보드', icon: Megaphone },
-      { href: '/ads/campaigns', label: '캠페인 분석', icon: BarChart3 },
-      { href: '/ads/strategy', label: 'ABC 전략', icon: Target },
-      { href: '/ads/benchmark', label: '업계 벤치마크', icon: Activity },
-      { href: '/ads/collect', label: '데이터 수집', icon: Download },
     ],
   },
   {

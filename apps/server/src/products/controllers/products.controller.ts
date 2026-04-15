@@ -28,6 +28,12 @@ export class ProductsController {
     return this.productsService.getPipelineStats(query.status);
   }
 
+  @Post('classify-grades')
+  @HttpCode(200)
+  classifyGrades() {
+    return this.productsService.classifyAbcGrades();
+  }
+
   @Get(':id')
   async findOne(@Param('id') id: string) {
     return this.productsService.findOne(id);

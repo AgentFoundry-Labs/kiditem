@@ -2,6 +2,9 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { PrismaService } from '../../prisma/prisma.service';
 import { spawn } from 'child_process';
 import * as path from 'path';
+import * as fs from 'fs';
+import * as https from 'https';
+import * as http from 'http';
 
 const WING_BASE =
   'https://wing.coupang.com/vendor-inventory/list?salesMethod=ALL&productStatus=ALL&stockSearchType=ALL&locale=ko_KR&sortMethod=SORT_BY_ITEM_LEVEL_UNIT_SOLD&countPerPage=50&page=1';
@@ -27,17 +30,22 @@ export class ThumbnailWingService {
     }
 
     const productName = gen.product.name;
-    // selectedUrl이 http://... URL이면 경로만 추출, 아니면 그대로 사용
-    const urlPath = gen.selectedUrl.startsWith('http')
-      ? new URL(gen.selectedUrl).pathname
-      : gen.selectedUrl;
-
-    // path traversal 방지: .. 포함 경로 거부
-    if (!urlPath || urlPath.includes('..')) {
-      throw new BadRequestException('Invalid image path');
-    }
-    const imagePath = path.join(process.cwd(), urlPath);
     const screenshotPath = `/tmp/wing-upload-${generationId}.png`;
+    let imagePath: string;
+
+    if (gen.selectedUrl.startsWith('http')) {
+      // MinIO/S3 URL → /tmp에 다운로드
+      const tmpPath = `/tmp/wing-img-${generationId}.png`;
+      await this.downloadFile(gen.selectedUrl, tmpPath);
+      imagePath = tmpPath;
+    } else {
+      // 상대 경로 (레거시)
+      const urlPath = gen.selectedUrl;
+      if (!urlPath || urlPath.includes('..')) {
+        throw new BadRequestException('Invalid image path');
+      }
+      imagePath = path.join(process.cwd(), urlPath);
+    }
 
     this.logger.log(`Wing 자동화 시작: ${productName}`);
     const result = await this.runAutomation(productName, imagePath, screenshotPath);
@@ -45,6 +53,23 @@ export class ThumbnailWingService {
       ...result,
       screenshotPath: result.success ? screenshotPath : null,
     };
+  }
+
+  private downloadFile(url: string, destPath: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const client = url.startsWith('https') ? https : http;
+      const file = fs.createWriteStream(destPath);
+      client.get(url, (res) => {
+        if (res.statusCode !== 200) {
+          file.close();
+          reject(new Error(`이미지 다운로드 실패: HTTP ${res.statusCode} (${url})`));
+          return;
+        }
+        res.pipe(file);
+        file.on('finish', () => { file.close(); resolve(); });
+        file.on('error', reject);
+      }).on('error', reject);
+    });
   }
 
   private buildScript(productName: string, imagePath: string, screenshotPath: string): string {

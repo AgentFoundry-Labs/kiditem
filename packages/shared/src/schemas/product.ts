@@ -7,6 +7,9 @@ export const TrafficDataSchema = z.object({
   orders: z.number(),
   salesQty: z.number(),
   revenue: z.number(),
+  netProfit: z.number().optional(),
+  profitRate: z.number().optional(),
+  costCoverage: z.number().optional(),
 });
 
 // MasterProduct (매입 상품 마스터)
@@ -179,6 +182,12 @@ export const PipelineCountsSchema = z.object({
   gradeChangeC: z.number(),
   adCount: z.number(),
   noAdCount: z.number(),
+  gradeRevA: z.number().optional(),
+  gradeRevB: z.number().optional(),
+  gradeRevC: z.number().optional(),
+  gradeAdA: z.number().optional(),
+  gradeAdB: z.number().optional(),
+  gradeAdC: z.number().optional(),
 });
 
 // Product Image

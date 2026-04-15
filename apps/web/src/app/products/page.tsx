@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import {
   Download, Upload, Search, BarChart3, Package,
   TrendingUp, TrendingDown, AlertTriangle, MinusCircle, ArrowRight,
+  ChevronDown,
 } from "lucide-react";
 import { formatKRW, formatPercent, getGradeColor, getProfitColor, getProductStatusBadge } from "@/lib/utils";
 import { apiClient } from "@/lib/api-client";
@@ -35,10 +36,11 @@ export default function ProductsPage() {
   const [adFilter, setAdFilter] = useState("all");
   const [sortKey, setSortKey] = useState<string>("revenue");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
-  const [period, setPeriod] = useState(7);
+  const [period, setPeriod] = useState(14);
   const [page, setPage] = useState(1);
   const [showModal, setShowModal] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [trafficMsg, setTrafficMsg] = useState("");
 
   // ─── Products query ───
@@ -221,19 +223,18 @@ export default function ProductsPage() {
   const getStrategy = (p: Product) => scoreMap.get(p.id)?.strategy || "";
   const getScore = (p: Product) => p.gradeScore ?? scoreMap.get(p.id)?.score ?? 0;
 
-  // 등급별 매출/광고비 (현재 페이지 기준 근사치)
-  const gradeRevMap: Record<string, number> = { A: 0, B: 0, C: 0 };
-  const gradeAdMap: Record<string, number> = { A: 0, B: 0, C: 0 };
-  let totalGradeRev = 0;
-  for (const p of allProducts) {
-    const g = getGrade(p);
-    const rev = p.t14?.revenue || 0;
-    totalGradeRev += rev;
-    if (g === "A" || g === "B" || g === "C") {
-      gradeRevMap[g] += rev;
-      gradeAdMap[g] += p.adRate > 0 ? rev * (p.adRate / 100) : 0;
-    }
-  }
+  // 등급별 매출/광고비 — 서버 집계값 사용 (pipeline-stats 전체 기준)
+  const gradeRevMap = {
+    A: pipelineCounts.gradeRevA ?? 0,
+    B: pipelineCounts.gradeRevB ?? 0,
+    C: pipelineCounts.gradeRevC ?? 0,
+  };
+  const gradeAdMap = {
+    A: pipelineCounts.gradeAdA ?? 0,
+    B: pipelineCounts.gradeAdB ?? 0,
+    C: pipelineCounts.gradeAdC ?? 0,
+  };
+  const totalGradeRev = gradeRevMap.A + gradeRevMap.B + gradeRevMap.C;
   const gradeRevPct = {
     A: totalGradeRev > 0 ? Math.round((gradeRevMap.A / totalGradeRev) * 100) : 0,
     B: totalGradeRev > 0 ? Math.round((gradeRevMap.B / totalGradeRev) * 100) : 0,
@@ -276,6 +277,139 @@ export default function ProductsPage() {
 
   const totalPages = Math.ceil(totalCount / PAGE_SIZE);
 
+  // 같은 이름의 상품을 하나의 그룹으로 묶기
+  const productGroupMap = new Map<string, Product[]>();
+  for (const p of displayProducts) {
+    if (!productGroupMap.has(p.name)) productGroupMap.set(p.name, []);
+    productGroupMap.get(p.name)!.push(p);
+  }
+  const productGroups: Product[][] = [...productGroupMap.values()];
+
+  const toggleGroup = (name: string) => {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  };
+
+  const renderProductCard = (p: Product, key: string, isChild = false) => {
+    const badge = getProductStatusBadge(p.status);
+    const t14 = p.t14;
+    const t = p.traffic;
+    const h14 = !!t14;
+    const h = !!t;
+    const visitors = h ? t.visitors : null;
+    const views = h ? t.views : null;
+    const carts = h ? t.cartAdds : null;
+    const ord = h14 ? t14.orders : (h ? t.orders : null);
+    const qty = h14 ? t14.salesQty : (h ? t.salesQty : null);
+    const rev = h14 ? t14.revenue : (h ? t.revenue : null);
+    return (
+      <div key={key}
+        className={`bg-white rounded-xl border border-slate-200 px-6 ${isChild ? "py-4 border-l-[3px] border-l-blue-300" : "py-5"} flex items-start hover:shadow-sm transition-shadow ${p.profitRate < 0 ? "border-red-200 bg-red-50/20" : ""}`}>
+        {/* 왼쪽: 썸네일 + 상품정보 */}
+        <div className="flex items-start gap-4 flex-1 min-w-0">
+          {/* 순위 */}
+          <div className="w-8 shrink-0 pt-2 text-center">
+            {getRank(p) > 0 ? (
+              <>
+                <div className="text-lg font-bold text-slate-400 tabular-nums">#{getRank(p)}</div>
+                {(() => {
+                  const ch = getRankChange(p);
+                  if (ch === null) return <div className="text-[9px] text-slate-300 font-mono">NEW</div>;
+                  if (ch > 0) return <div className="text-[9px] text-green-600 font-bold">▲{ch}</div>;
+                  if (ch < 0) return <div className="text-[9px] text-red-500 font-bold">▼{Math.abs(ch)}</div>;
+                  return <div className="text-[9px] text-slate-300">-</div>;
+                })()}
+              </>
+            ) : <div className="text-xs text-slate-300">-</div>}
+          </div>
+          {/* 썸네일 */}
+          <div className={`${isChild ? "w-[72px] h-[72px]" : "w-[88px] h-[88px]"} rounded-lg border border-slate-200 overflow-hidden bg-slate-50 shrink-0 relative`}>
+            {(p.thumbnailUrl || p.imageUrl) ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={(p.thumbnailUrl || p.imageUrl)!} alt={p.name} className="w-full h-full object-cover" />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center text-slate-300 text-xs">NO IMG</div>
+            )}
+            {p.status === "active" && (
+              <div className="absolute bottom-0 left-0 right-0 bg-blue-600/90 text-white text-[7px] text-center py-0.5 font-medium">판매중</div>
+            )}
+          </div>
+          {/* 상품 정보 */}
+          <div className="min-w-0 pt-0.5">
+            <a href={`/products/${p.id}`} className="text-[16px] font-bold text-slate-900 leading-snug line-clamp-2 hover:underline">{p.name}</a>
+            <div className="text-[11px] text-slate-400 mt-1.5 space-x-1">
+              <span>등록상품 ID: {p.coupangProductId || "-"}</span>
+              {p.sku && <span>&#183; SKU: {p.sku}</span>}
+            </div>
+            <div className="text-[11px] text-slate-400 mt-0.5">카테고리: {p.category || "-"}</div>
+            <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+              <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${getGradeColor(getGrade(p))}`}>{getGrade(p)}</span>
+              <span className="text-[10px] text-slate-400 font-mono">{getScore(p)}점</span>
+              {p.adTier && <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-blue-600">{p.adTier} 광고</span>}
+              {p.adRate > 0 && (
+                <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${p.adRate > 15 ? "bg-red-50 text-red-600" : "bg-slate-50 text-slate-500"}`}>
+                  광고비율 {formatPercent(p.adRate)}
+                </span>
+              )}
+              {badge.label !== "판매중" && (
+                <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${badge.color}`}>{badge.label}</span>
+              )}
+            </div>
+            {getStrategy(p) && (
+              <div className={`text-[11px] mt-1.5 ${getGrade(p) === "A" ? "text-green-600" : getGrade(p) === "B" ? "text-yellow-600" : "text-slate-400"}`}>
+                → {getStrategy(p)}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* 오른쪽: 트래픽 + 판매량 + 매출 */}
+        <div className="flex items-start shrink-0">
+          {[
+            { val: visitors, label: "방문자" },
+            { val: views, label: "조회" },
+            { val: carts, label: "장바구니" },
+            { val: ord, label: "주문" },
+          ].map(({ val, label }) => (
+            <div key={label} className="w-[110px] text-center">
+              <div className="text-[26px] font-extrabold tabular-nums leading-tight" style={{ color: "var(--text-primary)" }}>
+                {val !== null ? val.toLocaleString() : "-"}
+              </div>
+              <div className="text-[12px] mt-1" style={{ color: "var(--text-tertiary)" }}>{label}</div>
+            </div>
+          ))}
+          <div className="w-px h-14 bg-slate-200 mx-6 mt-0.5" />
+          {/* 판매량 */}
+          <div className="w-[120px] text-center pr-4">
+            <div className="text-[30px] font-black tabular-nums leading-tight" style={{ color: "var(--text-primary)" }}>
+              {qty !== null ? qty.toLocaleString() : "-"}
+            </div>
+            <div className="text-[12px] mt-1" style={{ color: "var(--text-tertiary)" }}>판매량</div>
+            <div className={`text-[12px] mt-0.5 tabular-nums font-semibold ${getProfitColor(p.profitRate)}`}>
+              이익률 {formatPercent(p.profitRate)}
+            </div>
+          </div>
+          {/* 매출 */}
+          <div className="w-[160px] text-right">
+            <div className="text-[30px] font-black tabular-nums leading-tight" style={{ color: "var(--text-primary)" }}>
+              {rev !== null ? formatKRW(rev) : "-"}
+            </div>
+            <div className="text-[12px] mt-1" style={{ color: "var(--text-tertiary)" }}>매출 (원)</div>
+            {p.adRate > 0 && (
+              <div className={`text-[11px] mt-0.5 tabular-nums font-medium ${p.adRate > 15 ? "text-red-600" : "text-slate-500"}`}>
+                광고 {formatPercent(p.adRate)}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-4">
       {/* ═══ 헤더 ═══ */}
@@ -286,7 +420,7 @@ export default function ProductsPage() {
           </div>
           <div className="flex items-baseline gap-2">
             <h1 className="text-2xl font-extrabold tracking-tight" style={{ color: "var(--text-primary)" }}>상품관리</h1>
-            <span className="text-[13px] font-semibold" style={{ color: "var(--text-tertiary)" }}>14일 기준</span>
+            <span className="text-[13px] font-semibold" style={{ color: "var(--text-tertiary)" }}>{period === 365 ? '연간' : `${period}일`} 기준</span>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -470,118 +604,71 @@ export default function ProductsPage() {
           </div>
         ) : (
           <div className="space-y-3">
-            {displayProducts.map((p, idx) => {
-              const badge = getProductStatusBadge(p.status);
-              const t14 = p.t14;
-              const t = p.traffic;
-              const h14 = !!t14;
-              const h = !!t;
-              const visitors = h ? t.visitors : null;
-              const views = h ? t.views : null;
-              const carts = h ? t.cartAdds : null;
-              const ord = h14 ? t14.orders : (h ? t.orders : null);
-              const qty = h14 ? t14.salesQty : (h ? t.salesQty : null);
-              const rev = h14 ? t14.revenue : (h ? t.revenue : null);
+            {productGroups.map((group) => {
+              // ─── 단일 상품 ───
+              if (group.length === 1) {
+                return renderProductCard(group[0], group[0].id);
+              }
+
+              // ─── 같은 이름 그룹 ───
+              const groupName = group[0].name;
+              const isExpanded = expandedGroups.has(groupName);
+              const groupRevenue = group.reduce((sum, p) => {
+                const t14 = p.t14; const t = p.traffic;
+                return sum + (t14 ? t14.revenue : (t ? t.revenue : 0));
+              }, 0);
+              const groupQty = group.reduce((sum, p) => {
+                const t14 = p.t14; const t = p.traffic;
+                return sum + (t14 ? t14.salesQty : (t ? t.salesQty : 0));
+              }, 0);
+
               return (
-                <div key={`${p.id}-${idx}`}
-                  className={`bg-white rounded-xl border border-slate-200 px-6 py-5 flex items-start hover:shadow-sm transition-shadow ${p.profitRate < 0 ? "border-red-200 bg-red-50/20" : ""}`}>
-                  {/* 왼쪽: 썸네일 + 상품정보 */}
-                  <div className="flex items-start gap-4 flex-1 min-w-0">
-                    {/* 순위 */}
-                    <div className="w-8 shrink-0 pt-2 text-center">
-                      {getRank(p) > 0 ? (
-                        <>
-                          <div className="text-lg font-bold text-slate-400 tabular-nums">#{getRank(p)}</div>
-                          {(() => {
-                            const ch = getRankChange(p);
-                            if (ch === null) return <div className="text-[9px] text-slate-300 font-mono">NEW</div>;
-                            if (ch > 0) return <div className="text-[9px] text-green-600 font-bold">▲{ch}</div>;
-                            if (ch < 0) return <div className="text-[9px] text-red-500 font-bold">▼{Math.abs(ch)}</div>;
-                            return <div className="text-[9px] text-slate-300">-</div>;
-                          })()}
-                        </>
-                      ) : <div className="text-xs text-slate-300">-</div>}
+                <div key={groupName} className="space-y-1.5">
+                  {/* 그룹 헤더 */}
+                  <div
+                    className="bg-slate-50 rounded-xl border border-slate-200 px-5 py-3.5 flex items-center gap-3 cursor-pointer hover:bg-slate-100 transition-colors select-none"
+                    onClick={() => toggleGroup(groupName)}
+                  >
+                    <div className="w-7 shrink-0 flex items-center justify-center">
+                      <ChevronDown
+                        size={16}
+                        className="text-slate-400 transition-transform duration-200"
+                        style={{ transform: isExpanded ? "rotate(0deg)" : "rotate(-90deg)" }}
+                      />
                     </div>
-                    {/* 썸네일 */}
-                    <div className="w-[88px] h-[88px] rounded-lg border border-slate-200 overflow-hidden bg-slate-50 shrink-0 relative">
-                      {(p.thumbnailUrl || p.imageUrl) ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={(p.thumbnailUrl || p.imageUrl)!} alt={p.name} className="w-full h-full object-cover" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-slate-300 text-xs">NO IMG</div>
-                      )}
-                      {p.status === "active" && (
-                        <div className="absolute bottom-0 left-0 right-0 bg-blue-600/90 text-white text-[7px] text-center py-0.5 font-medium">판매중</div>
-                      )}
+                    {(group[0].thumbnailUrl || group[0].imageUrl) ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={(group[0].thumbnailUrl || group[0].imageUrl)!}
+                        alt={groupName}
+                        className="w-10 h-10 rounded-lg object-cover border border-slate-200 shrink-0"
+                      />
+                    ) : (
+                      <div className="w-10 h-10 rounded-lg bg-slate-200 shrink-0" />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-slate-900 text-[15px]">{groupName}</span>
+                        <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-100 text-blue-600">
+                          {group.length}개 옵션
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-slate-400 mt-0.5">
+                        {group.map((p) => p.sku || p.coupangProductId).filter(Boolean).slice(0, 4).join(" · ")}
+                      </div>
                     </div>
-                    {/* 상품 정보 */}
-                    <div className="min-w-0 pt-0.5">
-                      <a href={`/products/${p.id}`} className="text-[16px] font-bold text-slate-900 leading-snug line-clamp-2 hover:underline">{p.name}</a>
-                      <div className="text-[11px] text-slate-400 mt-1.5 space-x-1">
-                        <span>등록상품 ID: {p.coupangProductId || "-"}</span>
-                        {p.sku && <span>&#183; SKU: {p.sku}</span>}
-                      </div>
-                      <div className="text-[11px] text-slate-400 mt-0.5">카테고리: {p.category || "-"}</div>
-                      <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${getGradeColor(getGrade(p))}`}>{getGrade(p)}</span>
-                        <span className="text-[10px] text-slate-400 font-mono">{getScore(p)}점</span>
-                        {p.adTier && <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-blue-600">{p.adTier} 광고</span>}
-                        {p.adRate > 0 && (
-                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${p.adRate > 15 ? "bg-red-50 text-red-600" : "bg-slate-50 text-slate-500"}`}>
-                            광고비율 {formatPercent(p.adRate)}
-                          </span>
-                        )}
-                        {badge.label !== "판매중" && (
-                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${badge.color}`}>{badge.label}</span>
-                        )}
-                      </div>
-                      {getStrategy(p) && (
-                        <div className={`text-[11px] mt-1.5 ${getGrade(p) === "A" ? "text-green-600" : getGrade(p) === "B" ? "text-yellow-600" : "text-slate-400"}`}>
-                          → {getStrategy(p)}
-                        </div>
-                      )}
+                    <div className="text-right shrink-0">
+                      <div className="text-[20px] font-black tabular-nums text-slate-900">{formatKRW(groupRevenue)}</div>
+                      <div className="text-[11px] text-slate-400 mt-0.5">합계 매출 · 판매량 {groupQty.toLocaleString()}</div>
                     </div>
                   </div>
 
-                  {/* 오른쪽: 트래픽 + 판매량 + 매출 */}
-                  <div className="flex items-start shrink-0">
-                    {[
-                      { val: visitors, label: "방문자" },
-                      { val: views, label: "조회" },
-                      { val: carts, label: "장바구니" },
-                      { val: ord, label: "주문" },
-                    ].map(({ val, label }) => (
-                      <div key={label} className="w-[110px] text-center">
-                        <div className="text-[26px] font-extrabold tabular-nums leading-tight" style={{ color: "var(--text-primary)" }}>
-                          {val !== null ? val.toLocaleString() : "-"}
-                        </div>
-                        <div className="text-[12px] mt-1" style={{ color: "var(--text-tertiary)" }}>{label}</div>
-                      </div>
-                    ))}
-                    <div className="w-px h-14 bg-slate-200 mx-6 mt-0.5" />
-                    {/* 판매량 */}
-                    <div className="w-[120px] text-center pr-4">
-                      <div className="text-[30px] font-black tabular-nums leading-tight" style={{ color: "var(--text-primary)" }}>
-                        {qty !== null ? qty.toLocaleString() : "-"}
-                      </div>
-                      <div className="text-[12px] mt-1" style={{ color: "var(--text-tertiary)" }}>판매량</div>
-                      <div className={`text-[12px] mt-0.5 tabular-nums font-semibold ${getProfitColor(p.profitRate)}`}>
-                        이익률 {formatPercent(p.profitRate)}
-                      </div>
+                  {/* 하위 상품 목록 */}
+                  {isExpanded && (
+                    <div className="pl-5 space-y-1.5">
+                      {group.map((p) => renderProductCard(p, `${groupName}-${p.id}`, true))}
                     </div>
-                    {/* 매출 */}
-                    <div className="w-[160px] text-right">
-                      <div className="text-[30px] font-black tabular-nums leading-tight" style={{ color: "var(--text-primary)" }}>
-                        {rev !== null ? formatKRW(rev) : "-"}
-                      </div>
-                      <div className="text-[12px] mt-1" style={{ color: "var(--text-tertiary)" }}>매출 (원)</div>
-                      {p.adRate > 0 && (
-                        <div className={`text-[11px] mt-0.5 tabular-nums font-medium ${p.adRate > 15 ? "text-red-600" : "text-slate-500"}`}>
-                          광고 {formatPercent(p.adRate)}
-                        </div>
-                      )}
-                    </div>
-                  </div>
+                  )}
                 </div>
               );
             })}

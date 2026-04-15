@@ -2,6 +2,17 @@ import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import * as XLSX from 'xlsx';
 import type { MulterFile } from '../common/types';
+import { resolvePricing } from '../common/master-product-resolver';
+
+export interface DayRevenue {
+  date: string;
+  revenue: number;
+  orders: number;
+  salesQty: number;
+  visitors: number;
+  netProfit?: number;
+  profitRate?: number;
+}
 
 @Injectable()
 export class TrafficService {
@@ -191,5 +202,214 @@ export class TrafficService {
         date: colDate,
       },
     };
+  }
+
+  async getTrafficSummary(days: number) {
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const todayEnd = new Date(todayStart.getTime() + 86400000);
+
+    let start: Date;
+    let end: Date;
+    if (days <= 1) {
+      start = todayStart;
+      end = todayEnd;
+    } else {
+      start = new Date(todayStart.getTime() - (days - 1) * 86400000);
+      end = todayEnd;
+    }
+
+    // 이전 동일 기간 (비교용)
+    const duration = end.getTime() - start.getTime();
+    const prevStart = new Date(start.getTime() - duration);
+    const prevEnd = start;
+
+    const [cur, prev, productRows] = await Promise.all([
+      this.prisma.trafficStats.aggregate({
+        _sum: { revenue: true, orders: true, salesQty: true, visitors: true, views: true, cartAdds: true },
+        where: { periodDays: 1, date: { gte: start, lt: end } },
+      }),
+      this.prisma.trafficStats.aggregate({
+        _sum: { revenue: true, orders: true, salesQty: true, visitors: true },
+        where: { periodDays: 1, date: { gte: prevStart, lt: prevEnd } },
+      }),
+      // 기간 내 상품별 revenue/salesQty 집계 (수익 계산용)
+      this.prisma.$queryRaw<{ product_id: string; revenue: number; sales_qty: number; orders_count: number }[]>`
+        SELECT product_id, SUM(revenue)::int AS revenue, SUM(sales_qty)::int AS sales_qty,
+               SUM(orders)::int AS orders_count
+        FROM traffic_stats
+        WHERE period_days = 1 AND date >= ${start} AND date < ${end}
+        GROUP BY product_id
+      `,
+    ]);
+
+    const revenue = cur._sum.revenue ?? 0;
+    const prevRevenue = prev._sum.revenue ?? 0;
+    const orders = cur._sum.orders ?? 0;
+    const prevOrders = prev._sum.orders ?? 0;
+
+    // 수익 계산 — product pricing 조회
+    let netProfit: number | undefined;
+    let profitRate: number | undefined;
+    let costCoverage: number | undefined;
+
+    if (productRows.length > 0) {
+      const productIds = productRows.map((r) => r.product_id);
+      const products = await this.prisma.product.findMany({
+        where: { id: { in: productIds } },
+        select: {
+          id: true,
+          costPrice: true,
+          costCny: true,
+          commissionRate: true,
+          shippingCost: true,
+          masterProduct: { select: { costPrice: true, commissionRate: true } },
+        },
+      });
+      const productMap = new Map(products.map((p) => [p.id, p]));
+
+      let totalNetProfit = 0;
+      let revenueWithCost = 0;
+
+      for (const row of productRows) {
+        const salesQty = Number(row.sales_qty) || 0;
+        const rowRevenue = Number(row.revenue) || 0;
+        if (salesQty === 0) continue;
+
+        const prod = productMap.get(row.product_id);
+        if (!prod) continue;
+
+        const resolved = resolvePricing(prod);
+        // commissionRate: Decimal(5,4) = 0.108 형식 (분수), /100 하지 않음
+        const commRate = resolved.commissionRate || 0.108;
+        // shippingCost는 주문 단위 고정비 — orders_count 기준으로 곱해야 과계산 방지
+        const ordersCount = Number(row.orders_count) || salesQty;
+        const rowNetProfit =
+          rowRevenue -
+          resolved.costPrice * salesQty -
+          rowRevenue * commRate -
+          (prod.shippingCost ? Number(prod.shippingCost) : 0) * ordersCount;
+
+        totalNetProfit += rowNetProfit;
+        if (!resolved.isCostMissing) {
+          revenueWithCost += rowRevenue;
+        }
+      }
+
+      netProfit = Math.round(totalNetProfit);
+      profitRate = revenue > 0 ? Math.round((totalNetProfit / revenue) * 1000) / 10 : 0;
+      costCoverage = revenue > 0 ? Math.round((revenueWithCost / revenue) * 100) / 100 : 0;
+    }
+
+    return {
+      days,
+      revenue,
+      orders,
+      salesQty: cur._sum.salesQty ?? 0,
+      visitors: cur._sum.visitors ?? 0,
+      views: cur._sum.views ?? 0,
+      cartAdds: cur._sum.cartAdds ?? 0,
+      prevRevenue,
+      prevOrders,
+      revenueChange: prevRevenue > 0 ? Math.round(((revenue - prevRevenue) / prevRevenue) * 1000) / 10 : 0,
+      ordersChange: prevOrders > 0 ? Math.round(((orders - prevOrders) / prevOrders) * 1000) / 10 : 0,
+      netProfit,
+      profitRate,
+      costCoverage,
+    };
+  }
+
+  async getMonthlyRevenue(year: number, month: number) {
+    const start = new Date(year, month - 1, 1);
+    const end = new Date(year, month, 0); // 해당 월 마지막 날
+    const endExclusive = new Date(year, month, 1);
+
+    const [rows, productRows] = await Promise.all([
+      this.prisma.trafficStats.groupBy({
+        by: ['date'],
+        where: {
+          periodDays: 1,
+          date: { gte: start, lte: end },
+        },
+        _sum: {
+          revenue: true,
+          orders: true,
+          salesQty: true,
+          visitors: true,
+        },
+        orderBy: { date: 'asc' },
+      }),
+      // 월간 상품별 집계 (수익 계산용)
+      this.prisma.$queryRaw<{ product_id: string; date: string; revenue: number; sales_qty: number; orders_count: number }[]>`
+        SELECT product_id, date::text AS date, SUM(revenue)::int AS revenue, SUM(sales_qty)::int AS sales_qty,
+               SUM(orders)::int AS orders_count
+        FROM traffic_stats
+        WHERE period_days = 1 AND date >= ${start} AND date < ${endExclusive}
+        GROUP BY product_id, date
+      `,
+    ]);
+
+    // 상품 pricing 조회
+    const productIds = [...new Set(productRows.map((r) => r.product_id))];
+    const products =
+      productIds.length > 0
+        ? await this.prisma.product.findMany({
+            where: { id: { in: productIds } },
+            select: {
+              id: true,
+              costPrice: true,
+              costCny: true,
+              commissionRate: true,
+              shippingCost: true,
+              masterProduct: { select: { costPrice: true, commissionRate: true } },
+            },
+          })
+        : [];
+    const productMap = new Map(products.map((p) => [p.id, p]));
+
+    // 일별 netProfit 집계
+    const dailyProfitMap = new Map<string, number>();
+    for (const row of productRows) {
+      const salesQty = Number(row.sales_qty) || 0;
+      const rowRevenue = Number(row.revenue) || 0;
+      if (salesQty === 0) continue;
+      const prod = productMap.get(row.product_id);
+      if (!prod) continue;
+      const resolved = resolvePricing(prod);
+      const commRate = resolved.commissionRate || 0.108;
+      const ordersCount = Number(row.orders_count) || salesQty;
+      const rowNetProfit =
+        rowRevenue -
+        resolved.costPrice * salesQty -
+        rowRevenue * commRate -
+        (prod.shippingCost ? Number(prod.shippingCost) : 0) * ordersCount;
+      const dateKey = typeof row.date === 'string' ? row.date.slice(0, 10) : new Date(row.date).toISOString().slice(0, 10);
+      dailyProfitMap.set(dateKey, (dailyProfitMap.get(dateKey) ?? 0) + rowNetProfit);
+    }
+
+    const days: DayRevenue[] = rows.map((r) => {
+      const dateKey = r.date.toISOString().slice(0, 10);
+      const rev = r._sum.revenue ?? 0;
+      const np = Math.round(dailyProfitMap.get(dateKey) ?? 0);
+      return {
+        date: dateKey,
+        revenue: rev,
+        orders: r._sum.orders ?? 0,
+        salesQty: r._sum.salesQty ?? 0,
+        visitors: r._sum.visitors ?? 0,
+        netProfit: np,
+        profitRate: rev > 0 ? Math.round((np / rev) * 1000) / 10 : 0,
+      };
+    });
+
+    const total = {
+      revenue: days.reduce((s, d) => s + d.revenue, 0),
+      orders: days.reduce((s, d) => s + d.orders, 0),
+      salesQty: days.reduce((s, d) => s + d.salesQty, 0),
+      visitors: days.reduce((s, d) => s + d.visitors, 0),
+      netProfit: days.reduce((s, d) => s + (d.netProfit ?? 0), 0),
+    };
+
+    return { year, month, days, total };
   }
 }

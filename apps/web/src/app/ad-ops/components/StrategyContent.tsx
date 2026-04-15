@@ -1,13 +1,27 @@
 "use client";
 
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
-  ChevronDown, AlertTriangle, Sparkles, Megaphone, Wallet,
-  Download, FileSpreadsheet, Search, Target,
+  ChevronLeft, ChevronRight, AlertTriangle, Megaphone, Wallet,
+  Download, FileSpreadsheet, Search, Target, Sparkles, Loader2,
 } from "lucide-react";
+import Link from "next/link";
 import type { AdWeeklyPlan, AdStrategyAction } from "@kiditem/shared";
+import { apiClient } from "@/lib/api-client";
+import { queryKeys } from "@/lib/query-keys";
+import { formatKRW, formatNumber } from "@/lib/utils";
 import { exportCampaignXlsx } from "../lib/xlsx-export";
 import type { RegisterCampaignPayload } from "../hooks/useAdOpsData";
+
+interface GradeProduct {
+  id: string;
+  name: string;
+  adTier: string | null;
+  coupangProductId: string | null;
+  abcGrade: string | null;
+  t14?: { revenue: number; salesQty: number; orders: number };
+}
 
 type RuleItem = { name: string; grade: string | null; rule: string; action: string; priority: string; roas: number; spend: number };
 
@@ -26,36 +40,42 @@ interface StrategyContentProps {
   onGradeSearch: (grade: string, search: string) => void;
   onSelectGrade: (grade: string | null) => void;
   onOpenRegisterModal: (payload: RegisterCampaignPayload) => void;
+  onAiRefresh: () => void;
+  isAiRefreshing: boolean;
 }
 
-function ProductStrategyRow({ action: a, gradeBudget, gradeCount, color, expanded, onToggle, isNew, compact }: {
+function ProductStrategyRow({ action: a, gradeBudget, gradeCount, color, expanded, onToggle, isNew }: {
   action: AdStrategyAction; gradeBudget: number; gradeCount: number; color: string;
-  expanded: boolean; onToggle: () => void; isNew?: boolean; compact?: boolean;
+  expanded: boolean; onToggle: () => void; isNew?: boolean;
 }) {
   const productBudget = gradeCount > 0 ? Math.round(gradeBudget / gradeCount) : 0;
   const recBudget = a.recommendedDailyBudget > 0 ? a.recommendedDailyBudget : productBudget;
   const sk = a.suggestedKeywords;
-  const px = compact ? "px-3" : "px-5";
 
   return (
     <div className="hover:bg-[var(--surface-sunken)]/50 transition-colors">
-      <button onClick={onToggle} className={`w-full text-left ${px} py-2.5`}>
-        <div className="flex items-center justify-between gap-1.5 mb-0.5">
-          <div className="flex items-center gap-1.5 flex-1 min-w-0">
-            {isNew && <span className="shrink-0 px-1 py-px rounded text-[8px] font-bold text-white" style={{ background: "#6366f1" }}>N</span>}
-            <span className={`${compact ? "text-[11px]" : "text-[13px]"} font-bold truncate`} style={{ color: "var(--text-primary)" }}>{a.name}</span>
+      <button onClick={onToggle} className="w-full text-left px-4 py-3">
+        <div className="flex items-center justify-between gap-2 mb-1">
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            {isNew && <span className="shrink-0 px-1.5 py-px rounded text-[10px] font-bold text-white" style={{ background: "#6366f1" }}>N</span>}
+            <span className="text-[14px] font-bold truncate" style={{ color: "var(--text-primary)" }}>{a.name}</span>
           </div>
-          <div className="flex items-center gap-1.5 shrink-0">
-            <span className={`font-black tabular-nums ${compact ? "text-[12px]" : "text-[15px]"} ${a.currentRoas >= 300 ? "text-emerald-600" : a.currentRoas >= 100 ? "text-amber-600" : a.currentRoas > 0 ? "text-red-500" : ""}`} style={a.currentRoas === 0 ? { color: "var(--text-quaternary)" } : {}}>
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="shrink-0 px-1.5 py-px rounded text-[10px] font-bold" style={{
+              background: a.action === 'increase' ? '#d1fae5' : a.action === 'stop' ? '#fee2e2' : a.action === 'decrease' ? '#fef3c7' : '#eff6ff',
+              color: a.action === 'increase' ? '#065f46' : a.action === 'stop' ? '#991b1b' : a.action === 'decrease' ? '#92400e' : '#1e40af',
+            }}>
+              {a.action === 'increase' ? '확대' : a.action === 'stop' ? '중단' : a.action === 'decrease' ? '축소' : '유지'}
+            </span>
+            <span className={`font-black tabular-nums text-[15px] ${a.currentRoas >= 300 ? "text-emerald-600" : a.currentRoas >= 100 ? "text-amber-600" : a.currentRoas > 0 ? "text-red-500" : ""}`} style={a.currentRoas === 0 ? { color: "var(--text-quaternary)" } : {}}>
               {a.currentRoas > 0 ? `${a.currentRoas}%` : "-"}
             </span>
-            <ChevronDown size={11} className={`transition-transform ${expanded ? "rotate-180" : ""}`} style={{ color: "var(--text-quaternary)" }} />
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[10px] tabular-nums" style={{ color: "var(--text-tertiary)" }}>
-          <span>{recBudget.toLocaleString()}원/일</span>
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px] tabular-nums" style={{ color: "var(--text-tertiary)" }}>
+          <span>{formatNumber(recBudget)}원/일</span>
           <span>·</span>
-          <span>입찰 {a.maxBidPrice > 0 ? `${a.maxBidPrice.toLocaleString()}원` : "-"}</span>
+          <span>입찰 {a.maxBidPrice > 0 ? `${formatNumber(a.maxBidPrice)}원` : "-"}</span>
           <span>·</span>
           <span className={`font-bold ${a.actionPriority === "urgent" ? "text-red-600" : a.actionPriority === "high" ? "text-orange-600" : ""}`}>
             {a.actionPriority === "urgent" ? "긴급" : a.actionPriority === "high" ? "높음" : a.actionPriority === "medium" ? "보통" : "낮음"}
@@ -64,7 +84,14 @@ function ProductStrategyRow({ action: a, gradeBudget, gradeCount, color, expande
       </button>
 
       {expanded && (
-        <div className={`${px} pb-3 space-y-2`}>
+        <div className="px-4 pb-3 space-y-2">
+          {(a.currentCtr > 0 || a.currentCvr > 0 || a.spend > 0) && (
+            <div className="flex gap-3 text-[11px] px-1 mb-1" style={{ color: "var(--text-tertiary)" }}>
+              {a.currentCtr > 0 && <span>CTR <b className="font-bold" style={{ color: "var(--text-secondary)" }}>{a.currentCtr.toFixed(2)}%</b></span>}
+              {a.currentCvr > 0 && <span>CVR <b className="font-bold" style={{ color: "var(--text-secondary)" }}>{a.currentCvr.toFixed(2)}%</b></span>}
+              {a.spend > 0 && <span>광고비 <b className="font-bold" style={{ color: "var(--text-secondary)" }}>{formatNumber(a.spend)}원</b></span>}
+            </div>
+          )}
           <div className="rounded-lg p-2.5" style={{ background: `${color}06`, border: `1px solid ${color}18` }}>
             <div className="flex items-center gap-1.5 mb-0.5">
               <Target size={11} style={{ color }} />
@@ -142,10 +169,245 @@ function ProductStrategyRow({ action: a, gradeBudget, gradeCount, color, expande
 }
 
 const GRADE_CONFIGS = [
-  { grade: "A", title: "핵심 상품 캠페인", subtitle: "공격적 확장 — 매출 상위 70%", budgetPct: 65, color: "#059669", headerGrad: "from-emerald-600 to-green-600", border: "border-emerald-300", ring: "ring-emerald-400", campaignType: "매출최적화 + 수동 병행", targetRoasLabel: "300~500%", bidGuide: { main: "800~1,000", sub: "500~700", longtail: "200~400" } },
-  { grade: "B", title: "성장 후보 캠페인", subtitle: "최적화 집중 — 매출 70~90%", budgetPct: 25, color: "#f59e0b", headerGrad: "from-amber-500 to-yellow-500", border: "border-amber-300", ring: "ring-amber-400", campaignType: "수동 성과형 위주", targetRoasLabel: "300~480%", bidGuide: { main: "500~700", sub: "300~500", longtail: "100~300" } },
-  { grade: "C", title: "정리/테스트 캠페인", subtitle: "손절 · 재구성 — 나머지", budgetPct: 10, color: "#ef4444", headerGrad: "from-red-500 to-pink-500", border: "border-red-300", ring: "ring-red-400", campaignType: "최소 테스트 or OFF", targetRoasLabel: "500%+", bidGuide: { main: "OFF", sub: "200~300", longtail: "100~200" } },
+  { grade: "A", title: "핵심 상품 캠페인", subtitle: "공격적 확장 — 매출 상위 70%", budgetPct: 65, color: "#059669", headerBg: "bg-emerald-600", border: "border-emerald-300", ring: "ring-emerald-400", campaignType: "매출최적화 + 수동 병행", targetRoasLabel: "300~500%", bidGuide: { main: "800~1,000", sub: "500~700", longtail: "200~400" } },
+  { grade: "B", title: "성장 후보 캠페인", subtitle: "최적화 집중 — 매출 70~90%", budgetPct: 25, color: "#f59e0b", headerBg: "bg-amber-500", border: "border-amber-300", ring: "ring-amber-400", campaignType: "수동 성과형 위주", targetRoasLabel: "300~480%", bidGuide: { main: "500~700", sub: "300~500", longtail: "100~300" } },
+  { grade: "C", title: "정리/테스트 캠페인", subtitle: "손절 · 재구성 — 나머지", budgetPct: 10, color: "#ef4444", headerBg: "bg-red-500", border: "border-red-300", ring: "ring-red-400", campaignType: "최소 테스트 or OFF", targetRoasLabel: "500%+", bidGuide: { main: "OFF", sub: "200~300", longtail: "100~200" } },
 ];
+
+type GradeCfg = typeof GRADE_CONFIGS[number];
+
+const PAGE_SIZE = 10;
+
+function GradeCardPanel({
+  cfg, allGradeActions, gradeBudget, urgentGradeCount,
+  expandedProduct, onExpandProduct, onOpenRegisterModal,
+  exportCampaignXlsx: exportXlsx,
+}: {
+  cfg: GradeCfg;
+  allGradeActions: AdStrategyAction[];
+  gradeBudget: number;
+  urgentGradeCount: number;
+  expandedProduct: string | null;
+  onExpandProduct: (id: string | null) => void;
+  onOpenRegisterModal: (payload: RegisterCampaignPayload) => void;
+  exportCampaignXlsx: (grade: string, actions: AdStrategyAction[], budget: number) => void;
+}) {
+  const [page, setPage] = useState(0);
+  const [adFilter, setAdFilter] = useState<"all" | "ad" | "noad">("all");
+  const [search, setSearch] = useState("");
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  const { data: products = [] } = useQuery({
+    queryKey: queryKeys.products.list({ grade: cfg.grade, limit: "200" }),
+    queryFn: () =>
+      apiClient.get<{ items: GradeProduct[] }>(`/api/products?grade=${cfg.grade}&limit=200`)
+        .then(r => r.items),
+  });
+
+  const adProducts = products.filter(p => p.adTier);
+  const noAdProducts = products.filter(p => !p.adTier);
+
+  const filtered = (adFilter === "ad" ? adProducts : adFilter === "noad" ? noAdProducts : products)
+    .filter(p => !search || p.name.toLowerCase().includes(search.toLowerCase()));
+
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
+  const paged = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+
+  return (
+    <div className={`rounded-2xl overflow-hidden border-2 ${cfg.border} flex flex-col shadow-sm`}>
+      {/* 헤더 */}
+      <div className={`${cfg.headerBg} px-4 py-3`}>
+        <div className="flex items-center gap-2.5 mb-2">
+          <span className="w-9 h-9 rounded-lg bg-white/20 flex items-center justify-center text-xl font-black text-white">{cfg.grade}</span>
+          <div className="flex-1 min-w-0">
+            <div className="text-[15px] font-bold text-white leading-tight truncate">{cfg.title}</div>
+            <div className="text-[12px] text-white/60 truncate">{cfg.subtitle}</div>
+          </div>
+          <div className="text-right shrink-0">
+            <div className="text-2xl font-black text-white tabular-nums">{products.length}<span className="text-[13px] font-normal ml-0.5">개</span></div>
+            <div className="text-[11px] text-white/60">상품</div>
+          </div>
+        </div>
+        <div className="text-xl font-black text-white tabular-nums mb-1.5">{formatNumber(gradeBudget)}<span className="text-[13px] font-semibold text-white/50 ml-1">원/일</span></div>
+        <div className="flex flex-wrap items-center gap-1">
+          {urgentGradeCount > 0 && <span className="px-1.5 py-0.5 bg-red-500/80 rounded text-[11px] font-bold text-white">긴급 {urgentGradeCount}</span>}
+          <span className="px-1.5 py-0.5 bg-white/20 rounded text-[11px] font-bold text-white">광고중 {adProducts.length}</span>
+          <span className="px-1.5 py-0.5 bg-white/10 rounded text-[11px] font-bold text-white/70">미광고 {noAdProducts.length}</span>
+        </div>
+      </div>
+
+      {/* 캠페인 정보 + 액션 버튼 */}
+      <div className="px-4 py-3 space-y-2 border-b" style={{ background: "var(--card-bg)", borderColor: "var(--border-subtle)" }}>
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>캠페인 유형</div>
+            <div className="text-[14px] font-bold" style={{ color: "var(--text-primary)" }}>{cfg.campaignType}</div>
+          </div>
+          <div className="text-right">
+            <div className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>목표 ROAS</div>
+            <div className="text-[17px] font-black" style={{ color: cfg.color }}>{cfg.targetRoasLabel}</div>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-1">
+          <span className="px-1.5 py-0.5 rounded text-[11px] font-bold" style={{ background: `${cfg.color}15`, color: cfg.color }}>메인 {cfg.bidGuide.main}원</span>
+          <span className="px-1.5 py-0.5 rounded text-[11px] font-bold" style={{ background: "var(--surface-sunken)", color: "var(--text-secondary)" }}>서브 {cfg.bidGuide.sub}원</span>
+          <span className="px-1.5 py-0.5 rounded text-[11px] font-bold" style={{ background: "var(--surface-sunken)", color: "var(--text-tertiary)" }}>롱테일 {cfg.bidGuide.longtail}원</span>
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={() => exportXlsx(cfg.grade, allGradeActions, gradeBudget)}
+            className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-[13px] font-bold transition-all hover:shadow-md"
+            style={{ background: `${cfg.color}12`, color: cfg.color, border: `1px solid ${cfg.color}25` }}
+          >
+            <FileSpreadsheet size={13} /> XLSX
+          </button>
+          <button
+            onClick={() => {
+              const validBids = allGradeActions.filter(a => a.maxBidPrice > 0).map(a => a.maxBidPrice);
+              const smartBid = validBids.length > 0
+                ? Math.round(validBids.reduce((s, b) => s + b, 0) / validBids.length)
+                : (cfg.grade === "A" ? 800 : cfg.grade === "B" ? 500 : 300);
+              const targetRoas = allGradeActions[0]?.targetRoas
+                || parseInt(cfg.targetRoasLabel.match(/\d+/)?.[0] || "350");
+              const avgRoas = allGradeActions.reduce((s, a) => s + a.currentRoas, 0) / (allGradeActions.length || 1);
+              const opMode = avgRoas >= 300 && cfg.grade === "A" ? "자동운영_매출최적화" : "직접입력";
+              const priorityOrder: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 };
+              const productsForCampaign = allGradeActions
+                .filter(a => a.action !== "stop")
+                .sort((a, b) => (priorityOrder[a.actionPriority] ?? 2) - (priorityOrder[b.actionPriority] ?? 2))
+                .slice(0, 20);
+              const allKws = allGradeActions
+                .flatMap(a => [...(a.suggestedKeywords?.main || []), ...(a.keywords || [])])
+                .filter((k, i, arr) => k && arr.indexOf(k) === i)
+                .slice(0, 10)
+                .map(kw => ({ keyword: kw, bidPrice: smartBid || 100 }));
+              onOpenRegisterModal({
+                grade: cfg.grade,
+                color: cfg.color,
+                campaignName: `${cfg.grade}등급_캠페인`,
+                adGroupName: `${cfg.grade}등급_그룹`,
+                dailyBudget: gradeBudget,
+                operationMode: opMode,
+                smartTargetingBid: smartBid,
+                nonSearchBid: 100,
+                targetRoas,
+                keywords: allKws,
+                products: productsForCampaign.map(a => ({ productId: a.productId, productName: a.name })),
+              });
+            }}
+            className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-[13px] font-bold transition-all hover:shadow-md"
+            style={{ background: cfg.color, color: "#fff" }}
+          >
+            <Megaphone size={13} /> 광고 등록
+          </button>
+        </div>
+      </div>
+
+      {/* 필터 + 검색 */}
+      <div className="px-3 py-2 flex flex-col gap-2 border-b" style={{ background: "var(--card-bg)", borderColor: "var(--border-subtle)" }}>
+        <div className="flex rounded-md p-0.5" style={{ background: "var(--surface-sunken)" }}>
+          {([
+            { key: "all" as const, label: `전체 ${products.length}` },
+            { key: "ad" as const, label: `광고중 ${adProducts.length}` },
+            { key: "noad" as const, label: `미광고 ${noAdProducts.length}` },
+          ]).map(f => (
+            <button key={f.key}
+              onClick={() => { setAdFilter(f.key); setPage(0); }}
+              className="flex-1 px-1 py-1 text-[10px] font-semibold rounded transition-all text-center"
+              style={adFilter === f.key ? { background: cfg.color, color: "#fff" } : { color: "var(--text-tertiary)" }}>
+              {f.label}
+            </button>
+          ))}
+        </div>
+        <div className="relative">
+          <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2" style={{ color: "var(--text-quaternary)" }} />
+          <input
+            type="text" placeholder="상품명 검색..."
+            value={search}
+            onChange={e => { setSearch(e.target.value); setPage(0); }}
+            className="w-full pl-7 pr-2 py-1.5 rounded-md text-[12px]"
+            style={{ background: "var(--surface-sunken)", border: "1px solid var(--border-subtle)", color: "var(--text-primary)" }}
+          />
+        </div>
+      </div>
+
+      {/* 상품 목록 */}
+      <div style={{ background: "var(--card-bg)" }}>
+        {paged.length === 0 ? (
+          <div className="p-4 text-center text-[12px]" style={{ color: "var(--text-tertiary)" }}>
+            {search ? "검색 결과 없음" : "상품 없음"}
+          </div>
+        ) : (
+          <div className="divide-y" style={{ borderColor: "var(--border-subtle)" }}>
+            {paged.map((p) => {
+              const action = allGradeActions.find(a => a.productId === p.id);
+              if (action) {
+                return (
+                  <ProductStrategyRow
+                    key={p.id}
+                    action={action}
+                    gradeBudget={gradeBudget}
+                    gradeCount={allGradeActions.length || 1}
+                    color={cfg.color}
+                    expanded={expandedId === p.id}
+                    onToggle={() => setExpandedId(prev => prev === p.id ? null : p.id)}
+                    isNew={!action.isExisting}
+                  />
+                );
+              }
+              return (
+                <div key={p.id} className="flex items-center gap-3 px-4 py-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[14px] font-semibold truncate" style={{ color: "var(--text-primary)" }}>{p.name}</div>
+                    {p.t14 && p.t14.revenue > 0 && (
+                      <div className="text-[12px] tabular-nums mt-0.5" style={{ color: "var(--text-tertiary)" }}>
+                        14일 매출 {formatKRW(p.t14.revenue)}원
+                      </div>
+                    )}
+                  </div>
+                  {p.adTier ? (
+                    <span className="shrink-0 px-2.5 py-1 rounded-lg text-[12px] font-bold" style={{ background: `${cfg.color}15`, color: cfg.color }}>
+                      광고중 {p.adTier}
+                    </span>
+                  ) : (
+                    <Link href="/ads" className="shrink-0 px-2.5 py-1 rounded-lg text-[12px] font-bold bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors">
+                      광고 등록
+                    </Link>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* 페이지네이션 */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between px-4 py-2.5 border-t" style={{ background: "var(--card-bg)", borderColor: "var(--border-subtle)" }}>
+          <button
+            onClick={() => setPage(p => Math.max(0, p - 1))}
+            disabled={page === 0}
+            className="flex items-center gap-1 text-[13px] font-semibold disabled:opacity-30 transition-colors"
+            style={{ color: "var(--text-secondary)" }}
+          >
+            <ChevronLeft size={15} /> 이전
+          </button>
+          <span className="text-[12px]" style={{ color: "var(--text-tertiary)" }}>
+            {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, filtered.length)} / {filtered.length}개
+          </span>
+          <button
+            onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+            disabled={page >= totalPages - 1}
+            className="flex items-center gap-1 text-[13px] font-semibold disabled:opacity-30 transition-colors"
+            style={{ color: "var(--text-secondary)" }}
+          >
+            다음 <ChevronRight size={15} />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function StrategyContent({
   strategy,
@@ -162,6 +424,8 @@ export default function StrategyContent({
   onGradeSearch,
   onSelectGrade,
   onOpenRegisterModal,
+  onAiRefresh,
+  isAiRefreshing,
 }: StrategyContentProps) {
   const stratActions = strategy?.actions || [];
 
@@ -178,7 +442,7 @@ export default function StrategyContent({
               onChange={e => {
                 const raw = e.target.value.replace(/[^0-9]/g, "");
                 const num = parseInt(raw) || 0;
-                onBudgetChange(num, num.toLocaleString());
+                onBudgetChange(num, formatNumber(num));
               }}
               className="w-32 text-right pr-8 pl-3 py-1.5 rounded-lg text-[15px] font-black tabular-nums"
               style={{ background: "var(--surface-sunken)", border: "1.5px solid var(--primary)", color: "var(--text-primary)" }}
@@ -192,10 +456,19 @@ export default function StrategyContent({
           <div style={{ width: "10%", background: "linear-gradient(90deg, #ef4444, #f87171)" }} />
         </div>
         <div className="flex gap-3 text-[10px] font-semibold shrink-0" style={{ color: "var(--text-secondary)" }}>
-          <span><span className="inline-block w-2 h-2 rounded-full bg-emerald-500 mr-1" />A {Math.round(totalBudget * 0.65).toLocaleString()}</span>
-          <span><span className="inline-block w-2 h-2 rounded-full bg-amber-500 mr-1" />B {Math.round(totalBudget * 0.25).toLocaleString()}</span>
-          <span><span className="inline-block w-2 h-2 rounded-full bg-red-500 mr-1" />C {Math.round(totalBudget * 0.1).toLocaleString()}</span>
+          <span><span className="inline-block w-2 h-2 rounded-full bg-emerald-500 mr-1" />A {formatNumber(Math.round(totalBudget * 0.65))}</span>
+          <span><span className="inline-block w-2 h-2 rounded-full bg-amber-500 mr-1" />B {formatNumber(Math.round(totalBudget * 0.25))}</span>
+          <span><span className="inline-block w-2 h-2 rounded-full bg-red-500 mr-1" />C {formatNumber(Math.round(totalBudget * 0.1))}</span>
         </div>
+        <button
+          onClick={onAiRefresh}
+          disabled={isAiRefreshing}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold shrink-0 disabled:opacity-60"
+          style={{ background: "#7c3aed", color: "#fff" }}
+        >
+          {isAiRefreshing ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
+          {isAiRefreshing ? "AI 분석 중..." : "AI 전략 분석"}
+        </button>
         <button
           onClick={() => exportCampaignXlsx("all", strategy?.actions || [], totalBudget)}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold text-white shrink-0"
@@ -208,189 +481,22 @@ export default function StrategyContent({
       {/* ═══ 2. ABC 캠페인 카드 ═══ */}
       <div className="grid grid-cols-3 gap-3">
         {GRADE_CONFIGS.map(cfg => {
-          const isSelected = selectedGrade === cfg.grade;
           const allGradeActions = stratActions.filter(a => a.grade === cfg.grade);
-          const existingActions = allGradeActions.filter(a => a.isExisting);
-          const newActions = allGradeActions.filter(a => !a.isExisting);
           const gradeBudget = Math.round(totalBudget * cfg.budgetPct / 100);
           const urgentGradeCount = allGradeActions.filter(a => a.actionPriority === "urgent").length;
 
-          const recommendedActions = cfg.grade === "C"
-            ? allGradeActions.filter(a => a.isExisting || a.actionPriority === "urgent" || a.actionPriority === "high" || a.currentRoas > 0)
-            : [];
-
-          const filter = gradeFilter[cfg.grade] || "all";
-          const search = (gradeSearch[cfg.grade] || "").toLowerCase();
-          let filteredActions = filter === "existing" ? existingActions
-            : filter === "new" ? newActions
-            : filter === "recommended" ? recommendedActions
-            : allGradeActions;
-          if (search) filteredActions = filteredActions.filter(a => a.name.toLowerCase().includes(search));
-          const maxShow = cfg.grade === "C" ? 50 : 200;
-          const hasMore = filteredActions.length > maxShow;
-          const displayActions = filteredActions.slice(0, maxShow);
-
           return (
-            <div key={cfg.grade} className={`rounded-2xl overflow-hidden border-2 ${cfg.border} transition-all flex flex-col ${isSelected ? `ring-2 ${cfg.ring} shadow-xl` : "hover:shadow-lg"}`}>
-              <button onClick={() => onSelectGrade(isSelected ? null : cfg.grade)} className={`w-full text-left bg-gradient-to-r ${cfg.headerGrad} px-4 py-3`}>
-                <div className="flex items-center gap-2.5 mb-2">
-                  <span className="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center text-lg font-black text-white">{cfg.grade}</span>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[14px] font-bold text-white leading-tight truncate">{cfg.title}</div>
-                    <div className="text-[12px] text-white/60 truncate">{cfg.subtitle}</div>
-                  </div>
-                  <ChevronDown size={15} className={`text-white/60 transition-transform shrink-0 ${isSelected ? "rotate-180" : ""}`} />
-                </div>
-                <div className="text-xl font-black text-white tabular-nums mb-1.5">{gradeBudget.toLocaleString()}<span className="text-[13px] font-semibold text-white/50 ml-1">원/일</span></div>
-                <div className="flex flex-wrap items-center gap-1">
-                  {urgentGradeCount > 0 && <span className="px-1.5 py-0.5 bg-red-500/80 rounded text-[11px] font-bold text-white">긴급 {urgentGradeCount}</span>}
-                  <span className="px-1.5 py-0.5 bg-white/20 rounded text-[11px] font-bold text-white">기존 {existingActions.length}</span>
-                  <span className="px-1.5 py-0.5 bg-white/10 rounded text-[11px] font-bold text-white/70">신규 {newActions.length}</span>
-                </div>
-              </button>
-
-              <div className="px-4 py-3 space-y-2" style={{ background: "var(--card-bg)", borderBottom: isSelected ? "1px solid var(--border-subtle)" : "none" }}>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>캠페인 유형</div>
-                    <div className="text-[14px] font-bold" style={{ color: "var(--text-primary)" }}>{cfg.campaignType}</div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>목표 ROAS</div>
-                    <div className="text-[17px] font-black" style={{ color: cfg.color }}>{cfg.targetRoasLabel}</div>
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-1">
-                  <span className="px-1.5 py-0.5 rounded text-[11px] font-bold" style={{ background: `${cfg.color}15`, color: cfg.color }}>메인 {cfg.bidGuide.main}원</span>
-                  <span className="px-1.5 py-0.5 rounded text-[11px] font-bold" style={{ background: "var(--surface-sunken)", color: "var(--text-secondary)" }}>서브 {cfg.bidGuide.sub}원</span>
-                  <span className="px-1.5 py-0.5 rounded text-[11px] font-bold" style={{ background: "var(--surface-sunken)", color: "var(--text-tertiary)" }}>롱테일 {cfg.bidGuide.longtail}원</span>
-                </div>
-                <button
-                  onClick={(e) => { e.stopPropagation(); exportCampaignXlsx(cfg.grade, allGradeActions, gradeBudget); }}
-                  className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-[13px] font-bold transition-all hover:shadow-md"
-                  style={{ background: `${cfg.color}12`, color: cfg.color, border: `1px solid ${cfg.color}25` }}
-                >
-                  <FileSpreadsheet size={13} /> XLSX 내보내기
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    const validBids = allGradeActions.filter(a => a.maxBidPrice > 0).map(a => a.maxBidPrice);
-                    const smartBid = validBids.length > 0
-                      ? Math.round(validBids.reduce((s, b) => s + b, 0) / validBids.length)
-                      : (cfg.grade === "A" ? 800 : cfg.grade === "B" ? 500 : 300);
-                    const targetRoas = allGradeActions[0]?.targetRoas
-                      || parseInt(cfg.targetRoasLabel.match(/\d+/)?.[0] || "350");
-                    const avgRoas = allGradeActions.reduce((s, a) => s + a.currentRoas, 0) / (allGradeActions.length || 1);
-                    const opMode = avgRoas >= 300 && cfg.grade === "A" ? "자동운영_매출최적화" : "직접입력";
-                    const priorityOrder: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 };
-                    const productsForCampaign = allGradeActions
-                      .filter(a => a.action !== "stop")
-                      .sort((a, b) => (priorityOrder[a.actionPriority] ?? 2) - (priorityOrder[b.actionPriority] ?? 2))
-                      .slice(0, 20);
-                    const allKws = allGradeActions
-                      .flatMap(a => [...(a.suggestedKeywords?.main || []), ...(a.keywords || [])])
-                      .filter((k, i, arr) => k && arr.indexOf(k) === i)
-                      .slice(0, 10)
-                      .map(kw => ({ keyword: kw, bidPrice: smartBid || 100 }));
-                    onOpenRegisterModal({
-                      grade: cfg.grade,
-                      color: cfg.color,
-                      campaignName: `${cfg.grade}등급_캠페인`,
-                      adGroupName: `${cfg.grade}등급_그룹`,
-                      dailyBudget: gradeBudget,
-                      operationMode: opMode,
-                      smartTargetingBid: smartBid,
-                      nonSearchBid: 100,
-                      targetRoas,
-                      keywords: allKws,
-                      products: productsForCampaign.map(a => ({ productId: a.productId, productName: a.name })),
-                    });
-                  }}
-                  className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-[13px] font-bold transition-all hover:shadow-md"
-                  style={{ background: cfg.color, color: "#fff" }}
-                >
-                  <Megaphone size={13} /> 광고 등록
-                </button>
-              </div>
-
-              {isSelected && (
-                <>
-                  <div className="px-3 py-2 flex flex-col gap-2" style={{ background: "var(--card-bg)", borderBottom: "1px solid var(--border-subtle)" }}>
-                    <div className="flex rounded-md p-0.5" style={{ background: "var(--surface-sunken)" }}>
-                      {([
-                        { key: "all" as const, label: `전체 ${allGradeActions.length}` },
-                        { key: "existing" as const, label: `기존 ${existingActions.length}` },
-                        { key: "new" as const, label: `신규 ${newActions.length}` },
-                        ...(cfg.grade === "C" ? [{ key: "recommended" as const, label: `추천 ${recommendedActions.length}` }] : []),
-                      ]).map(f => (
-                        <button key={f.key}
-                          onClick={(e) => { e.stopPropagation(); onGradeFilter(cfg.grade, f.key); }}
-                          className="flex-1 px-1 py-1 text-[10px] font-semibold rounded transition-all text-center"
-                          style={filter === f.key ? { background: cfg.color, color: "#fff" } : { color: "var(--text-tertiary)" }}>
-                          {f.label}
-                        </button>
-                      ))}
-                    </div>
-                    <div className="relative">
-                      <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2" style={{ color: "var(--text-quaternary)" }} />
-                      <input
-                        type="text" placeholder="검색..."
-                        value={gradeSearch[cfg.grade] || ""}
-                        onChange={e => onGradeSearch(cfg.grade, e.target.value)}
-                        className="w-full pl-7 pr-2 py-1.5 rounded-md text-[11px]"
-                        style={{ background: "var(--surface-sunken)", border: "1px solid var(--border-subtle)", color: "var(--text-primary)" }}
-                        onClick={e => e.stopPropagation()}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="max-h-[500px] overflow-y-auto flex-1" style={{ background: "var(--card-bg)" }}>
-                    {displayActions.length === 0 ? (
-                      <div className="p-4 text-center text-[11px]" style={{ color: "var(--text-tertiary)" }}>
-                        {search ? "검색 결과 없음" : "해당 상품 없음"}
-                      </div>
-                    ) : (
-                      <div>
-                        {filter === "all" && existingActions.length > 0 && newActions.length > 0 ? (
-                          <>
-                            <div className="px-3 py-1.5 flex items-center gap-1.5" style={{ background: `${cfg.color}08`, borderBottom: "1px solid var(--border-subtle)" }}>
-                              <span className="w-1.5 h-1.5 rounded-full" style={{ background: cfg.color }} />
-                              <span className="text-[10px] font-bold" style={{ color: cfg.color }}>기존 광고 상품 ({existingActions.length})</span>
-                            </div>
-                            <div className="divide-y" style={{ borderColor: "var(--border-subtle)" }}>
-                              {(search ? existingActions.filter(a => a.name.toLowerCase().includes(search)) : existingActions).slice(0, cfg.grade === "C" ? 30 : 100).map((a, i) => (
-                                <ProductStrategyRow key={`e${i}`} action={a} gradeBudget={gradeBudget} gradeCount={allGradeActions.length} color={cfg.color} expanded={expandedProduct === a.productId} onToggle={() => onExpandProduct(expandedProduct === a.productId ? null : a.productId)} compact />
-                              ))}
-                            </div>
-                            <div className="px-3 py-1.5 flex items-center gap-1.5" style={{ background: "rgba(99,102,241,0.06)", borderTop: "2px solid var(--border-subtle)", borderBottom: "1px solid var(--border-subtle)" }}>
-                              <Sparkles size={11} style={{ color: "#6366f1" }} />
-                              <span className="text-[10px] font-bold" style={{ color: "#6366f1" }}>신규 편입 ({newActions.length})</span>
-                            </div>
-                            <div className="divide-y" style={{ borderColor: "var(--border-subtle)" }}>
-                              {(search ? newActions.filter(a => a.name.toLowerCase().includes(search)) : newActions).slice(0, cfg.grade === "C" ? 20 : 100).map((a, i) => (
-                                <ProductStrategyRow key={`n${i}`} action={a} gradeBudget={gradeBudget} gradeCount={allGradeActions.length} color={cfg.color} expanded={expandedProduct === a.productId} onToggle={() => onExpandProduct(expandedProduct === a.productId ? null : a.productId)} isNew compact />
-                              ))}
-                            </div>
-                          </>
-                        ) : (
-                          <div className="divide-y" style={{ borderColor: "var(--border-subtle)" }}>
-                            {displayActions.map((a, i) => (
-                              <ProductStrategyRow key={i} action={a} gradeBudget={gradeBudget} gradeCount={allGradeActions.length} color={cfg.color} expanded={expandedProduct === a.productId} onToggle={() => onExpandProduct(expandedProduct === a.productId ? null : a.productId)} isNew={!a.isExisting} compact />
-                            ))}
-                          </div>
-                        )}
-                        {hasMore && (
-                          <div className="px-3 py-2 text-center text-[10px]" style={{ color: "var(--text-tertiary)", borderTop: "1px solid var(--border-subtle)" }}>
-                            +{filteredActions.length - maxShow}개 더 있음
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </>
-              )}
-            </div>
+            <GradeCardPanel
+              key={cfg.grade}
+              cfg={cfg}
+              allGradeActions={allGradeActions}
+              gradeBudget={gradeBudget}
+              urgentGradeCount={urgentGradeCount}
+              expandedProduct={expandedProduct}
+              onExpandProduct={onExpandProduct}
+              onOpenRegisterModal={onOpenRegisterModal}
+              exportCampaignXlsx={exportCampaignXlsx}
+            />
           );
         })}
       </div>

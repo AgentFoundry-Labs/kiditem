@@ -76,6 +76,30 @@ export function useDeleteGeneration() {
   });
 }
 
+export function useReEditGeneration() {
+  const queryClient = useQueryClient();
+  const qKey = queryKeys.thumbnailAnalysis.generations();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiClient.post(`/api/thumbnail-analysis/generations/${id}/re-edit`, {}),
+    onMutate: async (id) => {
+      await queryClient.cancelQueries({ queryKey: qKey });
+      const previous = queryClient.getQueryData<ThumbnailGenerationItem[]>(qKey);
+      // 즉시 generating으로 낙관적 업데이트 (UI에서 생성 중 탭으로 이동)
+      queryClient.setQueryData<ThumbnailGenerationItem[]>(qKey, (old) =>
+        old?.map((g) => g.id === id ? { ...g, status: 'generating', candidates: [] } : g) ?? [],
+      );
+      return { previous };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previous) queryClient.setQueryData(qKey, context.previous);
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: qKey });
+    },
+  });
+}
+
 export function useCreateEditJobs() {
   const queryClient = useQueryClient();
   return useMutation({

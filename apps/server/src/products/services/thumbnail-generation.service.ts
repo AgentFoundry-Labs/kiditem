@@ -33,6 +33,24 @@ export class ThumbnailGenerationService {
     limit?: number;
   }): Promise<{ items: GenerationWithProduct[]; total: number; page: number; limit: number }> {
     try {
+      // after 이미지가 없거나 로컬 경로(서빙 불가)인 ready/applied edit 잡 → pending으로 리셋
+      // candidates가 비어있거나, 첫 번째 URL이 상대경로(로컬 파일, HTTP 서빙 안 됨)인 경우
+      await this.prisma.$executeRaw`
+        UPDATE thumbnail_generations
+        SET status = 'pending', selected_url = NULL
+        WHERE method = 'edit'
+          AND status IN ('ready', 'applied')
+          AND (
+            candidates = '[]'::jsonb
+            OR (
+              jsonb_array_length(candidates) > 0
+              AND candidates->0->>'url' LIKE '/%'
+            )
+          )
+      `.catch((err: unknown) => {
+        this.logger.warn(`after 이미지 없는 잡 리셋 실패: ${err instanceof Error ? err.message : err}`);
+      });
+
       const page = query.page ?? 1;
       const limit = query.limit ?? 50;
       const skip = (page - 1) * limit;

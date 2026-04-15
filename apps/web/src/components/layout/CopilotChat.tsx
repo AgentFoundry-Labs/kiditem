@@ -42,14 +42,9 @@ export default function CopilotChat({ children, onChatOpenChange }: CopilotChatP
         }}
       />
       <style>{`
-        .copilotKitButton {
-          width: 0 !important;
-          height: 0 !important;
-          overflow: hidden !important;
-          opacity: 0 !important;
-          position: fixed !important;
-          bottom: 0 !important;
-          right: 0 !important;
+        .copilotKitButton,
+        .copilotKitButton * {
+          display: none !important;
         }
       `}</style>
     </CopilotKit>

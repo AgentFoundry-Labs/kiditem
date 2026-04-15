@@ -187,32 +187,66 @@ export class AdCampaignsService {
     }
   }
 
-  async getTrends(days?: number) {
+  private periodToDays(period?: '7d' | '14d' | 'month', fallback = 14): number {
+    if (period === '7d') return 7;
+    if (period === 'month') {
+      const now = new Date();
+      return Math.max(now.getDate(), 1);
+    }
+    return fallback; // '14d' or undefined
+  }
+
+  async getTrends(period?: '7d' | '14d' | 'month', days?: number) {
     try {
       const companyId = await this.getDefaultCompanyId();
-      const d = Math.min(days || 14, 90);
+      const d = period ? this.periodToDays(period) : Math.min(days || 14, 90);
 
       const since = new Date();
       since.setDate(since.getDate() - d);
       since.setHours(0, 0, 0, 0);
 
-      // 일별 집계
-      const ads = await this.prisma.ad.findMany({
-        where: { companyId, date: { gte: since } },
-        select: { date: true, spend: true, revenue: true, clicks: true, impressions: true, conversions: true },
+      // coupang_ads_daily 스냅샷 우선 사용, 없으면 Ad 테이블 fallback
+      const coupangAdsSnapshots = await this.prisma.adSnapshot.findMany({
+        where: { companyId, source: 'coupang_ads', pageType: 'dashboard_daily', date: { gte: since } },
+        select: { date: true, adSpend: true, adRevenue: true, clicks: true, impressions: true, conversions: true, roas: true, ctr: true, conversionRate: true },
         orderBy: { date: 'asc' },
       });
 
-      const dayMap = new Map<string, { spend: number; revenue: number; clicks: number; impressions: number; conversions: number }>();
-      for (const ad of ads) {
-        const key = ad.date.toISOString().slice(0, 10);
-        const prev = dayMap.get(key) || { spend: 0, revenue: 0, clicks: 0, impressions: 0, conversions: 0 };
-        prev.spend += ad.spend;
-        prev.revenue += ad.revenue;
-        prev.clicks += ad.clicks;
-        prev.impressions += ad.impressions;
-        prev.conversions += ad.conversions;
-        dayMap.set(key, prev);
+      const dayMap = new Map<string, { spend: number; revenue: number; clicks: number; impressions: number; conversions: number; roas?: number; ctr?: number; cvr?: number }>();
+
+      if (coupangAdsSnapshots.length > 0) {
+        // coupang_ads 데이터 사용
+        for (const snap of coupangAdsSnapshots) {
+          if (!snap.date) continue;
+          const key = snap.date.toISOString().slice(0, 10);
+          dayMap.set(key, {
+            spend: snap.adSpend,
+            revenue: snap.adRevenue,
+            clicks: snap.clicks,
+            impressions: snap.impressions,
+            conversions: snap.conversions,
+            roas: snap.roas ? Number(snap.roas) : undefined,
+            ctr: snap.ctr ? Number(snap.ctr) : undefined,
+            cvr: snap.conversionRate ? Number(snap.conversionRate) : undefined,
+          });
+        }
+      } else {
+        // 기존 Ad 테이블 fallback
+        const ads = await this.prisma.ad.findMany({
+          where: { companyId, date: { gte: since } },
+          select: { date: true, spend: true, revenue: true, clicks: true, impressions: true, conversions: true },
+          orderBy: { date: 'asc' },
+        });
+        for (const ad of ads) {
+          const key = ad.date.toISOString().slice(0, 10);
+          const prev = dayMap.get(key) || { spend: 0, revenue: 0, clicks: 0, impressions: 0, conversions: 0 };
+          prev.spend += ad.spend;
+          prev.revenue += ad.revenue;
+          prev.clicks += ad.clicks;
+          prev.impressions += ad.impressions;
+          prev.conversions += ad.conversions;
+          dayMap.set(key, prev);
+        }
       }
 
       const daily = [...dayMap.entries()]
@@ -221,12 +255,12 @@ export class AdCampaignsService {
           label: `${parseInt(date.slice(5, 7))}/${parseInt(date.slice(8, 10))}`,
           spend: Math.round(data.spend),
           revenue: Math.round(data.revenue),
-          roas: data.spend > 0 ? Math.round((data.revenue / data.spend) * 100) : 0,
+          roas: data.roas !== undefined ? Math.round(data.roas) : (data.spend > 0 ? Math.round((data.revenue / data.spend) * 100) : 0),
           clicks: data.clicks,
           impressions: data.impressions,
           conversions: data.conversions,
-          ctr: data.impressions > 0 ? Math.round((data.clicks / data.impressions) * 10000) / 100 : 0,
-          cvr: data.clicks > 0 ? Math.round((data.conversions / data.clicks) * 10000) / 100 : 0,
+          ctr: data.ctr !== undefined ? data.ctr : (data.impressions > 0 ? Math.round((data.clicks / data.impressions) * 10000) / 100 : 0),
+          cvr: data.cvr !== undefined ? data.cvr : (data.clicks > 0 ? Math.round((data.conversions / data.clicks) * 10000) / 100 : 0),
         }))
         .sort((a, b) => a.date.localeCompare(b.date));
 
@@ -237,15 +271,20 @@ export class AdCampaignsService {
 
       const avg = (arr: typeof daily, key: 'roas' | 'spend' | 'revenue' | 'ctr' | 'cvr') =>
         arr.length > 0 ? Math.round(arr.reduce((s, item) => s + item[key], 0) / arr.length) : 0;
-      const sum = (arr: typeof daily, key: 'spend' | 'revenue' | 'clicks' | 'conversions') =>
+      const sum = (arr: typeof daily, key: 'spend' | 'revenue' | 'clicks' | 'conversions' | 'impressions') =>
         arr.reduce((s, item) => s + item[key], 0);
+
+      const avgFloat = (arr: typeof daily, key: 'roas' | 'ctr' | 'cvr') =>
+        arr.length > 0 ? Math.round((arr.reduce((s, item) => s + item[key], 0) / arr.length) * 100) / 100 : 0;
 
       const comparison = {
         roas: { before: avg(firstHalf, 'roas'), after: avg(secondHalf, 'roas'), change: avg(secondHalf, 'roas') - avg(firstHalf, 'roas') },
         spend: { before: sum(firstHalf, 'spend'), after: sum(secondHalf, 'spend'), change: sum(secondHalf, 'spend') - sum(firstHalf, 'spend') },
         revenue: { before: sum(firstHalf, 'revenue'), after: sum(secondHalf, 'revenue'), change: sum(secondHalf, 'revenue') - sum(firstHalf, 'revenue') },
-        ctr: { before: avg(firstHalf, 'ctr'), after: avg(secondHalf, 'ctr'), change: avg(secondHalf, 'ctr') - avg(firstHalf, 'ctr') },
-        cvr: { before: avg(firstHalf, 'cvr'), after: avg(secondHalf, 'cvr'), change: avg(secondHalf, 'cvr') - avg(firstHalf, 'cvr') },
+        impressions: { before: sum(firstHalf, 'impressions'), after: sum(secondHalf, 'impressions'), change: sum(secondHalf, 'impressions') - sum(firstHalf, 'impressions') },
+        clicks: { before: sum(firstHalf, 'clicks'), after: sum(secondHalf, 'clicks'), change: sum(secondHalf, 'clicks') - sum(firstHalf, 'clicks') },
+        ctr: { before: avgFloat(firstHalf, 'ctr'), after: avgFloat(secondHalf, 'ctr'), change: Math.round((avgFloat(secondHalf, 'ctr') - avgFloat(firstHalf, 'ctr')) * 100) / 100 },
+        cvr: { before: avgFloat(firstHalf, 'cvr'), after: avgFloat(secondHalf, 'cvr'), change: Math.round((avgFloat(secondHalf, 'cvr') - avgFloat(firstHalf, 'cvr')) * 100) / 100 },
         conversions: { before: sum(firstHalf, 'conversions'), after: sum(secondHalf, 'conversions'), change: sum(secondHalf, 'conversions') - sum(firstHalf, 'conversions') },
       };
 
@@ -274,7 +313,7 @@ export class AdCampaignsService {
         { grade: 'C', spend: Math.round(gradeDist.C.spend), revenue: Math.round(gradeDist.C.revenue), pct: totalGradeSpend > 0 ? Math.round((gradeDist.C.spend / totalGradeSpend) * 100) : 0, target: allocation.C || 10, roas: gradeDist.C.spend > 0 ? Math.round((gradeDist.C.revenue / gradeDist.C.spend) * 100) : 0 },
       ];
 
-      return { daily, comparison, budgetAllocation, days: d };
+      return { daily, comparison, budgetAllocation, days: d, period: period ?? '14d' };
     } catch (e) {
       if (e instanceof InternalServerErrorException) throw e;
       throw new InternalServerErrorException('트렌드 데이터 조회 실패');

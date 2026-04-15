@@ -15,7 +15,7 @@
   "content_scripts": [
     {
       "matches": ["https://wing.coupang.com/*"],
-      "js": ["content/wing-unified.js"],
+      "js": ["utils/dom.js", "content/wing-unified.js"],
       "run_at": "document_idle"
     },
     {
@@ -25,7 +25,7 @@
     },
     {
       "matches": ["https://advertising.coupang.com/*"],
-      "js": ["content/ads-report.js"],
+      "js": ["utils/dom.js", "content/ads-report.js"],
       "run_at": "document_idle"
     }
   ],

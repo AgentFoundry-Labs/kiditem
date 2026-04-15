@@ -166,6 +166,7 @@ model Product {
   shippingCost   Int?     @map("shipping_cost")
   otherCost      Int?     @default(0) @map("other_cost")
   abcGrade       String?  @map("abc_grade")
+  profitTag      String?  @map("profit_tag")
   adTier         String?  @map("ad_tier")
   adBudgetLimit  Int?     @map("ad_budget_limit")
 
@@ -1645,7 +1646,7 @@ model TrafficStats {
   orders         Int      @default(0)
   salesQty       Int      @default(0) @map("sales_qty")
   revenue        Int      @default(0)
-  conversionRate Decimal  @default(0) @map("conversion_rate") @db.Decimal(5, 4)
+  conversionRate Decimal  @default(0) @map("conversion_rate") @db.Decimal(5, 2)
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
