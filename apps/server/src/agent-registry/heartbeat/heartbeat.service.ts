@@ -330,9 +330,9 @@ export class HeartbeatService {
     }
 
     // 결과 저장
-    const status = result.timedOut ? 'timed_out'
-      : result.exitCode === 0 ? 'succeeded'
-      : 'failed';
+    const status = result.exitCode === 0 ? 'succeeded' : 'failed';
+    const failureType = result.timedOut ? 'timeout' : null;
+    // Note: errorCode (line ~337) unchanged — operator triage.
 
     let errorCode = result.timedOut ? 'timeout'
       : result.exitCode !== 0 ? 'process_error'
@@ -396,6 +396,7 @@ export class HeartbeatService {
       where: { id: run.id },
       data: {
         status,
+        failureType,
         finishedAt: new Date(),
         exitCode: result.exitCode,
         signal: result.signal,
@@ -453,7 +454,8 @@ export class HeartbeatService {
     });
 
     // Runtime state 업데이트 (에러 복구 캐스케이드 포함)
-    const isFailed = status === 'failed' || status === 'timed_out';
+    const isFailed = status === 'failed';
+    // 'timed_out' → 'failed' subset (failureType='timeout'). Auto-pause logic unchanged.
     const prevFailCount = (agentWithRt as any)?.rtConsecutiveFailCount ?? 0;
     const newFailCount = isFailed ? prevFailCount + 1 : 0;
 

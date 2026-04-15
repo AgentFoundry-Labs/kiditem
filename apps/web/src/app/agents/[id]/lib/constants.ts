@@ -5,8 +5,11 @@ export const RUN_STATUS_ICONS: Record<string, { icon: typeof CheckCircle2; color
   failed: { icon: XCircle, colorClass: 'text-red-600' },
   running: { icon: Loader2, colorClass: 'text-cyan-600' },
   queued: { icon: Clock, colorClass: 'text-yellow-600' },
-  timed_out: { icon: Timer, colorClass: 'text-orange-600' },
   cancelled: { icon: Slash, colorClass: 'text-gray-500' },
+};
+
+export const FAILURE_TYPE_ICONS: Record<string, { icon: typeof Timer; colorClass: string }> = {
+  timeout: { icon: Timer, colorClass: 'text-orange-600' },
 };
 
 export const SOURCE_BADGE_COLORS: Record<string, string> = {

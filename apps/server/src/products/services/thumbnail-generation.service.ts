@@ -163,6 +163,7 @@ export class ThumbnailGenerationService {
     companyId: string;
     originalUrl: string | null;
     candidates: Array<{ url: string; filename: string }>;
+    method?: string;
   }): Promise<string | null> {
     try {
       const gen = await this.prisma.thumbnailGeneration.create({
@@ -172,7 +173,7 @@ export class ThumbnailGenerationService {
           originalUrl: params.originalUrl,
           candidates: params.candidates,
           status: 'ready',
-          method: 'generate',
+          method: params.method ?? 'generate',
           grade: '-',
           score: 0,
         },

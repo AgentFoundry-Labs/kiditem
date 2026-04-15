@@ -6,14 +6,14 @@ import { cn, formatDateTime } from '@/lib/utils';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { relativeTime, formatTokens, formatCost, formatDuration } from '../../lib/agent-utils';
 import { SOURCE_LABELS } from '../../lib/agent-types';
-import { RUN_STATUS_ICONS, SOURCE_BADGE_COLORS } from '../lib/constants';
+import { RUN_STATUS_ICONS, FAILURE_TYPE_ICONS, SOURCE_BADGE_COLORS } from '../lib/constants';
 import type { HeartbeatRun } from '../../lib/agent-types';
 
 function RunDetail({ run }: { run: HeartbeatRun }) {
   const inputTokens = (run.usageJson?.inputTokens as number | undefined) ?? 0;
   const outputTokens = (run.usageJson?.outputTokens as number | undefined) ?? 0;
   const costCents = (run.usageJson?.costCents as number | undefined) ?? 0;
-  const statusInfo = RUN_STATUS_ICONS[run.status] ?? { icon: Clock, colorClass: 'text-slate-400' };
+  const statusInfo = (run.failureType ? FAILURE_TYPE_ICONS[run.failureType] : undefined) ?? RUN_STATUS_ICONS[run.status] ?? { icon: Clock, colorClass: 'text-slate-400' };
   const StatusIcon = statusInfo.icon;
   const [stdoutOpen, setStdoutOpen] = useState(true);
   const [stderrOpen, setStderrOpen] = useState(true);
@@ -178,7 +178,7 @@ export function RunsTab({
         <div className="overflow-y-auto max-h-[600px]">
           {sorted.map((run) => {
             const isSelected = effectiveSelectedId === run.id;
-            const statusInfo = RUN_STATUS_ICONS[run.status] ?? { icon: Clock, colorClass: 'text-slate-400' };
+            const statusInfo = (run.failureType ? FAILURE_TYPE_ICONS[run.failureType] : undefined) ?? RUN_STATUS_ICONS[run.status] ?? { icon: Clock, colorClass: 'text-slate-400' };
             const StatusIcon = statusInfo.icon;
             const sourceBadgeClass = SOURCE_BADGE_COLORS[run.invocationSource] ?? 'bg-slate-100 text-slate-600';
 

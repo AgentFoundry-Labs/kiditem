@@ -10,7 +10,6 @@ const TIMELINE_BLOCK_COLORS: Record<string, string> = {
   succeeded: 'bg-green-400',
   failed: 'bg-red-400',
   running: 'bg-blue-400 animate-pulse',
-  timed_out: 'bg-orange-400',
   queued: 'bg-violet-400',
   cancelled: 'bg-slate-300',
 };
@@ -134,7 +133,7 @@ export function TimelineView({ runs, timeRange }: { runs: RunWithAgent[]; timeRa
                     : runStart + 60_000;
                 const leftPct = Math.max(0, ((runStart - range.start) / span) * 100);
                 const widthPct = Math.max(0.5, ((runEnd - runStart) / span) * 100);
-                const blockColor = TIMELINE_BLOCK_COLORS[run.status] ?? TIMELINE_BLOCK_DEFAULT;
+                const blockColor = run.failureType === 'timeout' ? 'bg-orange-400' : (TIMELINE_BLOCK_COLORS[run.status] ?? TIMELINE_BLOCK_DEFAULT);
 
                 if (leftPct > 100) return null;
 

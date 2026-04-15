@@ -14,7 +14,7 @@ import { cn } from '@/lib/utils';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { relativeTime, formatTokens, formatCost, formatDuration } from '../../lib/agent-utils';
 import { SOURCE_LABELS } from '../../lib/agent-types';
-import { RUN_STATUS_ICONS, SOURCE_BADGE_COLORS } from '../lib/constants';
+import { RUN_STATUS_ICONS, FAILURE_TYPE_ICONS, SOURCE_BADGE_COLORS } from '../lib/constants';
 import type { Agent, HeartbeatRun, AgentRuntimeState } from '../../lib/agent-types';
 
 function buildRunActivity(runs: HeartbeatRun[], days: number) {
@@ -30,7 +30,7 @@ function buildRunActivity(runs: HeartbeatRun[], days: number) {
       date: dateStr,
       total: dayRuns.length,
       succeeded: dayRuns.filter(r => r.status === 'succeeded').length,
-      failed: dayRuns.filter(r => r.status === 'failed' || r.status === 'timed_out').length,
+      failed: dayRuns.filter(r => r.status === 'failed').length,
     });
   }
   return result;
@@ -46,7 +46,7 @@ function computeSuccessRate(runs: HeartbeatRun[]): number {
 }
 
 function LatestRunCard({ run, isLive }: { run: HeartbeatRun; isLive: boolean }) {
-  const statusInfo = RUN_STATUS_ICONS[run.status] ?? { icon: Clock, colorClass: 'text-slate-400' };
+  const statusInfo = (run.failureType ? FAILURE_TYPE_ICONS[run.failureType] : undefined) ?? RUN_STATUS_ICONS[run.status] ?? { icon: Clock, colorClass: 'text-slate-400' };
   const StatusIcon = statusInfo.icon;
   const sourceBadgeClass = SOURCE_BADGE_COLORS[run.invocationSource] ?? 'bg-slate-100 text-slate-600';
 
@@ -131,9 +131,9 @@ export function DashboardTab({
   const sorted = [...runs].sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
   );
-  const liveRun = sorted.find((r) => r.status === 'running' || r.status === 'queued');
+  const liveRun = sorted.find((r) => r.status === 'running');
   const latestRun = liveRun ?? sorted[0] ?? null;
-  const isLive = latestRun?.status === 'running' || latestRun?.status === 'queued';
+  const isLive = latestRun?.status === 'running';
 
   // run activity last 14 days
   const activityData = buildRunActivity(runs, 14);
