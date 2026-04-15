@@ -2,6 +2,7 @@ import { Controller, Post, Body, BadRequestException, Logger } from '@nestjs/com
 import { ThumbnailAiService } from '../services/thumbnail-ai.service';
 import { ThumbnailGenerationService } from '../services/thumbnail-generation.service';
 import { ThumbnailEditorDto } from '../dto';
+import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
 
 @Controller('thumbnail-editor')
 export class ThumbnailEditorController {
@@ -13,48 +14,103 @@ export class ThumbnailEditorController {
   ) {}
 
   @Post('generate')
-  async generate(@Body() body: ThumbnailEditorDto) {
+  async generate(@Body() body: ThumbnailEditorDto, @CurrentCompany() companyId: string) {
+    const mode = body.mode ?? 'edit';
     const images: Array<{ data: string; mimeType: string; label: string }> = [];
     let product: { id: string; imageUrl: string | null; companyId: string } | null = null;
 
-    // productId가 있으면 product 조회 (DB 저장용)
     if (body.productId) {
       product = await this.generationService.findProductForEditor(body.productId);
     }
 
-    // 상품 사진 (필수 — base64 data URL 또는 http(s) URL)
-    if (body.productImage) {
-      const data = await this.resolveImage(body.productImage);
-      if (data) images.push({ ...data, label: 'Product photo' });
+    if (mode === 'creative') {
+      // ── Type 3: Creative AI Background ──
+      if (!body.productImage) {
+        throw new BadRequestException('Creative 모드에는 상품 사진이 필요합니다');
+      }
+
+      const productData = await this.resolveImage(body.productImage);
+      if (productData) images.push({ ...productData, label: 'Product photo' });
+
+      if (body.backgroundReference) {
+        const refData = await this.resolveImage(body.backgroundReference);
+        if (refData) images.push({ ...refData, label: 'Style reference' });
+      }
+
+      if (images.length === 0) {
+        throw new BadRequestException('상품 사진이 필요합니다');
+      }
+
+      const sceneType = body.sceneType ?? 'white-studio';
+      const styleType = body.styleType ?? 'minimal';
+
+      const results = await this.thumbnailAiService.generateCreative(
+        images,
+        sceneType,
+        styleType,
+        body.productDescription,
+        body.userPrompt,
+      );
+
+      let generationId: string | null = null;
+      if (product) {
+        generationId = await this.generationService.saveEditorResult({
+          productId: product.id,
+          companyId,
+          originalUrl: product.imageUrl,
+          candidates: results,
+          method: 'creative',
+        });
+      }
+
+      return { candidates: results, generationId };
     }
 
-    // 포장 사진 (옵션)
-    if (body.packagingImage) {
-      const data = await this.resolveImage(body.packagingImage);
-      if (data) images.push({ ...data, label: 'Product packaging photo' });
+    // ── Type 2: Compose (edit mode) ──
+    if (body.colorImages && body.colorImages.length > 0) {
+      // Type 2B: 색상별 상품 사진 배치
+      if (body.productImage) {
+        const mainData = await this.resolveImage(body.productImage);
+        if (mainData) images.push({ ...mainData, label: 'Main product' });
+      }
+
+      for (let i = 0; i < body.colorImages.length; i++) {
+        const data = await this.resolveImage(body.colorImages[i]);
+        if (data) images.push({ ...data, label: `Color variant ${i + 1}` });
+      }
+    } else {
+      // Type 2A: 상품 + 박스/보조 (기존 경로)
+      if (body.productImage) {
+        const data = await this.resolveImage(body.productImage);
+        if (data) images.push({ ...data, label: 'Product photo' });
+      }
+
+      if (body.packagingImage) {
+        const data = await this.resolveImage(body.packagingImage);
+        if (data) images.push({ ...data, label: body.supplementaryLabel ?? 'Product packaging' });
+      }
     }
 
     if (images.length === 0) {
       throw new BadRequestException('상품 사진이 필요합니다');
     }
 
-    // 구성 정보 텍스트
     const parts: string[] = [];
     if (body.pieceCount) parts.push(`${body.pieceCount}개입`);
     if (body.colorCount) parts.push(`${body.colorCount}가지 색상`);
     const composition = parts.length > 0 ? parts.join(', ') : undefined;
 
     const purpose = body.purpose === 'quality' ? 'quality' as const : 'compliance' as const;
-    const results = await this.thumbnailAiService.generateFromInputs(images, composition, purpose);
+    const results = await this.thumbnailAiService.generateFromInputs(images, composition, purpose, body.userPrompt);
 
-    // productId가 있으면 ThumbnailGeneration 레코드 저장
     let generationId: string | null = null;
     if (product) {
       generationId = await this.generationService.saveEditorResult({
         productId: product.id,
-        companyId: product.companyId,
+        companyId,
         originalUrl: product.imageUrl,
         candidates: results,
+        method: 'generate',
       });
     }
 
@@ -62,15 +118,12 @@ export class ThumbnailEditorController {
   }
 
   private async resolveImage(input: string): Promise<{ data: string; mimeType: string } | null> {
-    // base64 data URL
     const match = input.match(/^data:([^;]+);base64,(.+)$/);
     if (match) return { mimeType: match[1], data: match[2] };
 
-    // http(s) URL → fetch and convert
     if (input.startsWith('http')) {
       try {
-        const result = await this.thumbnailAiService.fetchImageAsBase64Public(input);
-        return result;
+        return await this.thumbnailAiService.fetchImageAsBase64Public(input);
       } catch (err) {
         this.logger.warn(`이미지 URL fetch 실패 (${input}): ${err instanceof Error ? err.message : err}`);
         return null;
