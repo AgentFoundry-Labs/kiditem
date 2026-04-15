@@ -35,7 +35,7 @@ export function ActivityFeed({
               const srcColor = SOURCE_COLORS[run.invocationSource] ?? 'bg-slate-100 text-slate-600';
               const badgeClass = statusBadge[run.status] ?? statusBadgeDefault;
               const isLast = idx === group.runs.length - 1;
-              const hasError = (run.status === 'failed' || run.status === 'timed_out') && (run.error || run.stderrExcerpt);
+              const hasError = run.status === 'failed' && (run.error || run.stderrExcerpt);
               const isExpanded = expandedRunId === run.id;
 
               return (

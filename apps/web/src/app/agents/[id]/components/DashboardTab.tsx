@@ -30,7 +30,7 @@ function buildRunActivity(runs: HeartbeatRun[], days: number) {
       date: dateStr,
       total: dayRuns.length,
       succeeded: dayRuns.filter(r => r.status === 'succeeded').length,
-      failed: dayRuns.filter(r => r.status === 'failed' || r.status === 'timed_out').length,
+      failed: dayRuns.filter(r => r.status === 'failed').length,
     });
   }
   return result;
@@ -131,9 +131,9 @@ export function DashboardTab({
   const sorted = [...runs].sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
   );
-  const liveRun = sorted.find((r) => r.status === 'running' || r.status === 'queued');
+  const liveRun = sorted.find((r) => r.status === 'running');
   const latestRun = liveRun ?? sorted[0] ?? null;
-  const isLive = latestRun?.status === 'running' || latestRun?.status === 'queued';
+  const isLive = latestRun?.status === 'running';
 
   // run activity last 14 days
   const activityData = buildRunActivity(runs, 14);

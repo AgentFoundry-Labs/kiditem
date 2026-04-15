@@ -1,6 +1,9 @@
 import { z } from 'zod';
 import { zIsoDate } from './common.js';
 
+export const HEARTBEAT_FAILURE_TYPES = ['timeout'] as const;
+export type HeartbeatFailureType = typeof HEARTBEAT_FAILURE_TYPES[number];
+
 // AgentRuntimeState — 에이전트 누적 상태
 // 출처: agent-registry.service.ts — Prisma AgentRuntimeState 직접 반환
 // ⚠️ Date fields: createdAt, updatedAt — Prisma Date → JSON string 자동 변환
@@ -81,7 +84,8 @@ export const HeartbeatRunSchema = z.object({
   agentId: z.string(),
   invocationSource: z.string(),
   triggerDetail: z.string().nullable(),
-  status: z.string(),
+  status: z.enum(['pending', 'running', 'succeeded', 'failed', 'cancelled']),
+  failureType: z.enum(HEARTBEAT_FAILURE_TYPES).nullable().optional(),
   startedAt: zIsoDate.nullable(),
   finishedAt: zIsoDate.nullable(),
   error: z.string().nullable(),
