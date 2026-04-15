@@ -35,7 +35,7 @@ function makeHeartbeat(id: string) {
     agentId: 'ag-1',
     invocationSource: 'on_demand',
     triggerDetail: null,
-    status: 'completed',
+    status: 'succeeded',
     startedAt: '2026-04-13T00:00:10.000Z',
     finishedAt: '2026-04-13T00:00:50.000Z',
     error: null,
