@@ -41,7 +41,6 @@ export class PanelSseClient {
     fetchEventSource(`${API_BASE}/api/panel/stream`, {
       signal: this.controller.signal,
       headers,
-      credentials: 'include',
       // visibility 변경 시 재연결 유도 (IMPORTANT #7)
       openWhenHidden: false,
       onmessage: (msg) => {

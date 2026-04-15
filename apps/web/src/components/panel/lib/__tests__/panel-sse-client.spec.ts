@@ -26,6 +26,12 @@ describe('PanelSseClient', () => {
         headers: expect.objectContaining({ 'x-dev-user-id': 'dev-user-uuid' }),
       }),
     );
+    // dev auth 는 헤더 기반이므로 credentials 필드는 보내지 않아야 한다
+    // (서버 CORS 미지원 + 쿠키 불필요). 재발 방지 회귀 테스트.
+    expect(fetchEventSource).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ credentials: expect.anything() }),
+    );
   });
 
   it('includes Last-Event-ID on reconnect', async () => {
