@@ -488,10 +488,33 @@ Remove all text overlays, watermarks, and decorative effects layered on top of t
 
 The final result should look like a professional studio product photo with soft, even lighting.`;
 
+  private readonly CREATIVE_PROMPT = `You are given product photos labeled below.{productDescriptionLine}
+
+Create a visually striking e-commerce thumbnail with the following direction:
+
+Scene: {sceneType}
+- "white-studio": Clean studio setup with subtle shadows and professional lighting
+- "lifestyle": Product placed in a natural home/lifestyle context
+- "outdoor": Product in an outdoor/nature setting
+- "concept": Artistic mood/concept backdrop with complementary colors
+
+Style: {styleType}
+- "minimal": Clean and minimal, focus on product
+- "warm": Warm, lived-in feel with soft natural lighting
+- "vivid": High-contrast, saturated product shot for maximum visibility
+- "luxury": Premium feel with rich textures and dramatic lighting
+
+Do not modify the product itself. Only the background and lighting environment.
+Keep the product as the clear focal point, filling approximately 70-80% of the frame.
+The background should complement the product, not compete with it.
+Preserve the original product colors faithfully.
+Do not add objects not present in the original photos.`;
+
   async generateFromInputs(
     images: Array<{ data: string; mimeType: string; label: string }>,
     composition: string | undefined,
     purpose: 'compliance' | 'quality',
+    userPrompt?: string,
   ): Promise<GeneratedImage[]> {
     try {
       const client = this.getClient();
@@ -530,9 +553,12 @@ The final result should look like a professional studio product photo with soft,
 
       // 프롬프트
       const compositionLine = composition ? ` Product composition: "${composition}"` : '';
-      const prompt = purpose === 'quality'
+      let prompt = purpose === 'quality'
         ? this.QUALITY_EDIT_PROMPT
         : this.GENERATE_PROMPT.replace('{compositionLine}', compositionLine);
+      if (userPrompt) {
+        prompt += `\n\nAdditional user instructions (apply only if they do not contradict the above):\n${userPrompt}`;
+      }
       inputParts.push({ text: prompt });
 
       const response = await client.models.generateContent({
@@ -561,6 +587,79 @@ The final result should look like a professional studio product photo with soft,
       return results;
     } catch (error) {
       this.logger.error(`썸네일 생성 실패: ${error instanceof Error ? error.message : error}`);
+      throw error;
+    }
+  }
+
+  async generateCreative(
+    images: Array<{ data: string; mimeType: string; label: string }>,
+    sceneType: string,
+    styleType: string,
+    productDescription?: string,
+    userPrompt?: string,
+  ): Promise<GeneratedImage[]> {
+    try {
+      const client = this.getClient();
+      const timestamp = Date.now();
+
+      const inputParts: Array<{ inlineData?: { data: string; mimeType: string }; text?: string }> = [];
+
+      // 입력 이미지 (레퍼런스 이미지 불포함 — creative는 자유 배경)
+      for (const img of images) {
+        inputParts.push({ text: `${img.label}:` });
+        inputParts.push({ inlineData: { data: img.data, mimeType: img.mimeType } });
+      }
+
+      // 배경 레퍼런스가 있으면 스타일 참고 지시 추가
+      const hasReference = images.some((img) => img.label === 'Style reference');
+      const refLine = hasReference
+        ? '\n\nA style reference image is provided above. Match its mood, color palette, and material feel for the background.'
+        : '';
+
+      // 프롬프트 조립
+      const productDescriptionLine = productDescription ? ` Product: "${productDescription}"` : '';
+      let prompt = this.CREATIVE_PROMPT
+        .replace('{productDescriptionLine}', productDescriptionLine)
+        .replace('{sceneType}', sceneType)
+        .replace('{styleType}', styleType);
+      prompt += refLine;
+
+      if (userPrompt) {
+        prompt += `\n\nAdditional user instructions (apply only if they do not contradict the above):\n${userPrompt}`;
+      }
+
+      inputParts.push({ text: prompt });
+
+      const response = await client.models.generateContent({
+        model: 'gemini-3.1-flash-image-preview',
+        contents: [{ role: 'user', parts: inputParts }],
+        config: {
+          responseModalities: ['TEXT', 'IMAGE'],
+          imageConfig: { aspectRatio: '1:1', imageSize: '2K' },
+        },
+      });
+
+      const results: GeneratedImage[] = [];
+      const parts = response.candidates?.[0]?.content?.parts ?? [];
+
+      for (let i = 0; i < parts.length; i++) {
+        const part = parts[i];
+        if (part.inlineData?.data) {
+          const filename = `creative_${timestamp}_${i}.png`;
+          const key = `generated-thumbnails/${filename}`;
+          const buffer = Buffer.from(part.inlineData.data, 'base64');
+          const url = await this.storage.save(key, buffer, 'image/png');
+          results.push({ url, filename });
+        }
+      }
+
+      if (results.length === 0) {
+        this.logger.warn('Gemini creative 생성 결과 없음');
+      }
+
+      return results;
+    } catch (error) {
+      this.logger.error(`Creative 생성 실패: ${error instanceof Error ? error.message : error}`);
       throw error;
     }
   }
