@@ -21,12 +21,13 @@ export class CompressorService {
     const maxChars = maxTokens * 4;
 
     const runs = await this.prisma.heartbeatRun.findMany({
-      where: { agentId, status: { in: ['succeeded', 'failed', 'timed_out'] } },
+      where: { agentId, status: { in: ['succeeded', 'failed'] } },
       orderBy: { finishedAt: 'desc' },
       take: 10,
       select: {
         finishedAt: true,
         status: true,
+        failureType: true,  // needed for label ternary
         resultJson: true,
         summary: true,
         isSummarized: true,
@@ -43,7 +44,11 @@ export class CompressorService {
     for (let i = 0; i < recentRuns.length; i++) {
       const r = recentRuns[i];
       const date = r.finishedAt?.toISOString().slice(0, 16).replace('T', ' ') ?? '?';
-      const statusLabel = r.status === 'succeeded' ? '성공' : r.status === 'failed' ? '실패' : '타임아웃';
+      const statusLabel =
+        r.status === 'succeeded' ? '성공' :
+        r.failureType === 'timeout' ? '타임아웃' :
+        r.status === 'failed' ? '실패' :
+        r.status;  // defensive fallback (pending/running/cancelled — shouldn't reach here due to WHERE)
 
       if (r.isSummarized || !r.resultJson) {
         parts.push(`[${i + 1}] ${date} (${statusLabel}): ${r.summary ?? r.errorCode ?? '결과 없음'}`);
