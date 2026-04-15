@@ -3,16 +3,9 @@ import type { PanelItem } from '@kiditem/shared';
 import { workflowPanelAdapter } from './workflow.adapter';
 
 /**
- * Normalize workflow-runner vocabulary to Panel enum.
- * workflow-runner writes 'completed'; Panel enum uses 'succeeded'.
- * Single source of truth — avoids drift across panel.service, workflows.service, workflow-runner.service.
- */
-export const normalizeWorkflowStatus = (s: string | null | undefined): string =>
-  s === 'completed' ? 'succeeded' : (s ?? 'pending');
-
-/**
- * Query WorkflowRun + template, normalize vocabulary, map to PanelRunItem.
- * Returns null if run missing or lacks companyId (legacy rows pre-Task 6).
+ * Query WorkflowRun + template, map to PanelRunItem.
+ * ADR-0011: WorkflowRun.status 는 이제 canonical. 정규화 불필요.
+ * Returns null if run missing or lacks companyId (legacy rows).
  */
 export async function buildWorkflowPanelItem(
   prisma: PrismaService,
@@ -26,14 +19,14 @@ export async function buildWorkflowPanelItem(
 
   const steps = Array.isArray(run.steps)
     ? (run.steps as Array<{ status?: string }>).map((s) => ({
-        status: normalizeWorkflowStatus(s?.status),
+        status: s?.status ?? 'pending',
       }))
     : [];
 
   const item = workflowPanelAdapter.mapToItem(
     {
       id: run.id,
-      status: normalizeWorkflowStatus(run.status),
+      status: run.status,
       templateName: run.template?.name ?? '',
       steps,
       parentRunId: null,

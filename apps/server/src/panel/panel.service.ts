@@ -2,7 +2,6 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import type { PanelItem } from '@kiditem/shared';
 import { workflowPanelAdapter } from './adapters/workflow.adapter';
-import { normalizeWorkflowStatus } from './adapters/workflow-run-mapper';
 
 @Injectable()
 export class PanelService {
@@ -36,7 +35,7 @@ export class PanelService {
       // steps는 JsonValue. 배열 여부 체크 후 narrowing
       const steps = Array.isArray(run.steps)
         ? (run.steps as Array<{ status?: string }>).map((s) => ({
-            status: normalizeWorkflowStatus(s?.status),
+            status: s?.status ?? 'pending',
           }))
         : [];
 
@@ -44,7 +43,7 @@ export class PanelService {
         workflowPanelAdapter.mapToItem(
           {
             id: run.id,
-            status: normalizeWorkflowStatus(run.status),
+            status: run.status,
             templateName: run.template?.name ?? '',
             steps,
             parentRunId: null,

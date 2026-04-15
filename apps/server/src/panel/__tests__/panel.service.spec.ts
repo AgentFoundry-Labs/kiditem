@@ -74,23 +74,15 @@ describe('PanelService', () => {
     );
   });
 
-  it('normalizes "completed" run status to "succeeded"', async () => {
-    prisma.workflowRun.findMany.mockResolvedValue([
-      { id: 'r1', status: 'completed', template: { name: 'Done' }, steps: [], triggeredByUserId: null, createdAt: new Date() },
-    ]);
-    const items = await service.snapshot('co-1', 'user-a');
-    expect(items[0]).toMatchObject({ status: 'succeeded' });
-  });
-
-  it('normalizes "completed" step status to "succeeded" for progress calc', async () => {
+  it('computes progress subtitle from succeeded step count', async () => {
     prisma.workflowRun.findMany.mockResolvedValue([
       {
         id: 'r1',
         status: 'running',
         template: { name: 'Progress' },
         steps: [
-          { status: 'completed' },
-          { status: 'completed' },
+          { status: 'succeeded' },
+          { status: 'succeeded' },
           { status: 'pending' },
         ],
         triggeredByUserId: null,
