@@ -3,6 +3,7 @@ import { NotFoundException } from '@nestjs/common';
 import { ThumbnailAnalysisService } from '../thumbnail-analysis.service';
 import { ThumbnailGenerationService } from '../thumbnail-generation.service';
 import { ThumbnailAiService } from '../thumbnail-ai.service';
+import { expectValidInvariant } from './helpers';
 
 // ── Prisma mock factory ──────────────────────────────────────────────────────
 
@@ -512,7 +513,7 @@ describe('ThumbnailGenerationService', () => {
 
   describe('selectCandidate', () => {
     it('updates selectedUrl and returns updated record', async () => {
-      const existingRecord = { id: 'gen-1', status: 'ready' };
+      const existingRecord = { id: 'gen-1', status: 'succeeded', phase: 'ready' };
       prisma.thumbnailGeneration.findUnique.mockResolvedValue(existingRecord);
 
       const updatedRecord = {
@@ -522,7 +523,8 @@ describe('ThumbnailGenerationService', () => {
         originalUrl: 'https://example.com/orig.jpg',
         candidates: [],
         selectedUrl: '/generated-thumbnails/chosen.png',
-        status: 'ready',
+        status: 'succeeded',
+        phase: 'ready',
         grade: '',
         score: 0,
         prompt: null,
@@ -537,10 +539,11 @@ describe('ThumbnailGenerationService', () => {
       expect(prisma.thumbnailGeneration.update).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { id: 'gen-1' },
-          data: { selectedUrl: '/generated-thumbnails/chosen.png', status: 'ready' },
+          data: { status: 'succeeded', phase: 'ready', selectedUrl: '/generated-thumbnails/chosen.png' },
         }),
       );
       expect(result.selectedUrl).toBe('/generated-thumbnails/chosen.png');
+      expectValidInvariant(result);
     });
 
     it('throws NotFoundException when generation not found', async () => {
@@ -552,7 +555,7 @@ describe('ThumbnailGenerationService', () => {
 
   describe('applyGeneration', () => {
     it('marks status="applied"', async () => {
-      const existingRecord = { id: 'gen-1', status: 'ready' };
+      const existingRecord = { id: 'gen-1', status: 'succeeded', phase: 'ready' };
       prisma.thumbnailGeneration.findUnique.mockResolvedValue(existingRecord);
 
       const appliedRecord = {
@@ -562,7 +565,8 @@ describe('ThumbnailGenerationService', () => {
         originalUrl: null,
         candidates: [],
         selectedUrl: '/generated-thumbnails/chosen.png',
-        status: 'applied',
+        status: 'succeeded',
+        phase: 'applied',
         grade: '',
         score: 0,
         prompt: null,
@@ -575,9 +579,11 @@ describe('ThumbnailGenerationService', () => {
       const result = await service.applyGeneration('gen-1');
 
       expect(prisma.thumbnailGeneration.update).toHaveBeenCalledWith(
-        expect.objectContaining({ data: { status: 'applied' } }),
+        expect.objectContaining({ data: { status: 'succeeded', phase: 'applied' } }),
       );
-      expect(result.status).toBe('applied');
+      expect(result.status).toBe('succeeded');
+      expect(result.phase).toBe('applied');
+      expectValidInvariant(result);
     });
 
     it('throws NotFoundException when generation not found', async () => {
@@ -589,7 +595,7 @@ describe('ThumbnailGenerationService', () => {
 
   describe('skipGeneration', () => {
     it('marks status="skipped"', async () => {
-      const existingRecord = { id: 'gen-1', status: 'ready' };
+      const existingRecord = { id: 'gen-1', status: 'succeeded', phase: 'ready' };
       prisma.thumbnailGeneration.findUnique.mockResolvedValue(existingRecord);
 
       const skippedRecord = {
@@ -599,7 +605,8 @@ describe('ThumbnailGenerationService', () => {
         originalUrl: null,
         candidates: [],
         selectedUrl: null,
-        status: 'skipped',
+        status: 'cancelled',
+        phase: null,
         grade: '',
         score: 0,
         prompt: null,
@@ -612,15 +619,36 @@ describe('ThumbnailGenerationService', () => {
       const result = await service.skipGeneration('gen-1');
 
       expect(prisma.thumbnailGeneration.update).toHaveBeenCalledWith(
-        expect.objectContaining({ data: { status: 'skipped' } }),
+        expect.objectContaining({ data: { status: 'cancelled', phase: null } }),
       );
-      expect(result.status).toBe('skipped');
+      expect(result.status).toBe('cancelled');
+      expect(result.phase).toBeNull();
+      expectValidInvariant(result);
     });
 
     it('throws NotFoundException when generation not found', async () => {
       prisma.thumbnailGeneration.findUnique.mockResolvedValue(null);
 
       await expect(service.skipGeneration('nonexistent')).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('saveEditorResult (cold-start invariant)', () => {
+    it('creates row with status=succeeded + phase=ready (cold-start bypasses running)', async () => {
+      prisma.thumbnailGeneration.create.mockResolvedValue({ id: 'new-gen' });
+
+      await service.saveEditorResult({
+        productId: 'p1',
+        companyId: 'c1',
+        originalUrl: 'https://example.com/o.jpg',
+        candidates: [{ url: '/x.jpg', filename: 'x.jpg' }],
+      });
+
+      expect(prisma.thumbnailGeneration.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ status: 'succeeded', phase: 'ready' }),
+        }),
+      );
     });
   });
 });
