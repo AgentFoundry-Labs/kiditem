@@ -19,6 +19,8 @@ import { useGenerateThumbnail } from './hooks/useThumbnailEditor';
 import { EditorInputPanel } from './components/EditorInputPanel';
 import { EditorResultPanel } from './components/EditorResultPanel';
 import { EditorControlPanel } from './components/EditorControlPanel';
+import { UseCaseSelection, type EditUseCase } from './components/UseCaseSelection';
+import type { SupplementaryLabel } from './components/EditorInputPanel';
 
 type EditorMode = 'edit' | 'creative';
 
@@ -28,7 +30,6 @@ export default function ThumbnailEditorPage() {
   const imageUrlParam = searchParams.get('imageUrl');
   const queryClient = useQueryClient();
 
-  // 상품 정보 로드
   const { data: product } = useQuery({
     queryKey: queryKeys.products.detail(productId!),
     queryFn: () => apiClient.get<{ id: string; name: string; imageUrl: string | null }>(`/api/products/${productId}`),
@@ -38,49 +39,113 @@ export default function ThumbnailEditorPage() {
   const productName = product?.name ?? '';
   const originalImageUrl = product?.imageUrl ?? null;
 
-  // 모드 상태
+  // 모드 / 용도
   const [mode, setMode] = useState<EditorMode>('edit');
+  const [editCase, setEditCase] = useState<EditUseCase | null>(null);
 
-  // 입력 상태
-  const [packagingImage, setPackagingImage] = useState<string | null>(null);
+  // 공통 입력
   const [productImage, setProductImage] = useState<string | null>(() => imageUrlParam);
-  const [purpose, setPurpose] = useState<'compliance' | 'quality'>('compliance');
-  const [composition, setComposition] = useState('');
   const [userPrompt, setUserPrompt] = useState('');
+  const [purpose, setPurpose] = useState<'compliance' | 'quality'>('compliance');
 
-  // creative 모드 상태
+  // compose (Type 2A)
+  const [packagingImage, setPackagingImage] = useState<string | null>(null);
+  const [supplementaryLabel, setSupplementaryLabel] = useState<SupplementaryLabel>('박스');
+  const [pieceCount, setPieceCount] = useState<number | null>(null);
+
+  // color-variants (Type 2B)
+  const [colorImages, setColorImages] = useState<string[]>([]);
+
+  // creative (Type 3)
   const [sceneType, setSceneType] = useState('white-studio');
   const [styleType, setStyleType] = useState('minimal');
   const [productDescription, setProductDescription] = useState('');
+  const [backgroundReference, setBackgroundReference] = useState<string | null>(null);
 
-  // productId 진입 시 imageUrl 파라미터 없으면 상품 이미지 사용
-  const effectiveProductImage = productImage ?? (imageUrlParam ? null : originalImageUrl);
-
-  // 결과 상태
+  // 결과
   const [result, setResult] = useState<Array<{ url: string; filename: string }>>([]);
   const [generationId, setGenerationId] = useState<string | null>(null);
   const [selectedCandidateUrl, setSelectedCandidateUrl] = useState<string | null>(null);
 
-  // 훅
+  // productId 진입 시 imageUrl 파라미터 없으면 상품 이미지 사용
+  const effectiveProductImage = productImage ?? (imageUrlParam ? null : originalImageUrl);
+
   const generateMutation = useGenerateThumbnail();
   const selectCandidateMutation = useSelectCandidate();
   const applyGenerationMutation = useApplyGeneration();
   const skipGenerationMutation = useSkipGeneration();
 
+  const resetEditCase = () => {
+    setEditCase(null);
+    setPackagingImage(null);
+    setColorImages([]);
+    setSupplementaryLabel('박스');
+    setPieceCount(null);
+    setUserPrompt('');
+    setResult([]);
+    setGenerationId(null);
+    setSelectedCandidateUrl(null);
+  };
+
+  const hasInput = (() => {
+    if (mode === 'creative') {
+      if (sceneType === 'custom-reference') {
+        return !!effectiveProductImage && !!backgroundReference;
+      }
+      return !!effectiveProductImage;
+    }
+    if (editCase === 'compose') return !!effectiveProductImage;
+    if (editCase === 'color-variants') return colorImages.length >= 2;
+    if (editCase === 'single') return !!effectiveProductImage;
+    return false;
+  })();
+
   const handleGenerate = async () => {
     try {
-      const data = await generateMutation.mutateAsync({
+      const base = {
         productId: productId ?? undefined,
-        packagingImage: packagingImage ?? undefined,
-        productImage: effectiveProductImage ?? undefined,
-        purpose: mode === 'creative' ? 'quality' : purpose,
         mode,
-        composition: mode === 'edit' ? (composition || undefined) : undefined,
         userPrompt: userPrompt || undefined,
-        sceneType: mode === 'creative' ? sceneType : undefined,
-        styleType: mode === 'creative' ? styleType : undefined,
-        productDescription: mode === 'creative' ? (productDescription || undefined) : undefined,
-      });
+        purpose: mode === 'creative' ? 'quality' as const : purpose,
+      };
+
+      let payload: Parameters<typeof generateMutation.mutateAsync>[0];
+
+      if (mode === 'creative') {
+        const sceneForBackend = sceneType === 'custom-reference' ? undefined : sceneType;
+        payload = {
+          ...base,
+          productImage: effectiveProductImage ?? undefined,
+          sceneType: sceneForBackend,
+          styleType,
+          productDescription: productDescription || undefined,
+          backgroundReference: sceneType === 'custom-reference' ? (backgroundReference ?? undefined) : undefined,
+        };
+      } else if (editCase === 'compose') {
+        payload = {
+          ...base,
+          productImage: effectiveProductImage ?? undefined,
+          packagingImage: packagingImage ?? undefined,
+          supplementaryLabel,
+          pieceCount: pieceCount ?? undefined,
+        };
+      } else if (editCase === 'color-variants') {
+        payload = {
+          ...base,
+          colorImages,
+          colorCount: colorImages.length,
+        };
+      } else if (editCase === 'single') {
+        payload = {
+          ...base,
+          productImage: effectiveProductImage ?? undefined,
+        };
+      } else {
+        toast.error('용도를 먼저 선택해주세요');
+        return;
+      }
+
+      const data = await generateMutation.mutateAsync(payload);
       if (data?.candidates) {
         setResult(data.candidates);
         setGenerationId(data.generationId ?? null);
@@ -131,7 +196,7 @@ export default function ThumbnailEditorPage() {
     setSelectedCandidateUrl(null);
   };
 
-  const hasInput = !!productId || !!packagingImage || !!productImage;
+  const showUseCaseSelection = mode === 'edit' && editCase === null;
 
   return (
     <div className="flex flex-col h-screen bg-white">
@@ -140,7 +205,6 @@ export default function ThumbnailEditorPage() {
         className="flex-shrink-0 bg-gray-50"
         style={{ borderBottom: '1px solid #e5e7eb' }}
       >
-        {/* 타이틀 행 */}
         <div className="flex items-center px-4 pt-3 pb-2 gap-3">
           <div
             className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
@@ -152,9 +216,9 @@ export default function ThumbnailEditorPage() {
           {productName && <span className="text-xs text-gray-400 truncate">— {productName}</span>}
         </div>
 
-        {/* 모드 탭 버튼 */}
         <div className="grid grid-cols-2 gap-0" style={{ borderTop: '1px solid #e5e7eb' }}>
           <button
+            type="button"
             onClick={() => setMode('edit')}
             className="flex items-center gap-3 px-5 py-5 text-left transition-all duration-200"
             style={{
@@ -171,11 +235,12 @@ export default function ThumbnailEditorPage() {
             </div>
             <div>
               <div className="text-[15px] font-bold leading-tight" style={{ color: mode === 'edit' ? '#6d28d9' : '#374151' }}>이미지 편집</div>
-              <div className="text-[11px] mt-0.5 text-gray-400">배경 제거 · 가이드라인 · 구도</div>
+              <div className="text-[11px] mt-0.5 text-gray-400">박스/세트 · 색상별 · 가이드라인</div>
             </div>
           </button>
 
           <button
+            type="button"
             onClick={() => setMode('creative')}
             className="flex items-center gap-3 px-5 py-5 text-left transition-all duration-200"
             style={{
@@ -197,52 +262,66 @@ export default function ThumbnailEditorPage() {
         </div>
       </div>
 
-      {/* 3패널 */}
-      <div className="flex-1 min-h-0 grid grid-cols-[260px_1fr_300px]">
-        <EditorInputPanel
-          mode={mode}
-          productId={productId}
-          productName={productName}
-          packagingImage={packagingImage}
-          productImage={effectiveProductImage}
-          onPackagingChange={setPackagingImage}
-          onProductImageChange={setProductImage}
-        />
+      {/* ── 본문 ── */}
+      {showUseCaseSelection ? (
+        <UseCaseSelection onSelect={setEditCase} />
+      ) : (
+        <div className="flex-1 min-h-0 grid grid-cols-[260px_1fr_300px]">
+          <EditorInputPanel
+            mode={mode}
+            editCase={editCase}
+            productId={productId}
+            productName={productName}
+            productImage={effectiveProductImage}
+            packagingImage={packagingImage}
+            supplementaryLabel={supplementaryLabel}
+            colorImages={colorImages}
+            backgroundReference={backgroundReference}
+            sceneType={sceneType}
+            onProductImageChange={setProductImage}
+            onPackagingChange={setPackagingImage}
+            onSupplementaryLabelChange={setSupplementaryLabel}
+            onColorImagesChange={setColorImages}
+            onBackgroundReferenceChange={setBackgroundReference}
+            onResetEditCase={resetEditCase}
+          />
 
-        <EditorResultPanel
-          mode={mode}
-          originalImage={originalImageUrl ?? productImage}
-          candidates={result}
-          selectedCandidateUrl={selectedCandidateUrl}
-          isGenerating={generateMutation.isPending}
-          onSelectCandidate={handleSelectCandidate}
-        />
+          <EditorResultPanel
+            mode={mode}
+            originalImage={originalImageUrl ?? productImage}
+            candidates={result}
+            selectedCandidateUrl={selectedCandidateUrl}
+            isGenerating={generateMutation.isPending}
+            onSelectCandidate={handleSelectCandidate}
+          />
 
-        <EditorControlPanel
-          mode={mode}
-          purpose={purpose}
-          composition={composition}
-          userPrompt={userPrompt}
-          sceneType={sceneType}
-          styleType={styleType}
-          productDescription={productDescription}
-          isPending={generateMutation.isPending}
-          hasInput={hasInput}
-          selectedCandidateUrl={selectedCandidateUrl}
-          generationId={generationId}
-          isApplying={applyGenerationMutation.isPending}
-          isSkipping={skipGenerationMutation.isPending}
-          onPurposeChange={setPurpose}
-          onCompositionChange={setComposition}
-          onUserPromptChange={setUserPrompt}
-          onSceneTypeChange={setSceneType}
-          onStyleTypeChange={setStyleType}
-          onProductDescriptionChange={setProductDescription}
-          onGenerate={handleGenerate}
-          onCoupang={handleCoupang}
-          onSkip={handleSkip}
-        />
-      </div>
+          <EditorControlPanel
+            mode={mode}
+            editCase={editCase}
+            purpose={purpose}
+            pieceCount={pieceCount}
+            userPrompt={userPrompt}
+            sceneType={sceneType}
+            styleType={styleType}
+            productDescription={productDescription}
+            isPending={generateMutation.isPending}
+            hasInput={hasInput}
+            selectedCandidateUrl={selectedCandidateUrl}
+            generationId={generationId}
+            isApplying={applyGenerationMutation.isPending}
+            isSkipping={skipGenerationMutation.isPending}
+            onPurposeChange={setPurpose}
+            onPieceCountChange={setPieceCount}
+            onUserPromptChange={setUserPrompt}
+            onSceneTypeChange={setSceneType}
+            onStyleTypeChange={setStyleType}
+            onProductDescriptionChange={setProductDescription}
+            onGenerate={handleGenerate}
+            onCoupang={handleCoupang}
+            onSkip={handleSkip}
+          />
+        </div>
+      )}
     </div>
   );
 }
