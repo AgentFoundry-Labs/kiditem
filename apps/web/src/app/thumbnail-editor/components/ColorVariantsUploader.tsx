@@ -12,6 +12,7 @@ interface Props {
 
 export function ColorVariantsUploader({ values, onChange, max = 8 }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const atMax = values.length >= max;
 
   const readFiles = useCallback(async (files: FileList) => {
     const remaining = max - values.length;
@@ -51,14 +52,22 @@ export function ColorVariantsUploader({ values, onChange, max = 8 }: Props) {
     onChange(values.filter((_, idx) => idx !== i));
   };
 
-  const atMax = values.length >= max;
-
   return (
     <div className="space-y-3">
       <div
+        role="button"
+        tabIndex={atMax ? -1 : 0}
+        aria-disabled={atMax}
         onDrop={handleDrop}
         onDragOver={(e) => e.preventDefault()}
         onClick={() => !atMax && inputRef.current?.click()}
+        onKeyDown={(e) => {
+          if (atMax) return;
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            inputRef.current?.click();
+          }
+        }}
         className={cn(
           'rounded-xl border-2 border-dashed p-6 text-center transition-colors select-none',
           atMax
@@ -88,7 +97,7 @@ export function ColorVariantsUploader({ values, onChange, max = 8 }: Props) {
           </div>
           <div className="grid grid-cols-4 gap-2">
             {values.map((url, i) => (
-              <div key={`${i}-${url.slice(-12)}`} className="relative aspect-square rounded-lg overflow-hidden border border-gray-200 bg-gray-50">
+              <div key={url} className="relative aspect-square rounded-lg overflow-hidden border border-gray-200 bg-gray-50">
                 <img src={url} alt="" className="w-full h-full object-cover" />
                 <button
                   type="button"
