@@ -91,8 +91,13 @@ Shared directories (`src/components/`, `src/hooks/`, `src/lib/`) contain ONLY cr
 6. Type imports (`import type { ... }`)
 
 ### State Management
-- Zustand: sidebar state only (`store/`)
-- Server state: all via React Query
+- Zustand: 전역 클라이언트 상태 — sidebar (`src/store/useStore.ts`), panel (`src/components/panel/lib/panel-store.ts`). Request/response로 내려받는 서버 상태가 아닌 것(토글·선호·실시간 SSE 이벤트 큐)에만 한정.
+- Server state: 전부 React Query (`useQuery`/`useMutation`)
+- **Zustand selector 주의**: `(s) => s.method()` 가 배열/객체를 반환하면 매 렌더 새 레퍼런스 → `useSyncExternalStore` infinite loop. byId 같은 stable ref를 구독하고 `useMemo`로 파생. primitive 반환 메서드는 안전.
+
+### SSE (Server-Sent Events)
+- **기본 금지** — `EventSource`는 헤더 전송 불가 → DevAuthMiddleware(ADR-0006) 호환 안 됨. agents/thumbnails 도메인은 polling 유지.
+- **Panel 도메인 예외** — ADR-0010 하에 `@microsoft/fetch-event-source` 사용. 격리된 `PanelSseClient` (`src/components/panel/lib/panel-sse-client.ts`) 래퍼 경유만 허용. 다른 도메인이 SSE 원하면 별도 ADR.
 
 ## Notable Sub-Domains (LOW signal — 별도 CLAUDE.md 없음)
 
@@ -102,6 +107,7 @@ Shared directories (`src/components/`, `src/hooks/`, `src/lib/`) contain ONLY cr
 - **`app/settings/`** — 다양한 file upload (CSV/Image), printer 연결 (`PrinterSettings` 컴포넌트), health check + sync 운영 액션. system-level operations 가 한 페이지에 모임.
 - **`app/sales-analysis/`** — `Settlements` 탭이 streaming 패턴 (스트림 chunked download). xlsx export 도 함.
 - **`app/orders/`** — Pipeline state UI (ACCEPT → INSTRUCT → DEPARTURE → DELIVERING 시각화) + scheduled sync polling (`SYNC_HOURS` 상수로 정해진 시각마다 자동 sync invoke).
+- **`components/panel/`** — Live slide-out 패널 (ADR-0010 SSE 예외). `AppLayout`에 상시 mount. PanelSseClient → Zustand store → Radix Sheet. Sidebar Bell 한 곳에서만 토글 (P3). PR1: workflow run only; PR2에서 agent/image/alert 확장.
 
 각 도메인 작업 시 위 특이점만 의식하면 부모 Next.js 패턴으로 충분.
 

@@ -1,5 +1,6 @@
 'use client';
 
+import { useMemo } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Bell, X } from 'lucide-react';
 import { usePanelStore } from './lib/panel-store';
@@ -9,11 +10,15 @@ import type { PanelItem } from '@kiditem/shared';
 export function PanelSheet() {
   const isOpen = usePanelStore((s) => s.isOpen);
   const setOpen = usePanelStore((s) => s.setOpen);
-  const items = usePanelStore((s) => s.itemsArray());
-  const runningCount = usePanelStore((s) => s.runningCount());
+  const byId = usePanelStore((s) => s.byId);
   const connectionStatus = usePanelStore((s) => s.connectionStatus);
 
-  const { active, recent } = partitionByStatus(items);
+  // byId ref만 의존하면 안정적 — Object.values()를 selector 안에서 호출하면
+  // 매 렌더 새 배열 레퍼런스로 infinite loop (useSyncExternalStore getSnapshot 경고).
+  const { active, recent, runningCount } = useMemo(
+    () => partitionByStatus(Object.values(byId)),
+    [byId],
+  );
 
   return (
     <Dialog.Root open={isOpen} onOpenChange={setOpen}>
@@ -78,12 +83,18 @@ export function PanelSheet() {
 function partitionByStatus(items: PanelItem[]) {
   const active: PanelItem[] = [];
   const recent: PanelItem[] = [];
+  let runningCount = 0;
   for (const item of items) {
     const isActive = item.kind === 'run' && (item.status === 'pending' || item.status === 'running');
-    if (isActive) active.push(item); else recent.push(item);
+    if (isActive) {
+      active.push(item);
+      runningCount++;
+    } else {
+      recent.push(item);
+    }
   }
   // 시간 역순
   active.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   recent.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  return { active, recent };
+  return { active, recent, runningCount };
 }

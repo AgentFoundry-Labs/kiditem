@@ -25,8 +25,11 @@ interface PanelStoreState {
   setOpen: (open: boolean) => void;
   setConnectionStatus: (s: PanelStoreState['connectionStatus']) => void;
 
+  // runningCount() 는 number 반환이라 selector에서 안전 (Object.is 비교).
+  // itemsArray 같이 배열/객체 반환 함수는 store에 두지 않는다 — selector 안에서 호출 시
+  // 매 렌더 새 레퍼런스로 useSyncExternalStore infinite loop 유발. 필요하면
+  // 컴포넌트가 byId 구독 + useMemo로 파생.
   runningCount: () => number;
-  itemsArray: () => PanelItem[];
 }
 
 export const createPanelStore = () => create<PanelStoreState>((set, get) => ({
@@ -86,8 +89,6 @@ export const createPanelStore = () => create<PanelStoreState>((set, get) => ({
 
   runningCount: () =>
     Object.values(get().byId).filter((i) => i.kind === 'run' && (i.status === 'pending' || i.status === 'running')).length,
-
-  itemsArray: () => Object.values(get().byId),
 }));
 
 export const usePanelStore = createPanelStore();
