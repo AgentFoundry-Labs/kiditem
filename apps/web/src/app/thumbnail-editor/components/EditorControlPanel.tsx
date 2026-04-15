@@ -1,12 +1,14 @@
 'use client';
 import { Loader2, Wand2, Download, ExternalLink, SkipForward, Sparkles, Scissors } from 'lucide-react';
+import type { EditUseCase } from './UseCaseSelection';
 
 type EditorMode = 'edit' | 'creative';
 
-interface EditorControlPanelProps {
+interface Props {
   mode: EditorMode;
+  editCase: EditUseCase | null;
   purpose: 'compliance' | 'quality';
-  composition: string;
+  pieceCount: number | null;
   userPrompt: string;
   sceneType: string;
   styleType: string;
@@ -18,7 +20,7 @@ interface EditorControlPanelProps {
   isApplying: boolean;
   isSkipping: boolean;
   onPurposeChange: (v: 'compliance' | 'quality') => void;
-  onCompositionChange: (v: string) => void;
+  onPieceCountChange: (v: number | null) => void;
   onUserPromptChange: (v: string) => void;
   onSceneTypeChange: (v: string) => void;
   onStyleTypeChange: (v: string) => void;
@@ -41,10 +43,26 @@ const lightInput: React.CSSProperties = {
   outline: 'none',
 };
 
+const SCENE_PRESETS = [
+  { value: 'white-studio', label: '화이트 스튜디오' },
+  { value: 'lifestyle', label: '생활 인테리어' },
+  { value: 'outdoor', label: '야외 / 자연' },
+  { value: 'concept', label: '컨셉 / 무드' },
+  { value: 'custom-reference', label: '🖼️ 사용자 정의 이미지' },
+] as const;
+
+const STYLE_PRESETS = [
+  { value: 'minimal', label: '미니멀' },
+  { value: 'warm', label: '따뜻한 생활감' },
+  { value: 'vivid', label: '선명한 제품샷' },
+  { value: 'luxury', label: '고급스러운' },
+] as const;
+
 export function EditorControlPanel({
   mode,
+  editCase,
   purpose,
-  composition,
+  pieceCount,
   userPrompt,
   sceneType,
   styleType,
@@ -56,7 +74,7 @@ export function EditorControlPanel({
   isApplying,
   isSkipping,
   onPurposeChange,
-  onCompositionChange,
+  onPieceCountChange,
   onUserPromptChange,
   onSceneTypeChange,
   onStyleTypeChange,
@@ -64,15 +82,15 @@ export function EditorControlPanel({
   onGenerate,
   onCoupang,
   onSkip,
-}: EditorControlPanelProps) {
+}: Props) {
   const accent = primaryColor[mode];
+  const generateDisabled = !hasInput || isPending;
 
   return (
     <div
       className="flex flex-col h-full overflow-hidden bg-white"
       style={{ borderLeft: '1px solid #e5e7eb' }}
     >
-      {/* 헤더 */}
       <div
         className="flex-shrink-0 px-5 py-3.5 flex items-center gap-2"
         style={{ borderBottom: '1px solid #e5e7eb' }}
@@ -83,28 +101,28 @@ export function EditorControlPanel({
         </div>
       </div>
 
-      {/* 컨트롤 */}
       <div className="flex-1 overflow-y-auto px-5 py-5 space-y-5">
         {mode === 'edit' ? (
           <>
-            {/* 편집 목적 */}
+            {/* 편집 목적 (공통) */}
             <div className="space-y-2">
               <label className="text-xs font-semibold block text-gray-600">편집 목적</label>
               <div className="flex flex-col gap-2">
                 {[
-                  { value: 'compliance', label: '가이드라인 수정', sub: '쿠팡 광고 기준 준수', color: accent },
-                  { value: 'quality',    label: '품질 개선',       sub: '시각적 완성도 향상', color: accent },
+                  { value: 'compliance', label: '가이드라인 수정', sub: '쿠팡 광고 기준 준수' },
+                  { value: 'quality',    label: '품질 개선',       sub: '시각적 완성도 향상' },
                 ].map((opt) => {
                   const active = purpose === opt.value;
                   return (
                     <button
                       key={opt.value}
+                      type="button"
                       onClick={() => onPurposeChange(opt.value as 'compliance' | 'quality')}
                       className="w-full px-4 py-2.5 rounded-xl text-left transition-all duration-200"
                       style={{
-                        background: active ? `${opt.color}12` : '#f9fafb',
-                        border: active ? `1px solid ${opt.color}55` : '1px solid #e5e7eb',
-                        color: active ? opt.color : '#6b7280',
+                        background: active ? `${accent}12` : '#f9fafb',
+                        border: active ? `1px solid ${accent}55` : '1px solid #e5e7eb',
+                        color: active ? accent : '#6b7280',
                       }}
                     >
                       <div className="text-sm font-semibold">{opt.label}</div>
@@ -115,38 +133,45 @@ export function EditorControlPanel({
               </div>
             </div>
 
-            {/* 상품 구성 */}
-            <div className="space-y-2">
-              <label className="text-xs font-semibold block text-gray-600">
-                상품 구성 <span className="text-gray-400 font-normal">(선택)</span>
-              </label>
-              <input
-                type="text"
-                value={composition}
-                onChange={(e) => onCompositionChange(e.target.value)}
-                placeholder="예: 테트리스 블록 40개 + 나무 프레임 1개"
-                style={{ ...lightInput }}
-              />
-            </div>
+            {/* compose 전용: 개입 수 */}
+            {editCase === 'compose' && (
+              <div className="space-y-2">
+                <label className="text-xs font-semibold block text-gray-600">
+                  개입 수 <span className="text-gray-400 font-normal">(선택)</span>
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  value={pieceCount ?? ''}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    onPieceCountChange(v === '' ? null : Math.max(1, parseInt(v, 10) || 1));
+                  }}
+                  placeholder="예: 3"
+                  style={{ ...lightInput }}
+                />
+                <div className="text-[10px] text-gray-400">세트/묶음 수량 (예: 3개입)</div>
+              </div>
+            )}
 
-            {/* 편집 지시사항 */}
+            {/* 편집 지시사항 (공통) */}
             <div className="space-y-2">
               <label className="text-xs font-semibold block text-gray-600">
                 편집 지시사항 <span className="text-gray-400 font-normal">(선택)</span>
               </label>
               <textarea
-                rows={5}
+                rows={4}
                 value={userPrompt}
                 onChange={(e) => onUserPromptChange(e.target.value)}
-                placeholder="예: 배경을 순백색으로, 제품이 화면의 75%를 채우도록 확대해주세요."
+                placeholder="예: 배경을 순백색으로, 제품이 화면의 75%를 채우도록"
                 style={{ ...lightInput, resize: 'none' }}
               />
-              <div className="text-[10px] text-gray-400">구도, 배경, 조명 등 세부 지시사항</div>
             </div>
 
             <button
+              type="button"
               onClick={onGenerate}
-              disabled={!hasInput || isPending}
+              disabled={generateDisabled}
               className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold text-white transition-all duration-200 disabled:opacity-40"
               style={{ background: accent }}
             >
@@ -155,20 +180,16 @@ export function EditorControlPanel({
           </>
         ) : (
           <>
-            {/* 촬영 씬 */}
+            {/* 씬 프리셋 (5개 — 마지막은 사용자 정의) */}
             <div className="space-y-2">
               <label className="text-xs font-semibold block text-gray-600">촬영 씬</label>
               <div className="grid grid-cols-2 gap-2">
-                {[
-                  { value: 'white-studio', label: '화이트 스튜디오' },
-                  { value: 'lifestyle',    label: '생활 인테리어' },
-                  { value: 'outdoor',      label: '야외 / 자연' },
-                  { value: 'concept',      label: '컨셉 / 무드' },
-                ].map((opt) => {
+                {SCENE_PRESETS.slice(0, 4).map((opt) => {
                   const active = sceneType === opt.value;
                   return (
                     <button
                       key={opt.value}
+                      type="button"
                       onClick={() => onSceneTypeChange(opt.value)}
                       className="flex items-center justify-center px-3 py-2.5 rounded-xl text-xs font-medium transition-all duration-200"
                       style={{
@@ -182,22 +203,36 @@ export function EditorControlPanel({
                   );
                 })}
               </div>
+              {(() => {
+                const opt = SCENE_PRESETS[4];
+                const active = sceneType === opt.value;
+                return (
+                  <button
+                    type="button"
+                    onClick={() => onSceneTypeChange(opt.value)}
+                    className="w-full flex items-center justify-center px-3 py-2.5 rounded-xl text-xs font-medium transition-all duration-200"
+                    style={{
+                      background: active ? `${accent}12` : '#f9fafb',
+                      border: active ? `1.5px dashed ${accent}` : '1.5px dashed #d8b4fe',
+                      color: active ? accent : '#c026d3',
+                    }}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })()}
             </div>
 
             {/* 분위기 */}
             <div className="space-y-2">
               <label className="text-xs font-semibold block text-gray-600">분위기</label>
               <div className="grid grid-cols-2 gap-2">
-                {[
-                  { value: 'minimal', label: '미니멀' },
-                  { value: 'warm',    label: '따뜻한 생활감' },
-                  { value: 'vivid',   label: '선명한 제품샷' },
-                  { value: 'luxury',  label: '고급스러운' },
-                ].map((opt) => {
+                {STYLE_PRESETS.map((opt) => {
                   const active = styleType === opt.value;
                   return (
                     <button
                       key={opt.value}
+                      type="button"
                       onClick={() => onStyleTypeChange(opt.value)}
                       className="px-3 py-2.5 rounded-xl text-xs font-medium transition-all duration-200"
                       style={{
@@ -242,8 +277,9 @@ export function EditorControlPanel({
             </div>
 
             <button
+              type="button"
               onClick={onGenerate}
-              disabled={!hasInput || isPending}
+              disabled={generateDisabled}
               className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold text-white transition-all duration-200 disabled:opacity-40"
               style={{ background: accent }}
             >
@@ -257,7 +293,7 @@ export function EditorControlPanel({
         )}
       </div>
 
-      {/* 결과 처리 */}
+      {/* 결과 처리 (generationId 가 있을 때만) */}
       {generationId && (
         <div
           className="flex-shrink-0 px-5 py-4 space-y-2 bg-gray-50"
@@ -268,6 +304,7 @@ export function EditorControlPanel({
           </div>
 
           <button
+            type="button"
             onClick={onCoupang}
             disabled={!selectedCandidateUrl || isApplying}
             className="w-full flex items-center justify-center gap-2 text-white rounded-xl py-2.5 text-sm font-semibold transition-all duration-200 disabled:opacity-40"
@@ -280,27 +317,28 @@ export function EditorControlPanel({
           {selectedCandidateUrl ? (
             <a
               href={selectedCandidateUrl}
-              download target="_blank" rel="noreferrer"
+              download
+              target="_blank"
+              rel="noreferrer"
               className="w-full flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-medium transition-colors"
-              style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.8)' }}
+              style={{ background: '#f3f4f6', border: '1px solid #e5e7eb', color: '#374151' }}
             >
               <Download size={14} /> 다운로드
             </a>
           ) : (
             <div
-              className="w-full flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-medium opacity-30 cursor-not-allowed"
-              style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.5)' }}
+              className="w-full flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-medium opacity-40 cursor-not-allowed"
+              style={{ background: '#f3f4f6', border: '1px solid #e5e7eb', color: '#9ca3af' }}
             >
               <Download size={14} /> 다운로드
             </div>
           )}
 
           <button
+            type="button"
             onClick={onSkip}
             disabled={isSkipping}
-            className="w-full flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-medium transition-colors disabled:opacity-40 text-gray-400"
-            onMouseEnter={(e) => (e.currentTarget.style.background = '#f3f4f6')}
-            onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+            className="w-full flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-medium transition-colors disabled:opacity-40 text-gray-500 hover:bg-gray-100"
           >
             {isSkipping ? <Loader2 size={14} className="animate-spin" /> : <SkipForward size={14} />}
             건너뛰기
