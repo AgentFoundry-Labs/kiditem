@@ -508,7 +508,7 @@ describe('ThumbnailGenerationService', () => {
   beforeEach(() => {
     prisma = makePrisma();
     aiService = makeAiService();
-    service = new ThumbnailGenerationService(prisma as any, aiService as any, { create: vi.fn().mockResolvedValue({}) } as any);
+    service = new ThumbnailGenerationService(prisma as any, aiService as any, { create: vi.fn().mockResolvedValue({}) } as any, { emit: vi.fn() } as any);
   });
 
   describe('selectCandidate', () => {

@@ -7,12 +7,14 @@ import type { ForwardRefExoticComponent, RefAttributes } from 'react';
 import { PANEL_RUN_SOURCES } from '@kiditem/shared';
 import type { PanelItem, PanelRunItem } from '@kiditem/shared';
 import { cn } from '@/lib/utils';
+import { PanelAlertRow } from './PanelAlertRow';
 
 type LucideIcon = ForwardRefExoticComponent<Omit<LucideProps, 'ref'> & RefAttributes<SVGSVGElement>>;
 
 export function PanelItemRow({ item }: { item: PanelItem }) {
   if (item.kind === 'run') return <RunRow item={item} />;
-  return null; // PR2에서 AlertRow 추가
+  if (item.kind === 'alert') return <PanelAlertRow item={item} />;
+  return null; // exhaustive — never
 }
 
 function RunRow({ item }: { item: PanelRunItem }) {

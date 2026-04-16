@@ -146,6 +146,7 @@ export const ThumbnailGenerationItemSchema = z.object({
   score: z.number(),
   method: z.string().default('generate'),
   editAnalysis: EditAnalysisResultSchema.nullable().default(null),
+  triggeredByUserId: z.string().uuid().nullable().optional(),
   createdAt: z.string(),
   product: z.object({
     id: z.string(),

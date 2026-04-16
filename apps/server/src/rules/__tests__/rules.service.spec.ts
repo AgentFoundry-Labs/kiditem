@@ -1,12 +1,16 @@
 import { describe, it, expect, vi } from 'vitest';
 import { RulesService } from '../services/rules.service';
 import { AgentResultReadyEvent } from '../../agent-registry/events/agent-events';
+import { PANEL_EVENTS } from '../../panel/events/panel-events';
+
+const COMPANY_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+const PRODUCT_ID = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
 
 function makePrisma() {
   return {
     agentTask: { findUnique: vi.fn(), update: vi.fn() },
     activityEvent: { create: vi.fn(), createMany: vi.fn() },
-    alert: { createMany: vi.fn() },
+    alert: { createManyAndReturn: vi.fn() },
     product: { count: vi.fn(), findFirst: vi.fn(), findMany: vi.fn() },
     businessRule: { findMany: vi.fn(), update: vi.fn(), count: vi.fn() },
     company: { findFirst: vi.fn() },
@@ -21,13 +25,19 @@ function makeAgentRegistry() {
   };
 }
 
+function makeEventEmitter() {
+  return { emit: vi.fn() };
+}
+
 function makeService() {
   const prisma = makePrisma();
   const registry = makeAgentRegistry();
+  const eventEmitter = makeEventEmitter();
   return {
-    service: new RulesService(prisma as any, registry as any),
+    service: new RulesService(prisma as any, registry as any, eventEmitter as any),
     prisma,
     registry,
+    eventEmitter,
   };
 }
 
@@ -51,10 +61,21 @@ describe('RulesService', () => {
 
   describe('onResultReady', () => {
     it('updates healthScores, creates events, and creates critical alerts', async () => {
-      const { service, prisma } = makeService();
+      const { service, prisma, eventEmitter } = makeService();
       prisma.$executeRawUnsafe.mockResolvedValue(undefined);
       prisma.activityEvent.createMany.mockResolvedValue({ count: 2 });
-      prisma.alert.createMany.mockResolvedValue({ count: 1 });
+      const insertedAlerts = [{
+        id: '11111111-1111-1111-1111-111111111111',
+        companyId: COMPANY_ID,
+        productId: PRODUCT_ID,
+        type: 'rule_violation',
+        severity: 'critical',
+        title: '순이익률 -10%',
+        message: 'review_pricing',
+        isRead: false,
+        createdAt: new Date('2026-04-15T00:00:00Z'),
+      }];
+      prisma.alert.createManyAndReturn.mockResolvedValue(insertedAlerts);
 
       const event = new AgentResultReadyEvent(
         'rules_evaluation', 'agent-rules', 'run-1',
@@ -76,7 +97,7 @@ describe('RulesService', () => {
               ],
             },
             {
-              productId: 'p2',
+              productId: PRODUCT_ID,
               healthScore: 25,
               violations: [
                 {
@@ -93,7 +114,7 @@ describe('RulesService', () => {
           ],
           summary: { total: 2 },
         },
-        'c-1',
+        COMPANY_ID,
       );
 
       await service.onResultReady(event);
@@ -107,34 +128,48 @@ describe('RulesService', () => {
       expect(prisma.activityEvent.createMany).toHaveBeenCalledWith({
         data: expect.arrayContaining([
           expect.objectContaining({ objectId: 'p1', title: '리뷰 5개 미만' }),
-          expect.objectContaining({ objectId: 'p2', title: '순이익률 -10%' }),
+          expect.objectContaining({ objectId: PRODUCT_ID, title: '순이익률 -10%' }),
         ]),
       });
 
-      // critical alerts
-      expect(prisma.alert.createMany).toHaveBeenCalledWith({
+      // critical alerts — now uses createManyAndReturn
+      expect(prisma.alert.createManyAndReturn).toHaveBeenCalledWith({
         data: [expect.objectContaining({
-          productId: 'p2',
+          productId: PRODUCT_ID,
           severity: 'critical',
           title: '순이익률 -10%',
         })],
       });
+
+      // Panel emit called with correct payload
+      expect(eventEmitter.emit).toHaveBeenCalledWith(
+        PANEL_EVENTS.UPSERT,
+        expect.objectContaining({
+          companyId: COMPANY_ID,
+          item: expect.objectContaining({
+            kind: 'alert',
+            id: insertedAlerts[0].id,
+            severity: 'critical',
+          }),
+        }),
+      );
     });
 
     it('handles empty products array gracefully', async () => {
-      const { service, prisma } = makeService();
+      const { service, prisma, eventEmitter } = makeService();
 
       const event = new AgentResultReadyEvent(
         'rules_evaluation', 'agent-rules', 'run-2',
         { products: [], summary: { total: 0 } },
-        'c-1',
+        COMPANY_ID,
       );
 
       await service.onResultReady(event);
 
       expect(prisma.$executeRawUnsafe).not.toHaveBeenCalled();
       expect(prisma.activityEvent.createMany).not.toHaveBeenCalled();
-      expect(prisma.alert.createMany).not.toHaveBeenCalled();
+      expect(prisma.alert.createManyAndReturn).not.toHaveBeenCalled();
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
     });
 
     it('ignores non-rules_evaluation events', async () => {
@@ -162,11 +197,106 @@ describe('RulesService', () => {
             violations: [],
           }],
         },
-        'c-1',
+        COMPANY_ID,
       );
 
       // Should not throw
       await service.onResultReady(event);
+    });
+
+    it('batch cap: 51+ alerts emit single summary item instead of individual emits', async () => {
+      const { service, prisma, eventEmitter } = makeService();
+      prisma.$executeRawUnsafe.mockResolvedValue(undefined);
+      prisma.activityEvent.createMany.mockResolvedValue({ count: 51 });
+
+      // Build 51 critical violations
+      const violations = Array.from({ length: 51 }, (_, i) => ({
+        productId: `prod-${i}`,
+        healthScore: 10,
+        violations: [{
+          ruleName: `rule-${i}`,
+          field: 'profitRate',
+          severity: 'critical',
+          category: 'profitability',
+          message: `violation-${i}`,
+          actionType: null,
+          value: -1,
+        }],
+      }));
+
+      const insertedAlerts = Array.from({ length: 51 }, (_, i) => ({
+        id: `11111111-1111-1111-1111-${String(i).padStart(12, '0')}`,
+        companyId: COMPANY_ID,
+        productId: `prod-${i}`,
+        type: 'rule_violation',
+        severity: 'critical',
+        title: `violation-${i}`,
+        message: null,
+        isRead: false,
+        createdAt: new Date(),
+      }));
+      prisma.alert.createManyAndReturn.mockResolvedValue(insertedAlerts);
+
+      const event = new AgentResultReadyEvent(
+        'rules_evaluation', 'agent-rules', 'run-batch',
+        { products: violations, summary: { total: 51 } },
+        COMPANY_ID,
+      );
+
+      await service.onResultReady(event);
+
+      // Should emit exactly once — summary item
+      expect(eventEmitter.emit).toHaveBeenCalledTimes(1);
+      const [eventName, payload] = eventEmitter.emit.mock.calls[0];
+      expect(eventName).toBe(PANEL_EVENTS.UPSERT);
+      expect(payload.item.kind).toBe('alert');
+      expect(payload.item.type).toBe('batch_summary');
+      expect(payload.item.title).toBe('51건의 새 알림');
+      expect(payload.companyId).toBe(COMPANY_ID);
+    });
+
+    it('error isolation: emit throw does not break alert creation', async () => {
+      const { service, prisma, eventEmitter } = makeService();
+      prisma.$executeRawUnsafe.mockResolvedValue(undefined);
+      prisma.activityEvent.createMany.mockResolvedValue({ count: 1 });
+      const insertedAlert = {
+        id: '11111111-1111-1111-1111-111111111111',
+        companyId: COMPANY_ID,
+        productId: PRODUCT_ID,
+        type: 'rule_violation',
+        severity: 'critical',
+        title: '적자 상품',
+        message: null,
+        isRead: false,
+        createdAt: new Date(),
+      };
+      prisma.alert.createManyAndReturn.mockResolvedValue([insertedAlert]);
+      eventEmitter.emit.mockImplementation(() => { throw new Error('SSE bus down'); });
+
+      const event = new AgentResultReadyEvent(
+        'rules_evaluation', 'agent-rules', 'run-emit-err',
+        {
+          products: [{
+            productId: PRODUCT_ID,
+            healthScore: 20,
+            violations: [{
+              ruleName: 'profitability',
+              field: 'profitRate',
+              severity: 'critical',
+              category: 'profitability',
+              message: '적자 상품',
+              actionType: null,
+              value: -5,
+            }],
+          }],
+        },
+        COMPANY_ID,
+      );
+
+      // Should not throw even when emit throws
+      await expect(service.onResultReady(event)).resolves.not.toThrow();
+      // createManyAndReturn was still called (alert creation succeeded)
+      expect(prisma.alert.createManyAndReturn).toHaveBeenCalled();
     });
   });
 

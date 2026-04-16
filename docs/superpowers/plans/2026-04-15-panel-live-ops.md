@@ -1,8 +1,8 @@
-# Panel Live Ops Implementation Plan (v2 — 전면 재작성)
+# Panel Live Ops Implementation Plan (v3 — PR2 재분할 + ADR-0011 반영)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: superpowers:subagent-driven-development (recommended) or superpowers:executing-plans. Steps use checkbox (`- [ ]`) syntax.
 
-**Revision**: v2 of 2026-04-15. Supersedes v1 after `critic` + `plan-eng-review` surfaced 10 CRITICAL codebase-assumption mismatches and 5 engineering-structure gaps. See [Revision Notes](#revision-notes) at bottom.
+**Revision**: v3 of 2026-04-16. Supersedes v2 after PR1 머지 + ADR-0011 Phase 1/2/3 전체 머지로 인해 PR2 전제가 무너짐 (heartbeat/thumbnail source가 이미 canonical status 보유 → 매핑 테이블 금지). `critic` + `architect` 재실행으로 4 CRITICAL + 6 MAJOR 추가 발견. PR2 → PR2a/PR2b 재분할. See [Revision Notes](#revision-notes) at bottom.
 
 **Goal**: Agent OS의 async run(workflow/agent/image_edit)과 비즈니스 알림을 live slide-out 패널로 통합. Alert → ActionTask 한 방향 승격 + Action Board 내/팀 필터.
 
@@ -16,15 +16,16 @@
 
 ## PR Structure (Strangler Fig)
 
-25-task monolithic PR을 3개 shippable PR로 분리:
+PR을 4개 shippable 단위로 분리 (v3에서 PR2를 PR2a/PR2b로 재분할):
 
 | PR | 제목 | 목표 | 범위 | 예상 |
 |----|------|------|------|------|
 | **PR1** | Foundations + Workflow MVP | SSE 파이프라인 + workflow source 하나로 end-to-end 검증 | Task 1-14 (ADR, Prisma, shared, backend infra, workflow adapter + hook, frontend client+store+Sheet, Sidebar integration, Error Boundary, Header 삭제, integration test) | 1~2일 |
-| **PR2** | Additional Sources + My/Team Split | agent, image_edit, alert source 추가 + 내/팀 섹션 렌더링 | Task 15-20 (agent/image/alert adapter, 각 domain hook, my/team UI split) | 1일 |
-| **PR3** | Alert Promote + Action Board Filter | Alert → ActionTask 승격 + 내/팀/전체 필터 + claim/unclaim | Task 21-26 (Prisma 추가 migration, promote service/controller, Action Board UI, PromoteToTaskModal) | 1일 |
+| **PR2a** | Async Run Sources (agent + image) | ADR-0011 canonical pass-through로 agent/image source 추가 + actor 마이그레이션 | Task 15a-20 (HeartbeatRun/ThumbnailGeneration triggeredByUserId 마이그레이션, PanelRunItem phase/failureType 확장, 두 adapter + 도메인 hook, 통합 테스트) | 1일 |
+| **PR2b** | Alert Source + My/Team UI Split | Alert source + 새 PanelAlertItem kind + 내/팀 split UI | Task 21-26 (PanelAlertItem 타입, alert adapter, Rules service `createManyAndReturn` hook, PanelSheet 내/팀 split, AlertRow + PanelItemRow union, 통합 테스트) | 1일 |
+| **PR3** | Alert Promote + Action Board Filter | Alert → ActionTask 승격 + 내/팀/전체 필터 + claim/unclaim | Task 27-33 (Prisma 추가 migration, promote service/controller, Action Board UI, PromoteToTaskModal) | 1일 |
 
-각 PR은 **standalone shippable** — PR1 merge 후 PR2 전까지 1~2주 dogfood 가능.
+각 PR은 **standalone shippable** — PR1 merge 후 PR2a 전까지 dogfood 가능.
 
 ---
 
@@ -2133,39 +2134,240 @@ EOF
 
 ---
 
-## PR2 — Additional Sources + My/Team UI Split
+## PR2a — Async Run Sources (Agent + Image)
 
-### PR2 Overview
+### PR2a Overview
 
-PR1 검증(2주 dogfood) 후 진행. 추가 범위:
+PR1 + ADR-0011 Phase 1/2/3 머지 후 진행. **HeartbeatRun / ThumbnailGeneration 모두 canonical status + sub-state(`failureType` / `phase`) 컬럼을 이미 보유한다는 것이 PR2a의 핵심 전제** — adapter는 status를 매핑하지 않고 그대로 통과시키며, sub-state는 별도 필드로 노출한다 (ADR-0011 Rule 4).
 
-1. **agent source** — `HeartbeatRun` + `AgentDefinition` join으로 `agentName` 획득. 상태 매핑 `queued|running|succeeded|failed|paused` → `pending|running|succeeded|failed|cancelled`.
-2. **image_edit source** — **실제 모델은 `ThumbnailGeneration`** (CRITICAL #2), `method='edit'` 필터. 상태 매핑 `pending|generating|ready|applied` → `pending|running|succeeded|succeeded`.
-3. **alert source** — `Alert` 모델. `createMany` 패턴이므로 insert 후 **re-query** 로 Panel emit (CRITICAL #5).
-4. **PanelAlertItem** 타입 추가 (shared).
-5. **내 작업 / 팀** 섹션 UI split (PanelSheet).
+추가 범위:
+1. **Schema migration** — `triggeredByUserId String? @db.Uuid` 추가 (HeartbeatRun + ThumbnailGeneration). PR1 Task 2 패턴 재사용. my/team split이 workflow 외 source까지 의미 있도록.
+2. **PanelRunItem 확장** — `phase?` (image), `failureType?` (heartbeat) 옵셔널 필드 추가. workflow item은 둘 다 null.
+3. **agent source** — HeartbeatRun + AgentDefinition.name join. canonical status pass-through.
+4. **image source** — ThumbnailGeneration. **`method='generate'`와 `method='edit'` 모두 포함** (사용자 관점에선 동일한 "이미지 작업"). canonical status pass-through, phase는 별도 필드, method는 details에 포함해 row label 차별화.
+5. **Integration test** — 3 source(workflow/agent/image) 동시 emit, canonical pass-through 회귀, EventEmitter 와이어링 smoke (duplicate emitter trap 회귀 방지).
 
-### PR2 Task list
+### PR2a File Structure
 
-- **Task 15**: `PanelAlertItem` 추가 + `PanelItem` 유니언 확장 + 테스트
-- **Task 16**: `agent.adapter.ts` — HeartbeatRun + AgentDefinition.name join shape (service가 join 해서 adapter에 전달). 상태 매핑 테이블 명시 (`queued → pending`, `paused → cancelled`). registry 등록.
-- **Task 17**: Heartbeat 서비스 hook — 각 status 전이 지점에 emit. `triggeredByUserId` 없으면 company visibility.
-- **Task 18**: `image.adapter.ts` — `ThumbnailGeneration` 모델 사용. `method='edit'` 필터. 상태 매핑 (`generating → running`, `ready → succeeded`, `applied → succeeded`).
-- **Task 19**: ThumbnailGeneration 서비스 hook — insert/status update 지점 emit.
-- **Task 20**: `alert.adapter.ts` — Alert 모델 → PanelAlertItem. severity/alertType 통과.
-- **Task 21**: Rules 서비스 hook — **CRITICAL #5 해결**: `createMany` 후 **re-query** (`findMany` with `createdAt >= now - 10s` AND just-inserted IDs) 해서 emit. 또는 일괄 `createMany` → 바로 뒤 `findMany` with exact title+companyId+createdAt 기준.
-- **Task 22**: PanelSheet 내/팀 split UI — `actorUserId === currentUserId` 기준. UI v3 mockup 따라 섹션 분리 + "팀 공유" 뱃지.
-- **Task 23**: AlertRow 컴포넌트 (severity별 색상) + PanelItemRow에 discriminated union 분기.
-- **Task 24**: PR2 integration test 확장 — 4 소스 각자 emit → 1 스트림 수신 확인 + my/team split 검증.
+**Prisma (prisma/)**:
+- `schema.prisma` — `HeartbeatRun.triggeredByUserId String? @db.Uuid` + `@@index([companyId, triggeredByUserId])`. ThumbnailGeneration 동일.
+- `migrations/<timestamp>_panel_actor_user_id/migration.sql`
+- `init.sql.gz` 갱신 (prisma/CLAUDE.md 절차)
 
-### PR2 각 task 공통 패턴
+**Shared (packages/shared/src/panel/)**:
+- `types.ts` — `PanelRunItem`에 `phase: z.string().nullable().optional()`, `failureType: z.string().nullable().optional()` 추가 (typed union으로 조이지 말 것 — 도메인별 sub-state 어휘는 owner 도메인 책임)
+- `sources.ts` — `PANEL_RUN_SOURCES = ['workflow', 'agent', 'image'] as const`
 
-TDD 순서 PR1과 동일. 핵심 주의사항:
+**Backend (apps/server/src/panel/)**:
+- `adapters/agent.adapter.ts` + `__tests__/agent.adapter.spec.ts`
+- `adapters/image.adapter.ts` + `__tests__/image.adapter.spec.ts`
+- `adapters/registry.ts` — agent + image 등록
+- `panel.service.ts` — backfill 쿼리에 agent + image 추가
 
-- **Prisma 모델명 확인**: `ThumbnailGeneration` (not `ThumbnailEdit`). `HeartbeatRun` + join `AgentDefinition.name`.
-- **상태 매핑 테이블**: 각 adapter에 명시 + 테스트로 모든 상태값 커버.
-- **triggeredByUserId**: HeartbeatRun / ThumbnailGeneration 에 해당 필드 있는지 확인. 없으면 Prisma migration 추가 task 선행 (PR2 내).
-- **createMany 후 re-query**: RulesEngine 패턴. 한 트랜잭션 안에서 insert + findMany(createdAt >= cutoff) 해서 각 row에 emit.
+**Backend domain hooks (writer 사이트별 emit 추가)**:
+- `apps/server/src/agent-registry/heartbeat/heartbeat.service.ts` — Phase 2 머지 시 식별된 transition site
+- `apps/server/src/agent-registry/wakeup/...` — wakeup-claim writer (impl 시 grep으로 정확한 파일 확정)
+- `apps/server/src/products/thumbnails/thumbnail-generation.service.ts` — Phase 3 머지 시 5 sites
+- `apps/server/src/products/thumbnails/thumbnail-edit.service.ts` — Phase 3 머지 시 8 sites + apply-path
+
+### PR2a Task list
+
+- **Task 15a — Prisma migration: triggeredByUserId on HeartbeatRun + ThumbnailGeneration**
+  - 두 모델에 `triggeredByUserId String? @db.Uuid`, User back-relation 옵셔널 (PR1 Task 2 패턴), `@@index([companyId, triggeredByUserId])`.
+  - Backfill: 기존 행은 NULL 허용. 신규 writer가 `@CurrentUser`에서 채움 (없으면 NULL).
+  - Writer call site 갱신: 두 도메인 service의 create 지점 모두 (PR2a Task 17/19에서 이어짐).
+  - 검증: `prisma migrate dev`, `prisma generate`, shared `npm run build`, `dev:server` boot 성공.
+  - init.sql.gz 갱신.
+
+- **Task 15b — Shared PanelRunItem 확장 + sources 등록**
+  - `PanelRunItemSchema`에 `phase: z.string().nullable().optional()` + `failureType: z.string().nullable().optional()` 추가.
+  - `PANEL_RUN_SOURCES`에 `'agent'`, `'image'` 추가.
+  - **z.enum으로 sub-state 조이지 말 것** — 도메인별 어휘는 owner가 책임 (ADR-0011 Rule 3).
+  - workflow adapter regression: 두 필드 모두 undefined로 통과해도 type/test 모두 OK 검증.
+
+- **Task 16 — agent.adapter.ts (canonical pass-through)**
+  - 입력 shape: `{ run: HeartbeatRun, agent: { id: string; name: string } }` (service가 join 해서 넘김).
+  - 출력 `PanelRunItem`: `kind:'run'`, `source:'agent'`, **`status: run.status`** (그대로), `failureType: run.failureType`, `phase: null`, `title: agent.name`, `triggeredByUserId: run.triggeredByUserId`, companyId는 envelope 책임.
+  - **Status 매핑 테이블 금지** (ADR-0011 Rule 4). 알 수 없는 status는 throw — drift detector 역할.
+  - Test:
+    - 5 canonical statuses(`pending|running|succeeded|failed|cancelled`) 각각 통과.
+    - `failureType: 'timeout'` payload 통과.
+    - `status: 'queued'` 같은 비-canonical 입력 시 throw.
+  - registry 등록.
+
+- **Task 17 — Heartbeat service hook (모든 writer 사이트 emit)**
+  - **Writer 사이트 식별 (impl 시점 grep + 결과 명시)**:
+    1. `heartbeat.service.ts` — start/finish/timeout 전이 (Phase 2 ADR-0011 commit `5ed570d`에서 식별된 라인 333/395/456 부근)
+    2. wakeup claim → pending → running 전이
+    3. result-cleanup / compressor — failure 후처리 사이트
+  - 각 writer가 status 변경 후: `eventEmitter.emit(PANEL_EVENTS.UPSERT, { item, companyId })` 호출.
+  - **`EventEmitter2` global inject (AppModule)** — agent-registry module이 `EventEmitterModule.forRoot()` 로컬 import 안 하는지 확인 (CRITICAL — duplicate emitter trap, PR1 CRITICAL #7 재현 방지).
+  - companyId는 envelope에만, item에서 strip은 PR1 PanelSseService 책임 (재확인).
+  - Emit 빈도 정책: terminal transition(`succeeded|failed|cancelled`)만 emit (chatty agent로 ring buffer flush 방지). running 진입은 emit O, running 유지 중간 update는 emit X.
+  - Test: 각 transition 별 spec, `eventEmitter.emit` 호출 횟수 + payload shape assertion.
+
+- **Task 18 — image.adapter.ts (canonical + phase pass-through)**
+  - 입력 shape: `{ generation: ThumbnailGeneration, product: { id: string; title: string } }` (service가 product까지 join).
+  - 출력: `kind:'run'`, `source:'image'`, **`status: generation.status`**, **`phase: generation.phase`** (별도 필드), `failureType: null`, `title: product.title`, `triggeredByUserId: generation.triggeredByUserId`, `details: { method: generation.method }`.
+  - **method='generate'와 'edit' 모두 in-scope** (이유: 사용자 관점 동일 작업, UI는 method 라벨로 차별화). 정책 결정은 plan에 명시 — silent filter 금지.
+  - **Status 매핑 금지** (ADR-0011 Rule 4). Phase는 sub-state 컬럼 그대로.
+  - Test:
+    - 5 canonical statuses + 3 phase 값(`generating|ready|applied`) + null phase.
+    - method 두 종류 fixture (generate/edit) 모두 emit 확인.
+  - registry 등록.
+
+- **Task 19 — ThumbnailGeneration service hook (모든 writer 사이트 emit)**
+  - **Writer 사이트 (impl 시점 grep, Phase 3 ADR-0011 commit `83b9641` 기준 참조)**:
+    1. `thumbnail-generation.service.ts` — generate-path (5 sites)
+    2. `thumbnail-edit.service.ts` — edit-path (8 sites)
+    3. `markApplied` (apply-path, saveEditorResult 등)
+  - Emit policy: **status 변화 OR phase 변화 시 emit**. status `running` 유지하면서 phase `generating → ready` 전이도 panel update.
+  - 동일하게 `EventEmitter2` global inject. products module의 EventEmitter scoping 점검.
+  - Test:
+    - phase-only change emit 검증.
+    - status + phase 동시 변화 시 단일 emit (중복 안 되는지).
+
+- **Task 20 — PR2a integration test**
+  - `Test.createTestingModule` 베이스 (PR1 Task 14 패턴 재사용).
+  - 시나리오:
+    1. **3 source 동시 emit** — WorkflowRun + HeartbeatRun + ThumbnailGeneration 각각 emit → 1 stream에 모두 도달, seq 단조 증가.
+    2. **Canonical status pass-through 회귀** — adapter가 status 그대로 흘리는지 (mapping 부활 방지). status `succeeded` 들어오면 stream에도 `succeeded`로 도달.
+    3. **EventEmitter wiring smoke** — agent-registry / products module에서 emit한 이벤트가 Panel stream 컨슈머에 도달 (duplicate emitter trap 회귀 방지).
+    4. **Actor-null fallback** — `triggeredByUserId: null`인 row → envelope에서 actor 식별 불가 → my/team split에서 '팀'으로 분류 (PR2b에서 검증).
+    5. **Phase change emit** — image source에서 status 안 바뀌고 phase만 바뀐 emit 도달.
+    6. **Subscriber leak 카운트** — `Test.createTestingModule` cycle 반복 시 listener count 증가 없음 (PR1 AbortController leak lesson).
+
+### PR2a 검증
+
+- `prisma migrate dev` + `prisma generate` 성공
+- shared `npm run build` 성공
+- `npm run dev:server` boot 성공 (DI 검증 — NestJS DI 에러는 tsc/vitest로 안 잡힘)
+- Vitest pass + Task 20 integration test pass
+- init.sql.gz 갱신 완료
+
+---
+
+## PR2b — Alert Source + My/Team UI Split
+
+### PR2b Overview
+
+PR2a 검증 후 진행. Alert는 새로운 `PanelItem` kind이고 my/team UI split이 동시에 추가되므로 별도 PR로 분리해서 blast radius 축소. PR2a로 actor 마이그레이션이 끝났기에 my/team split이 workflow + agent + image 3 source에서 의미 있음. Alert는 actor 컬럼 자체가 없어 항상 '팀'(설계상).
+
+추가 범위:
+1. **PanelAlertItem 타입** — shared 신규, 필드 enumeration + Prisma `Alert` `satisfies` 패턴.
+2. **alert source** — Alert 모델 → PanelAlertItem.
+3. **Rules service hook** — `createManyAndReturn` (Prisma 7.5+) 사용. 시간창 race-prone 패턴 명시적 폐기.
+4. **PanelSheet 내/팀 split UI** — `actorUserId === currentUserId ? '내' : '팀'`. 4 source 모두 처리.
+5. **AlertRow + PanelItemRow** — discriminated union 분기.
+
+### PR2b File Structure
+
+**Shared**:
+- `packages/shared/src/panel/types.ts` — `PanelAlertItemSchema` + `PanelItem = PanelRunItem | PanelAlertItem` + `PANEL_ITEM_KINDS = ['run', 'alert'] as const`
+
+**Backend (apps/server/src/panel/)**:
+- `adapters/alert.adapter.ts` + spec
+- `adapters/registry.ts` — alert adapter는 별도 alert registry로 분리 (run-source registry와 의미 다름)
+- `panel.service.ts` — backfill에 alert 쿼리 추가
+
+**Backend domain hooks**:
+- alert 생성 위치 (impl 시점 grep — `apps/server/src/alerts/` 또는 `apps/server/src/products/services/rules*.service.ts` 등 RulesEngine 위치 확정)
+
+**Frontend (apps/web/src/components/panel/)**:
+- `PanelAlertRow.tsx` + spec
+- `PanelItemRow.tsx` — discriminated union 분기
+- `PanelSheet.tsx` — partition by actor (내 작업 / 팀 sections)
+
+### PR2b Task list
+
+- **Task 21 — Shared PanelAlertItem schema (필드 명시 + drift detection)**
+  - 필드 enumeration:
+    ```typescript
+    export const PanelAlertItemSchema = z.object({
+      kind: z.literal('alert'),
+      id: z.string().uuid(),
+      severity: z.string(),     // Alert.severity 실제 값 set은 impl 시점 grep — 평면 string 유지
+      type: z.string(),         // 평면 string. 'internal:rules' 같은 namespacing 미스코프(future ADR)
+      title: z.string(),
+      message: z.string().nullable(),
+      productId: z.string().uuid().nullable(),
+      isRead: z.boolean(),
+      actorUserId: z.string().uuid().nullable(),  // Alert는 actor 컬럼 없음 → 항상 null (PR2b 한정)
+      createdAt: z.string().datetime(),
+    });
+    export type PanelAlertItem = z.infer<typeof PanelAlertItemSchema>;
+    ```
+  - **`satisfies` drift detection** — Prisma `Alert` 필드와 PanelAlertItem 필드 매핑이 컴파일 타임 보장 (packages/shared/CLAUDE.md 패턴).
+  - `PanelItem = PanelRunItem | PanelAlertItem` discriminated union.
+  - Test: 필드 valid/invalid + drift assertion (Prisma 필드 누락 시 컴파일 에러).
+
+- **Task 22 — alert.adapter.ts**
+  - 입력: `Alert` (Prisma 그대로)
+  - 출력: `PanelAlertItem` (severity/type/title/message/productId/isRead/createdAt 통과, `actorUserId: null`)
+  - 별도 alert registry 등록 (`alertPanelAdapters`).
+  - Test: 모든 severity 값(impl 시점 Alert.severity 분포 grep 후 fixture) + null productId.
+
+- **Task 23 — Rules service hook (`createManyAndReturn` 사용)**
+  - **`createMany` + 시간창 패턴 명시적 폐기 이유**: race-prone — 동시 실행 rules eval 간 cross-batch contamination, clock skew, slow insert 시 cutoff 누락.
+  - **Prisma 7.5+ `createManyAndReturn`** 사용 (apps/server prisma `^7.5.0`).
+  - Pseudocode:
+    ```typescript
+    const inserted = await this.prisma.alert.createManyAndReturn({ data: payloads });
+    for (const alert of inserted) {
+      const item = alertAdapter.mapToItem(alert);
+      this.eventEmitter.emit(PANEL_EVENTS.UPSERT, { item, companyId: alert.companyId });
+    }
+    ```
+  - **Per-batch cap** — 50개 초과 시 단일 summary alert(`title: '${count}건의 새 알림'`)로 응축 emit. SSE flood + ring buffer flush 방지 (PR1 lesson).
+  - **EventEmitter2 global inject** + 모듈 scoping 재점검.
+  - Test:
+    1. 정상 batch — N rows insert → N emit (또는 cap 초과 시 1 summary emit).
+    2. **Concurrent rules eval no-contamination** — 두 rules eval 동시 실행 시 각자의 IDs만 emit.
+    3. **Partial-emit failure** — emit 중 throw해도 alert insert는 commit 유지 (transactional consistency 명시).
+
+- **Task 24 — PanelSheet 내/팀 split UI**
+  - Section header: "내 작업" / "팀"
+  - Partition rule:
+    - workflow + agent + image: `actorUserId === currentUserId ? '내' : '팀'`. null이면 '팀'.
+    - alert: 항상 '팀' (설계상 actor 없음).
+  - "팀 공유" 뱃지: actorUserId가 다른 사용자이면서 현재 사용자가 follower 컨텍스트일 때 (UI v3 mockup 따름).
+  - 빈 섹션 처리: '내 작업' 0건일 때 placeholder ("진행 중인 내 작업이 없습니다").
+  - Test (react-testing-library):
+    1. workflow 내 + agent 팀 + alert 팀 — 섹션 분기 정확.
+    2. actor null인 workflow row → '팀'.
+    3. 모두 0건 → empty state.
+
+- **Task 25 — AlertRow + PanelItemRow union 분기**
+  - `PanelAlertRow.tsx` — severity별 색상 (DESIGN.md Tailwind palette 따름). info/warning/error/critical 단계.
+  - `PanelItemRow.tsx`:
+    ```tsx
+    if (item.kind === 'run') return <PanelRunRow item={item} />;
+    if (item.kind === 'alert') return <PanelAlertRow item={item} />;
+    return null; // exhaustive check (TS never assertion)
+    ```
+  - hover action(promote 버튼)는 PR3에서 — PR2b는 read-only.
+
+- **Task 26 — PR2b integration test**
+  - 4 source(workflow/agent/image/alert) 동시 emit → 단일 stream 도달.
+  - **My/team split 정확성** — actor 매칭/null/alert 각각.
+  - **Concurrent rules eval no-contamination** (Task 23 검증 재차).
+  - **Partial-emit failure** semantics 확인.
+  - Subscriber leak 카운트 회귀 확인.
+
+### PR2b 검증
+
+- shared build + dev:server boot
+- 4-source integration test pass
+- React component test pass
+- DESIGN.md 색상/스페이싱 준수 (Tailwind class)
+
+### PR2 (a + b) 공통 주의사항
+
+- **ADR-0011 Rule 4 — 매핑 테이블 금지**: Adapter는 source canonical status를 그대로 통과시킨다. Sub-state는 별도 필드(`failureType`/`phase`).
+- **EventEmitter scoping**: 모든 신규 도메인 모듈이 `EventEmitterModule.forRoot()`를 로컬 import하지 않는지 확인 (AppModule 전역 1회). PR1 CRITICAL #7 재현 방지.
+- **NestJS DI boot 검증**: 모듈/서비스 추가 후 `npm run dev:server`로 boot 확인 (tsc/vitest로 DI 에러 안 잡힘).
+- **No follow-up issues**: writer 사이트 모두 instrument. 1 site 누락 = panel 무시 버그 (PR1 lesson).
+- **CLAUDE.md 도메인 규칙 준수**: 각 task dispatch 시 해당 도메인의 CLAUDE.md를 subagent에게 명시 (apps/server/src/agent-registry/CLAUDE.md 등).
 
 ---
 
@@ -2244,21 +2446,21 @@ async promote(alertId, companyId, dto, currentUserId) {
 - P7 (parentId): shared 스키마에 존재 (PR1 Task 3)
 - P8 (SSE): PR1 Task 4~7
 - P9 (visibility 축): PR1 Task 6 PanelService 필터 + WorkflowRun.triggeredByUserId
-- P10 (내/팀 UI): PR2 Task 22
+- P10 (내/팀 UI): PR2a Task 15a (HeartbeatRun/ThumbnailGeneration actor 마이그레이션) + PR2b Task 24 (PanelSheet split UI). Alert는 설계상 actor 없음 → 항상 '팀'
 
 ### Critic CRITICALs 반영
 | # | Critical | Fix 위치 |
 |---|----------|---------|
-| 1 | Prisma 필드 fiction | PR1 Task 5, PR2 Task 16/18 (실제 모델명 + join) |
-| 2 | ThumbnailEdit → ThumbnailGeneration | PR2 Task 18 |
+| 1 | Prisma 필드 fiction | PR1 Task 5, PR2a Task 16/18 (실제 모델명 + join) |
+| 2 | ThumbnailEdit → ThumbnailGeneration | PR2a Task 18 |
 | 3 | `@CurrentUser('id')` invalid | PR1 Task 7 (controller), PR3 Task 31 |
 | 4 | Promote race | PR3 Task 26 (atomic updateMany) |
-| 5 | createMany 패턴 | PR2 Task 21 (re-query 후 emit) |
+| 5 | createMany 패턴 | **v3 supersede**: PR2b Task 23 — `createManyAndReturn` (Prisma 7.5+) 사용. 시간창 re-query 패턴 폐기 (race-prone) |
 | 6 | /api/users/me 부재 | PR1 Task 13 — useCurrentUserId 훅은 **AppLayout에서 필요 없음** (usePanelStream만 쓰고 server에서 @CurrentUser로 주입) |
-| 7 | EventEmitterModule 중복 | PR1 Task 7 — PanelModule에서 import 제외, AppModule 글로벌 |
+| 7 | EventEmitterModule 중복 | PR1 Task 7 + PR2a Task 17/19, PR2b Task 23 — 모든 도메인 모듈 local forRoot import 금지, AppModule 전역 |
 | 8 | MessageEvent 타입 + companyId 누수 | PR1 Task 4 (service가 companyId strip), Task 7 (@nestjs/common MessageEvent) |
 | 9 | Seq reset 핸드셰이크 | PR1 Task 3 (PanelSnapshotEvent.resetClient), Task 7 (controller snapshot 선행), Task 10 (store handleSnapshot) |
-| 10 | triggeredBy UUID mismatch | PR1 Task 2 (triggeredByUserId 필드 추가) |
+| 10 | triggeredBy UUID mismatch | PR1 Task 2 (WorkflowRun.triggeredByUserId) + **v3 추가**: PR2a Task 15a (HeartbeatRun / ThumbnailGeneration.triggeredByUserId) |
 
 ### Eng findings 반영
 | # | Finding | Fix 위치 |
@@ -2276,7 +2478,7 @@ async promote(alertId, companyId, dto, currentUserId) {
 | 2 | Dismiss wire shape | PR1 Task 3 (PanelDismissEvent.itemId) |
 | 3 | Sidebar exact lines | PR1 Task 13 — "line 429~510 부근 전체 교체" 명시 |
 | 4 | Integration test hand-wavy | F4와 동일 → PR1 Task 14 |
-| 5 | status enum per adapter | PR1 Task 5 (workflow VALID_STATUS set), PR2 Task 16/18 (agent/image 매핑 테이블) |
+| 5 | status enum per adapter | PR1 Task 5 (workflow VALID_STATUS set). **v3 supersede**: PR2a Task 16/18은 매핑 테이블 금지 — ADR-0011 Phase 2/3 머지로 source status가 이미 canonical. Adapter는 pass-through + 미지의 값은 throw (drift detector) |
 | 6 | sortItems grouping | PR1 Task 12 partitionByStatus |
 | 7 | openWhenHidden vs visibilitychange | PR1 Task 9 — `openWhenHidden: false` 하나로 통일 |
 | 8 | backfill seq | PR1 Task 6 — MVP에선 backfill이 snapshot과 동일. 실제 seq는 stream이 담당 |
@@ -2315,10 +2517,33 @@ async promote(alertId, companyId, dto, currentUserId) {
 - Error Boundary로 Panel 격리
 - Deterministic 통합 테스트 (manual 검증 아닌 Test.createTestingModule 기반)
 
+**v2 → v3 전환 이유** (2026-04-16):
+- PR1 머지 후 ADR-0011 Status Canonical Phase 1/2/3 **모두 머지됨** (`4e56289`/`5ed570d`/`83b9641`). HeartbeatRun / ThumbnailGeneration 모두 canonical status + sub-state(`failureType` / `phase`) 컬럼 보유. **v2 PR2 Task 16/18 매핑 테이블은 ADR-0011 Rule 4 직접 위반** — 삭제 필수.
+- `critic` + `architect` (plan-eng-review 대체) 재실행 → 4 CRITICAL + 6 MAJOR 추가 발견. 주요 항목:
+  - Task 22 `actorUserId === currentUserId` split이 4 source 중 3 source에 actor 필드 없어 75%가 무조건 '팀'. 마이그레이션이 사이드노트로 숨음.
+  - Task 21 `createMany` + 시간창 re-query — race-prone + Prisma `createMany`는 ID 반환 안 해 "just-inserted IDs" 구현 불가능.
+  - Task 18 `method='edit'` 필터가 default `'generate'` 행을 silent drop. Policy 미정.
+  - PR2 section이 PR1 대비 detail 1/50 수준 — subagent가 writer 사이트 fabricate 우려.
+
+**v3 수정 요점**:
+- PR2 → **PR2a(async run sources) / PR2b(alert + my/team UI)** 로 재분할. Alert + 새 item kind + UI 변경이 동시에 landing하지 않도록 blast radius 축소.
+- PR2a Task 15a: **HeartbeatRun + ThumbnailGeneration.triggeredByUserId 마이그레이션을 first-class task로 승격** (PR1 Task 2 패턴).
+- PR2a Task 15b: `PanelRunItem`에 `phase?` / `failureType?` 옵셔널 필드 추가 (sub-state 노출).
+- Task 16/18: **매핑 테이블 전면 삭제**. Canonical status pass-through + 미지의 값 throw (drift detector).
+- Task 18: **`method='generate'` 포함 결정** — 사용자 관점 동일 작업. UI는 method 라벨로 차별화.
+- Task 23 (PR2b): `createMany` → **`createManyAndReturn`** (Prisma 7.5+ 지원). 시간창 폐기 + per-batch cap(50) 명시.
+- Task 17/19: Writer 사이트 명시적 enumeration (PR1 "companyId 미populate" 재현 방지). 각 site별 EventEmitter2 global inject + 모듈 scoping 점검.
+- Task 21 (PR2b PanelAlertItem): 필드 enumeration + `satisfies` drift detection. Alert subType namespacing은 future ADR로 out-of-scope 명시.
+- Task 24 (PR2b my/team split): Alert는 설계상 항상 '팀' (actor 컬럼 없음) 명시. 4 source 분기 규칙 enumerate.
+- Task 20 (PR2a) / Task 26 (PR2b) 통합 테스트: canonical pass-through 회귀, EventEmitter wiring smoke, phase-only change, subscriber leak 카운트 회귀 추가.
+- 공통 주의사항 섹션 추가 — ADR-0011 Rule 4, EventEmitter scoping, NestJS DI boot 검증, CLAUDE.md subagent 명시.
+
 ---
 
 ## Execution Handoff
 
-PR1만 이 세션에서 작성 완료. PR2, PR3는 PR1 dogfood 후 별도 세션.
+PR1 merged 2026-04-15 (main `4e56289` 부근). PR2a/PR2b/PR3 각자 별도 브랜치·세션·dogfood cycle.
 
-**Subagent-driven development** 모드로 PR1 Task 1~14 실행 예정. 각 task 당 implementer → spec reviewer → code quality reviewer 2단계 리뷰.
+**Subagent-driven development** 모드로 PR2a Task 15a~20 순차 실행. 각 task 당 implementer → spec reviewer → code quality reviewer 2단계 리뷰. graphify query로 해당 도메인 CLAUDE.md 룰 주입.
+
+진행 브랜치: `feat/panel-live-ops-pr2`.

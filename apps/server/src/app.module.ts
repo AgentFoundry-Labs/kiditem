@@ -52,8 +52,10 @@ import { PanelModule } from './panel/panel.module';
 
 @Module({
   imports: [
-    // 전역 이벤트 이미터 — PanelSseService(@OnEvent), 기타 도메인 이벤트 버스 공유.
-    // agent-registry.module.ts 의 forRoot() 는 NestJS 싱글턴이므로 중복 무해.
+    // Global event bus — AppModule is the SINGLE forRoot() site.
+    // Other modules inject EventEmitter2 directly (do NOT call forRoot elsewhere —
+    // forRoot uses useFactory: () => new EventEmitter2(options), producing a fresh instance
+    // per call that breaks cross-module @OnEvent subscribers).
     EventEmitterModule.forRoot(),
     // 120 req / 60s / IP — SSE 재연결 폭주 및 brute force 완화.
     // ThrottlerGuard 는 CompanyScope/Roles 이후 평가되어 비인증 요청은 카운터 영향 없음.

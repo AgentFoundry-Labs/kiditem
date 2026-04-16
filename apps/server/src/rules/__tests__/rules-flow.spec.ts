@@ -11,7 +11,7 @@ function makePrisma() {
   return {
     agentTask: { findUnique: vi.fn(), update: vi.fn() },
     activityEvent: { create: vi.fn(), createMany: vi.fn() },
-    alert: { createMany: vi.fn() },
+    alert: { createManyAndReturn: vi.fn().mockResolvedValue([]) },
     product: { count: vi.fn(), findFirst: vi.fn(), findMany: vi.fn() },
     businessRule: { findMany: vi.fn(), update: vi.fn(), count: vi.fn() },
     company: { findFirst: vi.fn() },
@@ -26,13 +26,19 @@ function makeAgentRegistry() {
   };
 }
 
+function makeEventEmitter() {
+  return { emit: vi.fn() };
+}
+
 function makeService() {
   const prisma = makePrisma();
   const registry = makeAgentRegistry();
+  const eventEmitter = makeEventEmitter();
   return {
-    service: new RulesService(prisma as any, registry as any),
+    service: new RulesService(prisma as any, registry as any, eventEmitter as any),
     prisma,
     registry,
+    eventEmitter,
   };
 }
 
@@ -70,7 +76,7 @@ describe('RulesService — full evaluation flow', () => {
       const { service, prisma } = makeService();
       prisma.$executeRawUnsafe.mockResolvedValue(undefined);
       prisma.activityEvent.createMany.mockResolvedValue({ count: 1 });
-      prisma.alert.createMany.mockResolvedValue({ count: 0 });
+      prisma.alert.createManyAndReturn.mockResolvedValue([]);
 
       const event = new AgentResultReadyEvent(
         'rules_evaluation', 'agent-rules', 'run-1',
@@ -108,7 +114,7 @@ describe('RulesService — full evaluation flow', () => {
       const { service, prisma } = makeService();
       prisma.$executeRawUnsafe.mockResolvedValue(undefined);
       prisma.activityEvent.createMany.mockResolvedValue({ count: 2 });
-      prisma.alert.createMany.mockResolvedValue({ count: 0 });
+      prisma.alert.createManyAndReturn.mockResolvedValue([]);
 
       const event = new AgentResultReadyEvent(
         'rules_evaluation', 'agent-rules', 'run-2',
@@ -164,7 +170,17 @@ describe('RulesService — full evaluation flow', () => {
       const { service, prisma } = makeService();
       prisma.$executeRawUnsafe.mockResolvedValue(undefined);
       prisma.activityEvent.createMany.mockResolvedValue({ count: 2 });
-      prisma.alert.createMany.mockResolvedValue({ count: 1 });
+      prisma.alert.createManyAndReturn.mockResolvedValue([{
+        id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+        companyId: 'c-1',
+        productId: 'p2',
+        type: 'rule_violation',
+        severity: 'critical',
+        title: '순이익률 -10%',
+        message: 'review_pricing',
+        isRead: false,
+        createdAt: new Date(),
+      }]);
 
       const event = new AgentResultReadyEvent(
         'rules_evaluation', 'agent-rules', 'run-3',
@@ -209,7 +225,7 @@ describe('RulesService — full evaluation flow', () => {
       await service.onResultReady(event);
 
       // Only critical violation (p2) should create an alert
-      expect(prisma.alert.createMany).toHaveBeenCalledWith({
+      expect(prisma.alert.createManyAndReturn).toHaveBeenCalledWith({
         data: [
           expect.objectContaining({
             productId: 'p2',
@@ -252,7 +268,7 @@ describe('RulesService — full evaluation flow', () => {
 
       await service.onResultReady(event);
 
-      expect(prisma.alert.createMany).not.toHaveBeenCalled();
+      expect(prisma.alert.createManyAndReturn).not.toHaveBeenCalled();
     });
 
     it('skips all DB operations when products array is empty', async () => {
@@ -268,7 +284,7 @@ describe('RulesService — full evaluation flow', () => {
 
       expect(prisma.$executeRawUnsafe).not.toHaveBeenCalled();
       expect(prisma.activityEvent.createMany).not.toHaveBeenCalled();
-      expect(prisma.alert.createMany).not.toHaveBeenCalled();
+      expect(prisma.alert.createManyAndReturn).not.toHaveBeenCalled();
     });
 
     it('ignores events from non-rules_evaluation agent types', async () => {
@@ -282,7 +298,7 @@ describe('RulesService — full evaluation flow', () => {
 
       expect(prisma.$executeRawUnsafe).not.toHaveBeenCalled();
       expect(prisma.activityEvent.createMany).not.toHaveBeenCalled();
-      expect(prisma.alert.createMany).not.toHaveBeenCalled();
+      expect(prisma.alert.createManyAndReturn).not.toHaveBeenCalled();
     });
 
     it('does not throw when DB operations fail (error recovery)', async () => {
