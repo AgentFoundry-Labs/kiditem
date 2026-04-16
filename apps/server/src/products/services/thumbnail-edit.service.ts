@@ -1,9 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import type { Prisma, ThumbnailGeneration } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ThumbnailAiService } from './thumbnail-ai.service';
 import type { GenerationWithProduct, EditAnalysisResult } from './types';
 import { markReady, resetToPending } from './thumbnail-status.helpers';
+import { PANEL_EVENTS } from '../../panel/events/panel-events';
+import { imagePanelAdapter } from '../../panel/adapters/image.adapter';
 
 const PRODUCT_SELECT = { id: true, name: true, imageUrl: true, coupangProductId: true, category: true } as const;
 
@@ -14,7 +17,19 @@ export class ThumbnailEditService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly thumbnailAiService: ThumbnailAiService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
+
+  /** Panel Live Ops: emit UPSERT after status/phase transition. Fire-and-forget; never throws. */
+  private emitPanelUpsert(generation: ThumbnailGeneration | null | undefined, product: { id: string; title: string }): void {
+    if (!generation) return;
+    try {
+      const item = imagePanelAdapter.mapToItem({ generation, product }, generation.companyId);
+      this.eventEmitter.emit(PANEL_EVENTS.UPSERT, { item, companyId: generation.companyId });
+    } catch (err) {
+      this.logger.warn(`Panel emit failed (generation=${generation.id}): ${err}`);
+    }
+  }
 
   async createEditJobs(productIds: string[], purpose: 'compliance' | 'quality' = 'compliance'): Promise<GenerationWithProduct[]> {
     const results: GenerationWithProduct[] = [];
@@ -90,6 +105,9 @@ export class ThumbnailEditService {
           include: { product: { select: PRODUCT_SELECT } },
         });
 
+        // Panel Live Ops: emit on create (source visible at creation, status=pending)
+        this.emitPanelUpsert(generation, { id: product.id, title: product.name });
+
         const result: GenerationWithProduct = {
           ...generation,
           candidates: generation.candidates as Array<{ url: string; filename: string }>,
@@ -122,7 +140,10 @@ export class ThumbnailEditService {
     const imageUrl = job.originalUrl ?? job.product?.imageUrl ?? null;
     if (!imageUrl) return { ok: true };
 
-    await resetToPending(this.prisma, generationId, { candidates: [], selectedUrl: null });
+    const reset = await resetToPending(this.prisma, generationId, { candidates: [], selectedUrl: null });
+
+    // Panel Live Ops: emit on reset to pending (phase transition)
+    this.emitPanelUpsert(reset, { id: job.product.id, title: job.product.name });
 
     setImmediate(() => {
       this.processEditJob(generationId, imageUrl, job.product.name, job.product.category, purpose).catch((err) => {
@@ -156,11 +177,24 @@ export class ThumbnailEditService {
       setTimeout(() => reject(new Error('편집 타임아웃 (5분 초과)')), ThumbnailEditService.EDIT_TIMEOUT_MS),
     );
 
+    // Fetch generation (with product) once for all panel emits in this job.
+    // One extra query per job; acceptable — not in hot loop.
+    const genForProduct = await this.prisma.thumbnailGeneration.findUnique({
+      where: { id: generationId },
+      select: { productId: true, companyId: true, product: { select: { id: true, name: true } } },
+    });
+    const productCtx = genForProduct?.product
+      ? { id: genForProduct.product.id, title: genForProduct.product.name }
+      : null;
+
     try {
-      await this.prisma.thumbnailGeneration.update({
+      const runningRow = await this.prisma.thumbnailGeneration.update({
         where: { id: generationId },
         data: { status: 'running', phase: null },
       });
+
+      // Panel Live Ops: status transition pending → running
+      if (productCtx) this.emitPanelUpsert(runningRow, productCtx);
 
       // 1. 이미지 편집 (타임아웃 적용)
       const candidates = await Promise.race([
@@ -169,10 +203,12 @@ export class ThumbnailEditService {
       ]);
 
       if (candidates.length === 0) {
-        await this.prisma.thumbnailGeneration.update({
+        const failedRow = await this.prisma.thumbnailGeneration.update({
           where: { id: generationId },
           data: { status: 'failed', phase: null },
         });
+        // Panel Live Ops: status transition running → failed (0 candidates)
+        if (productCtx) this.emitPanelUpsert(failedRow, productCtx);
         return;
       }
 
@@ -198,15 +234,20 @@ export class ThumbnailEditService {
       }
 
       // 3. 결과 저장
-      await markReady(this.prisma, generationId, {
+      const readyRow = await markReady(this.prisma, generationId, {
         candidates: candidates as unknown as Prisma.InputJsonValue,
         editAnalysis: editAnalysis as unknown as Prisma.InputJsonValue,
       });
+      // Panel Live Ops: phase transition running → succeeded+ready
+      if (productCtx) this.emitPanelUpsert(readyRow, productCtx);
     } catch (error) {
       this.logger.error(`편집 처리 실패 (${generationId}): ${error instanceof Error ? error.message : error}`);
       await this.prisma.thumbnailGeneration.update({
         where: { id: generationId },
         data: { status: 'failed', phase: null },
+      }).then((failedRow) => {
+        // Panel Live Ops: status transition → failed (timeout / generic error)
+        if (productCtx) this.emitPanelUpsert(failedRow, productCtx);
       }).catch(() => {});
     }
   }

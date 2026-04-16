@@ -32,7 +32,7 @@ describe('ThumbnailEditService', () => {
   beforeEach(() => {
     prisma = makePrisma();
     aiService = makeAiService();
-    service = new ThumbnailEditService(prisma as any, aiService as any);
+    service = new ThumbnailEditService(prisma as any, aiService as any, { emit: vi.fn() } as any);
   });
 
   describe('createEditJobs', () => {

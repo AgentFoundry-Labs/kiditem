@@ -1,9 +1,13 @@
 import { Injectable, Logger, NotFoundException, InternalServerErrorException } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import type { ThumbnailGeneration } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ThumbnailAiService } from './thumbnail-ai.service';
 import { ThumbnailTrackingService } from './thumbnail-tracking.service';
 import type { GenerationWithProduct, EditAnalysisResult } from './types';
 import { markReady, markApplied } from './thumbnail-status.helpers';
+import { PANEL_EVENTS } from '../../panel/events/panel-events';
+import { imagePanelAdapter } from '../../panel/adapters/image.adapter';
 
 export type { GenerationWithProduct } from './types';
 
@@ -24,7 +28,19 @@ export class ThumbnailGenerationService {
     private readonly prisma: PrismaService,
     private readonly thumbnailAiService: ThumbnailAiService,
     private readonly trackingService: ThumbnailTrackingService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
+
+  /** Panel Live Ops: emit UPSERT after status/phase transition. Fire-and-forget; never throws. */
+  private emitPanelUpsert(generation: ThumbnailGeneration | null | undefined, product: { id: string; title: string }): void {
+    if (!generation) return;
+    try {
+      const item = imagePanelAdapter.mapToItem({ generation, product }, generation.companyId);
+      this.eventEmitter.emit(PANEL_EVENTS.UPSERT, { item, companyId: generation.companyId });
+    } catch (err) {
+      this.logger.warn(`Panel emit failed (generation=${generation.id}): ${err}`);
+    }
+  }
 
   async findAll(query: {
     status?: string;
@@ -95,6 +111,10 @@ export class ThumbnailGenerationService {
       { include: { product: { select: { id: true, name: true, imageUrl: true, coupangProductId: true, category: true } } } },
     );
 
+    // Panel Live Ops: phase transition pending/running → succeeded+ready
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    this.emitPanelUpsert(updated, { id: (updated as any).product.id, title: (updated as any).product.name });
+
     return toGeneration(updated);
   }
 
@@ -115,6 +135,10 @@ export class ThumbnailGenerationService {
       id,
       { include: { product: { select: { id: true, name: true, imageUrl: true, coupangProductId: true, category: true } } } },
     );
+
+    // Panel Live Ops: phase transition ready → applied
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    this.emitPanelUpsert(updated, { id: (updated as any).product.id, title: (updated as any).product.name });
 
     // 추적 레코드 생성 (이미 있으면 upsert 처리됨)
     const analysis = await this.prisma.thumbnailAnalysis.findUnique({ where: { productId: existing.productId } });
@@ -142,6 +166,9 @@ export class ThumbnailGenerationService {
       data: { status: 'cancelled', phase: null },
       include: { product: { select: { id: true, name: true, imageUrl: true, coupangProductId: true, category: true } } },
     });
+
+    // Panel Live Ops: status transition → cancelled
+    this.emitPanelUpsert(updated, { id: updated.product.id, title: updated.product.name });
 
     return toGeneration(updated);
   }
@@ -183,6 +210,16 @@ export class ThumbnailGenerationService {
           score: 0,
         },
       });
+
+      // Panel Live Ops: emit on create (succeeded+ready — source visible immediately)
+      const product = await this.prisma.product.findUnique({
+        where: { id: params.productId },
+        select: { id: true, name: true },
+      });
+      if (product) {
+        this.emitPanelUpsert(gen, { id: product.id, title: product.name });
+      }
+
       return gen.id;
     } catch (err) {
       this.logger.warn(`ThumbnailGeneration DB 저장 실패 (productId=${params.productId}): ${err instanceof Error ? err.message : String(err)}`);
