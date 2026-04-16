@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { kstDayStart } from '../common/kst';
@@ -224,6 +224,68 @@ export class ActionTaskService {
         },
       });
     }
+  }
+
+  async claim(taskId: string, companyId: string, userId: string) {
+    const { count } = await this.prisma.actionTask.updateMany({
+      where: { id: taskId, companyId, assigneeUserId: null },
+      data: { assigneeUserId: userId },
+    });
+    if (count === 0) throw new ConflictException('Already claimed or task not found');
+    return this.prisma.actionTask.findFirstOrThrow({
+      where: { id: taskId, companyId },
+      include: { assigneeUser: { select: { id: true, name: true } } },
+    });
+  }
+
+  async unclaim(taskId: string, companyId: string, userId: string) {
+    const { count } = await this.prisma.actionTask.updateMany({
+      where: { id: taskId, companyId, assigneeUserId: userId },
+      data: { assigneeUserId: null },
+    });
+    if (count === 0) throw new ConflictException('Not assigned to you or task not found');
+    return this.prisma.actionTask.findFirstOrThrow({
+      where: { id: taskId, companyId },
+      include: { assigneeUser: { select: { id: true, name: true } } },
+    });
+  }
+
+  async list(
+    companyId: string,
+    currentUserId: string,
+    opts: { assignedTo?: 'me' | 'team' | 'all' } = {},
+  ) {
+    const { assignedTo = 'all' } = opts;
+    const where: Prisma.ActionTaskWhereInput = { companyId };
+    if (assignedTo === 'me') {
+      where.assigneeUserId = currentUserId;
+    } else if (assignedTo === 'team') {
+      where.AND = [
+        { assigneeUserId: { not: null } },
+        { assigneeUserId: { not: currentUserId } },
+      ];
+    }
+
+    const tasks = await this.prisma.actionTask.findMany({
+      where,
+      include: { assigneeUser: { select: { id: true, name: true } } },
+      orderBy: [{ priority: 'asc' }, { date: 'desc' }],
+    });
+
+    // Batch-load sourceAlerts (N+1 방지)
+    const taskIds = tasks.map((t) => t.id);
+    const sourceAlerts = taskIds.length > 0
+      ? await this.prisma.alert.findMany({
+          where: { companyId, actionTaskId: { in: taskIds } },
+          select: { id: true, actionTaskId: true, severity: true, type: true, title: true },
+        })
+      : [];
+    const alertByTaskId = new Map(sourceAlerts.map((a) => [a.actionTaskId!, a]));
+
+    return tasks.map((t) => ({
+      ...t,
+      sourceAlert: alertByTaskId.get(t.id) ?? null,
+    }));
   }
 
   // ── Private helpers ──
