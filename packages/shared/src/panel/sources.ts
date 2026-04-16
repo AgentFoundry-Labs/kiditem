@@ -6,7 +6,16 @@ export const PANEL_RUN_SOURCES = {
     iconName: 'Workflow',
     deepLinkPattern: '/workflows/runs/:id',
   },
-  // PR2에서 agent, image_edit 추가
+  agent: {
+    label: '에이전트',
+    iconName: 'Bot',
+    deepLinkPattern: '/agents/runs/:id',
+  },
+  image: {
+    label: '이미지',
+    iconName: 'Image',
+    deepLinkPattern: '/products/:id/images',
+  },
 } as const;
 
 export type PanelRunSource = keyof typeof PANEL_RUN_SOURCES;

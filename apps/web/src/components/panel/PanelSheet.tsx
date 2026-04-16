@@ -13,11 +13,19 @@ export function PanelSheet() {
   const byId = usePanelStore((s) => s.byId);
   const connectionStatus = usePanelStore((s) => s.connectionStatus);
 
+  // Read at render time so test env stubs (vi.stubEnv) are picked up.
+  const currentUserId = process.env.NEXT_PUBLIC_DEV_USER_ID ?? null;
+
   // byId ref만 의존하면 안정적 — Object.values()를 selector 안에서 호출하면
   // 매 렌더 새 배열 레퍼런스로 infinite loop (useSyncExternalStore getSnapshot 경고).
   const { active, recent, runningCount } = useMemo(
     () => partitionByStatus(Object.values(byId)),
     [byId],
+  );
+
+  const { myItems, teamItems } = useMemo(
+    () => partitionByOwner([...active, ...recent], currentUserId),
+    [active, recent, currentUserId],
   );
 
   return (
@@ -52,24 +60,30 @@ export function PanelSheet() {
           )}
 
           <div className="flex-1 overflow-y-auto">
-            {active.length > 0 && (
+            {/* 내 작업 section */}
+            <div className="px-4 py-2 text-xs font-bold text-slate-500 uppercase bg-slate-50 border-b border-slate-100">
+              내 작업
+            </div>
+            {myItems.length > 0
+              ? myItems.map((i) => <PanelItemRow key={i.id} item={i} />)
+              : (
+                <div className="px-4 py-6 text-center text-sm text-slate-400">
+                  진행 중인 내 작업이 없습니다
+                </div>
+              )}
+
+            {/* 팀 section — empty 시 헤더도 숨김 */}
+            {teamItems.length > 0 && (
               <>
                 <div className="px-4 py-2 text-xs font-bold text-slate-500 uppercase bg-slate-50 border-b border-slate-100">
-                  진행 중 ({active.length})
+                  팀
                 </div>
-                {active.map((i) => <PanelItemRow key={i.id} item={i} />)}
+                {teamItems.map((i) => <PanelItemRow key={i.id} item={i} />)}
               </>
             )}
-            {recent.length > 0 && (
-              <>
-                <div className="px-4 py-2 text-xs font-bold text-slate-500 uppercase bg-slate-50 border-b border-slate-100">
-                  최근 ({recent.length})
-                </div>
-                {recent.map((i) => <PanelItemRow key={i.id} item={i} />)}
-              </>
-            )}
-            {active.length === 0 && recent.length === 0 && (
-              <div className="px-4 py-12 text-center text-sm text-slate-400">
+
+            {myItems.length === 0 && teamItems.length === 0 && (
+              <div className="px-4 py-8 text-center text-sm text-slate-400">
                 현재 주목할 항목이 없어요
               </div>
             )}
@@ -97,4 +111,17 @@ function partitionByStatus(items: PanelItem[]) {
   active.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   recent.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   return { active, recent, runningCount };
+}
+
+function partitionByOwner(items: PanelItem[], currentUserId: string | null) {
+  const myItems: PanelItem[] = [];
+  const teamItems: PanelItem[] = [];
+  for (const item of items) {
+    if (currentUserId !== null && item.actorUserId === currentUserId) {
+      myItems.push(item);
+    } else {
+      teamItems.push(item);
+    }
+  }
+  return { myItems, teamItems };
 }

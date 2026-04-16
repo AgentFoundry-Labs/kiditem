@@ -28,7 +28,8 @@ describe('panel-store', () => {
   it('upsertItem ignores stale seq', () => {
     store.getState().upsertItem(makeItem({ id: 'a', seq: 5 }));
     store.getState().upsertItem(makeItem({ id: 'a', seq: 3 }));
-    expect(store.getState().byId['a'].seq).toBe(5);
+    const item = store.getState().byId['a'];
+    expect(item?.kind === 'run' ? item.seq : undefined).toBe(5);
   });
 
   it('handleSnapshot clears store on resetClient', () => {

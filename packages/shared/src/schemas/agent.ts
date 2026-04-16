@@ -106,6 +106,7 @@ export const HeartbeatRunSchema = z.object({
   nextSchedule: z.string().nullable().optional(),
   isSummarized: z.boolean().optional(),
   summary: z.string().nullable().optional(),
+  triggeredByUserId: z.string().uuid().nullable().optional(),
   createdAt: zIsoDate,
   updatedAt: zIsoDate,
 });

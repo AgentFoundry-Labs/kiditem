@@ -1,8 +1,11 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AgentRegistryService } from '../../agent-registry/agent-registry.service';
 import { AGENT_EVENTS, AgentResultReadyEvent } from '../../agent-registry/events/agent-events';
+import { PANEL_EVENTS } from '../../panel/events/panel-events';
+import { alertPanelAdapter } from '../../panel/adapters/alert.adapter';
 import type { RuleItem } from '@kiditem/shared';
 import type { EvaluationResult, ProductEvalResult } from './types';
 
@@ -12,9 +15,12 @@ export type { EvaluationResult } from './types';
 export class RulesService implements OnModuleInit {
   private readonly logger = new Logger(RulesService.name);
 
+  private static readonly PANEL_EMIT_BATCH_CAP = 50;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly agentRegistry: AgentRegistryService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -92,7 +98,37 @@ export class RulesService implements OnModuleInit {
           })),
       );
       if (criticals.length) {
-        await this.prisma.alert.createMany({ data: criticals });
+        const inserted = await this.prisma.alert.createManyAndReturn({ data: criticals });
+        // Panel Live Ops: emit after insert — batch cap prevents SSE flood
+        try {
+          if (inserted.length > RulesService.PANEL_EMIT_BATCH_CAP) {
+            // Single summary item instead of N individual emits
+            const { v4: uuidv4 } = await import('uuid');
+            this.eventEmitter.emit(PANEL_EVENTS.UPSERT, {
+              item: alertPanelAdapter.mapToItem({
+                id: uuidv4(),
+                companyId,
+                productId: null,
+                type: 'batch_summary',
+                severity: 'info',
+                title: `${inserted.length}건의 새 알림`,
+                message: null,
+                isRead: false,
+                createdAt: new Date(),
+              }),
+              companyId,
+            });
+          } else {
+            for (const alert of inserted) {
+              this.eventEmitter.emit(PANEL_EVENTS.UPSERT, {
+                item: alertPanelAdapter.mapToItem(alert),
+                companyId,
+              });
+            }
+          }
+        } catch (err) {
+          this.logger.warn(`Panel emit failed after alert createManyAndReturn (count=${inserted.length}): ${err}`);
+        }
       }
     } catch (err) {
       this.logger.error(`Rules post-processing failed for run ${event.runId}: ${err}`);

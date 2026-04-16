@@ -55,12 +55,17 @@ export class PanelService {
       );
     }
 
-    // Visibility 필터: company OR (user AND actorUserId === currentUserId)
-    return items.filter(
-      (item) =>
-        item.visibility === 'company' ||
-        (item.visibility === 'user' && item.actorUserId === currentUserId),
-    );
+    // Visibility 필터: alert items are always company-visible (no visibility field).
+    // run items: company OR (user AND actorUserId === currentUserId).
+    // Note: Omit<union> doesn't distribute — cast to 'any' for discriminant narrowing.
+    return items.filter((item) => {
+      const i = item as any;
+      if (i.kind === 'alert') return true; // alerts always company-wide
+      return (
+        i.visibility === 'company' ||
+        (i.visibility === 'user' && i.actorUserId === currentUserId)
+      );
+    });
   }
 
   /**

@@ -40,8 +40,11 @@ export const createPanelStore = () => create<PanelStoreState>((set, get) => ({
 
   upsertItem: (item) => set((state) => {
     const existing = state.byId[item.id];
-    if (existing && existing.seq >= item.seq) return state;
-    return { byId: { ...state.byId, [item.id]: item }, lastSeq: Math.max(state.lastSeq, item.seq) };
+    // PanelAlertItem has no seq — always upsert. PanelRunItem uses seq for dedup.
+    const itemSeq = item.kind === 'run' ? item.seq : 0;
+    const existingSeq = existing?.kind === 'run' ? existing.seq : 0;
+    if (existing && existingSeq >= itemSeq) return state;
+    return { byId: { ...state.byId, [item.id]: item }, lastSeq: Math.max(state.lastSeq, itemSeq) };
   }),
 
   dismissItem: (id) => set((state) => {
@@ -58,7 +61,9 @@ export const createPanelStore = () => create<PanelStoreState>((set, get) => ({
     let maxSeq = 0;
     items.forEach((item) => {
       byId[item.id] = item;
-      if (item.seq > maxSeq) maxSeq = item.seq;
+      // PanelAlertItem has no seq — only track seq for run items.
+      const itemSeq = item.kind === 'run' ? item.seq : 0;
+      if (itemSeq > maxSeq) maxSeq = itemSeq;
     });
     return { byId, lastSeq: maxSeq };
   }),
