@@ -45,4 +45,34 @@ describe('PanelEvent', () => {
   it('PanelRunSourceSchema accepts workflow', () => {
     expect(() => PanelRunSourceSchema.parse('workflow')).not.toThrow();
   });
+  it('PanelRunSourceSchema accepts agent', () => {
+    expect(() => PanelRunSourceSchema.parse('agent')).not.toThrow();
+  });
+  it('PanelRunSourceSchema accepts image', () => {
+    expect(() => PanelRunSourceSchema.parse('image')).not.toThrow();
+  });
+  it('PanelRunSourceSchema rejects unknown source', () => {
+    expect(() => PanelRunSourceSchema.parse('bogus')).toThrow();
+  });
+});
+
+describe('PanelRunItem phase/failureType', () => {
+  it('accepts phase undefined (workflow regression)', () => {
+    expect(() => PanelItem.parse(makeRun())).not.toThrow();
+  });
+  it('accepts phase null', () => {
+    expect(() => PanelItem.parse(makeRun({ phase: null }))).not.toThrow();
+  });
+  it('accepts phase string', () => {
+    expect(() => PanelItem.parse(makeRun({ phase: 'uploading' }))).not.toThrow();
+  });
+  it('accepts failureType undefined', () => {
+    expect(() => PanelItem.parse(makeRun({ failureType: undefined }))).not.toThrow();
+  });
+  it('accepts failureType null', () => {
+    expect(() => PanelItem.parse(makeRun({ failureType: null }))).not.toThrow();
+  });
+  it('accepts failureType string', () => {
+    expect(() => PanelItem.parse(makeRun({ failureType: 'timeout' }))).not.toThrow();
+  });
 });

@@ -23,6 +23,10 @@ export const PanelRunItem = PanelItemBase.extend({
   etaSeconds: z.number().optional(),
   deepLink: z.string(),
   errorMessage: z.string().optional(),
+  // image source가 surface하는 sub-state (z.enum 조이지 않음 — ADR-0011 Rule 3)
+  phase: z.string().nullable().optional(),
+  // agent source가 surface하는 실패 유형 (z.enum 조이지 않음 — ADR-0011 Rule 3)
+  failureType: z.string().nullable().optional(),
 });
 
 // PR2에서 PanelAlertItem 추가
