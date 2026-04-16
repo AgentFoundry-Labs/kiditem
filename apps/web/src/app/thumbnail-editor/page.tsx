@@ -208,17 +208,11 @@ export default function ThumbnailEditorPage() {
 
   const handleClearProduct = () => {
     router.replace('/thumbnail-editor');
-    // 상품 변경 = 새 작업 — 전체 리셋 (eng review #2)
-    setEditCase(null);
+    // 상품 변경 — 이미지 + 결과만 리셋, 용도(editCase) + 설정은 보존
+    // 사용자가 같은 용도로 다른 상품 편집하는 흐름 유지
     setProductImage(null);
-    setUserPrompt('');
     setPackagingImage(null);
-    setSupplementaryLabel('박스');
-    setPieceCount(null);
     setColorImages([]);
-    setSceneType('white-studio');
-    setStyleType('minimal');
-    setProductDescription('');
     setBackgroundReference(null);
     setResult([]);
     setGenerationId(null);
