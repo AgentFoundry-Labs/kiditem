@@ -46,9 +46,10 @@ describe('PanelItemRow', () => {
     expect(screen.getByText('워크플로우 실행')).toBeInTheDocument();
   });
 
-  it('routes kind=alert to alert renderer (renders alert title without button)', () => {
+  it('routes kind=alert to alert renderer (renders alert title)', () => {
     render(<PanelItemRow item={makeAlertItem()} />);
-    expect(screen.queryByRole('button')).not.toBeInTheDocument();
     expect(screen.getByText('규칙 위반 감지')).toBeInTheDocument();
+    // "할 일로 만들기" button present when actionTaskId=null
+    expect(screen.getByRole('button', { name: '할 일로 만들기' })).toBeInTheDocument();
   });
 });
