@@ -1,7 +1,8 @@
 'use client';
 
 import { useMemo } from 'react';
-import { Loader2, ExternalLink } from 'lucide-react';
+import { Loader2, ArrowRight } from 'lucide-react';
+import Link from 'next/link';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { HUB_ROLE_CONFIG, type ProductImageRole } from '@/lib/hub-roles';
@@ -63,14 +64,12 @@ export function HubInlinePicker({
       ) : roleImages.length === 0 ? (
         <div className="text-center py-3">
           <div className="text-[10px] text-gray-500 mb-1">허브에 등록된 이미지 없음</div>
-          <a
+          <Link
             href={`/image-hub?productId=${productId}`}
-            target="_blank"
-            rel="noreferrer"
             className="inline-flex items-center gap-1 text-[10px] text-violet-600 hover:text-violet-700"
           >
-            <ExternalLink size={10} /> 이미지 허브로 이동
-          </a>
+            <ArrowRight size={10} /> 이미지 허브에서 등록
+          </Link>
         </div>
       ) : (
         <div className="grid grid-cols-3 gap-1.5">
