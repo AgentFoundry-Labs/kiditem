@@ -129,8 +129,8 @@ model User {
   company                   Company?         @relation(fields: [companyId], references: [id], onDelete: Cascade)
   agentDefinition           AgentDefinition? @relation(fields: [agentDefinitionId], references: [id])
   triggeredWorkflowRuns     WorkflowRun[]    @relation("WorkflowRunTriggeredBy")
-  heartbeatRunsTriggered    HeartbeatRun[]   @relation("HeartbeatRunTriggeredBy")
-  thumbnailGenerationsTriggered ThumbnailGeneration[] @relation("ThumbnailGenerationTriggeredBy")
+  triggeredHeartbeatRuns        HeartbeatRun[]        @relation("HeartbeatRunTriggeredBy")
+  triggeredThumbnailGenerations ThumbnailGeneration[] @relation("ThumbnailGenerationTriggeredBy")
 
   @@index([companyId])
   @@map("users")
