@@ -1,9 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Sparkles, Scissors } from 'lucide-react';
+import { Sparkles, Scissors, ShoppingBag, ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { apiClient } from '@/lib/api-client';
@@ -14,6 +14,8 @@ import {
   useSkipGeneration,
 } from '@/hooks/useThumbnailGenerations';
 import { openCoupangWingInventory } from '@/lib/coupang-wing';
+import { ProductSelector } from '@/components/product/ProductSelector';
+import { useProductImages } from '@/hooks/useProductImages';
 
 import { useGenerateThumbnail } from './hooks/useThumbnailEditor';
 import { EditorInputPanel } from './components/EditorInputPanel';
@@ -21,12 +23,12 @@ import { EditorResultPanel } from './components/EditorResultPanel';
 import { EditorControlPanel } from './components/EditorControlPanel';
 import { UseCaseSelection, type EditUseCase } from './components/UseCaseSelection';
 import type { SupplementaryLabel } from './components/EditorInputPanel';
-import { HubImagePickerModal, type HubSelected } from './components/HubImagePickerModal';
 
 type EditorMode = 'edit' | 'creative';
 
 export default function ThumbnailEditorPage() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const productId = searchParams.get('productId');
   const imageUrlParam = searchParams.get('imageUrl');
   const queryClient = useQueryClient();
@@ -62,8 +64,8 @@ export default function ThumbnailEditorPage() {
   const [productDescription, setProductDescription] = useState('');
   const [backgroundReference, setBackgroundReference] = useState<string | null>(null);
 
-  // 허브 모달
-  const [hubModalOpen, setHubModalOpen] = useState(false);
+  // 허브 이미지 (1회 fetch — eng review #1)
+  const { images: hubImages, loading: hubImagesLoading } = useProductImages(productId);
 
   // 결과
   const [result, setResult] = useState<Array<{ url: string; filename: string }>>([]);
@@ -101,19 +103,6 @@ export default function ThumbnailEditorPage() {
     if (editCase === 'single') return !!effectiveProductImage;
     return false;
   })();
-
-  const handleHubApply = (selected: HubSelected) => {
-    if (selected.kind === 'single') {
-      setProductImage(selected.url);
-    } else if (selected.kind === 'compose') {
-      if (selected.productUrl !== undefined) setProductImage(selected.productUrl);
-      if (selected.boxUrl !== undefined) setPackagingImage(selected.boxUrl);
-    } else if (selected.kind === 'color-variants') {
-      // Modal's getMaxCount already enforces (8 - existing). slice as defensive belt.
-      const next = [...colorImages, ...selected.urls].slice(0, 8);
-      setColorImages(next);
-    }
-  };
 
   const handleGenerate = async () => {
     try {
@@ -212,6 +201,30 @@ export default function ThumbnailEditorPage() {
     setSelectedCandidateUrl(null);
   };
 
+  // ProductSelector 핸들러
+  const handleProductSelect = (selected: { id: string; name: string; imageUrl: string | null; sku: string | null }) => {
+    router.replace(`/thumbnail-editor?productId=${selected.id}`);
+  };
+
+  const handleClearProduct = () => {
+    router.replace('/thumbnail-editor');
+    // 상품 변경 = 새 작업 — 전체 리셋 (eng review #2)
+    setEditCase(null);
+    setProductImage(null);
+    setUserPrompt('');
+    setPackagingImage(null);
+    setSupplementaryLabel('박스');
+    setPieceCount(null);
+    setColorImages([]);
+    setSceneType('white-studio');
+    setStyleType('minimal');
+    setProductDescription('');
+    setBackgroundReference(null);
+    setResult([]);
+    setGenerationId(null);
+    setSelectedCandidateUrl(null);
+  };
+
   const showUseCaseSelection = mode === 'edit' && editCase === null;
 
   return (
@@ -228,8 +241,24 @@ export default function ThumbnailEditorPage() {
           >
             <Sparkles size={15} className="text-violet-600" />
           </div>
-          <h1 className="text-base font-bold text-gray-900 tracking-tight">썸네일 편집기</h1>
-          {productName && <span className="text-xs text-gray-400 truncate">— {productName}</span>}
+          <h1 className="text-base font-bold text-gray-900 tracking-tight flex-shrink-0">썸네일 편집기</h1>
+
+          {/* ProductSelector / Compact pill */}
+          <div className="ml-auto w-[280px]">
+            {productId && productName ? (
+              <button
+                type="button"
+                onClick={handleClearProduct}
+                className="w-full flex items-center gap-2 px-3 py-2 rounded-xl bg-violet-50 border border-violet-200 hover:bg-violet-100 transition-colors text-xs font-medium text-violet-700"
+              >
+                <ShoppingBag size={14} className="flex-shrink-0" />
+                <span className="truncate flex-1 text-left">{productName}</span>
+                <ChevronDown size={12} className="flex-shrink-0 opacity-60" />
+              </button>
+            ) : (
+              <ProductSelector selectedId={null} onSelect={handleProductSelect} />
+            )}
+          </div>
         </div>
 
         <div className="grid grid-cols-2 gap-0" style={{ borderTop: '1px solid #e5e7eb' }}>
@@ -294,8 +323,8 @@ export default function ThumbnailEditorPage() {
             colorImages={colorImages}
             backgroundReference={backgroundReference}
             sceneType={sceneType}
-            hasProductId={!!productId}
-            onOpenHubModal={() => setHubModalOpen(true)}
+            hubImages={hubImages}
+            hubImagesLoading={hubImagesLoading}
             onProductImageChange={setProductImage}
             onPackagingChange={setPackagingImage}
             onSupplementaryLabelChange={setSupplementaryLabel}
@@ -337,20 +366,6 @@ export default function ThumbnailEditorPage() {
             onSkip={handleSkip}
           />
         </div>
-      )}
-
-      {/* 이미지 허브 모달 */}
-      {productId && (
-        <HubImagePickerModal
-          open={hubModalOpen}
-          productId={productId}
-          productName={productName}
-          editCase={editCase}
-          mode={mode}
-          existingColorImagesCount={colorImages.length}
-          onClose={() => setHubModalOpen(false)}
-          onApply={handleHubApply}
-        />
       )}
     </div>
   );
