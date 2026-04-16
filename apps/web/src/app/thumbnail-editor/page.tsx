@@ -21,6 +21,7 @@ import { EditorResultPanel } from './components/EditorResultPanel';
 import { EditorControlPanel } from './components/EditorControlPanel';
 import { UseCaseSelection, type EditUseCase } from './components/UseCaseSelection';
 import type { SupplementaryLabel } from './components/EditorInputPanel';
+import { HubImagePickerModal, type HubSelected } from './components/HubImagePickerModal';
 
 type EditorMode = 'edit' | 'creative';
 
@@ -46,7 +47,6 @@ export default function ThumbnailEditorPage() {
   // 공통 입력
   const [productImage, setProductImage] = useState<string | null>(() => imageUrlParam);
   const [userPrompt, setUserPrompt] = useState('');
-  const [purpose, setPurpose] = useState<'compliance' | 'quality'>('compliance');
 
   // compose (Type 2A)
   const [packagingImage, setPackagingImage] = useState<string | null>(null);
@@ -62,12 +62,14 @@ export default function ThumbnailEditorPage() {
   const [productDescription, setProductDescription] = useState('');
   const [backgroundReference, setBackgroundReference] = useState<string | null>(null);
 
+  // 허브 모달
+  const [hubModalOpen, setHubModalOpen] = useState(false);
+
   // 결과
   const [result, setResult] = useState<Array<{ url: string; filename: string }>>([]);
   const [generationId, setGenerationId] = useState<string | null>(null);
   const [selectedCandidateUrl, setSelectedCandidateUrl] = useState<string | null>(null);
 
-  // productId 진입 시 imageUrl 파라미터 없으면 상품 이미지 사용
   const effectiveProductImage = productImage ?? (imageUrlParam ? null : originalImageUrl);
 
   const generateMutation = useGenerateThumbnail();
@@ -100,13 +102,28 @@ export default function ThumbnailEditorPage() {
     return false;
   })();
 
+  const handleHubApply = (selected: HubSelected) => {
+    if (selected.kind === 'single') {
+      setProductImage(selected.url);
+    } else if (selected.kind === 'compose') {
+      if (selected.productUrl !== undefined) setProductImage(selected.productUrl);
+      if (selected.boxUrl !== undefined) setPackagingImage(selected.boxUrl);
+    } else if (selected.kind === 'color-variants') {
+      const next = [...colorImages, ...selected.urls];
+      if (next.length > 8) {
+        toast.error('최대 8장까지 가능합니다 (초과분 무시)');
+      }
+      setColorImages(next.slice(0, 8));
+    }
+  };
+
   const handleGenerate = async () => {
     try {
       const base = {
         productId: productId ?? undefined,
         mode,
         userPrompt: userPrompt || undefined,
-        purpose: mode === 'creative' ? 'quality' as const : purpose,
+        purpose: mode === 'creative' ? ('quality' as const) : ('compliance' as const),
       };
 
       let payload: Parameters<typeof generateMutation.mutateAsync>[0];
@@ -119,7 +136,8 @@ export default function ThumbnailEditorPage() {
           sceneType: sceneForBackend,
           styleType,
           productDescription: productDescription || undefined,
-          backgroundReference: sceneType === 'custom-reference' ? (backgroundReference ?? undefined) : undefined,
+          backgroundReference:
+            sceneType === 'custom-reference' ? (backgroundReference ?? undefined) : undefined,
         };
       } else if (editCase === 'compose') {
         payload = {
@@ -262,7 +280,7 @@ export default function ThumbnailEditorPage() {
         </div>
       </div>
 
-      {/* ── 본문 ── */}
+      {/* 본문 */}
       {showUseCaseSelection ? (
         <UseCaseSelection onSelect={setEditCase} />
       ) : (
@@ -278,6 +296,8 @@ export default function ThumbnailEditorPage() {
             colorImages={colorImages}
             backgroundReference={backgroundReference}
             sceneType={sceneType}
+            hasProductId={!!productId}
+            onOpenHubModal={() => setHubModalOpen(true)}
             onProductImageChange={setProductImage}
             onPackagingChange={setPackagingImage}
             onSupplementaryLabelChange={setSupplementaryLabel}
@@ -298,7 +318,6 @@ export default function ThumbnailEditorPage() {
           <EditorControlPanel
             mode={mode}
             editCase={editCase}
-            purpose={purpose}
             pieceCount={pieceCount}
             userPrompt={userPrompt}
             sceneType={sceneType}
@@ -310,7 +329,6 @@ export default function ThumbnailEditorPage() {
             generationId={generationId}
             isApplying={applyGenerationMutation.isPending}
             isSkipping={skipGenerationMutation.isPending}
-            onPurposeChange={setPurpose}
             onPieceCountChange={setPieceCount}
             onUserPromptChange={setUserPrompt}
             onSceneTypeChange={setSceneType}
@@ -321,6 +339,20 @@ export default function ThumbnailEditorPage() {
             onSkip={handleSkip}
           />
         </div>
+      )}
+
+      {/* 이미지 허브 모달 */}
+      {productId && (
+        <HubImagePickerModal
+          open={hubModalOpen}
+          productId={productId}
+          productName={productName}
+          editCase={editCase}
+          mode={mode}
+          existingColorImagesCount={colorImages.length}
+          onClose={() => setHubModalOpen(false)}
+          onApply={handleHubApply}
+        />
       )}
     </div>
   );
