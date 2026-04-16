@@ -1,10 +1,14 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import type { PanelItem } from '@kiditem/shared';
 import { workflowPanelAdapter } from './adapters/workflow.adapter';
+import { agentPanelAdapter } from './adapters/agent.adapter';
+import { imagePanelAdapter } from './adapters/image.adapter';
+import { alertPanelAdapter } from './adapters/alert.adapter';
 
 @Injectable()
 export class PanelService {
+  private readonly logger = new Logger(PanelService.name);
   constructor(private readonly prisma: PrismaService) {}
 
   /**
@@ -53,6 +57,78 @@ export class PanelService {
           companyId,
         ),
       );
+    }
+
+    // ── Agent source (HeartbeatRun + AgentDefinition.name join) ──
+    try {
+      const heartbeatRuns = await this.prisma.heartbeatRun.findMany({
+        where: {
+          companyId,
+          OR: [
+            { status: { in: ['pending', 'running'] } },
+            { updatedAt: { gte: twentyFourHoursAgo } },
+          ],
+        },
+        include: { agent: { select: { id: true, name: true } } },
+        orderBy: { createdAt: 'desc' },
+        take: 100,
+      });
+
+      for (const run of heartbeatRuns) {
+        items.push(
+          agentPanelAdapter.mapToItem(
+            { run, agent: { id: run.agent.id, name: run.agent.name } },
+            companyId,
+          ),
+        );
+      }
+    } catch (err) {
+      this.logger.warn('Agent source backfill failed', err);
+    }
+
+    // ── Image source (ThumbnailGeneration + Product.title join) ──
+    try {
+      const thumbnailGens = await this.prisma.thumbnailGeneration.findMany({
+        where: {
+          companyId,
+          OR: [
+            { status: { in: ['pending', 'running'] } },
+            { updatedAt: { gte: twentyFourHoursAgo } },
+          ],
+        },
+        include: { product: { select: { id: true, name: true } } },
+        orderBy: { createdAt: 'desc' },
+        take: 100,
+      });
+
+      for (const gen of thumbnailGens) {
+        items.push(
+          imagePanelAdapter.mapToItem(
+            { generation: gen, product: { id: gen.product.id, title: gen.product.name } },
+            companyId,
+          ),
+        );
+      }
+    } catch (err) {
+      this.logger.warn('Image source backfill failed', err);
+    }
+
+    // ── Alert source (recent 24h alerts) ──
+    try {
+      const alerts = await this.prisma.alert.findMany({
+        where: {
+          companyId,
+          createdAt: { gte: twentyFourHoursAgo },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 100,
+      });
+
+      for (const alert of alerts) {
+        items.push(alertPanelAdapter.mapToItem(alert));
+      }
+    } catch (err) {
+      this.logger.warn('Alert source backfill failed', err);
     }
 
     // Visibility 필터: alert items are always company-visible (no visibility field).
