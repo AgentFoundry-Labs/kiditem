@@ -114,6 +114,7 @@ export class RulesService implements OnModuleInit {
                 title: `${inserted.length}건의 새 알림`,
                 message: null,
                 isRead: false,
+                actionTaskId: null,
                 createdAt: new Date(),
               }),
               companyId,

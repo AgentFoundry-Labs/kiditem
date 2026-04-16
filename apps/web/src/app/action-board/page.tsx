@@ -2,12 +2,14 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import {
   ClipboardList, Sparkles, Play, Check, X,
   RefreshCw, ExternalLink, Loader2, ChevronDown,
-  MessageSquare, Clock, Send, Package,
+  MessageSquare, Clock, Send, Package, User,
 } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
@@ -17,11 +19,18 @@ import { parseActionResult, type ActionResult } from './lib/actions';
 import type { ActionTask } from '@kiditem/shared';
 
 type ViewMode = 'status' | 'role' | 'priority';
+type Scope = 'me' | 'team' | 'all';
 
 const VIEW_TABS: { key: ViewMode; label: string }[] = [
   { key: 'status', label: '상태별' },
   { key: 'role', label: '역할별' },
   { key: 'priority', label: '우선순위별' },
+];
+
+const SCOPE_TABS: { key: Scope; label: string }[] = [
+  { key: 'all', label: '전체' },
+  { key: 'me', label: '내 것' },
+  { key: 'team', label: '팀' },
 ];
 
 const STATUS_COLS = [
@@ -75,17 +84,45 @@ function formatLogTime(ts: string) {
   }
 }
 
+export function severityBgColor(severity: string): string {
+  switch (severity) {
+    case 'info': return 'bg-blue-100 text-blue-700';
+    case 'warning': return 'bg-amber-100 text-amber-700';
+    case 'error': return 'bg-red-100 text-red-700';
+    case 'critical': return 'bg-red-200 text-red-800';
+    default: return 'bg-slate-100 text-slate-600';
+  }
+}
+
 export default function ActionBoardPage() {
   const queryClient = useQueryClient();
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+
   const [viewMode, setViewMode] = useState<ViewMode>('status');
   const [selectedTask, setSelectedTask] = useState<ActionTask | null>(null);
   const [noteText, setNoteText] = useState('');
   const [drawerResult, setDrawerResult] = useState<ActionResult[] | null>(null);
 
+  const scope = (searchParams.get('scope') as Scope | null) ?? 'all';
+
+  const setScope = (next: Scope) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (next === 'all') params.delete('scope');
+    else params.set('scope', next);
+    const qs = params.toString();
+    router.push(qs ? `${pathname}?${qs}` : pathname);
+  };
+
+  const currentUserId = process.env.NEXT_PUBLIC_DEV_USER_ID ?? null;
+
   // ── Data fetching ──
   const { data: tasks = [], isLoading } = useQuery({
-    queryKey: queryKeys.actionTasks.list(),
-    queryFn: () => apiClient.get<ActionTask[]>('/api/action-tasks'),
+    queryKey: queryKeys.actionTasks.list(scope),
+    queryFn: () => apiClient.get<ActionTask[]>(
+      scope === 'all' ? '/api/action-tasks' : `/api/action-tasks?assignedTo=${scope}`,
+    ),
     refetchInterval: 60_000,
   });
 
@@ -126,6 +163,36 @@ export default function ActionBoardPage() {
     onError: (err) => {
       const msg = isApiError(err) ? err.detail : err instanceof Error ? err.message : '실행 실패';
       setDrawerResult([{ label: '오류', value: msg, highlight: true }]);
+    },
+  });
+
+  const claimMutation = useMutation({
+    mutationFn: (taskId: string) => apiClient.patch<ActionTask>(`/api/action-tasks/${taskId}/claim`, {}),
+    onSuccess: () => {
+      invalidate();
+      toast.success('맡았습니다');
+    },
+    onError: (err) => {
+      if (isApiError(err) && err.status === 409) {
+        toast.error('이미 다른 사람이 맡았습니다');
+      } else {
+        toast.error('실패');
+      }
+    },
+  });
+
+  const unclaimMutation = useMutation({
+    mutationFn: (taskId: string) => apiClient.patch<ActionTask>(`/api/action-tasks/${taskId}/unclaim`, {}),
+    onSuccess: () => {
+      invalidate();
+      toast.success('해제했습니다');
+    },
+    onError: (err) => {
+      if (isApiError(err) && err.status === 409) {
+        toast.error('본인 담당 업무만 해제할 수 있습니다');
+      } else {
+        toast.error('실패');
+      }
     },
   });
 
@@ -192,6 +259,29 @@ export default function ActionBoardPage() {
         </div>
       </div>
 
+      {/* Scope filter row */}
+      <div className="flex items-center gap-2 px-6 py-2 border-b bg-white">
+        <span className="text-xs text-slate-500 font-medium mr-1">담당자:</span>
+        <div className="flex bg-slate-100 rounded-lg p-0.5" role="tablist" aria-label="담당자 필터">
+          {SCOPE_TABS.map(tab => (
+            <button
+              key={tab.key}
+              role="tab"
+              aria-selected={scope === tab.key}
+              onClick={() => setScope(tab.key)}
+              className={cn(
+                'px-3 py-1 text-xs font-medium rounded-md transition-all',
+                scope === tab.key
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700',
+              )}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* Kanban board */}
       <div className="flex-1 overflow-x-auto p-4">
         <div className={cn(
@@ -210,96 +300,144 @@ export default function ActionBoardPage() {
                     </span>
                   </div>
                 </div>
-                <div className="flex-1 overflow-y-auto p-3 space-y-2" style={{ maxHeight: 'calc(100vh - 200px)' }}>
-                  {colTasks.map(task => (
-                    <div
-                      key={task.id}
-                      role="button"
-                      aria-label={task.label}
-                      tabIndex={0}
-                      onClick={() => openDrawer(task)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') openDrawer(task);
-                        if (e.key === 'Escape') setSelectedTask(null);
-                      }}
-                      className={cn(
-                        'rounded-lg border p-3 shadow-sm cursor-pointer transition-all hover:shadow-md',
-                        task.type === 'ai'
-                          ? 'border-violet-200 bg-violet-50/30'
-                          : 'border-slate-200 bg-white',
-                        task.status === 'done' && 'opacity-60',
-                        selectedTask?.id === task.id && 'ring-2 ring-blue-400',
-                      )}
-                    >
-                      {task.type === 'human' ? (
-                        <>
-                          <div className="flex items-start gap-2">
-                            <input
-                              type="checkbox"
-                              checked={task.status === 'done'}
-                              onChange={(e) => {
-                                e.stopPropagation();
-                                updateMutation.mutate({
-                                  id: task.id,
-                                  status: task.status === 'done' ? 'pending' : 'done',
-                                });
-                              }}
-                              onClick={(e) => e.stopPropagation()}
-                              className="mt-0.5 rounded border-slate-300"
-                            />
+                <div className="flex-1 overflow-y-auto p-3 space-y-2" style={{ maxHeight: 'calc(100vh - 240px)' }}>
+                  {colTasks.map(task => {
+                    const isMine = currentUserId !== null && task.assigneeUserId === currentUserId;
+                    return (
+                      <div
+                        key={task.id}
+                        role="button"
+                        aria-label={task.label}
+                        tabIndex={0}
+                        onClick={() => openDrawer(task)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') openDrawer(task);
+                          if (e.key === 'Escape') setSelectedTask(null);
+                        }}
+                        className={cn(
+                          'rounded-lg border p-3 shadow-sm cursor-pointer transition-all hover:shadow-md',
+                          task.type === 'ai'
+                            ? 'border-violet-200 bg-violet-50/30'
+                            : 'border-slate-200 bg-white',
+                          task.status === 'done' && 'opacity-60',
+                          selectedTask?.id === task.id && 'ring-2 ring-blue-400',
+                        )}
+                      >
+                        {/* Source alert badge */}
+                        {task.sourceAlert && (
+                          <div className="mb-2">
                             <span className={cn(
-                              'text-xs font-medium text-slate-800 leading-tight',
-                              task.status === 'done' && 'line-through text-slate-400',
+                              'inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded font-medium',
+                              severityBgColor(task.sourceAlert.severity),
                             )}>
-                              {task.label}
+                              ← {task.sourceAlert.title.slice(0, 20)}
                             </span>
                           </div>
-                          <p className="text-[11px] text-slate-400 mt-1.5 line-clamp-2">{task.detail}</p>
-                          <div className="flex items-center justify-between mt-2">
-                            <span className="text-[10px] text-slate-400">{task.where}</span>
-                            {task.href && (
-                              <Link
-                                href={task.href}
+                        )}
+
+                        {task.type === 'human' ? (
+                          <>
+                            <div className="flex items-start gap-2">
+                              <input
+                                type="checkbox"
+                                checked={task.status === 'done'}
+                                onChange={(e) => {
+                                  e.stopPropagation();
+                                  updateMutation.mutate({
+                                    id: task.id,
+                                    status: task.status === 'done' ? 'pending' : 'done',
+                                  });
+                                }}
                                 onClick={(e) => e.stopPropagation()}
-                                className="text-[10px] text-blue-500 hover:text-blue-700"
+                                className="mt-0.5 rounded border-slate-300"
+                              />
+                              <span className={cn(
+                                'text-xs font-medium text-slate-800 leading-tight',
+                                task.status === 'done' && 'line-through text-slate-400',
+                              )}>
+                                {task.label}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-slate-400 mt-1.5 line-clamp-2">{task.detail}</p>
+                            <div className="flex items-center justify-between mt-2">
+                              <span className="text-[10px] text-slate-400">{task.where}</span>
+                              {task.href && (
+                                <Link
+                                  href={task.href}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="text-[10px] text-blue-500 hover:text-blue-700"
+                                >
+                                  바로가기
+                                </Link>
+                              )}
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div className="flex items-center gap-1.5">
+                              {task.status === 'done'
+                                ? <Check size={13} className="text-emerald-500" />
+                                : <Sparkles size={13} className="text-violet-500" />
+                              }
+                              <span className="text-xs font-medium text-slate-800">{task.label}</span>
+                              <span className="text-[9px] px-1 py-0.5 rounded bg-violet-100 text-violet-600 font-medium ml-auto">AI</span>
+                            </div>
+                            <p className="text-[11px] text-slate-400 mt-1.5 line-clamp-2">{task.detail}</p>
+                            {task.status !== 'done' && !executeMutation.isPending && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  executeMutation.mutate(task.id);
+                                  openDrawer(task);
+                                }}
+                                className="mt-2 flex items-center gap-1 text-[11px] font-medium text-violet-600 hover:text-violet-800"
                               >
-                                바로가기
-                              </Link>
+                                <Play size={11} /> 실행
+                              </button>
                             )}
+                            {executeMutation.isPending && executeMutation.variables === task.id && (
+                              <div className="mt-2 flex items-center gap-1 text-[11px] text-blue-500">
+                                <Loader2 size={11} className="animate-spin" /> 실행 중...
+                              </div>
+                            )}
+                          </>
+                        )}
+
+                        {/* Assignee row */}
+                        <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-100">
+                          <div className="flex items-center gap-1 text-[10px] text-slate-400">
+                            <User size={10} />
+                            {task.assigneeUser?.name ?? '(미담당)'}
                           </div>
-                        </>
-                      ) : (
-                        <>
-                          <div className="flex items-center gap-1.5">
-                            {task.status === 'done'
-                              ? <Check size={13} className="text-emerald-500" />
-                              : <Sparkles size={13} className="text-violet-500" />
-                            }
-                            <span className="text-xs font-medium text-slate-800">{task.label}</span>
-                            <span className="text-[9px] px-1 py-0.5 rounded bg-violet-100 text-violet-600 font-medium ml-auto">AI</span>
-                          </div>
-                          <p className="text-[11px] text-slate-400 mt-1.5 line-clamp-2">{task.detail}</p>
-                          {task.status !== 'done' && !executeMutation.isPending && (
+                          {task.assigneeUserId == null ? (
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                executeMutation.mutate(task.id);
-                                openDrawer(task);
+                                claimMutation.mutate(task.id);
                               }}
-                              className="mt-2 flex items-center gap-1 text-[11px] font-medium text-violet-600 hover:text-violet-800"
+                              disabled={claimMutation.isPending}
+                              className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors disabled:opacity-50"
                             >
-                              <Play size={11} /> 실행
+                              내가 맡기
                             </button>
+                          ) : isMine ? (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                unclaimMutation.mutate(task.id);
+                              }}
+                              disabled={unclaimMutation.isPending}
+                              className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 hover:bg-slate-200 transition-colors disabled:opacity-50"
+                            >
+                              해제
+                            </button>
+                          ) : (
+                            <span className="text-[10px] text-slate-400">{task.assigneeUser?.name}님 담당</span>
                           )}
-                          {executeMutation.isPending && executeMutation.variables === task.id && (
-                            <div className="mt-2 flex items-center gap-1 text-[11px] text-blue-500">
-                              <Loader2 size={11} className="animate-spin" /> 실행 중...
-                            </div>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  ))}
+                        </div>
+                      </div>
+                    );
+                  })}
                   {colTasks.length === 0 && (
                     <div className="text-center text-[11px] text-slate-300 py-8">항목 없음</div>
                   )}
@@ -407,6 +545,52 @@ export default function ActionBoardPage() {
                 )}>
                   {selectedTask.label}
                 </h3>
+              </div>
+
+              {/* Source alert badge (drawer) */}
+              {selectedTask.sourceAlert && (
+                <div>
+                  <span className={cn(
+                    'inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded font-medium',
+                    severityBgColor(selectedTask.sourceAlert.severity),
+                  )}>
+                    ← {selectedTask.sourceAlert.title.slice(0, 20)}
+                  </span>
+                </div>
+              )}
+
+              {/* Assignee (drawer) */}
+              <div className="flex items-center gap-2">
+                <User size={13} className="text-slate-400" />
+                <span className="text-xs text-slate-500">
+                  {selectedTask.assigneeUser?.name ?? '(미담당)'}
+                </span>
+                {(() => {
+                  const isMine = currentUserId !== null && selectedTask.assigneeUserId === currentUserId;
+                  if (selectedTask.assigneeUserId == null) {
+                    return (
+                      <button
+                        onClick={() => claimMutation.mutate(selectedTask.id)}
+                        disabled={claimMutation.isPending}
+                        className="text-xs px-2 py-0.5 rounded bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors disabled:opacity-50"
+                      >
+                        내가 맡기
+                      </button>
+                    );
+                  }
+                  if (isMine) {
+                    return (
+                      <button
+                        onClick={() => unclaimMutation.mutate(selectedTask.id)}
+                        disabled={unclaimMutation.isPending}
+                        className="text-xs px-2 py-0.5 rounded bg-slate-100 text-slate-500 hover:bg-slate-200 transition-colors disabled:opacity-50"
+                      >
+                        해제
+                      </button>
+                    );
+                  }
+                  return null;
+                })()}
               </div>
 
               {/* Description */}

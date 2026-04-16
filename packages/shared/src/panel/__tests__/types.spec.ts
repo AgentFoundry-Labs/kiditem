@@ -65,6 +65,7 @@ const makeAlert = (overrides = {}) => ({
   message: null,
   productId: null,
   isRead: false,
+  actionTaskId: null,
   actorUserId: null,
   createdAt: '2026-04-15T00:00:00Z',
   ...overrides,
@@ -116,6 +117,17 @@ describe('PanelAlertItem', () => {
   });
   it('accepts null actorUserId', () => {
     expect(() => PanelAlertItem.parse(makeAlert({ actorUserId: null }))).not.toThrow();
+  });
+  it('accepts null actionTaskId', () => {
+    expect(() => PanelAlertItem.parse(makeAlert({ actionTaskId: null }))).not.toThrow();
+  });
+  it('accepts valid uuid actionTaskId', () => {
+    expect(() =>
+      PanelAlertItem.parse(makeAlert({ actionTaskId: '00000000-0000-0000-0000-000000000099' })),
+    ).not.toThrow();
+  });
+  it('rejects invalid uuid on actionTaskId', () => {
+    expect(() => PanelAlertItem.parse(makeAlert({ actionTaskId: 'not-a-uuid' }))).toThrow();
   });
 });
 

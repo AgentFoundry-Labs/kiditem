@@ -39,6 +39,7 @@ const makeAlertItem = (id: string): PanelItem => ({
   message: null,
   productId: null,
   isRead: false,
+  actionTaskId: null,
   actorUserId: null, // alerts always null
   createdAt: '2026-04-15T00:00:00Z',
 });

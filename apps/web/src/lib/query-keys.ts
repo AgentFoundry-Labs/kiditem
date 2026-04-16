@@ -160,7 +160,7 @@ export const queryKeys = {
   },
   actionTasks: {
     all: ['actionTasks'] as const,
-    list: () => [...queryKeys.actionTasks.all, 'list'] as const,
+    list: (scope?: string) => [...queryKeys.actionTasks.all, 'list', scope ?? 'all'] as const,
   },
   syncInfo: () => ['syncInfo'] as const,
   optionMasters: {

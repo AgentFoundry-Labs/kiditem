@@ -1,8 +1,8 @@
-# Panel Live Ops Implementation Plan (v3 — PR2 재분할 + ADR-0011 반영)
+# Panel Live Ops Implementation Plan (v4 — PR3 detail 확장)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: superpowers:subagent-driven-development (recommended) or superpowers:executing-plans. Steps use checkbox (`- [ ]`) syntax.
 
-**Revision**: v3 of 2026-04-16. Supersedes v2 after PR1 머지 + ADR-0011 Phase 1/2/3 전체 머지로 인해 PR2 전제가 무너짐 (heartbeat/thumbnail source가 이미 canonical status 보유 → 매핑 테이블 금지). `critic` + `architect` 재실행으로 4 CRITICAL + 6 MAJOR 추가 발견. PR2 → PR2a/PR2b 재분할. See [Revision Notes](#revision-notes) at bottom.
+**Revision**: v4 of 2026-04-16. PR2 (#13) + PR2 hotfix (#14) 머지 후 PR3 section을 PR1 수준 detail로 확장. `critic` + `architect` 재실행으로 4 CRITICAL + 7 MAJOR + 4 MINOR 추가 발견 (taskKey collision, emit inside $tx, PanelAlertItem shared schema 누락, claim atomicity 등). Task 25~33 재작성. See [Revision Notes](#revision-notes) at bottom.
 
 **Goal**: Agent OS의 async run(workflow/agent/image_edit)과 비즈니스 알림을 live slide-out 패널로 통합. Alert → ActionTask 한 방향 승격 + Action Board 내/팀 필터.
 
@@ -2386,51 +2386,383 @@ PR1, PR2 검증 후 진행.
 
 ### PR3 Task list
 
-- **Task 25**: Prisma migration — Alert.actionTaskId + ActionTask.assigneeUserId + User back-relation.
-- **Task 26**: Promote service — **CRITICAL #4 해결**: `updateMany({ where: { id, companyId, actionTaskId: null }, data: {...} })` → count=0면 409. 그 후 ActionTask 생성 분리.
+- **Task 27 — Prisma migration + PanelAlertItem shared 확장**
 
-실제 atomic 패턴 (concurrency-safe):
+  Schema (`prisma/schema.prisma`):
+  ```prisma
+  model Alert {
+    // ... 기존 필드 유지
+    actionTaskId String?     @map("action_task_id") @db.Uuid
+    actionTask   ActionTask? @relation("AlertPromotedTo", fields: [actionTaskId], references: [id], onDelete: SetNull)
+    @@index([companyId, actionTaskId])  // reverse lookup + partial-ish
+  }
 
-```typescript
-async promote(alertId, companyId, dto, currentUserId) {
-  return this.prisma.$transaction(async (tx) => {
-    // 1. Alert lookup + 스냅샷
-    const alert = await tx.alert.findFirst({ where: { id: alertId, companyId }});
-    if (!alert) throw new NotFoundException();
-    if (alert.actionTaskId) throw new ConflictException('Already promoted');
-    
-    // 2. ActionTask 생성
-    const task = await tx.actionTask.create({ data: { ..derived.., taskKey: `promoted:${alert.id}` }});
-    
-    // 3. Alert 업데이트 — atomic guard (actionTaskId가 여전히 null일 때만)
-    const { count } = await tx.alert.updateMany({
-      where: { id: alertId, actionTaskId: null },
-      data: { actionTaskId: task.id },
+  model ActionTask {
+    // ... 기존 필드 유지
+    assigneeUserId String?  @map("assignee_user_id") @db.Uuid
+    assigneeUser   User?    @relation("ActionTaskAssignee", fields: [assigneeUserId], references: [id], onDelete: SetNull)
+    sourceAlerts   Alert[]  @relation("AlertPromotedTo")  // back-relation for getSourceAlert
+    @@index([companyId, assigneeUserId])  // me/team list query
+  }
+
+  model User {
+    // ... 기존 back-relations (triggeredWorkflowRuns 등)
+    assignedActionTasks ActionTask[] @relation("ActionTaskAssignee")  // verb-first convention
+  }
+  ```
+
+  **중요 — taskKey 충돌 해결 (CRITICAL #1)**: `ActionTask @@unique([companyId, taskKey, date])` 기존 제약. `taskKey: 'promoted:${alert.id}'` 형식으로 두면 같은 alert 같은 날 동시 promote 시 `create`가 P2002 unique violation throw (plan 원래 race guard 전에). 해결: `taskKey: 'promoted:${alert.id}'` 유지하되 Task 26에서 P2002 catch (아래 참조). `@@unique`는 그대로 두 번째 방어선 역할.
+
+  **ADR-0011 scope 명시**: `ActionTask.status` 어휘(`pending | active | done`)는 **business-task vocab으로 ADR-0011 governed 아님**. 건드리지 않음.
+
+  Shared (`packages/shared/src/panel/types.ts`):
+  - `PanelAlertItemSchema`에 `actionTaskId: z.string().uuid().nullable()` 필드 추가.
+  - Backward-compat: adapter는 `alert.actionTaskId ?? null` pass-through.
+
+  Adapter (`apps/server/src/panel/adapters/alert.adapter.ts`):
+  - `alertPanelAdapter.mapToItem`: `actionTaskId: alert.actionTaskId ?? null` 추가.
+
+  Steps:
+  - [ ] schema.prisma 수정 + `npm run db:push` + `npx prisma generate`
+  - [ ] init.sql.gz 갱신 (prisma/CLAUDE.md 절차)
+  - [ ] shared build (ESM + CJS + DTS)
+  - [ ] PanelAlertItemSchema tests 확장 (actionTaskId null/uuid 양쪽)
+  - [ ] alert.adapter.spec 업데이트 (actionTaskId surface 확인)
+  - [ ] `dev:server` boot 검증
+
+  Commit: `feat(db,shared): add Alert.actionTaskId + ActionTask.assigneeUserId + PanelAlertItem.actionTaskId (Task 27)`.
+
+- **Task 28 — Promote service (atomic, emit OUTSIDE $transaction)**
+
+  파일: `apps/server/src/alerts/alerts.service.ts` 또는 `apps/server/src/panel/promote.service.ts` (도메인 주인 판단 — impl 시 grep으로 현재 alert 관리 위치 확인).
+
+  ```typescript
+  async promote(
+    alertId: string,
+    companyId: string,
+    dto: PromoteDto,
+    currentUserId: string,
+  ): Promise<{ task: ActionTask; updatedAlert: Alert }> {
+    // $tx 안에서는 DB 작업만. emit은 밖으로.
+    const result = await this.prisma.$transaction(async (tx) => {
+      const alert = await tx.alert.findFirst({ where: { id: alertId, companyId } });
+      if (!alert) throw new NotFoundException('Alert not found');
+      if (alert.actionTaskId) throw new ConflictException('Already promoted');
+
+      // P2002 catch — @@unique([companyId, taskKey, date]) 위반 시 race로 번역
+      let task: ActionTask;
+      try {
+        task = await tx.actionTask.create({
+          data: {
+            companyId,
+            taskKey: `promoted:${alert.id}`,
+            type: 'human',
+            label: alert.title,
+            detail: alert.message ?? null,
+            priority: dto.priorityOverride ?? mapSeverityToPriority(alert.severity),
+            role: dto.roleOverride ?? mapAlertTypeToRole(alert.type),
+            status: 'pending',
+            date: kstDayStart(new Date()),
+            assigneeUserId: null,
+          },
+        });
+      } catch (err) {
+        if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+          throw new ConflictException('Already promoted (race)');
+        }
+        throw err;
+      }
+
+      // atomic guard — companyId scope 포함 (멀티테넌트 IDOR 방지)
+      const { count } = await tx.alert.updateMany({
+        where: { id: alertId, companyId, actionTaskId: null },
+        data: { actionTaskId: task.id },
+      });
+      if (count === 0) {
+        // 극단 race: P2002 안 터지고 updateMany만 실패한 경우
+        await tx.actionTask.delete({ where: { id: task.id } });
+        throw new ConflictException('Already promoted (race)');
+      }
+
+      return { task, updatedAlert: { ...alert, actionTaskId: task.id } };
     });
-    
-    if (count === 0) {
-      // 동시 promote 시 다른 request가 먼저 세팅 — 방금 만든 task 삭제
-      await tx.actionTask.delete({ where: { id: task.id }});
-      throw new ConflictException('Already promoted (race)');
-    }
-    
-    // 4. Panel에 updated alert emit
-    const updatedAlert = { ...alert, actionTaskId: task.id };
-    const item = alertPanelAdapter.mapToItem(updatedAlert, companyId);
-    this.eventEmitter.emit(PANEL_EVENTS.UPSERT, { item, companyId });
-    
-    return task;
-  });
-}
-```
 
-- **Task 27**: Promote + Dismiss controllers — `POST /api/panel/alerts/:id/promote`, `POST /:id/dismiss`.
-- **Task 28**: PromoteToTaskModal — Radix Dialog + useMutation + auto-mapping (severity→priority, alertType→role).
-- **Task 29**: PanelItemRow AlertRow에 hover action ("할일로 만들기" 버튼) 추가. Linked state 렌더.
-- **Task 30**: ActionTask.service — `claim(taskId, companyId, userId)`, `unclaim(taskId, companyId, userId)`, `list({ assignedTo })`, `getSourceAlert(taskId)` (Alert.actionTaskId 역lookup).
-- **Task 31**: ActionTaskController — `PATCH /:id/claim`, `/unclaim`, `GET ?assignedTo=me|team|all`. `@CurrentUser() user: AuthUser` + `user.id` 사용.
-- **Task 32**: Action Board UI — SegmentedControl + assignee 카드 표시 + claim/unclaim 버튼 + "← from alert" 뱃지.
-- **Task 33**: PR3 통합 테스트 — promote 동시성 race 테스트, claim/unclaim, 필터 동작.
+    // emit은 $transaction 밖 — commit 후 subscriber가 일관된 상태 관찰
+    try {
+      const item = alertPanelAdapter.mapToItem(result.updatedAlert);
+      this.eventEmitter.emit(PANEL_EVENTS.UPSERT, { item, companyId });
+    } catch (err) {
+      this.logger.warn('Panel emit failed', err);
+    }
+
+    return result;
+  }
+  ```
+
+  Helpers (같은 파일 또는 `apps/server/src/alerts/mappers.ts`):
+  ```typescript
+  const SEVERITY_TO_PRIORITY: Record<string, 'urgent' | 'high' | 'medium'> = {
+    critical: 'urgent',
+    error: 'high',
+    warning: 'medium',
+    info: 'medium',
+  };
+  function mapSeverityToPriority(sev: string): 'urgent' | 'high' | 'medium' {
+    return SEVERITY_TO_PRIORITY[sev] ?? 'medium';
+  }
+
+  // alertType → role: null 폴백 (ActionTask.role nullable)
+  const ALERT_TYPE_TO_ROLE: Record<string, string> = {
+    // impl 시점에 grep으로 Alert.type 분포 확인 후 채움
+    // 예: 'low_ctr' → 'ad', 'inventory_low' → 'inventory'
+  };
+  function mapAlertTypeToRole(type: string): string | null {
+    return ALERT_TYPE_TO_ROLE[type] ?? null;
+  }
+  ```
+
+  Tests (race):
+  - `Promise.all([promote(alertId, ...), promote(alertId, ...)])` — exactly 1 resolves, 1 rejects with `ConflictException`.
+  - **실제 Postgres 테스트 DB 사용** (SQLite in-memory는 단일 connection으로 serialized되어 race 재현 안 됨).
+  - Emit이 commit 후에만 발생 — transaction rollback 시 emit 안 됨 assertion.
+
+  Commit: `feat(panel): alert promote service with atomic race guard + severity/role mapping (Task 28)`.
+
+- **Task 29 — Promote + Dismiss controllers**
+
+  파일: `apps/server/src/alerts/alerts.controller.ts` (또는 panel.controller 확장 — 현재 controller 위치 grep).
+
+  ```typescript
+  @Controller('panel/alerts')  // 또는 기존 AlertsController 확장
+  export class AlertsController {
+    // POST /api/panel/alerts/:id/promote
+    @Post(':id/promote')
+    async promote(
+      @Param('id') id: string,
+      @CurrentCompany() companyId: string,
+      @CurrentUser() user: AuthUser,
+      @Body() dto: PromoteDto,
+    ) {
+      const { task } = await this.alerts.promote(id, companyId, dto, user.id);
+      return { task };
+    }
+
+    // POST /api/panel/alerts/:id/dismiss
+    @Post(':id/dismiss')
+    async dismiss(
+      @Param('id') id: string,
+      @CurrentCompany() companyId: string,
+    ) {
+      // isRead=true + PANEL_EVENTS.DISMISS emit (not REMOVE — 24h window 내에선 계속 보임)
+      await this.alerts.markRead(id, companyId);
+      return { ok: true };
+    }
+  }
+  ```
+
+  PromoteDto (class-validator — apps/server/CLAUDE.md 규칙):
+  ```typescript
+  export class PromoteDto {
+    @IsOptional() @IsIn(['urgent', 'high', 'medium']) priorityOverride?: string;
+    @IsOptional() @IsString() roleOverride?: string;
+    @IsOptional() @IsString() @MaxLength(500) note?: string;
+  }
+  ```
+
+  Dismiss semantics: `isRead=true` DB update + **`PANEL_EVENTS.DISMISS` emit** (PR1 Task 3에서 이미 wire shape `{itemId}` 정의됨, IMPORTANT #2). Client는 DISMISS 받으면 store에서 제거.
+
+  Commit: `feat(panel): promote + dismiss controllers with companyId scope (Task 29)`.
+
+- **Task 30 — PromoteToTaskModal (frontend)**
+
+  파일: `apps/web/src/components/panel/PromoteToTaskModal.tsx`.
+
+  - Radix `<Dialog>` (apps/web/CLAUDE.md Radix 사용 규약).
+  - Props: `alert: PanelAlertItem`, `open: boolean`, `onClose: () => void`.
+  - Form: priorityOverride (select, 기본값 = `mapSeverityToPriority(alert.severity)` 표시), roleOverride (input, optional), note (textarea, optional, maxLen 500).
+  - `useMutation`: `apiClient.post('/panel/alerts/${alert.id}/promote', dto)`.
+  - onSuccess:
+    - `queryClient.invalidateQueries({ queryKey: queryKeys.actionTasks.all })` (Action Board reload)
+    - Panel은 SSE로 자동 upsert (actionTaskId 붙은 alert re-emit)
+    - `toast.success('할 일 목록에 추가했습니다')`
+    - `onClose()`
+  - onError (409):
+    - `toast.error('이미 할 일로 등록된 알림입니다')`
+    - `onClose()` — state 이미 서버와 일치
+
+  Commit: `feat(panel): PromoteToTaskModal with Radix Dialog + useMutation (Task 30)`.
+
+- **Task 31 — PanelAlertRow hover action + linked state**
+
+  파일: `apps/web/src/components/panel/PanelAlertRow.tsx` (PR2b에서 read-only로 생성됨 — 확장).
+
+  - Wrapper에 `group` 클래스 추가.
+  - 버튼 슬롯: `className="opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition"` — **hover뿐 아니라 keyboard focus에서도 노출** (a11y, 리뷰어 지적 MAJOR #9).
+  - 조건부 렌더:
+    - `alert.actionTaskId == null` → "할일로 만들기" 버튼 (클릭 → PromoteToTaskModal 열기, stopPropagation).
+    - `alert.actionTaskId != null` → "← 할 일 목록에 있음" 뱃지 (linked state, non-clickable 또는 링크로 Action Board로).
+  - `aria-label="할 일로 만들기"` 버튼에 부여.
+  - 테스트: actionTaskId null/string 양쪽 렌더 + 클릭 시 onPromote 호출 (mock) + linked state 뱃지 렌더 확인.
+
+  Commit: `feat(panel): PanelAlertRow hover action + linked state with focus-within a11y (Task 31)`.
+
+- **Task 32 — ActionTask service 확장 (claim/unclaim atomic + list + getSourceAlert batch)**
+
+  파일: `apps/server/src/action-task/action-task.service.ts` (기존 확장).
+
+  ```typescript
+  async claim(taskId: string, companyId: string, userId: string) {
+    const { count } = await this.prisma.actionTask.updateMany({
+      where: { id: taskId, companyId, assigneeUserId: null },
+      data: { assigneeUserId: userId },
+    });
+    if (count === 0) throw new ConflictException('Already claimed or task not found');
+    return this.prisma.actionTask.findFirstOrThrow({ where: { id: taskId, companyId } });
+  }
+
+  async unclaim(taskId: string, companyId: string, userId: string) {
+    // 본인 것만 해제 가능 — B가 A 것 해제 못 함
+    const { count } = await this.prisma.actionTask.updateMany({
+      where: { id: taskId, companyId, assigneeUserId: userId },
+      data: { assigneeUserId: null },
+    });
+    if (count === 0) throw new ConflictException('Not assigned to you or task not found');
+    return this.prisma.actionTask.findFirstOrThrow({ where: { id: taskId, companyId } });
+  }
+  ```
+
+  List filter semantics:
+  ```typescript
+  async list(
+    companyId: string,
+    currentUserId: string,
+    assignedTo: 'me' | 'team' | 'all',
+  ) {
+    const where: Prisma.ActionTaskWhereInput = { companyId };
+    if (assignedTo === 'me') {
+      where.assigneeUserId = currentUserId;
+    } else if (assignedTo === 'team') {
+      // 누군가 담당하되 내가 아닌 경우
+      where.AND = [
+        { assigneeUserId: { not: null } },
+        { assigneeUserId: { not: currentUserId } },
+      ];
+    }
+    // 'all' = filter 없음
+
+    const tasks = await this.prisma.actionTask.findMany({
+      where,
+      include: { assigneeUser: { select: { id: true, name: true } } },
+      orderBy: [{ priority: 'asc' }, { date: 'desc' }],
+    });
+
+    // getSourceAlert batch-load (N+1 방지)
+    const taskIds = tasks.map((t) => t.id);
+    const sourceAlerts = await this.prisma.alert.findMany({
+      where: { companyId, actionTaskId: { in: taskIds } },
+      select: { id: true, actionTaskId: true, severity: true, type: true, title: true },
+    });
+    const alertByTaskId = new Map(sourceAlerts.map((a) => [a.actionTaskId!, a]));
+
+    return tasks.map((t) => ({
+      ...t,
+      sourceAlert: alertByTaskId.get(t.id) ?? null,
+    }));
+  }
+  ```
+
+  Tests:
+  - claim race: `Promise.all([claim(taskId, A), claim(taskId, B)])` — exactly 1 succeeds.
+  - unclaim authorization: A claim → B unclaim → 409.
+  - list `me|team|all` 분기 검증 + batch-load (N+1 없음 assertion via spy).
+
+  Commit: `feat(action-task): claim/unclaim atomic + me/team/all list + sourceAlert batch-load (Task 32)`.
+
+- **Task 33 — ActionTaskController 확장**
+
+  파일: `apps/server/src/action-task/action-task.controller.ts` (기존 `@Controller('action-tasks')` 확장 — 새 controller 아님).
+
+  ```typescript
+  // PATCH /api/action-tasks/:id/claim
+  @Patch(':id/claim')
+  async claim(
+    @Param('id') id: string,
+    @CurrentCompany() companyId: string,
+    @CurrentUser() user: AuthUser,
+  ) { return this.service.claim(id, companyId, user.id); }
+
+  @Patch(':id/unclaim')
+  async unclaim(
+    @Param('id') id: string,
+    @CurrentCompany() companyId: string,
+    @CurrentUser() user: AuthUser,
+  ) { return this.service.unclaim(id, companyId, user.id); }
+
+  // GET /api/action-tasks?assignedTo=me|team|all
+  @Get()
+  async list(
+    @CurrentCompany() companyId: string,
+    @CurrentUser() user: AuthUser,
+    @Query() query: ListActionTasksDto,
+  ) { return this.service.list(companyId, user.id, query.assignedTo ?? 'all'); }
+  ```
+
+  ListActionTasksDto:
+  ```typescript
+  export class ListActionTasksDto {
+    @IsOptional() @IsIn(['me', 'team', 'all']) assignedTo?: 'me' | 'team' | 'all';
+  }
+  ```
+
+  Commit: `feat(action-task): claim/unclaim endpoints + assignedTo filter (Task 33)`.
+
+- **Task 34 — Action Board UI 확장 (기존 페이지 수정)**
+
+  파일: `apps/web/src/app/action-board/page.tsx` (기존 존재 — 새 생성 아님).
+
+  - **URL param `?scope=me|team|all`** — Next.js `useSearchParams` 훅으로 읽음. 기본값 `all`.
+  - SegmentedControl: `@radix-ui/react-tabs` 사용 (DESIGN.md primitive 따름, 이미 package.json에 있음). 기존 `VIEW_TABS` (status/role/priority) 패턴 재사용 — **cross-cutting filter로 컨트롤 바 별도 row에 배치** (view axis 아님).
+  - 카드에 assignee 표시: `task.assigneeUser?.name ?? '(미담당)'` + "내가 맡기" / "해제" 버튼 (assigneeUserId === currentUserId면 해제, 아니면 맡기).
+  - "← from alert" 뱃지: `task.sourceAlert != null`이면 severity별 색상으로 뱃지 렌더 (PanelAlertRow severity 색 재사용).
+  - claim/unclaim `useMutation` → `invalidateQueries(queryKeys.actionTasks.all)`.
+
+  Shared types 업데이트 (`packages/shared/src/schemas/action-task.ts` 존재 시 확장, 없으면 신규):
+  - `assigneeUserId: string | null`
+  - `assigneeUser?: { id: string; name: string } | null`
+  - `sourceAlert?: { id: string; severity: string; type: string; title: string } | null`
+
+  Commit: `feat(action-board): scope filter + assignee display + from-alert badge (Task 34)`.
+
+- **Task 35 — PR3 integration test**
+
+  파일: `apps/server/src/panel/__tests__/panel-pr3.integration.spec.ts`.
+
+  Real `EventEmitter2` + `PanelSseService` + mocked Prisma (또는 test Postgres for race tests). 시나리오:
+
+  1. **Promote emit** — `promote(alertId, co, dto, uid)` 호출 → PanelSseService stream에 UPSERT 이벤트 도달, `item.actionTaskId` 값이 새 task.id와 일치.
+  2. **Promote race** — `Promise.all([promote, promote])` → exactly 1 resolves, 1 rejects `ConflictException`. DB state 검증: alert에 actionTaskId 단 1번만 세팅, ActionTask도 단 1건.
+  3. **Dismiss emit** — `dismiss(alertId, co)` → `PANEL_EVENTS.DISMISS` emit with `{itemId: alertId}`.
+  4. **Claim atomic** — claim race 동일 패턴.
+  5. **list(me|team|all)** filter 분기 + sourceAlert join.
+  6. **No N+1** — `list()` 호출 시 `prisma.alert.findMany` 호출 횟수 ≤ 1 (vi.spyOn).
+
+  Real Postgres 필수: SQLite memory는 단일 connection serialized로 race 재현 불가.
+
+  Commit: `test(panel): PR3 integration test — promote/claim race + list filter + dismiss (Task 35)`.
+
+### PR3 공통 주의사항
+
+- **모든 mutation where clause에 `companyId` 포함** — apps/server/CLAUDE.md IDOR 방지 규칙.
+- **EventEmitter2 global inject** — PR2a Task 17 수정으로 `agent-registry.module.ts`의 로컬 `forRoot()` 제거됨. alerts module도 `EventEmitterModule.forRoot()` 로컬 import 없이 inject (AppModule 전역 1회).
+- **emit은 $transaction commit 후**. PR1 regression class 패턴 재발 방지.
+- **No follow-up issues** — writer 사이트 모두 instrument 완료 확인. 빈 사이트 = bug.
+- **CLAUDE.md 도메인 규칙 준수** — subagent dispatch 시 명시 (apps/server/src/action-task/ 경로 전체 CLAUDE.md 없을 가능성, 있으면 필독).
+- **`dev:server` boot 검증** — 새 service/controller 추가마다. NestJS DI 에러는 tsc/vitest로 안 잡힘.
+- **prisma/init.sql.gz 갱신** — Task 27 schema 변경 시 필수 (prisma/CLAUDE.md 절차).
+
+### PR3 numbering note
+
+v4에서 PR2b가 Task 21~26까지 썼기 때문에 PR3는 Task **27~35** (9 tasks) 로 재번호. 기존 plan이 25~33이었던 건 v2 시절 overlap. 본 섹션 번호를 정본으로.
 
 ---
 
@@ -2454,7 +2786,7 @@ async promote(alertId, companyId, dto, currentUserId) {
 | 1 | Prisma 필드 fiction | PR1 Task 5, PR2a Task 16/18 (실제 모델명 + join) |
 | 2 | ThumbnailEdit → ThumbnailGeneration | PR2a Task 18 |
 | 3 | `@CurrentUser('id')` invalid | PR1 Task 7 (controller), PR3 Task 31 |
-| 4 | Promote race | PR3 Task 26 (atomic updateMany) |
+| 4 | Promote race | **v4 supersede**: PR3 Task 28 — atomic updateMany + **P2002 catch**(`@@unique([companyId, taskKey, date])` 위반 번역) + emit **$transaction 밖**으로 이동. 원래 plan은 emit을 $tx 안에 넣어 uncommitted broadcast 위험. |
 | 5 | createMany 패턴 | **v3 supersede**: PR2b Task 23 — `createManyAndReturn` (Prisma 7.5+) 사용. 시간창 re-query 패턴 폐기 (race-prone) |
 | 6 | /api/users/me 부재 | PR1 Task 13 — useCurrentUserId 훅은 **AppLayout에서 필요 없음** (usePanelStream만 쓰고 server에서 @CurrentUser로 주입) |
 | 7 | EventEmitterModule 중복 | PR1 Task 7 + PR2a Task 17/19, PR2b Task 23 — 모든 도메인 모듈 local forRoot import 금지, AppModule 전역 |
@@ -2474,7 +2806,7 @@ async promote(alertId, companyId, dto, currentUserId) {
 ### IMPORTANT 반영
 | # | Important | Fix 위치 |
 |---|-----------|---------|
-| 1 | Partial index alert.actionTaskId | PR3 Task 25 (Prisma 마이그레이션 시 `@@index([companyId, actionTaskId])` — Prisma는 partial index 제한적, 전체 인덱스로) |
+| 1 | Partial index alert.actionTaskId | PR3 Task 27 — `@@index([companyId, actionTaskId])` on Alert + `@@index([companyId, assigneeUserId])` on ActionTask (me/team list query용). Prisma partial index 제한 대안으로 전체 인덱스. |
 | 2 | Dismiss wire shape | PR1 Task 3 (PanelDismissEvent.itemId) |
 | 3 | Sidebar exact lines | PR1 Task 13 — "line 429~510 부근 전체 교체" 명시 |
 | 4 | Integration test hand-wavy | F4와 동일 → PR1 Task 14 |
@@ -2540,10 +2872,29 @@ async promote(alertId, companyId, dto, currentUserId) {
 
 ---
 
+**v3 → v4 전환 이유** (2026-04-16, PR2 + hotfix 머지 후):
+- PR3 section이 v3에서 PR1 수준 detail로 확장되지 않은 상태. subagent dispatch 시 fabricate 위험 (PR2b backfill gap 같은 패턴 재발).
+- `critic` + `architect` 재실행 → 4 CRITICAL + 7 MAJOR + 4 MINOR 추가 발견:
+  - **CRITICAL #1**: `ActionTask @@unique([companyId, taskKey, date])` vs plan의 `taskKey: 'promoted:${alert.id}'` — concurrent promote 시 P2002가 atomic guard보다 먼저. 원래 plan은 500 반환.
+  - **CRITICAL #2**: `eventEmitter.emit`을 `$transaction` 콜백 **안**에서 호출 — commit 전 broadcast. PR1 class와 동일.
+  - **CRITICAL #3**: `tx.actionTask.create` P2002 unhandled → 500.
+  - **CRITICAL #4**: `PanelAlertItem` shared schema에 `actionTaskId` 필드 누락 — UI linked state 렌더 불가.
+  - MAJOR: User back-relation 미명시, dismiss 시맨틱 미명시, list(team) 불명확, claim/unclaim atomicity 미스펙, severity→priority mapping 없음, Action Board 기존 페이지 green-field 가정 오류.
+
+**v4 수정 요점**:
+- Task 27~35 전체 재작성, 각 task가 PR1 수준 detail (schema block, code snippet, test spec, commit message).
+- CRITICAL #1~3: P2002 catch + emit $transaction 밖.
+- CRITICAL #4: Task 27 bundle에 `PanelAlertItemSchema` + `alertPanelAdapter` 패치 포함.
+- MAJOR 전부: back-relation 이름 명시, dismiss = isRead+DISMISS emit, list(team) = `IS NOT NULL AND != currentUserId`, claim/unclaim atomic, severity→priority mapping table, Action Board 기존 페이지 확장 명시.
+- Task 32 — `getSourceAlert` batch-load (N+1 방지).
+- Task 35 — real Postgres 테스트 DB 필수.
+
+---
+
 ## Execution Handoff
 
-PR1 merged 2026-04-15 (main `4e56289` 부근). PR2a/PR2b/PR3 각자 별도 브랜치·세션·dogfood cycle.
+PR1 merged 2026-04-15. PR2 merged 2026-04-16 (#13 + hotfix #14).
 
-**Subagent-driven development** 모드로 PR2a Task 15a~20 순차 실행. 각 task 당 implementer → spec reviewer → code quality reviewer 2단계 리뷰. graphify query로 해당 도메인 CLAUDE.md 룰 주입.
+**Subagent-driven development** 모드로 PR3 Task 27~35 순차 실행. 각 task 당 implementer → spec reviewer → code quality reviewer 2단계 리뷰. graphify query로 해당 도메인 CLAUDE.md 룰 주입.
 
-진행 브랜치: `feat/panel-live-ops-pr2`.
+진행 브랜치: `feat/panel-live-ops-pr3` (`origin/main` 기반).

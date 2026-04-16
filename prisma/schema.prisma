@@ -131,6 +131,7 @@ model User {
   triggeredWorkflowRuns     WorkflowRun[]    @relation("WorkflowRunTriggeredBy")
   triggeredHeartbeatRuns        HeartbeatRun[]        @relation("HeartbeatRunTriggeredBy")
   triggeredThumbnailGenerations ThumbnailGeneration[] @relation("ThumbnailGenerationTriggeredBy")
+  assignedActionTasks           ActionTask[]          @relation("ActionTaskAssignee")
 
   @@index([companyId])
   @@map("users")
@@ -783,13 +784,17 @@ model Alert {
   message  String?
   isRead   Boolean @default(false) @map("is_read")
 
+  actionTaskId String?     @map("action_task_id") @db.Uuid
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  company Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  company    Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  product    Product?     @relation(fields: [productId], references: [id], onDelete: SetNull)
+  actionTask ActionTask?  @relation("AlertPromotedTo", fields: [actionTaskId], references: [id], onDelete: SetNull)
 
   @@index([companyId])
   @@index([companyId, isRead, createdAt])
+  @@index([companyId, actionTaskId])
   @@index([isRead])
   @@index([type])
   @@index([createdAt])
@@ -1986,22 +1991,27 @@ model ActionTask {
   detail      String?
   where       String?
   href        String?
-  priority    String   @default("medium")
-  status      String   @default("pending")
-  role        String?
-  apiCall     Json?    @map("api_call")
-  result      Json?
-  notes       Json     @default("[]")
-  activityLog Json     @default("[]") @map("activity_log")
-  date        DateTime @db.Date
+  priority       String   @default("medium")
+  // status vocab: pending|active|done — business-task lifecycle, NOT ADR-0011 canonical
+  status         String   @default("pending")
+  role           String?
+  apiCall        Json?    @map("api_call")
+  result         Json?
+  notes          Json     @default("[]")
+  activityLog    Json     @default("[]") @map("activity_log")
+  date           DateTime @db.Date
+  assigneeUserId String?  @map("assignee_user_id") @db.Uuid
 
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  assigneeUser User?    @relation("ActionTaskAssignee", fields: [assigneeUserId], references: [id], onDelete: SetNull)
+  sourceAlerts Alert[]  @relation("AlertPromotedTo")
 
   @@unique([companyId, taskKey, date])
   @@index([companyId, date])
+  @@index([companyId, assigneeUserId])
   @@map("action_tasks")
 }
 

@@ -48,6 +48,7 @@ export const PanelAlertItem = z.object({
   message: z.string().nullable(),
   productId: z.string().uuid().nullable(),
   isRead: z.boolean(),
+  actionTaskId: z.string().uuid().nullable(),
   actorUserId: z.string().uuid().nullable(), // Alert는 actor 컬럼 없음 → 항상 null (PR2b 한정)
   createdAt: z.string().datetime(),
 });
