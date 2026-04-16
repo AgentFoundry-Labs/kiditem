@@ -498,6 +498,9 @@ export class HeartbeatService {
     });
 
     // 에러 복구 캐스케이드: 연속 3회 실패 시 자동 pause
+    // No PANEL_EVENTS.UPSERT here — panel tracks HeartbeatRun lifecycle (already emitted above as
+    // 'failed'). Agent auto-pause is an AgentDefinition.rt_state concern, surfaced via
+    // AGENT_EVENTS.STATUS_CHANGED('paused') below for the agent-SSE channel.
     if ((updatedAgent as any).rtConsecutiveFailCount >= 3) {
       this.logger.error(
         `Agent ${agent.name} auto-paused: ${(updatedAgent as any).rtConsecutiveFailCount} consecutive failures`,

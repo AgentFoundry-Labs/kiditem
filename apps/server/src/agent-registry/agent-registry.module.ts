@@ -1,6 +1,5 @@
 import { Global, Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
-import { EventEmitterModule } from '@nestjs/event-emitter';
 import { AgentRegistryController } from './agent-registry.controller';
 import { AgentRegistryService } from './agent-registry.service';
 import { HeartbeatService } from './heartbeat/heartbeat.service';
@@ -27,7 +26,8 @@ import { AgentTraceModule } from './trace/agent-trace.module';
 @Module({
   imports: [
     ScheduleModule.forRoot(),
-    EventEmitterModule.forRoot(),
+    // EventEmitterModule is NOT imported here — AppModule is the single forRoot() site.
+    // Injecting EventEmitter2 directly works via the global bus registered in AppModule.
     SafetyModule,
     LifecycleModule,
     DelegationModule,
