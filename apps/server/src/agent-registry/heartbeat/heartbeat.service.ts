@@ -38,6 +38,8 @@ import { SafetyPipelineService } from '../business-safety/safety-pipeline.servic
 import { DryRunGateService } from '../business-safety/dry-run-gate.service';
 import type { PermissionLayer } from '../permissions/hierarchy.validator';
 import { scrubSecrets } from '@kiditem/shared';
+import { PANEL_EVENTS } from '../../panel/events/panel-events';
+import { agentPanelAdapter } from '../../panel/adapters/agent.adapter';
 
 /** Extract company-level permission layer from agent.permissions JSON. Future extension point. */
 function extractCompanyLayer(permissions: Record<string, unknown> | null | undefined): PermissionLayer | undefined {
@@ -247,6 +249,16 @@ export class HeartbeatService {
       new AgentStatusChangedEvent(agent.id, agent.name, 'running', companyId, run.id),
     );
 
+    // Panel Live Ops: emit on create (agent source visible immediately on start)
+    try {
+      this.eventEmitter.emit(PANEL_EVENTS.UPSERT, {
+        item: agentPanelAdapter.mapToItem({ run, agent: { id: agent.id, name: agent.name } }, companyId),
+        companyId,
+      });
+    } catch (err) {
+      this.logger.warn(`Panel emit failed on run create (run=${run.id}): ${err}`);
+    }
+
     // Skills already built in prefetch above
 
     // Prompt 빌드
@@ -393,7 +405,7 @@ export class HeartbeatService {
     }
 
     // #17 Async Transcript — Step 1: Blocking save (critical fields only)
-    await this.prisma.heartbeatRun.update({
+    const terminalRun = await this.prisma.heartbeatRun.update({
       where: { id: run.id },
       data: {
         status,
@@ -407,6 +419,16 @@ export class HeartbeatService {
         nextSchedule: nextSchedule ?? null,
       },
     });
+
+    // Panel Live Ops: emit on terminal transition (running → succeeded | failed)
+    try {
+      this.eventEmitter.emit(PANEL_EVENTS.UPSERT, {
+        item: agentPanelAdapter.mapToItem({ run: terminalRun, agent: { id: agent.id, name: agent.name } }, companyId),
+        companyId,
+      });
+    } catch (err) {
+      this.logger.warn(`Panel emit failed on terminal transition (run=${run.id}): ${err}`);
+    }
 
     // ── RESULT_READY: Safety Pipeline + domain event ──
     if (status === 'succeeded' && resultJson && companyId) {
