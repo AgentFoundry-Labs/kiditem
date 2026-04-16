@@ -7,7 +7,7 @@ import { HubInlinePicker } from './HubInlinePicker';
 import type { EditUseCase } from './UseCaseSelection';
 import type { ProductImageItem } from '@kiditem/shared';
 
-type EditorMode = 'edit' | 'creative';
+import type { EditorMode } from '../page';
 
 const SUPPLEMENTARY_LABELS = ['박스', '세트구성', '포장', '부속품', '기타'] as const;
 export type SupplementaryLabel = (typeof SUPPLEMENTARY_LABELS)[number];

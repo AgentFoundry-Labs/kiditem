@@ -4,7 +4,7 @@ import { ImageIcon, CheckCircle, Loader2, Sparkles, Scissors } from 'lucide-reac
 import { cn } from '@/lib/utils';
 import { resolveImageUrl } from '@/lib/resolve-url';
 
-type EditorMode = 'edit' | 'creative';
+import type { EditorMode } from '../page';
 
 interface EditorResultPanelProps {
   mode: EditorMode;

@@ -29,11 +29,15 @@ export default function ImageHubPage() {
 
   // URL 진입 시 상품 상세 fetch (name/imageUrl 채우기)
   useEffect(() => {
-    if (!initialProductId || (selectedProduct?.name && selectedProduct.id === initialProductId)) return;
+    if (!initialProductId) return;
     apiClient
       .get<{ id: string; name: string; imageUrl: string | null; sku: string | null }>(`/api/products/${initialProductId}`)
-      .then((product) => setSelectedProduct({ id: product.id, name: product.name, imageUrl: product.imageUrl, sku: product.sku }))
-      .catch(() => {});
+      .then((product) => setSelectedProduct((prev) => {
+        // 이미 다른 상품으로 바뀌었으면 무시
+        if (prev?.id !== initialProductId) return prev;
+        return { id: product.id, name: product.name, imageUrl: product.imageUrl, sku: product.sku };
+      }))
+      .catch(() => toast.error('상품 정보를 불러오지 못했습니다'));
   }, [initialProductId]);
 
   const { images, loading, saving, uploadFile, saveImages, setImages } = useProductImages(

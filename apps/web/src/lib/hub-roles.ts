@@ -1,6 +1,6 @@
 /**
  * 상품 이미지 허브의 role 정의.
- * `/image-hub` 페이지와 `HubImagePickerModal` 에서 공유하여 drift 방지.
+ * `/image-hub` 페이지와 `HubInlinePicker` 에서 공유하여 drift 방지.
  */
 
 export const HUB_ROLE_CONFIG = [

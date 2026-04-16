@@ -24,7 +24,7 @@ import { EditorControlPanel } from './components/EditorControlPanel';
 import { UseCaseSelection, type EditUseCase } from './components/UseCaseSelection';
 import type { SupplementaryLabel } from './components/EditorInputPanel';
 
-type EditorMode = 'edit' | 'creative';
+export type EditorMode = 'edit' | 'creative';
 
 export default function ThumbnailEditorPage() {
   const searchParams = useSearchParams();

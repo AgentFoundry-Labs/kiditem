@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Search } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
@@ -21,6 +21,19 @@ export function ProductSelector({ selectedId, onSelect }: Props) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Product[]>([]);
   const [searching, setSearching] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (results.length === 0) return;
+    const handler = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setResults([]);
+        setQuery('');
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [results.length]);
 
   useEffect(() => {
     if (query.length < 2) {
@@ -39,7 +52,7 @@ export function ProductSelector({ selectedId, onSelect }: Props) {
   }, [query]);
 
   return (
-    <div className="relative">
+    <div className="relative" ref={containerRef}>
       <div className="relative">
         <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
         <input

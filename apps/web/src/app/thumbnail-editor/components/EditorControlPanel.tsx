@@ -2,7 +2,7 @@
 import { Loader2, Wand2, Download, ExternalLink, SkipForward, Sparkles, Scissors } from 'lucide-react';
 import type { EditUseCase } from './UseCaseSelection';
 
-type EditorMode = 'edit' | 'creative';
+import type { EditorMode } from '../page';
 
 interface Props {
   mode: EditorMode;
