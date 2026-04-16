@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { FolderOpen, Save, Loader2, Wand2, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import Link from 'next/link';
+import { apiClient } from '@/lib/api-client';
 import { useProductImages } from '@/hooks/useProductImages';
 import { ProductSelector } from '@/components/product/ProductSelector';
 import { ImageGrid } from './components/ImageGrid';
@@ -25,6 +26,15 @@ export default function ImageHubPage() {
     initialProductId ? { id: initialProductId, name: '', imageUrl: null, sku: null } : null,
   );
   const [isDirty, setIsDirty] = useState(false);
+
+  // URL 진입 시 상품 상세 fetch (name/imageUrl 채우기)
+  useEffect(() => {
+    if (!initialProductId || (selectedProduct?.name && selectedProduct.id === initialProductId)) return;
+    apiClient
+      .get<{ id: string; name: string; imageUrl: string | null; sku: string | null }>(`/api/products/${initialProductId}`)
+      .then((product) => setSelectedProduct({ id: product.id, name: product.name, imageUrl: product.imageUrl, sku: product.sku }))
+      .catch(() => {});
+  }, [initialProductId]);
 
   const { images, loading, saving, uploadFile, saveImages, setImages } = useProductImages(
     selectedProduct?.id ?? null,
