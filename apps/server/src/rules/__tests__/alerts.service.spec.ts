@@ -101,7 +101,7 @@ describe('AlertsService.promote', () => {
             priority: 'urgent', // critical → urgent
             role: 'ad',         // strategy_change → ad
             status: 'pending',
-            assigneeUserId: USER_ID,
+            assigneeUserId: null, // unassigned — Task 32 claim/unclaim sets this
           }),
         }),
       );
@@ -121,6 +121,26 @@ describe('AlertsService.promote', () => {
       );
       expect(result.task).toEqual(BASE_TASK);
       expect(result.updatedAlert.actionTaskId).toBe(TASK_ID);
+    });
+  });
+
+  describe('unassigned initial state (Task 32 claim design)', () => {
+    it('creates task with assigneeUserId=null regardless of who calls promote', async () => {
+      const { service, prisma } = makeService();
+      const tx = mockTransaction(prisma);
+
+      tx.alert.findFirst = vi.fn().mockResolvedValue(BASE_ALERT);
+      tx.actionTask.create = vi.fn().mockResolvedValue(BASE_TASK);
+      tx.alert.updateMany = vi.fn().mockResolvedValue({ count: 1 });
+
+      // currentUserId passed but must NOT be auto-assigned (Task 32 claim/unclaim sets this)
+      await service.promote(ALERT_ID, COMPANY_ID, {}, USER_ID);
+
+      expect(tx.actionTask.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ assigneeUserId: null }),
+        }),
+      );
     });
   });
 

@@ -132,7 +132,7 @@ export class AlertsService {
             role: dto.roleOverride ?? mapAlertTypeToRole(alert.type),
             status: 'pending',
             date: kstDayStart(new Date()),
-            assigneeUserId: currentUserId,
+            assigneeUserId: null,
           },
         });
       } catch (err) {
