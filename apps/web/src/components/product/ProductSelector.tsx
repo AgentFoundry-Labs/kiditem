@@ -39,7 +39,7 @@ export function ProductSelector({ selectedId, onSelect }: Props) {
   }, [query]);
 
   return (
-    <div className="space-y-2">
+    <div className="relative">
       <div className="relative">
         <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
         <input
@@ -51,7 +51,7 @@ export function ProductSelector({ selectedId, onSelect }: Props) {
         />
       </div>
       {results.length > 0 && (
-        <div className="bg-white border border-slate-200 rounded-xl shadow-lg max-h-60 overflow-y-auto">
+        <div className="absolute left-0 right-0 top-full mt-1 z-50 bg-white border border-slate-200 rounded-xl shadow-lg max-h-60 overflow-y-auto">
           {results.map((product) => (
             <button
               key={product.id}
@@ -85,7 +85,7 @@ export function ProductSelector({ selectedId, onSelect }: Props) {
         </div>
       )}
       {searching && (
-        <div className="text-xs text-slate-400 px-1">검색 중...</div>
+        <div className="absolute left-0 top-full mt-1 text-xs text-slate-400 px-1">검색 중...</div>
       )}
     </div>
   );
