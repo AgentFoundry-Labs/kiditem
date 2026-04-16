@@ -1,10 +1,11 @@
 'use client';
-import { Package, FolderOpen } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { Package } from 'lucide-react';
 import { ImageUploader } from './ImageUploader';
 import { ColorVariantsUploader } from './ColorVariantsUploader';
 import { EditCaseBreadcrumb } from './EditCaseBreadcrumb';
+import { HubInlinePicker } from './HubInlinePicker';
 import type { EditUseCase } from './UseCaseSelection';
+import type { ProductImageItem } from '@kiditem/shared';
 
 type EditorMode = 'edit' | 'creative';
 
@@ -28,14 +29,14 @@ interface Props {
   colorImages: string[];
   backgroundReference: string | null;
   sceneType: string;
+  hubImages: ProductImageItem[];     // page.tsx 에서 useProductImages 1회 fetch 결과
+  hubImagesLoading: boolean;          // page.tsx 의 loading 상태
   onProductImageChange: (v: string | null) => void;
   onPackagingChange: (v: string | null) => void;
   onSupplementaryLabelChange: (v: SupplementaryLabel) => void;
   onColorImagesChange: (v: string[]) => void;
   onBackgroundReferenceChange: (v: string | null) => void;
   onResetEditCase: () => void;
-  hasProductId: boolean;
-  onOpenHubModal: () => void;
 }
 
 export function EditorInputPanel({
@@ -49,16 +50,25 @@ export function EditorInputPanel({
   colorImages,
   backgroundReference,
   sceneType,
+  hubImages,
+  hubImagesLoading,
   onProductImageChange,
   onPackagingChange,
   onSupplementaryLabelChange,
   onColorImagesChange,
   onBackgroundReferenceChange,
   onResetEditCase,
-  hasProductId,
-  onOpenHubModal,
 }: Props) {
   const showBreadcrumb = mode === 'edit' && editCase !== null;
+
+  // multi 모드 toggle 핸들러
+  const handleColorVariantToggle = (url: string) => {
+    if (colorImages.includes(url)) {
+      onColorImagesChange(colorImages.filter((u) => u !== url));
+    } else {
+      onColorImagesChange([...colorImages, url]);
+    }
+  };
 
   return (
     <div
@@ -68,28 +78,6 @@ export function EditorInputPanel({
       {showBreadcrumb && editCase && (
         <EditCaseBreadcrumb caseName={CASE_NAMES[editCase]} onChange={onResetEditCase} />
       )}
-
-      {/* 이미지 허브 버튼 */}
-      <div
-        className="flex-shrink-0 px-4 py-3"
-        style={{ borderBottom: '1px solid #e5e7eb' }}
-      >
-        <button
-          type="button"
-          onClick={onOpenHubModal}
-          disabled={!hasProductId}
-          title={!hasProductId ? '상품 선택 후 사용 가능' : undefined}
-          className={cn(
-            'w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-xs font-medium transition-all',
-            hasProductId
-              ? 'bg-violet-50 text-violet-700 border border-violet-200 hover:bg-violet-100'
-              : 'bg-gray-50 text-gray-400 border border-gray-200 cursor-not-allowed',
-          )}
-        >
-          <FolderOpen size={14} />
-          이미지 허브에서 불러오기
-        </button>
-      </div>
 
       <div
         className="flex-shrink-0 px-4 py-3.5"
@@ -111,13 +99,24 @@ export function EditorInputPanel({
       )}
 
       <div className="flex-1 px-4 py-4 space-y-6">
-        {/* 편집 모드 분기 */}
+        {/* 편집 모드 — compose */}
         {mode === 'edit' && editCase === 'compose' && (
           <>
             <div className="space-y-2">
               <div className="text-xs font-semibold text-gray-700">상품 사진</div>
               <div className="text-[11px] text-gray-400">흰배경 대표 상품 이미지</div>
               <ImageUploader label="" value={productImage} onChange={onProductImageChange} />
+              {productId && (
+                <HubInlinePicker
+                  images={hubImages}
+                  loading={hubImagesLoading}
+                  productId={productId}
+                  role="product"
+                  mode="single"
+                  selectedUrls={productImage ? [productImage] : []}
+                  onSelect={(url) => onProductImageChange(url)}
+                />
+              )}
             </div>
             <div className="space-y-2">
               <div className="flex items-center justify-between">
@@ -134,37 +133,86 @@ export function EditorInputPanel({
               </div>
               <div className="text-[11px] text-gray-400">패키지/세트구성 등 보조 이미지</div>
               <ImageUploader label="" value={packagingImage} onChange={onPackagingChange} />
+              {productId && (
+                <HubInlinePicker
+                  images={hubImages}
+                  loading={hubImagesLoading}
+                  productId={productId}
+                  role="box"
+                  mode="single"
+                  selectedUrls={packagingImage ? [packagingImage] : []}
+                  onSelect={(url) => onPackagingChange(url)}
+                />
+              )}
             </div>
           </>
         )}
 
+        {/* 편집 모드 — color-variants */}
         {mode === 'edit' && editCase === 'color-variants' && (
           <div className="space-y-2">
             <div className="text-xs font-semibold text-gray-700">색상별 상품 사진</div>
             <ColorVariantsUploader values={colorImages} onChange={onColorImagesChange} />
+            {productId && (
+              <HubInlinePicker
+                images={hubImages}
+                loading={hubImagesLoading}
+                productId={productId}
+                role="color_variant"
+                mode="multi"
+                selectedUrls={colorImages}
+                onSelect={handleColorVariantToggle}
+                maxRemaining={8 - colorImages.length}
+              />
+            )}
           </div>
         )}
 
+        {/* 편집 모드 — single */}
         {mode === 'edit' && editCase === 'single' && (
           <div className="space-y-2">
             <div className="text-xs font-semibold text-gray-700">상품 사진</div>
             <div className="text-[11px] text-gray-400">정리할 원본 상품 이미지</div>
             <ImageUploader label="" value={productImage} onChange={onProductImageChange} />
+            {productId && (
+              <HubInlinePicker
+                images={hubImages}
+                loading={hubImagesLoading}
+                productId={productId}
+                role="product"
+                mode="single"
+                selectedUrls={productImage ? [productImage] : []}
+                onSelect={(url) => onProductImageChange(url)}
+              />
+            )}
           </div>
         )}
 
+        {/* AI 연출 */}
         {mode === 'creative' && (
           <>
             <div className="space-y-2">
               <div className="text-xs font-semibold text-gray-700">상품 사진</div>
               <div className="text-[11px] text-gray-400">흰배경 상품 이미지</div>
               <ImageUploader label="" value={productImage} onChange={onProductImageChange} />
+              {productId && (
+                <HubInlinePicker
+                  images={hubImages}
+                  loading={hubImagesLoading}
+                  productId={productId}
+                  role="product"
+                  mode="single"
+                  selectedUrls={productImage ? [productImage] : []}
+                  onSelect={(url) => onProductImageChange(url)}
+                />
+              )}
             </div>
             {sceneType === 'custom-reference' && (
               <div className="space-y-2">
                 <div className="text-xs font-semibold text-gray-700">분위기 참고 이미지</div>
                 <div className="text-[11px] text-gray-400">mood · 팔레트 · 질감 참고용</div>
                 <ImageUploader label="" value={backgroundReference} onChange={onBackgroundReferenceChange} />
+                {/* backgroundReference 는 매칭 role 없어 hub picker 미노출 */}
               </div>
             )}
           </>
