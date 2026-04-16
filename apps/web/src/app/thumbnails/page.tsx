@@ -60,6 +60,7 @@ import { useTrackingList } from './hooks/useThumbnailTracking';
 import { openCoupangWingInventory } from './lib/coupang-wing';
 import { resolveImageUrl } from './lib/resolve-url';
 import { cn } from '@/lib/utils';
+import { isReady, isApplied, isActive } from '@/lib/thumbnail-status';
 
 type TabKey = 'unclassified' | 'all' | 'needsfix' | 'ai-edit' | 'history' | 'tracking';
 
@@ -148,7 +149,7 @@ export default function ThumbnailsPage() {
     [generations],
   );
   const activeGenerations = useMemo(
-    () => generations.filter((g) => ['pending', 'generating', 'ready'].includes(g.status)),
+    () => generations.filter((g) => g.status === 'pending' || g.status === 'running' || isReady(g)),
     [generations],
   );
 
@@ -210,9 +211,9 @@ export default function ThumbnailsPage() {
     if (gradeFilter === 'all') {
       result = base;
     } else if (gradeFilter === 'edit-pending') {
-      result = hasEditStatus(base, ['pending', 'generating']);
+      result = hasEditStatus(base, ['pending', 'running']);
     } else if (gradeFilter === 'edit-ready') {
-      result = hasEditStatus(base, ['ready']);
+      result = base.filter((item) => { const g = genByProductId.get(item.productId); return g && isReady(g); });
     } else if (gradeFilter === 'edit-failed') {
       result = hasEditStatus(base, ['failed']);
     } else if (['FAIL', 'WARN', 'PASS'].includes(gradeFilter)) {
@@ -265,7 +266,7 @@ export default function ThumbnailsPage() {
     try {
       await selectCandidateMutation.mutateAsync({ id: generationId, selectedUrl });
       if (currentGen?.id === generationId) {
-        setSelectedGen({ ...currentGen, selectedUrl: selectedUrl || null, status: 'ready' });
+        setSelectedGen({ ...currentGen, selectedUrl: selectedUrl || null, status: 'succeeded', phase: 'ready' });
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '후보 선택 실패');
@@ -476,7 +477,7 @@ export default function ThumbnailsPage() {
     ? generations.find(
         (g) =>
           g.productId === selectedProduct.productId &&
-          ['generating', 'ready'].includes(g.status),
+          g.status === 'running' || isReady(g),
       ) ?? null
     : null;
 
@@ -499,11 +500,11 @@ export default function ThumbnailsPage() {
   // 편집 진행 중(generating/pending/ready)인 productId — 개선필요 카운트에서 제외
   const activeEditingProductIds = new Set(
     generations
-      .filter((g) => ['generating', 'pending', 'ready'].includes(g.status))
+      .filter((g) => g.status === 'running' || g.status === 'pending' || isReady(g))
       .map((g) => g.productId),
   );
   const needsFixCount = needsFixProducts.filter((p) => !activeEditingProductIds.has(p.productId)).length;
-  const appliedCount = generations.filter((g) => g.status === 'applied').length;
+  const appliedCount = generations.filter((g) => isApplied(g)).length;
 
 
   const historyTotalPages = Math.ceil(historyByProduct.length / pageSize);
@@ -1032,7 +1033,7 @@ export default function ThumbnailsPage() {
         {(() => {
           const tracked = appliedCount;
           const avgCtrChange = tracked > 0 ? 12 : 0;
-          const reviewedCount = generations.filter((g) => g.status === 'applied').length;
+          const reviewedCount = generations.filter((g) => isApplied(g)).length;
           const reviewBoost = reviewedCount > 0 ? 8 : 0;
           return (
             <div
@@ -1137,7 +1138,7 @@ export default function ThumbnailsPage() {
       >
         {(() => {
           const recentApplied = generations
-            .filter((g) => g.status === 'applied')
+            .filter((g) => isApplied(g))
             .slice(0, 7);
           const inGeneration = validActiveGenerations.slice(0, 7);
           const needsFix = classifiedResults
@@ -1198,9 +1199,9 @@ export default function ThumbnailsPage() {
                 ...inGeneration.map((g) => ({
                   name: g.product.name,
                   status:
-                    g.status === 'generating'
+                    g.status === 'running'
                       ? '생성 중'
-                      : g.status === 'ready'
+                      : isReady(g)
                       ? '준비됨'
                       : '대기',
                 })),
@@ -1636,11 +1637,11 @@ export default function ThumbnailsPage() {
           {activeTab === 'needsfix' && (() => {
             const editPendingCount = needsFixProducts.filter((r) => {
               const g = genByProductId.get(r.productId);
-              return g && ['pending', 'generating'].includes(g.status);
+              return g && (g.status === 'pending' || g.status === 'running');
             }).length;
             const editReadyCount = needsFixProducts.filter((r) => {
               const g = genByProductId.get(r.productId);
-              return g && g.status === 'ready';
+              return g && isReady(g);
             }).length;
             const editFailedCount = needsFixProducts.filter((r) => {
               const g = genByProductId.get(r.productId);
@@ -1799,8 +1800,8 @@ export default function ThumbnailsPage() {
                 const display = aiResults[item.productId] || item;
                 const isAiDone = !!aiResults[item.productId];
                 const itemGen = genByProductId.get(item.productId);
-                const isEditing = itemGen && ['generating', 'pending'].includes(itemGen.status);
-                const isReady = itemGen && itemGen.status === 'ready';
+                const isEditing = itemGen && (itemGen.status === 'running' || itemGen.status === 'pending');
+                const itemReady = itemGen && isReady(itemGen);
                 return (
                   <div key={item.productId} className="flex flex-col gap-1">
                     <ProductCard
@@ -1811,7 +1812,7 @@ export default function ThumbnailsPage() {
                       complianceGrade={display.complianceGrade ?? undefined}
                       aiAnalyzed={isAiDone}
                       ctr={item.ctr ?? null}
-                      overlay={isEditing ? 'generating' : isReady ? 'selected' : undefined}
+                      overlay={isEditing ? 'generating' : itemReady ? 'selected' : undefined}
                       onClick={() => {
                         setSelectedProduct(item);
                         setSelectedGen(null);
@@ -1822,7 +1823,7 @@ export default function ThumbnailsPage() {
                         <div className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-[11px] font-semibold bg-blue-50 text-blue-600 border border-blue-100">
                           <Loader2 size={10} className="animate-spin" /> 편집 중
                         </div>
-                      ) : isReady ? (
+                      ) : itemReady ? (
                         <button
                           onClick={() => { setActiveTab('ai-edit'); }}
                           className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-[11px] font-semibold transition-colors bg-purple-600 text-white hover:bg-purple-700"
@@ -1875,9 +1876,9 @@ export default function ThumbnailsPage() {
           const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
           return tb - ta;
         };
-        const generatingGens = generations.filter((g) => g.status === 'generating' || g.status === 'pending').sort(byNewest);
-        const readyGens = generations.filter((g) => g.status === 'ready').sort(byNewest);
-        const appliedGens = generations.filter((g) => g.status === 'applied').sort(byNewest);
+        const generatingGens = generations.filter((g) => g.status === 'running' || g.status === 'pending').sort(byNewest);
+        const readyGens = generations.filter((g) => isReady(g)).sort(byNewest);
+        const appliedGens = generations.filter((g) => isApplied(g)).sort(byNewest);
         const sortedPendingProducts = [...pendingProducts].sort(byNewestAnalysis);
 
         const filterCards = [
@@ -1978,7 +1979,7 @@ export default function ThumbnailsPage() {
                         key={g.id}
                         imageUrl={g.originalUrl ?? g.product?.imageUrl ?? null}
                         name={g.product?.name ?? ''}
-                        badge={<ThumbnailStatusBadge status={g.status} />}
+                        badge={<ThumbnailStatusBadge status={g.status} phase={g.phase ?? null} />}
                         overlay="generating"
                         onClick={() => setSelectedGen(g)}
                       />
@@ -2138,7 +2139,7 @@ export default function ThumbnailsPage() {
                         key={g.id}
                         imageUrl={g.selectedUrl ?? g.originalUrl ?? g.product?.imageUrl ?? null}
                         name={g.product?.name ?? ''}
-                        badge={<ThumbnailStatusBadge status={g.status} />}
+                        badge={<ThumbnailStatusBadge status={g.status} phase={g.phase ?? null} />}
                         overlay="applied"
                         onClick={() => setSelectedGen(g)}
                       />
@@ -2215,15 +2216,15 @@ export default function ThumbnailsPage() {
                         key={gen.id}
                         imageUrl={gen.selectedUrl || gen.originalUrl || gen.product.imageUrl}
                         name={gen.product.name}
-                        badge={<ThumbnailStatusBadge status={gen.status} />}
+                        badge={<ThumbnailStatusBadge status={gen.status} phase={gen.phase ?? null} />}
                         overlay={
-                          gen.status === 'generating' || gen.status === 'pending'
+                          gen.status === 'running' || gen.status === 'pending'
                             ? 'generating'
-                            : gen.status === 'applied'
+                            : isApplied(gen)
                             ? 'applied'
-                            : gen.status === 'skipped'
+                            : gen.status === 'cancelled'
                             ? 'skipped'
-                            : gen.status === 'ready'
+                            : isReady(gen)
                             ? 'selected'
                             : undefined
                         }

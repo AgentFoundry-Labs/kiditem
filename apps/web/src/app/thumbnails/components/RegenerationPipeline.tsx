@@ -1,5 +1,6 @@
 'use client';
 import { ScanSearch, Zap, AlertTriangle, Wand2, CheckCircle, ChevronRight } from 'lucide-react';
+import { isApplied } from '@/lib/thumbnail-status';
 import type { ThumbnailAnalysisResult, ThumbnailGenerationItem } from '@kiditem/shared';
 
 interface PipelineStep {
@@ -30,7 +31,7 @@ export function RegenerationPipeline({
   completedGenerations,
   onStepClick,
 }: RegenerationPipelineProps) {
-  const appliedCount = completedGenerations.filter((g) => g.status === 'applied').length;
+  const appliedCount = completedGenerations.filter((g) => isApplied(g)).length;
 
   const steps: PipelineStep[] = [
     {
@@ -81,7 +82,7 @@ export function RegenerationPipeline({
       bg: 'rgba(0,196,113,0.06)',
       icon: CheckCircle,
       count: appliedCount,
-      items: completedGenerations.filter((g) => g.status === 'applied').slice(0, 5).map((g) => g.product.name),
+      items: completedGenerations.filter((g) => isApplied(g)).slice(0, 5).map((g) => g.product.name),
     },
   ];
 

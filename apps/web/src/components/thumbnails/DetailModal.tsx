@@ -11,6 +11,7 @@ import type { ThumbnailAnalysisResult, ThumbnailGenerationItem, ImageSpec } from
 import { cn } from '@/lib/utils';
 import { COMPLIANCE_GRADE_BG, COMPLIANCE_GRADE_LABELS, VIOLATION_LABELS } from '@/app/thumbnails/lib/grade-constants';
 import { resolveImageUrl } from '@/lib/resolve-url';
+import { isApplied } from '@/lib/thumbnail-status';
 
 const GRADE_CONFIG: Record<string, { bg: string; text: string }> = {
   S: { bg: '#10b981', text: '#fff' },
@@ -115,12 +116,12 @@ export function DetailModal({
               </span>
             )}
             <h2 className="flex-1 text-[15px] font-semibold text-slate-900 truncate min-w-0">{productName}</h2>
-            {gen?.status === 'generating' && (
+            {gen?.status === 'running' && (
               <span className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-600 bg-blue-50 px-2.5 py-1 rounded-lg flex-shrink-0">
                 <Loader2 size={12} className="animate-spin" /> 생성 중
               </span>
             )}
-            {gen?.status === 'applied' && (
+            {gen && isApplied(gen) && (
               <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-lg flex-shrink-0">
                 <CheckCircle size={12} /> 적용 완료
               </span>
@@ -295,7 +296,7 @@ export function DetailModal({
                               <button key={pg.id} onClick={() => onSelectGen(pg)} className="flex-1 group">
                                 <div className={cn(
                                   'aspect-square rounded-lg overflow-hidden border-2 transition-colors group-hover:border-indigo-400',
-                                  pg.status === 'applied' ? 'border-emerald-400' : 'border-slate-200',
+                                  isApplied(pg) ? 'border-emerald-400' : 'border-slate-200',
                                 )}>
                                   {url
                                     ? <img src={url} alt="" className="w-full h-full object-cover" loading="lazy" referrerPolicy="no-referrer" />

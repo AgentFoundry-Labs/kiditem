@@ -31,7 +31,7 @@ products/
 
 `thumbnail-pre-inspect` → `thumbnail-analysis` (Gemini) → `thumbnail-edit` (Gemini) → `thumbnail-generation` (apply to product) → `thumbnail-tracking` (impact 측정).
 
-**Status flow**: `pending → generating → ready → applied`
+**Status flow (canonical, ADR-0011 Phase 3)**: `pending → running → succeeded({phase: 'ready' → 'applied'})`. `skipped` maps to `cancelled`. Writer helpers in `services/thumbnail-status.helpers.ts` enforce the status+phase invariant (status='succeeded' ⇔ phase∈{'ready','applied'}).
 
 각 단계는 별도 service. **순서 변경 / 단계 스킵 금지** (테스트 `__tests__/thumbnail-flow.spec.ts` 보호).
 
