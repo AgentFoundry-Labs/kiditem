@@ -48,7 +48,6 @@ export const agentPanelAdapter: PanelRunAdapter<AgentAdapterInput> = {
       actorUserId: run.triggeredByUserId ?? null,
       visibility: agentPanelAdapter.defaultVisibility(input),
       createdAt: run.createdAt.toISOString(),
-      ...(run.startedAt != null && {}),
       ...(run.error != null ? { errorMessage: run.error } : {}),
     };
   },
