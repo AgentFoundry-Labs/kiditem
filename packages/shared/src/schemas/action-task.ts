@@ -7,6 +7,13 @@ export const ActionTaskRelatedProductSchema = z.object({
   value: z.string(),
 });
 
+export const ActionTaskSourceAlertSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  severity: z.string(),
+  message: z.string().nullable(),
+});
+
 export const ActionTaskSchema = z.object({
   id: z.string(),
   companyId: z.string(),
@@ -32,9 +39,13 @@ export const ActionTaskSchema = z.object({
   })),
   date: z.string(),
   relatedProducts: z.array(ActionTaskRelatedProductSchema).optional(),
+  assigneeUserId: z.string().nullable().optional(),
+  assigneeUser: z.object({ id: z.string(), name: z.string() }).nullable().optional(),
+  sourceAlert: ActionTaskSourceAlertSchema.nullable().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
 
 export type ActionTask = z.infer<typeof ActionTaskSchema>;
 export type ActionTaskRelatedProduct = z.infer<typeof ActionTaskRelatedProductSchema>;
+export type ActionTaskSourceAlert = z.infer<typeof ActionTaskSourceAlertSchema>;

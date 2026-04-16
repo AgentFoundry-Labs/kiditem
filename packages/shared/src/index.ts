@@ -105,8 +105,8 @@ export { RuleItemSchema } from './schemas/rules.js';
 export type { RuleItem } from './schemas/rules.js';
 
 // Action Task
-export { ActionTaskSchema, ActionTaskRelatedProductSchema } from './schemas/action-task.js';
-export type { ActionTask, ActionTaskRelatedProduct } from './schemas/action-task.js';
+export { ActionTaskSchema, ActionTaskRelatedProductSchema, ActionTaskSourceAlertSchema } from './schemas/action-task.js';
+export type { ActionTask, ActionTaskRelatedProduct, ActionTaskSourceAlert } from './schemas/action-task.js';
 
 // Inspection
 export { InspectionItemSchema, InspectionResultSchema } from './schemas/inspection.js';
