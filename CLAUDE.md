@@ -43,6 +43,7 @@ extensions/          — Chrome extensions (product-scraper: 1688/Alibaba, coupa
   2. 셸에서 `./scripts/graphify-rebuild-domain.sh apps/server/src/<domain>` (파일 노드 merge + 테스트 노이즈 제거 + 재클러스터링)
   쿼리: `/graphify query "..."` — 2-hop BFS라 파일 편집 시 "이 파일에 적용되는 규칙·Prohibit" 회수는 Pattern 경유라 **2-hop 필요**.
 - [Architecture](.claude/docs/architecture.md) — data flow, agent runtimes, @kiditem/shared, workflow vs agent boundary
+- [Testing Strategy](docs/TESTING.md) — 3-tier (unit mock / e2e HTTP mock / **integration real Postgres**). Race guard·IDOR 검증은 integration tier 로. `npm run db:test:up && npm run db:test:prepare && npm run test:integration`
 - [Commands & Environment](.claude/docs/commands.md) — quick start, dev commands, ports, env vars, tests
 - [Workflow & Process](.claude/docs/workflow.md) — autonomy spectrum, verification, collaboration, branches, commits, PRs
 - [Lessons Learned](.claude/docs/lessons.md) — team-shared patterns from past incidents
