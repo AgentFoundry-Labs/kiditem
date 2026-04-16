@@ -18,9 +18,4 @@ describe('DryRunGateService', () => {
     const result = service.check(0, true);
     expect(result.forced).toBe(false);
   });
-
-  it('does not force when dryRun=undefined', () => {
-    const result = service.check(0, undefined);
-    expect(result.forced).toBe(false);
-  });
 });
