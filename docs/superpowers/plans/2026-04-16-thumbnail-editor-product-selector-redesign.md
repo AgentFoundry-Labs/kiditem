@@ -71,21 +71,25 @@ import { useMemo } from 'react';
 import { Loader2, ExternalLink } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import { useProductImages } from '@/hooks/useProductImages';
 import { HUB_ROLE_CONFIG, type ProductImageRole } from '@/lib/hub-roles';
+import type { ProductImageItem } from '@kiditem/shared';
 
 type SelectMode = 'single' | 'multi';
 
 interface Props {
-  productId: string; // non-null — caller guards
+  images: ProductImageItem[];  // 부모가 useProductImages 로 fetch 한 전체 목록
+  loading: boolean;            // 부모의 loading 상태
+  productId: string;           // "이미지 허브로 이동" 링크용
   role: ProductImageRole;
   mode: SelectMode;
-  selectedUrls: string[]; // currently selected URLs (for highlight)
-  onSelect: (url: string) => void; // single: caller setSlot(url) / multi: caller toggle in array
-  maxRemaining?: number; // multi 모드 — 0이면 click 차단
+  selectedUrls: string[];
+  onSelect: (url: string) => void;
+  maxRemaining?: number;
 }
 
 export function HubInlinePicker({
+  images,
+  loading,
   productId,
   role,
   mode,
@@ -93,8 +97,6 @@ export function HubInlinePicker({
   onSelect,
   maxRemaining,
 }: Props) {
-  const { images, loading } = useProductImages(productId);
-
   const roleImages = useMemo(() => images.filter((img) => img.role === role), [images, role]);
   const roleConfig = useMemo(() => HUB_ROLE_CONFIG.find((c) => c.role === role), [role]);
 
@@ -176,7 +178,7 @@ export function HubInlinePicker({
 ```
 
 주요 설계:
-- `useProductImages(productId)` 같은 productId 면 React state 별로 1번 fetch (다른 인스턴스는 중복 fetch 됨 — 5 슬롯 × 1번 = 5 fetch. 비최적이지만 첫 cut acceptable. 추후 React Query 마이그레이션 시 자동 dedup.)
+- **useProductImages 호출 없음** — `images` + `loading` 은 부모(page.tsx → EditorInputPanel → HubInlinePicker)에서 props 로 전달. 중복 fetch 제거 (eng review #1).
 - `loading="lazy"` on img
 - multi 모드 cap: `maxRemaining = 8 - colorImages.length`. 이미 선택된 것 재클릭은 toggle 이라 차단 X.
 - 컴팩트 grid 3-col (Input 패널 240px wide 기준).
@@ -214,6 +216,7 @@ import { ColorVariantsUploader } from './ColorVariantsUploader';
 import { EditCaseBreadcrumb } from './EditCaseBreadcrumb';
 import { HubInlinePicker } from './HubInlinePicker';
 import type { EditUseCase } from './UseCaseSelection';
+import type { ProductImageItem } from '@kiditem/shared';
 
 type EditorMode = 'edit' | 'creative';
 
@@ -237,6 +240,8 @@ interface Props {
   colorImages: string[];
   backgroundReference: string | null;
   sceneType: string;
+  hubImages: ProductImageItem[];     // page.tsx 에서 useProductImages 1회 fetch 결과
+  hubImagesLoading: boolean;          // page.tsx 의 loading 상태
   onProductImageChange: (v: string | null) => void;
   onPackagingChange: (v: string | null) => void;
   onSupplementaryLabelChange: (v: SupplementaryLabel) => void;
@@ -256,6 +261,8 @@ export function EditorInputPanel({
   colorImages,
   backgroundReference,
   sceneType,
+  hubImages,
+  hubImagesLoading,
   onProductImageChange,
   onPackagingChange,
   onSupplementaryLabelChange,
@@ -312,6 +319,8 @@ export function EditorInputPanel({
               <ImageUploader label="" value={productImage} onChange={onProductImageChange} />
               {productId && (
                 <HubInlinePicker
+                  images={hubImages}
+                  loading={hubImagesLoading}
                   productId={productId}
                   role="product"
                   mode="single"
@@ -337,6 +346,8 @@ export function EditorInputPanel({
               <ImageUploader label="" value={packagingImage} onChange={onPackagingChange} />
               {productId && (
                 <HubInlinePicker
+                  images={hubImages}
+                  loading={hubImagesLoading}
                   productId={productId}
                   role="box"
                   mode="single"
@@ -355,6 +366,8 @@ export function EditorInputPanel({
             <ColorVariantsUploader values={colorImages} onChange={onColorImagesChange} />
             {productId && (
               <HubInlinePicker
+                images={hubImages}
+                loading={hubImagesLoading}
                 productId={productId}
                 role="color_variant"
                 mode="multi"
@@ -393,6 +406,8 @@ export function EditorInputPanel({
               <ImageUploader label="" value={productImage} onChange={onProductImageChange} />
               {productId && (
                 <HubInlinePicker
+                  images={hubImages}
+                  loading={hubImagesLoading}
                   productId={productId}
                   role="product"
                   mode="single"
@@ -469,6 +484,7 @@ import {
 } from '@/hooks/useThumbnailGenerations';
 import { openCoupangWingInventory } from '@/lib/coupang-wing';
 import { ProductSelector } from '@/components/product/ProductSelector';
+import { useProductImages } from '@/hooks/useProductImages';
 
 import { useGenerateThumbnail } from './hooks/useThumbnailEditor';
 import { EditorInputPanel } from './components/EditorInputPanel';
@@ -516,6 +532,9 @@ export default function ThumbnailEditorPage() {
   const [styleType, setStyleType] = useState('minimal');
   const [productDescription, setProductDescription] = useState('');
   const [backgroundReference, setBackgroundReference] = useState<string | null>(null);
+
+  // 허브 이미지 (1회 fetch — eng review #1)
+  const { images: hubImages, loading: hubImagesLoading } = useProductImages(productId);
 
   // 결과
   const [result, setResult] = useState<Array<{ url: string; filename: string }>>([]);
@@ -658,11 +677,21 @@ export default function ThumbnailEditorPage() {
 
   const handleClearProduct = () => {
     router.replace('/thumbnail-editor');
-    // 상품 변경 시 슬롯 상태 리셋 (오염 방지)
+    // 상품 변경 = 새 작업 — 전체 리셋 (eng review #2)
+    setEditCase(null);
     setProductImage(null);
+    setUserPrompt('');
     setPackagingImage(null);
+    setSupplementaryLabel('박스');
+    setPieceCount(null);
     setColorImages([]);
+    setSceneType('white-studio');
+    setStyleType('minimal');
+    setProductDescription('');
     setBackgroundReference(null);
+    setResult([]);
+    setGenerationId(null);
+    setSelectedCandidateUrl(null);
   };
 
   const showUseCaseSelection = mode === 'edit' && editCase === null;
@@ -763,6 +792,8 @@ export default function ThumbnailEditorPage() {
             colorImages={colorImages}
             backgroundReference={backgroundReference}
             sceneType={sceneType}
+            hubImages={hubImages}
+            hubImagesLoading={hubImagesLoading}
             onProductImageChange={setProductImage}
             onPackagingChange={setPackagingImage}
             onSupplementaryLabelChange={setSupplementaryLabel}
@@ -811,13 +842,14 @@ export default function ThumbnailEditorPage() {
 ```
 
 주요 변경 (v1 대비):
-- 신규 import: `useRouter` from 'next/navigation', `ShoppingBag, ChevronDown` from lucide-react, `ProductSelector` from `@/components/product/ProductSelector`.
+- 신규 import: `useRouter` from 'next/navigation', `ShoppingBag, ChevronDown` from lucide-react, `ProductSelector` from `@/components/product/ProductSelector`, `useProductImages` from `@/hooks/useProductImages`.
 - 제거 import: `HubImagePickerModal`, `HubSelected` 타입.
 - 제거 state: `hubModalOpen`, `setHubModalOpen`.
 - 제거 함수: `handleHubApply` 전체.
-- 신규 함수: `handleProductSelect`, `handleClearProduct`.
+- 신규 함수: `handleProductSelect`, `handleClearProduct` (전체 리셋 — eng review #2).
+- 신규: `useProductImages(productId)` 1회 호출 + EditorInputPanel 에 `hubImages` / `hubImagesLoading` 전달 (eng review #1).
 - 헤더 우측에 ProductSelector / compact pill toggle 추가 (`w-[280px]` 컨테이너).
-- EditorInputPanel props 정리: `hasProductId`, `onOpenHubModal` 제거.
+- EditorInputPanel props 정리: `hasProductId`, `onOpenHubModal` 제거. `hubImages`, `hubImagesLoading` 추가.
 - 본문 끝 `<HubImagePickerModal />` 마운트 제거.
 - product name suffix 제거 (헤더 우측 pill 로 대체).
 
