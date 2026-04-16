@@ -78,6 +78,7 @@ export class ThumbnailEditService {
         const imageUrl = product.imageUrl ?? null;
         if (!imageUrl) continue;
 
+        // triggeredByUserId NULL — createEditJobs는 @CurrentUser 없이 호출됨 (thumbnail-analysis.controller)
         const generation = await this.prisma.thumbnailGeneration.create({
           data: {
             productId,

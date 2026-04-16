@@ -169,6 +169,7 @@ export class ThumbnailGenerationService {
     method?: string;
   }): Promise<string | null> {
     try {
+      // triggeredByUserId NULL — saveEditorResult는 에이전트 결과 수신 경로, user context 없음
       const gen = await this.prisma.thumbnailGeneration.create({
         data: {
           productId: params.productId,

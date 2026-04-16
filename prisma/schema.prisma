@@ -129,6 +129,8 @@ model User {
   company                   Company?         @relation(fields: [companyId], references: [id], onDelete: Cascade)
   agentDefinition           AgentDefinition? @relation(fields: [agentDefinitionId], references: [id])
   triggeredWorkflowRuns     WorkflowRun[]    @relation("WorkflowRunTriggeredBy")
+  heartbeatRunsTriggered    HeartbeatRun[]   @relation("HeartbeatRunTriggeredBy")
+  thumbnailGenerationsTriggered ThumbnailGeneration[] @relation("ThumbnailGenerationTriggeredBy")
 
   @@index([companyId])
   @@map("users")
@@ -671,17 +673,21 @@ model ThumbnailGeneration {
   method       String  @default("generate") @map("method")
   editAnalysis Json?   @map("edit_analysis")
 
+  triggeredByUserId String? @map("triggered_by_user_id") @db.Uuid
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  company   Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  product   Product              @relation(fields: [productId], references: [id], onDelete: Cascade)
-  trackings ThumbnailTracking[]
+  company           Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  product           Product              @relation(fields: [productId], references: [id], onDelete: Cascade)
+  trackings         ThumbnailTracking[]
+  triggeredByUser   User?                @relation("ThumbnailGenerationTriggeredBy", fields: [triggeredByUserId], references: [id], onDelete: SetNull)
 
   @@index([companyId])
   @@index([productId])
   @@index([status])
   @@index([method])
+  @@index([companyId, triggeredByUserId])
   @@map("thumbnail_generations")
 }
 
@@ -960,19 +966,22 @@ model HeartbeatRun {
   errorCode        String? @map("error_code")
   processPid       Int?    @map("process_pid")
   wakeupRequestId  String? @map("wakeup_request_id") @db.Uuid
-  nextSchedule     String? @map("next_schedule")
-  isSummarized     Boolean @default(false) @map("is_summarized")
-  summary          String? @db.Text
+  nextSchedule      String? @map("next_schedule")
+  isSummarized      Boolean @default(false) @map("is_summarized")
+  summary           String? @db.Text
+  triggeredByUserId String? @map("triggered_by_user_id") @db.Uuid
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  agent         AgentDefinition     @relation(fields: [agentId], references: [id])
-  company       Company             @relation(fields: [companyId], references: [id])
-  wakeupRequest AgentWakeupRequest? @relation(fields: [wakeupRequestId], references: [id])
+  agent           AgentDefinition     @relation(fields: [agentId], references: [id])
+  company         Company             @relation(fields: [companyId], references: [id])
+  wakeupRequest   AgentWakeupRequest? @relation(fields: [wakeupRequestId], references: [id])
+  triggeredByUser User?               @relation("HeartbeatRunTriggeredBy", fields: [triggeredByUserId], references: [id], onDelete: SetNull)
 
   @@index([companyId, agentId, startedAt])
   @@index([status])
+  @@index([companyId, triggeredByUserId])
   @@map("heartbeat_runs")
 }
 

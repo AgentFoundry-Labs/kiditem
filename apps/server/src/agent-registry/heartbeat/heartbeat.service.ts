@@ -222,6 +222,7 @@ export class HeartbeatService {
     ]);
 
     // HeartbeatRun 생성
+    // triggeredByUserId NULL — executeHeartbeat는 cron/wakeup 백그라운드 실행, user context 없음
     const run = await this.prisma.heartbeatRun.create({
       data: {
         agent: { connect: { id: agentId } },
