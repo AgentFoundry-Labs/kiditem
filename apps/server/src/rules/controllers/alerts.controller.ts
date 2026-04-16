@@ -1,6 +1,9 @@
-import { Controller, Get, Patch, Param, Query } from '@nestjs/common';
+import { Controller, Get, Patch, Post, Param, Query, Body } from '@nestjs/common';
 import { AlertsService } from '../services/alerts.service';
-import { ListAlertsQueryDto } from '../dto';
+import { ListAlertsQueryDto, PromoteAlertDto } from '../dto';
+import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
+import { CurrentUser } from '../../auth/decorators/current-user.decorator';
+import type { AuthUser } from '../../auth/auth.types';
 
 @Controller('alerts')
 export class AlertsController {
@@ -19,5 +22,15 @@ export class AlertsController {
   @Patch(':id/read')
   markAsRead(@Param('id') id: string) {
     return this.alertsService.markAsRead(id);
+  }
+
+  @Post(':id/promote')
+  promote(
+    @Param('id') id: string,
+    @CurrentCompany() companyId: string,
+    @CurrentUser() user: AuthUser,
+    @Body() dto: PromoteAlertDto,
+  ) {
+    return this.alertsService.promote(id, companyId, dto, user.id);
   }
 }
