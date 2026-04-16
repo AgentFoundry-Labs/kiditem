@@ -109,11 +109,9 @@ export default function ThumbnailEditorPage() {
       if (selected.productUrl !== undefined) setProductImage(selected.productUrl);
       if (selected.boxUrl !== undefined) setPackagingImage(selected.boxUrl);
     } else if (selected.kind === 'color-variants') {
-      const next = [...colorImages, ...selected.urls];
-      if (next.length > 8) {
-        toast.error('최대 8장까지 가능합니다 (초과분 무시)');
-      }
-      setColorImages(next.slice(0, 8));
+      // Modal's getMaxCount already enforces (8 - existing). slice as defensive belt.
+      const next = [...colorImages, ...selected.urls].slice(0, 8);
+      setColorImages(next);
     }
   };
 

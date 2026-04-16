@@ -32,7 +32,7 @@ interface SelectedItem {
   url: string;
 }
 
-const CASE_LABELS: Record<string, string> = {
+const CASE_LABELS: Record<EditUseCase | 'creative', string> = {
   compose: '상품+박스/세트 합성',
   'color-variants': '색상별 상품 배치',
   single: '단일 상품 정리',
@@ -171,7 +171,7 @@ export function HubImagePickerModal({
         <Dialog.Overlay className="fixed inset-0 bg-black/40 z-50" />
         <Dialog.Content
           className={cn(
-            'fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50',
+            'fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[51]',
             'w-[min(720px,92vw)] max-h-[85vh] overflow-hidden',
             'bg-white rounded-2xl shadow-2xl flex flex-col',
           )}
