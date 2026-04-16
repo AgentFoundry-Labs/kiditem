@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { PanelItem, PanelEvent, PanelRunSourceSchema } from '../index.js';
+import { PanelItem, PanelEvent, PanelRunSourceSchema, PanelAlertItem, PANEL_ITEM_KINDS } from '../index.js';
 
 const makeRun = (overrides = {}) => ({
   id: 'workflow:abc',
@@ -53,6 +53,77 @@ describe('PanelEvent', () => {
   });
   it('PanelRunSourceSchema rejects unknown source', () => {
     expect(() => PanelRunSourceSchema.parse('bogus')).toThrow();
+  });
+});
+
+const makeAlert = (overrides = {}) => ({
+  kind: 'alert' as const,
+  id: '00000000-0000-0000-0000-000000000001',
+  severity: 'warning',
+  type: 'internal:stock',
+  title: 'Stock low',
+  message: null,
+  productId: null,
+  isRead: false,
+  actorUserId: null,
+  createdAt: '2026-04-15T00:00:00Z',
+  ...overrides,
+});
+
+describe('PanelAlertItem', () => {
+  it('parses a valid alert item', () => {
+    expect(() => PanelAlertItem.parse(makeAlert())).not.toThrow();
+  });
+  it('PanelItem discriminates alert from run', () => {
+    const result = PanelItem.parse(makeAlert());
+    expect(result.kind).toBe('alert');
+  });
+  it('PanelItem still parses run', () => {
+    const result = PanelItem.parse(makeRun());
+    expect(result.kind).toBe('run');
+  });
+  it('rejects non-string severity', () => {
+    expect(() => PanelAlertItem.parse(makeAlert({ severity: 123 as any }))).toThrow();
+  });
+  it('rejects non-string type', () => {
+    expect(() => PanelAlertItem.parse(makeAlert({ type: 123 as any }))).toThrow();
+  });
+  it('rejects non-string title', () => {
+    expect(() => PanelAlertItem.parse(makeAlert({ title: 123 as any }))).toThrow();
+  });
+  it('accepts null message', () => {
+    expect(() => PanelAlertItem.parse(makeAlert({ message: null }))).not.toThrow();
+  });
+  it('accepts non-null message', () => {
+    expect(() => PanelAlertItem.parse(makeAlert({ message: 'details here' }))).not.toThrow();
+  });
+  it('accepts null productId', () => {
+    expect(() => PanelAlertItem.parse(makeAlert({ productId: null }))).not.toThrow();
+  });
+  it('accepts non-null productId uuid', () => {
+    expect(() =>
+      PanelAlertItem.parse(makeAlert({ productId: '00000000-0000-0000-0000-000000000002' })),
+    ).not.toThrow();
+  });
+  it('rejects invalid uuid on id', () => {
+    expect(() => PanelAlertItem.parse(makeAlert({ id: 'not-a-uuid' }))).toThrow();
+  });
+  it('rejects invalid uuid on productId', () => {
+    expect(() => PanelAlertItem.parse(makeAlert({ productId: 'not-a-uuid' }))).toThrow();
+  });
+  it('rejects invalid uuid on actorUserId', () => {
+    expect(() => PanelAlertItem.parse(makeAlert({ actorUserId: 'not-a-uuid' }))).toThrow();
+  });
+  it('accepts null actorUserId', () => {
+    expect(() => PanelAlertItem.parse(makeAlert({ actorUserId: null }))).not.toThrow();
+  });
+});
+
+describe('PANEL_ITEM_KINDS', () => {
+  it('contains run and alert', () => {
+    expect(PANEL_ITEM_KINDS).toContain('run');
+    expect(PANEL_ITEM_KINDS).toContain('alert');
+    expect(PANEL_ITEM_KINDS).toHaveLength(2);
   });
 });
 

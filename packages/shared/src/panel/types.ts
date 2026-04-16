@@ -29,10 +29,36 @@ export const PanelRunItem = PanelItemBase.extend({
   failureType: z.string().nullable().optional(),
 });
 
-// PR2에서 PanelAlertItem 추가
-export const PanelItem = z.discriminatedUnion('kind', [PanelRunItem]);
+// Alert 테이블 매핑:
+//   id → Alert.id
+//   severity → Alert.severity (flat string — ADR-0011 Rule 3, domain owner controls vocab)
+//   type → Alert.type (flat string — future namespacing is a future ADR concern)
+//   title → Alert.title
+//   message → Alert.message (nullable)
+//   productId → Alert.productId (nullable)
+//   isRead → Alert.isRead
+//   createdAt → Alert.createdAt (ISO serialized)
+//   actorUserId — Alert 테이블에 actor 컬럼 없음 → adapter에서 항상 null로 채워짐 (PR2b 한정)
+export const PanelAlertItem = z.object({
+  kind: z.literal('alert'),
+  id: z.string().uuid(),
+  severity: z.string(), // flat string — Alert.severity 분포는 future-proof
+  type: z.string(), // flat string — 'internal:rules' 같은 namespacing 미스코프 (future ADR)
+  title: z.string(),
+  message: z.string().nullable(),
+  productId: z.string().uuid().nullable(),
+  isRead: z.boolean(),
+  actorUserId: z.string().uuid().nullable(), // Alert는 actor 컬럼 없음 → 항상 null (PR2b 한정)
+  createdAt: z.string().datetime(),
+});
+
+export const PANEL_ITEM_KINDS = ['run', 'alert'] as const;
+export type PanelItemKind = (typeof PANEL_ITEM_KINDS)[number];
+
+export const PanelItem = z.discriminatedUnion('kind', [PanelRunItem, PanelAlertItem]);
 export type PanelItem = z.infer<typeof PanelItem>;
 export type PanelRunItem = z.infer<typeof PanelRunItem>;
+export type PanelAlertItem = z.infer<typeof PanelAlertItem>;
 
 // Wire events — dismiss는 itemId만 전송 (IMPORTANT #2)
 export const PanelUpsertEvent = z.object({
