@@ -15,9 +15,10 @@
  *
  * Race test note:
  *   Scenarios 2 and 4 validate the race guard LOGIC (updateMany count check → throw)
- *   using mock Prisma returning count=0. True concurrent race requires real Postgres
- *   (SQLite in-memory is serialized). Future: add e2e Postgres race tests when
- *   docker-compose.test.yml or similar infrastructure is in place.
+ *   using mock Prisma returning count=0. True concurrent race is now covered by the
+ *   sibling spec `panel-pr3.pg.integration.spec.ts` (real Postgres via
+ *   docker-compose.test.yml — run with `npm run test:integration`). This file
+ *   remains as a fast unit-level smoke check for the guard branches.
  *
  * Mock boundary: PrismaService only.
  * Real: EventEmitter2 (global bus), PanelSseService, AlertsService, ActionTaskService.
