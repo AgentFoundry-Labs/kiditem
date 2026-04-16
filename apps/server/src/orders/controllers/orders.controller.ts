@@ -1,26 +1,26 @@
-import { Controller, Get, Post, Body, Param, Query, ServiceUnavailableException, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Query, ServiceUnavailableException, BadRequestException } from '@nestjs/common';
 import { OrdersService } from '../services/orders.service';
 import { ListOrdersQueryDto, OrderActionBodyDto } from '../dto';
+import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
 
 @Controller('orders')
 export class OrdersController {
   constructor(private readonly ordersService: OrdersService) {}
 
   @Get()
-  findAll(@Query() query: ListOrdersQueryDto) {
-    return this.ordersService.findAll(query);
+  findAll(@CurrentCompany() companyId: string, @Query() query: ListOrdersQueryDto) {
+    return this.ordersService.findAll(companyId, query);
   }
 
   @Get('stats')
-  getStats() {
-    return this.ordersService.getStats();
+  getStats(@CurrentCompany() companyId: string) {
+    return this.ordersService.getStats(companyId);
   }
 
   @Get(':id')
-  async findOne(@Param('id') id: string) {
-    const order = await this.ordersService.findOne(id);
-    if (!order) throw new NotFoundException('Order not found');
-    return order;
+  async findOne(@Param('id') id: string, @CurrentCompany() companyId: string) {
+    // 서비스가 NotFoundException 을 throw 한다 (null 반환 금지 — apps/server/CLAUDE.md 규칙)
+    return this.ordersService.findOne(id, companyId);
   }
 
   @Post()

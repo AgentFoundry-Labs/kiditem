@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import type { Order } from '@prisma/client';
 import type { OrdersResponse, OrderRow } from '@kiditem/shared';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -12,7 +12,10 @@ import {
 export class OrdersService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll(query: { from?: string; to?: string; status?: string }): Promise<OrdersResponse> {
+  async findAll(
+    companyId: string,
+    query: { from?: string; to?: string; status?: string },
+  ): Promise<OrdersResponse> {
     const dbStatus = query.status || 'ACCEPT';
 
     const orderedAtFilter: Record<string, Date> = {};
@@ -25,6 +28,7 @@ export class OrdersService {
 
     const orders = await this.prisma.order.findMany({
       where: {
+        companyId,
         status: dbStatus,
         ...(Object.keys(orderedAtFilter).length > 0 && {
           orderedAt: orderedAtFilter,
@@ -40,11 +44,16 @@ export class OrdersService {
     } satisfies OrdersResponse;
   }
 
-  async findOne(id: string): Promise<Order | null> {
-    return this.prisma.order.findUnique({ where: { id } });
+  async findOne(id: string, companyId: string): Promise<Order> {
+    // ADR-0006: findUnique({ where: { id } }) 금지 — companyId 필수
+    const order = await this.prisma.order.findFirst({
+      where: { id, companyId },
+    });
+    if (!order) throw new NotFoundException('Order not found');
+    return order;
   }
 
-  async getStats(): Promise<{
+  async getStats(companyId: string): Promise<{
     stats: { total: number; accept: number; instruct: number; departure: number; delivering: number; finalDelivery: number };
     today: { orders: number; revenue: number };
     week: { orders: number; revenue: number };
@@ -56,19 +65,19 @@ export class OrdersService {
 
     const [total, accept, instruct, departure, delivering, finalDelivery, todayAgg, weekAgg] =
       await Promise.all([
-        this.prisma.order.count(),
-        this.prisma.order.count({ where: { status: 'ACCEPT' } }),
-        this.prisma.order.count({ where: { status: 'INSTRUCT' } }),
-        this.prisma.order.count({ where: { status: 'DEPARTURE' } }),
-        this.prisma.order.count({ where: { status: 'DELIVERING' } }),
-        this.prisma.order.count({ where: { status: 'FINAL_DELIVERY' } }),
+        this.prisma.order.count({ where: { companyId } }),
+        this.prisma.order.count({ where: { companyId, status: 'ACCEPT' } }),
+        this.prisma.order.count({ where: { companyId, status: 'INSTRUCT' } }),
+        this.prisma.order.count({ where: { companyId, status: 'DEPARTURE' } }),
+        this.prisma.order.count({ where: { companyId, status: 'DELIVERING' } }),
+        this.prisma.order.count({ where: { companyId, status: 'FINAL_DELIVERY' } }),
         this.prisma.order.aggregate({
-          where: { orderedAt: { gte: todayStart } },
+          where: { companyId, orderedAt: { gte: todayStart } },
           _count: true,
           _sum: { totalPrice: true },
         }),
         this.prisma.order.aggregate({
-          where: { orderedAt: { gte: weekStart } },
+          where: { companyId, orderedAt: { gte: weekStart } },
           _count: true,
           _sum: { totalPrice: true },
         }),

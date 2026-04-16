@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { createApp, closeApp } from './setup';
+import { createApp, closeApp, TEST_COMPANY_ID } from './setup';
 
 let api: ReturnType<Awaited<ReturnType<typeof createApp>>['request']>;
 let prisma: Awaited<ReturnType<typeof createApp>>['prisma'];
@@ -70,6 +70,13 @@ describe('Marketplace Agent CRUD — /api/marketplace/agents', () => {
       expect(Array.isArray(res.body)).toBe(true);
       expect(res.body[0].name).toBe('매니저 에이전트');
       expect(res.body[0].installed).toBe(false);
+
+      // installed 판정에 사용되는 agentDefinition 조회가 companyId 로 스코프되는지 확인 (multitenancy)
+      expect(prisma.agentDefinition.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ companyId: TEST_COMPANY_ID }),
+        }),
+      );
     });
 
     it('marks agent as installed when definition exists', async () => {
@@ -130,6 +137,13 @@ describe('Marketplace Workflow CRUD — /api/marketplace/workflows', () => {
       expect(res.status).toBe(200);
       expect(res.body[0].name).toBe('주문 자동 처리');
       expect(res.body[0].installed).toBe(false);
+
+      // installed 판정에 사용되는 workflowTemplate 조회가 companyId 로 스코프되는지 확인 (multitenancy)
+      expect(prisma.workflowTemplate.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ companyId: TEST_COMPANY_ID }),
+        }),
+      );
     });
   });
 

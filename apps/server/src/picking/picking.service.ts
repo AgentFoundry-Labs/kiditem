@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdatePickingItemDto } from './dto';
 
@@ -49,7 +49,21 @@ export class PickingService {
     return pickingList;
   }
 
-  async updateItem(listId: string, itemId: string, dto: UpdatePickingItemDto) {
+  async updateItem(
+    listId: string,
+    itemId: string,
+    companyId: string,
+    dto: UpdatePickingItemDto,
+  ) {
+    // PickingItem 에는 companyId 컬럼이 없으므로 PickingList 를 경유해 소유권 검증 (IDOR 방어)
+    const list = await this.prisma.pickingList.findFirst({
+      where: { id: listId, companyId },
+      select: { id: true },
+    });
+    if (!list) {
+      throw new NotFoundException('피킹 리스트를 찾을 수 없습니다');
+    }
+
     const item = await this.prisma.pickingItem.findFirst({
       where: { id: itemId, pickingListId: listId },
     });
@@ -84,10 +98,14 @@ export class PickingService {
     return updated;
   }
 
-  async complete(id: string) {
-    const list = await this.prisma.pickingList.findUnique({ where: { id } });
+  async complete(id: string, companyId: string) {
+    // ADR-0006: findUnique({ where: { id } }) 금지 — companyId 필수
+    const list = await this.prisma.pickingList.findFirst({
+      where: { id, companyId },
+      select: { id: true },
+    });
     if (!list) {
-      throw new BadRequestException('피킹 리스트를 찾을 수 없습니다');
+      throw new NotFoundException('피킹 리스트를 찾을 수 없습니다');
     }
 
     return this.prisma.pickingList.update({
