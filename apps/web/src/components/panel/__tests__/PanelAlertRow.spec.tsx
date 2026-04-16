@@ -12,6 +12,7 @@ const makeAlert = (overrides: Partial<PanelAlertItem> = {}): PanelAlertItem => (
   message: '상세 메시지',
   productId: null,
   isRead: false,
+  actionTaskId: null,
   actorUserId: null,
   createdAt: '2026-04-15T00:00:00Z',
   ...overrides,

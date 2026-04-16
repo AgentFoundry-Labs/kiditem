@@ -35,6 +35,7 @@ describe('PanelAlertItem drift detection', () => {
       message: null,
       productId: null,
       isRead: false,
+      actionTaskId: null,
       actorUserId: null,
       createdAt: '2026-04-15T00:00:00Z',
     };
@@ -60,6 +61,7 @@ describe('PanelAlertItem drift detection', () => {
       message: 'Margin is below 10%',
       productId: PRODUCT_ID,
       isRead: true,
+      actionTaskId: null,
       actorUserId: null,
       createdAt: '2026-04-15T12:00:00Z',
     };

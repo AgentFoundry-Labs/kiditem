@@ -17,6 +17,7 @@ export const alertPanelAdapter = {
       message: alert.message ?? null,
       productId: alert.productId ?? null,
       isRead: alert.isRead,
+      actionTaskId: alert.actionTaskId ?? null,
       actorUserId: null,
       createdAt: alert.createdAt.toISOString(),
     });

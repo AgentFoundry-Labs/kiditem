@@ -7,6 +7,8 @@ const ALERT_ID = '11111111-1111-1111-1111-111111111111';
 const COMPANY_ID = '22222222-2222-2222-2222-222222222222';
 const PRODUCT_ID = '33333333-3333-3333-3333-333333333333';
 
+const ACTION_TASK_ID = '44444444-4444-4444-4444-444444444444';
+
 const baseAlert: Alert = {
   id: ALERT_ID,
   companyId: COMPANY_ID,
@@ -16,6 +18,7 @@ const baseAlert: Alert = {
   title: '순이익률 -10%',
   message: '가격 재검토 필요',
   isRead: false,
+  actionTaskId: null,
   createdAt: new Date('2026-04-15T00:00:00Z'),
 };
 
@@ -74,5 +77,17 @@ describe('alertPanelAdapter', () => {
   it('does not leak companyId to item output', () => {
     const item = alertPanelAdapter.mapToItem(baseAlert);
     expect((item as any).companyId).toBeUndefined();
+  });
+
+  it('actionTaskId null pass-through', () => {
+    const item = alertPanelAdapter.mapToItem({ ...baseAlert, actionTaskId: null });
+    expect(item.actionTaskId).toBeNull();
+    expect(PanelAlertItem.safeParse(item).success).toBe(true);
+  });
+
+  it('actionTaskId uuid pass-through', () => {
+    const item = alertPanelAdapter.mapToItem({ ...baseAlert, actionTaskId: ACTION_TASK_ID });
+    expect(item.actionTaskId).toBe(ACTION_TASK_ID);
+    expect(PanelAlertItem.safeParse(item).success).toBe(true);
   });
 });
