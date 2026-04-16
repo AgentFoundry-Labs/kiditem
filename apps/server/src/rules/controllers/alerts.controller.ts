@@ -33,4 +33,13 @@ export class AlertsController {
   ) {
     return this.alertsService.promote(id, companyId, dto, user.id);
   }
+
+  @Post(':id/dismiss')
+  async dismiss(
+    @Param('id') id: string,
+    @CurrentCompany() companyId: string,
+  ) {
+    await this.alertsService.dismiss(id, companyId);
+    return { ok: true };
+  }
 }

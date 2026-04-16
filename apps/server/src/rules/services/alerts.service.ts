@@ -170,4 +170,25 @@ export class AlertsService {
 
     return result;
   }
+
+  /**
+   * Dismiss an alert — marks isRead=true and emits PANEL_EVENTS.DISMISS.
+   *
+   * NOT a delete: alert stays in DB. Client store removes it from live view via
+   * the dismiss event. The 24h window means it continues to appear in history.
+   */
+  async dismiss(alertId: string, companyId: string): Promise<void> {
+    const { count } = await this.prisma.alert.updateMany({
+      where: { id: alertId, companyId }, // companyId scope — IDOR prevention
+      data: { isRead: true },
+    });
+    if (count === 0) throw new NotFoundException('Alert not found');
+
+    // Emit DISMISS — client store removes item from live panel (PR1 Task 3 wire shape)
+    try {
+      this.eventEmitter.emit(PANEL_EVENTS.DISMISS, { itemId: alertId, companyId });
+    } catch (err) {
+      this.logger.warn('Panel dismiss emit failed', err);
+    }
+  }
 }

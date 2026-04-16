@@ -356,3 +356,61 @@ describe('AlertsService.promote', () => {
     });
   });
 });
+
+describe('AlertsService.dismiss', () => {
+  describe('happy path', () => {
+    it('calls updateMany with isRead=true and emits DISMISS event', async () => {
+      const { service, prisma, eventEmitter } = makeService();
+      prisma.alert.updateMany.mockResolvedValue({ count: 1 });
+
+      await service.dismiss(ALERT_ID, COMPANY_ID);
+
+      expect(prisma.alert.updateMany).toHaveBeenCalledWith({
+        where: { id: ALERT_ID, companyId: COMPANY_ID },
+        data: { isRead: true },
+      });
+      expect(eventEmitter.emit).toHaveBeenCalledWith(
+        PANEL_EVENTS.DISMISS,
+        { itemId: ALERT_ID, companyId: COMPANY_ID },
+      );
+    });
+  });
+
+  describe('not found', () => {
+    it('throws NotFoundException when count=0', async () => {
+      const { service, prisma, eventEmitter } = makeService();
+      prisma.alert.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(service.dismiss(ALERT_ID, COMPANY_ID)).rejects.toThrow(NotFoundException);
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('emit failure', () => {
+    it('does not throw when DISMISS emit fails', async () => {
+      const { service, prisma, eventEmitter } = makeService();
+      prisma.alert.updateMany.mockResolvedValue({ count: 1 });
+      eventEmitter.emit.mockImplementation(() => {
+        throw new Error('SSE bus down');
+      });
+
+      // Should resolve without throwing
+      await expect(service.dismiss(ALERT_ID, COMPANY_ID)).resolves.toBeUndefined();
+    });
+  });
+
+  describe('company scope (IDOR regression)', () => {
+    it('updateMany where clause includes companyId', async () => {
+      const { service, prisma } = makeService();
+      prisma.alert.updateMany.mockResolvedValue({ count: 1 });
+
+      await service.dismiss(ALERT_ID, COMPANY_ID);
+
+      expect(prisma.alert.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ companyId: COMPANY_ID }),
+        }),
+      );
+    });
+  });
+});
