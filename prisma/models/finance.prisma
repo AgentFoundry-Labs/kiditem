@@ -1,0 +1,126 @@
+// finance.prisma — Finance domain
+
+/// @namespace Finance
+/// @describe 월간 손익. companyId+productId+year+month unique.
+model ProfitLoss {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  productId String @map("product_id") @db.Uuid
+
+  year  Int
+  month Int
+
+  revenue      Int @default(0)
+  cogs         Int @default(0)
+  commission   Int @default(0)
+  shippingCost Int @default(0) @map("shipping_cost")
+  adCost       Int @default(0) @map("ad_cost")
+  otherCost    Int @default(0) @map("other_cost")
+  netProfit    Int @default(0) @map("net_profit")
+  profitRate   Decimal? @default(0) @map("profit_rate") @db.Decimal(5, 4)
+  orderCount   Int @default(0) @map("order_count")
+  returnCount  Int @default(0) @map("return_count")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@unique([companyId, productId, year, month])
+  @@index([companyId])
+  @@index([productId])
+  @@index([year, month])
+  @@map("profit_loss")
+}
+
+/// @namespace Finance
+/// @describe ABC 등급 변경 추적.
+model GradeHistory {
+  id            String   @id @default(uuid()) @db.Uuid
+  productId     String   @map("product_id") @db.Uuid
+  oldGrade      String?  @map("old_grade")
+  newGrade      String   @map("new_grade")
+  score         Decimal  @default(0) @db.Decimal(5, 2)
+  revenueScore  Decimal  @default(0) @map("revenue_score") @db.Decimal(5, 2)
+  marginScore   Decimal  @default(0) @map("margin_score") @db.Decimal(5, 2)
+  velocityScore Decimal  @default(0) @map("velocity_score") @db.Decimal(5, 2)
+  reason        String   @default("auto")
+  calculatedAt  DateTime @default(now()) @map("calculated_at") @db.Timestamptz
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@index([calculatedAt])
+  @@index([productId, calculatedAt])
+  @@map("grade_histories")
+}
+
+/// @namespace Finance
+/// @describe 자동 집계 외 수기 수입/지출.
+model ManualLedger {
+  id          String   @id @default(uuid()) @db.Uuid
+  companyId   String   @map("company_id") @db.Uuid
+  date        DateTime @default(now()) @db.Date
+  type        String
+  category    String
+  counterpart String?
+  description String?
+  amount      Int      @default(0)
+  tax         Int      @default(0)
+  memo        String?
+  createdBy   String?  @map("created_by")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@map("manual_ledgers")
+}
+
+/// @namespace Finance
+model ProcessingCost {
+  id          String   @id @default(uuid()) @db.Uuid
+  companyId   String   @map("company_id") @db.Uuid
+  productId   String?  @map("product_id") @db.Uuid
+  productName String?  @map("product_name")
+  vendor      String?
+  processType String   @map("process_type")
+  unitCost    Int      @default(0) @map("unit_cost")
+  quantity    Int      @default(0)
+  totalCost   Int      @default(0) @map("total_cost")
+  date        DateTime @default(now()) @db.Date
+  status      String   @default("pending")
+  notes       String?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  company Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([companyId])
+  @@index([companyId, date])
+  @@index([productId])
+  @@map("processing_costs")
+}
+
+/// @namespace Finance
+model SalesPlan {
+  id            String   @id @default(uuid()) @db.Uuid
+  companyId     String   @map("company_id") @db.Uuid
+  period        String
+  targetRevenue Int      @default(0) @map("target_revenue")
+  targetOrders  Int      @default(0) @map("target_orders")
+  targetProfit  Int      @default(0) @map("target_profit")
+  actualRevenue Int      @default(0) @map("actual_revenue")
+  actualOrders  Int      @default(0) @map("actual_orders")
+  actualProfit  Int      @default(0) @map("actual_profit")
+  notes         String?
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, period])
+  @@map("sales_plans")
+}
+

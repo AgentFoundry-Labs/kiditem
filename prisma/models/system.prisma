@@ -1,0 +1,187 @@
+// system.prisma — System domain
+
+/// @namespace System
+/// @describe type 으로 agent/workflow 카탈로그 통합.
+model Marketplace {
+  id                 String   @id @default(uuid()) @db.Uuid
+  type               String   // "workflow" | "agent"
+  name               String
+  description        String   @default("")
+  category           String   @default("automation")
+  icon               String?
+
+  // Workflow 전용 (type="workflow"일 때만 사용)
+  module             String?  @default("order")
+  nodesJson          Json?    @map("nodes_json")
+  edgesJson          Json?    @map("edges_json")
+
+  // Agent 전용 (type="agent"일 때만 사용)
+  role               String?  @default("specialist")
+  adapterType        String?  @map("adapter_type")
+  promptTemplate     String?  @map("prompt_template") @db.Text
+  skills             String[] @default([])
+  permissions        Json?    @db.JsonB
+
+  // 공통
+  configurableParams Json     @default("[]") @map("configurable_params") // ConfigurableParam[]
+  version            Int      @default(1)
+  installCount       Int      @default(0) @map("install_count")
+  isPublished        Boolean  @default(true) @map("is_published")
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt          DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  installedWorkflows WorkflowTemplate[]
+  installedAgents    AgentDefinition[]
+
+  @@index([type])
+  @@index([category])
+  @@index([isPublished])
+  @@map("marketplace")
+}
+
+/// @namespace System
+/// @describe 온톨로지 룰 엔진 (조건→액션 자동화).
+model BusinessRule {
+  id              String   @id @default(uuid()) @db.Uuid
+  companyId       String   @map("company_id") @db.Uuid
+  name            String                             // "deficit-detection"
+  displayName     String   @map("display_name")      // "적자 상품 감지"
+  description     String?
+  category        String                             // profitability | advertising | inventory | feedback | order
+  severity        String                             // critical | warning | info
+  field           String                             // context field: "profitRate", "currentStock", "adCostRate"
+  operator        String                             // gt | lt | gte | lte | eq | between | custom
+  threshold       Json                               // { value: 0 } or { min: 0, max: 3 }
+  messageTemplate String   @map("message_template")  // "순이익률 {{value}}% — 즉시 검토 필요"
+  actionType      String?  @map("action_type")       // from action catalog: product.stop_ads, etc.
+  conditions      Json?                              // [{field, op, value}] — compound AND. null = legacy single-field
+  autoExecute     Boolean  @default(false) @map("auto_execute")
+  active          Boolean  @default(true)
+  sortOrder       Int      @default(0) @map("sort_order")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, name])
+  @@index([companyId, active])
+  @@index([category])
+  @@map("business_rules")
+}
+
+/// @namespace System
+/// @describe 액션 보드 (수동 할일 관리).
+model ActionTask {
+  id          String   @id @default(uuid()) @db.Uuid
+  companyId   String   @map("company_id") @db.Uuid
+  taskKey     String   @map("task_key")
+  type        String   @default("human")
+  label       String
+  detail      String?
+  where       String?
+  href        String?
+  priority       String   @default("medium")
+  // status vocab: pending|active|done — business-task lifecycle, NOT ADR-0011 canonical
+  status         String   @default("pending")
+  role           String?
+  apiCall        Json?    @map("api_call")
+  result         Json?
+  notes          Json     @default("[]")
+  activityLog    Json     @default("[]") @map("activity_log")
+  date           DateTime @db.Date
+  assigneeUserId String?  @map("assignee_user_id") @db.Uuid
+
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  assigneeUser User?    @relation("ActionTaskAssignee", fields: [assigneeUserId], references: [id], onDelete: SetNull)
+  sourceAlerts Alert[]  @relation("AlertPromotedTo")
+
+  @@unique([companyId, taskKey, date])
+  @@index([companyId, date])
+  @@index([companyId, assigneeUserId])
+  @@map("action_tasks")
+}
+
+/// @namespace System
+/// @describe 피처 플래그. allowedCompanies: string[] 로 회사별 enable.
+model FeatureGate {
+  id               String   @id @default(uuid()) @db.Uuid
+  name             String   @unique
+  description      String?
+  enabled          Boolean  @default(false)
+  allowedCompanies String[] @map("allowed_companies")
+  metadata         Json?    @db.JsonB
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("feature_gates")
+}
+
+/// @namespace System
+model ActivityEvent {
+  id         String   @id @default(uuid()) @db.Uuid
+  companyId  String   @map("company_id") @db.Uuid
+  objectType String   @map("object_type")
+  objectId   String   @map("object_id") @db.Uuid
+  eventType  String   @map("event_type")
+  source     String   @default("manual")
+  title      String
+  data       Json?
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([objectType, objectId])
+  @@index([eventType])
+  @@index([createdAt])
+  @@map("activity_events")
+}
+
+/// @namespace System
+model Alert {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  productId String? @map("product_id") @db.Uuid
+
+  type     String
+  severity String  @default("warning")
+  title    String
+  message  String?
+  isRead   Boolean @default(false) @map("is_read")
+
+  actionTaskId String?     @map("action_task_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  company    Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  product    Product?     @relation(fields: [productId], references: [id], onDelete: SetNull)
+  actionTask ActionTask?  @relation("AlertPromotedTo", fields: [actionTaskId], references: [id], onDelete: SetNull)
+
+  @@index([companyId])
+  @@index([companyId, isRead, createdAt])
+  @@index([companyId, actionTaskId])
+  @@index([isRead])
+  @@index([type])
+  @@index([createdAt])
+  @@map("alerts")
+}
+
+/// @namespace System
+model SystemSetting {
+  id        String   @id @default(uuid()) @db.Uuid
+  companyId String   @map("company_id") @db.Uuid
+  key       String
+  value     Json
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, key])
+  @@map("system_settings")
+}
+

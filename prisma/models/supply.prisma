@@ -1,0 +1,135 @@
+// supply.prisma — Supply domain
+
+/// @namespace Supply
+model Supplier {
+  id           String   @id @default(uuid()) @db.Uuid
+  companyId    String   @map("company_id") @db.Uuid
+  name         String
+  contactName  String?  @map("contact_name")
+  phone        String?
+  email        String?
+  address      String?
+  leadTimeDays Int      @default(7) @map("lead_time_days")
+  paymentTerms String?  @map("payment_terms")
+  notes        String?
+  status       String   @default("active")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company          Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  supplierProducts SupplierProduct[]
+  purchaseOrders   PurchaseOrder[]
+  payments         SupplierPayment[]
+  masterSupplierProducts MasterSupplierProduct[]
+
+  @@index([companyId])
+  @@index([status])
+  @@map("suppliers")
+}
+
+/// @namespace Supply
+/// @describe 공급사별 상품 공급가 관리.
+model SupplierProduct {
+  id          String   @id @default(uuid()) @db.Uuid
+  supplierId  String   @map("supplier_id") @db.Uuid
+  productId   String   @map("product_id") @db.Uuid
+  supplyPrice Int      @default(0) @map("supply_price")
+  minOrderQty Int      @default(1) @map("min_order_qty")
+  isMain      Boolean  @default(false) @map("is_main")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  supplier Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  product  Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([supplierId, productId])
+  @@index([productId])
+  @@map("supplier_products")
+}
+
+/// @namespace Supply
+model SupplierPayment {
+  id              String    @id @default(uuid()) @db.Uuid
+  companyId       String    @map("company_id") @db.Uuid
+  supplierId      String    @map("supplier_id") @db.Uuid
+  supplierName    String?   @map("supplier_name")
+  amount          Int       @default(0)
+  paidAmount      Int       @default(0) @map("paid_amount")
+  status          String    @default("unpaid")
+  dueDate         DateTime? @map("due_date") @db.Date
+  paidDate        DateTime? @map("paid_date") @db.Date
+  purchaseOrderId String?   @map("purchase_order_id") @db.Uuid
+  notes           String?
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company       Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  supplier      Supplier       @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  purchaseOrder PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id], onDelete: SetNull)
+
+  @@index([companyId])
+  @@index([companyId, status])
+  @@index([supplierId])
+  @@index([purchaseOrderId])
+  @@index([status])
+  @@map("supplier_payments")
+}
+
+/// @namespace Supply
+/// @describe 발주 state machine (draft→pending→ordered→shipped→received). 입고 검수 필드 포함 (receivedQty, defectQty). 단위는 CNY(Decimal 12,2).
+model PurchaseOrder {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+
+  supplierName    String  @map("supplier_name")
+  supplierContact String? @map("supplier_contact")
+  supplierId      String? @map("supplier_id") @db.Uuid
+  totalAmountCny  Decimal @map("total_amount_cny") @db.Decimal(12, 2)
+  status          String  @default("draft")
+
+  orderDate            DateTime  @default(now()) @map("order_date") @db.Date
+  expectedDeliveryDate DateTime? @map("expected_delivery_date") @db.Date
+  trackingNumber       String?   @map("tracking_number")
+
+  // Inspection (from dashboard)
+  receivedAt  DateTime? @map("received_at") @db.Timestamptz
+  receivedQty Int?      @map("received_qty")
+  defectQty   Int?      @map("defect_qty")
+  defectType  String?   @map("defect_type")
+  defectAction String?  @map("defect_action")
+  defectNote  String?   @map("defect_note")
+  inspectedAt DateTime? @map("inspected_at") @db.Timestamptz
+  inspectedBy String?   @map("inspected_by")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company  Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  supplier Supplier?           @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  items    PurchaseOrderItem[]
+  supplierPayments SupplierPayment[]
+
+  @@index([companyId])
+  @@index([status])
+  @@index([supplierId])
+  @@map("purchase_orders")
+}
+
+/// @namespace Supply
+model PurchaseOrderItem {
+  id        String @id @default(uuid()) @db.Uuid
+  orderId   String @map("order_id") @db.Uuid
+  productId String? @map("product_id") @db.Uuid
+
+  productName  String  @map("product_name")
+  quantity     Int
+  unitPriceCny Decimal @map("unit_price_cny") @db.Decimal(12, 2)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  order   PurchaseOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product?      @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@map("purchase_order_items")
+}
+

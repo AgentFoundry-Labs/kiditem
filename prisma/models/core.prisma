@@ -1,0 +1,388 @@
+// core.prisma — Core domain
+
+/// @namespace Core
+model Company {
+  id             String   @id @default(uuid()) @db.Uuid
+  name           String
+  slug           String   @unique
+  businessNumber String?  @map("business_number")
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Core
+  users          User[]
+  products       Product[]
+  inventory      Inventory[]
+  orders         Order[]
+  purchaseOrders PurchaseOrder[]
+  ads            Ad[]
+  profitLoss     ProfitLoss[]
+  thumbnails            Thumbnail[]
+  thumbnailAnalyses     ThumbnailAnalysis[]
+  thumbnailGenerations  ThumbnailGeneration[]
+  thumbnailTrackings    ThumbnailTracking[]
+  reviews               Review[]
+  alerts         Alert[]
+
+  // Sourcing & Content
+  contentGenerations ContentGeneration[]
+
+  // Workflow & Agent
+  workflowTemplates WorkflowTemplate[]
+  activityEvents    ActivityEvent[]
+  agentDefinitions  AgentDefinition[]
+
+  // Coupang
+  coupangOrders  CoupangOrder[]
+  coupangReturns CoupangReturn[]
+
+  // Supplier & Procurement
+  suppliers        Supplier[]
+  supplierPayments SupplierPayment[]
+
+  // Warehouse & Inventory Ops
+  warehouses           Warehouse[]
+  stockTransfers       StockTransfer[]
+  stockTransactions    StockTransaction[]
+  stockAudits          StockAudit[]
+
+  // Logistics
+  shipments    Shipment[]
+  unshippedItems UnshippedItem[]
+  pickingLists   PickingList[]
+  returnTransfers ReturnTransfer[]
+
+  // Product Extensions
+  bundleProducts      BundleProduct[]
+  processingCosts     ProcessingCost[]
+
+  // Finance
+  settlements    Settlement[]
+  manualLedgers  ManualLedger[]
+
+  // Operations & Config
+  csRecords          CSRecord[]
+  categoryMappings   CategoryMapping[]
+
+  optionMasters      OptionMaster[]
+
+  // Analytics
+  salesPlans             SalesPlan[]
+
+
+  // Ontology
+  businessRules   BusinessRule[]
+  systemSettings  SystemSetting[]
+
+  // Agent Platform
+
+  heartbeatRuns         HeartbeatRun[]
+  agentWakeupRequests   AgentWakeupRequest[]
+
+  agentEvents            AgentEvent[]
+
+  // Ad Snapshots
+  scrapeTargets        ScrapeTarget[]
+  adSnapshots          AdSnapshot[]
+  itemWinners          ItemWinner[]
+
+  // Ad Execution
+  adActions            AdAction[]
+  executionWorkers     ExecutionWorker[]
+
+  // Action Board
+  actionTasks          ActionTask[]
+
+  // Master Products
+  masterProducts    MasterProduct[]
+  masterInventory   MasterInventory[]
+
+  @@map("companies")
+}
+
+/// @namespace Core
+/// @describe human(직원) / agent(AI, agentDefinitionId 연결) / system(챗봇, companyId=null) 통합 관리.
+model User {
+  id                String    @id @default(uuid()) @db.Uuid
+  companyId         String?   @map("company_id") @db.Uuid
+  email             String    @unique
+  name              String
+  password          String?
+  role              String    @default("member")
+  type              String    @default("human")
+  team              String?
+  avatarUrl         String?   @map("avatar_url")
+  agentDefinitionId String?   @map("agent_definition_id") @db.Uuid
+  isActive          Boolean   @default(true) @map("is_active")
+  lastLoginAt       DateTime? @map("last_login_at") @db.Timestamptz
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company                   Company?         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  agentDefinition           AgentDefinition? @relation(fields: [agentDefinitionId], references: [id])
+  triggeredWorkflowRuns     WorkflowRun[]    @relation("WorkflowRunTriggeredBy")
+  triggeredHeartbeatRuns        HeartbeatRun[]        @relation("HeartbeatRunTriggeredBy")
+  triggeredThumbnailGenerations ThumbnailGeneration[] @relation("ThumbnailGenerationTriggeredBy")
+  assignedActionTasks           ActionTask[]          @relation("ActionTaskAssignee")
+
+  @@index([companyId])
+  @@map("users")
+}
+
+/// @namespace Core
+/// @describe 상품 마스터. abcGrade(매출ABC)·adTier(광고티어)·pipelineStep(소싱파이프라인) 이 광고/소싱 허브 키.
+model Product {
+  id          String   @id @default(uuid()) @db.Uuid
+  companyId   String   @map("company_id") @db.Uuid
+  name        String
+  description String   @default("")
+  sku         String?
+  barcode     String?
+  status      String   @default("draft")
+  category    String?
+  brand       String?
+  tags        Json     @default("[]")
+  thumbnailUrl String? @map("thumbnail_url")
+
+  // Sourcing (kiditem)
+  sourceUrl      String?  @map("source_url")
+  sourcePlatform String?  @map("source_platform")
+  costCny        Decimal? @map("cost_cny") @db.Decimal(12, 2)
+  marginRate     Decimal? @map("margin_rate") @db.Decimal(5, 4)
+  rawData        Json?    @map("raw_data")
+  processedData  Json?    @map("processed_data")
+  draftContent   Json?    @map("draft_content")
+  pipelineStep   String?  @map("pipeline_step")
+  detailPageUrl  String?  @map("detail_page_url")
+
+  // Pricing
+  costPrice      Int?     @map("cost_price")
+  sellPrice      Int?     @map("sell_price")
+  commissionRate Decimal? @map("commission_rate") @db.Decimal(5, 4)
+  shippingCost   Int?     @map("shipping_cost")
+  otherCost      Int?     @default(0) @map("other_cost")
+  abcGrade       String?  @map("abc_grade")
+  profitTag      String?  @map("profit_tag")
+  adTier         String?  @map("ad_tier")
+  adBudgetLimit  Int?     @map("ad_budget_limit")
+
+  // Coupang
+  coupangProductId String? @map("coupang_product_id")
+
+  // Delivery
+  deliveryChargeType String? @map("delivery_charge_type")
+  freeShipOverAmount Int?    @map("free_ship_over_amount")
+  returnCharge       Int?    @map("return_charge")
+  deliveryInfo       Json?   @map("delivery_info")
+  images             Json?   @default("[]")
+  imageUrl           String? @map("image_url")
+  thumbnailStrategy  String  @default("standard") @map("thumbnail_strategy")
+
+  // Health (Ontology Rules Engine)
+  healthScore     Int?      @map("health_score")
+  healthUpdatedAt DateTime? @map("health_updated_at") @db.Timestamptz
+
+  // Soft delete
+  isDeleted Boolean   @default(false) @map("is_deleted")
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+  memo      String?
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Master Product (물리적 상품 마스터)
+  masterProductId String?        @map("master_product_id") @db.Uuid
+  masterProduct   MasterProduct? @relation(fields: [masterProductId], references: [id], onDelete: SetNull)
+
+  // Core relations
+  company    Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  inventory  Inventory?
+  orders     Order[]
+  ads        Ad[]
+  profitLoss ProfitLoss[]
+  thumbnails Thumbnail[]
+  reviews    Review[]
+  alerts     Alert[]
+  purchaseOrderItems PurchaseOrderItem[]
+  contentGenerations ContentGeneration[]
+  productItems       ProductItem[]
+
+  // Supplier & Procurement
+  supplierProducts SupplierProduct[]
+
+  // Warehouse & Inventory Ops
+  stockTransfers    StockTransfer[]
+  stockTransactions StockTransaction[]
+  returnTransfers   ReturnTransfer[]
+
+  // Logistics
+  shipments      Shipment[]
+  unshippedItems UnshippedItem[]
+
+  // Product Extensions
+  thumbnailAnalysis    ThumbnailAnalysis?
+  thumbnailGenerations ThumbnailGeneration[]
+  thumbnailTrackings   ThumbnailTracking[]
+
+  productMemos     ProductMemo[]
+  processingCosts  ProcessingCost[]
+  pickingItems     PickingItem[]
+  csRecords        CSRecord[]
+
+  // Analytics
+  gradeHistory   GradeHistory[]
+  trafficStats   TrafficStats[]
+  adSnapshots    AdSnapshot[]
+  itemWinners    ItemWinner[]
+  adActions      AdAction[]
+
+  @@unique([companyId, sku])
+  @@index([companyId])
+  @@index([companyId, status])
+  @@index([companyId, isDeleted])
+  @@index([status])
+  @@index([abcGrade])
+  @@index([pipelineStep])
+  @@index([category])
+  @@index([brand])
+  @@index([isDeleted])
+  @@map("products")
+}
+
+/// @namespace Core
+model MasterProduct {
+  id             String   @id @default(uuid()) @db.Uuid
+  companyId      String   @map("company_id") @db.Uuid
+  sku            String
+  name           String
+  costPrice      Int?     @map("cost_price")
+  sellPrice      Int?     @map("sell_price")
+  commissionRate Decimal? @map("commission_rate") @db.Decimal(5, 4)
+  barcode        String?
+  category       String?
+  brand          String?
+  status         String   @default("active")
+  memo           String?
+  rawData        Json?    @map("raw_data")
+  isDeleted      Boolean  @default(false) @map("is_deleted")
+  deletedAt      DateTime? @map("deleted_at") @db.Timestamptz
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company          Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  products         Product[]
+  inventory        MasterInventory?
+  supplierProducts MasterSupplierProduct[]
+
+  @@unique([companyId, sku])
+  @@index([companyId])
+  @@index([companyId, status])
+  @@map("master_products")
+}
+
+/// @namespace Core
+model MasterInventory {
+  id              String @id @default(uuid()) @db.Uuid
+  companyId       String @map("company_id") @db.Uuid
+  masterProductId String @unique @map("master_product_id") @db.Uuid
+
+  currentStock Int @default(0) @map("current_stock")
+  safetyStock  Int @default(0) @map("safety_stock")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company       Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  masterProduct MasterProduct @relation(fields: [masterProductId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@map("master_inventory")
+}
+
+/// @namespace Core
+model MasterSupplierProduct {
+  id              String   @id @default(uuid()) @db.Uuid
+  masterProductId String   @map("master_product_id") @db.Uuid
+  supplierId      String   @map("supplier_id") @db.Uuid
+  supplyPrice     Int      @default(0) @map("supply_price")
+  minOrderQty     Int      @default(1) @map("min_order_qty")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  masterProduct MasterProduct @relation(fields: [masterProductId], references: [id], onDelete: Cascade)
+  supplier      Supplier      @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+
+  @@unique([masterProductId, supplierId])
+  @@index([supplierId])
+  @@map("master_supplier_products")
+}
+
+/// @namespace Core
+model OptionMaster {
+  id        String   @id @default(uuid()) @db.Uuid
+  companyId String   @map("company_id") @db.Uuid
+  name      String
+  values    String
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@map("option_masters")
+}
+
+/// @namespace Core
+model ProductItem {
+  id            String   @id @default(uuid()) @db.Uuid
+  productId     String   @map("product_id") @db.Uuid
+  vendorItemId  String?  @map("vendor_item_id") @db.VarChar(30)
+  itemName      String   @default("") @map("item_name")
+  originalPrice Int      @default(0) @map("original_price")
+  salePrice     Int      @default(0) @map("sale_price")
+  supplyPrice   Int      @default(0) @map("supply_price")
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  product       Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@map("product_items")
+}
+
+/// @namespace Core
+model ProductMemo {
+  id         String   @id @default(uuid()) @db.Uuid
+  productId  String   @map("product_id") @db.Uuid
+  content    String
+  author     String?
+  memoType   String   @default("general") @map("memo_type")
+  isResolved Boolean  @default(false) @map("is_resolved")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@map("product_memos")
+}
+
+/// @namespace Core
+model CategoryMapping {
+  id                  String   @id @default(uuid()) @db.Uuid
+  companyId           String   @map("company_id") @db.Uuid
+  internalCategory    String   @map("internal_category")
+  coupangCategoryId   String?  @map("coupang_category_id")
+  coupangCategoryName String?  @map("coupang_category_name")
+  keywords            String?
+  isActive            Boolean  @default(true) @map("is_active")
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt           DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, internalCategory])
+  @@map("category_mappings")
+}
+
