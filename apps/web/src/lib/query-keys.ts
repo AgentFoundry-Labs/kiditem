@@ -39,9 +39,25 @@ export const queryKeys = {
   },
   dashboard: {
     all: ['dashboard'] as const,
-    summary: () => [...queryKeys.dashboard.all, 'summary'] as const,
-    trend: (range: string) => [...queryKeys.dashboard.all, 'trend', range] as const,
-    health: () => [...queryKeys.dashboard.all, 'health'] as const,
+    // Sales
+    salesBaseline: () =>
+      [...queryKeys.dashboard.all, 'sales', 'baseline'] as const,
+    salesRange: (range: string, from?: string, to?: string) =>
+      [...queryKeys.dashboard.all, 'sales', 'range', range, from ?? '', to ?? ''] as const,
+    // Ad
+    adBaseline: () =>
+      [...queryKeys.dashboard.all, 'ad', 'baseline'] as const,
+    adRange: (range: string, from?: string, to?: string) =>
+      [...queryKeys.dashboard.all, 'ad', 'range', range, from ?? '', to ?? ''] as const,
+    // Inventory (range-agnostic)
+    inventory: () =>
+      [...queryKeys.dashboard.all, 'inventory'] as const,
+    // Trend (unchanged contract)
+    trend: (range: string) =>
+      [...queryKeys.dashboard.all, 'trend', range] as const,
+    // Health (unchanged)
+    health: () =>
+      [...queryKeys.dashboard.all, 'health'] as const,
   },
   ads: {
     all: ['ads'] as const,

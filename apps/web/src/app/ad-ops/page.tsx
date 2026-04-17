@@ -54,7 +54,7 @@ export default function AdOpsPage() {
   const rules = rulesQuery.data?.recommendations ?? [];
   const wingKpis = wingStatusQuery.data?.wing?.kpis ?? {};
   const strategy = strategyQuery.data ?? null;
-  const wingAdData = dashboardQuery.data?.trafficKpi?.adSummary ?? null;
+  const wingAdData = dashboardQuery.data?.wingAdData ?? null;
   const trends = trendsQuery.data ?? null;
   const exposureData = exposureQuery.data ?? null;
 
@@ -65,7 +65,7 @@ export default function AdOpsPage() {
 
   const handleRefresh = () => {
     queryClient.invalidateQueries({ queryKey: queryKeys.ads.all });
-    queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.summary() });
+    queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
   };
 
   const handleGoToCampaign = (name?: string) => {

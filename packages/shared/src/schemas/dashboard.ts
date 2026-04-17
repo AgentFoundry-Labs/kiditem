@@ -1,181 +1,243 @@
 import { z } from 'zod';
+import { zIsoDate } from './common.js';
 
-// GET /api/dashboard 응답
-export const DashboardSummarySchema = z.object({
-  summary: z.object({
-    todayRevenue: z.number(),
-    todayOrders: z.number(),
-    monthlyRevenue: z.number(),
-    monthlyProfit: z.number(),
-    adRate: z.number(),
-    totalProducts: z.number(),
-    roas: z.number(),
-    ctr: z.number(),
-    adRevenue: z.number(),
-    totalAdSpend: z.number(),
-    prevMonthlyRevenue: z.number(),
-    prevMonthlyProfit: z.number(),
-    prevRoas: z.number(),
-    prevCtr: z.number(),
-    prevAdRevenue: z.number(),
-    prevTotalAdSpend: z.number(),
-    prevAdRate: z.number(),
-  }),
-  gradeCount: z.record(z.number()),
-  alerts: z.array(z.any()),
-  warnings: z.object({
-    minusProducts: z.number(),
-    lowProfitProducts: z.number(),
-    highAdProducts: z.number(),
-    needReorder: z.number(),
-    lowCtrProducts: z.number().optional(),
-    lowReviewProducts: z.number().optional(),
-  }),
-  topProducts: z.array(z.object({
-    id: z.string(),
-    name: z.string(),
-    company: z.string(),
-    grade: z.string(),
+// ─── Shared building blocks ───────────────────────────────────────────────
+
+// NOTE: alerts.ts defines AlertItemSchema with a required companyId field (full DB row).
+// Dashboard alerts are a projected subset (no companyId, productId is nullable+optional),
+// so we define a separate DashboardAlertItemSchema here rather than reusing/importing.
+export const DashboardAlertItemSchema = z.object({
+  id: z.string(),
+  type: z.string(),
+  severity: z.string(),
+  title: z.string(),
+  message: z.string().nullable(),
+  productId: z.string().nullable().optional(),
+  isRead: z.boolean(),
+  createdAt: zIsoDate,
+});
+
+export const TopProductSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  company: z.string(),
+  grade: z.string(),
+  revenue: z.number(),
+  netProfit: z.number(),
+  profitRate: z.number(),
+});
+
+export const MonthlyTrendItemSchema = z.object({
+  period: z.string(),
+  revenue: z.number(),
+  profit: z.number(),
+  adCost: z.number(),
+});
+
+export const ProfitBreakdownSchema = z.object({
+  revenue: z.number(),
+  costOfGoods: z.number(),
+  commission: z.number(),
+  shippingCost: z.number(),
+  adCost: z.number(),
+  otherCost: z.number(),
+  netProfit: z.number(),
+  orderCount: z.number(),
+});
+
+export const TrafficKpiSchema = z.object({
+  visitors: z.number(),
+  views: z.number(),
+  orders: z.number(),
+  salesQty: z.number(),
+  revenue: z.number(),
+  cartAdds: z.number(),
+  date: z.string().optional(),
+  periodDays: z.number().optional(),
+  productCount: z.number().optional(),
+  conversionRate: z.number().optional(),
+  adSummary: z.record(z.any()).nullable().optional(),
+  source: z.string().optional(),
+  netProfit: z.number().optional(),
+  profitRate: z.number().optional(),
+  costCoverage: z.number().optional(),
+  needsScrape: z.boolean().optional(),
+});
+
+export const PlanAchievementSchema = z.object({
+  targetRevenue: z.number(),
+  actualRevenue: z.number(),
+  targetOrders: z.number(),
+  actualOrders: z.number(),
+  achieveRate: z.number(),
+});
+
+export const GradeChangesSchema = z.object({
+  upgraded: z.number(),
+  downgraded: z.number(),
+  total: z.number(),
+});
+
+export const DataFreshnessSchema = z.object({
+  lastSync: z.string(),
+  attributionWindow: z.string(),
+  attributionWindowDays: z.number().optional(),
+  confirmedUntil: z.string().optional(),
+  note: z.string().optional(),
+});
+
+export const WarningsSchema = z.object({
+  minusProducts: z.number(),
+  lowProfitProducts: z.number(),
+  highAdProducts: z.number(),
+  needReorder: z.number(),
+  lowCtrProducts: z.number().optional(),
+  lowReviewProducts: z.number().optional(),
+});
+
+export const DailyRevenueItemSchema = z.object({
+  date: z.string(),
+  revenue: z.number(),
+  profitRate: z.number().optional(),
+});
+
+export const DailyAdItemSchema = z.object({
+  date: z.string(),
+  adCost: z.number(),
+  adRate: z.number().optional(),
+});
+
+export const IndustryBenchmarkSchema = z.object({
+  avgAdRate: z.number(),
+  avgProfitRate: z.number(),
+  avgRoas: z.number(),
+  avgCtr: z.number(),
+  avgCvr: z.number().optional(),
+  myAdRate: z.number().optional(),
+  myRoas: z.number().optional(),
+  myCtr: z.number().optional(),
+  adRateVsIndustry: z.string().optional(),
+  roasVsIndustry: z.string().optional(),
+});
+
+export const AdMetricsDetailSchema = z.object({
+  totalSpend: z.number(),
+  impressions: z.number(),
+  clicks: z.number(),
+  convRevenue: z.number(),
+  ctr: z.number(),
+  roas: z.number(),
+  conversions: z.number().optional(),
+  cvr: z.number().optional(),
+  prevSpend: z.number().optional(),
+  prevConvRevenue: z.number().optional(),
+  prevCtr: z.number().optional(),
+  prevRoas: z.number().optional(),
+  spendChange: z.number().optional(),
+  convRevenueChange: z.number().optional(),
+  roasChange: z.number().optional(),
+  ctrChange: z.number().optional(),
+  totalRevenue: z.number().optional(),
+});
+
+// Wing ad-summary (A8 addition — shared between sales + ad endpoints)
+export const WingAdSummarySchema = z.object({
+  adRevenue: z.number(),
+  adSpend: z.number(),
+  adRoas: z.number(),
+  rawAdSummary: z.record(z.any()).nullable().optional(),
+});
+
+// ─── Sales endpoint: GET /api/dashboard/sales ─────────────────────────────
+export const DashboardSalesSummarySchema = z.object({
+  today: z.object({
     revenue: z.number(),
-    netProfit: z.number(),
-    profitRate: z.number(),
-  })),
-  monthlyTrend: z.array(z.object({
-    period: z.string(),
+    orders: z.number(),
+  }),
+  monthly: z.object({
     revenue: z.number(),
     profit: z.number(),
-    adCost: z.number(),
-  })),
-  profitDetail: z.object({
-    revenue: z.number(),
-    costOfGoods: z.number(),
-    commission: z.number(),
-    shippingCost: z.number(),
-    adCost: z.number(),
-    otherCost: z.number(),
-    netProfit: z.number(),
-    orderCount: z.number(),
-  }).optional(),
+    adRate: z.number(),
+    prevRevenue: z.number(),
+    prevProfit: z.number(),
+    revenueChange: z.number(),
+    profitChange: z.number(),
+    prevAdRate: z.number(),
+  }),
+  topProducts: z.array(TopProductSchema),
+  monthlyTrend: z.array(MonthlyTrendItemSchema),
+  profitDetail: ProfitBreakdownSchema.optional(),
   rangeKpi: z.object({
     range: z.string(),
     revenue: z.number(),
     profit: z.number(),
-    adSpend: z.number(),
     prevRevenue: z.number(),
     prevProfit: z.number(),
     revenueChange: z.number(),
     profitChange: z.number(),
-    adRoas: z.number(),
-    adConvRevenue: z.number(),
     profitRate: z.number().optional(),
-    adRate: z.number().optional(),
-    adCost: z.number().optional(),
     prevProfitRate: z.number().optional(),
-    prevAdRate: z.number().optional(),
-    prevAdCost: z.number().optional(),
     profitRateChange: z.number().optional(),
-    adRateChange: z.number().optional(),
+  }).optional(),
+  dailyRevenue: z.array(DailyRevenueItemSchema).optional(),
+  planAchievement: PlanAchievementSchema.nullable().optional(),
+  trafficKpi: TrafficKpiSchema.optional(),
+  lastSyncAt: zIsoDate.nullable().optional(),
+});
+
+// ─── Ad endpoint: GET /api/dashboard/ad ───────────────────────────────────
+export const DashboardAdSummarySchema = z.object({
+  monthly: z.object({
+    roas: z.number(),
+    ctr: z.number(),
+    adRevenue: z.number(),
+    totalAdSpend: z.number(),
+    prevRoas: z.number(),
+    prevCtr: z.number(),
+    prevAdRevenue: z.number(),
+    prevTotalAdSpend: z.number(),
+  }),
+  rangeKpi: z.object({
+    adSpend: z.number(),
+    adConvRevenue: z.number(),
+    adRoas: z.number(),
     adCtr: z.number().optional(),
+    adCost: z.number().optional(),
+    adRate: z.number().optional(),
     prevAdSpend: z.number().optional(),
     prevAdConvRevenue: z.number().optional(),
     prevAdRoas: z.number().optional(),
     prevAdCtr: z.number().optional(),
+    prevAdCost: z.number().optional(),
+    prevAdRate: z.number().optional(),
     adSpendChange: z.number().optional(),
     adConvRevenueChange: z.number().optional(),
     adRoasChange: z.number().optional(),
     adCtrChange: z.number().optional(),
-  }).optional(),
-  trafficKpi: z.object({
-    visitors: z.number(),
-    views: z.number(),
-    orders: z.number(),
-    salesQty: z.number(),
-    revenue: z.number(),
-    cartAdds: z.number(),
-    date: z.string().optional(),
-    periodDays: z.number().optional(),
-    productCount: z.number().optional(),
-    conversionRate: z.number().optional(),
-    adSummary: z.record(z.any()).nullable().optional(),
-    source: z.string().optional(),
-    netProfit: z.number().optional(),
-    profitRate: z.number().optional(),
-    costCoverage: z.number().optional(),
-    needsScrape: z.boolean().optional(),
-  }).optional(),
-  adKpi: z.object({
-    totalSpend: z.number(),
-    impressions: z.number(),
-    clicks: z.number(),
-    convRevenue: z.number(),
-    ctr: z.number(),
-    roas: z.number(),
-    conversions: z.number().optional(),
-    cvr: z.number().optional(),
-    prevSpend: z.number().optional(),
-    prevConvRevenue: z.number().optional(),
-    prevCtr: z.number().optional(),
-    prevRoas: z.number().optional(),
-    spendChange: z.number().optional(),
-    convRevenueChange: z.number().optional(),
-    roasChange: z.number().optional(),
-    ctrChange: z.number().optional(),
-    totalRevenue: z.number().optional(),
-  }).optional(),
-  comparison: z.object({
-    prevRevenue: z.number(),
-    prevProfit: z.number(),
-    revenueChange: z.number(),
-    profitChange: z.number(),
-    prevAdCost: z.number().optional(),
-    prevAdRate: z.number().optional(),
-    prevProfitRate: z.number().optional(),
     adRateChange: z.number().optional(),
-    profitRateChange: z.number().optional(),
-    adSaving: z.number().optional(),
   }).optional(),
-  dailyTrend: z.array(z.object({
-    date: z.string(),
-    revenue: z.number(),
-    adCost: z.number(),
-    profitRate: z.number().optional(),
-    adRate: z.number().optional(),
-  })).optional(),
-  planAchievement: z.object({
-    targetRevenue: z.number(),
-    actualRevenue: z.number(),
-    targetOrders: z.number(),
-    actualOrders: z.number(),
-    achieveRate: z.number(),
-  }).nullable().optional(),
-  gradeChanges: z.object({
-    upgraded: z.number(),
-    downgraded: z.number(),
-    total: z.number(),
+  adKpi: AdMetricsDetailSchema.optional(),
+  dailyAd: z.array(DailyAdItemSchema).optional(),
+  industryBenchmark: IndustryBenchmarkSchema.optional(),
+  saving: z.object({
+    adSaving: z.number(),
+    prevAdCost: z.number(),
   }).optional(),
-  industryBenchmark: z.object({
-    avgAdRate: z.number(),
-    avgProfitRate: z.number(),
-    avgRoas: z.number(),
-    avgCtr: z.number(),
-    avgCvr: z.number().optional(),
-    myAdRate: z.number().optional(),
-    myRoas: z.number().optional(),
-    myCtr: z.number().optional(),
-    adRateVsIndustry: z.string().optional(),
-    roasVsIndustry: z.string().optional(),
-  }).optional(),
-  dataFreshness: z.object({
-    lastSync: z.string(),
-    attributionWindow: z.string(),
-    attributionWindowDays: z.number().optional(),
-    confirmedUntil: z.string().optional(),
-    note: z.string().optional(),
-  }).optional(),
-  lastSyncAt: z.union([z.string(), z.date()]).nullable().optional(),
+  // A9: ad-ops consumer needs Wing adSummary that used to live in trafficKpi.adSummary
+  wingAdData: WingAdSummarySchema.nullable().optional(),
 });
 
-// GET /api/dashboard/trend 응답
+// ─── Inventory endpoint: GET /api/dashboard/inventory ─────────────────────
+export const DashboardInventorySummarySchema = z.object({
+  totalProducts: z.number(),
+  gradeCount: z.record(z.number()),
+  alerts: z.array(DashboardAlertItemSchema),
+  warnings: WarningsSchema,
+  gradeChanges: GradeChangesSchema.optional(),
+  dataFreshness: DataFreshnessSchema.optional(),
+});
+
+// ─── Trend endpoint: GET /api/dashboard/trend (unchanged) ─────────────────
 export const DashboardTrendItemSchema = z.object({
   date: z.string(),
   revenue: z.number(),
@@ -183,5 +245,24 @@ export const DashboardTrendItemSchema = z.object({
   adCost: z.number(),
 });
 
-export type DashboardSummary = z.infer<typeof DashboardSummarySchema>;
+// ─── Types ────────────────────────────────────────────────────────────────
+export type DashboardSalesSummary = z.infer<typeof DashboardSalesSummarySchema>;
+export type DashboardAdSummary = z.infer<typeof DashboardAdSummarySchema>;
+export type DashboardInventorySummary = z.infer<typeof DashboardInventorySummarySchema>;
 export type DashboardTrendItem = z.infer<typeof DashboardTrendItemSchema>;
+
+// sub-types (exposed so backend services can use when assembling partial results)
+export type ProfitBreakdown = z.infer<typeof ProfitBreakdownSchema>;
+export type TopProduct = z.infer<typeof TopProductSchema>;
+export type Warnings = z.infer<typeof WarningsSchema>;
+export type AlertItemDashboard = z.infer<typeof DashboardAlertItemSchema>;
+export type TrafficKpi = z.infer<typeof TrafficKpiSchema>;
+export type MonthlyTrendItem = z.infer<typeof MonthlyTrendItemSchema>;
+export type DailyRevenueItem = z.infer<typeof DailyRevenueItemSchema>;
+export type DailyAdItem = z.infer<typeof DailyAdItemSchema>;
+export type IndustryBenchmark = z.infer<typeof IndustryBenchmarkSchema>;
+export type AdMetricsDetail = z.infer<typeof AdMetricsDetailSchema>;
+export type PlanAchievement = z.infer<typeof PlanAchievementSchema>;
+export type GradeChanges = z.infer<typeof GradeChangesSchema>;
+export type DataFreshness = z.infer<typeof DataFreshnessSchema>;
+export type WingAdSummary = z.infer<typeof WingAdSummarySchema>;

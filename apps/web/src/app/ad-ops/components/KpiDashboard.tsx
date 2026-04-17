@@ -4,7 +4,7 @@ import {
   TrendingUp, Megaphone, BarChart3, Zap,
 } from "lucide-react";
 import { formatKRW } from "@/lib/utils";
-import { parseKoreanNumber } from "@/lib/parse-korean-number";
+import type { WingAdSummary } from "@kiditem/shared";
 
 interface DailyPoint {
   spend: number;
@@ -19,23 +19,21 @@ interface DailyPoint {
 
 interface KpiDashboardProps {
   totalKpi: Record<string, number>;
-  wingAdData: Record<string, string> | null;
+  wingAdData: WingAdSummary | null;
   period: string;
   roas: number;
   trendsDaily?: DailyPoint[] | null;
 }
 
 export default function KpiDashboard({ totalKpi, wingAdData, period, roas, trendsDaily }: KpiDashboardProps) {
-  const parseWing = parseKoreanNumber;
-
   // trends daily 집계 (coupang_ads_daily 스냅샷 기반 — 기간별 정확한 값)
   const hasTrends = trendsDaily && trendsDaily.length > 0;
   const adSpend = hasTrends
     ? trendsDaily!.reduce((s, d) => s + d.spend, 0)
-    : (wingAdData?.adSpend ? parseWing(wingAdData.adSpend) : (totalKpi.adSpend || 0));
+    : (wingAdData?.adSpend ? wingAdData.adSpend : (totalKpi.adSpend || 0));
   const adRevenue = hasTrends
     ? trendsDaily!.reduce((s, d) => s + d.revenue, 0)
-    : (wingAdData?.adGmv ? parseWing(wingAdData.adGmv) : (totalKpi.adRevenue || 0));
+    : (wingAdData?.adRevenue ? wingAdData.adRevenue : (totalKpi.adRevenue || 0));
   const impressions = hasTrends
     ? trendsDaily!.reduce((s, d) => s + d.impressions, 0)
     : (totalKpi.impressions || 0);
@@ -47,7 +45,7 @@ export default function KpiDashboard({ totalKpi, wingAdData, period, roas, trend
     : (totalKpi.conversions || 0);
   const wingRoas = hasTrends
     ? (adSpend > 0 ? Math.round((adRevenue / adSpend) * 100) : 0)
-    : (wingAdData?.roas ? parseFloat(wingAdData.roas) : roas);
+    : (wingAdData?.adRoas ? wingAdData.adRoas : roas);
   const ctr = hasTrends
     ? (impressions > 0 ? Math.round((clicks / impressions) * 10000) / 100 : 0)
     : (totalKpi.ctr || 0);
