@@ -1,5 +1,7 @@
 # dashboard — Massive Parallel Aggregation + KST Boundary
 
+> **⚠ Plan B2 pending (ADR-0013)**: 이 모듈은 Plan A 3-layer 전환 이후 아직 포팅되지 않음. `prisma.product.findMany/groupBy/count` (dashboard-inventory.service.ts, dashboard-sales.service.ts), `ProfitLoss.productId` (dashboard-sales.service.ts:254,329) 등 **stale Prisma model refs** 가 남아 있어 full server tsc 실패. 아래 본문은 **현재 코드의 실제 동작** 을 기술 (정확하지만 stale 모델 참조 포함). Plan B2 에서 `MasterProduct` + `ChannelListing` + 새 `ProfitLoss.listingId` 기반으로 포팅 예정.
+
 7 파일. **11+ 병렬 쿼리 + KST timezone normalization + month-over-month 비교** 가 단일 service 안에 압축.
 
 ## Directory

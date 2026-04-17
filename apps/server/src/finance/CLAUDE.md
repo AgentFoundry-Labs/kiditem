@@ -1,5 +1,7 @@
 # finance — P&L + Sales Analysis (Raw SQL Aggregation)
 
+> **⚠ Plan B2 pending (ADR-0013)**: 이 모듈은 Plan A 3-layer 전환 이후 아직 포팅되지 않음. `ProfitLoss.productId` (profit-loss.service.ts:26,29,109 — Plan A 에서 `listingId` 로 rename 예정), `prisma.product.findMany` (profit-loss.service.ts:73 — Product 모델 drop, MasterProduct/ChannelListing 로 분리) 등 **stale Prisma model refs** 가 남아 있어 full server tsc 실패. 아래 본문은 **현재 코드의 실제 동작** 을 기술 (정확하지만 stale 모델 참조 포함). Plan B2 에서 `ChannelListing` + 새 `ProfitLoss.listingId` 기반으로 포팅 예정.
+
 10 파일. **$queryRaw 기반 cross-table 집계** + period parsing + cross-domain pricing resolver.
 
 ## Directory
