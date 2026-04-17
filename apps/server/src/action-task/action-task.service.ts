@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { kstDayStart } from '../common/kst';
 import type { TaskSeed, RelatedProduct } from './types';
 import { scrubSecrets } from '@kiditem/shared';
+import type { ActionTask, ActionTaskRelatedProduct } from '@kiditem/shared';
 
 export type { RelatedProduct } from './types';
 
@@ -111,11 +112,15 @@ export class ActionTaskService {
 
     const result = tasks.map((t) => ({
       ...t,
+      apiCall: t.apiCall as ActionTask['apiCall'],
+      result: t.result as ActionTask['result'],
+      notes: (t.notes ?? []) as ActionTask['notes'],
+      activityLog: (t.activityLog ?? []) as ActionTask['activityLog'],
       date: t.date.toISOString().split('T')[0],
       createdAt: t.createdAt.toISOString(),
       updatedAt: t.updatedAt.toISOString(),
       relatedProducts: relatedMap[t.taskKey] ?? [],
-    }));
+    })) satisfies ActionTask[];
 
     return result;
   }
@@ -461,7 +466,7 @@ export class ActionTaskService {
         name: pl.product?.name ?? 'N/A',
         metric: '광고비율',
         value: `${Math.round((pl.adCost / pl.revenue) * 1000) / 10}%`,
-      }));
+      })) satisfies ActionTaskRelatedProduct[];
 
     // Minus products
     const minusRows = plRows.filter((pl) => pl.netProfit < 0).slice(0, 20);
@@ -472,7 +477,7 @@ export class ActionTaskService {
       value: pl.revenue > 0
         ? `${Math.round((pl.netProfit / pl.revenue) * 1000) / 10}%`
         : '매출 0',
-    }));
+    })) satisfies ActionTaskRelatedProduct[];
     map['h-minus-ad-stop'] = minusProducts;
     map['h-minus-price'] = minusProducts;
     map['h-price-reset'] = minusProducts;
@@ -495,7 +500,7 @@ export class ActionTaskService {
         name: inv.product?.name ?? 'N/A',
         metric: '재고',
         value: `${inv.currentStock}개 (기준 ${inv.reorderPoint})`,
-      }));
+      })) satisfies ActionTaskRelatedProduct[];
     map['analyze-stock'] = map['h-reorder'];
 
     return map;
