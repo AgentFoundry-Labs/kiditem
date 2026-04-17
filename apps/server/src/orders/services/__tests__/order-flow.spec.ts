@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { OrdersService } from '../orders.service';
+import { NotFoundException } from '@nestjs/common';
 
 // Mock the coupang adapter module
 vi.mock('../../../channels/adapters/coupang/orders', () => ({
@@ -17,19 +18,21 @@ function makePrisma() {
   return {
     order: {
       findMany: vi.fn().mockResolvedValue([]),
-      findUnique: vi.fn(),
+      findFirst: vi.fn(),
       count: vi.fn().mockResolvedValue(0),
       aggregate: vi.fn().mockResolvedValue({ _count: 0, _sum: { totalPrice: 0 } }),
     },
   };
 }
 
+const COMPANY_ID = 'company-1';
+
 const MOCK_ORDER = {
   id: 'order-1',
   status: 'ACCEPT',
   orderedAt: new Date('2026-01-15'),
   totalPrice: 35000,
-  companyId: 'company-1',
+  companyId: COMPANY_ID,
 };
 
 describe('OrdersService — order query and actions', () => {
@@ -43,14 +46,14 @@ describe('OrdersService — order query and actions', () => {
   });
 
   describe('findAll', () => {
-    it('findAll with status filter → returns paginated orders', async () => {
+    it('findAll with status filter → companyId + status 필터 둘 다 적용', async () => {
       prisma.order.findMany.mockResolvedValue([MOCK_ORDER]);
 
-      const result = await service.findAll({ status: 'ACCEPT' });
+      const result = await service.findAll(COMPANY_ID, { status: 'ACCEPT' });
 
       expect(prisma.order.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: expect.objectContaining({ status: 'ACCEPT' }),
+          where: expect.objectContaining({ companyId: COMPANY_ID, status: 'ACCEPT' }),
         }),
       );
       expect(result.items).toEqual([MOCK_ORDER]);
@@ -58,26 +61,27 @@ describe('OrdersService — order query and actions', () => {
       expect(result.deliveryCompanies).toBeDefined();
     });
 
-    it('findAll with no filter → defaults to ACCEPT status', async () => {
+    it('findAll with no filter → defaults to ACCEPT + companyId 적용', async () => {
       prisma.order.findMany.mockResolvedValue([]);
 
-      await service.findAll({});
+      await service.findAll(COMPANY_ID, {});
 
       expect(prisma.order.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: expect.objectContaining({ status: 'ACCEPT' }),
+          where: expect.objectContaining({ companyId: COMPANY_ID, status: 'ACCEPT' }),
         }),
       );
     });
 
-    it('findAll with date range → applies orderedAt filter', async () => {
+    it('findAll with date range → companyId + orderedAt 필터 적용', async () => {
       prisma.order.findMany.mockResolvedValue([MOCK_ORDER]);
 
-      await service.findAll({ from: '2026-01-01', to: '2026-01-31' });
+      await service.findAll(COMPANY_ID, { from: '2026-01-01', to: '2026-01-31' });
 
       expect(prisma.order.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
+            companyId: COMPANY_ID,
             orderedAt: expect.objectContaining({
               gte: expect.any(Date),
               lte: expect.any(Date),
@@ -85,6 +89,29 @@ describe('OrdersService — order query and actions', () => {
           }),
         }),
       );
+    });
+  });
+
+  describe('findOne', () => {
+    it('findOne → companyId 필터와 함께 findFirst 사용 (IDOR 방어)', async () => {
+      prisma.order.findFirst.mockResolvedValue(MOCK_ORDER);
+
+      const result = await service.findOne('order-1', COMPANY_ID);
+
+      expect(prisma.order.findFirst).toHaveBeenCalledWith({
+        where: { id: 'order-1', companyId: COMPANY_ID },
+      });
+      expect(result).toEqual(MOCK_ORDER);
+    });
+
+    it('다른 회사의 주문 접근 시 NotFoundException (IDOR 방어)', async () => {
+      // order-1 은 다른 회사 소유 → company-1 입장에서는 not found
+      prisma.order.findFirst.mockResolvedValue(null);
+
+      await expect(service.findOne('order-1', COMPANY_ID)).rejects.toBeInstanceOf(NotFoundException);
+      expect(prisma.order.findFirst).toHaveBeenCalledWith({
+        where: { id: 'order-1', companyId: COMPANY_ID },
+      });
     });
   });
 
@@ -118,7 +145,7 @@ describe('OrdersService — order query and actions', () => {
   });
 
   describe('getStats', () => {
-    it('getStats → returns counts by status', async () => {
+    it('getStats → 모든 count/aggregate 호출에 companyId 필터 적용', async () => {
       prisma.order.count
         .mockResolvedValueOnce(100)  // total
         .mockResolvedValueOnce(50)   // ACCEPT
@@ -131,7 +158,7 @@ describe('OrdersService — order query and actions', () => {
         .mockResolvedValueOnce({ _count: 3, _sum: { totalPrice: 90000 } })  // today
         .mockResolvedValueOnce({ _count: 10, _sum: { totalPrice: 300000 } }); // week
 
-      const result = await service.getStats();
+      const result = await service.getStats(COMPANY_ID);
 
       expect(result.stats.total).toBe(100);
       expect(result.stats.accept).toBe(50);
@@ -139,6 +166,22 @@ describe('OrdersService — order query and actions', () => {
       expect(result.today.orders).toBe(3);
       expect(result.today.revenue).toBe(90000);
       expect(result.week.orders).toBe(10);
+
+      // 모든 count 호출에 companyId 포함 검증 (status 유무와 무관)
+      const countCalls = prisma.order.count.mock.calls;
+      expect(countCalls).toHaveLength(6);
+      for (const [args] of countCalls) {
+        expect(args).toEqual(expect.objectContaining({
+          where: expect.objectContaining({ companyId: COMPANY_ID }),
+        }));
+      }
+
+      // 모든 aggregate 호출에 companyId 포함 검증
+      const aggCalls = prisma.order.aggregate.mock.calls;
+      expect(aggCalls).toHaveLength(2);
+      for (const [args] of aggCalls) {
+        expect(args.where).toEqual(expect.objectContaining({ companyId: COMPANY_ID }));
+      }
     });
   });
 });

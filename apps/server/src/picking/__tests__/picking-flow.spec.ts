@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { PickingService } from '../picking.service';
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 
 function makePrisma() {
   return {
@@ -9,7 +9,7 @@ function makePrisma() {
     },
     pickingList: {
       findMany: vi.fn().mockResolvedValue([]),
-      findUnique: vi.fn(),
+      findFirst: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
     },
@@ -84,12 +84,17 @@ describe('PickingService — 확정 주문 → 피킹 → 검수 상태 전이',
 
   describe('updateItem', () => {
     it('isPicked=true 설정 시 pickedAt 타임스탬프 기록 + 집계 갱신', async () => {
+      prisma.pickingList.findFirst.mockResolvedValue({ id: 'pl-1' });
       prisma.pickingItem.findFirst.mockResolvedValue({ id: 'it-1', pickingListId: 'pl-1' });
       prisma.pickingItem.update.mockResolvedValue({ id: 'it-1', isPicked: true });
       prisma.pickingItem.count.mockResolvedValue(3);
 
-      await service.updateItem('pl-1', 'it-1', { isPicked: true });
+      await service.updateItem('pl-1', 'it-1', 'c-1', { isPicked: true });
 
+      expect(prisma.pickingList.findFirst).toHaveBeenCalledWith({
+        where: { id: 'pl-1', companyId: 'c-1' },
+        select: { id: true },
+      });
       expect(prisma.pickingItem.update).toHaveBeenCalledWith({
         where: { id: 'it-1' },
         data: expect.objectContaining({ isPicked: true, pickedAt: expect.any(Date) }),
@@ -101,10 +106,11 @@ describe('PickingService — 확정 주문 → 피킹 → 검수 상태 전이',
     });
 
     it('isVerified=true 설정 시 verifiedAt 기록', async () => {
+      prisma.pickingList.findFirst.mockResolvedValue({ id: 'pl-1' });
       prisma.pickingItem.findFirst.mockResolvedValue({ id: 'it-1', pickingListId: 'pl-1' });
       prisma.pickingItem.update.mockResolvedValue({ id: 'it-1', isVerified: true });
 
-      await service.updateItem('pl-1', 'it-1', { isVerified: true });
+      await service.updateItem('pl-1', 'it-1', 'c-1', { isVerified: true });
 
       expect(prisma.pickingItem.update).toHaveBeenCalledWith({
         where: { id: 'it-1' },
@@ -113,22 +119,42 @@ describe('PickingService — 확정 주문 → 피킹 → 검수 상태 전이',
     });
 
     it('존재하지 않는 아이템이면 BadRequestException', async () => {
+      prisma.pickingList.findFirst.mockResolvedValue({ id: 'pl-1' });
       prisma.pickingItem.findFirst.mockResolvedValue(null);
 
-      await expect(service.updateItem('pl-1', 'it-x', { isPicked: true })).rejects.toBeInstanceOf(
-        BadRequestException,
-      );
+      await expect(
+        service.updateItem('pl-1', 'it-x', 'c-1', { isPicked: true }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(prisma.pickingItem.update).not.toHaveBeenCalled();
+    });
+
+    it('다른 회사의 리스트에 접근 시 NotFoundException (IDOR 방어)', async () => {
+      // pl-1 은 존재하지만 company-other 소유 → c-1 입장에서는 not found
+      prisma.pickingList.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.updateItem('pl-1', 'it-1', 'c-1', { isPicked: true }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(prisma.pickingList.findFirst).toHaveBeenCalledWith({
+        where: { id: 'pl-1', companyId: 'c-1' },
+        select: { id: true },
+      });
+      expect(prisma.pickingItem.findFirst).not.toHaveBeenCalled();
       expect(prisma.pickingItem.update).not.toHaveBeenCalled();
     });
   });
 
   describe('complete', () => {
     it('완료 처리 시 status=completed + completedAt 기록', async () => {
-      prisma.pickingList.findUnique.mockResolvedValue({ id: 'pl-1', status: 'active' });
+      prisma.pickingList.findFirst.mockResolvedValue({ id: 'pl-1' });
       prisma.pickingList.update.mockResolvedValue({ id: 'pl-1', status: 'completed' });
 
-      await service.complete('pl-1');
+      await service.complete('pl-1', 'c-1');
 
+      expect(prisma.pickingList.findFirst).toHaveBeenCalledWith({
+        where: { id: 'pl-1', companyId: 'c-1' },
+        select: { id: true },
+      });
       expect(prisma.pickingList.update).toHaveBeenCalledWith({
         where: { id: 'pl-1' },
         data: expect.objectContaining({ status: 'completed', completedAt: expect.any(Date) }),
@@ -136,10 +162,22 @@ describe('PickingService — 확정 주문 → 피킹 → 검수 상태 전이',
       });
     });
 
-    it('리스트 없으면 BadRequestException', async () => {
-      prisma.pickingList.findUnique.mockResolvedValue(null);
+    it('리스트 없으면 NotFoundException', async () => {
+      prisma.pickingList.findFirst.mockResolvedValue(null);
 
-      await expect(service.complete('pl-x')).rejects.toBeInstanceOf(BadRequestException);
+      await expect(service.complete('pl-x', 'c-1')).rejects.toBeInstanceOf(NotFoundException);
+      expect(prisma.pickingList.update).not.toHaveBeenCalled();
+    });
+
+    it('다른 회사의 리스트 complete 시도 시 NotFoundException (IDOR 방어)', async () => {
+      // pl-1 은 존재하지만 company-other 소유 → c-1 입장에서는 not found
+      prisma.pickingList.findFirst.mockResolvedValue(null);
+
+      await expect(service.complete('pl-1', 'c-1')).rejects.toBeInstanceOf(NotFoundException);
+      expect(prisma.pickingList.findFirst).toHaveBeenCalledWith({
+        where: { id: 'pl-1', companyId: 'c-1' },
+        select: { id: true },
+      });
       expect(prisma.pickingList.update).not.toHaveBeenCalled();
     });
   });

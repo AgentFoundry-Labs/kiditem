@@ -21,13 +21,14 @@ export class PickingController {
   updateItem(
     @Param('id') id: string,
     @Param('itemId') itemId: string,
+    @CurrentCompany() companyId: string,
     @Body() dto: UpdatePickingItemDto,
   ) {
-    return this.pickingService.updateItem(id, itemId, dto);
+    return this.pickingService.updateItem(id, itemId, companyId, dto);
   }
 
   @Patch(':id/complete')
-  complete(@Param('id') id: string) {
-    return this.pickingService.complete(id);
+  complete(@Param('id') id: string, @CurrentCompany() companyId: string) {
+    return this.pickingService.complete(id, companyId);
   }
 }
