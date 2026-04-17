@@ -6,7 +6,13 @@
 
 **Architecture:** Non-coexistence 전략. 모델 이름 충돌 우려 없음 (기존 drop 후 새 추가). 실운영 아니므로 dev DB volume 삭제 + 재생성 허용. Plan A 종료 시 Prisma/DB 는 정합 + 기존 product module 는 없음. **다른 domain service (orders, advertising 등) 중 기존 productId 를 참조하던 코드들은 컴파일 에러 상태로 남음** — Plan B 에서 새 서비스/라우트와 함께 복구. 서버 부팅이 필수 아님.
 
-**Tech Stack:** Prisma v7 multi-file, Postgres 15 (docker), NestJS 11, TypeScript 5, vitest
+**Tech Stack:** Prisma v7 multi-file, Postgres 17 (docker), NestJS 11, TypeScript 5, vitest
+
+**IMPORTANT — Snippet rule**: 본 plan 의 Task 4-9 에서 일부 모델은 `// ...` 또는 `// rest fields` 로 표기된 부분이 있다. 이는 **"기존 필드 전부 유지, 명시된 필드만 변경"** 의 의미. 명시 안된 필드를 삭제하면 **silent data loss**. Alert/ProductOption/Company 등 collateral damage 위험 모델은 전체 필드를 명시해두었다. executor 는 아래 rule 준수:
+
+1. `// ... (나머지 필드 유지)` 주석 → 해당 모델의 모든 기존 필드 + 인덱스 + relation 보존
+2. 변경되지 않은 relation 과 index 는 그대로 유지
+3. `@@map`, `@@index`, `@@unique` 중 변경 안된 것은 유지
 
 **Related:**
 - Spec: [docs/superpowers/specs/2026-04-17-product-schema-redesign-design.md](../specs/2026-04-17-product-schema-redesign-design.md) (v2)
@@ -221,12 +227,13 @@ Remove models:
 
 Remove from `model Company { ... }` the following relation fields:
 - `products          Product[]`
-- `masterProducts    MasterProduct[]`
+- `masterProducts    MasterProduct[]` (old SKU 레벨)
 - `masterInventory   MasterInventory[]`
 - `optionMasters     OptionMaster[]`
-- `productItems` (if any)
-- `productMemos` (if any — 실제로는 Product 쪽에만 있을 수 있음)
-- `bundleProducts   BundleProduct[]` — Task 3 에서 BundleProduct 도 drop 할 예정
+- `productItems      ProductItem[]` (if any)
+- `productMemos      ProductMemo[]` (old — Step 9 에서 polymorphic 으로 재도입)
+- `bundleProducts    BundleProduct[]` — Task 3 에서 BundleProduct 도 drop
+- `inventory         Inventory[]` ← **중요**: 기존 inventory 는 Product 에 붙었던 것. Task 3 에서 새 Inventory 로 교체되므로 일단 제거, Step 7 에서 재추가
 
 Company 내 **keep** 해야 할 relations:
 - `users`, `orders`, `ads`, `profitLoss`, `thumbnails`, `thumbnailAnalyses`,
@@ -302,6 +309,8 @@ model MasterProduct {
   thumbnailAnalyses     ThumbnailAnalysis[]
   thumbnailGenerations  ThumbnailGeneration[]
   gradeHistory          GradeHistory[]
+  processingCosts       ProcessingCost[]
+  masterSupplierProducts MasterSupplierProduct[]
 
   @@unique([companyId, legacyCode])
   @@index([companyId])
@@ -367,6 +376,10 @@ model ProductOption {
   returnTransfers     ReturnTransfer[]
   purchaseOrderItems  PurchaseOrderItem[]
   supplierProducts    SupplierProduct[]
+  shipments           Shipment[]
+  unshippedItems      UnshippedItem[]
+  ads                 Ad[]
+  adSnapshots         AdSnapshot[]
 
   @@unique([masterId, optionName])
   @@unique([companyId, barcode])
@@ -461,6 +474,7 @@ model ChannelListingOption {
   listing ChannelListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
   option  ProductOption? @relation(fields: [optionId], references: [id], onDelete: SetNull)
   company Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  coupangOrderItems CoupangOrderItem[]
 
   @@unique([listingId, vendorItemId])
   @@unique([companyId, vendorItemId])
@@ -504,16 +518,24 @@ model BundleComponent {
 In `model Company`, add (after existing relations):
 
 ```prisma
-  // 3-layer product schema
+  // 3-layer product schema (new)
   masterProducts          MasterProduct[]
   productOptions          ProductOption[]
   channelListings         ChannelListing[]
   channelListingOptions   ChannelListingOption[]
   bundleComponents        BundleComponent[]
   inventory               Inventory[]
+
+  // Additional back-relations for FK rename additions
+  gradeHistory            GradeHistory[]            // Task 8 Step 2 adds companyId to GradeHistory
+  trafficStats            TrafficStats[]            // Task 4 Step 4 adds companyId to TrafficStats
+  productMemos            ProductMemo[]             // Task 9 Step 3 polymorphic ProductMemo
 ```
 
-Note: `products`, `masterProducts` (old), `masterInventory`, `optionMasters`, `bundleProducts` fields 는 Step 2 에서 제거됨. 새 `masterProducts` 는 다른 모델이므로 이름 재사용 OK.
+Note:
+- `products`, `masterProducts` (old), `masterInventory`, `optionMasters`, `bundleProducts`, `inventory` (old) 필드는 Step 2 에서 제거됨
+- 새 `masterProducts` 는 신규 family 모델 (name 재사용 OK)
+- `inventory`, `gradeHistory`, `trafficStats`, `productMemos` 는 FK 가 추가된 모델들의 back-relation
 
 - [ ] **Step 8: Prisma validate (skip — inventory.prisma 수정 필요)**
 
@@ -1092,17 +1114,23 @@ model MasterSupplierProduct {
 
 - [ ] **Step 4: Update MasterProduct back-relation** (core.prisma)
 
-Add to MasterProduct model:
+MasterProduct 의 `masterSupplierProducts MasterSupplierProduct[]` 는 Task 2 Step 3 에서 이미 추가됨 (이번 Plan v2 수정). 확인만.
+
+- [ ] **Step 5: Add Supplier.masterProducts back-relation** (supply.prisma) — **P0 fix**
+
+`Supplier` model 에 **direct FK back-relation** 추가. Task 2 Step 3 MasterProduct 가 `supplier Supplier?` 직접 FK 선언하므로 matching back-relation 필수. 누락 시 `prisma validate` 실패.
+
+In `model Supplier { ... }`:
 
 ```prisma
-  masterSupplierProducts MasterSupplierProduct[]
+  masterProducts MasterProduct[]                 // 주공급처 direct FK (Master 단위 기본 공급처)
 ```
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add prisma/models/supply.prisma prisma/models/core.prisma
-git commit -m "feat(schema): supply.prisma — supplier_products to option, master_supplier_products to master"
+git commit -m "feat(schema): supply.prisma — supplier_products to option, master_supplier_products to master + Supplier.masterProducts back-relation"
 ```
 
 ---
@@ -1195,20 +1223,30 @@ Add fields to `model ActionTask`:
 
 Note: DB CHECK constraint 는 Task 11 의 raw SQL 에서 추가 (`CHECK (target_type IS NULL OR target_type IN ('master','option','listing','bundle'))`).
 
-- [ ] **Step 2: Alert — productId → polymorphic**
+- [ ] **Step 2: Alert — productId → polymorphic (기존 필드 모두 보존)**
 
-Replace Alert's `productId` FK with polymorphic:
+**중요 — collateral damage 방지**: `productId` 만 `targetType + targetId` 로 교체. 기존 `actionTaskId`, `actionTask` relation, `sourceAlerts` (ActionTask 쪽), 모든 기존 index 는 **그대로 유지**. ActionTask → Alert promotion 기능이 이 relation 기반이므로 drop 시 패널 동작 깨짐.
+
+Replace Alert's `productId` FK with polymorphic, preserving everything else:
 
 ```prisma
 model Alert {
-  id         String  @id @default(uuid()) @db.Uuid
-  companyId  String  @map("company_id") @db.Uuid
-  targetType String? @map("target_type")
+  id              String   @id @default(uuid()) @db.Uuid
+  companyId       String   @map("company_id") @db.Uuid
+  // 기존 alert fields (severity, type, title, message, isRead, etc.) 모두 유지
+  // 현재 system.prisma 의 Alert 모델 필드를 그대로 복사하되 아래 사항만 변경:
+  //   - DROP: productId String? @map("product_id") @db.Uuid
+  //   - DROP: product Product? @relation(...)
+  //   - DROP: @@index([productId]) — 있다면
+  //   - PRESERVE: actionTaskId, actionTask ActionTask? @relation("AlertPromotedTo")
+  //   - PRESERVE: 기존 @@index 모두 (companyId, isRead, createdAt 등)
+  //   - ADD: 아래 polymorphic fields + index
+
+  targetType String? @map("target_type")                // 'master' | 'option' | 'listing' | 'bundle'
   targetId   String? @map("target_id") @db.Uuid
-  // alert-specific fields (severity, message, etc.)
-  // + existing fields (status, promoted_to, etc.)
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  // actionTask relation + sourceAlerts 역방향 유지 (ActionTask.sourceAlerts Alert[] @relation("AlertPromotedTo"))
 
   @@index([companyId])
   @@index([companyId, targetType, targetId])
@@ -1817,6 +1855,72 @@ Expected: draft PR created with URL
 
 ---
 
+## Rollback procedure
+
+Plan A 는 destructive (`db:push --accept-data-loss` + volume reset). 실행 중 실패 또는 생각 바뀐 경우 복구 절차.
+
+### 실패 시점별 복구
+
+**Task 1-9 (Prisma 스키마 편집 중)** — 아직 DB 에 적용 전
+```bash
+git reset --hard HEAD~<commit 개수>   # 또는 git checkout -- prisma/models/
+```
+DB 는 건드리지 않았으므로 코드만 되돌리면 끝.
+
+**Task 10 (db:push) 실패** — schema invalid 또는 push 중단
+```bash
+# 1. 오류 수정 후 재시도
+npx prisma validate
+npx prisma db push --accept-data-loss
+# 2. 도저히 복구 안되면 전체 롤백 (아래)
+```
+
+**Task 10-17 중 완전 롤백 필요**
+```bash
+cd /Users/yhc125/workspace/kiditem
+
+# 1. git 되돌리기
+git checkout main
+git branch -D feat/product-schema-3layer-plan-a   # 로컬 브랜치 제거
+
+# 2. DB volume 초기화
+docker compose down -v
+docker compose up -d postgres
+# postgres 기동 대기
+for i in {1..30}; do docker exec kiditem-postgres pg_isready -U kiditem && break; sleep 1; done
+
+# 3. main 기준 schema 재적용
+npm run db:push
+
+# 4. (선택) 백업에서 기존 데이터 복원 — dev 환경이라 보통 불필요
+# docker exec -i kiditem-postgres psql -U kiditem kiditem < /tmp/kiditem-schema-before-3layer.sql
+```
+
+**Task 17 완료 후 (push 직전 철회)**
+```bash
+git reset --hard main   # 로컬 commits 폐기
+# 위 "완전 롤백" 2-4 단계 실행
+```
+
+**Remote push 후 철회**
+```bash
+git revert <commit-sha-range>
+git push
+# DB 는 팀 회의 후 별도 스케줄 복구 (실운영 아니라도 조율)
+```
+
+### 확인 명령
+```bash
+# 스키마가 main 상태로 복원됐는지
+npx prisma validate
+
+# DB 가 old schema 로 돌아갔는지
+docker exec kiditem-postgres psql -U kiditem kiditem -c "\\dt" | grep -E "products$|master_products$|bundle_products$"
+# Expected: 이전 테이블들 보여야 함 (products, master_products=SKU level, bundle_products)
+```
+
+---
+
 ## NOT in scope (후속 plan)
 
 - 새 NestJS module `products-v2/` 및 그 안의 services, controllers — **Plan B**
@@ -1827,6 +1931,41 @@ Expected: draft PR created with URL
 - Frontend (`apps/web/src/app/products/...`) 페이지 복구 — 별도 Plan D
 - MCP Tool layer — 장기 로드맵
 - 에이전트 프롬프트 업데이트 — Plan B 이후
+
+## Known Gaps (Plan A 이후 처리)
+
+Plan A 완료 후에도 남는 item (Plan B/C 에서 해결):
+
+### G1. `@kiditem/shared` Zod schemas stale
+`packages/shared/src/schemas/product.ts` 의 `MasterProductSchema`, `ProductListItemSchema`, `ProductDetailSchema`, `packages/shared/src/schemas/inventory.ts` 의 `InventoryItemSchema` 는 old Prisma 구조 반영. Zod 기반이라 Plan A 에선 **컴파일 에러는 없지만 semantically stale**.
+
+→ **Plan B 필수 task**: shared schemas 를 3-레이어 구조로 rewrite (MasterProductSchema = family, ProductOptionSchema = SKU, ChannelListingSchema = channel).
+
+### G2. `prisma/init.sql.gz` stale
+기존 init.sql.gz 는 old schema 의 INSERT 문 포함. Fresh `docker compose up -v` + 초기화 시 에러.
+
+**해결 2가지**:
+- (a) Plan A 에서 `init.sql.gz` 삭제 → fresh setup 시 빈 DB + schema 만 적용
+- (b) Plan C (Wing 이관) 완료 후 새 init.sql.gz 재생성 (`pg_dump --data-only`)
+
+**권장**: Plan A 마무리에 `init.sql.gz` 를 일단 **삭제** (새 setup flow 에 스냅샷 없음). Plan C 완료 후 새 snapshot 생성.
+
+실행 (Plan A commit 포함):
+```bash
+git rm prisma/init.sql.gz
+git commit -m "chore(prisma): remove stale init.sql.gz (Plan A schema transition — new snapshot in Plan C)"
+```
+
+### G3. Frontend 깨진 페이지
+`apps/web/src/app/products/...` 등 product 관련 페이지. API 404 + 타입 stale → runtime error. Plan A 실행 중 허용. **Plan B 이후 별도 Plan D** 에서 복구.
+
+### G4. ProductMemo / OptionMaster 관련 module cleanup
+Plan A Task 14-15 에서 module 디렉토리 삭제. NestJS 외 다른 곳 (e.g., agents 에서 fetch 하던 코드, 프롬프트 템플릿) 에서 참조가 남아있을 수 있음. grep 으로 확인 후 Plan B 에서 정리.
+
+### G5. Test DB 운영 `npm run db:test:prepare` 깨짐
+Plan A 이후 schema 재push 시 integration test 는 대부분 실패 예상 (기존 테스트가 old schema 기반). Plan B 에서 복구.
+
+---
 
 ## What already exists (재사용)
 
