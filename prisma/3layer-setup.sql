@@ -18,6 +18,27 @@ CREATE UNIQUE INDEX IF NOT EXISTS master_products_company_legacy_active
   ON master_products (company_id, legacy_code)
   WHERE is_deleted = false AND legacy_code IS NOT NULL;
 
+-- 2c. ProductOption: partial unique indexes (soft-delete + null-aware)
+-- Active rows 에서만 unique 보장. 소프트삭제된 row 의 값은 새 row 가 재사용 가능;
+-- restore 시 활성 row 와 충돌하면 P2002 → ConflictException.
+-- NOTE: Plan A Task 11 이 만든 `product_options_master_null_option` (optionName IS NULL)
+-- partial index 는 유지. 아래 `*_master_option_name_active` 는 optionName IS NOT NULL case 커버.
+
+DROP INDEX IF EXISTS product_options_master_id_option_name_key;
+CREATE UNIQUE INDEX IF NOT EXISTS product_options_master_option_name_active
+  ON product_options (master_id, option_name)
+  WHERE is_deleted = false AND option_name IS NOT NULL;
+
+DROP INDEX IF EXISTS product_options_company_id_barcode_key;
+CREATE UNIQUE INDEX IF NOT EXISTS product_options_company_barcode_active
+  ON product_options (company_id, barcode)
+  WHERE is_deleted = false AND barcode IS NOT NULL;
+
+DROP INDEX IF EXISTS product_options_company_id_legacy_code_key;
+CREATE UNIQUE INDEX IF NOT EXISTS product_options_company_legacy_active
+  ON product_options (company_id, legacy_code)
+  WHERE is_deleted = false AND legacy_code IS NOT NULL;
+
 -- 3. ActionTask target_type CHECK
 ALTER TABLE action_tasks
   DROP CONSTRAINT IF EXISTS action_task_target_type;
