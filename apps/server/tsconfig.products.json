@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "include": [
+    "src/products/**/*.ts",
+    "src/prisma/**/*.ts",
+    "src/auth/**/*.ts",
+    "src/types/**/*.ts"
+  ],
+  "exclude": [
+    "src/products/__tests__/**",
+    "**/*.spec.ts"
+  ]
+}

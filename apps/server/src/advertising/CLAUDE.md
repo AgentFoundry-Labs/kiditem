@@ -2,6 +2,8 @@
 
 광고 관리 도메인. Dashboard → Kiditem 이식 완료.
 
+> **⚠ Plan B2 pending (ADR-0013)**: 이 도메인의 service 5개 (`ad-sync`, `ad-strategy`, `ad-campaigns`, `ad-benchmark`, `advertising.service`) + DTO (`ad-action.dto.ts:15`, `register-campaign.dto.ts:5`) 가 stale `prisma.product.*` + `productId` 참조. Plan A 에서 `Ad.productId` 가 **drop** 되고 `listingId` (ChannelListing FK, non-null, Restrict) + `optionId` (ProductOption FK, nullable, SetNull) 로 대체됨. `AdScalarFieldEnum` 에 `productId` 없음 — `by: ['productId']` groupBy 전부 재작성. `prisma.product.findMany` 는 `prisma.masterProduct.findMany` 또는 `prisma.channelListing.findMany` 로 포팅. 본문은 포팅 전 레거시 코드 기준.
+
 ## Structure
 
 - **Controller**: `advertising.controller.ts` — all `/api/ads/*` routes

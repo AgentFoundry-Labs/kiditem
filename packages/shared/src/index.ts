@@ -3,16 +3,22 @@ export { PaginatedResponseSchema, ApiErrorResponseSchema, SyncInfoSchema } from 
 export type { PaginatedResponse, ApiErrorResponse, SyncInfo } from './schemas/common.js';
 
 // Product
-export { TrafficDataSchema, ProductListItemSchema, ProductDetailSchema, PipelineCountsSchema, ProductImageItemSchema, MasterProductSchema } from './schemas/product.js';
-export type { TrafficData, ProductListItem, ProductDetail, PipelineCounts, ProductImageItem, MasterProduct } from './schemas/product.js';
+export {
+  MasterSchema, ProductOptionSchema, BundleComponentSchema,
+  MasterWithOptionsSchema, OptionWithComponentsSchema,
+} from './schemas/product.js';
+export type {
+  Master, ProductOption, BundleComponent,
+  MasterWithOptions, OptionWithComponents,
+} from './schemas/product.js';
 
 // Order
 export { OrderRowSchema, OrdersResponseSchema } from './schemas/order.js';
 export type { OrderRow, OrdersResponse } from './schemas/order.js';
 
 // Inventory
-export { InventoryItemSchema, InventorySummarySchema } from './schemas/inventory.js';
-export type { InventoryItem, InventorySummary } from './schemas/inventory.js';
+export { InventorySchema } from './schemas/inventory.js';
+export type { Inventory } from './schemas/inventory.js';
 
 // Profit & Loss
 export { PLDataSchema } from './schemas/profit-loss.js';

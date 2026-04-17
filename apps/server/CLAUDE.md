@@ -148,17 +148,17 @@ async getProduct(id: string, companyId: string) {
 
 | 경로 | 크기 | 핵심 포인트 |
 |---|---|---|
-| [`src/advertising/CLAUDE.md`](src/advertising/CLAUDE.md) | 33줄 | Ad Operations — 12 endpoints `/api/ads/*`, AdSnapshot(level=campaign\|product\|null), 익스텐션 sync |
+| [`src/advertising/CLAUDE.md`](src/advertising/CLAUDE.md) | 33줄 | Ad Operations — 12 endpoints `/api/ads/*`, AdSnapshot(level=campaign\|product\|null), 익스텐션 sync. **⚠ Plan B2 대기**: 5 services + 2 DTO 가 stale `prisma.product.*` / `Ad.productId` (ADR-0013 drop, listingId/optionId 대체) |
 | [`src/agent-registry/CLAUDE.md`](src/agent-registry/CLAUDE.md) | **261줄** | Agent OS — Adapters / EventEmitter2 / Manager Workflow / FeatureGate / ExecutionContext / Agent OS Phase 3+4 (8 patterns) |
 | [`src/ai/CLAUDE.md`](src/ai/CLAUDE.md) | 69줄 | Dual-Path — Image=Agent 위임 / Text=Gemini Direct. Preset → hardcoded prompt 매핑 |
 | [`src/auth/CLAUDE.md`](src/auth/CLAUDE.md) | 158줄 | 인증/권한 인프라. `@CurrentUser`/`@CurrentCompany`/`@Roles`/`@SkipAuth`, CompanyScopeGuard, DevAuthMiddleware |
-| [`src/channels/CLAUDE.md`](src/channels/CLAUDE.md) | 109줄 | Coupang 통합 — `adapters/coupang/` 외부 API 격리, Sync 3종 (Products/Orders/Inventory), $queryRaw 분석 |
+| [`src/channels/CLAUDE.md`](src/channels/CLAUDE.md) | 111줄 | Coupang 통합 — `adapters/coupang/` 외부 API 격리, Sync 3종 (Products/Orders/Inventory), $queryRaw 분석. **⚠ Plan B2 대기**: Product/ProductItem/MasterInventory 참조가 ADR-0013 drop 으로 stale, 포팅 전까지 build fail |
 | [`src/chat/CLAUDE.md`](src/chat/CLAUDE.md) | 155줄 | CopilotKit Runtime + ClaudeCliAdapter. Express pre-registration (NestJS 우회), SSE 토큰 스트리밍 |
 | [`src/dashboard/CLAUDE.md`](src/dashboard/CLAUDE.md) | 73줄 | Massive Parallel (Promise.all 11+ queries) + KST 경계 + MoM snapshot + $queryRaw ad metrics |
 | [`src/finance/CLAUDE.md`](src/finance/CLAUDE.md) | 70줄 | P&L + Sales Analysis — $queryRaw cross-table 집계, period parsing, pricing resolver |
 | [`src/marketplace/CLAUDE.md`](src/marketplace/CLAUDE.md) | 75줄 | Workflow/Agent 카탈로그 — read-only 카탈로그 + per-company 설치 추적 + param override |
 | [`src/orders/CLAUDE.md`](src/orders/CLAUDE.md) | 60줄 | Order/Return/CS 통합 — multi-controller 모듈, 외부 채널 어댑터 위임, status 필터링 |
-| [`src/products/CLAUDE.md`](src/products/CLAUDE.md) | 121줄 | Product/Thumbnail/Pricing — 3-stage 썸네일 파이프라인, pricing fallback chain, $transaction 원자 생성, Gemini 단일 진입점 |
+| [`src/products/CLAUDE.md`](src/products/CLAUDE.md) | 37줄 | 3-layer Master/Option/Bundle (ADR-0013) — `MasterProduct` family (code via `master_code_seq`), `ProductOption` SKU (race-free sku via `optionCounter` increment), `BundleComponent` (cross-master 허용, 3-way invariant, nested 금지 B1), `availableStock` = `BundleStockService.recompute` sole writer + `SELECT FOR UPDATE` row-lock |
 | [`src/rules/CLAUDE.md`](src/rules/CLAUDE.md) | 83줄 | Event-Driven — 룰 평가는 agent 비동기 spawn → `@OnEvent` 콜백. CRUD 패턴 아님 |
 | [`src/workflows/CLAUDE.md`](src/workflows/CLAUDE.md) | 90줄 | Workflow Engine — executor naming / registration / standard entities / action catalog |
 

@@ -20,6 +20,7 @@
  */
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
+import { Client } from 'pg';
 
 /**
  * 안전장치: 테스트 DB 가 아니면 PrismaClient 생성을 거부한다.
@@ -97,4 +98,39 @@ export async function seedBaseFixture(prisma: PrismaClient): Promise<void> {
     ],
     skipDuplicates: true,
   });
+}
+
+/**
+ * RLS-scoped pg client.
+ *
+ * Opens a raw `pg.Client` connected as `chatbot_readonly` (RLS-enforced role),
+ * optionally sets `app.company_id` session variable, runs `fn`, and cleans up.
+ *
+ * 용도: Products domain RLS 4-matrix 검증 (filter set / no session / cross-tenant guess / option).
+ * `chatbot_readonly` 역할은 `prisma/test-db-setup.sh` 가 테스트 DB 부팅 시 생성한다.
+ *
+ * @param companyId - UUID to set as `app.company_id`. `null` → no session var set (RLS → 0 rows).
+ * @param fn - consumer receiving the connected pg client.
+ */
+export async function withChatbotReadonly<T>(
+  companyId: string | null,
+  fn: (client: Client) => Promise<T>,
+): Promise<T> {
+  const testUrl = process.env.DATABASE_URL
+    ?? 'postgresql://kiditem_test:kiditem_test@localhost:5434/kiditem_test';
+  // kiditem_test (owner) → chatbot_readonly (RLS-enforced)
+  const url = testUrl.replace(
+    /^postgresql:\/\/[^:]+:[^@]+/,
+    'postgresql://chatbot_readonly:chatbot_readonly',
+  );
+  const client = new Client({ connectionString: url });
+  await client.connect();
+  try {
+    if (companyId !== null) {
+      await client.query(`SET app.company_id = '${companyId}'`);
+    }
+    return await fn(client);
+  } finally {
+    await client.end();
+  }
 }
