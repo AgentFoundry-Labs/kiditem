@@ -97,7 +97,7 @@ model ProcessingCost {
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   company Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  master  MasterProduct @relation(fields: [masterId], references: [id], onDelete: Cascade)
+  master  MasterProduct @relation(fields: [masterId], references: [id], onDelete: Restrict)
 
   @@index([companyId])
   @@index([companyId, date])
