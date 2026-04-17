@@ -27,7 +27,6 @@ import { AdvertisingModule } from './advertising/advertising.module';
 import { ProcurementModule } from './procurement/procurement.module';
 import { FeatureGateModule } from './feature-gate/feature-gate.module';
 import { WarehousesModule } from './warehouses/warehouses.module';
-import { OptionMastersModule } from './option-masters/option-masters.module';
 import { CategoriesModule } from './categories/categories.module';
 import { ManualLedgerModule } from './manual-ledger/manual-ledger.module';
 import { StockAuditsModule } from './stock-audits/stock-audits.module';
@@ -79,7 +78,6 @@ import { PanelModule } from './panel/panel.module';
     AdvertisingModule,
     ProcurementModule,
     WarehousesModule,
-    OptionMastersModule,
     CategoriesModule,
     ManualLedgerModule,
     StockAuditsModule,
