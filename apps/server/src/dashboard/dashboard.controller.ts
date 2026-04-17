@@ -1,18 +1,47 @@
 import { Controller, Get, Query } from '@nestjs/common';
-import { DashboardService } from './dashboard.service';
-import { DashboardTrendQueryDto, DashboardSummaryQueryDto } from './dto';
+import { DashboardSalesService } from './services/dashboard-sales.service';
+import { DashboardAdService } from './services/dashboard-ad.service';
+import { DashboardInventoryService } from './services/dashboard-inventory.service';
+import { DashboardTrendService } from './services/dashboard-trend.service';
+import { buildDashboardContext } from './services/context';
+import { DashboardQueryDto, DashboardTrendQueryDto } from './dto/dashboard-query.dto';
+import type {
+  DashboardSalesSummary,
+  DashboardAdSummary,
+  DashboardInventorySummary,
+  DashboardTrendItem,
+} from '@kiditem/shared';
 
 @Controller('dashboard')
 export class DashboardController {
-  constructor(private readonly dashboardService: DashboardService) {}
+  constructor(
+    private readonly salesService: DashboardSalesService,
+    private readonly adService: DashboardAdService,
+    private readonly inventoryService: DashboardInventoryService,
+    private readonly trendService: DashboardTrendService,
+  ) {}
 
-  @Get()
-  getSummary(@Query() query: DashboardSummaryQueryDto) {
-    return this.dashboardService.getSummary(query.range, query.from, query.to);
+  @Get('sales')
+  async getSales(@Query() query: DashboardQueryDto): Promise<DashboardSalesSummary> {
+    const ctx = buildDashboardContext(query.range, query.from, query.to);
+    return this.salesService.getSummary(ctx);
+  }
+
+  @Get('ad')
+  async getAd(@Query() query: DashboardQueryDto): Promise<DashboardAdSummary> {
+    const ctx = buildDashboardContext(query.range, query.from, query.to);
+    return this.adService.getSummary(ctx);
+  }
+
+  @Get('inventory')
+  async getInventory(): Promise<DashboardInventorySummary> {
+    // range-agnostic — snapshot only
+    const ctx = buildDashboardContext();
+    return this.inventoryService.getSummary(ctx);
   }
 
   @Get('trend')
-  getTrend(@Query() query: DashboardTrendQueryDto) {
-    return this.dashboardService.getTrend(query.range);
+  async getTrend(@Query() query: DashboardTrendQueryDto): Promise<DashboardTrendItem[]> {
+    return this.trendService.getTrend(query.range ?? '30d');
   }
 }

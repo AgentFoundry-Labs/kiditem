@@ -119,7 +119,6 @@ export type {
   GradeChanges,
   Warnings,
   WingAdSummary,
-  DashboardSummary, // MIGRATION BRIDGE — remove with Task 6
 } from './dashboard.js';
 
 // Reviews
