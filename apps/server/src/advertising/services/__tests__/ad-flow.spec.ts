@@ -403,35 +403,21 @@ describe('AgentAdStrategyService — agent run and result handling', () => {
   }
 
   describe('run', () => {
-    it('resolves ad_strategy definition and delegates to agentRegistry.run', async () => {
-      const { service, registry } = makeAgentService();
-      registry.findByType.mockResolvedValue({ id: 'def-ad', type: 'ad_strategy' });
-      registry.run.mockResolvedValue({ ok: true, taskId: 'task-1', agentType: 'ad_strategy' });
+    it.each([false, true])(
+      'resolves ad_strategy definition and delegates to agentRegistry.run (dryRun=%s)',
+      async (dryRun) => {
+        const { service, registry } = makeAgentService();
+        registry.findByType.mockResolvedValue({ id: 'def-ad', type: 'ad_strategy' });
+        registry.run.mockResolvedValue({ ok: true, taskId: 'task-1', agentType: 'ad_strategy', dryRun });
 
-      const result = await service.run({ companyId: 'c-1', dryRun: false });
+        const result = await service.run({ companyId: 'c-1', dryRun });
 
-      expect(registry.findByType).toHaveBeenCalledWith('ad_strategy');
-      expect(registry.run).toHaveBeenCalledWith('def-ad', {
-        companyId: 'c-1',
-        dryRun: false,
-      });
-      expect(result.ok).toBe(true);
-      expect(result.taskId).toBe('task-1');
-    });
-
-    it('passes dryRun=true to registry.run', async () => {
-      const { service, registry } = makeAgentService();
-      registry.findByType.mockResolvedValue({ id: 'def-ad' });
-      registry.run.mockResolvedValue({ ok: true, taskId: 'task-dry', dryRun: true });
-
-      const result = await service.run({ companyId: 'c-1', dryRun: true });
-
-      expect(registry.run).toHaveBeenCalledWith('def-ad', {
-        companyId: 'c-1',
-        dryRun: true,
-      });
-      expect(result.taskId).toBe('task-dry');
-    });
+        expect(registry.findByType).toHaveBeenCalledWith('ad_strategy');
+        expect(registry.run).toHaveBeenCalledWith('def-ad', { companyId: 'c-1', dryRun });
+        expect(result.ok).toBe(true);
+        expect(result.taskId).toBe('task-1');
+      },
+    );
   });
 
   describe('onResultReady — post-processing', () => {
