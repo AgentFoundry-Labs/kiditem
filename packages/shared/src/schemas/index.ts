@@ -3,16 +3,22 @@ export { PaginatedResponseSchema, ApiErrorResponseSchema, SyncInfoSchema, zIsoDa
 export type { PaginatedResponse, ApiErrorResponse, SyncInfo } from './common.js';
 
 // Product
-export { TrafficDataSchema, ProductListItemSchema, ProductDetailSchema, PipelineCountsSchema } from './product.js';
-export type { TrafficData, ProductListItem, ProductDetail, PipelineCounts } from './product.js';
+export {
+  MasterSchema, ProductOptionSchema, BundleComponentSchema,
+  MasterWithOptionsSchema, OptionWithComponentsSchema,
+} from './product.js';
+export type {
+  Master, ProductOption, BundleComponent,
+  MasterWithOptions, OptionWithComponents,
+} from './product.js';
 
 // Order
 export { OrderRowSchema, OrdersResponseSchema } from './order.js';
 export type { OrderRow, OrdersResponse } from './order.js';
 
 // Inventory
-export { InventoryItemSchema, InventorySummarySchema } from './inventory.js';
-export type { InventoryItem, InventorySummary } from './inventory.js';
+export { InventorySchema } from './inventory.js';
+export type { Inventory } from './inventory.js';
 
 // Profit & Loss
 export { PLDataSchema } from './profit-loss.js';
