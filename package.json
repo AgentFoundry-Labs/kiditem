@@ -12,6 +12,7 @@
     "dev:agents": "cd agents && .venv/bin/uvicorn src.server:app --host 0.0.0.0 --port 8001 --reload",
     "dev:all": "concurrently -n web,server,agents -c blue,green,yellow \"npm run dev\" \"npm run dev:server\" \"npm run dev:agents\"",
     "build": "npm run build --workspace=apps/web && npm run build --workspace=apps/server",
+    "db:3layer-setup": "docker exec -i kiditem-postgres psql -U kiditem kiditem < prisma/3layer-setup.sql",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
