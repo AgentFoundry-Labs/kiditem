@@ -1,11 +1,11 @@
 // inventory.prisma — Inventory domain
 
 /// @namespace Inventory
-/// @describe Product 와 1:1 (productId unique).
+/// @describe ProductOption 에 1:1. Bundle option 은 inventory 미생성 (availableStock 계산값 사용).
 model Inventory {
-  id        String @id @default(uuid()) @db.Uuid
-  companyId String @map("company_id") @db.Uuid
-  productId String @unique @map("product_id") @db.Uuid
+  id         String  @id @default(uuid()) @db.Uuid
+  optionId   String  @unique @map("option_id") @db.Uuid
+  companyId  String  @map("company_id") @db.Uuid
 
   currentStock    Int   @default(0) @map("current_stock")
   reservedStock   Int   @default(0) @map("reserved_stock")
@@ -15,14 +15,17 @@ model Inventory {
   leadTimeDays    Int?  @map("lead_time_days")
   dailySalesAvg   Decimal @default(0) @map("daily_sales_avg") @db.Decimal(8, 2)
 
-  lastRestockedAt DateTime? @map("last_restocked_at") @db.Timestamptz
-  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  warehouseLocation String?   @map("warehouse_location")
+  lastRestockedAt   DateTime? @map("last_restocked_at") @db.Timestamptz
 
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  option  ProductOption @relation(fields: [optionId], references: [id], onDelete: Cascade)
+  company Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   @@index([companyId])
+  @@index([currentStock])
   @@map("inventory")
 }
 
@@ -30,8 +33,8 @@ model Inventory {
 model StockTransaction {
   id          String   @id @default(uuid()) @db.Uuid
   companyId   String   @map("company_id") @db.Uuid
-  productId   String   @map("product_id") @db.Uuid
-  productName String?  @map("product_name")
+  optionId    String   @map("option_id") @db.Uuid
+  optionName  String?  @map("option_name")  // denormalized for audit
   type        String
   quantity    Int
   unitCost    Int      @default(0) @map("unit_cost")
@@ -43,13 +46,13 @@ model StockTransaction {
   createdBy   String?  @map("created_by")
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  company   Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  product   Product    @relation(fields: [productId], references: [id], onDelete: Restrict)
-  warehouse Warehouse? @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+  company   Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  option    ProductOption @relation(fields: [optionId], references: [id], onDelete: Restrict)
+  warehouse Warehouse?    @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
 
   @@index([companyId])
   @@index([companyId, createdAt])
-  @@index([productId])
+  @@index([optionId])
   @@index([type])
   @@index([createdAt])
   @@map("stock_transactions")
@@ -60,8 +63,8 @@ model StockTransaction {
 model StockTransfer {
   id              String    @id @default(uuid()) @db.Uuid
   companyId       String    @map("company_id") @db.Uuid
-  productId       String    @map("product_id") @db.Uuid
-  productName     String?   @map("product_name")
+  optionId        String    @map("option_id") @db.Uuid
+  optionName      String?   @map("option_name")
   fromWarehouseId String    @map("from_warehouse_id") @db.Uuid
   toWarehouseId   String    @map("to_warehouse_id") @db.Uuid
   quantity        Int
@@ -72,13 +75,13 @@ model StockTransfer {
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  company       Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  product       Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  company       Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  option        ProductOption @relation(fields: [optionId], references: [id], onDelete: Restrict)
   fromWarehouse Warehouse @relation("TransferFromWarehouse", fields: [fromWarehouseId], references: [id])
   toWarehouse   Warehouse @relation("TransferToWarehouse", fields: [toWarehouseId], references: [id])
 
   @@index([companyId])
-  @@index([productId])
+  @@index([optionId])
   @@index([status])
   @@map("stock_transfers")
 }
@@ -103,28 +106,6 @@ model StockAudit {
   @@unique([companyId, auditNumber])
   @@index([companyId])
   @@map("stock_audits")
-}
-
-/// @namespace Inventory
-/// @describe items Json 으로 구성품 흡수 (별도 BundleItem 없음).
-model BundleProduct {
-  id        String       @id @default(uuid()) @db.Uuid
-  companyId String       @map("company_id") @db.Uuid
-  name      String
-  sku       String?
-  sellPrice Int          @default(0) @map("sell_price")
-  status    String       @default("active")
-  coupangId String?      @map("coupang_id")
-  createdAt DateTime     @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  items     Json         @default("[]") @map("items")
-
-  company Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  @@unique([companyId, sku])
-  @@index([companyId])
-  @@map("bundle_products")
 }
 
 /// @namespace Inventory
@@ -181,7 +162,7 @@ model PickingItem {
   id            String      @id @default(uuid()) @db.Uuid
   pickingListId String      @map("picking_list_id") @db.Uuid
   orderId       String?     @map("order_id") @db.Uuid
-  productId     String      @map("product_id") @db.Uuid
+  optionId      String      @map("option_id") @db.Uuid
   productName   String      @map("product_name")
   sku           String?
   quantity      Int         @default(1)
@@ -192,11 +173,11 @@ model PickingItem {
   verifiedAt    DateTime?   @map("verified_at") @db.Timestamptz
   createdAt     DateTime    @default(now()) @map("created_at") @db.Timestamptz
 
-  pickingList PickingList  @relation(fields: [pickingListId], references: [id], onDelete: Cascade)
-  product     Product?     @relation(fields: [productId], references: [id], onDelete: SetNull)
+  pickingList PickingList   @relation(fields: [pickingListId], references: [id], onDelete: Cascade)
+  option      ProductOption @relation(fields: [optionId], references: [id], onDelete: Restrict)
 
   @@index([pickingListId])
-  @@index([productId])
+  @@index([optionId])
   @@map("picking_items")
 }
 
@@ -206,8 +187,8 @@ model ReturnTransfer {
   companyId    String    @map("company_id") @db.Uuid
   rtNumber     String    @map("rt_number")
   orderId      String?   @map("order_id") @db.Uuid
-  productId    String    @map("product_id") @db.Uuid
-  productName  String?   @map("product_name")
+  optionId     String    @map("option_id") @db.Uuid
+  optionName   String?   @map("option_name")
   quantity     Int
   status       String    @default("received")
   condition    String    @default("good")
@@ -219,12 +200,12 @@ model ReturnTransfer {
   completedAt  DateTime? @map("completed_at") @db.Timestamptz
   updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  company Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  option  ProductOption @relation(fields: [optionId], references: [id], onDelete: Restrict)
 
   @@unique([companyId, rtNumber])
   @@index([companyId])
-  @@index([productId])
+  @@index([optionId])
   @@index([status])
   @@map("return_transfers")
 }
