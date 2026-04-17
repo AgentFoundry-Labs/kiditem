@@ -12,12 +12,12 @@ prisma/
     ├── advertising.prisma      (Ad, AdAction, AdSnapshot, ItemWinner, ScrapeTarget, TrafficStats, Execution*)
     ├── agents.prisma           (AgentDefinition, AgentTask, AgentEvent, AgentLog, AgentWakeupRequest, HeartbeatRun, WorkflowRun, WorkflowTemplate)
     ├── ai.prisma               (Thumbnail*, ContentGeneration)
-    ├── core.prisma             (Company, User, Product, Master*, Option*, ProductItem, ProductMemo, CategoryMapping)
+    ├── core.prisma             (Company, User, Product, Master*, Option*, ProductItem, CategoryMapping)
     ├── finance.prisma          (ProfitLoss, GradeHistory, ManualLedger, ProcessingCost, SalesPlan)
     ├── inventory.prisma        (Inventory, Stock*, Bundle*, Warehouse, Picking*, ReturnTransfer)
     ├── orders.prisma           (Order, CoupangOrder*, CoupangReturn, Shipment, UnshippedItem, Settlement, CSRecord, Review)
     ├── supply.prisma           (Supplier*, PurchaseOrder*)
-    └── system.prisma           (Marketplace, BusinessRule, ActionTask, FeatureGate, ActivityEvent, Alert, SystemSetting)
+    └── system.prisma           (Marketplace, BusinessRule, ActionTask, FeatureGate, ActivityEvent, Alert, SystemSetting, ProductMemo, MigrationCheckpoint)
 ```
 
 각 모델 위 `/// @namespace <도메인>` + `/// @describe <한줄>` 주석으로 도메인 경계 + 의미를 schema 자체에 inline. `prisma generate` 가 9 파일을 자동 merge (single schema 와 동일 동작). 새 모델 추가 시 도메인에 맞는 파일에 넣고 namespace 주석 붙이기.

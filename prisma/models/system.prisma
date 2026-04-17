@@ -90,6 +90,8 @@ model ActionTask {
   activityLog    Json     @default("[]") @map("activity_log")
   date           DateTime @db.Date
   assigneeUserId String?  @map("assignee_user_id") @db.Uuid
+  targetType     String?  @map("target_type")
+  targetId       String?  @map("target_id") @db.Uuid
 
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
@@ -101,6 +103,7 @@ model ActionTask {
   @@unique([companyId, taskKey, date])
   @@index([companyId, date])
   @@index([companyId, assigneeUserId])
+  @@index([companyId, targetType, targetId])
   @@map("action_tasks")
 }
 
@@ -145,7 +148,9 @@ model ActivityEvent {
 model Alert {
   id        String @id @default(uuid()) @db.Uuid
   companyId String @map("company_id") @db.Uuid
-  productId String? @map("product_id") @db.Uuid
+
+  targetType String? @map("target_type")
+  targetId   String? @map("target_id") @db.Uuid
 
   type     String
   severity String  @default("warning")
@@ -158,12 +163,12 @@ model Alert {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   company    Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  product    Product?     @relation(fields: [productId], references: [id], onDelete: SetNull)
   actionTask ActionTask?  @relation("AlertPromotedTo", fields: [actionTaskId], references: [id], onDelete: SetNull)
 
   @@index([companyId])
   @@index([companyId, isRead, createdAt])
   @@index([companyId, actionTaskId])
+  @@index([companyId, targetType, targetId])
   @@index([isRead])
   @@index([type])
   @@index([createdAt])
@@ -185,3 +190,42 @@ model SystemSetting {
   @@map("system_settings")
 }
 
+/// @namespace System
+/// @describe 상품 관련 메모 (polymorphic). Master / Option / Listing 어디든 붙음.
+model ProductMemo {
+  id         String  @id @default(uuid()) @db.Uuid
+  companyId  String  @map("company_id") @db.Uuid
+  targetType String  @map("target_type")   // 'master' | 'option' | 'listing'
+  targetId   String  @map("target_id") @db.Uuid
+  content    String
+  author     String?
+  memoType   String  @default("general") @map("memo_type")
+  isResolved Boolean @default(false) @map("is_resolved")
+
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([companyId, targetType, targetId])
+  @@map("product_memos")
+}
+
+/// @namespace System
+/// @describe 이관 스크립트 체크포인트 (Plan C 용). 이관 완료 후 drop 가능.
+model MigrationCheckpoint {
+  id         String   @id @default(uuid()) @db.Uuid
+  scriptName String   @map("script_name")
+  stepName   String   @map("step_name")
+  entityKey  String   @map("entity_key")
+  status     String
+  error      String?
+  payload    Json?
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@unique([scriptName, stepName, entityKey])
+  @@index([scriptName, status])
+  @@map("migration_checkpoints")
+}
