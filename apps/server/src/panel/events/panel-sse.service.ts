@@ -69,7 +69,7 @@ export class PanelSseService implements OnModuleDestroy {
 
   replayAfter(companyId: string, afterSeq: number): PanelEvent[] {
     const arr = this.ringBuffer.get(companyId) ?? [];
-    return arr.filter((b) => b.event.seq > afterSeq).map((b) => b.event);
+    return arr.filter((b) => b.event.seq > afterSeq).map((b) => b.event) satisfies PanelEvent[];
   }
 
   onModuleDestroy() {
