@@ -1,18 +1,35 @@
-# Plan B1 — Products Module Implementation Plan
+# Plan B1 — Products Module Implementation Plan (v2)
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans. Can also be executed via CLAUDE.md TeamCreate workflow (kiditem-implementer × 2-3 + kiditem-reviewer × 2 + kiditem-qa-verifier × 1). Steps use checkbox (`- [ ]`) syntax.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans. TeamCreate workflow 도 가능 (아래 Execution Handoff 참조) — 단 **T3/T4/T5 는 병렬 불가, sequential dispatch 만**. Steps use checkbox (`- [ ]`) syntax.
 
 **Goal:** Plan A 이후 공백 상태인 products NestJS module 을 3-layer (Master + Option + BundleComponent) 로 재구축 + `@kiditem/shared` 의 `product.ts` / `inventory.ts` Zod schema 재작성으로 Plan B2/B3 의 기반을 제공한다.
 
-**Architecture:** flat module structure (`apps/server/src/products/` = controllers/ + services/ + dto/ + util/ + __tests__/). RESTful resource-per-layer API (`/api/products/masters`, `/api/products/options`, `/api/products/bundle-components`). Boot strategy C — `app.module.ts` 에 등록하되 `dev:server` 는 Plan B3 까지 부팅 불가. 검증은 integration tests (real-prisma.ts) + DI wiring spec (`Test.createTestingModule`).
+**Architecture:** flat module structure (`apps/server/src/products/` = controllers/ + services/ + dto/ + util/ + __tests__/). RESTful resource-per-layer API (`/api/products/masters`, `/api/products/options`, `/api/products/bundle-components`). **No per-controller `@UseGuards` / `@UsePipes`** — 프로젝트 관행은 전역 `CompanyScopeGuard` (via `APP_GUARD`, `app.module.ts:103`) + 전역 `ValidationPipe` (via `main.ts:58-61`). Controller 는 `@CurrentCompany()` 데코레이터만 사용 (`auth/CLAUDE.md` "Hard bans"). Boot strategy C — `app.module.ts` 에 등록하되 `dev:server` 는 Plan B3 까지 부팅 불가. 검증은 integration tests (real-prisma.ts) + DI wiring spec (`Test.createTestingModule`).
 
-**Tech Stack:** NestJS 11, Prisma v7 (multi-file, 3-layer schema from Plan A), class-validator, Zod (`@kiditem/shared`), Postgres 17 (`master_code_seq` + RLS + 3 CHECK constraints already applied via `prisma/3layer-setup.sql`), vitest (unit + integration tiers).
+**Tech Stack:** NestJS 11, Prisma v7 (multi-file, 3-layer schema from Plan A), class-validator, Zod (`@kiditem/shared` — zod only, no `@prisma/client` 의존성), Postgres 17 (`master_code_seq` + RLS + 3 CHECK constraints already applied via `prisma/3layer-setup.sql`), vitest (unit + integration tiers — **globals 비활성, 명시적 import 필요**).
 
 **Related:**
-- Spec: [docs/superpowers/specs/2026-04-17-plan-b1-products-module-design.md](../specs/2026-04-17-plan-b1-products-module-design.md) (v2, user-approved)
+- Spec: [docs/superpowers/specs/2026-04-17-plan-b1-products-module-design.md](../specs/2026-04-17-plan-b1-products-module-design.md) (v3, user-approved)
 - ADR: [0013-product-schema-3layer](../../../.claude/docs/decisions/0013-product-schema-3layer.md)
 - Plan A: [2026-04-17-plan-a-schema-transition.md](2026-04-17-plan-a-schema-transition.md) (merged PR #25)
-- Successor: Plan B2 (advertising/orders/inventory services) → Plan B3 (dashboard/finance/supply/AI/tests)
+- Successor: Plan B2 (advertising/orders/inventory) → Plan B3 (dashboard/finance/supply/AI/tests)
+
+## Key conventions (read before dispatching)
+
+Fresh subagent 가 따라야 할 프로젝트 관행:
+
+| 영역 | 패턴 | Reference |
+|---|---|---|
+| Auth | 전역 `CompanyScopeGuard` (APP_GUARD, `app.module.ts:103`). **Controller 에 `@UseGuards` 금지** | `auth/CLAUDE.md` hard-bans table |
+| Validation | 전역 `ValidationPipe({whitelist:true, transform:true})` (`main.ts:58-61`). **Controller 에 `@UsePipes` 금지** | `main.ts` |
+| Current company | `@CurrentCompany()` decorator | `auth/decorators/current-company.decorator.ts` |
+| Error mapping | `GlobalExceptionFilter` 이미 등록. Service 에서 NestJS Exception throw | `apps/server/CLAUDE.md` |
+| vitest imports | `globals` 꺼져있음 — `import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest'` 명시 필수 | `vitest.config.ts`, 기존 `alerts.service.spec.ts` 등 참조 |
+| Integration tests | `.pg.integration.spec.ts` + `__tests__/` 위치 | `vitest.config.integration.ts:28-30` |
+| Integration execution | `fileParallelism:false, isolate:false` + `resetDb()` in beforeEach = **serial 강제**. 병렬 dispatch 금지 | `vitest.config.integration.ts:34-37` |
+| Prisma connect | `beforeAll` 에서 `await prisma.$connect()` 호출 | `panel-pr3.pg.integration.spec.ts` |
+| `@kiditem/shared` deps | `zod` only — `@prisma/client` import 금지 | `packages/shared/package.json` |
+| Controller sample | `orders/orders.controller.ts` — no `@UseGuards`, no `@UsePipes`, `@CurrentCompany()` 사용 | |
 
 ---
 
@@ -20,16 +37,15 @@
 
 | 항목 | 상태 |
 |---|---|
-| `apps/server/src/products/` module | 신설 완료 — 3 controllers + 5 services + DTOs + utils + tests |
+| `apps/server/src/products/` module | 신설 — 3 controllers + 5 services + DTOs + utils + tests |
 | `@kiditem/shared/src/schemas/product.ts` | 재작성 — Master/ProductOption/BundleComponent Zod |
 | `@kiditem/shared/src/schemas/inventory.ts` | 재작성 — Inventory Zod (optionId 기반) |
 | `@kiditem/shared/src/index.ts` + `src/schemas/index.ts` | 두 barrel 동기화 |
 | `apps/server/src/app.module.ts` | `ProductsModule` 등록 |
 | `npm run build --workspace=packages/shared` | PASS |
 | Products-only tsc (`tsconfig.products.json`) | PASS |
-| Unit tests (`master-code`, `bundle-stock`) | PASS |
-| Integration tests (3 `.pg.integration.spec.ts` + DI spec) | PASS |
-| RLS 4-test matrix | PASS |
+| Unit tests (master-code, bundle-stock, serialize, DI) | PASS |
+| Integration tests (3 `.pg.integration.spec.ts` + RLS + pagination) | PASS |
 | `npm run dev:server` | 여전히 부팅 실패 (expected — Plan B3 대상) |
 | `apps/server` 전체 tsc | 여전히 실패 (expected — Plan B2/B3 대상) |
 
@@ -37,69 +53,61 @@
 
 ## File Structure
 
-### Created files (apps/server)
+### Created (apps/server)
 - `apps/server/src/products/products.module.ts`
 - `apps/server/src/products/CLAUDE.md`
-- `apps/server/src/products/controllers/masters.controller.ts`
-- `apps/server/src/products/controllers/options.controller.ts`
-- `apps/server/src/products/controllers/bundle-components.controller.ts`
-- `apps/server/src/products/services/masters.service.ts`
-- `apps/server/src/products/services/options.service.ts`
-- `apps/server/src/products/services/bundle-components.service.ts`
-- `apps/server/src/products/services/master-code.service.ts`
-- `apps/server/src/products/services/bundle-stock.service.ts`
+- `apps/server/src/products/controllers/{masters,options,bundle-components}.controller.ts`
+- `apps/server/src/products/services/{masters,options,bundle-components,master-code,bundle-stock}.service.ts`
 - `apps/server/src/products/util/prisma-error.ts`
-- `apps/server/src/products/util/cursor.ts` — cursor encode/decode helper
-- `apps/server/src/products/dto/create-master.dto.ts`
-- `apps/server/src/products/dto/update-master.dto.ts`
-- `apps/server/src/products/dto/list-masters.query.ts`
-- `apps/server/src/products/dto/create-option.dto.ts`
-- `apps/server/src/products/dto/update-option.dto.ts`
-- `apps/server/src/products/dto/list-options.query.ts`
-- `apps/server/src/products/dto/create-bundle-component.dto.ts`
-- `apps/server/src/products/dto/update-bundle-component.dto.ts`
-- `apps/server/src/products/dto/list-bundle-components.query.ts`
-- `apps/server/src/products/__tests__/master-code.service.spec.ts`
-- `apps/server/src/products/__tests__/bundle-stock.service.spec.ts`
+- `apps/server/src/products/util/cursor.ts`
+- `apps/server/src/products/util/serialize.ts` — `toSerializable()` 헬퍼 (server-side, duck-typed Decimal)
+- `apps/server/src/products/dto/{create,update,list}-{master,option,bundle-component}.dto.ts` (및 list query variant)
+- `apps/server/src/products/__tests__/master-code.service.spec.ts` (unit)
+- `apps/server/src/products/__tests__/bundle-stock.service.spec.ts` (unit)
+- `apps/server/src/products/__tests__/serialize.spec.ts` (unit)
 - `apps/server/src/products/__tests__/masters.service.pg.integration.spec.ts`
 - `apps/server/src/products/__tests__/options.service.pg.integration.spec.ts`
 - `apps/server/src/products/__tests__/bundle-components.service.pg.integration.spec.ts`
 - `apps/server/src/products/__tests__/rls.pg.integration.spec.ts`
-- `apps/server/src/products/__tests__/products.module.di.spec.ts`
-- `apps/server/tsconfig.products.json` — products-only type-check
+- `apps/server/src/products/__tests__/pagination.pg.integration.spec.ts`
+- `apps/server/src/products/__tests__/products.module.di.spec.ts` (unit — `Test.createTestingModule`)
+- `apps/server/tsconfig.products.json`
 
-### Modified files (apps/server)
+### Modified (apps/server)
 - `apps/server/src/app.module.ts` — import ProductsModule
-- `apps/server/src/test-helpers/real-prisma.ts` — add `seedProductsFixture`, `withChatbotReadonly`
+- `apps/server/src/test-helpers/real-prisma.ts` — add `withChatbotReadonly`
 
-### Created / Modified files (packages/shared)
+### Created / Modified (packages/shared)
 - `packages/shared/src/schemas/product.ts` — 완전 재작성
 - `packages/shared/src/schemas/inventory.ts` — 완전 재작성
 - `packages/shared/src/schemas/index.ts` — 재-export 갱신
 - `packages/shared/src/index.ts` — 재-export 갱신
-- `packages/shared/src/json.ts` (new) — `toSerializable` helper (Decimal/Date/Json → plain JSON)
+
+**`packages/shared/src/json.ts` 는 만들지 않는다** (spec 의 이전 제안 철회). `toSerializable` 은 `apps/server/src/products/util/serialize.ts` 로 서버 쪽에 위치 — shared 패키지는 `@prisma/client` 에 의존하면 안 됨.
 
 ---
 
-## Task Parallelization Matrix
+## Task Sequential Order (NOT parallel)
 
-| Task | Dependencies | Parallel with |
+`vitest.config.integration.ts` 의 `fileParallelism:false, isolate:false` 가 통합 테스트를 serial 로 강제하고, 모든 integration spec 의 `resetDb()` 가 DB 전체를 TRUNCATE 한다. 병렬 dispatch 하면 서로 fixture 를 wipe. 또한 T3/T4/T5 모두 `products.module.ts` 를 수정하므로 merge conflict 발생. **Sequential 로만 실행.**
+
+| Task | Prior state | Notes |
 |---|---|---|
-| T1 — `@kiditem/shared` rewrite + toSerializable | — | T2 |
-| T2 — Foundation (module skeleton + MasterCodeService + util) | — | T1 |
-| T3 — Masters | T1, T2 | **T4** |
-| T4 — Options | T1, T2 | **T3** |
-| T5 — BundleComponents + BundleStockService | T1, T2 (T3 + T4 최신 상태가 이상적) | sequential after T3, T4 |
-| T6 — DI spec + RLS tests + fixture helpers | T3, T4, T5 | — |
-| T7 — app.module.ts + 최종 verification | T3, T4, T5, T6 | — |
+| T1 — `@kiditem/shared` rewrite | none | T2 와만 서로 독립적 순서 |
+| T2 — Foundation (module skeleton + MasterCodeService + utils + serialize) | T1 권장 | T1 의 re-export 를 참조하지만 별개 파일 |
+| T3 — Masters | T1 + T2 완료 | `products.module.ts` 에 추가 |
+| T4 — Options + BundleStockService 초기 구현 | **T3 완료 후** | `products.module.ts` 에 추가 (T3 편집물 위에) |
+| T5 — BundleComponents + BundleStockService unit test | **T4 완료 후** | `products.module.ts` 마지막 추가 |
+| T6 — RLS + pagination + DI spec | T3-T5 완료 | `test-helpers/real-prisma.ts` 에 helper 추가 |
+| T7 — `app.module.ts` 등록 + 최종 verification | T3-T6 완료 | — |
 
-**TeamCreate 실행 시**: T3 + T4 를 2 implementer 에 분배 (병렬). T5 는 T3+T4 merge 이후 dispatch. T1+T2 도 2 implementer 로 분배 가능.
+**TeamCreate 사용 시**: `kiditem-implementer × 1` 로 task 하나씩 claim. 병렬 spawn 금지. `kiditem-reviewer × 2` 는 병렬 OK.
 
 ---
 
 ## Prerequisites
 
-- [ ] **Step 0-1: Verify branch + clean tree**
+- [ ] **Step 0-1: Verify branch**
 
 ```bash
 cd /Users/yhc125/workspace/kiditem
@@ -107,83 +115,61 @@ git status --short
 git branch --show-current
 ```
 
-Expected: branch = `feat/plan-b1-products-module`, working tree 최소 (pre-existing untracked docs 허용).
+Expected: branch = `feat/plan-b1-products-module`.
 
-- [ ] **Step 0-2: Verify dev DB + test DB up and 3layer-setup applied**
+- [ ] **Step 0-2: Bring dev + test DBs up with remediation**
 
 ```bash
-docker ps | grep kiditem-postgres
-docker exec kiditem-postgres psql -U kiditem kiditem -c "\\ds master_code_seq"
-docker exec kiditem-postgres-test psql -U kiditem_test kiditem_test -c "\\ds master_code_seq"
+cd /Users/yhc125/workspace/kiditem
+# Ensure dev DB
+docker ps | grep kiditem-postgres | grep -v test || docker compose up -d postgres
+# Ensure test DB + 3layer-setup applied (idempotent script)
+npm run db:test:up
+npm run db:test:prepare
+# Verify both DBs have master_code_seq (from 3layer-setup.sql)
+docker exec kiditem-postgres psql -U kiditem kiditem -c "\\ds master_code_seq" | tail -3
+docker exec kiditem-postgres-test psql -U kiditem_test kiditem_test -c "\\ds master_code_seq" | tail -3
 ```
 
-Expected: 두 postgres 컨테이너 up, 각각 `master_code_seq` 존재. 없으면 `npm run db:3layer-setup` 또는 `npm run db:test:prepare` 재실행.
+Expected: 두 DB 모두 `master_code_seq` 1 row. 없으면 `npm run db:3layer-setup` (dev), `npm run db:test:prepare` (test) 재실행.
 
-- [ ] **Step 0-3: Verify Prisma client fresh**
+- [ ] **Step 0-3: Verify Prisma client fresh + baseline error count**
 
 ```bash
+cd /Users/yhc125/workspace/kiditem
 npx prisma generate
-cd apps/server && npx tsc --noEmit --project tsconfig.json 2>&1 | wc -l
+cd apps/server
+npx tsc --noEmit 2>&1 | grep -c "error TS"
 ```
 
-기대: 424 errors 근처 (Plan B1 시작 전 baseline). 이 숫자가 Plan B1 진행 중 줄어드는 방향이어야 함.
+Expected: ~420-470 errors (Plan B1 시작 baseline, Plan A 이후). 이 숫자가 Plan B1 진행 중 줄어들면 OK.
 
 ---
 
 ## Task 1: `@kiditem/shared` rewrite
 
-**Files:**
-- Modify: `packages/shared/src/schemas/product.ts`
-- Modify: `packages/shared/src/schemas/inventory.ts`
-- Modify: `packages/shared/src/schemas/index.ts`
-- Modify: `packages/shared/src/index.ts`
-- Create: `packages/shared/src/json.ts`
+**Prior state**: clean branch `feat/plan-b1-products-module`, `packages/shared` 가 기존 stale schema 로 build PASS 상태.
 
-### Step 1-1: Check current shared package build baseline
+**Files:**
+- Modify: `packages/shared/src/schemas/product.ts` (재작성)
+- Modify: `packages/shared/src/schemas/inventory.ts` (재작성)
+- Modify: `packages/shared/src/schemas/index.ts` (barrel 갱신)
+- Modify: `packages/shared/src/index.ts` (barrel 갱신)
+
+**Note**: `packages/shared/src/json.ts` 는 만들지 않음 — `toSerializable` 은 Task 2 의 `apps/server/src/products/util/serialize.ts` 로 위치.
+
+### Step 1-1: Baseline build check
 
 ```bash
 cd /Users/yhc125/workspace/kiditem
 npm run build --workspace=packages/shared 2>&1 | tail -10
 ```
 
-Expected: PASS (현재 기존 shape 으로 빌드 가능).
+Expected: PASS (기존 shape).
 
-### Step 1-2: Create `packages/shared/src/json.ts` — serialization helper
+### Step 1-2: Rewrite `packages/shared/src/schemas/product.ts`
 
-```typescript
-// packages/shared/src/json.ts
-import { Prisma } from '@prisma/client';
-
-/**
- * Convert Prisma row (may contain Decimal / Date / JsonValue) to plain JSON-serializable shape.
- * Use at controller response boundary before Zod parse.
- *
- * Rules:
- * - Decimal → number (via .toNumber())
- * - Date → ISO string
- * - JsonValue (Prisma scalar) → passed through (caller must cast if schema-typed)
- */
-export function toSerializable<T>(row: T): unknown {
-  if (row === null || row === undefined) return row;
-  if (row instanceof Date) return row.toISOString();
-  if (typeof (row as any).toNumber === 'function' && (row as any).constructor?.name === 'Decimal') {
-    return (row as Prisma.Decimal).toNumber();
-  }
-  if (Array.isArray(row)) return row.map(toSerializable);
-  if (typeof row === 'object') {
-    const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(row as Record<string, unknown>)) {
-      out[k] = toSerializable(v);
-    }
-    return out;
-  }
-  return row;
-}
-```
-
-### Step 1-3: Rewrite `packages/shared/src/schemas/product.ts`
-
-Replace the file contents entirely:
+Replace entire file contents:
 
 ```typescript
 // packages/shared/src/schemas/product.ts
@@ -193,17 +179,17 @@ import { z } from 'zod';
 export const MasterSchema = z.object({
   id: z.string().uuid(),
   companyId: z.string().uuid(),
-  code: z.string(),                              // "M-00000042"
+  code: z.string(),
   legacyCode: z.string().nullable(),
   name: z.string(),
   description: z.string(),
   category: z.string().nullable(),
   brand: z.string().nullable(),
-  tags: z.array(z.string()),                     // Prisma Json → string[]
+  tags: z.array(z.string()),
   optionCounter: z.number().int(),
   thumbnailUrl: z.string().url().nullable(),
   imageUrl: z.string().url().nullable(),
-  images: z.array(z.string().url()),             // Prisma Json → string[]
+  images: z.array(z.string().url()),
   abcGrade: z.enum(['A', 'B', 'C']).nullable(),
   profitTag: z.string().nullable(),
   adTier: z.string().nullable(),
@@ -212,7 +198,7 @@ export const MasterSchema = z.object({
   healthUpdatedAt: z.string().datetime().nullable(),
   sourceUrl: z.string().url().nullable(),
   sourcePlatform: z.string().nullable(),
-  costCny: z.number().nullable(),                // Decimal → number
+  costCny: z.number().nullable(),
   marginRate: z.number().nullable(),
   pipelineStep: z.string().nullable(),
   detailPageUrl: z.string().url().nullable(),
@@ -228,12 +214,11 @@ export const MasterSchema = z.object({
 });
 export type Master = z.infer<typeof MasterSchema>;
 
-// ===== ProductOption (물리 SKU) =====
 export const ProductOptionSchema = z.object({
   id: z.string().uuid(),
   masterId: z.string().uuid(),
   companyId: z.string().uuid(),
-  sku: z.string(),                               // "M-00000042-01"
+  sku: z.string(),
   barcode: z.string().nullable(),
   legacyCode: z.string().nullable(),
   optionName: z.string().nullable(),
@@ -255,7 +240,6 @@ export const ProductOptionSchema = z.object({
 });
 export type ProductOption = z.infer<typeof ProductOptionSchema>;
 
-// ===== BundleComponent =====
 export const BundleComponentSchema = z.object({
   id: z.string().uuid(),
   bundleOptionId: z.string().uuid(),
@@ -267,7 +251,6 @@ export const BundleComponentSchema = z.object({
 });
 export type BundleComponent = z.infer<typeof BundleComponentSchema>;
 
-// ===== Relation-loaded variants =====
 export const MasterWithOptionsSchema = MasterSchema.extend({
   options: z.array(ProductOptionSchema),
 });
@@ -279,7 +262,7 @@ export const OptionWithComponentsSchema = ProductOptionSchema.extend({
 export type OptionWithComponents = z.infer<typeof OptionWithComponentsSchema>;
 ```
 
-### Step 1-4: Rewrite `packages/shared/src/schemas/inventory.ts`
+### Step 1-3: Rewrite `packages/shared/src/schemas/inventory.ts`
 
 ```typescript
 // packages/shared/src/schemas/inventory.ts
@@ -295,30 +278,25 @@ export const InventorySchema = z.object({
   reorderPoint: z.number().int(),
   reorderQuantity: z.number().int(),
   leadTimeDays: z.number().int().nullable(),
-  dailySalesAvg: z.number(),                     // Decimal → number
+  dailySalesAvg: z.number(),
   warehouseLocation: z.string().nullable(),
   lastRestockedAt: z.string().datetime().nullable(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
 export type Inventory = z.infer<typeof InventorySchema>;
-
-// Aggregated / enriched views (기존 InventoryItemSchema, InventorySummarySchema) 는
-// Plan B2 inventory service rewrite 때 재정의. Plan B1 은 raw shape 만.
 ```
 
-### Step 1-5: Update `packages/shared/src/schemas/index.ts`
+### Step 1-4: Update `packages/shared/src/schemas/index.ts`
 
-Find the product and inventory export lines, replace:
+Read the file first to see other exports (order, profit-loss, workflow 등), **그들은 건드리지 않음**. 제거할 라인:
+- `export { TrafficDataSchema, ProductListItemSchema, ProductDetailSchema, PipelineCountsSchema } from './product.js';`
+- `export type { TrafficData, ProductListItem, ProductDetail, PipelineCounts } from './product.js';`
+- `export { InventoryItemSchema, InventorySummarySchema } from './inventory.js';`
+- `export type { InventoryItem, InventorySummary } from './inventory.js';`
 
+추가할 라인:
 ```typescript
-// OLD:
-// export { TrafficDataSchema, ProductListItemSchema, ProductDetailSchema, PipelineCountsSchema } from './product.js';
-// export type { TrafficData, ProductListItem, ProductDetail, PipelineCounts } from './product.js';
-// export { InventoryItemSchema, InventorySummarySchema } from './inventory.js';
-// export type { InventoryItem, InventorySummary } from './inventory.js';
-
-// NEW:
 export {
   MasterSchema, ProductOptionSchema, BundleComponentSchema,
   MasterWithOptionsSchema, OptionWithComponentsSchema,
@@ -332,77 +310,57 @@ export { InventorySchema } from './inventory.js';
 export type { Inventory } from './inventory.js';
 ```
 
-Leave all other exports (order, profit-loss, workflow, etc.) untouched.
+### Step 1-5: Update `packages/shared/src/index.ts`
 
-### Step 1-6: Update `packages/shared/src/index.ts`
+Same pattern. `toSerializable` export 는 없음 (server 전용으로 옮김). 제거할 라인은 `src/schemas/index.ts` 와 동일 심볼들. 추가는 위와 동일.
 
-Same pattern — find the product + inventory re-exports and replace with the new symbol names. Add `toSerializable` export from `./json.js`.
-
-```typescript
-// Add near top-level exports:
-export { toSerializable } from './json.js';
-
-// Replace product re-exports:
-export {
-  MasterSchema, ProductOptionSchema, BundleComponentSchema,
-  MasterWithOptionsSchema, OptionWithComponentsSchema,
-} from './schemas/product.js';
-export type {
-  Master, ProductOption, BundleComponent,
-  MasterWithOptions, OptionWithComponents,
-} from './schemas/product.js';
-
-// Replace inventory re-exports:
-export { InventorySchema } from './schemas/inventory.js';
-export type { Inventory } from './schemas/inventory.js';
-```
-
-Remove all references to `TrafficDataSchema`, `ProductListItemSchema`, `ProductDetailSchema`, `PipelineCountsSchema`, `InventoryItemSchema`, `InventorySummarySchema`, `MasterProductSchema`, `TrafficData`, `ProductListItem`, `ProductDetail`, `PipelineCounts`, `InventoryItem`, `InventorySummary`, `MasterProduct` from both index files.
-
-### Step 1-7: Build shared package — verify PASS
+### Step 1-6: Build shared
 
 ```bash
 cd /Users/yhc125/workspace/kiditem
 npm run build --workspace=packages/shared 2>&1 | tail -10
 ```
 
-Expected: `Successfully compiled` or tsc 0 errors. **@kiditem/shared 자체는 컴파일 되어야 함** — 내부 consistency check.
+Expected: PASS. 실패 시 — 빠진 re-export 또는 누락된 type 확인.
 
-### Step 1-8: Confirm downstream breakage count within expected range
+### Step 1-7: Baseline downstream breakage
 
 ```bash
 cd /Users/yhc125/workspace/kiditem/apps/server
 npx tsc --noEmit 2>&1 | grep -c "error TS"
 ```
 
-Expected: ~400-500 errors (Plan A baseline 424 + shared rewrite 효과로 약간 증가 또는 유사). Plan B2/B3 에서 감소 예정.
+Expected: ~420-500 errors (Plan A baseline 근처, 약간 증가 수용). Plan B2/B3 에서 감소 예정.
 
-### Step 1-9: Commit Task 1
+### Step 1-8: Commit Task 1
 
 ```bash
 cd /Users/yhc125/workspace/kiditem
 git add packages/shared/src/schemas/product.ts \
         packages/shared/src/schemas/inventory.ts \
         packages/shared/src/schemas/index.ts \
-        packages/shared/src/index.ts \
-        packages/shared/src/json.ts
+        packages/shared/src/index.ts
 git commit -m "feat(shared): rewrite product/inventory schemas for 3-layer (Plan B1 T1)"
 ```
 
 ---
 
-## Task 2: Foundation (module skeleton + MasterCodeService + utilities)
+## Task 2: Foundation — module skeleton + utils + MasterCodeService + serialize
+
+**Prior state**: T1 commit landed. `@kiditem/shared` 는 새 심볼 (`MasterSchema` 등) export.
 
 **Files:**
 - Create: `apps/server/src/products/products.module.ts`
 - Create: `apps/server/src/products/CLAUDE.md`
 - Create: `apps/server/src/products/util/prisma-error.ts`
 - Create: `apps/server/src/products/util/cursor.ts`
+- Create: `apps/server/src/products/util/serialize.ts`
 - Create: `apps/server/src/products/services/master-code.service.ts`
 - Create: `apps/server/src/products/__tests__/master-code.service.spec.ts`
+- Create: `apps/server/src/products/__tests__/serialize.spec.ts`
 - Create: `apps/server/tsconfig.products.json`
 
-### Step 2-1: Create `apps/server/src/products/util/prisma-error.ts`
+### Step 2-1: Create `util/prisma-error.ts`
 
 ```typescript
 // apps/server/src/products/util/prisma-error.ts
@@ -411,10 +369,6 @@ import {
   BadRequestException, ConflictException, NotFoundException,
 } from '@nestjs/common';
 
-/**
- * Map Prisma known request errors to NestJS HTTP exceptions.
- * Call in service catch blocks: `catch (e) { mapPrismaError(e, 'master create') }`.
- */
 export function mapPrismaError(e: unknown, context: string): never {
   if (e instanceof Prisma.PrismaClientKnownRequestError) {
     if (e.code === 'P2002') {
@@ -432,14 +386,10 @@ export function mapPrismaError(e: unknown, context: string): never {
 }
 ```
 
-### Step 2-2: Create `apps/server/src/products/util/cursor.ts`
+### Step 2-2: Create `util/cursor.ts`
 
 ```typescript
 // apps/server/src/products/util/cursor.ts
-/**
- * Opaque cursor = base64url({ createdAt: ISO, id: UUID }).
- * Used for (createdAt DESC, id DESC) pagination tiebreaker.
- */
 export interface CursorPayload {
   createdAt: string;
   id: string;
@@ -462,21 +412,105 @@ export function decodeCursor(cursor: string): CursorPayload {
 }
 ```
 
-### Step 2-3: Write failing unit test for MasterCodeService
-
-Create `apps/server/src/products/__tests__/master-code.service.spec.ts`:
+### Step 2-3: Create `util/serialize.ts` (server-side, Prisma-aware)
 
 ```typescript
-import { MasterCodeService } from '../services/master-code.service';
+// apps/server/src/products/util/serialize.ts
+import { Prisma } from '@prisma/client';
+
+/**
+ * Prisma row (with Decimal / Date / JsonValue) → plain JSON-serializable shape.
+ * Use at controller response boundary before Zod parse.
+ */
+export function toSerializable(row: unknown): unknown {
+  if (row === null || row === undefined) return row;
+  if (row instanceof Date) return row.toISOString();
+  if (Prisma.Decimal.isDecimal(row)) return (row as Prisma.Decimal).toNumber();
+  if (Array.isArray(row)) return row.map(toSerializable);
+  if (typeof row === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(row as Record<string, unknown>)) {
+      out[k] = toSerializable(v);
+    }
+    return out;
+  }
+  return row;
+}
+```
+
+### Step 2-4: Write failing test `__tests__/serialize.spec.ts`
+
+```typescript
+// apps/server/src/products/__tests__/serialize.spec.ts
+import { describe, it, expect } from 'vitest';
+import { Prisma } from '@prisma/client';
+import { toSerializable } from '../util/serialize';
+
+describe('toSerializable', () => {
+  it('converts Date to ISO string', () => {
+    const d = new Date('2026-04-17T10:00:00.000Z');
+    expect(toSerializable(d)).toBe('2026-04-17T10:00:00.000Z');
+  });
+
+  it('converts Prisma.Decimal to number', () => {
+    const d = new Prisma.Decimal('12.34');
+    expect(toSerializable(d)).toBe(12.34);
+  });
+
+  it('recurses into arrays', () => {
+    expect(toSerializable([new Date('2026-01-01'), 42])).toEqual([
+      '2026-01-01T00:00:00.000Z', 42,
+    ]);
+  });
+
+  it('recurses into plain objects', () => {
+    const row = {
+      id: 'abc',
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      cost: new Prisma.Decimal('9.99'),
+      nested: { flag: true },
+    };
+    expect(toSerializable(row)).toEqual({
+      id: 'abc',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      cost: 9.99,
+      nested: { flag: true },
+    });
+  });
+
+  it('passes through primitives untouched', () => {
+    expect(toSerializable(42)).toBe(42);
+    expect(toSerializable('hello')).toBe('hello');
+    expect(toSerializable(null)).toBe(null);
+    expect(toSerializable(true)).toBe(true);
+  });
+});
+```
+
+### Step 2-5: Run serialize test — PASS
+
+```bash
+cd /Users/yhc125/workspace/kiditem/apps/server
+npx vitest run src/products/__tests__/serialize.spec.ts
+```
+
+Expected: PASS 5/5 (implementation already complete in Step 2-3).
+
+### Step 2-6: Write failing test `__tests__/master-code.service.spec.ts`
+
+```typescript
+// apps/server/src/products/__tests__/master-code.service.spec.ts
+import { describe, it, expect, vi } from 'vitest';
 import { InternalServerErrorException } from '@nestjs/common';
+import { MasterCodeService } from '../services/master-code.service';
+
+function makePrismaMock(seqReturn: bigint) {
+  return {
+    $queryRaw: vi.fn().mockResolvedValue([{ nextval: seqReturn }]),
+  } as any;
+}
 
 describe('MasterCodeService', () => {
-  function makePrismaMock(seqReturn: bigint) {
-    return {
-      $queryRaw: vi.fn().mockResolvedValue([{ nextval: seqReturn }]),
-    } as any;
-  }
-
   it('formats sequence value 1 → "M-00000001"', async () => {
     const svc = new MasterCodeService(makePrismaMock(1n));
     expect(await svc.generate()).toBe('M-00000001');
@@ -499,7 +533,7 @@ describe('MasterCodeService', () => {
 });
 ```
 
-### Step 2-4: Run test to verify it fails
+### Step 2-7: Run test — FAIL
 
 ```bash
 cd /Users/yhc125/workspace/kiditem/apps/server
@@ -508,11 +542,10 @@ npx vitest run src/products/__tests__/master-code.service.spec.ts
 
 Expected: FAIL — `Cannot find module '../services/master-code.service'`.
 
-### Step 2-5: Implement MasterCodeService
-
-Create `apps/server/src/products/services/master-code.service.ts`:
+### Step 2-8: Implement `services/master-code.service.ts`
 
 ```typescript
+// apps/server/src/products/services/master-code.service.ts
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 
@@ -537,7 +570,7 @@ export class MasterCodeService {
 }
 ```
 
-### Step 2-6: Run test to verify it passes
+### Step 2-9: Run test — PASS
 
 ```bash
 cd /Users/yhc125/workspace/kiditem/apps/server
@@ -546,7 +579,7 @@ npx vitest run src/products/__tests__/master-code.service.spec.ts
 
 Expected: PASS 4/4.
 
-### Step 2-7: Create `apps/server/src/products/products.module.ts` skeleton
+### Step 2-10: Create `products.module.ts` skeleton
 
 ```typescript
 // apps/server/src/products/products.module.ts
@@ -561,11 +594,7 @@ import { MasterCodeService } from './services/master-code.service';
 export class ProductsModule {}
 ```
 
-(Controllers + other services 는 Task 3-5 에서 추가.)
-
-### Step 2-8: Create `apps/server/src/products/CLAUDE.md`
-
-Use this exact content:
+### Step 2-11: Create `CLAUDE.md`
 
 ```markdown
 # products — Master/Option/Bundle Domain
@@ -578,36 +607,36 @@ Use this exact content:
 
 ## 핵심 규칙
 
-- **code 생성**: `MasterCodeService.generate()` — `nextval('master_code_seq')`. race-free + gap-tolerant (rollback 시 gap 허용).
-- **sku 생성**: `OptionsService.create` 의 `$transaction` 안에서 `masterProduct.updateMany + findUniqueOrThrow` 2-step. WHERE 에 `isDeleted:false` 포함 (TOCTOU).
+- **code 생성**: `MasterCodeService.generate()` — `nextval('master_code_seq')`. race-free + gap-tolerant.
+- **sku 생성**: `OptionsService.create` 의 `$transaction` 안에서 `masterProduct.updateMany + findUniqueOrThrow` 2-step. WHERE 에 `isDeleted:false` 포함 (TOCTOU 차단).
 - **availableStock materialize**: `BundleStockService.recompute` **만** write. `OptionsService.update` 는 payload 에서 명시적 strip.
 - **BundleComponent.companyId**: auth companyId 아닌 `bundleOption.companyId` 에서 파생 (3-way invariant).
 - **Bundle recompute**: component CRUD 시 inline `$transaction` + `SELECT ... FOR UPDATE` row-level lock. Option soft-delete 시에도 파생 recompute.
-- **Soft-delete**: Master / Option 만. cascade 없음. restore 도 cascade 없음.
+- **Soft-delete**: Master / Option 만. cascade 없음. Restore 도 cascade 없음.
 - **Hard delete**: BundleComponent 만.
 
-## 외부 서비스 접근
+## Controller / Service 관행
 
-- Export: `MastersService`, `OptionsService`, `BundleComponentsService`.
-- **Non-export (내부 전용)**: `MasterCodeService`, `BundleStockService` — 외부 모듈 접근 금지.
+- Controller 는 `@UseGuards` / `@UsePipes` **사용 금지**. 전역 `CompanyScopeGuard` (APP_GUARD) + 전역 `ValidationPipe` 에 의존.
+- Controller 는 `@CurrentCompany()` 로 companyId 주입.
+- Service 는 raw Prisma row 반환. Controller 가 `toSerializable()` + Zod parse.
 
 ## Transaction composition
 
 모든 mutating method 는 optional `tx?: Prisma.TransactionClient` 마지막 파라미터. Plan B2 의 outer transaction (sourcing, supplier sync) 와 compose 가능.
 
+## 외부 서비스 접근
+
+- Export: `MastersService`, `OptionsService`, `BundleComponentsService`.
+- **Non-export**: `MasterCodeService`, `BundleStockService`.
+
 ## RLS
 
-- `chatbot_readonly` — DB session `SET app.company_id = '<uuid>'` 필수. `prisma/3layer-setup.sql` 의 7 RLS policies 로 자동 필터.
-- NestJS (`kiditem` 유저) — table owner → RLS 우회. App-level `where.companyId` 필터 필수.
-
-## Plan 분할
-
-- Plan B1 (현재) — Master + Option + Bundle.
-- Plan B2 — advertising / orders / inventory service rewrite + `StockTransaction` hook 이 `BundleStockService.recompute` 호출.
-- Plan B3 — dashboard / finance / supply / AI + full NestJS HTTP integration tests.
+- `chatbot_readonly` — session `SET app.company_id` 필수. 7 RLS policies (Plan A Task 11).
+- NestJS (`kiditem`) — table owner → RLS 우회. App-level `where.companyId` 필수.
 ```
 
-### Step 2-9: Create `apps/server/tsconfig.products.json`
+### Step 2-12: Create `tsconfig.products.json`
 
 ```json
 {
@@ -624,16 +653,16 @@ Use this exact content:
 }
 ```
 
-### Step 2-10: Verify products-only tsc compiles
+### Step 2-13: Verify products-only tsc
 
 ```bash
 cd /Users/yhc125/workspace/kiditem/apps/server
 npx tsc --noEmit --project tsconfig.products.json
 ```
 
-Expected: 0 errors (products module is minimal — skeleton + MasterCodeService + utils only).
+Expected: 0 errors.
 
-### Step 2-11: Commit Task 2
+### Step 2-14: Commit Task 2
 
 ```bash
 cd /Users/yhc125/workspace/kiditem
@@ -642,13 +671,16 @@ git add apps/server/src/products/products.module.ts \
         apps/server/src/products/util/ \
         apps/server/src/products/services/master-code.service.ts \
         apps/server/src/products/__tests__/master-code.service.spec.ts \
+        apps/server/src/products/__tests__/serialize.spec.ts \
         apps/server/tsconfig.products.json
-git commit -m "feat(products): module skeleton + MasterCodeService + utils (Plan B1 T2)"
+git commit -m "feat(products): module skeleton + MasterCodeService + serialize util (Plan B1 T2)"
 ```
 
 ---
 
 ## Task 3: Masters (controller + service + DTOs + integration tests)
+
+**Prior state**: T1 + T2 commits landed. `products.module.ts` has `MasterCodeService` provider only. `@kiditem/shared` exports new symbols.
 
 **Files:**
 - Create: `apps/server/src/products/dto/create-master.dto.ts`
@@ -657,8 +689,7 @@ git commit -m "feat(products): module skeleton + MasterCodeService + utils (Plan
 - Create: `apps/server/src/products/services/masters.service.ts`
 - Create: `apps/server/src/products/controllers/masters.controller.ts`
 - Create: `apps/server/src/products/__tests__/masters.service.pg.integration.spec.ts`
-- Modify: `apps/server/src/products/products.module.ts`
-- Modify: `apps/server/src/test-helpers/real-prisma.ts` — add `seedProductsFixture`
+- Modify: `apps/server/src/products/products.module.ts` (ADD MastersService + MastersController, do NOT replace)
 
 ### Step 3-1: Create `dto/create-master.dto.ts`
 
@@ -756,16 +787,6 @@ import { PartialType } from '@nestjs/mapped-types';
 import { CreateMasterDto } from './create-master.dto';
 
 export class UpdateMasterDto extends PartialType(CreateMasterDto) {}
-
-/**
- * Service MUST strip the following before calling prisma.update:
- * id, code, companyId, optionCounter, isDeleted, deletedAt, healthUpdatedAt,
- * rawData, processedData, draftContent, createdAt, updatedAt.
- *
- * State transitions (soft-delete/restore) use dedicated endpoints:
- *   DELETE /:id   → softDelete()
- *   POST /:id/restore → restore()
- */
 ```
 
 ### Step 3-3: Create `dto/list-masters.query.ts`
@@ -808,58 +829,11 @@ export class ListMastersQuery {
 }
 ```
 
-### Step 3-4: Extend `seedProductsFixture` in `test-helpers/real-prisma.ts`
-
-Read the current file first, then append:
-
-```typescript
-// apps/server/src/test-helpers/real-prisma.ts (append)
-export async function seedProductsFixture(
-  prisma: PrismaClient,
-  companyId: string,
-  opts: { masterCode?: string } = {},
-) {
-  const code = opts.masterCode ?? `M-${String(Math.floor(Math.random() * 99999999)).padStart(8, '0')}`;
-  const master = await prisma.masterProduct.create({
-    data: {
-      companyId,
-      code,
-      name: `Fixture Master ${code}`,
-      optionCounter: 0,
-    },
-  });
-  const singleOption = await prisma.productOption.create({
-    data: {
-      companyId,
-      masterId: master.id,
-      sku: `${code}-01`,
-      optionName: null,
-      isActive: true,
-    },
-  });
-  const bundleOption = await prisma.productOption.create({
-    data: {
-      companyId,
-      masterId: master.id,
-      sku: `${code}-02`,
-      optionName: 'Bundle',
-      isBundle: true,
-      availableStock: 0,
-    },
-  });
-  await prisma.inventory.create({
-    data: { companyId, optionId: singleOption.id, currentStock: 100 },
-  });
-  return { master, singleOption, bundleOption };
-}
-```
-
-After `optionCounter: 0`, the master.optionCounter is stored as 0, but we manually created options with sku suffix `-01`/`-02` — callers that test the normal OptionsService.create race should bump counter themselves.
-
-### Step 3-5: Write failing integration tests — `masters.service.pg.integration.spec.ts`
+### Step 3-4: Write failing integration spec
 
 ```typescript
 // apps/server/src/products/__tests__/masters.service.pg.integration.spec.ts
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { MasterCodeService } from '../services/master-code.service';
 import { MastersService } from '../services/masters.service';
@@ -875,6 +849,7 @@ describe('MastersService integration', () => {
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
+    await prisma.$connect();
     codeSvc = new MasterCodeService(prisma as any);
     svc = new MastersService(prisma as any, codeSvc);
   });
@@ -884,9 +859,7 @@ describe('MastersService integration', () => {
     await seedBaseFixture(prisma);
   });
 
-  afterAll(async () => {
-    await prisma.$disconnect();
-  });
+  afterAll(async () => { await prisma.$disconnect(); });
 
   it('creates a master with auto-generated code', async () => {
     const m = await svc.create(TEST_COMPANY_ID, { name: 'Apple juice bundle' } as any);
@@ -924,7 +897,7 @@ describe('MastersService integration', () => {
     expect(restored.deletedAt).toBeNull();
   });
 
-  it('auto-updates healthUpdatedAt when healthScore changes', async () => {
+  it('auto-updates healthUpdatedAt when healthScore changes via PATCH', async () => {
     const m = await svc.create(TEST_COMPANY_ID, { name: 'Z' } as any);
     const before = m.healthUpdatedAt;
     const updated = await svc.update(TEST_COMPANY_ID, m.id, { healthScore: 85 } as any);
@@ -952,7 +925,7 @@ describe('MastersService integration', () => {
 });
 ```
 
-### Step 3-6: Run test — verify FAIL
+### Step 3-5: Run — FAIL
 
 ```bash
 cd /Users/yhc125/workspace/kiditem
@@ -965,14 +938,14 @@ DATABASE_URL=postgresql://kiditem_test:kiditem_test@localhost:5434/kiditem_test 
 
 Expected: FAIL — `Cannot find module '../services/masters.service'`.
 
-### Step 3-7: Implement `services/masters.service.ts`
+### Step 3-6: Implement `services/masters.service.ts`
 
 ```typescript
 // apps/server/src/products/services/masters.service.ts
 import {
   ConflictException, ForbiddenException, Injectable, NotFoundException,
 } from '@nestjs/common';
-import { Prisma, MasterProduct } from '@prisma/client';
+import { MasterProduct, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MasterCodeService } from './master-code.service';
 import { CreateMasterDto } from '../dto/create-master.dto';
@@ -981,11 +954,11 @@ import { ListMastersQuery } from '../dto/list-masters.query';
 import { mapPrismaError } from '../util/prisma-error';
 import { decodeCursor, encodeCursor } from '../util/cursor';
 
-const SYSTEM_FIELDS: readonly (keyof CreateMasterDto | string)[] = [
+const SYSTEM_FIELDS = [
   'id', 'code', 'companyId', 'optionCounter', 'isDeleted', 'deletedAt',
   'healthUpdatedAt', 'rawData', 'processedData', 'draftContent',
   'createdAt', 'updatedAt',
-];
+] as const;
 
 @Injectable()
 export class MastersService {
@@ -994,8 +967,12 @@ export class MastersService {
     private readonly codeSvc: MasterCodeService,
   ) {}
 
-  async create(companyId: string, dto: CreateMasterDto, tx?: Prisma.TransactionClient): Promise<MasterProduct> {
-    const db = tx ?? this.prisma;
+  async create(
+    companyId: string,
+    dto: CreateMasterDto,
+    outerTx?: Prisma.TransactionClient,
+  ): Promise<MasterProduct> {
+    const db = outerTx ?? this.prisma;
     if (dto.supplierId) {
       const supplier = await db.supplier.findUnique({
         where: { id: dto.supplierId },
@@ -1007,14 +984,15 @@ export class MastersService {
       }
     }
     const code = await this.codeSvc.generate();
+    const stripped = this.strip(dto);
     try {
       return await db.masterProduct.create({
         data: {
-          ...this.strip(dto),
+          ...stripped,
           companyId,
           code,
           healthUpdatedAt: dto.healthScore !== undefined ? new Date() : null,
-        },
+        } as Prisma.MasterProductUncheckedCreateInput,
       });
     } catch (e) { mapPrismaError(e, 'master create'); }
   }
@@ -1058,16 +1036,22 @@ export class MastersService {
     });
     const items = rows.slice(0, limit);
     const nextCursor = rows.length > limit
-      ? encodeCursor({ createdAt: items[items.length - 1].createdAt.toISOString(), id: items[items.length - 1].id })
+      ? encodeCursor({
+          createdAt: items[items.length - 1].createdAt.toISOString(),
+          id: items[items.length - 1].id,
+        })
       : null;
     return { items, nextCursor };
   }
 
-  async findById(companyId: string, id: string, opts: { includeDeleted?: boolean }): Promise<MasterProduct> {
+  async findById(
+    companyId: string,
+    id: string,
+    opts: { includeDeleted?: boolean },
+  ): Promise<MasterProduct> {
     const row = await this.prisma.masterProduct.findFirst({
       where: {
-        id,
-        companyId,
+        id, companyId,
         ...(opts.includeDeleted ? {} : { isDeleted: false }),
       },
     });
@@ -1091,8 +1075,13 @@ export class MastersService {
     return row;
   }
 
-  async update(companyId: string, id: string, dto: UpdateMasterDto, tx?: Prisma.TransactionClient): Promise<MasterProduct> {
-    const db = tx ?? this.prisma;
+  async update(
+    companyId: string,
+    id: string,
+    dto: UpdateMasterDto,
+    outerTx?: Prisma.TransactionClient,
+  ): Promise<MasterProduct> {
+    const db = outerTx ?? this.prisma;
     if (dto.supplierId !== undefined && dto.supplierId !== null) {
       const supplier = await db.supplier.findUnique({
         where: { id: dto.supplierId },
@@ -1103,7 +1092,7 @@ export class MastersService {
       }
     }
     const stripped = this.strip(dto);
-    const data: Prisma.MasterProductUpdateInput = { ...stripped };
+    const data: Prisma.MasterProductUncheckedUpdateInput = { ...stripped };
     if (dto.healthScore !== undefined) data.healthUpdatedAt = new Date();
     if (dto.isTemporary === false) data.temporaryReason = null;
     try {
@@ -1116,8 +1105,12 @@ export class MastersService {
     } catch (e) { mapPrismaError(e, 'master update'); }
   }
 
-  async softDelete(companyId: string, id: string, tx?: Prisma.TransactionClient): Promise<void> {
-    const db = tx ?? this.prisma;
+  async softDelete(
+    companyId: string,
+    id: string,
+    outerTx?: Prisma.TransactionClient,
+  ): Promise<void> {
+    const db = outerTx ?? this.prisma;
     const { count } = await db.masterProduct.updateMany({
       where: { id, companyId, isDeleted: false },
       data: { isDeleted: true, deletedAt: new Date() },
@@ -1125,8 +1118,12 @@ export class MastersService {
     if (count === 0) throw new NotFoundException('master not found');
   }
 
-  async restore(companyId: string, id: string, tx?: Prisma.TransactionClient): Promise<void> {
-    const db = tx ?? this.prisma;
+  async restore(
+    companyId: string,
+    id: string,
+    outerTx?: Prisma.TransactionClient,
+  ): Promise<void> {
+    const db = outerTx ?? this.prisma;
     const row = await db.masterProduct.findFirst({
       where: { id, companyId, isDeleted: true },
     });
@@ -1139,7 +1136,7 @@ export class MastersService {
     } catch (e) { mapPrismaError(e, 'master restore'); }
   }
 
-  private strip(dto: Partial<CreateMasterDto> | Partial<UpdateMasterDto>): Record<string, unknown> {
+  private strip(dto: Partial<CreateMasterDto> | Partial<UpdateMasterDto>) {
     const out: Record<string, unknown> = { ...dto };
     for (const f of SYSTEM_FIELDS) delete out[f as string];
     return out;
@@ -1147,49 +1144,31 @@ export class MastersService {
 }
 ```
 
-### Step 3-8: Register MastersService in products.module.ts
-
-Modify:
-
-```typescript
-// apps/server/src/products/products.module.ts
-import { Module } from '@nestjs/common';
-import { MasterCodeService } from './services/master-code.service';
-import { MastersService } from './services/masters.service';
-import { MastersController } from './controllers/masters.controller';
-
-@Module({
-  controllers: [MastersController],
-  providers: [MasterCodeService, MastersService],
-  exports: [MastersService],
-})
-export class ProductsModule {}
-```
-
-### Step 3-9: Implement `controllers/masters.controller.ts`
+### Step 3-7: Implement `controllers/masters.controller.ts` (NO `@UseGuards` / `@UsePipes`)
 
 ```typescript
 // apps/server/src/products/controllers/masters.controller.ts
 import {
-  Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards, UsePipes,
-  ValidationPipe,
+  Body, Controller, Delete, Get, Param, Patch, Post, Query,
 } from '@nestjs/common';
-import { AuthGuard } from '@nestjs/passport';
 import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
-import { toSerializable } from '@kiditem/shared';
 import {
-  MasterSchema, MasterWithOptionsSchema, type Master, type MasterWithOptions,
+  MasterSchema, MasterWithOptionsSchema,
+  type Master, type MasterWithOptions,
 } from '@kiditem/shared';
+import { toSerializable } from '../util/serialize';
 import { MastersService } from '../services/masters.service';
+import { PrismaService } from '../../prisma/prisma.service';
 import { CreateMasterDto } from '../dto/create-master.dto';
 import { UpdateMasterDto } from '../dto/update-master.dto';
 import { ListMastersQuery } from '../dto/list-masters.query';
 
 @Controller('products/masters')
-@UseGuards(AuthGuard('jwt'))
-@UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
 export class MastersController {
-  constructor(private readonly svc: MastersService) {}
+  constructor(
+    private readonly svc: MastersService,
+    private readonly prisma: PrismaService,
+  ) {}
 
   @Post()
   async create(
@@ -1221,14 +1200,11 @@ export class MastersController {
     const row = await this.svc.findById(companyId, id, {
       includeDeleted: includeDeleted === 'true',
     });
-    // relation-load options separately for detail endpoint
-    const options = await this.svc['prisma'].productOption.findMany({
+    const options = await this.prisma.productOption.findMany({
       where: { masterId: id, isDeleted: false },
       orderBy: { sortOrder: 'asc' },
     });
-    return MasterWithOptionsSchema.parse(
-      toSerializable({ ...row, options }),
-    );
+    return MasterWithOptionsSchema.parse(toSerializable({ ...row, options }));
   }
 
   @Get('by-code/:code')
@@ -1277,12 +1253,31 @@ export class MastersController {
 }
 ```
 
-### Step 3-10: Run integration tests — verify PASS
+### Step 3-8: Modify `products.module.ts` (ADD, do not replace)
+
+Current state (after T2): `controllers: []`, `providers: [MasterCodeService]`.
+
+Modify to:
+
+```typescript
+// apps/server/src/products/products.module.ts
+import { Module } from '@nestjs/common';
+import { MasterCodeService } from './services/master-code.service';
+import { MastersService } from './services/masters.service';
+import { MastersController } from './controllers/masters.controller';
+
+@Module({
+  controllers: [MastersController],
+  providers: [MasterCodeService, MastersService],
+  exports: [MastersService],
+})
+export class ProductsModule {}
+```
+
+### Step 3-9: Run integration test — PASS
 
 ```bash
-cd /Users/yhc125/workspace/kiditem
-npm run db:test:prepare
-cd apps/server
+cd /Users/yhc125/workspace/kiditem/apps/server
 DATABASE_URL=postgresql://kiditem_test:kiditem_test@localhost:5434/kiditem_test \
   npx vitest run --config vitest.config.integration.ts \
   src/products/__tests__/masters.service.pg.integration.spec.ts
@@ -1290,7 +1285,7 @@ DATABASE_URL=postgresql://kiditem_test:kiditem_test@localhost:5434/kiditem_test 
 
 Expected: PASS 7/7.
 
-### Step 3-11: Products-only tsc PASS
+### Step 3-10: Products-only tsc — PASS
 
 ```bash
 cd /Users/yhc125/workspace/kiditem/apps/server
@@ -1299,7 +1294,7 @@ npx tsc --noEmit --project tsconfig.products.json
 
 Expected: 0 errors.
 
-### Step 3-12: Commit Task 3
+### Step 3-11: Commit Task 3
 
 ```bash
 cd /Users/yhc125/workspace/kiditem
@@ -1309,23 +1304,25 @@ git add apps/server/src/products/dto/create-master.dto.ts \
         apps/server/src/products/services/masters.service.ts \
         apps/server/src/products/controllers/masters.controller.ts \
         apps/server/src/products/__tests__/masters.service.pg.integration.spec.ts \
-        apps/server/src/products/products.module.ts \
-        apps/server/src/test-helpers/real-prisma.ts
+        apps/server/src/products/products.module.ts
 git commit -m "feat(products): Masters CRUD + soft-delete/restore (Plan B1 T3)"
 ```
 
 ---
 
-## Task 4: Options (controller + service + DTOs + integration tests + race test)
+## Task 4: Options + BundleStockService (controller + service + DTOs + race test)
+
+**Prior state**: T3 commit landed. `products.module.ts` has `MastersController`, `MastersService`, `MasterCodeService`. Integration suite already has `masters.service.pg.integration.spec.ts` passing.
 
 **Files:**
 - Create: `apps/server/src/products/dto/create-option.dto.ts`
 - Create: `apps/server/src/products/dto/update-option.dto.ts`
 - Create: `apps/server/src/products/dto/list-options.query.ts`
 - Create: `apps/server/src/products/services/options.service.ts`
+- Create: `apps/server/src/products/services/bundle-stock.service.ts`
 - Create: `apps/server/src/products/controllers/options.controller.ts`
 - Create: `apps/server/src/products/__tests__/options.service.pg.integration.spec.ts`
-- Modify: `apps/server/src/products/products.module.ts`
+- Modify: `apps/server/src/products/products.module.ts` (ADD, preserve T3 edits)
 
 ### Step 4-1: Create `dto/create-option.dto.ts`
 
@@ -1431,15 +1428,14 @@ export class ListOptionsQuery {
 
 ### Step 4-4: Write failing integration tests
 
-Create `apps/server/src/products/__tests__/options.service.pg.integration.spec.ts`:
-
 ```typescript
+// apps/server/src/products/__tests__/options.service.pg.integration.spec.ts
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { MasterCodeService } from '../services/master-code.service';
 import { MastersService } from '../services/masters.service';
-import { OptionsService } from '../services/options.service';
-// BundleStockService is needed as dep by OptionsService for soft-delete recompute cascade
 import { BundleStockService } from '../services/bundle-stock.service';
+import { OptionsService } from '../services/options.service';
 import {
   makeTestPrisma, resetDb, seedBaseFixture, TEST_COMPANY_ID,
 } from '../../test-helpers/real-prisma';
@@ -1452,6 +1448,7 @@ describe('OptionsService integration', () => {
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
+    await prisma.$connect();
     const codeSvc = new MasterCodeService(prisma as any);
     mastersSvc = new MastersService(prisma as any, codeSvc);
     bundleStockSvc = new BundleStockService(prisma as any);
@@ -1491,7 +1488,7 @@ describe('OptionsService integration', () => {
 
   it('enforces partial-unique index for null optionName (single-option)', async () => {
     const m = await mastersSvc.create(TEST_COMPANY_ID, { name: 'M4' } as any);
-    await svc.create(TEST_COMPANY_ID, { masterId: m.id } as any); // optionName: null
+    await svc.create(TEST_COMPANY_ID, { masterId: m.id } as any);
     await expect(
       svc.create(TEST_COMPANY_ID, { masterId: m.id } as any),
     ).rejects.toMatchObject({ status: 409 });
@@ -1513,9 +1510,10 @@ describe('OptionsService integration', () => {
   });
 
   it('prevents isBundle flip true → false when BundleComponent rows exist', async () => {
-    // setup: master + 2 options + make o1 bundle with o2 as component
     const m = await mastersSvc.create(TEST_COMPANY_ID, { name: 'M6' } as any);
-    const bundle = await svc.create(TEST_COMPANY_ID, { masterId: m.id, optionName: 'Bundle', isBundle: true } as any);
+    const bundle = await svc.create(TEST_COMPANY_ID, {
+      masterId: m.id, optionName: 'Bundle', isBundle: true,
+    } as any);
     const comp = await svc.create(TEST_COMPANY_ID, { masterId: m.id, optionName: 'Comp' } as any);
     await prisma.bundleComponent.create({
       data: {
@@ -1530,28 +1528,43 @@ describe('OptionsService integration', () => {
     ).rejects.toMatchObject({ status: 409 });
   });
 
+  it('rejects re-parenting: PATCH with masterId of another master is ignored', async () => {
+    const m1 = await mastersSvc.create(TEST_COMPANY_ID, { name: 'A' } as any);
+    const m2 = await mastersSvc.create(TEST_COMPANY_ID, { name: 'B' } as any);
+    const opt = await svc.create(TEST_COMPANY_ID, { masterId: m1.id, optionName: 'X' } as any);
+    const updated = await svc.update(TEST_COMPANY_ID, opt.id, { masterId: m2.id } as any);
+    expect(updated.masterId).toBe(m1.id); // NOT reassigned
+  });
+
   it('triggers recompute on bundles when component option is soft-deleted', async () => {
     const m = await mastersSvc.create(TEST_COMPANY_ID, { name: 'M7' } as any);
-    const bundle = await svc.create(TEST_COMPANY_ID, { masterId: m.id, optionName: 'B', isBundle: true } as any);
+    const bundle = await svc.create(TEST_COMPANY_ID, {
+      masterId: m.id, optionName: 'B', isBundle: true,
+    } as any);
     const comp = await svc.create(TEST_COMPANY_ID, { masterId: m.id, optionName: 'C' } as any);
     await prisma.inventory.create({
       data: { companyId: TEST_COMPANY_ID, optionId: comp.id, currentStock: 10 },
     });
     await prisma.bundleComponent.create({
-      data: { bundleOptionId: bundle.id, componentOptionId: comp.id, companyId: TEST_COMPANY_ID, qty: 2 },
+      data: {
+        bundleOptionId: bundle.id,
+        componentOptionId: comp.id,
+        companyId: TEST_COMPANY_ID,
+        qty: 2,
+      },
     });
     await bundleStockSvc.recompute(bundle.id);
     const before = await prisma.productOption.findUniqueOrThrow({ where: { id: bundle.id } });
-    expect(before.availableStock).toBe(5);  // floor(10/2)
+    expect(before.availableStock).toBe(5);
 
     await svc.softDelete(TEST_COMPANY_ID, comp.id);
     const after = await prisma.productOption.findUniqueOrThrow({ where: { id: bundle.id } });
-    expect(after.availableStock).toBe(0);  // soft-deleted component excluded
+    expect(after.availableStock).toBe(0);
   });
 });
 ```
 
-### Step 4-5: Run test — FAIL
+### Step 4-5: Run — FAIL
 
 ```bash
 cd /Users/yhc125/workspace/kiditem/apps/server
@@ -1562,12 +1575,59 @@ DATABASE_URL=postgresql://kiditem_test:kiditem_test@localhost:5434/kiditem_test 
 
 Expected: FAIL — missing `options.service` and `bundle-stock.service`.
 
-### Step 4-6: Implement `services/options.service.ts`
+### Step 4-6: Implement `services/bundle-stock.service.ts` (final, not stub)
+
+```typescript
+// apps/server/src/products/services/bundle-stock.service.ts
+import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import { PrismaService } from '../../prisma/prisma.service';
+
+@Injectable()
+export class BundleStockService {
+  constructor(private readonly prisma: PrismaService) {}
+
+  async recompute(
+    bundleOptionId: string,
+    outerTx?: Prisma.TransactionClient,
+  ): Promise<number> {
+    const db = outerTx ?? this.prisma;
+    await db.$queryRaw`SELECT id FROM product_options WHERE id = ${bundleOptionId}::uuid FOR UPDATE`;
+    const components = await db.bundleComponent.findMany({
+      where: {
+        bundleOptionId,
+        componentOption: { isDeleted: false },
+      },
+      include: { componentOption: { include: { inventory: true } } },
+    });
+    if (components.length === 0) {
+      await db.productOption.update({
+        where: { id: bundleOptionId },
+        data: { availableStock: 0 },
+      });
+      return 0;
+    }
+    const capacity = Math.min(
+      ...components.map(c => {
+        const stock = c.componentOption.inventory?.currentStock ?? 0;
+        return Math.floor(stock / c.qty);
+      }),
+    );
+    await db.productOption.update({
+      where: { id: bundleOptionId },
+      data: { availableStock: capacity },
+    });
+    return capacity;
+  }
+}
+```
+
+### Step 4-7: Implement `services/options.service.ts`
 
 ```typescript
 // apps/server/src/products/services/options.service.ts
 import {
-  ConflictException, ForbiddenException, Injectable, NotFoundException,
+  ConflictException, Injectable, NotFoundException,
 } from '@nestjs/common';
 import { Prisma, ProductOption } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -1579,7 +1639,7 @@ import { mapPrismaError } from '../util/prisma-error';
 import { decodeCursor, encodeCursor } from '../util/cursor';
 
 const SYSTEM_FIELDS = [
-  'id', 'sku', 'companyId', 'availableStock',
+  'id', 'sku', 'companyId', 'masterId', 'availableStock',
   'isDeleted', 'deletedAt', 'createdAt', 'updatedAt',
 ] as const;
 
@@ -1590,7 +1650,11 @@ export class OptionsService {
     private readonly bundleStock: BundleStockService,
   ) {}
 
-  async create(companyId: string, dto: CreateOptionDto, outerTx?: Prisma.TransactionClient): Promise<ProductOption> {
+  async create(
+    companyId: string,
+    dto: CreateOptionDto,
+    outerTx?: Prisma.TransactionClient,
+  ): Promise<ProductOption> {
     const exec = async (tx: Prisma.TransactionClient) => {
       const { count } = await tx.masterProduct.updateMany({
         where: { id: dto.masterId, companyId, isDeleted: false },
@@ -1602,19 +1666,22 @@ export class OptionsService {
         select: { code: true, optionCounter: true },
       });
       const sku = `${master.code}-${String(master.optionCounter).padStart(2, '0')}`;
+      const stripped = this.strip(dto);
       try {
         return await tx.productOption.create({
           data: {
-            ...this.strip(dto),
+            ...stripped,
             companyId,
             masterId: dto.masterId,
             sku,
             availableStock: null,
-          },
+          } as Prisma.ProductOptionUncheckedCreateInput,
         });
       } catch (e) { mapPrismaError(e, 'option create'); }
     };
-    return outerTx ? exec(outerTx) : this.prisma.$transaction(exec);
+    return outerTx
+      ? exec(outerTx)
+      : this.prisma.$transaction(exec, { timeout: 15000 });
   }
 
   async list(companyId: string, q: ListOptionsQuery) {
@@ -1663,7 +1730,10 @@ export class OptionsService {
     return { items, nextCursor };
   }
 
-  async findById(companyId: string, id: string, opts: { includeDeleted?: boolean }): Promise<ProductOption> {
+  async findById(
+    companyId: string, id: string,
+    opts: { includeDeleted?: boolean },
+  ): Promise<ProductOption> {
     const row = await this.prisma.productOption.findFirst({
       where: { id, companyId, ...(opts.includeDeleted ? {} : { isDeleted: false }) },
     });
@@ -1687,34 +1757,38 @@ export class OptionsService {
     return row;
   }
 
-  async update(companyId: string, id: string, dto: UpdateOptionDto, outerTx?: Prisma.TransactionClient): Promise<ProductOption> {
+  async update(
+    companyId: string,
+    id: string,
+    dto: UpdateOptionDto,
+    outerTx?: Prisma.TransactionClient,
+  ): Promise<ProductOption> {
     const exec = async (tx: Prisma.TransactionClient) => {
       const current = await tx.productOption.findFirst({
         where: { id, companyId, isDeleted: false },
       });
       if (!current) throw new NotFoundException('option not found');
 
-      // isBundle flip rules
       if (dto.isBundle !== undefined && dto.isBundle !== current.isBundle) {
         if (dto.isBundle === false) {
-          const countAsBundle = await tx.bundleComponent.count({
+          const count = await tx.bundleComponent.count({
             where: { bundleOptionId: id },
           });
-          if (countAsBundle > 0) {
+          if (count > 0) {
             throw new ConflictException('bundle has components; cannot set isBundle=false');
           }
         } else {
-          const countAsComponent = await tx.bundleComponent.count({
+          const count = await tx.bundleComponent.count({
             where: { componentOptionId: id },
           });
-          if (countAsComponent > 0) {
+          if (count > 0) {
             throw new ConflictException('option is used as component; cannot set isBundle=true');
           }
         }
       }
 
       const stripped = this.strip(dto);
-      const data: Prisma.ProductOptionUpdateInput = { ...stripped };
+      const data: Prisma.ProductOptionUncheckedUpdateInput = { ...stripped };
       if (dto.isTemporary === false) data.temporaryReason = null;
       try {
         const { count } = await tx.productOption.updateMany({
@@ -1725,17 +1799,22 @@ export class OptionsService {
         return await tx.productOption.findUniqueOrThrow({ where: { id } });
       } catch (e) { mapPrismaError(e, 'option update'); }
     };
-    return outerTx ? exec(outerTx) : this.prisma.$transaction(exec);
+    return outerTx
+      ? exec(outerTx)
+      : this.prisma.$transaction(exec, { timeout: 15000 });
   }
 
-  async softDelete(companyId: string, id: string, outerTx?: Prisma.TransactionClient): Promise<void> {
+  async softDelete(
+    companyId: string,
+    id: string,
+    outerTx?: Prisma.TransactionClient,
+  ): Promise<void> {
     const exec = async (tx: Prisma.TransactionClient) => {
       const { count } = await tx.productOption.updateMany({
         where: { id, companyId, isDeleted: false },
         data: { isDeleted: true, deletedAt: new Date() },
       });
       if (count === 0) throw new NotFoundException('option not found');
-      // Cascade: recompute any bundle that uses this option as a component
       const affected = await tx.bundleComponent.findMany({
         where: { componentOptionId: id },
         select: { bundleOptionId: true },
@@ -1744,10 +1823,16 @@ export class OptionsService {
         await this.bundleStock.recompute(row.bundleOptionId, tx);
       }
     };
-    await (outerTx ? exec(outerTx) : this.prisma.$transaction(exec));
+    await (outerTx
+      ? exec(outerTx)
+      : this.prisma.$transaction(exec, { timeout: 15000 }));
   }
 
-  async restore(companyId: string, id: string, outerTx?: Prisma.TransactionClient): Promise<void> {
+  async restore(
+    companyId: string,
+    id: string,
+    outerTx?: Prisma.TransactionClient,
+  ): Promise<void> {
     const db = outerTx ?? this.prisma;
     const row = await db.productOption.findFirst({
       where: { id, companyId, isDeleted: true },
@@ -1761,7 +1846,7 @@ export class OptionsService {
     } catch (e) { mapPrismaError(e, 'option restore'); }
   }
 
-  private strip(dto: Partial<CreateOptionDto> | Partial<UpdateOptionDto>): Record<string, unknown> {
+  private strip(dto: Partial<CreateOptionDto> | Partial<UpdateOptionDto>) {
     const out: Record<string, unknown> = { ...dto };
     for (const f of SYSTEM_FIELDS) delete out[f as string];
     return out;
@@ -1769,76 +1854,45 @@ export class OptionsService {
 }
 ```
 
-### Step 4-7: Stub `services/bundle-stock.service.ts` (minimal for tests)
-
-Task 5 implements full logic. For now a stub that satisfies OptionsService tests:
-
-```typescript
-// apps/server/src/products/services/bundle-stock.service.ts — TASK 4 STUB (replaced in Task 5)
-import { Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
-import { PrismaService } from '../../prisma/prisma.service';
-
-@Injectable()
-export class BundleStockService {
-  constructor(private readonly prisma: PrismaService) {}
-
-  async recompute(bundleOptionId: string, outerTx?: Prisma.TransactionClient): Promise<number> {
-    const db = outerTx ?? this.prisma;
-    await db.$queryRaw`SELECT id FROM product_options WHERE id = ${bundleOptionId}::uuid FOR UPDATE`;
-    const components = await db.bundleComponent.findMany({
-      where: { bundleOptionId, componentOption: { isDeleted: false } },
-      include: { componentOption: { include: { inventory: true } } },
-    });
-    if (components.length === 0) {
-      await db.productOption.update({ where: { id: bundleOptionId }, data: { availableStock: 0 } });
-      return 0;
-    }
-    const capacity = Math.min(...components.map(c => {
-      const stock = c.componentOption.inventory?.currentStock ?? 0;
-      return Math.floor(stock / c.qty);
-    }));
-    await db.productOption.update({ where: { id: bundleOptionId }, data: { availableStock: capacity } });
-    return capacity;
-  }
-}
-```
-
-(Task 5 will re-use this exact implementation + add unit test.)
-
 ### Step 4-8: Implement `controllers/options.controller.ts`
 
 ```typescript
 // apps/server/src/products/controllers/options.controller.ts
 import {
-  Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards, UsePipes,
-  ValidationPipe,
+  Body, Controller, Delete, Get, Param, Patch, Post, Query,
 } from '@nestjs/common';
-import { AuthGuard } from '@nestjs/passport';
 import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
 import {
-  ProductOptionSchema, OptionWithComponentsSchema, BundleComponentSchema,
-  type ProductOption, type OptionWithComponents, type BundleComponent,
-  toSerializable,
+  BundleComponentSchema, OptionWithComponentsSchema, ProductOptionSchema,
+  type BundleComponent, type OptionWithComponents, type ProductOption,
 } from '@kiditem/shared';
+import { toSerializable } from '../util/serialize';
 import { OptionsService } from '../services/options.service';
+import { PrismaService } from '../../prisma/prisma.service';
 import { CreateOptionDto } from '../dto/create-option.dto';
 import { UpdateOptionDto } from '../dto/update-option.dto';
 import { ListOptionsQuery } from '../dto/list-options.query';
 
 @Controller('products/options')
-@UseGuards(AuthGuard('jwt'))
-@UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
 export class OptionsController {
-  constructor(private readonly svc: OptionsService) {}
+  constructor(
+    private readonly svc: OptionsService,
+    private readonly prisma: PrismaService,
+  ) {}
 
   @Post()
-  async create(@CurrentCompany() companyId: string, @Body() dto: CreateOptionDto): Promise<ProductOption> {
+  async create(
+    @CurrentCompany() companyId: string,
+    @Body() dto: CreateOptionDto,
+  ): Promise<ProductOption> {
     return ProductOptionSchema.parse(toSerializable(await this.svc.create(companyId, dto)));
   }
 
   @Get()
-  async list(@CurrentCompany() companyId: string, @Query() q: ListOptionsQuery) {
+  async list(
+    @CurrentCompany() companyId: string,
+    @Query() q: ListOptionsQuery,
+  ) {
     const { items, nextCursor } = await this.svc.list(companyId, q);
     return {
       items: items.map(r => ProductOptionSchema.parse(toSerializable(r))),
@@ -1852,8 +1906,10 @@ export class OptionsController {
     @Param('id') id: string,
     @Query('includeDeleted') includeDeleted?: string,
   ): Promise<OptionWithComponents> {
-    const row = await this.svc.findById(companyId, id, { includeDeleted: includeDeleted === 'true' });
-    const components = await this.svc['prisma'].bundleComponent.findMany({
+    const row = await this.svc.findById(companyId, id, {
+      includeDeleted: includeDeleted === 'true',
+    });
+    const components = await this.prisma.bundleComponent.findMany({
       where: { bundleOptionId: id },
       orderBy: { createdAt: 'asc' },
     });
@@ -1861,19 +1917,28 @@ export class OptionsController {
   }
 
   @Get('by-sku/:sku')
-  async findBySku(@CurrentCompany() companyId: string, @Param('sku') sku: string): Promise<ProductOption> {
+  async findBySku(
+    @CurrentCompany() companyId: string,
+    @Param('sku') sku: string,
+  ): Promise<ProductOption> {
     return ProductOptionSchema.parse(toSerializable(await this.svc.findBySku(companyId, sku)));
   }
 
   @Get('by-barcode/:barcode')
-  async findByBarcode(@CurrentCompany() companyId: string, @Param('barcode') barcode: string): Promise<ProductOption> {
+  async findByBarcode(
+    @CurrentCompany() companyId: string,
+    @Param('barcode') barcode: string,
+  ): Promise<ProductOption> {
     return ProductOptionSchema.parse(toSerializable(await this.svc.findByBarcode(companyId, barcode)));
   }
 
   @Get(':id/components')
-  async components(@CurrentCompany() companyId: string, @Param('id') id: string): Promise<BundleComponent[]> {
-    await this.svc.findById(companyId, id, {});  // enforce company scope
-    const rows = await this.svc['prisma'].bundleComponent.findMany({
+  async components(
+    @CurrentCompany() companyId: string,
+    @Param('id') id: string,
+  ): Promise<BundleComponent[]> {
+    await this.svc.findById(companyId, id, {});
+    const rows = await this.prisma.bundleComponent.findMany({
       where: { bundleOptionId: id },
       orderBy: { createdAt: 'asc' },
     });
@@ -1890,20 +1955,30 @@ export class OptionsController {
   }
 
   @Delete(':id')
-  async softDelete(@CurrentCompany() companyId: string, @Param('id') id: string) {
+  async softDelete(
+    @CurrentCompany() companyId: string,
+    @Param('id') id: string,
+  ) {
     await this.svc.softDelete(companyId, id);
     return { ok: true };
   }
 
   @Post(':id/restore')
-  async restore(@CurrentCompany() companyId: string, @Param('id') id: string) {
+  async restore(
+    @CurrentCompany() companyId: string,
+    @Param('id') id: string,
+  ) {
     await this.svc.restore(companyId, id);
     return { ok: true };
   }
 }
 ```
 
-### Step 4-9: Register OptionsService + BundleStockService + OptionsController in products.module.ts
+### Step 4-9: Modify `products.module.ts` (ADD to T3's state)
+
+Current state after T3: `controllers:[MastersController]`, `providers:[MasterCodeService, MastersService]`, `exports:[MastersService]`.
+
+Modify to:
 
 ```typescript
 // apps/server/src/products/products.module.ts
@@ -1923,7 +1998,7 @@ import { OptionsController } from './controllers/options.controller';
 export class ProductsModule {}
 ```
 
-### Step 4-10: Run integration tests — PASS
+### Step 4-10: Run integration — PASS
 
 ```bash
 cd /Users/yhc125/workspace/kiditem/apps/server
@@ -1932,9 +2007,9 @@ DATABASE_URL=postgresql://kiditem_test:kiditem_test@localhost:5434/kiditem_test 
   src/products/__tests__/options.service.pg.integration.spec.ts
 ```
 
-Expected: PASS 7/7.
+Expected: PASS 8/8.
 
-### Step 4-11: Products-only tsc PASS
+### Step 4-11: Products-only tsc — PASS
 
 ```bash
 cd /Users/yhc125/workspace/kiditem/apps/server
@@ -1955,12 +2030,14 @@ git add apps/server/src/products/dto/create-option.dto.ts \
         apps/server/src/products/controllers/options.controller.ts \
         apps/server/src/products/__tests__/options.service.pg.integration.spec.ts \
         apps/server/src/products/products.module.ts
-git commit -m "feat(products): Options CRUD + race-free sku generation (Plan B1 T4)"
+git commit -m "feat(products): Options CRUD + race-free sku + BundleStockService (Plan B1 T4)"
 ```
 
 ---
 
-## Task 5: BundleComponents + BundleStockService (finalize + unit tests)
+## Task 5: BundleComponents + bundle-stock unit tests
+
+**Prior state**: T4 commit landed. `products.module.ts` has `[MastersController, OptionsController]` + 4 services. `BundleStockService` is **already fully implemented** (T4 Step 4-6) — Task 5 only adds unit tests + BundleComponentsService + controller.
 
 **Files:**
 - Create: `apps/server/src/products/dto/create-bundle-component.dto.ts`
@@ -2005,7 +2082,7 @@ export class UpdateBundleComponentDto {
 `dto/list-bundle-components.query.ts`:
 
 ```typescript
-import { IsOptional, IsUUID, ValidateIf } from 'class-validator';
+import { IsOptional, IsUUID } from 'class-validator';
 
 export class ListBundleComponentsQuery {
   @IsOptional() @IsUUID()
@@ -2013,19 +2090,16 @@ export class ListBundleComponentsQuery {
 
   @IsOptional() @IsUUID()
   componentOptionId?: string;
-
-  @ValidateIf(o => !o.bundleOptionId && !o.componentOptionId)
-  missingFilter?: never;  // forces 400 if neither supplied — see service validation
 }
 ```
 
-Service validates at runtime that at least one of the two UUIDs is present.
+Service 가 runtime 에서 둘 중 하나 필수 검증.
 
-### Step 5-2: Write BundleStockService unit tests
-
-`__tests__/bundle-stock.service.spec.ts`:
+### Step 5-2: Write bundle-stock unit tests
 
 ```typescript
+// apps/server/src/products/__tests__/bundle-stock.service.spec.ts
+import { describe, it, expect, vi } from 'vitest';
 import { BundleStockService } from '../services/bundle-stock.service';
 
 function makePrismaMock(components: Array<{ qty: number; currentStock: number | null }>) {
@@ -2063,8 +2137,8 @@ describe('BundleStockService', () => {
 
   it('computes min(floor(stock/qty)) across components', async () => {
     const prisma = makePrismaMock([
-      { qty: 1, currentStock: 10 }, // 10 bundles
-      { qty: 2, currentStock: 5 },  // 2 bundles (floor(5/2))
+      { qty: 1, currentStock: 10 },
+      { qty: 2, currentStock: 5 },
     ]);
     const svc = new BundleStockService(prisma);
     expect(await svc.recompute('b')).toBe(2);
@@ -2073,14 +2147,13 @@ describe('BundleStockService', () => {
   it('treats missing inventory as stock=0 (capacity=0)', async () => {
     const prisma = makePrismaMock([
       { qty: 1, currentStock: 10 },
-      { qty: 1, currentStock: null },  // no inventory row
+      { qty: 1, currentStock: null },
     ]);
     const svc = new BundleStockService(prisma);
     expect(await svc.recompute('b')).toBe(0);
   });
 
   it('excludes soft-deleted components via where filter', async () => {
-    // This test verifies that the where clause passed to findMany includes `componentOption.isDeleted: false`
     const prisma = makePrismaMock([{ qty: 1, currentStock: 5 }]);
     const svc = new BundleStockService(prisma);
     await svc.recompute('b');
@@ -2090,20 +2163,20 @@ describe('BundleStockService', () => {
 });
 ```
 
-### Step 5-3: Run unit tests
+### Step 5-3: Run bundle-stock unit tests — PASS
 
 ```bash
 cd /Users/yhc125/workspace/kiditem/apps/server
 npx vitest run src/products/__tests__/bundle-stock.service.spec.ts
 ```
 
-Expected: PASS 4/4 (Task 4's stub already satisfies these — confirms the stub was correct).
+Expected: PASS 4/4 (T4 이미 구현됨).
 
-### Step 5-4: Write failing integration tests
-
-`__tests__/bundle-components.service.pg.integration.spec.ts`:
+### Step 5-4: Write failing BundleComponents integration tests
 
 ```typescript
+// apps/server/src/products/__tests__/bundle-components.service.pg.integration.spec.ts
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { MasterCodeService } from '../services/master-code.service';
 import { MastersService } from '../services/masters.service';
@@ -2124,6 +2197,7 @@ describe('BundleComponentsService integration', () => {
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
+    await prisma.$connect();
     const codeSvc = new MasterCodeService(prisma as any);
     mastersSvc = new MastersService(prisma as any, codeSvc);
     bundleStockSvc = new BundleStockService(prisma as any);
@@ -2138,15 +2212,19 @@ describe('BundleComponentsService integration', () => {
 
   afterAll(async () => { await prisma.$disconnect(); });
 
-  async function setupMasterAndOptions(companyId: string) {
+  async function setup(companyId: string) {
     const m = await mastersSvc.create(companyId, { name: 'M' } as any);
-    const bundle = await optionsSvc.create(companyId, { masterId: m.id, optionName: 'Bundle', isBundle: true } as any);
-    const comp = await optionsSvc.create(companyId, { masterId: m.id, optionName: 'Comp' } as any);
+    const bundle = await optionsSvc.create(companyId, {
+      masterId: m.id, optionName: 'Bundle', isBundle: true,
+    } as any);
+    const comp = await optionsSvc.create(companyId, {
+      masterId: m.id, optionName: 'Comp',
+    } as any);
     return { master: m, bundle, comp };
   }
 
   it('creates a bundle component and triggers recompute', async () => {
-    const { bundle, comp } = await setupMasterAndOptions(TEST_COMPANY_ID);
+    const { bundle, comp } = await setup(TEST_COMPANY_ID);
     await prisma.inventory.create({
       data: { companyId: TEST_COMPANY_ID, optionId: comp.id, currentStock: 20 },
     });
@@ -2155,7 +2233,7 @@ describe('BundleComponentsService integration', () => {
     });
     expect(bc.companyId).toBe(TEST_COMPANY_ID);
     const updated = await prisma.productOption.findUniqueOrThrow({ where: { id: bundle.id } });
-    expect(updated.availableStock).toBe(10); // floor(20/2)
+    expect(updated.availableStock).toBe(10);
   });
 
   it('rejects when bundleOption.isBundle=false', async () => {
@@ -2163,51 +2241,81 @@ describe('BundleComponentsService integration', () => {
     const notBundle = await optionsSvc.create(TEST_COMPANY_ID, { masterId: m.id, optionName: 'X' } as any);
     const comp = await optionsSvc.create(TEST_COMPANY_ID, { masterId: m.id, optionName: 'Y' } as any);
     await expect(
-      svc.create(TEST_COMPANY_ID, { bundleOptionId: notBundle.id, componentOptionId: comp.id, qty: 1 }),
+      svc.create(TEST_COMPANY_ID, {
+        bundleOptionId: notBundle.id, componentOptionId: comp.id, qty: 1,
+      }),
     ).rejects.toMatchObject({ status: 400 });
   });
 
   it('rejects nested bundle (component.isBundle=true)', async () => {
     const m = await mastersSvc.create(TEST_COMPANY_ID, { name: 'M' } as any);
-    const b1 = await optionsSvc.create(TEST_COMPANY_ID, { masterId: m.id, optionName: 'B1', isBundle: true } as any);
-    const b2 = await optionsSvc.create(TEST_COMPANY_ID, { masterId: m.id, optionName: 'B2', isBundle: true } as any);
+    const b1 = await optionsSvc.create(TEST_COMPANY_ID, {
+      masterId: m.id, optionName: 'B1', isBundle: true,
+    } as any);
+    const b2 = await optionsSvc.create(TEST_COMPANY_ID, {
+      masterId: m.id, optionName: 'B2', isBundle: true,
+    } as any);
     await expect(
-      svc.create(TEST_COMPANY_ID, { bundleOptionId: b1.id, componentOptionId: b2.id, qty: 1 }),
+      svc.create(TEST_COMPANY_ID, {
+        bundleOptionId: b1.id, componentOptionId: b2.id, qty: 1,
+      }),
     ).rejects.toMatchObject({ status: 400 });
   });
 
   it('rejects cross-company component', async () => {
-    const { bundle } = await setupMasterAndOptions(TEST_COMPANY_ID);
-    const other = await setupMasterAndOptions(OTHER_COMPANY_ID);
+    const { bundle } = await setup(TEST_COMPANY_ID);
+    const other = await setup(OTHER_COMPANY_ID);
     await expect(
-      svc.create(TEST_COMPANY_ID, { bundleOptionId: bundle.id, componentOptionId: other.comp.id, qty: 1 }),
+      svc.create(TEST_COMPANY_ID, {
+        bundleOptionId: bundle.id, componentOptionId: other.comp.id, qty: 1,
+      }),
     ).rejects.toMatchObject({ status: 403 });
   });
 
   it('rejects self reference', async () => {
-    const { bundle } = await setupMasterAndOptions(TEST_COMPANY_ID);
+    const { bundle } = await setup(TEST_COMPANY_ID);
     await expect(
-      svc.create(TEST_COMPANY_ID, { bundleOptionId: bundle.id, componentOptionId: bundle.id, qty: 1 }),
+      svc.create(TEST_COMPANY_ID, {
+        bundleOptionId: bundle.id, componentOptionId: bundle.id, qty: 1,
+      }),
     ).rejects.toMatchObject({ status: 409 });
   });
 
+  it('rejects when bundleOption is soft-deleted', async () => {
+    const { bundle, comp } = await setup(TEST_COMPANY_ID);
+    await optionsSvc.softDelete(TEST_COMPANY_ID, bundle.id);
+    await expect(
+      svc.create(TEST_COMPANY_ID, {
+        bundleOptionId: bundle.id, componentOptionId: comp.id, qty: 1,
+      }),
+    ).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('rejects when componentOption is soft-deleted', async () => {
+    const { bundle, comp } = await setup(TEST_COMPANY_ID);
+    await optionsSvc.softDelete(TEST_COMPANY_ID, comp.id);
+    await expect(
+      svc.create(TEST_COMPANY_ID, {
+        bundleOptionId: bundle.id, componentOptionId: comp.id, qty: 1,
+      }),
+    ).rejects.toMatchObject({ status: 404 });
+  });
+
   it('updates qty and re-recomputes', async () => {
-    const { bundle, comp } = await setupMasterAndOptions(TEST_COMPANY_ID);
+    const { bundle, comp } = await setup(TEST_COMPANY_ID);
     await prisma.inventory.create({
       data: { companyId: TEST_COMPANY_ID, optionId: comp.id, currentStock: 20 },
     });
     const bc = await svc.create(TEST_COMPANY_ID, {
       bundleOptionId: bundle.id, componentOptionId: comp.id, qty: 2,
     });
-    let bundleAfter = await prisma.productOption.findUniqueOrThrow({ where: { id: bundle.id } });
-    expect(bundleAfter.availableStock).toBe(10);
     await svc.update(TEST_COMPANY_ID, bc.id, { qty: 5 });
-    bundleAfter = await prisma.productOption.findUniqueOrThrow({ where: { id: bundle.id } });
-    expect(bundleAfter.availableStock).toBe(4); // floor(20/5)
+    const bundleAfter = await prisma.productOption.findUniqueOrThrow({ where: { id: bundle.id } });
+    expect(bundleAfter.availableStock).toBe(4);
   });
 
   it('hard-deletes and re-recomputes', async () => {
-    const { bundle, comp } = await setupMasterAndOptions(TEST_COMPANY_ID);
+    const { bundle, comp } = await setup(TEST_COMPANY_ID);
     await prisma.inventory.create({
       data: { companyId: TEST_COMPANY_ID, optionId: comp.id, currentStock: 20 },
     });
@@ -2216,13 +2324,13 @@ describe('BundleComponentsService integration', () => {
     });
     await svc.delete(TEST_COMPANY_ID, bc.id);
     const bundleAfter = await prisma.productOption.findUniqueOrThrow({ where: { id: bundle.id } });
-    expect(bundleAfter.availableStock).toBe(0); // no components left
+    expect(bundleAfter.availableStock).toBe(0);
   });
 
   it('concurrent recompute — final availableStock deterministic', async () => {
-    const { bundle, comp: c1 } = await setupMasterAndOptions(TEST_COMPANY_ID);
-    const m = await mastersSvc.create(TEST_COMPANY_ID, { name: 'N' } as any);
-    const c2 = await optionsSvc.create(TEST_COMPANY_ID, { masterId: m.id, optionName: 'C2' } as any);
+    const { bundle, comp: c1 } = await setup(TEST_COMPANY_ID);
+    const m2 = await mastersSvc.create(TEST_COMPANY_ID, { name: 'N' } as any);
+    const c2 = await optionsSvc.create(TEST_COMPANY_ID, { masterId: m2.id, optionName: 'C2' } as any);
     await prisma.inventory.create({ data: { companyId: TEST_COMPANY_ID, optionId: c1.id, currentStock: 20 } });
     await prisma.inventory.create({ data: { companyId: TEST_COMPANY_ID, optionId: c2.id, currentStock: 30 } });
     await Promise.all([
@@ -2230,7 +2338,6 @@ describe('BundleComponentsService integration', () => {
       svc.create(TEST_COMPANY_ID, { bundleOptionId: bundle.id, componentOptionId: c2.id, qty: 3 }),
     ]);
     const bundleAfter = await prisma.productOption.findUniqueOrThrow({ where: { id: bundle.id } });
-    // min(floor(20/2), floor(30/3)) = min(10, 10) = 10 — deterministic regardless of order
     expect(bundleAfter.availableStock).toBe(10);
   });
 });
@@ -2270,7 +2377,11 @@ export class BundleComponentsService {
     private readonly bundleStock: BundleStockService,
   ) {}
 
-  async create(companyId: string, dto: CreateBundleComponentDto, outerTx?: Prisma.TransactionClient): Promise<BundleComponent> {
+  async create(
+    companyId: string,
+    dto: CreateBundleComponentDto,
+    outerTx?: Prisma.TransactionClient,
+  ): Promise<BundleComponent> {
     if (dto.bundleOptionId === dto.componentOptionId) {
       throw new ConflictException('self-reference');
     }
@@ -2279,8 +2390,8 @@ export class BundleComponentsService {
       db.productOption.findUnique({ where: { id: dto.bundleOptionId } }),
       db.productOption.findUnique({ where: { id: dto.componentOptionId } }),
     ]);
-    if (!bundleOpt) throw new NotFoundException('bundle option not found');
-    if (!compOpt) throw new NotFoundException('component option not found');
+    if (!bundleOpt || bundleOpt.isDeleted) throw new NotFoundException('bundle option not found');
+    if (!compOpt || compOpt.isDeleted) throw new NotFoundException('component option not found');
     if (!bundleOpt.isBundle) throw new BadRequestException('option is not a bundle');
     if (compOpt.isBundle) throw new BadRequestException('nested bundle not supported in Plan B1');
     if (bundleOpt.companyId !== companyId) throw new ForbiddenException('cross-company not allowed');
@@ -2295,17 +2406,22 @@ export class BundleComponentsService {
             bundleOptionId: dto.bundleOptionId,
             componentOptionId: dto.componentOptionId,
             qty: dto.qty,
-            companyId: bundleOpt.companyId,  // 3-way invariant: from bundleOption, not auth
+            companyId: bundleOpt.companyId,
           },
         });
       } catch (e) { mapPrismaError(e, 'bundle-component create'); }
       await this.bundleStock.recompute(dto.bundleOptionId, tx);
       return bc;
     };
-    return outerTx ? exec(outerTx) : this.prisma.$transaction(exec);
+    return outerTx
+      ? exec(outerTx)
+      : this.prisma.$transaction(exec, { timeout: 15000 });
   }
 
-  async list(companyId: string, q: ListBundleComponentsQuery): Promise<BundleComponent[]> {
+  async list(
+    companyId: string,
+    q: ListBundleComponentsQuery,
+  ): Promise<BundleComponent[]> {
     if (!q.bundleOptionId && !q.componentOptionId) {
       throw new BadRequestException('bundleOptionId or componentOptionId is required');
     }
@@ -2319,7 +2435,12 @@ export class BundleComponentsService {
     });
   }
 
-  async update(companyId: string, id: string, dto: UpdateBundleComponentDto, outerTx?: Prisma.TransactionClient): Promise<BundleComponent> {
+  async update(
+    companyId: string,
+    id: string,
+    dto: UpdateBundleComponentDto,
+    outerTx?: Prisma.TransactionClient,
+  ): Promise<BundleComponent> {
     const exec = async (tx: Prisma.TransactionClient) => {
       const row = await tx.bundleComponent.findFirst({ where: { id, companyId } });
       if (!row) throw new NotFoundException('bundle-component not found');
@@ -2331,10 +2452,16 @@ export class BundleComponentsService {
       await this.bundleStock.recompute(row.bundleOptionId, tx);
       return updated;
     };
-    return outerTx ? exec(outerTx) : this.prisma.$transaction(exec);
+    return outerTx
+      ? exec(outerTx)
+      : this.prisma.$transaction(exec, { timeout: 15000 });
   }
 
-  async delete(companyId: string, id: string, outerTx?: Prisma.TransactionClient): Promise<void> {
+  async delete(
+    companyId: string,
+    id: string,
+    outerTx?: Prisma.TransactionClient,
+  ): Promise<void> {
     const exec = async (tx: Prisma.TransactionClient) => {
       const row = await tx.bundleComponent.findFirst({ where: { id, companyId } });
       if (!row) throw new NotFoundException('bundle-component not found');
@@ -2342,7 +2469,9 @@ export class BundleComponentsService {
       await tx.bundleComponent.delete({ where: { id } });
       await this.bundleStock.recompute(row.bundleOptionId, tx);
     };
-    await (outerTx ? exec(outerTx) : this.prisma.$transaction(exec));
+    await (outerTx
+      ? exec(outerTx)
+      : this.prisma.$transaction(exec, { timeout: 15000 }));
   }
 }
 ```
@@ -2352,32 +2481,33 @@ export class BundleComponentsService {
 ```typescript
 // apps/server/src/products/controllers/bundle-components.controller.ts
 import {
-  Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards, UsePipes,
-  ValidationPipe,
+  Body, Controller, Delete, Get, Param, Patch, Post, Query,
 } from '@nestjs/common';
-import { AuthGuard } from '@nestjs/passport';
 import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
-import {
-  BundleComponentSchema, type BundleComponent, toSerializable,
-} from '@kiditem/shared';
+import { BundleComponentSchema, type BundleComponent } from '@kiditem/shared';
+import { toSerializable } from '../util/serialize';
 import { BundleComponentsService } from '../services/bundle-components.service';
 import { CreateBundleComponentDto } from '../dto/create-bundle-component.dto';
 import { UpdateBundleComponentDto } from '../dto/update-bundle-component.dto';
 import { ListBundleComponentsQuery } from '../dto/list-bundle-components.query';
 
 @Controller('products/bundle-components')
-@UseGuards(AuthGuard('jwt'))
-@UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }))
 export class BundleComponentsController {
   constructor(private readonly svc: BundleComponentsService) {}
 
   @Post()
-  async create(@CurrentCompany() companyId: string, @Body() dto: CreateBundleComponentDto): Promise<BundleComponent> {
+  async create(
+    @CurrentCompany() companyId: string,
+    @Body() dto: CreateBundleComponentDto,
+  ): Promise<BundleComponent> {
     return BundleComponentSchema.parse(toSerializable(await this.svc.create(companyId, dto)));
   }
 
   @Get()
-  async list(@CurrentCompany() companyId: string, @Query() q: ListBundleComponentsQuery): Promise<BundleComponent[]> {
+  async list(
+    @CurrentCompany() companyId: string,
+    @Query() q: ListBundleComponentsQuery,
+  ): Promise<BundleComponent[]> {
     const rows = await this.svc.list(companyId, q);
     return rows.map(r => BundleComponentSchema.parse(toSerializable(r)));
   }
@@ -2392,14 +2522,21 @@ export class BundleComponentsController {
   }
 
   @Delete(':id')
-  async delete(@CurrentCompany() companyId: string, @Param('id') id: string) {
+  async delete(
+    @CurrentCompany() companyId: string,
+    @Param('id') id: string,
+  ) {
     await this.svc.delete(companyId, id);
     return { ok: true };
   }
 }
 ```
 
-### Step 5-8: Register in products.module.ts (final state)
+### Step 5-8: Modify `products.module.ts` (ADD to T4 state, final)
+
+Current state after T4: `controllers:[MastersController, OptionsController]`, `providers:[MasterCodeService, MastersService, OptionsService, BundleStockService]`, `exports:[MastersService, OptionsService]`.
+
+Modify to final state:
 
 ```typescript
 // apps/server/src/products/products.module.ts
@@ -2424,7 +2561,7 @@ import { BundleComponentsController } from './controllers/bundle-components.cont
 export class ProductsModule {}
 ```
 
-### Step 5-9: Run integration tests — PASS
+### Step 5-9: Run integration — PASS
 
 ```bash
 cd /Users/yhc125/workspace/kiditem/apps/server
@@ -2433,20 +2570,9 @@ DATABASE_URL=postgresql://kiditem_test:kiditem_test@localhost:5434/kiditem_test 
   src/products/__tests__/bundle-components.service.pg.integration.spec.ts
 ```
 
-Expected: PASS 8/8.
+Expected: PASS 10/10.
 
-### Step 5-10: Run full products test suite — PASS
-
-```bash
-cd /Users/yhc125/workspace/kiditem/apps/server
-npx vitest run src/products/__tests__/master-code.service.spec.ts src/products/__tests__/bundle-stock.service.spec.ts
-DATABASE_URL=postgresql://kiditem_test:kiditem_test@localhost:5434/kiditem_test \
-  npx vitest run --config vitest.config.integration.ts src/products/__tests__/
-```
-
-Expected: unit 2 files (8 tests) PASS + integration 3 files (22 tests) PASS.
-
-### Step 5-11: Products-only tsc PASS
+### Step 5-10: Products-only tsc — PASS
 
 ```bash
 cd /Users/yhc125/workspace/kiditem/apps/server
@@ -2455,7 +2581,7 @@ npx tsc --noEmit --project tsconfig.products.json
 
 Expected: 0 errors.
 
-### Step 5-12: Commit Task 5
+### Step 5-11: Commit Task 5
 
 ```bash
 cd /Users/yhc125/workspace/kiditem
@@ -2463,23 +2589,24 @@ git add apps/server/src/products/dto/create-bundle-component.dto.ts \
         apps/server/src/products/dto/update-bundle-component.dto.ts \
         apps/server/src/products/dto/list-bundle-components.query.ts \
         apps/server/src/products/services/bundle-components.service.ts \
-        apps/server/src/products/services/bundle-stock.service.ts \
         apps/server/src/products/controllers/bundle-components.controller.ts \
         apps/server/src/products/__tests__/bundle-stock.service.spec.ts \
         apps/server/src/products/__tests__/bundle-components.service.pg.integration.spec.ts \
         apps/server/src/products/products.module.ts
-git commit -m "feat(products): BundleComponents + BundleStockService + recompute (Plan B1 T5)"
+git commit -m "feat(products): BundleComponents + unit tests (Plan B1 T5)"
 ```
 
 ---
 
-## Task 6: DI spec + RLS tests + pagination stability + helpers
+## Task 6: DI spec + RLS + pagination (3 commits for mid-task recovery)
+
+**Prior state**: T3-T5 landed. products.module.ts final. All service integration tests PASS.
 
 **Files:**
+- Modify: `apps/server/src/test-helpers/real-prisma.ts` — add `withChatbotReadonly`
 - Create: `apps/server/src/products/__tests__/products.module.di.spec.ts`
 - Create: `apps/server/src/products/__tests__/rls.pg.integration.spec.ts`
 - Create: `apps/server/src/products/__tests__/pagination.pg.integration.spec.ts`
-- Modify: `apps/server/src/test-helpers/real-prisma.ts` — add `withChatbotReadonly`
 
 ### Step 6-1: Add `withChatbotReadonly` helper
 
@@ -2492,9 +2619,11 @@ export async function withChatbotReadonly<T>(
   companyId: string | null,
   fn: (client: Client) => Promise<T>,
 ): Promise<T> {
-  const client = new Client({
-    connectionString: 'postgresql://chatbot_readonly:chatbot_readonly@localhost:5434/kiditem_test',
-  });
+  // Connection string derived from test DATABASE_URL to allow CI overrides.
+  const testUrl = process.env.DATABASE_URL
+    ?? 'postgresql://kiditem_test:kiditem_test@localhost:5434/kiditem_test';
+  const url = testUrl.replace(/^postgresql:\/\/[^:]+:[^@]+/, 'postgresql://chatbot_readonly:chatbot_readonly');
+  const client = new Client({ connectionString: url });
   await client.connect();
   try {
     if (companyId !== null) {
@@ -2507,15 +2636,20 @@ export async function withChatbotReadonly<T>(
 }
 ```
 
-(If `pg` is not already a direct dep of apps/server, ensure it is — it's typically pulled in transitively via Prisma.)
+### Step 6-2: Commit 6a (helper)
 
-### Step 6-2: Write DI spec — failing (it already works after T5 but this is the first time we verify)
+```bash
+cd /Users/yhc125/workspace/kiditem
+git add apps/server/src/test-helpers/real-prisma.ts
+git commit -m "test(helpers): withChatbotReadonly — RLS-scoped pg client (Plan B1 T6a)"
+```
 
-Create `apps/server/src/products/__tests__/products.module.di.spec.ts`:
+### Step 6-3: Create DI spec
 
 ```typescript
+// apps/server/src/products/__tests__/products.module.di.spec.ts
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Test, TestingModule } from '@nestjs/testing';
-import { AuthGuard } from '@nestjs/passport';
 import { ProductsModule } from '../products.module';
 import { MastersController } from '../controllers/masters.controller';
 import { OptionsController } from '../controllers/options.controller';
@@ -2534,8 +2668,8 @@ describe('ProductsModule DI', () => {
     moduleRef = await Test.createTestingModule({
       imports: [ProductsModule],
     })
-      .overrideProvider(PrismaService).useValue({} as any)
-      .overrideGuard(AuthGuard('jwt')).useValue({ canActivate: () => true })
+      .overrideProvider(PrismaService)
+      .useValue({} as any)
       .compile();
     await moduleRef.init();
   });
@@ -2558,7 +2692,7 @@ describe('ProductsModule DI', () => {
 });
 ```
 
-### Step 6-3: Run DI spec — PASS
+### Step 6-4: Run DI spec — PASS, then commit
 
 ```bash
 cd /Users/yhc125/workspace/kiditem/apps/server
@@ -2567,11 +2701,18 @@ npx vitest run src/products/__tests__/products.module.di.spec.ts
 
 Expected: PASS 2/2.
 
-### Step 6-4: Write RLS integration tests
+```bash
+cd /Users/yhc125/workspace/kiditem
+git add apps/server/src/products/__tests__/products.module.di.spec.ts
+git commit -m "test(products): DI wiring spec (Plan B1 T6b)"
+```
 
-Create `apps/server/src/products/__tests__/rls.pg.integration.spec.ts`:
+### Step 6-5: Create RLS + pagination specs
+
+`apps/server/src/products/__tests__/rls.pg.integration.spec.ts`:
 
 ```typescript
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import {
   makeTestPrisma, resetDb, seedBaseFixture, withChatbotReadonly,
@@ -2581,13 +2722,15 @@ import {
 describe('RLS — chatbot_readonly', () => {
   let prisma: PrismaClient;
 
-  beforeAll(async () => { prisma = makeTestPrisma(); });
+  beforeAll(async () => {
+    prisma = makeTestPrisma();
+    await prisma.$connect();
+  });
   afterAll(async () => { await prisma.$disconnect(); });
 
   beforeEach(async () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
-    // Seed masters into both companies
     await prisma.masterProduct.create({
       data: { companyId: TEST_COMPANY_ID, code: 'M-00000A01', name: 'A' },
     });
@@ -2613,15 +2756,7 @@ describe('RLS — chatbot_readonly', () => {
     expect(rows).toHaveLength(0);
   });
 
-  it('product_options — filter set → only own company rows', async () => {
-    const rows = await withChatbotReadonly(TEST_COMPANY_ID, async (c) => {
-      const r = await c.query('SELECT id, company_id FROM product_options');
-      return r.rows;
-    });
-    expect(rows.every((r: any) => r.company_id === TEST_COMPANY_ID)).toBe(true);
-  });
-
-  it('cross-tenant guess — attacker knows B\'s master UUID → 0 rows under A\'s session', async () => {
+  it('cross-tenant guess — attacker knows B\'s master UUID → 0 rows under A', async () => {
     const bRow = await prisma.masterProduct.findUniqueOrThrow({ where: { code: 'M-00000B01' } });
     const rows = await withChatbotReadonly(TEST_COMPANY_ID, async (c) => {
       const r = await c.query('SELECT id FROM master_products WHERE id = $1', [bRow.id]);
@@ -2629,14 +2764,21 @@ describe('RLS — chatbot_readonly', () => {
     });
     expect(rows).toHaveLength(0);
   });
+
+  it('product_options filter set → only own rows', async () => {
+    const rows = await withChatbotReadonly(TEST_COMPANY_ID, async (c) => {
+      const r = await c.query('SELECT id, company_id FROM product_options');
+      return r.rows;
+    });
+    expect(rows.every((r: any) => r.company_id === TEST_COMPANY_ID)).toBe(true);
+  });
 });
 ```
 
-### Step 6-5: Write pagination stability test
-
-Create `apps/server/src/products/__tests__/pagination.pg.integration.spec.ts`:
+`apps/server/src/products/__tests__/pagination.pg.integration.spec.ts`:
 
 ```typescript
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { MasterCodeService } from '../services/master-code.service';
 import { MastersService } from '../services/masters.service';
@@ -2650,6 +2792,7 @@ describe('Pagination stability', () => {
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
+    await prisma.$connect();
     const codeSvc = new MasterCodeService(prisma as any);
     svc = new MastersService(prisma as any, codeSvc);
   });
@@ -2670,12 +2813,12 @@ describe('Pagination stability', () => {
     expect(page1.items).toHaveLength(2);
     expect(page1.nextCursor).not.toBeNull();
 
-    // mid-iteration soft-delete of item NOT yet returned
     const notReturned = ids.find(id => !page1.items.some(it => it.id === id))!;
     await svc.softDelete(TEST_COMPANY_ID, notReturned);
 
-    const page2 = await svc.list(TEST_COMPANY_ID, { limit: 2, cursor: page1.nextCursor! } as any);
-    // page2 should not contain the soft-deleted item, cursor still works
+    const page2 = await svc.list(TEST_COMPANY_ID, {
+      limit: 2, cursor: page1.nextCursor!,
+    } as any);
     expect(page2.items.some(it => it.id === notReturned)).toBe(false);
     expect(page2.items.length).toBeGreaterThan(0);
     expect(page2.items.length).toBeLessThanOrEqual(2);
@@ -2683,64 +2826,48 @@ describe('Pagination stability', () => {
 });
 ```
 
-### Step 6-6: Run all T6 tests — PASS
+### Step 6-6: Run RLS + pagination — PASS, then commit
 
 ```bash
 cd /Users/yhc125/workspace/kiditem/apps/server
-npx vitest run src/products/__tests__/products.module.di.spec.ts
 DATABASE_URL=postgresql://kiditem_test:kiditem_test@localhost:5434/kiditem_test \
   npx vitest run --config vitest.config.integration.ts \
   src/products/__tests__/rls.pg.integration.spec.ts \
   src/products/__tests__/pagination.pg.integration.spec.ts
 ```
 
-Expected: PASS (DI 2 + RLS 4 + pagination 1).
-
-### Step 6-7: Commit Task 6
+Expected: PASS (RLS 4 + pagination 1).
 
 ```bash
 cd /Users/yhc125/workspace/kiditem
-git add apps/server/src/products/__tests__/products.module.di.spec.ts \
-        apps/server/src/products/__tests__/rls.pg.integration.spec.ts \
-        apps/server/src/products/__tests__/pagination.pg.integration.spec.ts \
-        apps/server/src/test-helpers/real-prisma.ts
-git commit -m "test(products): DI wiring + RLS 4-matrix + pagination stability (Plan B1 T6)"
+git add apps/server/src/products/__tests__/rls.pg.integration.spec.ts \
+        apps/server/src/products/__tests__/pagination.pg.integration.spec.ts
+git commit -m "test(products): RLS 4-matrix + pagination stability (Plan B1 T6c)"
 ```
 
 ---
 
-## Task 7: `app.module.ts` registration + 최종 verification
+## Task 7: `app.module.ts` registration + final verification
+
+**Prior state**: T3-T6 landed. products module fully implemented + tested.
 
 **Files:**
-- Modify: `apps/server/src/app.module.ts`
+- Modify: `apps/server/src/app.module.ts` (add ProductsModule import + register)
 
-### Step 7-1: Read current `app.module.ts` + find insertion point
+### Step 7-1: Read current `app.module.ts`
 
 ```bash
-cd /Users/yhc125/workspace/kiditem/apps/server
-grep -n "import.*Module" src/app.module.ts | head -20
+grep -n "import.*Module\|imports:\|BusinessRulesModule\|OrdersModule" /Users/yhc125/workspace/kiditem/apps/server/src/app.module.ts | head -30
 ```
 
-### Step 7-2: Add ProductsModule import
+### Step 7-2: Add ProductsModule
 
 Edit `apps/server/src/app.module.ts`:
 
-```typescript
-import { ProductsModule } from './products/products.module';
+1. Add import: `import { ProductsModule } from './products/products.module';`
+2. Add `ProductsModule` to `@Module({ imports: [...] })` array (alphabetical).
 
-// ...
-
-@Module({
-  imports: [
-    // ... alphabetical insertion
-    ProductsModule,
-    // ...
-  ],
-})
-export class AppModule {}
-```
-
-### Step 7-3: Confirm products-only tsc still PASS
+### Step 7-3: Products-only tsc — PASS
 
 ```bash
 cd /Users/yhc125/workspace/kiditem/apps/server
@@ -2749,35 +2876,36 @@ npx tsc --noEmit --project tsconfig.products.json
 
 Expected: 0 errors.
 
-### Step 7-4: Confirm full-server tsc still fails at ~similar count (expected)
+### Step 7-4: Full-server tsc baseline
 
 ```bash
 cd /Users/yhc125/workspace/kiditem/apps/server
 npx tsc --noEmit 2>&1 | grep -c "error TS"
 ```
 
-Expected: ~400-450 errors. Should NOT be higher than Plan B1 baseline (T1 Step 1-8). Products module adds 0 errors.
+Expected: ~420-480 errors. Products module 추가 자체는 에러 0 기여 (Plan A baseline 근처 유지).
 
 ### Step 7-5: Run full Plan B1 test suite
 
 ```bash
 cd /Users/yhc125/workspace/kiditem/apps/server
 # Unit
-npx vitest run src/products/__tests__/master-code.service.spec.ts \
-                src/products/__tests__/bundle-stock.service.spec.ts \
-                src/products/__tests__/products.module.di.spec.ts
+npx vitest run \
+  src/products/__tests__/master-code.service.spec.ts \
+  src/products/__tests__/bundle-stock.service.spec.ts \
+  src/products/__tests__/serialize.spec.ts \
+  src/products/__tests__/products.module.di.spec.ts
 # Integration
 DATABASE_URL=postgresql://kiditem_test:kiditem_test@localhost:5434/kiditem_test \
   npx vitest run --config vitest.config.integration.ts src/products/__tests__/
 ```
 
-Expected: all green.
+Expected total: unit 15 + integration ~32 = ~47 tests all green.
 
-### Step 7-6: Index verification (EXPLAIN check)
+### Step 7-6: Index verification (EXPLAIN)
 
 ```bash
 docker exec kiditem-postgres-test psql -U kiditem_test kiditem_test <<'SQL'
--- Seed 10k masters to check index usage
 INSERT INTO master_products (id, company_id, code, name, option_counter, created_at, updated_at)
 SELECT gen_random_uuid(), 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d',
        'M-' || LPAD(generate_series::text, 8, '0'),
@@ -2789,10 +2917,13 @@ EXPLAIN (COSTS OFF)
 SELECT * FROM master_products
 WHERE company_id = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d' AND is_deleted = false
 ORDER BY created_at DESC, id DESC LIMIT 51;
+
+-- cleanup
+TRUNCATE master_products CASCADE;
 SQL
 ```
 
-Expected: `Index Scan` or `Bitmap Heap Scan` using `master_products_companyId_isDeleted_idx` or composite. 만약 `Seq Scan` 나타나면 Plan A schema hotfix 필요 (composite index 추가).
+Expected: EXPLAIN 결과에 `Index Scan` 또는 `Bitmap Index Scan` 포함 (any index scan; 구체 index name 은 환경 의존). `Seq Scan` 면 composite index 추가 필요 (Plan A schema hotfix).
 
 ### Step 7-7: Commit Task 7
 
@@ -2802,7 +2933,7 @@ git add apps/server/src/app.module.ts
 git commit -m "feat(app): register ProductsModule (Plan B1 T7)"
 ```
 
-### Step 7-8: Push branch + PR
+### Step 7-8: Push branch
 
 ```bash
 cd /Users/yhc125/workspace/kiditem
@@ -2815,116 +2946,105 @@ git push -u origin feat/plan-b1-products-module
 gh pr create --draft --title "feat: Plan B1 — Products module (Master+Option+Bundle)" --body "$(cat <<'EOF'
 ## Summary
 
-Plan B1 of the products-module rebuild. See
-[docs/superpowers/specs/2026-04-17-plan-b1-products-module-design.md](docs/superpowers/specs/2026-04-17-plan-b1-products-module-design.md)
-and
-[docs/superpowers/plans/2026-04-17-plan-b1-products-module.md](docs/superpowers/plans/2026-04-17-plan-b1-products-module.md)
-for context.
+Plan B1. Spec v3 — 3 adversarial reviews 반영.
+
+See:
+- [spec](docs/superpowers/specs/2026-04-17-plan-b1-products-module-design.md)
+- [plan](docs/superpowers/plans/2026-04-17-plan-b1-products-module.md)
 
 **Scope**:
 - `apps/server/src/products/` 신설 — 3 controllers + 5 services + DTOs + utils + tests
-- `@kiditem/shared` product.ts + inventory.ts 재작성 (Master/ProductOption/BundleComponent Zod)
-- `toSerializable()` helper 추가 — Prisma row → Zod-parseable plain JSON
-- `ProductsModule` 을 `app.module.ts` 에 등록
+- `@kiditem/shared` product.ts + inventory.ts 재작성
+- `toSerializable()` util (server-side, duck-typed Decimal)
+- `ProductsModule` app.module.ts 등록
 
-**Known state after merge**:
-- `npm run dev:server` — **여전히 부팅 실패** (expected, Plan B2/B3 전)
-- `apps/server` tsc — ~400 에러 (Plan B1 baseline 과 유사; 감소 시작)
-- Products module 자체: tsconfig.products.json 으로 PASS, 30+ tests PASS
-- `@kiditem/shared` build — PASS
+**Known state**:
+- `npm run dev:server` — 여전히 부팅 실패 (Plan B2/B3 대상)
+- Products module 자체: tsconfig.products.json PASS, 47 tests PASS, RLS 4-matrix + DI spec + pagination stability
 
-**Does NOT belong in this PR**:
+**Does NOT belong**:
 - advertising / orders / inventory service rewrite (Plan B2)
 - Dashboard / finance / supply / AI (Plan B3)
 - Frontend (Plan D)
-- Inventory change → bundle recompute hook (Plan B2의 StockTransaction hook)
+- Bundle recompute hook on inventory change (Plan B2 StockTransaction task)
 
-**Verification done**:
+**Verification**:
 - [x] `npm run build --workspace=packages/shared` — PASS
-- [x] `npx tsc --noEmit --project apps/server/tsconfig.products.json` — PASS (0 errors)
-- [x] Unit tests — master-code (4), bundle-stock (4), DI wiring (2) PASS
-- [x] Integration tests — masters (7), options (7), bundle-components (8), RLS (4), pagination (1) PASS
-- [x] EXPLAIN list queries — index scan (no seq scan on 10k rows)
-
-## Test plan
-
-- [ ] Reviewer: spec + plan 먼저 검토
-- [ ] `products/CLAUDE.md` 가 domain 규칙 명확히 담았는지
-- [ ] `OptionsService.create` 의 updateMany + findUniqueOrThrow 패턴 검증
-- [ ] `BundleStockService.recompute` row-level lock + isDeleted 필터 검증
-- [ ] After merge: Plan B2 착수
+- [x] `tsc --project tsconfig.products.json` — 0 errors
+- [x] Unit tests — 4 (master-code) + 4 (bundle-stock) + 5 (serialize) + 2 (DI) PASS
+- [x] Integration tests — 7 (masters) + 8 (options) + 10 (bundle-components) + 4 (RLS) + 1 (pagination) PASS
+- [x] EXPLAIN — index scan on 10k rows
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 EOF
 )"
 ```
 
-Expected: PR URL returned.
-
 ---
 
 ## Rollback procedure
 
-### Task 1 (@kiditem/shared) 실패 시
-- `git reset --hard HEAD~1` → 기존 product.ts 복구
-- 또는 critical failure 시 Plan B1 포기하고 Plan B 의 scope 재설계
+각 task 는 독립 commit. 실패 시 해당 commit 을 `git reset --hard HEAD~1` 으로 폐기.
 
-### Task 2-5 중 테스트 실패 시
-- 해당 task 의 commit `git reset --hard HEAD~1` 으로 되돌림
-- 원인 분석 후 재시도 (plan 내용 따라가면 compile/test 통과해야)
+**T6 는 3 commits (T6a/6b/6c)** — 부분 실패 시 실패 단계만 되돌림.
 
-### Task 7 merge 후 regression 발견
-- Plan B1 전체 revert: `git revert <merge-commit>`
-- DB schema 는 Plan A 스냅샷 그대로 (이 plan 은 schema 건드리지 않음)
+**Task 간 failure**:
+- 테스트 실패 → 원인 분석 후 재시도 (plan 내용 준수 시 통과해야)
+- 근본적 문제 → plan 자체 결함 → user 에게 escalate + plan 수정
+
+**Post-push revert**:
+- PR 머지 전 — branch force push 금지. 실수 시 follow-up commit 으로 수정.
+- PR 머지 후 regression → `git revert <merge-commit>` → DB 는 Plan A 상태 유지 (이 plan 은 schema 건드리지 않음)
 
 ---
 
 ## What already exists (재사용)
 
-- `PrismaService` / `PrismaModule` (global) — schema 는 Plan A 가 확정
-- `AuthModule` / `@CurrentCompany()` decorator — `/auth/decorators/current-company.decorator.ts`
-- `AuthGuard('jwt')` — `@nestjs/passport`
-- `GlobalExceptionFilter` — 글로벌 에러 변환
+- `PrismaService` / `PrismaModule` (global)
+- `AuthModule` — 전역 `CompanyScopeGuard` via `APP_GUARD` + `@CurrentCompany()` decorator
+- 전역 `ValidationPipe({whitelist:true, transform:true})` — `main.ts:58-61`
+- `GlobalExceptionFilter`
 - `test-helpers/real-prisma.ts` — `makeTestPrisma`, `resetDb`, `seedBaseFixture`, `TEST_COMPANY_ID`, `OTHER_COMPANY_ID`
-- `vitest.config.integration.ts` — `.pg.integration.spec.ts` 글로브 자동 pickup
-- Postgres 부산: `master_code_seq`, `product_options_master_null_option` partial unique, 3 CHECK constraints, 7 RLS policies — 모두 Plan A Task 11 에서 적용됨
+- `vitest.config.integration.ts` — `.pg.integration.spec.ts` glob, serial 강제
+- Postgres resources (Plan A Task 11): `master_code_seq`, `product_options_master_null_option` partial unique, 3 CHECK, 7 RLS policies
 
 ## Failure modes
 
 | Scenario | 검증 | 복구 |
 |---|---|---|
-| `@kiditem/shared` 재작성 후 자체 build 실패 | T1 Step 1-7 | 삭제한 심볼 중 재-export 누락 확인; two-barrel 동기화 재점검 |
-| products tsc 실패 | T2/3/4/5 Step tsc | Plan 내 method signature 타입 수정; DTO import 확인 |
-| race test 실패 (sku 충돌) | T4 Step 4-10 | `updateMany` 가 row-level lock 을 제대로 획득하는지 확인; Postgres isolation level 확인 (READ COMMITTED 기본은 충분) |
-| Bundle recompute concurrent 결과 non-deterministic | T5 Step 5-9 | `SELECT ... FOR UPDATE` lock 문이 tx 안에서 실행되는지 확인 |
-| RLS 테스트에서 row 노출 | T6 Step 6-6 | `chatbot_readonly` 유저가 테스트 DB 에 존재 + `app.company_id` GUC 세션 변수 설정 확인 |
-| EXPLAIN seq scan | T7 Step 7-6 | Plan A schema hotfix: 필요한 composite index 추가 PR (Plan B1 외 별도 작업) |
+| `@kiditem/shared` 재작성 후 build 실패 | T1 Step 1-6 | 누락된 re-export / type 확인 (두 index.ts 모두) |
+| products tsc 실패 | T2/3/4/5 Step tsc | import path + `Prisma.XxxUncheckedInput` 타입 확인 |
+| race test 실패 (sku 충돌) | T4 Step 4-10 | `updateMany` 가 row-level lock 을 제대로 획득 확인 (Postgres READ COMMITTED 기본 ok) |
+| Bundle recompute non-deterministic | T5 Step 5-9 | `SELECT ... FOR UPDATE` lock 문이 tx 안에서 실행 확인 |
+| RLS 0 rows under session | T6 Step 6-6 | `chatbot_readonly` 유저 + `app.company_id` GUC 설정 확인 |
+| EXPLAIN seq scan | T7 Step 7-6 | 별도 PR 로 composite index 추가 (Plan B1 scope 외) |
+| `Test.createTestingModule` DI 실패 | T6 Step 6-4 | `providers` / `exports` 목록 + PrismaService override 확인 |
 
 ## NOT in scope (후속 plan)
 
-- advertising / orders / inventory service (productId → listingId/optionId rewrite) — Plan B2
+- advertising / orders / inventory service rewrite — Plan B2
 - dashboard / finance / supply / AI services — Plan B3
-- Full NestJS HTTP integration tests (supertest + app.init) — Plan B3
+- Full NestJS HTTP integration tests — Plan B3
 - Frontend pages — Plan D
 - Wing 이관 + 새 init.sql.gz — Plan C
-- MCP tool layer (Master/Option 검색용) — 장기 로드맵
-- Nested bundle 허용 + BFS cycle detection — Plan B3 검토
-- DB CHECK constraint for nested-bundle — Plan B3 hardening
-- `BundleComponent` cross-company DB CHECK — Plan B3 hardening
-- Event-driven recompute (EventEmitter2 기반) — Plan B2 인벤토리 hook 설계 시 재평가
+- Nested bundle 허용 + BFS cycle detection — Plan B3 이후
+- DB-level CHECK for nested-bundle, BundleComponent 3-way invariant — Plan B3 hardening
+- Event-driven recompute (EventEmitter2) — Plan B2 inventory hook 설계 시 재평가
 
 ---
 
 ## Execution Handoff
 
-Plan B1 complete and saved to `docs/superpowers/plans/2026-04-17-plan-b1-products-module.md`.
+Plan complete and saved to `docs/superpowers/plans/2026-04-17-plan-b1-products-module.md`.
 
 **Execution options**:
 
-**1. Subagent-Driven (recommended for single-actor workflow)** — Task 1-7 각각 fresh subagent dispatch. Task 간 spec compliance review + code quality review. 현 세션 context 보호.
+**1. Subagent-Driven (recommended)** — Fresh subagent per task + two-stage review (spec + code quality). T1-T7 순차.
 
-**2. TeamCreate (recommended for parallel T3+T4)** — CLAUDE.md 의 TeamCreate workflow. 1 team, `kiditem-implementer × 3` (T3/T4/T5 분배), `kiditem-reviewer × 2` (MODE: spec + MODE: quality), `kiditem-qa-verifier × 1`. Team 내 직접 DM 으로 review loop.
+**2. TeamCreate (kiditem team workflow)** — 1 team, `kiditem-implementer × 1` (병렬 금지, 하나씩 claim), `kiditem-reviewer × 2` (spec + quality, 병렬 가능), `kiditem-qa-verifier × 1`. **T3/T4/T5 는 반드시 sequential dispatch** — 공유 test DB 의 `resetDb` TRUNCATE + `products.module.ts` 공동 편집 때문.
 
-**3. Inline Execution** — 현 세션에서 순차 실행 (writing-plans skill 기본). Context 부담 큼.
+QA verifier 작업: `npm run test:integration -- src/products/` + unit suite + `tsc --project tsconfig.products.json` 실행 + 결과 리포트. `dev:server` 부팅은 Plan B3 까지 불가이므로 unused.
+
+**3. Inline Execution** — 현 세션에서 순차 실행 (executing-plans skill). Context 부담 큼.
 
 **어느 방식?**
