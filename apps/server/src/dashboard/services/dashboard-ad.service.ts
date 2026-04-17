@@ -11,6 +11,7 @@ import type { DashboardContext } from './context';
 import { calculateProfitForRange, type RangeProfitMetrics } from '../helpers/profit-calculator';
 import { aggregateAdForRange, type RangeAdMetrics } from '../helpers/ad-aggregator';
 import { fetchWingAdSummary, type WingAdSummaryResult } from '../helpers/wing-ad-summary';
+import { pct1, pct2 } from '../helpers/percent';
 
 @Injectable()
 export class DashboardAdService {
@@ -110,12 +111,12 @@ export class DashboardAdService {
     const prevRevenue = Number(prevAd.revenue);
 
     // Base ROAS/CTR from ads table (current month)
-    const curRoas = curSpend > 0 ? Math.round((curRevenue / curSpend) * 100 * 100) / 100 : 0;
-    const curCtr = curImpressions > 0 ? Math.round((curClicks / curImpressions) * 100 * 100) / 100 : 0;
+    const curRoas = pct2(curRevenue, curSpend);
+    const curCtr = pct2(curClicks, curImpressions);
 
     // Prev ROAS/CTR from ads table (prev month)
-    const prevRoas = prevSpend > 0 ? Math.round((prevRevenue / prevSpend) * 100 * 100) / 100 : 0;
-    const prevCtr = prevImpressions > 0 ? Math.round((prevClicks / prevImpressions) * 100 * 100) / 100 : 0;
+    const prevRoas = pct2(prevRevenue, prevSpend);
+    const prevCtr = pct2(prevClicks, prevImpressions);
 
     // Base adRevenue and totalAdSpend from calculateProfitForRange (L297-299 pattern)
     let adRevenue = curMonthProfit.adRevenue;
@@ -150,32 +151,22 @@ export class DashboardAdService {
     const curAdConvRevenue = Number(rangeAdCur.revenue);
     const prevAdConvRevenue = Number(rangeAdPrev.revenue);
 
-    const curAdRoas = curAdSpend > 0
-      ? Math.round((curAdConvRevenue / curAdSpend) * 100 * 100) / 100
-      : 0;
-    const prevAdRoas = prevAdSpend > 0
-      ? Math.round((prevAdConvRevenue / prevAdSpend) * 100 * 100) / 100
-      : 0;
+    const curAdRoas = pct2(curAdConvRevenue, curAdSpend);
+    const prevAdRoas = pct2(prevAdConvRevenue, prevAdSpend);
 
-    const curAdCtr = Number(rangeAdCur.impressions) > 0
-      ? Math.round((Number(rangeAdCur.clicks) / Number(rangeAdCur.impressions)) * 100 * 100) / 100
-      : 0;
-    const prevAdCtr = Number(rangeAdPrev.impressions) > 0
-      ? Math.round((Number(rangeAdPrev.clicks) / Number(rangeAdPrev.impressions)) * 100 * 100) / 100
-      : 0;
+    const curAdCtr = pct2(Number(rangeAdCur.clicks), Number(rangeAdCur.impressions));
+    const prevAdCtr = pct2(Number(rangeAdPrev.clicks), Number(rangeAdPrev.impressions));
 
     // Legacy L326: const rangeAdCostVal = rangeProfitCur.adCost
     const rangeAdCostVal = rangeProfitCur.adCost;
     const rangeRevenue = rangeProfitCur.revenue;
     const prevRangeRevenue = rangeProfitPrev.revenue;
 
-    const adRate = rangeRevenue > 0
-      ? Math.round((rangeAdCostVal / rangeRevenue) * 1000) / 10
-      : 0;
-    const prevAdRate = prevRangeRevenue > 0
-      ? Math.round((rangeProfitPrev.adCost / prevRangeRevenue) * 1000) / 10
-      : 0;
-    // Legacy L346: adRateChange computed from range-period revenue (not hardcoded 0)
+    const adRate = pct1(rangeAdCostVal, rangeRevenue);
+    const prevAdRate = pct1(rangeProfitPrev.adCost, prevRangeRevenue);
+    // Legacy L346: adRateChange computed from range-period revenue (not hardcoded 0).
+    // Inline difference — the two terms are 2-decimal percents internally, so we
+    // round the final delta to 1dp rather than chaining pct1 helpers.
     const adRateChange = Math.round(
       (
         (rangeRevenue > 0 ? (rangeAdCostVal / rangeRevenue) * 100 : 0) -
@@ -196,12 +187,8 @@ export class DashboardAdService {
       prevAdCtr: prevAdCtr,
       prevAdCost: rangeProfitPrev.adCost,
       prevAdRate,
-      adSpendChange: prevAdSpend > 0
-        ? Math.round(((curAdSpend - prevAdSpend) / prevAdSpend) * 1000) / 10
-        : 0,
-      adConvRevenueChange: prevAdConvRevenue > 0
-        ? Math.round(((curAdConvRevenue - prevAdConvRevenue) / prevAdConvRevenue) * 1000) / 10
-        : 0,
+      adSpendChange: pct1(curAdSpend - prevAdSpend, prevAdSpend),
+      adConvRevenueChange: pct1(curAdConvRevenue - prevAdConvRevenue, prevAdConvRevenue),
       adRoasChange: Math.round((curAdRoas - prevAdRoas) * 100) / 100,
       adCtrChange: Math.round((curAdCtr - prevAdCtr) * 100) / 100,
       adRateChange,
@@ -226,25 +213,20 @@ export class DashboardAdService {
     const prevAdConvRevenueVal = Number(prevMonthAd.revenue);
 
     // ctr and roas from monthly data
-    const curRoas = adSpendVal > 0
-      ? Math.round((adConvRevenueVal / adSpendVal) * 100 * 100) / 100
-      : 0;
-    const curCtr = adImpVal > 0
-      ? Math.round((adClicksVal / adImpVal) * 100 * 100) / 100
-      : 0;
-    const prevRoas = prevAdSpendVal > 0
-      ? Math.round((prevAdConvRevenueVal / prevAdSpendVal) * 100 * 100) / 100
-      : 0;
-    const prevCtr = prevAdImpVal > 0
-      ? Math.round((prevAdClicksVal / prevAdImpVal) * 100 * 100) / 100
-      : 0;
+    const curRoas = pct2(adConvRevenueVal, adSpendVal);
+    const curCtr = pct2(adClicksVal, adImpVal);
+    const prevRoas = pct2(prevAdConvRevenueVal, prevAdSpendVal);
+    const prevCtr = pct2(prevAdClicksVal, prevAdImpVal);
 
-    // A11: conversions from rangeAdCur (matching legacy L509: rangeAdCur.conversions)
+    // A11 + legacy parity quirk: CVR numerator is from the selected *range*
+    // (rangeAdCur.conversions, L509), but denominator uses *monthly* clicks
+    // (adClicksVal). When a non-month range is selected this under-reports CVR
+    // because few-range-conversions / many-month-clicks. Legacy does exactly
+    // this; we preserve it for parity rather than "fix" silently. If dashboard
+    // consumers complain about CVR accuracy for sub-month ranges, swap the
+    // denominator to rangeAdCur.clicks here.
     const adConversionsVal = Number(rangeAdCur.conversions ?? 0);
-    // A11: cvr = conversions / clicks (guarded for 0 clicks)
-    const adCvrVal = adClicksVal > 0
-      ? Math.round((adConversionsVal / adClicksVal) * 10000) / 100
-      : 0;
+    const adCvrVal = pct2(adConversionsVal, adClicksVal);
 
     return {
       totalSpend: adSpendVal,
@@ -259,12 +241,8 @@ export class DashboardAdService {
       prevConvRevenue: prevAdConvRevenueVal,
       prevCtr: prevCtr,
       prevRoas: prevRoas,
-      spendChange: prevAdSpendVal > 0
-        ? Math.round(((adSpendVal - prevAdSpendVal) / prevAdSpendVal) * 1000) / 10
-        : 0,
-      convRevenueChange: prevAdConvRevenueVal > 0
-        ? Math.round(((adConvRevenueVal - prevAdConvRevenueVal) / prevAdConvRevenueVal) * 1000) / 10
-        : 0,
+      spendChange: pct1(adSpendVal - prevAdSpendVal, prevAdSpendVal),
+      convRevenueChange: pct1(adConvRevenueVal - prevAdConvRevenueVal, prevAdConvRevenueVal),
       roasChange: Math.round((curRoas - prevRoas) * 100) / 100,
       ctrChange: Math.round((curCtr - prevCtr) * 100) / 100,
       totalRevenue: curMonthProfit.revenue,
@@ -286,21 +264,15 @@ export class DashboardAdService {
     curMonthAd: RangeAdMetrics,
     curMonthProfit: RangeProfitMetrics,
   ): IndustryBenchmark {
-    const myAdRateVal = curMonthProfit.revenue > 0
-      ? Math.round((curMonthProfit.adCost / curMonthProfit.revenue) * 1000) / 10
-      : 0;
+    const myAdRateVal = pct1(curMonthProfit.adCost, curMonthProfit.revenue);
 
     const adSpendVal = Number(curMonthAd.spend);
     const adRevVal = Number(curMonthAd.revenue);
     const adImpVal = Number(curMonthAd.impressions);
     const adClicksVal = Number(curMonthAd.clicks);
 
-    const myRoasVal = adSpendVal > 0
-      ? Math.round((adRevVal / adSpendVal) * 100 * 100) / 100
-      : 0;
-    const myCtrVal = adImpVal > 0
-      ? Math.round((adClicksVal / adImpVal) * 100 * 100) / 100
-      : 0;
+    const myRoasVal = pct2(adRevVal, adSpendVal);
+    const myCtrVal = pct2(adClicksVal, adImpVal);
 
     return {
       // Industry reference averages from legacy L612-623 (copied as-is)

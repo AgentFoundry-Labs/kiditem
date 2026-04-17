@@ -13,6 +13,7 @@ import type {
 import type { DashboardContext } from './context';
 import { calculateProfitForRange } from '../helpers/profit-calculator';
 import { fetchWingAdSummary } from '../helpers/wing-ad-summary';
+import { pct1 } from '../helpers/percent';
 
 @Injectable()
 export class DashboardSalesService {
@@ -223,27 +224,18 @@ export class DashboardSalesService {
     const monthProfit = curMonthProfit.netProfit;
 
     // adRate: Wing adSpend / traffic revenue when Wing data is present
-    let adRate: number;
-    if (wingAdSummary && wingAdSummary.adRevenue > 0 && monthRevenue > 0) {
-      adRate = Math.round((wingAdSummary.adSpend / monthRevenue) * 1000) / 10;
-    } else if (curMonthProfit.revenue > 0) {
-      adRate = Math.round((curMonthProfit.adCost / curMonthProfit.revenue) * 1000) / 10;
-    } else {
-      adRate = 0;
-    }
+    const adRate = wingAdSummary && wingAdSummary.adRevenue > 0
+      ? pct1(wingAdSummary.adSpend, monthRevenue)
+      : pct1(curMonthProfit.adCost, curMonthProfit.revenue);
 
     const prevRevenue = prevMonthProfit.revenue;
     const prevProfit = prevMonthProfit.netProfit;
-    const prevAdRate = prevRevenue > 0
-      ? Math.round((prevMonthProfit.adCost / prevRevenue) * 1000) / 10
-      : 0;
+    const prevAdRate = pct1(prevMonthProfit.adCost, prevRevenue);
 
-    const revenueChange = prevRevenue > 0
-      ? Math.round(((monthRevenue - prevRevenue) / prevRevenue) * 1000) / 10
-      : 0;
-    const profitChange = prevProfit !== 0
-      ? Math.round(((monthProfit - prevProfit) / Math.abs(prevProfit)) * 1000) / 10
-      : 0;
+    const revenueChange = pct1(monthRevenue - prevRevenue, prevRevenue);
+    // profitChange: previous profit may be negative (use absolute value as denominator
+    // so the sign of the change reflects direction of the delta, not the sign of prev).
+    const profitChange = pct1(monthProfit - prevProfit, Math.abs(prevProfit));
 
     return {
       revenue: monthRevenue,
@@ -316,7 +308,7 @@ export class DashboardSalesService {
           grade: prod?.abcGrade ?? 'C',
           revenue: rev,
           netProfit: net,
-          profitRate: rev > 0 ? Math.round((net / rev) * 1000) / 10 : 0,
+          profitRate: pct1(net, rev),
         } satisfies TopProduct;
       });
     }
@@ -340,7 +332,7 @@ export class DashboardSalesService {
       grade: tp.product?.abcGrade ?? 'C',
       revenue: tp.revenue,
       netProfit: tp.netProfit,
-      profitRate: tp.revenue > 0 ? Math.round((tp.netProfit / tp.revenue) * 1000) / 10 : 0,
+      profitRate: pct1(tp.netProfit, tp.revenue),
     } satisfies TopProduct));
   }
 
@@ -422,12 +414,12 @@ export class DashboardSalesService {
       rangeProfit = profitDetail.netProfit;
     }
 
-    const revenueChange = prevRangeRevenue > 0
-      ? Math.round(((rangeRevenue - prevRangeRevenue) / prevRangeRevenue) * 1000) / 10
-      : 0;
-    const profitChange = rangeProfitPrev.netProfit !== 0
-      ? Math.round(((rangeProfit - rangeProfitPrev.netProfit) / Math.abs(rangeProfitPrev.netProfit)) * 1000) / 10
-      : 0;
+    const revenueChange = pct1(rangeRevenue - prevRangeRevenue, prevRangeRevenue);
+    // profitChange: |prev| guard so sign reflects delta direction, not sign of prev
+    const profitChange = pct1(
+      rangeProfit - rangeProfitPrev.netProfit,
+      Math.abs(rangeProfitPrev.netProfit),
+    );
 
     const profitRateChange = Math.round((rangeProfitCur.profitRate - rangeProfitPrev.profitRate) * 10) / 10;
 
@@ -451,6 +443,11 @@ export class DashboardSalesService {
   ): DailyRevenueItem[] | undefined {
     if (dailyOrderRows.length === 0) return undefined;
 
+    // profitRate shown on each daily bar is a **month-average projection**, not a
+    // per-day rate. The daily order rows only carry revenue; computing a true
+    // daily margin would require per-day ad cost + commission/shipping aggregation
+    // (currently month-level). Projecting the month average keeps the chart
+    // visually informative without overstating resolution.
     const avgProfitRate = curMonthProfit.revenue > 0
       ? (curMonthProfit.netProfit / curMonthProfit.revenue) * 100
       : 0;
@@ -484,9 +481,7 @@ export class DashboardSalesService {
       actualRevenue: salesPlan.actualRevenue,
       targetOrders: salesPlan.targetOrders,
       actualOrders: salesPlan.actualOrders,
-      achieveRate: salesPlan.targetRevenue > 0
-        ? Math.round((salesPlan.actualRevenue / salesPlan.targetRevenue) * 1000) / 10
-        : 0,
+      achieveRate: pct1(salesPlan.actualRevenue, salesPlan.targetRevenue),
     } satisfies PlanAchievement;
   }
 
@@ -506,7 +501,7 @@ export class DashboardSalesService {
     const tkVisitors = trafficAgg._sum.visitors ?? 0;
     const tkOrders = trafficAgg._sum.orders ?? 0;
     const tkRevenue = trafficAgg._sum.revenue ?? 0;
-    const conversionRate = tkVisitors > 0 ? Math.round((tkOrders / tkVisitors) * 1000) / 10 : 0;
+    const conversionRate = pct1(tkOrders, tkVisitors);
 
     return {
       visitors: tkVisitors,
