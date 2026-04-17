@@ -32,6 +32,8 @@ export class DashboardAdService {
         dailyAdRows,
         curMonthProfit,
         prevMonthProfit,
+        rangeProfitCur,
+        rangeProfitPrev,
         wingAdSummary,
       ] = await Promise.all([
         // Current calendar-month ad aggregation (replaces inline L78-88 raw SQL)
@@ -56,6 +58,10 @@ export class DashboardAdService {
         calculateProfitForRange(this.prisma, monthStart, monthEnd),
         // Previous month profit (Order-based)
         calculateProfitForRange(this.prisma, prevMonthDate, monthStart),
+        // Range profit current period (legacy L326: rangeProfitCur.adCost for rangeKpi)
+        calculateProfitForRange(this.prisma, dateRange.start, dateRange.end),
+        // Range profit previous period (legacy L344: rangeProfitPrev.adCost for prevAdCost)
+        calculateProfitForRange(this.prisma, dateRange.prevStart, dateRange.prevEnd),
         // Wing adSummary snapshot
         fetchWingAdSummary(this.prisma, year, month, monthStart),
       ]);
@@ -67,7 +73,7 @@ export class DashboardAdService {
           curMonthProfit,
           wingAdSummary,
         ),
-        rangeKpi: this.buildRangeKpi(rangeAdCur, rangeAdPrev, curMonthProfit),
+        rangeKpi: this.buildRangeKpi(rangeAdCur, rangeAdPrev, rangeProfitCur, rangeProfitPrev),
         adKpi: this.buildAdKpi(
           adAggCurrentMonth,
           adAggPrevMonth,
@@ -136,7 +142,8 @@ export class DashboardAdService {
   private buildRangeKpi(
     rangeAdCur: RangeAdMetrics,
     rangeAdPrev: RangeAdMetrics,
-    curMonthProfit: RangeProfitMetrics,
+    rangeProfitCur: RangeProfitMetrics,
+    rangeProfitPrev: RangeProfitMetrics,
   ): NonNullable<DashboardAdSummary['rangeKpi']> {
     const curAdSpend = Number(rangeAdCur.spend);
     const prevAdSpend = Number(rangeAdPrev.spend);
@@ -157,8 +164,24 @@ export class DashboardAdService {
       ? Math.round((Number(rangeAdPrev.clicks) / Number(rangeAdPrev.impressions)) * 100 * 100) / 100
       : 0;
 
-    const rangeAdCostVal = curMonthProfit.adCost;
-    const rangeRevenue = curMonthProfit.revenue;
+    // Legacy L326: const rangeAdCostVal = rangeProfitCur.adCost
+    const rangeAdCostVal = rangeProfitCur.adCost;
+    const rangeRevenue = rangeProfitCur.revenue;
+    const prevRangeRevenue = rangeProfitPrev.revenue;
+
+    const adRate = rangeRevenue > 0
+      ? Math.round((rangeAdCostVal / rangeRevenue) * 1000) / 10
+      : 0;
+    const prevAdRate = prevRangeRevenue > 0
+      ? Math.round((rangeProfitPrev.adCost / prevRangeRevenue) * 1000) / 10
+      : 0;
+    // Legacy L346: adRateChange computed from range-period revenue (not hardcoded 0)
+    const adRateChange = Math.round(
+      (
+        (rangeRevenue > 0 ? (rangeAdCostVal / rangeRevenue) * 100 : 0) -
+        (prevRangeRevenue > 0 ? (rangeProfitPrev.adCost / prevRangeRevenue) * 100 : 0)
+      ) * 10,
+    ) / 10;
 
     return {
       adSpend: curAdSpend,
@@ -166,13 +189,13 @@ export class DashboardAdService {
       adRoas: curAdRoas,
       adCtr: curAdCtr,
       adCost: rangeAdCostVal,
-      adRate: rangeRevenue > 0
-        ? Math.round((rangeAdCostVal / rangeRevenue) * 1000) / 10
-        : 0,
+      adRate,
       prevAdSpend: prevAdSpend,
       prevAdConvRevenue: prevAdConvRevenue,
       prevAdRoas: prevAdRoas,
       prevAdCtr: prevAdCtr,
+      prevAdCost: rangeProfitPrev.adCost,
+      prevAdRate,
       adSpendChange: prevAdSpend > 0
         ? Math.round(((curAdSpend - prevAdSpend) / prevAdSpend) * 1000) / 10
         : 0,
@@ -181,7 +204,7 @@ export class DashboardAdService {
         : 0,
       adRoasChange: Math.round((curAdRoas - prevAdRoas) * 100) / 100,
       adCtrChange: Math.round((curAdCtr - prevAdCtr) * 100) / 100,
-      adRateChange: 0, // adRate change requires prevRangeRevenue — not owned by this service
+      adRateChange,
     };
   }
 

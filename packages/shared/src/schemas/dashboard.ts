@@ -208,6 +208,8 @@ export const DashboardAdSummarySchema = z.object({
     prevAdConvRevenue: z.number().optional(),
     prevAdRoas: z.number().optional(),
     prevAdCtr: z.number().optional(),
+    prevAdCost: z.number().optional(),
+    prevAdRate: z.number().optional(),
     adSpendChange: z.number().optional(),
     adConvRevenueChange: z.number().optional(),
     adRoasChange: z.number().optional(),
