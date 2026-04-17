@@ -66,6 +66,47 @@ Adding a new domain: create module + controller + service + dto/ → register in
 - Agent prompts: stored in `agent-config/prompts/`, NOT in DB. DB `prompt_template` field holds file path.
 - No data injection in prompts — agents fetch what they need via db-query skill.
 
+## Data Access — Service-level Prisma (+ 선택적 Repository 추출)
+
+Prisma 공식 best-practice 에 따라 **기본은 Service 에서 `PrismaService` 를 직접 주입받아 CRUD**. Repository/DAL 레이어를 모든 도메인에 전면 도입하지 않는다 (Prisma 자체가 type-safe repository 역할).
+
+### Repository 추출 트리거 (5+ rule)
+
+동일 모델을 **5개 이상의 service 가 `this.prisma.<model>` 로 touch** 하면 공통 접근 로직을 `{domain}/repositories/{model}.repository.ts` 로 추출할 것을 **고려**한다. 자동 분기 규칙이지 필수는 아님 — 실제로 중복 로직 (companyId scope / 표준 include 프리셋 / soft-delete) 이 반복되는지 먼저 확인.
+
+**검출 명령**:
+```bash
+# 모든 모델의 service touch 분산도 산출 (상위 10)
+for model in $(grep -hE '^model ' prisma/models/*.prisma | awk '{print tolower($2)}'); do
+  count=$(grep -rl "this\.prisma\.${model}\." apps/server/src --include="*.service.ts" 2>/dev/null | wc -l | tr -d ' ')
+  [ "$count" -ge 5 ] && echo "$count $model"
+done | sort -rn
+```
+
+**현재 트리거 해당 모델 (2026-04-17 감사)**:
+| 모델 | touch service 수 | Repository 후보? |
+|---|---|---|
+| Product | 23 | 🔴 강한 후보 — companyId scope + include 프리셋 중복 가능성 큼 |
+| Ad-related (Ad/AdSnapshot/AdAction) | 10 | 🟡 도메인 내부라 advertising module 안에 repo |
+| Order | 7 | 🟡 |
+| AgentDefinition | 6 | 🟡 |
+
+나머지는 5 미만 또는 단일 도메인 내 소수 service 만 touch → 직접 Prisma 유지.
+
+### Repository 도입 시 책임 경계
+
+| 레이어 | 책임 |
+|---|---|
+| **Repository** | `companyId` scope 자동 적용 / 표준 `include`·`select` 프리셋 / soft-delete·audit hook / **비즈니스 로직 금지** |
+| **Service** | Pipeline 전이, AI trigger, pricing resolver, cross-domain 집계 (repository 주입받아 사용) |
+| **Controller** | DTO validation, route |
+
+Repository 가 `{findBy<Scenario>}` 형태로 유스케이스별 메서드를 늘리는 것은 OK. 하지만 **도메인 로직 (예: `applyAbcGradeDowngrade`) 은 service 에 둔다**.
+
+### Fat service 는 repository 가 아니라 service 분할로
+
+1000+ LOC service (dashboard, ad-strategy 등) 는 repository 가 아니라 **도메인 관점으로 service 쪼개는 것** 이 답 (예: `dashboard-kpi` + `dashboard-ad` + `dashboard-inventory`). 다른 축이다.
+
 ## 멀티테넌트 격리 — 회사 스코프 (ADR-0006 연장)
 
 서비스 로직에서 companyId 는 **반드시 `@CurrentCompany()` 데코레이터가 주입한 값** 사용.
