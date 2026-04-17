@@ -23,9 +23,28 @@ const DashboardCharts = dynamic(
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatKRW, formatNumber, formatPercent, formatDateTime, getGradeColor, getProfitColor } from '@/lib/utils';
 import AgentFace from '@/components/AgentFace';
-import type { DashboardSummary, DashboardTrendItem } from '@kiditem/shared';
+import type {
+  DashboardSalesSummary,
+  DashboardAdSummary,
+  DashboardInventorySummary,
+  DashboardTrendItem,
+} from '@kiditem/shared';
 import type { ActionTask } from '@kiditem/shared';
 
+
+function SectionError({ onRetry }: { onRetry: () => void }) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-2 py-6">
+      <p className="text-sm text-slate-500">이 섹션을 불러올 수 없습니다</p>
+      <button
+        onClick={onRetry}
+        className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-purple-600 text-white hover:bg-purple-700 transition-colors"
+      >
+        다시 시도
+      </button>
+    </div>
+  );
+}
 
 function alertIcon(type: string) {
   if (type === 'minus_product') return <MinusCircle size={14} className="text-red-500 shrink-0" />;
@@ -43,37 +62,67 @@ export default function Dashboard() {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
 
-  const { data, isLoading: loading } = useQuery({
-    queryKey: queryKeys.dashboard.summary(),
-    queryFn: () => apiClient.get<DashboardSummary>('/api/dashboard'),
+  // Baseline (month) — always fetched
+  const { data: salesBaseline, isLoading: salesBaselineLoading, isError: salesBaselineErr, refetch: refetchSalesBaseline } = useQuery({
+    queryKey: queryKeys.dashboard.salesBaseline(),
+    queryFn: () => apiClient.get<DashboardSalesSummary>('/api/dashboard/sales'),
     refetchInterval: 60_000,
   });
 
-  const { data: trendData = [] } = useQuery({
+  const { data: adBaseline, isLoading: adBaselineLoading, isError: adBaselineErr, refetch: refetchAdBaseline } = useQuery({
+    queryKey: queryKeys.dashboard.adBaseline(),
+    queryFn: () => apiClient.get<DashboardAdSummary>('/api/dashboard/ad'),
+    refetchInterval: 60_000,
+  });
+
+  const { data: inventoryData, isLoading: inventoryLoading, isError: inventoryErr, refetch: refetchInventory } = useQuery({
+    queryKey: queryKeys.dashboard.inventory(),
+    queryFn: () => apiClient.get<DashboardInventorySummary>('/api/dashboard/inventory'),
+    refetchInterval: 60_000,
+  });
+
+  const { data: trendData = [], isError: trendErr, refetch: refetchTrend } = useQuery({
     queryKey: queryKeys.dashboard.trend('30d'),
     queryFn: () => apiClient.get<DashboardTrendItem[]>('/api/dashboard/trend?range=30d'),
     refetchInterval: 60_000,
   });
 
-  const rangeQueryKey = kpiRange === 'custom'
-    ? [...queryKeys.dashboard.all, 'range', 'custom', dateFrom, dateTo]
-    : [...queryKeys.dashboard.all, 'range', kpiRange];
+  // Range-aware — enabled when not month; custom requires both dates
+  const rangeEnabled = kpiRange === 'custom' ? (!!dateFrom && !!dateTo) : kpiRange !== 'month';
 
-  const { data: rangeData } = useQuery({
-    queryKey: rangeQueryKey,
-    queryFn: () => kpiRange === 'custom' && dateFrom && dateTo
-      ? apiClient.get<DashboardSummary>(`/api/dashboard?range=custom&from=${dateFrom}&to=${dateTo}`)
-      : apiClient.get<DashboardSummary>(`/api/dashboard?range=${kpiRange}`),
-    enabled: kpiRange === 'custom' ? (!!dateFrom && !!dateTo) : kpiRange !== 'month',
+  const { data: salesRange, isError: salesRangeErr, refetch: refetchSalesRange } = useQuery({
+    queryKey: queryKeys.dashboard.salesRange(kpiRange, dateFrom, dateTo),
+    queryFn: () => {
+      const params = kpiRange === 'custom' && dateFrom && dateTo
+        ? `?range=custom&from=${dateFrom}&to=${dateTo}`
+        : `?range=${kpiRange}`;
+      return apiClient.get<DashboardSalesSummary>(`/api/dashboard/sales${params}`);
+    },
+    enabled: rangeEnabled,
+    refetchInterval: 60_000,
+  });
+
+  const { data: adRange, isError: adRangeErr, refetch: refetchAdRange } = useQuery({
+    queryKey: queryKeys.dashboard.adRange(kpiRange, dateFrom, dateTo),
+    queryFn: () => {
+      const params = kpiRange === 'custom' && dateFrom && dateTo
+        ? `?range=custom&from=${dateFrom}&to=${dateTo}`
+        : `?range=${kpiRange}`;
+      return apiClient.get<DashboardAdSummary>(`/api/dashboard/ad${params}`);
+    },
+    enabled: rangeEnabled,
     refetchInterval: 60_000,
   });
 
   const applyCustomRange = useCallback(() => {
     if (!dateFrom || !dateTo) return;
-    queryClient.invalidateQueries({ queryKey: [...queryKeys.dashboard.all, 'range', 'custom', dateFrom, dateTo] });
+    queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.salesRange('custom', dateFrom, dateTo) });
+    queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.adRange('custom', dateFrom, dateTo) });
   }, [dateFrom, dateTo, queryClient]);
 
-  const displayData = rangeData ?? data;
+  // For "displayed KPIs" — prefer range, fall back to baseline
+  const effectiveSales = (kpiRange === 'month' && !dateFrom && !dateTo) ? salesBaseline : (salesRange ?? salesBaseline);
+  const effectiveAd = (kpiRange === 'month' && !dateFrom && !dateTo) ? adBaseline : (adRange ?? adBaseline);
 
   const { data: actionTasks = [] } = useQuery({
     queryKey: queryKeys.actionTasks.list(),
@@ -91,7 +140,7 @@ export default function Dashboard() {
 
   // 트래픽 데이터가 없으면 Wing 매출분석 페이지를 자동으로 열어 익스텐션 동기화 유도
   useEffect(() => {
-    if (!data?.trafficKpi?.needsScrape) return;
+    if (!salesBaseline?.trafficKpi?.needsScrape) return;
     const COOLDOWN_KEY = 'kiditem_wing_scrape_triggered';
     const lastTrigger = localStorage.getItem(COOLDOWN_KEY);
     if (lastTrigger && Date.now() - Number(lastTrigger) < 30 * 60 * 1000) return; // 30분 쿨다운
@@ -102,11 +151,13 @@ export default function Dashboard() {
     window.open(wingUrl, '_blank');
     localStorage.setItem(COOLDOWN_KEY, String(Date.now()));
     toast.info('Wing 매출분석 페이지를 열어 데이터를 수집합니다. 잠시 후 새로고침하세요.', { duration: 8000 });
-  }, [data?.trafficKpi?.needsScrape]);
+  }, [salesBaseline?.trafficKpi?.needsScrape]);
 
+  // Gate initial render on inventoryData (totalProducts in header blocks layout)
+  const loading = inventoryLoading || salesBaselineLoading || adBaselineLoading;
   if (loading) return <PageSkeleton variant="dashboard" />;
 
-  if (!data) {
+  if (!inventoryData || !salesBaseline || !adBaseline) {
     return (
       <div className="flex flex-col items-center justify-center h-64 gap-3">
         <p className="text-red-500 text-sm">대시보드 데이터를 불러오는데 실패했습니다.</p>
@@ -115,28 +166,29 @@ export default function Dashboard() {
     );
   }
 
-  const s = (displayData ?? data).summary;
-  const rk = (displayData ?? data).rangeKpi;
   const rangeLabelMap: Record<string, string> = { month: '월', week: '주', day: '일', custom: '기간' };
-  const rangeLabel = rk ? rangeLabelMap[rk.range] ?? '월' : '월';
+  // Range label derived from local state (not server)
+  const rangeLabel = kpiRange !== 'month' ? (rangeLabelMap[kpiRange] ?? '월') : '월';
 
-  const trafficKpi = (displayData ?? data).trafficKpi;
+  const trafficKpi = effectiveSales?.trafficKpi;
   // trafficKpi(Wing traffic_stats 기반) 우선 사용 — rangeKpi(Order 기반)는 주문 확정분만
   // 포함해 Wing 매출 대비 적게 잡힘. 월/주/일 전부 동일 규칙, trafficKpi 없으면 rangeKpi 폴백.
   const useTrafficSource = !!trafficKpi && (trafficKpi.revenue ?? 0) > 0;
 
-  // KPI: rangeKpi 서버 값 우선, 없으면 summary 폴백 (주/일은 trafficKpi 폴백)
-  const kpiRevenue = useTrafficSource ? (trafficKpi?.revenue ?? 0) : (rk?.revenue ?? s.monthlyRevenue);
-  const kpiProfit = useTrafficSource ? (trafficKpi?.netProfit ?? 0) : (rk?.profit ?? s.monthlyProfit);
-  const kpiPrevRevenue = rk?.prevRevenue ?? s.prevMonthlyRevenue;
-  const kpiPrevProfit = rk?.prevProfit ?? s.prevMonthlyProfit;
+  // KPI: rangeKpi 서버 값 우선, 없으면 baseline 폴백 (주/일은 trafficKpi 폴백)
+  const rk = effectiveSales?.rangeKpi;
+  const rkAd = effectiveAd?.rangeKpi;
+  const kpiRevenue = useTrafficSource ? (trafficKpi?.revenue ?? 0) : (rk?.revenue ?? salesBaseline.monthly.revenue);
+  const kpiProfit = useTrafficSource ? (trafficKpi?.netProfit ?? 0) : (rk?.profit ?? salesBaseline.monthly.profit);
+  const kpiPrevRevenue = rk?.prevRevenue ?? salesBaseline.monthly.prevRevenue;
+  const kpiPrevProfit = rk?.prevProfit ?? salesBaseline.monthly.prevProfit;
   const revenueChange = useTrafficSource ? 0 : (rk?.revenueChange ?? (kpiPrevRevenue > 0 ? ((kpiRevenue - kpiPrevRevenue) / kpiPrevRevenue) * 100 : 0));
   const profitChange = useTrafficSource ? 0 : (rk?.profitChange ?? (kpiPrevProfit > 0 ? ((kpiProfit - kpiPrevProfit) / kpiPrevProfit) * 100 : 0));
-  const profitRate = useTrafficSource ? (trafficKpi?.profitRate ?? 0) : (rk?.profitRate ?? (s.monthlyRevenue > 0 ? (s.monthlyProfit / s.monthlyRevenue) * 100 : 0));
-  const prevProfitRate = rk?.prevProfitRate ?? (s.prevMonthlyRevenue > 0 ? (s.prevMonthlyProfit / s.prevMonthlyRevenue) * 100 : 0);
-  const kpiAdRate = rk?.adRate ?? s.adRate;
-  const kpiPrevAdRate = rk?.prevAdRate ?? s.prevAdRate;
-  const adRateChange = rk?.adRateChange ?? (kpiPrevAdRate > 0 ? kpiAdRate - kpiPrevAdRate : 0);
+  const profitRate = useTrafficSource ? (trafficKpi?.profitRate ?? 0) : (rk?.profitRate ?? (salesBaseline.monthly.revenue > 0 ? (salesBaseline.monthly.profit / salesBaseline.monthly.revenue) * 100 : 0));
+  const prevProfitRate = rk?.prevProfitRate ?? (salesBaseline.monthly.prevRevenue > 0 ? (salesBaseline.monthly.prevProfit / salesBaseline.monthly.prevRevenue) * 100 : 0);
+  const kpiAdRate = rkAd?.adRate ?? salesBaseline.monthly.adRate;
+  const kpiPrevAdRate = rkAd?.prevAdRate ?? salesBaseline.monthly.prevAdRate;
+  const adRateChange = rkAd?.adRateChange ?? (kpiPrevAdRate > 0 ? kpiAdRate - kpiPrevAdRate : 0);
 
   const revenueGoal = Math.max(kpiPrevRevenue * 1.15, 1000000);
   const profitGoal = Math.max(kpiPrevProfit * 1.15, 100000);
@@ -166,7 +218,7 @@ export default function Dashboard() {
           <div>
             <h1 className="text-lg font-bold tracking-tight text-slate-900">Kiditem Foundry</h1>
             <div className="flex items-center gap-3 mt-0.5">
-              <span className="text-xs font-mono text-slate-400">{s.totalProducts} products</span>
+              <span className="text-xs font-mono text-slate-400">{inventoryData.totalProducts} products</span>
               <span className="text-xs font-mono text-slate-400">|</span>
               <span className="text-xs font-mono text-slate-400">{new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long' })}</span>
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
@@ -240,28 +292,28 @@ export default function Dashboard() {
             </div>
           </div>
           <div className="mt-2 pt-2 space-y-1.5 border-t border-blue-100">
-            {(kpiRevenue - (rk?.adConvRevenue ?? 0)) > 0 && (
+            {(kpiRevenue - (rkAd?.adConvRevenue ?? 0)) > 0 && (
               <div className="flex justify-between text-sm">
                 <span className="text-slate-500">광고외매출</span>
-                <span className="font-bold tabular-nums text-slate-900">{formatKRW(kpiRevenue - (rk?.adConvRevenue ?? 0))}원</span>
+                <span className="font-bold tabular-nums text-slate-900">{formatKRW(kpiRevenue - (rkAd?.adConvRevenue ?? 0))}원</span>
               </div>
             )}
             <div className="flex justify-between text-sm">
               <span className="text-slate-500">광고전환매출</span>
-              <span className="font-bold tabular-nums text-slate-900">{formatKRW(rk?.adConvRevenue ?? s.adRevenue)}원</span>
+              <span className="font-bold tabular-nums text-slate-900">{formatKRW(rkAd?.adConvRevenue ?? adBaseline.monthly.adRevenue)}원</span>
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-slate-500">주문</span>
-              <span className="font-bold tabular-nums text-slate-900">{formatNumber((displayData ?? data).trafficKpi?.orders ?? s.todayOrders)}건</span>
+              <span className="font-bold tabular-nums text-slate-900">{formatNumber(effectiveSales?.trafficKpi?.orders ?? salesBaseline.today.orders)}건</span>
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-slate-500">판매량</span>
-              <span className="font-bold tabular-nums text-slate-900">{formatNumber((displayData ?? data).trafficKpi?.salesQty ?? 0)}개</span>
+              <span className="font-bold tabular-nums text-slate-900">{formatNumber(effectiveSales?.trafficKpi?.salesQty ?? 0)}개</span>
             </div>
-            {data.lastSyncAt && (
+            {salesBaseline.lastSyncAt && (
               <div className="text-[11px] text-slate-400 mt-1">
-                Wing 마지막 동기화 · {formatDateTime(data.lastSyncAt)}
-                {(Date.now() - new Date(data.lastSyncAt).getTime()) > 86400000 && (
+                Wing 마지막 동기화 · {formatDateTime(salesBaseline.lastSyncAt)}
+                {(Date.now() - new Date(salesBaseline.lastSyncAt).getTime()) > 86400000 && (
                   <span className="text-amber-500 ml-1">⚠ 24시간 이상 미동기화</span>
                 )}
               </div>
@@ -305,19 +357,19 @@ export default function Dashboard() {
           <div className="mt-2 pt-2 space-y-1.5 border-t border-emerald-100">
             <div className="flex justify-between text-sm">
               <span className="text-slate-500">집행광고비</span>
-              <span className="font-bold tabular-nums text-slate-900">{formatKRW(rk?.adSpend ?? s.totalAdSpend)}원</span>
+              <span className="font-bold tabular-nums text-slate-900">{formatKRW(rkAd?.adSpend ?? adBaseline.monthly.totalAdSpend)}원</span>
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-slate-500">수수료</span>
-              <span className="font-bold tabular-nums text-slate-900">{formatKRW((displayData ?? data).profitDetail?.commission ?? 0)}원</span>
+              <span className="font-bold tabular-nums text-slate-900">{formatKRW(salesBaseline.profitDetail?.commission ?? 0)}원</span>
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-slate-500">배송비</span>
-              <span className="font-bold tabular-nums text-slate-900">{formatKRW((displayData ?? data).profitDetail?.shippingCost ?? 0)}원</span>
+              <span className="font-bold tabular-nums text-slate-900">{formatKRW(salesBaseline.profitDetail?.shippingCost ?? 0)}원</span>
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-slate-500">매입가</span>
-              <span className="font-bold tabular-nums text-slate-900">{formatKRW((displayData ?? data).profitDetail?.costOfGoods ?? 0)}원</span>
+              <span className="font-bold tabular-nums text-slate-900">{formatKRW(salesBaseline.profitDetail?.costOfGoods ?? 0)}원</span>
             </div>
           </div>
         </div>
@@ -357,14 +409,14 @@ export default function Dashboard() {
         {/* 구매전환율 */}
         <MetricCard
           label="구매전환율"
-          value={((displayData ?? data).trafficKpi?.conversionRate ?? 0).toFixed(1)}
+          value={(effectiveSales?.trafficKpi?.conversionRate ?? 0).toFixed(1)}
           unit="%"
           change={0}
           prevLabel=""
           accentColor="#0284c7"
           icon={ShoppingCart}
           goal={5}
-          current={(displayData ?? data).trafficKpi?.conversionRate ?? 0}
+          current={effectiveSales?.trafficKpi?.conversionRate ?? 0}
           goalUnit="%"
           goalLabel="목표 5%"
         />
@@ -372,14 +424,14 @@ export default function Dashboard() {
         {/* 광고수익률(ROAS) */}
         <MetricCard
           label="광고수익률"
-          value={(rk?.adRoas ?? s.roas).toFixed(0)}
+          value={(rkAd?.adRoas ?? adBaseline.monthly.roas).toFixed(0)}
           unit="%"
-          change={(rk?.adRoas ?? s.roas) - (rk?.prevAdRoas ?? s.prevRoas)}
-          prevLabel={`이전 ${(rk?.prevAdRoas ?? s.prevRoas).toFixed(0)}%`}
+          change={(rkAd?.adRoas ?? adBaseline.monthly.roas) - (rkAd?.prevAdRoas ?? adBaseline.monthly.prevRoas)}
+          prevLabel={`이전 ${(rkAd?.prevAdRoas ?? adBaseline.monthly.prevRoas).toFixed(0)}%`}
           accentColor="#059669"
           icon={BarChart3}
           goal={400}
-          current={rk?.adRoas ?? s.roas}
+          current={rkAd?.adRoas ?? adBaseline.monthly.roas}
           goalUnit="%"
           goalLabel="목표 400%"
         />
@@ -389,25 +441,29 @@ export default function Dashboard() {
       {/* 차트 + 사이드패널 */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-3 overflow-hidden" style={{ height: 620 }}>
         <div className="lg:col-span-3 h-full">
-          <DashboardChart
-            dailyTrend={dailyTrend}
-            aiActions={aiActions}
-            industryBenchmark={data.industryBenchmark}
-          />
+          {trendErr ? <SectionError onRetry={refetchTrend} /> : (
+            <DashboardChart
+              dailyTrend={dailyTrend}
+              aiActions={aiActions}
+              industryBenchmark={adBaseline.industryBenchmark}
+            />
+          )}
         </div>
-        <SidePanel
-          alerts={data.alerts}
-          router={router}
-          queryClient={queryClient}
-        />
+        {inventoryErr ? <SectionError onRetry={refetchInventory} /> : (
+          <SidePanel
+            alerts={inventoryData.alerts}
+            router={router}
+            queryClient={queryClient}
+          />
+        )}
       </div>
 
       {/* 등급 카드 */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {(['A', 'B', 'C'] as const).map(g => {
           const psKey = { A: 'gradeA', B: 'gradeB', C: 'gradeC' } as const;
-          const count = pipelineStats?.[psKey[g]] ?? data.gradeCount[g] ?? 0;
-          const total = pipelineStats?.total ?? s.totalProducts;
+          const count = pipelineStats?.[psKey[g]] ?? inventoryData.gradeCount[g] ?? 0;
+          const total = pipelineStats?.total ?? inventoryData.totalProducts;
           const pct = total > 0 ? Math.round((count / total) * 100) : 0;
           const barColor = g === 'C' ? 'bg-red-500' : 'bg-purple-600';
           const labelMap = { A: '핵심상품', B: '성장상품', C: '정리대상' };
@@ -428,25 +484,28 @@ export default function Dashboard() {
       </div>
 
       {/* 경고 카드 */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-        <Link href="/product-hub?tab=cleanup" className="rounded-2xl p-4 hover:shadow-md transition-all bg-white border border-slate-100 shadow-sm">
-          <div className="text-sm font-bold mb-1 text-slate-900">적자 상품</div>
-          <div className="text-2xl font-extrabold tabular-nums text-slate-900">{data.warnings.minusProducts}<span className="text-sm ml-0.5">개</span></div>
-          <div className="text-xs mt-1 text-slate-400">이익률 마이너스</div>
-        </Link>
-        <Link href="/product-hub?tab=cleanup" className="rounded-2xl p-4 hover:shadow-md transition-all bg-white border border-slate-100 shadow-sm">
-          <div className="text-sm font-bold mb-1 text-slate-900">저이익 상품</div>
-          <div className="text-2xl font-extrabold tabular-nums text-slate-900">{data.warnings.lowProfitProducts}<span className="text-sm ml-0.5">개</span></div>
-          <div className="text-xs mt-1 text-slate-400">이익률 3% 이하</div>
-        </Link>
-        <Link href="/ads-hub" className="rounded-2xl p-4 hover:shadow-md transition-all bg-white border border-slate-100 shadow-sm">
-          <div className="text-sm font-bold mb-1 text-slate-900">광고비 초과</div>
-          <div className="text-2xl font-extrabold tabular-nums text-slate-900">{data.warnings.highAdProducts}<span className="text-sm ml-0.5">개</span></div>
-          <div className="text-xs mt-1 text-slate-400">광고비율 15% 초과</div>
-        </Link>
-      </div>
+      {inventoryErr ? <SectionError onRetry={refetchInventory} /> : (
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          <Link href="/product-hub?tab=cleanup" className="rounded-2xl p-4 hover:shadow-md transition-all bg-white border border-slate-100 shadow-sm">
+            <div className="text-sm font-bold mb-1 text-slate-900">적자 상품</div>
+            <div className="text-2xl font-extrabold tabular-nums text-slate-900">{inventoryData.warnings.minusProducts}<span className="text-sm ml-0.5">개</span></div>
+            <div className="text-xs mt-1 text-slate-400">이익률 마이너스</div>
+          </Link>
+          <Link href="/product-hub?tab=cleanup" className="rounded-2xl p-4 hover:shadow-md transition-all bg-white border border-slate-100 shadow-sm">
+            <div className="text-sm font-bold mb-1 text-slate-900">저이익 상품</div>
+            <div className="text-2xl font-extrabold tabular-nums text-slate-900">{inventoryData.warnings.lowProfitProducts}<span className="text-sm ml-0.5">개</span></div>
+            <div className="text-xs mt-1 text-slate-400">이익률 3% 이하</div>
+          </Link>
+          <Link href="/ads-hub" className="rounded-2xl p-4 hover:shadow-md transition-all bg-white border border-slate-100 shadow-sm">
+            <div className="text-sm font-bold mb-1 text-slate-900">광고비 초과</div>
+            <div className="text-2xl font-extrabold tabular-nums text-slate-900">{inventoryData.warnings.highAdProducts}<span className="text-sm ml-0.5">개</span></div>
+            <div className="text-xs mt-1 text-slate-400">광고비율 15% 초과</div>
+          </Link>
+        </div>
+      )}
 
       {/* Top Products */}
+      {salesBaselineErr ? <SectionError onRetry={refetchSalesBaseline} /> : (
       <div className="rounded-2xl bg-white border border-slate-100 shadow-sm overflow-hidden">
         <div className="flex items-center justify-between px-5 py-3 border-b border-slate-100">
           <div className="flex items-center gap-2">
@@ -468,7 +527,7 @@ export default function Dashboard() {
               </tr>
             </thead>
             <tbody>
-              {data.topProducts.map((p, i) => (
+              {salesBaseline.topProducts.map((p, i) => (
                 <tr key={p.id} className="border-b border-slate-50">
                   <td className="pl-4 text-sm tabular-nums text-slate-400">{i + 1}</td>
                   <td><span className={cn('inline-flex items-center justify-center w-6 h-6 rounded text-xs font-bold', getGradeColor(p.grade))}>{p.grade}</span></td>
@@ -482,12 +541,13 @@ export default function Dashboard() {
           </table>
         </div>
       </div>
+      )}
 
 
       {/* 순이익 상세 모달 */}
       {showProfitDetail && (() => {
-        const pd = data.profitDetail;
-        const revenue = pd?.revenue ?? s.monthlyRevenue;
+        const pd = salesBaseline.profitDetail;
+        const revenue = pd?.revenue ?? salesBaseline.monthly.revenue;
         const items = pd ? [
           { label: '매출', value: pd.revenue, negative: false },
           { label: '집행광고비', value: -pd.adCost, negative: true },
@@ -496,11 +556,11 @@ export default function Dashboard() {
           { label: '매입원가', value: -pd.costOfGoods, negative: true },
           { label: '기타비용', value: -pd.otherCost, negative: true },
         ] : [
-          { label: '매출', value: s.monthlyRevenue, negative: false },
-          { label: '광고비', value: -s.totalAdSpend, negative: true },
-          { label: '광고전환매출', value: s.adRevenue, negative: false },
+          { label: '매출', value: salesBaseline.monthly.revenue, negative: false },
+          { label: '광고비', value: -adBaseline.monthly.totalAdSpend, negative: true },
+          { label: '광고전환매출', value: adBaseline.monthly.adRevenue, negative: false },
         ];
-        const netProfit = pd?.netProfit ?? s.monthlyProfit;
+        const netProfit = pd?.netProfit ?? salesBaseline.monthly.profit;
         const orderCount = pd?.orderCount;
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowProfitDetail(false)}>
@@ -535,7 +595,7 @@ export default function Dashboard() {
                   </span>
                 </div>
                 <div className="text-xs text-center mt-2 text-slate-400">
-                  {orderCount != null ? `주문 ${orderCount}건 기준` : `ROAS ${s.roas.toFixed(0)}% | CTR ${s.ctr.toFixed(2)}%`}
+                  {orderCount != null ? `주문 ${orderCount}건 기준` : `ROAS ${adBaseline.monthly.roas.toFixed(0)}% | CTR ${adBaseline.monthly.ctr.toFixed(2)}%`}
                 </div>
               </div>
             </div>
@@ -630,7 +690,7 @@ function MetricCard({ label, value, unit, change, prevLabel, accentColor, icon: 
 
 // ===== 사이드 패널 =====
 function SidePanel({ alerts, router, queryClient }: {
-  alerts: { id: string; type: string; message: string }[];
+  alerts: { id: string; type: string; message: string | null }[];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   router: any;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

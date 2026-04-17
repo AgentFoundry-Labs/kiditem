@@ -65,7 +65,7 @@ export default function AdOpsPage() {
 
   const handleRefresh = () => {
     queryClient.invalidateQueries({ queryKey: queryKeys.ads.all });
-    queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.summary() });
+    queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
   };
 
   const handleGoToCampaign = (name?: string) => {
