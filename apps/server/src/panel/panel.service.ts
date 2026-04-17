@@ -141,7 +141,7 @@ export class PanelService {
         i.visibility === 'company' ||
         (i.visibility === 'user' && i.actorUserId === currentUserId)
       );
-    });
+    }) satisfies Array<Omit<PanelItem, 'seq' | 'updatedAt'>>;
   }
 
   /**
