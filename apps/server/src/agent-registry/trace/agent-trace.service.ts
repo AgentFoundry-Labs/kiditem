@@ -59,7 +59,8 @@ export class AgentTraceService {
       this.prisma.agentTask.count({ where }),
     ]);
 
-    return scrubDeep({ items, total, page, limit } as unknown as AgentTaskListResponse);
+    const response = { items, total, page, limit } satisfies AgentTaskListResponse;
+    return scrubDeep(response);
   }
 
   // ── Trace 상세 ──
@@ -133,6 +134,9 @@ export class AgentTraceService {
       : '이 태스크의 실행 추적 마커(_legacy_task_id)가 누락되어 트레이스를 복원할 수 없습니다. 새로운 태스크는 정상 추적됩니다.';
 
     // 9. 응답 조립 + scrubDeep read-time 방어 (ADR-0007)
+    // satisfies 미적용: WorkflowRun/HeartbeatRun.status 는 Prisma String 이지만 shared 스키마는
+    // z.enum([...]) 로 좁혀져 있어 Prisma 직접 반환 시 드리프트. enum narrowing 은 업스트림 스키마
+    // 수정 없이 서비스 레벨에서 안전하게 해결 불가 (packages/shared 수정 금지).
     const response = {
       task,
       workflowRun,
