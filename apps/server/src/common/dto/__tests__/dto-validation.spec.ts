@@ -34,10 +34,6 @@ describe('PaginationQueryDto', () => {
     expect(dto.limit).toBe(50);
   });
 
-  it('accepts valid page and limit', async () => {
-    await expectValid(PaginationQueryDto, { page: 3, limit: 100 });
-  });
-
   it('transforms string to number via @Type', async () => {
     const dto = await expectValid(PaginationQueryDto, { page: '5', limit: '20' });
     expect(dto.page).toBe(5);
@@ -75,15 +71,9 @@ describe('OrderActionBodyDto', () => {
     await expectInvalid(OrderActionBodyDto, { action: 'cancel' });
   });
 
-  it('confirm requires shipmentBoxIds', async () => {
-    await expectInvalid(OrderActionBodyDto, { action: 'confirm' });
-  });
-
-  it('confirm rejects empty shipmentBoxIds', async () => {
-    await expectInvalid(OrderActionBodyDto, {
-      action: 'confirm',
-      shipmentBoxIds: [],
-    });
+  it('confirm requires non-empty shipmentBoxIds (missing + empty array)', async () => {
+    await expectInvalid(OrderActionBodyDto, { action: 'confirm' }); // missing
+    await expectInvalid(OrderActionBodyDto, { action: 'confirm', shipmentBoxIds: [] }); // empty
   });
 
   it('invoice requires all three fields', async () => {
@@ -118,21 +108,18 @@ describe('PurchaseOrderActionBodyDto', () => {
     });
   });
 
-  it('create rejects missing items', async () => {
+  it('create requires non-empty items (missing + empty array)', async () => {
     await expectInvalid(PurchaseOrderActionBodyDto, {
       action: 'create',
       companyId: UUID,
       supplierName: 'X',
-    });
-  });
-
-  it('create rejects empty items array', async () => {
+    }); // missing items
     await expectInvalid(PurchaseOrderActionBodyDto, {
       action: 'create',
       companyId: UUID,
       supplierName: 'X',
       items: [],
-    });
+    }); // empty items array
   });
 
   it('create validates nested item fields', async () => {
