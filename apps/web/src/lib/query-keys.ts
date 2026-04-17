@@ -58,9 +58,6 @@ export const queryKeys = {
     // Health (unchanged)
     health: () =>
       [...queryKeys.dashboard.all, 'health'] as const,
-    // @deprecated — used by ad-ops/hooks/useAdOpsData.ts (Task 8). Remove after Task 8.
-    summary: () =>
-      [...queryKeys.dashboard.all, 'summary'] as const,
   },
   ads: {
     all: ['ads'] as const,

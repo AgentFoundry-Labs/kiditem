@@ -12,6 +12,7 @@ import type {
   AdBenchmarkData,
   AdTrendsData,
   ExposureAnalysisData,
+  DashboardAdSummary,
 } from '@kiditem/shared';
 
 // Fields returned by /api/ads/campaigns that aren't in the base snapshot schema
@@ -32,12 +33,6 @@ export type ExtensionStatusResponse = {
   };
   snapshotCount: number;
   itemWinnerCount: number;
-};
-
-export type DashboardResponse = {
-  trafficKpi?: {
-    adSummary?: Record<string, string>;
-  };
 };
 
 export type TrafficSummaryResponse = {
@@ -110,9 +105,9 @@ export function useAdOpsData(period: string, tab: string) {
   });
 
   const dashboard = useQuery({
-    queryKey: queryKeys.dashboard.summary(),
+    queryKey: queryKeys.dashboard.adBaseline(),
     queryFn: () =>
-      apiClient.get<DashboardResponse>(`/api/dashboard`),
+      apiClient.get<DashboardAdSummary>('/api/dashboard/ad'),
   });
 
   const recommend = useQuery({
