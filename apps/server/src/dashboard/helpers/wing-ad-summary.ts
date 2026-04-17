@@ -1,15 +1,7 @@
 import type { PrismaService } from '../../prisma/prisma.service';
+import type { WingAdSummary } from '@kiditem/shared';
 
-// Mirror of WingAdSummarySchema from @kiditem/shared (packages/shared/src/schemas/dashboard.ts).
-// Import from @kiditem/shared once root packages/shared dist is rebuilt with Task 1 additions.
-interface WingAdSummaryBase {
-  adRevenue: number;
-  adSpend: number;
-  adRoas: number;
-  rawAdSummary?: Record<string, unknown> | null;
-}
-
-export interface WingAdSummaryResult extends WingAdSummaryBase {
+export interface WingAdSummaryResult extends WingAdSummary {
   lastSyncAt: Date | null;
 }
 

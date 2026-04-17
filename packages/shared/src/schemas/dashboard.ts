@@ -264,3 +264,10 @@ export type PlanAchievement = z.infer<typeof PlanAchievementSchema>;
 export type GradeChanges = z.infer<typeof GradeChangesSchema>;
 export type DataFreshness = z.infer<typeof DataFreshnessSchema>;
 export type WingAdSummary = z.infer<typeof WingAdSummarySchema>;
+
+// ─── Migration bridge (DELETE with Task 6) ────────────────────────────────
+// Temporary loose alias so apps/server/src/dashboard/dashboard.service.ts
+// (the legacy fat service being replaced) still compiles while the new
+// split services are being built in parallel. Do not add new consumers.
+// Removed when Task 6 deletes dashboard.service.ts.
+export type DashboardSummary = Record<string, unknown>;
