@@ -79,5 +79,5 @@ export function buildDashboardContext(
     year, month, monthStart, monthEnd,
     prevMonthDate, prevYear, prevMonthNum,
     dateRange, effectiveRange,
-  };
+  } satisfies DashboardContext;
 }

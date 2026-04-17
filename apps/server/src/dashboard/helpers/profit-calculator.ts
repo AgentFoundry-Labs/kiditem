@@ -155,9 +155,9 @@ export async function calculateProfitForRange(
     netProfit: Math.round(netProfit),
     profitRate,
     orderCount,
-    adRevenue: Math.round(adRevenue),
     adImpressions,
     adClicks,
     adConversions,
+    adRevenue: Math.round(adRevenue),
   } satisfies RangeProfitMetrics;
 }
