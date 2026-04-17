@@ -2,6 +2,8 @@
 
 13 파일. **외부 마켓플레이스(Coupang) 어댑터 + 데이터 동기화 + 분석 대시보드** 가 결합된 도메인. `adapters/coupang/` 하위가 외부 API 격리 레이어.
 
+> **⚠ Plan B2 pending (ADR-0013)**: 아래 Sync 3종 의 내부 upsert 대상 (`Product`, `ProductItem`, `MasterInventory`) 은 Plan A 에서 **drop** 됐다. 현재 `channel-sync.service.ts` 는 이 stale 모델 참조로 **server build 실패** 상태 — Plan B2 에서 `ChannelListing` + `ChannelListingOption` + `Inventory` (Option 1:1) 로 포팅 예정. 아래 설명은 포팅 전 레거시 코드 기준.
+
 ## Directory
 
 ```

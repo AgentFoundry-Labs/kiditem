@@ -12,9 +12,9 @@ prisma/
     ├── advertising.prisma      (Ad, AdAction, AdSnapshot, ItemWinner, ScrapeTarget, TrafficStats, Execution*)
     ├── agents.prisma           (AgentDefinition, AgentTask, AgentEvent, AgentLog, AgentWakeupRequest, HeartbeatRun, WorkflowRun, WorkflowTemplate)
     ├── ai.prisma               (Thumbnail*, ContentGeneration)
-    ├── core.prisma             (Company, User, Product, Master*, Option*, ProductItem, CategoryMapping)
+    ├── core.prisma             (Company, User, MasterProduct, ProductOption, ChannelListing, ChannelListingOption, BundleComponent, CategoryMapping)
     ├── finance.prisma          (ProfitLoss, GradeHistory, ManualLedger, ProcessingCost, SalesPlan)
-    ├── inventory.prisma        (Inventory, Stock*, Bundle*, Warehouse, Picking*, ReturnTransfer)
+    ├── inventory.prisma        (Inventory, Stock*, Warehouse, Picking*, ReturnTransfer)
     ├── orders.prisma           (Order, CoupangOrder*, CoupangReturn, Shipment, UnshippedItem, Settlement, CSRecord, Review)
     ├── supply.prisma           (Supplier*, PurchaseOrder*)
     └── system.prisma           (Marketplace, BusinessRule, ActionTask, FeatureGate, ActivityEvent, Alert, SystemSetting, ProductMemo, MigrationCheckpoint)
@@ -105,7 +105,7 @@ docker exec kiditem-postgres pg_dump -U kiditem --data-only --column-inserts \
 - Python accesses snake_case DB column names directly (asyncpg raw SQL)
 - After schema changes: always run `npm run db:push` + `npx prisma generate`
 - Keep Zod schemas in sync: use `satisfies z.infer<typeof Schema>` pattern in services
-- Json 흡수 패턴: 부모의 `items Json @default("[]")` 사용 (CoupangReturn, BundleProduct, WorkflowRun). 서비스에서 `as unknown as T[]` 캐스트.
+- Json 흡수 패턴: 부모의 `items Json @default("[]")` 사용 (CoupangReturn 등 — 자식이 별도 테이블을 가질 이유가 없을 때). 서비스에서 `as unknown as T[]` 캐스트.
 - **FK 컬럼에 `@@index` 명시 필수** — Prisma 는 FK 에 자동 인덱스를 만들지 **않는다**. JOIN/역방향 조회가 있는 FK (대부분) 는 명시적 `@@index([foreignKey])` 추가. 복합이 자주 쓰이면 `@@index([companyId, foreignKey])` 등 조합 인덱스도 함께.
 - **Optional FK (`Foo?`) 에도 `onDelete` 명시** — default 동작에 의존하지 말 것. 부모 삭제 시 동작(`SetNull` / `Restrict` / `Cascade`)을 의도에 맞게 기입해 리뷰어가 정책을 바로 읽을 수 있게.
 
@@ -115,6 +115,23 @@ docker exec kiditem-postgres pg_dump -U kiditem --data-only --column-inserts \
 - `AgentEvent`: eventType(`permission_denied`|`action_snapshot`)으로 구분. snapshot 필드는 해당 타입만 사용.
 - `AdSnapshot`: level(`campaign`|`product`|null)로 구분. null은 raw 스냅샷.
 - `Marketplace`: type(`agent`|`workflow`)으로 구분.
+
+## Partial unique index 패턴 (Plan A/B1 — ADR-0013)
+
+`prisma/models/` 의 `@@unique([...])` 은 Prisma accessor 생성용으로 유지하되, 실제 DB constraint 는 [`prisma/3layer-setup.sql`](3layer-setup.sql) 의 **partial unique index** (`WHERE is_deleted = false`) 가 enforce. 이 조합이 보장하는 것:
+
+- 소프트삭제된 row 의 unique 값을 새 row 가 재사용 가능 (운영상 `legacyCode`/`barcode` 재할당 필요).
+- Restore 시 활성 row 와 충돌 → P2002 → `ConflictException`.
+
+적용된 column 4개 (Plan A Task 11 + Plan B1):
+- `master_products(company_id, legacy_code)` → `master_products_company_legacy_active`
+- `product_options(master_id, option_name)` → `product_options_master_option_name_active` + `product_options_master_null_option` (`option_name IS NULL` 케이스)
+- `product_options(company_id, barcode)` → `product_options_company_barcode_active`
+- `product_options(company_id, legacy_code)` → `product_options_company_legacy_active`
+
+서비스 코드는 `findUnique({ companyId_xxx })` 대신 **`findFirst({ where: { ..., isDeleted: false } })`** 사용.
+
+Prisma `db:push` 재실행 시 full unique constraint 가 다시 생성 → 반드시 `npm run db:3layer-setup` 재실행 (스크립트는 idempotent: `DROP ... IF EXISTS` → `CREATE`).
 
 ## Phase 3+4 스키마 필드 (2026-04-13)
 
