@@ -83,7 +83,9 @@ function mockTransaction(
 
 describe('AlertsService.promote', () => {
   describe('happy path', () => {
-    it('creates actionTask + updates alert + emits panel event', async () => {
+    // Covers: actionTask create + alert update + panel emit + IDOR company scope
+    // + Task 32 unassigned initial state (assigneeUserId=null despite USER_ID passed)
+    it('creates actionTask + updates alert + emits panel event (IDOR scope + unassigned)', async () => {
       const { service, prisma, eventEmitter } = makeService();
       const tx = mockTransaction(prisma);
 
@@ -93,6 +95,10 @@ describe('AlertsService.promote', () => {
 
       const result = await service.promote(ALERT_ID, COMPANY_ID, {}, USER_ID);
 
+      // findFirst + updateMany 둘 다 companyId 포함 (IDOR 방어)
+      expect(tx.alert.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ companyId: COMPANY_ID }) }),
+      );
       expect(tx.actionTask.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
@@ -101,7 +107,7 @@ describe('AlertsService.promote', () => {
             priority: 'urgent', // critical → urgent
             role: 'ad',         // strategy_change → ad
             status: 'pending',
-            assigneeUserId: null, // unassigned — Task 32 claim/unclaim sets this
+            assigneeUserId: null, // Task 32: unassigned regardless of USER_ID
           }),
         }),
       );
@@ -121,26 +127,6 @@ describe('AlertsService.promote', () => {
       );
       expect(result.task).toEqual(BASE_TASK);
       expect(result.updatedAlert.actionTaskId).toBe(TASK_ID);
-    });
-  });
-
-  describe('unassigned initial state (Task 32 claim design)', () => {
-    it('creates task with assigneeUserId=null regardless of who calls promote', async () => {
-      const { service, prisma } = makeService();
-      const tx = mockTransaction(prisma);
-
-      tx.alert.findFirst = vi.fn().mockResolvedValue(BASE_ALERT);
-      tx.actionTask.create = vi.fn().mockResolvedValue(BASE_TASK);
-      tx.alert.updateMany = vi.fn().mockResolvedValue({ count: 1 });
-
-      // currentUserId passed but must NOT be auto-assigned (Task 32 claim/unclaim sets this)
-      await service.promote(ALERT_ID, COMPANY_ID, {}, USER_ID);
-
-      expect(tx.actionTask.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({ assigneeUserId: null }),
-        }),
-      );
     });
   });
 
@@ -298,7 +284,10 @@ describe('AlertsService.promote', () => {
   });
 
   describe('DTO overrides', () => {
-    it('uses priorityOverride from dto instead of severity mapping', async () => {
+    it.each([
+      ['priorityOverride', { priorityOverride: 'medium' as const }, 'priority', 'medium'],
+      ['roleOverride', { roleOverride: 'inventory' as const }, 'role', 'inventory'],
+    ])('uses %s from dto instead of severity/type mapping', async (_label, dto, field, expected) => {
       const { service, prisma } = makeService();
       const tx = mockTransaction(prisma);
 
@@ -306,52 +295,12 @@ describe('AlertsService.promote', () => {
       tx.actionTask.create = vi.fn().mockResolvedValue(BASE_TASK);
       tx.alert.updateMany = vi.fn().mockResolvedValue({ count: 1 });
 
-      await service.promote(ALERT_ID, COMPANY_ID, { priorityOverride: 'medium' }, USER_ID);
+      await service.promote(ALERT_ID, COMPANY_ID, dto, USER_ID);
 
       expect(tx.actionTask.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({ priority: 'medium' }),
+          data: expect.objectContaining({ [field]: expected }),
         }),
-      );
-    });
-
-    it('uses roleOverride from dto instead of type mapping', async () => {
-      const { service, prisma } = makeService();
-      const tx = mockTransaction(prisma);
-
-      tx.alert.findFirst = vi.fn().mockResolvedValue(BASE_ALERT);
-      tx.actionTask.create = vi.fn().mockResolvedValue(BASE_TASK);
-      tx.alert.updateMany = vi.fn().mockResolvedValue({ count: 1 });
-
-      await service.promote(ALERT_ID, COMPANY_ID, { roleOverride: 'inventory' }, USER_ID);
-
-      expect(tx.actionTask.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({ role: 'inventory' }),
-        }),
-      );
-    });
-  });
-
-  describe('company scope (IDOR regression)', () => {
-    it('findFirst and updateMany both include companyId', async () => {
-      const { service, prisma } = makeService();
-      const tx = mockTransaction(prisma);
-
-      tx.alert.findFirst = vi.fn().mockResolvedValue(BASE_ALERT);
-      tx.actionTask.create = vi.fn().mockResolvedValue(BASE_TASK);
-      tx.alert.updateMany = vi.fn().mockResolvedValue({ count: 1 });
-
-      await service.promote(ALERT_ID, COMPANY_ID, {}, USER_ID);
-
-      // findFirst MUST have companyId
-      expect(tx.alert.findFirst).toHaveBeenCalledWith(
-        expect.objectContaining({ where: expect.objectContaining({ companyId: COMPANY_ID }) }),
-      );
-
-      // updateMany MUST have companyId
-      expect(tx.alert.updateMany).toHaveBeenCalledWith(
-        expect.objectContaining({ where: expect.objectContaining({ companyId: COMPANY_ID }) }),
       );
     });
   });
@@ -399,18 +348,6 @@ describe('AlertsService.dismiss', () => {
     });
   });
 
-  describe('company scope (IDOR regression)', () => {
-    it('updateMany where clause includes companyId', async () => {
-      const { service, prisma } = makeService();
-      prisma.alert.updateMany.mockResolvedValue({ count: 1 });
-
-      await service.dismiss(ALERT_ID, COMPANY_ID);
-
-      expect(prisma.alert.updateMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({ companyId: COMPANY_ID }),
-        }),
-      );
-    });
-  });
+  // company scope (IDOR) 는 happy path 의 updateMany assertion 에서 companyId 포함
+  // 확인 → 중복 제거
 });
