@@ -71,8 +71,47 @@ export { ConfigurableParamSchema, MarketplaceCatalogItemSchema, WorkflowCatalogI
 export type { ConfigurableParam, MarketplaceCatalogItem, WorkflowCatalogItem, AgentCatalogItem } from './schemas/marketplace.js';
 
 // Dashboard
-export { DashboardSummarySchema, DashboardTrendItemSchema } from './schemas/dashboard.js';
-export type { DashboardSummary, DashboardTrendItem } from './schemas/dashboard.js';
+export {
+  DashboardSalesSummarySchema,
+  DashboardAdSummarySchema,
+  DashboardInventorySummarySchema,
+  DashboardTrendItemSchema,
+  // shared building blocks
+  DashboardAlertItemSchema,
+  TopProductSchema,
+  ProfitBreakdownSchema,
+  TrafficKpiSchema,
+  AdMetricsDetailSchema,
+  IndustryBenchmarkSchema,
+  PlanAchievementSchema,
+  DataFreshnessSchema,
+  MonthlyTrendItemSchema,
+  DailyRevenueItemSchema,
+  DailyAdItemSchema,
+  GradeChangesSchema,
+  WarningsSchema,
+  WingAdSummarySchema,
+} from './schemas/dashboard.js';
+export type {
+  DashboardSalesSummary,
+  DashboardAdSummary,
+  DashboardInventorySummary,
+  DashboardTrendItem,
+  AlertItemDashboard,
+  TopProduct,
+  ProfitBreakdown,
+  TrafficKpi,
+  AdMetricsDetail,
+  IndustryBenchmark,
+  PlanAchievement,
+  DataFreshness,
+  MonthlyTrendItem,
+  DailyRevenueItem,
+  DailyAdItem,
+  GradeChanges,
+  Warnings,
+  WingAdSummary,
+} from './schemas/dashboard.js';
 
 // Reviews
 export { ReviewListItemSchema } from './schemas/reviews.js';
