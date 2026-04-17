@@ -12,6 +12,12 @@ export default defineConfig({
   test: {
     root: '.',
     include: ['src/**/*.spec.ts', 'src/**/__tests__/*.spec.ts'],
-    exclude: ['dist/**', 'node_modules/**'],
+    // `.pg.integration.spec.ts` 는 vitest.config.integration.ts 에서 실행 (real Postgres 필요)
+    exclude: [
+      'dist/**',
+      'node_modules/**',
+      'src/**/*.pg.integration.spec.ts',
+      'src/**/__tests__/*.pg.integration.spec.ts',
+    ],
   },
 });

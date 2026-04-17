@@ -15,7 +15,11 @@
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio",
-    "migrate:dashboard": "tsx scripts/migrate-dashboard-data.ts"
+    "migrate:dashboard": "tsx scripts/migrate-dashboard-data.ts",
+    "db:test:up": "docker compose -f docker-compose.test.yml up -d --wait",
+    "db:test:down": "docker compose -f docker-compose.test.yml down -v",
+    "db:test:prepare": "DATABASE_URL=postgresql://kiditem_test:kiditem_test@localhost:5434/kiditem_test prisma db push --schema=prisma/schema.prisma --accept-data-loss",
+    "test:integration": "DATABASE_URL=postgresql://kiditem_test:kiditem_test@localhost:5434/kiditem_test npm run test:integration --workspace=apps/server"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
