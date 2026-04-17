@@ -32,7 +32,6 @@ import { CategoriesModule } from './categories/categories.module';
 import { ManualLedgerModule } from './manual-ledger/manual-ledger.module';
 import { StockAuditsModule } from './stock-audits/stock-audits.module';
 import { StockTransfersModule } from './stock-transfers/stock-transfers.module';
-import { ProductMemosModule } from './product-memos/product-memos.module';
 import { ReturnTransfersModule } from './return-transfers/return-transfers.module';
 import { SuppliersModule } from './suppliers/suppliers.module';
 import { SupplierStatsModule } from './supplier-stats/supplier-stats.module';
@@ -85,7 +84,6 @@ import { PanelModule } from './panel/panel.module';
     ManualLedgerModule,
     StockAuditsModule,
     StockTransfersModule,
-    ProductMemosModule,
     ReturnTransfersModule,
     SuppliersModule,
     SupplierStatsModule,
