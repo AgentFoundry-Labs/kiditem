@@ -1,6 +1,28 @@
 # prisma — Shared Schema
 
-DB schema source of truth for the entire system. Prisma v7.
+DB schema source of truth for the entire system. Prisma v7 (multi-file).
+
+## 파일 구조 (v7 best-practice)
+
+```
+prisma/
+├── schema.prisma       # generator + datasource 만
+├── migrations/         # 마이그레이션 이력
+└── models/             # 도메인별 모델 (9 파일, alphabetical)
+    ├── advertising.prisma      (Ad, AdAction, AdSnapshot, ItemWinner, ScrapeTarget, TrafficStats, Execution*)
+    ├── agents.prisma           (AgentDefinition, AgentTask, AgentEvent, AgentLog, AgentWakeupRequest, HeartbeatRun, WorkflowRun, WorkflowTemplate)
+    ├── ai.prisma               (Thumbnail*, ContentGeneration)
+    ├── core.prisma             (Company, User, Product, Master*, Option*, ProductItem, ProductMemo, CategoryMapping)
+    ├── finance.prisma          (ProfitLoss, GradeHistory, ManualLedger, ProcessingCost, SalesPlan)
+    ├── inventory.prisma        (Inventory, Stock*, Bundle*, Warehouse, Picking*, ReturnTransfer)
+    ├── orders.prisma           (Order, CoupangOrder*, CoupangReturn, Shipment, UnshippedItem, Settlement, CSRecord, Review)
+    ├── supply.prisma           (Supplier*, PurchaseOrder*)
+    └── system.prisma           (Marketplace, BusinessRule, ActionTask, FeatureGate, ActivityEvent, Alert, SystemSetting)
+```
+
+각 모델 위 `/// @namespace <도메인>` + `/// @describe <한줄>` 주석으로 도메인 경계 + 의미를 schema 자체에 inline. `prisma generate` 가 9 파일을 자동 merge (single schema 와 동일 동작). 새 모델 추가 시 도메인에 맞는 파일에 넣고 namespace 주석 붙이기.
+
+**Prisma v7 config 위치**: `prisma.config.ts` (root) 의 `schema: 'prisma'` — 디렉토리 지정이 공식 best-practice.
 
 ## Commands
 
@@ -64,8 +86,6 @@ docker exec kiditem-postgres pg_dump -U kiditem --data-only --column-inserts \
 - `prisma/backfill-*.sql` — idempotent SQL 스크립트 (ON CONFLICT, IF NOT EXISTS 활용)
 - `scripts/seed-*.ts` — TypeScript seed
 - PR 에 "post-pull 수동 실행" 명령 명시
-
-## Prisma v7 Config
 
 ## Prisma v7 Config
 

@@ -1,0 +1,231 @@
+// inventory.prisma — Inventory domain
+
+/// @namespace Inventory
+/// @describe Product 와 1:1 (productId unique).
+model Inventory {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  productId String @unique @map("product_id") @db.Uuid
+
+  currentStock    Int   @default(0) @map("current_stock")
+  reservedStock   Int   @default(0) @map("reserved_stock")
+  safetyStock     Int   @default(0) @map("safety_stock")
+  reorderPoint    Int   @default(0) @map("reorder_point")
+  reorderQuantity Int   @default(0) @map("reorder_quantity")
+  leadTimeDays    Int?  @map("lead_time_days")
+  dailySalesAvg   Decimal @default(0) @map("daily_sales_avg") @db.Decimal(8, 2)
+
+  lastRestockedAt DateTime? @map("last_restocked_at") @db.Timestamptz
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@map("inventory")
+}
+
+/// @namespace Inventory
+model StockTransaction {
+  id          String   @id @default(uuid()) @db.Uuid
+  companyId   String   @map("company_id") @db.Uuid
+  productId   String   @map("product_id") @db.Uuid
+  productName String?  @map("product_name")
+  type        String
+  quantity    Int
+  unitCost    Int      @default(0) @map("unit_cost")
+  totalCost   Int      @default(0) @map("total_cost")
+  relatedId   String?  @map("related_id")
+  relatedType String?  @map("related_type")
+  warehouseId String?  @map("warehouse_id") @db.Uuid
+  note        String?
+  createdBy   String?  @map("created_by")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  company   Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  product   Product    @relation(fields: [productId], references: [id], onDelete: Restrict)
+  warehouse Warehouse? @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+
+  @@index([companyId])
+  @@index([companyId, createdAt])
+  @@index([productId])
+  @@index([type])
+  @@index([createdAt])
+  @@map("stock_transactions")
+}
+
+/// @namespace Inventory
+/// @describe 창고 간 이동 (from → to warehouse).
+model StockTransfer {
+  id              String    @id @default(uuid()) @db.Uuid
+  companyId       String    @map("company_id") @db.Uuid
+  productId       String    @map("product_id") @db.Uuid
+  productName     String?   @map("product_name")
+  fromWarehouseId String    @map("from_warehouse_id") @db.Uuid
+  toWarehouseId   String    @map("to_warehouse_id") @db.Uuid
+  quantity        Int
+  status          String    @default("pending")
+  requestedBy     String?   @map("requested_by")
+  completedAt     DateTime? @map("completed_at") @db.Timestamptz
+  notes           String?
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company       Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  product       Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  fromWarehouse Warehouse @relation("TransferFromWarehouse", fields: [fromWarehouseId], references: [id])
+  toWarehouse   Warehouse @relation("TransferToWarehouse", fields: [toWarehouseId], references: [id])
+
+  @@index([companyId])
+  @@index([productId])
+  @@index([status])
+  @@map("stock_transfers")
+}
+
+/// @namespace Inventory
+model StockAudit {
+  id            String    @id @default(uuid()) @db.Uuid
+  companyId     String    @map("company_id") @db.Uuid
+  auditNumber   String    @map("audit_number")
+  status        String    @default("in_progress")
+  totalProducts Int       @default(0) @map("total_products")
+  matchedCount  Int       @default(0) @map("matched_count")
+  diffCount     Int       @default(0) @map("diff_count")
+  auditedBy     String?   @map("audited_by")
+  completedAt   DateTime? @map("completed_at") @db.Timestamptz
+  notes         String?
+  items         Json?
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, auditNumber])
+  @@index([companyId])
+  @@map("stock_audits")
+}
+
+/// @namespace Inventory
+/// @describe items Json 으로 구성품 흡수 (별도 BundleItem 없음).
+model BundleProduct {
+  id        String       @id @default(uuid()) @db.Uuid
+  companyId String       @map("company_id") @db.Uuid
+  name      String
+  sku       String?
+  sellPrice Int          @default(0) @map("sell_price")
+  status    String       @default("active")
+  coupangId String?      @map("coupang_id")
+  createdAt DateTime     @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  items     Json         @default("[]") @map("items")
+
+  company Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, sku])
+  @@index([companyId])
+  @@map("bundle_products")
+}
+
+/// @namespace Inventory
+model Warehouse {
+  id        String   @id @default(uuid()) @db.Uuid
+  companyId String   @map("company_id") @db.Uuid
+  name      String
+  code      String?
+  address   String?
+  manager   String?
+  phone     String?
+  isDefault Boolean  @default(false) @map("is_default")
+  status    String   @default("active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  // Warehouse references from other models
+  stockTransfersFrom     StockTransfer[]      @relation("TransferFromWarehouse")
+  stockTransfersTo       StockTransfer[]      @relation("TransferToWarehouse")
+  stockTransactions      StockTransaction[]
+  shipments              Shipment[]
+
+  @@unique([companyId, code])
+  @@index([companyId])
+  @@map("warehouses")
+}
+
+/// @namespace Inventory
+model PickingList {
+  id          String        @id @default(uuid()) @db.Uuid
+  companyId   String        @map("company_id") @db.Uuid
+  listNumber  String        @map("list_number")
+  status      String        @default("pending")
+  totalItems  Int           @default(0) @map("total_items")
+  pickedItems Int           @default(0) @map("picked_items")
+  assignedTo  String?       @map("assigned_to")
+  startedAt   DateTime?     @map("started_at") @db.Timestamptz
+  completedAt DateTime?     @map("completed_at") @db.Timestamptz
+  createdAt   DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  items   PickingItem[]
+
+  @@unique([companyId, listNumber])
+  @@index([companyId])
+  @@map("picking_lists")
+}
+
+/// @namespace Inventory
+model PickingItem {
+  id            String      @id @default(uuid()) @db.Uuid
+  pickingListId String      @map("picking_list_id") @db.Uuid
+  orderId       String?     @map("order_id") @db.Uuid
+  productId     String      @map("product_id") @db.Uuid
+  productName   String      @map("product_name")
+  sku           String?
+  quantity      Int         @default(1)
+  location      String?
+  isPicked      Boolean     @default(false) @map("is_picked")
+  isVerified    Boolean     @default(false) @map("is_verified")
+  pickedAt      DateTime?   @map("picked_at") @db.Timestamptz
+  verifiedAt    DateTime?   @map("verified_at") @db.Timestamptz
+  createdAt     DateTime    @default(now()) @map("created_at") @db.Timestamptz
+
+  pickingList PickingList  @relation(fields: [pickingListId], references: [id], onDelete: Cascade)
+  product     Product?     @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([pickingListId])
+  @@index([productId])
+  @@map("picking_items")
+}
+
+/// @namespace Inventory
+model ReturnTransfer {
+  id           String    @id @default(uuid()) @db.Uuid
+  companyId    String    @map("company_id") @db.Uuid
+  rtNumber     String    @map("rt_number")
+  orderId      String?   @map("order_id") @db.Uuid
+  productId    String    @map("product_id") @db.Uuid
+  productName  String?   @map("product_name")
+  quantity     Int
+  status       String    @default("received")
+  condition    String    @default("good")
+  restockedQty Int       @default(0) @map("restocked_qty")
+  disposedQty  Int       @default(0) @map("disposed_qty")
+  notes        String?
+  processedBy  String?   @map("processed_by")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  completedAt  DateTime? @map("completed_at") @db.Timestamptz
+  updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, rtNumber])
+  @@index([companyId])
+  @@index([productId])
+  @@index([status])
+  @@map("return_transfers")
+}
+

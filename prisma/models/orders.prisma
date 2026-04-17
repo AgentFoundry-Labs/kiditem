@@ -1,0 +1,264 @@
+// orders.prisma — Orders domain
+
+/// @namespace Orders
+/// @describe 내부 주문. CoupangOrder(외부 원본)와 병존.
+model Order {
+  id        String  @id @default(uuid()) @db.Uuid
+  companyId String  @map("company_id") @db.Uuid
+  productId String? @map("product_id") @db.Uuid
+
+  orderNumber     String  @map("order_number")
+  platform        String
+  coupangOrderId  String? @map("coupang_order_id")
+  customerName    String  @default("") @map("customer_name")
+  productName     String  @map("product_name")
+  quantity        Int     @default(1)
+  unitPrice       Int     @map("unit_price")
+  totalPrice      Int     @map("total_price")
+  status          String  @default("pending")
+  trackingNumber  String? @map("tracking_number")
+  shippingCompany String? @map("shipping_company")
+
+  // Receiver info (from dashboard)
+  receiverName  String? @map("receiver_name")
+  receiverPhone String? @map("receiver_phone")
+  receiverAddr  String? @map("receiver_addr")
+  memo          String?
+
+  orderedAt   DateTime  @default(now()) @map("ordered_at") @db.Timestamptz
+  shippedAt   DateTime? @map("shipped_at") @db.Timestamptz
+  deliveredAt DateTime? @map("delivered_at") @db.Timestamptz
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company  Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  product  Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  shipments Shipment[]
+
+  @@index([companyId])
+  @@index([companyId, status])
+  @@index([companyId, orderedAt])
+  @@index([productId])
+  @@index([status])
+  @@index([platform])
+  @@index([orderedAt])
+  @@map("orders")
+}
+
+/// @namespace Orders
+model CoupangOrder {
+  id            String   @id @default(uuid()) @db.Uuid
+  companyId     String   @map("company_id") @db.Uuid
+  shipmentBoxId String   @unique @map("shipment_box_id") @db.VarChar(30)
+  orderId       String   @map("order_id") @db.VarChar(30)
+  orderer       Json?
+  receiver      Json?
+  status        String   @default("ACCEPT")
+  deliveryCompanyName String?  @map("delivery_company_name")
+  invoiceNumber String?  @map("invoice_number")
+  parcelPrintMessage  String?  @map("parcel_print_message")
+  shippingPrice Int      @default(0) @map("shipping_price")
+  totalPrice    Int      @default(0) @map("total_price")
+  orderedAt     DateTime @map("ordered_at") @db.Timestamptz
+  paidAt        DateTime? @map("paid_at") @db.Timestamptz
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company       Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  orderItems    CoupangOrderItem[]
+
+  @@index([companyId])
+  @@index([status])
+  @@index([orderedAt])
+  @@map("coupang_orders")
+}
+
+/// @namespace Orders
+model CoupangOrderItem {
+  id            String   @id @default(uuid()) @db.Uuid
+  orderId       String   @map("order_id") @db.Uuid
+
+  vendorItemId      String  @map("vendor_item_id") @db.VarChar(30)
+  vendorItemName    String  @default("") @map("vendor_item_name")
+  sellerProductId   String? @map("seller_product_id") @db.VarChar(30)
+  sellerProductName String  @default("") @map("seller_product_name")
+
+  shippingCount           Int @default(1) @map("shipping_count")
+  salesPrice              Int @default(0) @map("sales_price")
+  orderPrice              Int @default(0) @map("order_price")
+  instantCouponDiscount   Int @default(0) @map("instant_coupon_discount")
+
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  order         CoupangOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@index([sellerProductId])
+  @@map("coupang_order_items")
+}
+
+/// @namespace Orders
+/// @describe 반품. items Json 배열로 반품 아이템 흡수 (별도 테이블 없음).
+model CoupangReturn {
+  id            String   @id @default(uuid()) @db.Uuid
+  companyId     String   @map("company_id") @db.Uuid
+  receiptId     String   @unique @map("receipt_id") @db.VarChar(30)
+  orderId       String   @map("order_id") @db.VarChar(30)
+  requesterName String   @default("") @map("requester_name")
+  receiptStatus String   @default("UC") @map("receipt_status")
+  receiptType   String   @default("RETURN") @map("receipt_type")
+  faultByType   String   @default("CUSTOMER") @map("fault_by_type")
+  cancelReason  String   @default("") @map("cancel_reason")
+  cancelReasonCategory1 String? @map("cancel_reason_category1")
+  cancelReasonCategory2 String? @map("cancel_reason_category2")
+  reasonCode    String?  @map("reason_code")
+  reasonCodeText String? @map("reason_code_text")
+  returnDeliveryId String? @map("return_delivery_id") @db.VarChar(30)
+  enclosePrice  Int?     @map("enclose_price")
+  requestedAt   DateTime @map("requested_at") @db.Timestamptz
+  completedAt   DateTime? @map("completed_at") @db.Timestamptz
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  items         Json     @default("[]") @map("items")
+
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([receiptStatus])
+  @@index([faultByType])
+  @@index([requestedAt])
+  @@map("coupang_returns")
+}
+
+/// @namespace Orders
+model Shipment {
+  id           String    @id @default(uuid()) @db.Uuid
+  companyId    String    @map("company_id") @db.Uuid
+  orderId      String?   @map("order_id") @db.Uuid
+  productId    String?   @map("product_id") @db.Uuid
+  trackingNo   String?   @map("tracking_no")
+  courierCode  String?   @map("courier_code")
+  courierName  String?   @map("courier_name")
+  status       String    @default("ready")
+  shippedAt    DateTime? @map("shipped_at") @db.Timestamptz
+  deliveredAt  DateTime? @map("delivered_at") @db.Timestamptz
+  deliveryDays Int?      @map("delivery_days")
+  warehouseId  String?   @map("warehouse_id") @db.Uuid
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company   Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  order     Order?     @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  product   Product?   @relation(fields: [productId], references: [id], onDelete: SetNull)
+  warehouse Warehouse? @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+
+  @@index([companyId])
+  @@index([companyId, status])
+  @@index([orderId])
+  @@index([productId])
+  @@map("shipments")
+}
+
+/// @namespace Orders
+model UnshippedItem {
+  id          String    @id @default(uuid()) @db.Uuid
+  companyId   String    @map("company_id") @db.Uuid
+  orderId     String    @map("order_id") @db.Uuid
+  productId   String    @map("product_id") @db.Uuid
+  productName String    @map("product_name")
+  quantity    Int
+  orderDate   DateTime  @map("order_date") @db.Timestamptz
+  delayDays   Int       @default(0) @map("delay_days")
+  reason      String?
+  isNotified  Boolean   @default(false) @map("is_notified")
+  notifiedAt  DateTime? @map("notified_at") @db.Timestamptz
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([delayDays])
+  @@index([isNotified])
+  @@map("unshipped_items")
+}
+
+/// @namespace Orders
+/// @describe 월별 정산 (예상 vs 실제 비교).
+model Settlement {
+  id             String    @id @default(uuid()) @db.Uuid
+  companyId      String    @map("company_id") @db.Uuid
+  period         String
+  expectedAmount Int       @default(0) @map("expected_amount")
+  actualAmount   Int       @default(0) @map("actual_amount")
+  commission     Int       @default(0)
+  shippingFee    Int       @default(0) @map("shipping_fee")
+  adjustments    Int       @default(0)
+  difference     Int       @default(0)
+  orderCount     Int       @default(0) @map("order_count")
+  returnCount    Int       @default(0) @map("return_count")
+  status         String    @default("pending")
+  settledAt      DateTime? @map("settled_at") @db.Timestamptz
+  notes          String?
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, period])
+  @@index([companyId])
+  @@map("settlements")
+}
+
+/// @namespace Orders
+model CSRecord {
+  id          String   @id @default(uuid()) @db.Uuid
+  companyId   String   @map("company_id") @db.Uuid
+  orderId     String?  @map("order_id") @db.Uuid
+  productId   String?  @map("product_id") @db.Uuid
+  csType      String   @map("cs_type")
+  csStatus    String   @default("접수") @map("cs_status")
+  priority    String   @default("normal")
+  assignee    String?
+  content     String
+  resolution  String?
+  createdBy   String?  @map("created_by")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([companyId])
+  @@index([companyId, csStatus, createdAt])
+  @@index([orderId])
+  @@index([productId])
+  @@index([csType])
+  @@index([csStatus])
+  @@index([createdAt])
+  @@map("cs_records")
+}
+
+/// @namespace Orders
+model Review {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  productId String @map("product_id") @db.Uuid
+
+  platform     String   @default("coupang")
+  rating       Int
+  content      String?
+  reviewerName String?  @map("reviewer_name")
+
+  reviewedAt DateTime @default(now()) @map("reviewed_at") @db.Timestamptz
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@index([companyId])
+  @@index([productId])
+  @@map("reviews")
+}
+

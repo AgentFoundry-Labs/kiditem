@@ -99,9 +99,24 @@ Shared directories (`src/components/`, `src/hooks/`, `src/lib/`) contain ONLY cr
 - **기본 금지** — `EventSource`는 헤더 전송 불가 → DevAuthMiddleware(ADR-0006) 호환 안 됨. agents/thumbnails 도메인은 polling 유지.
 - **Panel 도메인 예외** — ADR-0010 하에 `@microsoft/fetch-event-source` 사용. 격리된 `PanelSseClient` (`src/components/panel/lib/panel-sse-client.ts`) 래퍼 경유만 허용. 다른 도메인이 SSE 원하면 별도 ADR.
 
-## Notable Sub-Domains (LOW signal — 별도 CLAUDE.md 없음)
+## Domain Guides — 서브 페이지 작업 전 반드시 해당 CLAUDE.md 먼저 Read
 
-부모 Next.js 패턴(이 문서) 으로 거의 커버되지만, 아래 도메인은 한 가지 특이점이 있다.
+**규칙**: `src/app/{domain}/` 하위 파일을 Edit 하기 전, 아래 표의 해당 행이 가리키는 `CLAUDE.md` 를 먼저 Read 한다.
+
+### 전용 CLAUDE.md 가 있는 서브 페이지 (6)
+
+| 경로 | 크기 | 핵심 포인트 |
+|---|---|---|
+| [`src/app/agents/CLAUDE.md`](src/app/agents/CLAUDE.md) | 129줄 | Agent Lifecycle/Trace/Org/Cost UI — 조건부 Polling, Thin Compositor, Trace Timeline, queryKeys hierarchy |
+| [`src/app/return-scan/CLAUDE.md`](src/app/return-scan/CLAUDE.md) | 73줄 | Barcode Input + Local-Only Logging — stateless 플로우, local sync 예외 |
+| [`src/app/sourcing/CLAUDE.md`](src/app/sourcing/CLAUDE.md) | 151줄 | Product Sourcing + GrapesJS WYSIWYG Editor + AI Edit Panels — custom blocks 7종, iframe 주입, UndoManager pause |
+| [`src/app/thumbnail-editor/CLAUDE.md`](src/app/thumbnail-editor/CLAUDE.md) | 120줄 | Use-Case-Driven Generation — 용도 카드 분기, mutation workflow, 이미지 허브 임포트 |
+| [`src/app/thumbnails/CLAUDE.md`](src/app/thumbnails/CLAUDE.md) | 73줄 | Smart Polling + Batch + Optimistic UI — dynamic refetchInterval, rollback, AbortController |
+| [`src/app/workflows/CLAUDE.md`](src/app/workflows/CLAUDE.md) | 88줄 | Wildcard Invalidation + UseQueryOptions Forwarding — thin page composition |
+
+### Notable Sub-Domains (LOW signal — 별도 CLAUDE.md 없음)
+
+부모 Next.js 패턴(이 문서)으로 거의 커버되지만, 아래 도메인은 한 가지 특이점이 있다.
 
 - **`app/inventory/`** — `lib/barcode-print.ts` 의 `printBarcodeWindow()` (window.open + `<style>` 인쇄) + xlsx import/export. 브라우저 print API 직접 사용 케이스.
 - **`app/settings/`** — 다양한 file upload (CSV/Image), printer 연결 (`PrinterSettings` 컴포넌트), health check + sync 운영 액션. system-level operations 가 한 페이지에 모임.
