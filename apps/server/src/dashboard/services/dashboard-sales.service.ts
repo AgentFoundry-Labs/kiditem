@@ -216,7 +216,7 @@ export class DashboardSalesService {
     curMonthProfit: { revenue: number; netProfit: number; adCost: number },
     prevMonthProfit: { revenue: number; netProfit: number; adCost: number },
     monthlyTrafficRev: number,
-    wingAdSummary: { adSpend: number; adRoas: number } | null,
+    wingAdSummary: { adRevenue: number; adSpend: number; adRoas: number } | null,
   ): DashboardSalesSummary['monthly'] {
     // Revenue: Wing traffic_stats preferred over Order-based
     const monthRevenue = monthlyTrafficRev > 0 ? monthlyTrafficRev : curMonthProfit.revenue;
@@ -224,7 +224,7 @@ export class DashboardSalesService {
 
     // adRate: Wing adSpend / traffic revenue when Wing data is present
     let adRate: number;
-    if (wingAdSummary && wingAdSummary.adSpend > 0 && monthRevenue > 0) {
+    if (wingAdSummary && wingAdSummary.adRevenue > 0 && monthRevenue > 0) {
       adRate = Math.round((wingAdSummary.adSpend / monthRevenue) * 1000) / 10;
     } else if (curMonthProfit.revenue > 0) {
       adRate = Math.round((curMonthProfit.adCost / curMonthProfit.revenue) * 1000) / 10;
@@ -367,7 +367,7 @@ export class DashboardSalesService {
       orderCount: number;
     },
     monthlyTrafficCOGS: number,
-    wingAdSummary: { adSpend: number } | null,
+    wingAdSummary: { adRevenue: number; adSpend: number } | null,
     monthlyTrafficRev: number,
   ): ProfitBreakdown {
     const costOfGoods = monthlyTrafficCOGS > 0 ? monthlyTrafficCOGS : curMonthProfit.costOfGoods;
@@ -384,7 +384,7 @@ export class DashboardSalesService {
     };
 
     // A8: Wing override — when Wing adSummary present, override P&L fields
-    if (wingAdSummary && wingAdSummary.adSpend > 0) {
+    if (wingAdSummary && wingAdSummary.adRevenue > 0) {
       const pdRevenue = monthlyTrafficRev > 0 ? monthlyTrafficRev : curMonthProfit.revenue;
       detail = {
         revenue: pdRevenue,
@@ -407,7 +407,7 @@ export class DashboardSalesService {
     rangeProfitCur: { revenue: number; netProfit: number; adCost: number; profitRate: number },
     rangeProfitPrev: { revenue: number; netProfit: number; adCost: number; profitRate: number },
     monthlyTrafficRev: number,
-    wingAdSummary: { adSpend: number } | null,
+    wingAdSummary: { adRevenue: number; adSpend: number } | null,
     profitDetail: ProfitBreakdown,
   ): DashboardSalesSummary['rangeKpi'] {
     // month range + traffic data available → use Wing traffic revenue
@@ -418,7 +418,7 @@ export class DashboardSalesService {
 
     let rangeProfit = rangeProfitCur.netProfit;
     // A8: Wing override — when Wing data present and range is month, recalculate profit
-    if (wingAdSummary && wingAdSummary.adSpend > 0 && effectiveRange === 'month') {
+    if (wingAdSummary && wingAdSummary.adRevenue > 0 && effectiveRange === 'month') {
       rangeProfit = profitDetail.netProfit;
     }
 
