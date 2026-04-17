@@ -1,72 +1,25 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import {
-  formatDurationMinutes,
-  formatNumber,
-  formatCurrency,
-  formatKRW,
-  formatPercent,
-  getModuleColor,
-  timeAgo,
-  getProfitColor,
-  getProductStatusBadge,
-  getGradeColor,
-} from '@/lib/utils'
+import { formatDurationMinutes, timeAgo } from '@/lib/utils'
+
+// CLAUDE.md 규칙: "Test infrastructure core only (api-client, api-error).
+// No implementation detail tests."
+//
+// 순수 format 함수 (formatNumber, formatKRW, formatPercent) 및 매핑 함수
+// (getModuleColor, getProfitColor, getProductStatusBadge, getGradeColor) 의
+// 결과값 고정 테스트는 구현 디테일 — 규칙 위반이라 제거했다.
+//
+// 아래 두 가지만 유지: 단순 mapping 이상의 경계값 계산 로직.
+//   - formatDurationMinutes: 분 → "N시간 M분" (modulo + 조건부)
+//   - timeAgo: 시간차 → 4개 경계 (방금/분/시간/일)
 
 describe('formatDurationMinutes', () => {
-  it('returns minutes only when less than 60', () => {
-    expect(formatDurationMinutes(30)).toBe('30분')
-  })
-
-  it('returns hours only when no remainder', () => {
-    expect(formatDurationMinutes(120)).toBe('2시간')
-  })
-
-  it('returns hours and minutes when both present', () => {
-    expect(formatDurationMinutes(90)).toBe('1시간 30분')
-  })
-
-  it('handles zero minutes', () => {
-    expect(formatDurationMinutes(0)).toBe('0분')
-  })
-})
-
-describe('formatNumber', () => {
-  it('formats large numbers with commas', () => {
-    expect(formatNumber(1234567)).toBe('1,234,567')
-  })
-
-  it('handles zero', () => {
-    expect(formatNumber(0)).toBe('0')
-  })
-})
-
-describe('formatKRW', () => {
-  it('rounds and formats currency amounts', () => {
-    expect(formatKRW(12345.6)).toBe('12,346')
-  })
-
-  it('handles zero', () => {
-    expect(formatKRW(0)).toBe('0')
-  })
-})
-
-describe('formatPercent', () => {
-  it('formats to one decimal place', () => {
-    expect(formatPercent(12.345)).toBe('12.3%')
-  })
-
-  it('adds trailing zero for whole numbers', () => {
-    expect(formatPercent(5)).toBe('5.0%')
-  })
-})
-
-describe('getModuleColor', () => {
-  it('returns correct color for known module', () => {
-    expect(getModuleColor('order')).toBe('#3B82F6')
-  })
-
-  it('returns gray for unknown module', () => {
-    expect(getModuleColor('unknown')).toBe('#6B7280')
+  it.each([
+    [0, '0분'],
+    [30, '30분'],
+    [90, '1시간 30분'],
+    [120, '2시간'],
+  ])('%i 분 → "%s"', (minutes, expected) => {
+    expect(formatDurationMinutes(minutes)).toBe(expected)
   })
 })
 
@@ -80,63 +33,12 @@ describe('timeAgo', () => {
     vi.useRealTimers()
   })
 
-  it('returns 방금 전 for less than 1 minute', () => {
-    expect(timeAgo('2026-03-28T11:59:30Z')).toBe('방금 전')
-  })
-
-  it('returns minutes for less than 1 hour', () => {
-    expect(timeAgo('2026-03-28T11:30:00Z')).toBe('30분 전')
-  })
-
-  it('returns hours for less than 1 day', () => {
-    expect(timeAgo('2026-03-28T06:00:00Z')).toBe('6시간 전')
-  })
-
-  it('returns days for less than 1 week', () => {
-    expect(timeAgo('2026-03-25T12:00:00Z')).toBe('3일 전')
-  })
-})
-
-describe('getProfitColor', () => {
-  it('returns red for negative rate', () => {
-    expect(getProfitColor(-5)).toContain('red')
-  })
-
-  it('returns orange for low rate', () => {
-    expect(getProfitColor(2)).toContain('orange')
-  })
-
-  it('returns green for good rate', () => {
-    expect(getProfitColor(10)).toContain('green')
-  })
-})
-
-describe('getProductStatusBadge', () => {
-  it('returns 판매중 for active', () => {
-    const badge = getProductStatusBadge('active')
-    expect(badge.label).toBe('판매중')
-    expect(badge.color).toContain('green')
-  })
-
-  it('returns 중지 for inactive', () => {
-    expect(getProductStatusBadge('inactive').label).toBe('중지')
-  })
-
-  it('returns raw status for unknown', () => {
-    expect(getProductStatusBadge('custom').label).toBe('custom')
-  })
-})
-
-describe('getGradeColor', () => {
-  it('returns green for grade A', () => {
-    expect(getGradeColor('A')).toContain('green')
-  })
-
-  it('returns red for grade C', () => {
-    expect(getGradeColor('C')).toContain('red')
-  })
-
-  it('returns gray for unknown grade', () => {
-    expect(getGradeColor('Z')).toContain('gray')
+  it.each([
+    ['2026-03-28T11:59:30Z', '방금 전'],
+    ['2026-03-28T11:30:00Z', '30분 전'],
+    ['2026-03-28T06:00:00Z', '6시간 전'],
+    ['2026-03-25T12:00:00Z', '3일 전'],
+  ])('%s → "%s"', (input, expected) => {
+    expect(timeAgo(input)).toBe(expected)
   })
 })
