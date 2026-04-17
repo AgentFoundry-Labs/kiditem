@@ -5,7 +5,7 @@
 model Thumbnail {
   id        String @id @default(uuid()) @db.Uuid
   companyId String @map("company_id") @db.Uuid
-  productId String @map("product_id") @db.Uuid
+  listingId String @map("listing_id") @db.Uuid
 
   imageUrl      String  @map("image_url")
   strategy      String  @default("standard")
@@ -19,11 +19,11 @@ model Thumbnail {
   createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  company Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  listing ChannelListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
 
   @@index([companyId])
-  @@index([productId])
+  @@index([listingId])
   @@map("thumbnails")
 }
 
@@ -32,7 +32,7 @@ model Thumbnail {
 model ThumbnailAnalysis {
   id        String @id @default(uuid()) @db.Uuid
   companyId String @map("company_id") @db.Uuid
-  productId String @unique @map("product_id") @db.Uuid
+  masterId  String @unique @map("master_id") @db.Uuid
 
   imageUrl     String  @map("image_url")
   overallScore Int     @default(0) @map("overall_score")
@@ -52,8 +52,8 @@ model ThumbnailAnalysis {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  company Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  master  MasterProduct @relation(fields: [masterId], references: [id], onDelete: Cascade)
 
   @@index([companyId])
   @@index([grade])
@@ -66,7 +66,7 @@ model ThumbnailAnalysis {
 model ThumbnailGeneration {
   id        String @id @default(uuid()) @db.Uuid
   companyId String @map("company_id") @db.Uuid
-  productId String @map("product_id") @db.Uuid
+  masterId  String @map("master_id") @db.Uuid
 
   originalUrl String? @map("original_url")
   candidates  Json    @default("[]")
@@ -84,13 +84,13 @@ model ThumbnailGeneration {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  company           Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  product           Product              @relation(fields: [productId], references: [id], onDelete: Cascade)
-  trackings         ThumbnailTracking[]
-  triggeredByUser   User?                @relation("ThumbnailGenerationTriggeredBy", fields: [triggeredByUserId], references: [id], onDelete: SetNull)
+  company         Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  master          MasterProduct       @relation(fields: [masterId], references: [id], onDelete: Cascade)
+  trackings       ThumbnailTracking[]
+  triggeredByUser User?               @relation("ThumbnailGenerationTriggeredBy", fields: [triggeredByUserId], references: [id], onDelete: SetNull)
 
   @@index([companyId])
-  @@index([productId])
+  @@index([masterId])
   @@index([status])
   @@index([method])
   @@index([companyId, triggeredByUserId])
@@ -101,7 +101,7 @@ model ThumbnailGeneration {
 model ThumbnailTracking {
   id           String @id @default(uuid()) @db.Uuid
   companyId    String @map("company_id") @db.Uuid
-  productId    String @map("product_id") @db.Uuid
+  listingId    String @map("listing_id") @db.Uuid
   generationId String @map("generation_id") @db.Uuid
 
   originalGrade String @map("original_grade") // S|A|B|C|F
@@ -122,12 +122,12 @@ model ThumbnailTracking {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   company    Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  product    Product             @relation(fields: [productId], references: [id], onDelete: Cascade)
+  listing    ChannelListing      @relation(fields: [listingId], references: [id], onDelete: Cascade)
   generation ThumbnailGeneration @relation(fields: [generationId], references: [id], onDelete: Cascade)
 
-  @@unique([productId, generationId])
+  @@unique([listingId, generationId])
   @@index([companyId])
-  @@index([productId])
+  @@index([listingId])
   @@index([status])
   @@map("thumbnail_trackings")
 }
@@ -136,7 +136,7 @@ model ThumbnailTracking {
 model ContentGeneration {
   id                   String   @id @default(uuid()) @db.Uuid
   companyId            String   @map("company_id") @db.Uuid
-  productId            String   @map("product_id") @db.Uuid
+  masterId             String   @map("master_id") @db.Uuid
   originalImages       Json?    @map("original_images")
   processedImages      Json?    @map("processed_images")
   generatedTitle       String?  @map("generated_title")
@@ -149,11 +149,11 @@ model ContentGeneration {
   createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt            DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  company Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  master  MasterProduct @relation(fields: [masterId], references: [id], onDelete: Cascade)
 
   @@index([companyId])
-  @@index([productId])
+  @@index([masterId])
   @@index([status])
   @@map("content_generations")
 }
