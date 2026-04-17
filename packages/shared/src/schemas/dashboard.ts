@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { zIsoDate } from './common.js';
 
 // ─── Shared building blocks ───────────────────────────────────────────────
 
@@ -10,10 +11,10 @@ export const DashboardAlertItemSchema = z.object({
   type: z.string(),
   severity: z.string(),
   title: z.string(),
-  message: z.string().nullable().optional(),
+  message: z.string().nullable(),
   productId: z.string().nullable().optional(),
   isRead: z.boolean(),
-  createdAt: z.union([z.string(), z.date()]),
+  createdAt: zIsoDate,
 });
 
 export const TopProductSchema = z.object({
@@ -145,7 +146,7 @@ export const WingAdSummarySchema = z.object({
   adSpend: z.number(),
   adRoas: z.number(),
   rawAdSummary: z.record(z.any()).nullable().optional(),
-}).passthrough();
+});
 
 // ─── Sales endpoint: GET /api/dashboard/sales ─────────────────────────────
 export const DashboardSalesSummarySchema = z.object({
@@ -181,7 +182,7 @@ export const DashboardSalesSummarySchema = z.object({
   dailyRevenue: z.array(DailyRevenueItemSchema).optional(),
   planAchievement: PlanAchievementSchema.nullable().optional(),
   trafficKpi: TrafficKpiSchema.optional(),
-  lastSyncAt: z.union([z.string(), z.date()]).nullable().optional(),
+  lastSyncAt: zIsoDate.nullable().optional(),
 });
 
 // ─── Ad endpoint: GET /api/dashboard/ad ───────────────────────────────────
