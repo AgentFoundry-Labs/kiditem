@@ -99,19 +99,35 @@ async getProduct(id: string, companyId: string) {
 }
 ```
 
-## Domain Guides
+## Domain Guides — 서브도메인 작업 전 반드시 해당 CLAUDE.md 먼저 Read
 
-- **Workflows**: see `src/workflows/CLAUDE.md`
-- **Agent Platform**: see `src/agent-registry/CLAUDE.md`
-- **Advertising**: see `src/advertising/CLAUDE.md`
-- **Thumbnails**: `src/products/services/thumbnail-*.ts` — 썸네일 AI 분석/편집. 3단계: 사전 검수(이미지 스펙) → AI 분류(품질+가이드라인) → AI 편집(가이드라인 수정/품질 개선). Gemini API 사용. 모델명은 `ThumbnailAiService.GEMINI_MODEL` 상수.
-- **Chat**: `src/chat/` — CopilotKit 런타임 + ClaudeCliAdapter
-- **Action Tasks**: `src/action-task/` — 액션 보드 CRUD API
-- **Panel (Live Ops)**: `src/panel/` — SSE multiplex 채널. `EventEmitter2` 버스로 도메인(workflow/agent/image/alert) 이벤트 받아 companyId 필터 + strip + ring buffer + monotonic seq → `@Sse()` 로 Observable<MessageEvent> 내보냄. Workflow 도메인 hook이 상태 전이 지점에서 `PANEL_EVENTS.UPSERT` emit ('completed' → 'succeeded' 정규화는 shared `panel/adapters/workflow-run-mapper.ts` 경유). 단일 인스턴스 전제 (prod 멀티 인스턴스 시 pg LISTEN/Redis 도입 필요).
+**규칙**: `src/{domain}/` 하위 파일을 Edit 하기 전, 아래 표의 해당 행이 가리키는 `CLAUDE.md` 를 먼저 Read 한다. Index 에 있으면 있는 것이고, 없으면 부모 NestJS 패턴(이 문서)으로 충분하다.
 
-## Notable Sub-Domains (LOW signal — 별도 CLAUDE.md 없음)
+### 전용 CLAUDE.md 가 있는 도메인 (13)
 
-부모 NestJS 패턴(이 문서) 으로 거의 커버되지만, 아래 도메인은 한 가지 특이점이 있다. 별도 문서화 비용이 효익 대비 작아 inline 정리.
+| 경로 | 크기 | 핵심 포인트 |
+|---|---|---|
+| [`src/advertising/CLAUDE.md`](src/advertising/CLAUDE.md) | 33줄 | Ad Operations — 12 endpoints `/api/ads/*`, AdSnapshot(level=campaign\|product\|null), 익스텐션 sync |
+| [`src/agent-registry/CLAUDE.md`](src/agent-registry/CLAUDE.md) | **261줄** | Agent OS — Adapters / EventEmitter2 / Manager Workflow / FeatureGate / ExecutionContext / Agent OS Phase 3+4 (8 patterns) |
+| [`src/ai/CLAUDE.md`](src/ai/CLAUDE.md) | 69줄 | Dual-Path — Image=Agent 위임 / Text=Gemini Direct. Preset → hardcoded prompt 매핑 |
+| [`src/auth/CLAUDE.md`](src/auth/CLAUDE.md) | 158줄 | 인증/권한 인프라. `@CurrentUser`/`@CurrentCompany`/`@Roles`/`@SkipAuth`, CompanyScopeGuard, DevAuthMiddleware |
+| [`src/channels/CLAUDE.md`](src/channels/CLAUDE.md) | 109줄 | Coupang 통합 — `adapters/coupang/` 외부 API 격리, Sync 3종 (Products/Orders/Inventory), $queryRaw 분석 |
+| [`src/chat/CLAUDE.md`](src/chat/CLAUDE.md) | 155줄 | CopilotKit Runtime + ClaudeCliAdapter. Express pre-registration (NestJS 우회), SSE 토큰 스트리밍 |
+| [`src/dashboard/CLAUDE.md`](src/dashboard/CLAUDE.md) | 73줄 | Massive Parallel (Promise.all 11+ queries) + KST 경계 + MoM snapshot + $queryRaw ad metrics |
+| [`src/finance/CLAUDE.md`](src/finance/CLAUDE.md) | 70줄 | P&L + Sales Analysis — $queryRaw cross-table 집계, period parsing, pricing resolver |
+| [`src/marketplace/CLAUDE.md`](src/marketplace/CLAUDE.md) | 75줄 | Workflow/Agent 카탈로그 — read-only 카탈로그 + per-company 설치 추적 + param override |
+| [`src/orders/CLAUDE.md`](src/orders/CLAUDE.md) | 60줄 | Order/Return/CS 통합 — multi-controller 모듈, 외부 채널 어댑터 위임, status 필터링 |
+| [`src/products/CLAUDE.md`](src/products/CLAUDE.md) | 121줄 | Product/Thumbnail/Pricing — 3-stage 썸네일 파이프라인, pricing fallback chain, $transaction 원자 생성, Gemini 단일 진입점 |
+| [`src/rules/CLAUDE.md`](src/rules/CLAUDE.md) | 83줄 | Event-Driven — 룰 평가는 agent 비동기 spawn → `@OnEvent` 콜백. CRUD 패턴 아님 |
+| [`src/workflows/CLAUDE.md`](src/workflows/CLAUDE.md) | 90줄 | Workflow Engine — executor naming / registration / standard entities / action catalog |
+
+### Panel — Live Ops SSE
+
+`src/panel/` 은 별도 CLAUDE.md 없이 아래 inline 으로 관리. SSE multiplex 채널. `EventEmitter2` 버스로 도메인(workflow/agent/image/alert) 이벤트 받아 companyId 필터 + strip + ring buffer + monotonic seq → `@Sse()` 로 Observable<MessageEvent> 내보냄. Workflow 도메인 hook이 상태 전이 지점에서 `PANEL_EVENTS.UPSERT` emit ('completed' → 'succeeded' 정규화는 shared `panel/adapters/workflow-run-mapper.ts` 경유). 단일 인스턴스 전제 (prod 멀티 인스턴스 시 pg LISTEN/Redis 도입 필요).
+
+### Notable Sub-Domains (LOW signal — 별도 CLAUDE.md 없음)
+
+부모 NestJS 패턴(이 문서)으로 거의 커버되지만, 아래 도메인은 한 가지 특이점이 있다. 별도 문서화 비용이 효익 대비 작아 inline 정리.
 
 - **`src/sourcing/`** — 익스텐션이 product 데이터를 push (POST `/api/sourcing/extension/products`). AgentRegistry 와 cross-coupling: `sourcing.service.ts` 가 `agentRegistry.runByType('sourcing_*')` 호출. 외부 push + 비동기 trigger 패턴.
 - **`src/action-task/`** — `task.service.ts` 가 비즈 룰 임계값(low CTR / low profit / 고비용 광고 / 재주문) 으로 task seed 자동 생성. cron 으로 일일 실행. 룰 임계 변경은 hardcode (DB 아님).

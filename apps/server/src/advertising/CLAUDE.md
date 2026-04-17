@@ -31,3 +31,21 @@
 | `POST /api/ads/scrape-targets` | 스크래핑 대상 생성/markScraped |
 | `DELETE /api/ads/scrape-targets/:id` | 스크래핑 대상 비활성화 |
 
+## 액션 자동 실행 파이프라인
+
+익스텐션 스크래핑 → 성과 집계 → AI 전략 → 액션 자동 실행:
+
+```
+AdSnapshot (raw 스크래핑 데이터, level=campaign|product|null)
+    ↓ ad-strategy 규칙 평가
+AdAction (실행 대기 큐)
+    ↓ execution-worker 처리
+ExecutionTask (처리 중인 작업)
+    ↓ 완료 시
+ExecutionLog (감사 로그)
+```
+
+- `AdSnapshot.level` 로 campaign 레벨 vs product 레벨 분리 집계
+- `AdAction` → `ExecutionTask` → `ExecutionLog` chain 은 재시도·순서 보장 + 감사 가능
+- 모델 스펙: [`prisma/models/advertising.prisma`](../../../../prisma/models/advertising.prisma)
+
