@@ -2,6 +2,8 @@
 
 Agent orchestration platform. Claude CLI spawn-based.
 
+**Runtime state 모델**: 에이전트의 현재 상태는 **`AgentDefinition` (정의 + `rt_*` 내장 필드) + `HeartbeatRun` (safety pipeline 실행 이력) + `AgentEvent` (permission_denied / action_snapshot 이벤트)** 세 모델의 조합으로 표현. 별도 "AgentState" 테이블 없음. 상세 필드: [`prisma/models/agents.prisma`](../../../../prisma/models/agents.prisma).
+
 ## Patterns
 
 ### 1. Strategy — AdapterModule
