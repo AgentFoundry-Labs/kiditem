@@ -24,6 +24,11 @@ export class MastersService {
     private readonly codeSvc: MasterCodeService,
   ) {}
 
+  /**
+   * @param outerTx - Optional outer transaction (Plan B2 sourcing/supplier-sync compose).
+   *                  Caller must pass `{ timeout: >= 15000 }` on the outer `$transaction`
+   *                  so cold-cache writes don't trip Prisma's 5 s default.
+   */
   async create(
     companyId: string,
     dto: CreateMasterDto,
@@ -135,6 +140,10 @@ export class MastersService {
     return row;
   }
 
+  /**
+   * @param outerTx - Optional outer transaction (Plan B2 compose). Caller must pass
+   *                  `{ timeout: >= 15000 }` on the outer `$transaction`.
+   */
   async update(
     companyId: string,
     id: string,
@@ -165,6 +174,10 @@ export class MastersService {
     } catch (e) { mapPrismaError(e, 'master update'); }
   }
 
+  /**
+   * @param outerTx - Optional outer transaction (Plan B2 compose). Caller must pass
+   *                  `{ timeout: >= 15000 }` on the outer `$transaction`.
+   */
   async softDelete(
     companyId: string,
     id: string,
@@ -178,6 +191,10 @@ export class MastersService {
     if (count === 0) throw new NotFoundException('master not found');
   }
 
+  /**
+   * @param outerTx - Optional outer transaction (Plan B2 compose). Caller must pass
+   *                  `{ timeout: >= 15000 }` on the outer `$transaction`.
+   */
   async restore(
     companyId: string,
     id: string,
@@ -196,9 +213,19 @@ export class MastersService {
     } catch (e) { mapPrismaError(e, 'master restore'); }
   }
 
-  private strip(dto: Partial<CreateMasterDto> | Partial<UpdateMasterDto>) {
+  /**
+   * Remove SYSTEM_FIELDS from a DTO before forwarding to Prisma. The return
+   * type preserves the caller's input type minus the stripped keys so call
+   * sites don't need a loose `Record<string, unknown>` intermediate cast
+   * (apps/server/CLAUDE.md:60 forbids that pattern). The remaining cast to
+   * `Prisma.MasterProductUnchecked{Create,Update}Input` at the call site is
+   * inherent to the DTO↔Prisma-input shape gap and unavoidable.
+   */
+  private strip<T extends Partial<CreateMasterDto> | Partial<UpdateMasterDto>>(
+    dto: T,
+  ): Omit<T, typeof SYSTEM_FIELDS[number]> {
     const out: Record<string, unknown> = { ...dto };
     for (const f of SYSTEM_FIELDS) delete out[f as string];
-    return out;
+    return out as Omit<T, typeof SYSTEM_FIELDS[number]>;
   }
 }

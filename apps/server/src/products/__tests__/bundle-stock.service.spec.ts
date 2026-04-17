@@ -9,7 +9,7 @@ import { BundleStockService } from '../services/bundle-stock.service';
  *   - `productOption.update` to materialize availableStock.
  */
 function makePrismaMock(components: Array<{ qty: number; currentStock: number | null }>) {
-  return {
+  const mock: any = {
     $queryRaw: vi.fn().mockResolvedValue([]),
     bundleComponent: {
       findMany: vi.fn().mockResolvedValue(
@@ -26,7 +26,13 @@ function makePrismaMock(components: Array<{ qty: number; currentStock: number | 
     productOption: {
       update: vi.fn().mockResolvedValue({}),
     },
-  } as any;
+  };
+  // BundleStockService.recompute auto-wraps in `$transaction` when no outerTx
+  // is supplied (quality-reviewer CRITICAL fix: row-lock must be held across
+  // findMany + update). Mock the $transaction to just invoke the callback with
+  // the same mock acting as the TransactionClient.
+  mock.$transaction = vi.fn((cb: (tx: any) => Promise<any>) => cb(mock));
+  return mock;
 }
 
 describe('BundleStockService', () => {

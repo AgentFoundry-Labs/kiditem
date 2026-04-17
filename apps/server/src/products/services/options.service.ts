@@ -37,6 +37,10 @@ export class OptionsService {
    *
    * Gaps are allowed (counter increments even on downstream failure); Plan B1 spec
    * explicitly accepts gap-tolerant numbering.
+   *
+   * @param outerTx - Optional outer transaction (Plan B2 sourcing/supplier-sync compose).
+   *                  Caller must pass `{ timeout: >= 15000 }` on the outer `$transaction`
+   *                  so cold-cache writes don't trip Prisma's 5 s default.
    */
   async create(
     companyId: string,
@@ -175,6 +179,9 @@ export class OptionsService {
    *     a component elsewhere (i.e. `componentOptionId`).
    *
    * `isTemporary=false` clears `temporaryReason` automatically.
+   *
+   * @param outerTx - Optional outer transaction (Plan B2 compose). Caller must pass
+   *                  `{ timeout: >= 15000 }` on the outer `$transaction`.
    */
   async update(
     companyId: string,
@@ -227,6 +234,10 @@ export class OptionsService {
    * Soft-delete cascade: when a component option is soft-deleted, every bundle
    * that references it must recompute its availableStock (treating the deleted
    * component as unavailable via `componentOption.isDeleted:false` filter).
+   *
+   * @param outerTx - Optional outer transaction (Plan B2 compose). Caller must pass
+   *                  `{ timeout: >= 15000 }` on the outer `$transaction` — recompute
+   *                  fan-out across many bundles can exceed the default 5 s.
    */
   async softDelete(
     companyId: string,
@@ -252,6 +263,10 @@ export class OptionsService {
       : this.prisma.$transaction(exec, { timeout: 15000 }));
   }
 
+  /**
+   * @param outerTx - Optional outer transaction (Plan B2 compose). Caller must pass
+   *                  `{ timeout: >= 15000 }` on the outer `$transaction`.
+   */
   async restore(
     companyId: string,
     id: string,
@@ -270,9 +285,19 @@ export class OptionsService {
     } catch (e) { mapPrismaError(e, 'option restore'); }
   }
 
-  private strip(dto: Partial<CreateOptionDto> | Partial<UpdateOptionDto>) {
+  /**
+   * Remove SYSTEM_FIELDS from a DTO before forwarding to Prisma. The return
+   * type preserves the caller's input type minus the stripped keys so call
+   * sites don't need a loose `Record<string, unknown>` intermediate cast
+   * (apps/server/CLAUDE.md:60 forbids that pattern). The remaining cast to
+   * `Prisma.ProductOptionUnchecked{Create,Update}Input` at the call site is
+   * inherent to the DTO↔Prisma-input shape gap and unavoidable.
+   */
+  private strip<T extends Partial<CreateOptionDto> | Partial<UpdateOptionDto>>(
+    dto: T,
+  ): Omit<T, typeof SYSTEM_FIELDS[number]> {
     const out: Record<string, unknown> = { ...dto };
     for (const f of SYSTEM_FIELDS) delete out[f as string];
-    return out;
+    return out as Omit<T, typeof SYSTEM_FIELDS[number]>;
   }
 }

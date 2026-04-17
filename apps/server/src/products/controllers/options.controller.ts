@@ -9,7 +9,7 @@ import {
 } from '@kiditem/shared';
 import { toSerializable } from '../util/serialize';
 import { OptionsService } from '../services/options.service';
-import { PrismaService } from '../../prisma/prisma.service';
+import { BundleComponentsService } from '../services/bundle-components.service';
 import { CreateOptionDto } from '../dto/create-option.dto';
 import { UpdateOptionDto } from '../dto/update-option.dto';
 import { ListOptionsQuery } from '../dto/list-options.query';
@@ -17,11 +17,15 @@ import { ListOptionsQuery } from '../dto/list-options.query';
 // NOTE (auth/CLAUDE.md Hard bans): no `@UseGuards` / `@UsePipes` here — rely on
 // global APP_GUARD (CompanyScopeGuard + RolesGuard) and global ValidationPipe
 // registered in main.ts / app.module.ts.
+//
+// Controllers MUST NOT touch Prisma directly (apps/server/CLAUDE.md:96-103 —
+// controller/service boundary). For bundle components we delegate to
+// `BundleComponentsService.list` which already applies the companyId scope.
 @Controller('products/options')
 export class OptionsController {
   constructor(
     private readonly svc: OptionsService,
-    private readonly prisma: PrismaService,
+    private readonly bundleComponentsSvc: BundleComponentsService,
   ) {}
 
   @Post()
@@ -67,10 +71,7 @@ export class OptionsController {
   ): Promise<BundleComponent[]> {
     // Ensure cross-tenant / soft-delete check before exposing components.
     await this.svc.findById(companyId, id, {});
-    const rows = await this.prisma.bundleComponent.findMany({
-      where: { bundleOptionId: id },
-      orderBy: { createdAt: 'asc' },
-    });
+    const rows = await this.bundleComponentsSvc.list(companyId, { bundleOptionId: id });
     return rows.map(r => BundleComponentSchema.parse(toSerializable(r)));
   }
 
@@ -83,10 +84,7 @@ export class OptionsController {
     const row = await this.svc.findById(companyId, id, {
       includeDeleted: includeDeleted === 'true',
     });
-    const components = await this.prisma.bundleComponent.findMany({
-      where: { bundleOptionId: id },
-      orderBy: { createdAt: 'asc' },
-    });
+    const components = await this.bundleComponentsSvc.list(companyId, { bundleOptionId: id });
     return OptionWithComponentsSchema.parse(toSerializable({ ...row, components }));
   }
 

@@ -37,6 +37,12 @@ export class BundleComponentsService {
     private readonly bundleStock: BundleStockService,
   ) {}
 
+  /**
+   * @param outerTx - Optional outer transaction (Plan B2 sourcing/supplier-sync compose).
+   *                  Caller must pass `{ timeout: >= 15000 }` on the outer `$transaction`
+   *                  so the row-lock + recompute chain has headroom beyond Prisma's 5 s
+   *                  default.
+   */
   async create(
     companyId: string,
     dto: CreateBundleComponentDto,
@@ -46,6 +52,10 @@ export class BundleComponentsService {
       throw new ConflictException('self-reference');
     }
     const db = outerTx ?? this.prisma;
+    // `findUnique` (not `findFirst` + `companyId`) — we need the raw row to
+    // derive the 3-way invariant (`BundleComponent.companyId = bundleOpt.companyId`).
+    // Cross-tenant access is still gated below via the explicit `companyId`
+    // equality checks on both sides, so id-only lookup is safe here.
     const [bundleOpt, compOpt] = await Promise.all([
       db.productOption.findUnique({ where: { id: dto.bundleOptionId } }),
       db.productOption.findUnique({ where: { id: dto.componentOptionId } }),
@@ -71,13 +81,12 @@ export class BundleComponentsService {
       throw new ForbiddenException('cross-company not allowed');
     }
 
-    const exec = async (tx: Prisma.TransactionClient) => {
+    const exec = async (tx: Prisma.TransactionClient): Promise<BundleComponent> => {
       // Row-level lock on the bundle option: serializes concurrent recompute
       // + create/update/delete on the same bundle.
       await tx.$queryRaw`SELECT id FROM product_options WHERE id = ${dto.bundleOptionId}::uuid FOR UPDATE`;
-      let bc: BundleComponent;
       try {
-        bc = await tx.bundleComponent.create({
+        const bc = await tx.bundleComponent.create({
           data: {
             bundleOptionId: dto.bundleOptionId,
             componentOptionId: dto.componentOptionId,
@@ -86,9 +95,12 @@ export class BundleComponentsService {
             companyId: bundleOpt.companyId,
           },
         });
-      } catch (e) { mapPrismaError(e, 'bundle-component create'); }
-      await this.bundleStock.recompute(dto.bundleOptionId, tx);
-      return bc!;
+        await this.bundleStock.recompute(dto.bundleOptionId, tx);
+        return bc;
+      } catch (e) {
+        // mapPrismaError returns `never` — TS narrows the try-block happy path.
+        mapPrismaError(e, 'bundle-component create');
+      }
     };
     return outerTx
       ? exec(outerTx)
@@ -116,31 +128,41 @@ export class BundleComponentsService {
     });
   }
 
+  /**
+   * @param outerTx - Optional outer transaction (Plan B2 compose). Caller must pass
+   *                  `{ timeout: >= 15000 }` on the outer `$transaction`.
+   */
   async update(
     companyId: string,
     id: string,
     dto: UpdateBundleComponentDto,
     outerTx?: Prisma.TransactionClient,
   ): Promise<BundleComponent> {
-    const exec = async (tx: Prisma.TransactionClient) => {
+    const exec = async (tx: Prisma.TransactionClient): Promise<BundleComponent> => {
       const row = await tx.bundleComponent.findFirst({ where: { id, companyId } });
       if (!row) throw new NotFoundException('bundle-component not found');
       await tx.$queryRaw`SELECT id FROM product_options WHERE id = ${row.bundleOptionId}::uuid FOR UPDATE`;
-      let updated: BundleComponent;
       try {
-        updated = await tx.bundleComponent.update({
+        const updated = await tx.bundleComponent.update({
           where: { id },
           data: { qty: dto.qty },
         });
-      } catch (e) { mapPrismaError(e, 'bundle-component update'); }
-      await this.bundleStock.recompute(row.bundleOptionId, tx);
-      return updated!;
+        await this.bundleStock.recompute(row.bundleOptionId, tx);
+        return updated;
+      } catch (e) {
+        // mapPrismaError returns `never`.
+        mapPrismaError(e, 'bundle-component update');
+      }
     };
     return outerTx
       ? exec(outerTx)
       : this.prisma.$transaction(exec, { timeout: 15000 });
   }
 
+  /**
+   * @param outerTx - Optional outer transaction (Plan B2 compose). Caller must pass
+   *                  `{ timeout: >= 15000 }` on the outer `$transaction`.
+   */
   async delete(
     companyId: string,
     id: string,

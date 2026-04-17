@@ -9,16 +9,21 @@ import {
 } from '@kiditem/shared';
 import { toSerializable } from '../util/serialize';
 import { MastersService } from '../services/masters.service';
-import { PrismaService } from '../../prisma/prisma.service';
+import { OptionsService } from '../services/options.service';
 import { CreateMasterDto } from '../dto/create-master.dto';
 import { UpdateMasterDto } from '../dto/update-master.dto';
 import { ListMastersQuery } from '../dto/list-masters.query';
+import { ListOptionsQuery } from '../dto/list-options.query';
 
+// Controllers MUST NOT touch Prisma directly (apps/server/CLAUDE.md:96-103 —
+// controller/service boundary). For child options we delegate to
+// `OptionsService.list` which applies companyId scope + soft-delete filter +
+// the standard `createdAt desc` ordering used across the products domain.
 @Controller('products/masters')
 export class MastersController {
   constructor(
     private readonly svc: MastersService,
-    private readonly prisma: PrismaService,
+    private readonly optionsSvc: OptionsService,
   ) {}
 
   @Post()
@@ -67,10 +72,9 @@ export class MastersController {
     const row = await this.svc.findById(companyId, id, {
       includeDeleted: includeDeleted === 'true',
     });
-    const options = await this.prisma.productOption.findMany({
-      where: { masterId: id, isDeleted: false },
-      orderBy: { sortOrder: 'asc' },
-    });
+    const q = new ListOptionsQuery();
+    q.masterId = id;
+    const { items: options } = await this.optionsSvc.list(companyId, q);
     return MasterWithOptionsSchema.parse(toSerializable({ ...row, options }));
   }
 
