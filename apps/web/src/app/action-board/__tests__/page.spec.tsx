@@ -119,21 +119,16 @@ describe('ActionBoardPage', () => {
 
   // ── 2. SegmentedControl scope click → URL update ──────────────────────────
 
-  it('클릭 "내 것" 탭 → router.push with ?scope=me', async () => {
+  it.each([
+    ['내 것', null, '/action-board?scope=me'],
+    ['전체', 'me', '/action-board'],
+  ])('탭 "%s" 클릭 → router.push(%s)', async (tabName, initialScope, expectedUrl) => {
+    mockSearchParamsGet = vi.fn().mockReturnValue(initialScope);
     vi.mocked(apiClient.get).mockResolvedValue([]);
     renderPage();
     await waitFor(() => screen.getByRole('tablist', { name: '담당자 필터' }));
-    fireEvent.click(screen.getByRole('tab', { name: '내 것' }));
-    expect(mockPush).toHaveBeenCalledWith('/action-board?scope=me');
-  });
-
-  it('클릭 "전체" 탭 → router.push without scope', async () => {
-    mockSearchParamsGet = vi.fn().mockReturnValue('me');
-    vi.mocked(apiClient.get).mockResolvedValue([]);
-    renderPage();
-    await waitFor(() => screen.getByRole('tablist', { name: '담당자 필터' }));
-    fireEvent.click(screen.getByRole('tab', { name: '전체' }));
-    expect(mockPush).toHaveBeenCalledWith('/action-board');
+    fireEvent.click(screen.getByRole('tab', { name: tabName }));
+    expect(mockPush).toHaveBeenCalledWith(expectedUrl);
   });
 
   // ── 3. Card shows assigneeUser.name ───────────────────────────────────────
