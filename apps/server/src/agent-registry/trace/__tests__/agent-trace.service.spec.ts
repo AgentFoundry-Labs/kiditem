@@ -80,24 +80,20 @@ const MOCK_TASK = {
 
 describe('AgentTraceService', () => {
   describe('getTrace', () => {
-    it('throws NotFoundException when task does not exist', async () => {
+    it('throws NotFoundException when task not found OR belongs to another company (cross-tenant)', async () => {
       const { service, prisma } = makeService();
       prisma.agentTask.findFirst.mockResolvedValue(null);
 
-      await expect(service.getTrace('task-missing', 'company-1', {})).rejects.toThrow(
-        NotFoundException,
-      );
-    });
-
-    it('throws NotFoundException when task belongs to another company (cross-tenant isolation)', async () => {
-      const { service, prisma } = makeService();
-      // findFirst with companyId filter returns null
-      prisma.agentTask.findFirst.mockResolvedValue(null);
-
+      // 다른 company id 로 접근 — findFirst 가 companyId 를 where 에 포함했기에 null
       await expect(service.getTrace('task-1', 'company-2', {})).rejects.toThrow(NotFoundException);
       expect(prisma.agentTask.findFirst).toHaveBeenCalledWith({
         where: { id: 'task-1', companyId: 'company-2' },
       });
+
+      // 존재하지 않는 taskId — 동일 경로
+      await expect(service.getTrace('task-missing', 'company-1', {})).rejects.toThrow(
+        NotFoundException,
+      );
     });
 
     it('assembles trace from marker-matched wakeup → runs → events (direct path)', async () => {
@@ -246,27 +242,19 @@ describe('AgentTraceService', () => {
       });
     });
 
-    it('applies status filter', async () => {
+    it.each([
+      ['status', { status: 'completed' }, { status: 'completed' }],
+      ['agentType', { agentType: 'ad_strategy' }, { agentType: 'ad_strategy' }],
+    ])('applies %s filter', async (_field, query, expectedWhere) => {
       const { service, prisma } = makeService();
       prisma.agentTask.findMany.mockResolvedValue([]);
       prisma.agentTask.count.mockResolvedValue(0);
 
-      await service.listTasks('company-1', { status: 'completed' });
+      await service.listTasks('company-1', query);
 
       expect(prisma.agentTask.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { companyId: 'company-1', status: 'completed' },
-        }),
-      );
-    });
-
-    it('applies agentType filter', async () => {
-      const { service, prisma } = makeService();
-      await service.listTasks('company-1', { agentType: 'ad_strategy' });
-
-      expect(prisma.agentTask.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { companyId: 'company-1', agentType: 'ad_strategy' },
+          where: { companyId: 'company-1', ...expectedWhere },
         }),
       );
     });
