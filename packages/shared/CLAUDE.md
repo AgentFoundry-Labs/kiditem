@@ -61,10 +61,15 @@ async findAll(): Promise<ProductListItem[]> {
 ### 신규 service 작성 시 self-check
 
 ```bash
-# 누락된 service 찾기
+# 누락된 service 찾기 (utility 함수만 import 하는 false positive 제외)
+# 핵심: shared import 라인에 PascalCase 식별자가 있어야 type/schema 사용으로 간주
 for f in $(grep -rlE "from '@kiditem/shared'" apps/server/src --include="*.service.ts"); do
-  grep -qE 'satisfies ' "$f" || echo "MISSING: $f"
+  if grep -E "from '@kiditem/shared'" "$f" | grep -qE '\b[A-Z][a-zA-Z]+\b'; then
+    grep -qE 'satisfies ' "$f" || echo "MISSING: $f"
+  fi
 done
 ```
 
-결과가 비어있어야 정상. 현재 누락 상태 추적 및 작업 대상: [#21](https://github.com/AgentFoundry-Labs/kiditem/issues/21).
+결과가 비어있어야 정상. PascalCase 필터로 `scrubSecrets` 같은 camelCase 유틸 import 만 하는 service 는 제외 (drift 위험 0).
+
+> **Note**: 이전 버전 (단순 `from '@kiditem/shared'` grep) 은 utility 함수 import 도 false positive 로 잡았음. 2026-04-17 정정 후 [#21](https://github.com/AgentFoundry-Labs/kiditem/issues/21) closed (실제 4 services 모두 cover).
