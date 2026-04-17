@@ -1,24 +1,21 @@
 /**
- * PR3 integration test — Panel SSE pipeline for promote/dismiss/claim/list (Task 35)
+ * PR3 integration test — Panel SSE pipeline for promote/dismiss/list (Task 35)
  *
  * Tests with real EventEmitter2 bus + real service instances (AlertsService,
  * ActionTaskService, PanelSseService) wired via NestJS Test module.
- * Prisma is mocked (no real Postgres test setup in this project).
+ * Prisma is mocked (for fast feedback on SSE wire shape + filter branches).
  *
- * Scenarios:
+ * Scenarios covered here (SSE/filter focus, mock Prisma is sufficient):
  *   1. Promote emit — promote() → SSE UPSERT event arrives with item.actionTaskId
- *   2. Promote race (mock simulation) — updateMany count=0 guard → ConflictException
- *   3. Dismiss emit — dismiss() → SSE DISMISS event with itemId
- *   4. Claim atomic (mock simulation) — updateMany count=0 guard → ConflictException
+ *   3. Dismiss emit/not-found — SSE DISMISS event shape + NotFoundException
  *   5. list(me|team|all) filter branches + sourceAlert join
  *   6. No N+1 — list() calls prisma.alert.findMany ≤ 1 time
+ *   + Cross-company stream isolation (companyId filter)
  *
- * Race test note:
- *   Scenarios 2 and 4 validate the race guard LOGIC (updateMany count check → throw)
- *   using mock Prisma returning count=0. True concurrent race is now covered by the
- *   sibling spec `panel-pr3.pg.integration.spec.ts` (real Postgres via
- *   docker-compose.test.yml — run with `npm run test:integration`). This file
- *   remains as a fast unit-level smoke check for the guard branches.
+ * Race / IDOR scenarios moved out: 실제 동시 트랜잭션은 sibling spec
+ * `panel-pr3.pg.integration.spec.ts` + `action-task-claim.pg.integration.spec.ts`
+ * (real Postgres via docker-compose.test.yml) 가 커버. 구버전의 Scenario
+ * 2/2b/4/4b (mock count=0 시뮬레이션) 는 대체됐으므로 제거.
  *
  * Mock boundary: PrismaService only.
  * Real: EventEmitter2 (global bus), PanelSseService, AlertsService, ActionTaskService.
@@ -27,8 +24,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Test, TestingModule } from '@nestjs/testing';
 import { EventEmitter2, EventEmitterModule } from '@nestjs/event-emitter';
-import { ConflictException, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { NotFoundException } from '@nestjs/common';
 import { lastValueFrom } from 'rxjs';
 import { take, toArray } from 'rxjs/operators';
 
@@ -194,54 +190,9 @@ describe('Panel PR3 integration — promote/dismiss/claim/list (Task 35)', () =>
     expect(event.item.actionTaskId).toBe(TASK_ID);
   });
 
-  // ── Scenario 2: Promote race guard (mock simulation) ────────────────────
-
-  it('Scenario 2: promote race — updateMany count=0 → ConflictException; no SSE emit', async () => {
-    const { sseService, alertsService, prisma } = ctx;
-
-    const tx = wireTransaction(prisma);
-    tx.alert.findFirst = vi.fn().mockResolvedValue(alertFixture());
-    tx.actionTask.create = vi.fn().mockResolvedValue(taskFixture());
-    // count=0 simulates losing the race (another promote committed first)
-    tx.alert.updateMany = vi.fn().mockResolvedValue({ count: 0 });
-    tx.actionTask.delete = vi.fn().mockResolvedValue(taskFixture());
-
-    // Track any emissions on the bus
-    const emitted: unknown[] = [];
-    ctx.emitter.on(PANEL_EVENTS.UPSERT, (p) => emitted.push(p));
-
-    await expect(alertsService.promote(ALERT_ID, CO, {}, USER_A)).rejects.toThrow(ConflictException);
-
-    // No SSE event emitted — transaction rolled back before emit
-    expect(emitted).toHaveLength(0);
-
-    // DB cleanup: deleted the orphan task
-    expect(tx.actionTask.delete).toHaveBeenCalledWith({ where: { id: TASK_ID } });
-
-    // Note: This simulates the race GUARD logic. True concurrent race (two goroutines
-    // hitting Postgres simultaneously) requires real Postgres with actual concurrent
-    // connections. Mock Prisma is synchronous — cannot reproduce true race timing.
-  });
-
-  it('Scenario 2b: promote race — P2002 on task.create → ConflictException(race); no emit', async () => {
-    const { alertsService, prisma } = ctx;
-
-    const tx = wireTransaction(prisma);
-    tx.alert.findFirst = vi.fn().mockResolvedValue(alertFixture());
-    const p2002 = new Prisma.PrismaClientKnownRequestError('Unique constraint', {
-      code: 'P2002',
-      clientVersion: '5.0.0',
-    });
-    tx.actionTask.create = vi.fn().mockRejectedValue(p2002);
-
-    const emitted: unknown[] = [];
-    ctx.emitter.on(PANEL_EVENTS.UPSERT, (p) => emitted.push(p));
-
-    await expect(alertsService.promote(ALERT_ID, CO, {}, USER_A)).rejects.toThrow(
-      new ConflictException('Already promoted (race)'),
-    );
-    expect(emitted).toHaveLength(0);
-  });
+  // Scenarios 2 / 2b (promote race mock simulation) 는 real Postgres spec
+  // (`panel-pr3.pg.integration.spec.ts` — "동시 2건 promote" / "5건 스트레스")
+  // 이 더 강력하게 커버하므로 제거.
 
   // ── Scenario 3: Dismiss emit ─────────────────────────────────────────────
 
@@ -278,39 +229,9 @@ describe('Panel PR3 integration — promote/dismiss/claim/list (Task 35)', () =>
     expect(emitted).toHaveLength(0);
   });
 
-  // ── Scenario 4: Claim atomic (mock simulation) ───────────────────────────
-
-  it('Scenario 4: claim race guard — second caller gets count=0 → ConflictException', async () => {
-    const { actionTaskService, prisma } = ctx;
-
-    // USER_A claims successfully
-    prisma.actionTask.updateMany.mockResolvedValueOnce({ count: 1 });
-    prisma.actionTask.findFirstOrThrow.mockResolvedValueOnce(
-      taskFixture({ assigneeUserId: USER_A, assigneeUser: { id: USER_A, name: 'Alice' } }),
-    );
-    const result = await actionTaskService.claim(TASK_ID, CO, USER_A);
-    expect(result.assigneeUserId).toBe(USER_A);
-
-    // USER_B tries to claim — count=0 (already claimed)
-    prisma.actionTask.updateMany.mockResolvedValueOnce({ count: 0 });
-    await expect(actionTaskService.claim(TASK_ID, CO, USER_B)).rejects.toThrow(ConflictException);
-
-    // Note: True concurrent race (Promise.all dispatching simultaneously to Postgres)
-    // requires real Postgres. Mock is synchronous — this validates the guard logic.
-  });
-
-  it('Scenario 4b: claim where includes companyId (IDOR regression)', async () => {
-    const { actionTaskService, prisma } = ctx;
-
-    prisma.actionTask.updateMany.mockResolvedValue({ count: 1 });
-    prisma.actionTask.findFirstOrThrow.mockResolvedValue(taskFixture());
-
-    await actionTaskService.claim(TASK_ID, CO, USER_A);
-
-    const whereArg = prisma.actionTask.updateMany.mock.calls[0][0].where;
-    expect(whereArg.companyId).toBe(CO);
-    expect(whereArg.assigneeUserId).toBeNull(); // null guard — only unclaimed tasks
-  });
+  // Scenarios 4 / 4b (claim race + IDOR mock) 는 real Postgres spec
+  // (`action-task-claim.pg.integration.spec.ts` — "두 유저 동시 claim" /
+  //  "다른 회사의 task claim → ConflictException") 이 대체하므로 제거.
 
   // ── Scenario 5: list(me|team|all) filter branches + sourceAlert join ─────
 

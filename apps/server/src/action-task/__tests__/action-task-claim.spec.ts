@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ActionTaskService } from '../action-task.service';
-import { ConflictException } from '@nestjs/common';
 
 function makePrisma() {
   return {
@@ -58,24 +57,9 @@ describe('ActionTaskService — claim/unclaim/list', () => {
       expect(result.assigneeUser).toEqual({ id: 'u-1', name: 'Alice' });
     });
 
-    it('race condition: updateMany count=0 → ConflictException', async () => {
-      prisma.actionTask.updateMany.mockResolvedValue({ count: 0 });
-
-      await expect(service.claim('task-1', 'c-1', 'u-1')).rejects.toBeInstanceOf(
-        ConflictException,
-      );
-      expect(prisma.actionTask.findFirstOrThrow).not.toHaveBeenCalled();
-    });
-
-    it('company scope: where includes companyId (IDOR regression)', async () => {
-      prisma.actionTask.updateMany.mockResolvedValue({ count: 1 });
-      prisma.actionTask.findFirstOrThrow.mockResolvedValue(baseTask());
-
-      await service.claim('task-1', 'c-99', 'u-1');
-
-      const whereArg = prisma.actionTask.updateMany.mock.calls[0][0].where;
-      expect(whereArg.companyId).toBe('c-99');
-    });
+    // race condition (updateMany count=0) + company scope IDOR 는 real Postgres
+    // spec (`action-task-claim.pg.integration.spec.ts` — "두 유저 동시 claim" /
+    //  "다른 회사의 task claim → ConflictException") 이 대체하므로 제거.
   });
 
   // ── unclaim ───────────────────────────────────────────────────────────────
@@ -95,14 +79,9 @@ describe('ActionTaskService — claim/unclaim/list', () => {
       expect(result.assigneeUserId).toBeNull();
     });
 
-    it('ownership guard: B tries to unclaim A task → ConflictException', async () => {
-      prisma.actionTask.updateMany.mockResolvedValue({ count: 0 });
-
-      await expect(service.unclaim('task-1', 'c-1', 'u-B')).rejects.toBeInstanceOf(
-        ConflictException,
-      );
-      expect(prisma.actionTask.findFirstOrThrow).not.toHaveBeenCalled();
-    });
+    // ownership guard (다른 유저의 task unclaim → ConflictException) 는 real
+    // Postgres spec ("unclaim — 본인 task 만 해제 가능, 타인의 task 는
+    // ConflictException") 가 대체하므로 제거.
   });
 
   // ── list ──────────────────────────────────────────────────────────────────
