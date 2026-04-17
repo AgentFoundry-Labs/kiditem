@@ -9,7 +9,6 @@ import { DevAuthMiddleware } from './auth/middleware/dev-auth.middleware';
 import { CompanyScopeGuard } from './auth/guards/company-scope.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
 import { StorageModule } from './common/storage/storage.module';
-import { ProductsModule } from './products/products.module';
 import { OrdersModule } from './orders/orders.module';
 import { InventoryModule } from './inventory/inventory.module';
 import { CompaniesModule } from './companies/companies.module';
@@ -65,7 +64,6 @@ import { PanelModule } from './panel/panel.module';
     CommonModule,
     StorageModule,
     FeatureGateModule,
-    ProductsModule,
     OrdersModule,
     InventoryModule,
     CompaniesModule,
