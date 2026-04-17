@@ -61,9 +61,12 @@ git pull
 npm install --legacy-peer-deps
 npm run db:push -- --accept-data-loss   # drop 이 포함됐으면 플래그 필요
 npx prisma generate
+npm run db:3layer-setup                 # partial unique indexes + 7 RLS policies + 3 CHECK constraints 재적용
 ```
 
 `--accept-data-loss` 는 **삭제(drop)** 가 있을 때만 필수. PR 설명에 drop 포함 여부 명시한다.
+
+`db:3layer-setup` 은 `prisma/3layer-setup.sql` 을 재실행한다. `prisma db push` 는 schema.prisma 에 표현되지 않는 partial unique index / RLS policy / CHECK constraint 를 **덮어쓰거나 누락** 시키므로, push 후에는 **반드시** 재실행해야 3계층 모델(master/option/bundle) 의 제약이 유지된다. 스크립트는 idempotent (`DROP ... IF EXISTS` → `CREATE`) 라 반복 실행 안전.
 
 ### init.sql.gz 재생성 시점
 
