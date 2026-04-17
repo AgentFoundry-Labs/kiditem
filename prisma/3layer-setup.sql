@@ -10,6 +10,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS product_options_master_null_option
   ON product_options (master_id)
   WHERE option_name IS NULL;
 
+-- 2b. Partial unique index for master legacyCode — only among non-deleted rows.
+-- Replaces Prisma full unique @@unique([companyId, legacyCode]) so that soft-deleted
+-- masters do not block re-use of the same legacyCode (restore → 409 if conflict).
+DROP INDEX IF EXISTS master_products_company_id_legacy_code_key;
+CREATE UNIQUE INDEX IF NOT EXISTS master_products_company_legacy_active
+  ON master_products (company_id, legacy_code)
+  WHERE is_deleted = false AND legacy_code IS NOT NULL;
+
 -- 3. ActionTask target_type CHECK
 ALTER TABLE action_tasks
   DROP CONSTRAINT IF EXISTS action_task_target_type;
