@@ -12,8 +12,6 @@ model Company {
 
   // Core
   users          User[]
-  products       Product[]
-  inventory      Inventory[]
   orders         Order[]
   purchaseOrders PurchaseOrder[]
   ads            Ad[]
@@ -54,7 +52,6 @@ model Company {
   returnTransfers ReturnTransfer[]
 
   // Product Extensions
-  bundleProducts      BundleProduct[]
   processingCosts     ProcessingCost[]
 
   // Finance
@@ -64,8 +61,6 @@ model Company {
   // Operations & Config
   csRecords          CSRecord[]
   categoryMappings   CategoryMapping[]
-
-  optionMasters      OptionMaster[]
 
   // Analytics
   salesPlans             SalesPlan[]
@@ -94,9 +89,18 @@ model Company {
   // Action Board
   actionTasks          ActionTask[]
 
-  // Master Products
-  masterProducts    MasterProduct[]
-  masterInventory   MasterInventory[]
+  // 3-layer product schema (new)
+  masterProducts          MasterProduct[]
+  productOptions          ProductOption[]
+  channelListings         ChannelListing[]
+  channelListingOptions   ChannelListingOption[]
+  bundleComponents        BundleComponent[]
+  inventory               Inventory[]
+
+  // Additional back-relations for FK rename additions
+  gradeHistory            GradeHistory[]            // Task 8 Step 2 adds companyId to GradeHistory
+  trafficStats            TrafficStats[]            // Task 4 Step 4 adds companyId to TrafficStats
+  productMemos            ProductMemo[]             // Task 9 Step 3 polymorphic ProductMemo
 
   @@map("companies")
 }
@@ -131,244 +135,6 @@ model User {
 }
 
 /// @namespace Core
-/// @describe 상품 마스터. abcGrade(매출ABC)·adTier(광고티어)·pipelineStep(소싱파이프라인) 이 광고/소싱 허브 키.
-model Product {
-  id          String   @id @default(uuid()) @db.Uuid
-  companyId   String   @map("company_id") @db.Uuid
-  name        String
-  description String   @default("")
-  sku         String?
-  barcode     String?
-  status      String   @default("draft")
-  category    String?
-  brand       String?
-  tags        Json     @default("[]")
-  thumbnailUrl String? @map("thumbnail_url")
-
-  // Sourcing (kiditem)
-  sourceUrl      String?  @map("source_url")
-  sourcePlatform String?  @map("source_platform")
-  costCny        Decimal? @map("cost_cny") @db.Decimal(12, 2)
-  marginRate     Decimal? @map("margin_rate") @db.Decimal(5, 4)
-  rawData        Json?    @map("raw_data")
-  processedData  Json?    @map("processed_data")
-  draftContent   Json?    @map("draft_content")
-  pipelineStep   String?  @map("pipeline_step")
-  detailPageUrl  String?  @map("detail_page_url")
-
-  // Pricing
-  costPrice      Int?     @map("cost_price")
-  sellPrice      Int?     @map("sell_price")
-  commissionRate Decimal? @map("commission_rate") @db.Decimal(5, 4)
-  shippingCost   Int?     @map("shipping_cost")
-  otherCost      Int?     @default(0) @map("other_cost")
-  abcGrade       String?  @map("abc_grade")
-  profitTag      String?  @map("profit_tag")
-  adTier         String?  @map("ad_tier")
-  adBudgetLimit  Int?     @map("ad_budget_limit")
-
-  // Coupang
-  coupangProductId String? @map("coupang_product_id")
-
-  // Delivery
-  deliveryChargeType String? @map("delivery_charge_type")
-  freeShipOverAmount Int?    @map("free_ship_over_amount")
-  returnCharge       Int?    @map("return_charge")
-  deliveryInfo       Json?   @map("delivery_info")
-  images             Json?   @default("[]")
-  imageUrl           String? @map("image_url")
-  thumbnailStrategy  String  @default("standard") @map("thumbnail_strategy")
-
-  // Health (Ontology Rules Engine)
-  healthScore     Int?      @map("health_score")
-  healthUpdatedAt DateTime? @map("health_updated_at") @db.Timestamptz
-
-  // Soft delete
-  isDeleted Boolean   @default(false) @map("is_deleted")
-  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
-  memo      String?
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  // Master Product (물리적 상품 마스터)
-  masterProductId String?        @map("master_product_id") @db.Uuid
-  masterProduct   MasterProduct? @relation(fields: [masterProductId], references: [id], onDelete: SetNull)
-
-  // Core relations
-  company    Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  inventory  Inventory?
-  orders     Order[]
-  ads        Ad[]
-  profitLoss ProfitLoss[]
-  thumbnails Thumbnail[]
-  reviews    Review[]
-  alerts     Alert[]
-  purchaseOrderItems PurchaseOrderItem[]
-  contentGenerations ContentGeneration[]
-  productItems       ProductItem[]
-
-  // Supplier & Procurement
-  supplierProducts SupplierProduct[]
-
-  // Warehouse & Inventory Ops
-  stockTransfers    StockTransfer[]
-  stockTransactions StockTransaction[]
-  returnTransfers   ReturnTransfer[]
-
-  // Logistics
-  shipments      Shipment[]
-  unshippedItems UnshippedItem[]
-
-  // Product Extensions
-  thumbnailAnalysis    ThumbnailAnalysis?
-  thumbnailGenerations ThumbnailGeneration[]
-  thumbnailTrackings   ThumbnailTracking[]
-
-  productMemos     ProductMemo[]
-  processingCosts  ProcessingCost[]
-  pickingItems     PickingItem[]
-  csRecords        CSRecord[]
-
-  // Analytics
-  gradeHistory   GradeHistory[]
-  trafficStats   TrafficStats[]
-  adSnapshots    AdSnapshot[]
-  itemWinners    ItemWinner[]
-  adActions      AdAction[]
-
-  @@unique([companyId, sku])
-  @@index([companyId])
-  @@index([companyId, status])
-  @@index([companyId, isDeleted])
-  @@index([status])
-  @@index([abcGrade])
-  @@index([pipelineStep])
-  @@index([category])
-  @@index([brand])
-  @@index([isDeleted])
-  @@map("products")
-}
-
-/// @namespace Core
-model MasterProduct {
-  id             String   @id @default(uuid()) @db.Uuid
-  companyId      String   @map("company_id") @db.Uuid
-  sku            String
-  name           String
-  costPrice      Int?     @map("cost_price")
-  sellPrice      Int?     @map("sell_price")
-  commissionRate Decimal? @map("commission_rate") @db.Decimal(5, 4)
-  barcode        String?
-  category       String?
-  brand          String?
-  status         String   @default("active")
-  memo           String?
-  rawData        Json?    @map("raw_data")
-  isDeleted      Boolean  @default(false) @map("is_deleted")
-  deletedAt      DateTime? @map("deleted_at") @db.Timestamptz
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  company          Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  products         Product[]
-  inventory        MasterInventory?
-  supplierProducts MasterSupplierProduct[]
-
-  @@unique([companyId, sku])
-  @@index([companyId])
-  @@index([companyId, status])
-  @@map("master_products")
-}
-
-/// @namespace Core
-model MasterInventory {
-  id              String @id @default(uuid()) @db.Uuid
-  companyId       String @map("company_id") @db.Uuid
-  masterProductId String @unique @map("master_product_id") @db.Uuid
-
-  currentStock Int @default(0) @map("current_stock")
-  safetyStock  Int @default(0) @map("safety_stock")
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  company       Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  masterProduct MasterProduct @relation(fields: [masterProductId], references: [id], onDelete: Cascade)
-
-  @@index([companyId])
-  @@map("master_inventory")
-}
-
-/// @namespace Core
-model MasterSupplierProduct {
-  id              String   @id @default(uuid()) @db.Uuid
-  masterProductId String   @map("master_product_id") @db.Uuid
-  supplierId      String   @map("supplier_id") @db.Uuid
-  supplyPrice     Int      @default(0) @map("supply_price")
-  minOrderQty     Int      @default(1) @map("min_order_qty")
-  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  masterProduct MasterProduct @relation(fields: [masterProductId], references: [id], onDelete: Cascade)
-  supplier      Supplier      @relation(fields: [supplierId], references: [id], onDelete: Cascade)
-
-  @@unique([masterProductId, supplierId])
-  @@index([supplierId])
-  @@map("master_supplier_products")
-}
-
-/// @namespace Core
-model OptionMaster {
-  id        String   @id @default(uuid()) @db.Uuid
-  companyId String   @map("company_id") @db.Uuid
-  name      String
-  values    String
-  isActive  Boolean  @default(true) @map("is_active")
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  @@index([companyId])
-  @@map("option_masters")
-}
-
-/// @namespace Core
-model ProductItem {
-  id            String   @id @default(uuid()) @db.Uuid
-  productId     String   @map("product_id") @db.Uuid
-  vendorItemId  String?  @map("vendor_item_id") @db.VarChar(30)
-  itemName      String   @default("") @map("item_name")
-  originalPrice Int      @default(0) @map("original_price")
-  salePrice     Int      @default(0) @map("sale_price")
-  supplyPrice   Int      @default(0) @map("supply_price")
-  isActive      Boolean  @default(true) @map("is_active")
-  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  product       Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
-
-  @@index([productId])
-  @@map("product_items")
-}
-
-/// @namespace Core
-model ProductMemo {
-  id         String   @id @default(uuid()) @db.Uuid
-  productId  String   @map("product_id") @db.Uuid
-  content    String
-  author     String?
-  memoType   String   @default("general") @map("memo_type")
-  isResolved Boolean  @default(false) @map("is_resolved")
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
-
-  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
-
-  @@index([productId])
-  @@map("product_memos")
-}
-
-/// @namespace Core
 model CategoryMapping {
   id                  String   @id @default(uuid()) @db.Uuid
   companyId           String   @map("company_id") @db.Uuid
@@ -386,3 +152,243 @@ model CategoryMapping {
   @@map("category_mappings")
 }
 
+/// @namespace Core
+/// @describe 기획상품 family. 같은 컨셉의 옵션들을 묶는 entity. 운영/광고/전략 단위.
+model MasterProduct {
+  id          String   @id @default(uuid()) @db.Uuid
+  companyId   String   @map("company_id") @db.Uuid
+  code        String   @unique
+  legacyCode  String?  @map("legacy_code")
+  name        String
+  description String   @default("")
+  category    String?
+  brand       String?
+  tags        Json     @default("[]")
+  optionCounter Int    @default(0) @map("option_counter")
+
+  thumbnailUrl String?  @map("thumbnail_url")
+  images       Json?    @default("[]")
+  imageUrl     String?  @map("image_url")
+
+  abcGrade       String?  @map("abc_grade")
+  profitTag      String?  @map("profit_tag")
+  adTier         String?  @map("ad_tier")
+  adBudgetLimit  Int?     @map("ad_budget_limit")
+  healthScore    Int?     @map("health_score")
+  healthUpdatedAt DateTime? @map("health_updated_at") @db.Timestamptz
+
+  sourceUrl       String?  @map("source_url")
+  sourcePlatform  String?  @map("source_platform")
+  costCny         Decimal? @map("cost_cny") @db.Decimal(12, 2)
+  marginRate      Decimal? @map("margin_rate") @db.Decimal(5, 4)
+  rawData         Json?    @map("raw_data")
+  processedData   Json?    @map("processed_data")
+  draftContent    Json?    @map("draft_content")
+  pipelineStep    String?  @map("pipeline_step")
+  detailPageUrl   String?  @map("detail_page_url")
+  thumbnailStrategy String @default("standard") @map("thumbnail_strategy")
+
+  supplierId      String?  @map("supplier_id") @db.Uuid
+
+  isDeleted    Boolean   @default(false) @map("is_deleted")
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz
+  isTemporary  Boolean   @default(false) @map("is_temporary")
+  temporaryReason String? @map("temporary_reason")
+  memo         String?
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company  Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  supplier Supplier?       @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  options  ProductOption[]
+  listings ChannelListing[]
+
+  contentGenerations    ContentGeneration[]
+  thumbnailAnalyses     ThumbnailAnalysis[]
+  thumbnailGenerations  ThumbnailGeneration[]
+  gradeHistory          GradeHistory[]
+  processingCosts       ProcessingCost[]
+  masterSupplierProducts MasterSupplierProduct[]
+
+  @@unique([companyId, legacyCode])
+  @@index([companyId])
+  @@index([companyId, isDeleted])
+  @@index([companyId, isDeleted, isTemporary])
+  @@index([companyId, legacyCode])
+  @@index([abcGrade])
+  @@index([pipelineStep])
+  @@index([category])
+  @@index([brand])
+  @@map("master_products")
+}
+
+/// @namespace Core
+/// @describe 물리 SKU. 바코드 1:1. 재고/매입/창고 단위. isBundle 이면 구성품 기반 계산.
+model ProductOption {
+  id          String   @id @default(uuid()) @db.Uuid
+  masterId    String   @map("master_id") @db.Uuid
+  companyId   String   @map("company_id") @db.Uuid
+
+  sku         String   @unique
+  barcode     String?
+  legacyCode  String?  @map("legacy_code")
+  optionName  String?  @map("option_name")
+  sortOrder   Int      @default(0) @map("sort_order")
+
+  costPrice       Int?     @map("cost_price")
+  sellPrice       Int?     @map("sell_price")
+  commissionRate  Decimal? @map("commission_rate") @db.Decimal(5, 4)
+  shippingCost    Int?     @map("shipping_cost")
+  otherCost       Int?     @default(0) @map("other_cost")
+
+  isBundle       Boolean  @default(false) @map("is_bundle")
+  availableStock Int?     @map("available_stock")
+
+  isDeleted    Boolean   @default(false) @map("is_deleted")
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz
+  isTemporary  Boolean   @default(false) @map("is_temporary")
+  temporaryReason String? @map("temporary_reason")
+  isActive     Boolean   @default(true) @map("is_active")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  master      MasterProduct @relation(fields: [masterId], references: [id], onDelete: Restrict)
+  company     Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  inventory   Inventory?
+
+  components  BundleComponent[] @relation("BundleOption")
+  containedIn BundleComponent[] @relation("ComponentOption")
+
+  channelListingOptions ChannelListingOption[]
+
+  stockTransactions   StockTransaction[]
+  stockTransfers      StockTransfer[]
+  pickingItems        PickingItem[]
+  returnTransfers     ReturnTransfer[]
+  purchaseOrderItems  PurchaseOrderItem[]
+  supplierProducts    SupplierProduct[]
+  shipments           Shipment[]
+  unshippedItems      UnshippedItem[]
+  ads                 Ad[]
+  adSnapshots         AdSnapshot[]
+
+  @@unique([masterId, optionName])
+  @@unique([companyId, barcode])
+  @@unique([companyId, legacyCode])
+  @@index([companyId])
+  @@index([masterId])
+  @@index([masterId, isDeleted])
+  @@index([companyId, isTemporary])
+  @@index([companyId, legacyCode])
+  @@index([isBundle])
+  @@map("product_options")
+}
+
+/// @namespace Core
+/// @describe 채널에 올라간 판매 등록상품. 쿠팡 등록상품ID, 네이버 상품번호 등.
+model ChannelListing {
+  id          String   @id @default(uuid()) @db.Uuid
+  masterId    String   @map("master_id") @db.Uuid
+  companyId   String   @map("company_id") @db.Uuid
+
+  channel     String
+  externalId  String   @map("external_id")
+
+  channelName String?  @map("channel_name")
+  channelPrice Int?    @map("channel_price")
+
+  status         String?
+  exposureStatus String? @map("exposure_status")
+
+  deliveryChargeType  String?  @map("delivery_charge_type")
+  freeShipOverAmount  Int?     @map("free_ship_over_amount")
+  returnCharge        Int?     @map("return_charge")
+  deliveryInfo        Json?    @map("delivery_info")
+
+  isDeleted  Boolean   @default(false) @map("is_deleted")
+  deletedAt  DateTime? @map("deleted_at") @db.Timestamptz
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  master  MasterProduct @relation(fields: [masterId], references: [id], onDelete: Restrict)
+  company Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  options ChannelListingOption[]
+
+  reviews            Review[]
+  itemWinners        ItemWinner[]
+  trafficStats       TrafficStats[]
+  adSnapshots        AdSnapshot[]
+  thumbnails         Thumbnail[]
+  thumbnailTrackings ThumbnailTracking[]
+  ads                Ad[]
+  adActions          AdAction[]
+  orders             Order[]
+  unshippedItems     UnshippedItem[]
+  shipments          Shipment[]
+  csRecords          CSRecord[]
+  profitLoss         ProfitLoss[]
+
+  @@unique([channel, externalId])
+  @@index([companyId])
+  @@index([masterId])
+  @@index([channel, isDeleted])
+  @@index([masterId, isDeleted])
+  @@index([channel])
+  @@map("channel_listings")
+}
+
+/// @namespace Core
+/// @describe 채널 listing 내 옵션 (vendorItemId) 과 내부 ProductOption 매핑.
+model ChannelListingOption {
+  id           String   @id @default(uuid()) @db.Uuid
+  listingId    String   @map("listing_id") @db.Uuid
+  optionId     String?  @map("option_id") @db.Uuid
+  companyId    String   @map("company_id") @db.Uuid
+
+  vendorItemId String   @map("vendor_item_id") @db.VarChar(60)
+  itemName     String?  @map("item_name")
+  salePrice    Int?     @map("sale_price")
+
+  isActive     Boolean  @default(true) @map("is_active")
+  isUnmatched  Boolean  @default(false) @map("is_unmatched")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  listing ChannelListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  option  ProductOption? @relation(fields: [optionId], references: [id], onDelete: SetNull)
+  company Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  coupangOrderItems CoupangOrderItem[]
+
+  @@unique([listingId, vendorItemId])
+  @@unique([companyId, vendorItemId])
+  @@index([optionId])
+  @@index([vendorItemId])
+  @@index([companyId, isUnmatched])
+  @@map("channel_listing_options")
+}
+
+/// @namespace Core
+/// @describe 세트 옵션의 구성품 관계. bundleOption(isBundle=true) ↔ componentOption. Cross-master 허용, cross-company 금지.
+model BundleComponent {
+  id                String @id @default(uuid()) @db.Uuid
+  bundleOptionId    String @map("bundle_option_id") @db.Uuid
+  componentOptionId String @map("component_option_id") @db.Uuid
+  companyId         String @map("company_id") @db.Uuid
+  qty               Int    @default(1)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  bundleOption    ProductOption @relation("BundleOption", fields: [bundleOptionId], references: [id], onDelete: Cascade)
+  componentOption ProductOption @relation("ComponentOption", fields: [componentOptionId], references: [id], onDelete: Restrict)
+  company         Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([bundleOptionId, componentOptionId])
+  @@index([componentOptionId])
+  @@index([companyId])
+  @@map("bundle_components")
+}

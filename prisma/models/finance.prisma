@@ -1,11 +1,11 @@
 // finance.prisma — Finance domain
 
 /// @namespace Finance
-/// @describe 월간 손익. companyId+productId+year+month unique.
+/// @describe 월간 손익. companyId+listingId+year+month unique.
 model ProfitLoss {
   id        String @id @default(uuid()) @db.Uuid
   companyId String @map("company_id") @db.Uuid
-  productId String @map("product_id") @db.Uuid
+  listingId String @map("listing_id") @db.Uuid
 
   year  Int
   month Int
@@ -24,12 +24,12 @@ model ProfitLoss {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+  company Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  listing ChannelListing @relation(fields: [listingId], references: [id], onDelete: Restrict)
 
-  @@unique([companyId, productId, year, month])
+  @@unique([companyId, listingId, year, month])
   @@index([companyId])
-  @@index([productId])
+  @@index([listingId])
   @@index([year, month])
   @@map("profit_loss")
 }
@@ -38,7 +38,8 @@ model ProfitLoss {
 /// @describe ABC 등급 변경 추적.
 model GradeHistory {
   id            String   @id @default(uuid()) @db.Uuid
-  productId     String   @map("product_id") @db.Uuid
+  companyId     String   @map("company_id") @db.Uuid
+  masterId      String   @map("master_id") @db.Uuid
   oldGrade      String?  @map("old_grade")
   newGrade      String   @map("new_grade")
   score         Decimal  @default(0) @db.Decimal(5, 2)
@@ -48,11 +49,12 @@ model GradeHistory {
   reason        String   @default("auto")
   calculatedAt  DateTime @default(now()) @map("calculated_at") @db.Timestamptz
 
-  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  master  MasterProduct @relation(fields: [masterId], references: [id], onDelete: Cascade)
+  company Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
-  @@index([productId])
+  @@index([masterId])
   @@index([calculatedAt])
-  @@index([productId, calculatedAt])
+  @@index([masterId, calculatedAt])
   @@map("grade_histories")
 }
 
@@ -82,7 +84,7 @@ model ManualLedger {
 model ProcessingCost {
   id          String   @id @default(uuid()) @db.Uuid
   companyId   String   @map("company_id") @db.Uuid
-  productId   String?  @map("product_id") @db.Uuid
+  masterId    String   @map("master_id") @db.Uuid
   productName String?  @map("product_name")
   vendor      String?
   processType String   @map("process_type")
@@ -94,12 +96,12 @@ model ProcessingCost {
   notes       String?
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  company Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  company Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  master  MasterProduct @relation(fields: [masterId], references: [id], onDelete: Restrict)
 
   @@index([companyId])
   @@index([companyId, date])
-  @@index([productId])
+  @@index([masterId])
   @@map("processing_costs")
 }
 

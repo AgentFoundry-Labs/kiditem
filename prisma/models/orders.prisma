@@ -5,7 +5,7 @@
 model Order {
   id        String  @id @default(uuid()) @db.Uuid
   companyId String  @map("company_id") @db.Uuid
-  productId String? @map("product_id") @db.Uuid
+  listingId String? @map("listing_id") @db.Uuid
 
   orderNumber     String  @map("order_number")
   platform        String
@@ -31,14 +31,14 @@ model Order {
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  company  Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  product  Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  company   Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  listing   ChannelListing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
   shipments Shipment[]
 
   @@index([companyId])
   @@index([companyId, status])
   @@index([companyId, orderedAt])
-  @@index([productId])
+  @@index([listingId])
   @@index([status])
   @@index([platform])
   @@index([orderedAt])
@@ -88,12 +88,16 @@ model CoupangOrderItem {
   orderPrice              Int @default(0) @map("order_price")
   instantCouponDiscount   Int @default(0) @map("instant_coupon_discount")
 
+  listingOptionId String? @map("listing_option_id") @db.Uuid
+
   createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
-  order         CoupangOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  order         CoupangOrder           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  listingOption ChannelListingOption?  @relation(fields: [listingOptionId], references: [id], onDelete: SetNull)
 
   @@index([orderId])
   @@index([sellerProductId])
+  @@index([listingOptionId])
   @@map("coupang_order_items")
 }
 
@@ -136,7 +140,8 @@ model Shipment {
   id           String    @id @default(uuid()) @db.Uuid
   companyId    String    @map("company_id") @db.Uuid
   orderId      String?   @map("order_id") @db.Uuid
-  productId    String?   @map("product_id") @db.Uuid
+  listingId    String?   @map("listing_id") @db.Uuid
+  optionId     String?   @map("option_id") @db.Uuid
   trackingNo   String?   @map("tracking_no")
   courierCode  String?   @map("courier_code")
   courierName  String?   @map("courier_name")
@@ -148,15 +153,17 @@ model Shipment {
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  company   Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  order     Order?     @relation(fields: [orderId], references: [id], onDelete: SetNull)
-  product   Product?   @relation(fields: [productId], references: [id], onDelete: SetNull)
-  warehouse Warehouse? @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+  company   Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  order     Order?          @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  listing   ChannelListing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  option    ProductOption?  @relation(fields: [optionId], references: [id], onDelete: SetNull)
+  warehouse Warehouse?      @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
 
   @@index([companyId])
   @@index([companyId, status])
   @@index([orderId])
-  @@index([productId])
+  @@index([listingId])
+  @@index([optionId])
   @@map("shipments")
 }
 
@@ -165,7 +172,8 @@ model UnshippedItem {
   id          String    @id @default(uuid()) @db.Uuid
   companyId   String    @map("company_id") @db.Uuid
   orderId     String    @map("order_id") @db.Uuid
-  productId   String    @map("product_id") @db.Uuid
+  listingId   String?   @map("listing_id") @db.Uuid
+  optionId    String?   @map("option_id") @db.Uuid
   productName String    @map("product_name")
   quantity    Int
   orderDate   DateTime  @map("order_date") @db.Timestamptz
@@ -175,12 +183,15 @@ model UnshippedItem {
   notifiedAt  DateTime? @map("notified_at") @db.Timestamptz
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  company Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  listing ChannelListing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  option  ProductOption?  @relation(fields: [optionId], references: [id], onDelete: SetNull)
 
   @@index([companyId])
   @@index([delayDays])
   @@index([isNotified])
+  @@index([listingId])
+  @@index([optionId])
   @@map("unshipped_items")
 }
 
@@ -216,7 +227,7 @@ model CSRecord {
   id          String   @id @default(uuid()) @db.Uuid
   companyId   String   @map("company_id") @db.Uuid
   orderId     String?  @map("order_id") @db.Uuid
-  productId   String?  @map("product_id") @db.Uuid
+  listingId   String?  @map("listing_id") @db.Uuid
   csType      String   @map("cs_type")
   csStatus    String   @default("접수") @map("cs_status")
   priority    String   @default("normal")
@@ -227,13 +238,13 @@ model CSRecord {
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  company Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  company Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  listing ChannelListing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
 
   @@index([companyId])
   @@index([companyId, csStatus, createdAt])
   @@index([orderId])
-  @@index([productId])
+  @@index([listingId])
   @@index([csType])
   @@index([csStatus])
   @@index([createdAt])
@@ -242,9 +253,9 @@ model CSRecord {
 
 /// @namespace Orders
 model Review {
-  id        String @id @default(uuid()) @db.Uuid
-  companyId String @map("company_id") @db.Uuid
-  productId String @map("product_id") @db.Uuid
+  id        String  @id @default(uuid()) @db.Uuid
+  companyId String  @map("company_id") @db.Uuid
+  listingId String? @map("listing_id") @db.Uuid
 
   platform     String   @default("coupang")
   rating       Int
@@ -254,11 +265,11 @@ model Review {
   reviewedAt DateTime @default(now()) @map("reviewed_at") @db.Timestamptz
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+  company Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  listing ChannelListing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
 
   @@index([companyId])
-  @@index([productId])
+  @@index([listingId])
   @@map("reviews")
 }
 

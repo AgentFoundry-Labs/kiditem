@@ -5,7 +5,8 @@
 model Ad {
   id        String @id @default(uuid()) @db.Uuid
   companyId String @map("company_id") @db.Uuid
-  productId String @map("product_id") @db.Uuid
+  listingId String @map("listing_id") @db.Uuid
+  optionId  String? @map("option_id") @db.Uuid
 
   platform     String  @default("coupang")
   campaignName String? @map("campaign_name")
@@ -61,13 +62,15 @@ model Ad {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+  company Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  listing ChannelListing @relation(fields: [listingId], references: [id], onDelete: Restrict)
+  option  ProductOption? @relation(fields: [optionId], references: [id], onDelete: SetNull)
 
   @@index([companyId])
-  @@index([productId])
+  @@index([listingId])
+  @@index([listingId, date])
+  @@index([optionId])
   @@index([date])
-  @@index([productId, date])
   @@map("ads")
 }
 
@@ -76,7 +79,7 @@ model Ad {
 model AdAction {
   id              String    @id @default(uuid()) @db.Uuid
   companyId       String    @map("company_id") @db.Uuid
-  productId       String?   @map("product_id") @db.Uuid
+  listingId       String?   @map("listing_id") @db.Uuid
   snapshotId      String?   @map("snapshot_id") @db.Uuid
   actionType      String    @map("action_type")
   targetType      String    @map("target_type")
@@ -96,15 +99,16 @@ model AdAction {
   executedAt      DateTime? @map("executed_at") @db.Timestamptz
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
-  company         Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  product         Product?    @relation(fields: [productId], references: [id], onDelete: SetNull)
-  snapshot        AdSnapshot? @relation(fields: [snapshotId], references: [id], onDelete: SetNull)
+  company         Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  listing         ChannelListing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  snapshot        AdSnapshot?     @relation(fields: [snapshotId], references: [id], onDelete: SetNull)
   executionTasks  ExecutionTask[]
 
   @@index([companyId, approvalStatus])
   @@index([executeStatus])
   @@index([externalId])
   @@index([snapshotId])
+  @@index([listingId])
   @@index([createdAt])
   @@map("ad_actions")
 }
@@ -114,7 +118,8 @@ model AdAction {
 model AdSnapshot {
   id           String   @id @default(uuid()) @db.Uuid
   companyId    String   @map("company_id") @db.Uuid
-  productId    String?  @map("product_id") @db.Uuid
+  listingId    String?  @map("listing_id") @db.Uuid
+  optionId     String?  @map("option_id") @db.Uuid
   source       String   // "advertising" | "wing"
   pageType     String   @map("page_type") // "campaign" | "keyword" | "product"
   level        String?  // "campaign" | "product" | null(raw)
@@ -149,14 +154,17 @@ model AdSnapshot {
   capturedAt   DateTime @default(now()) @map("captured_at") @db.Timestamptz
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  product      Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  company      Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  listing      ChannelListing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  option       ProductOption?  @relation(fields: [optionId], references: [id], onDelete: SetNull)
   adActions    AdAction[]
 
   @@index([companyId, source])
   @@index([companyId, date, level])
   @@index([companyId, capturedAt])
   @@index([capturedAt])
+  @@index([listingId])
+  @@index([optionId])
   @@map("ad_snapshots")
 }
 
@@ -165,18 +173,18 @@ model AdSnapshot {
 model ItemWinner {
   id           String   @id @default(uuid()) @db.Uuid
   companyId    String   @map("company_id") @db.Uuid
-  productId    String?  @map("product_id") @db.Uuid
+  listingId    String   @map("listing_id") @db.Uuid
   productName  String?  @map("product_name")
   isWinner     Boolean  @default(false) @map("is_winner")
   myPrice      Int?     @map("my_price")
   winnerPrice  Int?     @map("winner_price")
   checkedAt    DateTime @default(now()) @map("checked_at") @db.Timestamptz
 
-  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  product      Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  company      Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  listing      ChannelListing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
 
   @@index([companyId])
-  @@index([productId])
+  @@index([listingId])
   @@map("item_winners")
 }
 
@@ -200,7 +208,8 @@ model ScrapeTarget {
 /// @namespace Advertising
 model TrafficStats {
   id             String   @id @default(uuid()) @db.Uuid
-  productId      String   @map("product_id") @db.Uuid
+  companyId      String   @map("company_id") @db.Uuid
+  listingId      String   @map("listing_id") @db.Uuid
   date           DateTime @db.Date
   periodDays     Int      @default(7) @map("period_days")
   visitors       Int      @default(0)
@@ -212,10 +221,12 @@ model TrafficStats {
   conversionRate Decimal  @default(0) @map("conversion_rate") @db.Decimal(5, 2)
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  listing ChannelListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  company Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
-  @@unique([productId, date, periodDays])
-  @@index([productId])
+  @@unique([listingId, date, periodDays])
+  @@index([listingId])
+  @@index([companyId])
   @@index([date])
   @@index([periodDays])
   @@map("traffic_stats")

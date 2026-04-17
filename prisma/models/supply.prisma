@@ -16,11 +16,12 @@ model Supplier {
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  company          Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  supplierProducts SupplierProduct[]
-  purchaseOrders   PurchaseOrder[]
-  payments         SupplierPayment[]
+  company                Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  supplierProducts       SupplierProduct[]
+  purchaseOrders         PurchaseOrder[]
+  payments               SupplierPayment[]
   masterSupplierProducts MasterSupplierProduct[]
+  masterProducts         MasterProduct[]         // 주공급처 direct FK (Master 단위 기본 공급처)
 
   @@index([companyId])
   @@index([status])
@@ -28,21 +29,21 @@ model Supplier {
 }
 
 /// @namespace Supply
-/// @describe 공급사별 상품 공급가 관리.
+/// @describe 공급사별 SKU(옵션) 단위 공급가 관리.
 model SupplierProduct {
   id          String   @id @default(uuid()) @db.Uuid
   supplierId  String   @map("supplier_id") @db.Uuid
-  productId   String   @map("product_id") @db.Uuid
+  optionId    String   @map("option_id") @db.Uuid
   supplyPrice Int      @default(0) @map("supply_price")
   minOrderQty Int      @default(1) @map("min_order_qty")
-  isMain      Boolean  @default(false) @map("is_main")
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  supplier Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
-  product  Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  supplier Supplier      @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  option   ProductOption @relation(fields: [optionId], references: [id], onDelete: Cascade)
 
-  @@unique([supplierId, productId])
-  @@index([productId])
+  @@unique([supplierId, optionId])
+  @@index([optionId])
   @@map("supplier_products")
 }
 
@@ -116,9 +117,9 @@ model PurchaseOrder {
 
 /// @namespace Supply
 model PurchaseOrderItem {
-  id        String @id @default(uuid()) @db.Uuid
-  orderId   String @map("order_id") @db.Uuid
-  productId String? @map("product_id") @db.Uuid
+  id       String  @id @default(uuid()) @db.Uuid
+  orderId  String  @map("order_id") @db.Uuid
+  optionId String? @map("option_id") @db.Uuid
 
   productName  String  @map("product_name")
   quantity     Int
@@ -126,10 +127,31 @@ model PurchaseOrderItem {
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  order   PurchaseOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  product Product?      @relation(fields: [productId], references: [id], onDelete: SetNull)
+  order  PurchaseOrder  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  option ProductOption? @relation(fields: [optionId], references: [id], onDelete: SetNull)
 
   @@index([orderId])
+  @@index([optionId])
   @@map("purchase_order_items")
+}
+
+/// @namespace Supply
+/// @describe Master 단위 주공급처 정책. 여러 supplier 후보 중 isPrimary 가 기본.
+model MasterSupplierProduct {
+  id          String   @id @default(uuid()) @db.Uuid
+  masterId    String   @map("master_id") @db.Uuid
+  supplierId  String   @map("supplier_id") @db.Uuid
+  isPrimary   Boolean  @default(false) @map("is_primary")
+  minOrderQty Int      @default(1) @map("min_order_qty")
+  memo        String?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  master   MasterProduct @relation(fields: [masterId], references: [id], onDelete: Cascade)
+  supplier Supplier      @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+
+  @@unique([masterId, supplierId])
+  @@index([supplierId])
+  @@map("master_supplier_products")
 }
 
