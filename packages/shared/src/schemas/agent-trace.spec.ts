@@ -122,10 +122,8 @@ describe('AgentTraceSchema — happy path', () => {
     expect(result.success).toBe(true);
   });
 
-  it('accepts ISO string and Date object for date fields (zIsoDate)', () => {
-    const withStrings = AgentTraceSchema.safeParse(makeTrace());
-    expect(withStrings.success).toBe(true);
-
+  it('accepts Date objects for zIsoDate fields (not just ISO strings)', () => {
+    // ISO strings 는 #1(baseline) 에서 이미 검증. Date objects 만 확인.
     const dateFixture = makeTrace({
       task: makeTask({
         createdAt: new Date('2026-04-13T00:00:00.000Z'),
@@ -135,31 +133,21 @@ describe('AgentTraceSchema — happy path', () => {
         completedAt: new Date('2026-04-13T00:01:00.000Z'),
       }),
     });
-    const withDates = AgentTraceSchema.safeParse(dateFixture);
-    expect(withDates.success).toBe(true);
+    expect(AgentTraceSchema.safeParse(dateFixture).success).toBe(true);
   });
 });
 
 describe('AgentTraceSchema — null allowances', () => {
-  it('allows workflowRun = null', () => {
-    const result = AgentTraceSchema.safeParse(makeTrace({ workflowRun: null }));
-    expect(result.success).toBe(true);
-  });
-
-  it('allows traceability.warning = null', () => {
-    const result = AgentTraceSchema.safeParse(
-      makeTrace({
-        traceability: { markerFound: false, creationPath: 'unknown', warning: null },
-      }),
-    );
-    expect(result.success).toBe(true);
-  });
-
-  it('allows pagination.nextCursor = null', () => {
-    const result = AgentTraceSchema.safeParse(
-      makeTrace({ pagination: { hasMore: false, nextCursor: null } }),
-    );
-    expect(result.success).toBe(true);
+  it.each<[string, Record<string, unknown>]>([
+    ['workflowRun', { workflowRun: null }],
+    ['traceability.warning', {
+      traceability: { markerFound: false, creationPath: 'unknown', warning: null },
+    }],
+    ['pagination.nextCursor', {
+      pagination: { hasMore: false, nextCursor: null },
+    }],
+  ])('allows %s = null', (_label, overrides) => {
+    expect(AgentTraceSchema.safeParse(makeTrace(overrides)).success).toBe(true);
   });
 });
 
@@ -198,72 +186,50 @@ describe('AgentTraceSchema — missing / invalid fields', () => {
 });
 
 describe('AgentTraceSchema — Json fields on events', () => {
-  it('accepts snapshot-like Json values on valueBefore/valueAfter', () => {
-    const result = AgentTraceSchema.safeParse(
+  it('events[].valueBefore/valueAfter accepts snapshot Json or null', () => {
+    const withJson = AgentTraceSchema.safeParse(
       makeTrace({
-        events: [
-          makeEvent('ev-1', {
-            valueBefore: { key: 'value' },
-            valueAfter: { key: 'new-value' },
-          }),
-        ],
+        events: [makeEvent('ev-1', { valueBefore: { key: 'v' }, valueAfter: { key: 'v2' } })],
       }),
     );
-    expect(result.success).toBe(true);
-  });
+    expect(withJson.success).toBe(true);
 
-  it('accepts null for Json fields on events', () => {
-    const result = AgentTraceSchema.safeParse(
-      makeTrace({
-        events: [
-          makeEvent('ev-1', { valueBefore: null, valueAfter: null }),
-        ],
-      }),
+    const withNull = AgentTraceSchema.safeParse(
+      makeTrace({ events: [makeEvent('ev-1', { valueBefore: null, valueAfter: null })] }),
     );
-    expect(result.success).toBe(true);
+    expect(withNull.success).toBe(true);
   });
 });
 
 // ─── AgentTaskListResponseSchema ─────────────────────────────────────────────
 
 describe('AgentTaskListResponseSchema', () => {
-  it('accepts empty list with total=0, page=1, limit=20', () => {
-    const result = AgentTaskListResponseSchema.safeParse({
-      items: [],
-      total: 0,
-      page: 1,
-      limit: 20,
-    });
-    expect(result.success).toBe(true);
+  it('accepts empty or populated items array', () => {
+    // empty
+    expect(
+      AgentTaskListResponseSchema.safeParse({ items: [], total: 0, page: 1, limit: 20 }).success,
+    ).toBe(true);
+    // populated
+    expect(
+      AgentTaskListResponseSchema.safeParse({
+        items: [makeTask(), makeTask({ id: 'task-2' })],
+        total: 2,
+        page: 1,
+        limit: 20,
+      }).success,
+    ).toBe(true);
   });
 
-  it('fails when page is 0 (must be positive)', () => {
+  it.each<[string, { page?: number; total?: number }]>([
+    ['page=0 (must be positive)', { page: 0 }],
+    ['total=-1 (must be nonnegative)', { total: -1 }],
+  ])('fails when %s', (_label, invalid) => {
     const result = AgentTaskListResponseSchema.safeParse({
       items: [],
-      total: 0,
-      page: 0,
+      total: invalid.total ?? 0,
+      page: invalid.page ?? 1,
       limit: 20,
     });
     expect(result.success).toBe(false);
-  });
-
-  it('fails when total is -1 (must be nonnegative)', () => {
-    const result = AgentTaskListResponseSchema.safeParse({
-      items: [],
-      total: -1,
-      page: 1,
-      limit: 20,
-    });
-    expect(result.success).toBe(false);
-  });
-
-  it('accepts a populated items array of AgentTask', () => {
-    const result = AgentTaskListResponseSchema.safeParse({
-      items: [makeTask(), makeTask({ id: 'task-2' })],
-      total: 2,
-      page: 1,
-      limit: 20,
-    });
-    expect(result.success).toBe(true);
   });
 });

@@ -85,17 +85,6 @@ describe('Dynamic Cron (#30)', () => {
       expect(schedulerRegistry.addCronJob).not.toHaveBeenCalled();
     });
 
-    it('output without nextSchedule → no timer replacement, no DB update', async () => {
-      const { service, prisma, schedulerRegistry } = makeService();
-      prisma.agentDefinition.findUnique.mockResolvedValue(MOCK_AGENT);
-
-      // replaceAgentTimer is never called when nextSchedule is absent —
-      // this test verifies that no DB or scheduler side effects occur
-      // by simply not calling replaceAgentTimer at all.
-      expect(prisma.agentDefinition.update).not.toHaveBeenCalled();
-      expect(schedulerRegistry.addCronJob).not.toHaveBeenCalled();
-    });
-
     it('replaceAgentTimer does NOT call syncTimers (only the single agent timer is replaced)', async () => {
       const { service, prisma, schedulerRegistry } = makeService();
       prisma.agentDefinition.findUnique.mockResolvedValue(MOCK_AGENT);

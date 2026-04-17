@@ -76,34 +76,19 @@ describe('ThumbnailAiService', () => {
   const service = new ThumbnailAiService(mockStorage);
 
   describe('scoreToGrade', () => {
-    it('returns S for score >= 90', () => {
-      expect(service.scoreToGrade(90)).toBe('S');
-      expect(service.scoreToGrade(100)).toBe('S');
-    });
-
-    it('returns A for score 75-89', () => {
-      expect(service.scoreToGrade(75)).toBe('A');
-      expect(service.scoreToGrade(89)).toBe('A');
-    });
-
-    it('returns B for score 60-74', () => {
-      expect(service.scoreToGrade(60)).toBe('B');
-      expect(service.scoreToGrade(74)).toBe('B');
-    });
-
-    it('returns C for score 40-59', () => {
-      expect(service.scoreToGrade(40)).toBe('C');
-      expect(service.scoreToGrade(59)).toBe('C');
-    });
-
-    it('returns F for score below 40', () => {
-      expect(service.scoreToGrade(39)).toBe('F');
-      expect(service.scoreToGrade(0)).toBe('F');
+    it.each([
+      [100, 'S'], [90, 'S'],
+      [89, 'A'], [75, 'A'],
+      [74, 'B'], [60, 'B'],
+      [59, 'C'], [40, 'C'],
+      [39, 'F'], [0, 'F'],
+    ])('score %i → grade %s', (score, grade) => {
+      expect(service.scoreToGrade(score)).toBe(grade);
     });
   });
 
   describe('analyzeWithRules', () => {
-    it('returns grade B (score 60) for product with image', () => {
+    it('with image → score 60 / grade B / method rule / complianceGrade null (미분석)', () => {
       const result = service.analyzeWithRules({
         id: 'p-1',
         name: '상품',
@@ -113,9 +98,10 @@ describe('ThumbnailAiService', () => {
       expect(result.grade).toBe('B');
       expect(result.method).toBe('rule');
       expect(result.issues).toHaveLength(0);
+      expect(result.complianceGrade).toBeNull();
     });
 
-    it('returns critical issue "대표 이미지 미등록" when no image', () => {
+    it('no image → critical issue "대표 이미지 미등록" + complianceGrade FAIL', () => {
       const result = service.analyzeWithRules({
         id: 'p-1',
         name: '상품',
@@ -125,24 +111,7 @@ describe('ThumbnailAiService', () => {
       expect(result.issues).toHaveLength(1);
       expect(result.issues[0].severity).toBe('critical');
       expect(result.issues[0].message).toBe('대표 이미지 미등록');
-    });
-
-    it('no image → complianceGrade FAIL', () => {
-      const result = service.analyzeWithRules({
-        id: 'p-1',
-        name: '상품',
-        imageUrl: null,
-      });
       expect(result.complianceGrade).toBe('FAIL');
-    });
-
-    it('with image → complianceGrade null (미분석)', () => {
-      const result = service.analyzeWithRules({
-        id: 'p-1',
-        name: '상품',
-        imageUrl: 'https://example.com/img.jpg',
-      });
-      expect(result.complianceGrade).toBeNull();
     });
   });
 
@@ -400,39 +369,24 @@ describe('ThumbnailAnalysisService', () => {
   });
 
   describe('analyzeBatch', () => {
-    it('processes multiple products via batch API and returns all results', async () => {
-      const productIds = ['prod-1', 'prod-2', 'prod-3'];
-      const products = productIds.map((id) => makeProduct({ id }));
+    it('batch API 1회 호출로 모든 products 처리 (N+1 방지)', async () => {
+      const productIds = ['prod-1', 'prod-2'];
+      prisma.product.findMany.mockResolvedValue(productIds.map((id) => makeProduct({ id })));
 
-      prisma.product.findMany.mockResolvedValue(products);
-
-      // Batch calls return Map with all results
-      const qualityMap = new Map(productIds.map((id) => [id, {
+      aiService.analyzeQuality.mockResolvedValueOnce(new Map(productIds.map((id) => [id, {
         overallScore: 75, grade: 'A' as const, scores: null, issues: [], suggestions: [], method: 'ai' as const,
         complianceGrade: null, complianceScores: null,
-      }]));
-      aiService.analyzeQuality.mockResolvedValueOnce(qualityMap);
+      }])));
       aiService.checkCompliance.mockResolvedValueOnce(new Map());
-
-      for (const id of productIds) {
-        prisma.thumbnailAnalysis.upsert.mockResolvedValueOnce({
-          id: `ana-${id}`,
-          productId: id,
-          imageUrl: 'https://cdn.example.com/img.jpg',
-          overallScore: 75,
-          grade: 'A',
-          scores: null,
-          issues: [],
-          suggestions: [],
-          method: 'ai',
-          qualityAnalyzedAt: new Date(),
-          complianceAnalyzedAt: null,
-        });
-      }
+      prisma.thumbnailAnalysis.upsert.mockResolvedValue({
+        id: 'ana', productId: 'prod-1', imageUrl: 'https://cdn.example.com/img.jpg',
+        overallScore: 75, grade: 'A', scores: null, issues: [], suggestions: [], method: 'ai',
+        qualityAnalyzedAt: new Date(), complianceAnalyzedAt: null,
+      });
 
       const results = await service.analyzeBatch(productIds);
-      expect(results).toHaveLength(3);
-      expect(aiService.analyzeQuality).toHaveBeenCalledTimes(1);
+      expect(results).toHaveLength(2);
+      expect(aiService.analyzeQuality).toHaveBeenCalledTimes(1); // N+1 방지 핵심
     });
 
     it('processes only found products (unfound products skipped)', async () => {
