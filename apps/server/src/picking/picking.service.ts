@@ -18,7 +18,11 @@ export class PickingService {
   async generate(companyId: string) {
     const orders = await this.prisma.order.findMany({
       where: { companyId, status: 'confirmed' },
-      include: { product: true },
+      include: {
+        lineItems: {
+          include: { option: { select: { sku: true, optionName: true } } },
+        },
+      },
     });
 
     if (orders.length === 0) {
@@ -27,18 +31,49 @@ export class PickingService {
 
     const listNumber = `PK-${Date.now()}`;
 
+    const allItems: Array<{
+      orderId: string;
+      optionId: string;
+      productName: string;
+      sku: string | null;
+      quantity: number;
+    }> = [];
+    let skippedCount = 0;
+    for (const order of orders) {
+      for (const li of order.lineItems) {
+        if (!li.optionId) {
+          // PickingItem.optionId NOT NULL FK — vendorItemId 매칭 실패한 lineItem 은 skip
+          skippedCount += 1;
+          continue;
+        }
+        allItems.push({
+          orderId: order.id,
+          optionId: li.optionId,
+          productName: li.productName,
+          sku: li.sku ?? li.option?.sku ?? null,
+          quantity: li.quantity,
+        });
+      }
+    }
+
+    if (allItems.length === 0) {
+      throw new BadRequestException(
+        `매칭된 SKU 가 없습니다 (skipped: ${skippedCount}). vendorItemId ChannelListingOption 매핑 확인.`,
+      );
+    }
+
     const pickingList = await this.prisma.pickingList.create({
       data: {
         companyId,
         listNumber,
-        totalItems: orders.length,
+        totalItems: allItems.length,
         items: {
-          create: orders.map((order) => ({
-            orderId: order.id,
-            productId: order.productId ?? '',
-            productName: order.productName,
-            sku: order.product?.sku ?? undefined,
-            quantity: order.quantity,
+          create: allItems.map((it) => ({
+            orderId: it.orderId,
+            optionId: it.optionId,
+            productName: it.productName,
+            sku: it.sku ?? undefined,
+            quantity: it.quantity,
             location: undefined,
           })),
         },

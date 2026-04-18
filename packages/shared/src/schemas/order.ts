@@ -1,47 +1,91 @@
 import { z } from 'zod';
 import { zIsoDate } from './common.js';
 
-// GET /api/orders 응답의 orders[] 각 item
-// 출처: orders.service.ts findAll() — Prisma Order 직접 반환
-// ⚠️ Date fields: orderedAt, shippedAt, deliveredAt, createdAt, updatedAt — Prisma Date → JSON string 자동 변환
-// satisfies 미적용: Prisma 모델 직접 반환 (Date ≠ string 불일치)
-export const OrderRowSchema = z.object({
-  id: z.string(),
-  companyId: z.string(),
-  productId: z.string().nullable(),
-  orderNumber: z.string(),
-  platform: z.string(),
-  coupangOrderId: z.string().nullable(),
+// Platform / type enums (Zod-level — DB 는 String per ADR-0001)
+export const OrderPlatformSchema = z.enum(['coupang', 'naver', '11st', 'manual']);
+export type OrderPlatform = z.infer<typeof OrderPlatformSchema>;
+
+export const OrderReturnTypeSchema = z.enum(['RETURN', 'EXCHANGE']);
+export type OrderReturnType = z.infer<typeof OrderReturnTypeSchema>;
+
+export const OrderSchema = z.object({
+  id: z.string().uuid(),
+  companyId: z.string().uuid(),
+  platform: z.string().max(20),
+  externalOrderId: z.string().max(60),
+  externalNumber: z.string().max(60).nullable(),
   customerName: z.string(),
-  productName: z.string(),
-  quantity: z.number(),
-  unitPrice: z.number(),
-  totalPrice: z.number(),
-  status: z.string(),
-  trackingNumber: z.string().nullable(),
-  shippingCompany: z.string().nullable(),
   receiverName: z.string().nullable(),
   receiverPhone: z.string().nullable(),
   receiverAddr: z.string().nullable(),
   memo: z.string().nullable(),
+  status: z.string(),
   orderedAt: zIsoDate,
+  paidAt: zIsoDate.nullable(),
   shippedAt: zIsoDate.nullable(),
   deliveredAt: zIsoDate.nullable(),
+  trackingNumber: z.string().nullable(),
+  shippingCompany: z.string().nullable(),
+  shippingPrice: z.number().int(),
+  totalPrice: z.number().int(),
+  listingId: z.string().uuid().nullable(),
+  metadata: z.unknown().nullable(),
   createdAt: zIsoDate,
   updatedAt: zIsoDate,
 });
+export type Order = z.infer<typeof OrderSchema>;
 
-// GET /api/orders 전체 응답
-// 실제 API 응답 형태: { items, total, deliveryCompanies? } — paginated response 관례 따름
-export const OrdersResponseSchema = z.object({
-  items: z.array(OrderRowSchema),
-  total: z.number(),
-  deliveryCompanies: z.array(z.object({
-    code: z.string(),
-    name: z.string(),
-  })).optional(),
+export const OrderLineItemSchema = z.object({
+  id: z.string().uuid(),
+  companyId: z.string().uuid(),
+  orderId: z.string().uuid(),
+  listingOptionId: z.string().uuid().nullable(),
+  optionId: z.string().uuid().nullable(),
+  productName: z.string(),
+  optionName: z.string().nullable(),
+  sku: z.string().nullable(),
+  quantity: z.number().int(),
+  unitPrice: z.number().int(),
+  totalPrice: z.number().int(),
+  status: z.string(),
+  externalLineId: z.string().max(60).nullable(),
+  metadata: z.unknown().nullable(),
+  createdAt: zIsoDate,
+  updatedAt: zIsoDate,
 });
+export type OrderLineItem = z.infer<typeof OrderLineItemSchema>;
 
-// 타입 export
-export type OrderRow = z.infer<typeof OrderRowSchema>;
-export type OrdersResponse = z.infer<typeof OrdersResponseSchema>;
+export const OrderReturnSchema = z.object({
+  id: z.string().uuid(),
+  companyId: z.string().uuid(),
+  orderId: z.string().uuid().nullable(),
+  platform: z.string().max(20),
+  externalReturnId: z.string().max(60),
+  type: OrderReturnTypeSchema,
+  status: z.string(),
+  reason: z.string(),
+  reasonCategory1: z.string().nullable(),
+  reasonCategory2: z.string().nullable(),
+  faultBy: z.string().max(20),
+  requesterName: z.string(),
+  enclosePrice: z.number().int().nullable(),
+  requestedAt: zIsoDate,
+  completedAt: zIsoDate.nullable(),
+  metadata: z.unknown().nullable(),
+  createdAt: zIsoDate,
+  updatedAt: zIsoDate,
+});
+export type OrderReturn = z.infer<typeof OrderReturnSchema>;
+
+export const OrderReturnLineItemSchema = z.object({
+  id: z.string().uuid(),
+  companyId: z.string().uuid(),
+  returnId: z.string().uuid(),
+  orderLineItemId: z.string().uuid().nullable(),
+  optionId: z.string().uuid().nullable(),
+  productName: z.string(),
+  quantity: z.number().int(),
+  metadata: z.unknown().nullable(),
+  createdAt: zIsoDate,
+});
+export type OrderReturnLineItem = z.infer<typeof OrderReturnLineItemSchema>;

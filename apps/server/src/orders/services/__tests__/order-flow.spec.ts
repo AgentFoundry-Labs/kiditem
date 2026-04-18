@@ -100,6 +100,7 @@ describe('OrdersService — order query and actions', () => {
 
       expect(prisma.order.findFirst).toHaveBeenCalledWith({
         where: { id: 'order-1', companyId: COMPANY_ID },
+        include: { lineItems: true },
       });
       expect(result).toEqual(MOCK_ORDER);
     });
@@ -111,6 +112,7 @@ describe('OrdersService — order query and actions', () => {
       await expect(service.findOne('order-1', COMPANY_ID)).rejects.toBeInstanceOf(NotFoundException);
       expect(prisma.order.findFirst).toHaveBeenCalledWith({
         where: { id: 'order-1', companyId: COMPANY_ID },
+        include: { lineItems: true },
       });
     });
   });

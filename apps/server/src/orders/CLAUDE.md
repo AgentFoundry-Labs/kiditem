@@ -1,6 +1,23 @@
 # orders — Order / Return / CS 통합 도메인
 
-15 파일. **3개 무관한 도메인(orders / returns / cs)이 한 NestJS 모듈에 묶임**. Coupang 채널 어댑터 위임이 핵심.
+15 파일. **3개 무관한 도메인(orders / returns / cs)이 한 NestJS 모듈에 묶임**. Plan A.5 (ADR-0015) 가 schema 를 channel-agnostic 으로 통합.
+
+## Schema (ADR-0015)
+
+`Order` (aggregate root) + `OrderLineItem` (per-SKU) + `OrderReturn` + `OrderReturnLineItem`. 채널은 `platform String` 필드, 채널별 raw payload 는 `metadata Json`. `CoupangOrder` / `CoupangOrderItem` / `CoupangReturn` 는 drop. 상세: [ADR-0015](../../../../.claude/docs/decisions/0015-order-schema-unification.md).
+
+### 핵심 키 / unique
+
+- `Order` — `@@unique([companyId, platform, externalOrderId])` (Coupang 의 경우 `externalOrderId = shipmentBoxId`, `externalNumber = orderId`)
+- `OrderLineItem` — `@@unique([orderId, externalLineId])` (Coupang 의 경우 `externalLineId = vendorItemId`)
+- `OrderReturn` — `@@unique([companyId, platform, externalReturnId])`
+- `OrderLineItem.optionId` denormalized — SKU 조회 single join
+
+### Status 의미 (ADR-0011 + ADR-0015)
+
+- `Order.status` 는 aggregate-level (UI 표시용). canonical lifecycle 따름.
+- `OrderLineItem.status` 는 per-SKU 라인-level (부분 발송/취소). 라인별 독립 전이.
+- 두 status 는 독립. service 가 라인 status 변경 후 `Order.status` 명시적 갱신 (B2c 가 규칙 정의).
 
 ## Directory
 
@@ -29,10 +46,11 @@ orders/
 하나의 `OrdersModule` 이 3 무관 controller (orders/returns/cs) 등록. Cross-service 의존 없음 (orders.module.ts:10). 향후 분리 가능하나 현재 묶여있음.
 
 ### 2. 외부 채널 어댑터 위임
-주문 confirmation, invoice upload는 DB 갱신이 아니라 **`channels.adapters.coupang`** 호출 (orders.service.ts:8-9). 서비스에서 `coupangRequest` 직접 호출 절대 금지.
+주문 confirmation, invoice upload는 DB 갱신이 아니라 **`channels.adapters.coupang`** 호출 (orders.service.ts). 서비스에서 `coupangRequest` 직접 호출 절대 금지.
 
-### 3. Status 기반 필터링
-predefined enum (`ACCEPT, INSTRUCT, DEPARTURE, DELIVERING, FINAL_DELIVERY, CANCELED`) — query-time 필터 (orders.service.ts:16-34). channels/constants.ts 와 동일 enum.
+### 3. IDOR 방어 — companyId 조합 필수
+
+단일 리소스 GET / PATCH / DELETE 는 `findUnique({ id })` 절대 금지. 항상 `findFirst({ where: { id, companyId } })` 사용 (`apps/server/CLAUDE.md` 멀티테넌트 격리 규칙 + B2a 패턴). `OrderLineItem` / `OrderReturnLineItem` 의 `companyId` denormalize 도 같은 목적 — line 레벨 접근에서도 companyId 검증 가능.
 
 ## Rules
 
@@ -45,16 +63,21 @@ predefined enum (`ACCEPT, INSTRUCT, DEPARTURE, DELIVERING, FINAL_DELIVERY, CANCE
 
 - ❌ 서비스 레이어에서 Coupang API 직접 호출 (반드시 adapter 경유)
 - ❌ DTO 변환 단계에서 집계 로직 (서비스 안에서만)
+- ❌ 신규 channel-specific 테이블 (`NaverOrder` 등) 추가 — ADR-0015 위반. `platform` 값 추가로 해결.
+- ❌ `findUnique({ id })` 로 리소스 GET — IDOR. 항상 `findFirst({ id, companyId })`.
+- ❌ `Order.status` 와 `OrderLineItem.status` 의미 혼용 — 독립 유지.
 
 ## Cross-domain deps
 
-- **channels** — `coupangAdapter.confirmOrderSheets`, `uploadInvoice`
+- **channels** — `coupangAdapter.confirmOrderSheets`, `uploadInvoice`. Order/OrderLineItem upsert 는 channel-sync.service.ts 가 담당 (orders 모듈은 read + action 만).
 
 ## 함께 수정할 파일 맵
 
 | 수정 시 | 같이 봐야 할 파일 |
 |---|---|
-| Status enum 변경 | `services/orders.service.ts:16-34` + `channels/adapters/coupang/constants.ts` (sync) |
+| Order/OrderLineItem schema 변경 | `prisma/models/orders.prisma` + `apps/server/src/channels/services/channel-sync.service.ts` (upsert) + `packages/shared/src/schemas/orders.ts` |
+| Status enum 변경 | `services/orders.service.ts` + `channels/adapters/coupang/constants.ts` (sync) |
 | Action 종류 추가 | `dto/order-action.dto.ts` + `services/orders.service.ts` action handler + channels adapter 신규 메서드 |
 | Returns 워크플로 변경 | `services/returns.service.ts` + `channels/adapters/coupang/orders.ts:approveReturn` |
 | CS 페이지네이션 변경 | `services/cs.service.ts` + `common/pagination.ts` (paginationParams) |
+| 신규 platform 추가 (e.g., Naver) | `channels/services/channel-sync.service.ts` 신 sync method + `platform: 'naver'` 사용 (테이블 추가 금지) |

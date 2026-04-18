@@ -1,21 +1,29 @@
-import { Injectable } from '@nestjs/common';
-import type { CoupangReturn } from '@prisma/client';
+import { Injectable, NotFoundException } from '@nestjs/common';
+import type { OrderReturn, OrderReturnLineItem } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { approveReturn } from '../../channels/adapters/coupang/orders';
+
+type OrderReturnWithLineItems = OrderReturn & {
+  lineItems: OrderReturnLineItem[];
+};
 
 @Injectable()
 export class ReturnsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll(query: { from?: string; to?: string; type?: string }): Promise<{
-    items: CoupangReturn[];
+  async findAll(
+    companyId: string,
+    query: { from?: string; to?: string; type?: string },
+  ): Promise<{
+    items: OrderReturnWithLineItems[];
     total: number;
     type: string;
   }> {
     const type = query.type || 'return';
 
     const where: Record<string, unknown> = {
-      receiptType: type === 'exchange' ? 'EXCHANGE' : 'RETURN',
+      companyId,
+      type: type === 'exchange' ? 'EXCHANGE' : 'RETURN',
     };
 
     if (query.from || query.to) {
@@ -26,8 +34,9 @@ export class ReturnsService {
       where.requestedAt = { gte: from, lte: to };
     }
 
-    const data = await this.prisma.coupangReturn.findMany({
+    const data = await this.prisma.orderReturn.findMany({
       where,
+      include: { lineItems: true },
       orderBy: { requestedAt: 'desc' },
     });
 
@@ -38,24 +47,30 @@ export class ReturnsService {
     };
   }
 
-  async findOne(id: string): Promise<CoupangReturn | null> {
-    return this.prisma.coupangReturn.findUnique({
-      where: { id },
+  async findOne(
+    id: string,
+    companyId: string,
+  ): Promise<OrderReturnWithLineItems> {
+    const ret = await this.prisma.orderReturn.findFirst({
+      where: { id, companyId },
+      include: { lineItems: true },
     });
+    if (!ret) throw new NotFoundException('OrderReturn not found');
+    return ret;
   }
 
-  async getStats(): Promise<{
+  async getStats(companyId: string): Promise<{
     stats: { total: number; uc: number; rc: number; completed: number };
   }> {
     const [total, uc, rc, completed, returnsCompleted] = await Promise.all([
-      this.prisma.coupangReturn.count(),
-      this.prisma.coupangReturn.count({ where: { receiptStatus: 'UC' } }),
-      this.prisma.coupangReturn.count({ where: { receiptStatus: 'RC' } }),
-      this.prisma.coupangReturn.count({
-        where: { receiptStatus: 'COMPLETED' },
+      this.prisma.orderReturn.count({ where: { companyId } }),
+      this.prisma.orderReturn.count({ where: { companyId, status: 'UC' } }),
+      this.prisma.orderReturn.count({ where: { companyId, status: 'RC' } }),
+      this.prisma.orderReturn.count({
+        where: { companyId, status: 'COMPLETED' },
       }),
-      this.prisma.coupangReturn.count({
-        where: { receiptStatus: 'RETURNS_COMPLETED' },
+      this.prisma.orderReturn.count({
+        where: { companyId, status: 'RETURNS_COMPLETED' },
       }),
     ]);
 

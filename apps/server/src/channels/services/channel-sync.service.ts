@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { getSellerProducts, getSellerProduct } from '../adapters/coupang/products';
@@ -10,6 +10,8 @@ import type {
   SellerProductListResponse,
   SellerProductDetailResponse,
   OrderSheetResponse,
+  CoupangSyncOrderPayload,
+  CoupangSyncReturnPayload,
 } from './types';
 
 export type { SyncResult, HealthResult } from './types';
@@ -402,91 +404,223 @@ export class ChannelSyncService {
   }
 
   private async syncSingleOrder(
-    order: NonNullable<OrderSheetResponse['data']>[number],
+    payload: CoupangSyncOrderPayload,
     companyId: string,
   ): Promise<void> {
-    const shipmentBoxId = String(order.shipmentBoxId);
-    const orderId = String(order.orderId);
-    const orderItems = order.orderItems ?? [];
+    const shipmentBoxId = String(payload.shipmentBoxId);
+    const orderItems = payload.orderItems ?? [];
     const totalPrice = orderItems.reduce(
       (sum, item) => sum + (item.orderPrice ?? 0),
       0,
     );
+    const receiverAddr =
+      [payload.receiver?.addr1, payload.receiver?.addr2]
+        .filter(Boolean)
+        .join(' ') || null;
+    const metadata = {
+      orderer: payload.orderer ?? null,
+      receiver: payload.receiver ?? null,
+      parcelPrintMessage: payload.parcelPrintMessage ?? null,
+    };
 
-    const existingOrder = await this.prisma.coupangOrder.findUnique({
-      where: { shipmentBoxId },
-    });
+    await this.prisma.$transaction(
+      async (tx) => {
+        const order = await tx.order.upsert({
+          where: {
+            companyId_platform_externalOrderId: {
+              companyId,
+              platform: 'coupang',
+              externalOrderId: shipmentBoxId,
+            },
+          },
+          update: {
+            status: payload.status ?? undefined,
+            trackingNumber: payload.invoiceNumber ?? null,
+            shippingCompany: payload.deliveryCompanyName ?? null,
+            shippingPrice: payload.shippingPrice ?? 0,
+            totalPrice,
+            receiverName: payload.receiver?.name ?? null,
+            receiverPhone: payload.receiver?.safeNumber ?? null,
+            receiverAddr,
+            memo: payload.parcelPrintMessage ?? null,
+            metadata: metadata as Prisma.InputJsonValue,
+          },
+          create: {
+            companyId,
+            platform: 'coupang',
+            externalOrderId: shipmentBoxId,
+            externalNumber: payload.orderId ? String(payload.orderId) : null,
+            status: payload.status ?? 'ACCEPT',
+            customerName: payload.orderer?.name ?? '',
+            receiverName: payload.receiver?.name ?? null,
+            receiverPhone: payload.receiver?.safeNumber ?? null,
+            receiverAddr,
+            memo: payload.parcelPrintMessage ?? null,
+            orderedAt: new Date(payload.orderedAt),
+            paidAt: payload.paidAt ? new Date(payload.paidAt) : null,
+            shippingPrice: payload.shippingPrice ?? 0,
+            totalPrice,
+            trackingNumber: payload.invoiceNumber ?? null,
+            shippingCompany: payload.deliveryCompanyName ?? null,
+            metadata: metadata as Prisma.InputJsonValue,
+          },
+        });
 
-    let coupangOrderId: string;
+        for (const item of orderItems) {
+          if (!item.vendorItemId) {
+            // Coupang API 는 line item 에 vendorItemId 항상 채워서 보냄. 누락 시 upsert key 충돌 방지 + 계약 명시화.
+            throw new BadRequestException(
+              `OrderLineItem missing vendorItemId — cannot upsert (shipmentBoxId=${shipmentBoxId})`,
+            );
+          }
+          const vendorItemId = String(item.vendorItemId);
+          const externalLineId = vendorItemId;
+          const listingOption = await tx.channelListingOption.findUnique({
+            where: {
+              companyId_vendorItemId: {
+                companyId,
+                vendorItemId,
+              },
+            },
+            select: {
+              id: true,
+              optionId: true,
+              option: { select: { sku: true, optionName: true } },
+            },
+          });
 
-    if (existingOrder) {
-      await this.prisma.coupangOrder.update({
-        where: { id: existingOrder.id },
-        data: {
-          status: order.status ?? existingOrder.status,
-          deliveryCompanyName: order.deliveryCompanyName ?? null,
-          invoiceNumber: order.invoiceNumber ?? null,
-          parcelPrintMessage: order.parcelPrintMessage ?? null,
-          shippingPrice: order.shippingPrice ?? 0,
-          totalPrice,
-          orderer: order.orderer
-            ? (order.orderer as Prisma.InputJsonValue)
-            : existingOrder.orderer
-              ? (existingOrder.orderer as Prisma.InputJsonValue)
-              : Prisma.DbNull,
-          receiver: order.receiver
-            ? (order.receiver as Prisma.InputJsonValue)
-            : existingOrder.receiver
-              ? (existingOrder.receiver as Prisma.InputJsonValue)
-              : Prisma.DbNull,
-        },
-      });
-      coupangOrderId = existingOrder.id;
-    } else {
-      const created = await this.prisma.coupangOrder.create({
-        data: {
-          companyId,
-          shipmentBoxId,
-          orderId,
-          status: order.status ?? 'ACCEPT',
-          orderedAt: new Date(order.orderedAt),
-          paidAt: order.paidAt ? new Date(order.paidAt) : null,
-          shippingPrice: order.shippingPrice ?? 0,
-          totalPrice,
-          deliveryCompanyName: order.deliveryCompanyName ?? null,
-          invoiceNumber: order.invoiceNumber ?? null,
-          parcelPrintMessage: order.parcelPrintMessage ?? null,
-          orderer: order.orderer
-            ? (order.orderer as Prisma.InputJsonValue)
-            : Prisma.DbNull,
-          receiver: order.receiver
-            ? (order.receiver as Prisma.InputJsonValue)
-            : Prisma.DbNull,
-        },
-      });
-      coupangOrderId = created.id;
-    }
+          const lineItemMetadata = {
+            sellerProductId: item.sellerProductId ?? null,
+            instantCouponDiscount: item.instantCouponDiscount ?? 0,
+          };
 
-    await this.prisma.coupangOrderItem.deleteMany({
-      where: { orderId: coupangOrderId },
-    });
+          await tx.orderLineItem.upsert({
+            where: {
+              orderId_externalLineId: {
+                orderId: order.id,
+                externalLineId,
+              },
+            },
+            update: {
+              quantity: item.shippingCount ?? 1,
+              unitPrice: item.salesPrice ?? 0,
+              totalPrice: item.orderPrice ?? 0,
+              listingOptionId: listingOption?.id ?? null,
+              optionId: listingOption?.optionId ?? null,
+              productName: item.sellerProductName ?? '',
+              optionName:
+                item.vendorItemName ?? listingOption?.option?.optionName ?? null,
+              sku: listingOption?.option?.sku ?? null,
+              metadata: lineItemMetadata as Prisma.InputJsonValue,
+            },
+            create: {
+              companyId,
+              orderId: order.id,
+              listingOptionId: listingOption?.id ?? null,
+              optionId: listingOption?.optionId ?? null,
+              productName: item.sellerProductName ?? '',
+              optionName:
+                item.vendorItemName ?? listingOption?.option?.optionName ?? null,
+              sku: listingOption?.option?.sku ?? null,
+              quantity: item.shippingCount ?? 1,
+              unitPrice: item.salesPrice ?? 0,
+              totalPrice: item.orderPrice ?? 0,
+              externalLineId,
+              metadata: lineItemMetadata as Prisma.InputJsonValue,
+            },
+          });
+        }
+      },
+      { timeout: 15_000 },
+    );
+  }
 
-    for (const item of orderItems) {
-      await this.prisma.coupangOrderItem.create({
-        data: {
-          orderId: coupangOrderId,
-          vendorItemId: String(item.vendorItemId),
-          vendorItemName: item.vendorItemName ?? '',
-          sellerProductId: item.sellerProductId
-            ? String(item.sellerProductId)
-            : null,
-          sellerProductName: item.sellerProductName ?? '',
-          shippingCount: item.shippingCount ?? 1,
-          salesPrice: item.salesPrice ?? 0,
-          orderPrice: item.orderPrice ?? 0,
-          instantCouponDiscount: item.instantCouponDiscount ?? 0,
-        },
-      });
-    }
+  private async syncSingleReturn(
+    payload: CoupangSyncReturnPayload,
+    companyId: string,
+  ): Promise<void> {
+    const receiptId = String(payload.receiptId);
+    const metadata = {
+      reasonCode: payload.reasonCode ?? null,
+      reasonCodeText: payload.reasonCodeText ?? null,
+      returnDeliveryId: payload.returnDeliveryId ?? null,
+    };
+
+    await this.prisma.$transaction(
+      async (tx) => {
+        // matchedOrder lookup inside tx: 동일 sync run 이 Order 를 먼저 만든 직후 Return 을 처리할 때 phantom read 방지.
+        const matchedOrder = payload.orderId
+          ? await tx.order.findFirst({
+              where: {
+                companyId,
+                platform: 'coupang',
+                externalNumber: String(payload.orderId),
+              },
+              select: { id: true },
+            })
+          : null;
+
+        const ret = await tx.orderReturn.upsert({
+          where: {
+            companyId_platform_externalReturnId: {
+              companyId,
+              platform: 'coupang',
+              externalReturnId: receiptId,
+            },
+          },
+          update: {
+            type: payload.receiptType ?? 'RETURN',
+            status: payload.receiptStatus ?? 'pending',
+            reason: payload.cancelReason ?? '',
+            reasonCategory1: payload.cancelReasonCategory1 ?? null,
+            reasonCategory2: payload.cancelReasonCategory2 ?? null,
+            faultBy: payload.faultByType ?? 'CUSTOMER',
+            requesterName: payload.requesterName ?? '',
+            enclosePrice: payload.enclosePrice ?? null,
+            completedAt: payload.completedAt
+              ? new Date(payload.completedAt)
+              : null,
+            orderId: matchedOrder?.id ?? null,
+            metadata: metadata as Prisma.InputJsonValue,
+          },
+          create: {
+            companyId,
+            platform: 'coupang',
+            externalReturnId: receiptId,
+            type: payload.receiptType ?? 'RETURN',
+            status: payload.receiptStatus ?? 'pending',
+            reason: payload.cancelReason ?? '',
+            reasonCategory1: payload.cancelReasonCategory1 ?? null,
+            reasonCategory2: payload.cancelReasonCategory2 ?? null,
+            faultBy: payload.faultByType ?? 'CUSTOMER',
+            requesterName: payload.requesterName ?? '',
+            enclosePrice: payload.enclosePrice ?? null,
+            requestedAt: new Date(payload.requestedAt),
+            completedAt: payload.completedAt
+              ? new Date(payload.completedAt)
+              : null,
+            orderId: matchedOrder?.id ?? null,
+            metadata: metadata as Prisma.InputJsonValue,
+          },
+        });
+
+        await tx.orderReturnLineItem.deleteMany({
+          where: { returnId: ret.id },
+        });
+        const items = Array.isArray(payload.items) ? payload.items : [];
+        for (const it of items) {
+          await tx.orderReturnLineItem.create({
+            data: {
+              companyId,
+              returnId: ret.id,
+              productName: it.productName ?? it.vendorItemName ?? '',
+              quantity: it.quantity ?? 1,
+              metadata: { raw: it } as Prisma.InputJsonValue,
+            },
+          });
+        }
+      },
+      { timeout: 15_000 },
+    );
   }
 }
