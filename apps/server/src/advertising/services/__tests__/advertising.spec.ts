@@ -29,10 +29,10 @@ describe('AdvertisingService', () => {
     prisma = {
       ad: {
         groupBy: vi.fn(),
+        findFirst: vi.fn(),
       },
       channelListing: {
         findMany: vi.fn(),
-        findFirst: vi.fn(),
       },
       masterProduct: {
         update: vi.fn().mockResolvedValue({}),
@@ -88,23 +88,23 @@ describe('AdvertisingService', () => {
   });
 
   it('changeTier throws NotFoundException when id crosses tenant', async () => {
-    prisma.channelListing.findFirst.mockResolvedValue(null);
+    prisma.ad.findFirst.mockResolvedValue(null);
 
-    await expect(service.changeTier('listing-x', '1차', 'company-A')).rejects.toBeInstanceOf(
+    await expect(service.changeTier('ad-x', '1차', 'company-A')).rejects.toBeInstanceOf(
       NotFoundException,
     );
-    expect(prisma.channelListing.findFirst).toHaveBeenCalledWith(
+    expect(prisma.ad.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({ id: 'listing-x', companyId: 'company-A' }),
+        where: expect.objectContaining({ id: 'ad-x', companyId: 'company-A' }),
       }),
     );
     expect(prisma.masterProduct.update).not.toHaveBeenCalled();
   });
 
   it('changeTier OFF sets masterProduct.adTier to null', async () => {
-    prisma.channelListing.findFirst.mockResolvedValue({ masterId: 'M1' });
+    prisma.ad.findFirst.mockResolvedValue({ listing: { masterId: 'M1' } });
 
-    const result = await service.changeTier('L1', 'OFF', 'company-1');
+    const result = await service.changeTier('ad-1', 'OFF', 'company-1');
 
     expect(result).toEqual({ ok: true });
     expect(prisma.masterProduct.update).toHaveBeenCalledWith({
@@ -114,10 +114,10 @@ describe('AdvertisingService', () => {
   });
 
   it('changeTier rejects invalid tier', async () => {
-    await expect(service.changeTier('L1', '4차', 'company-1')).rejects.toBeInstanceOf(
+    await expect(service.changeTier('ad-1', '4차', 'company-1')).rejects.toBeInstanceOf(
       BadRequestException,
     );
-    expect(prisma.channelListing.findFirst).not.toHaveBeenCalled();
+    expect(prisma.ad.findFirst).not.toHaveBeenCalled();
   });
 
   it('findAll paginates with default page=1 limit=50', async () => {

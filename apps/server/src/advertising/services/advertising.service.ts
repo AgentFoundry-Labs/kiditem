@@ -77,24 +77,24 @@ export class AdvertisingService {
   }
 
   async changeTier(
-    listingId: string,
+    id: string,
     adTier: string,
     companyId: string,
   ): Promise<{ ok: true }> {
     if (!(VALID_TIERS as readonly string[]).includes(adTier)) {
       throw new BadRequestException('유효하지 않은 티어입니다');
     }
-    const listing = await this.prisma.channelListing.findFirst({
-      where: { id: listingId, companyId, isDeleted: false },
-      select: { masterId: true },
+    const ad = await this.prisma.ad.findFirst({
+      where: { id, companyId },
+      include: { listing: { select: { masterId: true } } },
     });
-    if (!listing) throw new NotFoundException('Listing not found');
+    if (!ad?.listing) throw new NotFoundException('Ad not found');
 
     const nextTier: string | null =
       (adTier as ValidTier) === 'OFF' ? null : adTier;
 
     await this.prisma.masterProduct.update({
-      where: { id: listing.masterId },
+      where: { id: ad.listing.masterId },
       data: { adTier: nextTier },
     });
 
