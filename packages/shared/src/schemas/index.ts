@@ -17,8 +17,40 @@ export { OrderRowSchema, OrdersResponseSchema } from './order.js';
 export type { OrderRow, OrdersResponse } from './order.js';
 
 // Inventory
-export { InventorySchema } from './inventory.js';
-export type { Inventory } from './inventory.js';
+export {
+  InventorySchema,
+  InventoryStatusSchema,
+  InventoryListItemSchema,
+  InventorySummarySchema,
+  InventoryListResponseSchema,
+  StockTransactionTypeSchema,
+  StockTransactionSchema,
+  StockOperationResultSchema,
+  TransactionListItemSchema,
+  TransactionListResponseSchema,
+  TransactionSummarySchema,
+  ReceiveStockInputSchema,
+  IssueStockInputSchema,
+  AdjustStockInputSchema,
+  UpdateInventoryMetadataInputSchema,
+} from './inventory.js';
+export type {
+  Inventory,
+  InventoryStatus,
+  InventoryListItem,
+  InventorySummary,
+  InventoryListResponse,
+  StockTransactionType,
+  StockTransaction,
+  StockOperationResult,
+  TransactionListItem,
+  TransactionListResponse,
+  TransactionSummary,
+  ReceiveStockInput,
+  IssueStockInput,
+  AdjustStockInput,
+  UpdateInventoryMetadataInput,
+} from './inventory.js';
 
 // Profit & Loss
 export { PLDataSchema } from './profit-loss.js';
