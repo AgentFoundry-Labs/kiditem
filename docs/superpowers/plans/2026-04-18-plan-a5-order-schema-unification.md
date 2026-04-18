@@ -162,6 +162,7 @@ model OrderLineItem {
   order           Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
   listingOption   ChannelListingOption? @relation(fields: [listingOptionId], references: [id], onDelete: SetNull)
   option          ProductOption? @relation(fields: [optionId], references: [id], onDelete: SetNull)
+  returnLineItems OrderReturnLineItem[]                                                       // back-relation for OrderReturnLineItem.orderLineItemId
 
   @@unique([orderId, externalLineId])
   @@index([companyId])
@@ -541,7 +542,7 @@ describe('ChannelSyncService.syncSingleOrder (Plan A.5)', () => {
       providers: [
         ChannelSyncService,
         { provide: PrismaService, useValue: prisma },
-        // 필요한 다른 deps 는 mock 으로 빈 객체
+        // ChannelSyncService 는 PrismaService 만 inject (verified). Coupang adapter 함수 (getOrderSheets 등) 는 top-level static import — syncSingleOrder 는 호출 안 함.
       ],
     }).compile();
     service = m.get(ChannelSyncService);
@@ -812,7 +813,10 @@ describe('ChannelSyncService.syncSingleReturn (Plan A.5)', () => {
   beforeEach(async () => {
     tx = {
       orderReturn: { upsert: vi.fn() },
-      orderReturnLineItem: { deleteMany: vi.fn(), create: vi.fn() },
+      orderReturnLineItem: {
+        deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+        create: vi.fn(),
+      },
     };
     prisma = {
       $transaction: vi.fn(async (cb: any) => cb(tx)),
@@ -973,6 +977,8 @@ async syncSingleReturn(payload: any, companyId: string) {
 
 기존 호출처가 `syncReturn` 등 다른 이름으로 부르고 있으면 wrapper 또는 export 그대로 유지.
 
+**중요 (orchestrator deferral)**: 현재 `channel-sync.service.ts` 에 return sync orchestrator (e.g., `syncReturns(companyId)`) + controller endpoint 없음. `syncSingleReturn` 은 본 plan 에서 method 단독 작성만 — 호출 chain (Coupang returns API 호출 → 반복 호출) 은 **Plan B2c 가 추가**. A.5 의 unit + integration test 는 method 단독 동작 검증 (mock payload 직접 전달).
+
 ### Step 5.5 — 통과 확인
 
 - [ ] **Run**: `cd apps/server && npx vitest run src/channels/services/__tests__/channel-sync.service.spec.ts 2>&1 | tail -10`
@@ -1005,17 +1011,15 @@ items JSON normalized to OrderReturnLineItem rows."
 
 기존 `prisma.coupangReturn.findMany/findUnique` 호출 + `receiptType` 필터 + `companyId` 누락 (IDOR) 확인.
 
-### Step 6.2 — 수정
+### Step 6.2 — 수정 (모든 method 명시)
 
 - [ ] **Edit `apps/server/src/orders/services/returns.service.ts`** — 다음 변경:
-  - `prisma.coupangReturn` → `prisma.orderReturn`
-  - 모든 query 에 `companyId` 필터 추가 (`findAll` `findMany` where 절, `findOne` `findFirst({where: {id, companyId}})`)
-  - `receiptType` → `type`
-  - 메서드 시그니처에 `companyId: string` 추가
-  - controller 가 `@CurrentCompany()` 주입하므로 caller 호환 유지
 
-예 (실제 파일에 맞춰 적용):
+(1) **Imports**:
+- `import type { CoupangReturn } from '@prisma/client'` 제거 (모델 폐기됨)
+- 필요 시 `import type { OrderReturn } from '@prisma/client'` 추가
 
+(2) **`findAll(type, companyId)`**:
 ```ts
 async findAll(type: 'return' | 'exchange', companyId: string) {
   return this.prisma.orderReturn.findMany({
@@ -1027,7 +1031,10 @@ async findAll(type: 'return' | 'exchange', companyId: string) {
     orderBy: { requestedAt: 'desc' },
   });
 }
+```
 
+(3) **`findOne(id, companyId)`** (IDOR fix):
+```ts
 async findOne(id: string, companyId: string) {
   const ret = await this.prisma.orderReturn.findFirst({
     where: { id, companyId },
@@ -1037,6 +1044,45 @@ async findOne(id: string, companyId: string) {
   return ret;
 }
 ```
+
+(4) **`getStats(companyId)`** — 기존 `prisma.coupangReturn.count` 5회 호출 (UC/RC/COMPLETED/RETURNS_COMPLETED 등 status 기준) 을 `prisma.orderReturn.count` 로 교체. status 매핑은 기존 receiptStatus 값 유지 (별도 변환 없음 — sync 가 이미 `payload.receiptStatus` 그대로 저장):
+
+```ts
+async getStats(companyId: string) {
+  const [total, pending, processing, completed] = await Promise.all([
+    this.prisma.orderReturn.count({ where: { companyId } }),
+    this.prisma.orderReturn.count({ where: { companyId, status: 'UC' } }),
+    this.prisma.orderReturn.count({ where: { companyId, status: 'RC' } }),
+    this.prisma.orderReturn.count({ where: { companyId, status: { in: ['COMPLETED', 'RETURNS_COMPLETED'] } } }),
+  ]);
+  return { total, pending, processing, completed };
+}
+```
+
+(5) **`approve(receiptId)`** — Coupang adapter 호출 method, schema 변경 영향 없음. 그대로 유지.
+
+### Step 6.3 — Controller 갱신 (명시적)
+
+- [ ] **Edit `apps/server/src/orders/controllers/returns.controller.ts`** — 모든 handler 에 `@CurrentCompany()` 추가, service 호출 시 companyId 전달:
+
+```ts
+@Get()
+findAll(@CurrentCompany() companyId: string, @Query('type') type: 'return' | 'exchange' = 'return') {
+  return this.returnsService.findAll(type, companyId);
+}
+
+@Get('stats')
+getStats(@CurrentCompany() companyId: string) {
+  return this.returnsService.getStats(companyId);
+}
+
+@Get(':id')
+findOne(@CurrentCompany() companyId: string, @Param('id') id: string) {
+  return this.returnsService.findOne(id, companyId);
+}
+```
+
+(`approve` endpoint 가 있으면 그대로 유지 — 외부 API 호출 method 라 companyId 불필요할 수도, 실제 controller 보고 결정)
 
 ### Step 6.3 — 호출 controller 확인 + 갱신
 
@@ -1075,15 +1121,18 @@ git commit -m "fix(orders): returns.service IDOR + Plan A.5 rename
 
 - [ ] **Run**: `cat apps/server/src/orders/services/orders.service.ts`
 
-### Step 7.2 — 수정
+### Step 7.2 — 수정 (모든 method 명시)
 
-- [ ] **Edit** — `productId` `coupangOrderId` `productName` `quantity` (Order level) 의존 제거.
-  - `findMany` 에 `include: { lineItems: true }` 추가
-  - 응답 shape 은 raw 객체 (`as any` 또는 임시 type) 로 — Plan B2c 가 정리
-  - `satisfies OrderRow` 등 옛 type 사용처 제거
+- [ ] **Edit `apps/server/src/orders/services/orders.service.ts`**:
 
+(1) **Imports** — 다음 제거:
 ```ts
-// 예
+import type { OrdersResponse, OrderRow } from '@kiditem/shared';   // 제거
+```
+(`@prisma/client` 의 `Order` import 는 유지)
+
+(2) **`findAll(companyId, status?)`** — 응답 shape 단순화 (raw 객체):
+```ts
 async findAll(companyId: string, status?: string) {
   return this.prisma.order.findMany({
     where: { companyId, ...(status ? { status } : {}) },
@@ -1092,6 +1141,18 @@ async findAll(companyId: string, status?: string) {
   });
 }
 ```
+
+(3) **`findOne(id, companyId)`** — 기존 `findFirst({id, companyId})` 패턴 유지. `include: { lineItems: true }` 추가.
+
+(4) **`getStats(companyId)`** — `prisma.order.count/aggregate` 호출. `Order.totalPrice` 는 신 schema 에 그대로 존재 (sum of lineItems) → 코드 변경 불필요.
+
+(5) **`confirm(id, companyId)` / `uploadInvoice(id, companyId, ...)` 등 Coupang adapter 호출 method** — 외부 API 호출. schema 변경 영향 없음. 그대로 유지.
+
+(6) **`satisfies OrderRow` / `satisfies OrdersResponse` 모든 사용처 제거**. raw return.
+
+**중요**: Task 3 (shared types 재작성) 후 즉시 `orders.service.ts` 가 compile-broken 됨 (OrderRow/OrdersResponse import). 따라서 Task 3 → Task 7 → Task 4 순서로 실행 권장 (Task 4 verification 시 orders.service compile 영향).
+
+또는 Task 3 의 commit 직후 Task 7 만 먼저 처리하고 Task 4 진행해도 무방.
 
 ### Step 7.3 — tsc check
 
@@ -1126,7 +1187,9 @@ to fully rewrite."
 
 ### Step 8.2 — `generate()` 수정
 
-- [ ] **Edit `picking.service.ts` `generate()` 메서드** — Order.productId 의존 제거:
+**중요**: `PickingItem.optionId` 는 `String @db.Uuid` (NOT NULL) + FK to ProductOption (onDelete:Restrict). `optionId == null` 인 lineItem (vendorItemId 미매칭) 은 PickingItem 생성에서 **skip** 해야 함 — 빈 string `''` 으로 채우면 FK 위반.
+
+- [ ] **Edit `picking.service.ts` `generate()` 메서드** — Order.productId 의존 제거 + null optionId skip:
 
 ```ts
 async generate(companyId: string) {
@@ -1147,13 +1210,18 @@ async generate(companyId: string) {
 
   const allItems: Array<{
     orderId: string;
-    optionId: string | null;
+    optionId: string;                       // non-null after filter
     productName: string;
     sku: string | null;
     quantity: number;
   }> = [];
+  let skippedCount = 0;
   for (const order of orders) {
     for (const li of order.lineItems) {
+      if (!li.optionId) {
+        skippedCount += 1;
+        continue;                           // PickingItem.optionId NOT NULL — skip unmatched lineItems
+      }
       allItems.push({
         orderId: order.id,
         optionId: li.optionId,
@@ -1164,6 +1232,10 @@ async generate(companyId: string) {
     }
   }
 
+  if (allItems.length === 0) {
+    throw new BadRequestException(`매칭된 SKU 가 없습니다 (skipped: ${skippedCount}). vendorItemId ChannelListingOption 매핑 확인.`);
+  }
+
   const pickingList = await this.prisma.pickingList.create({
     data: {
       companyId,
@@ -1172,7 +1244,7 @@ async generate(companyId: string) {
       items: {
         create: allItems.map((it) => ({
           orderId: it.orderId,
-          optionId: it.optionId ?? '',                          // PickingItem.optionId
+          optionId: it.optionId,            // guaranteed non-null
           productName: it.productName,
           sku: it.sku ?? undefined,
           quantity: it.quantity,
@@ -1188,6 +1260,22 @@ async generate(companyId: string) {
 ```
 
 기존 `order.product` `order.productId` `order.productName` `order.quantity` 모두 제거.
+
+- [ ] **Update existing `apps/server/src/picking/__tests__/picking-flow.spec.ts`** — mock Order shape 가 `productId/productName/product/quantity` → `lineItems: [{ optionId, productName, sku, quantity }]` 로 변경. 새 mock 예:
+
+```ts
+prisma.order.findMany.mockResolvedValue([
+  {
+    id: 'order-1', companyId: 'c1', status: 'confirmed',
+    lineItems: [{
+      optionId: 'opt-1', productName: 'Widget', sku: 'WDG-001',
+      quantity: 2, option: { sku: 'WDG-001', optionName: 'Default' },
+    }],
+  },
+] as any);
+```
+
+assertions 도 신 PickingItem shape (optionId 기준) 으로 갱신.
 
 ### Step 8.3 — tsc check
 
@@ -1273,40 +1361,34 @@ Affected: dashboard-sales, channel-dashboard, profit-loss."
 
 ---
 
-## Task 10: Stub-out — statistics / supplier-stats / settlements / sales-plans / profit-calculator
+## Task 10: Verify other services have no coupang refs
 
-**Files:**
-- Modify: `apps/server/src/statistics/statistics.service.ts`
-- Modify: `apps/server/src/supplier-stats/supplier-stats.service.ts`
-- Modify: `apps/server/src/settlements/settlements.service.ts`
-- Modify: `apps/server/src/sales-plans/sales-plans.service.ts`
-- Modify: `apps/server/src/dashboard/helpers/profit-calculator.ts`
+**Files:** None (verification 전용)
 
-### Step 10.1 — Per-file inspect + stub
+Reviewer 확인: `statistics.service.ts`, `supplier-stats.service.ts`, `settlements.service.ts`, `sales-plans.service.ts`, `dashboard/helpers/profit-calculator.ts` 모두 `coupangOrder/coupang_orders/coupangReturn/coupang_returns` 참조 **0**. 따라서 본 Task 는 verification 만 (코드 수정 X).
 
-각 파일에 대해:
-- `grep -n "coupangOrder\|coupang_order\|coupang_returns" <file>`
-- 호출 method body throw 처리 (이미 stale 일 수 있음 — 신규 broken 만 stub)
+이 파일들은 Plan A 잔여 (`order.productId/productName/quantity` 의존) 으로 이미 stale — A.5 에서 추가 작업 불요. **Plan B2c** 가 일괄 정리.
 
-이미 broken (Plan A 후 stale) 인 method 는 그대로 두고, schema drop 으로 `prisma.coupangOrder` 가 undefined 인 것이 새 에러면 throw 로 정리.
-
-### Step 10.2 — tsc check
-
-- [ ] **Run**: `cd apps/server && npx tsc --noEmit 2>&1 | grep -E "statistics|supplier-stats|settlements|sales-plans|profit-calculator" | head`
-
-Expected: A.5 가 추가한 신규 broken 0 (기존 stale 은 그대로).
-
-### Step 10.3 — Commit
+### Step 10.1 — Per-file grep verification
 
 - [ ] **Run**:
 ```bash
-git add apps/server/src/statistics apps/server/src/supplier-stats apps/server/src/settlements apps/server/src/sales-plans apps/server/src/dashboard/helpers
-git commit -m "chore: stub Plan B2c-pending services (continued)
-
-Statistics/supplier-stats/settlements/sales-plans/profit-calculator
-methods that referenced dropped coupang* tables now throw
-'Not implemented: Plan B2c migration'."
+for f in \
+  apps/server/src/statistics/statistics.service.ts \
+  apps/server/src/supplier-stats/supplier-stats.service.ts \
+  apps/server/src/settlements/settlements.service.ts \
+  apps/server/src/sales-plans/sales-plans.service.ts \
+  apps/server/src/dashboard/helpers/profit-calculator.ts; do
+  hits=$(grep -cE "coupangOrder|coupang_order|coupangReturn|coupang_returns" "$f" 2>/dev/null || echo 0)
+  echo "$hits $f"
+done
 ```
+
+Expected: 모두 `0 ...` (coupang refs 없음 확인). 만약 0 이 아니면 해당 파일에 throw stub 추가 (Task 9 패턴 동일).
+
+### Step 10.2 — Commit (변경 없으면 skip)
+
+- [ ] 변경 없음. Commit 없이 Task 11 로 이동.
 
 ---
 
