@@ -34,6 +34,9 @@ Cross-domain 수정은 루트 CLAUDE.md 가 금지. 불가피하면 lead 에게 
 - **기존 패턴 확인** — 새 API/hook/schema 추가 전 동일 domain 의 기존 구현 최소 1개 Read.
 - **satisfies 패턴** — `@kiditem/shared` 타입 반환 시 return literal 에 `satisfies <SharedType>` 필수 (`packages/shared/CLAUDE.md`).
 - **No follow-up issues** — scope 내 전체 파일에 적용. TODO 로 미루기 금지.
+- **1 task = 1 commit = 1 DM cycle** — Plan 의 각 Task 는 독립 commit 하나 + 리뷰어 DM 사이클 하나. **Batch commit 금지** ("Tasks 6+7+8 complete — commit Y" 형태 금지). 다수 task 한번에 처리하고 싶어도 하나씩 나눠서 commit + DM.
+- **FAIL 수신 시 progression 중지** — reviewer 가 FAIL 보내면 **다음 task 진행 절대 금지**. 현 task fix 가 최우선. FAIL 사유가 구체적이지 않으면 reviewer 에 즉시 재질문 (file:line + expected vs actual + 수정 제안 요청). 3 cycle 내 해결 안 되면 `team-lead` 에 escalation.
+- **Lead 의 직접 수정 요청 지양** — 본인 책임 영역은 본인이 commit. Lead 가 fix 해주길 기대하는 DM 금지. 예외: Write permission 제한 (`.claude/docs/decisions/`, 신규 CLAUDE.md 등) — 이 경우만 Lead 에 위임.
 
 ## 구현 검증
 
@@ -53,17 +56,20 @@ Cross-domain 수정은 루트 CLAUDE.md 가 금지. 불가피하면 lead 에게 
 1. TaskList 에서 idle 인 미완 태스크 claim (`TaskUpdate owner=<내 이름>`) — 낮은 ID 우선
 2. blockedBy 확인 후 시작
 3. CLAUDE.md 체인 읽기
-4. 구현 → 검증 → commit
+4. 구현 → 검증 → commit (**단일 task 만**, batch 금지)
 5. `TaskUpdate status=done`
-6. 팀 config (`~/.claude/teams/{team}/config.json`) 읽고 spec-reviewer + quality-reviewer + qa-verifier 에게 각각 DM 으로 commit SHA + 변경 파일 알림
-7. Idle 로 대기. 리뷰어 피드백 들어오면 깨어나서 수정 → 재검증 → 재커밋 → 재리뷰 요청
+6. 팀 config (`~/.claude/teams/{team}/config.json`) 읽고 spec-reviewer + quality-reviewer 에게 각각 DM 으로 commit SHA + 변경 파일 알림 (qa-verifier 는 final verification 전용, task 마다 DM 금지)
+7. Idle 로 대기. **두 reviewer 모두 PASS** 전까지 다음 task 금지.
+8. FAIL 수신 시: 사유 구체화 (필요 시 reviewer 에 재질문) → fix → new commit (NOT `--amend`) → 재리뷰 요청 → PASS 까지 반복
 
 ## Review 피드백 처리
 
-- **spec-reviewer FAIL**: spec 대로 구현 안 됐다는 뜻. 태스크 본문 재읽고 빠진 부분 구현 후 DM.
-- **quality-reviewer FAIL**: 컨벤션·명명·satisfies 등. 고친 뒤 DM.
+- **spec-reviewer FAIL**: spec 대로 구현 안 됐다는 뜻. 태스크 본문 재읽고 빠진 부분 구현 후 new commit → DM.
+- **quality-reviewer FAIL**: 컨벤션·명명·satisfies 등. 고친 뒤 new commit → DM.
 - **qa-verifier FAIL**: UI/HTTP 레벨에서 안 돌아감. 보통 더 심각 — DM 와 함께 lead 에게도 CC (데이터 문제일 수도 있어서 triage 필요).
-- **PASS 3/3**: 태스크 정말 완료. 다음 TaskList 확인.
+- **PASS 2/2** (spec + quality): 태스크 완료. 다음 TaskList 확인.
+- **FAIL 메시지가 actionable 하지 않음** (file:line + expected vs actual + 수정 제안 없음): reviewer 에 즉시 재질문. 추측 금지. 재질문 없이 다른 task 로 도망 금지.
+- **같은 FAIL 3 cycle 반복**: `team-lead` 에 escalation (현재 FAIL + 시도한 fix 3건 + 어디서 막혔는지).
 
 ## Report Format (리뷰어에게 보내는 DM)
 

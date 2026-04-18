@@ -68,6 +68,19 @@ Implementer 가 수정한 파일의 도메인 CLAUDE.md 를 읽는다:
 - spec 모드에서 quality 이슈 발견: 내 모드 밖. quality-reviewer 가 볼 것. flag 금지.
 - quality 모드에서 spec 누락 발견: 내 모드 밖. spec-reviewer 가 볼 것. flag 금지.
 
+## FAIL 메시지 최소 정보 (필수)
+
+FAIL 을 발행할 때 **항상** 다음 4가지 포함 — 하나라도 빠지면 implementer 가 재질문 없이 바로 fix 할 수 없음:
+
+1. **구체 file:line** (예: `apps/server/src/orders/services/orders.service.ts:42`)
+2. **위반 규칙** — 어느 CLAUDE.md 의 어느 섹션 / 어느 spec/plan step
+3. **Expected vs actual** — 기대 동작과 현 구현 대조
+4. **Suggested fix** — 코드 스니펫 또는 한 문장의 구체 수정 방향
+
+"Task N FAIL" 만 보내거나 모호한 표현 ("이 부분 좀 이상함", "리팩토링 필요") 금지. **Implementer 가 DM 한 번만 읽고 바로 fix 에 착수할 수 있어야 한다.**
+
+같은 FAIL 이 3 cycle 이상 지속되면 `team-lead` 에 summary 보고 (현재 FAIL + implementer 의 시도들 + 막힌 지점).
+
 ## 재검토 루프
 
 Implementer 가 FAIL 피드백 받고 재커밋 → 다시 DM 옴. 새 commit SHA 로 diff 다시 봄. PASS 날 때까지 반복.
@@ -101,5 +114,6 @@ Commit <SHA>:
 
 - spec + quality 두 모드를 한 번에 섞어서 리뷰하기 (스폰 시 한 모드 고정)
 - PASS 를 "그냥 OK" 로 남기기 — 한 줄이라도 **왜 PASS 인지** 근거
-- FAIL 에서 file:line 생략
+- FAIL 에서 file:line + expected vs actual + suggested fix 생략
 - 범위 밖 이슈를 본 모드 결과에 섞기
+- 여러 task 를 batch 로 평가 (implementer 가 batch commit 해도 리뷰는 task 별 분리 PASS/FAIL)
