@@ -2062,3 +2062,51 @@ EOF
 - [ ] Type consistency — `GradeRulesInput`, `HydratedListing` 등 신규 타입은 T1 에서 정의 후 T3-T7 에서 일관 사용
 
 No follow-up issues. 실행 가능.
+
+---
+
+## v1 → v2 Plan amendment (plan-eng-review 반영)
+
+**Eng review verdict**: APPROVED with 1 minor amendment.
+
+### toListingSummary util 추출 (DRY P3)
+
+`ad-grade-rules.service.ts` / `ad-budget-allocator.service.ts` / `ad-exposure.service.ts` 가 각자 `toListingSummary(listing): {listingId, externalId, channelName, masterProduct, option}` 동일 함수 정의 가능성. DRY 위반. **`util/ad-strategy-helpers.ts` 에 export function 추가**:
+
+```ts
+// util/ad-strategy-helpers.ts 에 추가
+export function toListingSummary(listing: HydratedListing): {
+  listingId: string;
+  externalId: string;
+  channelName: string | null;
+  masterProduct: { id: string; code: string; name: string };
+  option: null;
+} {
+  return {
+    listingId: listing.id,
+    externalId: listing.externalId,
+    channelName: listing.channelName,
+    masterProduct: { id: listing.masterProduct.id, code: listing.masterProduct.code, name: listing.masterProduct.name },
+    option: null,
+  };
+}
+```
+
+**Task 영향**:
+- T2 Step 2.2: `toListingSummary` export 추가
+- T3 / T4 / T5 Step (각 sub-service): private `toListingSummary` 정의 대신 util 에서 import
+- T2 Step 2.3: spec 에 toListingSummary 1 testcase 추가
+
+3 sub-service 가 동일 helper 사용 → DRY 유지 + listing summary shape 변경 시 단일 지점.
+
+## GSTACK REVIEW REPORT
+
+| Review | Trigger | Why | Runs | Status | Findings |
+|--------|---------|-----|------|--------|----------|
+| CEO Review | `/plan-ceo-review` | Scope & strategy | 0 | — | — |
+| Codex Review | `/codex review` | Independent 2nd opinion | 0 | — | — |
+| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | RESOLVED | 2 findings → toListingSummary util 추출 amend |
+| Architect (subagent) | spec review | Boundary + Prisma extraction | 1 | RESOLVED | 2 mandatory amendments → spec v2 반영 |
+| Design Review | `/plan-design-review` | UI/UX gaps | 0 | — | — |
+
+**VERDICT:** **CLEARED** — Eng + Architect 모두 RESOLVED. 실행 준비 완료.
