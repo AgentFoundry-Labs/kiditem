@@ -402,91 +402,135 @@ export class ChannelSyncService {
   }
 
   private async syncSingleOrder(
-    order: NonNullable<OrderSheetResponse['data']>[number],
+    payload: NonNullable<OrderSheetResponse['data']>[number],
     companyId: string,
   ): Promise<void> {
-    const shipmentBoxId = String(order.shipmentBoxId);
-    const orderId = String(order.orderId);
-    const orderItems = order.orderItems ?? [];
+    const shipmentBoxId = String(payload.shipmentBoxId);
+    const orderItems = payload.orderItems ?? [];
     const totalPrice = orderItems.reduce(
       (sum, item) => sum + (item.orderPrice ?? 0),
       0,
     );
+    const receiverAddr =
+      [payload.receiver?.addr1, payload.receiver?.addr2]
+        .filter(Boolean)
+        .join(' ') || null;
+    const metadata = {
+      orderer: payload.orderer ?? null,
+      receiver: payload.receiver ?? null,
+      parcelPrintMessage: payload.parcelPrintMessage ?? null,
+    };
 
-    const existingOrder = await this.prisma.coupangOrder.findUnique({
-      where: { shipmentBoxId },
-    });
+    await this.prisma.$transaction(
+      async (tx) => {
+        const order = await tx.order.upsert({
+          where: {
+            companyId_platform_externalOrderId: {
+              companyId,
+              platform: 'coupang',
+              externalOrderId: shipmentBoxId,
+            },
+          },
+          update: {
+            status: payload.status ?? undefined,
+            shippedAt: payload.shippedAt
+              ? new Date(payload.shippedAt)
+              : undefined,
+            trackingNumber: payload.invoiceNumber ?? null,
+            shippingCompany: payload.deliveryCompanyName ?? null,
+            shippingPrice: payload.shippingPrice ?? 0,
+            totalPrice,
+            receiverName: payload.receiver?.name ?? null,
+            receiverPhone: payload.receiver?.safeNumber ?? null,
+            receiverAddr,
+            memo: payload.parcelPrintMessage ?? null,
+            metadata: metadata as Prisma.InputJsonValue,
+          },
+          create: {
+            companyId,
+            platform: 'coupang',
+            externalOrderId: shipmentBoxId,
+            externalNumber: payload.orderId ? String(payload.orderId) : null,
+            status: payload.status ?? 'ACCEPT',
+            customerName: payload.orderer?.name ?? '',
+            receiverName: payload.receiver?.name ?? null,
+            receiverPhone: payload.receiver?.safeNumber ?? null,
+            receiverAddr,
+            memo: payload.parcelPrintMessage ?? null,
+            orderedAt: new Date(payload.orderedAt),
+            paidAt: payload.paidAt ? new Date(payload.paidAt) : null,
+            shippedAt: payload.shippedAt ? new Date(payload.shippedAt) : null,
+            shippingPrice: payload.shippingPrice ?? 0,
+            totalPrice,
+            trackingNumber: payload.invoiceNumber ?? null,
+            shippingCompany: payload.deliveryCompanyName ?? null,
+            metadata: metadata as Prisma.InputJsonValue,
+          },
+        });
 
-    let coupangOrderId: string;
+        for (const item of orderItems) {
+          const vendorItemId = item.vendorItemId
+            ? String(item.vendorItemId)
+            : null;
+          const listingOption = vendorItemId
+            ? await tx.channelListingOption.findUnique({
+                where: {
+                  companyId_vendorItemId: {
+                    companyId,
+                    vendorItemId,
+                  },
+                },
+                select: {
+                  id: true,
+                  optionId: true,
+                  option: { select: { sku: true, optionName: true } },
+                },
+              })
+            : null;
 
-    if (existingOrder) {
-      await this.prisma.coupangOrder.update({
-        where: { id: existingOrder.id },
-        data: {
-          status: order.status ?? existingOrder.status,
-          deliveryCompanyName: order.deliveryCompanyName ?? null,
-          invoiceNumber: order.invoiceNumber ?? null,
-          parcelPrintMessage: order.parcelPrintMessage ?? null,
-          shippingPrice: order.shippingPrice ?? 0,
-          totalPrice,
-          orderer: order.orderer
-            ? (order.orderer as Prisma.InputJsonValue)
-            : existingOrder.orderer
-              ? (existingOrder.orderer as Prisma.InputJsonValue)
-              : Prisma.DbNull,
-          receiver: order.receiver
-            ? (order.receiver as Prisma.InputJsonValue)
-            : existingOrder.receiver
-              ? (existingOrder.receiver as Prisma.InputJsonValue)
-              : Prisma.DbNull,
-        },
-      });
-      coupangOrderId = existingOrder.id;
-    } else {
-      const created = await this.prisma.coupangOrder.create({
-        data: {
-          companyId,
-          shipmentBoxId,
-          orderId,
-          status: order.status ?? 'ACCEPT',
-          orderedAt: new Date(order.orderedAt),
-          paidAt: order.paidAt ? new Date(order.paidAt) : null,
-          shippingPrice: order.shippingPrice ?? 0,
-          totalPrice,
-          deliveryCompanyName: order.deliveryCompanyName ?? null,
-          invoiceNumber: order.invoiceNumber ?? null,
-          parcelPrintMessage: order.parcelPrintMessage ?? null,
-          orderer: order.orderer
-            ? (order.orderer as Prisma.InputJsonValue)
-            : Prisma.DbNull,
-          receiver: order.receiver
-            ? (order.receiver as Prisma.InputJsonValue)
-            : Prisma.DbNull,
-        },
-      });
-      coupangOrderId = created.id;
-    }
+          const lineItemMetadata = {
+            sellerProductId: item.sellerProductId ?? null,
+            instantCouponDiscount: item.instantCouponDiscount ?? 0,
+          };
 
-    await this.prisma.coupangOrderItem.deleteMany({
-      where: { orderId: coupangOrderId },
-    });
-
-    for (const item of orderItems) {
-      await this.prisma.coupangOrderItem.create({
-        data: {
-          orderId: coupangOrderId,
-          vendorItemId: String(item.vendorItemId),
-          vendorItemName: item.vendorItemName ?? '',
-          sellerProductId: item.sellerProductId
-            ? String(item.sellerProductId)
-            : null,
-          sellerProductName: item.sellerProductName ?? '',
-          shippingCount: item.shippingCount ?? 1,
-          salesPrice: item.salesPrice ?? 0,
-          orderPrice: item.orderPrice ?? 0,
-          instantCouponDiscount: item.instantCouponDiscount ?? 0,
-        },
-      });
-    }
+          await tx.orderLineItem.upsert({
+            where: {
+              orderId_externalLineId: {
+                orderId: order.id,
+                externalLineId: vendorItemId ?? '',
+              },
+            },
+            update: {
+              quantity: item.shippingCount ?? 1,
+              unitPrice: item.salesPrice ?? 0,
+              totalPrice: item.orderPrice ?? 0,
+              listingOptionId: listingOption?.id ?? null,
+              optionId: listingOption?.optionId ?? null,
+              productName: item.sellerProductName ?? '',
+              optionName:
+                item.vendorItemName ?? listingOption?.option?.optionName ?? null,
+              sku: listingOption?.option?.sku ?? null,
+              metadata: lineItemMetadata as Prisma.InputJsonValue,
+            },
+            create: {
+              companyId,
+              orderId: order.id,
+              listingOptionId: listingOption?.id ?? null,
+              optionId: listingOption?.optionId ?? null,
+              productName: item.sellerProductName ?? '',
+              optionName:
+                item.vendorItemName ?? listingOption?.option?.optionName ?? null,
+              sku: listingOption?.option?.sku ?? null,
+              quantity: item.shippingCount ?? 1,
+              unitPrice: item.salesPrice ?? 0,
+              totalPrice: item.orderPrice ?? 0,
+              externalLineId: vendorItemId,
+              metadata: lineItemMetadata as Prisma.InputJsonValue,
+            },
+          });
+        }
+      },
+      { timeout: 15_000 },
+    );
   }
 }
