@@ -1,16 +1,50 @@
 import {
-  Injectable,
-  InternalServerErrorException,
-  NotFoundException,
   BadRequestException,
+  Injectable,
+  NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { AdConfigService, type AdsConfig } from './ad-config.service';
-import {
-  paginationParams,
-  type PaginatedResponse,
-} from '../../common/pagination';
-import type { AdsListItem, AdsHubData } from '@kiditem/shared';
+import { AdConfigService } from './ad-config.service';
+import { paginationParams } from '../../common/pagination';
+import { LISTING_SUMMARY_SELECT } from './types';
+import type {
+  AdMetrics,
+  AdsHubData,
+  AdsHubSummary,
+  AdsListItem,
+  FindAllAdsResponse,
+} from '@kiditem/shared';
+
+const VALID_TIERS = ['1차', '2차', '3차', 'OFF'] as const;
+type ValidTier = (typeof VALID_TIERS)[number];
+
+function toRoasValue(spend: number, revenue: number): number | null {
+  return spend > 0 ? Math.round((revenue / spend) * 10000) / 100 : null;
+}
+
+function buildMetrics(sums: {
+  spend: number;
+  impressions: number;
+  clicks: number;
+  conversions: number;
+  revenue: number;
+}): AdMetrics {
+  const { spend, impressions, clicks, conversions, revenue } = sums;
+  return {
+    spend,
+    impressions,
+    clicks,
+    conversions,
+    revenue,
+    ctr:
+      impressions > 0
+        ? Math.round((clicks / impressions) * 10000) / 100
+        : null,
+    roas: toRoasValue(spend, revenue),
+    cvr:
+      clicks > 0 ? Math.round((conversions / clicks) * 10000) / 100 : null,
+  };
+}
 
 @Injectable()
 export class AdvertisingService {
@@ -19,250 +53,164 @@ export class AdvertisingService {
     private readonly adConfigService: AdConfigService,
   ) {}
 
-  async findAll(query: {
-    page?: string;
-    limit?: string;
-  }) {
-    try {
-      const config = await this.adConfigService.getConfig();
-      const { page, limit, skip } = paginationParams(query);
-      const allProducts = await this.buildAdProducts({}, config);
-      const items = allProducts.slice(skip, skip + limit);
-      const total = allProducts.length;
-
-      const totalSpend = allProducts.reduce((s, p) => s + p.spend, 0);
-      const totalAdRevenue = allProducts.reduce((s, p) => s + p.adRevenue, 0);
-      const totalRevenue = allProducts.reduce((s, p) => s + p.revenue, 0);
-      const overallAdRate = totalRevenue > 0 ? Math.round((totalSpend / totalRevenue) * 1000) / 10 : 0;
-      const overallRoas = totalSpend > 0 ? Math.round((totalAdRevenue / totalSpend) * 100) : 0;
-      const highAdCount = allProducts.filter((p) => p.adRate > (config.adRate?.thresholds?.warning ?? 15)).length;
-
-      const gradeSpend: Record<string, number> = { A: 0, B: 0, C: 0 };
-      const tierSpend: Record<string, number> = {};
-      for (const p of allProducts) {
-        gradeSpend[p.grade] = (gradeSpend[p.grade] || 0) + p.spend;
-        if (p.adTier) tierSpend[p.adTier] = (tierSpend[p.adTier] || 0) + p.spend;
-      }
-      const gradeSpendPercent: Record<string, number> = {
-        A: totalSpend > 0 ? Math.round((gradeSpend.A / totalSpend) * 100) : 0,
-        B: totalSpend > 0 ? Math.round((gradeSpend.B / totalSpend) * 100) : 0,
-        C: totalSpend > 0 ? Math.round((gradeSpend.C / totalSpend) * 100) : 0,
-      };
-
-      return {
-        items,
-        products: items,
-        total,
-        page,
-        limit,
-        summary: {
-          totalSpend, totalAdRevenue, totalRevenue,
-          overallAdRate, overallRoas, highAdCount,
-          gradeSpend, tierSpend, gradeSpendPercent,
-        },
-      };
-    } catch {
-      throw new InternalServerErrorException('광고 데이터 조회 실패');
-    }
+  async getHubData(companyId: string): Promise<AdsHubData> {
+    await this.adConfigService.getConfig(companyId);
+    const products = await this.buildListingItems(companyId);
+    const summary = this.computeSummary(products);
+    return { products, summary } satisfies AdsHubData;
   }
 
-  async getHubData(): Promise<AdsHubData> {
-    try {
-      const config = await this.adConfigService.getConfig();
-      const products = await this.buildAdProducts({}, config);
-
-      const totalSpend = products.reduce((s, p) => s + p.spend, 0);
-      const totalAdRevenue = products.reduce((s, p) => s + p.adRevenue, 0);
-      const totalRevenue = products.reduce((s, p) => s + p.revenue, 0);
-      const overallAdRate =
-        totalRevenue > 0
-          ? Math.round((totalSpend / totalRevenue) * 1000) / 10
-          : 0;
-      const overallRoas =
-        totalSpend > 0 ? Math.round((totalAdRevenue / totalSpend) * 100) : 0;
-      const highAdCount = products.filter((p) => p.adRate > config.adRate.thresholds.warning).length;
-
-      const gradeSpend: Record<string, number> = { A: 0, B: 0, C: 0 };
-      const tierSpend: Record<string, number> = {};
-      for (const p of products) {
-        gradeSpend[p.grade] = (gradeSpend[p.grade] || 0) + p.spend;
-        if (p.adTier) {
-          tierSpend[p.adTier] = (tierSpend[p.adTier] || 0) + p.spend;
-        }
-      }
-      const gradeSpendPercent: Record<string, number> = {
-        A: totalSpend > 0 ? Math.round((gradeSpend.A / totalSpend) * 100) : 0,
-        B: totalSpend > 0 ? Math.round((gradeSpend.B / totalSpend) * 100) : 0,
-        C: totalSpend > 0 ? Math.round((gradeSpend.C / totalSpend) * 100) : 0,
-      };
-
-      const roasT = config.roas.thresholds;
-      const adRateT = config.adRate.thresholds;
-
-      return {
-        products,
-        summary: {
-          totalSpend,
-          totalAdRevenue,
-          totalRevenue,
-          overallAdRate,
-          overallRoas,
-          highAdCount,
-          gradeSpend,
-          tierSpend,
-          gradeSpendPercent,
-          overallRoasStatus: overallRoas >= roasT.excellent ? 'excellent' as const
-            : overallRoas >= roasT.warning ? 'good' as const
-            : overallRoas >= roasT.poor ? 'warning' as const
-            : 'poor' as const,
-          overallAdRateStatus: overallAdRate <= adRateT.warning ? 'ok' as const
-            : overallAdRate <= adRateT.critical ? 'warning' as const
-            : 'critical' as const,
-        },
-      } satisfies AdsHubData;
-    } catch {
-      throw new InternalServerErrorException('광고 허브 데이터 조회 실패');
-    }
+  async findAll(
+    query: { page?: string | number; limit?: string | number },
+    companyId: string,
+  ): Promise<FindAllAdsResponse> {
+    await this.adConfigService.getConfig(companyId);
+    const { page, limit, skip } = paginationParams(query);
+    const all = await this.buildListingItems(companyId);
+    const items = all.slice(skip, skip + limit);
+    return {
+      items,
+      total: all.length,
+      page,
+      limit,
+    } satisfies FindAllAdsResponse;
   }
 
   async changeTier(
-    productId: string,
+    listingId: string,
     adTier: string,
-  ): Promise<{ ok: boolean }> {
-    const product = await this.prisma.product.findUnique({
-      where: { id: productId },
-    });
-    if (!product) throw new NotFoundException('상품을 찾을 수 없습니다');
-
-    const validTiers = ['1차', '2차', '3차', 'OFF'];
-    if (!validTiers.includes(adTier)) {
+    companyId: string,
+  ): Promise<{ ok: true }> {
+    if (!(VALID_TIERS as readonly string[]).includes(adTier)) {
       throw new BadRequestException('유효하지 않은 티어입니다');
     }
+    const listing = await this.prisma.channelListing.findFirst({
+      where: { id: listingId, companyId, isDeleted: false },
+      select: { masterId: true },
+    });
+    if (!listing) throw new NotFoundException('Listing not found');
 
-    await this.prisma.product.update({
-      where: { id: productId },
-      data: { adTier: adTier === 'OFF' ? null : adTier },
+    const nextTier: string | null =
+      (adTier as ValidTier) === 'OFF' ? null : adTier;
+
+    await this.prisma.masterProduct.update({
+      where: { id: listing.masterId },
+      data: { adTier: nextTier },
     });
 
     return { ok: true };
   }
 
-  private async buildAdProducts(opts: {
-    skip?: number;
-    take?: number;
-  }, config: AdsConfig): Promise<AdsListItem[]> {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = now.getMonth() + 1;
+  private async buildListingItems(companyId: string): Promise<AdsListItem[]> {
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-    const productsData = await this.prisma.product.findMany({
-      where: { adTier: { not: null }, status: 'active' },
-      include: { company: true },
-      ...(opts.skip != null ? { skip: opts.skip } : {}),
-      ...(opts.take != null ? { take: opts.take } : {}),
-      orderBy: { createdAt: 'desc' },
+    const perListing = await this.prisma.ad.groupBy({
+      by: ['listingId'],
+      where: { companyId, date: { gte: thirtyDaysAgo } },
+      _sum: {
+        spend: true,
+        impressions: true,
+        clicks: true,
+        conversions: true,
+        revenue: true,
+      },
     });
 
-    if (productsData.length === 0) return [];
+    if (perListing.length === 0) return [];
 
-    const productIds = productsData.map((p) => p.id);
+    const listingIds = perListing
+      .map((r) => r.listingId)
+      .filter((id): id is string => id != null);
 
-    const [adsAgg, plData] = await Promise.all([
-      this.prisma.ad.groupBy({
-        by: ['productId'],
-        where: { productId: { in: productIds } },
-        _sum: {
-          spend: true,
-          impressions: true,
-          clicks: true,
-          conversions: true,
-          roas: true,
+    if (listingIds.length === 0) return [];
+
+    const listings = await this.prisma.channelListing.findMany({
+      where: { id: { in: listingIds }, companyId, isDeleted: false },
+      select: {
+        ...LISTING_SUMMARY_SELECT,
+        master: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            abcGrade: true,
+            adTier: true,
+          },
         },
-        orderBy: { productId: 'asc' },
-      }),
-      this.prisma.profitLoss.findMany({
-        where: { year, month, productId: { in: productIds } },
-      }),
-    ]);
+      },
+    });
 
-    const adsMap = new Map(
-      adsAgg.map((a) => [
-        a.productId,
+    const listingMap = new Map(listings.map((l) => [l.id, l]));
+
+    return perListing.flatMap((row) => {
+      if (!row.listingId) return [];
+      const listing = listingMap.get(row.listingId);
+      if (!listing) return [];
+
+      const metrics = buildMetrics({
+        spend: row._sum.spend ?? 0,
+        impressions: row._sum.impressions ?? 0,
+        clicks: row._sum.clicks ?? 0,
+        conversions: row._sum.conversions ?? 0,
+        revenue: row._sum.revenue ?? 0,
+      });
+
+      const grade = (listing.master.abcGrade ?? null) as
+        | 'A'
+        | 'B'
+        | 'C'
+        | null;
+
+      return [
         {
-          spend: a._sum.spend ?? 0,
-          impressions: a._sum.impressions ?? 0,
-          clicks: a._sum.clicks ?? 0,
-          conversions: a._sum.conversions ?? 0,
-          roas: a._sum.roas ?? 0,
-        },
-      ]),
-    );
-    const plByProduct = new Map(plData.map((pl) => [pl.productId, pl]));
-
-    return productsData.map((p) => {
-      const ads = adsMap.get(p.id) || {
-        spend: 0,
-        impressions: 0,
-        clicks: 0,
-        conversions: 0,
-        roas: 0,
-      };
-      const totalSpend = ads.spend;
-      const totalImpressions = ads.impressions;
-      const totalClicks = ads.clicks;
-      const totalConversions = ads.conversions;
-      const totalAdRevenue = Math.round(
-        (totalSpend * Number(ads.roas)) / 100,
-      );
-
-      const ctr =
-        totalImpressions > 0
-          ? (totalClicks / totalImpressions) * 100
-          : 0;
-      const convRate =
-        totalClicks > 0 ? (totalConversions / totalClicks) * 100 : 0;
-      const roas =
-        totalSpend > 0 ? (totalAdRevenue / totalSpend) * 100 : 0;
-      const acos =
-        totalAdRevenue > 0 ? (totalSpend / totalAdRevenue) * 100 : 0;
-
-      const pl = plByProduct.get(p.id);
-      const plRevenue = pl?.revenue ?? 0;
-      const adRate = plRevenue > 0 ? (totalSpend / plRevenue) * 100 : 0;
-
-      return {
-        id: p.id,
-        name: p.name,
-        sku: null,
-        company: p.company?.name ?? 'N/A',
-        grade: p.abcGrade ?? 'C',
-        adTier: p.adTier,
-        spend: totalSpend,
-        impressions: totalImpressions,
-        clicks: totalClicks,
-        conversions: totalConversions,
-        adRevenue: totalAdRevenue,
-        ctr: Math.round(ctr * 100) / 100,
-        convRate: Math.round(convRate * 100) / 100,
-        roas: Math.round(roas),
-        acos: Math.round(acos * 10) / 10,
-        adRate: Math.round(adRate * 10) / 10,
-        revenue: plRevenue,
-        netProfit: pl?.netProfit ?? 0,
-        profitRate:
-          plRevenue > 0
-            ? Math.round(((pl?.netProfit ?? 0) / plRevenue) * 1000) / 10
-            : 0,
-        adBudgetLimit: p.adBudgetLimit ?? 0,
-        roasStatus: roas >= config.roas.thresholds.excellent ? 'excellent' as const
-          : roas >= config.roas.thresholds.warning ? 'good' as const
-          : roas >= config.roas.thresholds.poor ? 'warning' as const
-          : 'poor' as const,
-        adRateStatus: adRate <= config.adRate.thresholds.warning ? 'ok' as const
-          : adRate <= config.adRate.thresholds.critical ? 'warning' as const
-          : 'critical' as const,
-        adRateOverLimit: adRate > config.adRate.thresholds.warning,
-      } satisfies AdsListItem;
+          listingId: listing.id,
+          externalId: listing.externalId,
+          channelName: listing.channelName,
+          masterProduct: {
+            id: listing.master.id,
+            code: listing.master.code,
+            name: listing.master.name,
+          },
+          option: null,
+          metrics,
+          grade: grade === 'A' || grade === 'B' || grade === 'C' ? grade : null,
+          tier: listing.master.adTier ?? null,
+          adTier: listing.master.adTier ?? null,
+        } satisfies AdsListItem,
+      ];
     });
+  }
+
+  private computeSummary(products: AdsListItem[]): AdsHubSummary {
+    const totalSpend = products.reduce((s, p) => s + p.metrics.spend, 0);
+    const totalRevenue = products.reduce((s, p) => s + p.metrics.revenue, 0);
+    const totalRoas = toRoasValue(totalSpend, totalRevenue);
+
+    const gradeSpend: Record<'A' | 'B' | 'C', number> = { A: 0, B: 0, C: 0 };
+    const tierSpend: Record<string, number> = {};
+    for (const p of products) {
+      if (p.grade === 'A' || p.grade === 'B' || p.grade === 'C') {
+        gradeSpend[p.grade] += p.metrics.spend;
+      }
+      if (p.adTier) {
+        tierSpend[p.adTier] = (tierSpend[p.adTier] ?? 0) + p.metrics.spend;
+      }
+    }
+
+    const gradeSpendPercent: Record<'A' | 'B' | 'C', number> = {
+      A: totalSpend > 0 ? Math.round((gradeSpend.A / totalSpend) * 100) : 0,
+      B: totalSpend > 0 ? Math.round((gradeSpend.B / totalSpend) * 100) : 0,
+      C: totalSpend > 0 ? Math.round((gradeSpend.C / totalSpend) * 100) : 0,
+    };
+
+    return {
+      totalSpend,
+      totalRevenue,
+      totalRoas,
+      gradeSpend,
+      tierSpend,
+      gradeSpendPercent,
+    } satisfies AdsHubSummary;
   }
 }
