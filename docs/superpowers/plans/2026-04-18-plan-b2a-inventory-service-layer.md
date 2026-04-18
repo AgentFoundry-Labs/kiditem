@@ -56,8 +56,8 @@
 | Modify | `apps/server/src/return-transfers/return-transfers.service.ts` | `productId`→`optionId` + IDOR fix |
 | Modify | `apps/server/src/return-transfers/dto/create-return-transfer.dto.ts` | optionId 필드 |
 | Modify | `apps/server/src/return-transfers/return-transfers.controller.ts` | `@CurrentCompany()` 주입 전달 |
-| Modify | `apps/server/src/common/master-product-resolver.ts` | `resolveInventory` export 제거 (파일 유지, `resolvePricing` 은 그대로) |
-| Create | `apps/server/src/inventory/__tests__/inventory-flow.integration.spec.ts` | 11 시나리오 real Postgres integration |
+| (unchanged) | `apps/server/src/common/master-product-resolver.ts` | 파일 유지. `resolveInventory` import 는 `inventory.service.ts` 에서만 제거. 전체 삭제는 Plan B2c |
+| Create | `apps/server/src/inventory/__tests__/inventory-flow.pg.integration.spec.ts` | 11 시나리오 real Postgres integration (vitest config 요구 suffix) |
 | Create | `.claude/docs/decisions/0014-stock-mutation-single-writer.md` | ADR — InventoryService 단독 writer invariant |
 | Create | `apps/server/src/inventory/CLAUDE.md` | Inventory 도메인 가이드 |
 | Modify | `apps/server/CLAUDE.md` | Domain Guides 표 + inventory 진입 |
@@ -395,28 +395,37 @@ Expected: 4 new tests FAIL (current `toSerializable` 가 BigInt 미처리).
 
 ### Step 2.4 — 구현
 
-- [ ] **`apps/server/src/products/util/serialize.ts` 에서 `toSerializable` 수정**
+- [ ] **`apps/server/src/products/util/serialize.ts` 의 기존 `toSerializable` 에 BigInt 분기만 추가**
+
+**중요**: 기존 시그니처 `export function toSerializable(row: unknown): unknown` 유지. 제네릭 교체 금지 (callers 가 `MasterSchema.parse(toSerializable(row))` 패턴으로 `unknown` 반환에 의존).
+
+기존 함수 맨 위 (`if (row === null || row === undefined) return row;` 다음 줄) 에 BigInt 분기 추가:
 
 ```ts
-export function toSerializable<T>(v: T): T {
-  if (typeof v === 'bigint') {
-    // Plan B1 이월 #4: $queryRaw 반환 BigInt 대응
-    if (v > BigInt(Number.MAX_SAFE_INTEGER) || v < BigInt(Number.MIN_SAFE_INTEGER)) {
-      return v.toString() as unknown as T;
+export function toSerializable(row: unknown): unknown {
+  if (row === null || row === undefined) return row;
+  // Plan B1 이월 #4: $queryRaw 가 반환하는 BigInt 대응
+  if (typeof row === 'bigint') {
+    if (row > BigInt(Number.MAX_SAFE_INTEGER) || row < BigInt(Number.MIN_SAFE_INTEGER)) {
+      return row.toString();
     }
-    return Number(v) as unknown as T;
+    return Number(row);
   }
-  if (Array.isArray(v)) return v.map(toSerializable) as unknown as T;
-  if (v !== null && typeof v === 'object') {
-    return Object.fromEntries(
-      Object.entries(v as Record<string, unknown>).map(([k, val]) => [k, toSerializable(val)]),
-    ) as T;
+  if (row instanceof Date) return row.toISOString();
+  if (Prisma.Decimal.isDecimal(row)) return (row as Prisma.Decimal).toNumber();
+  if (Array.isArray(row)) return row.map(toSerializable);
+  if (typeof row === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(row as Record<string, unknown>)) {
+      out[k] = toSerializable(v);
+    }
+    return out;
   }
-  return v;
+  return row;
 }
 ```
 
-주의: 기존 Decimal / Date 처리 로직이 있다면 그대로 유지하고 BigInt 분기만 상단에 추가.
+기존 Date / Decimal / Array / object 분기 그대로 유지. BigInt 만 새 분기.
 
 ### Step 2.5 — 테스트 통과 확인
 
@@ -454,6 +463,7 @@ Unblocks Plan B2a InventoryService \$queryRaw row-lock pattern."
 - [ ] **Create `apps/server/src/products/services/__tests__/bundle-stock.recompute-for-component.spec.ts`**
 
 ```ts
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Test } from '@nestjs/testing';
 import { BundleStockService } from '../bundle-stock.service';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -817,6 +827,7 @@ ReceiveStockBodyDto) — replaced by unified Plan B2a surface."
 - [ ] **Create `apps/server/src/inventory/services/__tests__/inventory.service.reads.spec.ts`**
 
 ```ts
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Test } from '@nestjs/testing';
 import { NotFoundException } from '@nestjs/common';
 import { InventoryService } from '../inventory.service';
@@ -852,7 +863,7 @@ describe('InventoryService — reads', () => {
           option: {
             masterId: 'm1', sku: 'SKU-1', optionName: 'Red', isBundle: false,
             availableStock: null, isDeleted: false,
-            master: { masterName: 'Product 1' },
+            master: { name: 'Product 1' },
           },
         },
       ]);
@@ -878,7 +889,7 @@ describe('InventoryService — reads', () => {
           option: {
             masterId: 'm1', sku: 'BDL-1', optionName: null, isBundle: true,
             availableStock: 5, isDeleted: false,
-            master: { masterName: 'Bundle A' },
+            master: { name: 'Bundle A' },
           },
         },
       ]);
@@ -945,6 +956,7 @@ describe('InventoryService — reads', () => {
 - [ ] **Create `apps/server/src/inventory/services/__tests__/inventory.service.metadata.spec.ts`**
 
 ```ts
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Test } from '@nestjs/testing';
 import { NotFoundException } from '@nestjs/common';
 import { InventoryService } from '../inventory.service';
@@ -1051,22 +1063,23 @@ export class InventoryService {
     if (query.optionId) where.optionId = query.optionId;
     if (query.masterId) where.option = { masterId: query.masterId };
 
-    const [rows, total] = await Promise.all([
+    // status 필터 + derived summary 를 정확히 하려면 전체 fetch + in-memory filter/paginate 필요.
+    // kiditem 카탈로그 규모 (~수천 미만) 에서 성능 OK. 향후 대규모 시 DB-level generated status
+    // column 또는 raw CASE query 로 전환 고려.
+    const [rows, dbCount] = await Promise.all([
       this.prisma.inventory.findMany({
         where,
-        skip,
-        take: limit,
         orderBy: { createdAt: 'desc' },
         include: {
           option: {
-            include: { master: { select: { masterName: true } } },
+            include: { master: { select: { name: true } } },
           },
         },
       }),
       this.prisma.inventory.count({ where }),
     ]);
 
-    const items = rows.map((r: any) => {
+    const mapped = rows.map((r) => {
       const availableStock = r.option.isBundle ? (r.option.availableStock ?? 0) : r.currentStock;
       const status = deriveStatus(r.currentStock, r.reorderPoint);
       return {
@@ -1074,7 +1087,7 @@ export class InventoryService {
         optionId: r.optionId,
         masterId: r.option.masterId,
         sku: r.option.sku,
-        masterName: r.option.master.masterName,
+        masterName: r.option.master.name,
         optionName: r.option.optionName,
         kind: r.option.isBundle ? 'BUNDLE' : 'SIMPLE',
         currentStock: r.currentStock,
@@ -1087,18 +1100,19 @@ export class InventoryService {
       } satisfies InventoryListItem;
     });
 
-    // status 필터는 in-memory (DB level 불가 — computed)
-    const filtered = query.status ? items.filter((i) => i.status === query.status) : items;
+    const filtered = query.status ? mapped.filter((i) => i.status === query.status) : mapped;
+    const items = filtered.slice(skip, skip + limit);
+    const total = query.status ? filtered.length : dbCount;
 
     const summary: InventorySummary = {
-      total: filtered.length,
-      healthy: filtered.filter((i) => i.status === 'healthy').length,
-      low: filtered.filter((i) => i.status === 'low').length,
-      out: filtered.filter((i) => i.status === 'out').length,
+      total: mapped.length,
+      healthy: mapped.filter((i) => i.status === 'healthy').length,
+      low: mapped.filter((i) => i.status === 'low').length,
+      out: mapped.filter((i) => i.status === 'out').length,
     };
 
     return {
-      items: filtered,
+      items,
       total,
       page,
       limit,
@@ -1184,6 +1198,7 @@ Mutation + ledger methods pending (Tasks 6-8)."
 - [ ] **Create `apps/server/src/inventory/services/__tests__/inventory.service.receive.spec.ts`**
 
 ```ts
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Test } from '@nestjs/testing';
 import { NotFoundException } from '@nestjs/common';
 import { InventoryService } from '../inventory.service';
@@ -1381,7 +1396,7 @@ Expected: FAIL — "service.receive is not a function"
         transaction: {
           id: transaction.id,
           optionId: transaction.optionId,
-          type: transaction.type as any,
+          type: transaction.type as StockTransactionType,
           quantity: transaction.quantity,
           unitCost: transaction.unitCost,
           createdAt: transaction.createdAt.toISOString(),
@@ -1392,7 +1407,7 @@ Expected: FAIL — "service.receive is not a function"
   }
 ```
 
-Imports 에 `ReceiveStockInput`, `StockOperationResult` 추가.
+Imports 에 `ReceiveStockInput`, `StockOperationResult`, `StockTransactionType` 추가.
 
 ### Step 6.4 — 테스트 통과 확인
 
@@ -1432,6 +1447,7 @@ timeout: 15s covers worst-case fan-out breadth. ADR-0014 single-writer."
 - [ ] **Create `apps/server/src/inventory/services/__tests__/inventory.service.issue.spec.ts`**
 
 ```ts
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Test } from '@nestjs/testing';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { InventoryService } from '../inventory.service';
@@ -1503,6 +1519,7 @@ describe('InventoryService.issue', () => {
 - [ ] **Create `apps/server/src/inventory/services/__tests__/inventory.service.adjust.spec.ts`**
 
 ```ts
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Test } from '@nestjs/testing';
 import { BadRequestException } from '@nestjs/common';
 import { InventoryService } from '../inventory.service';
@@ -1649,6 +1666,7 @@ Both respect bounds check (nextStock >= 0) and fan-out to bundles."
 - [ ] **Create `apps/server/src/inventory/services/__tests__/inventory.service.ledger.spec.ts`**
 
 ```ts
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Test } from '@nestjs/testing';
 import { InventoryService } from '../inventory.service';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -1741,9 +1759,10 @@ Expected: FAIL.
     if (query.optionId) where.optionId = query.optionId;
     if (query.type) where.type = query.type;
     if (query.from || query.to) {
-      where.createdAt = {};
-      if (query.from) where.createdAt.gte = new Date(query.from);
-      if (query.to) where.createdAt.lte = new Date(query.to);
+      const dateFilter: { gte?: Date; lte?: Date } = {};
+      if (query.from) dateFilter.gte = new Date(query.from);
+      if (query.to) dateFilter.lte = new Date(query.to);
+      where.createdAt = dateFilter;
     }
 
     const [rows, total] = await Promise.all([
@@ -1847,16 +1866,16 @@ wiring pending."
 - [ ] **Create `apps/server/src/inventory/controllers/__tests__/inventory.controller.e2e.spec.ts`**
 
 ```ts
+import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 import { Test } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import request from 'supertest';
 import { InventoryController } from '../inventory.controller';
 import { InventoryService } from '../../services/inventory.service';
-import { CurrentCompany } from '../../../auth/decorators/current-company.decorator';
-import { CurrentUser } from '../../../auth/decorators/current-user.decorator';
 
-// Mock @CurrentCompany / @CurrentUser via overridden decorator factory (infra pattern from Plan B1)
-// Actual impl: use TestingModule overrideProvider + global param decorator mock request.
+// @CurrentCompany / @CurrentUser 데코레이터는 req.authUser 에서 읽음
+// (apps/server/src/auth/decorators/current-{company,user}.decorator.ts).
+// E2E 에서 middleware 로 req.authUser 를 주입하여 데코레이터가 정상 resolve.
 
 describe('InventoryController (e2e)', () => {
   let app: INestApplication;
@@ -1881,10 +1900,10 @@ describe('InventoryController (e2e)', () => {
     }).compile();
 
     app = moduleRef.createNestApplication();
-    // Simulate @CurrentCompany / @CurrentUser resolution via request augment middleware
+    // 데코레이터가 req.authUser 를 읽으므로 middleware 로 주입.
+    // AuthUser shape: { id, email, companyId, role, ... } — 테스트엔 id + companyId 만 필요.
     app.use((req: any, _res: any, next: any) => {
-      req.companyId = 'test-company';
-      req.user = { id: 'test-user' };
+      req.authUser = { id: 'test-user', companyId: 'test-company' };
       next();
     });
     app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: true }));
@@ -1982,7 +2001,7 @@ import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common
 import { InventoryService } from '../services/inventory.service';
 import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
-import type { AuthUser } from '../../auth/types/auth-user';
+import type { AuthUser } from '../../auth/auth.types';
 import {
   ListInventoryQueryDto,
   UpdateInventoryMetadataDto,
@@ -2227,7 +2246,7 @@ export class UnshippedController {
 }
 ```
 
-(기존 handler 수에 맞춰 `@CurrentCompany()` 인자 추가)
+현재 controller 는 `findAll` 1개 handler. 해당 handler 에 `@CurrentCompany() companyId: string` 파라미터 추가 후 service 에 전달.
 
 ### Step 11.4 — 타입 + 빌드 확인
 
@@ -2275,17 +2294,17 @@ cat apps/server/src/return-transfers/return-transfers.controller.ts
 
 - [ ] **`apps/server/src/stock-transfers/dto/create-stock-transfer.dto.ts`**
 
-`productId` 필드를 `optionId` 로 변경. 기타 관련 필드 (`productName` → `optionName`) 도 필요 시 정리. 아래 예시를 현재 파일 구조에 맞춰 적용:
+`StockTransfer` Prisma 모델 (prisma/models/inventory.prisma) 필드: `companyId, optionId, optionName, fromWarehouseId, toWarehouseId, quantity, status, requestedBy, completedAt, notes`. `productId`/`productName` 은 존재하지 않음 — 완전 제거.
 
 ```ts
-import { IsUUID, IsInt, Min, IsString, IsOptional } from 'class-validator';
+import { IsUUID, IsInt, Min, IsString, IsOptional, MaxLength } from 'class-validator';
 
 export class CreateStockTransferDto {
   @IsUUID() optionId!: string;
   @IsUUID() fromWarehouseId!: string;
   @IsUUID() toWarehouseId!: string;
   @IsInt() @Min(1) quantity!: number;
-  @IsOptional() @IsString() reason?: string;
+  @IsOptional() @IsString() @MaxLength(500) notes?: string;
 }
 ```
 
@@ -2300,7 +2319,7 @@ export class CreateStockTransferDto {
 - `.update()` IDOR fix: `findUnique({ where: { id } })` → `findFirst({ where: { id, companyId } })`
 - 서비스 메서드 시그니처에 `companyId: string` 추가
 
-예시 (핵심 shape — 실제 필드는 prisma model 의 실 필드 기준):
+실제 Prisma 필드 기반 (productId → optionId, product → option, reason → notes):
 
 ```ts
 @Injectable()
@@ -2308,7 +2327,7 @@ export class StockTransfersService {
   constructor(private readonly prisma: PrismaService) {}
 
   async create(dto: CreateStockTransferDto, companyId: string) {
-    // 필요 시 option 검증 (companyId 소속 확인)
+    // option 소유권 검증 (IDOR)
     const option = await this.prisma.productOption.findFirst({
       where: { id: dto.optionId, companyId, isDeleted: false },
       select: { optionName: true },
@@ -2323,7 +2342,7 @@ export class StockTransfersService {
         fromWarehouseId: dto.fromWarehouseId,
         toWarehouseId: dto.toWarehouseId,
         quantity: dto.quantity,
-        reason: dto.reason,
+        notes: dto.notes,
       },
       include: { option: true },
     });
@@ -2351,6 +2370,8 @@ export class StockTransfersService {
   }
 }
 ```
+
+`UpdateStockTransferDto` 는 기존 파일 참고 + `productId` 제거 + `notes` 필드 유지.
 
 ### Step 12.4 — StockTransfer Controller 수정
 
@@ -2384,11 +2405,24 @@ export class StockTransfersController {
 
 ### Step 12.5 — ReturnTransfer 동일 작업
 
-- [ ] **`return-transfers` 패키지 전체에 대해 Step 12.2/12.3/12.4 동일 패턴 적용**
+`ReturnTransfer` Prisma 필드: `companyId, rtNumber, orderId, optionId, optionName, quantity, status, condition, restockedQty, disposedQty, notes, processedBy, createdAt, completedAt`. **`fromWarehouseId/toWarehouseId` 없음** — StockTransfer 와 다른 shape.
 
-- `return-transfers/dto/create-return-transfer.dto.ts` — `productId` → `optionId`
-- `return-transfers/return-transfers.service.ts` — 동일 compile fix + IDOR fix. `findUnique({id})` → `findFirst({id, companyId})` in `.update()`
-- `return-transfers/return-transfers.controller.ts` — `@CurrentCompany()` 추가
+- [ ] **`return-transfers/dto/create-return-transfer.dto.ts`**:
+```ts
+import { IsUUID, IsInt, Min, IsString, IsOptional, MaxLength } from 'class-validator';
+
+export class CreateReturnTransferDto {
+  @IsUUID() optionId!: string;
+  @IsOptional() @IsUUID() orderId?: string;
+  @IsInt() @Min(1) quantity!: number;
+  @IsOptional() @IsString() @MaxLength(20) condition?: string;   // 'good' / 'damaged' 등
+  @IsOptional() @IsString() @MaxLength(500) notes?: string;
+}
+```
+
+- [ ] **`return-transfers/return-transfers.service.ts`**: `productId` 완전 제거. `rtNumber` 는 서버 생성 (`RT-${Date.now()}`). `findUnique({id})` → `findFirst({id, companyId})` in `.update()`. IDOR fix.
+
+- [ ] **`return-transfers/return-transfers.controller.ts`**: `@CurrentCompany()` 추가. 서비스 메서드 시그니처에 `companyId` 전달.
 
 ### Step 12.6 — 타입 확인
 
@@ -2425,32 +2459,38 @@ Record-only invariant (no currentStock mutation) preserved."
 
 - [ ] **Run**: `cat apps/server/src/common/master-product-resolver.ts`
 
-### Step 13.2 — `resolveInventory` function + export 제거
+### Step 13.2 — inventory.service.ts 의 resolveInventory import + 사용처만 제거
 
-- [ ] **Edit `apps/server/src/common/master-product-resolver.ts`**
+**중요 (spec risk table 반영)**: `resolveInventory` 함수 자체는 **유지**. `advertising/services/ad-strategy.service.ts:8` 이 여전히 import 중 (out-of-scope 도메인). 파일 전체 삭제 / 함수 export 제거는 B2c.
 
-`resolveInventory` 함수 본체 + `export` 제거. `resolvePricing` 은 그대로 유지 (out-of-scope 도메인 callers).
+B2a 에서 하는 일: **`apps/server/src/inventory/services/inventory.service.ts` 안의 `import { resolveInventory, ... } from '../../common/master-product-resolver'` 를 제거**. Task 5 에서 신규 `list` 는 resolver 미사용으로 재작성되므로, 남은 import 라인만 정리.
 
-파일의 `resolveInventory` 관련 모든 줄 삭제. 만약 내부 helper 만 해당 함수에서 쓰였다면 함께 제거.
+- [ ] **Run**: `grep -n "master-product-resolver\|resolveInventory" apps/server/src/inventory/services/inventory.service.ts`
 
-### Step 13.3 — Inventory 내부 호출처 확인
+Expected before edit: import 라인 1개 (+ 혹시 잔여 호출).
+
+- [ ] **Edit**: inventory.service.ts 의 `master-product-resolver` import + resolveInventory 호출 모두 제거.
+
+### Step 13.3 — inventory 모듈 내부 호출처 확인
 
 - [ ] **Run**: `grep -rn "resolveInventory\|masterProductResolver" apps/server/src/inventory --include="*.ts"`
 
-Expected: 0 hits (Task 5 에서 이미 신규 InventoryService.list 가 resolver 미사용으로 재작성됨).
+Expected: 0 hits.
 
-만약 호출처가 남아있으면 해당 파일에서 제거.
+### Step 13.4 — `resolveInventory` 함수는 파일에 그대로 존재 확인
 
-### Step 13.4 — 다른 모듈 영향 확인
+- [ ] **Run**: `grep -n "export function resolveInventory\|export const resolveInventory" apps/server/src/common/master-product-resolver.ts`
+
+Expected: 1 hit (유지됨 — advertising 이 여전히 사용).
 
 - [ ] **Run**: `grep -rn "resolveInventory" apps/server/src --include="*.ts" | grep -v __tests__`
 
-Expected: 0 hits (inventory 외에 없음을 확인).
+Expected: `advertising/services/ad-strategy.service.ts` 에서 1+ hits 남아있음 (정상, out-of-scope). inventory/ 에는 0 hits.
 
-`resolvePricing` 은 그대로 있어야 함:
+`resolvePricing` 도 변경 없음 확인:
 - [ ] **Run**: `grep -rn "resolvePricing" apps/server/src --include="*.ts" | head`
 
-Expected: dashboard, finance, traffic, advertising 의 기존 호출 그대로.
+Expected: dashboard / finance / traffic / advertising 기존 호출 변함없이 존재.
 
 ### Step 13.5 — 타입 확인
 
@@ -2463,13 +2503,15 @@ Expected: 0 lines.
 - [ ] **커밋**
 
 ```bash
-git add apps/server/src/common/master-product-resolver.ts
-git commit -m "refactor(common): remove resolveInventory from master-product-resolver
+git add apps/server/src/inventory/services/inventory.service.ts
+git commit -m "refactor(inventory): drop resolveInventory import
 
 Plan A 3-layer schema no longer requires nested inventory resolution
-(Inventory is 1:1 with ProductOption). resolvePricing remains for
-out-of-scope domains (dashboard/finance/traffic/advertising) until
-Plan B2c final cleanup."
+(Inventory is 1:1 with ProductOption). InventoryService.list directly
+joins option + master.
+
+resolveInventory function and its advertising consumer remain untouched
+in master-product-resolver.ts until Plan B2c final cleanup."
 ```
 
 ---
@@ -2477,39 +2519,52 @@ Plan B2c final cleanup."
 ## Task 14: Integration Tests — inventory-flow
 
 **Files:**
-- Create: `apps/server/src/inventory/__tests__/inventory-flow.integration.spec.ts`
+- Create: `apps/server/src/inventory/__tests__/inventory-flow.pg.integration.spec.ts`
 
-### Step 14.1 — Test DB 준비 확인
+**파일명 주의**: vitest integration config (`vitest.config.integration.ts`) 가 `*.pg.integration.spec.ts` 패턴만 수집. `.integration.spec.ts` 만 쓰면 실행되지 않음.
+
+### Step 14.1 — Test DB 준비
 
 - [ ] **Run**: `docker ps --filter name=kiditem-postgres-test --format '{{.Status}}'`
 
 없으면:
 - [ ] **Run**: `npm run db:test:up && npm run db:test:prepare`
 
-### Step 14.2 — 통합 테스트 작성
+### Step 14.2 — 통합 테스트 작성 (기존 `test-helpers/real-prisma.ts` 재사용)
 
-- [ ] **Create `apps/server/src/inventory/__tests__/inventory-flow.integration.spec.ts`**
+- [ ] **Create `apps/server/src/inventory/__tests__/inventory-flow.pg.integration.spec.ts`**
 
 ```ts
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Test } from '@nestjs/testing';
+import type { PrismaClient } from '@prisma/client';
 import { InventoryService } from '../services/inventory.service';
 import { BundleStockService } from '../../products/services/bundle-stock.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { PrismaClient } from '@prisma/client';
+import {
+  makeTestPrisma,
+  resetDb,
+  seedBaseFixture,
+  TEST_COMPANY_ID,
+  TEST_USER_ID,
+} from '../../test-helpers/real-prisma';
 
-describe('Inventory flow (integration)', () => {
+describe('Inventory flow (PG integration)', () => {
   let prisma: PrismaClient;
   let inventoryService: InventoryService;
-  let companyId: string;
   let masterId: string;
 
-  // Helpers
+  const companyId = TEST_COMPANY_ID;
+  const userId = TEST_USER_ID;
+
+  // Helpers — 각 테스트에서 option + inventory 를 한 번에 seed
   async function seedOption(isBundle = false, initialStock = 0) {
+    const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const option = await prisma.productOption.create({
       data: {
         companyId,
         masterId,
-        sku: `SKU-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        sku: `SKU-${unique}`,
         optionName: isBundle ? 'Bundle' : 'Single',
         isBundle,
         availableStock: isBundle ? 0 : null,
@@ -2527,17 +2582,12 @@ describe('Inventory flow (integration)', () => {
 
   async function bindBundle(bundleOptionId: string, componentOptionId: string, qty: number) {
     await prisma.bundleComponent.create({
-      data: {
-        companyId,
-        bundleOptionId,
-        componentOptionId,
-        qty,
-      },
+      data: { companyId, bundleOptionId, componentOptionId, qty },
     });
   }
 
   beforeAll(async () => {
-    prisma = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL_TEST } } });
+    prisma = makeTestPrisma();
     await prisma.$connect();
 
     const m = await Test.createTestingModule({
@@ -2553,18 +2603,15 @@ describe('Inventory flow (integration)', () => {
   afterAll(async () => { await prisma.$disconnect(); });
 
   beforeEach(async () => {
-    // fresh test schema — truncate relevant tables (순서 중요: FK)
-    await prisma.stockTransaction.deleteMany();
-    await prisma.bundleComponent.deleteMany();
-    await prisma.inventory.deleteMany();
-    await prisma.productOption.deleteMany();
-    await prisma.masterProduct.deleteMany();
-    await prisma.company.deleteMany();
-
-    const c = await prisma.company.create({ data: { name: 'Test Co' } });
-    companyId = c.id;
+    await resetDb(prisma);                 // TRUNCATE CASCADE 모든 테이블
+    await seedBaseFixture(prisma);         // TEST_COMPANY_ID + TEST_USER_ID 생성
     const master = await prisma.masterProduct.create({
-      data: { companyId: c.id, masterName: 'Master', optionCounter: 0 },
+      data: {
+        companyId,
+        code: `M-${Date.now()}`,          // required, unique
+        name: 'Test Master',
+        optionCounter: 0,
+      },
     });
     masterId = master.id;
   });
@@ -2574,25 +2621,32 @@ describe('Inventory flow (integration)', () => {
     const bundle = await seedOption(true, 0);
     await bindBundle(bundle.option.id, simple.option.id, 2);
 
-    const result = await inventoryService.receive(simple.inventory.id, { quantity: 10 }, companyId, 'user-1');
+    const result = await inventoryService.receive(
+      simple.inventory.id,
+      { quantity: 10 },
+      companyId,
+      userId,
+    );
 
     expect(result.inventory.currentStock).toBe(10);
     expect(result.recomputedBundleOptionIds).toContain(bundle.option.id);
 
     const updatedBundle = await prisma.productOption.findUnique({ where: { id: bundle.option.id } });
-    expect(updatedBundle?.availableStock).toBe(5);
+    expect(updatedBundle?.availableStock).toBe(5);   // floor(10/2)
   });
 
   it('#2 Issue → bundle fan-out decrease', async () => {
-    const simple = await seedOption(false, 10);
+    const simple = await seedOption(false, 0);
     const bundle = await seedOption(true, 0);
     await bindBundle(bundle.option.id, simple.option.id, 2);
-    // baseline recompute
-    await inventoryService.receive(simple.inventory.id, { quantity: 0 } as any, companyId, 'user-1').catch(() => {});
-    // Actually start fresh:
-    await prisma.productOption.update({ where: { id: bundle.option.id }, data: { availableStock: 5 } });
 
-    await inventoryService.issue(simple.inventory.id, { quantity: 4 }, companyId, 'user-1');
+    // baseline: receive 10 → bundle.availableStock = 5
+    await inventoryService.receive(simple.inventory.id, { quantity: 10 }, companyId, userId);
+    const afterReceive = await prisma.productOption.findUnique({ where: { id: bundle.option.id } });
+    expect(afterReceive?.availableStock).toBe(5);
+
+    // issue 4 → simple=6, bundle.availableStock = floor(6/2) = 3
+    await inventoryService.issue(simple.inventory.id, { quantity: 4 }, companyId, userId);
 
     const inv = await prisma.inventory.findUnique({ where: { id: simple.inventory.id } });
     expect(inv?.currentStock).toBe(6);
@@ -2602,35 +2656,43 @@ describe('Inventory flow (integration)', () => {
 
   it('#3 Insufficient stock → BadRequest, rollback', async () => {
     const simple = await seedOption(false, 3);
-    await expect(inventoryService.issue(simple.inventory.id, { quantity: 5 }, companyId, 'user-1'))
-      .rejects.toThrow();
+    await expect(
+      inventoryService.issue(simple.inventory.id, { quantity: 5 }, companyId, userId),
+    ).rejects.toThrow();
     const inv = await prisma.inventory.findUnique({ where: { id: simple.inventory.id } });
-    expect(inv?.currentStock).toBe(3);  // unchanged
+    expect(inv?.currentStock).toBe(3);   // rollback
     const ledger = await prisma.stockTransaction.findMany({ where: { optionId: simple.option.id } });
     expect(ledger).toHaveLength(0);
   });
 
-  it('#4 Adjust negative / positive with bundle effect', async () => {
-    const simple = await seedOption(false, 10);
+  it('#4 Adjust negative with bundle effect', async () => {
+    const simple = await seedOption(false, 0);
     const bundle = await seedOption(true, 0);
     await bindBundle(bundle.option.id, simple.option.id, 2);
-    await prisma.productOption.update({ where: { id: bundle.option.id }, data: { availableStock: 5 } });
 
-    await inventoryService.adjust(simple.inventory.id, { delta: -4, reason: 'shrinkage' }, companyId, 'user-1');
+    // baseline: receive 10 → simple=10, bundle.availableStock=5
+    await inventoryService.receive(simple.inventory.id, { quantity: 10 }, companyId, userId);
+
+    // adjust -4 → simple=6, bundle.availableStock=3
+    await inventoryService.adjust(simple.inventory.id, { delta: -4, reason: 'shrinkage' }, companyId, userId);
 
     const inv = await prisma.inventory.findUnique({ where: { id: simple.inventory.id } });
     expect(inv?.currentStock).toBe(6);
-    const tx = await prisma.stockTransaction.findFirst({ where: { optionId: simple.option.id }, orderBy: { createdAt: 'desc' } });
-    expect(tx?.type).toBe('ADJUST');
-    expect(tx?.quantity).toBe(4);
+    const adjustTx = await prisma.stockTransaction.findFirst({
+      where: { optionId: simple.option.id, type: 'ADJUST' },
+      orderBy: { createdAt: 'desc' },
+    });
+    expect(adjustTx?.quantity).toBe(4);                   // absolute
+    const updatedBundle = await prisma.productOption.findUnique({ where: { id: bundle.option.id } });
+    expect(updatedBundle?.availableStock).toBe(3);
   });
 
   it('#5 Concurrent receive on same option → serialized', async () => {
     const simple = await seedOption(false, 0);
 
     await Promise.all([
-      inventoryService.receive(simple.inventory.id, { quantity: 10 }, companyId, 'user-1'),
-      inventoryService.receive(simple.inventory.id, { quantity: 10 }, companyId, 'user-2'),
+      inventoryService.receive(simple.inventory.id, { quantity: 10 }, companyId, userId),
+      inventoryService.receive(simple.inventory.id, { quantity: 10 }, companyId, userId),
     ]);
 
     const inv = await prisma.inventory.findUnique({ where: { id: simple.inventory.id } });
@@ -2647,26 +2709,71 @@ describe('Inventory flow (integration)', () => {
     await bindBundle(bundle.option.id, b.option.id, 1);
 
     await Promise.all([
-      inventoryService.receive(a.inventory.id, { quantity: 5 }, companyId, 'u1'),
-      inventoryService.receive(b.inventory.id, { quantity: 3 }, companyId, 'u2'),
+      inventoryService.receive(a.inventory.id, { quantity: 5 }, companyId, userId),
+      inventoryService.receive(b.inventory.id, { quantity: 3 }, companyId, userId),
     ]);
 
     const updatedBundle = await prisma.productOption.findUnique({ where: { id: bundle.option.id } });
-    expect(updatedBundle?.availableStock).toBe(3);   // min(5/1, 3/1) = 3
+    expect(updatedBundle?.availableStock).toBe(3);       // min(5/1, 3/1)
   });
 
   it('#7 Soft-deleted component option excluded from fan-out', async () => {
-    const a = await seedOption(false, 10);
+    const a = await seedOption(false, 0);
     const bundle = await seedOption(true, 0);
     await bindBundle(bundle.option.id, a.option.id, 1);
-    await prisma.productOption.update({ where: { id: a.option.id }, data: { isDeleted: true, deletedAt: new Date() } });
-    await prisma.productOption.update({ where: { id: bundle.option.id }, data: { availableStock: 10 } });
 
-    const result = await inventoryService.receive(a.inventory.id, { quantity: 5 }, companyId, 'u1');
+    await prisma.productOption.update({
+      where: { id: a.option.id },
+      data: { isDeleted: true, deletedAt: new Date() },
+    });
+    await prisma.productOption.update({
+      where: { id: bundle.option.id },
+      data: { availableStock: 10 },
+    });
 
-    expect(result.recomputedBundleOptionIds).toEqual([]);  // excluded by soft-delete
+    const result = await inventoryService.receive(a.inventory.id, { quantity: 5 }, companyId, userId);
+
+    expect(result.recomputedBundleOptionIds).toEqual([]);   // excluded
     const updatedBundle = await prisma.productOption.findUnique({ where: { id: bundle.option.id } });
-    expect(updatedBundle?.availableStock).toBe(10);  // unchanged
+    expect(updatedBundle?.availableStock).toBe(10);         // unchanged
+  });
+
+  it('#8 StockTransfer / ReturnTransfer.create → inventory.currentStock unchanged', async () => {
+    const simple = await seedOption(false, 10);
+    const w1 = await prisma.warehouse.create({
+      data: { companyId, name: 'WH1', code: 'A', address: 'addr-1' },
+    });
+    const w2 = await prisma.warehouse.create({
+      data: { companyId, name: 'WH2', code: 'B', address: 'addr-2' },
+    });
+
+    // StockTransfer 은 warehouse FK 필드 있음
+    await prisma.stockTransfer.create({
+      data: {
+        companyId,
+        optionId: simple.option.id,
+        optionName: 'Single',
+        fromWarehouseId: w1.id,
+        toWarehouseId: w2.id,
+        quantity: 4,
+      },
+    });
+
+    // ReturnTransfer 는 warehouse FK 없음. required: rtNumber, optionId, quantity
+    await prisma.returnTransfer.create({
+      data: {
+        companyId,
+        rtNumber: `RT-${Date.now()}`,
+        optionId: simple.option.id,
+        optionName: 'Single',
+        quantity: 2,
+      },
+    });
+
+    const inv = await prisma.inventory.findUnique({ where: { id: simple.inventory.id } });
+    expect(inv?.currentStock).toBe(10);   // unchanged — record-only
+    const ledger = await prisma.stockTransaction.findMany({ where: { optionId: simple.option.id } });
+    expect(ledger).toHaveLength(0);        // no transaction side-effect
   });
 
   it('#9 Metadata update → no StockTransaction created', async () => {
@@ -2675,14 +2782,14 @@ describe('Inventory flow (integration)', () => {
     const ledger = await prisma.stockTransaction.findMany({ where: { optionId: simple.option.id } });
     expect(ledger).toHaveLength(0);
     const inv = await prisma.inventory.findUnique({ where: { id: simple.inventory.id } });
-    expect(inv?.currentStock).toBe(10);  // unchanged
+    expect(inv?.currentStock).toBe(10);
     expect(inv?.safetyStock).toBe(20);
   });
 
   it('#10 Ledger query + summary consistency', async () => {
     const simple = await seedOption(false, 0);
-    await inventoryService.receive(simple.inventory.id, { quantity: 10, unitCost: 100 }, companyId, 'u1');
-    await inventoryService.issue(simple.inventory.id, { quantity: 3 }, companyId, 'u1');
+    await inventoryService.receive(simple.inventory.id, { quantity: 10, unitCost: 100 }, companyId, userId);
+    await inventoryService.issue(simple.inventory.id, { quantity: 3 }, companyId, userId);
 
     const list = await inventoryService.listTransactions({ optionId: simple.option.id }, companyId);
     expect(list.items).toHaveLength(2);
@@ -2702,56 +2809,36 @@ describe('Inventory flow (integration)', () => {
 });
 ```
 
-Test #8 (transfer record-only) 는 transfer service 를 직접 호출 — 별도 test 로 두거나 위 파일에 추가. 아래 append:
-
-```ts
-  it('#8 stockTransfer / returnTransfer.create → inventory.currentStock unchanged', async () => {
-    const simple = await seedOption(false, 10);
-    const warehouse1 = await prisma.warehouse.create({ data: { companyId, name: 'WH1', code: 'A' } });
-    const warehouse2 = await prisma.warehouse.create({ data: { companyId, name: 'WH2', code: 'B' } });
-
-    await prisma.stockTransfer.create({
-      data: { companyId, optionId: simple.option.id, fromWarehouseId: warehouse1.id, toWarehouseId: warehouse2.id, quantity: 4 },
-    });
-    await prisma.returnTransfer.create({
-      data: { companyId, optionId: simple.option.id, fromWarehouseId: warehouse1.id, toWarehouseId: warehouse2.id, quantity: 2 },
-    });
-
-    const inv = await prisma.inventory.findUnique({ where: { id: simple.inventory.id } });
-    expect(inv?.currentStock).toBe(10);  // unchanged — record-only
-    const ledger = await prisma.stockTransaction.findMany({ where: { optionId: simple.option.id } });
-    expect(ledger).toHaveLength(0);
-  });
-```
-
-실제 `Warehouse` 모델 필드는 schema 확인 필요 (code / name 등). 자리에 맞춰 조정.
+**Warehouse 필드 verify**: Step 14.2 시작 전 `grep -A 15 "^model Warehouse\\b" prisma/models/*.prisma` 실행해 `name/code/address` 외 required 필드 있는지 확인. 있으면 위 `w1`/`w2` create 에 추가.
 
 ### Step 14.3 — 통합 테스트 실행
 
 - [ ] **Run**: `npm run test:integration -- inventory-flow`
 
-Expected: 전체 (11 scenarios + transfer #8) PASS.
+Expected: 전체 11 scenarios (#1-#11) PASS.
 
-만약 시드 테이블 누락 / schema mismatch 로 실패 시 `db:test:prepare` 재실행.
+`.pg.integration.spec.ts` 패턴 확인 — vitest config 가 수집하는지 로그에서 테스트 파일 이름 확인.
 
 ### Step 14.4 — Commit
 
 - [ ] **커밋**
 
 ```bash
-git add apps/server/src/inventory/__tests__/inventory-flow.integration.spec.ts
+git add apps/server/src/inventory/__tests__/inventory-flow.pg.integration.spec.ts
 git commit -m "test(inventory): integration flow — real Postgres scenarios
 
-11 scenarios + transfer record-only guard:
+11 scenarios via makeTestPrisma + resetDb + seedBaseFixture:
 - Receive/Issue/Adjust with bundle fan-out
 - Insufficient stock rollback
 - Concurrent same-option (row lock)
 - Concurrent different-components (bundleOption lock + READ COMMITTED)
 - Soft-deleted component exclusion from fan-out
-- Transfer record-only (no currentStock mutation)
+- Transfer record-only (StockTransfer + ReturnTransfer, no currentStock mutation)
 - Metadata update isolation
 - Ledger query / summary consistency
-- createdBy audit trail"
+- createdBy audit trail
+
+Filename suffix .pg.integration.spec.ts required by vitest.config.integration.ts."
 ```
 
 ---
