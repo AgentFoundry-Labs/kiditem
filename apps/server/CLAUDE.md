@@ -148,7 +148,7 @@ async getProduct(id: string, companyId: string) {
 
 | 경로 | 크기 | 핵심 포인트 |
 |---|---|---|
-| [`src/advertising/CLAUDE.md`](src/advertising/CLAUDE.md) | 33줄 | Ad Operations — 12 endpoints `/api/ads/*`, AdSnapshot(level=campaign\|product\|null), 익스텐션 sync. **⚠ Plan B2 대기**: 5 services + 2 DTO 가 stale `prisma.product.*` / `Ad.productId` (ADR-0013 drop, listingId/optionId 대체) |
+| [`src/advertising/CLAUDE.md`](src/advertising/CLAUDE.md) | ~90줄 | Ad Operations — 14+ endpoints `/api/ads/*`, 3-layer schema (listingId required + optionId nullable), AdAction 5 snapshot-level 규칙 (campaign/keyword target), 익스텐션 sync (vendorItemId > externalId 우선순위). ADR-0006 compliant |
 | [`src/agent-registry/CLAUDE.md`](src/agent-registry/CLAUDE.md) | **261줄** | Agent OS — Adapters / EventEmitter2 / Manager Workflow / FeatureGate / ExecutionContext / Agent OS Phase 3+4 (8 patterns) |
 | [`src/ai/CLAUDE.md`](src/ai/CLAUDE.md) | 69줄 | Dual-Path — Image=Agent 위임 / Text=Gemini Direct. Preset → hardcoded prompt 매핑 |
 | [`src/auth/CLAUDE.md`](src/auth/CLAUDE.md) | 158줄 | 인증/권한 인프라. `@CurrentUser`/`@CurrentCompany`/`@Roles`/`@SkipAuth`, CompanyScopeGuard, DevAuthMiddleware |

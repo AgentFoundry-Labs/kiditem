@@ -1,33 +1,19 @@
-import {
-  Injectable,
-  InternalServerErrorException,
-} from '@nestjs/common';
+import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 
 @Injectable()
 export class AdCollectService {
   constructor(private readonly prisma: PrismaService) {}
 
-  private async getDefaultCompanyId(): Promise<string> {
-    const company = await this.prisma.company.findFirst({
-      where: { isActive: true },
-      select: { id: true },
-    });
-    if (!company) throw new InternalServerErrorException('회사 정보를 찾을 수 없습니다');
-    return company.id;
-  }
-
-  async startCollection(period?: string) {
+  async startCollection(_period: string | undefined, _companyId: string) {
     return {
       status: 'extension_required',
       message: '크롬 익스텐션의 정보 수집 버튼을 사용하세요.',
     };
   }
 
-  async getStatus() {
+  async getStatus(companyId: string) {
     try {
-      const companyId = await this.getDefaultCompanyId();
-
       const [lastCampaign, lastProduct, campaignCount, productCount] = await Promise.all([
         this.prisma.adSnapshot.findFirst({
           where: { companyId, level: 'campaign' },

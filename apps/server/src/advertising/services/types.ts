@@ -1,3 +1,21 @@
+import type { Prisma } from '@prisma/client';
+import type { AdMetrics } from '@kiditem/shared';
+
+// AdAction targetType 값 union (services/types.ts 전용 export, AdActionCommandDto 는 dto/).
+export const AD_ACTION_TARGET_TYPES = ['campaign', 'keyword'] as const;
+export type AdActionTargetType = typeof AD_ACTION_TARGET_TYPES[number];
+
+// ChannelListing hydrate 공통 select 프리셋.
+// 6 rewrite service 의 channelListing.findMany 는 이 프리셋을 재사용.
+// Prisma relation 은 `master` (MasterProduct) — hydrate 시 shared AdListingSummary.masterProduct 로 remap.
+export const LISTING_SUMMARY_SELECT = {
+  id: true,
+  externalId: true,
+  channelName: true,
+  master: { select: { id: true, code: true, name: true } },
+} as const satisfies Prisma.ChannelListingSelect;
+
+// Ads 설정 (DB SystemSetting `ads.*` key 로 저장).
 export interface AdsConfig {
   roas: { thresholds: { excellent: number; warning: number; poor: number } };
   adRate: { thresholds: { warning: number; critical: number } };
@@ -13,9 +31,13 @@ export interface AdsConfig {
     adRate: { avg: number; good: number; excellent: number; poor: number };
     acos: { avg: number; good: number; excellent: number; poor: number };
   };
-  gradeStrategy: Record<string, { title: string; subtitle: string; pills: string[]; budgetTarget: number; roasTarget: number; adRateTarget: number }>;
+  gradeStrategy: Record<
+    string,
+    { title: string; subtitle: string; pills: string[]; budgetTarget: number; roasTarget: number; adRateTarget: number }
+  >;
 }
 
+// Benchmark 비교 한 건.
 export interface BenchmarkComparison {
   metric: string;
   label: string;
@@ -31,7 +53,7 @@ export interface BenchmarkComparison {
   actions: string[];
 }
 
-/** Normalized KPI totals extracted from raw extension payload */
+// 익스텐션 raw payload 에서 정규화된 캠페인 KPI.
 export interface NormalizedCampaignKpi {
   adSpend: number;
   adRevenue: number;
@@ -45,10 +67,29 @@ export interface NormalizedCampaignKpi {
   conversionRate: number;
 }
 
-/** Budget allocation per ABC grade with current vs target comparison */
+// Grade 별 예산 할당 (strategy 내부).
 export interface GradeBudgetAllocation {
-  grade: string;
-  currentPercent: number;
-  targetPercent: number;
-  gap: number;
+  grade: 'A' | 'B' | 'C';
+  currentBudget: number;
+  suggestedBudget: number;
+  delta: number;
+}
+
+// Score 입력 (strategy calculate* 메서드용).
+export interface ScoreInput {
+  listingId: string;
+  spend: number;
+  revenue: number;
+  orders: number;
+  clicks: number;
+  impressions: number;
+  conversions: number;
+  stock: number | null;
+  grade: 'A' | 'B' | 'C' | null;
+}
+
+// listingId → 요약 lookup (sync / strategy 공통).
+export interface ListingMetricsRow {
+  listingId: string;
+  metrics: AdMetrics;
 }

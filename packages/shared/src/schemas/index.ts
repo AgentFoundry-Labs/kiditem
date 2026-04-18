@@ -181,16 +181,55 @@ export type { ReviewListItem } from './reviews.js';
 export { ThumbnailListItemSchema, ThumbnailSummarySchema, ThumbnailScoresSchema, ComplianceScoresSchema, ThumbnailAnalysisResultSchema, ThumbnailAnalysisSummarySchema, ThumbnailGenerationItemSchema, EditAnalysisResultSchema } from './thumbnails.js';
 export type { ThumbnailListItem, ThumbnailSummary, ThumbnailScores, ComplianceScores, ThumbnailAnalysisResult, ThumbnailAnalysisSummary, ThumbnailGenerationItem, EditAnalysisResult } from './thumbnails.js';
 
-// Ads
+// Ads (Plan B2b — listingId-primary)
 export {
-  AdsListItemSchema, AdsHubDataSchema, AdCampaignSnapshotSchema, AdProductSnapshotSchema,
-  AdBenchmarkDataSchema, AdTrendsDataSchema, AdStrategyPlanSchema, AdRulesDataSchema,
-  AdStrategyActionSchema, AdIssuesSchema, AdTierAnalysisSchema, AdTop20ItemSchema, AdWeeklyPlanSchema,
+  AdListingSummarySchema,
+  AdMetricsSchema,
+  AdsListItemSchema,
+  AdsHubSummarySchema,
+  AdsHubDataSchema,
+  FindAllAdsResponseSchema,
+  AdCampaignSnapshotSchema,
+  AdProductSnapshotSchema,
+  AdTrendsDataSchema,
+  AdStrategyActionSchema,
+  AdTop20ItemSchema,
+  AdTierAnalysisSchema,
+  AdIssuesSchema,
+  AdRulesDataSchema,
+  AdStrategyPlanSchema,
+  AdWeeklyPlanSchema,
+  AdStrategyRecommendationSchema,
+  AdBenchmarkDataSchema,
+  ExposureFactorScoreSchema,
+  ExposureProductScoreSchema,
+  ExposureUrgentActionSchema,
+  ExposureAnalysisDataSchema,
 } from './ads.js';
 export type {
-  AdsListItem, AdsHubData, AdsSummary, AdCampaignSnapshot, AdProductSnapshot,
-  AdBenchmarkData, AdTrendsData, AdStrategyPlan, AdRulesData,
-  AdStrategyAction, AdIssues, AdTierAnalysis, AdTop20Item, AdWeeklyPlan,
+  AdListingSummary,
+  AdMetrics,
+  AdsListItem,
+  AdsHubSummary,
+  AdsHubData,
+  AdsSummary,
+  FindAllAdsResponse,
+  AdCampaignSnapshot,
+  AdProductSnapshot,
+  AdTrendsData,
+  AdStrategyAction,
+  AdTop20Item,
+  AdTierAnalysis,
+  AdIssues,
+  AdRulesData,
+  AdStrategyPlan,
+  AdWeeklyPlan,
+  AdStrategyRecommendation,
+  AdBenchmarkData,
+  ExposureFactorScore,
+  ExposureProductScore,
+  ExposureUrgentAction,
+  ExposureAnalysisData,
 } from './ads.js';
 
 // Alerts

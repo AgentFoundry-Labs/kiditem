@@ -1,29 +1,50 @@
-import { IsString, IsNumber, IsArray, IsOptional, ValidateNested, Min } from 'class-validator';
+import { IsArray, IsNumber, IsOptional, IsString, IsUUID, Min, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 
-export class RegisterCampaignProductDto {
-  @IsString() productId: string;
-  @IsString() productName: string;
+export class RegisterCampaignListingDto {
+  @IsUUID()
+  listingId: string;
+
+  @IsOptional()
+  @IsString()
+  label?: string;
 }
 
 export class RegisterCampaignKeywordDto {
-  @IsString() keyword: string;
-  @IsNumber() @Min(100) bidPrice: number;
+  @IsString()
+  keyword: string;
+
+  @IsNumber()
+  @Min(100)
+  bidPrice: number;
 }
 
 export class RegisterCampaignDto {
-  @IsString() campaignName: string;
-  @IsString() adGroupName: string;
-  @IsString() grade: string;
-  @IsNumber() @Min(10000) dailyBudget: number;
-  @IsString() operationMode: string;
+  @IsString()
+  campaignName: string;
+
+  @IsString()
+  adGroupName: string;
+
+  @IsString()
+  grade: string;
+
+  @IsNumber()
+  @Min(10000)
+  dailyBudget: number;
+
+  @IsString()
+  operationMode: string;
 
   @IsArray()
   @ValidateNested({ each: true })
-  @Type(() => RegisterCampaignProductDto)
-  products: RegisterCampaignProductDto[];
+  @Type(() => RegisterCampaignListingDto)
+  listings: RegisterCampaignListingDto[];
 
-  @IsOptional() @IsNumber() @Min(100) smartTargetingBid?: number;
+  @IsOptional()
+  @IsNumber()
+  @Min(100)
+  smartTargetingBid?: number;
 
   @IsOptional()
   @IsArray()
@@ -31,6 +52,12 @@ export class RegisterCampaignDto {
   @Type(() => RegisterCampaignKeywordDto)
   keywords?: RegisterCampaignKeywordDto[];
 
-  @IsOptional() @IsNumber() @Min(100) nonSearchBid?: number;
-  @IsOptional() @IsNumber() targetRoas?: number;
+  @IsOptional()
+  @IsNumber()
+  @Min(100)
+  nonSearchBid?: number;
+
+  @IsOptional()
+  @IsNumber()
+  targetRoas?: number;
 }

@@ -1,5 +1,6 @@
-import { IsOptional, IsString, IsIn, IsArray, IsInt, Min, Max } from 'class-validator';
+import { IsArray, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
 import { Type } from 'class-transformer';
+import { AD_ACTION_TARGET_TYPES } from '../services/types';
 
 export class AdActionQueryDto {
   @IsOptional()
@@ -11,8 +12,20 @@ export class AdActionQueryDto {
   executeStatus?: string;
 
   @IsOptional()
+  @IsUUID()
+  listingId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  optionId?: string;
+
+  @IsOptional()
+  @IsIn([...AD_ACTION_TARGET_TYPES])
+  targetType?: string;
+
+  @IsOptional()
   @IsString()
-  productId?: string;
+  priority?: string;
 
   @IsOptional()
   @Type(() => Number)

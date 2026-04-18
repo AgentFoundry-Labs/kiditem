@@ -1,0 +1,497 @@
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { Test } from '@nestjs/testing';
+import type { PrismaClient } from '@prisma/client';
+import { AdActionService } from '../services/ad-action.service';
+import { PrismaService } from '../../prisma/prisma.service';
+import {
+  makeTestPrisma,
+  resetDb,
+  seedBaseFixture,
+  TEST_COMPANY_ID,
+  OTHER_COMPANY_ID,
+} from '../../test-helpers/real-prisma';
+
+describe('AdAction flow (PG integration)', () => {
+  let prisma: PrismaClient;
+  let adActionService: AdActionService;
+
+  async function seedListingWithOption(params: {
+    companyId: string;
+    abcGrade?: string | null;
+    availableStock?: number | null;
+    costPrice?: number | null;
+    sellPrice?: number | null;
+    commissionRate?: number | null;
+    externalIdSuffix?: string;
+  }) {
+    const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const master = await prisma.masterProduct.create({
+      data: {
+        companyId: params.companyId,
+        code: `M-${unique}`,
+        name: `Master ${unique}`,
+        abcGrade: params.abcGrade ?? null,
+        optionCounter: 0,
+      },
+    });
+    const option = await prisma.productOption.create({
+      data: {
+        companyId: params.companyId,
+        masterId: master.id,
+        sku: `SKU-${unique}`,
+        optionName: `Option ${unique}`,
+        availableStock: params.availableStock ?? null,
+        costPrice: params.costPrice ?? null,
+        sellPrice: params.sellPrice ?? null,
+        commissionRate: params.commissionRate ?? null,
+      },
+    });
+    const listing = await prisma.channelListing.create({
+      data: {
+        companyId: params.companyId,
+        masterId: master.id,
+        channel: 'coupang',
+        externalId: `EXT-${unique}${params.externalIdSuffix ?? ''}`,
+      },
+    });
+    return { master, option, listing };
+  }
+
+  async function seedSnapshot(params: {
+    companyId: string;
+    listingId: string;
+    optionId: string | null;
+    pageType: 'campaign' | 'keyword' | 'product';
+    externalId: string;
+    campaignName?: string;
+    keyword?: string;
+    status?: string;
+    currentBid?: number | null;
+    dailyBudget?: number | null;
+    impressions?: number;
+    clicks?: number;
+    conversions?: number;
+    spend?: number;
+    revenue?: number;
+    roas?: number;
+  }) {
+    return prisma.adSnapshot.create({
+      data: {
+        companyId: params.companyId,
+        listingId: params.listingId,
+        optionId: params.optionId,
+        source: 'advertising',
+        pageType: params.pageType,
+        externalId: params.externalId,
+        campaignName: params.campaignName ?? null,
+        keyword: params.keyword ?? null,
+        status: params.status ?? null,
+        currentBid: params.currentBid ?? null,
+        dailyBudget: params.dailyBudget ?? null,
+        impressions: params.impressions ?? 0,
+        clicks: params.clicks ?? 0,
+        conversions: params.conversions ?? 0,
+        spend: params.spend ?? 0,
+        revenue: params.revenue ?? 0,
+        roas: params.roas ?? 0,
+      },
+    });
+  }
+
+  beforeAll(async () => {
+    prisma = makeTestPrisma();
+    await prisma.$connect();
+
+    const m = await Test.createTestingModule({
+      providers: [
+        AdActionService,
+        { provide: PrismaService, useValue: prisma },
+      ],
+    }).compile();
+    adActionService = m.get(AdActionService);
+  });
+
+  afterAll(async () => {
+    await prisma.$disconnect();
+  });
+
+  beforeEach(async () => {
+    await resetDb(prisma);
+    await seedBaseFixture(prisma);
+  });
+
+  describe('generateActions — 5 rules', () => {
+    it('#1 Rule 1: zero stock + campaign + dailyBudget>0 → change_daily_budget urgent', async () => {
+      const { listing, option } = await seedListingWithOption({
+        companyId: TEST_COMPANY_ID,
+        abcGrade: 'B',
+        availableStock: 0,
+      });
+      await seedSnapshot({
+        companyId: TEST_COMPANY_ID,
+        listingId: listing.id,
+        optionId: option.id,
+        pageType: 'campaign',
+        externalId: 'CAMP-ZERO-STOCK',
+        campaignName: 'Zero stock campaign',
+        dailyBudget: 10000,
+      });
+
+      const result = await adActionService.generateActions(TEST_COMPANY_ID);
+
+      expect(result.generated).toBe(1);
+      const action = await prisma.adAction.findFirstOrThrow({
+        where: { companyId: TEST_COMPANY_ID },
+      });
+      expect(action.actionType).toBe('change_daily_budget');
+      expect(action.targetType).toBe('campaign');
+      expect(action.priority).toBe('urgent');
+      expect(action.currentValue).toBe(10000);
+      expect(action.proposedValue).toBe(3000);
+    });
+
+    it('#2 Rule 1 skip when snapshot.optionId is null (option join 불가)', async () => {
+      const { listing } = await seedListingWithOption({
+        companyId: TEST_COMPANY_ID,
+        abcGrade: 'B',
+      });
+      await seedSnapshot({
+        companyId: TEST_COMPANY_ID,
+        listingId: listing.id,
+        optionId: null,
+        pageType: 'campaign',
+        externalId: 'CAMP-NO-OPTION',
+        campaignName: 'No option campaign',
+        dailyBudget: 3000,
+        roas: 300,
+      });
+
+      const result = await adActionService.generateActions(TEST_COMPANY_ID);
+
+      expect(result.generated).toBe(0);
+      const count = await prisma.adAction.count({ where: { companyId: TEST_COMPANY_ID } });
+      expect(count).toBe(0);
+    });
+
+    it('#3 Rule 2: keyword + spend>=5000 + conversions=0 → pause_keyword urgent', async () => {
+      const { listing, option } = await seedListingWithOption({
+        companyId: TEST_COMPANY_ID,
+        abcGrade: 'B',
+      });
+      await seedSnapshot({
+        companyId: TEST_COMPANY_ID,
+        listingId: listing.id,
+        optionId: option.id,
+        pageType: 'keyword',
+        externalId: 'KW-WASTE',
+        keyword: 'waste keyword',
+        spend: 6000,
+        conversions: 0,
+      });
+
+      const result = await adActionService.generateActions(TEST_COMPANY_ID);
+
+      expect(result.generated).toBe(1);
+      const action = await prisma.adAction.findFirstOrThrow({
+        where: { companyId: TEST_COMPANY_ID },
+      });
+      expect(action.actionType).toBe('pause_keyword');
+      expect(action.targetType).toBe('keyword');
+      expect(action.priority).toBe('urgent');
+    });
+
+    it('#4 Rule 3: keyword + currentBid>0 + 100<=roas<200 → change_bid to 85% rounded', async () => {
+      const { listing, option } = await seedListingWithOption({
+        companyId: TEST_COMPANY_ID,
+        abcGrade: 'B',
+      });
+      await seedSnapshot({
+        companyId: TEST_COMPANY_ID,
+        listingId: listing.id,
+        optionId: option.id,
+        pageType: 'keyword',
+        externalId: 'KW-BID-DOWN',
+        keyword: 'bid down',
+        currentBid: 1000,
+        spend: 1000,
+        conversions: 2,
+        roas: 150,
+      });
+
+      const result = await adActionService.generateActions(TEST_COMPANY_ID);
+
+      expect(result.generated).toBe(1);
+      const action = await prisma.adAction.findFirstOrThrow({
+        where: { companyId: TEST_COMPANY_ID },
+      });
+      expect(action.actionType).toBe('change_bid');
+      expect(action.currentValue).toBe(1000);
+      expect(action.proposedValue).toBe(850);
+    });
+
+    it('#5 Rule 4: A grade + campaign + roas>=480 → budget expand 1.2x', async () => {
+      const { listing, option } = await seedListingWithOption({
+        companyId: TEST_COMPANY_ID,
+        abcGrade: 'A',
+        availableStock: 100,
+      });
+      await seedSnapshot({
+        companyId: TEST_COMPANY_ID,
+        listingId: listing.id,
+        optionId: option.id,
+        pageType: 'campaign',
+        externalId: 'CAMP-A-EXPAND',
+        campaignName: 'A expand',
+        dailyBudget: 10000,
+        roas: 500,
+      });
+
+      const result = await adActionService.generateActions(TEST_COMPANY_ID);
+
+      expect(result.generated).toBe(1);
+      const action = await prisma.adAction.findFirstOrThrow({
+        where: { companyId: TEST_COMPANY_ID },
+      });
+      expect(action.actionType).toBe('change_daily_budget');
+      expect(action.currentValue).toBe(10000);
+      expect(action.proposedValue).toBe(12000);
+      expect(action.priority).toBe('high');
+    });
+
+    it('#6 Rule 5: C grade campaign + dailyBudget>3000 → budget shrink to 50% (min 3000)', async () => {
+      const { listing, option } = await seedListingWithOption({
+        companyId: TEST_COMPANY_ID,
+        abcGrade: 'C',
+        availableStock: 50,
+      });
+      await seedSnapshot({
+        companyId: TEST_COMPANY_ID,
+        listingId: listing.id,
+        optionId: option.id,
+        pageType: 'campaign',
+        externalId: 'CAMP-C-SHRINK',
+        campaignName: 'C shrink',
+        dailyBudget: 20000,
+        roas: 50,
+      });
+
+      const result = await adActionService.generateActions(TEST_COMPANY_ID);
+
+      expect(result.generated).toBe(1);
+      const action = await prisma.adAction.findFirstOrThrow({
+        where: { companyId: TEST_COMPANY_ID },
+      });
+      expect(action.actionType).toBe('change_daily_budget');
+      expect(action.currentValue).toBe(20000);
+      expect(action.proposedValue).toBe(10000);
+    });
+  });
+
+  describe('lifecycle + ExecutionTask', () => {
+    it('#7 approve → ExecutionTask created (idempotent)', async () => {
+      const { listing, option } = await seedListingWithOption({
+        companyId: TEST_COMPANY_ID,
+        abcGrade: 'B',
+        availableStock: 0,
+      });
+      await seedSnapshot({
+        companyId: TEST_COMPANY_ID,
+        listingId: listing.id,
+        optionId: option.id,
+        pageType: 'campaign',
+        externalId: 'CAMP-APPROVE',
+        campaignName: 'approve',
+        dailyBudget: 5000,
+      });
+      await adActionService.generateActions(TEST_COMPANY_ID);
+      const action = await prisma.adAction.findFirstOrThrow({
+        where: { companyId: TEST_COMPANY_ID },
+      });
+
+      await adActionService.approveActions([action.id], TEST_COMPANY_ID);
+
+      const updated = await prisma.adAction.findUniqueOrThrow({ where: { id: action.id } });
+      expect(updated.approvalStatus).toBe('approved');
+      expect(updated.executeStatus).toBe('queued');
+      const tasks = await prisma.executionTask.findMany({ where: { actionId: action.id } });
+      expect(tasks).toHaveLength(1);
+      expect(tasks[0].status).toBe('queued');
+
+      await adActionService.approveActions([action.id], TEST_COMPANY_ID);
+      const tasksAgain = await prisma.executionTask.findMany({ where: { actionId: action.id } });
+      expect(tasksAgain).toHaveLength(1);
+    });
+
+    it('#8 markRunning → markFailed → resetFailed → re-queued + new ExecutionTask', async () => {
+      const { listing, option } = await seedListingWithOption({
+        companyId: TEST_COMPANY_ID,
+        abcGrade: 'B',
+        availableStock: 0,
+      });
+      await seedSnapshot({
+        companyId: TEST_COMPANY_ID,
+        listingId: listing.id,
+        optionId: option.id,
+        pageType: 'campaign',
+        externalId: 'CAMP-RETRY',
+        campaignName: 'retry',
+        dailyBudget: 5000,
+      });
+      await adActionService.generateActions(TEST_COMPANY_ID);
+      const action = await prisma.adAction.findFirstOrThrow({
+        where: { companyId: TEST_COMPANY_ID },
+      });
+      await adActionService.approveActions([action.id], TEST_COMPANY_ID);
+
+      await adActionService.markRunning(action.id, { snapshot: 'before' }, TEST_COMPANY_ID);
+      let current = await prisma.adAction.findUniqueOrThrow({ where: { id: action.id } });
+      expect(current.executeStatus).toBe('running');
+
+      await adActionService.markFailed(action.id, 'timeout', { err: 'boom' }, TEST_COMPANY_ID);
+      current = await prisma.adAction.findUniqueOrThrow({ where: { id: action.id } });
+      expect(current.executeStatus).toBe('failed');
+      expect(current.errorMessage).toBe('timeout');
+
+      await adActionService.resetFailed(TEST_COMPANY_ID);
+      current = await prisma.adAction.findUniqueOrThrow({ where: { id: action.id } });
+      expect(current.executeStatus).toBe('queued');
+      expect(current.errorMessage).toBeNull();
+
+      const tasks = await prisma.executionTask.findMany({
+        where: { actionId: action.id },
+        orderBy: { createdAt: 'asc' },
+      });
+      expect(tasks).toHaveLength(2);
+      expect(tasks[1].status).toBe('queued');
+    });
+
+    it('#9 markDone → executeStatus=done + executedAt set', async () => {
+      const { listing, option } = await seedListingWithOption({
+        companyId: TEST_COMPANY_ID,
+        abcGrade: 'B',
+        availableStock: 0,
+      });
+      await seedSnapshot({
+        companyId: TEST_COMPANY_ID,
+        listingId: listing.id,
+        optionId: option.id,
+        pageType: 'campaign',
+        externalId: 'CAMP-DONE',
+        campaignName: 'done',
+        dailyBudget: 5000,
+      });
+      await adActionService.generateActions(TEST_COMPANY_ID);
+      const action = await prisma.adAction.findFirstOrThrow({
+        where: { companyId: TEST_COMPANY_ID },
+      });
+      await adActionService.approveActions([action.id], TEST_COMPANY_ID);
+      await adActionService.markRunning(action.id, undefined, TEST_COMPANY_ID);
+
+      await adActionService.markDone(action.id, { after: 'ok' }, TEST_COMPANY_ID);
+
+      const current = await prisma.adAction.findUniqueOrThrow({ where: { id: action.id } });
+      expect(current.executeStatus).toBe('done');
+      expect(current.executedAt).not.toBeNull();
+    });
+
+    it('#10 reject → approvalStatus=rejected + open tasks cancelled', async () => {
+      const { listing, option } = await seedListingWithOption({
+        companyId: TEST_COMPANY_ID,
+        abcGrade: 'B',
+        availableStock: 0,
+      });
+      await seedSnapshot({
+        companyId: TEST_COMPANY_ID,
+        listingId: listing.id,
+        optionId: option.id,
+        pageType: 'campaign',
+        externalId: 'CAMP-REJECT',
+        campaignName: 'reject',
+        dailyBudget: 5000,
+      });
+      await adActionService.generateActions(TEST_COMPANY_ID);
+      const action = await prisma.adAction.findFirstOrThrow({
+        where: { companyId: TEST_COMPANY_ID },
+      });
+      await adActionService.approveActions([action.id], TEST_COMPANY_ID);
+
+      await adActionService.rejectActions([action.id], TEST_COMPANY_ID);
+
+      const current = await prisma.adAction.findUniqueOrThrow({ where: { id: action.id } });
+      expect(current.approvalStatus).toBe('rejected');
+      const tasks = await prisma.executionTask.findMany({ where: { actionId: action.id } });
+      expect(tasks.every((t) => t.status === 'cancelled')).toBe(true);
+    });
+  });
+
+  describe('cross-tenant + IDOR', () => {
+    it('#11 generateActions scopes to companyId — other company snapshot ignored', async () => {
+      const mine = await seedListingWithOption({
+        companyId: TEST_COMPANY_ID,
+        abcGrade: 'B',
+        availableStock: 0,
+      });
+      await seedSnapshot({
+        companyId: TEST_COMPANY_ID,
+        listingId: mine.listing.id,
+        optionId: mine.option.id,
+        pageType: 'campaign',
+        externalId: 'MINE-CAMP',
+        campaignName: 'mine',
+        dailyBudget: 5000,
+      });
+
+      const other = await seedListingWithOption({
+        companyId: OTHER_COMPANY_ID,
+        abcGrade: 'B',
+        availableStock: 0,
+        externalIdSuffix: '-other',
+      });
+      await seedSnapshot({
+        companyId: OTHER_COMPANY_ID,
+        listingId: other.listing.id,
+        optionId: other.option.id,
+        pageType: 'campaign',
+        externalId: 'OTHER-CAMP',
+        campaignName: 'other',
+        dailyBudget: 9000,
+      });
+
+      const result = await adActionService.generateActions(TEST_COMPANY_ID);
+
+      expect(result.generated).toBe(1);
+      const mineCount = await prisma.adAction.count({ where: { companyId: TEST_COMPANY_ID } });
+      const otherCount = await prisma.adAction.count({ where: { companyId: OTHER_COMPANY_ID } });
+      expect(mineCount).toBe(1);
+      expect(otherCount).toBe(0);
+    });
+
+    it('#12 markRunning on another tenant id → NotFoundException', async () => {
+      const other = await seedListingWithOption({
+        companyId: OTHER_COMPANY_ID,
+        abcGrade: 'B',
+        availableStock: 0,
+      });
+      await seedSnapshot({
+        companyId: OTHER_COMPANY_ID,
+        listingId: other.listing.id,
+        optionId: other.option.id,
+        pageType: 'campaign',
+        externalId: 'OTHER-ONLY',
+        campaignName: 'other only',
+        dailyBudget: 5000,
+      });
+      await adActionService.generateActions(OTHER_COMPANY_ID);
+      const foreignAction = await prisma.adAction.findFirstOrThrow({
+        where: { companyId: OTHER_COMPANY_ID },
+      });
+
+      await expect(
+        adActionService.markRunning(foreignAction.id, undefined, TEST_COMPANY_ID),
+      ).rejects.toThrow(/not found/i);
+
+      const foreignAfter = await prisma.adAction.findUniqueOrThrow({ where: { id: foreignAction.id } });
+      expect(foreignAfter.executeStatus).toBe('queued');
+    });
+  });
+});

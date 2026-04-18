@@ -1,15 +1,16 @@
-import { Injectable, InternalServerErrorException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import type { AdActionTargetType } from './types';
 
 const GENERATION_LOOKBACK_HOURS = 72;
 const ACTION_DEDUP_HOURS = 24;
 
 type ActionCandidate = {
   snapshotId: string;
-  productId: string | null;
+  listingId: string | null;
   actionType: string;
-  targetType: string;
+  targetType: AdActionTargetType;
   externalId: string | null;
   targetLabel: string;
   reason: string;
@@ -19,39 +20,51 @@ type ActionCandidate = {
   payload: Record<string, unknown>;
 };
 
+export interface AdActionQuery {
+  approvalStatus?: string;
+  executeStatus?: string;
+  listingId?: string;
+  optionId?: string;
+  targetType?: string;
+  priority?: string;
+  limit?: number;
+}
+
 @Injectable()
 export class AdActionService {
   constructor(private readonly prisma: PrismaService) {}
 
-  private async getDefaultCompanyId(): Promise<string> {
-    const company = await this.prisma.company.findFirst({
-      where: { isActive: true },
-      select: { id: true },
-    });
-    if (!company) throw new InternalServerErrorException('회사 정보를 찾을 수 없습니다');
-    return company.id;
-  }
-
-  async getActions(query: {
-    approvalStatus?: string;
-    executeStatus?: string;
-    productId?: string;
-    limit?: number;
-  }) {
-    const companyId = await this.getDefaultCompanyId();
+  async getActions(query: AdActionQuery, companyId: string) {
     const limit = Math.min(query.limit || 50, 200);
 
-    const where: Record<string, unknown> = { companyId };
+    const where: Prisma.AdActionWhereInput = { companyId };
     if (query.approvalStatus && query.approvalStatus !== 'all') where.approvalStatus = query.approvalStatus;
     if (query.executeStatus && query.executeStatus !== 'all') where.executeStatus = query.executeStatus;
-    if (query.productId) where.productId = query.productId;
+    if (query.listingId) where.listingId = query.listingId;
+    if (query.targetType && query.targetType !== 'all') where.targetType = query.targetType;
+    if (query.priority && query.priority !== 'all') where.priority = query.priority;
 
     const [items, counts, latestSnapshot] = await Promise.all([
       this.prisma.adAction.findMany({
         where,
         include: {
-          product: { select: { id: true, name: true, abcGrade: true, adTier: true } },
-          snapshot: { select: { pageType: true, campaignName: true, keyword: true, productName: true, capturedAt: true } },
+          listing: {
+            select: {
+              id: true,
+              externalId: true,
+              channelName: true,
+              master: { select: { id: true, code: true, name: true, abcGrade: true, adTier: true } },
+            },
+          },
+          snapshot: {
+            select: {
+              pageType: true,
+              campaignName: true,
+              keyword: true,
+              productName: true,
+              capturedAt: true,
+            },
+          },
         },
         orderBy: { createdAt: 'desc' },
         take: limit,
@@ -93,23 +106,37 @@ export class AdActionService {
     };
   }
 
-  async generateActions() {
-    const companyId = await this.getDefaultCompanyId();
+  async generateActions(companyId: string) {
     const lookback = new Date(Date.now() - GENERATION_LOOKBACK_HOURS * 60 * 60 * 1000);
     const dedupCutoff = new Date(Date.now() - ACTION_DEDUP_HOURS * 60 * 60 * 1000);
-    const now = new Date();
-    const currentYear = now.getFullYear();
-    const currentMonth = now.getMonth() + 1;
 
     const [snapshots, existingActions] = await Promise.all([
       this.prisma.adSnapshot.findMany({
-        where: { companyId, source: 'advertising', capturedAt: { gte: lookback } },
+        where: {
+          companyId,
+          source: 'advertising',
+          capturedAt: { gte: lookback },
+          listingId: { not: null },
+        },
         orderBy: { capturedAt: 'desc' },
         include: {
-          product: {
-            include: {
-              inventory: true,
-              profitLoss: { where: { year: currentYear, month: currentMonth }, take: 1 },
+          listing: {
+            select: {
+              id: true,
+              externalId: true,
+              channelName: true,
+              master: { select: { id: true, code: true, name: true, abcGrade: true, adTier: true } },
+            },
+          },
+          option: {
+            select: {
+              id: true,
+              sku: true,
+              optionName: true,
+              availableStock: true,
+              costPrice: true,
+              sellPrice: true,
+              commissionRate: true,
             },
           },
         },
@@ -131,8 +158,8 @@ export class AdActionService {
       }),
     ]);
 
-    type SnapshotWithProduct = (typeof snapshots)[number];
-    const latestByTarget = new Map<string, SnapshotWithProduct>();
+    type SnapshotWithRelations = (typeof snapshots)[number];
+    const latestByTarget = new Map<string, SnapshotWithRelations>();
     for (const snapshot of snapshots) {
       const key = buildSnapshotKey(snapshot);
       if (!latestByTarget.has(key)) latestByTarget.set(key, snapshot);
@@ -191,7 +218,7 @@ export class AdActionService {
         this.prisma.adAction.create({
           data: {
             companyId,
-            productId: c.productId,
+            listingId: c.listingId,
             snapshotId: c.snapshotId,
             actionType: c.actionType,
             targetType: c.targetType,
@@ -216,20 +243,26 @@ export class AdActionService {
     };
   }
 
-  async approveActions(ids: string[]) {
+  async approveActions(ids: string[], companyId: string) {
     await this.prisma.$transaction(async (tx) => {
       await tx.adAction.updateMany({
-        where: { id: { in: ids } },
+        where: { id: { in: ids }, companyId },
         data: { approvalStatus: 'approved', approvedAt: new Date(), executeStatus: 'queued' },
       });
 
+      const scopedActions = await tx.adAction.findMany({
+        where: { id: { in: ids }, companyId },
+        select: { id: true },
+      });
+      const scopedIds = scopedActions.map((a) => a.id);
+
       const existingOpenTasks = await tx.executionTask.findMany({
-        where: { actionId: { in: ids }, status: { in: ['queued', 'leased', 'running'] } },
+        where: { actionId: { in: scopedIds }, status: { in: ['queued', 'leased', 'running'] } },
         select: { actionId: true },
       });
       const existingSet = new Set(existingOpenTasks.map((t) => t.actionId));
 
-      const toCreate = ids
+      const toCreate = scopedIds
         .filter((id) => !existingSet.has(id))
         .map((id) => ({ actionId: id, status: 'queued' }));
 
@@ -241,15 +274,21 @@ export class AdActionService {
     return { updated: ids.length };
   }
 
-  async rejectActions(ids: string[]) {
+  async rejectActions(ids: string[], companyId: string) {
     await this.prisma.$transaction(async (tx) => {
       await tx.adAction.updateMany({
-        where: { id: { in: ids } },
+        where: { id: { in: ids }, companyId },
         data: { approvalStatus: 'rejected', executeStatus: 'queued' },
       });
 
+      const scopedActions = await tx.adAction.findMany({
+        where: { id: { in: ids }, companyId },
+        select: { id: true },
+      });
+      const scopedIds = scopedActions.map((a) => a.id);
+
       await tx.executionTask.updateMany({
-        where: { actionId: { in: ids }, status: { in: ['queued', 'leased'] } },
+        where: { actionId: { in: scopedIds }, status: { in: ['queued', 'leased'] } },
         data: { status: 'cancelled', finishedAt: new Date(), errorMessage: '사용자 보류 처리' },
       });
     });
@@ -257,7 +296,10 @@ export class AdActionService {
     return { updated: ids.length };
   }
 
-  async markRunning(id: string, beforeJson?: Record<string, unknown>) {
+  async markRunning(id: string, beforeJson: Record<string, unknown> | undefined, companyId: string) {
+    const action = await this.prisma.adAction.findFirst({ where: { id, companyId } });
+    if (!action) throw new NotFoundException('AdAction not found');
+
     await this.prisma.adAction.update({
       where: { id },
       data: {
@@ -268,7 +310,10 @@ export class AdActionService {
     });
   }
 
-  async markDone(id: string, afterJson?: Record<string, unknown>) {
+  async markDone(id: string, afterJson: Record<string, unknown> | undefined, companyId: string) {
+    const action = await this.prisma.adAction.findFirst({ where: { id, companyId } });
+    if (!action) throw new NotFoundException('AdAction not found');
+
     await this.prisma.adAction.update({
       where: { id },
       data: {
@@ -280,7 +325,15 @@ export class AdActionService {
     });
   }
 
-  async markFailed(id: string, errorMessage?: string, afterJson?: Record<string, unknown>) {
+  async markFailed(
+    id: string,
+    errorMessage: string | undefined,
+    afterJson: Record<string, unknown> | undefined,
+    companyId: string,
+  ) {
+    const action = await this.prisma.adAction.findFirst({ where: { id, companyId } });
+    if (!action) throw new NotFoundException('AdAction not found');
+
     await this.prisma.adAction.update({
       where: { id },
       data: {
@@ -291,10 +344,10 @@ export class AdActionService {
     });
   }
 
-  async resetFailed() {
+  async resetFailed(companyId: string) {
     await this.prisma.$transaction(async (tx) => {
       const failedActions = await tx.adAction.findMany({
-        where: { executeStatus: 'failed', approvalStatus: 'approved' },
+        where: { companyId, executeStatus: 'failed', approvalStatus: 'approved' },
         select: { id: true },
       });
 
@@ -302,7 +355,7 @@ export class AdActionService {
       const ids = failedActions.map((a) => a.id);
 
       await tx.adAction.updateMany({
-        where: { id: { in: ids } },
+        where: { id: { in: ids }, companyId },
         data: { executeStatus: 'queued', errorMessage: null },
       });
 
@@ -327,7 +380,7 @@ function buildSnapshotKey(snapshot: {
 
 function createActionCandidate(snapshot: {
   id: string;
-  productId: string | null;
+  listingId: string | null;
   pageType: string;
   externalId: string | null;
   campaignName: string | null;
@@ -343,27 +396,34 @@ function createActionCandidate(snapshot: {
   revenue: number;
   roas: unknown;
   ctr: unknown;
-  product: {
-    abcGrade: string | null;
-    inventory: { currentStock: number } | null;
-    profitLoss: Array<{ profitRate: unknown }>;
+  listing: {
+    id: string;
+    externalId: string;
+    channelName: string | null;
+    master: { id: string; code: string; name: string; abcGrade: string | null; adTier: string | null } | null;
+  } | null;
+  option: {
+    id: string;
+    sku: string;
+    optionName: string | null;
+    availableStock: number | null;
+    costPrice: number | null;
+    sellPrice: number | null;
+    commissionRate: Prisma.Decimal | null;
   } | null;
   [key: string]: unknown;
 }): ActionCandidate | null {
-  const product = snapshot.product;
-  const grade = product?.abcGrade || 'C';
-  const stock = product?.inventory?.currentStock ?? null;
-  const profitRate = product?.profitLoss?.[0]?.profitRate;
-  const profitRateNum = profitRate != null ? Number(profitRate) : null;
+  const grade = snapshot.listing?.master?.abcGrade || 'C';
   const roas = Number(snapshot.roas ?? 0);
+  const profitRateNum = calcProfitRate(snapshot.option);
   const targetLabel = snapshot.keyword || snapshot.campaignName || snapshot.productName || snapshot.externalId || '미식별 대상';
   const statusText = (snapshot.status || '').toLowerCase();
 
-  // Rule 1: zero stock → budget cut
-  if (stock === 0 && snapshot.pageType === 'campaign' && snapshot.dailyBudget && snapshot.dailyBudget > 0) {
+  // Rule 1: zero stock → budget cut (option null 이면 Rule 1 skip)
+  if (snapshot.option && snapshot.option.availableStock === 0 && snapshot.pageType === 'campaign' && snapshot.dailyBudget && snapshot.dailyBudget > 0) {
     return {
       snapshotId: snapshot.id,
-      productId: snapshot.productId,
+      listingId: snapshot.listingId,
       actionType: 'change_daily_budget',
       targetType: 'campaign',
       externalId: snapshot.externalId,
@@ -384,7 +444,7 @@ function createActionCandidate(snapshot: {
     if (!isPaused(statusText) && (zeroConversionSpend || poorRoas)) {
       return {
         snapshotId: snapshot.id,
-        productId: snapshot.productId,
+        listingId: snapshot.listingId,
         actionType: 'pause_keyword',
         targetType: 'keyword',
         externalId: snapshot.externalId,
@@ -404,7 +464,7 @@ function createActionCandidate(snapshot: {
       if (nextBid < snapshot.currentBid) {
         return {
           snapshotId: snapshot.id,
-          productId: snapshot.productId,
+          listingId: snapshot.listingId,
           actionType: 'change_bid',
           targetType: 'keyword',
           externalId: snapshot.externalId,
@@ -426,7 +486,7 @@ function createActionCandidate(snapshot: {
       if (nextBudget > snapshot.dailyBudget) {
         return {
           snapshotId: snapshot.id,
-          productId: snapshot.productId,
+          listingId: snapshot.listingId,
           actionType: 'change_daily_budget',
           targetType: 'campaign',
           externalId: snapshot.externalId,
@@ -445,7 +505,7 @@ function createActionCandidate(snapshot: {
       if (nextBudget < snapshot.dailyBudget) {
         return {
           snapshotId: snapshot.id,
-          productId: snapshot.productId,
+          listingId: snapshot.listingId,
           actionType: 'change_daily_budget',
           targetType: 'campaign',
           externalId: snapshot.externalId,
@@ -461,6 +521,21 @@ function createActionCandidate(snapshot: {
   }
 
   return null;
+}
+
+function calcProfitRate(option: {
+  costPrice: number | null;
+  sellPrice: number | null;
+  commissionRate: Prisma.Decimal | null;
+} | null): number | null {
+  if (!option) return null;
+  const cost = option.costPrice ?? 0;
+  const sell = option.sellPrice ?? 0;
+  if (sell <= 0) return null;
+  const commission = option.commissionRate != null ? Number(option.commissionRate) : 0;
+  const commissionFee = sell * commission;
+  const profit = sell - cost - commissionFee;
+  return Math.round((profit / sell) * 10000) / 100;
 }
 
 function basePayload(

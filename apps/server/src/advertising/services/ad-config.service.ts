@@ -1,8 +1,4 @@
-import {
-  Injectable,
-  InternalServerErrorException,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AdsConfig } from './types';
 
@@ -42,26 +38,14 @@ const DEFAULTS: Record<string, unknown> = {
 export class AdConfigService {
   constructor(private readonly prisma: PrismaService) {}
 
-  private async getDefaultCompanyId(): Promise<string> {
-    const company = await this.prisma.company.findFirst({
-      where: { isActive: true },
-      select: { id: true },
-    });
-    if (!company) throw new InternalServerErrorException('회사 정보를 찾을 수 없습니다');
-    return company.id;
-  }
-
-  async getConfig(companyId?: string): Promise<AdsConfig> {
-    const cid = companyId || await this.getDefaultCompanyId();
-
+  async getConfig(companyId: string): Promise<AdsConfig> {
     const settings = await this.prisma.systemSetting.findMany({
-      where: { companyId: cid, key: { startsWith: 'ads.' } },
+      where: { companyId, key: { startsWith: 'ads.' } },
     });
 
-    // seed if empty
     if (settings.length === 0) {
-      await this.seedDefaults(cid);
-      return this.getConfig(cid);
+      await this.seedDefaults(companyId);
+      return this.getConfig(companyId);
     }
 
     const map = new Map<string, unknown>();
@@ -94,17 +78,15 @@ export class AdConfigService {
     };
   }
 
-  async updateConfig(companyId: string | undefined, key: string, value: unknown): Promise<void> {
-    const cid = companyId || await this.getDefaultCompanyId();
-
+  async updateConfig(key: string, value: unknown, companyId: string): Promise<void> {
     if (!key.startsWith('ads.') || !(key in DEFAULTS)) {
       throw new NotFoundException(`알 수 없는 설정 키: ${key}`);
     }
 
     await this.prisma.systemSetting.upsert({
-      where: { companyId_key: { companyId: cid, key } },
+      where: { companyId_key: { companyId, key } },
       update: { value: JSON.stringify(value) },
-      create: { companyId: cid, key, value: JSON.stringify(value) },
+      create: { companyId, key, value: JSON.stringify(value) },
     });
   }
 
@@ -123,10 +105,5 @@ export class AdConfigService {
       skipDuplicates: true,
     });
     return result.count;
-  }
-
-  async seedDefaultsForDefaultCompany(): Promise<number> {
-    const companyId = await this.getDefaultCompanyId();
-    return this.seedDefaults(companyId);
   }
 }
