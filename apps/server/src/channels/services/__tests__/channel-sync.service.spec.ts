@@ -106,3 +106,80 @@ describe('ChannelSyncService.syncSingleOrder (Plan A.5)', () => {
     expect(upsertArgs.create.totalPrice).toBe(300);
   });
 });
+
+describe('ChannelSyncService.syncSingleReturn (Plan A.5)', () => {
+  let service: ChannelSyncService;
+  let prisma: any;
+  let tx: any;
+
+  beforeEach(async () => {
+    tx = {
+      orderReturn: { upsert: vi.fn() },
+      orderReturnLineItem: {
+        deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+        create: vi.fn(),
+      },
+    };
+    prisma = {
+      $transaction: vi.fn(async (cb: any) => cb(tx)),
+      order: { findFirst: vi.fn() },
+    };
+    const m = await Test.createTestingModule({
+      providers: [
+        ChannelSyncService,
+        { provide: PrismaService, useValue: prisma },
+      ],
+    }).compile();
+    service = m.get(ChannelSyncService);
+  });
+
+  it('upserts OrderReturn with type from receiptType', async () => {
+    prisma.order.findFirst.mockResolvedValue({ id: 'order-1' });
+    tx.orderReturn.upsert.mockResolvedValue({ id: 'ret-1' });
+
+    await (service as any).syncSingleReturn({
+      receiptId: 'RCT-1',
+      receiptType: 'RETURN',
+      receiptStatus: 'UC',
+      orderId: 'CO-1',
+      cancelReason: 'damaged',
+      faultByType: 'CUSTOMER',
+      requesterName: 'Alice',
+      requestedAt: '2026-04-18T00:00:00Z',
+      items: [],
+    } as any, 'c1');
+
+    const args = tx.orderReturn.upsert.mock.calls[0][0];
+    expect(args.where).toEqual({
+      companyId_platform_externalReturnId: { companyId: 'c1', platform: 'coupang', externalReturnId: 'RCT-1' },
+    });
+    expect(args.create.type).toBe('RETURN');
+    expect(args.create.requesterName).toBe('Alice');
+    expect(args.create.orderId).toBe('order-1');
+  });
+
+  it('items JSON → OrderReturnLineItem rows', async () => {
+    prisma.order.findFirst.mockResolvedValue(null);
+    tx.orderReturn.upsert.mockResolvedValue({ id: 'ret-1' });
+    tx.orderReturnLineItem.create.mockResolvedValue({});
+
+    await (service as any).syncSingleReturn({
+      receiptId: 'RCT-2',
+      receiptType: 'EXCHANGE',
+      receiptStatus: 'UC',
+      orderId: null,
+      requesterName: 'Bob',
+      requestedAt: '2026-04-18T00:00:00Z',
+      items: [
+        { productName: 'Toy', quantity: 1 },
+        { productName: 'Book', quantity: 2 },
+      ],
+    } as any, 'c1');
+
+    expect(tx.orderReturnLineItem.deleteMany).toHaveBeenCalledWith({ where: { returnId: 'ret-1' } });
+    expect(tx.orderReturnLineItem.create).toHaveBeenCalledTimes(2);
+    const firstCreate = tx.orderReturnLineItem.create.mock.calls[0][0].data;
+    expect(firstCreate.companyId).toBe('c1');
+    expect(firstCreate.productName).toBe('Toy');
+  });
+});

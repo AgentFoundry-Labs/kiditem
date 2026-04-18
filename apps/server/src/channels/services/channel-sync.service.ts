@@ -533,4 +533,92 @@ export class ChannelSyncService {
       { timeout: 15_000 },
     );
   }
+
+  private async syncSingleReturn(
+    payload: any,
+    companyId: string,
+  ): Promise<void> {
+    const receiptId = String(payload.receiptId);
+    const matchedOrder = payload.orderId
+      ? await this.prisma.order.findFirst({
+          where: {
+            companyId,
+            platform: 'coupang',
+            externalNumber: String(payload.orderId),
+          },
+          select: { id: true },
+        })
+      : null;
+
+    const metadata = {
+      reasonCode: payload.reasonCode ?? null,
+      reasonCodeText: payload.reasonCodeText ?? null,
+      returnDeliveryId: payload.returnDeliveryId ?? null,
+    };
+
+    await this.prisma.$transaction(
+      async (tx) => {
+        const ret = await tx.orderReturn.upsert({
+          where: {
+            companyId_platform_externalReturnId: {
+              companyId,
+              platform: 'coupang',
+              externalReturnId: receiptId,
+            },
+          },
+          update: {
+            type: payload.receiptType ?? 'RETURN',
+            status: payload.receiptStatus ?? 'pending',
+            reason: payload.cancelReason ?? '',
+            reasonCategory1: payload.cancelReasonCategory1 ?? null,
+            reasonCategory2: payload.cancelReasonCategory2 ?? null,
+            faultBy: payload.faultByType ?? 'CUSTOMER',
+            requesterName: payload.requesterName ?? '',
+            enclosePrice: payload.enclosePrice ?? null,
+            completedAt: payload.completedAt
+              ? new Date(payload.completedAt)
+              : null,
+            orderId: matchedOrder?.id ?? null,
+            metadata: metadata as Prisma.InputJsonValue,
+          },
+          create: {
+            companyId,
+            platform: 'coupang',
+            externalReturnId: receiptId,
+            type: payload.receiptType ?? 'RETURN',
+            status: payload.receiptStatus ?? 'pending',
+            reason: payload.cancelReason ?? '',
+            reasonCategory1: payload.cancelReasonCategory1 ?? null,
+            reasonCategory2: payload.cancelReasonCategory2 ?? null,
+            faultBy: payload.faultByType ?? 'CUSTOMER',
+            requesterName: payload.requesterName ?? '',
+            enclosePrice: payload.enclosePrice ?? null,
+            requestedAt: new Date(payload.requestedAt),
+            completedAt: payload.completedAt
+              ? new Date(payload.completedAt)
+              : null,
+            orderId: matchedOrder?.id ?? null,
+            metadata: metadata as Prisma.InputJsonValue,
+          },
+        });
+
+        await tx.orderReturnLineItem.deleteMany({
+          where: { returnId: ret.id },
+        });
+        const items = Array.isArray(payload.items) ? payload.items : [];
+        for (const it of items) {
+          await tx.orderReturnLineItem.create({
+            data: {
+              companyId,
+              returnId: ret.id,
+              productName: it.productName ?? it.vendorItemName ?? '',
+              quantity: it.quantity ?? 1,
+              metadata: { raw: it } as Prisma.InputJsonValue,
+            },
+          });
+        }
+      },
+      { timeout: 15_000 },
+    );
+  }
 }
