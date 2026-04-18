@@ -6,21 +6,12 @@ import { CreateReturnTransferDto, UpdateReturnTransferDto } from './dto';
 export class ReturnTransfersService {
   constructor(private readonly prisma: PrismaService) {}
 
-  private async generateRtNumber(companyId: string): Promise<string> {
+  private generateRtNumber(): string {
     const now = new Date();
     const yy = String(now.getFullYear()).slice(2);
     const mm = String(now.getMonth() + 1).padStart(2, '0');
     const dd = String(now.getDate()).padStart(2, '0');
-    const prefix = `RT-${yy}${mm}${dd}`;
-
-    const todayCount = await this.prisma.returnTransfer.count({
-      where: {
-        companyId,
-        rtNumber: { startsWith: prefix },
-      },
-    });
-
-    return `${prefix}-${todayCount + 1}`;
+    return `RT-${yy}${mm}${dd}-${Date.now()}`;
   }
 
   async findAll(companyId: string, query: { status?: string }) {
@@ -41,7 +32,7 @@ export class ReturnTransfersService {
     });
     if (!option) throw new NotFoundException('Option not found');
 
-    const rtNumber = await this.generateRtNumber(companyId);
+    const rtNumber = this.generateRtNumber();
 
     return this.prisma.returnTransfer.create({
       data: {
