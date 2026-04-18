@@ -1,4 +1,4 @@
-import { Module, OnModuleInit, Logger } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { AdvertisingController } from './controllers/advertising.controller';
 import { AdvertisingService } from './services/advertising.service';
 import { AdCampaignsService } from './services/ad-campaigns.service';
@@ -24,19 +24,4 @@ import { AdConfigService } from './services/ad-config.service';
     AdConfigService,
   ],
 })
-export class AdvertisingModule implements OnModuleInit {
-  private readonly logger = new Logger(AdvertisingModule.name);
-
-  constructor(private readonly adConfigService: AdConfigService) {}
-
-  async onModuleInit() {
-    try {
-      const seeded = await this.adConfigService.seedDefaultsForDefaultCompany();
-      if (seeded > 0) {
-        this.logger.log(`Ad config: ${seeded} default settings seeded`);
-      }
-    } catch {
-      this.logger.warn('Ad config seed skipped (no company found yet)');
-    }
-  }
-}
+export class AdvertisingModule {}
