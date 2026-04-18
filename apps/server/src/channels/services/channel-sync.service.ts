@@ -435,9 +435,6 @@ export class ChannelSyncService {
           },
           update: {
             status: payload.status ?? undefined,
-            shippedAt: payload.shippedAt
-              ? new Date(payload.shippedAt)
-              : undefined,
             trackingNumber: payload.invoiceNumber ?? null,
             shippingCompany: payload.deliveryCompanyName ?? null,
             shippingPrice: payload.shippingPrice ?? 0,
@@ -461,7 +458,6 @@ export class ChannelSyncService {
             memo: payload.parcelPrintMessage ?? null,
             orderedAt: new Date(payload.orderedAt),
             paidAt: payload.paidAt ? new Date(payload.paidAt) : null,
-            shippedAt: payload.shippedAt ? new Date(payload.shippedAt) : null,
             shippingPrice: payload.shippingPrice ?? 0,
             totalPrice,
             trackingNumber: payload.invoiceNumber ?? null,
