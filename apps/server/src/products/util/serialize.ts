@@ -7,6 +7,13 @@ import { Prisma } from '@prisma/client';
  */
 export function toSerializable(row: unknown): unknown {
   if (row === null || row === undefined) return row;
+  // Plan B1 이월 #4: $queryRaw 가 반환하는 BigInt 대응
+  if (typeof row === 'bigint') {
+    if (row > BigInt(Number.MAX_SAFE_INTEGER) || row < BigInt(Number.MIN_SAFE_INTEGER)) {
+      return row.toString();
+    }
+    return Number(row);
+  }
   if (row instanceof Date) return row.toISOString();
   if (Prisma.Decimal.isDecimal(row)) return (row as Prisma.Decimal).toNumber();
   if (Array.isArray(row)) return row.map(toSerializable);
