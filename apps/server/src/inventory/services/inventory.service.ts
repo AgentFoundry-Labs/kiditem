@@ -9,6 +9,9 @@ import type {
   InventoryListResponse,
   InventoryStatus,
   UpdateInventoryMetadataInput,
+  ReceiveStockInput,
+  StockOperationResult,
+  StockTransactionType,
 } from '@kiditem/shared';
 import type { Prisma } from '@prisma/client';
 import type {
@@ -127,6 +130,98 @@ export class InventoryService {
     return toSerializable(updated) as Inventory;
   }
 
-  // ===== Mutations placeholder — 다음 task =====
+  // ===== Mutations =====
+  async receive(
+    id: string,
+    dto: ReceiveStockInput,
+    companyId: string,
+    userId: string,
+  ) {
+    return this.applyDelta(id, dto.quantity, {
+      type: 'RECEIVE',
+      unitCost: dto.unitCost ?? 0,
+      warehouseId: dto.warehouseId,
+      note: dto.note,
+      userId,
+    }, companyId);
+  }
+
+  private async applyDelta(
+    id: string,
+    delta: number,
+    txParams: {
+      type: 'RECEIVE' | 'ISSUE' | 'ADJUST';
+      unitCost: number;
+      warehouseId?: string;
+      relatedId?: string;
+      relatedType?: string;
+      note?: string;
+      userId: string;
+    },
+    companyId: string,
+  ): Promise<StockOperationResult> {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM inventory WHERE id = ${id}::uuid FOR UPDATE`;
+
+      const inv = await tx.inventory.findFirst({ where: { id, companyId } });
+      if (!inv) throw new NotFoundException('Inventory not found');
+
+      const nextStock = inv.currentStock + delta;
+      if (nextStock < 0) {
+        throw new BadRequestException(
+          `insufficient stock (current=${inv.currentStock}, delta=${delta})`,
+        );
+      }
+
+      const updated = await tx.inventory.update({
+        where: { id },
+        data: {
+          currentStock: { increment: delta },
+          lastRestockedAt: txParams.type === 'RECEIVE' ? new Date() : inv.lastRestockedAt,
+        },
+      });
+
+      const option = await tx.productOption.findUnique({
+        where: { id: updated.optionId },
+        select: { optionName: true },
+      });
+
+      const transaction = await tx.stockTransaction.create({
+        data: {
+          companyId,
+          optionId: updated.optionId,
+          optionName: option?.optionName ?? null,
+          type: txParams.type,
+          quantity: Math.abs(delta),
+          unitCost: txParams.unitCost,
+          totalCost: txParams.unitCost * Math.abs(delta),
+          warehouseId: txParams.warehouseId,
+          relatedId: txParams.relatedId,
+          relatedType: txParams.relatedType,
+          note: txParams.note,
+          createdBy: txParams.userId,
+        },
+      });
+
+      const recomputedBundleOptionIds = await this.bundleStock.recomputeForComponent(
+        updated.optionId,
+        tx,
+      );
+
+      return {
+        inventory: toSerializable(updated) as Inventory,
+        transaction: {
+          id: transaction.id,
+          optionId: transaction.optionId,
+          type: transaction.type as StockTransactionType,
+          quantity: transaction.quantity,
+          unitCost: transaction.unitCost,
+          createdAt: transaction.createdAt.toISOString(),
+        },
+        recomputedBundleOptionIds,
+      } satisfies StockOperationResult;
+    }, { timeout: 15_000 });
+  }
+
   // ===== Ledger placeholder — 다음 task =====
 }
