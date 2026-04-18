@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateStockTransferDto, UpdateStockTransferDto } from './dto';
 
@@ -18,7 +18,7 @@ export class StockTransfersService {
     return this.prisma.stockTransfer.findMany({
       where,
       include: {
-        product: true,
+        option: true,
         fromWarehouse: true,
         toWarehouse: true,
       },
@@ -27,26 +27,35 @@ export class StockTransfersService {
   }
 
   async create(companyId: string, dto: CreateStockTransferDto) {
+    const option = await this.prisma.productOption.findFirst({
+      where: { id: dto.optionId, companyId, isDeleted: false },
+      select: { optionName: true },
+    });
+    if (!option) throw new NotFoundException('Option not found');
+
     return this.prisma.stockTransfer.create({
       data: {
         companyId,
-        productId: dto.productId,
+        optionId: dto.optionId,
+        optionName: option.optionName,
         fromWarehouseId: dto.fromWarehouseId,
         toWarehouseId: dto.toWarehouseId,
         quantity: dto.quantity,
         notes: dto.notes,
       },
       include: {
-        product: true,
+        option: true,
         fromWarehouse: true,
         toWarehouse: true,
       },
     });
   }
 
-  async update(id: string, dto: UpdateStockTransferDto) {
-    const existing = await this.prisma.stockTransfer.findUnique({ where: { id } });
-    if (!existing) throw new BadRequestException('재고 이동을 찾을 수 없습니다');
+  async update(id: string, dto: UpdateStockTransferDto, companyId: string) {
+    const existing = await this.prisma.stockTransfer.findFirst({
+      where: { id, companyId },
+    });
+    if (!existing) throw new NotFoundException('재고 이동을 찾을 수 없습니다');
 
     const allowed = VALID_TRANSITIONS[existing.status];
     if (!allowed || !allowed.includes(dto.status)) {
@@ -64,7 +73,7 @@ export class StockTransfersService {
       where: { id },
       data: updateData,
       include: {
-        product: true,
+        option: true,
         fromWarehouse: true,
         toWarehouse: true,
       },

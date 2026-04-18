@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateReturnTransferDto, UpdateReturnTransferDto } from './dto';
 
@@ -29,12 +29,18 @@ export class ReturnTransfersService {
 
     return this.prisma.returnTransfer.findMany({
       where,
-      include: { product: true },
+      include: { option: true },
       orderBy: { createdAt: 'desc' },
     });
   }
 
   async create(companyId: string, dto: CreateReturnTransferDto) {
+    const option = await this.prisma.productOption.findFirst({
+      where: { id: dto.optionId, companyId, isDeleted: false },
+      select: { optionName: true },
+    });
+    if (!option) throw new NotFoundException('Option not found');
+
     const rtNumber = await this.generateRtNumber(companyId);
 
     return this.prisma.returnTransfer.create({
@@ -42,18 +48,21 @@ export class ReturnTransfersService {
         companyId,
         rtNumber,
         orderId: dto.orderId,
-        productId: dto.productId,
-        productName: dto.productName,
+        optionId: dto.optionId,
+        optionName: option.optionName,
         quantity: dto.quantity,
+        condition: dto.condition ?? 'good',
         notes: dto.notes,
       },
-      include: { product: true },
+      include: { option: true },
     });
   }
 
-  async update(id: string, dto: UpdateReturnTransferDto) {
-    const existing = await this.prisma.returnTransfer.findUnique({ where: { id } });
-    if (!existing) throw new BadRequestException('반품을 찾을 수 없습니다');
+  async update(id: string, dto: UpdateReturnTransferDto, companyId: string) {
+    const existing = await this.prisma.returnTransfer.findFirst({
+      where: { id, companyId },
+    });
+    if (!existing) throw new NotFoundException('반품을 찾을 수 없습니다');
 
     return this.prisma.returnTransfer.update({
       where: { id },
@@ -64,7 +73,7 @@ export class ReturnTransfersService {
         ...(dto.disposedQty !== undefined && { disposedQty: dto.disposedQty }),
         ...(dto.processedBy !== undefined && { processedBy: dto.processedBy }),
       },
-      include: { product: true },
+      include: { option: true },
     });
   }
 }
