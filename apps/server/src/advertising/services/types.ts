@@ -193,6 +193,11 @@ export interface ExposureScoreInput {
   metrics: ListingMetricsRow;
   inventory: InventoryRow | null;
   reviewStats: { totalReviews: number; recentReviews: number; avgRating: number } | null;
+  // 기존 ad-strategy.service.ts:1218-1306 공식 보존용 추가 컨텍스트.
+  // orchestrator (T7) 가 trafficStats / inventory.leadTimeDays / option pricing 으로 사전 계산.
+  // null/0 default 로 호출하면 formula 가 baseline (low) score 로 degrade.
+  trafficContext: { maxT14: number; t14Rev: number; t14PrevRev: number; t14Orders: number };
+  fulfillmentContext: { leadTime: number | null; profitRate: number };
 }
 
 export interface TopIssueInput {
