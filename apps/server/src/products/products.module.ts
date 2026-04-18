@@ -15,6 +15,6 @@ import { BundleComponentsController } from './controllers/bundle-components.cont
     MasterCodeService, MastersService, OptionsService,
     BundleStockService, BundleComponentsService,
   ],
-  exports: [MastersService, OptionsService, BundleComponentsService],
+  exports: [MastersService, OptionsService, BundleComponentsService, BundleStockService],
 })
 export class ProductsModule {}

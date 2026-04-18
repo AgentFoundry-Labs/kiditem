@@ -66,4 +66,31 @@ export class BundleStockService {
       ? exec(outerTx)
       : this.prisma.$transaction(exec, { timeout: 15000 });
   }
+
+  /**
+   * 이 option 을 component 로 쓰는 모든 활성 bundle option 에 대해
+   * recompute(bundleOptionId, tx) 를 호출. 반환값은 갱신된 bundle option id 리스트.
+   *
+   * - BundleComponent 는 hard-delete (isDeleted 필드 없음)
+   * - componentOption soft-delete 는 fan-out 에서 제외
+   * - nested bundle 금지 (BundleComponentsService.create 차단) → 비재귀 종료 보장
+   *
+   * ADR-0014: InventoryService 전용. 다른 모듈은 호출 금지.
+   */
+  async recomputeForComponent(
+    componentOptionId: string,
+    tx: Prisma.TransactionClient,
+  ): Promise<string[]> {
+    const components = await tx.bundleComponent.findMany({
+      where: {
+        componentOptionId,
+        componentOption: { isDeleted: false },
+      },
+      select: { bundleOptionId: true },
+    });
+    for (const { bundleOptionId } of components) {
+      await this.recompute(bundleOptionId, tx);
+    }
+    return components.map((c) => c.bundleOptionId);
+  }
 }
