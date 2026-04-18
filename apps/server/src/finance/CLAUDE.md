@@ -24,9 +24,9 @@ finance/
 
 ## 핵심 패턴
 
-### 1. $queryRaw — Cross-table 집계
+### 1. $queryRaw — Cross-table 집계 (Plan B2c 재작성 예정)
 
-`profitLoss + coupangOrders + coupangOrderItems` 조인이 Prisma 표준 API 로 안 되어 raw SQL 사용 (profit-loss.service.ts:54-60). Parameterized binding 필수 (string concat 절대 금지).
+기존: `profitLoss + coupangOrders + coupangOrderItems` 조인 raw SQL. Plan A.5 (ADR-0015) 가 `coupang_orders` / `coupang_order_items` 를 drop 했고, `profit-loss.service.ts` 는 현재 `findAll()` 만 stub 으로 남아있다. B2c 가 `Order` + `OrderLineItem` (channel-agnostic) 기반으로 재작성. Parameterized binding 필수 (string concat 절대 금지) 는 동일.
 
 ### 2. Period 파싱 — YYYY-MM 형식
 
