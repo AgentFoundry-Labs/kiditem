@@ -1,55 +1,212 @@
 import { Injectable } from '@nestjs/common';
 import type { AdStrategyAction, AdIssues } from '@kiditem/shared';
-import type { Prisma } from '@prisma/client';
-import type { GradeRulesInput, AdIssuesInput, InventoryRow } from './types';
+import type { GradeRulesInput, AdIssuesInput, HydratedListing } from './types';
 import { toListingSummary } from './util/ad-strategy-helpers';
 
+type Priority = 'urgent' | 'high' | 'medium' | 'low';
+
+const PRIORITY_ORDER: Record<Priority, number> = {
+  urgent: 0,
+  high: 1,
+  medium: 2,
+  low: 3,
+};
+
 /**
- * Pure calculator — Ad strategy 의 rule 평가.
+ * Pure calculator — Ad strategy 의 rule 평가 (listing-level ABC grade rules).
  *
- * Prisma 의존 없음. orchestrator 가 사전 fetch 한 snapshots/listings/inventory/gradeMap 을 받아
- * AdStrategyAction[] (recommendations) + AdIssues 카테고리화 결과 반환.
+ * Prisma 의존 없음. orchestrator 가 사전 fetch 한 adGroups + listings + gradeMap + profitRate 를
+ * 받아 AdStrategyAction[] (recommendations) + AdIssues 카테고리화 결과 반환.
  *
- * 기존 ad-strategy.service.ts:653-1028 의 calcActions / calcAdIssues / ruleToActionType 본문 이전.
+ * 기존 ad-strategy.service.ts (B2b, 2c17850) line 653-1026 본문 이전.
  * 변경:
- *  - prisma 호출 제거 (input 으로 이동)
- *  - productId → listingId
- *  - snapshot.product.inventory.currentStock → InventoryRow.availableStock (snapshot.optionId 로 lookup)
- *  - snapshot.product.profitLoss[0].profitRate → InventoryRow.{costPrice, sellPrice, commissionRate} 로 inline 계산
- *  - toListingSummary 는 util/ad-strategy-helpers import (DRY, plan v2 amendment)
+ *  - prisma 호출 제거 (input 으로 이동; adGroups = `prisma.ad.groupBy(['listingId'])` 결과)
+ *  - productId → listingId (B2b 도입분)
+ *  - toListingSummary 는 util/ad-strategy-helpers import
  *
- * Threshold 보존: 5000 / 100 / 200 / 480 / 0.85 / 1.2 / 0.5 / 3000.
+ * Threshold 보존: 5000 / 100 / 200 / 300 / 480 / 10000 / 50 / 20 / 0.35 / 3000 (B2b 원본).
  */
 @Injectable()
 export class AdGradeRulesService {
   /**
-   * snapshot 별 rule 평가 → recommendations.
+   * listing-level rule 평가 → recommendations.
    *
-   * 기존 ad-strategy.service.ts:653-941 의 calcActions 본문 이전.
-   * snapshot.listingId 미존재 / listingMap miss 인 경우 skip.
+   * 기존 ad-strategy.service.ts:653-938 의 calcActions 본문 이전.
+   * adGroups[].listingId 가 없거나 listing hydrate 에 missing 이면 skip.
+   * spend === 0 인 listing 도 skip (B2b 원본 line 719).
    */
   calcActions(input: GradeRulesInput): AdStrategyAction[] {
-    const { snapshots, listings, inventory, gradeMap } = input;
+    const { adGroups, listings, gradeMap, profitRateByListing } = input;
     const listingMap = new Map(listings.map((l) => [l.id, l]));
+    const adMap = new Map(adGroups.map((a) => [a.listingId, a]));
+
     const actions: AdStrategyAction[] = [];
 
-    for (const snapshot of snapshots) {
-      if (!snapshot.listingId) continue;
-      const listing = listingMap.get(snapshot.listingId);
-      if (!listing) continue;
-      const grade = gradeMap.get(snapshot.listingId) ?? 'C';
-      const inv = snapshot.optionId ? inventory.get(snapshot.optionId) ?? null : null;
-      const action = this.evaluateRules(snapshot, listing, grade, inv);
-      if (action) actions.push(action);
+    for (const listing of listings) {
+      const ad = adMap.get(listing.id);
+      const spend = ad?.spend ?? 0;
+      const revenue = ad?.revenue ?? 0;
+      const clicks = ad?.clicks ?? 0;
+      const impressions = ad?.impressions ?? 0;
+      const conversions = ad?.conversions ?? 0;
+      const roas = spend > 0 ? Math.round((revenue / spend) * 100) : 0;
+      const ctr = impressions > 0 ? Math.round((clicks / impressions) * 10000) / 100 : 0;
+      if (spend === 0) continue;
+
+      const grade = gradeMap.get(listing.id) ?? normalizeGrade(listing.masterProduct.abcGrade);
+      const primary = listing.primaryOption;
+      const margin = calcOptionMargin(primary);
+      const adBudgetLimit = margin > 0 ? margin * 0.35 : 0;
+      const stock = primary?.availableStock ?? 0;
+      const profitRate = profitRateByListing.get(listing.id) ?? 0;
+      const summary = toListingSummary(listing);
+      const name = listing.masterProduct.name;
+
+      const recs: Array<{ rule: string; reason: string; priority: Priority }> = [];
+
+      // ═══ 공통 긴급 규칙 ═══
+      if (stock === 0 && listing.masterProduct.adTier && spend > 0) {
+        recs.push({
+          rule: '긴급: 재고0 광고ON',
+          reason: '재고 없음 — 광고 즉시 중단. 재입고 확인 후 재개',
+          priority: 'urgent',
+        });
+      }
+
+      if (clicks >= 50 && conversions === 0 && spend > 0) {
+        recs.push({
+          rule: 'C-5 전환0 조기손절',
+          reason: `클릭 ${clicks}회, 전환 0 — 키워드 OFF 또는 캠페인 중단 (광고비 ${Math.round(spend).toLocaleString()}원 낭비)`,
+          priority: 'urgent',
+        });
+      }
+
+      if (ctr >= 0.5 && roas < 100 && spend > 1000 && clicks >= 20) {
+        recs.push({
+          rule: 'B-7 CTR높음 전환낮음',
+          reason: `CTR ${ctr}% (양호) but ROAS ${roas}% (저조) — 썸네일 OK, 상세페이지·가격·리뷰 재검토`,
+          priority: 'high',
+        });
+      }
+
+      if (adBudgetLimit > 0 && spend > adBudgetLimit * 14 && roas < 300) {
+        recs.push({
+          rule: '순이익 한도 초과',
+          reason: `광고비 ${Math.round(spend).toLocaleString()}원 > 순이익 한도 ${Math.round(adBudgetLimit * 14).toLocaleString()}원 — 예산 축소 또는 ROAS 목표 상향`,
+          priority: 'high',
+        });
+      }
+
+      // ═══ 등급별 규칙 ═══
+      if (grade === 'A') {
+        if (roas >= 480 && spend > 0) {
+          recs.push({
+            rule: 'A-1 매출 확대',
+            reason: `ROAS ${roas}% — 일예산 20% 증액 추천. 입찰가 10% 인상 검토`,
+            priority: 'high',
+          });
+        } else if (roas >= 300 && ctr >= 0.3) {
+          recs.push({
+            rule: 'A-2 키워드 확장',
+            reason: `ROAS ${roas}% + CTR ${ctr}% — ${listing.masterProduct.adTier ?? '없음'}→1차 승격. 매출최적화 키워드를 수동 캠페인에 추가`,
+            priority: 'high',
+          });
+        } else if (roas < 200 && spend > 3000) {
+          recs.push({
+            rule: 'A-3 위험 감지',
+            reason: `A등급 ROAS ${roas}%로 하락 — 입찰가 15% 하향 + 전환 0 키워드 제외 + 아이템위너 상태 확인`,
+            priority: 'urgent',
+          });
+        }
+      } else if (grade === 'B') {
+        if (roas >= 480) {
+          recs.push({
+            rule: 'B-5 A승격',
+            reason: `ROAS ${roas}% — A등급 캠페인으로 이동. 예산 비중 확대 (60~70% 목표)`,
+            priority: 'high',
+          });
+        } else if (roas >= 300) {
+          recs.push({
+            rule: 'B-3 예산 유지',
+            reason: `ROAS ${roas}% 안정 — 현재 예산 유지, 주간 모니터링. 제외 키워드 정리 추천`,
+            priority: 'low',
+          });
+        } else if (roas >= 100 && ctr < 0.15) {
+          recs.push({
+            rule: 'B-2 소재 테스트',
+            reason: `CTR ${ctr}% 미달 — 썸네일 교체 추천. 경쟁사 상위 3개 썸네일 벤치마킹 후 A/B 테스트`,
+            priority: 'medium',
+          });
+        } else if (roas >= 100 && roas < 200) {
+          recs.push({
+            rule: 'B-4 입찰가 하향',
+            reason: `ROAS ${roas}% — 입찰가 15% 하향. 메인 키워드 경쟁 과열이면 롱테일 키워드(100~300원)로 전환`,
+            priority: 'medium',
+          });
+        } else if (roas >= 200) {
+          recs.push({
+            rule: 'B-6 롱테일 키워드',
+            reason: `ROAS ${roas}% 보통 — 핵심 키워드 20~30개에 집중 + 롱테일 키워드로 저비용 전환 확보`,
+            priority: 'medium',
+          });
+        }
+      } else if (grade === 'C' || spend > 0) {
+        if (spend > 0 && revenue === 0) {
+          recs.push({
+            rule: 'C-1 광고 중단',
+            reason: `광고비 ${Math.round(spend).toLocaleString()}원 지출, 전환 0원 — 즉시 OFF. 아이템위너 여부 확인 필수`,
+            priority: 'urgent',
+          });
+        } else if (roas > 0 && roas < 50) {
+          recs.push({
+            rule: 'C-2 최소 예산',
+            reason: `ROAS ${roas}% — 일예산 3,000원 축소. 2주 후에도 개선 없으면 OFF`,
+            priority: 'high',
+          });
+        } else if (roas >= 50 && roas < 100) {
+          recs.push({
+            rule: 'C-2 최소 예산',
+            reason: `ROAS ${roas}% — 일예산 3,000원 축소 + 롱테일 키워드만 유지`,
+            priority: 'high',
+          });
+        }
+      }
+
+      if (recs.length === 0) continue;
+
+      recs.sort((a, b) => PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority]);
+      const main = recs[0];
+
+      const actionType = this.ruleToActionType(main.rule);
+      const currentValue = roas;
+      const proposedValue = profitRate > 0 ? Math.round(profitRate) : null;
+
+      actions.push({
+        listing: summary,
+        grade,
+        actionType,
+        priority: main.priority,
+        reason: main.reason,
+        currentValue,
+        proposedValue,
+      } satisfies AdStrategyAction);
+      // name 은 reason/alert 생성 시 사용되며 현재 AdStrategyAction 에 노출되진 않음 (B2b alert 제거분).
+      void name;
     }
+
+    actions.sort((a, b) => PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority]);
     return actions;
   }
 
   /**
    * Ad issues 카테고리화 (zeroConversion / lowRoas / highSpend).
    *
-   * 기존 ad-strategy.service.ts:955-1028 의 calcAdIssues 본문 이전.
-   * 변경: prisma.ad.groupBy + hydrateListings 호출 제거 — adGroups + listings 는 orchestrator 가 사전 fetch 후 input.
+   * 기존 ad-strategy.service.ts:955-1026 의 calcAdIssues 본문 이전.
+   * adGroups 는 orchestrator 가 prisma.ad.groupBy(['listingId']) (최근 14d) 으로 사전 fetch.
+   * Threshold 복원 (B2b 원본):
+   *  - zeroConversion: spend > 0 && conversions === 0
+   *  - lowRoas:        spend > 0 && revenue > 0 && roas < 100
+   *  - highSpend:      spend >= 10000
    */
   calcAdIssues(input: AdIssuesInput): AdIssues {
     const { adGroups, listings, gradeMap } = input;
@@ -62,207 +219,93 @@ export class AdGradeRulesService {
     for (const g of adGroups) {
       const listing = listingMap.get(g.listingId);
       if (!listing) continue;
-      const grade = gradeMap.get(g.listingId) ?? 'C';
-      const roas = g.spend > 0 ? (g.revenue / g.spend) * 100 : 0;
+      const spend = g.spend;
+      const adRevenue = g.revenue;
+      const conversions = g.conversions;
+      const roas = spend > 0 ? Math.round((adRevenue / spend) * 100) : 0;
+
+      const grade = gradeMap.get(listing.id) ?? normalizeGrade(listing.masterProduct.abcGrade);
       const summary = toListingSummary(listing);
 
-      if (g.conversions === 0 && g.spend >= 5000) {
+      if (spend > 0 && conversions === 0) {
         zeroConversion.push({
           listing: summary,
           grade,
-          actionType: 'investigate',
+          actionType: 'stop',
           priority: 'urgent',
-          reason: `전환 0건 누적 광고비 ${g.spend.toLocaleString()}원`,
-          currentValue: null,
-          proposedValue: null,
+          reason: `전환 0 — 광고 중단 검토 (광고비 ${Math.round(spend).toLocaleString()}원)`,
+          currentValue: conversions,
+          proposedValue: 0,
         } satisfies AdStrategyAction);
       }
-      if (roas > 0 && roas < 100 && g.spend >= 5000) {
+
+      if (spend > 0 && adRevenue > 0 && roas < 100) {
         lowRoas.push({
           listing: summary,
           grade,
-          actionType: 'reduce_budget',
+          actionType: 'decrease',
           priority: 'high',
-          reason: `ROAS ${Math.round(roas)}% 기준 미달`,
-          currentValue: null,
+          reason: `ROAS ${roas}% — 예산 축소 권장`,
+          currentValue: roas,
           proposedValue: null,
         } satisfies AdStrategyAction);
       }
-      if (g.spend >= 50000 && roas < 200) {
+
+      if (spend >= 10000) {
         highSpend.push({
           listing: summary,
           grade,
-          actionType: 'review_campaign',
+          actionType: 'maintain',
           priority: 'medium',
-          reason: `높은 광고비 ${g.spend.toLocaleString()}원 ROAS ${Math.round(roas)}%`,
-          currentValue: null,
+          reason: `고비용 ${Math.round(spend).toLocaleString()}원 — 효율 점검`,
+          currentValue: spend,
           proposedValue: null,
         } satisfies AdStrategyAction);
       }
     }
+
     return { zeroConversion, lowRoas, highSpend } satisfies AdIssues;
   }
 
   /**
    * rule key → AdAction.actionType 매핑.
    *
-   * 기존 ad-strategy.service.ts:941-955 의 ruleToActionType 본문 이전.
-   * snapshot-level 5 rule 의 rule key (change_daily_budget / pause_keyword / change_bid)
-   * 는 이미 actionType 그대로이므로 identity 매핑이지만, 향후 rule key → action type
-   * 비대칭 매핑이 생기면 이 함수가 단일 dispatch 지점이 된다.
+   * 기존 ad-strategy.service.ts:941-953 의 ruleToActionType 본문 복원.
+   * 등급별 rule prefix (A-1 / A-3 / C-1 / C-2 / B-4) 또는 rule 본문 키워드 (재고0 / 순이익 / 전환0)
+   * 에 따라 'increase' / 'stop' / 'decrease' / 'maintain' 중 하나로 환원.
    */
   ruleToActionType(rule: string): string {
-    return rule;
-  }
-
-  // ───── private helpers ─────
-
-  /**
-   * snapshot-level 5 rule 분기. 단일 snapshot 입력 → 0 또는 1 action 반환.
-   * 우선순위: Rule 1 (stock=0) → Rule 2/3 (keyword) → Rule 4/5 (campaign budget).
-   * 첫 번째로 trigger 된 rule 만 action 으로 환원 (여러 rule 동시 trigger 시 상단 우선).
-   */
-  private evaluateRules(
-    snapshot: GradeRulesInput['snapshots'][number],
-    listing: GradeRulesInput['listings'][number],
-    grade: 'A' | 'B' | 'C',
-    inv: InventoryRow | null,
-  ): AdStrategyAction | null {
-    const stock = inv?.availableStock ?? null;
-    const roas = snapshot.roas !== null && snapshot.roas !== undefined ? Number(snapshot.roas) : 0;
-    const profitRateNum = this.computeProfitRate(inv);
-    const statusText = (snapshot.status ?? '').toLowerCase();
-
-    // Rule 1: stock=0 + campaign + dailyBudget>0 → 즉시 축소 (option 없으면 skip — listing-level snapshot 은 option stock 판정 불가)
+    if (rule.startsWith('A-1') || rule.startsWith('A-5')) return 'increase';
+    if (rule.startsWith('A-3') || rule.startsWith('C-1') || rule.includes('재고0'))
+      return 'stop';
     if (
-      stock === 0 &&
-      snapshot.pageType === 'campaign' &&
-      snapshot.dailyBudget !== null &&
-      snapshot.dailyBudget !== undefined &&
-      snapshot.dailyBudget > 0
-    ) {
-      return {
-        listing: toListingSummary(listing),
-        grade,
-        actionType: this.ruleToActionType('change_daily_budget'),
-        priority: 'urgent',
-        reason: `재고 0 + 일예산 ${snapshot.dailyBudget.toLocaleString()}원 → 즉시 축소`,
-        currentValue: snapshot.dailyBudget,
-        proposedValue: 3000,
-      } satisfies AdStrategyAction;
-    }
-
-    // Rule 2 / 3: keyword pause / bid 하향
-    if (snapshot.pageType === 'keyword') {
-      const isPaused = statusText.includes('일시중지') || statusText.includes('off');
-      const zeroConvSpend = snapshot.conversions === 0 && snapshot.spend >= 5000;
-      const poorRoas = roas > 0 && roas < 100;
-
-      // Rule 2: zero-conv (spend≥5000) ∨ roas∈(0,100) → pause_keyword
-      //         A 등급은 high (덜 공격적), 그 외는 urgent
-      if (!isPaused && (zeroConvSpend || poorRoas)) {
-        return {
-          listing: toListingSummary(listing),
-          grade,
-          actionType: 'pause_keyword',
-          priority: grade === 'A' ? 'high' : 'urgent',
-          reason: zeroConvSpend
-            ? `전환 0 + 광고비 ${snapshot.spend.toLocaleString()}원 → OFF`
-            : `ROAS ${Math.round(roas)}% 기준 미달 → OFF`,
-          currentValue: null,
-          proposedValue: null,
-        } satisfies AdStrategyAction;
-      }
-
-      // Rule 3: roas∈[100,200) + currentBid>0 → change_bid (nextBid = round(current*0.85))
-      //         profitRate<0 시 high, 그 외 medium
-      if (
-        snapshot.currentBid !== null &&
-        snapshot.currentBid !== undefined &&
-        snapshot.currentBid > 0 &&
-        roas >= 100 &&
-        roas < 200
-      ) {
-        const nextBid = this.roundBid(snapshot.currentBid * 0.85);
-        if (nextBid < snapshot.currentBid) {
-          return {
-            listing: toListingSummary(listing),
-            grade,
-            actionType: 'change_bid',
-            priority: profitRateNum !== null && profitRateNum < 0 ? 'high' : 'medium',
-            reason: `ROAS ${Math.round(roas)}% → 입찰가 하향`,
-            currentValue: snapshot.currentBid,
-            proposedValue: nextBid,
-          } satisfies AdStrategyAction;
-        }
-      }
-    }
-
-    // Rule 4 / 5: campaign budget 확대 / 축소
-    if (
-      snapshot.pageType === 'campaign' &&
-      snapshot.dailyBudget !== null &&
-      snapshot.dailyBudget !== undefined &&
-      snapshot.dailyBudget > 0
-    ) {
-      // Rule 4: grade=A + roas>=480 → change_daily_budget (1.2x, high)
-      if (grade === 'A' && roas >= 480) {
-        const nextBudget = this.roundBudget(snapshot.dailyBudget * 1.2);
-        if (nextBudget > snapshot.dailyBudget) {
-          return {
-            listing: toListingSummary(listing),
-            grade,
-            actionType: 'change_daily_budget',
-            priority: 'high',
-            reason: `A등급 ROAS ${Math.round(roas)}% → 예산 확대`,
-            currentValue: snapshot.dailyBudget,
-            proposedValue: nextBudget,
-          } satisfies AdStrategyAction;
-        }
-      }
-      // Rule 5: (grade=C ∨ roas<100) + dailyBudget>3000 → change_daily_budget (max(3000, 0.5x))
-      //         C 등급은 high, 그 외는 medium
-      if ((grade === 'C' || roas < 100) && snapshot.dailyBudget > 3000) {
-        const nextBudget = Math.max(3000, this.roundBudget(snapshot.dailyBudget * 0.5));
-        if (nextBudget < snapshot.dailyBudget) {
-          return {
-            listing: toListingSummary(listing),
-            grade,
-            actionType: 'change_daily_budget',
-            priority: grade === 'C' ? 'high' : 'medium',
-            reason: `${grade}등급 ROAS ${Math.round(roas)}% → 예산 축소`,
-            currentValue: snapshot.dailyBudget,
-            proposedValue: nextBudget,
-          } satisfies AdStrategyAction;
-        }
-      }
-    }
-    return null;
+      rule.startsWith('C-2') ||
+      rule.startsWith('B-4') ||
+      rule.includes('순이익') ||
+      rule.includes('전환0')
+    )
+      return 'decrease';
+    return 'maintain';
   }
+}
 
-  /**
-   * (sellPrice - costPrice - commission) / sellPrice. 0~1 범위 (예: 0.25 = 25%).
-   * costPrice 또는 sellPrice 가 null/0 이면 null (계산 불가).
-   * commissionRate 는 Prisma.Decimal — Number coerce.
-   */
-  private computeProfitRate(inv: InventoryRow | null): number | null {
-    if (!inv?.costPrice || !inv?.sellPrice) return null;
-    const comm = inv.commissionRate ? this.decimalToNumber(inv.commissionRate) : 0;
-    return (inv.sellPrice * (1 - comm) - inv.costPrice) / inv.sellPrice;
-  }
+// ─────────────────────────────────────────────────────────────
+// Module-private pure helpers (B2b 원본 helpers 복원)
+// ─────────────────────────────────────────────────────────────
 
-  /** Prisma.Decimal | number → number coerce (테스트에서 plain number 도 받기 위함). */
-  private decimalToNumber(value: Prisma.Decimal | number): number {
-    return typeof value === 'number' ? value : Number(value);
-  }
+function normalizeGrade(raw: 'A' | 'B' | 'C' | null | undefined): 'A' | 'B' | 'C' | null {
+  if (raw === 'A' || raw === 'B' || raw === 'C') return raw;
+  return null;
+}
 
-  /** 입찰가 10원 단위 round (쿠팡 입찰 최소 단위). */
-  private roundBid(value: number): number {
-    return Math.round(value / 10) * 10;
-  }
-
-  /** 일예산 1000원 단위 round (쿠팡 예산 최소 단위). */
-  private roundBudget(value: number): number {
-    return Math.round(value / 1000) * 1000;
-  }
+/**
+ * option 단위 margin = sellPrice - costPrice (costPrice/sellPrice 누락 시 0).
+ * B2b 원본 ad-strategy.service.ts:90-98 본문 복원.
+ */
+function calcOptionMargin(option: HydratedListing['primaryOption']): number {
+  if (!option) return 0;
+  const cost = option.costPrice ?? 0;
+  const sell = option.sellPrice ?? 0;
+  if (sell <= 0 || cost <= 0) return 0;
+  return sell - cost;
 }

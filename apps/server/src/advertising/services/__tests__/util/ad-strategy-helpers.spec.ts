@@ -43,6 +43,7 @@ describe('ad-strategy-helpers', () => {
         externalId: 'EXT-1',
         channelName: '쿠팡상품',
         masterProduct: { id: 'M1', code: 'M-00001', name: 'Test', abcGrade: 'A', adTier: '1차', healthScore: 80 },
+        primaryOption: null,
       };
       const result = toListingSummary(listing);
       expect(result).toEqual({

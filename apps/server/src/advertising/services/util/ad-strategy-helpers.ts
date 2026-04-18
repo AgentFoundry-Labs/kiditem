@@ -39,9 +39,12 @@ function formatLocalDate(d: Date): string {
 }
 
 /**
- * listingIds → HydratedListing[] (master + ABC/tier/health 메타 포함, options 제외).
+ * listingIds → HydratedListing[] (master + ABC/tier/health 메타 + primary option pricing 포함).
  * Prisma relation 명은 `master` 이지만 결과는 `masterProduct` 로 remap (shared AdListingSummary 와 정합).
  * companyId scope 강제 (ADR-0006).
+ *
+ * primaryOption 은 ad-grade-rules 가 margin / adBudgetLimit 계산에 쓰는 active option 의 첫 번째.
+ * isActive 인 옵션이 없으면 null.
  */
 export async function hydrateListings(
   prisma: PrismaService,
@@ -58,21 +61,49 @@ export async function hydrateListings(
       master: {
         select: { id: true, code: true, name: true, abcGrade: true, adTier: true, healthScore: true },
       },
+      options: {
+        where: { isActive: true },
+        select: {
+          option: {
+            select: {
+              id: true,
+              availableStock: true,
+              costPrice: true,
+              sellPrice: true,
+              commissionRate: true,
+              shippingCost: true,
+            },
+          },
+        },
+      },
     },
   });
-  return rows.map((r) => ({
-    id: r.id,
-    externalId: r.externalId,
-    channelName: r.channelName,
-    masterProduct: {
-      id: r.master.id,
-      code: r.master.code,
-      name: r.master.name,
-      abcGrade: r.master.abcGrade as 'A' | 'B' | 'C' | null,
-      adTier: r.master.adTier,
-      healthScore: r.master.healthScore,
-    },
-  }));
+  return rows.map((r) => {
+    const firstOpt = r.options.map((clo) => clo.option).find((o): o is NonNullable<typeof o> => o != null) ?? null;
+    return {
+      id: r.id,
+      externalId: r.externalId,
+      channelName: r.channelName,
+      masterProduct: {
+        id: r.master.id,
+        code: r.master.code,
+        name: r.master.name,
+        abcGrade: r.master.abcGrade as 'A' | 'B' | 'C' | null,
+        adTier: r.master.adTier,
+        healthScore: r.master.healthScore,
+      },
+      primaryOption: firstOpt
+        ? {
+            id: firstOpt.id,
+            availableStock: firstOpt.availableStock,
+            costPrice: firstOpt.costPrice,
+            sellPrice: firstOpt.sellPrice,
+            commissionRate: firstOpt.commissionRate,
+            shippingCost: firstOpt.shippingCost,
+          }
+        : null,
+    };
+  });
 }
 
 /**

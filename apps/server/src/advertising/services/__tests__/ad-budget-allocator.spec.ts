@@ -23,6 +23,7 @@ const listingA: HydratedListing = {
     adTier: '1차',
     healthScore: 80,
   },
+  primaryOption: null,
 };
 
 const listingB: HydratedListing = {
@@ -37,6 +38,7 @@ const listingB: HydratedListing = {
     adTier: '2차',
     healthScore: 60,
   },
+  primaryOption: null,
 };
 
 const listingC: HydratedListing = {
@@ -51,6 +53,7 @@ const listingC: HydratedListing = {
     adTier: '3차',
     healthScore: 30,
   },
+  primaryOption: null,
 };
 
 const emptyConfig: AdsConfig = {
@@ -367,6 +370,7 @@ describe('AdBudgetAllocatorService.calcTop20', () => {
           adTier: '2차',
           healthScore: 50,
         },
+        primaryOption: null,
       });
       adGroups.push({
         listingId: id,

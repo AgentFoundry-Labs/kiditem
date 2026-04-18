@@ -1,13 +1,25 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { Prisma } from '@prisma/client';
 import { AdGradeRulesService } from '../ad-grade-rules.service';
-import type { GradeRulesInput, AdIssuesInput, HydratedListing, InventoryRow } from '../types';
+import type { GradeRulesInput, AdIssuesInput, HydratedListing } from '../types';
 
-// ─────────────────────────────────────────────
-// Fixtures
-// ─────────────────────────────────────────────
+/**
+ * B2b (commit 2c17850) listing-level ABC rules 동작 검증.
+ *
+ * ad-grade-rules.service.ts 는 `prisma.ad.groupBy(['listingId'])` 결과 (AdAggregateRow)
+ * 와 listing hydrate 결과 + profitRate map 을 받아 rule 평가. snapshot 단위가 아님.
+ */
 
-const listing: HydratedListing = {
+const listingBase = (
+  overrides: Partial<HydratedListing['masterProduct']> = {},
+  option: HydratedListing['primaryOption'] = {
+    id: 'O1',
+    availableStock: 100,
+    costPrice: 5000,
+    sellPrice: 20000,
+    commissionRate: 0.1,
+    shippingCost: 2500,
+  },
+): HydratedListing => ({
   id: 'L1',
   externalId: 'EXT-1',
   channelName: '쿠팡 등록명',
@@ -18,53 +30,32 @@ const listing: HydratedListing = {
     abcGrade: 'A',
     adTier: '1차',
     healthScore: 80,
+    ...overrides,
   },
-};
+  primaryOption: option,
+});
 
-const baseInv: InventoryRow = {
-  optionId: 'O1',
+const adGroup = (overrides: Partial<GradeRulesInput['adGroups'][number]> = {}) => ({
   listingId: 'L1',
-  availableStock: 10,
-  costPrice: 5000,
-  sellPrice: 10000,
-  commissionRate: null,
-};
-
-const fixture = (
-  overrides: Partial<GradeRulesInput['snapshots'][number]> = {},
-): GradeRulesInput['snapshots'][number] => ({
-  id: 's1',
-  listingId: 'L1',
-  optionId: 'O1',
-  pageType: 'campaign',
-  externalId: 'EXT-1',
-  campaignName: 'CAM-1',
-  status: '진행중',
-  spend: 0,
-  impressions: 0,
-  clicks: 0,
-  conversions: 0,
-  revenue: 0,
-  roas: null,
-  dailyBudget: 10000,
-  currentBid: null,
+  spend: 10000,
+  revenue: 50000,
+  clicks: 100,
+  impressions: 10000,
+  conversions: 10,
   ...overrides,
 });
 
 const buildInput = (
-  snapshot: GradeRulesInput['snapshots'][number],
-  inv: InventoryRow = baseInv,
+  adGroups: GradeRulesInput['adGroups'],
+  listings: HydratedListing[] = [listingBase()],
   grade: 'A' | 'B' | 'C' = 'A',
+  profitRate = 20,
 ): GradeRulesInput => ({
-  snapshots: [snapshot],
-  listings: [listing],
-  inventory: new Map([[inv.optionId, inv]]),
-  gradeMap: new Map([[listing.id, grade]]),
+  adGroups,
+  listings,
+  gradeMap: new Map(listings.map((l) => [l.id, grade])),
+  profitRateByListing: new Map(listings.map((l) => [l.id, profitRate])),
 });
-
-// ─────────────────────────────────────────────
-// calcActions — 5 rule 경계값
-// ─────────────────────────────────────────────
 
 describe('AdGradeRulesService.calcActions', () => {
   let service: AdGradeRulesService;
@@ -72,290 +63,215 @@ describe('AdGradeRulesService.calcActions', () => {
     service = new AdGradeRulesService();
   });
 
-  describe('Rule 1 — stock=0 campaign 예산컷', () => {
-    it('triggers when stock=0 + pageType=campaign + dailyBudget>0', () => {
-      const input = buildInput(fixture({ dailyBudget: 10000 }), { ...baseInv, availableStock: 0 });
+  describe('A 등급 규칙', () => {
+    it('A-1 매출 확대: roas>=480 + spend>0 → priority=high + actionType=increase', () => {
+      const input = buildInput([adGroup({ spend: 10000, revenue: 50000 })], [listingBase()], 'A');
       const result = service.calcActions(input);
       expect(result).toHaveLength(1);
-      expect(result[0].actionType).toBe('change_daily_budget');
-      expect(result[0].priority).toBe('urgent');
-      expect(result[0].proposedValue).toBe(3000);
-      expect(result[0].currentValue).toBe(10000);
-      expect(result[0].listing.listingId).toBe('L1');
-      expect(result[0].listing.option).toBeNull();
+      expect(result[0].priority).toBe('high');
+      expect(result[0].actionType).toBe('increase');
+      expect(result[0].grade).toBe('A');
     });
 
-    it('skips when snapshot.optionId is null (listing-level snapshot 매칭 시 stock 판정 불가)', () => {
-      // roas=300 으로 Rule 5 (roas<100) 도 차단 — Rule 1 only assertion
-      const input: GradeRulesInput = {
-        snapshots: [fixture({ optionId: null, dailyBudget: 10000, roas: new Prisma.Decimal(300) })],
-        listings: [listing],
-        inventory: new Map([['O1', { ...baseInv, availableStock: 0 }]]),
-        gradeMap: new Map([['L1', 'A']]),
-      };
-      expect(service.calcActions(input)).toHaveLength(0);
-    });
-
-    it('skips when stock > 0', () => {
-      // roas=300 으로 Rule 5 차단
+    it('A-3 위험 감지: roas<200 + spend>3000 → priority=urgent + actionType=stop', () => {
       const input = buildInput(
-        fixture({ dailyBudget: 10000, roas: new Prisma.Decimal(300) }),
-        { ...baseInv, availableStock: 1 },
-      );
-      expect(service.calcActions(input)).toHaveLength(0);
-    });
-
-    it('skips when dailyBudget=0 (광고 OFF 상태)', () => {
-      // dailyBudget=0 이면 Rule 1/4/5 모두 budget>0 / >3000 조건 fail
-      const input = buildInput(fixture({ dailyBudget: 0 }), { ...baseInv, availableStock: 0 });
-      expect(service.calcActions(input)).toHaveLength(0);
-    });
-  });
-
-  describe('Rule 2 — keyword pause', () => {
-    it('zero conversion + spend>=5000 (boundary) + grade=A → pause_keyword high', () => {
-      const input = buildInput(
-        fixture({ pageType: 'keyword', conversions: 0, spend: 5000 }),
-        baseInv,
+        [adGroup({ spend: 10000, revenue: 15000, conversions: 1 })],
+        [listingBase()],
         'A',
       );
       const result = service.calcActions(input);
       expect(result).toHaveLength(1);
-      expect(result[0].actionType).toBe('pause_keyword');
-      expect(result[0].priority).toBe('high');
-    });
-
-    it('zero conversion + spend>=5000 + grade=B → pause_keyword urgent', () => {
-      const input = buildInput(
-        fixture({ pageType: 'keyword', conversions: 0, spend: 5000 }),
-        baseInv,
-        'B',
-      );
-      const result = service.calcActions(input);
       expect(result[0].priority).toBe('urgent');
-    });
-
-    it('roas∈(0,100) (e.g. 50) → pause_keyword (B grade urgent)', () => {
-      const input = buildInput(
-        fixture({
-          pageType: 'keyword',
-          spend: 1000,
-          revenue: 500,
-          roas: new Prisma.Decimal(50),
-        }),
-        baseInv,
-        'B',
-      );
-      const result = service.calcActions(input);
-      expect(result[0].actionType).toBe('pause_keyword');
-      expect(result[0].priority).toBe('urgent');
-    });
-
-    it('skips when status contains "일시중지" (이미 paused)', () => {
-      const input = buildInput(
-        fixture({
-          pageType: 'keyword',
-          conversions: 0,
-          spend: 5000,
-          status: '일시중지',
-        }),
-      );
-      expect(service.calcActions(input)).toHaveLength(0);
-    });
-
-    it('skips when zero conversion but spend < 5000', () => {
-      const input = buildInput(fixture({ pageType: 'keyword', conversions: 0, spend: 4999 }));
-      expect(service.calcActions(input)).toHaveLength(0);
+      expect(result[0].actionType).toBe('stop');
     });
   });
 
-  describe('Rule 3 — keyword bid 하향', () => {
-    it('roas∈[100,200) + currentBid>0 → change_bid (nextBid = round(current*0.85), medium)', () => {
-      // conversions=2 + spend=3000 (5000 미만) → Rule 2 zeroConvSpend 차단, roas 150 → Rule 2 poorRoas 차단
+  describe('B 등급 규칙', () => {
+    it('B-3 예산 유지: roas∈[300,480) → priority=low + actionType=maintain', () => {
       const input = buildInput(
-        fixture({
-          pageType: 'keyword',
-          currentBid: 1000,
-          spend: 3000,
-          revenue: 4500,
-          conversions: 2,
-          roas: new Prisma.Decimal(150),
-        }),
-        baseInv,
+        [adGroup({ spend: 10000, revenue: 35000 })],
+        [listingBase()],
         'B',
       );
       const result = service.calcActions(input);
       expect(result).toHaveLength(1);
-      expect(result[0].actionType).toBe('change_bid');
-      expect(result[0].proposedValue).toBe(850); // round(1000 * 0.85 / 10) * 10
-      expect(result[0].currentValue).toBe(1000);
-      expect(result[0].priority).toBe('medium'); // profitRate >= 0
+      expect(result[0].priority).toBe('low');
+      expect(result[0].actionType).toBe('maintain');
     });
 
-    it('priority=high when profitRate < 0 (costPrice > sellPrice)', () => {
+    it('B-5 A 승격: roas>=480 → priority=high + actionType=maintain', () => {
       const input = buildInput(
-        fixture({
-          pageType: 'keyword',
-          currentBid: 1000,
-          spend: 3000,
-          revenue: 4500,
-          conversions: 2,
-          roas: new Prisma.Decimal(150),
-        }),
-        { ...baseInv, costPrice: 12000, sellPrice: 10000 }, // 손익 < 0
+        [adGroup({ spend: 10000, revenue: 50000 })],
+        [listingBase()],
         'B',
       );
       const result = service.calcActions(input);
-      expect(result[0].actionType).toBe('change_bid');
       expect(result[0].priority).toBe('high');
-    });
-
-    it('skips at boundary roas=200 (upper exclusive)', () => {
-      // conversions=2 → Rule 2 zeroConvSpend 차단
-      const input = buildInput(
-        fixture({
-          pageType: 'keyword',
-          currentBid: 1000,
-          spend: 3000,
-          revenue: 6000,
-          conversions: 2,
-          roas: new Prisma.Decimal(200),
-        }),
-      );
-      expect(service.calcActions(input)).toHaveLength(0);
     });
   });
 
-  describe('Rule 4 — 캠페인 예산 확대', () => {
-    it('grade=A + roas>=480 → change_daily_budget (1.2x, high)', () => {
+  describe('C 등급 규칙', () => {
+    it('C-1 광고 중단: spend>0 + revenue=0 → priority=urgent + actionType=stop', () => {
       const input = buildInput(
-        fixture({
-          dailyBudget: 10000,
-          spend: 5000,
-          revenue: 24000,
-          roas: new Prisma.Decimal(480),
-        }),
-        baseInv,
+        [adGroup({ spend: 5000, revenue: 0, conversions: 0, clicks: 10 })],
+        [listingBase()],
+        'C',
+      );
+      const result = service.calcActions(input);
+      // 클릭<50 이고 스펜드>0+전환0 → C-1 이 main (urgent)
+      expect(result[0].priority).toBe('urgent');
+      expect(result[0].actionType).toBe('stop');
+    });
+
+    it('C-2 최소 예산: roas∈[50,100) → priority=high + actionType=decrease', () => {
+      const input = buildInput(
+        [adGroup({ spend: 10000, revenue: 8000, conversions: 1, clicks: 40 })],
+        [listingBase()],
+        'C',
+      );
+      const result = service.calcActions(input);
+      expect(result[0].priority).toBe('high');
+      expect(result[0].actionType).toBe('decrease');
+    });
+  });
+
+  describe('긴급 규칙', () => {
+    it('재고 0 + adTier 존재 + spend>0 → urgent (stop actionType)', () => {
+      const input = buildInput(
+        [adGroup({ spend: 10000, revenue: 50000 })],
+        [
+          listingBase({}, {
+            id: 'O1',
+            availableStock: 0,
+            costPrice: 5000,
+            sellPrice: 20000,
+            commissionRate: 0.1,
+            shippingCost: 2500,
+          }),
+        ],
         'A',
       );
       const result = service.calcActions(input);
-      expect(result).toHaveLength(1);
-      expect(result[0].actionType).toBe('change_daily_budget');
-      expect(result[0].proposedValue).toBe(12000); // round(10000 * 1.2 / 1000) * 1000
-      expect(result[0].priority).toBe('high');
+      expect(result[0].priority).toBe('urgent');
+      expect(result[0].actionType).toBe('stop');
     });
 
-    it('skips when grade=B even if roas>=480 (A 전용)', () => {
+    it('재고 0 + adTier null → 긴급 규칙 skip (일반 A-1 동작)', () => {
       const input = buildInput(
-        fixture({
-          dailyBudget: 10000,
-          roas: new Prisma.Decimal(500),
-        }),
-        baseInv,
-        'B',
+        [adGroup({ spend: 10000, revenue: 50000 })],
+        [
+          listingBase({ adTier: null }, {
+            id: 'O1',
+            availableStock: 0,
+            costPrice: 5000,
+            sellPrice: 20000,
+            commissionRate: 0.1,
+            shippingCost: 2500,
+          }),
+        ],
+        'A',
       );
+      const result = service.calcActions(input);
+      expect(result[0].priority).toBe('high'); // A-1
+    });
+  });
+
+  describe('skip 조건', () => {
+    it('spend === 0 → action 생성 skip', () => {
+      const input = buildInput(
+        [adGroup({ spend: 0, revenue: 0, conversions: 0 })],
+        [listingBase()],
+        'A',
+      );
+      expect(service.calcActions(input)).toHaveLength(0);
+    });
+
+    it('listingId 매칭 없음 (orchestrator 누락) → skip', () => {
+      const input: GradeRulesInput = {
+        adGroups: [adGroup({ listingId: 'UNKNOWN' })],
+        listings: [listingBase()],
+        gradeMap: new Map([['L1', 'A']]),
+        profitRateByListing: new Map(),
+      };
       expect(service.calcActions(input)).toHaveLength(0);
     });
   });
 
-  describe('Rule 5 — 캠페인 예산 축소', () => {
-    it('grade=C + dailyBudget>3000 + low roas → change_daily_budget (0.5x, high)', () => {
+  describe('proposedValue = profitRate 백분율', () => {
+    it('profitRate>0 → Math.round(profitRate)', () => {
       const input = buildInput(
-        fixture({
-          dailyBudget: 10000,
-          spend: 5000,
-          revenue: 4000,
-          roas: new Prisma.Decimal(80),
-        }),
-        baseInv,
-        'C',
+        [adGroup({ spend: 10000, revenue: 50000 })],
+        [listingBase()],
+        'A',
+        23.7,
       );
       const result = service.calcActions(input);
-      expect(result).toHaveLength(1);
-      expect(result[0].actionType).toBe('change_daily_budget');
-      expect(result[0].proposedValue).toBe(5000); // round(10000 * 0.5 / 1000) * 1000
-      expect(result[0].priority).toBe('high'); // C grade
+      expect(result[0].proposedValue).toBe(24);
     });
 
-    it('grade=B + roas<100 + dailyBudget>3000 → change_daily_budget (medium)', () => {
+    it('profitRate=0 → null', () => {
       const input = buildInput(
-        fixture({
-          dailyBudget: 10000,
-          roas: new Prisma.Decimal(80),
-        }),
-        baseInv,
-        'B',
+        [adGroup({ spend: 10000, revenue: 50000 })],
+        [listingBase()],
+        'A',
+        0,
       );
       const result = service.calcActions(input);
-      expect(result[0].actionType).toBe('change_daily_budget');
-      expect(result[0].priority).toBe('medium');
-    });
-
-    it('clamps proposedValue at 3000 floor', () => {
-      const input = buildInput(
-        fixture({
-          dailyBudget: 4000,
-          roas: new Prisma.Decimal(50),
-        }),
-        baseInv,
-        'C',
-      );
-      const result = service.calcActions(input);
-      expect(result[0].proposedValue).toBe(3000); // max(3000, round(4000*0.5/1000)*1000) = max(3000, 2000) = 3000
-    });
-
-    it('skips when dailyBudget<=3000 (원본 임계값)', () => {
-      const input = buildInput(
-        fixture({
-          dailyBudget: 3000,
-          roas: new Prisma.Decimal(50),
-        }),
-        baseInv,
-        'C',
-      );
-      expect(service.calcActions(input)).toHaveLength(0);
+      expect(result[0].proposedValue).toBeNull();
     });
   });
 
-  describe('snapshot listingId / listing miss', () => {
-    it('skips snapshot with null listingId', () => {
+  describe('priority 정렬', () => {
+    it('urgent → high → medium → low 순 정렬', () => {
+      // A urgent (재고0) + B high (roas 480) + B low (roas 300)
+      const listings = [
+        listingBase({}, {
+          id: 'Oa',
+          availableStock: 0,
+          costPrice: 5000,
+          sellPrice: 20000,
+          commissionRate: 0.1,
+          shippingCost: 2500,
+        }),
+        { ...listingBase({}, {
+          id: 'Ob',
+          availableStock: 100,
+          costPrice: 5000,
+          sellPrice: 20000,
+          commissionRate: 0.1,
+          shippingCost: 2500,
+        }), id: 'L2' },
+        { ...listingBase({}, {
+          id: 'Oc',
+          availableStock: 100,
+          costPrice: 5000,
+          sellPrice: 20000,
+          commissionRate: 0.1,
+          shippingCost: 2500,
+        }), id: 'L3' },
+      ];
       const input: GradeRulesInput = {
-        snapshots: [fixture({ listingId: null })],
-        listings: [listing],
-        inventory: new Map([['O1', baseInv]]),
-        gradeMap: new Map([['L1', 'A']]),
-      };
-      expect(service.calcActions(input)).toHaveLength(0);
-    });
-
-    it('skips when listingMap miss (orchestrator 누락)', () => {
-      const input: GradeRulesInput = {
-        snapshots: [fixture({ listingId: 'UNKNOWN', dailyBudget: 10000 })],
-        listings: [listing],
-        inventory: new Map([['O1', { ...baseInv, availableStock: 0 }]]),
-        gradeMap: new Map([['L1', 'A']]),
-      };
-      expect(service.calcActions(input)).toHaveLength(0);
-    });
-
-    it('defaults grade to C when gradeMap miss', () => {
-      // Rule 5 trigger 조건 (C grade + roas<100 + budget>3000) — gradeMap 비어도 C default 로 trigger
-      const input: GradeRulesInput = {
-        snapshots: [fixture({ dailyBudget: 10000, roas: new Prisma.Decimal(50) })],
-        listings: [listing],
-        inventory: new Map([['O1', baseInv]]),
-        gradeMap: new Map(),
+        adGroups: [
+          adGroup({ listingId: 'L1', spend: 10000, revenue: 50000 }),
+          adGroup({ listingId: 'L2', spend: 10000, revenue: 50000 }),
+          adGroup({ listingId: 'L3', spend: 10000, revenue: 35000 }),
+        ],
+        listings,
+        gradeMap: new Map([
+          ['L1', 'A'],
+          ['L2', 'B'],
+          ['L3', 'B'],
+        ]),
+        profitRateByListing: new Map(),
       };
       const result = service.calcActions(input);
-      expect(result).toHaveLength(1);
-      expect(result[0].grade).toBe('C');
+      expect(result).toHaveLength(3);
+      expect(result[0].priority).toBe('urgent');
+      expect(result[1].priority).toBe('high');
+      expect(result[2].priority).toBe('low');
     });
   });
 });
-
-// ─────────────────────────────────────────────
-// calcAdIssues — 카테고리화 boundary
-// ─────────────────────────────────────────────
 
 describe('AdGradeRulesService.calcAdIssues', () => {
   let service: AdGradeRulesService;
@@ -363,63 +279,66 @@ describe('AdGradeRulesService.calcAdIssues', () => {
     service = new AdGradeRulesService();
   });
 
-  it('zero conversion + spend>=5000 → zeroConversion category', () => {
+  it('zeroConversion: spend>0 + conversions=0 → urgent / stop', () => {
     const input: AdIssuesInput = {
       adGroups: [
         { listingId: 'L1', spend: 5000, impressions: 1000, clicks: 50, conversions: 0, revenue: 0 },
       ],
-      listings: [listing],
+      listings: [listingBase()],
       gradeMap: new Map([['L1', 'A']]),
     };
     const result = service.calcAdIssues(input);
     expect(result.zeroConversion).toHaveLength(1);
-    expect(result.zeroConversion[0].actionType).toBe('investigate');
+    expect(result.zeroConversion[0].actionType).toBe('stop');
     expect(result.zeroConversion[0].priority).toBe('urgent');
-    expect(result.lowRoas).toHaveLength(0);
-    expect(result.highSpend).toHaveLength(0);
   });
 
-  it('roas∈(0,100) + spend>=5000 → lowRoas category', () => {
+  it('lowRoas: spend>0 + revenue>0 + roas<100 → high / decrease', () => {
     const input: AdIssuesInput = {
       adGroups: [
-        { listingId: 'L1', spend: 5000, impressions: 1000, clicks: 50, conversions: 1, revenue: 4000 },
+        { listingId: 'L1', spend: 10000, impressions: 1000, clicks: 50, conversions: 1, revenue: 5000 },
       ],
-      listings: [listing],
-      gradeMap: new Map([['L1', 'B']]),
+      listings: [listingBase()],
+      gradeMap: new Map([['L1', 'A']]),
     };
     const result = service.calcAdIssues(input);
     expect(result.lowRoas).toHaveLength(1);
-    expect(result.lowRoas[0].actionType).toBe('reduce_budget');
+    expect(result.lowRoas[0].actionType).toBe('decrease');
     expect(result.lowRoas[0].priority).toBe('high');
   });
 
-  it('spend>=50000 + roas<200 → highSpend category', () => {
+  it('highSpend: spend>=10000 → medium / maintain (B2b threshold)', () => {
     const input: AdIssuesInput = {
       adGroups: [
-        {
-          listingId: 'L1',
-          spend: 50000,
-          impressions: 5000,
-          clicks: 250,
-          conversions: 5,
-          revenue: 80000, // roas = 160
-        },
+        { listingId: 'L1', spend: 10000, impressions: 1000, clicks: 50, conversions: 5, revenue: 50000 },
       ],
-      listings: [listing],
+      listings: [listingBase()],
       gradeMap: new Map([['L1', 'A']]),
     };
     const result = service.calcAdIssues(input);
     expect(result.highSpend).toHaveLength(1);
-    expect(result.highSpend[0].actionType).toBe('review_campaign');
+    expect(result.highSpend[0].actionType).toBe('maintain');
     expect(result.highSpend[0].priority).toBe('medium');
   });
 
-  it('skips adGroup when listingMap miss', () => {
+  it('highSpend boundary: spend=9999 → skip', () => {
+    const input: AdIssuesInput = {
+      adGroups: [
+        { listingId: 'L1', spend: 9999, impressions: 1000, clicks: 50, conversions: 5, revenue: 50000 },
+      ],
+      listings: [listingBase()],
+      gradeMap: new Map([['L1', 'A']]),
+    };
+    const result = service.calcAdIssues(input);
+    expect(result.highSpend).toHaveLength(0);
+  });
+
+  it('listing 누락 시 skip', () => {
     const input: AdIssuesInput = {
       adGroups: [
         { listingId: 'UNKNOWN', spend: 5000, impressions: 1000, clicks: 50, conversions: 0, revenue: 0 },
       ],
-      listings: [listing],
+      listings: [listingBase()],
       gradeMap: new Map([['L1', 'A']]),
     };
     const result = service.calcAdIssues(input);
@@ -428,12 +347,12 @@ describe('AdGradeRulesService.calcAdIssues', () => {
     expect(result.highSpend).toHaveLength(0);
   });
 
-  it('returns AdListingSummary with option:null + masterProduct trimmed', () => {
+  it('AdListingSummary 반환: option:null + masterProduct trimmed', () => {
     const input: AdIssuesInput = {
       adGroups: [
         { listingId: 'L1', spend: 5000, impressions: 1000, clicks: 50, conversions: 0, revenue: 0 },
       ],
-      listings: [listing],
+      listings: [listingBase()],
       gradeMap: new Map([['L1', 'A']]),
     };
     const result = service.calcAdIssues(input);

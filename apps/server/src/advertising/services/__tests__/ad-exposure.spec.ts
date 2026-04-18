@@ -19,6 +19,7 @@ const listing: HydratedListing = {
     adTier: '1차',
     healthScore: 80,
   },
+  primaryOption: null,
 };
 
 const baseInv: InventoryRow = {

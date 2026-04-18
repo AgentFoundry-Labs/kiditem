@@ -108,6 +108,19 @@ export interface HydratedListing {
     adTier: string | null;
     healthScore: number | null;
   };
+  /**
+   * B2b rules 평가용 primary option metadata. calcActions 는 primary option 의
+   * stock + cost/sell 로 margin / adBudgetLimit 를 계산 (원본 line 722-725).
+   * 옵션이 없으면 null.
+   */
+  primaryOption: {
+    id: string;
+    availableStock: number | null;
+    costPrice: number | null;
+    sellPrice: number | null;
+    commissionRate: Prisma.Decimal | number | null;
+    shippingCost: number | null;
+  } | null;
 }
 
 export interface InventoryRow {
@@ -128,35 +141,29 @@ export interface AdAggregateRow {
   revenue: number;
 }
 
+/**
+ * listingId 당 profitLoss 축약. B2b calcActions 는 `profitRate * 100` 을
+ * action.proposedValue 로 환원 (원본 line 691).
+ */
+export interface ProfitLossRow {
+  listingId: string;
+  profitRate: number;
+}
+
 // ───── Sub-service input types ─────
 
 export interface GradeRulesInput {
-  snapshots: Array<{
-    id: string;
-    listingId: string | null;
-    optionId: string | null;
-    pageType: string | null;
-    externalId: string | null;
-    campaignName: string | null;
-    status: string | null;
-    spend: number;
-    impressions: number;
-    clicks: number;
-    conversions: number;
-    revenue: number;
-    roas: Prisma.Decimal | null;
-    dailyBudget: number | null;
-    currentBid: number | null;
-  }>;
+  adGroups: AdAggregateRow[];
   listings: HydratedListing[];
-  inventory: Map<string, InventoryRow>;
-  gradeMap: Map<string, 'A' | 'B' | 'C'>;
+  gradeMap: Map<string, 'A' | 'B' | 'C' | null>;
+  /** listingId → profitRate 백분율 (profitLoss.profitRate * 100). miss 시 0. */
+  profitRateByListing: Map<string, number>;
 }
 
 export interface AdIssuesInput {
   adGroups: AdAggregateRow[];
   listings: HydratedListing[];
-  gradeMap: Map<string, 'A' | 'B' | 'C'>;
+  gradeMap: Map<string, 'A' | 'B' | 'C' | null>;
 }
 
 export interface KeyMetricsInput {

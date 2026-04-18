@@ -38,8 +38,8 @@ type Priority = 'urgent' | 'high' | 'medium' | 'low';
 
 /**
  * Orchestrator — 6 public endpoint 당 Promise.all fetch 후 sub-service 로 delegation.
- * Plan B2b.refactor T7. Prisma 호출은 본 service 에만, sub-service 는 pure calculator.
- * 응답 shape / threshold / 계산 결과 동일성 보장 (registerCampaign 은 완전 보존).
+ * Plan B2b.refactor T7 + T7-fix. Prisma 호출은 본 service 에만, sub-service 는 pure calculator.
+ * B2b (commit 2c17850) 동작 완전 보존 — 응답 shape / threshold / 계산 결과 동일.
  */
 @Injectable()
 export class AdStrategyService {
@@ -83,18 +83,18 @@ export class AdStrategyService {
       config: ctx.config,
       adGroups: ctx.adGroups,
       listings: ctx.listings,
-      gradeMap: ctx.gradeMap,
+      gradeMap: toGradeMapStrict(ctx.gradeMap),
     });
 
     return {
       actions: this.adGradeRules.calcActions({
-        snapshots: ctx.snapshots,
+        adGroups: ctx.adGroups,
         listings: ctx.listings,
-        inventory: ctx.inventory,
         gradeMap: ctx.gradeMap,
+        profitRateByListing: ctx.profitRateByListing,
       }),
       issues: this.adGradeRules.calcAdIssues({
-        adGroups: ctx.adGroups,
+        adGroups: ctx.adIssuesAdGroups,
         listings: ctx.listings,
         gradeMap: ctx.gradeMap,
       }),
@@ -124,14 +124,27 @@ export class AdStrategyService {
     return { ...plan, actions: enhancedActions } satisfies AdWeeklyPlan;
   }
 
-  /** AI agent 최신 결과 → 추천 카드. task 없으면 빈 배열. */
+  /**
+   * calcActions 결과에서 urgent/high 만 필터 → 상위 20 → recommendation 카드.
+   *
+   * B2b 원본 (commit 2c17850) line 180-197 의 `getRecommendations` 본문 복원.
+   * 계산기 기반 — agent task 의존 없음.
+   */
   async getRecommendations(companyId: string): Promise<AdStrategyRecommendation[]> {
-    const task = await this.prisma.agentTask.findFirst({
-      where: { companyId, agentType: 'ad_strategy', status: 'succeeded' },
-      orderBy: { completedAt: 'desc' },
-      select: { output: true },
-    });
-    return this.adRecommend.toRecommendations(task?.output ?? null);
+    const actions = await this.buildActions(companyId);
+    return actions
+      .filter((a) => a.priority === 'urgent' || a.priority === 'high')
+      .slice(0, 20)
+      .map(
+        (a) =>
+          ({
+            listing: a.listing,
+            grade: a.grade,
+            title: a.actionType,
+            body: a.reason,
+            priority: a.priority,
+          }) satisfies AdStrategyRecommendation,
+      );
   }
 
   /** Exposure analysis — ad aggregate + review + traffic + leadTime 흡수 후 ad-exposure 위임. */
@@ -343,92 +356,86 @@ export class AdStrategyService {
   // PRIVATE — orchestration helpers
   // ─────────────────────────────────────────────────────────────
 
-  /** getRules / getAiEnhancedPlan 공통 — snapshots hydrate 후 rule 평가. */
+  /**
+   * getRules / getRecommendations 공통 — adGroups(listing-level) hydrate 후 rule 평가.
+   *
+   * B2b 원본 calcActions (line 653-938) 의 fetch 부분과 정합:
+   *  - prisma.ad.groupBy(['listingId']) 전체 기간 aggregate
+   *  - listingIds + current month profitLoss 병렬 hydrate
+   *  - ad-grade-rules.calcActions 에 adGroups + listings + gradeMap + profitRate 전달
+   */
   private async buildActions(companyId: string): Promise<AdStrategyAction[]> {
-    const snapshots = await this.fetchRuleSnapshots(companyId);
-    const listingIds = uniqueIds(snapshots.map((s) => s.listingId));
-    if (listingIds.length === 0) return [];
-    const [listings, inventory] = await Promise.all([
-      hydrateListings(this.prisma, companyId, listingIds),
-      getInventorySnapshot(this.prisma, companyId, listingIds),
-    ]);
+    const { year, month } = getCurrentPeriod();
+    const ctx = await this.loadStrategyContext(companyId, year, month);
     return this.adGradeRules.calcActions({
-      snapshots,
-      listings,
-      inventory,
-      gradeMap: buildGradeMap(listings),
+      adGroups: ctx.adGroups,
+      listings: ctx.listings,
+      gradeMap: ctx.gradeMap,
+      profitRateByListing: ctx.profitRateByListing,
     });
   }
 
   /**
-   * getWeeklyPlan 컨텍스트 — 6 sub-service 가 요구하는 hydrated context 를 Promise.all batch.
-   * 빈 회사여도 빈 context 로 통과 (sub-service 는 빈 입력 허용).
+   * getWeeklyPlan 컨텍스트 — sub-service 가 요구하는 hydrated context 를 Promise.all batch.
+   *
+   * calcActions 대상: 전체 기간 ad aggregate.
+   * calcAdIssues 대상: 최근 14 일 ad aggregate (B2b 원본 line 955-963).
+   * profitLoss: 현재 year/month 기준 listing 별 profitRate (* 100 으로 백분율화).
    */
   private async loadStrategyContext(companyId: string, year: number, month: number) {
-    const [snapshots, adAgg, config] = await Promise.all([
-      this.fetchRuleSnapshots(companyId),
+    const since14d = new Date();
+    since14d.setDate(since14d.getDate() - 14);
+
+    const [adAggAll, adAgg14d, config] = await Promise.all([
       this.prisma.ad.groupBy({
         by: ['listingId'],
         where: { companyId },
         _sum: { spend: true, revenue: true, clicks: true, impressions: true, conversions: true },
       }),
+      this.prisma.ad.groupBy({
+        by: ['listingId'],
+        where: { companyId, date: { gte: since14d } },
+        _sum: { spend: true, revenue: true, clicks: true, impressions: true, conversions: true },
+      }),
       this.adConfigService.getConfig(companyId),
     ]);
+
     const listingIds = uniqueIds([
-      ...snapshots.map((s) => s.listingId),
-      ...adAgg.map((a) => a.listingId),
+      ...adAggAll.map((a) => a.listingId),
+      ...adAgg14d.map((a) => a.listingId),
     ]);
-    const [listings, inventory, profitLossRows] = await Promise.all([
+
+    const [listings, profitLossRows] = await Promise.all([
       hydrateListings(this.prisma, companyId, listingIds),
-      getInventorySnapshot(this.prisma, companyId, listingIds),
       this.prisma.profitLoss.findMany({
         where: { companyId, year, month, listingId: { in: listingIds } },
-        select: { listingId: true, netProfit: true, profitRate: true },
+        select: { listingId: true, netProfit: true, profitRate: true, revenue: true, adCost: true },
       }),
     ]);
-    // Prisma netProfit → Top20Input.profitLosses.profit 로 remap (T1 type 경계 준수).
+
+    // B2b 원본: profitRate 는 Number(pl.profitRate ?? 0) * 100 으로 백분율화.
+    const profitRateByListing = new Map<string, number>();
+    for (const pl of profitLossRows) {
+      if (!pl.listingId) continue;
+      const rate = pl.profitRate != null ? Number(pl.profitRate) * 100 : 0;
+      profitRateByListing.set(pl.listingId, rate);
+    }
+    // Top20Input 용 profitLoss remap (profit = netProfit).
     const profitLosses = profitLossRows.map((pl) => ({
       listingId: pl.listingId as string | null,
       profit: pl.netProfit as number | null,
       profitRate: pl.profitRate,
     }));
+
     return {
-      snapshots,
-      adGroups: toAdAggregateRows(adAgg),
+      adGroups: toAdAggregateRows(adAggAll),
+      adIssuesAdGroups: toAdAggregateRows(adAgg14d),
       listings,
-      inventory,
       profitLosses,
+      profitRateByListing,
       gradeMap: buildGradeMap(listings),
       config: config satisfies AdsConfig,
     };
-  }
-
-  /** coupang_ads source 의 campaign/keyword snapshot 만 rule 평가 대상. */
-  private fetchRuleSnapshots(companyId: string) {
-    return this.prisma.adSnapshot.findMany({
-      where: {
-        companyId,
-        source: 'coupang_ads',
-        pageType: { in: ['campaign', 'keyword'] },
-      },
-      select: {
-        id: true,
-        listingId: true,
-        optionId: true,
-        pageType: true,
-        externalId: true,
-        campaignName: true,
-        status: true,
-        spend: true,
-        impressions: true,
-        clicks: true,
-        conversions: true,
-        revenue: true,
-        roas: true,
-        dailyBudget: true,
-        currentBid: true,
-      },
-    });
   }
 
   /** getExposureAnalysis 전용 — listing 당 최소 leadTimeDays. */
@@ -467,14 +474,29 @@ function uniqueIds(ids: Array<string | null | undefined>): string[] {
   return [...set];
 }
 
-/** HydratedListing[] → listingId → ABC grade. null 은 skip. */
-function buildGradeMap(listings: HydratedListing[]): Map<string, 'A' | 'B' | 'C'> {
-  const map = new Map<string, 'A' | 'B' | 'C'>();
+/**
+ * HydratedListing[] → listingId → ABC grade (null 포함).
+ * B2b 원본 normalizeGrade 와 일치 — `'A'|'B'|'C'` 는 그대로, 나머지는 `null`.
+ */
+function buildGradeMap(listings: HydratedListing[]): Map<string, 'A' | 'B' | 'C' | null> {
+  const map = new Map<string, 'A' | 'B' | 'C' | null>();
   for (const l of listings) {
     const g = l.masterProduct.abcGrade;
-    if (g === 'A' || g === 'B' || g === 'C') map.set(l.id, g);
+    map.set(l.id, g === 'A' || g === 'B' || g === 'C' ? g : null);
   }
   return map;
+}
+
+/**
+ * BudgetAllocatorInput.gradeMap 은 non-null 3-valued. null grade 는 제외.
+ * (calcBudgetAllocation 은 A/B/C bucket 만 사용 — null 은 allocation 영향 없음).
+ */
+function toGradeMapStrict(
+  map: Map<string, 'A' | 'B' | 'C' | null>,
+): Map<string, 'A' | 'B' | 'C'> {
+  const out = new Map<string, 'A' | 'B' | 'C'>();
+  for (const [id, g] of map) if (g) out.set(id, g);
+  return out;
 }
 
 /** prisma.ad.groupBy 결과 → AdAggregateRow[]. listingId null 은 drop. */
