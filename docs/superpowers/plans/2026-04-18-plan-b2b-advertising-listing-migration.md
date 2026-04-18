@@ -14,6 +14,147 @@
 
 ---
 
+## v1 → v2 Post-Review Corrections (2026-04-18)
+
+critic subagent + plan-eng-review 두 리뷰 피드백 반영. 아래 수정은 전체 plan 에 일관 적용되어야 하며, 이 섹션이 source of truth.
+
+### Schema 실상 vs plan v1 오해 (Critical)
+
+| v1 (오기) | v2 (정정) | 영향 범위 |
+|---|---|---|
+| `ChannelListing.title` | **`ChannelListing.channelName`** (nullable) OR `masterProduct.name` (display) | T1 shared ads.ts 의 `AdListingSummarySchema.title` → **`channelName: z.string().nullable()`**. 모든 `select: { title: true }` → `{ channelName: true }`. (T7 / T8 / T9 / T11 / T12) |
+| `ChannelListingOption.isDeleted` | **`ChannelListingOption.isActive`** | T10 buildListingMap 의 CLO 필터: `{ isDeleted: false }` → **`{ isActive: true }`** |
+| `ChannelListing.platform` | **`ChannelListing.channel`** | T10 externalIdMap 필터: `platform: 'coupang'` → **`channel: 'coupang'`** (ChannelListing.isDeleted 는 실재 — 그건 유지) |
+
+### 메서드 시그니처 일관성
+
+- `AdConfigService.updateConfig` 파라미터 순서: **`updateConfig(key: string, value: unknown, companyId: string)`** (B2a "companyId 마지막" 관례 준수). T4 Step 4.1 코드 + T13 controller 호출 `this.adConfigService.updateConfig(\`ads.${key}\`, body.value, companyId)` 수정.
+- 나머지 service 메서드 전부 companyId 마지막 — v1 대체로 OK, 검토 시 재확인.
+
+### AdAction evaluateRules 실제 데이터 경로 (placeholder 제거)
+
+T11 Step 11.3 의 `/* listing grade 조회 */`, `/* option profit rate */` 는 placeholder. 실제 경로:
+
+```ts
+// Step 11.2 snapshot include 확장:
+const snapshots = await this.prisma.adSnapshot.findMany({
+  where: { companyId, listingId: { not: null } },
+  include: {
+    listing: {
+      include: {
+        masterProduct: { select: { id: true, code: true, name: true, abcGrade: true } },
+      },
+    },
+    option: { select: { id: true, sku: true, optionName: true, availableStock: true, costPrice: true, sellPrice: true, commissionRate: true } },
+  },
+  orderBy: { capturedAt: 'desc' },
+  take: 1000,
+});
+
+// Step 11.3 resolver:
+const grade: 'A' | 'B' | 'C' = (snapshot.listing?.masterProduct?.abcGrade as 'A' | 'B' | 'C' | null) || 'C';
+
+// profitRate 는 별도 필드 아님. option.costPrice / sellPrice / commissionRate 로 계산:
+// profitRate = (sellPrice*(1-commissionRate) - costPrice) / sellPrice. 단순화 시 null fallback.
+const profitRateNum: number | null = (() => {
+  const { costPrice, sellPrice, commissionRate } = snapshot.option ?? {};
+  if (!costPrice || !sellPrice) return null;
+  const comm = Number(commissionRate ?? 0);
+  return (sellPrice * (1 - comm) - costPrice) / sellPrice;
+})();
+```
+
+### ad-strategy period → year/month 변환 (T12a)
+
+```ts
+private getCurrentPeriod(): { year: number; month: number } {
+  const now = new Date();
+  return { year: now.getFullYear(), month: now.getMonth() + 1 };
+}
+// getRules 내부:
+const { year, month } = this.getCurrentPeriod();
+const actions = await this.calcActions(companyId, year, month);
+```
+
+### Review 모델 groupBy 누락 (missing scope)
+
+`ad-strategy.service.ts:834, 840` 의 `prisma.review.groupBy({ by: ['productId'] })` — v1 plan 에서 언급 누락. Review 모델은 이미 `listingId: String?` 로 이전됨 (`orders.prisma:282`). T12a 내 `calcSnapshotKeyMetrics` 또는 관련 calc helper 에서 `by: ['listingId']` 로 수정 필요. 누락 시 런타임 에러.
+
+### changeTier 실제 타겟 (T8 Step 8.1)
+
+`Ad.adTier` 필드 존재하지 않음 (Ad 스키마 확인). `MasterProduct.adTier` (core.prisma:178) 가 실제 저장소. T8 changeTier 는 Ad record 가 아닌 그 Ad 의 `listing.masterProduct.adTier` 를 업데이트해야 함:
+
+```ts
+async changeTier(id: string, adTier: string, companyId: string) {
+  const ad = await this.prisma.ad.findFirst({
+    where: { id, companyId },
+    include: { listing: { select: { masterId: true } } },
+  });
+  if (!ad?.listing) throw new NotFoundException('Ad not found');
+  await this.prisma.masterProduct.update({
+    where: { id: ad.listing.masterId },
+    data: { adTier },
+  });
+  return { ok: true };
+}
+```
+
+### Integration test fixture import (T14-T17)
+
+`seedBaseFixture(prisma)` 는 `Promise<void>` 반환. company/user ID 는 별도 const:
+
+```ts
+import { makeTestPrisma, resetDb, seedBaseFixture, TEST_COMPANY_ID, TEST_USER_ID } from '../../test-helpers/real-prisma';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+
+// ...
+const companyId = TEST_COMPANY_ID;
+const eventEmitter = new EventEmitter2();  // or mock
+const service = new AdSyncService(prisma, eventEmitter);
+
+beforeEach(async () => {
+  await resetDb(prisma);
+  await seedBaseFixture(prisma);   // void return
+  // 이후 추가 seed
+});
+```
+
+### 추가 test gap (plan-eng-review Section 3 권장)
+
+기존 unit/integration spec 에 4건 추가:
+- **T10.6 (ad-sync.spec)**: `handleTraffic` listingId null skip + `handleCoupangAdsDaily` dashboard_daily 파싱 각 1 testcase
+- **T11.5 (ad-action.spec)**: `resetFailed` batch update 1 testcase
+- **T15 (ad-action-flow.pg)**: `markFailed → resetFailed → re-approve` lifecycle 1 시나리오
+
+### DRY — LISTING_SUMMARY_SELECT helper (plan-eng-review 2.1)
+
+`apps/server/src/advertising/services/types.ts` 에 공통 select 프리셋 추가:
+
+```ts
+import type { Prisma } from '@prisma/client';
+
+export const LISTING_SUMMARY_SELECT = {
+  id: true,
+  externalId: true,
+  channelName: true,
+  masterProduct: { select: { id: true, code: true, name: true } },
+} as const satisfies Prisma.ChannelListingSelect;
+```
+
+6 rewrite service 의 channelListing.findMany hydrate 는 이 프리셋을 `select` 로 사용.
+
+### Parallelization hint (plan-eng-review 권장)
+
+T4 / T5 / T6 (ad-config / ad-collect / ad-execution ADR-0006 compliance) 는 서로 독립 파일 + 의존 없음 → subagent-driven-development 시 동시 dispatch 가능. Advertising module 편집 충돌 없음 (module.ts 수정 없음).
+
+### 가시화된 gap (B2c 이월 확인)
+
+- `registerCampaign` concurrent submit 중복 방지 필요 여부 (plan-eng-review failure mode). 현재 DB 스키마 unique 없음 → silent 중복. Plan D frontend double-click 방지 + backend `@@unique([companyId, campaignName])` 검토는 B2c 이월.
+- `AdSnapshot.listingId=null` 누적 TTL 정책 — B2c open question.
+- `take: 1000` 에서 snapshot 초과 시 페이지 순회 — B2c 성능 plan.
+
+---
+
 ## File Map
 
 | Action | File | 책임 |
@@ -90,8 +231,8 @@ import { z } from 'zod';
 
 export const AdListingSummarySchema = z.object({
   listingId: z.string().uuid(),
-  externalId: z.string(),           // 쿠팡 등록상품ID
-  title: z.string(),
+  externalId: z.string(),           // 쿠팡 등록상품ID (ChannelListing.externalId)
+  channelName: z.string().nullable(),  // ChannelListing.channelName (nullable, 채널 상 표시명)
   masterProduct: z.object({
     id: z.string().uuid(),
     code: z.string(),               // M-00000001
@@ -540,7 +681,8 @@ async getConfig(companyId: string) {
   return this.formatConfig(settings);
 }
 
-async updateConfig(companyId: string, key: string, value: unknown) {
+// companyId 마지막 파라미터 (B2a 관례)
+async updateConfig(key: string, value: unknown, companyId: string) {
   // 기존 upsert 로직 유지, cid → companyId 치환
   await this.prisma.systemSetting.upsert({
     where: { companyId_key: { companyId, key } },
@@ -859,11 +1001,13 @@ interface ListingMap {
 private async buildListingMap(companyId: string): Promise<ListingMap> {
   const [options, listings] = await Promise.all([
     this.prisma.channelListingOption.findMany({
-      where: { companyId, isDeleted: false, vendorItemId: { not: null } },
+      // ChannelListingOption 에는 isDeleted 없음 — isActive 로 필터 (v2 정정)
+      where: { companyId, isActive: true },
       select: { vendorItemId: true, listingId: true, optionId: true },
     }),
     this.prisma.channelListing.findMany({
-      where: { companyId, isDeleted: false, platform: 'coupang' },
+      // ChannelListing.channel (NOT platform) — v2 정정
+      where: { companyId, isDeleted: false, channel: 'coupang' },
       select: { id: true, externalId: true },
     }),
   ]);
@@ -1353,7 +1497,8 @@ export class AdvertisingController {
 
   @Patch('config/:key')
   updateConfig(@Param('key') key: string, @Body() body: UpdateAdConfigDto, @CurrentCompany() companyId: string) {
-    return this.adConfigService.updateConfig(companyId, `ads.${key}`, body.value);
+    // v2: companyId 마지막 파라미터
+    return this.adConfigService.updateConfig(`ads.${key}`, body.value, companyId);
   }
 
   @Get('hub')
@@ -1936,3 +2081,33 @@ EOF
 - [ ] Cross-tenant IDOR guard 3 integration (ad-sync-flow / ad-action-flow / ad-strategy-flow) 에서 검증
 
 No placeholders. No TODO. No "fill in". 실행 가능한 plan.
+
+---
+
+## GSTACK REVIEW REPORT
+
+| Review | Trigger | Why | Runs | Status | Findings |
+|--------|---------|-----|------|--------|----------|
+| CEO Review | `/plan-ceo-review` | Scope & strategy | 0 | — | — |
+| Codex Review | `/codex review` | Independent 2nd opinion | 0 | — | — |
+| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | RESOLVED | 9 findings → Plan v2 반영 완료 |
+| Design Review | `/plan-design-review` | UI/UX gaps | 0 | — | — |
+| DX Review | `/plan-devex-review` | Developer experience gaps | 0 | — | — |
+| Critic (subagent) | Agent dispatch | Adversarial plan review | 1 | RESOLVED | 6 Major + 8 Minor → Plan v2 반영 완료 |
+
+**UNRESOLVED:** 0 — 모든 finding 이 Plan v2 "v1 → v2 Post-Review Corrections" 섹션 + 관련 Task step 에 반영됨.
+
+**VERDICT:** **CLEARED** — Eng Review + Critic 모두 RESOLVED. Plan v2 는 실행 준비 완료.
+
+### v2 반영 요약
+- Schema 정정: `ChannelListing.title` → `channelName`, `ChannelListingOption.isDeleted` → `isActive`, `platform` → `channel`
+- `AdConfigService.updateConfig` 파라미터 순서 수정 (companyId 마지막)
+- AdAction evaluateRules: grade / profitRate 실제 경로 명시 (placeholder 제거)
+- ad-strategy period → year/month 변환 helper 명시
+- Review 모델 groupBy `listingId` 수정 (누락 스코프 추가)
+- `changeTier` 실제 타겟 (MasterProduct.adTier) 명시
+- Integration test fixture import (TEST_COMPANY_ID + EventEmitter2) 명시
+- Test gap 4건 추가 (handleTraffic null, handleCoupangAdsDaily, resetFailed, markFailed lifecycle)
+- DRY: LISTING_SUMMARY_SELECT 공통 프리셋 추가
+- Parallelization: T4/T5/T6 동시 dispatch 가능 명시
+- B2c 이월 gap 3건 가시화 (registerCampaign concurrent / AdSnapshot null TTL / take:1000 페이지 순회)
