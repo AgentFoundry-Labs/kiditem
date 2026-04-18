@@ -10,6 +10,8 @@ import type {
   InventoryStatus,
   UpdateInventoryMetadataInput,
   ReceiveStockInput,
+  IssueStockInput,
+  AdjustStockInput,
   StockOperationResult,
   StockTransactionType,
 } from '@kiditem/shared';
@@ -142,6 +144,37 @@ export class InventoryService {
       unitCost: dto.unitCost ?? 0,
       warehouseId: dto.warehouseId,
       note: dto.note,
+      userId,
+    }, companyId);
+  }
+
+  async issue(
+    id: string,
+    dto: IssueStockInput,
+    companyId: string,
+    userId: string,
+  ) {
+    return this.applyDelta(id, -dto.quantity, {
+      type: 'ISSUE',
+      unitCost: 0,
+      warehouseId: dto.warehouseId,
+      relatedId: dto.relatedId,
+      relatedType: dto.relatedType,
+      note: dto.note,
+      userId,
+    }, companyId);
+  }
+
+  async adjust(
+    id: string,
+    dto: AdjustStockInput,
+    companyId: string,
+    userId: string,
+  ) {
+    return this.applyDelta(id, dto.delta, {
+      type: 'ADJUST',
+      unitCost: 0,
+      note: dto.reason,
       userId,
     }, companyId);
   }
