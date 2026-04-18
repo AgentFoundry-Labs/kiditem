@@ -56,30 +56,6 @@ export async function uploadInvoice(
 
 // ===== 반품 =====
 
-export interface CoupangReturnPayload {
-  receiptId: string | number;
-  receiptType?: 'RETURN' | 'EXCHANGE' | string;
-  receiptStatus?: string;
-  orderId?: string | number | null;
-  cancelReason?: string;
-  cancelReasonCategory1?: string | null;
-  cancelReasonCategory2?: string | null;
-  faultByType?: string;
-  requesterName?: string;
-  enclosePrice?: number | null;
-  requestedAt: string;
-  completedAt?: string | null;
-  reasonCode?: string | null;
-  reasonCodeText?: string | null;
-  returnDeliveryId?: string | null;
-  items?: Array<{
-    productName?: string;
-    vendorItemName?: string;
-    quantity?: number;
-    [k: string]: unknown;
-  }>;
-}
-
 export async function getReturnRequests(params: {
   createdAtFrom: string;
   createdAtTo: string;

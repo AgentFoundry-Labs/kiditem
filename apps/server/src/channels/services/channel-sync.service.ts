@@ -1,8 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { getSellerProducts, getSellerProduct } from '../adapters/coupang/products';
-import { getOrderSheets, type CoupangReturnPayload } from '../adapters/coupang/orders';
+import { getOrderSheets } from '../adapters/coupang/orders';
 import { getVendorId } from '../adapters/coupang/coupang-client';
 import type {
   SyncResult,
@@ -10,6 +10,8 @@ import type {
   SellerProductListResponse,
   SellerProductDetailResponse,
   OrderSheetResponse,
+  CoupangSyncOrderPayload,
+  CoupangSyncReturnPayload,
 } from './types';
 
 export type { SyncResult, HealthResult } from './types';
@@ -402,7 +404,7 @@ export class ChannelSyncService {
   }
 
   private async syncSingleOrder(
-    payload: NonNullable<OrderSheetResponse['data']>[number],
+    payload: CoupangSyncOrderPayload,
     companyId: string,
   ): Promise<void> {
     const shipmentBoxId = String(payload.shipmentBoxId);
@@ -468,29 +470,28 @@ export class ChannelSyncService {
           },
         });
 
-        for (let idx = 0; idx < orderItems.length; idx += 1) {
-          const item = orderItems[idx];
-          const vendorItemId = item.vendorItemId
-            ? String(item.vendorItemId)
-            : null;
-          // vendorItemId 부재 시 합성 결정적 key 로 idempotency 확보 (재sync 시 where 키가 매치되어 upsert 가 동일 row 를 갱신).
-          const externalLineId =
-            vendorItemId ?? `coupang-noid-${shipmentBoxId}-${idx}`;
-          const listingOption = vendorItemId
-            ? await tx.channelListingOption.findUnique({
-                where: {
-                  companyId_vendorItemId: {
-                    companyId,
-                    vendorItemId,
-                  },
-                },
-                select: {
-                  id: true,
-                  optionId: true,
-                  option: { select: { sku: true, optionName: true } },
-                },
-              })
-            : null;
+        for (const item of orderItems) {
+          if (!item.vendorItemId) {
+            // Coupang API 는 line item 에 vendorItemId 항상 채워서 보냄. 누락 시 upsert key 충돌 방지 + 계약 명시화.
+            throw new BadRequestException(
+              `OrderLineItem missing vendorItemId — cannot upsert (shipmentBoxId=${shipmentBoxId})`,
+            );
+          }
+          const vendorItemId = String(item.vendorItemId);
+          const externalLineId = vendorItemId;
+          const listingOption = await tx.channelListingOption.findUnique({
+            where: {
+              companyId_vendorItemId: {
+                companyId,
+                vendorItemId,
+              },
+            },
+            select: {
+              id: true,
+              optionId: true,
+              option: { select: { sku: true, optionName: true } },
+            },
+          });
 
           const lineItemMetadata = {
             sellerProductId: item.sellerProductId ?? null,
@@ -539,7 +540,7 @@ export class ChannelSyncService {
   }
 
   private async syncSingleReturn(
-    payload: CoupangReturnPayload,
+    payload: CoupangSyncReturnPayload,
     companyId: string,
   ): Promise<void> {
     const receiptId = String(payload.receiptId);

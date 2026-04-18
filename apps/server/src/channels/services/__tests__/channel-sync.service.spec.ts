@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Test } from '@nestjs/testing';
+import { BadRequestException } from '@nestjs/common';
 import { ChannelSyncService } from '../channel-sync.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 
@@ -106,28 +107,20 @@ describe('ChannelSyncService.syncSingleOrder (Plan A.5)', () => {
     expect(upsertArgs.create.totalPrice).toBe(300);
   });
 
-  it('null vendorItemId → 결정적 합성 externalLineId 사용 (idempotent)', async () => {
+  it('null vendorItemId → BadRequestException (계약 명시화, upsert key 충돌 방지)', async () => {
     tx.order.upsert.mockResolvedValue({ id: 'order-1' });
-    tx.channelListingOption.findUnique.mockResolvedValue(null);
-    tx.orderLineItem.upsert.mockResolvedValue({});
 
-    await (service as any).syncSingleOrder({
-      shipmentBoxId: 'SBX-77', orderId: 'CO-77', status: 'ACCEPT', orderedAt: '2026-04-18T00:00:00Z',
-      orderItems: [
-        { vendorItemId: null, sellerProductName: 'A', shippingCount: 1, salesPrice: 100, orderPrice: 100 },
-        { vendorItemId: null, sellerProductName: 'B', shippingCount: 1, salesPrice: 200, orderPrice: 200 },
-      ],
-    } as any, 'c1');
+    await expect(
+      (service as any).syncSingleOrder({
+        shipmentBoxId: 'SBX-77', orderId: 'CO-77', status: 'ACCEPT', orderedAt: '2026-04-18T00:00:00Z',
+        orderItems: [
+          { vendorItemId: null, sellerProductName: 'A', shippingCount: 1, salesPrice: 100, orderPrice: 100 },
+        ],
+      } as any, 'c1'),
+    ).rejects.toBeInstanceOf(BadRequestException);
 
-    expect(tx.orderLineItem.upsert).toHaveBeenCalledTimes(2);
-    const first = tx.orderLineItem.upsert.mock.calls[0][0];
-    const second = tx.orderLineItem.upsert.mock.calls[1][0];
-    expect(first.where.orderId_externalLineId.externalLineId).toBe('coupang-noid-SBX-77-0');
-    expect(second.where.orderId_externalLineId.externalLineId).toBe('coupang-noid-SBX-77-1');
-    expect(first.create.externalLineId).toBe('coupang-noid-SBX-77-0');
-    expect(second.create.externalLineId).toBe('coupang-noid-SBX-77-1');
-    // ChannelListingOption 조회는 vendorItemId 없으면 skip
     expect(tx.channelListingOption.findUnique).not.toHaveBeenCalled();
+    expect(tx.orderLineItem.upsert).not.toHaveBeenCalled();
   });
 
   it('paidAt 누락 → create.paidAt = null', async () => {
