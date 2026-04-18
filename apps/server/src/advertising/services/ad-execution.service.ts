@@ -1,6 +1,5 @@
 import {
   Injectable,
-  InternalServerErrorException,
   NotFoundException,
   ConflictException,
 } from '@nestjs/common';
@@ -15,41 +14,44 @@ const MAX_SCAN = 50;
 export class AdExecutionService {
   constructor(private readonly prisma: PrismaService) {}
 
-  private async getDefaultCompanyId(): Promise<string> {
-    const company = await this.prisma.company.findFirst({
-      where: { isActive: true },
-      select: { id: true },
-    });
-    if (!company) throw new InternalServerErrorException('회사 정보를 찾을 수 없습니다');
-    return company.id;
-  }
-
-  async lease(workerKey: string, options?: { label?: string; pageType?: string; limit?: number }) {
-    const companyId = await this.getDefaultCompanyId();
+  async lease(
+    workerKey: string,
+    options: { label?: string; pageType?: string; limit?: number } | undefined,
+    companyId: string,
+  ) {
     const requestedPageType = (options?.pageType || '').trim().toLowerCase();
     const limit = Math.min(Math.max(options?.limit || DEFAULT_LIMIT, 1), 10);
 
-    const worker = await this.prisma.executionWorker.upsert({
-      where: { workerKey },
-      update: {
-        label: options?.label ?? undefined,
-        status: 'online',
-        currentPageType: requestedPageType || null,
-        lastHeartbeatAt: new Date(),
-      },
-      create: {
-        companyId,
-        workerKey,
-        label: options?.label ?? null,
-        status: 'online',
-        currentPageType: requestedPageType || null,
-      },
+    const existing = await this.prisma.executionWorker.findFirst({
+      where: { workerKey, companyId },
+      select: { id: true },
     });
+
+    const worker = existing
+      ? await this.prisma.executionWorker.update({
+          where: { id: existing.id },
+          data: {
+            label: options?.label ?? undefined,
+            status: 'online',
+            currentPageType: requestedPageType || null,
+            lastHeartbeatAt: new Date(),
+          },
+        })
+      : await this.prisma.executionWorker.create({
+          data: {
+            companyId,
+            workerKey,
+            label: options?.label ?? null,
+            status: 'online',
+            currentPageType: requestedPageType || null,
+          },
+        });
 
     const candidates = await this.prisma.executionTask.findMany({
       where: {
         status: 'queued',
         action: {
+          companyId,
           approvalStatus: 'approved',
           executeStatus: { in: ['queued', 'failed'] },
         },
@@ -122,9 +124,13 @@ export class AdExecutionService {
     return { workerId: worker.workerKey, tasks: leasedTasks };
   }
 
-  async heartbeat(workerKey: string, meta?: { currentUrl?: string; currentPageType?: string }) {
+  async heartbeat(
+    workerKey: string,
+    meta: { currentUrl?: string; currentPageType?: string } | undefined,
+    companyId: string,
+  ) {
     const result = await this.prisma.executionWorker.updateMany({
-      where: { workerKey },
+      where: { workerKey, companyId },
       data: {
         lastHeartbeatAt: new Date(),
         status: 'online',
@@ -138,18 +144,21 @@ export class AdExecutionService {
     }
   }
 
-  async report(body: {
-    taskId: string;
-    workerKey: string;
-    status: 'running' | 'done' | 'failed';
-    before?: Record<string, unknown>;
-    after?: Record<string, unknown>;
-    errorMessage?: string;
-    screenshotPath?: string;
-    logs?: Array<{ level?: string; step: string; message: string; payload?: Record<string, unknown> }>;
-  }) {
-    const task = await this.prisma.executionTask.findUnique({
-      where: { id: body.taskId },
+  async report(
+    body: {
+      taskId: string;
+      workerKey: string;
+      status: 'running' | 'done' | 'failed';
+      before?: Record<string, unknown>;
+      after?: Record<string, unknown>;
+      errorMessage?: string;
+      screenshotPath?: string;
+      logs?: Array<{ level?: string; step: string; message: string; payload?: Record<string, unknown> }>;
+    },
+    companyId: string,
+  ) {
+    const task = await this.prisma.executionTask.findFirst({
+      where: { id: body.taskId, action: { companyId } },
       include: { action: true, worker: true },
     });
 
@@ -245,7 +254,7 @@ export class AdExecutionService {
       }
 
       await tx.executionWorker.updateMany({
-        where: { workerKey: body.workerKey },
+        where: { workerKey: body.workerKey, companyId },
         data: {
           currentTaskRef: body.status === 'running' ? body.taskId : null,
           lastHeartbeatAt: now,
