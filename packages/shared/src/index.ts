@@ -12,9 +12,23 @@ export type {
   MasterWithOptions, OptionWithComponents,
 } from './schemas/product.js';
 
-// Order
-export { OrderRowSchema, OrdersResponseSchema } from './schemas/order.js';
-export type { OrderRow, OrdersResponse } from './schemas/order.js';
+// Order (Plan A.5 — channel-agnostic)
+export {
+  OrderSchema,
+  OrderLineItemSchema,
+  OrderReturnSchema,
+  OrderReturnLineItemSchema,
+  OrderPlatformSchema,
+  OrderReturnTypeSchema,
+} from './schemas/order.js';
+export type {
+  Order,
+  OrderLineItem,
+  OrderReturn,
+  OrderReturnLineItem,
+  OrderPlatform,
+  OrderReturnType,
+} from './schemas/order.js';
 
 // Inventory
 export {
