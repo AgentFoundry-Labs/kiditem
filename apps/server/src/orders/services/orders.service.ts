@@ -1,6 +1,4 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import type { Order } from '@prisma/client';
-import type { OrdersResponse, OrderRow } from '@kiditem/shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   confirmOrderSheets,
@@ -15,7 +13,7 @@ export class OrdersService {
   async findAll(
     companyId: string,
     query: { from?: string; to?: string; status?: string },
-  ): Promise<OrdersResponse> {
+  ) {
     const dbStatus = query.status || 'ACCEPT';
 
     const orderedAtFilter: Record<string, Date> = {};
@@ -34,20 +32,22 @@ export class OrdersService {
           orderedAt: orderedAtFilter,
         }),
       },
+      include: { lineItems: true },
       orderBy: { orderedAt: 'desc' },
     });
 
     return {
-      items: orders.map((o) => o satisfies OrderRow),
+      items: orders,
       total: orders.length,
       deliveryCompanies: [...DELIVERY_COMPANIES],
-    } satisfies OrdersResponse;
+    };
   }
 
-  async findOne(id: string, companyId: string): Promise<Order> {
+  async findOne(id: string, companyId: string) {
     // ADR-0006: findUnique({ where: { id } }) 금지 — companyId 필수
     const order = await this.prisma.order.findFirst({
       where: { id, companyId },
+      include: { lineItems: true },
     });
     if (!order) throw new NotFoundException('Order not found');
     return order;
