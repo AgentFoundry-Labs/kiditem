@@ -31,9 +31,10 @@ model Company {
   activityEvents    ActivityEvent[]
   agentDefinitions  AgentDefinition[]
 
-  // Coupang
-  coupangOrders  CoupangOrder[]
-  coupangReturns CoupangReturn[]
+  // Order domain (Plan A.5)
+  orderLineItems        OrderLineItem[]
+  orderReturns          OrderReturn[]
+  orderReturnLineItems  OrderReturnLineItem[]
 
   // Supplier & Procurement
   suppliers        Supplier[]
@@ -274,6 +275,10 @@ model ProductOption {
   ads                 Ad[]
   adSnapshots         AdSnapshot[]
 
+  // Order domain (Plan A.5)
+  orderLineItems        OrderLineItem[]
+  orderReturnLineItems  OrderReturnLineItem[]
+
   @@unique([masterId, optionName])
   @@unique([companyId, barcode])
   @@unique([companyId, legacyCode])
@@ -361,7 +366,7 @@ model ChannelListingOption {
   listing ChannelListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
   option  ProductOption? @relation(fields: [optionId], references: [id], onDelete: SetNull)
   company Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  coupangOrderItems CoupangOrderItem[]
+  orderLineItems    OrderLineItem[]
 
   @@unique([listingId, vendorItemId])
   @@unique([companyId, vendorItemId])

@@ -1,138 +1,162 @@
 // orders.prisma — Orders domain
 
 /// @namespace Orders
-/// @describe 내부 주문. CoupangOrder(외부 원본)와 병존.
+/// @describe 채널-agnostic 주문 aggregate. Coupang 등 채널별 raw payload 는 metadata Json. 라인 아이템은 OrderLineItem.
 model Order {
-  id        String  @id @default(uuid()) @db.Uuid
-  companyId String  @map("company_id") @db.Uuid
-  listingId String? @map("listing_id") @db.Uuid
+  id              String    @id @default(uuid()) @db.Uuid
+  companyId       String    @map("company_id") @db.Uuid
 
-  orderNumber     String  @map("order_number")
-  platform        String
-  coupangOrderId  String? @map("coupang_order_id")
-  customerName    String  @default("") @map("customer_name")
-  productName     String  @map("product_name")
-  quantity        Int     @default(1)
-  unitPrice       Int     @map("unit_price")
-  totalPrice      Int     @map("total_price")
-  status          String  @default("pending")
-  trackingNumber  String? @map("tracking_number")
-  shippingCompany String? @map("shipping_company")
+  platform        String    @db.VarChar(20)
+  externalOrderId String    @map("external_order_id") @db.VarChar(60)
+  externalNumber  String?   @map("external_number") @db.VarChar(60)
 
-  // Receiver info (from dashboard)
-  receiverName  String? @map("receiver_name")
-  receiverPhone String? @map("receiver_phone")
-  receiverAddr  String? @map("receiver_addr")
-  memo          String?
+  customerName    String    @default("") @map("customer_name")
+  receiverName    String?   @map("receiver_name")
+  receiverPhone   String?   @map("receiver_phone")
+  receiverAddr    String?   @map("receiver_addr")
+  memo            String?
 
-  orderedAt   DateTime  @default(now()) @map("ordered_at") @db.Timestamptz
-  shippedAt   DateTime? @map("shipped_at") @db.Timestamptz
-  deliveredAt DateTime? @map("delivered_at") @db.Timestamptz
-  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  status          String    @default("pending")
+  orderedAt       DateTime  @default(now()) @map("ordered_at") @db.Timestamptz
+  paidAt          DateTime? @map("paid_at") @db.Timestamptz
+  shippedAt       DateTime? @map("shipped_at") @db.Timestamptz
+  deliveredAt     DateTime? @map("delivered_at") @db.Timestamptz
 
-  company   Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  listing   ChannelListing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
-  shipments Shipment[]
+  trackingNumber  String?   @map("tracking_number")
+  shippingCompany String?   @map("shipping_company")
+  shippingPrice   Int       @default(0) @map("shipping_price")
 
+  totalPrice      Int       @default(0) @map("total_price")
+
+  listingId       String?   @map("listing_id") @db.Uuid
+
+  metadata        Json?
+
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company         Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  listing         ChannelListing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  lineItems       OrderLineItem[]
+  shipments       Shipment[]
+  returns         OrderReturn[]
+
+  @@unique([companyId, platform, externalOrderId])
   @@index([companyId])
   @@index([companyId, status])
   @@index([companyId, orderedAt])
   @@index([listingId])
-  @@index([status])
   @@index([platform])
-  @@index([orderedAt])
   @@map("orders")
 }
 
 /// @namespace Orders
-model CoupangOrder {
-  id            String   @id @default(uuid()) @db.Uuid
-  companyId     String   @map("company_id") @db.Uuid
-  shipmentBoxId String   @unique @map("shipment_box_id") @db.VarChar(30)
-  orderId       String   @map("order_id") @db.VarChar(30)
-  orderer       Json?
-  receiver      Json?
-  status        String   @default("ACCEPT")
-  deliveryCompanyName String?  @map("delivery_company_name")
-  invoiceNumber String?  @map("invoice_number")
-  parcelPrintMessage  String?  @map("parcel_print_message")
-  shippingPrice Int      @default(0) @map("shipping_price")
-  totalPrice    Int      @default(0) @map("total_price")
-  orderedAt     DateTime @map("ordered_at") @db.Timestamptz
-  paidAt        DateTime? @map("paid_at") @db.Timestamptz
-  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+/// @describe 주문 라인 아이템 — 1 SKU 단위. listingOption → option 으로 SKU 해상도. companyId 는 IDOR 방어용 denormalize (B2a 패턴).
+model OrderLineItem {
+  id              String   @id @default(uuid()) @db.Uuid
+  companyId       String   @map("company_id") @db.Uuid
+  orderId         String   @map("order_id") @db.Uuid
 
-  company       Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  orderItems    CoupangOrderItem[]
+  listingOptionId String?  @map("listing_option_id") @db.Uuid
+  optionId        String?  @map("option_id") @db.Uuid
 
+  productName     String   @default("") @map("product_name")
+  optionName      String?  @map("option_name")
+  sku             String?
+
+  quantity        Int      @default(1)
+  unitPrice       Int      @default(0) @map("unit_price")
+  totalPrice      Int      @default(0) @map("total_price")
+
+  status          String   @default("pending")
+
+  externalLineId  String?  @map("external_line_id") @db.VarChar(60)
+
+  metadata        Json?
+
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company         Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  order           Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  listingOption   ChannelListingOption? @relation(fields: [listingOptionId], references: [id], onDelete: SetNull)
+  option          ProductOption? @relation(fields: [optionId], references: [id], onDelete: SetNull)
+  returnLineItems OrderReturnLineItem[]
+
+  @@unique([orderId, externalLineId])
+  @@index([companyId])
+  @@index([orderId])
+  @@index([listingOptionId])
+  @@index([optionId])
+  @@map("order_line_items")
+}
+
+/// @namespace Orders
+/// @describe 채널-agnostic 반품 aggregate. CoupangReturn 의 items JSON → OrderReturnLineItem 정규화. type=RETURN/EXCHANGE 구분 first-class.
+model OrderReturn {
+  id              String    @id @default(uuid()) @db.Uuid
+  companyId       String    @map("company_id") @db.Uuid
+  orderId         String?   @map("order_id") @db.Uuid
+
+  platform        String    @db.VarChar(20)
+  externalReturnId String   @map("external_return_id") @db.VarChar(60)
+
+  type            String    @default("RETURN") @db.VarChar(20)
+
+  status          String    @default("pending")
+  reason          String    @default("")
+  reasonCategory1 String?   @map("reason_category1")
+  reasonCategory2 String?   @map("reason_category2")
+  faultBy         String    @default("CUSTOMER") @map("fault_by") @db.VarChar(20)
+
+  requesterName   String    @default("") @map("requester_name")
+  enclosePrice    Int?      @map("enclose_price")
+
+  requestedAt     DateTime  @map("requested_at") @db.Timestamptz
+  completedAt     DateTime? @map("completed_at") @db.Timestamptz
+
+  metadata        Json?
+
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company         Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  order           Order?              @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  lineItems       OrderReturnLineItem[]
+
+  @@unique([companyId, platform, externalReturnId])
   @@index([companyId])
   @@index([status])
-  @@index([orderedAt])
-  @@map("coupang_orders")
+  @@index([type])
+  @@index([requestedAt])
+  @@map("order_returns")
 }
 
 /// @namespace Orders
-model CoupangOrderItem {
-  id            String   @id @default(uuid()) @db.Uuid
-  orderId       String   @map("order_id") @db.Uuid
+/// @describe 반품 라인 아이템 — 반품 건 내 SKU 단위 상세. companyId 는 IDOR 방어용 denormalize.
+model OrderReturnLineItem {
+  id              String    @id @default(uuid()) @db.Uuid
+  companyId       String    @map("company_id") @db.Uuid
+  returnId        String    @map("return_id") @db.Uuid
+  orderLineItemId String?   @map("order_line_item_id") @db.Uuid
+  optionId        String?   @map("option_id") @db.Uuid
 
-  vendorItemId      String  @map("vendor_item_id") @db.VarChar(30)
-  vendorItemName    String  @default("") @map("vendor_item_name")
-  sellerProductId   String? @map("seller_product_id") @db.VarChar(30)
-  sellerProductName String  @default("") @map("seller_product_name")
+  productName     String    @default("") @map("product_name")
+  quantity        Int
 
-  shippingCount           Int @default(1) @map("shipping_count")
-  salesPrice              Int @default(0) @map("sales_price")
-  orderPrice              Int @default(0) @map("order_price")
-  instantCouponDiscount   Int @default(0) @map("instant_coupon_discount")
+  metadata        Json?
 
-  listingOptionId String? @map("listing_option_id") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
-  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz
-
-  order         CoupangOrder           @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  listingOption ChannelListingOption?  @relation(fields: [listingOptionId], references: [id], onDelete: SetNull)
-
-  @@index([orderId])
-  @@index([sellerProductId])
-  @@index([listingOptionId])
-  @@map("coupang_order_items")
-}
-
-/// @namespace Orders
-/// @describe 반품. items Json 배열로 반품 아이템 흡수 (별도 테이블 없음).
-model CoupangReturn {
-  id            String   @id @default(uuid()) @db.Uuid
-  companyId     String   @map("company_id") @db.Uuid
-  receiptId     String   @unique @map("receipt_id") @db.VarChar(30)
-  orderId       String   @map("order_id") @db.VarChar(30)
-  requesterName String   @default("") @map("requester_name")
-  receiptStatus String   @default("UC") @map("receipt_status")
-  receiptType   String   @default("RETURN") @map("receipt_type")
-  faultByType   String   @default("CUSTOMER") @map("fault_by_type")
-  cancelReason  String   @default("") @map("cancel_reason")
-  cancelReasonCategory1 String? @map("cancel_reason_category1")
-  cancelReasonCategory2 String? @map("cancel_reason_category2")
-  reasonCode    String?  @map("reason_code")
-  reasonCodeText String? @map("reason_code_text")
-  returnDeliveryId String? @map("return_delivery_id") @db.VarChar(30)
-  enclosePrice  Int?     @map("enclose_price")
-  requestedAt   DateTime @map("requested_at") @db.Timestamptz
-  completedAt   DateTime? @map("completed_at") @db.Timestamptz
-  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  items         Json     @default("[]") @map("items")
-
-  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company         Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  return          OrderReturn    @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  orderLineItem   OrderLineItem? @relation(fields: [orderLineItemId], references: [id], onDelete: SetNull)
+  option          ProductOption? @relation(fields: [optionId], references: [id], onDelete: SetNull)
 
   @@index([companyId])
-  @@index([receiptStatus])
-  @@index([faultByType])
-  @@index([requestedAt])
-  @@map("coupang_returns")
+  @@index([returnId])
+  @@index([optionId])
+  @@map("order_return_line_items")
 }
 
 /// @namespace Orders
@@ -272,4 +296,3 @@ model Review {
   @@index([listingId])
   @@map("reviews")
 }
-
