@@ -105,6 +105,60 @@ describe('ChannelSyncService.syncSingleOrder (Plan A.5)', () => {
     const upsertArgs = tx.order.upsert.mock.calls[0][0];
     expect(upsertArgs.create.totalPrice).toBe(300);
   });
+
+  it('null vendorItemId → 결정적 합성 externalLineId 사용 (idempotent)', async () => {
+    tx.order.upsert.mockResolvedValue({ id: 'order-1' });
+    tx.channelListingOption.findUnique.mockResolvedValue(null);
+    tx.orderLineItem.upsert.mockResolvedValue({});
+
+    await (service as any).syncSingleOrder({
+      shipmentBoxId: 'SBX-77', orderId: 'CO-77', status: 'ACCEPT', orderedAt: '2026-04-18T00:00:00Z',
+      orderItems: [
+        { vendorItemId: null, sellerProductName: 'A', shippingCount: 1, salesPrice: 100, orderPrice: 100 },
+        { vendorItemId: null, sellerProductName: 'B', shippingCount: 1, salesPrice: 200, orderPrice: 200 },
+      ],
+    } as any, 'c1');
+
+    expect(tx.orderLineItem.upsert).toHaveBeenCalledTimes(2);
+    const first = tx.orderLineItem.upsert.mock.calls[0][0];
+    const second = tx.orderLineItem.upsert.mock.calls[1][0];
+    expect(first.where.orderId_externalLineId.externalLineId).toBe('coupang-noid-SBX-77-0');
+    expect(second.where.orderId_externalLineId.externalLineId).toBe('coupang-noid-SBX-77-1');
+    expect(first.create.externalLineId).toBe('coupang-noid-SBX-77-0');
+    expect(second.create.externalLineId).toBe('coupang-noid-SBX-77-1');
+    // ChannelListingOption 조회는 vendorItemId 없으면 skip
+    expect(tx.channelListingOption.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('paidAt 누락 → create.paidAt = null', async () => {
+    tx.order.upsert.mockResolvedValue({ id: 'order-1' });
+    tx.channelListingOption.findUnique.mockResolvedValue(null);
+    tx.orderLineItem.upsert.mockResolvedValue({});
+
+    await (service as any).syncSingleOrder({
+      shipmentBoxId: 'SBX-1', orderId: 'CO-1', status: 'ACCEPT', orderedAt: '2026-04-18T00:00:00Z',
+      // paidAt 생략
+      orderItems: [{ vendorItemId: 'V1', sellerProductName: 'A', shippingCount: 1, salesPrice: 100, orderPrice: 100 }],
+    } as any, 'c1');
+
+    const args = tx.order.upsert.mock.calls[0][0];
+    expect(args.create.paidAt).toBeNull();
+  });
+
+  it('orderLineItem upsert 실패 시 transaction 전체 rollback (callback throw 전파)', async () => {
+    tx.order.upsert.mockResolvedValue({ id: 'order-1' });
+    tx.channelListingOption.findUnique.mockResolvedValue(null);
+    tx.orderLineItem.upsert.mockRejectedValue(new Error('FK violation'));
+
+    await expect(
+      (service as any).syncSingleOrder({
+        shipmentBoxId: 'SBX-1', orderId: 'CO-1', status: 'ACCEPT', orderedAt: '2026-04-18T00:00:00Z',
+        orderItems: [{ vendorItemId: 'V1', sellerProductName: 'A', shippingCount: 1, salesPrice: 100, orderPrice: 100 }],
+      } as any, 'c1'),
+    ).rejects.toThrow('FK violation');
+
+    expect(prisma.$transaction).toHaveBeenCalled();
+  });
 });
 
 describe('ChannelSyncService.syncSingleReturn (Plan A.5)', () => {
@@ -114,6 +168,7 @@ describe('ChannelSyncService.syncSingleReturn (Plan A.5)', () => {
 
   beforeEach(async () => {
     tx = {
+      order: { findFirst: vi.fn() },
       orderReturn: { upsert: vi.fn() },
       orderReturnLineItem: {
         deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
@@ -122,7 +177,6 @@ describe('ChannelSyncService.syncSingleReturn (Plan A.5)', () => {
     };
     prisma = {
       $transaction: vi.fn(async (cb: any) => cb(tx)),
-      order: { findFirst: vi.fn() },
     };
     const m = await Test.createTestingModule({
       providers: [
@@ -134,7 +188,7 @@ describe('ChannelSyncService.syncSingleReturn (Plan A.5)', () => {
   });
 
   it('upserts OrderReturn with type from receiptType', async () => {
-    prisma.order.findFirst.mockResolvedValue({ id: 'order-1' });
+    tx.order.findFirst.mockResolvedValue({ id: 'order-1' });
     tx.orderReturn.upsert.mockResolvedValue({ id: 'ret-1' });
 
     await (service as any).syncSingleReturn({
@@ -159,7 +213,7 @@ describe('ChannelSyncService.syncSingleReturn (Plan A.5)', () => {
   });
 
   it('items JSON → OrderReturnLineItem rows', async () => {
-    prisma.order.findFirst.mockResolvedValue(null);
+    tx.order.findFirst.mockResolvedValue(null);
     tx.orderReturn.upsert.mockResolvedValue({ id: 'ret-1' });
     tx.orderReturnLineItem.create.mockResolvedValue({});
 
@@ -181,5 +235,23 @@ describe('ChannelSyncService.syncSingleReturn (Plan A.5)', () => {
     const firstCreate = tx.orderReturnLineItem.create.mock.calls[0][0].data;
     expect(firstCreate.companyId).toBe('c1');
     expect(firstCreate.productName).toBe('Toy');
+  });
+
+  it('items 빈 배열 → deleteMany 만 호출, create 0회', async () => {
+    tx.order.findFirst.mockResolvedValue(null);
+    tx.orderReturn.upsert.mockResolvedValue({ id: 'ret-1' });
+
+    await (service as any).syncSingleReturn({
+      receiptId: 'RCT-3',
+      receiptType: 'RETURN',
+      receiptStatus: 'UC',
+      orderId: null,
+      requesterName: 'Carol',
+      requestedAt: '2026-04-18T00:00:00Z',
+      items: [],
+    } as any, 'c1');
+
+    expect(tx.orderReturnLineItem.deleteMany).toHaveBeenCalledWith({ where: { returnId: 'ret-1' } });
+    expect(tx.orderReturnLineItem.create).not.toHaveBeenCalled();
   });
 });

@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { getSellerProducts, getSellerProduct } from '../adapters/coupang/products';
-import { getOrderSheets } from '../adapters/coupang/orders';
+import { getOrderSheets, type CoupangReturnPayload } from '../adapters/coupang/orders';
 import { getVendorId } from '../adapters/coupang/coupang-client';
 import type {
   SyncResult,
@@ -468,10 +468,14 @@ export class ChannelSyncService {
           },
         });
 
-        for (const item of orderItems) {
+        for (let idx = 0; idx < orderItems.length; idx += 1) {
+          const item = orderItems[idx];
           const vendorItemId = item.vendorItemId
             ? String(item.vendorItemId)
             : null;
+          // vendorItemId 부재 시 합성 결정적 key 로 idempotency 확보 (재sync 시 where 키가 매치되어 upsert 가 동일 row 를 갱신).
+          const externalLineId =
+            vendorItemId ?? `coupang-noid-${shipmentBoxId}-${idx}`;
           const listingOption = vendorItemId
             ? await tx.channelListingOption.findUnique({
                 where: {
@@ -497,7 +501,7 @@ export class ChannelSyncService {
             where: {
               orderId_externalLineId: {
                 orderId: order.id,
-                externalLineId: vendorItemId ?? '',
+                externalLineId,
               },
             },
             update: {
@@ -524,7 +528,7 @@ export class ChannelSyncService {
               quantity: item.shippingCount ?? 1,
               unitPrice: item.salesPrice ?? 0,
               totalPrice: item.orderPrice ?? 0,
-              externalLineId: vendorItemId,
+              externalLineId,
               metadata: lineItemMetadata as Prisma.InputJsonValue,
             },
           });
@@ -535,21 +539,10 @@ export class ChannelSyncService {
   }
 
   private async syncSingleReturn(
-    payload: any,
+    payload: CoupangReturnPayload,
     companyId: string,
   ): Promise<void> {
     const receiptId = String(payload.receiptId);
-    const matchedOrder = payload.orderId
-      ? await this.prisma.order.findFirst({
-          where: {
-            companyId,
-            platform: 'coupang',
-            externalNumber: String(payload.orderId),
-          },
-          select: { id: true },
-        })
-      : null;
-
     const metadata = {
       reasonCode: payload.reasonCode ?? null,
       reasonCodeText: payload.reasonCodeText ?? null,
@@ -558,6 +551,18 @@ export class ChannelSyncService {
 
     await this.prisma.$transaction(
       async (tx) => {
+        // matchedOrder lookup inside tx: 동일 sync run 이 Order 를 먼저 만든 직후 Return 을 처리할 때 phantom read 방지.
+        const matchedOrder = payload.orderId
+          ? await tx.order.findFirst({
+              where: {
+                companyId,
+                platform: 'coupang',
+                externalNumber: String(payload.orderId),
+              },
+              select: { id: true },
+            })
+          : null;
+
         const ret = await tx.orderReturn.upsert({
           where: {
             companyId_platform_externalReturnId: {
