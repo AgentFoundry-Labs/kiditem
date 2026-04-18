@@ -14,10 +14,15 @@ import type {
   AdjustStockInput,
   StockOperationResult,
   StockTransactionType,
+  TransactionListItem,
+  TransactionListResponse,
+  TransactionSummary,
 } from '@kiditem/shared';
 import type { Prisma } from '@prisma/client';
 import type {
   ListInventoryQueryDto,
+  ListTransactionsQueryDto,
+  TransactionSummaryQueryDto,
 } from '../dto';
 
 function deriveStatus(currentStock: number, reorderPoint: number): InventoryStatus {
@@ -256,5 +261,77 @@ export class InventoryService {
     }, { timeout: 15_000 });
   }
 
-  // ===== Ledger placeholder — 다음 task =====
+  // ===== Ledger =====
+  async listTransactions(
+    query: ListTransactionsQueryDto,
+    companyId: string,
+  ): Promise<TransactionListResponse> {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 50;
+    const skip = (page - 1) * limit;
+
+    const where: Prisma.StockTransactionWhereInput = { companyId };
+    if (query.optionId) where.optionId = query.optionId;
+    if (query.type) where.type = query.type;
+    if (query.from || query.to) {
+      const dateFilter: { gte?: Date; lte?: Date } = {};
+      if (query.from) dateFilter.gte = new Date(query.from);
+      if (query.to) dateFilter.lte = new Date(query.to);
+      where.createdAt = dateFilter;
+    }
+
+    const [rows, total] = await Promise.all([
+      this.prisma.stockTransaction.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.stockTransaction.count({ where }),
+    ]);
+
+    const items = rows.map((r) => ({
+      id: r.id,
+      optionId: r.optionId,
+      optionName: r.optionName,
+      type: r.type as StockTransactionType,
+      quantity: r.quantity,
+      unitCost: r.unitCost,
+      totalCost: r.totalCost,
+      warehouseId: r.warehouseId,
+      relatedId: r.relatedId,
+      relatedType: r.relatedType,
+      note: r.note,
+      createdBy: r.createdBy,
+      createdAt: r.createdAt.toISOString(),
+    } satisfies TransactionListItem));
+
+    return { items, total, page, limit } satisfies TransactionListResponse;
+  }
+
+  async getTransactionSummary(
+    query: TransactionSummaryQueryDto,
+    companyId: string,
+  ): Promise<TransactionSummary> {
+    const days = query.days ?? 30;
+    const from = new Date(Date.now() - days * 86400000);
+
+    const grouped = await this.prisma.stockTransaction.groupBy({
+      by: ['type'],
+      where: { companyId, createdAt: { gte: from } },
+      _sum: { quantity: true, totalCost: true },
+    });
+
+    const lookup = Object.fromEntries(
+      grouped.map((g) => [g.type, { qty: g._sum.quantity ?? 0, amt: g._sum.totalCost ?? 0 }]),
+    );
+
+    return {
+      inQty: lookup.RECEIVE?.qty ?? 0,
+      outQty: lookup.ISSUE?.qty ?? 0,
+      adjustQty: lookup.ADJUST?.qty ?? 0,
+      inAmount: lookup.RECEIVE?.amt ?? 0,
+      outAmount: lookup.ISSUE?.amt ?? 0,
+    } satisfies TransactionSummary;
+  }
 }
