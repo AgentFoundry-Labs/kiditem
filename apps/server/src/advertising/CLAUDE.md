@@ -8,7 +8,7 @@ ADR-0006 준수 — 모든 service 가 companyId 말미 파라미터 + `@Current
 - **Controller**: `advertising.controller.ts` — all `/api/ads/*` routes (14+ endpoints), `@CurrentCompany()` 주입
 - **Services**: advertising / ad-campaigns / ad-strategy / ad-benchmark / ad-collect / ad-sync / ad-action / ad-execution / ad-config (9 services)
 - **Frontend**: `apps/web/src/app/ad-ops/` — 4 탭 (status / strategy / campaign / exposure). Plan D 에서 신 shared schema consume
-- **DB**: Ad (listingId required + optionId nullable), AdSnapshot (level: campaign|product|keyword|null), AdAction (listingId nullable, targetType ∈ {'campaign','keyword'}), ItemWinner, ScrapeTarget, ExecutionTask, ExecutionLog, ExecutionWorker
+- **DB**: Ad (listingId required + optionId nullable), AdSnapshot (pageType ∈ {'campaign','keyword','product'}, level ∈ {'campaign','product',null}), AdAction (listingId nullable, targetType ∈ {'campaign','keyword'}), ItemWinner, ScrapeTarget, ExecutionTask, ExecutionLog, ExecutionWorker
 - **Shared**: `@kiditem/shared/schemas/ads` — listingId-primary, nested masterProduct{code,name} + option{sku,optionName}
 
 ## Data Flow
@@ -54,7 +54,7 @@ AdSyncService.sync
 ## 액션 자동 실행 파이프라인
 
 ```
-AdSnapshot (raw 스크래핑 데이터, level=campaign|product|keyword|null)
+AdSnapshot (raw 스크래핑 데이터, pageType=campaign|keyword|product, level=campaign|product|null)
     ↓ ad-strategy 5 규칙 평가
 AdAction (실행 대기 큐, targetType: campaign|keyword)
     ↓ execution-worker lease
