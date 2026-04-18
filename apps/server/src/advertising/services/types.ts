@@ -1,5 +1,5 @@
 import type { Prisma } from '@prisma/client';
-import type { AdMetrics } from '@kiditem/shared';
+import type { AdMetrics, AdStrategyAction } from '@kiditem/shared';
 
 // AdAction targetType 값 union (services/types.ts 전용 export, AdActionCommandDto 는 dto/).
 export const AD_ACTION_TARGET_TYPES = ['campaign', 'keyword'] as const;
@@ -93,3 +93,111 @@ export interface ListingMetricsRow {
   listingId: string;
   metrics: AdMetrics;
 }
+
+// ───── Hydrated data shapes (orchestrator → sub-service input) ─────
+
+export interface HydratedListing {
+  id: string;
+  externalId: string;
+  channelName: string | null;
+  masterProduct: {
+    id: string;
+    code: string;
+    name: string;
+    abcGrade: 'A' | 'B' | 'C' | null;
+    adTier: string | null;
+    healthScore: number | null;
+  };
+}
+
+export interface InventoryRow {
+  optionId: string;
+  listingId: string;
+  availableStock: number;
+  costPrice: number | null;
+  sellPrice: number | null;
+  commissionRate: Prisma.Decimal | null;
+}
+
+export interface AdAggregateRow {
+  listingId: string;
+  spend: number;
+  impressions: number;
+  clicks: number;
+  conversions: number;
+  revenue: number;
+}
+
+// ───── Sub-service input types ─────
+
+export interface GradeRulesInput {
+  snapshots: Array<{
+    id: string;
+    listingId: string | null;
+    optionId: string | null;
+    pageType: string | null;
+    externalId: string | null;
+    campaignName: string | null;
+    status: string | null;
+    spend: number;
+    impressions: number;
+    clicks: number;
+    conversions: number;
+    revenue: number;
+    roas: Prisma.Decimal | null;
+    dailyBudget: number | null;
+    currentBid: number | null;
+  }>;
+  listings: HydratedListing[];
+  inventory: Map<string, InventoryRow>;
+  gradeMap: Map<string, 'A' | 'B' | 'C'>;
+}
+
+export interface AdIssuesInput {
+  adGroups: AdAggregateRow[];
+  listings: HydratedListing[];
+  gradeMap: Map<string, 'A' | 'B' | 'C'>;
+}
+
+export interface KeyMetricsInput {
+  snapshots: Array<{ listingId: string | null; spend: number; revenue: number; clicks: number; impressions: number; conversions: number }>;
+  listings: HydratedListing[];
+}
+
+export interface KeyMetricsResult {
+  totals: { spend: number; revenue: number; clicks: number; impressions: number; conversions: number };
+  perListing: Map<string, ListingMetricsRow>;
+  gradeMap: Map<string, 'A' | 'B' | 'C'>;
+}
+
+export interface BudgetAllocatorInput {
+  config: AdsConfig;
+  adGroups: AdAggregateRow[];
+  listings: HydratedListing[];
+  gradeMap: Map<string, 'A' | 'B' | 'C'>;
+}
+
+export interface TierAnalysisInput {
+  listings: HydratedListing[];
+  adGroups: AdAggregateRow[];
+}
+
+export interface Top20Input {
+  profitLosses: Array<{ listingId: string | null; profit: number | null; profitRate: Prisma.Decimal | null }>;
+  listings: HydratedListing[];
+  adGroups: AdAggregateRow[];
+}
+
+export interface ExposureScoreInput {
+  listing: HydratedListing;
+  metrics: ListingMetricsRow;
+  inventory: InventoryRow | null;
+  reviewStats: { totalReviews: number; recentReviews: number; avgRating: number } | null;
+}
+
+export interface TopIssueInput {
+  listing: HydratedListing;
+  scores: { sales: number; review: number; ad: number; fulfillment: number; info: number };
+}
+
+export type RecommendInput = AdStrategyAction[];
