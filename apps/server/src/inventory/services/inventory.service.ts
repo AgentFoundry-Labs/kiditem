@@ -1,210 +1,132 @@
-import {
-  Injectable,
-  InternalServerErrorException,
-  NotFoundException,
-  BadRequestException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { paginationParams } from '../../common/pagination';
-import { resolveInventory } from '../../common/master-product-resolver';
-import type { InventoryItem, InventorySummary } from '@kiditem/shared';
+import { BundleStockService } from '../../products/services/bundle-stock.service';
+import { toSerializable } from '../../products/util/serialize';
+import type {
+  Inventory,
+  InventoryListItem,
+  InventorySummary,
+  InventoryListResponse,
+  InventoryStatus,
+  UpdateInventoryMetadataInput,
+} from '@kiditem/shared';
+import type { Prisma } from '@prisma/client';
+import type {
+  ListInventoryQueryDto,
+} from '../dto';
 
-export type { InventorySummary } from '@kiditem/shared';
+function deriveStatus(currentStock: number, reorderPoint: number): InventoryStatus {
+  if (currentStock <= 0) return 'out';
+  if (currentStock <= reorderPoint) return 'low';
+  return 'healthy';
+}
 
 @Injectable()
 export class InventoryService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly bundleStock: BundleStockService,
+  ) {}
 
-  async findAll(query: { page?: string; limit?: string; status?: string }): Promise<{
-    items: Record<string, unknown>[];
-    total: number;
-    page: number;
-    limit: number;
-    summary: InventorySummary;
-  }> {
-    try {
-      const { page, limit, skip } = paginationParams(query);
-      const statusFilter = query.status;
+  // ===== Reads =====
+  async list(query: ListInventoryQueryDto, companyId: string): Promise<InventoryListResponse> {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 50;
+    const skip = (page - 1) * limit;
 
-      const rows = await this.prisma.inventory.findMany({
+    const where: Prisma.InventoryWhereInput = { companyId };
+    if (query.optionId) where.optionId = query.optionId;
+    if (query.masterId) where.option = { masterId: query.masterId };
+
+    const [rows, dbCount] = await Promise.all([
+      this.prisma.inventory.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
         include: {
-          product: {
-            include: { company: true, masterProduct: { include: { inventory: true } } },
+          option: {
+            include: { master: { select: { name: true } } },
           },
         },
-      });
+      }),
+      this.prisma.inventory.count({ where }),
+    ]);
 
-      const enriched = rows.map((inv) => {
-        const avgDailySales = Number(inv.dailySalesAvg ?? 0);
-        const leadTimeDays = inv.leadTimeDays ?? 14;
-
-        // MasterInventory 우선 resolve
-        const resolvedInv = inv.product
-          ? resolveInventory(inv.product)
-          : { currentStock: inv.currentStock, safetyStock: inv.safetyStock, reorderPoint: inv.reorderPoint };
-        const currentStock = resolvedInv.currentStock;
-        const safetyStock = resolvedInv.safetyStock;
-        const reorderPoint = resolvedInv.reorderPoint;
-
-        const optimalStock =
-          avgDailySales > 0
-            ? Math.round(avgDailySales * (leadTimeDays + 7))
-            : safetyStock || 0;
-        const daysRemaining =
-          avgDailySales > 0
-            ? Math.round(currentStock / avgDailySales)
-            : currentStock > 0
-              ? 999
-              : 0;
-        const recommendedOrder = Math.max(0, optimalStock - currentStock);
-
-        let status = 'normal';
-        if (currentStock === 0) status = 'critical';
-        else if (currentStock <= reorderPoint && reorderPoint > 0)
-          status = 'warning';
-        else if (optimalStock > 0 && currentStock > optimalStock * 2)
-          status = 'overstock';
-
-        return {
-          id: inv.id,
-          productId: inv.productId,
-          productName: inv.product?.name ?? 'N/A',
-          sku: inv.product?.coupangProductId ?? inv.product?.sku ?? null,
-          company: inv.product?.company?.name ?? 'N/A',
-          grade: inv.product?.abcGrade ?? 'C',
-          currentStock,
-          safetyStock,
-          reorderPoint,
-          leadTimeDays,
-          avgDailySales,
-          optimalStock,
-          daysRemaining,
-          recommendedOrder,
-          status,
-        } satisfies InventoryItem;
-      });
-
-      const summary = {
-        total: enriched.length,
-        reorderCount: 0,
-        outOfStockCount: 0,
-        unsyncedCount: 0,
-        overstockCount: 0,
-      } satisfies InventorySummary;
-      for (const item of enriched) {
-        const unsynced =
-          item.currentStock === 0 &&
-          item.avgDailySales === 0 &&
-          item.optimalStock <= item.safetyStock;
-        if (unsynced) {
-          summary.unsyncedCount++;
-          continue;
-        }
-        if (item.currentStock === 0) summary.outOfStockCount++;
-        if (item.status === 'critical' || item.status === 'warning')
-          summary.reorderCount++;
-        if (item.status === 'overstock') summary.overstockCount++;
-      }
-
-      // status는 계산 필드이므로 메모리에서 필터
-      const filtered =
-        statusFilter && statusFilter !== 'all'
-          ? enriched.filter((i) => {
-              if (statusFilter === 'reorder')
-                return i.status === 'critical' || i.status === 'warning';
-              if (statusFilter === 'overstock')
-                return i.status === 'overstock';
-              if (statusFilter === 'dead_stock')
-                return i.avgDailySales === 0 && i.currentStock > 0;
-              if (statusFilter === 'zero_stock')
-                return i.currentStock === 0;
-              if (statusFilter === 'zero_sales')
-                return i.avgDailySales === 0;
-              return i.status === statusFilter;
-            })
-          : enriched;
-
-      const total = filtered.length;
-      const items = filtered.slice(skip, skip + limit);
-      return { items, total, page, limit, summary };
-    } catch {
-      throw new InternalServerErrorException('재고 데이터 조회 실패');
-    }
-  }
-
-  async receiveStock(id: string, quantity: number): Promise<{
-    id: string;
-    productId: string;
-    productName: string;
-    currentStock: number;
-    received: number;
-  }> {
-    if (!quantity || quantity <= 0) {
-      throw new BadRequestException('수량은 1 이상이어야 합니다.');
-    }
-
-    const inv = await this.prisma.inventory.findUnique({
-      where: { id },
-      include: { product: true },
+    const mapped = rows.map((r) => {
+      const availableStock = r.option.isBundle ? (r.option.availableStock ?? 0) : r.currentStock;
+      const status = deriveStatus(r.currentStock, r.reorderPoint);
+      return {
+        id: r.id,
+        optionId: r.optionId,
+        masterId: r.option.masterId,
+        sku: r.option.sku,
+        masterName: r.option.master.name,
+        optionName: r.option.optionName,
+        kind: r.option.isBundle ? 'BUNDLE' : 'SIMPLE',
+        currentStock: r.currentStock,
+        availableStock,
+        safetyStock: r.safetyStock,
+        reorderPoint: r.reorderPoint,
+        leadTimeDays: r.leadTimeDays,
+        warehouseLocation: r.warehouseLocation,
+        status,
+      } satisfies InventoryListItem;
     });
-    if (!inv) {
-      throw new NotFoundException('재고 항목을 찾을 수 없습니다.');
-    }
 
-    let currentStock: number;
-    if (inv.product?.masterProductId) {
-      // MasterProduct 연결됨 → MasterInventory에만 쓰기
-      const masterInv = await this.prisma.masterInventory.upsert({
-        where: { masterProductId: inv.product.masterProductId },
-        update: { currentStock: { increment: quantity } },
-        create: {
-          companyId: inv.companyId,
-          masterProductId: inv.product.masterProductId,
-          currentStock: quantity,
-          safetyStock: 0,
-        },
-      });
-      currentStock = masterInv.currentStock;
-    } else {
-      // 미연결 → 기존 Inventory에 쓰기
-      const updated = await this.prisma.inventory.update({
-        where: { id },
-        data: {
-          currentStock: { increment: quantity },
-          lastRestockedAt: new Date(),
-        },
-      });
-      currentStock = updated.currentStock;
-    }
+    const filtered = query.status ? mapped.filter((i) => i.status === query.status) : mapped;
+    const items = filtered.slice(skip, skip + limit);
+    const total = query.status ? filtered.length : dbCount;
 
-    await this.prisma.stockTransaction.create({
-      data: {
-        companyId: inv.companyId,
-        productId: inv.productId,
-        productName: inv.product?.name,
-        type: 'receive',
-        quantity,
-        note: '검수 입고',
-      },
-    });
+    const summary: InventorySummary = {
+      total: mapped.length,
+      healthy: mapped.filter((i) => i.status === 'healthy').length,
+      low: mapped.filter((i) => i.status === 'low').length,
+      out: mapped.filter((i) => i.status === 'out').length,
+    };
 
     return {
-      id: inv.id,
-      productId: inv.productId,
-      productName: inv.product?.name ?? 'N/A',
-      currentStock,
-      received: quantity,
-    };
+      items,
+      total,
+      page,
+      limit,
+      summary,
+    } satisfies InventoryListResponse;
   }
 
-  async findByProductId(productId: string): Promise<{ id: string; productId: string; productName: string }> {
-    const inv = await this.prisma.inventory.findUnique({
-      where: { productId },
-      include: { product: true },
-    });
-    if (!inv) {
-      throw new NotFoundException('해당 상품의 재고 항목이 없습니다.');
-    }
-    return { id: inv.id, productId: inv.productId, productName: inv.product?.name ?? 'N/A' };
+  async findById(id: string, companyId: string): Promise<Inventory> {
+    const inv = await this.prisma.inventory.findFirst({ where: { id, companyId } });
+    if (!inv) throw new NotFoundException('Inventory not found');
+    return toSerializable(inv) as Inventory;
   }
+
+  async findByOptionId(optionId: string, companyId: string): Promise<Inventory> {
+    const inv = await this.prisma.inventory.findFirst({ where: { optionId, companyId } });
+    if (!inv) throw new NotFoundException('Inventory not found');
+    return toSerializable(inv) as Inventory;
+  }
+
+  // ===== Metadata =====
+  async updateMetadata(
+    id: string,
+    dto: UpdateInventoryMetadataInput,
+    companyId: string,
+  ): Promise<Inventory> {
+    const existing = await this.prisma.inventory.findFirst({ where: { id, companyId } });
+    if (!existing) throw new NotFoundException('Inventory not found');
+
+    const data: Prisma.InventoryUpdateInput = {};
+    if (dto.safetyStock !== undefined) data.safetyStock = dto.safetyStock;
+    if (dto.reorderPoint !== undefined) data.reorderPoint = dto.reorderPoint;
+    if (dto.reorderQuantity !== undefined) data.reorderQuantity = dto.reorderQuantity;
+    if (dto.leadTimeDays !== undefined) data.leadTimeDays = dto.leadTimeDays;
+    if (dto.warehouseLocation !== undefined) data.warehouseLocation = dto.warehouseLocation;
+
+    const updated = await this.prisma.inventory.update({
+      where: { id },
+      data,
+    });
+    return toSerializable(updated) as Inventory;
+  }
+
+  // ===== Mutations placeholder — 다음 task =====
+  // ===== Ledger placeholder — 다음 task =====
 }
