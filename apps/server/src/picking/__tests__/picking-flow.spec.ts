@@ -42,17 +42,31 @@ describe('PickingService — 확정 주문 → 피킹 → 검수 상태 전이',
       prisma.order.findMany.mockResolvedValue([
         {
           id: 'order-1',
-          productId: 'prod-1',
-          productName: 'Widget',
-          quantity: 2,
-          product: { sku: 'WDG-001' },
+          companyId: 'c-1',
+          status: 'confirmed',
+          lineItems: [
+            {
+              optionId: 'opt-1',
+              productName: 'Widget',
+              sku: 'WDG-001',
+              quantity: 2,
+              option: { sku: 'WDG-001', optionName: 'Default' },
+            },
+          ],
         },
         {
           id: 'order-2',
-          productId: 'prod-2',
-          productName: 'Gadget',
-          quantity: 5,
-          product: { sku: 'GDG-001' },
+          companyId: 'c-1',
+          status: 'confirmed',
+          lineItems: [
+            {
+              optionId: 'opt-2',
+              productName: 'Gadget',
+              sku: 'GDG-001',
+              quantity: 5,
+              option: { sku: 'GDG-001', optionName: 'Default' },
+            },
+          ],
         },
       ]);
       const created = { id: 'pl-1', listNumber: 'PK-1', totalItems: 2, items: [] };
@@ -62,7 +76,11 @@ describe('PickingService — 확정 주문 → 피킹 → 검수 상태 전이',
 
       expect(prisma.order.findMany).toHaveBeenCalledWith({
         where: { companyId: 'c-1', status: 'confirmed' },
-        include: { product: true },
+        include: {
+          lineItems: {
+            include: { option: { select: { sku: true, optionName: true } } },
+          },
+        },
       });
       expect(prisma.pickingList.create).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -71,14 +89,30 @@ describe('PickingService — 확정 주문 → 피킹 → 검수 상태 전이',
             totalItems: 2,
             items: {
               create: [
-                expect.objectContaining({ orderId: 'order-1', productId: 'prod-1', quantity: 2, sku: 'WDG-001' }),
-                expect.objectContaining({ orderId: 'order-2', productId: 'prod-2', quantity: 5, sku: 'GDG-001' }),
+                expect.objectContaining({ orderId: 'order-1', optionId: 'opt-1', quantity: 2, sku: 'WDG-001' }),
+                expect.objectContaining({ orderId: 'order-2', optionId: 'opt-2', quantity: 5, sku: 'GDG-001' }),
               ],
             },
           }),
         }),
       );
       expect(result).toBe(created);
+    });
+
+    it('vendorItemId 미매칭(optionId=null) lineItem 은 skip; 모두 null 이면 BadRequestException', async () => {
+      prisma.order.findMany.mockResolvedValue([
+        {
+          id: 'order-1',
+          companyId: 'c-1',
+          status: 'confirmed',
+          lineItems: [
+            { optionId: null, productName: 'Mystery', sku: null, quantity: 1, option: null },
+          ],
+        },
+      ]);
+
+      await expect(service.generate('c-1')).rejects.toBeInstanceOf(BadRequestException);
+      expect(prisma.pickingList.create).not.toHaveBeenCalled();
     });
   });
 
