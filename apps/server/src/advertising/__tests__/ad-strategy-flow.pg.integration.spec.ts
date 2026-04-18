@@ -1,9 +1,14 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { Test } from '@nestjs/testing';
 import { NotFoundException, ConflictException } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
 import { AdStrategyService } from '../services/ad-strategy.service';
 import { AdConfigService } from '../services/ad-config.service';
+import { AdGradeRulesService } from '../services/ad-grade-rules.service';
+import { AdBudgetAllocatorService } from '../services/ad-budget-allocator.service';
+import { AdExposureService } from '../services/ad-exposure.service';
+import { AdRecommendService } from '../services/ad-recommend.service';
+import { AgentRegistryService } from '../../agent-registry/agent-registry.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   makeTestPrisma,
@@ -111,7 +116,15 @@ describe('AdStrategy flow (PG integration)', () => {
       providers: [
         AdStrategyService,
         AdConfigService,
+        AdGradeRulesService,
+        AdBudgetAllocatorService,
+        AdExposureService,
+        AdRecommendService,
         { provide: PrismaService, useValue: prisma },
+        {
+          provide: AgentRegistryService,
+          useValue: { findByType: vi.fn().mockResolvedValue(null) },
+        },
       ],
     }).compile();
     service = m.get(AdStrategyService);
