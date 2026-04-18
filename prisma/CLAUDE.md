@@ -17,7 +17,7 @@ prisma/
     ├── inventory.prisma        (Inventory, Stock*, Warehouse, Picking*, ReturnTransfer)
     │                            ↳ StockTransaction 은 InventoryService 의 내부 ledger.
     │                              외부 모듈의 직접 read/write 금지 (ADR-0014).
-    ├── orders.prisma           (Order, CoupangOrder*, CoupangReturn, Shipment, UnshippedItem, Settlement, CSRecord, Review)
+    ├── orders.prisma           (Order + OrderLineItem + OrderReturn + OrderReturnLineItem (ADR-0015 channel-agnostic), Shipment, UnshippedItem, Settlement, CSRecord, Review)
     ├── supply.prisma           (Supplier*, PurchaseOrder*)
     └── system.prisma           (Marketplace, BusinessRule, ActionTask, FeatureGate, ActivityEvent, Alert, SystemSetting, ProductMemo, MigrationCheckpoint)
 ```

@@ -2,7 +2,9 @@
 
 13 파일. **외부 마켓플레이스(Coupang) 어댑터 + 데이터 동기화 + 분석 대시보드** 가 결합된 도메인. `adapters/coupang/` 하위가 외부 API 격리 레이어.
 
-> **⚠ Plan B2 pending (ADR-0013)**: 아래 Sync 3종 의 내부 upsert 대상 (`Product`, `ProductItem`, `MasterInventory`) 은 Plan A 에서 **drop** 됐다. 현재 `channel-sync.service.ts` 는 이 stale 모델 참조로 **server build 실패** 상태 — Plan B2 에서 `ChannelListing` + `ChannelListingOption` + `Inventory` (Option 1:1) 로 포팅 예정. 아래 설명은 포팅 전 레거시 코드 기준.
+> **Plan A.5 (ADR-0015) 완료 (2026-04-18)**: `syncSingleOrder` / `syncSingleReturn` 은 channel-agnostic `Order` / `OrderLineItem` / `OrderReturn` / `OrderReturnLineItem` 으로 재작성됨. 채널 구분은 `platform String` (현재 `'coupang'`), 채널-특수 raw 데이터는 `metadata Json`. `CoupangOrder` / `CoupangOrderItem` / `CoupangReturn` 는 drop. 상세: [ADR-0015](../../../../.claude/docs/decisions/0015-order-schema-unification.md).
+>
+> **⚠ Plan B2c pending**: `syncProducts` 와 `channel-dashboard.service.ts` 는 ADR-0013 drop 모델 (`Product`, `ProductItem`) 참조 + Plan A.5 drop 모델 (`coupangOrder*`) 참조로 stub 상태. B2c 가 `ChannelListing` + `ChannelListingOption` + `Order` / `OrderLineItem` 기반으로 재작성 예정.
 
 ## Directory
 
@@ -56,11 +58,37 @@ UNDER_EXAMINATION|REJECTED → 'draft'
 ### 3. Sync 3종 (Products / Orders / Inventory)
 
 `channel-sync.service.ts`:
-- `syncProducts()` (line 60) — Coupang seller products → 내부 Product/ProductItem upsert
-- `syncOrders()` (line 103) — Coupang order sheets → 내부 CoupangOrder/CoupangOrderItem (default 7일)
-- `syncInventory()` (line 163) — DB-only 집계 (Coupang API 미호출). Active items count → Inventory upsert + master 집계 → MasterInventory upsert
+- `syncProducts()` — Coupang seller products → 내부 ChannelListing/ChannelListingOption (B2c 가 재작성)
+- `syncOrders()` → `syncSingleOrder(payload, companyId)` — Coupang order sheets → `Order` + N `OrderLineItem` (`platform='coupang'`, `externalOrderId=shipmentBoxId`, `externalLineId=vendorItemId`). `prisma.$transaction(async (tx) => {...}, { timeout: 15_000 })` 원자.
+- `syncReturns()` → `syncSingleReturn(payload, companyId)` — Coupang receipts → `OrderReturn` + N `OrderReturnLineItem` (`type=RETURN|EXCHANGE` first-class). matchedOrder lookup (`tx.order.findFirst`) 도 transaction 내부.
+- `syncInventory()` — DB-only 집계. ADR-0014 단일 writer 위배 가능성으로 B2a/B2c 검토 필요.
 
-**Batch continue-on-error**: 개별 item 실패해도 loop 계속, `result.errors` 카운트만 증가 (line 79).
+**Sync 원자 패턴**:
+```ts
+await this.prisma.$transaction(async (tx) => {
+  const order = await tx.order.upsert({
+    where: { companyId_platform_externalOrderId: { companyId, platform: 'coupang', externalOrderId: shipmentBoxId } },
+    ...
+  });
+  for (const item of orderItems) {
+    if (!item.vendorItemId) {
+      throw new BadRequestException(`OrderLineItem missing vendorItemId — cannot upsert (shipmentBoxId=${shipmentBoxId})`);
+    }
+    const listingOption = await tx.channelListingOption.findUnique({...});
+    await tx.orderLineItem.upsert({
+      where: { orderId_externalLineId: { orderId: order.id, externalLineId: vendorItemId } },
+      ...,
+      // optionId / sku denormalized from listingOption
+    });
+  }
+}, { timeout: 15_000 });
+```
+
+**vendorItemId 계약**: Coupang 은 항상 채워서 보냄. 누락 시 upsert key 충돌 + 라인 동일성 식별 불가 → `BadRequestException` fail-fast (ADR-0015).
+
+**타입**: `services/types.ts` 의 `CoupangSyncOrderPayload` (= `OrderSheetResponse['data'][number]`) + `CoupangSyncReturnPayload` (interface) — `any` 사용 금지.
+
+**Batch continue-on-error**: orchestrator (`syncOrders` 등) 가 개별 syncSingle* 실패를 catch + `result.errors` 카운트.
 
 ### 4. $queryRaw — Dashboard 분석 전용
 
@@ -87,7 +115,7 @@ UNDER_EXAMINATION|REJECTED → 'draft'
 ## 외부 의존
 
 - **Coupang Open API** (v2/v4) — adapter 로만
-- **Prisma** — 내부 DB (Product, CoupangOrder, Inventory 등)
+- **Prisma** — 내부 DB (ChannelListing, Order/OrderLineItem, Inventory 등). Plan A.5 후 channel-agnostic schema (ADR-0015).
 - **auth/** — `@CurrentCompany()` 데코레이터
 
 ## 금지 (Hard bans)
