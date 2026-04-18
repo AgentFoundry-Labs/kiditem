@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateReturnTransferDto, UpdateReturnTransferDto } from './dto';
 
@@ -6,21 +6,12 @@ import { CreateReturnTransferDto, UpdateReturnTransferDto } from './dto';
 export class ReturnTransfersService {
   constructor(private readonly prisma: PrismaService) {}
 
-  private async generateRtNumber(companyId: string): Promise<string> {
+  private generateRtNumber(): string {
     const now = new Date();
     const yy = String(now.getFullYear()).slice(2);
     const mm = String(now.getMonth() + 1).padStart(2, '0');
     const dd = String(now.getDate()).padStart(2, '0');
-    const prefix = `RT-${yy}${mm}${dd}`;
-
-    const todayCount = await this.prisma.returnTransfer.count({
-      where: {
-        companyId,
-        rtNumber: { startsWith: prefix },
-      },
-    });
-
-    return `${prefix}-${todayCount + 1}`;
+    return `RT-${yy}${mm}${dd}-${Date.now()}`;
   }
 
   async findAll(companyId: string, query: { status?: string }) {
@@ -29,31 +20,40 @@ export class ReturnTransfersService {
 
     return this.prisma.returnTransfer.findMany({
       where,
-      include: { product: true },
+      include: { option: true },
       orderBy: { createdAt: 'desc' },
     });
   }
 
   async create(companyId: string, dto: CreateReturnTransferDto) {
-    const rtNumber = await this.generateRtNumber(companyId);
+    const option = await this.prisma.productOption.findFirst({
+      where: { id: dto.optionId, companyId, isDeleted: false },
+      select: { optionName: true },
+    });
+    if (!option) throw new NotFoundException('Option not found');
+
+    const rtNumber = this.generateRtNumber();
 
     return this.prisma.returnTransfer.create({
       data: {
         companyId,
         rtNumber,
         orderId: dto.orderId,
-        productId: dto.productId,
-        productName: dto.productName,
+        optionId: dto.optionId,
+        optionName: option.optionName,
         quantity: dto.quantity,
+        condition: dto.condition ?? 'good',
         notes: dto.notes,
       },
-      include: { product: true },
+      include: { option: true },
     });
   }
 
-  async update(id: string, dto: UpdateReturnTransferDto) {
-    const existing = await this.prisma.returnTransfer.findUnique({ where: { id } });
-    if (!existing) throw new BadRequestException('반품을 찾을 수 없습니다');
+  async update(id: string, dto: UpdateReturnTransferDto, companyId: string) {
+    const existing = await this.prisma.returnTransfer.findFirst({
+      where: { id, companyId },
+    });
+    if (!existing) throw new NotFoundException('반품을 찾을 수 없습니다');
 
     return this.prisma.returnTransfer.update({
       where: { id },
@@ -64,7 +64,7 @@ export class ReturnTransfersService {
         ...(dto.disposedQty !== undefined && { disposedQty: dto.disposedQty }),
         ...(dto.processedBy !== undefined && { processedBy: dto.processedBy }),
       },
-      include: { product: true },
+      include: { option: true },
     });
   }
 }

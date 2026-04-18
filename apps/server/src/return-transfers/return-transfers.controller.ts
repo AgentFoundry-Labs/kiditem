@@ -18,7 +18,11 @@ export class ReturnTransfersController {
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() dto: UpdateReturnTransferDto) {
-    return this.returnTransfersService.update(id, dto);
+  update(
+    @CurrentCompany() companyId: string,
+    @Param('id') id: string,
+    @Body() dto: UpdateReturnTransferDto,
+  ) {
+    return this.returnTransfersService.update(id, dto, companyId);
   }
 }

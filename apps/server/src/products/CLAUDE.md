@@ -29,7 +29,8 @@
 ## 외부 서비스 접근
 
 - Export: `MastersService`, `OptionsService`, `BundleComponentsService`.
-- **Non-export**: `MasterCodeService`, `BundleStockService`.
+- **Non-export**: `MasterCodeService`.
+- **Export (restricted)**: `BundleStockService` — InventoryService 가 `recomputeForComponent` 호출 전용 (ADR-0014 단일-writer invariant). 다른 모듈은 직접 호출 금지.
 
 ## RLS
 

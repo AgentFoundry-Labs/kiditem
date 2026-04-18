@@ -144,7 +144,7 @@ async getProduct(id: string, companyId: string) {
 
 **규칙**: `src/{domain}/` 하위 파일을 Edit 하기 전, 아래 표의 해당 행이 가리키는 `CLAUDE.md` 를 먼저 Read 한다. Index 에 있으면 있는 것이고, 없으면 부모 NestJS 패턴(이 문서)으로 충분하다.
 
-### 전용 CLAUDE.md 가 있는 도메인 (13)
+### 전용 CLAUDE.md 가 있는 도메인 (14)
 
 | 경로 | 크기 | 핵심 포인트 |
 |---|---|---|
@@ -156,6 +156,7 @@ async getProduct(id: string, companyId: string) {
 | [`src/chat/CLAUDE.md`](src/chat/CLAUDE.md) | 155줄 | CopilotKit Runtime + ClaudeCliAdapter. Express pre-registration (NestJS 우회), SSE 토큰 스트리밍 |
 | [`src/dashboard/CLAUDE.md`](src/dashboard/CLAUDE.md) | 73줄 | Massive Parallel (Promise.all 11+ queries) + KST 경계 + MoM snapshot + $queryRaw ad metrics |
 | [`src/finance/CLAUDE.md`](src/finance/CLAUDE.md) | 70줄 | P&L + Sales Analysis — $queryRaw cross-table 집계, period parsing, pricing resolver |
+| [`src/inventory/CLAUDE.md`](src/inventory/CLAUDE.md) | ~75줄 | Inventory + StockTransaction — 단일 InventoryService (read + metadata + mutation + ledger). **ADR-0014 단독 writer**. BundleStockService restricted export. Transfer = record-only |
 | [`src/marketplace/CLAUDE.md`](src/marketplace/CLAUDE.md) | 75줄 | Workflow/Agent 카탈로그 — read-only 카탈로그 + per-company 설치 추적 + param override |
 | [`src/orders/CLAUDE.md`](src/orders/CLAUDE.md) | 60줄 | Order/Return/CS 통합 — multi-controller 모듈, 외부 채널 어댑터 위임, status 필터링 |
 | [`src/products/CLAUDE.md`](src/products/CLAUDE.md) | 37줄 | 3-layer Master/Option/Bundle (ADR-0013) — `MasterProduct` family (code via `master_code_seq`), `ProductOption` SKU (race-free sku via `optionCounter` increment), `BundleComponent` (cross-master 허용, 3-way invariant, nested 금지 B1), `availableStock` = `BundleStockService.recompute` sole writer + `SELECT FOR UPDATE` row-lock |
