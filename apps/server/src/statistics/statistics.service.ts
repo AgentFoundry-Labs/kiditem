@@ -1,21 +1,12 @@
 import { Injectable } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { LISTING_WITH_MASTER_SELECT_EXTENDED } from '../common/listing-select';
+import { kstMonthStart } from '../common/kst';
 
 @Injectable()
 export class StatisticsService {
   constructor(private readonly prisma: PrismaService) {}
-
-  private buildPeriodFilter(period?: string) {
-    if (!period) return {};
-    const [year, month] = period.split('-').map(Number);
-    return {
-      orderedAt: {
-        gte: new Date(year, month - 1, 1),
-        lt: new Date(year, month, 1),
-      },
-    };
-  }
 
   private buildPlPeriodFilter(period?: string) {
     if (!period) return {};
@@ -313,64 +304,72 @@ export class StatisticsService {
   }
 
   async repurchase(companyId: string, period?: string) {
-    const where: Record<string, unknown> = { companyId };
-
+    const whereOrder: Prisma.OrderWhereInput = {
+      companyId,
+      status: { notIn: ['cancelled', 'returned'] },
+    };
     if (period) {
       const [year, month] = period.split('-').map(Number);
-      where.orderedAt = {
-        gte: new Date(year, month - 1, 1),
-        lt: new Date(year, month, 1),
+      whereOrder.orderedAt = {
+        gte: kstMonthStart(year, month),
+        lt: kstMonthStart(year, month + 1),
       };
     }
 
+    // customer-level aggregate (receiver 기반) — 기존 동작 유지 (Order.totalPrice/orderedAt/receiverName)
     const orders = await this.prisma.order.findMany({
-      where: {
-        ...where,
-        status: { notIn: ['cancelled', 'returned'] },
-      },
+      where: whereOrder,
       select: { receiverName: true, totalPrice: true, orderedAt: true },
     });
 
-    // repeatProducts
-    const productOrders = await this.prisma.order.findMany({
+    // master-level repeat products — listingOption → listing → master 경유
+    const lines = await this.prisma.orderLineItem.findMany({
       where: {
-        ...where,
-        status: { notIn: ['cancelled', 'returned'] },
-        productId: { not: null },
+        order: whereOrder,
+        listingOptionId: { not: null },
       },
       select: {
-        productId: true,
-        receiverName: true,
-        product: { select: { name: true, category: true } },
+        order: { select: { receiverName: true } },
+        listingOption: {
+          select: {
+            listing: {
+              select: {
+                masterId: true,
+                master: { select: { name: true, category: true } },
+              },
+            },
+          },
+        },
       },
     });
 
-    const productCustomerMap = new Map<string, { productName: string; category: string | null; customers: Set<string>; orderCount: number }>();
-    for (const o of productOrders) {
-      if (!o.productId) continue;
-      const entry = productCustomerMap.get(o.productId) ?? {
-        productName: o.product?.name ?? '',
-        category: o.product?.category ?? null,
+    const masterMap = new Map<string, { productName: string; category: string | null; customers: Set<string>; orderCount: number }>();
+    for (const l of lines) {
+      const mid = l.listingOption?.listing?.masterId;
+      if (!mid) continue;
+      const entry = masterMap.get(mid) ?? {
+        productName: l.listingOption?.listing?.master.name ?? '',
+        category: l.listingOption?.listing?.master.category ?? null,
         customers: new Set<string>(),
         orderCount: 0,
       };
-      if (o.receiverName) entry.customers.add(o.receiverName);
+      if (l.order.receiverName) entry.customers.add(l.order.receiverName);
       entry.orderCount += 1;
-      productCustomerMap.set(o.productId, entry);
+      masterMap.set(mid, entry);
     }
 
-    const repeatProducts = Array.from(productCustomerMap.entries())
+    const repeatProducts = Array.from(masterMap.entries())
       .filter(([, v]) => v.customers.size >= 2)
       .sort((a, b) => b[1].orderCount - a[1].orderCount)
       .slice(0, 20)
-      .map(([productId, v]) => ({
-        productId,
+      .map(([masterId, v]) => ({
+        masterId,
         productName: v.productName,
         category: v.category,
         orderCount: v.orderCount,
       }));
 
-    // Count orders per receiver
+    // customer-level (receiver) — 기존 로직 유지
     const receiverMap = new Map<string, { count: number; totalAmount: number; lastOrder: Date | null }>();
     for (const o of orders) {
       const name = o.receiverName ?? '';

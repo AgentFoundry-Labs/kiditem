@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { StatisticsService } from '../statistics.service';
 
 /**
- * Plan B2c.orders T3 + T4 + T5 — overview + products (T3) / categories + grades + pareto (T4) / delivery (T5)
- * listing-primary 전환 검증. repurchase 는 T6 scope.
+ * Plan B2c.orders T3 + T4 + T5 + T6 — overview + products (T3) / categories + grades + pareto (T4) / delivery (T5) / repurchase (T6)
+ * listing-primary 전환 검증. T6: repurchase master-level grouping via OrderLineItem.
  */
 
 function makePrisma() {
@@ -19,6 +19,9 @@ function makePrisma() {
       findMany: vi.fn(),
     },
     order: {
+      findMany: vi.fn(),
+    },
+    orderLineItem: {
       findMany: vi.fn(),
     },
   };
@@ -558,6 +561,199 @@ describe('StatisticsService', () => {
       } finally {
         vi.useRealTimers();
       }
+    });
+  });
+
+  describe('repurchase (T6 — master-level grouping via OrderLineItem)', () => {
+    it('aggregates repeatProducts at masterId (family) level and repeatCustomers at receiverName level; excludes null listingOption / null receiverName', async () => {
+      // customer-level fixture — 2 receiver, 4 orders
+      //  - '홍길동' has 2 orders (repeat customer, totalAmount 30_000, lastOrder 2026-04-15)
+      //  - '김철수' has 1 order (not repeat — filtered out of repeatCustomers)
+      //  - 1 order with receiverName: null (excluded from receiverMap)
+      prisma.order.findMany.mockResolvedValue([
+        {
+          receiverName: '홍길동',
+          totalPrice: 10_000,
+          orderedAt: new Date('2026-04-10T00:00:00Z'),
+        },
+        {
+          receiverName: '홍길동',
+          totalPrice: 20_000,
+          orderedAt: new Date('2026-04-15T00:00:00Z'),
+        },
+        {
+          receiverName: '김철수',
+          totalPrice: 5_000,
+          orderedAt: new Date('2026-04-12T00:00:00Z'),
+        },
+        {
+          // null receiverName — must NOT be counted in receiverMap (repurchaseRate stays accurate)
+          receiverName: null,
+          totalPrice: 1_000,
+          orderedAt: new Date('2026-04-13T00:00:00Z'),
+        },
+      ]);
+
+      // master-level fixture via OrderLineItem
+      //  - master-A: 2 lineItems across 2 different receivers ('홍길동' + '김철수') → customers.size=2 → repeatProduct
+      //  - master-B: 2 lineItems, but both from same receiver '홍길동' → customers.size=1 → NOT repeatProduct
+      //  - lineItem with listingOption: null (unmatched) → excluded from masterMap (masterId undefined)
+      //  - lineItem with order.receiverName: null → listed in orderCount but NOT in customers set
+      prisma.orderLineItem.findMany.mockResolvedValue([
+        // master-A, receiver A
+        {
+          order: { receiverName: '홍길동' },
+          listingOption: {
+            listing: {
+              masterId: 'master-A',
+              master: { name: 'Master A', category: '유아용품' },
+            },
+          },
+        },
+        // master-A, receiver B → 2 distinct customers → repeatProduct
+        {
+          order: { receiverName: '김철수' },
+          listingOption: {
+            listing: {
+              masterId: 'master-A',
+              master: { name: 'Master A', category: '유아용품' },
+            },
+          },
+        },
+        // master-B, receiver A (2x same receiver) → customers.size=1 → NOT repeat
+        {
+          order: { receiverName: '홍길동' },
+          listingOption: {
+            listing: {
+              masterId: 'master-B',
+              master: { name: 'Master B', category: '완구' },
+            },
+          },
+        },
+        {
+          order: { receiverName: '홍길동' },
+          listingOption: {
+            listing: {
+              masterId: 'master-B',
+              master: { name: 'Master B', category: '완구' },
+            },
+          },
+        },
+        // listingOption: null — must be skipped (masterId undefined)
+        {
+          order: { receiverName: '홍길동' },
+          listingOption: null,
+        },
+        // order.receiverName: null — lineItem still counted in orderCount, but NOT added to customers set
+        {
+          order: { receiverName: null },
+          listingOption: {
+            listing: {
+              masterId: 'master-A',
+              master: { name: 'Master A', category: '유아용품' },
+            },
+          },
+        },
+      ]);
+
+      const result = await service.repurchase('company-1', '2026-04');
+
+      // Order.findMany: companyId + status filter + KST period (year,month)
+      expect(prisma.order.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            companyId: 'company-1',
+            status: { notIn: ['cancelled', 'returned'] },
+            orderedAt: expect.objectContaining({
+              gte: expect.any(Date),
+              lt: expect.any(Date),
+            }),
+          }),
+          select: { receiverName: true, totalPrice: true, orderedAt: true },
+        }),
+      );
+
+      // OrderLineItem.findMany: order scope + listingOptionId not null + master-level select
+      expect(prisma.orderLineItem.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            order: expect.objectContaining({
+              companyId: 'company-1',
+              status: { notIn: ['cancelled', 'returned'] },
+            }),
+            listingOptionId: { not: null },
+          }),
+          select: expect.objectContaining({
+            order: { select: { receiverName: true } },
+            listingOption: expect.objectContaining({
+              select: expect.objectContaining({
+                listing: expect.objectContaining({
+                  select: expect.objectContaining({
+                    masterId: true,
+                    master: { select: { name: true, category: true } },
+                  }),
+                }),
+              }),
+            }),
+          }),
+        }),
+      );
+
+      // receiverMap: 2 receivers (홍길동 count=2, 김철수 count=1) — null name excluded
+      expect(result.totalCustomers).toBe(2);
+      expect(result.repeatCount).toBe(1); // 홍길동 only
+      expect(result.repurchaseRate).toBe(0.5); // 1/2
+      expect(result.totalOrders).toBe(4); // all 4 orders (null receiver included in totalOrders)
+
+      // repeatProducts: master-A only (customers.size ≥ 2). master-B filtered out.
+      //   master-A orderCount = 3 (2 valid receivers + 1 null-receiver line)
+      expect(result.repeatProducts).toHaveLength(1);
+      expect(result.repeatProducts[0]).toEqual({
+        masterId: 'master-A',
+        productName: 'Master A',
+        category: '유아용품',
+        orderCount: 3,
+      });
+
+      // repeatCustomers: 홍길동 only
+      expect(result.repeatCustomers).toHaveLength(1);
+      expect(result.repeatCustomers[0]).toEqual({
+        name: '홍길동',
+        count: 2,
+        totalAmount: 30_000,
+        lastOrder: new Date('2026-04-15T00:00:00Z'),
+      });
+    });
+
+    it('returns zero aggregates when no orders or lineItems exist', async () => {
+      prisma.order.findMany.mockResolvedValue([]);
+      prisma.orderLineItem.findMany.mockResolvedValue([]);
+
+      const result = await service.repurchase('company-1');
+
+      expect(result).toEqual({
+        totalCustomers: 0,
+        repeatCount: 0,
+        repurchaseRate: 0,
+        totalOrders: 0,
+        repeatProducts: [],
+        repeatCustomers: [],
+      });
+    });
+
+    it('omits orderedAt period filter when period is not provided', async () => {
+      prisma.order.findMany.mockResolvedValue([]);
+      prisma.orderLineItem.findMany.mockResolvedValue([]);
+
+      await service.repurchase('company-1');
+
+      // Order.findMany.where must NOT include orderedAt when period is omitted
+      const orderCall = prisma.order.findMany.mock.calls[0][0];
+      expect(orderCall.where).not.toHaveProperty('orderedAt');
+      expect(orderCall.where).toEqual({
+        companyId: 'company-1',
+        status: { notIn: ['cancelled', 'returned'] },
+      });
     });
   });
 });
