@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { LISTING_WITH_MASTER_SELECT_EXTENDED } from '../common/listing-select';
 
 @Injectable()
 export class StatisticsService {
@@ -34,7 +35,9 @@ export class StatisticsService {
           orderCount: true,
         },
       }),
-      this.prisma.product.count({ where: { companyId } }),
+      this.prisma.masterProduct.count({
+        where: { companyId, isDeleted: false },
+      }),
     ]);
 
     const totalRevenue = agg._sum.revenue ?? 0;
@@ -57,25 +60,21 @@ export class StatisticsService {
     const records = await this.prisma.profitLoss.findMany({
       where: plWhere,
       include: {
-        product: {
-          select: {
-            id: true,
-            name: true,
-            category: true,
-            abcGrade: true,
-            thumbnailUrl: true,
-          },
-        },
+        listing: { select: LISTING_WITH_MASTER_SELECT_EXTENDED },
       },
       orderBy: { revenue: 'desc' },
     });
 
     return records.map((r) => ({
-      productId: r.productId,
-      productName: r.product.name,
-      category: r.product.category,
-      grade: r.product.abcGrade,
-      thumbnailUrl: r.product.thumbnailUrl,
+      listingId: r.listingId,
+      externalId: r.listing.externalId,
+      channelName: r.listing.channelName,
+      masterId: r.listing.master.id,
+      masterCode: r.listing.master.code,
+      productName: r.listing.master.name,
+      category: r.listing.master.category,
+      grade: r.listing.master.abcGrade,
+      thumbnailUrl: r.listing.master.thumbnailUrl,
       totalRevenue: r.revenue,
       netProfit: r.netProfit,
       orderCount: r.orderCount,
