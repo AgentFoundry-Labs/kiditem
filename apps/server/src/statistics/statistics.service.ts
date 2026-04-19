@@ -93,14 +93,14 @@ export class StatisticsService {
     const records = await this.prisma.profitLoss.findMany({
       where: plWhere,
       include: {
-        product: { select: { category: true } },
+        listing: { select: { master: { select: { category: true } } } },
       },
     });
 
     const categoryMap = new Map<string, { revenue: number; orders: number; profit: number }>();
 
     for (const r of records) {
-      const cat = r.product.category ?? '미분류';
+      const cat = r.listing.master.category ?? '미분류';
       const entry = categoryMap.get(cat) ?? { revenue: 0, orders: 0, profit: 0 };
       entry.revenue += r.revenue;
       entry.orders += r.orderCount;
@@ -221,14 +221,14 @@ export class StatisticsService {
     const records = await this.prisma.profitLoss.findMany({
       where: plWhere,
       include: {
-        product: { select: { abcGrade: true } },
+        listing: { select: { master: { select: { abcGrade: true } } } },
       },
     });
 
     const gradeMap = new Map<string, { revenue: number; profit: number; productCount: number; adCost: number }>();
 
     for (const r of records) {
-      const grade = r.product.abcGrade ?? 'N/A';
+      const grade = r.listing.master.abcGrade ?? 'N/A';
       const entry = gradeMap.get(grade) ?? { revenue: 0, profit: 0, productCount: 0, adCost: 0 };
       entry.revenue += r.revenue;
       entry.profit += r.netProfit;
@@ -255,7 +255,12 @@ export class StatisticsService {
     const records = await this.prisma.profitLoss.findMany({
       where: plWhere,
       include: {
-        product: { select: { id: true, name: true, abcGrade: true } },
+        listing: {
+          select: {
+            id: true,
+            master: { select: { id: true, name: true, abcGrade: true } },
+          },
+        },
       },
       orderBy: { revenue: 'desc' },
     });
@@ -272,12 +277,12 @@ export class StatisticsService {
       const cumulativePercent = totalRevenue > 0
         ? Math.round((cumulativeRevenue / totalRevenue) * 1000) / 10
         : 0;
-      const currentGrade = r.product.abcGrade ?? 'N/A';
+      const currentGrade = r.listing.master.abcGrade ?? 'N/A';
       const suggestedGrade = cumulativePercent <= 70 ? 'A' : cumulativePercent <= 90 ? 'B' : 'C';
       return {
-        id: r.productId,
+        id: r.listingId,
         rank: index + 1,
-        name: r.product.name,
+        name: r.listing.master.name,
         currentGrade,
         suggestedGrade,
         gradeMatch: currentGrade === suggestedGrade,
