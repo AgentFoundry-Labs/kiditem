@@ -1,5 +1,7 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { LISTING_WITH_MASTER_SELECT_EXTENDED } from '../common/listing-select';
+import { kstMonthStart } from '../common/kst';
 import { CreateSettlementDto, UpdateSettlementDto } from './dto';
 
 @Injectable()
@@ -36,64 +38,70 @@ export class SettlementsService {
 
   async reconcile(companyId: string, period: string) {
     const [year, month] = period.split('-').map(Number);
+    const periodStart = kstMonthStart(year, month);
+    const periodEnd = kstMonthStart(year, month + 1);
 
-    // 1. ProfitLoss records for the period
+    // 1. ProfitLoss records for the period — listing/master hydrate
     const plRecords = await this.prisma.profitLoss.findMany({
       where: { companyId, year, month },
-      include: {
-        product: { select: { id: true, name: true, sku: true } },
-      },
+      include: { listing: { select: LISTING_WITH_MASTER_SELECT_EXTENDED } },
     });
 
-    // 2. Orders for the same period
-    const periodStart = new Date(year, month - 1, 1);
-    const periodEnd = new Date(year, month, 1);
-    const orders = await this.prisma.order.findMany({
-      where: {
-        companyId,
-        orderedAt: { gte: periodStart, lt: periodEnd },
-        status: { notIn: ['cancelled', 'returned'] },
-      },
-      select: { productId: true, totalPrice: true, quantity: true },
-    });
+    // 2. Aggregate order line items by listing_id (via channel_listing_options join).
+    //    SUM(total_price)::bigint — 단일 월 매출이 int32 (~21억 KRW) 초과 가능성 (대형 셀러).
+    //    bigint → Number() 로 안전 변환 (2^53 이하 보장).
+    const rows = await this.prisma.$queryRaw<
+      Array<{
+        listing_id: string;
+        total_price: bigint;
+        order_count: bigint;
+      }>
+    >`
+      SELECT clo.listing_id AS listing_id,
+             SUM(oli.total_price)::bigint AS total_price,
+             COUNT(DISTINCT o.id)::bigint  AS order_count
+        FROM order_line_items oli
+        JOIN channel_listing_options clo ON oli.listing_option_id = clo.id
+        JOIN orders o ON oli.order_id = o.id
+       WHERE o.company_id = ${companyId}::uuid
+         AND o.ordered_at >= ${periodStart}
+         AND o.ordered_at <  ${periodEnd}
+         AND o.status NOT IN ('cancelled', 'returned')
+       GROUP BY clo.listing_id
+    `;
+    const orderMap = new Map<string, { total: number; count: number }>(
+      rows.map((r) => [r.listing_id, { total: Number(r.total_price), count: Number(r.order_count) }]),
+    );
 
-    // 3. Aggregate orders by productId
-    const orderMap = new Map<string, { total: number; count: number }>();
-    for (const o of orders) {
-      if (!o.productId) continue;
-      const entry = orderMap.get(o.productId) ?? { total: 0, count: 0 };
-      entry.total += o.totalPrice;
-      entry.count += 1;
-      orderMap.set(o.productId, entry);
-    }
-
-    // 4. Match PL records with order data
+    // 3. Match PL records with order aggregates by listingId
     let totalPlRevenue = 0;
     let totalOrderRevenue = 0;
     let matchedCount = 0;
     let mismatchCount = 0;
 
     const details = plRecords.map((r) => {
-      const orderData = orderMap.get(r.productId) ?? { total: 0, count: 0 };
-      const revenueDiff = r.revenue - orderData.total;
+      const od = orderMap.get(r.listingId) ?? { total: 0, count: 0 };
+      const revenueDiff = r.revenue - od.total;
       const absDiff = Math.abs(revenueDiff);
       const status = absDiff <= 100 ? 'matched' : absDiff <= 1000 ? 'minor_diff' : 'mismatch';
 
       totalPlRevenue += r.revenue;
-      totalOrderRevenue += orderData.total;
+      totalOrderRevenue += od.total;
       if (status === 'matched') matchedCount++;
       else mismatchCount++;
 
       return {
-        productId: r.productId,
-        productName: r.product.name,
-        sku: r.product.sku ?? '',
+        listingId: r.listingId,
+        externalId: r.listing.externalId,
+        channelName: r.listing.channelName,
+        masterCode: r.listing.master.code,
+        masterName: r.listing.master.name,
         plRevenue: r.revenue,
         plCommission: r.commission,
         plNetProfit: r.netProfit,
         plOrderCount: r.orderCount,
-        orderTotal: orderData.total,
-        orderCount: orderData.count,
+        orderTotal: od.total,
+        orderCount: od.count,
         revenueDiff,
         isMatched: status === 'matched',
         status,
@@ -115,7 +123,7 @@ export class SettlementsService {
         totalShipping: plRecords.reduce((s, r) => s + r.shippingCost, 0),
         revenueDifference: totalPlRevenue - totalOrderRevenue,
         productCount,
-        orderCount: orders.length,
+        orderCount: rows.reduce((s, r) => s + Number(r.order_count), 0),
         matchedCount,
         mismatchCount,
         matchRate,
@@ -124,8 +132,10 @@ export class SettlementsService {
     };
   }
 
-  async update(id: string, dto: UpdateSettlementDto) {
-    const existing = await this.prisma.settlement.findUnique({ where: { id } });
+  async update(id: string, companyId: string, dto: UpdateSettlementDto) {
+    const existing = await this.prisma.settlement.findFirst({
+      where: { id, companyId },
+    });
     if (!existing) {
       throw new BadRequestException('정산 내역을 찾을 수 없습니다');
     }
