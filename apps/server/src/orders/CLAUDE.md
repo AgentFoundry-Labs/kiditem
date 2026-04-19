@@ -52,6 +52,17 @@ orders/
 
 단일 리소스 GET / PATCH / DELETE 는 `findUnique({ id })` 절대 금지. 항상 `findFirst({ where: { id, companyId } })` 사용 (`apps/server/CLAUDE.md` 멀티테넌트 격리 규칙 + B2a 패턴). `OrderLineItem` / `OrderReturnLineItem` 의 `companyId` denormalize 도 같은 목적 — line 레벨 접근에서도 companyId 검증 가능.
 
+### 4. CS DTO — `listingId` vs `productId` backward compat alias (Plan B2c.orders T2)
+
+ADR-0013 3-layer schema 로 Product 계층이 drop 되면서 `CSRecord.listingId` (nullable) 로 재배선. 프런트 일괄 rewire (Plan D) 이전까지 legacy 호출자 호환을 위해 `CreateCsBodyDto` 는 두 필드를 모두 받는다.
+
+- **새 필드**: `listingId?: string` — canonical. 프런트 재배선 후 유일.
+- **Deprecated alias**: `productId?: string` — `@Transform` 으로 수신 시 `listingId` 없을 때만 복사. `CsService.create` 는 `data.listingId ?? data.productId ?? null` 로 resolve.
+- **우선순위**: 두 값이 동시에 제공되면 `listingId` 가 이긴다 (Transform 이 `!obj.listingId` 가드).
+- **유지 기간**: Plan D 프런트 재배선 완료 + 모니터링 safe window 이후 follow-up PR 에서 `productId` 제거. 그 전까지 `@deprecated` JSDoc 유지 + 로깅 금지 (정상 alias 경로).
+
+확인 포인트: DTO 에 `productId` 필드 추가/변경 시 service resolver 의 우선순위 가드도 같이 점검. B2c.orders 전까지 `productId` 는 legacy 이고 앞으로는 쓰지 말 것.
+
 ## Rules
 
 - 모든 주문 mutation은 `POST /api/orders` 단일 endpoint + action enum (별도 endpoint 만들지 말 것)
