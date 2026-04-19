@@ -64,10 +64,15 @@ export class CsService {
       priority?: string;
       assignee?: string;
       orderId?: string;
+      listingId?: string;
+      /** @deprecated Legacy frontend alias — Transform 이 listingId 로 이미 복사. Plan D 이후 제거 예정. */
       productId?: string;
     },
     companyId: string,
   ) {
+    // DTO @Transform 이 이미 listingId 로 매핑하지만, service 레벨에서도
+    // 방어적 resolve (Transform 미동작 시나리오·testing 대비).
+    const resolvedListingId = data.listingId ?? data.productId ?? null;
     return this.prisma.cSRecord.create({
       data: {
         companyId,
@@ -76,7 +81,7 @@ export class CsService {
         priority: data.priority ?? 'normal',
         assignee: data.assignee || null,
         orderId: data.orderId || null,
-        productId: data.productId || null,
+        listingId: resolvedListingId,
         csStatus: '접수',
       },
     });
