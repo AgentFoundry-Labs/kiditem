@@ -66,9 +66,57 @@ export type {
   UpdateInventoryMetadataInput,
 } from './schemas/inventory.js';
 
-// Profit & Loss
+// Profit & Loss (Plan B2c.orders — listingId-primary)
 export { PLDataSchema } from './schemas/profit-loss.js';
 export type { PLData } from './schemas/profit-loss.js';
+
+// Statistics (Plan B2c.orders — listing/master hydrated)
+export {
+  StatisticsOverviewSchema,
+  StatisticsProductRowSchema,
+  StatisticsCategoryRowSchema,
+  StatisticsGradeRowSchema,
+  StatisticsParetoItemSchema,
+  StatisticsParetoResponseSchema,
+  StatisticsRepurchaseProductSchema,
+  StatisticsRepurchaseCustomerSchema,
+  StatisticsRepurchaseResponseSchema,
+  StatisticsDeliveryDailySchema,
+  StatisticsDeliveryResponseSchema,
+} from './schemas/statistics.js';
+export type {
+  StatisticsOverview,
+  StatisticsProductRow,
+  StatisticsCategoryRow,
+  StatisticsGradeRow,
+  StatisticsParetoItem,
+  StatisticsParetoResponse,
+  StatisticsRepurchaseProduct,
+  StatisticsRepurchaseCustomer,
+  StatisticsRepurchaseResponse,
+  StatisticsDeliveryDaily,
+  StatisticsDeliveryResponse,
+} from './schemas/statistics.js';
+
+// Settlements (Plan B2c.orders — reconcile response)
+export {
+  SettlementReconcileDetailSchema,
+  SettlementReconcileResponseSchema,
+} from './schemas/settlements.js';
+export type {
+  SettlementReconcileDetail,
+  SettlementReconcileResponse,
+} from './schemas/settlements.js';
+
+// Supplier Stats (Plan B2c.orders — optionId aggregation)
+export {
+  SupplierSalesRowSchema,
+  SupplierProductSalesRowSchema,
+} from './schemas/supplier-stats.js';
+export type {
+  SupplierSalesRow,
+  SupplierProductSalesRow,
+} from './schemas/supplier-stats.js';
 
 // Workflow
 export { WorkflowTemplateSchema, WorkflowRunSchema, WorkflowStepRunSchema } from './schemas/workflow.js';

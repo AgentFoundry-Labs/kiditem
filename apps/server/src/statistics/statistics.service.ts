@@ -1,5 +1,14 @@
 import { Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
+import type {
+  StatisticsOverview,
+  StatisticsProductRow,
+  StatisticsCategoryRow,
+  StatisticsGradeRow,
+  StatisticsParetoResponse,
+  StatisticsRepurchaseResponse,
+  StatisticsDeliveryResponse,
+} from '@kiditem/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { LISTING_WITH_MASTER_SELECT_EXTENDED } from '../common/listing-select';
 import { kstMonthStart } from '../common/kst';
@@ -42,7 +51,7 @@ export class StatisticsService {
       totalProfit,
       avgMargin: Math.round(avgMargin * 10000) / 10000,
       totalProducts,
-    };
+    } satisfies StatisticsOverview;
   }
 
   async products(companyId: string, period?: string) {
@@ -75,7 +84,7 @@ export class StatisticsService {
       margin: r.revenue > 0
         ? Math.round((r.netProfit / r.revenue) * 10000) / 10000
         : 0,
-    }));
+    } satisfies StatisticsProductRow));
   }
 
   async categories(companyId: string, period?: string) {
@@ -105,7 +114,7 @@ export class StatisticsService {
         name: category,
         ...data,
         count: data.orders,
-      }))
+      } satisfies StatisticsCategoryRow))
       .sort((a, b) => b.revenue - a.revenue);
   }
 
@@ -206,7 +215,7 @@ export class StatisticsService {
       avgDeliveryDays,
       courierDistribution,
       daily,
-    };
+    } satisfies StatisticsDeliveryResponse;
   }
 
   async grades(companyId: string, period?: string) {
@@ -239,7 +248,7 @@ export class StatisticsService {
         count: data.productCount,
         productCount: data.productCount,
         adCost: data.adCost,
-      }))
+      } satisfies StatisticsGradeRow))
       .sort((a, b) => b.revenue - a.revenue);
   }
 
@@ -300,7 +309,7 @@ export class StatisticsService {
       gradeDistribution,
       mismatchCount,
       data: fullParetoItems,
-    };
+    } satisfies StatisticsParetoResponse;
   }
 
   async repurchase(companyId: string, period?: string) {
@@ -407,6 +416,6 @@ export class StatisticsService {
       totalOrders: orders.length,
       repeatProducts,
       repeatCustomers,
-    };
+    } satisfies StatisticsRepurchaseResponse;
   }
 }

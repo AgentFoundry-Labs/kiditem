@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import type { SupplierSalesRow, SupplierProductSalesRow } from '@kiditem/shared';
 import { PrismaService } from '../prisma/prisma.service';
 
 /**
@@ -98,7 +99,7 @@ export class SupplierStatsService {
         totalOrders,
         totalQuantity,
         totalRevenue,
-      };
+      } satisfies SupplierSalesRow;
     });
   }
 
@@ -152,19 +153,7 @@ export class SupplierStatsService {
     const orderStats = await this.aggregateOrdersByOptionIds(companyId, allOptionIds);
 
     const counted = new Set<string>();
-    const results: {
-      optionId: string;
-      sku: string | null;
-      optionName: string | null;
-      masterId: string;
-      masterCode: string;
-      masterName: string;
-      supplyPrice: number | null;
-      minOrderQty: number;
-      totalOrders: number;
-      totalQuantity: number;
-      totalRevenue: number;
-    }[] = [];
+    const results: SupplierProductSalesRow[] = [];
 
     // SupplierProduct 경로 — supplyPrice 실값
     for (const sp of supplierProducts) {
@@ -184,7 +173,7 @@ export class SupplierStatsService {
         supplyPrice: sp.supplyPrice,
         minOrderQty: sp.minOrderQty,
         ...stats,
-      });
+      } satisfies SupplierProductSalesRow);
     }
 
     // MasterSupplierProduct 경로 — supplyPrice null (schema 에 없음, spec §5.5)
@@ -207,7 +196,7 @@ export class SupplierStatsService {
           supplyPrice: null,
           minOrderQty: msp.minOrderQty,
           ...stats,
-        });
+        } satisfies SupplierProductSalesRow);
       }
     }
 

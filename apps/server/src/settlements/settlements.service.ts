@@ -1,4 +1,8 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
+import type {
+  SettlementReconcileDetail,
+  SettlementReconcileResponse,
+} from '@kiditem/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { LISTING_WITH_MASTER_SELECT_EXTENDED } from '../common/listing-select';
 import { kstMonthStart } from '../common/kst';
@@ -83,7 +87,8 @@ export class SettlementsService {
       const od = orderMap.get(r.listingId) ?? { total: 0, count: 0 };
       const revenueDiff = r.revenue - od.total;
       const absDiff = Math.abs(revenueDiff);
-      const status = absDiff <= 100 ? 'matched' : absDiff <= 1000 ? 'minor_diff' : 'mismatch';
+      const status: 'matched' | 'minor_diff' | 'mismatch' =
+        absDiff <= 100 ? 'matched' : absDiff <= 1000 ? 'minor_diff' : 'mismatch';
 
       totalPlRevenue += r.revenue;
       totalOrderRevenue += od.total;
@@ -105,7 +110,7 @@ export class SettlementsService {
         revenueDiff,
         isMatched: status === 'matched',
         status,
-      };
+      } satisfies SettlementReconcileDetail;
     });
 
     const productCount = details.length;
@@ -129,7 +134,7 @@ export class SettlementsService {
         matchRate,
       },
       details,
-    };
+    } satisfies SettlementReconcileResponse;
   }
 
   async update(id: string, companyId: string, dto: UpdateSettlementDto) {
