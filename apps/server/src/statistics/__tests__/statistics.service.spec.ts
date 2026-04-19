@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { StatisticsService } from '../statistics.service';
 
 /**
- * Plan B2c.orders T3 + T4 — overview + products (T3) / categories + grades + pareto (T4)
- * listing-primary 전환 검증. delivery/repurchase 는 T5/T6 scope.
+ * Plan B2c.orders T3 + T4 + T5 — overview + products (T3) / categories + grades + pareto (T4) / delivery (T5)
+ * listing-primary 전환 검증. repurchase 는 T6 scope.
  */
 
 function makePrisma() {
@@ -14,6 +14,12 @@ function makePrisma() {
     },
     masterProduct: {
       count: vi.fn(),
+    },
+    shipment: {
+      findMany: vi.fn(),
+    },
+    order: {
+      findMany: vi.fn(),
     },
   };
 }
@@ -449,6 +455,109 @@ describe('StatisticsService', () => {
         mismatchCount: 0,
         data: [],
       });
+    });
+  });
+
+  describe('delivery', () => {
+    it('aggregates daily qty from Order.lineItems.quantity sum (multi-line items per order)', async () => {
+      // Fix "now" so the 30-day window is deterministic.
+      // 2026-04-19 KST — any date within 30 days of this works for the fixture.
+      vi.useFakeTimers();
+      const fixedNow = new Date('2026-04-19T00:00:00Z');
+      vi.setSystemTime(fixedNow);
+
+      try {
+        // Shipment findMany called twice: (1) period-scoped for avgDeliveryDays + courierDistribution,
+        // (2) 30-day window for dailyMap. Return empty for both → shipment-side aggregates are zero.
+        prisma.shipment.findMany.mockResolvedValue([]);
+
+        // 2 orders × 3 line items total. Both on the same day to test qty sum across multiple lineItems.
+        // Order 1 on 2026-04-18: 2 lineItems (qty 2 + 3 = 5), revenue 10_000
+        // Order 2 on 2026-04-18: 1 lineItem  (qty 4),         revenue  5_000
+        // → Daily entry for 2026-04-18: orders=2, revenue=15_000, qty=9
+        prisma.order.findMany.mockResolvedValue([
+          {
+            orderedAt: new Date('2026-04-18T10:00:00Z'),
+            totalPrice: 10_000,
+            lineItems: [{ quantity: 2 }, { quantity: 3 }],
+          },
+          {
+            orderedAt: new Date('2026-04-18T11:00:00Z'),
+            totalPrice: 5_000,
+            lineItems: [{ quantity: 4 }],
+          },
+        ]);
+
+        const result = await service.delivery('company-1', '2026-04');
+
+        // Order.findMany includes lineItems { select: { quantity: true } } (listing-primary aggregate)
+        expect(prisma.order.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({
+              companyId: 'company-1',
+              status: { notIn: ['cancelled', 'returned'] },
+            }),
+            select: {
+              orderedAt: true,
+              totalPrice: true,
+              lineItems: { select: { quantity: true } },
+            },
+          }),
+        );
+
+        // Shipment empty → avgDeliveryDays = 0, courierDistribution = []
+        expect(result.totalShipments).toBe(0);
+        expect(result.avgDeliveryDays).toBe(0);
+        expect(result.courierDistribution).toEqual([]);
+
+        // daily is a 30-entry array. Find the entry for 2026-04-18.
+        expect(result.daily).toHaveLength(30);
+        const apr18 = result.daily.find((d) => d.date === '2026-04-18');
+        expect(apr18).toEqual({
+          date: '2026-04-18',
+          count: 0,
+          orders: 2,
+          revenue: 15_000,
+          qty: 9, // 2 + 3 + 4 from lineItems across both orders
+        });
+
+        // Other days have zero orders/revenue/qty (no orders on those days)
+        const apr19 = result.daily.find((d) => d.date === '2026-04-19');
+        expect(apr19).toEqual({
+          date: '2026-04-19',
+          count: 0,
+          orders: 0,
+          revenue: 0,
+          qty: 0,
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('returns zero aggregates when both shipments and orders are empty', async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-04-19T00:00:00Z'));
+      try {
+        prisma.shipment.findMany.mockResolvedValue([]);
+        prisma.order.findMany.mockResolvedValue([]);
+
+        const result = await service.delivery('company-1');
+
+        expect(result.totalShipments).toBe(0);
+        expect(result.avgDeliveryDays).toBe(0);
+        expect(result.courierDistribution).toEqual([]);
+        expect(result.daily).toHaveLength(30);
+        // Every day has all zero counts
+        for (const entry of result.daily) {
+          expect(entry.count).toBe(0);
+          expect(entry.orders).toBe(0);
+          expect(entry.revenue).toBe(0);
+          expect(entry.qty).toBe(0);
+        }
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 });

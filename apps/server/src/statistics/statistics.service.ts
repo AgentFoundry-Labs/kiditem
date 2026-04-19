@@ -187,19 +187,22 @@ export class StatisticsService {
         orderedAt: { gte: thirtyDaysAgo, lte: now },
         status: { notIn: ['cancelled', 'returned'] },
       },
-      select: { orderedAt: true, totalPrice: true, quantity: true },
+      select: {
+        orderedAt: true,
+        totalPrice: true,
+        lineItems: { select: { quantity: true } },
+      },
     });
 
     const orderDailyMap = new Map<string, { orders: number; revenue: number; qty: number }>();
     for (const o of dailyOrders) {
-      if (o.orderedAt) {
-        const key = o.orderedAt.toISOString().slice(0, 10);
-        const entry = orderDailyMap.get(key) ?? { orders: 0, revenue: 0, qty: 0 };
-        entry.orders += 1;
-        entry.revenue += o.totalPrice ?? 0;
-        entry.qty += o.quantity ?? 0;
-        orderDailyMap.set(key, entry);
-      }
+      if (!o.orderedAt) continue;
+      const key = o.orderedAt.toISOString().slice(0, 10);
+      const entry = orderDailyMap.get(key) ?? { orders: 0, revenue: 0, qty: 0 };
+      entry.orders += 1;
+      entry.revenue += o.totalPrice ?? 0;
+      entry.qty += o.lineItems.reduce((s, li) => s + li.quantity, 0);
+      orderDailyMap.set(key, entry);
     }
 
     const daily = Array.from(dailyMap.entries()).map(([date, count]) => {
