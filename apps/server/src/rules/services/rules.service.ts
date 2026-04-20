@@ -55,7 +55,7 @@ export class RulesService implements OnModuleInit {
         const ids = products.map((r) => `'${r.productId}'::uuid`).join(',');
 
         await this.prisma.$executeRawUnsafe(`
-          UPDATE products
+          UPDATE master_products
           SET health_score = CASE ${cases} END,
               health_updated_at = NOW()
           WHERE id IN (${ids})
@@ -158,19 +158,19 @@ export class RulesService implements OnModuleInit {
     topCritical: { id: string; name: string; healthScore: number | null; abcGrade: string | null }[];
   }> {
     const [healthy, warning, critical, total, lastEval] = await Promise.all([
-      this.prisma.product.count({
+      this.prisma.masterProduct.count({
         where: { companyId, isDeleted: false, healthScore: { gte: 70 } },
       }),
-      this.prisma.product.count({
+      this.prisma.masterProduct.count({
         where: { companyId, isDeleted: false, healthScore: { gte: 40, lt: 70 } },
       }),
-      this.prisma.product.count({
+      this.prisma.masterProduct.count({
         where: { companyId, isDeleted: false, healthScore: { lt: 40 } },
       }),
-      this.prisma.product.count({
+      this.prisma.masterProduct.count({
         where: { companyId, isDeleted: false },
       }),
-      this.prisma.product.findFirst({
+      this.prisma.masterProduct.findFirst({
         where: { companyId, isDeleted: false, healthUpdatedAt: { not: null } },
         orderBy: { healthUpdatedAt: 'desc' },
         select: { healthUpdatedAt: true },
@@ -179,7 +179,7 @@ export class RulesService implements OnModuleInit {
 
     const notEvaluated = total - healthy - warning - critical;
 
-    const topCritical = await this.prisma.product.findMany({
+    const topCritical = await this.prisma.masterProduct.findMany({
       where: { companyId, isDeleted: false, healthScore: { lt: 40 } },
       orderBy: { healthScore: 'asc' },
       take: 5,

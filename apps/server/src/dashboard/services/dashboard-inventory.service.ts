@@ -31,10 +31,10 @@ export class DashboardInventoryService {
         lowReviewProductsRaw,
       ] = await Promise.all([
         // gradeCount — active products grouped by abcGrade
-        this.prisma.product.groupBy({
+        this.prisma.masterProduct.groupBy({
           by: ['abcGrade'],
           _count: true,
-          where: { status: 'active' },
+          where: { isDeleted: false },
         }),
 
         // alerts — top-10 unread, newest first (legacy L56-60)
@@ -45,8 +45,8 @@ export class DashboardInventoryService {
         }),
 
         // totalProducts — active product count (legacy L70-72)
-        this.prisma.product.count({
-          where: { status: 'active' },
+        this.prisma.masterProduct.count({
+          where: { isDeleted: false },
         }),
 
         // P&L rows for warnings.minusProducts / lowProfitProducts / highAdProducts
@@ -76,10 +76,15 @@ export class DashboardInventoryService {
         }),
 
         // lowReviewProducts — A-grade active products with review count (legacy L244-248)
-        // Filter _count.reviews < 10 in JS (legacy uses .then() to filter)
-        this.prisma.product.findMany({
-          where: { status: 'active', abcGrade: 'A' },
-          include: { _count: { select: { reviews: true } } },
+        // Review 는 ChannelListing 에 달려있음 (Plan A.5). MasterProduct 기준 집계는
+        // listings → reviews 로 경유. Filter _count.reviews < 10 in JS.
+        this.prisma.masterProduct.findMany({
+          where: { isDeleted: false, abcGrade: 'A' },
+          include: {
+            listings: {
+              select: { _count: { select: { reviews: true } } },
+            },
+          },
         }),
       ]);
 
@@ -95,8 +100,10 @@ export class DashboardInventoryService {
       ).length;
 
       // lowReviewProducts — A-grade products with < 10 reviews (legacy L248)
+      // master 당 listings 전체 review 합산
       const lowReviewProducts = lowReviewProductsRaw.filter(
-        (p) => p._count.reviews < 10,
+        (p) =>
+          p.listings.reduce((sum, l) => sum + l._count.reviews, 0) < 10,
       ).length;
 
       // warnings — P&L-based signals (thresholds ported exactly from legacy)
@@ -138,7 +145,8 @@ export class DashboardInventoryService {
         severity: a.severity,
         title: a.title,
         message: a.message,
-        productId: a.productId,
+        targetType: a.targetType,
+        targetId: a.targetId,
         isRead: a.isRead,
         createdAt: a.createdAt,
       }));

@@ -11,7 +11,7 @@ function makePrisma() {
     agentTask: { findUnique: vi.fn(), update: vi.fn() },
     activityEvent: { create: vi.fn(), createMany: vi.fn() },
     alert: { createManyAndReturn: vi.fn() },
-    product: { count: vi.fn(), findFirst: vi.fn(), findMany: vi.fn() },
+    masterProduct: { count: vi.fn(), findFirst: vi.fn(), findMany: vi.fn() },
     businessRule: { findMany: vi.fn(), update: vi.fn(), count: vi.fn() },
     company: { findFirst: vi.fn() },
     $executeRawUnsafe: vi.fn(),

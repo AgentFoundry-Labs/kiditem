@@ -3,7 +3,7 @@ import { SourcingService } from '../sourcing.service';
 
 function makePrisma() {
   return {
-    product: {
+    masterProduct: {
       findFirst: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
@@ -31,8 +31,8 @@ describe('SourcingService — extension data → product creation', () => {
   });
 
   it('receiveExtensionData with new source_url → creates new product', async () => {
-    prisma.product.findFirst.mockResolvedValue(null);
-    prisma.product.create.mockResolvedValue({ id: 'prod-1' });
+    prisma.masterProduct.findFirst.mockResolvedValue(null);
+    prisma.masterProduct.create.mockResolvedValue({ id: 'prod-1' });
 
     const result = await service.receiveExtensionData(
       {
@@ -46,10 +46,10 @@ describe('SourcingService — extension data → product creation', () => {
       'company-1',
     );
 
-    expect(prisma.product.findFirst).toHaveBeenCalledWith({
+    expect(prisma.masterProduct.findFirst).toHaveBeenCalledWith({
       where: { sourceUrl: 'https://1688.com/item/12345', companyId: 'company-1' },
     });
-    expect(prisma.product.create).toHaveBeenCalledWith(
+    expect(prisma.masterProduct.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
           name: '아동용 스니커즈',
@@ -66,8 +66,8 @@ describe('SourcingService — extension data → product creation', () => {
 
   it('receiveExtensionData with existing source_url → updates existing product', async () => {
     const existing = { id: 'prod-existing' };
-    prisma.product.findFirst.mockResolvedValue(existing);
-    prisma.product.update.mockResolvedValue({ id: 'prod-existing' });
+    prisma.masterProduct.findFirst.mockResolvedValue(existing);
+    prisma.masterProduct.update.mockResolvedValue({ id: 'prod-existing' });
 
     const result = await service.receiveExtensionData(
       {
@@ -80,7 +80,7 @@ describe('SourcingService — extension data → product creation', () => {
       'company-1',
     );
 
-    expect(prisma.product.update).toHaveBeenCalledWith(
+    expect(prisma.masterProduct.update).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: 'prod-existing' },
         data: expect.objectContaining({
@@ -89,13 +89,13 @@ describe('SourcingService — extension data → product creation', () => {
         }),
       }),
     );
-    expect(prisma.product.create).not.toHaveBeenCalled();
+    expect(prisma.masterProduct.create).not.toHaveBeenCalled();
     expect(result.ok).toBe(true);
   });
 
   it('price parsing: priceRange "¥12.5-¥25.0" format → extracts minimum cost', async () => {
-    prisma.product.findFirst.mockResolvedValue(null);
-    prisma.product.create.mockResolvedValue({ id: 'prod-2' });
+    prisma.masterProduct.findFirst.mockResolvedValue(null);
+    prisma.masterProduct.create.mockResolvedValue({ id: 'prod-2' });
 
     await service.receiveExtensionData(
       {
@@ -108,7 +108,7 @@ describe('SourcingService — extension data → product creation', () => {
       'company-1',
     );
 
-    expect(prisma.product.create).toHaveBeenCalledWith(
+    expect(prisma.masterProduct.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
           costCny: 12.5,
@@ -118,8 +118,8 @@ describe('SourcingService — extension data → product creation', () => {
   });
 
   it('companyId is resolved and stored on new product', async () => {
-    prisma.product.findFirst.mockResolvedValue(null);
-    prisma.product.create.mockResolvedValue({ id: 'prod-3' });
+    prisma.masterProduct.findFirst.mockResolvedValue(null);
+    prisma.masterProduct.create.mockResolvedValue({ id: 'prod-3' });
 
     await service.receiveExtensionData(
       {
@@ -132,7 +132,7 @@ describe('SourcingService — extension data → product creation', () => {
       'company-A',
     );
 
-    expect(prisma.product.create).toHaveBeenCalledWith(
+    expect(prisma.masterProduct.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
           companyId: 'company-A',
@@ -152,8 +152,8 @@ describe('SourcingService — extension data → product creation', () => {
       'company-1',
     );
 
-    expect(prisma.product.findFirst).not.toHaveBeenCalled();
-    expect(prisma.product.create).not.toHaveBeenCalled();
+    expect(prisma.masterProduct.findFirst).not.toHaveBeenCalled();
+    expect(prisma.masterProduct.create).not.toHaveBeenCalled();
     expect(result.product_count).toBe(42);
     expect(result.ok).toBe(true);
   });

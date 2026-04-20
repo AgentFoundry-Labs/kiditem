@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotImplementedException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AgentRegistryService } from '../agent-registry/agent-registry.service';
 import { paginationParams } from '../common/pagination';
@@ -70,24 +70,21 @@ export class SourcingService {
         tags: data.tags || [],
       };
 
-      const existing = await this.prisma.product.findFirst({
+      const existing = await this.prisma.masterProduct.findFirst({
         where: { sourceUrl: data.source_url, companyId },
       });
 
       if (existing) {
-        await this.prisma.product.update({
+        await this.prisma.masterProduct.update({
           where: { id: existing.id },
           data: productData,
         });
       } else {
-        await this.prisma.product.create({
-          data: {
-            ...productData,
-            companyId,
-            sourceUrl: data.source_url,
-            sourcePlatform: platform,
-          },
-        });
+        // B2a 이후 MasterProduct.code required — MasterCodeService inject 필요.
+        // sourcing full rewrite 는 Plan B3 (coupangProductId 정리 + sourcing ADR 동반).
+        throw new NotImplementedException(
+          'Sourcing extension create path requires Plan B3 — MasterCodeService integration',
+        );
       }
     }
 
@@ -118,14 +115,14 @@ export class SourcingService {
     const { page, limit, skip } = paginationParams(query);
     const where = {
       companyId,
-      status: { in: ['draft', 'processing', 'processed'] as string[] },
+      pipelineStep: { in: ['draft', 'processing', 'processed'] as string[] },
       ...(query.platform && {
         sourcePlatform: PLATFORM_MAP[query.platform.toLowerCase()] || query.platform,
       }),
     };
     const [total, items] = await Promise.all([
-      this.prisma.product.count({ where }),
-      this.prisma.product.findMany({
+      this.prisma.masterProduct.count({ where }),
+      this.prisma.masterProduct.findMany({
         where,
         orderBy: { createdAt: 'desc' },
         skip,

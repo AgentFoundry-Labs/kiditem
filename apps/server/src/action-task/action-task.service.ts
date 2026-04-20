@@ -37,10 +37,18 @@ export class ActionTaskService {
         this.prisma.thumbnail.count({
           where: { ctr: { gt: 0, lt: 1.5 } },
         }),
-        this.prisma.product.findMany({
-          where: { status: 'active', abcGrade: 'A' },
-          include: { _count: { select: { reviews: true } } },
-        }).then((products) => products.filter((p) => p._count.reviews < 10).length),
+        this.prisma.masterProduct.findMany({
+          where: { isDeleted: false, abcGrade: 'A' },
+          include: {
+            listings: {
+              select: { _count: { select: { reviews: true } } },
+            },
+          },
+        }).then((products) =>
+          products.filter(
+            (p) => p.listings.reduce((sum, l) => sum + l._count.reviews, 0) < 10,
+          ).length,
+        ),
       ]);
 
     const minusProducts = allPL.filter((pl) => pl.netProfit < 0).length;

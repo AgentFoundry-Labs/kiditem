@@ -18,9 +18,9 @@ export class SnapshotService {
     for (const action of context.actions) {
       if (!action.product_id) continue;
 
-      const product = await this.prisma.product.findUnique({
+      const product = await this.prisma.masterProduct.findUnique({
         where: { id: action.product_id },
-        select: { id: true, adBudgetLimit: true, adTier: true, sellPrice: true, costPrice: true, healthScore: true },
+        select: { id: true, adBudgetLimit: true, adTier: true, healthScore: true },
       });
       if (!product) continue;
 
@@ -30,7 +30,7 @@ export class SnapshotService {
           companyId: context.companyId,
           runId: context.runId,
           agentId: context.agentId,
-          tableName: 'products',
+          tableName: 'master_products',
           recordId: product.id,
           fieldName: field,
           valueBefore: (product as any)[field],
@@ -58,7 +58,7 @@ export class SnapshotService {
     let restored = 0;
     for (const snap of snapshots) {
       try {
-        await this.prisma.product.update({
+        await this.prisma.masterProduct.update({
           where: { id: snap.recordId as string },
           data: { [snap.fieldName as string]: snap.valueBefore },
         });
@@ -90,8 +90,8 @@ export class SnapshotService {
         return ['adBudgetLimit'];
       case 'stop_ad':
         return ['adTier', 'adBudgetLimit'];
-      case 'change_price':
-        return ['sellPrice'];
+      // change_price snapshot 제거 — B2a 이후 sellPrice 는 ProductOption 에 있음.
+      // ProductOption-level snapshot 재구축은 Plan B3
       default:
         return [];
     }
