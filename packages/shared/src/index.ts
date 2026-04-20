@@ -213,6 +213,10 @@ export type {
   WingAdSummary,
 } from './schemas/dashboard.js';
 
+// Channel Dashboard — Return (ADR-0017, Plan D.2)
+export { ReturnSummarySchema } from './schemas/return-summary.js';
+export type { ReturnSummary } from './schemas/return-summary.js';
+
 // Reviews
 export { ReviewListItemSchema } from './schemas/reviews.js';
 export type { ReviewListItem } from './schemas/reviews.js';

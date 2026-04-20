@@ -99,6 +99,16 @@ await this.prisma.$transaction(async (tx) => {
 - 결과 typed array로 캐스팅 후 JS 변환.
 - channel-sync 에서는 raw SQL **사용 안 함** (Prisma client 만).
 
+#### getReturnSummary (ADR-0017, Plan D.2)
+
+`GET /api/coupang-dashboard/return-summary` — 반품율 집계 엔드포인트. **[ADR-0017](../../../../.claude/docs/decisions/0017-returnrate-semantic-unification.md)** 에 따라 다음 정책 적용:
+
+- **INNER JOIN on Order.orderedAt** — `OrderReturn` 을 matched `Order` 에 join, `Order.orderedAt` 기준으로 시간 필터. 반품이 접수된 시점(`returnedAt`)이 아니라 주문 발생 시점 기준 분모/분자 정합 (ADR-0017 §reason-3).
+- **반환 4 필드**: `orderCount`, `returnCount`, `returnRate` (= returnCount / orderCount, `[0,1]`), `orphanReturnCount` (= `order_id = NULL` 인 반품 건 수 — ADR-0017 policy c 보조 지표).
+- **orphanReturnCount 해석**: 사이드 메트릭으로만 표시. `returnRate` 분모/분자에서 **제외** (매칭 안 된 반품은 비율 계산 불가). 운영팀이 데이터 정합성 점검에 활용.
+- **`sales-analysis.service.ts:70` 수렴 보류**: Finance 도메인의 판매분석 반품율도 동일 INNER JOIN 으로 교체가 이상적이나 cross-domain 이므로 D.3 태스크로 이관 (ADR-0017 §deferred).
+- **응답 타입**: `@kiditem/shared` 의 `ReturnSummarySchema` (Zod). 서비스가 `satisfies` 로 드리프트 방지.
+
 ### 5. Company Isolation
 
 대시보드 모든 엔드포인트는 `@CurrentCompany()` 데코레이터로 companyId 추출. 서비스의 모든 $queryRaw에 `WHERE company_id = ${companyId}::uuid` 필수.

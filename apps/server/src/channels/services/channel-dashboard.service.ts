@@ -1,4 +1,5 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
+import type { ReturnSummary } from '@kiditem/shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import { kstDayStart } from '../../common/kst';
 
@@ -39,12 +40,6 @@ export interface ProductRankingRow {
   orderCount: number;
 }
 
-export interface ReturnSummary {
-  returnCount: number;
-  orderCount: number;
-  returnRate: number;
-}
-
 export interface ReturnReasonRow {
   reason: string;
   count: number;
@@ -57,6 +52,8 @@ export interface ReturnFaultSplit {
 
 @Injectable()
 export class ChannelDashboardService {
+  private readonly logger = new Logger(ChannelDashboardService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   async getSummary(companyId: string): Promise<ChannelDashboardSummary> {
@@ -154,18 +151,58 @@ export class ChannelDashboardService {
     from: Date,
     to: Date,
   ): Promise<ReturnSummary> {
-    const [returnCount, orderCount] = await Promise.all([
-      this.prisma.orderReturn.count({
-        where: { companyId, requestedAt: { gte: from, lt: to } },
-      }),
+    const startedAt = Date.now();
+
+    const [orderCount, returnCount, orphanReturnCount] = await Promise.all([
+      // 분모: 이 기간 내 주문 수
       this.prisma.order.count({
-        where: { companyId, orderedAt: { gte: from, lt: to } },
+        where: {
+          companyId,
+          orderedAt: { gte: from, lt: to },
+        },
+      }),
+      // 분자: 이 기간 내 주문 중 return 된 건 (INNER JOIN + 2-hop IDOR)
+      this.prisma.orderReturn.count({
+        where: {
+          companyId,
+          order: {
+            companyId,                                  // 2-hop defense-in-depth
+            orderedAt: { gte: from, lt: to },
+          },
+        },
+      }),
+      // Side metric: orphan (orderId NULL) requestedAt ∈ period
+      this.prisma.orderReturn.count({
+        where: {
+          companyId,
+          orderId: null,
+          requestedAt: { gte: from, lt: to },
+        },
       }),
     ]);
-    // R-06 known limitation: past-period orders' returns land in current numerator.
-    // Plan D will join order.orderedAt for a denominator-aligned ratio.
+
     const returnRate = orderCount === 0 ? 0 : returnCount / orderCount;
-    return { returnCount, orderCount, returnRate };
+
+    const result = {
+      orderCount,
+      returnCount,
+      returnRate,
+      orphanReturnCount,
+    } satisfies ReturnSummary;
+
+    this.logger.log({
+      msg: 'channel-dashboard.getReturnSummary',
+      companyId,
+      from: from.toISOString(),
+      to: to.toISOString(),
+      orderCount,
+      returnCount,
+      returnRate,
+      orphanReturnCount,
+      latencyMs: Date.now() - startedAt,
+    });
+
+    return result;
   }
 
   async getReturnReasonBreakdown(

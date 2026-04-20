@@ -430,21 +430,28 @@ describe('Channel dashboard (PG integration)', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // #4 getReturnSummary — orderCount 0 edge → returnRate 0.
+  // #4 getReturnSummary — ADR-0017 semantic: INNER JOIN order.orderedAt.
+  //    returnRate = returnCount / orderCount (must be ≤ 1 per Zod contract).
   // ---------------------------------------------------------------------------
   describe('getReturnSummary', () => {
-    it('orderCount + returnCount both scoped to companyId + half-open window', async () => {
+    it('ADR-0017: returnCount counts returns whose ORDER was placed in window (INNER JOIN)', async () => {
       await seedFixture();
 
+      // Narrow window: only O1 (orderedAt 2026-04-14T15:00Z) is in-range.
+      // O2 (orderedAt 2026-04-15T15:00Z) is excluded by `lt to`.
+      // RET-1 links to O1 (in-range) → counted.
+      // RET-2, RET-3 link to O2 (out-of-range) → excluded by INNER JOIN.
+      // No orphan returns in fixture → orphanReturnCount = 0.
       const from = new Date('2026-04-14T15:00:00.000Z');
-      const to = new Date('2026-04-16T15:00:00.000Z');
+      const to = new Date('2026-04-15T15:00:00.000Z'); // excludes O2
       const result = await service.getReturnSummary(TEST_COMPANY_ID, from, to);
 
-      // In-window orders: O1 + O2 = 2 (O3 excluded by half-open)
-      // In-window returns: RET-1 + RET-2 + RET-3 = 3 (faultBy=COURIER still counted here — C-11 only applies to faultSplit)
-      expect(result.orderCount).toBe(2);
-      expect(result.returnCount).toBe(3);
-      expect(result.returnRate).toBeCloseTo(1.5, 6);
+      expect(result).toEqual({
+        orderCount: 1,   // O1 only
+        returnCount: 1,  // RET-1 only (INNER JOIN: O2 out-of-range drops RET-2+RET-3)
+        returnRate: 1,
+        orphanReturnCount: 0,
+      });
     });
 
     it('returnRate = 0 when orderCount = 0 (edge)', async () => {
@@ -455,6 +462,248 @@ describe('Channel dashboard (PG integration)', () => {
       expect(result.orderCount).toBe(0);
       expect(result.returnRate).toBe(0);
       expect(Number.isFinite(result.returnRate)).toBe(true);
+      expect(result.orphanReturnCount).toBe(0);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // #4b R-2 ADR-0017 semantic edge cases (inline helpers, isolated beforeEach).
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Inline seed helpers — NOT exported to test-helpers (scope guard).
+   * Required Order fields from prisma/models/orders.prisma:
+   *   companyId, platform, externalOrderId (+ defaults: orderedAt, status, totalPrice, shippingPrice).
+   */
+  async function seedOrderInline(opts: {
+    companyId: string;
+    orderedAt: string;
+    externalOrderId: string;
+  }): Promise<string> {
+    const o = await prisma.order.create({
+      data: {
+        companyId: opts.companyId,
+        externalOrderId: opts.externalOrderId,
+        platform: 'coupang',
+        orderedAt: new Date(opts.orderedAt),
+        status: 'accepted',
+        totalPrice: 10000,
+        shippingPrice: 3000,
+      },
+    });
+    return o.id;
+  }
+
+  /**
+   * Required OrderReturn fields from prisma/models/orders.prisma:
+   *   companyId, platform, externalReturnId, requestedAt (+ defaults: status, reason, faultBy, type).
+   */
+  async function seedReturnInline(opts: {
+    companyId: string;
+    orderId: string | null;
+    requestedAt: string;
+    externalReturnId?: string;
+  }): Promise<string> {
+    const r = await prisma.orderReturn.create({
+      data: {
+        companyId: opts.companyId,
+        orderId: opts.orderId,
+        platform: 'coupang',
+        externalReturnId: opts.externalReturnId ?? `RET-INLINE-${Date.now()}-${Math.random()}`,
+        requestedAt: new Date(opts.requestedAt),
+        status: 'requested',
+        reason: 'test',
+        type: 'RETURN',
+        faultBy: 'CUSTOMER',
+      },
+    });
+    return r.id;
+  }
+
+  describe('R-2 ADR-0017 semantic edge cases', () => {
+    beforeEach(async () => {
+      await resetDb(prisma);
+      await seedBaseFixture(prisma);
+    });
+
+    it('past-period order with current-period return is EXCLUDED from current returnRate', async () => {
+      // March order — outside April range
+      const marchOrderId = await seedOrderInline({
+        companyId: TEST_COMPANY_ID,
+        orderedAt: '2026-03-15T00:00:00Z',
+        externalOrderId: 'OLD-1',
+      });
+      // April orders — inside range
+      const aprOrder1Id = await seedOrderInline({
+        companyId: TEST_COMPANY_ID,
+        orderedAt: '2026-04-05T00:00:00Z',
+        externalOrderId: 'NEW-1',
+      });
+      await seedOrderInline({
+        companyId: TEST_COMPANY_ID,
+        orderedAt: '2026-04-10T00:00:00Z',
+        externalOrderId: 'NEW-2',
+      });
+      // NEW-3 at 2026-04-20 is IN range (Apr 20 < May 1 upper bound)
+      await seedOrderInline({
+        companyId: TEST_COMPANY_ID,
+        orderedAt: '2026-04-20T00:00:00Z',
+        externalOrderId: 'NEW-3',
+      });
+      // Return on march order with april requestedAt — orderId linked to march order (out-of-range)
+      await seedReturnInline({
+        companyId: TEST_COMPANY_ID,
+        orderId: marchOrderId,
+        requestedAt: '2026-04-07T00:00:00Z',
+        externalReturnId: 'PAST-RET-1',
+      });
+      // Return on april order with future requestedAt — orderId linked to apr order (in-range)
+      await seedReturnInline({
+        companyId: TEST_COMPANY_ID,
+        orderId: aprOrder1Id,
+        requestedAt: '2026-04-22T00:00:00Z',
+        externalReturnId: 'PAST-RET-2',
+      });
+
+      const result = await service.getReturnSummary(
+        TEST_COMPANY_ID,
+        new Date('2026-04-01'),
+        new Date('2026-05-01'),
+      );
+      // orderCount: NEW-1 + NEW-2 + NEW-3 = 3 (all April orders)
+      expect(result.orderCount).toBe(3);
+      // returnCount: only NEW-1's return qualifies (INNER JOIN: march order excluded)
+      expect(result.returnCount).toBe(1);
+      expect(result.returnRate).toBeCloseTo(1 / 3, 6);
+      expect(result.orphanReturnCount).toBe(0);
+    });
+
+    it('orphan return (orderId NULL) goes to orphanReturnCount only', async () => {
+      await seedOrderInline({
+        companyId: TEST_COMPANY_ID,
+        orderedAt: '2026-04-05T00:00:00Z',
+        externalOrderId: 'APR-1',
+      });
+      await seedReturnInline({
+        companyId: TEST_COMPANY_ID,
+        orderId: null,
+        requestedAt: '2026-04-10T00:00:00Z',
+        externalReturnId: 'ORPHAN-1',
+      });
+
+      const result = await service.getReturnSummary(
+        TEST_COMPANY_ID,
+        new Date('2026-04-01'),
+        new Date('2026-05-01'),
+      );
+      expect(result).toEqual({
+        orderCount: 1,
+        returnCount: 0,
+        returnRate: 0,
+        orphanReturnCount: 1,
+      });
+    });
+
+    it('IDOR — returns from OTHER_COMPANY do not leak into TEST_COMPANY', async () => {
+      const otherOrderId = await seedOrderInline({
+        companyId: OTHER_COMPANY_ID,
+        orderedAt: '2026-04-15T00:00:00Z',
+        externalOrderId: 'OTHER-1',
+      });
+      await seedReturnInline({
+        companyId: OTHER_COMPANY_ID,
+        orderId: otherOrderId,
+        requestedAt: '2026-04-20T00:00:00Z',
+        externalReturnId: 'OTHER-RET-1',
+      });
+
+      const result = await service.getReturnSummary(
+        TEST_COMPANY_ID,
+        new Date('2026-04-01'),
+        new Date('2026-05-01'),
+      );
+      expect(result).toEqual({
+        orderCount: 0,
+        returnCount: 0,
+        returnRate: 0,
+        orphanReturnCount: 0,
+      });
+
+      // Double-blind: verify OTHER_COMPANY actually returns the data (service isn't universally broken)
+      const otherResult = await service.getReturnSummary(OTHER_COMPANY_ID, new Date('2026-04-01'), new Date('2026-05-01'));
+      expect(otherResult).toEqual({
+        orderCount: 1,
+        returnCount: 1,
+        returnRate: 1,
+        orphanReturnCount: 0,
+      });
+    });
+
+    it('perf baseline: 1000 orders + 200 returns completes under 2s', async () => {
+      // Bulk-seed 1000 orders via createMany for speed
+      const orderData = Array.from({ length: 1000 }, (_, i) => ({
+        companyId: TEST_COMPANY_ID,
+        externalOrderId: `PERF-${i}`,
+        platform: 'coupang',
+        orderedAt: new Date(
+          `2026-04-${String((i % 28) + 1).padStart(2, '0')}T00:00:00Z`,
+        ),
+        status: 'accepted',
+        totalPrice: 10000,
+        shippingPrice: 3000,
+      }));
+      await prisma.order.createMany({ data: orderData });
+
+      // Fetch IDs (needed for FK in returns)
+      const orders = await prisma.order.findMany({
+        where: {
+          companyId: TEST_COMPANY_ID,
+          externalOrderId: { startsWith: 'PERF-' },
+        },
+        select: { id: true },
+        orderBy: { orderedAt: 'asc' },
+      });
+      const orderIds = orders.map((o) => o.id);
+
+      // 150 linked returns + 50 orphan returns via createMany
+      const linkedReturnData = Array.from({ length: 150 }, (_, i) => ({
+        companyId: TEST_COMPANY_ID,
+        orderId: orderIds[i],
+        platform: 'coupang',
+        externalReturnId: `PERF-RET-LINKED-${i}`,
+        requestedAt: new Date('2026-04-15T00:00:00Z'),
+        status: 'requested',
+        reason: 'test',
+        type: 'RETURN',
+        faultBy: 'CUSTOMER',
+      }));
+      const orphanReturnData = Array.from({ length: 50 }, (_, i) => ({
+        companyId: TEST_COMPANY_ID,
+        orderId: null,
+        platform: 'coupang',
+        externalReturnId: `PERF-RET-ORPHAN-${i}`,
+        requestedAt: new Date('2026-04-15T00:00:00Z'),
+        status: 'requested',
+        reason: 'test',
+        type: 'RETURN',
+        faultBy: 'CUSTOMER',
+      }));
+      await prisma.orderReturn.createMany({ data: linkedReturnData });
+      await prisma.orderReturn.createMany({ data: orphanReturnData });
+
+      const start = Date.now();
+      const result = await service.getReturnSummary(
+        TEST_COMPANY_ID,
+        new Date('2026-04-01'),
+        new Date('2026-05-01'),
+      );
+      const latencyMs = Date.now() - start;
+
+      expect(result.orderCount).toBe(1000);
+      expect(result.returnCount).toBe(150);
+      expect(result.orphanReturnCount).toBe(50);
+      expect(latencyMs).toBeLessThan(2000);
+      console.log(`[perf] getReturnSummary 1000 orders + 200 returns → ${latencyMs}ms`);
     });
   });
 

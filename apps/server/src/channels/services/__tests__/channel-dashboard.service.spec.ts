@@ -172,34 +172,99 @@ describe('ChannelDashboardService', () => {
   });
 
   // -------------------------------------------------------------------------
-  // #4 getReturnSummary — zero-division guard
+  // #4 getReturnSummary — ADR-0017 semantic (INNER JOIN + 2-hop IDOR + orphan)
   // -------------------------------------------------------------------------
-  describe('getReturnSummary', () => {
-    it('returnRate = 0 when orderCount is 0 (not Infinity)', async () => {
-      prisma.orderReturn.count.mockResolvedValueOnce(2);
-      prisma.order.count.mockResolvedValueOnce(0);
+  describe('getReturnSummary — ADR-0017 semantic', () => {
+    function mockPrismaForReturn(overrides: {
+      orderCount?: number;
+      innerJoinReturnCount?: number;
+      orphanCount?: number;
+    }) {
+      const orderCount = overrides.orderCount ?? 0;
+      const innerJoinReturnCount = overrides.innerJoinReturnCount ?? 0;
+      const orphanCount = overrides.orphanCount ?? 0;
+      const orderReturnCount = vi.fn().mockImplementation((args: any) => {
+        if (args?.where?.orderId === null) return Promise.resolve(orphanCount);
+        if (args?.where?.order) return Promise.resolve(innerJoinReturnCount);
+        throw new Error(`unexpected orderReturn.count args: ${JSON.stringify(args)}`);
+      });
+      return {
+        order: { count: vi.fn().mockResolvedValue(orderCount) },
+        orderReturn: { count: orderReturnCount },
+      } as any;
+    }
 
-      const result = await service.getReturnSummary(
-        COMPANY_ID,
-        new Date('2026-04-01T00:00:00.000Z'),
-        new Date('2026-05-01T00:00:00.000Z'),
-      );
-
-      expect(result).toEqual({ returnCount: 2, orderCount: 0, returnRate: 0 });
-      expect(Number.isFinite(result.returnRate)).toBe(true);
+    it('returnRate = returns whose order.orderedAt ∈ period / orders in period', async () => {
+      const mockPrisma = mockPrismaForReturn({ orderCount: 3, innerJoinReturnCount: 1, orphanCount: 0 });
+      const svc = new ChannelDashboardService(mockPrisma as unknown as PrismaService);
+      const result = await svc.getReturnSummary('companyA', new Date('2026-04-01'), new Date('2026-05-01'));
+      expect(result).toEqual({
+        orderCount: 3,
+        returnCount: 1,
+        returnRate: 1 / 3,
+        orphanReturnCount: 0,
+      });
     });
 
-    it('returnRate = returnCount / orderCount when orderCount > 0', async () => {
-      prisma.orderReturn.count.mockResolvedValueOnce(3);
-      prisma.order.count.mockResolvedValueOnce(30);
+    it('orphanReturnCount side metric (orderId NULL AND requestedAt in period)', async () => {
+      const mockPrisma = mockPrismaForReturn({ orderCount: 10, innerJoinReturnCount: 2, orphanCount: 3 });
+      const svc = new ChannelDashboardService(mockPrisma as unknown as PrismaService);
+      const result = await svc.getReturnSummary('companyA', new Date('2026-04-01'), new Date('2026-05-01'));
+      expect(result).toEqual({
+        orderCount: 10,
+        returnCount: 2,
+        returnRate: 0.2,
+        orphanReturnCount: 3,
+      });
+    });
 
-      const result = await service.getReturnSummary(
-        COMPANY_ID,
-        new Date('2026-04-01T00:00:00.000Z'),
-        new Date('2026-05-01T00:00:00.000Z'),
-      );
+    it('returnRate = 0 when orderCount = 0 (no division by zero)', async () => {
+      const mockPrisma = mockPrismaForReturn({ orderCount: 0, innerJoinReturnCount: 0, orphanCount: 0 });
+      const svc = new ChannelDashboardService(mockPrisma as unknown as PrismaService);
+      const result = await svc.getReturnSummary('companyA', new Date('2026-04-01'), new Date('2026-05-01'));
+      expect(result.returnRate).toBe(0);
+    });
 
-      expect(result.returnRate).toBeCloseTo(0.1, 6);
+    it('IDOR — 2-hop companyId on relation filter + orphan companyId', async () => {
+      const orderCount = vi.fn().mockResolvedValue(5);
+      const orderReturnCount = vi.fn().mockImplementation((args: any) => {
+        if (args?.where?.orderId === null) return Promise.resolve(0);
+        return Promise.resolve(1);
+      });
+      const mockPrisma = { order: { count: orderCount }, orderReturn: { count: orderReturnCount } } as any;
+      const svc = new ChannelDashboardService(mockPrisma as unknown as PrismaService);
+      await svc.getReturnSummary('companyA', new Date('2026-04-01'), new Date('2026-05-01'));
+
+      // Order count: top-level companyId
+      expect(orderCount).toHaveBeenCalledWith(expect.objectContaining({
+        where: expect.objectContaining({ companyId: 'companyA' }),
+      }));
+
+      // INNER JOIN return count: companyId on BOTH top-level AND order relation (2-hop)
+      expect(orderReturnCount).toHaveBeenCalledWith(expect.objectContaining({
+        where: expect.objectContaining({
+          companyId: 'companyA',
+          order: expect.objectContaining({
+            companyId: 'companyA',
+            orderedAt: expect.objectContaining({
+              gte: expect.any(Date),
+              lt: expect.any(Date),
+            }),
+          }),
+        }),
+      }));
+
+      // Orphan count: top-level companyId + orderId null + requestedAt
+      expect(orderReturnCount).toHaveBeenCalledWith(expect.objectContaining({
+        where: expect.objectContaining({
+          companyId: 'companyA',
+          orderId: null,
+          requestedAt: expect.objectContaining({
+            gte: expect.any(Date),
+            lt: expect.any(Date),
+          }),
+        }),
+      }));
     });
   });
 
