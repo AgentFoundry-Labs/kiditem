@@ -1,14 +1,5 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Patch,
-  Delete,
-  Param,
-  Body,
-  Query,
-  BadRequestException,
-} from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Param, Body, Query } from '@nestjs/common';
+import { SkipAuth } from '../../auth/decorators/skip-auth.decorator';
 import { AdvertisingService } from '../services/advertising.service';
 import { AdCampaignsService } from '../services/ad-campaigns.service';
 import { AdStrategyService } from '../services/ad-strategy.service';
@@ -19,24 +10,11 @@ import { AdActionService } from '../services/ad-action.service';
 import { AdExecutionService } from '../services/ad-execution.service';
 import { AdConfigService } from '../services/ad-config.service';
 import {
-  ListAdsQueryDto,
-  ChangeAdTierBodyDto,
-  CampaignQueryDto,
-  TrendsQueryDto,
-  StrategyQueryDto,
-  CollectAdsDto,
-  ExtensionSyncDto,
-  CreateScrapeTargetDto,
-  MarkScrapedDto,
-  AdActionQueryDto,
-  AdActionCommandDto,
-  LeaseDto,
-  HeartbeatDto,
-  ReportDto,
-  UpdateAdConfigDto,
-  RegisterCampaignDto,
+  ListAdsQueryDto, ChangeAdTierBodyDto, CampaignQueryDto, TrendsQueryDto, StrategyQueryDto,
+  CollectAdsDto, ExtensionSyncDto, CreateScrapeTargetDto, MarkScrapedDto,
+  AdActionQueryDto, AdActionCommandDto, LeaseDto, HeartbeatDto, ReportDto,
+  UpdateAdConfigDto, RegisterCampaignDto,
 } from '../dto';
-import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
 
 @Controller('ads')
 export class AdvertisingController {
@@ -55,221 +33,185 @@ export class AdvertisingController {
   // === 설정 (config — catch-all 위에 배치) ===
 
   @Get('config')
-  getConfig(@CurrentCompany() companyId: string) {
-    return this.adConfigService.getConfig(companyId);
+  getConfig() {
+    return this.adConfigService.getConfig();
   }
 
   @Patch('config/:key')
   updateConfig(
     @Param('key') key: string,
     @Body() body: UpdateAdConfigDto,
-    @CurrentCompany() companyId: string,
   ) {
-    return this.adConfigService.updateConfig(`ads.${key}`, body.value, companyId);
+    return this.adConfigService.updateConfig(undefined, `ads.${key}`, body.value);
   }
 
   // === 기존 엔드포인트 ===
 
   @Get('hub')
-  getHub(@CurrentCompany() companyId: string) {
-    return this.advertisingService.getHubData(companyId);
+  getHub() {
+    return this.advertisingService.getHubData();
   }
 
   @Patch(':id/tier')
   changeTier(
     @Param('id') id: string,
     @Body() body: ChangeAdTierBodyDto,
-    @CurrentCompany() companyId: string,
   ) {
-    return this.advertisingService.changeTier(id, body.adTier, companyId);
+    return this.advertisingService.changeTier(id, body.adTier);
   }
 
   // === 캠페인 ===
 
   @Get('campaigns/trends')
-  getTrends(@Query() query: TrendsQueryDto, @CurrentCompany() companyId: string) {
-    return this.adCampaignsService.getTrends(query.period ?? '14d', query.days, companyId);
+  getTrends(@Query() query: TrendsQueryDto) {
+    return this.adCampaignsService.getTrends(query.period, query.days);
   }
 
   @Post('campaigns/register')
-  registerCampaign(
-    @Body() body: RegisterCampaignDto,
-    @CurrentCompany() companyId: string,
-  ) {
-    return this.adStrategyService.registerCampaign(body, companyId);
+  registerCampaign(@Body() body: RegisterCampaignDto) {
+    return this.adStrategyService.registerCampaign(body);
   }
 
   @Get('campaigns')
-  getCampaigns(@Query() query: CampaignQueryDto, @CurrentCompany() companyId: string) {
-    const period = (query.period ?? '7d') as '7d' | '14d' | 'month';
-    return this.adCampaignsService.getCampaigns(period, query.campaign, companyId);
+  getCampaigns(@Query() query: CampaignQueryDto) {
+    return this.adCampaignsService.getCampaigns(query.period, query.campaign);
   }
 
   // === 전략 ===
 
   @Get('strategy/rules')
-  getRules(@Query() query: StrategyQueryDto, @CurrentCompany() companyId: string) {
-    return this.adStrategyService.getRules(query.period ?? '14d', companyId);
+  getRules(@Query() query: StrategyQueryDto) {
+    return this.adStrategyService.getRules(query.period);
   }
 
   @Get('strategy/plan')
-  getWeeklyPlan(@Query() query: StrategyQueryDto, @CurrentCompany() companyId: string) {
-    return this.adStrategyService.getWeeklyPlan(query.period ?? '14d', companyId);
+  getWeeklyPlan(@Query() query: StrategyQueryDto) {
+    return this.adStrategyService.getWeeklyPlan(query.period);
   }
 
   @Post('strategy/ai-plan')
-  getAiPlan(@Query() query: StrategyQueryDto, @CurrentCompany() companyId: string) {
-    return this.adStrategyService.getAiEnhancedPlan(query.period ?? '14d', companyId);
+  getAiPlan(@Query() query: StrategyQueryDto) {
+    return this.adStrategyService.getAiEnhancedPlan(query.period);
   }
 
   @Get('strategy/recommend')
-  getRecommendations(@CurrentCompany() companyId: string) {
-    return this.adStrategyService.getRecommendations(companyId);
+  getRecommendations() {
+    return this.adStrategyService.getRecommendations();
   }
 
   @Get('exposure-analysis')
-  getExposureAnalysis(@CurrentCompany() companyId: string) {
-    return this.adStrategyService.getExposureAnalysis(companyId);
+  getExposureAnalysis() {
+    return this.adStrategyService.getExposureAnalysis();
   }
 
   // === 벤치마크 ===
 
   @Get('benchmark')
-  getBenchmark(@CurrentCompany() companyId: string) {
-    return this.adBenchmarkService.getDiagnosis(companyId);
+  getBenchmark() {
+    return this.adBenchmarkService.getDiagnosis();
   }
 
   // === 수집 ===
 
   @Post('collect')
-  startCollection(@Body() body: CollectAdsDto, @CurrentCompany() companyId: string) {
-    return this.adCollectService.startCollection(body.period, companyId);
+  startCollection(@Body() body: CollectAdsDto) {
+    return this.adCollectService.startCollection(body.period);
   }
 
   @Get('collect/status')
-  getCollectStatus(@CurrentCompany() companyId: string) {
-    return this.adCollectService.getStatus(companyId);
+  getCollectStatus() {
+    return this.adCollectService.getStatus();
   }
 
-  // === 익스텐션 연동 ===
+  // === 익스텐션 연동 — 익스텐션이 인증 없이 호출하는 경로들 (SkipAuth). 서비스 내부에서 기본 회사 해석. ===
 
+  @SkipAuth()
   @Post('extension/sync')
-  extensionSync(@Body() body: ExtensionSyncDto, @CurrentCompany() companyId: string) {
-    return this.adSyncService.sync(body, companyId);
+  extensionSync(@Body() body: ExtensionSyncDto) {
+    return this.adSyncService.sync(body);
   }
 
+  @SkipAuth()
   @Get('extension/status')
-  extensionStatus(@CurrentCompany() companyId: string) {
-    return this.adSyncService.getExtensionStatus(companyId);
+  extensionStatus() {
+    return this.adSyncService.getExtensionStatus();
   }
 
   // === 스크래핑 대상 관리 ===
 
+  @SkipAuth()
   @Get('scrape-targets')
-  getScrapeTargets(@CurrentCompany() companyId: string) {
-    return this.adSyncService.getScrapeTargets(companyId);
+  getScrapeTargets() {
+    return this.adSyncService.getScrapeTargets();
   }
 
+  @SkipAuth()
   @Post('scrape-targets')
-  handleScrapeTarget(
-    @Body() body: MarkScrapedDto | CreateScrapeTargetDto,
-    @CurrentCompany() companyId: string,
-  ) {
+  handleScrapeTarget(@Body() body: MarkScrapedDto | CreateScrapeTargetDto) {
     // 익스텐션에서 markScraped 호출 시
     if ('action' in body && (body as MarkScrapedDto).action === 'markScraped') {
-      return this.adSyncService.markScraped((body as MarkScrapedDto).id, companyId);
+      return this.adSyncService.markScraped((body as MarkScrapedDto).id);
     }
     // 새 scrape target 생성
     const createBody = body as CreateScrapeTargetDto;
-    return this.adSyncService.createScrapeTarget(
-      createBody.url,
-      createBody.label,
-      createBody.category,
-      companyId,
-    );
+    return this.adSyncService.createScrapeTarget(createBody.url, createBody.label, createBody.category);
   }
 
+  @SkipAuth()
   @Delete('scrape-targets/:id')
-  deleteScrapeTarget(@Param('id') id: string, @CurrentCompany() companyId: string) {
-    return this.adSyncService.deleteScrapeTarget(id, companyId);
+  deleteScrapeTarget(@Param('id') id: string) {
+    return this.adSyncService.deleteScrapeTarget(id);
   }
 
   // === 액션 (AdAction) ===
 
   @Get('actions')
-  getActions(@Query() query: AdActionQueryDto, @CurrentCompany() companyId: string) {
-    return this.adActionService.getActions(query, companyId);
+  getActions(@Query() query: AdActionQueryDto) {
+    return this.adActionService.getActions(query);
   }
 
   @Post('actions')
-  handleActionCommand(
-    @Body() body: AdActionCommandDto,
-    @CurrentCompany() companyId: string,
-  ) {
-    switch (body.action) {
-      case 'generate':
-        return this.adActionService.generateActions(companyId);
-      case 'approve':
-        return this.adActionService.approveActions(body.ids ?? [], companyId);
-      case 'reject':
-        return this.adActionService.rejectActions(body.ids ?? [], companyId);
-      case 'markRunning':
-        if (!body.id) throw new BadRequestException('id is required for markRunning');
-        return this.adActionService.markRunning(body.id, body.beforeJson, companyId);
-      case 'markDone':
-        if (!body.id) throw new BadRequestException('id is required for markDone');
-        return this.adActionService.markDone(body.id, body.afterJson, companyId);
-      case 'markFailed':
-        if (!body.id) throw new BadRequestException('id is required for markFailed');
-        return this.adActionService.markFailed(
-          body.id,
-          body.errorMessage,
-          body.afterJson,
-          companyId,
-        );
-      case 'resetFailed':
-        return this.adActionService.resetFailed(companyId);
-      default:
-        throw new BadRequestException(`Unknown action: ${body.action}`);
-    }
+  handleActionCommand(@Body() body: AdActionCommandDto) {
+    if (body.action === 'generate') return this.adActionService.generateActions();
+    if (body.action === 'approve') return this.adActionService.approveActions(body.ids || []);
+    if (body.action === 'reject') return this.adActionService.rejectActions(body.ids || []);
+    if (body.action === 'markRunning') return this.adActionService.markRunning(body.id!, body.beforeJson);
+    if (body.action === 'markDone') return this.adActionService.markDone(body.id!, body.afterJson);
+    if (body.action === 'markFailed') return this.adActionService.markFailed(body.id!, body.errorMessage, body.afterJson);
+    if (body.action === 'resetFailed') return this.adActionService.resetFailed();
   }
 
-  // === 실행 (Execution) ===
+  // === 실행 (Execution) — 익스텐션 워커 호출 경로 (SkipAuth) ===
 
+  @SkipAuth()
   @Post('execution/lease')
-  executionLease(@Body() body: LeaseDto, @CurrentCompany() companyId: string) {
-    return this.adExecutionService.lease(
-      body.workerKey,
-      {
-        label: body.label,
-        pageType: body.pageType,
-        limit: body.limit,
-      },
-      companyId,
-    );
+  executionLease(@Body() body: LeaseDto) {
+    return this.adExecutionService.lease(body.workerKey, {
+      label: body.label,
+      pageType: body.pageType,
+      limit: body.limit,
+    });
   }
 
+  @SkipAuth()
   @Post('execution/heartbeat')
-  executionHeartbeat(@Body() body: HeartbeatDto, @CurrentCompany() companyId: string) {
-    return this.adExecutionService.heartbeat(
-      body.workerKey,
-      {
-        currentUrl: body.currentUrl,
-        currentPageType: body.currentPageType,
-      },
-      companyId,
-    );
+  executionHeartbeat(@Body() body: HeartbeatDto) {
+    return this.adExecutionService.heartbeat(body.workerKey, {
+      currentUrl: body.currentUrl,
+      currentPageType: body.currentPageType,
+    });
   }
 
+  @SkipAuth()
   @Post('execution/report')
-  executionReport(@Body() body: ReportDto, @CurrentCompany() companyId: string) {
-    return this.adExecutionService.report(body, companyId);
+  executionReport(@Body() body: ReportDto) {
+    return this.adExecutionService.report(body);
   }
 
   // === 기존 리스트 (맨 아래 — catch-all) ===
 
   @Get()
-  findAll(@Query() query: ListAdsQueryDto, @CurrentCompany() companyId: string) {
-    return this.advertisingService.findAll(query, companyId);
+  findAll(@Query() query: ListAdsQueryDto) {
+    return this.advertisingService.findAll(query as any);
   }
 }

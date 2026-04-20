@@ -1,300 +1,1159 @@
 import {
   Injectable,
-  NotFoundException,
+  InternalServerErrorException,
   ConflictException,
 } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { AgentRegistryService } from '../../agent-registry/agent-registry.service';
 import { AdConfigService } from './ad-config.service';
-import { AdGradeRulesService } from './ad-grade-rules.service';
-import { AdBudgetAllocatorService } from './ad-budget-allocator.service';
-import { AdExposureService } from './ad-exposure.service';
-import { AdRecommendService } from './ad-recommend.service';
-import type { RegisterCampaignDto } from '../dto/register-campaign.dto';
-import type {
-  AdAggregateRow,
-  AdsConfig,
-  HydratedListing,
-  InventoryRow,
-  ListingMetricsRow,
-} from './types';
-import {
-  getCurrentPeriod,
-  getInventorySnapshot,
-  getWeekRange,
-  hydrateListings,
-} from './util/ad-strategy-helpers';
-import type {
-  AdRulesData,
-  AdStrategyAction,
-  AdStrategyRecommendation,
-  AdWeeklyPlan,
-  ExposureAnalysisData,
-  ExposureProductScore,
-} from '@kiditem/shared';
+import { resolvePricing, resolveInventory } from '../../common/master-product-resolver';
+import type { GradeBudgetAllocation } from './types';
+import type { AdStrategyAction, ExposureAnalysisData } from '@kiditem/shared';
 
-type Priority = 'urgent' | 'high' | 'medium' | 'low';
-
-/**
- * Orchestrator — 6 public endpoint 당 Promise.all fetch 후 sub-service 로 delegation.
- * Plan B2b.refactor T7 + T7-fix. Prisma 호출은 본 service 에만, sub-service 는 pure calculator.
- * B2b (commit 2c17850) 동작 완전 보존 — 응답 shape / threshold / 계산 결과 동일.
- */
 @Injectable()
 export class AdStrategyService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly adConfigService: AdConfigService,
-    private readonly agentRegistry: AgentRegistryService,
-    private readonly adGradeRules: AdGradeRulesService,
-    private readonly adBudgetAllocator: AdBudgetAllocatorService,
-    private readonly adExposure: AdExposureService,
-    private readonly adRecommend: AdRecommendService,
   ) {}
 
-  // ───── PUBLIC API (6 endpoints) ─────
-
-  /** ABC 등급 규칙 기반 recommendations + 요약 — ad-grade-rules 위임. */
-  async getRules(
-    _period: '7d' | '14d' | 'month',
-    companyId: string,
-  ): Promise<AdRulesData> {
-    const recommendations = await this.buildActions(companyId);
-    return {
-      recommendations,
-      summary: {
-        totalActions: recommendations.length,
-        urgentCount: recommendations.filter((a) => a.priority === 'urgent').length,
-      },
-    } satisfies AdRulesData;
-  }
-
-  /** 주간 액션 플랜 — loadStrategyContext Promise.all batch 후 4 sub-service 조립. */
-  async getWeeklyPlan(
-    period: '7d' | '14d' | 'month',
-    companyId: string,
-  ): Promise<AdWeeklyPlan> {
-    const { year, month } = getCurrentPeriod();
-    const ctx = await this.loadStrategyContext(companyId, year, month);
-
-    // calcBudgetAllocation 은 AdWeeklyPlan shape 에 없지만 adConfig.getConfig 부작용 (seed) 보존용 호출.
-    this.adBudgetAllocator.calcBudgetAllocation({
-      config: ctx.config,
-      adGroups: ctx.adGroups,
-      listings: ctx.listings,
-      gradeMap: toGradeMapStrict(ctx.gradeMap),
+  private async getDefaultCompanyId(): Promise<string> {
+    const company = await this.prisma.company.findFirst({
+      where: { isActive: true },
+      select: { id: true },
     });
-
-    return {
-      actions: this.adGradeRules.calcActions({
-        adGroups: ctx.adGroups,
-        listings: ctx.listings,
-        gradeMap: ctx.gradeMap,
-        profitRateByListing: ctx.profitRateByListing,
-      }),
-      issues: this.adGradeRules.calcAdIssues({
-        adGroups: ctx.adIssuesAdGroups,
-        listings: ctx.listings,
-        gradeMap: ctx.gradeMap,
-      }),
-      tierAnalysis: this.adBudgetAllocator.calcTierAnalysis({
-        listings: ctx.listings,
-        adGroups: ctx.adGroups,
-      }),
-      top20: this.adBudgetAllocator.calcTop20({
-        profitLosses: ctx.profitLosses,
-        listings: ctx.listings,
-        adGroups: ctx.adGroups,
-      }),
-      week: getWeekRange(period),
-    } satisfies AdWeeklyPlan;
+    if (!company) throw new InternalServerErrorException('회사 정보를 찾을 수 없습니다');
+    return company.id;
   }
 
-  /** AI agent 로 보강한 주간 플랜. agent 미정의/실패 시 원본 그대로 (graceful). */
-  async getAiEnhancedPlan(
-    period: '7d' | '14d' | 'month',
-    companyId: string,
-  ): Promise<AdWeeklyPlan> {
-    const plan = await this.getWeeklyPlan(period, companyId);
-    const enhancedActions = await this.adRecommend.enhanceActionsWithAi(
-      plan.actions,
-      companyId,
-    );
-    return { ...plan, actions: enhancedActions } satisfies AdWeeklyPlan;
+  private async getLatestAgentResult() {
+    const run = await this.prisma.heartbeatRun.findFirst({
+      where: { agent: { type: 'ad_strategy' }, status: 'succeeded' },
+      orderBy: { finishedAt: 'desc' },
+      select: { resultJson: true, finishedAt: true },
+    });
+    return run ? { ...(run.resultJson as any), generatedAt: run.finishedAt } : null;
+  }
+
+  /** period → since Date 변환 */
+  private periodToSince(period: '7d' | '14d' | 'month'): Date {
+    const now = new Date();
+    if (period === 'month') {
+      return new Date(now.getFullYear(), now.getMonth(), 1);
+    }
+    const days = period === '7d' ? 7 : 14;
+    const since = new Date();
+    since.setDate(since.getDate() - days);
+    since.setHours(0, 0, 0, 0);
+    return since;
   }
 
   /**
-   * calcActions 결과에서 urgent/high 만 필터 → 상위 20 → recommendation 카드.
-   *
-   * B2b 원본 (commit 2c17850) line 180-197 의 `getRecommendations` 본문 복원.
-   * 계산기 기반 — agent task 의존 없음.
+   * 상품별 광고 집계 — `Ad` 테이블 대체.
+   * 익스텐션이 AdSnapshot(source='advertising', level='product')에 상품별 KPI를 쌓음.
+   * 기간 내 합산해 spend/revenue/clicks/impressions/conversions 반환.
    */
-  async getRecommendations(companyId: string): Promise<AdStrategyRecommendation[]> {
-    const actions = await this.buildActions(companyId);
-    return actions
-      .filter((a) => a.priority === 'urgent' || a.priority === 'high')
-      .slice(0, 20)
-      .map(
-        (a) =>
-          ({
-            listing: a.listing,
-            grade: a.grade,
-            title: a.actionType,
-            body: a.reason,
-            priority: a.priority,
-          }) satisfies AdStrategyRecommendation,
-      );
+  private async aggregateAdsByProduct(
+    companyId: string,
+    since?: Date,
+  ): Promise<Map<string, { spend: number; revenue: number; clicks: number; impressions: number; conversions: number }>> {
+    // period 컬럼은 스크랩 당시 선택한 조회 범위('1d'/'7d'/'30d'). 서로 다른 기간 누적값이라 섞어 SUM 금지.
+    // 일별 누적이 목적이므로 period='1d'(=각 날짜 하루치)만 선택.
+    // productName 빈 행(캠페인 요약)은 productId에 매핑되지 않는 쓰레기성 행이라 제외.
+    const where: {
+      companyId: string;
+      source: string;
+      level: string;
+      period: string;
+      productId: { not: null };
+      productName: { not: '' };
+      date?: { gte: Date };
+    } = {
+      companyId,
+      source: 'advertising',
+      level: 'product',
+      period: '1d',
+      productId: { not: null },
+      productName: { not: '' },
+    };
+    if (since) where.date = { gte: since };
+
+    const rows = await this.prisma.adSnapshot.groupBy({
+      by: ['productId'],
+      where,
+      _sum: { adSpend: true, adRevenue: true, clicks: true, impressions: true, adConversions: true },
+    });
+
+    const map = new Map<string, { spend: number; revenue: number; clicks: number; impressions: number; conversions: number }>();
+    for (const r of rows) {
+      if (!r.productId) continue;
+      map.set(r.productId, {
+        spend: r._sum.adSpend || 0,
+        revenue: r._sum.adRevenue || 0,
+        clicks: r._sum.clicks || 0,
+        impressions: r._sum.impressions || 0,
+        conversions: r._sum.adConversions || 0,
+      });
+    }
+    return map;
   }
 
-  /** Exposure analysis — ad aggregate + review + traffic + leadTime 흡수 후 ad-exposure 위임. */
-  async getExposureAnalysis(companyId: string): Promise<ExposureAnalysisData> {
+  /**
+   * 상품×키워드 별 광고 집계 (전환수 내림차순) — `Ad.groupBy(productId, keyword)` 대체.
+   * level=null (raw) 스냅샷에서 keyword 기준.
+   */
+  private async aggregateKeywordsByProduct(
+    companyId: string,
+    since?: Date,
+  ): Promise<Map<string, Array<{ keyword: string; conversions: number; clicks: number }>>> {
+    // period별 중복 방지 — '14d'만 사용
+    const where: {
+      companyId: string;
+      source: string;
+      period: string;
+      keyword: { not: null };
+      productId: { not: null };
+      capturedAt?: { gte: Date };
+    } = {
+      companyId,
+      source: 'advertising',
+      period: '1d',
+      keyword: { not: null },
+      productId: { not: null },
+    };
+    if (since) where.capturedAt = { gte: since };
+
+    const rows = await this.prisma.adSnapshot.findMany({
+      where,
+      select: { productId: true, keyword: true, conversions: true, clicks: true },
+    });
+
+    const agg = new Map<string, Map<string, { conversions: number; clicks: number }>>();
+    for (const r of rows) {
+      if (!r.productId || !r.keyword) continue;
+      const inner = agg.get(r.productId) || new Map<string, { conversions: number; clicks: number }>();
+      const prev = inner.get(r.keyword) || { conversions: 0, clicks: 0 };
+      prev.conversions += r.conversions || 0;
+      prev.clicks += r.clicks || 0;
+      inner.set(r.keyword, prev);
+      agg.set(r.productId, inner);
+    }
+
+    const result = new Map<string, Array<{ keyword: string; conversions: number; clicks: number }>>();
+    for (const [pid, inner] of agg) {
+      result.set(pid, Array.from(inner.entries())
+        .map(([k, v]) => ({ keyword: k, ...v }))
+        .sort((a, b) => b.conversions - a.conversions || b.clicks - a.clicks));
+    }
+    return result;
+  }
+
+  private async calcBudgetAllocation(): Promise<GradeBudgetAllocation[]> {
+    const companyId = await this.getDefaultCompanyId();
+    const config = await this.adConfigService.getConfig(companyId);
+
+    const adMap = await this.aggregateAdsByProduct(companyId);
+    const productIds = Array.from(adMap.keys());
+
+    const products = await this.prisma.product.findMany({
+      where: { companyId, isDeleted: false, id: { in: productIds } },
+      select: { id: true, abcGrade: true },
+    });
+
+    const gradeMap = new Map(products.map((p) => [p.id, p.abcGrade || 'C']));
+    const gradeSpend: Record<string, number> = { A: 0, B: 0, C: 0 };
+    let totalSpend = 0;
+
+    for (const [pid, agg] of adMap) {
+      const grade = gradeMap.get(pid) || 'C';
+      gradeSpend[grade] = (gradeSpend[grade] || 0) + agg.spend;
+      totalSpend += agg.spend;
+    }
+
+    const allocation = config.budget.allocation;
+    return ['A', 'B', 'C'].map((g) => ({
+      grade: g,
+      currentPercent: totalSpend > 0 ? Math.round((gradeSpend[g] / totalSpend) * 100) : 0,
+      targetPercent: allocation[g] || 0,
+      gap: totalSpend > 0
+        ? Math.round((gradeSpend[g] / totalSpend) * 100) - (allocation[g] || 0)
+        : 0,
+    }));
+  }
+
+  async getRules(period: '7d' | '14d' | 'month' = '14d') {
+    const companyId = await this.getDefaultCompanyId();
+    const snapshotMetrics = await this.calcSnapshotKeyMetrics(companyId, period);
+
+    const [adMap, products] = await Promise.all([
+      this.aggregateAdsByProduct(companyId, this.periodToSince(period)),
+      this.prisma.product.findMany({
+        where: { companyId, isDeleted: false },
+        include: {
+          inventory: true,
+          masterProduct: { include: { inventory: true } },
+          trafficStats: { where: { periodDays: 14 }, orderBy: { date: 'desc' }, take: 1 },
+        },
+      }),
+    ]);
+
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    const recommendations: Array<Record<string, unknown>> = [];
+    const alertsToCreate: Array<{ type: string; severity: string; title: string; message: string; productId: string; companyId: string }> = [];
+
+    for (const p of products) {
+      const ad = adMap.get(p.id);
+      const spend = ad?.spend || 0;
+      const revenue = ad?.revenue || 0;
+      const clicks = ad?.clicks || 0;
+      const impressions = ad?.impressions || 0;
+      const conversions = ad?.conversions || 0;
+      const roas = spend > 0 ? Math.round((revenue / spend) * 100) : 0;
+      const ctr = impressions > 0 ? Math.round((clicks / impressions) * 10000) / 100 : 0;
+      const cvr = clicks > 0 ? Math.round((conversions / clicks) * 10000) / 100 : 0;
+      const resolvedInv = resolveInventory(p);
+      const resolvedPrice = resolvePricing(p);
+      const stock = resolvedInv.currentStock;
+      const t14Rev = (p as any).trafficStats?.[0]?.revenue || 0;
+      const margin = resolvedPrice.sellPrice > 0 && resolvedPrice.costPrice > 0
+        ? resolvedPrice.sellPrice - resolvedPrice.costPrice
+        : 0;
+      const adBudgetLimit = margin > 0 ? margin * 0.35 : 0;
+
+      const recs: Array<{ rule: string; action: string; priority: string }> = [];
+
+      // ═══ 공통 긴급 규칙 (등급 무관) ═══
+
+      if (stock === 0 && p.adTier && spend > 0) {
+        recs.push({
+          rule: '긴급: 재고0 광고ON',
+          action: '재고 없음 — 광고 즉시 중단. 재입고 확인 후 재개',
+          priority: 'urgent',
+        });
+        alertsToCreate.push({
+          type: 'strategy_change', severity: 'critical', productId: p.id, companyId,
+          title: '재고 0 광고 ON',
+          message: `[긴급] ${p.name} — 재고 0인데 광고 ON, 즉시 중단 필요`,
+        });
+      }
+
+      if (clicks >= 50 && conversions === 0 && spend > 0) {
+        recs.push({
+          rule: 'C-5 전환0 조기손절',
+          action: `클릭 ${clicks}회, 전환 0 — 키워드 OFF 또는 캠페인 중단 (광고비 ${Math.round(spend).toLocaleString()}원 낭비)`,
+          priority: 'urgent',
+        });
+        if (spend >= 3000) {
+          alertsToCreate.push({
+            type: 'strategy_change', severity: 'critical', productId: p.id, companyId,
+            title: '전환0 조기손절',
+            message: `[조기손절] ${p.name} — 클릭 ${clicks}회 전환 0, 광고비 ${Math.round(spend).toLocaleString()}원 낭비`,
+          });
+        }
+      }
+
+      if (ctr >= 0.5 && roas < 100 && spend > 1000 && clicks >= 20) {
+        recs.push({
+          rule: 'B-7 CTR높음 전환낮음',
+          action: `CTR ${ctr}% (양호) but ROAS ${roas}% (저조) — 썸네일은 OK, 상세페이지·가격·리뷰 재검토`,
+          priority: 'high',
+        });
+        alertsToCreate.push({
+          type: 'strategy_change', severity: 'warning', productId: p.id, companyId,
+          title: 'CTR 높음 전환 낮음',
+          message: `[상세페이지] ${p.name} — CTR ${ctr}% 양호하나 전환 저조(ROAS ${roas}%), 상세페이지/가격 점검`,
+        });
+      }
+
+      if (adBudgetLimit > 0 && spend > adBudgetLimit * 14 && roas < 300) {
+        recs.push({
+          rule: '순이익 한도 초과',
+          action: `광고비 ${Math.round(spend).toLocaleString()}원 > 순이익 한도 ${Math.round(adBudgetLimit * 14).toLocaleString()}원 — 예산 축소 또는 ROAS 목표 상향`,
+          priority: 'high',
+        });
+      }
+
+      // ═══ A등급 규칙 — 공격적 확장 ═══
+      if (p.abcGrade === 'A' || t14Rev > 50000) {
+        if (roas >= 480 && spend > 0) {
+          recs.push({
+            rule: 'A-1 매출 확대',
+            action: `ROAS ${roas}% — 일예산 20% 증액 추천. 입찰가 10% 인상 검토`,
+            priority: 'high',
+          });
+        } else if (roas >= 300 && ctr >= 0.3) {
+          recs.push({
+            rule: 'A-2 키워드 확장',
+            action: `ROAS ${roas}% + CTR ${ctr}% — ${p.adTier || '없음'}→1차 승격. 매출최적화에서 발굴된 키워드를 수동 캠페인에 추가`,
+            priority: 'high',
+          });
+        } else if (roas < 200 && spend > 3000) {
+          recs.push({
+            rule: 'A-3 위험 감지',
+            action: `A등급 ROAS ${roas}%로 하락 — 입찰가 15% 하향 + 전환 0 키워드 제외 등록 + 아이템위너 상태 확인`,
+            priority: 'urgent',
+          });
+          alertsToCreate.push({
+            type: 'strategy_change', severity: 'critical', productId: p.id, companyId,
+            title: 'A등급 ROAS 하락',
+            message: `[전략수정] ${p.name} — A등급 ROAS ${roas}%로 하락, 아이템위너 확인 및 입찰가 조정 필요`,
+          });
+        } else if (!p.adTier && t14Rev > 30000) {
+          recs.push({
+            rule: 'A-4 신규 광고',
+            action: `자연매출 ${Math.round(t14Rev).toLocaleString()}원 — 매출최적화 광고 먼저 시작 (ROAS 300~350%, 일예산 3만원). 7~14일 최적화 후 수동 캠페인 병행`,
+            priority: 'medium',
+          });
+        }
+        if (p.adTier && roas >= 300 && spend > 0) {
+          recs.push({
+            rule: 'A-5 매출최적화 병행',
+            action: `수동 캠페인 ROAS ${roas}% 안정 — 매출최적화 캠페인 추가 개설로 신규 키워드 발굴 추천`,
+            priority: 'low',
+          });
+        }
+      }
+
+      // ═══ B등급 규칙 — 최적화 집중 ═══
+      else if (p.abcGrade === 'B' || (roas >= 100 && roas < 480)) {
+        if (roas >= 480) {
+          recs.push({
+            rule: 'B-5 A승격',
+            action: `ROAS ${roas}% — A등급 캠페인으로 이동. 예산 비중 확대 (60~70% 목표)`,
+            priority: 'high',
+          });
+          alertsToCreate.push({
+            type: 'strategy_change', severity: 'info', productId: p.id, companyId,
+            title: 'A등급 승격 추천',
+            message: `[A승격] ${p.name} — ROAS ${roas}% 달성, A등급 캠페인 이동 추천`,
+          });
+        } else if (roas >= 300) {
+          recs.push({
+            rule: 'B-3 예산 유지',
+            action: `ROAS ${roas}% 안정 — 현재 예산 유지, 주간 모니터링. 제외 키워드 정리 추천`,
+            priority: 'low',
+          });
+        } else if (roas >= 100 && ctr < 0.15) {
+          recs.push({
+            rule: 'B-2 소재 테스트',
+            action: `CTR ${ctr}% 미달 — 썸네일 교체 추천. 경쟁사 상위 3개 썸네일 벤치마킹 후 A/B 테스트`,
+            priority: 'medium',
+          });
+        } else if (roas >= 100 && roas < 200) {
+          recs.push({
+            rule: 'B-4 입찰가 하향',
+            action: `ROAS ${roas}% — 입찰가 15% 하향. 메인 키워드 경쟁 과열이면 롱테일 키워드(100~300원)로 전환`,
+            priority: 'medium',
+          });
+        } else if (roas >= 200) {
+          recs.push({
+            rule: 'B-6 롱테일 키워드',
+            action: `ROAS ${roas}% 보통 — 핵심 키워드 20~30개에 집중 + 롱테일(세부) 키워드에서 저비용 전환 확보`,
+            priority: 'medium',
+          });
+        }
+      }
+
+      // ═══ C등급 규칙 — 손절/재구성 ═══
+      else if (spend > 0 || p.abcGrade === 'C') {
+        if (spend > 0 && revenue === 0) {
+          recs.push({
+            rule: 'C-1 광고 중단',
+            action: `광고비 ${Math.round(spend).toLocaleString()}원 지출, 전환 0원 — 즉시 OFF. 아이템위너 여부 확인 필수`,
+            priority: 'urgent',
+          });
+          if (spend >= 5000) {
+            alertsToCreate.push({
+              type: 'strategy_change', severity: 'critical', productId: p.id, companyId,
+              title: '광고 중단 권장',
+              message: `[광고중단] ${p.name} — 광고비 ${Math.round(spend).toLocaleString()}원 지출, 전환매출 0원`,
+            });
+          }
+        } else if (roas > 0 && roas < 50) {
+          recs.push({
+            rule: 'C-2 최소 예산',
+            action: `ROAS ${roas}% — 일예산 3,000원 축소. 2주 후에도 개선 없으면 OFF`,
+            priority: 'high',
+          });
+        } else if (roas >= 50 && roas < 100) {
+          recs.push({
+            rule: 'C-2 최소 예산',
+            action: `ROAS ${roas}% — 일예산 3,000원 축소 + 롱테일 키워드만 유지`,
+            priority: 'high',
+          });
+        } else if (t14Rev > 0 && spend > t14Rev) {
+          recs.push({
+            rule: 'C-3 가격 재검토',
+            action: `광고비(${Math.round(spend).toLocaleString()}) > 매출(${Math.round(t14Rev).toLocaleString()}) — 판매가 인상 또는 매입가 재협상 필요`,
+            priority: 'high',
+          });
+        }
+      }
+
+      if (recs.length > 0) {
+        const priOrder: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 };
+        recs.sort((a, b) => (priOrder[a.priority] ?? 3) - (priOrder[b.priority] ?? 3));
+        const main = recs[0];
+        recommendations.push({
+          productId: p.id, name: p.name, grade: p.abcGrade, adTier: p.adTier,
+          spend, revenue, roas, ctr, cvr, stock, t14Rev,
+          rule: main.rule, action: main.action, priority: main.priority,
+          additionalRules: recs.length > 1 ? recs.slice(1).map((r) => ({ rule: r.rule, action: r.action, priority: r.priority })) : undefined,
+        });
+      }
+    }
+
+    // 중복 방지: 오늘 이미 생성된 전략 알림 제외
+    if (alertsToCreate.length > 0) {
+      const existing = await this.prisma.alert.findMany({
+        where: { companyId, type: 'strategy_change', createdAt: { gte: todayStart } },
+        select: { productId: true },
+      });
+      const existSet = new Set(existing.map((a) => a.productId));
+      const newAlerts = alertsToCreate.filter((a) => !existSet.has(a.productId));
+      if (newAlerts.length > 0) {
+        await this.prisma.alert.createMany({ data: newAlerts });
+      }
+    }
+
+    const priOrder: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 };
+    recommendations.sort((a, b) => ((priOrder[a.priority as string] ?? 3) - (priOrder[b.priority as string] ?? 3)));
+
+    const summary = {
+      total: recommendations.length,
+      urgent: recommendations.filter((r) => r.priority === 'urgent').length,
+      high: recommendations.filter((r) => r.priority === 'high').length,
+      medium: recommendations.filter((r) => r.priority === 'medium').length,
+      low: recommendations.filter((r) => r.priority === 'low').length,
+      newAlerts: alertsToCreate.length,
+      wastedSpend: recommendations
+        .filter((r) => typeof r.rule === 'string' && (r.rule.includes('광고 중단') || r.rule.includes('전환0')))
+        .reduce((s, r) => s + (typeof r.spend === 'number' ? r.spend : 0), 0),
+    };
+
+    return { summary, recommendations, period, keyMetrics: snapshotMetrics, hasSnapshotData: !!snapshotMetrics };
+  }
+
+  private async calcSnapshotKeyMetrics(
+    companyId: string,
+    period: '7d' | '14d' | 'month' = '14d',
+  ) {
+    const days = period === '7d' ? 7 : period === 'month' ? Math.max(new Date().getDate(), 1) : 14;
+    const since = new Date();
+    since.setDate(since.getDate() - days);
+    since.setHours(0, 0, 0, 0);
+
+    // 익스텐션은 source='advertising', level='campaign'로 일별 KPI 기록.
+    // campaignName='_전체'인 행이 일자별 합계 (ad-sync.service.ts handleAdCampaign 참조).
+    const snaps = await this.prisma.adSnapshot.findMany({
+      where: {
+        companyId,
+        source: 'advertising',
+        level: 'campaign',
+        campaignName: '_전체',
+        period: '1d',
+        date: { gte: since },
+      },
+      select: { adSpend: true, adRevenue: true, clicks: true, impressions: true, adConversions: true, roas: true },
+    });
+
+    if (snaps.length === 0) return null;
+
+    const totalAdSpend = snaps.reduce((s, r) => s + r.adSpend, 0);
+    const totalAdRevenue = snaps.reduce((s, r) => s + r.adRevenue, 0);
+    const totalImpressions = snaps.reduce((s, r) => s + r.impressions, 0);
+    const totalClicks = snaps.reduce((s, r) => s + r.clicks, 0);
+    const totalConversions = snaps.reduce((s, r) => s + r.adConversions, 0);
+    const overallRoas = totalAdSpend > 0 ? Math.round((totalAdRevenue / totalAdSpend) * 100) : 0;
+    const ctr = totalImpressions > 0 ? Math.round((totalClicks / totalImpressions) * 10000) / 100 : 0;
+    const cvr = totalClicks > 0 ? Math.round((totalConversions / totalClicks) * 10000) / 100 : 0;
+    const adRatio = totalAdRevenue > 0 ? Math.round((totalAdSpend / totalAdRevenue) * 10000) / 100 : 0;
+
+    return { totalAdSpend, totalAdRevenue, overallRoas, totalImpressions, totalClicks, totalConversions, ctr, cvr, adRatio };
+  }
+
+  private getCurrentPeriod(): { year: number; month: number } {
+    const now = new Date();
+    return { year: now.getFullYear(), month: now.getMonth() + 1 };
+  }
+
+  private async calcActions(companyId: string, year: number, month: number) {
+    const config = await this.adConfigService.getConfig(companyId);
+    const roasTargets = config.roasTargetByGrade;
+
+    const [adMap, products, keywordAgg] = await Promise.all([
+      this.aggregateAdsByProduct(companyId),
+      this.prisma.product.findMany({
+        where: { companyId, isDeleted: false },
+        select: {
+          id: true,
+          name: true,
+          abcGrade: true,
+          adTier: true,
+          sellPrice: true,
+          costPrice: true,
+          profitLoss: {
+            where: { companyId, year, month },
+            select: { profitRate: true, revenue: true },
+            take: 1,
+          },
+        },
+      }),
+      this.aggregateKeywordsByProduct(companyId),
+    ]);
+
+    // keywordAgg: Map<productId, [{keyword, conversions, clicks}]> (전환 desc 정렬됨)
+    const keywordMap = new Map<string, string[]>();
+    const kwMap = new Map<string, string[]>();
+    for (const [pid, kws] of keywordAgg) {
+      keywordMap.set(pid, kws.map((k) => k.keyword));
+      kwMap.set(pid, kws.slice(0, 10).map((k) => k.keyword));
+    }
+
+    return products
+      .map((p) => {
+        const ad = adMap.get(p.id);
+        const spend = ad?.spend || 0;
+        const adRevenue = ad?.revenue || 0;
+        const clicks = ad?.clicks || 0;
+        const impressions = ad?.impressions || 0;
+        const conversions = ad?.conversions || 0;
+        if (spend === 0) return null;
+
+        const roas = (adRevenue / spend) * 100;
+        const profitRate = Number(p.profitLoss[0]?.profitRate ?? 0) * 100;
+        const totalRevenue = Number(p.profitLoss[0]?.revenue ?? 0);
+        const margin = p.sellPrice != null && p.costPrice != null ? p.sellPrice - p.costPrice : 0;
+        const grade = p.abcGrade ?? 'C';
+
+        const currentCtr = impressions > 0 ? (clicks / impressions) * 100 : 0;
+        const currentCvr = clicks > 0 ? (conversions / clicks) * 100 : 0;
+        const currentAcos = adRevenue > 0 ? (spend / adRevenue) * 100 : 0;
+        const currentAdRate = totalRevenue > 0 ? (spend / totalRevenue) * 100 : 0;
+
+        let action: string;
+        let reason: string;
+        let actionPriority: 'urgent' | 'high' | 'medium' | 'low';
+        if (roas < 100) {
+          action = 'stop';
+          reason = 'ROAS 100% 미만 — 광고 중단 권장';
+          actionPriority = 'urgent';
+        } else if (roas < 200) {
+          action = 'decrease';
+          reason = 'ROAS 200% 미만 — 예산 축소 권장';
+          actionPriority = 'high';
+        } else if (roas > 400 && profitRate > 10) {
+          action = 'increase';
+          reason = 'ROAS 400% 초과 + 수익률 10% 초과 — 예산 확대 권장';
+          actionPriority = 'low';
+        } else {
+          action = 'maintain';
+          reason = '현재 수준 유지';
+          actionPriority = 'medium';
+        }
+
+        return {
+          productId: p.id,
+          name: p.name,
+          grade: p.abcGrade ?? null,
+          action,
+          reason,
+          spend,
+          roas: Math.round(roas),
+          profitRate: Math.round(profitRate * 10) / 10,
+          tier: p.adTier ?? null,
+          currentRoas: Math.round(roas),
+          currentCtr: Math.round(currentCtr * 100) / 100,
+          currentCvr: Math.round(currentCvr * 100) / 100,
+          currentAcos: Math.round(currentAcos * 100) / 100,
+          currentAdRate: Math.round(currentAdRate * 100) / 100,
+          recommendedAction: reason,
+          actionPriority,
+          maxBidPrice: margin > 0 ? Math.round(margin * 0.25) : 0,
+          targetRoas: roasTargets[grade] ?? 300,
+          keywords: keywordMap.get(p.id) || [],
+          suggestedKeywords: {
+            main:     kwMap.get(p.id)?.slice(0, 5) ?? [],
+            sub:      kwMap.get(p.id)?.slice(5, 10) ?? [],
+            longtail: [] as string[],
+            negative: [] as string[],
+          },
+          campaignStrategy: action === 'increase' ? '매출 확대'
+            : action === 'stop'     ? '광고 중단'
+            : action === 'decrease' ? '예산 축소'
+            : '현재 유지',
+          recommendedDailyBudget: margin > 0
+            ? Math.round(margin * (action === 'increase' ? 0.30 : action === 'maintain' ? 0.15 : 0.05))
+            : 0,
+          isExisting: !!p.adTier || spend > 0,
+        };
+      })
+      .filter((x): x is NonNullable<typeof x> => x !== null);
+  }
+
+  private async calcAdIssues(companyId: string, year: number, month: number) {
+    const since = new Date();
+    since.setDate(since.getDate() - 14);
+
+    const [products, adMap] = await Promise.all([
+      this.prisma.product.findMany({
+        where: { companyId, isDeleted: false },
+        select: {
+          id: true,
+          name: true,
+          abcGrade: true,
+          adTier: true,
+          profitLoss: {
+            where: { companyId, year, month },
+            select: { revenue: true, adCost: true },
+            take: 1,
+          },
+        },
+      }),
+      this.aggregateAdsByProduct(companyId, since),
+    ]);
+
+    let zeroConversion = 0;
+    let lowRoas = 0;
+    let cGradeHighTier = 0;
+    let aGradeNoAd = 0;
+
+    for (const p of products) {
+      const ad = adMap.get(p.id) || { spend: 0, revenue: 0, clicks: 0, impressions: 0, conversions: 0 };
+      const spend = ad.spend;
+      const adRevenue = ad.revenue;
+      const conversions = ad.conversions;
+
+      // 전환 없음: 광고비 지출했는데 전환 0
+      if (spend > 0 && conversions === 0) zeroConversion++;
+
+      // 낮은 ROAS: 100% 미만
+      if (spend > 0 && adRevenue > 0 && (adRevenue / spend) * 100 < 100) lowRoas++;
+
+      // C등급인데 1차(핵심) 광고
+      if (p.abcGrade === 'C' && p.adTier === '1차') cGradeHighTier++;
+
+      // A등급인데 광고 미배정
+      if (p.abcGrade === 'A' && !p.adTier && spend === 0) aGradeNoAd++;
+    }
+
+    return { zeroConversion, lowRoas, cGradeHighTier, aGradeNoAd };
+  }
+
+  private async calcTierAnalysis(companyId: string) {
+    const [tiers, adMap] = await Promise.all([
+      this.prisma.product.groupBy({
+        by: ['adTier'],
+        _count: { adTier: true },
+        where: { companyId, status: 'active', adTier: { not: null }, isDeleted: false },
+      }),
+      this.aggregateAdsByProduct(companyId),
+    ]);
+
+    const tierIds = await Promise.all(
+      tiers.map(async (t) => {
+        const products = await this.prisma.product.findMany({
+          where: { companyId, adTier: t.adTier, isDeleted: false },
+          select: { id: true },
+        });
+        return { tier: t.adTier as string, ids: products.map((p) => p.id) };
+      }),
+    );
+
+    return tierIds.map(({ tier, ids }) => {
+      let spend = 0;
+      let revenue = 0;
+      for (const id of ids) {
+        const ad = adMap.get(id);
+        if (ad) {
+          spend += ad.spend;
+          revenue += ad.revenue;
+        }
+      }
+      const roas = spend > 0 ? Math.round((revenue / spend) * 100) : 0;
+      return { tier, count: ids.length, spend, revenue, roas };
+    });
+  }
+
+  private async calcTop20(companyId: string, year: number, month: number) {
+    const topPl = await this.prisma.profitLoss.findMany({
+      where: { companyId, year, month },
+      orderBy: { revenue: 'desc' },
+      take: 20,
+      include: {
+        product: { select: { name: true, abcGrade: true, adTier: true } },
+      },
+    });
+
+    const adMap = await this.aggregateAdsByProduct(companyId);
+
+    return topPl.map((pl) => {
+      const ad = adMap.get(pl.productId) ?? { spend: 0, revenue: 0 };
+      const roas = ad.spend > 0 ? Math.round((ad.revenue / ad.spend) * 100) : 0;
+      const profitRate = Math.round(Number(pl.profitRate ?? 0) * 1000) / 10;
+      return {
+        productId: pl.productId,
+        name: pl.product.name,
+        grade: pl.product.abcGrade ?? null,
+        tier: pl.product.adTier ?? null,
+        revenue: pl.revenue,
+        adSpend: ad.spend,
+        roas,
+        profitRate,
+      };
+    });
+  }
+
+  async getWeeklyPlan(period: '7d' | '14d' | 'month' = '14d') {
+    const [latest, companyId] = await Promise.all([
+      this.getLatestAgentResult(),
+      this.getDefaultCompanyId(),
+    ]);
+
+    const { year, month } = this.getCurrentPeriod();
+
+    const [budgetAllocation, rawActions, adIssues, tierAnalysis, top20, snapshotMetrics] =
+      await Promise.all([
+        this.calcBudgetAllocation(),
+        this.calcActions(companyId, year, month),
+        this.calcAdIssues(companyId, year, month),
+        this.calcTierAnalysis(companyId),
+        this.calcTop20(companyId, year, month),
+        this.calcSnapshotKeyMetrics(companyId, period),
+      ]);
+
+    // name 기반으로 실제 DB products와 grade/productId 동기화
+    const productNames = rawActions.map((a) => a.name);
+    const dbProducts = await this.prisma.product.findMany({
+      where: {
+        name: { in: productNames },
+        isDeleted: false,
+      },
+      select: { id: true, name: true, abcGrade: true, adTier: true },
+    });
+    const dbMap = new Map(dbProducts.map((p) => [p.name, p]));
+
+    const actions = rawActions.map((a) => {
+      const dbP = dbMap.get(a.name);
+      if (dbP) {
+        return {
+          ...a,
+          productId: dbP.id,
+          grade: dbP.abcGrade ?? a.grade,
+          isExisting: !!dbP.adTier,
+        };
+      }
+      return a;
+    });
+
+    if (!latest?.plan) {
+      return {
+        generatedAt: null,
+        totalProducts: 0,
+        summary: { scaleUp: 0, optimize: 0, reduce: 0, stop: 0, newStart: 0 },
+        budgetAllocation,
+        keyMetrics: { totalAdSpend: 0, totalAdRevenue: 0, overallRoas: 0 },
+        snapshotKeyMetrics: snapshotMetrics,
+        hasSnapshotData: !!snapshotMetrics,
+        period,
+        actions,
+        adIssues,
+        tierAnalysis,
+        top20,
+      };
+    }
+
+    return {
+      ...latest.plan,
+      budgetAllocation,
+      generatedAt: latest.generatedAt,
+      snapshotKeyMetrics: snapshotMetrics,
+      hasSnapshotData: !!snapshotMetrics,
+      period,
+      actions,
+      adIssues,
+      tierAnalysis,
+      top20,
+    };
+  }
+
+  private async enhanceActionsWithAi(
+    actions: AdStrategyAction[],
+  ): Promise<Map<string, { campaignStrategy: string; longtailKeywords: string[]; negativeKeywords: string[]; weeklyAction: string }>> {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey || actions.length === 0) return new Map();
+
+    const model = 'gemini-2.5-flash';
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+    const batch = actions.slice(0, 30).map((a) => ({
+      productId: a.productId,
+      name: a.name,
+      grade: a.grade,
+      roas: a.roas,
+      ctr: a.currentCtr,
+      cvr: a.currentCvr,
+      spend: a.spend,
+      action: a.action,
+      existingKeywords: a.keywords.slice(0, 8),
+    }));
+
+    const prompt = `당신은 쿠팡 셀러 광고 최적화 전문가입니다. 아래 상품들의 광고 성과를 분석하여 구체적인 전략을 JSON으로 반환하세요.
+
+[전략 기준]
+- ROAS ≥480%: 공격적 확장, 입찰가 10%↑, 일예산 20%↑, 신규 키워드 발굴
+- ROAS 300~480%: 유지·최적화, 롱테일 확장, 제외 키워드 정리
+- ROAS 200~300%: 입찰가·소재 점검, 전환 높은 키워드 집중
+- ROAS 100~200%: 예산 축소, 성과 키워드만 유지, 롱테일로 전환
+- ROAS <100%: 즉시 중단 또는 최소 테스트
+- CTR <0.15%: 썸네일/소재 개선 우선
+- CVR <5%: 상세페이지·가격·리뷰 점검 필요
+
+[출력 JSON 형식]
+{ "results": [{ "productId": "...", "campaignStrategy": "3-4문장 구체적 전략 (입찰가·예산·타겟·시즌 포함)", "longtailKeywords": ["5-8개 롱테일 키워드"], "negativeKeywords": ["3-5개 제외 키워드"], "weeklyAction": "이번 주 최우선 실행 사항 (수치 포함)" }] }
+
+키워드는 반드시 한국어. 롱테일은 상품명+특성+용도 조합. 제외키워드는 구매의도 낮은 광의어.
+상품 데이터: ${JSON.stringify(batch)}`;
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 25000);
+
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        signal: controller.signal,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.4, responseMimeType: 'application/json' },
+        }),
+      });
+
+      if (!res.ok) return new Map();
+
+      const data = await res.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+      const parsed = JSON.parse(text) as { results?: Array<{ productId: string; campaignStrategy: string; longtailKeywords: string[]; negativeKeywords: string[]; weeklyAction: string }> };
+
+      const resultMap = new Map<string, { campaignStrategy: string; longtailKeywords: string[]; negativeKeywords: string[]; weeklyAction: string }>();
+      for (const item of parsed.results ?? []) {
+        if (item.productId) {
+          resultMap.set(item.productId, {
+            campaignStrategy: item.campaignStrategy ?? '',
+            longtailKeywords: item.longtailKeywords ?? [],
+            negativeKeywords: item.negativeKeywords ?? [],
+            weeklyAction: item.weeklyAction ?? '',
+          });
+        }
+      }
+      return resultMap;
+    } catch {
+      return new Map();
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  async getAiEnhancedPlan(period: '7d' | '14d' | 'month' = '14d') {
+    const plan = await this.getWeeklyPlan(period);
+    const actions = plan.actions as AdStrategyAction[];
+    const aiMap = await this.enhanceActionsWithAi(actions);
+
+    if (aiMap.size === 0) return plan;
+
+    const enhancedActions = actions.map((a) => {
+      const ai = aiMap.get(a.productId);
+      if (!ai) return a;
+      return {
+        ...a,
+        campaignStrategy: ai.campaignStrategy || a.campaignStrategy,
+        recommendedAction: ai.weeklyAction || a.recommendedAction,
+        suggestedKeywords: {
+          ...a.suggestedKeywords,
+          longtail: ai.longtailKeywords,
+          negative: ai.negativeKeywords,
+        },
+      };
+    });
+
+    return { ...plan, actions: enhancedActions };
+  }
+
+  async getRecommendations() {
+    const latest = await this.getLatestAgentResult();
+    if (!latest?.cards) return { cards: [], keyMetrics: null };
+    return { cards: latest.cards, keyMetrics: latest.plan?.keyMetrics };
+  }
+
+  // ═══ 쿠팡 상위노출 분석 ═══
+
+  async getExposureAnalysis() {
+    const companyId = await this.getDefaultCompanyId();
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-    // Promise.all 통합 fetch — adGroups + review aggregate (전체+최근 30d) 한 번에.
-    const [adAgg, reviewAgg, recentReviewAgg] = await Promise.all([
-      this.prisma.ad.groupBy({
-        by: ['listingId'],
-        where: { companyId },
-        _sum: {
-          spend: true,
-          revenue: true,
-          clicks: true,
-          impressions: true,
-          conversions: true,
+    const [products, adMap, reviewAgg, recentReviewAgg] = await Promise.all([
+      this.prisma.product.findMany({
+        where: { companyId, isDeleted: false },
+        include: {
+          inventory: true,
+          trafficStats: {
+            where: { periodDays: 14 },
+            orderBy: { date: 'desc' },
+            take: 2,
+          },
         },
       }),
+      this.aggregateAdsByProduct(companyId),
       this.prisma.review.groupBy({
-        by: ['listingId'],
-        where: { companyId, listingId: { not: null } },
+        by: ['productId'],
+        where: { companyId },
         _count: { id: true },
         _avg: { rating: true },
       }),
       this.prisma.review.groupBy({
-        by: ['listingId'],
-        where: {
-          companyId,
-          listingId: { not: null },
-          reviewedAt: { gte: thirtyDaysAgo },
-        },
+        by: ['productId'],
+        where: { companyId, reviewedAt: { gte: thirtyDaysAgo } },
         _count: { id: true },
       }),
     ]);
 
-    const listingIds = adAgg
-      .map((a) => a.listingId)
-      .filter((id): id is string => id != null);
+    const reviewMap = new Map(reviewAgg.map((r) => [r.productId, r]));
+    const recentReviewMap = new Map(recentReviewAgg.map((r) => [r.productId, r._count.id]));
 
-    if (listingIds.length === 0) {
-      return { scores: [], urgentActions: [] } satisfies ExposureAnalysisData;
-    }
+    // t14 revenue 전체 목록 — 퍼센타일 계산용
+    const allT14 = products.map((p) => p.trafficStats?.[0]?.revenue ?? 0).sort((a, b) => a - b);
+    const maxT14 = allT14[allT14.length - 1] || 1;
 
-    // listings + trafficStats + inventoryByListing 을 병렬로 fetch.
-    const [listings, trafficStats, inventoryByOption, leadTimeByListing] = await Promise.all([
-      hydrateListings(this.prisma, companyId, listingIds),
-      this.prisma.trafficStats.findMany({
-        where: { companyId, listingId: { in: listingIds }, periodDays: 14 },
-        orderBy: { date: 'desc' },
-        select: { listingId: true, revenue: true, orders: true, date: true },
-      }),
-      getInventorySnapshot(this.prisma, companyId, listingIds),
-      this.loadLeadTimeByListing(companyId, listingIds),
-    ]);
+    const productScores = products.map((p) => {
+      const ad = adMap.get(p.id);
+      const reviewInfo = reviewMap.get(p.id);
+      const recentReviews = recentReviewMap.get(p.id) || 0;
+      const totalReviews = reviewInfo?._count.id || 0;
+      const avgRating = reviewInfo?._avg.rating || 0;
+      const t14Rev = p.trafficStats?.[0]?.revenue ?? 0;
+      const t14PrevRev = p.trafficStats?.[1]?.revenue ?? 0;
+      const t14Orders = p.trafficStats?.[0]?.orders ?? 0;
+      const stock = p.inventory?.currentStock ?? 0;
+      const leadTime = p.inventory?.leadTimeDays;
+      const spend = ad?.spend || 0;
+      const adRevenue = ad?.revenue || 0;
+      const clicks = ad?.clicks || 0;
+      const impressions = ad?.impressions || 0;
+      const conversions = ad?.conversions || 0;
+      const roas = spend > 0 ? Math.round((adRevenue / spend) * 100) : 0;
+      const ctr = impressions > 0 ? Math.round((clicks / impressions) * 10000) / 100 : 0;
+      const cvr = clicks > 0 ? Math.round((conversions / clicks) * 10000) / 100 : 0;
+      const commRate = p.commissionRate ? Number(p.commissionRate) : 0;
+      const profitRate = p.sellPrice && p.costPrice && p.sellPrice > 0
+        ? Math.round(((p.sellPrice - p.costPrice - (p.shippingCost || 0) - (p.sellPrice * commRate / 100)) / p.sellPrice) * 100)
+        : 0;
 
-    const adGroups = toAdAggregateRows(adAgg);
-    const metricsResult = this.adBudgetAllocator.calcSnapshotKeyMetrics({
-      snapshots: adAggregatesToMetricSnapshots(adGroups),
-      listings,
+      const salesScore = this.calculateSalesScore({ maxT14, t14Rev, t14PrevRev, t14Orders });
+      const reviewScore = this.calculateReviewScore({ totalReviews, recentReviews, avgRating });
+      const adScore = this.calculateAdScore({ spend, roas, ctr, cvr });
+      const fulfillmentScore = this.calculateFulfillmentScore({ leadTime: leadTime ?? null, stock, profitRate });
+      const infoScore = this.calculateInfoScore({ healthScore: p.healthScore ?? null, adTier: p.adTier ?? null });
+
+      // ── 종합 점수 (가중 평균) ──
+      const totalScore = Math.round(
+        salesScore * 0.25 +
+        reviewScore * 0.20 +
+        adScore * 0.25 +
+        fulfillmentScore * 0.20 +
+        infoScore * 0.10,
+      );
+
+      const { topIssue, topIssueFactor } = this.determineTopIssue(
+        { salesScore, reviewScore, adScore, fulfillmentScore, infoScore },
+        { t14Orders, t14Rev, maxT14, recentReviews, totalReviews, stock, spend, roas, ctr, impressions, leadTime: leadTime ?? null, profitRate, healthScore: p.healthScore ?? null, adTier: p.adTier ?? null },
+      );
+
+      return {
+        productId: p.id,
+        name: p.name,
+        grade: p.abcGrade,
+        totalScore,
+        sales: salesScore,
+        review: reviewScore,
+        ad: adScore,
+        fulfillment: fulfillmentScore,
+        info: infoScore,
+        topIssue,
+        topIssueFactor,
+      };
     });
 
-    const reviewMap = new Map(
-      reviewAgg.map((r) => [
-        r.listingId!,
-        {
-          totalReviews: r._count.id,
-          avgRating: r._avg.rating != null ? Number(r._avg.rating) : 0,
-        },
-      ]),
-    );
-    const recentReviewMap = new Map(
-      recentReviewAgg.map((r) => [r.listingId!, r._count.id]),
-    );
+    // ── 요인별 회사 평균 ──
+    const avg = (arr: number[]) => arr.length > 0 ? Math.round(arr.reduce((s, v) => s + v, 0) / arr.length) : 0;
+    const salesAvg = avg(productScores.map((p) => p.sales));
+    const reviewAvg = avg(productScores.map((p) => p.review));
+    const adAvg = avg(productScores.map((p) => p.ad));
+    const fulfillAvg = avg(productScores.map((p) => p.fulfillment));
+    const infoAvg = avg(productScores.map((p) => p.info));
 
-    // traffic aggregate: 최신 period 를 rev, 직전 period 를 prevRev 로 (원본 line 248-256).
-    const trafficByListing = new Map<string, { rev: number; prevRev: number; orders: number }>();
-    for (const t of trafficStats) {
-      const cur = trafficByListing.get(t.listingId);
-      if (!cur) {
-        trafficByListing.set(t.listingId, { rev: t.revenue, prevRev: 0, orders: t.orders });
-      } else if (cur.prevRev === 0) {
-        cur.prevRev = t.revenue;
+    const scoreColor = (s: number) => s >= 80 ? 'emerald' : s >= 60 ? 'blue' : s >= 40 ? 'amber' : 'red';
+
+    const factorSummary = {
+      sales: {
+        score: salesAvg, label: '판매 실적', color: scoreColor(salesAvg),
+        subMetric: '14일 매출 기준',
+        keyCount: productScores.filter((p) => p.sales >= 80).length,
+      },
+      review: {
+        score: reviewAvg, label: '리뷰 활성도', color: scoreColor(reviewAvg),
+        subMetric: '월 10개 미달',
+        keyCount: productScores.filter((p) => p.review < 40).length,
+      },
+      ad: {
+        score: adAvg, label: '광고 효율', color: scoreColor(adAvg),
+        subMetric: 'ROAS 650% 이상',
+        keyCount: productScores.filter((p) => p.ad >= 80).length,
+      },
+      fulfillment: {
+        score: fulfillAvg, label: '가격·출고', color: scoreColor(fulfillAvg),
+        subMetric: '출고 1일 이하',
+        keyCount: products.filter((p) => (p.inventory?.leadTimeDays ?? 99) <= 1).length,
+      },
+      info: {
+        score: infoAvg, label: '상품 정보', color: scoreColor(infoAvg),
+        subMetric: '헬스점수 80 이상',
+        keyCount: productScores.filter((p) => p.info >= 80).length,
+      },
+    };
+
+    // ── 개선 우선순위 ──
+    const urgentActions: Array<{
+      productId: string; name: string; grade: string | null;
+      factor: string; factorLabel: string; score: number; action: string; urgency: 'urgent' | 'medium';
+    }> = [];
+
+    for (const ps of productScores) {
+      const factorMap: Array<{ key: string; label: string; score: number }> = [
+        { key: 'sales', label: '판매실적', score: ps.sales },
+        { key: 'review', label: '리뷰활성도', score: ps.review },
+        { key: 'ad', label: '광고효율', score: ps.ad },
+        { key: 'fulfillment', label: '가격·출고', score: ps.fulfillment },
+        { key: 'info', label: '상품정보', score: ps.info },
+      ];
+      for (const f of factorMap) {
+        if (f.score < 30) {
+          urgentActions.push({
+            productId: ps.productId, name: ps.name, grade: ps.grade,
+            factor: f.key, factorLabel: f.label, score: f.score,
+            action: ps.topIssueFactor === f.key ? ps.topIssue : `${f.label} 점수 ${f.score}점 — 개선 필요`,
+            urgency: 'urgent',
+          });
+        } else if (f.score < 60 && f.key === ps.topIssueFactor) {
+          urgentActions.push({
+            productId: ps.productId, name: ps.name, grade: ps.grade,
+            factor: f.key, factorLabel: f.label, score: f.score,
+            action: ps.topIssue,
+            urgency: 'medium',
+          });
+        }
       }
     }
-    const maxT14 = Math.max(1, ...[...trafficByListing.values()].map((t) => t.rev));
 
-    // listingId → 첫번째 optionId 매핑 (score/profitRate 계산에 primary option 사용).
-    const primaryOptionByListing = firstOptionByListing(inventoryByOption);
+    // 긴급 먼저, 점수 낮은 순 정렬
+    urgentActions.sort((a, b) => {
+      if (a.urgency !== b.urgency) return a.urgency === 'urgent' ? -1 : 1;
+      return a.score - b.score;
+    });
 
-    const scores: ExposureProductScore[] = [];
-    for (const listing of listings) {
-      const optionId = primaryOptionByListing.get(listing.id);
-      const inv = optionId ? (inventoryByOption.get(optionId) ?? null) : null;
-      const listingStock = sumListingStock(inventoryByOption, listing.id);
-      const profitRate = computeListingProfitRate(inv);
-      const leadTime = leadTimeByListing.get(listing.id) ?? null;
-      const traffic = trafficByListing.get(listing.id) ?? { rev: 0, prevRev: 0, orders: 0 };
-      const metrics = metricsResult.perListing.get(listing.id) ?? emptyMetrics(listing.id);
-
-      scores.push(
-        this.adExposure.calculateScores({
-          listing,
-          metrics,
-          inventory: inv
-            ? { ...inv, availableStock: listingStock }
-            : null,
-          reviewStats: {
-            totalReviews: reviewMap.get(listing.id)?.totalReviews ?? 0,
-            recentReviews: recentReviewMap.get(listing.id) ?? 0,
-            avgRating: reviewMap.get(listing.id)?.avgRating ?? 0,
-          },
-          trafficContext: {
-            maxT14,
-            t14Rev: traffic.rev,
-            t14PrevRev: traffic.prevRev,
-            t14Orders: traffic.orders,
-          },
-          fulfillmentContext: { leadTime, profitRate },
-        }),
-      );
-    }
-
-    return this.adExposure.assembleExposureData(scores);
+    return {
+      factorSummary,
+      products: productScores.sort((a, b) => a.totalScore - b.totalScore),
+      urgentActions: urgentActions.slice(0, 30),
+      totalProducts: products.length,
+    } satisfies ExposureAnalysisData;
   }
 
-  /**
-   * 캠페인 등록 — listing IDOR guard + 중복 차단 + AdAction + ExecutionTask 생성.
-   *
-   * 기존 line 373-446 본문 완전 보존 (sub-service 이관 대상 아님).
-   */
-  async registerCampaign(
-    dto: RegisterCampaignDto,
-    companyId: string,
-  ): Promise<{ ok: true; actionId: string; taskId: string | null }> {
-    // 1. listingId 검증 (per-item IDOR guard)
-    for (const listing of dto.listings) {
-      const found = await this.prisma.channelListing.findFirst({
-        where: { id: listing.listingId, companyId, isDeleted: false },
-        select: { id: true },
-      });
-      if (!found) {
-        throw new NotFoundException(
-          `Listing ${listing.listingId} not found or not yours`,
-        );
-      }
-    }
+  private calculateSalesScore(params: { maxT14: number; t14Rev: number; t14PrevRev: number; t14Orders: number }): number {
+    const { maxT14, t14Rev, t14PrevRev, t14Orders } = params;
+    const t14Pct = maxT14 > 0 ? (t14Rev / maxT14) * 60 : 0;
+    const growthScore = t14PrevRev > 0
+      ? t14Rev / t14PrevRev > 1.1 ? 20 : t14Rev / t14PrevRev >= 1.0 ? 10 : 0
+      : t14Rev > 0 ? 10 : 0;
+    const orderScore = t14Orders > 0 ? 20 : 0;
+    return Math.min(100, Math.round(t14Pct + growthScore + orderScore));
+  }
 
-    // 2. 중복 캠페인 체크
+  private calculateReviewScore(params: { totalReviews: number; recentReviews: number; avgRating: number }): number {
+    const { totalReviews, recentReviews, avgRating } = params;
+    const totalRevScore = totalReviews >= 50 ? 40 : totalReviews >= 20 ? 30 : totalReviews >= 10 ? 20 : totalReviews >= 1 ? 10 : 0;
+    const recentRevScore = recentReviews >= 10 ? 40 : recentReviews >= 5 ? 25 : recentReviews >= 1 ? 10 : 0;
+    const ratingScore = avgRating > 0 ? Math.round((avgRating / 5) * 20) : 0;
+    return Math.min(100, totalRevScore + recentRevScore + ratingScore);
+  }
+
+  private calculateAdScore(params: { spend: number; roas: number; ctr: number; cvr: number }): number {
+    const { spend, roas, ctr, cvr } = params;
+    if (spend === 0) return 50; // 광고 없으면 중립 50
+    const roasScore = roas >= 650 ? 40 : roas >= 400 ? 30 : roas >= 200 ? 20 : roas >= 100 ? 10 : 0;
+    const ctrScore = ctr >= 0.5 ? 30 : ctr >= 0.3 ? 20 : ctr >= 0.1 ? 10 : 0;
+    const cvrScore = cvr >= 5 ? 30 : cvr >= 3 ? 20 : cvr >= 1 ? 10 : 0;
+    return Math.min(100, roasScore + ctrScore + cvrScore);
+  }
+
+  private calculateFulfillmentScore(params: { leadTime: number | null; stock: number; profitRate: number }): number {
+    const { leadTime, stock, profitRate } = params;
+    const leadScore = leadTime === 0 ? 40 : leadTime === 1 ? 35 : leadTime === 2 ? 25 : leadTime != null ? 10 : 20;
+    const stockScore = stock > 50 ? 30 : stock >= 10 ? 20 : stock >= 1 ? 10 : 0;
+    const profitScore = profitRate > 10 ? 30 : profitRate >= 5 ? 20 : profitRate >= 0 ? 10 : 0;
+    return Math.min(100, leadScore + stockScore + profitScore);
+  }
+
+  private calculateInfoScore(params: { healthScore: number | null; adTier: string | null }): number {
+    const { healthScore, adTier } = params;
+    const hs = Math.min(80, healthScore || 0);
+    const adTierBonus = adTier ? 20 : 0;
+    return Math.min(100, hs + adTierBonus);
+  }
+
+  private determineTopIssue(
+    scores: { salesScore: number; reviewScore: number; adScore: number; fulfillmentScore: number; infoScore: number },
+    context: { t14Orders: number; t14Rev: number; maxT14: number; recentReviews: number; totalReviews: number; stock: number; spend: number; roas: number; ctr: number; impressions: number; leadTime: number | null; profitRate: number; healthScore: number | null; adTier: string | null },
+  ): { topIssue: string; topIssueFactor: string } {
+    const { salesScore, reviewScore, adScore, fulfillmentScore, infoScore } = scores;
+    const { t14Orders, t14Rev, maxT14, recentReviews, totalReviews, stock, spend, roas, ctr, impressions, leadTime, profitRate, healthScore, adTier } = context;
+    const factors = [
+      { key: 'sales', score: salesScore, label: '판매실적', actions: [
+        t14Orders === 0 ? '판매 실적 없음 — 광고 시작 또는 가격 인하 검토' : '',
+        t14Rev < maxT14 * 0.1 ? '매출 하위권 — 핵심 키워드 집중 필요' : '',
+      ].filter(Boolean) },
+      { key: 'review', score: reviewScore, label: '리뷰활성도', actions: [
+        recentReviews === 0 ? '최근 30일 리뷰 0 — 구매자 리뷰 요청 필요' : '',
+        recentReviews < 10 && recentReviews > 0 ? `최근 리뷰 ${recentReviews}개 — 월 10개 목표 미달` : '',
+        totalReviews === 0 ? '리뷰 없음 — 초기 리뷰 확보 필요' : '',
+      ].filter(Boolean) },
+      { key: 'ad', score: adScore, label: '광고효율', actions: [
+        stock === 0 && spend > 0 ? '재고 0 광고 ON — 즉시 중단' : '',
+        roas < 200 && spend > 0 ? `ROAS ${roas}% — 입찰가 또는 키워드 조정 필요` : '',
+        ctr < 0.1 && impressions > 100 ? `CTR ${ctr}% — 썸네일/제목 개선 필요` : '',
+      ].filter(Boolean) },
+      { key: 'fulfillment', score: fulfillmentScore, label: '가격·출고', actions: [
+        stock === 0 ? '재고 0 — 즉시 재입고 필요' : '',
+        (leadTime ?? 3) >= 3 ? `출고 ${leadTime ?? '?'}일 — 리드타임 단축 검토` : '',
+        profitRate < 0 ? '이익률 마이너스 — 가격 또는 원가 재검토' : '',
+      ].filter(Boolean) },
+      { key: 'info', score: infoScore, label: '상품정보', actions: [
+        !adTier ? '광고 등급 미설정 — adTier 배정 필요' : '',
+        (healthScore || 0) < 50 ? `헬스점수 ${healthScore || 0}점 — 상품 정보 보완 필요` : '',
+      ].filter(Boolean) },
+    ].sort((a, b) => a.score - b.score);
+    const worst = factors[0];
+    return {
+      topIssue: worst.actions[0] || `${worst.label} 점수 낮음 (${worst.score}점)`,
+      topIssueFactor: worst.key,
+    };
+  }
+
+  async registerCampaign(dto: import('../dto/register-campaign.dto').RegisterCampaignDto) {
+    const companyId = await this.getDefaultCompanyId();
+
+    // 중복 캠페인 체크: 동일 캠페인명으로 queued/running/done 상태인 액션이 이미 있으면 거부
     const existing = await this.prisma.adAction.findFirst({
       where: {
         companyId,
@@ -302,7 +1161,7 @@ export class AdStrategyService {
         targetLabel: dto.campaignName,
         executeStatus: { in: ['queued', 'running', 'done'] },
       },
-      select: { id: true, executeStatus: true },
+      select: { id: true, executeStatus: true, createdAt: true },
     });
     if (existing) {
       throw new ConflictException(
@@ -310,7 +1169,7 @@ export class AdStrategyService {
       );
     }
 
-    const priority: Priority = dto.grade === 'A' ? 'high' : dto.grade === 'B' ? 'medium' : 'low';
+    const priority = dto.grade === 'A' ? 'high' : dto.grade === 'B' ? 'medium' : 'low';
 
     const payload = {
       campaignName: dto.campaignName,
@@ -319,13 +1178,13 @@ export class AdStrategyService {
       goalType: 'SALES',
       dailyBudget: dto.dailyBudget,
       operationMode: dto.operationMode,
-      listings: dto.listings as unknown as Prisma.InputJsonValue,
+      products: dto.products as unknown as import('@prisma/client').Prisma.InputJsonValue,
       smartTargetingBid: dto.smartTargetingBid ?? null,
-      keywords: (dto.keywords ?? []) as unknown as Prisma.InputJsonValue,
+      keywords: (dto.keywords ?? []) as unknown as import('@prisma/client').Prisma.InputJsonValue,
       nonSearchBid: dto.nonSearchBid ?? null,
       targetRoas: dto.targetRoas ?? null,
       pageType: 'campaign_registration',
-    } satisfies Prisma.InputJsonObject;
+    } satisfies import('@prisma/client').Prisma.InputJsonObject;
 
     const action = await this.prisma.adAction.create({
       data: {
@@ -351,238 +1210,4 @@ export class AdStrategyService {
       taskId: (action.executionTasks as { id: string }[])[0]?.id ?? null,
     };
   }
-
-  // ─────────────────────────────────────────────────────────────
-  // PRIVATE — orchestration helpers
-  // ─────────────────────────────────────────────────────────────
-
-  /**
-   * getRules / getRecommendations 공통 — adGroups(listing-level) hydrate 후 rule 평가.
-   *
-   * B2b 원본 calcActions (line 653-938) 의 fetch 부분과 정합:
-   *  - prisma.ad.groupBy(['listingId']) 전체 기간 aggregate
-   *  - listingIds + current month profitLoss 병렬 hydrate
-   *  - ad-grade-rules.calcActions 에 adGroups + listings + gradeMap + profitRate 전달
-   */
-  private async buildActions(companyId: string): Promise<AdStrategyAction[]> {
-    const { year, month } = getCurrentPeriod();
-    const ctx = await this.loadStrategyContext(companyId, year, month);
-    return this.adGradeRules.calcActions({
-      adGroups: ctx.adGroups,
-      listings: ctx.listings,
-      gradeMap: ctx.gradeMap,
-      profitRateByListing: ctx.profitRateByListing,
-    });
-  }
-
-  /**
-   * getWeeklyPlan 컨텍스트 — sub-service 가 요구하는 hydrated context 를 Promise.all batch.
-   *
-   * calcActions 대상: 전체 기간 ad aggregate.
-   * calcAdIssues 대상: 최근 14 일 ad aggregate (B2b 원본 line 955-963).
-   * profitLoss: 현재 year/month 기준 listing 별 profitRate (* 100 으로 백분율화).
-   */
-  private async loadStrategyContext(companyId: string, year: number, month: number) {
-    const since14d = new Date();
-    since14d.setDate(since14d.getDate() - 14);
-
-    const [adAggAll, adAgg14d, config] = await Promise.all([
-      this.prisma.ad.groupBy({
-        by: ['listingId'],
-        where: { companyId },
-        _sum: { spend: true, revenue: true, clicks: true, impressions: true, conversions: true },
-      }),
-      this.prisma.ad.groupBy({
-        by: ['listingId'],
-        where: { companyId, date: { gte: since14d } },
-        _sum: { spend: true, revenue: true, clicks: true, impressions: true, conversions: true },
-      }),
-      this.adConfigService.getConfig(companyId),
-    ]);
-
-    const listingIds = uniqueIds([
-      ...adAggAll.map((a) => a.listingId),
-      ...adAgg14d.map((a) => a.listingId),
-    ]);
-
-    const [listings, profitLossRows] = await Promise.all([
-      hydrateListings(this.prisma, companyId, listingIds),
-      this.prisma.profitLoss.findMany({
-        where: { companyId, year, month, listingId: { in: listingIds } },
-        select: { listingId: true, netProfit: true, profitRate: true, revenue: true, adCost: true },
-      }),
-    ]);
-
-    // B2b 원본: profitRate 는 Number(pl.profitRate ?? 0) * 100 으로 백분율화.
-    const profitRateByListing = new Map<string, number>();
-    for (const pl of profitLossRows) {
-      if (!pl.listingId) continue;
-      const rate = pl.profitRate != null ? Number(pl.profitRate) * 100 : 0;
-      profitRateByListing.set(pl.listingId, rate);
-    }
-    // Top20Input 용 profitLoss remap (profit = netProfit).
-    const profitLosses = profitLossRows.map((pl) => ({
-      listingId: pl.listingId as string | null,
-      profit: pl.netProfit as number | null,
-      profitRate: pl.profitRate,
-    }));
-
-    return {
-      adGroups: toAdAggregateRows(adAggAll),
-      adIssuesAdGroups: toAdAggregateRows(adAgg14d),
-      listings,
-      profitLosses,
-      profitRateByListing,
-      gradeMap: buildGradeMap(listings),
-      config: config satisfies AdsConfig,
-    };
-  }
-
-  /** getExposureAnalysis 전용 — listing 당 최소 leadTimeDays. */
-  private async loadLeadTimeByListing(
-    companyId: string,
-    listingIds: string[],
-  ): Promise<Map<string, number | null>> {
-    const map = new Map<string, number | null>();
-    if (listingIds.length === 0) return map;
-    const rows = await this.prisma.channelListingOption.findMany({
-      where: { companyId, listingId: { in: listingIds }, isActive: true },
-      select: {
-        listingId: true,
-        option: { select: { inventory: { select: { leadTimeDays: true } } } },
-      },
-    });
-    for (const r of rows) {
-      const lt = r.option?.inventory?.leadTimeDays ?? null;
-      const cur = map.get(r.listingId) ?? null;
-      if (lt != null && (cur == null || lt < cur)) map.set(r.listingId, lt);
-      else if (!map.has(r.listingId)) map.set(r.listingId, cur);
-    }
-    return map;
-  }
-
-}
-
-// ─────────────────────────────────────────────────────────────
-// Module-private pure helpers (테스트 용 export 는 불필요 — sub-service 가 담당)
-// ─────────────────────────────────────────────────────────────
-
-/** listingIds (중복 + null 허용) → 유일한 listingId 배열. */
-function uniqueIds(ids: Array<string | null | undefined>): string[] {
-  const set = new Set<string>();
-  for (const id of ids) if (id) set.add(id);
-  return [...set];
-}
-
-/**
- * HydratedListing[] → listingId → ABC grade (null 포함).
- * B2b 원본 normalizeGrade 와 일치 — `'A'|'B'|'C'` 는 그대로, 나머지는 `null`.
- */
-function buildGradeMap(listings: HydratedListing[]): Map<string, 'A' | 'B' | 'C' | null> {
-  const map = new Map<string, 'A' | 'B' | 'C' | null>();
-  for (const l of listings) {
-    const g = l.masterProduct.abcGrade;
-    map.set(l.id, g === 'A' || g === 'B' || g === 'C' ? g : null);
-  }
-  return map;
-}
-
-/**
- * BudgetAllocatorInput.gradeMap 은 non-null 3-valued. null grade 는 제외.
- * (calcBudgetAllocation 은 A/B/C bucket 만 사용 — null 은 allocation 영향 없음).
- */
-function toGradeMapStrict(
-  map: Map<string, 'A' | 'B' | 'C' | null>,
-): Map<string, 'A' | 'B' | 'C'> {
-  const out = new Map<string, 'A' | 'B' | 'C'>();
-  for (const [id, g] of map) if (g) out.set(id, g);
-  return out;
-}
-
-/** prisma.ad.groupBy 결과 → AdAggregateRow[]. listingId null 은 drop. */
-function toAdAggregateRows(
-  rows: Array<{
-    listingId: string | null;
-    _sum: {
-      spend: number | null;
-      revenue: number | null;
-      clicks: number | null;
-      impressions: number | null;
-      conversions: number | null;
-    };
-  }>,
-): AdAggregateRow[] {
-  const out: AdAggregateRow[] = [];
-  for (const r of rows) {
-    if (!r.listingId) continue;
-    out.push({
-      listingId: r.listingId,
-      spend: r._sum.spend ?? 0,
-      revenue: r._sum.revenue ?? 0,
-      clicks: r._sum.clicks ?? 0,
-      impressions: r._sum.impressions ?? 0,
-      conversions: r._sum.conversions ?? 0,
-    });
-  }
-  return out;
-}
-
-/** AdAggregateRow → calcSnapshotKeyMetrics 가 기대하는 flat snapshot shape. */
-function adAggregatesToMetricSnapshots(adGroups: AdAggregateRow[]) {
-  return adGroups.map((g) => ({
-    listingId: g.listingId,
-    spend: g.spend,
-    revenue: g.revenue,
-    clicks: g.clicks,
-    impressions: g.impressions,
-    conversions: g.conversions,
-  }));
-}
-
-/** InventoryRow map → listingId → 첫 optionId (primary option). */
-function firstOptionByListing(inventory: Map<string, InventoryRow>): Map<string, string> {
-  const map = new Map<string, string>();
-  for (const [optionId, row] of inventory) {
-    if (!map.has(row.listingId)) map.set(row.listingId, optionId);
-  }
-  return map;
-}
-
-/** 단일 listing 에 속한 모든 option 의 availableStock 합. */
-function sumListingStock(inventory: Map<string, InventoryRow>, listingId: string): number {
-  let total = 0;
-  for (const row of inventory.values()) {
-    if (row.listingId === listingId) total += row.availableStock;
-  }
-  return total;
-}
-
-/**
- * primary option profitRate (% 스케일). 원본 line 78-88 의 calcOptionProfitRate 와 정합 —
- * ad-grade-rules 의 0~1 ratio 와 달리 여기선 × 100 후 round.
- */
-function computeListingProfitRate(inv: InventoryRow | null): number {
-  if (!inv) return 0;
-  const cost = inv.costPrice ?? 0;
-  const sell = inv.sellPrice ?? 0;
-  if (sell <= 0) return 0;
-  const commission = inv.commissionRate != null ? Number(inv.commissionRate) : 0;
-  return Math.round(((sell - cost - sell * commission) / sell) * 100);
-}
-
-/** Zero-metrics row for listings without ad snapshots. */
-function emptyMetrics(listingId: string): ListingMetricsRow {
-  return {
-    listingId,
-    metrics: {
-      spend: 0,
-      revenue: 0,
-      clicks: 0,
-      impressions: 0,
-      conversions: 0,
-      ctr: null,
-      roas: null,
-      cvr: null,
-    },
-  } satisfies ListingMetricsRow;
 }

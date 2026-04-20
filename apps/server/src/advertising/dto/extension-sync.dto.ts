@@ -48,6 +48,15 @@ export class ExtensionSyncDto {
   @IsString()
   endDate?: string;
 
+  // 광고센터 익스텐션이 detectPeriod()에서 읽은 실제 데이터 기간 (YYYY-MM-DD)
+  @IsOptional()
+  @IsString()
+  dateFrom?: string;
+
+  @IsOptional()
+  @IsString()
+  dateTo?: string;
+
   @IsOptional()
   @IsString()
   url?: string;

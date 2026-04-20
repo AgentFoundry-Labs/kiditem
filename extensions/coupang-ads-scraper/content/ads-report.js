@@ -371,22 +371,217 @@
       else if (diffDays >= 12) period = "14d";
       else if (diffDays <= 1) period = "1d";
       else period = "7d";
+    } else {
+      // 단일 날짜 패턴: "2026.04.01" — range picker에서 같은 날짜를 두 번 눌렀을 때 indicator 표기
+      const singleMatch = combined.match(/(\d{4}[.\-/]\d{1,2}[.\-/]\d{1,2})/);
+      if (singleMatch) {
+        const d = singleMatch[1].replace(/\./g, "-").replace(/\//g, "-");
+        dateFrom = d;
+        dateTo = d;
+        period = "1d";
+      }
     }
 
     return { period, periodLabel, dateFrom, dateTo };
   }
 
-  async function doSync() {
-    const kpis = parseAdKpis();
-    const { rawRows, normalizedRows, headers, pageType } = parseCampaignTable();
-    const kpiCount = Object.keys(kpis).length;
-    const total = kpiCount + rawRows.length;
-    const campaignName = detectCampaignName();
-    const { period, periodLabel, dateFrom, dateTo } = detectPeriod();
+  // URL hash에서 #targetDate=YYYY-MM-DD 읽기
+  function getTargetDateFromHash() {
+    const hash = window.location.hash || "";
+    const match = hash.match(/targetDate=(\d{4}-\d{2}-\d{2})/);
+    return match ? match[1] : null;
+  }
 
-    if (kpiCount > 0 || rawRows.length > 0) {
+  // "최근 7일" 기간 프리셋 버튼 클릭
+  // TODO: Playwriter로 실제 셀렉터 확인 후 교체 — 현재는 텍스트 매칭 휴리스틱
+  async function ensureLast7Days() {
+    const { dateFrom, dateTo, periodLabel } = detectPeriod();
+    if (periodLabel && periodLabel.includes("7일")) return true;
+    if (dateFrom && dateTo) {
+      const diff = Math.round((new Date(dateTo) - new Date(dateFrom)) / 86400000) + 1;
+      if (diff === 7) return true;
+    }
+
+    const btn = Array.from(document.querySelectorAll("button, [role='button'], [role='tab']")).find((el) => {
+      const t = normalizeText(el.innerText || "");
+      return t === "최근 7일" || t === "7일" || t === "지난 7일";
+    });
+    if (!btn) return false;
+    btn.click();
+    await sleep(2500);
+    return true;
+  }
+
+  // 페이지네이션: 다음 페이지 버튼 클릭 후 테이블 재로딩 대기
+  // TODO: Playwriter로 실제 "다음" 버튼 셀렉터 확인 후 교체
+  async function goToNextPage() {
+    const nextBtnCandidates = Array.from(
+      document.querySelectorAll("button, [role='button'], a")
+    ).filter((el) => {
+      const t = normalizeText(el.innerText || "");
+      const aria = normalizeText(el.getAttribute("aria-label") || "");
+      const cls = String(el.className || "").toLowerCase();
+      return (
+        t === "다음" ||
+        t === ">" ||
+        aria.includes("다음") ||
+        aria.toLowerCase().includes("next") ||
+        /next|pagination.*next/.test(cls)
+      );
+    });
+    const btn = nextBtnCandidates.find((el) => {
+      const disabled =
+        el.disabled ||
+        el.getAttribute("aria-disabled") === "true" ||
+        String(el.className || "").toLowerCase().includes("disabled");
+      return !disabled;
+    });
+    if (!btn) return false;
+
+    btn.click();
+    await sleep(2000);
+    return true;
+  }
+
+  // 날짜 피커를 특정 날짜로 설정.
+  // 쿠팡 광고 대시보드는 AntD range calendar. 트리거 → popup → 좌측 패널 월 네비 → 날짜 셀 두 번 클릭 → 적용.
+  async function setDateRange(ymd) {
+    const [targetY, targetM, targetD] = ymd.split("-").map((v) => parseInt(v, 10));
+
+    // 1) 트리거 버튼 클릭 (캘린더 아이콘 포함된 date indicator)
+    const trigger = document.querySelector("button.dashboard-metric-widget-date-indicator-revamp.ant-dropdown-trigger");
+    if (!trigger) return false;
+    trigger.click();
+    await sleep(600);
+
+    // 2) popup 찾기
+    const popup = document.querySelector(".ant-dropdown.dashboard-metric-widget-calendar-dropdown");
+    if (!popup) return false;
+    const left = popup.querySelector(".ant-calendar-range-left");
+    if (!left) return false;
+
+    // 3) 좌측 패널 year/month를 타겟으로 네비게이션
+    const readHeader = () => {
+      const y = parseInt(left.querySelector(".ant-calendar-year-select")?.textContent?.replace(/[^\d]/g, "") || "0", 10);
+      const m = parseInt(left.querySelector(".ant-calendar-month-select")?.textContent?.replace(/[^\d]/g, "") || "0", 10);
+      return { y, m };
+    };
+
+    let guard = 0;
+    while (guard++ < 60) {
+      const { y, m } = readHeader();
+      if (y === targetY && m === targetM) break;
+      // diff = (targetY*12+targetM) - (y*12+m). 음수면 과거로 이동 (prev-month), 양수면 미래 (next-month)
+      const diff = (targetY * 12 + targetM) - (y * 12 + m);
+      if (diff === 0) break;
+      const selector = diff < 0 ? ".ant-calendar-prev-month-btn" : ".ant-calendar-next-month-btn";
+      const btn = left.querySelector(selector);
+      if (!btn) return false;
+      btn.click();
+      await sleep(180);
+    }
+
+    // 4) 날짜 셀 찾기 (이전/다음 달 셀 제외)
+    const cells = left.querySelectorAll("td.ant-calendar-cell:not(.ant-calendar-last-month-cell):not(.ant-calendar-next-month-cell)");
+    let targetCell = null;
+    for (const c of cells) {
+      const txt = c.querySelector(".ant-calendar-date")?.textContent?.trim();
+      if (txt === String(targetD)) {
+        targetCell = c.querySelector(".ant-calendar-date");
+        break;
+      }
+    }
+    if (!targetCell) return false;
+
+    // 5) 같은 날짜 두 번 클릭 → range start=end=ymd
+    targetCell.click();
+    await sleep(200);
+    targetCell.click();
+    await sleep(300);
+
+    // 6) 적용 버튼
+    const applyBtn = Array.from(popup.querySelectorAll("button.ant-btn.ant-btn-primary")).find(
+      (b) => normalizeText(b.textContent || "") === "적용"
+    );
+    if (!applyBtn) return false;
+    applyBtn.click();
+
+    // 테이블 재로딩 대기
+    await sleep(3500);
+    return true;
+  }
+
+  async function doSync() {
+    // hash에 targetDate가 있으면 먼저 날짜 피커 설정
+    const targetDate = getTargetDateFromHash();
+    if (targetDate) {
+      showBadge(`📅 ${targetDate} 날짜 설정 중...`, "#6366f1");
+      const ok = await setDateRange(targetDate);
+      if (!ok) {
+        // 날짜 설정 실패 시 7일 기본값으로 저장하면 일별 집계와 섞여 중복 계산됨. 차라리 중단.
+        showBadge(`❌ ${targetDate} 날짜 피커 설정 실패 — 수집 중단 (7일치 오염 방지)`, "#ef4444");
+        return { success: false, reason: 'date_picker_failed', targetDate };
+      }
+      await sleep(1500);
+    } else {
+      // 캠페인 상세 페이지 진입 시 기본을 7일로 맞춤
+      showBadge(`📅 최근 7일 기간 설정 중...`, "#6366f1");
+      await ensureLast7Days();
+    }
+
+    const kpis = parseAdKpis();
+    const campaignName = detectCampaignName();
+    let { period, periodLabel, dateFrom, dateTo } = detectPeriod();
+
+    // targetDate 해시가 있으면 "그 하루치"를 수집하는 배치 모드 — period를 '1d'로 강제.
+    // 서버는 일별 스냅샷(period='1d')만 합산해 월간 KPI를 만들기 때문에, 7d/30d 누적값이 섞이면 중복 집계됨.
+    if (targetDate) {
+      period = '1d';
+      dateFrom = targetDate;
+      dateTo = targetDate;
+    }
+
+    // 1페이지 파싱
+    let firstPage = parseCampaignTable();
+    const aggregatedRaw = [...firstPage.rawRows];
+    const aggregatedNormalized = [...firstPage.normalizedRows];
+    const headers = firstPage.headers;
+    const pageType = firstPage.pageType;
+    const pagination = parsePaginationInfo();
+    const totalPages = Math.min(pagination.totalPages || 1, 50); // 안전 상한 50
+
+    // 페이지 순회 — dedupe는 externalId 기준
+    const seenIds = new Set(aggregatedNormalized.map((r) => r.externalId));
+    let currentPage = pagination.currentPage || 1;
+    let safetyBreak = 0;
+
+    while (currentPage < totalPages && safetyBreak < 50) {
+      safetyBreak++;
+      showBadge(`📄 페이지 ${currentPage + 1}/${totalPages} 수집 중...`, "#6366f1");
+      const moved = await goToNextPage();
+      if (!moved) break;
+      const next = parseCampaignTable();
+      for (let i = 0; i < next.normalizedRows.length; i++) {
+        const row = next.normalizedRows[i];
+        if (seenIds.has(row.externalId)) continue;
+        seenIds.add(row.externalId);
+        aggregatedNormalized.push(row);
+        aggregatedRaw.push(next.rawRows[i]);
+      }
+      const newPag = parsePaginationInfo();
+      if (newPag.currentPage <= currentPage) break; // 페이지 증가 안 하면 중단
+      currentPage = newPag.currentPage;
+    }
+
+    const kpiCount = Object.keys(kpis).length;
+    const total = kpiCount + aggregatedRaw.length;
+
+    if (kpiCount > 0 || aggregatedRaw.length > 0) {
       const periodDisplay = periodLabel || period;
-      showBadge(`📊 [${campaignName}] ${periodDisplay} — KPI ${kpiCount}개 + ${rawRows.length}행 동기화 중...`, "#f59e0b");
+      showBadge(
+        `📊 [${campaignName}] ${periodDisplay} — KPI ${kpiCount}개 + ${aggregatedRaw.length}행 (${totalPages}p) 동기화 중...`,
+        "#f59e0b",
+      );
       const json = await syncToServer({
         type: "ad_campaign",
         source: "advertising",
@@ -395,8 +590,8 @@
         periodLabel,
         dateFrom,
         dateTo,
-        data: rawRows.length > 0 ? rawRows : [{ _kpiOnly: true }],
-        normalizedRows,
+        data: aggregatedRaw.length > 0 ? aggregatedRaw : [{ _kpiOnly: true }],
+        normalizedRows: aggregatedNormalized,
         headers,
         pageType,
         kpis,
@@ -406,8 +601,8 @@
       });
       if (json?.success) {
         chrome.storage.local.set({ kiditem_last_sync_ads: { time: Date.now(), count: total } });
-        showBadge(`✅ 광고 데이터 ${total}건 동기화 완료`, "#22c55e");
-        return { success: true, type: "ads", count: total };
+        showBadge(`✅ 광고 데이터 ${total}건 (${totalPages}p) 동기화 완료`, "#22c55e");
+        return { success: true, type: "ads", count: total, pages: totalPages };
       } else {
         showBadge(`❌ ${json?.error || "실패"}`, "#ef4444");
         return { success: false, error: json?.error || "실패" };
@@ -485,9 +680,18 @@
   }
 
   async function reportAction(apiUrl, action, type, payload) {
+    const token = await new Promise((resolve) => {
+      try {
+        chrome.storage.local.get(["kiditem_auth_token"], (r) => resolve(r.kiditem_auth_token || null));
+      } catch {
+        resolve(null);
+      }
+    });
+    const headers = { "Content-Type": "application/json" };
+    if (token) headers["Authorization"] = `Bearer ${token}`;
     await fetch(apiUrl, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({ action: type, id: action.id, ...payload }),
     });
   }
@@ -591,11 +795,37 @@
     return { success: true, executed, skipped };
   }
 
-  setTimeout(doSync, 3000);
+  // doSync 중복 실행 방지 — auto-trigger + manualSync가 동시에 걸리면 같은 Promise 공유
+  let currentSync = null;
+  function runSyncOnce() {
+    if (!currentSync) {
+      currentSync = doSync().finally(() => {
+        currentSync = null;
+      });
+    }
+    return currentSync;
+  }
+
+  // URL에 #targetDate 해시가 있으면 배치 모드 — 스크랩 후 백그라운드에 완료 보고 + 탭 자가 종료
+  const isBatchMode = /#targetDate=\d{4}-\d{2}-\d{2}/.test(window.location.hash || "");
+
+  setTimeout(() => {
+    runSyncOnce().then((result) => {
+      if (isBatchMode) {
+        try {
+          chrome.runtime.sendMessage({
+            action: "reportBatchScrapeDone",
+            success: !!result?.success,
+            url: window.location.href,
+          });
+        } catch {}
+      }
+    });
+  }, 3000);
 
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.action === "manualSync") {
-      doSync().then((result) => sendResponse(result));
+      runSyncOnce().then((result) => sendResponse(result));
       return true;
     }
 

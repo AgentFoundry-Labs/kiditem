@@ -573,9 +573,10 @@
   // showBadge is loaded from utils/dom.js via manifest
 
   // ===== 메인 동기화 =====
-  async function doSync() {
+  // paginate: true면 전체 페이지 순회, false면 현재 페이지만 (sales-analysis)
+  async function doSync({ paginate = false } = {}) {
     const pageType = detectPageType();
-    console.log("[KIDITEM] 페이지 타입:", pageType, "URL:", location.href);
+    console.log("[KIDITEM] 페이지 타입:", pageType, "URL:", location.href, "paginate:", paginate);
 
     if (pageType === "sales-analysis") {
       // KPI + 광고 요약은 1페이지에서 한 번만 파싱
@@ -583,8 +584,10 @@
       const adSummary = parseAdSummary();
       console.log("[KIDITEM] 광고 요약:", JSON.stringify(adSummary));
 
-      // 전체 페이지 순회하며 상품 수집
-      const products = await parseAllProductsWithPagination();
+      // 팝업에서 수동 트리거 시만 전체 페이지 순회, 자동은 현재 페이지만
+      const products = paginate
+        ? await parseAllProductsWithPagination()
+        : parseProductGrid();
 
       console.log("[KIDITEM] 파싱 결과:", products.length, "상품, KPI:", Object.keys(kpis).length);
 
@@ -647,10 +650,10 @@
 
   setTimeout(() => waitAndSync(1), 4000);
 
-  // 수동 동기화 — 서버 응답까지 대기 후 결과 반환
+  // 수동 동기화 — 서버 응답까지 대기 후 결과 반환 (sales-analysis는 전체 페이지 순회)
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.action === "manualSync") {
-      doSync().then((result) => sendResponse(result));
+      doSync({ paginate: true }).then((result) => sendResponse(result));
       return true;
     }
   });

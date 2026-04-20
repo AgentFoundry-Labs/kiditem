@@ -1,22 +1,8 @@
-import {
-  Injectable,
-  BadRequestException,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, InternalServerErrorException, BadRequestException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ExtensionSyncDto } from '../dto';
 import type { NormalizedCampaignKpi } from './types';
-
-export interface ListingMap {
-  vendorItemMap: Map<string, { listingId: string; optionId: string }>;
-  externalIdMap: Map<string, { listingId: string }>;
-}
-
-export interface ListingMatch {
-  listingId: string | null;
-  optionId: string | null;
-}
 
 @Injectable()
 export class AdSyncService {
@@ -25,16 +11,29 @@ export class AdSyncService {
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
-  async sync(payload: ExtensionSyncDto, companyId: string) {
-    const map = await this.buildListingMap(companyId);
+  private async getDefaultCompanyId(): Promise<string> {
+    const company = await this.prisma.company.findFirst({
+      where: { isActive: true },
+      select: { id: true },
+    });
+    if (!company) throw new InternalServerErrorException('회사 정보를 찾을 수 없습니다');
+    return company.id;
+  }
+
+  /**
+   * 익스텐션에서 수집한 데이터를 DB에 저장
+   */
+  async sync(payload: ExtensionSyncDto) {
+    const companyId = await this.getDefaultCompanyId();
+    const productMap = await this.buildProductMap(companyId);
 
     switch (payload.type) {
       case 'ad_campaign':
-        return this.handleAdCampaign(payload, companyId, map);
+        return this.handleAdCampaign(payload, companyId, productMap);
       case 'raw_scrape':
-        return this.handleRawScrape(payload, companyId, map);
+        return this.handleRawScrape(payload, companyId, productMap);
       case 'traffic':
-        return this.handleTraffic(payload, companyId, map);
+        return this.handleTraffic(payload, companyId, productMap);
       case 'coupang_ads_daily':
         return this.handleCoupangAdsDaily(payload, companyId);
       default:
@@ -44,25 +43,27 @@ export class AdSyncService {
     }
   }
 
-  async getExtensionStatus(companyId: string) {
-    const [listingCount, snapshotCount, wingKpiSnapshot, itemWinnerStats] =
-      await Promise.all([
-        this.prisma.channelListing.count({
-          where: { companyId, isDeleted: false },
-        }),
-        this.prisma.adSnapshot.count({ where: { companyId } }),
-        this.prisma.adSnapshot.findFirst({
-          where: { companyId, source: 'wing', pageType: 'itemwinner_kpi' },
-          orderBy: { capturedAt: 'desc' },
-          select: { rawJson: true, capturedAt: true },
-        }),
-        this.prisma.itemWinner.groupBy({
-          by: ['isWinner'],
-          where: { companyId },
-          _count: true,
-        }),
-      ]);
+  /**
+   * 익스텐션 연결 상태
+   */
+  async getExtensionStatus(companyId?: string) {
+    const cid = companyId || await this.getDefaultCompanyId();
+    const [productCount, snapshotCount, wingKpiSnapshot, itemWinnerStats] = await Promise.all([
+      this.prisma.product.count({ where: { companyId: cid, isDeleted: false } }),
+      this.prisma.adSnapshot.count({ where: { companyId: cid } }),
+      this.prisma.adSnapshot.findFirst({
+        where: { companyId: cid, source: 'wing', pageType: 'itemwinner_kpi' },
+        orderBy: { capturedAt: 'desc' },
+        select: { rawJson: true, capturedAt: true },
+      }),
+      this.prisma.itemWinner.groupBy({
+        by: ['isWinner'],
+        where: { companyId: cid },
+        _count: true,
+      }),
+    ]);
 
+    // Wing KPI: rawJson에서 kpis 추출 (Dashboard 동일 한글 라벨 구조)
     let wingKpis: Record<string, string> = {};
     if (wingKpiSnapshot?.rawJson) {
       const raw = wingKpiSnapshot.rawJson as Record<string, unknown>;
@@ -71,6 +72,7 @@ export class AdSyncService {
       }
     }
 
+    // rawJson에 kpis가 없으면 ItemWinner 테이블에서 직접 계산
     if (Object.keys(wingKpis).length === 0) {
       const total = itemWinnerStats.reduce((s, g) => s + g._count, 0);
       const winners = itemWinnerStats.find((g) => g.isWinner)?._count || 0;
@@ -88,117 +90,60 @@ export class AdSyncService {
 
     return {
       connected: true,
-      listingCount,
+      productCount,
       snapshotCount,
       itemWinnerCount: itemWinnerStats.reduce((s, g) => s + g._count, 0),
       wing: { kpis: wingKpis, lastSync: wingKpiSnapshot?.capturedAt ?? null },
     };
   }
 
-  async buildListingMap(companyId: string): Promise<ListingMap> {
-    const [options, listings] = await Promise.all([
-      this.prisma.channelListingOption.findMany({
-        where: { companyId, isActive: true },
-        select: { vendorItemId: true, listingId: true, optionId: true },
-      }),
-      this.prisma.channelListing.findMany({
-        where: { companyId, isDeleted: false, channel: 'coupang' },
-        select: { id: true, externalId: true },
-      }),
-    ]);
-
-    const vendorItemMap = new Map<
-      string,
-      { listingId: string; optionId: string }
-    >();
-    for (const opt of options) {
-      if (opt.vendorItemId && opt.optionId) {
-        vendorItemMap.set(opt.vendorItemId, {
-          listingId: opt.listingId,
-          optionId: opt.optionId,
-        });
-      }
-    }
-
-    const externalIdMap = new Map<string, { listingId: string }>();
-    for (const l of listings) {
-      externalIdMap.set(l.externalId, { listingId: l.id });
-    }
-
-    return { vendorItemMap, externalIdMap };
+  /**
+   * coupangProductId → product.id 매핑
+   */
+  private async buildProductMap(companyId: string): Promise<Map<string, string>> {
+    const products = await this.prisma.product.findMany({
+      where: { companyId, coupangProductId: { not: null }, isDeleted: false },
+      select: { id: true, coupangProductId: true },
+    });
+    return new Map(products.map((p) => [p.coupangProductId!, p.id]));
   }
 
-  matchListingFromRow(
-    row: Record<string, unknown>,
-    map: ListingMap,
-  ): ListingMatch {
-    const vendorItemId = this.pickStringField(row, [
-      'vendorItemId',
-      'vendor_item_id',
-      'itemId',
-    ]);
-    if (vendorItemId) {
-      const hit = map.vendorItemMap.get(vendorItemId);
-      if (hit) return hit;
-    }
-
-    const externalId = this.pickStringField(row, [
-      'externalId',
-      'external_id',
-      'productId',
-      'coupangProductId',
-    ]);
-    if (externalId) {
-      const hit = map.externalIdMap.get(externalId);
-      if (hit) return { listingId: hit.listingId, optionId: null };
-    }
-
-    return { listingId: null, optionId: null };
-  }
-
+  /**
+   * ad_campaign → AdSnapshot(level=campaign/product) upsert
+   */
   private async handleAdCampaign(
     payload: ExtensionSyncDto,
     companyId: string,
-    map: ListingMap,
+    productMap: Map<string, string>,
   ) {
     const campaignName = payload.campaignName || '_전체';
     const period = String(payload.period || '7d');
+    // `date` 컬럼은 데이터가 "어느 날의 것"인지 나타냄. payload.dateFrom 우선, 없으면 today fallback.
     const today = new Date(new Date().toISOString().slice(0, 10));
+    const snapshotDate = payload.dateFrom
+      ? new Date(`${payload.dateFrom}T00:00:00.000Z`)
+      : today;
     const kpis = payload.kpis || {};
     const normalizedRows = payload.normalizedRows ?? [];
-    const capturedAt = payload.timestamp
-      ? new Date(payload.timestamp)
-      : new Date();
+    const capturedAt = payload.timestamp ? new Date(payload.timestamp) : new Date();
 
+    // 전체 KPI 스냅샷 저장 (level=campaign, campaignName=_전체)
     const totalKpi: NormalizedCampaignKpi = {
-      adSpend: Math.round(
-        this.getKpiNumber(kpis, ['전체 집행 광고비', '집행 광고비', '광고비']),
-      ),
-      adRevenue: Math.round(
-        this.getKpiNumber(kpis, ['광고 전환 매출', '전환 매출']),
-      ),
+      adSpend: Math.round(this.getKpiNumber(kpis, ['전체 집행 광고비', '집행 광고비', '광고비'])),
+      adRevenue: Math.round(this.getKpiNumber(kpis, ['광고 전환 매출', '전환 매출'])),
       totalRevenue: Math.round(this.getKpiNumber(kpis, ['전체 매출'])),
       impressions: Math.round(this.getKpiNumber(kpis, ['노출수', '노출'])),
       clicks: Math.round(this.getKpiNumber(kpis, ['클릭수', '클릭'])),
       ctr: this.getKpiNumber(kpis, ['클릭률', 'ctr']),
-      conversions: Math.round(
-        this.getKpiNumber(kpis, ['광고 전환 판매수', '전환 판매수', '전환수']),
-      ),
-      orders: Math.round(
-        this.getKpiNumber(kpis, ['광고 전환 주문수', '전환 주문수', '주문수']),
-      ),
+      conversions: Math.round(this.getKpiNumber(kpis, ['광고 전환 판매수', '전환 판매수', '전환수'])),
+      orders: Math.round(this.getKpiNumber(kpis, ['광고 전환 주문수', '전환 주문수', '주문수'])),
       roas: this.getKpiNumber(kpis, ['광고 수익률', '광고수익률', 'roas']),
       conversionRate: this.getKpiNumber(kpis, ['전환율']),
     };
 
+    // _전체 KPI: findFirst + upsert 패턴
     const existingTotal = await this.prisma.adSnapshot.findFirst({
-      where: {
-        companyId,
-        level: 'campaign',
-        campaignName,
-        date: today,
-        period,
-      },
+      where: { companyId, level: 'campaign', campaignName, date: snapshotDate, period },
       select: { id: true },
     });
     if (existingTotal) {
@@ -209,29 +154,23 @@ export class AdSyncService {
     } else {
       await this.prisma.adSnapshot.create({
         data: {
-          companyId,
-          level: 'campaign',
-          source: 'advertising',
-          pageType: 'campaign',
-          campaignName,
-          date: today,
-          period,
-          ...totalKpi,
-          collectedAt: capturedAt,
+          companyId, level: 'campaign', source: 'advertising', pageType: 'campaign',
+          campaignName, date: snapshotDate, period,
+          ...totalKpi, collectedAt: capturedAt,
         },
       });
     }
 
+    // 캠페인/키워드 행 스냅샷 저장
     let productCount = 0;
     let campaignSnapshotCount = 0;
     let snapshotCount = 0;
-    let adCount = 0;
 
     for (const row of normalizedRows) {
       if (!row.campaignName && !row.productName && !row.keyword) continue;
       if (row._kpiOnly) continue;
 
-      const match = this.matchListingFromRow(row, map);
+      const matchedProductId = await this.matchProductIdFromRow(companyId, productMap, row);
       const rowCampaignName = this.cleanString(row.campaignName) || campaignName;
       const rowStatus = this.cleanString(row.status);
       const rowOnOff = this.cleanString(row.onOff);
@@ -250,75 +189,52 @@ export class AdSyncService {
           ? Math.round((rowConversions / Math.max(rowClicks, 1)) * 10000) / 100
           : this.toNumber(row.conversionRate);
 
-      if (
-        row.pageType === 'campaign' &&
-        rowCampaignName &&
-        rowCampaignName !== '_전체'
-      ) {
+      // 캠페인 행이면 level=campaign AdSnapshot upsert
+      if (row.pageType === 'campaign' && rowCampaignName && rowCampaignName !== '_전체') {
         const existing = await this.prisma.adSnapshot.findFirst({
-          where: {
-            companyId,
-            level: 'campaign',
-            campaignName: rowCampaignName,
-            date: today,
-            period,
-          },
+          where: { companyId, level: 'campaign', campaignName: rowCampaignName, date: snapshotDate, period },
           select: { id: true },
         });
-        const campaignData = {
-          onOff: rowOnOff,
-          status: rowStatus,
-          adSpend: rowSpend,
-          adRevenue: rowRevenue,
-          impressions: rowImpressions,
-          clicks: rowClicks,
-          ctr: rowCtr,
-          conversions: rowConversions,
-          orders: rowOrders,
-          roas: rowRoas,
-          conversionRate: rowConversionRate,
-          budget: rowDailyBudget,
-          todaySpend: rowTodaySpend,
-          collectedAt: capturedAt,
-        };
         if (existing) {
           await this.prisma.adSnapshot.update({
             where: { id: existing.id },
-            data: campaignData,
+            data: {
+              onOff: rowOnOff, status: rowStatus,
+              adSpend: rowSpend, adRevenue: rowRevenue,
+              impressions: rowImpressions, clicks: rowClicks, ctr: rowCtr,
+              conversions: rowConversions, orders: rowOrders,
+              roas: rowRoas, conversionRate: rowConversionRate,
+              budget: rowDailyBudget, todaySpend: rowTodaySpend,
+              collectedAt: capturedAt,
+            },
           });
         } else {
           await this.prisma.adSnapshot.create({
             data: {
-              companyId,
-              level: 'campaign',
-              source: 'advertising',
-              pageType: 'campaign',
-              campaignName: rowCampaignName,
-              date: today,
-              period,
-              listingId: match.listingId,
-              optionId: match.optionId,
-              ...campaignData,
+              companyId, level: 'campaign', source: 'advertising', pageType: 'campaign',
+              campaignName: rowCampaignName, date: snapshotDate, period,
+              onOff: rowOnOff, status: rowStatus,
+              adSpend: rowSpend, adRevenue: rowRevenue,
+              impressions: rowImpressions, clicks: rowClicks, ctr: rowCtr,
+              conversions: rowConversions, orders: rowOrders,
+              roas: rowRoas, conversionRate: rowConversionRate,
+              budget: rowDailyBudget, todaySpend: rowTodaySpend,
+              collectedAt: capturedAt,
             },
           });
         }
         campaignSnapshotCount++;
       }
 
+      // raw AdSnapshot 생성 (level=null, 기존 동작 유지)
       const externalId = String(
         row.externalId ||
-          [
-            row.pageType || 'campaign',
-            rowCampaignName || '',
-            row.keyword || '',
-            row.productName || '',
-          ].join('::'),
+        [row.pageType || 'campaign', rowCampaignName || '', row.keyword || '', row.productName || ''].join('::'),
       );
       await this.prisma.adSnapshot.create({
         data: {
           companyId,
-          listingId: match.listingId,
-          optionId: match.optionId,
+          productId: matchedProductId,
           source: 'advertising',
           pageType: this.cleanString(row.pageType) || 'campaign',
           externalId,
@@ -341,108 +257,124 @@ export class AdSyncService {
       });
       snapshotCount++;
 
-      if (match.listingId) {
-        try {
+      // level=product AdSnapshot upsert (재수집 시 업데이트)
+      const productName = row.productName || '';
+      const vendorItemId = this.cleanString(row.itemId) || '';
+      if (productName || vendorItemId) {
+        const existingProduct = await this.prisma.adSnapshot.findFirst({
+          where: {
+            companyId,
+            level: 'product',
+            campaignName: rowCampaignName,
+            productName,
+            vendorItemId,
+            date: snapshotDate,
+            period,
+          },
+          select: { id: true },
+        });
+        const productData = {
+          productId: matchedProductId,
+          onOff: rowOnOff || '',
+          status: rowStatus || '',
+          keyword: row.keyword || '',
+          adSpend: rowSpend,
+          adRevenue: rowRevenue,
+          impressions: rowImpressions,
+          clicks: rowClicks,
+          ctr: rowCtr || 0,
+          adConversions: rowConversions,
+          conversionRate: rowConversionRate || 0,
+          roas: rowRoas || 0,
+          collectedAt: capturedAt,
+        };
+        if (existingProduct) {
+          await this.prisma.adSnapshot.update({
+            where: { id: existingProduct.id },
+            data: productData,
+          });
+        } else {
           await this.prisma.adSnapshot.create({
             data: {
               companyId,
-              listingId: match.listingId,
-              optionId: match.optionId,
               level: 'product',
               source: 'advertising',
               pageType: 'product',
               campaignName: rowCampaignName,
               period,
-              date: today,
-              productName: row.productName || '',
-              vendorItemId: this.cleanString(row.itemId) || '',
-              onOff: rowOnOff || '',
-              status: rowStatus || '',
-              keyword: row.keyword || '',
-              adSpend: rowSpend,
-              adRevenue: rowRevenue,
-              impressions: rowImpressions,
-              clicks: rowClicks,
-              ctr: rowCtr || 0,
-              adConversions: rowConversions,
-              conversionRate: rowConversionRate || 0,
+              date: snapshotDate,
+              productName,
+              vendorItemId,
+              ...productData,
             },
           });
-          productCount++;
-        } catch {
-          /* 중복 등 무시 */
         }
-
-        try {
-          await this.prisma.ad.create({
-            data: {
-              companyId,
-              listingId: match.listingId,
-              optionId: match.optionId,
-              platform: 'coupang',
-              campaignName: rowCampaignName,
-              dailyBudget: rowDailyBudget > 0 ? rowDailyBudget : null,
-              spend: rowSpend,
-              impressions: rowImpressions,
-              clicks: rowClicks,
-              conversions: rowConversions,
-              revenue: rowRevenue,
-              roas: Number.isFinite(rowRoas) ? rowRoas : 0,
-              date: today,
-            },
-          });
-          adCount++;
-        } catch {
-          /* 멱등 — unique conflict 는 skip */
-        }
+        productCount++;
       }
     }
 
     return {
       success: true,
       type: 'ad_campaign',
-      campaignName,
-      period,
+      campaignName, period,
       kpiCount: Object.keys(kpis).length,
       campaignSnapshotCount,
       snapshotCount,
       productCount,
-      adCount,
     };
   }
 
+  /**
+   * raw_scrape source="wing" → ItemWinner upsert
+   */
   private async handleRawScrape(
     payload: ExtensionSyncDto,
     companyId: string,
-    map: ListingMap,
+    productMap: Map<string, string>,
   ) {
     const source = payload.source || 'unknown';
     const rows = payload.data ?? [];
     let upserted = 0;
 
+    // Wing 아이템위너 데이터 저장
     if (source === 'wing') {
       for (const row of rows) {
         const productName = row.productName || '';
         if (!productName || productName.length < 3) continue;
 
-        const match = this.matchListingFromRow(row, map);
-        if (!match.listingId) continue;
+        // coupangProductId로 매칭, 없으면 상품명
+        let productId: string | null = null;
+        const externalId = row.productId || row.vendorItemId;
+        if (externalId) {
+          productId = productMap.get(String(externalId)) || null;
+        }
+        if (!productId) {
+          const found = await this.prisma.product.findFirst({
+            where: {
+              companyId,
+              name: { contains: productName.substring(0, 12) },
+              isDeleted: false,
+            },
+            select: { id: true },
+          });
+          if (found) productId = found.id;
+        }
+        if (!productId) continue;
 
         await this.prisma.itemWinner.create({
           data: {
             companyId,
-            listingId: match.listingId,
+            productId,
             productName,
             isWinner: row.isWinner === true || row.isWinner === 'true',
             myPrice: Math.round(Number(row.myPrice) || 0),
-            winnerPrice: row.winnerPrice
-              ? Math.round(Number(row.winnerPrice))
-              : null,
+            winnerPrice: row.winnerPrice ? Math.round(Number(row.winnerPrice)) : null,
           },
         });
         upserted++;
       }
 
+      // 아이템위너 페이지 KPI 카드 — dashboard_kpi(sales-analysis)와 분리
       const kpis = payload.kpis || {};
       if (Object.keys(kpis).length > 0) {
         await this.prisma.adSnapshot.create({
@@ -455,42 +387,31 @@ export class AdSyncService {
             conversions: 0,
             spend: 0,
             revenue: 0,
-            rawJson: {
-              kpis,
-              rowCount: rows.length,
-              timestamp: payload.timestamp,
-            },
-            capturedAt: payload.timestamp
-              ? new Date(payload.timestamp)
-              : new Date(),
+            rawJson: { kpis, rowCount: rows.length, timestamp: payload.timestamp },
+            capturedAt: payload.timestamp ? new Date(payload.timestamp) : new Date(),
           },
         });
       }
     }
 
+    // 광고센터 normalizedRows가 있으면 AdSnapshot 저장
     const normalizedRows = payload.normalizedRows ?? [];
     let snapshotCount = 0;
     if (source === 'advertising' && normalizedRows.length > 0) {
       for (const row of normalizedRows) {
-        const match = this.matchListingFromRow(row, map);
+        const matchedProductId = await this.matchProductIdFromRow(companyId, productMap, row);
         const roas = this.toNumber(row.roas);
         const ctr = this.toNumber(row.ctr);
 
         const pageType = this.cleanString(row.pageType) || 'campaign';
         const rawExternalId = String(
           row.externalId ||
-            [
-              pageType,
-              row.campaignName || '',
-              row.keyword || '',
-              row.productName || '',
-            ].join('::'),
+          [pageType, row.campaignName || '', row.keyword || '', row.productName || ''].join('::'),
         );
         await this.prisma.adSnapshot.create({
           data: {
             companyId,
-            listingId: match.listingId,
-            optionId: match.optionId,
+            productId: matchedProductId,
             source: 'advertising',
             pageType,
             externalId: rawExternalId,
@@ -508,9 +429,7 @@ export class AdSyncService {
             roas: Number.isFinite(roas) ? roas : 0,
             ctr: Number.isFinite(ctr) ? ctr : 0,
             rawJson: row,
-            capturedAt: payload.timestamp
-              ? new Date(payload.timestamp)
-              : new Date(),
+            capturedAt: payload.timestamp ? new Date(payload.timestamp) : new Date(),
           },
         });
         snapshotCount++;
@@ -528,23 +447,25 @@ export class AdSyncService {
     };
   }
 
+  /**
+   * traffic → TrafficStats upsert + Wing dashboard_kpi AdSnapshot 저장
+   */
   private async handleTraffic(
     payload: ExtensionSyncDto,
     companyId: string,
-    map: ListingMap,
+    productMap: Map<string, string>,
   ) {
     const period = Number(payload.period) || 14;
+    // startDate가 있으면 실제 데이터 날짜 사용 (일별 스크래핑 지원), 없으면 오늘
     const dateStr = payload.startDate
       ? payload.startDate.slice(0, 10)
       : new Date().toISOString().slice(0, 10);
     const today = new Date(dateStr);
     const data = payload.data ?? [];
     let upserted = 0;
-    let skipped = 0;
 
     type TrafficUpsertRow = {
-      listingId: string;
-      companyId: string;
+      productId: string;
       date: Date;
       periodDays: number;
       visitors: number;
@@ -558,14 +479,10 @@ export class AdSyncService {
 
     const toUpsert: TrafficUpsertRow[] = [];
     for (const item of data) {
-      const match = this.matchListingFromRow(item, map);
-      if (!match.listingId) {
-        skipped++;
-        continue;
-      }
+      const productId = productMap.get(String(item.productId || item.vendorItemId));
+      if (!productId) continue;
       toUpsert.push({
-        listingId: match.listingId,
-        companyId,
+        productId,
         date: today,
         periodDays: period,
         visitors: item.visitors || 0,
@@ -586,8 +503,8 @@ export class AdSyncService {
         toUpsert.map((d) =>
           this.prisma.trafficStats.upsert({
             where: {
-              listingId_date_periodDays: {
-                listingId: d.listingId,
+              productId_date_periodDays: {
+                productId: d.productId,
                 date: d.date,
                 periodDays: d.periodDays,
               },
@@ -608,6 +525,7 @@ export class AdSyncService {
       upserted = toUpsert.length;
     }
 
+    // Wing KPI/adSummary/summary 저장 — dashboard.service가 여기서 trafficKpi.adSummary 읽어감
     const kpis = payload.kpis || {};
     const adSummary = payload.adSummary || null;
     const summary = payload.summary || null;
@@ -636,14 +554,13 @@ export class AdSyncService {
             rowCount: data.length,
             timestamp: payload.timestamp,
           },
-          capturedAt: payload.timestamp
-            ? new Date(payload.timestamp)
-            : new Date(),
+          capturedAt: payload.timestamp ? new Date(payload.timestamp) : new Date(),
         },
       });
       wingSnapshotSaved = true;
     }
 
+    // traffic 동기화 완료 후 ABC 등급 자동 재분류
     if (upserted > 0) {
       this.eventEmitter.emit('products.classify-grades');
     }
@@ -652,15 +569,16 @@ export class AdSyncService {
       success: true,
       type: 'traffic',
       upserted,
-      skipped: skipped + (data.length - toUpsert.length - skipped),
+      skipped: data.length - upserted,
       wingSnapshotSaved,
     };
   }
 
-  private async handleCoupangAdsDaily(
-    payload: ExtensionSyncDto,
-    companyId: string,
-  ) {
+  /**
+   * coupang_ads_daily → AdSnapshot(source='coupang_ads', pageType='dashboard_daily') upsert
+   * data: [{ date, adSpend, adRevenue, impressions, clicks, conversions, orders, roas, ctr, conversionRate }]
+   */
+  private async handleCoupangAdsDaily(payload: ExtensionSyncDto, companyId: string) {
     const rows = payload.data ?? [];
     let upserted = 0;
 
@@ -678,29 +596,14 @@ export class AdSyncService {
       const conversionRate = Number(row.conversionRate) || 0;
 
       const existing = await this.prisma.adSnapshot.findFirst({
-        where: {
-          companyId,
-          source: 'coupang_ads',
-          pageType: 'dashboard_daily',
-          date,
-        },
+        where: { companyId, source: 'coupang_ads', pageType: 'dashboard_daily', date },
         select: { id: true },
       });
 
       if (existing) {
         await this.prisma.adSnapshot.update({
           where: { id: existing.id },
-          data: {
-            adSpend,
-            adRevenue,
-            impressions,
-            clicks,
-            conversions,
-            orders,
-            roas,
-            ctr,
-            conversionRate,
-          },
+          data: { adSpend, adRevenue, impressions, clicks, conversions, orders, roas, ctr, conversionRate },
         });
       } else {
         await this.prisma.adSnapshot.create({
@@ -731,19 +634,18 @@ export class AdSyncService {
     return { success: true, type: 'coupang_ads_daily', upserted };
   }
 
-  async getScrapeTargets(companyId: string) {
+  // === Scrape Targets ===
+
+  async getScrapeTargets(companyId?: string) {
+    const cid = companyId || await this.getDefaultCompanyId();
     return this.prisma.scrapeTarget.findMany({
-      where: { companyId, isActive: true },
+      where: { companyId: cid, isActive: true },
       orderBy: { createdAt: 'desc' },
     });
   }
 
-  async createScrapeTarget(
-    url: string,
-    label: string | undefined,
-    category: string | undefined,
-    companyId: string,
-  ) {
+  async createScrapeTarget(url: string, label?: string, category?: string) {
+    const companyId = await this.getDefaultCompanyId();
     return this.prisma.scrapeTarget.create({
       data: {
         companyId,
@@ -754,39 +656,49 @@ export class AdSyncService {
     });
   }
 
-  async markScraped(id: string, companyId: string) {
-    const target = await this.prisma.scrapeTarget.findFirst({
-      where: { id, companyId },
-      select: { id: true },
-    });
-    if (!target) throw new NotFoundException('Scrape target not found');
+  async markScraped(id: string) {
     return this.prisma.scrapeTarget.update({
       where: { id },
       data: { lastScrapedAt: new Date() },
     });
   }
 
-  async deleteScrapeTarget(id: string, companyId: string) {
-    const target = await this.prisma.scrapeTarget.findFirst({
-      where: { id, companyId },
-      select: { id: true },
-    });
-    if (!target) throw new NotFoundException('Scrape target not found');
+  async deleteScrapeTarget(id: string) {
     return this.prisma.scrapeTarget.update({
       where: { id },
       data: { isActive: false },
     });
   }
 
-  private pickStringField(
+  // === Helper methods ===
+
+  private async matchProductIdFromRow(
+    companyId: string,
+    productMap: Map<string, string>,
     row: Record<string, unknown>,
-    keys: string[],
-  ): string | null {
-    for (const key of keys) {
-      const v = row[key];
-      if (typeof v === 'string' && v.trim().length > 0) return v.trim();
-      if (typeof v === 'number' && Number.isFinite(v)) return String(v);
+  ): Promise<string | null> {
+    const explicitId = row.productId || row.coupangId || row.vendorItemId;
+    if (explicitId) {
+      const matched = productMap.get(String(explicitId));
+      if (matched) return matched;
     }
+
+    const hints = [row.productName, row.campaignName, row.keyword]
+      .filter((value): value is string => typeof value === 'string' && value.trim().length > 2)
+      .map((value) => value.trim());
+
+    for (const hint of hints) {
+      const found = await this.prisma.product.findFirst({
+        where: {
+          companyId,
+          name: { contains: hint.substring(0, 18) },
+          isDeleted: false,
+        },
+        select: { id: true },
+      });
+      if (found) return found.id;
+    }
+
     return null;
   }
 
@@ -796,9 +708,7 @@ export class AdSyncService {
     );
 
     for (const [label, rawValue] of Object.entries(kpis || {})) {
-      const normalizedLabel = String(label || '')
-        .replace(/\s+/g, '')
-        .toLowerCase();
+      const normalizedLabel = String(label || '').replace(/\s+/g, '').toLowerCase();
       if (!normalizedMatchers.some((m) => normalizedLabel.includes(m))) continue;
 
       const value =

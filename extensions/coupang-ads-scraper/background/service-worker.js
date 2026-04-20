@@ -1,6 +1,20 @@
 // KIDITEM OS — Background Service Worker
 
 const API_URL = "http://localhost:4000";
+const AUTH_TOKEN_KEY = "kiditem_auth_token";
+
+function getAuthToken() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get([AUTH_TOKEN_KEY], (r) => resolve(r[AUTH_TOKEN_KEY] || null));
+  });
+}
+
+async function authedFetch(path, init = {}) {
+  const token = await getAuthToken();
+  const headers = new Headers(init.headers || {});
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  return fetch(`${API_URL}${path}`, { ...init, headers });
+}
 
 chrome.runtime.onInstalled.addListener(() => {
   console.log("[KIDITEM] Extension installed");
@@ -52,6 +66,18 @@ chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
 
 // ═══ content script에서 메시지 수신 ═══
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg.action === "setAuthToken") {
+    const token = typeof msg.token === "string" ? msg.token : null;
+    if (!token) {
+      sendResponse({ success: false, error: "token required" });
+      return;
+    }
+    chrome.storage.local.set({ [AUTH_TOKEN_KEY]: token }, () => {
+      sendResponse({ success: true });
+    });
+    return true;
+  }
+
   if (msg.action === "triggerAutoScrape") {
     autoScrape()
       .then(() => {
@@ -82,9 +108,44 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return; // sync response, no need for return true
   }
 
+  // 배치 스크랩 진행률 보고 + 탭 자가 종료 요청 (content script → background)
+  if (msg.action === "reportBatchScrapeDone") {
+    const tabId = sender?.tab?.id;
+    const success = msg.success !== false;
+
+    chrome.storage.local.get("kiditem_batch_scrape", (data) => {
+      const state = data.kiditem_batch_scrape || {};
+      const completed = (state.completed || 0) + (success ? 1 : 0);
+      const failed = (state.failed || 0) + (success ? 0 : 1);
+      const total = state.total || 0;
+      const done = completed + failed >= total;
+
+      chrome.storage.local.set({
+        kiditem_batch_scrape: {
+          ...state,
+          completed,
+          failed,
+          status: done ? "done" : "running",
+          endedAt: done ? Date.now() : state.endedAt,
+        },
+      });
+
+      if (done) notifyDashboard();
+    });
+
+    // 탭 닫기 (2초 여유 후)
+    if (tabId) {
+      setTimeout(() => {
+        try { chrome.tabs.remove(tabId); } catch {}
+      }, 2000);
+    }
+    sendResponse({ ok: true });
+    return;
+  }
+
   if (msg.action === "syncToServer") {
     const payload = msg.payload || {};
-    fetch(`${API_URL}/api/ads/extension/sync`, {
+    authedFetch(`/api/ads/extension/sync`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -108,15 +169,45 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 // ═══ 대시보드(외부 웹페이지)에서 메시지 수신 ═══
 chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   if (msg.action === "scrapeTargets") {
-    handleScrapeTargets(msg.urls || [])
-      .then((result) => sendResponse(result))
-      .catch((e) => sendResponse({ success: false, error: e.message }));
-    return true; // async
+    // MV3 service worker가 긴 async chain 중 idle 종료되면 port가 닫혀 loop 중단됨.
+    // 즉시 응답 + fire-and-forget. 진행률은 chrome.storage.local.kiditem_batch_scrape 에 기록.
+    const urls = msg.urls || [];
+    handleScrapeTargets(urls).catch((e) => {
+      chrome.storage.local.set({
+        kiditem_batch_scrape: { status: "error", error: e.message, endedAt: Date.now() },
+      });
+    });
+    sendResponse({ success: true, started: true, total: urls.length });
+    return false;
+  }
+
+  if (msg.action === "getBatchScrapeStatus") {
+    chrome.storage.local.get("kiditem_batch_scrape", (data) => {
+      sendResponse(data.kiditem_batch_scrape || { status: "idle" });
+    });
+    return true;
   }
 
   if (msg.action === "ping") {
     sendResponse({ success: true, version: chrome.runtime.getManifest().version });
     return;
+  }
+
+  if (msg.action === "setAuthToken") {
+    const token = typeof msg.token === "string" ? msg.token : null;
+    if (!token) {
+      sendResponse({ success: false, error: "token required" });
+      return;
+    }
+    chrome.storage.local.set({ [AUTH_TOKEN_KEY]: token }, () => {
+      sendResponse({ success: true });
+    });
+    return true;
+  }
+
+  if (msg.action === "clearAuthToken") {
+    chrome.storage.local.remove(AUTH_TOKEN_KEY, () => sendResponse({ success: true }));
+    return true;
   }
 
   // ── 상품 수정 자동화: Wing 탭 열고 content script에 작업 위임 ──
@@ -174,23 +265,40 @@ async function handleScrapeTargets(urls) {
     return { success: false, error: "수집 대상 URL이 없습니다" };
   }
 
-  const results = [];
-  let completed = 0;
-  let failed = 0;
+  const total = urls.length;
+  console.log(`[KIDITEM] 배치 스크래핑 시작 — ${total}개 URL`);
 
-  for (const item of urls) {
-    try {
-      const result = await scrapeUrl(item.url, item.id, item.label);
-      results.push(result);
-      if (result.success) completed++;
-      else failed++;
-    } catch (e) {
-      results.push({ url: item.url, success: false, error: e.message });
-      failed++;
+  // 펜딩 목록 저장 — content script가 스크랩 완료 시 여기에 보고하면 다음 탭 트리거
+  const pending = urls.map((u, i) => ({
+    id: u.id || `target-${i}`,
+    url: u.url,
+    label: u.label,
+    status: "pending",
+  }));
+
+  await chrome.storage.local.set({
+    kiditem_batch_scrape: {
+      total,
+      completed: 0,
+      failed: 0,
+      status: "running",
+      startedAt: Date.now(),
+      pending,
+    },
+  });
+
+  // 각 URL을 3초 간격으로 순차 탭 오픈 (fire-and-forget). content script가 자동 스크랩 후 closeMyTab 요청.
+  for (let i = 0; i < urls.length; i++) {
+    const item = urls[i];
+    console.log(`[KIDITEM] 탭 오픈 ${i + 1}/${total}: ${item.url}`);
+    chrome.tabs.create({ url: item.url, active: true });
+    if (i < urls.length - 1) {
+      await new Promise((r) => setTimeout(r, 3000));
     }
   }
 
-  return { success: true, completed, failed, total: urls.length, results };
+  console.log(`[KIDITEM] ${total}개 탭 모두 오픈 완료 — content script가 개별 스크랩`);
+  return { success: true, opened: total };
 }
 
 /**
@@ -207,7 +315,7 @@ async function autoScrape() {
   console.log("[KIDITEM] 자동 수집 시작");
 
   try {
-    const res = await fetch(`${API_URL}/api/ads/scrape-targets`);
+    const res = await authedFetch(`/api/ads/scrape-targets`);
     const json = await res.json();
     const targets = json.targets || [];
 
@@ -292,8 +400,8 @@ async function doMonthlyScrape(year, month) {
 
 function scrapeUrl(url, targetId, label) {
   return new Promise((resolve) => {
-    // 탭 생성
-    chrome.tabs.create({ url, active: false }, (tab) => {
+    // 탭 활성화 — 백그라운드 탭은 Chrome이 setTimeout을 throttle해서 setDateRange가 타임아웃 넘김
+    chrome.tabs.create({ url, active: true }, (tab) => {
       if (chrome.runtime.lastError || !tab?.id) {
         resolve({ url, success: false, error: "탭 생성 실패" });
         return;
@@ -302,14 +410,14 @@ function scrapeUrl(url, targetId, label) {
       const tabId = tab.id;
       let resolved = false;
 
-      // 타임아웃 (30초)
+      // 타임아웃 180초 — 달력 UI 조작(~5s) + 테이블 리로드(~3.5s) + 페이지네이션(다수 페이지 × 2s)
       const timeout = setTimeout(() => {
         if (!resolved) {
           resolved = true;
           try { chrome.tabs.remove(tabId); } catch {}
-          resolve({ url, success: false, error: "타임아웃 (30초)" });
+          resolve({ url, success: false, error: "타임아웃 (180초)" });
         }
-      }, 30000);
+      }, 180000);
 
       // 탭 로딩 완료 감지
       const onUpdated = (updatedTabId, changeInfo) => {
@@ -326,7 +434,7 @@ function scrapeUrl(url, targetId, label) {
 
             // 수집 완료 알림을 서버로 전송
             if (targetId) {
-              fetch(`${API_URL}/api/ads/scrape-targets`, {
+              authedFetch(`/api/ads/scrape-targets`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ action: "markScraped", id: targetId }),
