@@ -29,13 +29,18 @@ export const PanelRunItem = PanelItemBase.extend({
   failureType: z.string().nullable().optional(),
 });
 
+// panel/types.ts: PanelAlertItem — panel SSE stream projection.
+// 포함 필드: kind/id/severity/type/title/message/targetType/targetId/isRead/actionTaskId/actorUserId/createdAt.
+// (Plan B2c.dashboard T9, BREAKING — was `productId`; DB schema has `targetType + targetId`)
+//
 // Alert 테이블 매핑:
 //   id → Alert.id
 //   severity → Alert.severity (flat string — ADR-0011 Rule 3, domain owner controls vocab)
 //   type → Alert.type (flat string — future namespacing is a future ADR concern)
 //   title → Alert.title
 //   message → Alert.message (nullable)
-//   productId → Alert.productId (nullable)
+//   targetType → Alert.targetType (nullable) — polymorphic target discriminator ('product' | 'master' | ...)
+//   targetId → Alert.targetId (nullable uuid) — polymorphic target FK
 //   isRead → Alert.isRead
 //   createdAt → Alert.createdAt (ISO serialized)
 //   actorUserId — Alert 테이블에 actor 컬럼 없음 → adapter에서 항상 null로 채워짐 (PR2b 한정)
@@ -46,7 +51,8 @@ export const PanelAlertItem = z.object({
   type: z.string(), // flat string — 'internal:rules' 같은 namespacing 미스코프 (future ADR)
   title: z.string(),
   message: z.string().nullable(),
-  productId: z.string().uuid().nullable(),
+  targetType: z.string().nullable(),
+  targetId: z.string().uuid().nullable(),
   isRead: z.boolean(),
   actionTaskId: z.string().uuid().nullable(),
   actorUserId: z.string().uuid().nullable(), // Alert는 actor 컬럼 없음 → 항상 null (PR2b 한정)

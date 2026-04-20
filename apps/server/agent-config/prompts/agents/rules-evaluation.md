@@ -38,7 +38,7 @@
 {
   "products": [
     {
-      "productId": "uuid",
+      "masterId": "uuid",
       "healthScore": 45,
       "violations": [
         {

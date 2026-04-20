@@ -59,7 +59,8 @@ export class AlertsService {
         select: {
           id: true,
           companyId: true,
-          productId: true,
+          targetType: true,
+          targetId: true,
           type: true,
           severity: true,
           title: true,

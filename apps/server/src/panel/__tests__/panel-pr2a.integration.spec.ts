@@ -24,13 +24,16 @@ import { EventEmitter2, EventEmitterModule } from '@nestjs/event-emitter';
 import { lastValueFrom } from 'rxjs';
 import { take, toArray } from 'rxjs/operators';
 
+import type { PanelRunItem } from '@kiditem/shared';
 import { PanelSseService } from '../events/panel-sse.service';
 import { PANEL_EVENTS, PanelUpsertInternal } from '../events/panel-events';
 import { PrismaService } from '../../prisma/prisma.service';
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
-function baseItem(overrides: Partial<PanelUpsertInternal['item']> = {}): PanelUpsertInternal['item'] {
+type RunItem = Omit<PanelRunItem, 'seq' | 'updatedAt'>;
+
+function baseItem(overrides: Partial<RunItem> = {}): RunItem {
   return {
     id: 'workflow:run-1',
     kind: 'run',
@@ -46,21 +49,21 @@ function baseItem(overrides: Partial<PanelUpsertInternal['item']> = {}): PanelUp
   };
 }
 
-function workflowPayload(overrides: Partial<PanelUpsertInternal['item']> = {}): PanelUpsertInternal {
+function workflowPayload(overrides: Partial<RunItem> = {}): PanelUpsertInternal {
   return {
     companyId: 'co-1',
     item: baseItem({ id: 'workflow:run-1', source: 'workflow', sourceId: 'run-1', ...overrides }),
   };
 }
 
-function agentPayload(overrides: Partial<PanelUpsertInternal['item']> = {}): PanelUpsertInternal {
+function agentPayload(overrides: Partial<RunItem> = {}): PanelUpsertInternal {
   return {
     companyId: 'co-1',
     item: baseItem({ id: 'agent:run-1', source: 'agent', sourceId: 'run-1', title: 'Ad strategy agent', deepLink: '/agents/agent-1/runs/run-1', ...overrides }),
   };
 }
 
-function imagePayload(overrides: Partial<PanelUpsertInternal['item']> = {}): PanelUpsertInternal {
+function imagePayload(overrides: Partial<RunItem> = {}): PanelUpsertInternal {
   return {
     companyId: 'co-1',
     item: baseItem({ id: 'image:gen-1', source: 'image', sourceId: 'gen-1', title: '아동 레깅스', deepLink: '/products/prod-1/thumbnails', ...overrides }),

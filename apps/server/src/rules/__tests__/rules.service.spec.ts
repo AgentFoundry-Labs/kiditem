@@ -11,7 +11,7 @@ function makePrisma() {
     agentTask: { findUnique: vi.fn(), update: vi.fn() },
     activityEvent: { create: vi.fn(), createMany: vi.fn() },
     alert: { createManyAndReturn: vi.fn() },
-    product: { count: vi.fn(), findFirst: vi.fn(), findMany: vi.fn() },
+    masterProduct: { count: vi.fn(), findFirst: vi.fn(), findMany: vi.fn() },
     businessRule: { findMany: vi.fn(), update: vi.fn(), count: vi.fn() },
     company: { findFirst: vi.fn() },
     $executeRawUnsafe: vi.fn(),
@@ -67,12 +67,14 @@ describe('RulesService', () => {
       const insertedAlerts = [{
         id: '11111111-1111-1111-1111-111111111111',
         companyId: COMPANY_ID,
-        productId: PRODUCT_ID,
+        targetType: 'master',
+        targetId: PRODUCT_ID,
         type: 'rule_violation',
         severity: 'critical',
         title: '순이익률 -10%',
         message: 'review_pricing',
         isRead: false,
+        actionTaskId: null,
         createdAt: new Date('2026-04-15T00:00:00Z'),
       }];
       prisma.alert.createManyAndReturn.mockResolvedValue(insertedAlerts);
@@ -82,7 +84,7 @@ describe('RulesService', () => {
         {
           products: [
             {
-              productId: 'p1',
+              masterId: 'p1',
               healthScore: 85,
               violations: [
                 {
@@ -97,7 +99,7 @@ describe('RulesService', () => {
               ],
             },
             {
-              productId: PRODUCT_ID,
+              masterId: PRODUCT_ID,
               healthScore: 25,
               violations: [
                 {
@@ -135,7 +137,8 @@ describe('RulesService', () => {
       // critical alerts — now uses createManyAndReturn
       expect(prisma.alert.createManyAndReturn).toHaveBeenCalledWith({
         data: [expect.objectContaining({
-          productId: PRODUCT_ID,
+          targetType: 'master',
+          targetId: PRODUCT_ID,
           severity: 'critical',
           title: '순이익률 -10%',
         })],
@@ -192,7 +195,7 @@ describe('RulesService', () => {
         'rules_evaluation', 'agent-rules', 'run-4',
         {
           products: [{
-            productId: 'p1',
+            masterId: 'p1',
             healthScore: 50,
             violations: [],
           }],
@@ -211,7 +214,7 @@ describe('RulesService', () => {
 
       // Build 51 critical violations
       const violations = Array.from({ length: 51 }, (_, i) => ({
-        productId: `prod-${i}`,
+        masterId: `prod-${i}`,
         healthScore: 10,
         violations: [{
           ruleName: `rule-${i}`,
@@ -227,12 +230,14 @@ describe('RulesService', () => {
       const insertedAlerts = Array.from({ length: 51 }, (_, i) => ({
         id: `11111111-1111-1111-1111-${String(i).padStart(12, '0')}`,
         companyId: COMPANY_ID,
-        productId: `prod-${i}`,
+        targetType: 'master',
+        targetId: `prod-${i}`,
         type: 'rule_violation',
         severity: 'critical',
         title: `violation-${i}`,
         message: null,
         isRead: false,
+        actionTaskId: null,
         createdAt: new Date(),
       }));
       prisma.alert.createManyAndReturn.mockResolvedValue(insertedAlerts);
@@ -262,12 +267,14 @@ describe('RulesService', () => {
       const insertedAlert = {
         id: '11111111-1111-1111-1111-111111111111',
         companyId: COMPANY_ID,
-        productId: PRODUCT_ID,
+        targetType: 'master',
+        targetId: PRODUCT_ID,
         type: 'rule_violation',
         severity: 'critical',
         title: '적자 상품',
         message: null,
         isRead: false,
+        actionTaskId: null,
         createdAt: new Date(),
       };
       prisma.alert.createManyAndReturn.mockResolvedValue([insertedAlert]);
@@ -277,7 +284,7 @@ describe('RulesService', () => {
         'rules_evaluation', 'agent-rules', 'run-emit-err',
         {
           products: [{
-            productId: PRODUCT_ID,
+            masterId: PRODUCT_ID,
             healthScore: 20,
             violations: [{
               ruleName: 'profitability',

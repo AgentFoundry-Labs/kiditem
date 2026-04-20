@@ -6,7 +6,7 @@ import { Type } from 'class-transformer';
  * (ADR-0006)
  */
 export class CreateProcessingCostDto {
-  @IsUUID() @IsOptional() productId?: string;
+  @IsUUID() masterId: string;
   @IsString() processType: string;
   @Type(() => Number) @IsInt() unitCost: number;
   @Type(() => Number) @IsInt() quantity: number;

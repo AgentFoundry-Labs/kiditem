@@ -1,29 +1,24 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  BadRequestException,
+  NotImplementedException,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { getSellerProducts, getSellerProduct } from '../adapters/coupang/products';
+import { getSellerProducts } from '../adapters/coupang/products';
 import { getOrderSheets } from '../adapters/coupang/orders';
 import { getVendorId } from '../adapters/coupang/coupang-client';
 import type {
   SyncResult,
   HealthResult,
   SellerProductListResponse,
-  SellerProductDetailResponse,
   OrderSheetResponse,
   CoupangSyncOrderPayload,
   CoupangSyncReturnPayload,
 } from './types';
 
 export type { SyncResult, HealthResult } from './types';
-
-const COUPANG_STATUS_MAP: Record<string, string> = {
-  APPROVED: 'active',
-  ON_SALE: 'active',
-  SUSPEND: 'paused',
-  DELETED: 'deleted',
-  UNDER_EXAMINATION: 'draft',
-  REJECTED: 'draft',
-};
 
 @Injectable()
 export class ChannelSyncService {
@@ -59,42 +54,10 @@ export class ChannelSyncService {
     }
   }
 
-  async syncProducts(companyId: string): Promise<SyncResult> {
-    const result: SyncResult = { synced: 0, errors: 0, details: [] };
-
-    try {
-      const allSellerProductIds = await this.fetchAllSellerProductIds(result);
-
-      this.logger.log(
-        `Found ${allSellerProductIds.length} seller products from Coupang`,
-      );
-
-      for (const sellerProductId of allSellerProductIds) {
-        try {
-          await this.syncSingleProduct(sellerProductId, companyId);
-          result.synced++;
-        } catch (error: unknown) {
-          result.errors++;
-          const message =
-            error instanceof Error ? error.message : 'Unknown error';
-          result.details?.push(`상품 ${sellerProductId}: ${message}`);
-          this.logger.error(
-            `Failed to sync product ${sellerProductId}: ${message}`,
-          );
-        }
-      }
-    } catch (error: unknown) {
-      const message =
-        error instanceof Error ? error.message : 'Unknown error';
-      result.errors++;
-      result.details?.push(`전체 동기화 오류: ${message}`);
-      this.logger.error(`Product sync failed: ${message}`);
-    }
-
-    this.logger.log(
-      `Product sync complete: ${result.synced} synced, ${result.errors} errors`,
+  async syncProducts(_companyId: string): Promise<SyncResult> {
+    throw new NotImplementedException(
+      'Product sync requires Plan B3 listingId-based rewrite — uses dropped Product/ProductItem/MasterInventory models (ADR-0013)',
     );
-    return result;
   }
 
   async syncOrders(companyId: string, from?: Date, to?: Date): Promise<SyncResult> {
@@ -152,254 +115,9 @@ export class ChannelSyncService {
     return result;
   }
 
-  async syncInventory(companyId: string): Promise<SyncResult> {
-    const result: SyncResult = { synced: 0, errors: 0, details: [] };
-
-    try {
-      const syncedProducts = await this.prisma.product.findMany({
-        where: {
-          companyId,
-          coupangProductId: { not: null },
-        },
-        include: {
-          productItems: true,
-          inventory: true,
-          masterProduct: true,
-        },
-      });
-
-      this.logger.log(
-        `Found ${syncedProducts.length} synced products for inventory update`,
-      );
-
-      for (const product of syncedProducts) {
-        try {
-          const totalStock = product.productItems.reduce(
-            (sum, item) => sum + (item.salePrice > 0 ? 1 : 0),
-            0,
-          );
-
-          // masterProductId 연결됨 → Inventory 쓰기 스킵 (아래 MasterInventory SUM 집계에서 처리)
-          if (!product.masterProductId) {
-            if (product.inventory) {
-              await this.prisma.inventory.update({
-                where: { id: product.inventory.id },
-                data: {
-                  currentStock: totalStock,
-                  updatedAt: new Date(),
-                },
-              });
-            } else {
-              await this.prisma.inventory.create({
-              data: {
-                companyId: companyId,
-                productId: product.id,
-                currentStock: totalStock,
-                reservedStock: 0,
-                safetyStock: 0,
-                reorderPoint: 0,
-                reorderQuantity: 0,
-                dailySalesAvg: 0,
-              },
-            });
-            }
-          }
-
-          result.synced++;
-        } catch (error: unknown) {
-          result.errors++;
-          const message =
-            error instanceof Error ? error.message : 'Unknown error';
-          result.details?.push(`상품 ${product.id}: ${message}`);
-          this.logger.error(
-            `Failed to sync inventory for product ${product.id}: ${message}`,
-          );
-        }
-      }
-
-      // MasterInventory: 1:N SUM 집계 후 일괄 upsert
-      const masterStockMap = new Map<string, number>();
-      for (const product of syncedProducts) {
-        if (!product.masterProductId) continue;
-        const stock = product.productItems.reduce(
-          (sum, item) => sum + (item.salePrice > 0 ? 1 : 0),
-          0,
-        );
-        const current = masterStockMap.get(product.masterProductId) ?? 0;
-        masterStockMap.set(product.masterProductId, current + stock);
-      }
-      await Promise.all(
-        Array.from(masterStockMap.entries()).map(([masterProductId, totalStock]) =>
-          this.prisma.masterInventory
-            .upsert({
-              where: { masterProductId },
-              update: { currentStock: totalStock },
-              create: {
-                companyId: companyId,
-                masterProductId,
-                currentStock: totalStock,
-                safetyStock: 0,
-              },
-            })
-            .catch((e: unknown) => {
-              const msg = e instanceof Error ? e.message : 'Unknown error';
-              this.logger.error(`MasterInventory sync failed for ${masterProductId}: ${msg}`);
-            }),
-        ),
-      );
-    } catch (error: unknown) {
-      const message =
-        error instanceof Error ? error.message : 'Unknown error';
-      result.errors++;
-      result.details?.push(`전체 동기화 오류: ${message}`);
-      this.logger.error(`Inventory sync failed: ${message}`);
-    }
-
-    this.logger.log(
-      `Inventory sync complete: ${result.synced} synced, ${result.errors} errors`,
-    );
-    return result;
-  }
-
-  private async fetchAllSellerProductIds(
-    result: SyncResult,
-  ): Promise<number[]> {
-    let nextToken: string | undefined;
-    const ids: number[] = [];
-
-    do {
-      const response = (await getSellerProducts({
-        maxPerPage: 50,
-        nextToken,
-      })) as SellerProductListResponse;
-
-      if (response.code === 'ERROR') {
-        result.errors++;
-        result.details?.push(`API 에러: ${response.message}`);
-        break;
-      }
-
-      for (const sp of response.data?.content ?? []) {
-        ids.push(sp.sellerProductId);
-      }
-
-      nextToken = response.data?.nextToken;
-    } while (nextToken);
-
-    return ids;
-  }
-
-  private async syncSingleProduct(
-    sellerProductId: number,
-    companyId: string,
-  ): Promise<void> {
-    const detail = (await getSellerProduct(
-      String(sellerProductId),
-    )) as SellerProductDetailResponse;
-
-    if (!detail.data) {
-      throw new Error('상세 데이터 없음');
-    }
-
-    const pd = detail.data;
-    const items = pd.items ?? [];
-    const primaryItem = items[0];
-    const mappedStatus = COUPANG_STATUS_MAP[pd.statusName ?? ''] ?? 'draft';
-
-    const images = (pd.images ?? []).map((img) => ({
-      imageOrder: img.imageOrder,
-      imageType: img.imageType,
-      cdnPath: img.cdnPath,
-    }));
-
-    const coupangProductId = String(pd.sellerProductId);
-    const existingProduct = await this.prisma.product.findFirst({
-      where: { coupangProductId },
-    });
-
-    if (existingProduct) {
-      await this.prisma.product.update({
-        where: { id: existingProduct.id },
-        data: {
-          name: pd.sellerProductName,
-          sellPrice: primaryItem?.salePrice ?? null,
-          status: mappedStatus,
-          category: pd.displayCategoryCode
-            ? String(pd.displayCategoryCode)
-            : existingProduct.category,
-          deliveryChargeType: pd.deliveryChargeType ?? null,
-          freeShipOverAmount: pd.freeShipOverAmount ?? null,
-          returnCharge: pd.returnCharge ?? null,
-          deliveryInfo: pd.deliveryInfo
-            ? (pd.deliveryInfo as Prisma.InputJsonValue)
-            : Prisma.DbNull,
-          images: images.length > 0 ? images : undefined,
-        },
-      });
-
-      await this.upsertProductItems(existingProduct.id, items);
-    } else {
-      const newProduct = await this.prisma.product.create({
-        data: {
-          companyId,
-          name: pd.sellerProductName,
-          coupangProductId,
-          sellPrice: primaryItem?.salePrice ?? null,
-          status: mappedStatus,
-          category: pd.displayCategoryCode
-            ? String(pd.displayCategoryCode)
-            : null,
-          deliveryChargeType: pd.deliveryChargeType ?? null,
-          freeShipOverAmount: pd.freeShipOverAmount ?? null,
-          returnCharge: pd.returnCharge ?? null,
-          deliveryInfo: pd.deliveryInfo
-            ? (pd.deliveryInfo as Prisma.InputJsonValue)
-            : Prisma.DbNull,
-          images: images.length > 0 ? images : [],
-        },
-      });
-
-      await this.upsertProductItems(newProduct.id, items);
-    }
-  }
-
-  private async upsertProductItems(
-    productId: string,
-    items: NonNullable<SellerProductDetailResponse['data']>['items'],
-  ): Promise<void> {
-    if (!items?.length) return;
-
-    // 한 번의 쿼리로 기존 아이템 맵 구성 → vendorItemId 기준으로 매칭
-    const vendorItemIds = items.map((item) => String(item.vendorItemId));
-    const existingItems = await this.prisma.productItem.findMany({
-      where: { productId, vendorItemId: { in: vendorItemIds } },
-      select: { id: true, vendorItemId: true },
-    });
-    const existingByVendorId = new Map(
-      existingItems.map((it) => [it.vendorItemId, it.id]),
-    );
-
-    // update / create 를 병렬 실행 (같은 vendorItemId 는 호출 내 중복 없다는 가정)
-    await Promise.all(
-      items.map((item) => {
-        const vendorItemId = String(item.vendorItemId);
-        const itemData = {
-          itemName: item.itemName ?? '',
-          originalPrice: item.originalPrice ?? 0,
-          salePrice: item.salePrice ?? 0,
-          supplyPrice: item.supplyPrice ?? 0,
-        };
-        const existingId = existingByVendorId.get(vendorItemId);
-        if (existingId) {
-          return this.prisma.productItem.update({
-            where: { id: existingId },
-            data: itemData,
-          });
-        }
-        return this.prisma.productItem.create({
-          data: { productId, vendorItemId, ...itemData },
-        });
-      }),
+  async syncInventory(_companyId: string): Promise<SyncResult> {
+    throw new NotImplementedException(
+      'Inventory sync requires Plan B3 listingId-based rewrite — uses dropped Product/ProductItem/MasterInventory models (ADR-0013)',
     );
   }
 

@@ -1,4 +1,5 @@
 import { Controller, Get, Query } from '@nestjs/common';
+import { CurrentCompany } from '../auth/decorators/current-company.decorator';
 import { DashboardSalesService } from './services/dashboard-sales.service';
 import { DashboardAdService } from './services/dashboard-ad.service';
 import { DashboardInventoryService } from './services/dashboard-inventory.service';
@@ -28,9 +29,12 @@ export class DashboardController {
   }
 
   @Get('ad')
-  async getAd(@Query() query: DashboardQueryDto): Promise<DashboardAdSummary> {
+  async getAd(
+    @Query() query: DashboardQueryDto,
+    @CurrentCompany() companyId: string,
+  ): Promise<DashboardAdSummary> {
     const ctx = buildDashboardContext(query.range, query.from, query.to);
-    return this.adService.getSummary(ctx);
+    return this.adService.getSummary(ctx, companyId);
   }
 
   @Get('inventory')

@@ -14,7 +14,7 @@ export class ProcessingCostsService {
 
     return this.prisma.processingCost.findMany({
       where,
-      include: { product: true },
+      include: { master: true },
       orderBy: { createdAt: 'desc' },
     });
   }
@@ -25,7 +25,7 @@ export class ProcessingCostsService {
     return this.prisma.processingCost.create({
       data: {
         companyId,
-        productId: dto.productId,
+        masterId: dto.masterId,
         processType: dto.processType,
         unitCost: dto.unitCost,
         quantity: dto.quantity,
@@ -34,7 +34,7 @@ export class ProcessingCostsService {
         date: dto.date ? new Date(dto.date) : new Date(),
         notes: dto.notes,
       },
-      include: { product: true },
+      include: { master: true },
     });
   }
 

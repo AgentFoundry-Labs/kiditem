@@ -15,7 +15,7 @@ export class OntologyService {
         COALESCE(category, '미분류') AS category,
         COALESCE(brand, '미분류') AS brand,
         COUNT(*)::int AS product_count
-      FROM products
+      FROM master_products
       WHERE is_deleted = false
       GROUP BY category, brand
       ORDER BY category, product_count DESC
@@ -88,14 +88,14 @@ export class OntologyService {
     const where: any = { isDeleted: false, category };
     if (brand) where.brand = brand;
 
-    return this.prisma.product.findMany({
+    return this.prisma.masterProduct.findMany({
       where,
       select: {
         id: true,
         name: true,
         brand: true,
         category: true,
-        status: true,
+        pipelineStep: true,
         abcGrade: true,
         thumbnailUrl: true,
       },

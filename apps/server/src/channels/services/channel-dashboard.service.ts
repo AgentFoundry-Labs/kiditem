@@ -1,68 +1,199 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { kstDayStart } from '../../common/kst';
+
+/**
+ * Channel dashboard response shapes — service-internal interfaces.
+ * (NestJS CLAUDE.md: `services/types.ts` 대안 — 단일 service 전용 타입은 파일 내부 export)
+ *
+ * Plan B2c.dashboard T15 rewrite notes:
+ * - I3 canonical: revenue = SUM(oli.total_price), never SUM(o.total_price).
+ * - I7 @CurrentCompany: companyId threaded from controller.
+ * - I8 half-open: `gte` / `lt` only (never `lte`).
+ * - R-07 rename: `lastSyncedAt` → `lastModifiedAt`
+ *   ChannelListing.updatedAt is bumped on any edit, not only sync ops.
+ * - R-12 flat `_count: true`: Prisma returns `number` (no wrapper object).
+ * - C-11 unknown faultBy drop: faultBy is `VarChar(20)` — CUSTOMER/VENDOR only.
+ * - R-06 returnRate known limitation: past-period orders' returns land in current
+ *   period numerator. Plan D will fix by JOINing return.orderId → order.orderedAt.
+ */
+
+export interface ChannelDashboardSummary {
+  todayOrders: { count: number; revenue: number };
+  pendingAccept: number;
+  pendingReturns: number;
+  /** Latest ChannelListing.updatedAt for the company. Null when no listing exists. */
+  lastModifiedAt: Date | null;
+}
+
+export interface RevenueTrendPoint {
+  day: string;
+  revenue: number;
+  orderCount: number;
+}
+
+export interface ProductRankingRow {
+  sellerProductId: string;
+  sellerProductName: string;
+  revenue: number;
+  orderCount: number;
+}
+
+export interface ReturnSummary {
+  returnCount: number;
+  orderCount: number;
+  returnRate: number;
+}
+
+export interface ReturnReasonRow {
+  reason: string;
+  count: number;
+}
+
+export interface ReturnFaultSplit {
+  customer: number;
+  vendor: number;
+}
 
 @Injectable()
 export class ChannelDashboardService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async getSummary(_companyId: string): Promise<{
-    todayOrders: { count: number; revenue: number };
-    pendingAccept: number;
-    pendingReturns: number;
-    lastSyncedAt: Date | null;
-  }> {
-    // Plan A.5 dropped CoupangOrder/CoupangReturn in favor of Order/OrderReturn.
-    // Plan B2c will rewrite this aggregate against the new schema.
-    throw new Error('Not implemented: Plan B2c migration');
+  async getSummary(companyId: string): Promise<ChannelDashboardSummary> {
+    const todayStart = kstDayStart(new Date());
+    const [todayOrders, pendingAccept, pendingReturns, lastSync] = await Promise.all([
+      this.prisma.order.aggregate({
+        where: { companyId, orderedAt: { gte: todayStart } },
+        _count: { id: true },
+        _sum: { totalPrice: true },
+      }),
+      this.prisma.order.count({
+        where: { companyId, status: 'accept_wait' },
+      }),
+      this.prisma.orderReturn.count({
+        where: { companyId, status: 'return_request' },
+      }),
+      this.prisma.channelListing.findFirst({
+        where: { companyId },
+        orderBy: { updatedAt: 'desc' },
+        select: { updatedAt: true },
+      }),
+    ]);
+    return {
+      todayOrders: {
+        count: todayOrders._count.id,
+        revenue: todayOrders._sum.totalPrice ?? 0,
+      },
+      pendingAccept,
+      pendingReturns,
+      lastModifiedAt: lastSync?.updatedAt ?? null,
+    };
   }
 
   async getRevenueTrend(
-    _companyId: string,
-    _from: Date,
-    _to: Date,
-  ): Promise<{ day: string; revenue: number; orderCount: number }[]> {
-    // Plan A.5 dropped coupang_orders. Plan B2c will rewrite against orders/order_line_items.
-    throw new Error('Not implemented: Plan B2c migration');
+    companyId: string,
+    from: Date,
+    to: Date,
+  ): Promise<RevenueTrendPoint[]> {
+    type Row = { day: Date; revenue: bigint | null; orderCount: bigint };
+    const rows = await this.prisma.$queryRaw<Row[]>`
+      SELECT DATE_TRUNC('day', o.ordered_at AT TIME ZONE 'Asia/Seoul')::date AS day,
+             SUM(oli.total_price)::bigint AS revenue,
+             COUNT(DISTINCT o.id)::bigint AS "orderCount"
+      FROM orders o
+      JOIN order_line_items oli ON oli.order_id = o.id
+      WHERE o.company_id = ${companyId}::uuid
+        AND o.ordered_at >= ${from} AND o.ordered_at < ${to}
+      GROUP BY 1
+      ORDER BY 1
+    `;
+    return rows.map((r) => ({
+      day: r.day.toISOString().split('T')[0],
+      revenue: Number(r.revenue ?? 0n),
+      orderCount: Number(r.orderCount),
+    }));
   }
 
   async getProductRanking(
-    _companyId: string,
-    _from: Date,
-    _to: Date,
-  ): Promise<{
-    sellerProductId: string;
-    sellerProductName: string;
-    revenue: number;
-    orderCount: number;
-  }[]> {
-    // Plan A.5 dropped coupang_order_items. Plan B2c will rewrite against order_line_items.
-    throw new Error('Not implemented: Plan B2c migration');
+    companyId: string,
+    from: Date,
+    to: Date,
+  ): Promise<ProductRankingRow[]> {
+    type Row = {
+      sellerProductId: string;
+      sellerProductName: string;
+      revenue: bigint | null;
+      orderCount: bigint;
+    };
+    const rows = await this.prisma.$queryRaw<Row[]>`
+      SELECT cl.external_id AS "sellerProductId",
+             mp.name AS "sellerProductName",
+             SUM(oli.total_price)::bigint AS revenue,
+             COUNT(DISTINCT o.id)::bigint AS "orderCount"
+      FROM orders o
+      JOIN order_line_items oli ON oli.order_id = o.id
+      JOIN channel_listings cl ON cl.id = o.listing_id
+      JOIN master_products mp ON mp.id = cl.master_id
+      WHERE o.company_id = ${companyId}::uuid
+        AND o.ordered_at >= ${from} AND o.ordered_at < ${to}
+        AND o.listing_id IS NOT NULL
+      GROUP BY cl.external_id, mp.name
+      ORDER BY revenue DESC
+      LIMIT 10
+    `;
+    return rows.map((r) => ({
+      sellerProductId: r.sellerProductId,
+      sellerProductName: r.sellerProductName,
+      revenue: Number(r.revenue ?? 0n),
+      orderCount: Number(r.orderCount),
+    }));
   }
 
   async getReturnSummary(
-    _companyId: string,
-    _from: Date,
-    _to: Date,
-  ): Promise<{ returnCount: number; orderCount: number; returnRate: number }> {
-    // Plan A.5 dropped coupang_returns/coupang_orders. Plan B2c will rewrite against order_returns/orders.
-    throw new Error('Not implemented: Plan B2c migration');
+    companyId: string,
+    from: Date,
+    to: Date,
+  ): Promise<ReturnSummary> {
+    const [returnCount, orderCount] = await Promise.all([
+      this.prisma.orderReturn.count({
+        where: { companyId, requestedAt: { gte: from, lt: to } },
+      }),
+      this.prisma.order.count({
+        where: { companyId, orderedAt: { gte: from, lt: to } },
+      }),
+    ]);
+    // R-06 known limitation: past-period orders' returns land in current numerator.
+    // Plan D will join order.orderedAt for a denominator-aligned ratio.
+    const returnRate = orderCount === 0 ? 0 : returnCount / orderCount;
+    return { returnCount, orderCount, returnRate };
   }
 
   async getReturnReasonBreakdown(
-    _companyId: string,
-    _from: Date,
-    _to: Date,
-  ): Promise<{ reason: string; count: number }[]> {
-    // Plan A.5 dropped coupang_returns. Plan B2c will rewrite against order_returns + metadata.
-    throw new Error('Not implemented: Plan B2c migration');
+    companyId: string,
+    from: Date,
+    to: Date,
+  ): Promise<ReturnReasonRow[]> {
+    const groups = await this.prisma.orderReturn.groupBy({
+      by: ['reason'],
+      _count: true,
+      where: { companyId, requestedAt: { gte: from, lt: to } },
+    });
+    // R-12 flat _count: Prisma returns `_count: number` for flat form.
+    return groups.map((g) => ({ reason: g.reason, count: g._count }));
   }
 
   async getReturnFaultSplit(
-    _companyId: string,
-    _from: Date,
-    _to: Date,
-  ): Promise<{ customer: number; vendor: number }> {
-    // Plan A.5 dropped coupang_returns. Plan B2c will rewrite against order_returns + metadata.
-    throw new Error('Not implemented: Plan B2c migration');
+    companyId: string,
+    from: Date,
+    to: Date,
+  ): Promise<ReturnFaultSplit> {
+    const groups = await this.prisma.orderReturn.groupBy({
+      by: ['faultBy'],
+      _count: true,
+      where: { companyId, requestedAt: { gte: from, lt: to } },
+    });
+    // C-11 unknown faultBy drop: faultBy is VarChar(20) — only CUSTOMER/VENDOR are reported.
+    const find = (key: string) => groups.find((g) => g.faultBy === key)?._count ?? 0;
+    return { customer: find('CUSTOMER'), vendor: find('VENDOR') };
   }
 }

@@ -50,12 +50,12 @@ export class RulesService implements OnModuleInit {
       // 2-1. healthScore 일괄 업데이트
       if (products.length > 0) {
         const cases = products
-          .map((r) => `WHEN id = '${r.productId}'::uuid THEN ${r.healthScore}`)
+          .map((r) => `WHEN id = '${r.masterId}'::uuid THEN ${r.healthScore}`)
           .join(' ');
-        const ids = products.map((r) => `'${r.productId}'::uuid`).join(',');
+        const ids = products.map((r) => `'${r.masterId}'::uuid`).join(',');
 
         await this.prisma.$executeRawUnsafe(`
-          UPDATE products
+          UPDATE master_products
           SET health_score = CASE ${cases} END,
               health_updated_at = NOW()
           WHERE id IN (${ids})
@@ -67,7 +67,7 @@ export class RulesService implements OnModuleInit {
         r.violations.map((v) => ({
           companyId,
           objectType: 'product',
-          objectId: r.productId,
+          objectId: r.masterId,
           eventType: 'rule_violation',
           source: 'agent:claude_cli',
           title: v.message,
@@ -85,12 +85,14 @@ export class RulesService implements OnModuleInit {
       }
 
       // 2-3. critical alerts 생성
+      // Alert.targetType='master' 규약 (alert.adapter spec + drift spec 참조): rule_violation 은 MasterProduct 단위.
       const criticals = products.flatMap((r) =>
         r.violations
           .filter((v) => v.severity === 'critical')
           .map((v) => ({
             companyId,
-            productId: r.productId,
+            targetType: 'master',
+            targetId: r.masterId,
             type: 'rule_violation',
             severity: 'critical',
             title: v.message,
@@ -108,7 +110,8 @@ export class RulesService implements OnModuleInit {
               item: alertPanelAdapter.mapToItem({
                 id: uuidv4(),
                 companyId,
-                productId: null,
+                targetType: null,
+                targetId: null,
                 type: 'batch_summary',
                 severity: 'info',
                 title: `${inserted.length}건의 새 알림`,
@@ -158,19 +161,19 @@ export class RulesService implements OnModuleInit {
     topCritical: { id: string; name: string; healthScore: number | null; abcGrade: string | null }[];
   }> {
     const [healthy, warning, critical, total, lastEval] = await Promise.all([
-      this.prisma.product.count({
+      this.prisma.masterProduct.count({
         where: { companyId, isDeleted: false, healthScore: { gte: 70 } },
       }),
-      this.prisma.product.count({
+      this.prisma.masterProduct.count({
         where: { companyId, isDeleted: false, healthScore: { gte: 40, lt: 70 } },
       }),
-      this.prisma.product.count({
+      this.prisma.masterProduct.count({
         where: { companyId, isDeleted: false, healthScore: { lt: 40 } },
       }),
-      this.prisma.product.count({
+      this.prisma.masterProduct.count({
         where: { companyId, isDeleted: false },
       }),
-      this.prisma.product.findFirst({
+      this.prisma.masterProduct.findFirst({
         where: { companyId, isDeleted: false, healthUpdatedAt: { not: null } },
         orderBy: { healthUpdatedAt: 'desc' },
         select: { healthUpdatedAt: true },
@@ -179,7 +182,7 @@ export class RulesService implements OnModuleInit {
 
     const notEvaluated = total - healthy - warning - critical;
 
-    const topCritical = await this.prisma.product.findMany({
+    const topCritical = await this.prisma.masterProduct.findMany({
       where: { companyId, isDeleted: false, healthScore: { lt: 40 } },
       orderBy: { healthScore: 'asc' },
       take: 5,

@@ -3,7 +3,7 @@ import { SnapshotService } from '../snapshot.service';
 
 function makePrisma() {
   return {
-    product: {
+    masterProduct: {
       findUnique: vi.fn(),
       update: vi.fn().mockResolvedValue({}),
     },
@@ -18,8 +18,8 @@ function makePrisma() {
 describe('SnapshotService', () => {
   it('captures before/after values for budget actions', async () => {
     const prisma = makePrisma();
-    prisma.product.findUnique.mockResolvedValue({
-      id: 'p-1', adBudgetLimit: 10000, adTier: '1차', sellPrice: 15000,
+    prisma.masterProduct.findUnique.mockResolvedValue({
+      id: 'p-1', adBudgetLimit: 10000, adTier: '1차', healthScore: 80,
     });
 
     const service = new SnapshotService(prisma);
@@ -41,8 +41,8 @@ describe('SnapshotService', () => {
 
   it('captures multiple fields for stop_ad', async () => {
     const prisma = makePrisma();
-    prisma.product.findUnique.mockResolvedValue({
-      id: 'p-1', adBudgetLimit: 10000, adTier: '1차', sellPrice: 15000,
+    prisma.masterProduct.findUnique.mockResolvedValue({
+      id: 'p-1', adBudgetLimit: 10000, adTier: '1차', healthScore: 80,
     });
 
     const service = new SnapshotService(prisma);
@@ -73,7 +73,7 @@ describe('SnapshotService', () => {
     const result = await service.rollback('r-1');
 
     expect(result.restored).toBe(1);
-    expect(prisma.product.update).toHaveBeenCalledWith({
+    expect(prisma.masterProduct.update).toHaveBeenCalledWith({
       where: { id: 'p-1' },
       data: { adBudgetLimit: 10000 },
     });

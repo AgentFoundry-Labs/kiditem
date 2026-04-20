@@ -65,7 +65,8 @@ const makeAlert = (overrides = {}) => ({
   type: 'internal:stock',
   title: 'Stock low',
   message: null,
-  productId: null,
+  targetType: null,
+  targetId: null,
   isRead: false,
   actionTaskId: null,
   actorUserId: null,
@@ -92,14 +93,19 @@ describe('PanelAlertItem', () => {
     expect(() => PanelAlertItem.parse(makeAlert({ message: 'details here' }))).not.toThrow();
   });
 
-  it('productId accepts null or valid uuid', () => {
-    expect(() => PanelAlertItem.parse(makeAlert({ productId: null }))).not.toThrow();
+  it('targetType accepts null or string', () => {
+    expect(() => PanelAlertItem.parse(makeAlert({ targetType: null }))).not.toThrow();
+    expect(() => PanelAlertItem.parse(makeAlert({ targetType: 'product' }))).not.toThrow();
+  });
+
+  it('targetId accepts null or valid uuid', () => {
+    expect(() => PanelAlertItem.parse(makeAlert({ targetId: null }))).not.toThrow();
     expect(() =>
-      PanelAlertItem.parse(makeAlert({ productId: '00000000-0000-0000-0000-000000000002' })),
+      PanelAlertItem.parse(makeAlert({ targetId: '00000000-0000-0000-0000-000000000002' })),
     ).not.toThrow();
   });
 
-  it.each(['id', 'productId', 'actorUserId', 'actionTaskId'])(
+  it.each(['id', 'targetId', 'actorUserId', 'actionTaskId'])(
     'rejects invalid uuid on %s',
     (field) => {
       expect(() => PanelAlertItem.parse(makeAlert({ [field]: 'not-a-uuid' }))).toThrow();

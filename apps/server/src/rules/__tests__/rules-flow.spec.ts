@@ -12,7 +12,7 @@ function makePrisma() {
     agentTask: { findUnique: vi.fn(), update: vi.fn() },
     activityEvent: { create: vi.fn(), createMany: vi.fn() },
     alert: { createManyAndReturn: vi.fn().mockResolvedValue([]) },
-    product: { count: vi.fn(), findFirst: vi.fn(), findMany: vi.fn() },
+    masterProduct: { count: vi.fn(), findFirst: vi.fn(), findMany: vi.fn() },
     businessRule: { findMany: vi.fn(), update: vi.fn(), count: vi.fn() },
     company: { findFirst: vi.fn() },
     $executeRawUnsafe: vi.fn(),
@@ -83,7 +83,7 @@ describe('RulesService — full evaluation flow', () => {
         {
           products: [
             {
-              productId: 'p1',
+              masterId: 'p1',
               healthScore: 75,
               violations: [
                 {
@@ -121,7 +121,7 @@ describe('RulesService — full evaluation flow', () => {
         {
           products: [
             {
-              productId: 'p1',
+              masterId: 'p1',
               healthScore: 60,
               violations: [
                 {
@@ -136,7 +136,7 @@ describe('RulesService — full evaluation flow', () => {
               ],
             },
             {
-              productId: 'p2',
+              masterId: 'p2',
               healthScore: 40,
               violations: [
                 {
@@ -173,12 +173,14 @@ describe('RulesService — full evaluation flow', () => {
       prisma.alert.createManyAndReturn.mockResolvedValue([{
         id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
         companyId: 'c-1',
-        productId: 'p2',
+        targetType: 'master',
+        targetId: 'p2',
         type: 'rule_violation',
         severity: 'critical',
         title: '순이익률 -10%',
         message: 'review_pricing',
         isRead: false,
+        actionTaskId: null,
         createdAt: new Date(),
       }]);
 
@@ -187,7 +189,7 @@ describe('RulesService — full evaluation flow', () => {
         {
           products: [
             {
-              productId: 'p1',
+              masterId: 'p1',
               healthScore: 85,
               violations: [
                 {
@@ -202,7 +204,7 @@ describe('RulesService — full evaluation flow', () => {
               ],
             },
             {
-              productId: 'p2',
+              masterId: 'p2',
               healthScore: 20,
               violations: [
                 {
@@ -228,7 +230,8 @@ describe('RulesService — full evaluation flow', () => {
       expect(prisma.alert.createManyAndReturn).toHaveBeenCalledWith({
         data: [
           expect.objectContaining({
-            productId: 'p2',
+            targetType: 'master',
+            targetId: 'p2',
             severity: 'critical',
             title: '순이익률 -10%',
           }),
@@ -246,7 +249,7 @@ describe('RulesService — full evaluation flow', () => {
         {
           products: [
             {
-              productId: 'p1',
+              masterId: 'p1',
               healthScore: 70,
               violations: [
                 {
@@ -310,7 +313,7 @@ describe('RulesService — full evaluation flow', () => {
         {
           products: [
             {
-              productId: 'p1',
+              masterId: 'p1',
               healthScore: 50,
               violations: [
                 {
@@ -343,7 +346,7 @@ describe('RulesService — full evaluation flow', () => {
         {
           products: [
             {
-              productId: 'p1',
+              masterId: 'p1',
               healthScore: 30,
               violations: [
                 {
