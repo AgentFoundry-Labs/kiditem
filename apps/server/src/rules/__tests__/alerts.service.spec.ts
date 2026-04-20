@@ -49,6 +49,7 @@ function makePrisma() {
     alert: {
       findMany: vi.fn(),
       findUnique: vi.fn(),
+      findFirst: vi.fn().mockResolvedValue(null),
       update: vi.fn(),
       updateMany: vi.fn(),
     },
