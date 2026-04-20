@@ -15,6 +15,10 @@ from src.db import get_pool, close_pool
 from src.agents.content.agent import ContentAgent
 from src.agents.image_edit import ImageEditAgent
 from src.agents.sourcing import SourcingAgent
+from src.agents.wing_collector import WingCollectorAgent
+from src.agents.review_collector import ReviewCollectorAgent
+from src.agents.ads_collector import AdsCollectorAgent
+from src.agents.dashboard_sync import DashboardSyncAgent
 
 logger = structlog.get_logger()
 
@@ -28,6 +32,10 @@ AGENTS = {
     "content": ContentAgent(),
     "image_edit": ImageEditAgent(),
     "sourcing": SourcingAgent(),
+    "wing_collector": WingCollectorAgent(),
+    "review_collector": ReviewCollectorAgent(),
+    "ads_collector": AdsCollectorAgent(),
+    "dashboard_sync": DashboardSyncAgent(),
 }
 
 
