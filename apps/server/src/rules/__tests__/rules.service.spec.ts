@@ -82,7 +82,7 @@ describe('RulesService', () => {
         {
           products: [
             {
-              productId: 'p1',
+              masterId: 'p1',
               healthScore: 85,
               violations: [
                 {
@@ -97,7 +97,7 @@ describe('RulesService', () => {
               ],
             },
             {
-              productId: PRODUCT_ID,
+              masterId: PRODUCT_ID,
               healthScore: 25,
               violations: [
                 {
@@ -192,7 +192,7 @@ describe('RulesService', () => {
         'rules_evaluation', 'agent-rules', 'run-4',
         {
           products: [{
-            productId: 'p1',
+            masterId: 'p1',
             healthScore: 50,
             violations: [],
           }],
@@ -211,7 +211,7 @@ describe('RulesService', () => {
 
       // Build 51 critical violations
       const violations = Array.from({ length: 51 }, (_, i) => ({
-        productId: `prod-${i}`,
+        masterId: `prod-${i}`,
         healthScore: 10,
         violations: [{
           ruleName: `rule-${i}`,
@@ -277,7 +277,7 @@ describe('RulesService', () => {
         'rules_evaluation', 'agent-rules', 'run-emit-err',
         {
           products: [{
-            productId: PRODUCT_ID,
+            masterId: PRODUCT_ID,
             healthScore: 20,
             violations: [{
               ruleName: 'profitability',

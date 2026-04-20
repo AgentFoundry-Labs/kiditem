@@ -83,7 +83,7 @@ describe('RulesService — full evaluation flow', () => {
         {
           products: [
             {
-              productId: 'p1',
+              masterId: 'p1',
               healthScore: 75,
               violations: [
                 {
@@ -121,7 +121,7 @@ describe('RulesService — full evaluation flow', () => {
         {
           products: [
             {
-              productId: 'p1',
+              masterId: 'p1',
               healthScore: 60,
               violations: [
                 {
@@ -136,7 +136,7 @@ describe('RulesService — full evaluation flow', () => {
               ],
             },
             {
-              productId: 'p2',
+              masterId: 'p2',
               healthScore: 40,
               violations: [
                 {
@@ -187,7 +187,7 @@ describe('RulesService — full evaluation flow', () => {
         {
           products: [
             {
-              productId: 'p1',
+              masterId: 'p1',
               healthScore: 85,
               violations: [
                 {
@@ -202,7 +202,7 @@ describe('RulesService — full evaluation flow', () => {
               ],
             },
             {
-              productId: 'p2',
+              masterId: 'p2',
               healthScore: 20,
               violations: [
                 {
@@ -246,7 +246,7 @@ describe('RulesService — full evaluation flow', () => {
         {
           products: [
             {
-              productId: 'p1',
+              masterId: 'p1',
               healthScore: 70,
               violations: [
                 {
@@ -310,7 +310,7 @@ describe('RulesService — full evaluation flow', () => {
         {
           products: [
             {
-              productId: 'p1',
+              masterId: 'p1',
               healthScore: 50,
               violations: [
                 {
@@ -343,7 +343,7 @@ describe('RulesService — full evaluation flow', () => {
         {
           products: [
             {
-              productId: 'p1',
+              masterId: 'p1',
               healthScore: 30,
               violations: [
                 {

@@ -50,9 +50,9 @@ export class RulesService implements OnModuleInit {
       // 2-1. healthScore 일괄 업데이트
       if (products.length > 0) {
         const cases = products
-          .map((r) => `WHEN id = '${r.productId}'::uuid THEN ${r.healthScore}`)
+          .map((r) => `WHEN id = '${r.masterId}'::uuid THEN ${r.healthScore}`)
           .join(' ');
-        const ids = products.map((r) => `'${r.productId}'::uuid`).join(',');
+        const ids = products.map((r) => `'${r.masterId}'::uuid`).join(',');
 
         await this.prisma.$executeRawUnsafe(`
           UPDATE master_products
@@ -67,7 +67,7 @@ export class RulesService implements OnModuleInit {
         r.violations.map((v) => ({
           companyId,
           objectType: 'product',
-          objectId: r.productId,
+          objectId: r.masterId,
           eventType: 'rule_violation',
           source: 'agent:claude_cli',
           title: v.message,
@@ -85,12 +85,13 @@ export class RulesService implements OnModuleInit {
       }
 
       // 2-3. critical alerts 생성
+      // NOTE: Alert model field `productId` still used here — T12 migrates Alert CREATE path to targetType+targetId.
       const criticals = products.flatMap((r) =>
         r.violations
           .filter((v) => v.severity === 'critical')
           .map((v) => ({
             companyId,
-            productId: r.productId,
+            productId: r.masterId,
             type: 'rule_violation',
             severity: 'critical',
             title: v.message,
@@ -108,7 +109,8 @@ export class RulesService implements OnModuleInit {
               item: alertPanelAdapter.mapToItem({
                 id: uuidv4(),
                 companyId,
-                productId: null,
+                targetType: null,
+                targetId: null,
                 type: 'batch_summary',
                 severity: 'info',
                 title: `${inserted.length}건의 새 알림`,

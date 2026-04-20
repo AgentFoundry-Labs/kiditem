@@ -10,7 +10,7 @@ export interface EvaluationResult {
 }
 
 export interface ProductEvalResult {
-  productId: string;
+  masterId: string;
   healthScore: number;
   violations: Array<{
     ruleName: string;

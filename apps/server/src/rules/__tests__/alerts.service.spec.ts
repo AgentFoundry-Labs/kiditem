@@ -12,7 +12,8 @@ const USER_ID = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
 const BASE_ALERT = {
   id: ALERT_ID,
   companyId: COMPANY_ID,
-  productId: null,
+  targetType: null,
+  targetId: null,
   type: 'strategy_change',
   severity: 'critical',
   title: 'Test alert',
