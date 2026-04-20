@@ -460,18 +460,20 @@ export class ActionTaskService {
   ): Promise<Record<string, RelatedProduct[]>> {
     const map: Record<string, RelatedProduct[]> = {};
 
-    // High ad rate products
+    // High ad rate products — ProfitLoss → listing → master (2-hop, B2c.dashboard C-03)
     const plRows = await this.prisma.profitLoss.findMany({
-      where: { year, month, product: { companyId } },
-      include: { product: { select: { id: true, name: true } } },
+      where: { companyId, year, month },
+      include: {
+        listing: { include: { master: { select: { id: true, name: true } } } },
+      },
     });
 
     map['h-ad-bid'] = plRows
       .filter((pl) => pl.revenue > 0 && pl.adCost > 0 && (pl.adCost / pl.revenue) * 100 > 15)
       .slice(0, 20)
       .map((pl) => ({
-        id: pl.productId,
-        name: pl.product?.name ?? 'N/A',
+        id: pl.listing?.master.id ?? pl.listingId,
+        name: pl.listing?.master.name ?? 'N/A',
         metric: '광고비율',
         value: `${Math.round((pl.adCost / pl.revenue) * 1000) / 10}%`,
       })) satisfies ActionTaskRelatedProduct[];
@@ -479,8 +481,8 @@ export class ActionTaskService {
     // Minus products
     const minusRows = plRows.filter((pl) => pl.netProfit < 0).slice(0, 20);
     const minusProducts = minusRows.map((pl) => ({
-      id: pl.productId,
-      name: pl.product?.name ?? 'N/A',
+      id: pl.listing?.master.id ?? pl.listingId,
+      name: pl.listing?.master.name ?? 'N/A',
       metric: '이익률',
       value: pl.revenue > 0
         ? `${Math.round((pl.netProfit / pl.revenue) * 1000) / 10}%`
@@ -491,21 +493,23 @@ export class ActionTaskService {
     map['h-price-reset'] = minusProducts;
     map['analyze-deficit'] = minusProducts;
 
-    // Reorder products
-    const invWithProduct = await this.prisma.inventory.findMany({
+    // Reorder products — Inventory → option → master (2-hop, B2c.dashboard C-03)
+    const invWithOption = await this.prisma.inventory.findMany({
       where: {
-        product: { companyId },
+        companyId,
         currentStock: { gt: 0 },
         reorderPoint: { gt: 0 },
       },
-      include: { product: { select: { id: true, name: true } } },
+      include: {
+        option: { include: { master: { select: { id: true, name: true } } } },
+      },
     });
-    map['h-reorder'] = invWithProduct
+    map['h-reorder'] = invWithOption
       .filter((inv) => inv.currentStock <= inv.reorderPoint)
       .slice(0, 20)
       .map((inv) => ({
-        id: inv.productId,
-        name: inv.product?.name ?? 'N/A',
+        id: inv.option?.master.id ?? inv.optionId,
+        name: inv.option?.master.name ?? 'N/A',
         metric: '재고',
         value: `${inv.currentStock}개 (기준 ${inv.reorderPoint})`,
       })) satisfies ActionTaskRelatedProduct[];
