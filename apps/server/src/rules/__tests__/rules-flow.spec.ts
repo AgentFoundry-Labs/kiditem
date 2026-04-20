@@ -173,12 +173,14 @@ describe('RulesService — full evaluation flow', () => {
       prisma.alert.createManyAndReturn.mockResolvedValue([{
         id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
         companyId: 'c-1',
-        productId: 'p2',
+        targetType: 'master',
+        targetId: 'p2',
         type: 'rule_violation',
         severity: 'critical',
         title: '순이익률 -10%',
         message: 'review_pricing',
         isRead: false,
+        actionTaskId: null,
         createdAt: new Date(),
       }]);
 
@@ -228,7 +230,8 @@ describe('RulesService — full evaluation flow', () => {
       expect(prisma.alert.createManyAndReturn).toHaveBeenCalledWith({
         data: [
           expect.objectContaining({
-            productId: 'p2',
+            targetType: 'master',
+            targetId: 'p2',
             severity: 'critical',
             title: '순이익률 -10%',
           }),

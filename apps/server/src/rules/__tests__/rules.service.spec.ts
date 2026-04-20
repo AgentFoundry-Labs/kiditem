@@ -67,12 +67,14 @@ describe('RulesService', () => {
       const insertedAlerts = [{
         id: '11111111-1111-1111-1111-111111111111',
         companyId: COMPANY_ID,
-        productId: PRODUCT_ID,
+        targetType: 'master',
+        targetId: PRODUCT_ID,
         type: 'rule_violation',
         severity: 'critical',
         title: '순이익률 -10%',
         message: 'review_pricing',
         isRead: false,
+        actionTaskId: null,
         createdAt: new Date('2026-04-15T00:00:00Z'),
       }];
       prisma.alert.createManyAndReturn.mockResolvedValue(insertedAlerts);
@@ -135,7 +137,8 @@ describe('RulesService', () => {
       // critical alerts — now uses createManyAndReturn
       expect(prisma.alert.createManyAndReturn).toHaveBeenCalledWith({
         data: [expect.objectContaining({
-          productId: PRODUCT_ID,
+          targetType: 'master',
+          targetId: PRODUCT_ID,
           severity: 'critical',
           title: '순이익률 -10%',
         })],
@@ -227,12 +230,14 @@ describe('RulesService', () => {
       const insertedAlerts = Array.from({ length: 51 }, (_, i) => ({
         id: `11111111-1111-1111-1111-${String(i).padStart(12, '0')}`,
         companyId: COMPANY_ID,
-        productId: `prod-${i}`,
+        targetType: 'master',
+        targetId: `prod-${i}`,
         type: 'rule_violation',
         severity: 'critical',
         title: `violation-${i}`,
         message: null,
         isRead: false,
+        actionTaskId: null,
         createdAt: new Date(),
       }));
       prisma.alert.createManyAndReturn.mockResolvedValue(insertedAlerts);
@@ -262,12 +267,14 @@ describe('RulesService', () => {
       const insertedAlert = {
         id: '11111111-1111-1111-1111-111111111111',
         companyId: COMPANY_ID,
-        productId: PRODUCT_ID,
+        targetType: 'master',
+        targetId: PRODUCT_ID,
         type: 'rule_violation',
         severity: 'critical',
         title: '적자 상품',
         message: null,
         isRead: false,
+        actionTaskId: null,
         createdAt: new Date(),
       };
       prisma.alert.createManyAndReturn.mockResolvedValue([insertedAlert]);

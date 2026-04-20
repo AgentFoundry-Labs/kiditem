@@ -85,13 +85,14 @@ export class RulesService implements OnModuleInit {
       }
 
       // 2-3. critical alerts 생성
-      // NOTE: Alert model field `productId` still used here — T12 migrates Alert CREATE path to targetType+targetId.
+      // Alert.targetType='master' 규약 (alert.adapter spec + drift spec 참조): rule_violation 은 MasterProduct 단위.
       const criticals = products.flatMap((r) =>
         r.violations
           .filter((v) => v.severity === 'critical')
           .map((v) => ({
             companyId,
-            productId: r.masterId,
+            targetType: 'master',
+            targetId: r.masterId,
             type: 'rule_violation',
             severity: 'critical',
             title: v.message,
