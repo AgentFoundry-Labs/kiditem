@@ -217,6 +217,10 @@ export type {
 export { ReturnSummarySchema } from './schemas/return-summary.js';
 export type { ReturnSummary } from './schemas/return-summary.js';
 
+// Sales Analysis (Plan D.3, ADR-0017)
+export { SalesAnalysisDataSchema, ChannelAnalysisSchema } from './schemas/sales-analysis.js';
+export type { SalesAnalysisData, ChannelAnalysis } from './schemas/sales-analysis.js';
+
 // Reviews
 export { ReviewListItemSchema } from './schemas/reviews.js';
 export type { ReviewListItem } from './schemas/reviews.js';

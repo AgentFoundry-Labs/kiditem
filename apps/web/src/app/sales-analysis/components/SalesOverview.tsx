@@ -1,100 +1,75 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { useQuery } from "@tanstack/react-query";
-import { BarChart3, RefreshCw } from "lucide-react";
+import { useState, useMemo } from 'react';
+import { useRouter, usePathname, useSearchParams } from 'next/navigation';
+import { useQuery } from '@tanstack/react-query';
+import { ZodError } from 'zod';
+import { BarChart3 } from 'lucide-react';
+import { SalesAnalysisDataSchema } from '@kiditem/shared';
 import { usePeriodSelector } from '@/hooks/usePeriodSelector';
 import PeriodSelector from '@/components/ui/PeriodSelector';
-import { apiClient } from "@/lib/api-client";
-import { isApiError } from "@/lib/api-error";
-import { queryKeys } from "@/lib/query-keys";
-import { cn, formatKRW, formatPercent } from "@/lib/utils";
-import PageSkeleton from "@/components/ui/PageSkeleton";
-import { ChannelTable } from "./ChannelTable";
-import type { ChannelSortField } from "./ChannelTable";
+import { apiClient } from '@/lib/api-client';
+import { isApiError } from '@/lib/api-error';
+import { queryKeys } from '@/lib/query-keys';
+import PageSkeleton from '@/components/ui/PageSkeleton';
+import { cn, formatKRW, formatNumber } from '@/lib/utils';
+import ChannelTable from './ChannelTable';
 
-interface ChannelRow {
-  channelName: string;
-  channelType: string;
-  totalOrders: number;
-  totalRevenue: number;
-  totalCost: number;
-  totalProfit: number;
-  returnCount: number;
-  returnRate: number;
-  avgOrderValue: number;
-}
-
-interface SalesAnalysisData {
-  period: string;
-  channels: ChannelRow[];
-  totals: {
-    totalRevenue: number;
-    totalProfit: number;
-    totalOrders: number;
-    totalCost: number;
-  };
-}
+type SortField = 'totalOrders' | 'totalRevenue' | 'totalCost' | 'totalProfit' | 'avgOrderValue';
+type SortDir = 'asc' | 'desc' | null;
 
 export default function SalesOverview() {
-  const { period, setPeriod, periodOptions } = usePeriodSelector({ months: 12, defaultTo: 'prev' });
-  const [sortField, setSortField] = useState<ChannelSortField | null>('totalRevenue');
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc' | null>('desc');
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const urlPeriod = searchParams.get('period');
 
-  const { data, isLoading: loading, error: queryError, refetch } = useQuery({
-    queryKey: queryKeys.salesAnalysis.data(period),
-    queryFn: () => {
-      const params = new URLSearchParams();
-      if (period) params.set("period", period);
-      return apiClient.get<SalesAnalysisData>(`/api/sales-analysis?${params}`);
-    },
+  const { period, setPeriod: setPeriodRaw, periodOptions } = usePeriodSelector({
+    months: 12,
+    defaultTo: 'prev',
+    initial: urlPeriod ?? undefined,
   });
-  const error = queryError ? (isApiError(queryError) ? queryError.detail : "매출분석 조회 실패") : null;
-
-  const handleToggleSort = (field: ChannelSortField) => {
-    if (sortField === field) {
-      setSortDirection(prev => prev === 'asc' ? 'desc' : prev === 'desc' ? null : 'asc');
-      if (sortDirection === null) setSortField(null);
-    } else {
-      setSortField(field);
-      setSortDirection('desc');
-    }
+  const setPeriod = (p: string) => {
+    setPeriodRaw(p);
+    const params = new URLSearchParams(searchParams);
+    params.set('period', p);
+    router.replace(`${pathname}?${params.toString()}`);
   };
 
-  const sortedChannels = useMemo(() => {
-    if (!data?.channels || !sortField || !sortDirection) return data?.channels ?? [];
+  const [sortField, setSortField] = useState<SortField | null>('totalRevenue');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
+
+  const { data, isLoading, error: queryError } = useQuery({
+    queryKey: queryKeys.salesAnalysis.data(period),
+    queryFn: () => apiClient.getParsed(`/api/sales-analysis?period=${period}`, SalesAnalysisDataSchema),
+  });
+
+  const error = queryError
+    ? isApiError(queryError)
+      ? queryError.detail
+      : queryError instanceof ZodError
+        ? '응답 형식 오류 — 개발팀에 문의하세요'
+        : queryError instanceof Error
+          ? queryError.message
+          : '조회 실패'
+    : null;
+
+  const sorted = useMemo(() => {
+    if (!data?.channels) return [];
+    if (!sortField || !sortDir) return data.channels;
     return [...data.channels].sort((a, b) => {
-      const av = a[sortField];
-      const bv = b[sortField];
-      return sortDirection === 'asc' ? av - bv : bv - av;
+      const l = a[sortField];
+      const r = b[sortField];
+      if (l === r) return 0;
+      return sortDir === 'asc' ? (l > r ? 1 : -1) : (l < r ? 1 : -1);
     });
-  }, [data?.channels, sortField, sortDirection]);
+  }, [data, sortField, sortDir]);
 
-  if (loading) {
-    return <PageSkeleton variant="table" />;
-  }
-
-  if (error) {
-    return (
-      <div className="flex flex-col items-center justify-center h-64 gap-3">
-        <p className="text-red-500">{error}</p>
-        <button
-          onClick={() => refetch()}
-          className="px-4 py-2 text-sm bg-slate-900 text-white rounded-lg hover:bg-slate-800"
-        >
-          다시 시도
-        </button>
-      </div>
-    );
-  }
-
-  const totalReturnCount =
-    data?.channels.reduce((s, c) => s + c.returnCount, 0) ?? 0;
-  const totalOrders = data?.totals.totalOrders ?? 0;
-  const returnRate =
-    totalOrders > 0
-      ? Math.round((totalReturnCount / totalOrders) * 1000) / 10
-      : 0;
+  const toggleSort = (field: SortField) => {
+    if (sortField !== field) { setSortField(field); setSortDir('desc'); return; }
+    if (sortDir === 'desc') { setSortDir('asc'); return; }
+    setSortField(null); setSortDir(null);
+  };
 
   return (
     <div className="space-y-6">
@@ -104,55 +79,55 @@ export default function SalesOverview() {
           <BarChart3 size={20} className="text-purple-600" />
           <h1 className="page-title">통합매출분석</h1>
         </div>
-        <div className="flex items-center gap-2">
-          <PeriodSelector value={period} onChange={setPeriod} options={periodOptions} />
-          <button
-            onClick={() => refetch()}
-            className="flex items-center gap-1.5 px-3 py-2 text-sm text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50"
-          >
-            <RefreshCw size={14} /> 새로고침
-          </button>
-        </div>
+        <PeriodSelector value={period} onChange={setPeriod} options={periodOptions} />
       </div>
 
-      {data && (
+      {isLoading ? (
+        <PageSkeleton variant="table" />
+      ) : error ? (
+        <div className="flex items-center justify-center h-64 text-red-500">{error}</div>
+      ) : !data || data.channels.length === 0 ? (
+        <div className="flex items-center justify-center h-64 text-slate-500">해당 기간 데이터가 없습니다.</div>
+      ) : (
         <>
           <div className="grid grid-cols-4 gap-4">
             <div className="card">
               <div className="card-label">총매출</div>
-              <div className="card-value">
-                {formatKRW(data.totals.totalRevenue)}원
-              </div>
+              <div className="card-value">{formatKRW(data.totals.totalRevenue)}원</div>
             </div>
             <div className="card">
               <div className="card-label">총비용</div>
-              <div className="card-value">
-                {formatKRW(data.totals.totalCost)}원
-              </div>
+              <div className="card-value">{formatKRW(data.totals.totalCost)}원</div>
             </div>
             <div
-              className={cn('rounded-xl p-4 border', data.totals.totalProfit >= 0 ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200')}
+              className={cn(
+                'rounded-xl p-4 border',
+                data.totals.totalProfit >= 0 ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200',
+              )}
             >
               <div className="card-label">총이익</div>
-              <div
-                className={cn('card-value', data.totals.totalProfit >= 0 ? 'text-green-600' : 'text-red-600')}
-              >
+              <div className={cn('card-value', data.totals.totalProfit >= 0 ? 'text-green-600' : 'text-red-600')}>
                 {formatKRW(data.totals.totalProfit)}원
               </div>
             </div>
             <div className="card">
-              <div className="card-label">반품률</div>
-              <div className="card-value">
-                {formatPercent(returnRate)}
-              </div>
+              <div className="card-label">총 주문 수</div>
+              <div className="card-value">{formatNumber(data.totals.totalOrders)}</div>
             </div>
           </div>
 
+          {data.totals.orphanReturnCount > 0 && (
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-50 border border-amber-200 text-amber-900 text-xs">
+              주문 연결 없는 반품: <strong className="tabular-nums">{formatNumber(data.totals.orphanReturnCount)}</strong>건{' '}
+              <span className="ml-1 text-amber-700">(반품률 계산 제외)</span>
+            </div>
+          )}
+
           <ChannelTable
-            channels={sortedChannels}
+            channels={sorted}
             sortField={sortField}
-            sortDirection={sortDirection}
-            onToggleSort={handleToggleSort}
+            sortDir={sortDir}
+            onToggleSort={toggleSort}
           />
         </>
       )}

@@ -1,6 +1,6 @@
 # finance — P&L + Sales Analysis (Live Aggregation)
 
-> **Plan D.1 완료 (ADR-0016)**: `profit-loss.service.ts` 가 live aggregation 으로 재작성됨 (2026-04-20). `ProfitLoss` 테이블 read-path 는 제거. `ProfitLoss` 테이블 자체는 drop 하지 않음 (legacy data 보존, Plan E 에서 writer 신설 시 cache 재활용 가능). **8개 other readers** (statistics × 5, settlements, sales-plans, sales-analysis, ad-strategy, dashboard-inventory, dashboard-trend, action-task × 2) 는 ADR-0016 scope 밖 — 각 D.3/D.4/D.5/Plan E phase 에서 migration.
+> **Plan D.1 완료 (ADR-0016)**: `profit-loss.service.ts` 가 live aggregation 으로 재작성됨 (2026-04-20). `ProfitLoss` 테이블 read-path 는 제거. `ProfitLoss` 테이블 자체는 drop 하지 않음 (legacy data 보존, Plan E 에서 writer 신설 시 cache 재활용 가능). **7개 other readers** (statistics × 5, settlements, sales-plans, ad-strategy, dashboard-inventory, dashboard-trend, action-task × 2) 는 ADR-0016 scope 밖 — 각 D.4/D.5/Plan E phase 에서 migration. (**sales-analysis 는 D.3 에서 migration 완료 — 아래 섹션 참조**)
 
 10 파일. **Prisma ORM 기반 live cross-table 집계** + period parsing + cross-domain pricing resolver.
 
@@ -47,22 +47,28 @@ Order (+ shippingPrice)
 
 **Prohibit (ADR-0016 Enforcement)**: `prisma.profitLoss.*` 호출 금지. `ProductOption.shippingCost` live read 금지 (source-of-truth = `Order.shippingPrice`).
 
-> sales-analysis.service.ts 는 여전히 `prisma.profitLoss.groupBy` (D.3 migration 예정). 건드리지 말 것.
+### 2. sales-analysis.service (Plan D.3, ADR-0017)
 
-### 2. Period 파싱 — YYYY-MM 형식
+`getAnalysis(companyId, period?)` — live aggregation via Order + OrderReturnLineItem + Ad.groupBy (D.1 T5 pattern). Group key: `ChannelListing.channel` (platform: coupang/naver/wing/...). ADR-0017 returnRate (distinct-order count, INNER JOIN + 3-hop IDOR). Orphan returns (orderId NULL) → `totals.orphanReturnCount` side metric.
+
+`ProfitLoss` table read 제거 (ADR-0016 § Scope boundaries — sales-analysis row now satisfied).
+
+**Exit log**: `this.logger.log('sales-analysis.getAnalysis', { companyId, period, channelCount, totalOrders, totalRevenue, orphanReturnCount, latencyMs })`.
+
+### 3. Period 파싱 — YYYY-MM 형식
 
 profit-loss.service.ts:12-14, sales-analysis.service.ts:16-23:
 - 입력: `YYYY-MM` (예: `2026-04`)
 - 미입력 시 현재 year/month default
 - **날짜 범위 query 미지원** — 월 단위만
 
-### 3. resolvePricing 적용
+### 4. resolvePricing 적용
 
 `common/option-pricing-resolver.ts` 의 `resolvePricing({ option })` 을 listing 별로 적용. `nested-only` 모드 — option data 에서 costPrice/commissionRate/otherCost 추출. master product fallback 가격 반영.
 
-### 4. Channel 집계 (sales-analysis)
+### 5. Channel 집계 (sales-analysis)
 
-`profitLoss.groupBy({ by: 'companyId' })` + company name join → 채널별 metrics (revenue, cost, profit, return rate, AOV).
+`Order.groupBy` (channel via `ChannelListing.channel`) → 채널별 metrics (revenue, cost, profit, return rate, AOV). `profitLoss.groupBy` 제거됨 (ADR-0017).
 
 ## Rules
 

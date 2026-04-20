@@ -1,15 +1,18 @@
 import { Controller, Get, Query } from '@nestjs/common';
+import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
+import type { SalesAnalysisData } from '@kiditem/shared';
 import { SalesAnalysisService } from '../services/sales-analysis.service';
-import { SalesAnalysisQueryDto } from '../dto';
+import { SalesAnalysisQueryDto } from '../dto/sales-analysis-query.dto';
 
 @Controller('sales-analysis')
 export class SalesAnalysisController {
-  constructor(
-    private readonly salesAnalysisService: SalesAnalysisService,
-  ) {}
+  constructor(private readonly salesAnalysisService: SalesAnalysisService) {}
 
   @Get()
-  getAnalysis(@Query() query: SalesAnalysisQueryDto) {
-    return this.salesAnalysisService.getAnalysis(query.period);
+  async getAnalysis(
+    @CurrentCompany() companyId: string,
+    @Query() query: SalesAnalysisQueryDto,
+  ): Promise<SalesAnalysisData> {
+    return this.salesAnalysisService.getAnalysis(companyId, query.period);
   }
 }

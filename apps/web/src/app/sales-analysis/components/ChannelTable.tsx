@@ -1,104 +1,68 @@
 'use client';
-import { ArrowUpDown, ArrowUp, ArrowDown, BarChart3 } from 'lucide-react';
+
 import { cn, formatKRW, formatNumber, formatPercent } from '@/lib/utils';
+import SortableHeader from '@/components/ui/SortableHeader';
+import type { ChannelAnalysis } from '@kiditem/shared';
 
-interface ChannelRow {
-  channelName: string;
-  channelType: string;
-  totalOrders: number;
-  totalRevenue: number;
-  totalCost: number;
-  totalProfit: number;
-  returnCount: number;
-  returnRate: number;
-  avgOrderValue: number;
-}
-
-export type ChannelSortField =
-  | 'totalOrders' | 'totalRevenue' | 'totalCost' | 'totalProfit' | 'avgOrderValue';
+type SortField = 'totalOrders' | 'totalRevenue' | 'totalCost' | 'totalProfit' | 'avgOrderValue';
+type SortDir = 'asc' | 'desc' | null;
 
 interface Props {
-  channels: ChannelRow[];
-  sortField: ChannelSortField | null;
-  sortDirection: 'asc' | 'desc' | null;
-  onToggleSort: (field: ChannelSortField) => void;
+  channels: ChannelAnalysis[];
+  sortField: SortField | null;
+  sortDir: SortDir;
+  onToggleSort: (field: SortField) => void;
 }
 
-export function ChannelTable({ channels, sortField, sortDirection, onToggleSort }: Props) {
-  if (channels.length === 0) {
-    return (
-      <div className="card p-12 text-center">
-        <BarChart3 size={48} className="mx-auto text-slate-300 mb-4" />
-        <p className="text-slate-500">매출 데이터가 없습니다</p>
-      </div>
-    );
-  }
+const CHANNEL_TYPE_LABEL: Record<ChannelAnalysis['channelType'], string> = {
+  marketplace: '마켓',
+  direct: '자사몰',
+  other: '기타',
+};
 
-  const renderSortIcon = (field: ChannelSortField) => {
-    if (sortField !== field || !sortDirection) {
-      return <ArrowUpDown size={14} className="text-slate-400" />;
-    }
-    return sortDirection === 'asc'
-      ? <ArrowUp size={14} className="text-purple-600" />
-      : <ArrowDown size={14} className="text-purple-600" />;
-  };
-
-  const SortTh = ({ field, children, className = '' }: { field: ChannelSortField; children: React.ReactNode; className?: string }) => (
-    <th className={className}>
-      <button
-        type="button"
-        onClick={() => onToggleSort(field)}
-        className="inline-flex items-center gap-1 hover:text-purple-600"
-        aria-sort={sortField === field ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
-      >
-        {children}
-        {renderSortIcon(field)}
-      </button>
-    </th>
-  );
-
+export default function ChannelTable({ channels, sortField, sortDir, onToggleSort }: Props) {
   return (
     <div className="table-card">
       <div className="overflow-x-auto">
         <table>
           <thead>
             <tr>
-              <th>채널명</th>
-              <th>유형</th>
-              <SortTh field="totalOrders" className="text-right">주문수</SortTh>
-              <SortTh field="totalRevenue" className="text-right">매출</SortTh>
-              <SortTh field="totalCost" className="text-right">비용</SortTh>
-              <SortTh field="totalProfit" className="text-right">이익</SortTh>
+              <th>채널</th>
+              <th>타입</th>
+              <SortableHeader<SortField> field="totalOrders" label="주문 수" activeField={sortField} direction={sortDir} onSort={onToggleSort} />
+              <SortableHeader<SortField> field="totalRevenue" label="매출" activeField={sortField} direction={sortDir} onSort={onToggleSort} />
+              <SortableHeader<SortField> field="totalCost" label="총비용" activeField={sortField} direction={sortDir} onSort={onToggleSort} />
+              <SortableHeader<SortField> field="totalProfit" label="순이익" activeField={sortField} direction={sortDir} onSort={onToggleSort} />
               <th className="text-right">이익률</th>
-              <th className="text-right">반품수</th>
+              <th className="text-right">반품 수</th>
               <th className="text-right">반품률</th>
-              <SortTh field="avgOrderValue" className="text-right">평균주문금액</SortTh>
+              <SortableHeader<SortField> field="avgOrderValue" label="평균 주문가" activeField={sortField} direction={sortDir} onSort={onToggleSort} />
             </tr>
           </thead>
           <tbody>
-            {channels.map((row) => {
-              const margin = row.totalRevenue > 0 ? (row.totalProfit / row.totalRevenue) * 100 : 0;
+            {channels.map((c) => {
+              const margin = c.totalRevenue > 0 ? (c.totalProfit / c.totalRevenue) * 100 : 0;
               return (
-              <tr key={row.channelName}>
-                <td>
-                  <span className="px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800">
-                    {row.channelName}
-                  </span>
-                </td>
-                <td className="text-sm text-slate-700">{row.channelType}</td>
-                <td className="text-right tabular-nums">{formatNumber(row.totalOrders)}</td>
-                <td className="text-right tabular-nums">{formatKRW(row.totalRevenue)}</td>
-                <td className="text-right tabular-nums">{formatKRW(row.totalCost)}</td>
-                <td className={cn('text-right tabular-nums font-medium', row.totalProfit >= 0 ? 'text-green-600' : 'text-red-600')}>
-                  {formatKRW(row.totalProfit)}
-                </td>
-                <td className={cn('text-right tabular-nums', margin >= 10 ? 'text-green-600' : margin >= 0 ? 'text-orange-500' : 'text-red-600')}>
-                  {formatPercent(margin)}
-                </td>
-                <td className="text-right tabular-nums">{formatNumber(row.returnCount)}</td>
-                <td className="text-right tabular-nums">{formatPercent(row.returnRate)}</td>
-                <td className="text-right tabular-nums">{formatKRW(row.avgOrderValue)}</td>
-              </tr>
+                <tr key={c.channel}>
+                  <td>
+                    <span className="px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800">
+                      {c.channel}
+                    </span>
+                  </td>
+                  <td className="text-sm text-slate-700">{CHANNEL_TYPE_LABEL[c.channelType]}</td>
+                  <td className="text-right tabular-nums">{formatNumber(c.totalOrders)}</td>
+                  <td className="text-right tabular-nums">{formatKRW(c.totalRevenue)}</td>
+                  <td className="text-right tabular-nums">{formatKRW(c.totalCost)}</td>
+                  <td className={cn('text-right tabular-nums font-medium', c.totalProfit >= 0 ? 'text-green-600' : 'text-red-600')}>
+                    {formatKRW(c.totalProfit)}
+                  </td>
+                  <td className={cn('text-right tabular-nums', margin >= 10 ? 'text-green-600' : margin >= 0 ? 'text-orange-500' : 'text-red-600')}>
+                    {formatPercent(margin)}
+                  </td>
+                  <td className="text-right tabular-nums">{formatNumber(c.returnCount)}</td>
+                  <td className="text-right tabular-nums">{formatPercent(c.returnRate * 100)}</td>
+                  <td className="text-right tabular-nums">{formatKRW(Math.round(c.avgOrderValue))}</td>
+                </tr>
               );
             })}
           </tbody>
