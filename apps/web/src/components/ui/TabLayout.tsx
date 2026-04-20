@@ -44,23 +44,23 @@ export default function TabLayout({
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2.5">
           {TitleIcon && (
-            <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center">
-              <TitleIcon size={18} className="text-slate-600" />
+            <div className="w-8 h-8 rounded-lg bg-[var(--surface-sunken)] flex items-center justify-center">
+              <TitleIcon size={18} className="text-[var(--text-secondary)]" />
             </div>
           )}
-          <h1 className="text-xl font-bold text-slate-900 tracking-tight">{title}</h1>
+          <h1 className="text-xl font-bold text-[var(--text-primary)] tracking-tight">{title}</h1>
         </div>
       </div>
 
       <div className="relative flex items-center gap-1">
         {tabs.length > 5 && (
-          <button onClick={() => scroll("left")} className="shrink-0 w-6 h-8 flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded">
+          <button onClick={() => scroll("left")} className="shrink-0 w-6 h-8 flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--surface-sunken)] rounded">
             <ChevronLeft size={16} />
           </button>
         )}
         <div
           ref={scrollRef}
-          className="flex items-center gap-1 p-1 bg-slate-100/80 rounded-lg overflow-x-auto flex-1"
+          className="flex items-center gap-1 p-1 bg-[var(--surface-sunken)]/80 rounded-lg overflow-x-auto flex-1"
           style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
         >
           {tabs.map((tab) => {
@@ -72,17 +72,19 @@ export default function TabLayout({
                 onClick={() => setActiveTab(tab.id)}
                 className={cn(
                   'flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium whitespace-nowrap transition-all duration-150',
-                  isActive ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700',
+                  isActive
+                    ? 'bg-[var(--surface)] text-[var(--text-primary)] shadow-sm'
+                    : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]',
                 )}
               >
-                {Icon && <Icon size={15} className={cn(isActive && 'text-blue-500')} />}
+                {Icon && <Icon size={15} className={cn(isActive && 'text-[var(--primary)]')} />}
                 {tab.label}
               </button>
             );
           })}
         </div>
         {tabs.length > 5 && (
-          <button onClick={() => scroll("right")} className="shrink-0 w-6 h-8 flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded">
+          <button onClick={() => scroll("right")} className="shrink-0 w-6 h-8 flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--surface-sunken)] rounded">
             <ChevronRight size={16} />
           </button>
         )}

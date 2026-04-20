@@ -35,11 +35,15 @@ import {
   Zap,
   Wand2,
   FolderOpen,
+  LogOut,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useStore } from '@/store/useStore';
 import { usePanelStore } from '@/components/panel/lib/panel-store';
+import { useAuth } from '@/hooks/useAuth';
+import type { AlertItem } from '@kiditem/shared';
+import ThemeToggle from './ThemeToggle';
 
 interface MenuItem {
   href: string;
@@ -58,7 +62,7 @@ const menuSections: MenuSection[] = [
     label: '',
     collapsible: false,
     items: [
-      { href: '/', label: '대시보드', icon: LayoutDashboard },
+      { href: '/dashboard', label: '대시보드', icon: LayoutDashboard },
       { href: '/ad-ops', label: '광고전략 AI', icon: Zap },
       { href: '/thumbnails', label: '썸네일 AI', icon: ImageIcon },
       { href: '/action-board', label: '액션 보드', icon: ClipboardList },
@@ -69,6 +73,7 @@ const menuSections: MenuSection[] = [
     collapsible: true,
     items: [
       { href: '/sourcing', label: '소싱/수집', icon: Search },
+      { href: '/china-sourcing', label: '소싱 현황', icon: Building2 },
       { href: '/image-hub', label: '이미지 관리', icon: FolderOpen },
       { href: '/thumbnail-editor', label: '썸네일 편집기', icon: Wand2 },
       { href: '/generate', label: '콘텐츠 생성', icon: Sparkles },
@@ -170,6 +175,7 @@ export default function Sidebar({ onChatToggle, chatOpen }: { onChatToggle?: () 
     (s) => Object.values(s.byId).filter((i) => i.kind === 'run' && i.status === 'failed').length
   );
   const runningCount = usePanelStore((s) => s.runningCount());
+  const { user, logout } = useAuth();
 
   const [openGroups, setOpenGroups] = useState<Set<string>>(() => {
     const active = findActiveSection(pathname);
@@ -220,25 +226,25 @@ export default function Sidebar({ onChatToggle, chatOpen }: { onChatToggle?: () 
       )}
       <aside
         className={cn(
-          'fixed left-0 top-0 z-50 h-screen bg-white border-r border-slate-200 transition-all duration-300 flex flex-col font-sans',
+          'fixed left-0 top-0 z-50 h-screen bg-[var(--surface)] border-r border-[var(--border-subtle)] transition-all duration-300 flex flex-col font-sans overflow-hidden',
           sidebarOpen
             ? 'translate-x-0 w-60 md:translate-x-0 md:w-60'
             : '-translate-x-full w-60 md:translate-x-0 md:w-[68px]'
         )}
       >
         {/* Logo */}
-        <div className="h-14 flex items-center px-5 border-b border-slate-100">
+        <div className="h-14 flex items-center px-5 border-b border-[var(--border-subtle)]">
           {sidebarOpen ? (
             <>
               <Link href="/" className="flex items-center gap-2.5">
-                <div className="w-7 h-7 rounded-lg bg-violet-500 flex items-center justify-center flex-shrink-0">
-                  <span className="text-[12px] font-extrabold text-white">K</span>
+                <div className="w-7 h-7 rounded-lg bg-[var(--primary)] flex items-center justify-center flex-shrink-0">
+                  <span className="text-[12px] font-extrabold text-[var(--primary-contrast)]">K</span>
                 </div>
-                <span className="text-[16px] font-bold text-slate-900 tracking-tight">Kiditem</span>
+                <span className="text-[16px] font-bold text-[var(--text-primary)] tracking-tight">Kiditem</span>
               </Link>
               <button
                 onClick={toggleSidebar}
-                className="ml-auto text-slate-400 hover:text-slate-600 p-1 rounded transition-colors"
+                className="ml-auto text-[var(--text-muted)] hover:text-[var(--text-secondary)] p-1 rounded transition-colors"
               >
                 <PanelLeftClose size={16} />
               </button>
@@ -246,7 +252,7 @@ export default function Sidebar({ onChatToggle, chatOpen }: { onChatToggle?: () 
           ) : (
             <button
               onClick={toggleSidebar}
-              className="mx-auto text-slate-400 hover:text-slate-600 p-1 transition-colors"
+              className="mx-auto text-[var(--text-muted)] hover:text-[var(--text-secondary)] p-1 transition-colors"
             >
               <PanelLeftOpen size={16} />
             </button>
@@ -265,7 +271,7 @@ export default function Sidebar({ onChatToggle, chatOpen }: { onChatToggle?: () 
               <div key={si}>
                 {/* 구분선 */}
                 {!sidebarOpen && si > 0 && (
-                  <div className="mx-3 my-2 border-t border-slate-100" />
+                  <div className="mx-3 my-2 border-t border-[var(--border-subtle)]" />
                 )}
 
                 {/* 그룹 라벨 (접힘식) */}
@@ -275,15 +281,15 @@ export default function Sidebar({ onChatToggle, chatOpen }: { onChatToggle?: () 
                     className="w-full flex items-center justify-between px-5 pt-5 pb-1.5 group transition-colors"
                   >
                     <span className={cn(
-                      'text-[14px] font-medium transition-colors',
-                      hasActiveChild ? 'text-violet-500' : 'text-slate-700 group-hover:text-slate-900'
+                      'text-[11px] font-semibold uppercase tracking-wider transition-colors',
+                      hasActiveChild ? 'text-[var(--primary)]' : 'text-[var(--text-muted)] group-hover:text-[var(--text-tertiary)]'
                     )}>
                       {section.label}
                     </span>
                     <ChevronDown
-                      size={14}
+                      size={12}
                       className={cn(
-                        'text-slate-300 group-hover:text-slate-400 transition-all duration-200',
+                        'text-[var(--text-muted)] group-hover:text-[var(--text-tertiary)] transition-all duration-200',
                         isOpen ? '' : '-rotate-90'
                       )}
                     />
@@ -300,36 +306,60 @@ export default function Sidebar({ onChatToggle, chatOpen }: { onChatToggle?: () 
                   {section.items.map((item) => {
                     const active = isItemActive(item.href, pathname);
                     const Icon = item.icon;
+                    const isDashboard = item.href === '/dashboard';
+
+                    if (isDashboard) {
+                      return (
+                        <Link
+                          key={item.href}
+                          href={item.href}
+                          className={cn(
+                            'group flex items-center gap-3 px-3 py-2.5 rounded-xl text-[14px] font-semibold transition-colors',
+                            'bg-[var(--primary)] text-[var(--primary-contrast)] hover:bg-[var(--primary-hover)]',
+                          )}
+                          title={!sidebarOpen ? item.label : undefined}
+                        >
+                          <Icon size={18} strokeWidth={2.25} className="shrink-0 text-[var(--primary-contrast)]" />
+                          <span
+                            className={cn(
+                              'tracking-tight whitespace-nowrap transition-opacity duration-200',
+                              sidebarOpen ? 'opacity-100' : 'opacity-0',
+                            )}
+                          >
+                            {item.label}
+                          </span>
+                        </Link>
+                      );
+                    }
 
                     return (
                       <Link
                         key={item.href}
                         href={item.href}
                         className={cn(
-                          'group flex items-center gap-3 px-3 py-2 rounded-lg text-[14px] transition-all duration-100 relative',
+                          'group flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors',
                           active
-                            ? 'bg-violet-50 text-slate-900'
-                            : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50',
-                          !sidebarOpen && 'justify-center px-0'
+                            ? 'bg-[var(--primary-soft)] text-[var(--primary)] font-semibold'
+                            : 'text-[var(--text-secondary)] hover:bg-[var(--surface-sunken)] hover:text-[var(--text-primary)] font-medium',
                         )}
                         title={!sidebarOpen ? item.label : undefined}
                       >
-                        {active && (
-                          <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-violet-500 rounded-r" />
-                        )}
                         <Icon
                           size={18}
-                          strokeWidth={active ? 2 : 1.5}
+                          strokeWidth={active ? 2 : 1.75}
                           className={cn(
                             'shrink-0 transition-colors',
-                            active ? 'text-violet-500' : 'text-slate-400 group-hover:text-slate-500'
+                            active ? 'text-[var(--primary)]' : 'text-[var(--text-muted)] group-hover:text-[var(--text-secondary)]'
                           )}
                         />
-                        {sidebarOpen && (
-                          <span className={active ? 'font-semibold' : 'font-medium'}>
-                            {item.label}
-                          </span>
-                        )}
+                        <span
+                          className={cn(
+                            'whitespace-nowrap transition-opacity duration-200',
+                            sidebarOpen ? 'opacity-100' : 'opacity-0',
+                          )}
+                        >
+                          {item.label}
+                        </span>
                       </Link>
                     );
                   })}
@@ -340,7 +370,7 @@ export default function Sidebar({ onChatToggle, chatOpen }: { onChatToggle?: () 
         </nav>
 
         {/* Bottom pinned — Agent OS + 설정 */}
-        <div className="border-t border-slate-100 px-3 py-2 space-y-0.5">
+        <div className="border-t border-[var(--border-subtle)] px-3 py-2 space-y-0.5">
           {menuSections[menuSections.length - 1].items.map((item) => {
             const active = isItemActive(item.href, pathname);
             const Icon = item.icon;
@@ -350,30 +380,29 @@ export default function Sidebar({ onChatToggle, chatOpen }: { onChatToggle?: () 
                 key={item.href}
                 href={item.href}
                 className={cn(
-                  'group flex items-center gap-3 px-3 py-2 rounded-lg text-[14px] transition-all duration-100 relative',
+                  'group flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors',
                   active
-                    ? 'bg-violet-50 text-slate-900'
-                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50',
-                  !sidebarOpen && 'justify-center px-0'
+                    ? 'bg-[var(--primary-soft)] text-[var(--primary)] font-semibold'
+                    : 'text-[var(--text-secondary)] hover:bg-[var(--surface-sunken)] hover:text-[var(--text-primary)] font-medium',
                 )}
                 title={!sidebarOpen ? item.label : undefined}
               >
-                {active && (
-                  <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-violet-500 rounded-r" />
-                )}
                 <Icon
                   size={18}
-                  strokeWidth={active ? 2 : 1.5}
+                  strokeWidth={active ? 2 : 1.75}
                   className={cn(
                     'shrink-0 transition-colors',
-                    active ? 'text-violet-500' : 'text-slate-400 group-hover:text-slate-500'
+                    active ? 'text-[var(--primary)]' : 'text-[var(--text-muted)] group-hover:text-[var(--text-secondary)]'
                   )}
                 />
-                {sidebarOpen && (
-                  <span className={active ? 'font-semibold' : 'font-medium'}>
-                    {item.label}
-                  </span>
-                )}
+                <span
+                  className={cn(
+                    'whitespace-nowrap transition-opacity duration-200',
+                    sidebarOpen ? 'opacity-100' : 'opacity-0',
+                  )}
+                >
+                  {item.label}
+                </span>
               </Link>
             );
           })}
@@ -381,46 +410,95 @@ export default function Sidebar({ onChatToggle, chatOpen }: { onChatToggle?: () 
           <button
             onClick={() => setPanelOpen(true)}
             className={cn(
-              'w-full group flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-100',
-              !sidebarOpen && 'justify-center px-0'
+              'w-full group flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-sunken)] hover:text-[var(--text-primary)] transition-colors',
             )}
             title={!sidebarOpen ? '알림' : undefined}
           >
             <div className="relative shrink-0">
-              <Bell size={18} strokeWidth={1.5} className="text-slate-400 group-hover:text-slate-500 transition-colors" />
+              <Bell size={18} strokeWidth={1.75} className="text-[var(--text-muted)] group-hover:text-[var(--text-secondary)] transition-colors" />
               {unreadAlertCount > 0 && (
-                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] font-bold rounded-full min-w-[14px] h-[14px] flex items-center justify-center px-0.5">
+                <span className="absolute -top-1 -right-1 bg-[var(--danger)] text-white text-[9px] font-bold rounded-full min-w-[14px] h-[14px] flex items-center justify-center px-0.5">
                   {unreadAlertCount > 99 ? '99+' : unreadAlertCount}
                 </span>
               )}
               {runningCount > 0 && (
-                <span className="absolute -bottom-1 -right-1 w-2 h-2 rounded-full bg-violet-500 animate-pulse" />
+                <span className="absolute -bottom-1 -right-1 w-2 h-2 rounded-full bg-[var(--primary)] animate-pulse" />
               )}
             </div>
-            {sidebarOpen && <span className="font-medium">알림</span>}
+            <span
+              className={cn(
+                'whitespace-nowrap transition-opacity duration-200',
+                sidebarOpen ? 'opacity-100' : 'opacity-0',
+              )}
+            >
+              알림
+            </span>
           </button>
           {/* AI 챗 토글 */}
           {onChatToggle && (
             <button
               onClick={onChatToggle}
               className={cn(
-                'group flex items-center gap-3 px-3 py-2 rounded-lg text-[14px] transition-all duration-100 relative w-full',
+                'group flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors w-full',
                 chatOpen
-                  ? 'bg-violet-50 text-violet-700'
-                  : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50',
-                !sidebarOpen && 'justify-center px-0'
+                  ? 'bg-[var(--primary-soft)] text-[var(--primary)] font-semibold'
+                  : 'text-[var(--text-secondary)] hover:bg-[var(--surface-sunken)] hover:text-[var(--text-primary)] font-medium',
               )}
               title={!sidebarOpen ? 'AI 챗' : undefined}
             >
               <MessageSquare
                 size={18}
-                strokeWidth={chatOpen ? 2 : 1.5}
+                strokeWidth={chatOpen ? 2 : 1.75}
                 className={cn(
                   'shrink-0 transition-colors',
-                  chatOpen ? 'text-violet-500' : 'text-slate-400 group-hover:text-slate-500'
+                  chatOpen ? 'text-[var(--primary)]' : 'text-[var(--text-muted)] group-hover:text-[var(--text-secondary)]'
                 )}
               />
-              {sidebarOpen && <span className={chatOpen ? 'font-semibold' : 'font-medium'}>AI 챗</span>}
+              <span
+                className={cn(
+                  'whitespace-nowrap transition-opacity duration-200',
+                  sidebarOpen ? 'opacity-100' : 'opacity-0',
+                )}
+              >
+                AI 챗
+              </span>
+            </button>
+          )}
+          {/* Theme toggle */}
+          <div
+            className={cn(
+              'flex items-center px-3 py-2 gap-2',
+              sidebarOpen ? 'justify-between' : 'justify-start',
+            )}
+          >
+            <span
+              className={cn(
+                'text-xs font-medium text-[var(--text-tertiary)] whitespace-nowrap transition-opacity duration-200',
+                sidebarOpen ? 'opacity-100' : 'opacity-0',
+              )}
+            >
+              테마
+            </span>
+            <ThemeToggle collapsed={!sidebarOpen} />
+          </div>
+          {user && (
+            <button
+              onClick={logout}
+              className={cn(
+                'group flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-[var(--text-secondary)] hover:text-[var(--danger)] hover:bg-[var(--surface-sunken)] transition-colors w-full font-medium',
+              )}
+              title={!sidebarOpen ? `${user.email} 로그아웃` : undefined}
+            >
+              <LogOut size={18} strokeWidth={1.75} className="shrink-0" />
+              <span
+                className={cn(
+                  'truncate flex-1 text-left whitespace-nowrap transition-opacity duration-200',
+                  sidebarOpen ? 'opacity-100' : 'opacity-0',
+                )}
+              >
+                <span className="block text-xs text-[var(--text-muted)] truncate font-normal">{user.email}</span>
+                <span>로그아웃</span>
+              </span>
             </button>
           )}
         </div>

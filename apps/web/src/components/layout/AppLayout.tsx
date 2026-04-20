@@ -9,6 +9,7 @@ import Sidebar from './Sidebar';
 import { PanelSheet } from '@/components/panel/PanelSheet';
 import { PanelErrorBoundary } from '@/components/panel/PanelErrorBoundary';
 import { usePanelStream } from '@/components/panel/hooks/usePanelStream';
+import ReadinessModal from '@/components/ReadinessModal';
 
 const CopilotChat = dynamic(() => import('./CopilotChat'), { ssr: false });
 
@@ -27,12 +28,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     if (btn) btn.click();
   }, []);
 
-  if (pathname.includes('/editor')) {
+  if (pathname.includes('/editor') || pathname.startsWith('/login') || pathname === '/' || pathname.startsWith('/agent-os')) {
     return <>{children}</>;
   }
 
   const content = (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-[var(--background)]">
       <Sidebar onChatToggle={toggleChat} chatOpen={chatOpen} />
       <div
         className={cn(
@@ -45,6 +46,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <PanelErrorBoundary>
         <PanelMount />
       </PanelErrorBoundary>
+      <ReadinessModal />
     </div>
   );
 

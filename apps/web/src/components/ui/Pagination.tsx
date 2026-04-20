@@ -18,15 +18,15 @@ export function Pagination({ page, limit, total, onPageChange }: PaginationProps
   const end = Math.min(page * limit, total);
 
   return (
-    <div className="flex items-center justify-between px-4 py-3 border-t border-slate-200">
-      <span className="text-sm text-slate-500">
+    <div className="flex items-center justify-between px-4 py-3 border-t border-[var(--border)]">
+      <span className="text-sm text-[var(--text-tertiary)]">
         {total}건 중 {start}-{end}
       </span>
       <div className="flex items-center gap-1">
         <button
           onClick={() => onPageChange(Math.max(1, page - 1))}
           disabled={page === 1}
-          className="p-1.5 rounded hover:bg-slate-100 disabled:opacity-30"
+          className="p-1.5 rounded text-[var(--text-secondary)] hover:bg-[var(--surface-sunken)] disabled:opacity-30"
         >
           <ChevronLeft size={16} />
         </button>
@@ -37,7 +37,12 @@ export function Pagination({ page, limit, total, onPageChange }: PaginationProps
             <button
               key={pageNum}
               onClick={() => onPageChange(pageNum)}
-              className={cn('w-8 h-8 rounded text-sm', page === pageNum ? 'bg-purple-600 text-white' : 'hover:bg-slate-100')}
+              className={cn(
+                'w-8 h-8 rounded text-sm',
+                page === pageNum
+                  ? 'bg-[var(--primary)] text-[var(--primary-contrast)]'
+                  : 'text-[var(--text-secondary)] hover:bg-[var(--surface-sunken)]'
+              )}
             >
               {pageNum}
             </button>
@@ -46,7 +51,7 @@ export function Pagination({ page, limit, total, onPageChange }: PaginationProps
         <button
           onClick={() => onPageChange(Math.min(totalPages, page + 1))}
           disabled={page >= totalPages}
-          className="p-1.5 rounded hover:bg-slate-100 disabled:opacity-30"
+          className="p-1.5 rounded text-[var(--text-secondary)] hover:bg-[var(--surface-sunken)] disabled:opacity-30"
         >
           <ChevronRight size={16} />
         </button>

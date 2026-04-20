@@ -1,7 +1,7 @@
 import { cn } from '@/lib/utils';
 
 function Bone({ className }: { className?: string }) {
-  return <div className={cn('bg-slate-100 rounded', className)} />;
+  return <div className={cn('bg-[var(--surface-sunken)] rounded', className)} />;
 }
 
 interface Props {
@@ -100,9 +100,9 @@ function ListSkeleton() {
         ))}
       </div>
       <Bone className="h-3 w-20" />
-      <div className="border border-slate-100 rounded-lg overflow-hidden">
+      <div className="border border-[var(--border-subtle)] rounded-lg overflow-hidden">
         {[1, 2, 3, 4, 5].map((i) => (
-          <div key={i} className="flex items-center gap-3 px-4 py-3 border-b border-slate-50 last:border-0">
+          <div key={i} className="flex items-center gap-3 px-4 py-3 border-b border-[var(--border-subtle)] last:border-0">
             <Bone className="w-2.5 h-2.5 rounded-full shrink-0" />
             <Bone className="w-8 h-8 rounded-lg shrink-0" />
             <div className="flex-1 space-y-1.5">
@@ -128,7 +128,7 @@ function DetailSkeleton() {
           <Bone className="h-4 w-72" />
         </div>
       </div>
-      <div className="flex gap-4 border-b border-slate-100 pb-3">
+      <div className="flex gap-4 border-b border-[var(--border-subtle)] pb-3">
         {[1, 2, 3, 4].map((i) => (
           <Bone key={i} className="h-5 w-16" />
         ))}

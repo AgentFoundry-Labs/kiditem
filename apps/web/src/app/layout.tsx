@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 import AppLayout from "@/components/layout/AppLayout";
 import QueryProvider from "@/components/providers/QueryProvider";
-import { Toaster } from "sonner";
+import ThemedToaster from "@/components/layout/ThemedToaster";
+import { ThemeProvider } from "next-themes";
 
 export const metadata: Metadata = {
   title: "KidItem Workflow AutoSystem",
@@ -15,7 +16,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="ko">
+    <html lang="ko" suppressHydrationWarning>
       <head>
         <link
           rel="stylesheet"
@@ -27,10 +28,17 @@ export default function RootLayout({
       <body
         className="antialiased"
       >
-        <QueryProvider>
-          <AppLayout>{children}</AppLayout>
-        </QueryProvider>
-        <Toaster richColors position="top-right" />
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="system"
+          enableSystem
+          disableTransitionOnChange
+        >
+          <QueryProvider>
+            <AppLayout>{children}</AppLayout>
+          </QueryProvider>
+          <ThemedToaster />
+        </ThemeProvider>
       </body>
     </html>
   );

@@ -1,6 +1,7 @@
 import type { Config } from "tailwindcss";
 
 const config: Config = {
+  darkMode: 'class',
   content: [
     "./src/**/*.{js,ts,jsx,tsx,mdx}",
   ],
@@ -13,11 +14,26 @@ const config: Config = {
       colors: {
         background: "var(--background)",
         foreground: "var(--foreground)",
-        card: "var(--card)",
-        "card-foreground": "var(--card-foreground)",
+        surface: "var(--surface)",
+        "surface-sunken": "var(--surface-sunken)",
+        "surface-raised": "var(--surface-raised)",
+        card: "var(--surface)",
+        "card-foreground": "var(--text-primary)",
         border: "var(--border)",
-        accent: "var(--accent)",
-        muted: "var(--muted)",
+        "border-subtle": "var(--border-subtle)",
+        "border-strong": "var(--border-strong)",
+        accent: "var(--primary)",
+        muted: "var(--text-muted)",
+        "text-primary": "var(--text-primary)",
+        "text-secondary": "var(--text-secondary)",
+        "text-tertiary": "var(--text-tertiary)",
+        "text-muted": "var(--text-muted)",
+        primary: "var(--primary)",
+        "primary-hover": "var(--primary-hover)",
+        "primary-soft": "var(--primary-soft)",
+        success: "var(--success)",
+        warning: "var(--warning)",
+        danger: "var(--danger)",
       },
       animation: {
         'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
