@@ -15,6 +15,8 @@ function makePrisma() {
     },
     settlement: {
       findMany: vi.fn().mockResolvedValue([]),
+      // T8 IDOR fix — update path 는 findFirst({id, companyId}) 경유. findUnique 는 레거시 (이 spec 외 무사용).
+      findFirst: vi.fn(),
       findUnique: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
@@ -96,13 +98,16 @@ describe('SettlementsService — settlement create and update flow', () => {
     expect(result).toEqual(created);
   });
 
-  it('update settlement → updates fields when found', async () => {
+  it('update settlement → updates fields when found (findFirst + companyId scope)', async () => {
     const existing = { id: 's-1', companyId: 'company-1', period: '2026-01', status: 'pending' };
-    prisma.settlement.findUnique.mockResolvedValue(existing);
+    prisma.settlement.findFirst.mockResolvedValue(existing);
     prisma.settlement.update.mockResolvedValue({ ...existing, actualAmount: 2950000, status: 'confirmed' });
 
-    const result = await service.update('s-1', { actualAmount: 2950000, status: 'confirmed' } as any);
+    const result = await service.update('s-1', 'company-1', { actualAmount: 2950000, status: 'confirmed' } as any);
 
+    expect(prisma.settlement.findFirst).toHaveBeenCalledWith({
+      where: { id: 's-1', companyId: 'company-1' },
+    });
     expect(prisma.settlement.update).toHaveBeenCalledWith({
       where: { id: 's-1' },
       data: expect.objectContaining({ actualAmount: 2950000, status: 'confirmed' }),
@@ -110,12 +115,12 @@ describe('SettlementsService — settlement create and update flow', () => {
     expect((result as any).status).toBe('confirmed');
   });
 
-  it('update non-existent settlement → throws BadRequestException', async () => {
-    prisma.settlement.findUnique.mockResolvedValue(null);
+  it('update non-existent settlement → throws BadRequestException (IDOR path)', async () => {
+    prisma.settlement.findFirst.mockResolvedValue(null);
 
-    await expect(service.update('non-existent', { actualAmount: 1000 } as any)).rejects.toThrow(
-      BadRequestException,
-    );
+    await expect(
+      service.update('non-existent', 'company-1', { actualAmount: 1000 } as any),
+    ).rejects.toThrow(BadRequestException);
     expect(prisma.settlement.update).not.toHaveBeenCalled();
   });
 });

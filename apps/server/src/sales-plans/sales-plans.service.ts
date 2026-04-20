@@ -1,5 +1,6 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { kstMonthStart } from '../common/kst';
 import { CreateSalesPlanDto, UpdateSalesPlanDto } from './dto';
 
 @Injectable()
@@ -39,8 +40,10 @@ export class SalesPlansService {
     });
   }
 
-  async update(id: string, dto: UpdateSalesPlanDto) {
-    const existing = await this.prisma.salesPlan.findUnique({ where: { id } });
+  async update(id: string, companyId: string, dto: UpdateSalesPlanDto) {
+    const existing = await this.prisma.salesPlan.findFirst({
+      where: { id, companyId },
+    });
     if (!existing) {
       throw new NotFoundException('판매 계획을 찾을 수 없습니다');
     }
@@ -51,21 +54,25 @@ export class SalesPlansService {
     });
   }
 
-  async syncActuals(id: string) {
-    const plan = await this.prisma.salesPlan.findUnique({ where: { id } });
+  async syncActuals(id: string, companyId: string) {
+    const plan = await this.prisma.salesPlan.findFirst({
+      where: { id, companyId },
+    });
     if (!plan) {
       throw new NotFoundException('판매 계획을 찾을 수 없습니다');
     }
 
     const [year, month] = plan.period.split('-').map(Number);
+    const periodStart = kstMonthStart(year, month);
+    const periodEnd = kstMonthStart(year, month + 1);
 
-    // Aggregate actuals from Order
+    // Aggregate actuals from Order (KST month boundary)
     const orderAgg = await this.prisma.order.aggregate({
       where: {
-        companyId: plan.companyId,
+        companyId,
         orderedAt: {
-          gte: new Date(year, month - 1, 1),
-          lt: new Date(year, month, 1),
+          gte: periodStart,
+          lt: periodEnd,
         },
         status: { notIn: ['cancelled', 'returned'] },
       },
@@ -76,7 +83,7 @@ export class SalesPlansService {
     // Aggregate actuals from ProfitLoss
     const plAgg = await this.prisma.profitLoss.aggregate({
       where: {
-        companyId: plan.companyId,
+        companyId,
         year,
         month,
       },
@@ -93,8 +100,10 @@ export class SalesPlansService {
     });
   }
 
-  async delete(id: string) {
-    const existing = await this.prisma.salesPlan.findUnique({ where: { id } });
+  async delete(id: string, companyId: string) {
+    const existing = await this.prisma.salesPlan.findFirst({
+      where: { id, companyId },
+    });
     if (!existing) {
       throw new NotFoundException('판매 계획을 찾을 수 없습니다');
     }

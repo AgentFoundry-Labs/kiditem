@@ -18,17 +18,21 @@ export class SalesPlansController {
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() dto: UpdateSalesPlanDto) {
-    return this.salesPlansService.update(id, dto);
+  update(
+    @Param('id') id: string,
+    @CurrentCompany() companyId: string,
+    @Body() dto: UpdateSalesPlanDto,
+  ) {
+    return this.salesPlansService.update(id, companyId, dto);
   }
 
   @Patch(':id/sync')
-  syncActuals(@Param('id') id: string) {
-    return this.salesPlansService.syncActuals(id);
+  syncActuals(@Param('id') id: string, @CurrentCompany() companyId: string) {
+    return this.salesPlansService.syncActuals(id, companyId);
   }
 
   @Delete(':id')
-  delete(@Param('id') id: string) {
-    return this.salesPlansService.delete(id);
+  delete(@Param('id') id: string, @CurrentCompany() companyId: string) {
+    return this.salesPlansService.delete(id, companyId);
   }
 }

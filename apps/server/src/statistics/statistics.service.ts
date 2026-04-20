@@ -1,20 +1,21 @@
 import { Injectable } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
+import type {
+  StatisticsOverview,
+  StatisticsProductRow,
+  StatisticsCategoryRow,
+  StatisticsGradeRow,
+  StatisticsParetoResponse,
+  StatisticsRepurchaseResponse,
+  StatisticsDeliveryResponse,
+} from '@kiditem/shared';
 import { PrismaService } from '../prisma/prisma.service';
+import { LISTING_WITH_MASTER_SELECT_EXTENDED } from '../common/listing-select';
+import { kstMonthStart } from '../common/kst';
 
 @Injectable()
 export class StatisticsService {
   constructor(private readonly prisma: PrismaService) {}
-
-  private buildPeriodFilter(period?: string) {
-    if (!period) return {};
-    const [year, month] = period.split('-').map(Number);
-    return {
-      orderedAt: {
-        gte: new Date(year, month - 1, 1),
-        lt: new Date(year, month, 1),
-      },
-    };
-  }
 
   private buildPlPeriodFilter(period?: string) {
     if (!period) return {};
@@ -34,7 +35,9 @@ export class StatisticsService {
           orderCount: true,
         },
       }),
-      this.prisma.product.count({ where: { companyId } }),
+      this.prisma.masterProduct.count({
+        where: { companyId, isDeleted: false },
+      }),
     ]);
 
     const totalRevenue = agg._sum.revenue ?? 0;
@@ -48,7 +51,7 @@ export class StatisticsService {
       totalProfit,
       avgMargin: Math.round(avgMargin * 10000) / 10000,
       totalProducts,
-    };
+    } satisfies StatisticsOverview;
   }
 
   async products(companyId: string, period?: string) {
@@ -57,25 +60,21 @@ export class StatisticsService {
     const records = await this.prisma.profitLoss.findMany({
       where: plWhere,
       include: {
-        product: {
-          select: {
-            id: true,
-            name: true,
-            category: true,
-            abcGrade: true,
-            thumbnailUrl: true,
-          },
-        },
+        listing: { select: LISTING_WITH_MASTER_SELECT_EXTENDED },
       },
       orderBy: { revenue: 'desc' },
     });
 
     return records.map((r) => ({
-      productId: r.productId,
-      productName: r.product.name,
-      category: r.product.category,
-      grade: r.product.abcGrade,
-      thumbnailUrl: r.product.thumbnailUrl,
+      listingId: r.listingId,
+      externalId: r.listing.externalId,
+      channelName: r.listing.channelName,
+      masterId: r.listing.master.id,
+      masterCode: r.listing.master.code,
+      productName: r.listing.master.name,
+      category: r.listing.master.category,
+      grade: r.listing.master.abcGrade,
+      thumbnailUrl: r.listing.master.thumbnailUrl,
       totalRevenue: r.revenue,
       netProfit: r.netProfit,
       orderCount: r.orderCount,
@@ -85,7 +84,7 @@ export class StatisticsService {
       margin: r.revenue > 0
         ? Math.round((r.netProfit / r.revenue) * 10000) / 10000
         : 0,
-    }));
+    } satisfies StatisticsProductRow));
   }
 
   async categories(companyId: string, period?: string) {
@@ -94,14 +93,14 @@ export class StatisticsService {
     const records = await this.prisma.profitLoss.findMany({
       where: plWhere,
       include: {
-        product: { select: { category: true } },
+        listing: { select: { master: { select: { category: true } } } },
       },
     });
 
     const categoryMap = new Map<string, { revenue: number; orders: number; profit: number }>();
 
     for (const r of records) {
-      const cat = r.product.category ?? '미분류';
+      const cat = r.listing.master.category ?? '미분류';
       const entry = categoryMap.get(cat) ?? { revenue: 0, orders: 0, profit: 0 };
       entry.revenue += r.revenue;
       entry.orders += r.orderCount;
@@ -115,7 +114,7 @@ export class StatisticsService {
         name: category,
         ...data,
         count: data.orders,
-      }))
+      } satisfies StatisticsCategoryRow))
       .sort((a, b) => b.revenue - a.revenue);
   }
 
@@ -188,19 +187,22 @@ export class StatisticsService {
         orderedAt: { gte: thirtyDaysAgo, lte: now },
         status: { notIn: ['cancelled', 'returned'] },
       },
-      select: { orderedAt: true, totalPrice: true, quantity: true },
+      select: {
+        orderedAt: true,
+        totalPrice: true,
+        lineItems: { select: { quantity: true } },
+      },
     });
 
     const orderDailyMap = new Map<string, { orders: number; revenue: number; qty: number }>();
     for (const o of dailyOrders) {
-      if (o.orderedAt) {
-        const key = o.orderedAt.toISOString().slice(0, 10);
-        const entry = orderDailyMap.get(key) ?? { orders: 0, revenue: 0, qty: 0 };
-        entry.orders += 1;
-        entry.revenue += o.totalPrice ?? 0;
-        entry.qty += o.quantity ?? 0;
-        orderDailyMap.set(key, entry);
-      }
+      if (!o.orderedAt) continue;
+      const key = o.orderedAt.toISOString().slice(0, 10);
+      const entry = orderDailyMap.get(key) ?? { orders: 0, revenue: 0, qty: 0 };
+      entry.orders += 1;
+      entry.revenue += o.totalPrice ?? 0;
+      entry.qty += o.lineItems.reduce((s, li) => s + li.quantity, 0);
+      orderDailyMap.set(key, entry);
     }
 
     const daily = Array.from(dailyMap.entries()).map(([date, count]) => {
@@ -213,7 +215,7 @@ export class StatisticsService {
       avgDeliveryDays,
       courierDistribution,
       daily,
-    };
+    } satisfies StatisticsDeliveryResponse;
   }
 
   async grades(companyId: string, period?: string) {
@@ -222,14 +224,14 @@ export class StatisticsService {
     const records = await this.prisma.profitLoss.findMany({
       where: plWhere,
       include: {
-        product: { select: { abcGrade: true } },
+        listing: { select: { master: { select: { abcGrade: true } } } },
       },
     });
 
     const gradeMap = new Map<string, { revenue: number; profit: number; productCount: number; adCost: number }>();
 
     for (const r of records) {
-      const grade = r.product.abcGrade ?? 'N/A';
+      const grade = r.listing.master.abcGrade ?? 'N/A';
       const entry = gradeMap.get(grade) ?? { revenue: 0, profit: 0, productCount: 0, adCost: 0 };
       entry.revenue += r.revenue;
       entry.profit += r.netProfit;
@@ -246,7 +248,7 @@ export class StatisticsService {
         count: data.productCount,
         productCount: data.productCount,
         adCost: data.adCost,
-      }))
+      } satisfies StatisticsGradeRow))
       .sort((a, b) => b.revenue - a.revenue);
   }
 
@@ -256,7 +258,12 @@ export class StatisticsService {
     const records = await this.prisma.profitLoss.findMany({
       where: plWhere,
       include: {
-        product: { select: { id: true, name: true, abcGrade: true } },
+        listing: {
+          select: {
+            id: true,
+            master: { select: { id: true, name: true, abcGrade: true } },
+          },
+        },
       },
       orderBy: { revenue: 'desc' },
     });
@@ -273,12 +280,12 @@ export class StatisticsService {
       const cumulativePercent = totalRevenue > 0
         ? Math.round((cumulativeRevenue / totalRevenue) * 1000) / 10
         : 0;
-      const currentGrade = r.product.abcGrade ?? 'N/A';
+      const currentGrade = r.listing.master.abcGrade ?? 'N/A';
       const suggestedGrade = cumulativePercent <= 70 ? 'A' : cumulativePercent <= 90 ? 'B' : 'C';
       return {
-        id: r.productId,
+        id: r.listingId,
         rank: index + 1,
-        name: r.product.name,
+        name: r.listing.master.name,
         currentGrade,
         suggestedGrade,
         gradeMatch: currentGrade === suggestedGrade,
@@ -302,68 +309,76 @@ export class StatisticsService {
       gradeDistribution,
       mismatchCount,
       data: fullParetoItems,
-    };
+    } satisfies StatisticsParetoResponse;
   }
 
   async repurchase(companyId: string, period?: string) {
-    const where: Record<string, unknown> = { companyId };
-
+    const whereOrder: Prisma.OrderWhereInput = {
+      companyId,
+      status: { notIn: ['cancelled', 'returned'] },
+    };
     if (period) {
       const [year, month] = period.split('-').map(Number);
-      where.orderedAt = {
-        gte: new Date(year, month - 1, 1),
-        lt: new Date(year, month, 1),
+      whereOrder.orderedAt = {
+        gte: kstMonthStart(year, month),
+        lt: kstMonthStart(year, month + 1),
       };
     }
 
+    // customer-level aggregate (receiver 기반) — 기존 동작 유지 (Order.totalPrice/orderedAt/receiverName)
     const orders = await this.prisma.order.findMany({
-      where: {
-        ...where,
-        status: { notIn: ['cancelled', 'returned'] },
-      },
+      where: whereOrder,
       select: { receiverName: true, totalPrice: true, orderedAt: true },
     });
 
-    // repeatProducts
-    const productOrders = await this.prisma.order.findMany({
+    // master-level repeat products — listingOption → listing → master 경유
+    const lines = await this.prisma.orderLineItem.findMany({
       where: {
-        ...where,
-        status: { notIn: ['cancelled', 'returned'] },
-        productId: { not: null },
+        order: whereOrder,
+        listingOptionId: { not: null },
       },
       select: {
-        productId: true,
-        receiverName: true,
-        product: { select: { name: true, category: true } },
+        order: { select: { receiverName: true } },
+        listingOption: {
+          select: {
+            listing: {
+              select: {
+                masterId: true,
+                master: { select: { name: true, category: true } },
+              },
+            },
+          },
+        },
       },
     });
 
-    const productCustomerMap = new Map<string, { productName: string; category: string | null; customers: Set<string>; orderCount: number }>();
-    for (const o of productOrders) {
-      if (!o.productId) continue;
-      const entry = productCustomerMap.get(o.productId) ?? {
-        productName: o.product?.name ?? '',
-        category: o.product?.category ?? null,
+    const masterMap = new Map<string, { productName: string; category: string | null; customers: Set<string>; orderCount: number }>();
+    for (const l of lines) {
+      const mid = l.listingOption?.listing?.masterId;
+      if (!mid) continue;
+      const entry = masterMap.get(mid) ?? {
+        productName: l.listingOption?.listing?.master.name ?? '',
+        category: l.listingOption?.listing?.master.category ?? null,
         customers: new Set<string>(),
         orderCount: 0,
       };
-      if (o.receiverName) entry.customers.add(o.receiverName);
+      if (l.order.receiverName) entry.customers.add(l.order.receiverName);
       entry.orderCount += 1;
-      productCustomerMap.set(o.productId, entry);
+      masterMap.set(mid, entry);
     }
 
-    const repeatProducts = Array.from(productCustomerMap.entries())
+    const repeatProducts = Array.from(masterMap.entries())
       .filter(([, v]) => v.customers.size >= 2)
       .sort((a, b) => b[1].orderCount - a[1].orderCount)
       .slice(0, 20)
-      .map(([productId, v]) => ({
-        productId,
+      .map(([masterId, v]) => ({
+        masterId,
         productName: v.productName,
         category: v.category,
         orderCount: v.orderCount,
       }));
 
-    // Count orders per receiver
+    // customer-level (receiver) — 기존 로직 유지
     const receiverMap = new Map<string, { count: number; totalAmount: number; lastOrder: Date | null }>();
     for (const o of orders) {
       const name = o.receiverName ?? '';
@@ -401,6 +416,6 @@ export class StatisticsService {
       totalOrders: orders.length,
       repeatProducts,
       repeatCustomers,
-    };
+    } satisfies StatisticsRepurchaseResponse;
   }
 }

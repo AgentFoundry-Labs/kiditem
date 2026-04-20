@@ -31,7 +31,11 @@ export class SettlementsController {
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() dto: UpdateSettlementDto) {
-    return this.settlementsService.update(id, dto);
+  update(
+    @Param('id') id: string,
+    @CurrentCompany() companyId: string,
+    @Body() dto: UpdateSettlementDto,
+  ) {
+    return this.settlementsService.update(id, companyId, dto);
   }
 }
