@@ -20,13 +20,17 @@ import { EventEmitter2, EventEmitterModule } from '@nestjs/event-emitter';
 import { lastValueFrom } from 'rxjs';
 import { take, toArray } from 'rxjs/operators';
 
+import type { PanelRunItem, PanelAlertItem } from '@kiditem/shared';
 import { PanelSseService } from '../events/panel-sse.service';
 import { PANEL_EVENTS, PanelUpsertInternal } from '../events/panel-events';
 import { PrismaService } from '../../prisma/prisma.service';
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
-function baseRunItem(overrides: Partial<PanelUpsertInternal['item']> = {}): PanelUpsertInternal['item'] {
+type RunItem = Omit<PanelRunItem, 'seq' | 'updatedAt'>;
+type AlertItem = Omit<PanelAlertItem, 'seq' | 'updatedAt'>;
+
+function baseRunItem(overrides: Partial<RunItem> = {}): RunItem {
   return {
     id: 'workflow:run-1',
     kind: 'run',
@@ -39,50 +43,42 @@ function baseRunItem(overrides: Partial<PanelUpsertInternal['item']> = {}): Pane
     visibility: 'company',
     createdAt: '2026-04-16T00:00:00.000Z',
     ...overrides,
-  } as PanelUpsertInternal['item'];
-}
-
-function alertPayload(
-  overrides: Partial<{
-    companyId: string;
-    id: string;
-    severity: string;
-    type: string;
-    title: string;
-    message: string | null;
-    productId: string | null;
-    isRead: boolean;
-    actorUserId: string | null;
-    createdAt: string;
-  }> = {},
-): PanelUpsertInternal {
-  const { companyId = 'co-1', ...itemOverrides } = overrides;
-  return {
-    companyId,
-    item: {
-      kind: 'alert',
-      id: 'alert-1',
-      severity: 'warning',
-      type: 'low_ctr',
-      title: '클릭률 낮음',
-      message: '최근 7일 CTR 0.3%',
-      productId: null,
-      isRead: false,
-      actorUserId: null,
-      createdAt: '2026-04-16T00:00:00.000Z',
-      ...itemOverrides,
-    } as PanelUpsertInternal['item'],
   };
 }
 
-function workflowPayload(overrides: Partial<PanelUpsertInternal['item']> = {}): PanelUpsertInternal {
+function alertPayload(
+  overrides: Partial<AlertItem & { companyId: string }> = {},
+): PanelUpsertInternal {
+  const { companyId = 'co-1', ...itemOverrides } = overrides;
+  const item: AlertItem = {
+    kind: 'alert',
+    id: 'alert-1',
+    severity: 'warning',
+    type: 'low_ctr',
+    title: '클릭률 낮음',
+    message: '최근 7일 CTR 0.3%',
+    targetType: null,
+    targetId: null,
+    isRead: false,
+    actionTaskId: null,
+    actorUserId: null,
+    createdAt: '2026-04-16T00:00:00.000Z',
+    ...itemOverrides,
+  };
+  return {
+    companyId,
+    item,
+  };
+}
+
+function workflowPayload(overrides: Partial<RunItem> = {}): PanelUpsertInternal {
   return {
     companyId: 'co-1',
     item: baseRunItem({ id: 'workflow:run-1', source: 'workflow', sourceId: 'run-1', ...overrides }),
   };
 }
 
-function agentPayload(overrides: Partial<PanelUpsertInternal['item']> = {}): PanelUpsertInternal {
+function agentPayload(overrides: Partial<RunItem> = {}): PanelUpsertInternal {
   return {
     companyId: 'co-1',
     item: baseRunItem({
@@ -96,7 +92,7 @@ function agentPayload(overrides: Partial<PanelUpsertInternal['item']> = {}): Pan
   };
 }
 
-function imagePayload(overrides: Partial<PanelUpsertInternal['item']> = {}): PanelUpsertInternal {
+function imagePayload(overrides: Partial<RunItem> = {}): PanelUpsertInternal {
   return {
     companyId: 'co-1',
     item: baseRunItem({
