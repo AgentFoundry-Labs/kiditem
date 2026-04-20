@@ -14,6 +14,34 @@ export interface DayRevenue {
   profitRate?: number;
 }
 
+/**
+ * Pricing 원천 — ProductOption. ChannelListing.master.options[0] 을 대표 옵션으로 사용.
+ * 멀티 option listing 은 TrafficStats 가 listing 단위 집계라 첫 option 기준으로 충분.
+ * option 이 0 개이면 pricing 없음 → row skip (아래 profit 루프에서 처리).
+ *
+ * NOTE: ProductOption 에는 costCny 필드가 없음 (MasterProduct 에만 있음). resolvePricing 의
+ * costCny 경로는 사용되지 않고 option.costPrice (Int, KRW) 를 직접 사용.
+ */
+const LISTING_PRICING_SELECT = {
+  id: true,
+  master: {
+    select: {
+      options: {
+        where: { isDeleted: false },
+        select: {
+          costPrice: true,
+          sellPrice: true,
+          commissionRate: true,
+          shippingCost: true,
+          otherCost: true,
+        },
+        orderBy: { sortOrder: 'asc' },
+        take: 1,
+      },
+    },
+  },
+} as const;
+
 @Injectable()
 export class TrafficService {
   constructor(private readonly prisma: PrismaService) {}
@@ -69,15 +97,17 @@ export class TrafficService {
       );
     }
 
-    const products = await this.prisma.product.findMany({
-      where: { companyId, coupangProductId: { not: null } },
-      select: { id: true, coupangProductId: true },
+    // Coupang 의 '등록상품ID' 는 ChannelListing.externalId 에 해당.
+    // CSV upload 는 Coupang 전용이므로 channel='coupang' 로 제한.
+    const listings = await this.prisma.channelListing.findMany({
+      where: { companyId, isDeleted: false, channel: 'coupang' },
+      select: { id: true, externalId: true },
     });
-    const productMap = new Map(
-      products.map((p) => [p.coupangProductId!, p.id]),
+    const listingMap = new Map<string, string>(
+      listings.map((l) => [l.externalId, l.id]),
     );
 
-    const today = new Date().toISOString().slice(0, 10);
+    const todayStr = new Date().toISOString().slice(0, 10);
 
     const parseNum = (val: unknown): number => {
       if (val === null || val === undefined) return 0;
@@ -85,21 +115,20 @@ export class TrafficService {
       return isNaN(n) ? 0 : n;
     };
 
-    const aggregated = new Map<
-      string,
-      {
-        productId: string;
-        periodDays: number;
-        visitors: number;
-        views: number;
-        cartAdds: number;
-        orders: number;
-        salesQty: number;
-        revenue: number;
-        conversionRate: number;
-        date: string;
-      }
-    >();
+    type AggregatedRow = {
+      listingId: string;
+      periodDays: number;
+      visitors: number;
+      views: number;
+      cartAdds: number;
+      orders: number;
+      salesQty: number;
+      revenue: number;
+      conversionRate: number;
+      date: string; // 'YYYY-MM-DD' — upsert 시 Date 로 변환
+    };
+
+    const aggregated = new Map<string, AggregatedRow>();
 
     let skipped = 0;
 
@@ -110,17 +139,17 @@ export class TrafficService {
         continue;
       }
 
-      const productId = productMap.get(cpId);
-      if (!productId) {
+      const listingId = listingMap.get(cpId);
+      if (!listingId) {
         skipped++;
         continue;
       }
 
       const date = colDate
-        ? String(row[colDate] || today).slice(0, 10)
-        : today;
+        ? String(row[colDate] || todayStr).slice(0, 10)
+        : todayStr;
       const periodDays = 7;
-      const key = `${productId}::${date}::${periodDays}`;
+      const key = `${listingId}::${date}::${periodDays}`;
 
       const visitors = parseNum(colVisitors ? row[colVisitors] : 0);
       const views = parseNum(colViews ? row[colViews] : 0);
@@ -139,7 +168,7 @@ export class TrafficService {
         existing.revenue += revenue;
       } else {
         aggregated.set(key, {
-          productId,
+          listingId,
           date,
           periodDays,
           visitors,
@@ -163,12 +192,13 @@ export class TrafficService {
     const dataArr = [...aggregated.values()];
     if (dataArr.length > 0) {
       await this.prisma.$transaction(
-        dataArr.map((d) =>
-          this.prisma.trafficStats.upsert({
+        dataArr.map((d) => {
+          const dateObj = new Date(d.date);
+          return this.prisma.trafficStats.upsert({
             where: {
-              productId_date_periodDays: {
-                productId: d.productId,
-                date: d.date,
+              listingId_date_periodDays: {
+                listingId: d.listingId,
+                date: dateObj,
                 periodDays: d.periodDays,
               },
             },
@@ -181,9 +211,21 @@ export class TrafficService {
               revenue: d.revenue,
               conversionRate: d.conversionRate,
             },
-            create: d,
-          }),
-        ),
+            create: {
+              listingId: d.listingId,
+              companyId,
+              date: dateObj,
+              periodDays: d.periodDays,
+              visitors: d.visitors,
+              views: d.views,
+              cartAdds: d.cartAdds,
+              orders: d.orders,
+              salesQty: d.salesQty,
+              revenue: d.revenue,
+              conversionRate: d.conversionRate,
+            },
+          });
+        }),
       );
     }
 
@@ -224,7 +266,7 @@ export class TrafficService {
     const prevStart = new Date(start.getTime() - duration);
     const prevEnd = start;
 
-    const [cur, prev, productRows] = await Promise.all([
+    const [cur, prev, listingRows] = await Promise.all([
       this.prisma.trafficStats.aggregate({
         _sum: { revenue: true, orders: true, salesQty: true, visitors: true, views: true, cartAdds: true },
         where: { periodDays: 1, date: { gte: start, lt: end } },
@@ -233,13 +275,14 @@ export class TrafficService {
         _sum: { revenue: true, orders: true, salesQty: true, visitors: true },
         where: { periodDays: 1, date: { gte: prevStart, lt: prevEnd } },
       }),
-      // 기간 내 상품별 revenue/salesQty 집계 (수익 계산용)
-      this.prisma.$queryRaw<{ product_id: string; revenue: number; sales_qty: number; orders_count: number }[]>`
-        SELECT product_id, SUM(revenue)::int AS revenue, SUM(sales_qty)::int AS sales_qty,
+      // 기간 내 listing 별 revenue/salesQty 집계 (수익 계산용).
+      // column rename: product_id → listing_id, table: traffic_stats 유지.
+      this.prisma.$queryRaw<{ listing_id: string; revenue: number; sales_qty: number; orders_count: number }[]>`
+        SELECT listing_id, SUM(revenue)::int AS revenue, SUM(sales_qty)::int AS sales_qty,
                SUM(orders)::int AS orders_count
         FROM traffic_stats
         WHERE period_days = 1 AND date >= ${start} AND date < ${end}
-        GROUP BY product_id
+        GROUP BY listing_id
       `,
     ]);
 
@@ -248,38 +291,33 @@ export class TrafficService {
     const orders = cur._sum.orders ?? 0;
     const prevOrders = prev._sum.orders ?? 0;
 
-    // 수익 계산 — product pricing 조회
+    // 수익 계산 — listing → master.options[0] pricing 조회
     let netProfit: number | undefined;
     let profitRate: number | undefined;
     let costCoverage: number | undefined;
 
-    if (productRows.length > 0) {
-      const productIds = productRows.map((r) => r.product_id);
-      const products = await this.prisma.product.findMany({
-        where: { id: { in: productIds } },
-        select: {
-          id: true,
-          costPrice: true,
-          costCny: true,
-          commissionRate: true,
-          shippingCost: true,
-          masterProduct: { select: { costPrice: true, commissionRate: true } },
-        },
+    if (listingRows.length > 0) {
+      const listingIds = listingRows.map((r) => r.listing_id);
+      const listings = await this.prisma.channelListing.findMany({
+        where: { id: { in: listingIds }, isDeleted: false },
+        select: LISTING_PRICING_SELECT,
       });
-      const productMap = new Map(products.map((p) => [p.id, p]));
+      const listingMap = new Map(listings.map((l) => [l.id, l]));
 
       let totalNetProfit = 0;
       let revenueWithCost = 0;
 
-      for (const row of productRows) {
+      for (const row of listingRows) {
         const salesQty = Number(row.sales_qty) || 0;
         const rowRevenue = Number(row.revenue) || 0;
         if (salesQty === 0) continue;
 
-        const prod = productMap.get(row.product_id);
-        if (!prod) continue;
+        const listing = listingMap.get(row.listing_id);
+        if (!listing) continue;
+        const option = listing.master.options[0];
+        if (!option) continue; // options 비어있으면 pricing 없음 → skip
 
-        const resolved = resolvePricing({ option: prod });
+        const resolved = resolvePricing({ option });
         // commissionRate: Decimal(5,4) = 0.108 형식 (분수), /100 하지 않음
         const commRate = resolved.commissionRate || 0.108;
         // shippingCost는 주문 단위 고정비 — orders_count 기준으로 곱해야 과계산 방지
@@ -288,7 +326,8 @@ export class TrafficService {
           rowRevenue -
           resolved.costPrice * salesQty -
           rowRevenue * commRate -
-          (prod.shippingCost ? Number(prod.shippingCost) : 0) * ordersCount;
+          resolved.shippingCost * ordersCount -
+          resolved.otherCost * salesQty;
 
         totalNetProfit += rowNetProfit;
         if (!resolved.isCostMissing) {
@@ -324,7 +363,7 @@ export class TrafficService {
     const end = new Date(year, month, 0); // 해당 월 마지막 날
     const endExclusive = new Date(year, month, 1);
 
-    const [rows, productRows] = await Promise.all([
+    const [rows, listingRows] = await Promise.all([
       this.prisma.trafficStats.groupBy({
         by: ['date'],
         where: {
@@ -339,50 +378,47 @@ export class TrafficService {
         },
         orderBy: { date: 'asc' },
       }),
-      // 월간 상품별 집계 (수익 계산용)
-      this.prisma.$queryRaw<{ product_id: string; date: string; revenue: number; sales_qty: number; orders_count: number }[]>`
-        SELECT product_id, date::text AS date, SUM(revenue)::int AS revenue, SUM(sales_qty)::int AS sales_qty,
+      // 월간 listing 별 집계 (수익 계산용).
+      // column rename: product_id → listing_id.
+      this.prisma.$queryRaw<{ listing_id: string; date: string; revenue: number; sales_qty: number; orders_count: number }[]>`
+        SELECT listing_id, date::text AS date, SUM(revenue)::int AS revenue, SUM(sales_qty)::int AS sales_qty,
                SUM(orders)::int AS orders_count
         FROM traffic_stats
         WHERE period_days = 1 AND date >= ${start} AND date < ${endExclusive}
-        GROUP BY product_id, date
+        GROUP BY listing_id, date
       `,
     ]);
 
-    // 상품 pricing 조회
-    const productIds = [...new Set(productRows.map((r) => r.product_id))];
-    const products =
-      productIds.length > 0
-        ? await this.prisma.product.findMany({
-            where: { id: { in: productIds } },
-            select: {
-              id: true,
-              costPrice: true,
-              costCny: true,
-              commissionRate: true,
-              shippingCost: true,
-              masterProduct: { select: { costPrice: true, commissionRate: true } },
-            },
+    // listing pricing 조회 (master.options[0] 기반)
+    const listingIds = [...new Set(listingRows.map((r) => r.listing_id))];
+    const listings =
+      listingIds.length > 0
+        ? await this.prisma.channelListing.findMany({
+            where: { id: { in: listingIds }, isDeleted: false },
+            select: LISTING_PRICING_SELECT,
           })
         : [];
-    const productMap = new Map(products.map((p) => [p.id, p]));
+    const listingMap = new Map(listings.map((l) => [l.id, l]));
 
     // 일별 netProfit 집계
     const dailyProfitMap = new Map<string, number>();
-    for (const row of productRows) {
+    for (const row of listingRows) {
       const salesQty = Number(row.sales_qty) || 0;
       const rowRevenue = Number(row.revenue) || 0;
       if (salesQty === 0) continue;
-      const prod = productMap.get(row.product_id);
-      if (!prod) continue;
-      const resolved = resolvePricing({ option: prod });
+      const listing = listingMap.get(row.listing_id);
+      if (!listing) continue;
+      const option = listing.master.options[0];
+      if (!option) continue;
+      const resolved = resolvePricing({ option });
       const commRate = resolved.commissionRate || 0.108;
       const ordersCount = Number(row.orders_count) || salesQty;
       const rowNetProfit =
         rowRevenue -
         resolved.costPrice * salesQty -
         rowRevenue * commRate -
-        (prod.shippingCost ? Number(prod.shippingCost) : 0) * ordersCount;
+        resolved.shippingCost * ordersCount -
+        resolved.otherCost * salesQty;
       const dateKey = typeof row.date === 'string' ? row.date.slice(0, 10) : new Date(row.date).toISOString().slice(0, 10);
       dailyProfitMap.set(dateKey, (dailyProfitMap.get(dateKey) ?? 0) + rowNetProfit);
     }
