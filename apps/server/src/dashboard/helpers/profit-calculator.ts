@@ -18,30 +18,50 @@ export interface RangeProfitMetrics {
 }
 
 /**
- * Period profit (Order + Product based, realtime).
- * Extracted from dashboard.service.ts (calculateProfitForRange).
+ * Period profit — v2 I3 Canonical aggregation on `OrderLineItem.totalPrice`
+ * (not `Order.totalPrice`). The Plan A.5 schema removed `Order.product` and
+ * `Order.quantity`; revenue / costs must now be summed per-lineItem.
+ *
+ * v2 invariants applied:
+ *  - I3: revenue = SUM(OrderLineItem.totalPrice) (lineItem-level canonical)
+ *  - I7: companyId filter (ADR-0006 multi-tenant isolation)
+ *  - I8: half-open range `orderedAt >= from && orderedAt < to` (never `lte`)
+ *  - C-08: v2 nested-only resolver — `resolvePricing({ option })`
+ *
+ * Note (shippingCost over-count — Plan D deferred): currently accumulates
+ * `resolved.shippingCost` **per-lineItem**. For an order with N lineItems this
+ * over-counts shipping by up to Nx when shipping is really order-level. Plan D
+ * (§4.6 spec note) will reintroduce order-level shipping once the canonical
+ * field exists on `Order`.
  */
 export async function calculateProfitForRange(
   prisma: PrismaService,
+  companyId: string,
   from: Date,
   to: Date,
 ): Promise<RangeProfitMetrics> {
   const orders = await prisma.order.findMany({
     where: {
-      orderedAt: { gte: from, lt: to },
+      companyId, // v2 I7 — ADR-0006 IDOR scope (previously absent)
+      orderedAt: { gte: from, lt: to }, // v2 I8 half-open
       status: { notIn: ['cancelled', 'returned', 'refunded'] },
     },
     select: {
-      totalPrice: true,
-      quantity: true,
-      product: {
+      lineItems: {
         select: {
-          costPrice: true,
-          costCny: true,
-          commissionRate: true,
-          shippingCost: true,
-          otherCost: true,
-          masterProduct: { select: { costPrice: true, commissionRate: true } },
+          quantity: true,
+          totalPrice: true,
+          option: {
+            select: {
+              // costCny lives on MasterProduct (not ProductOption) — skip here.
+              // option-pricing-resolver treats missing costCny as nullish and
+              // falls back to option.costPrice which is the canonical KRW cost.
+              costPrice: true,
+              commissionRate: true,
+              shippingCost: true,
+              otherCost: true,
+            },
+          },
         },
       },
     },
@@ -52,25 +72,19 @@ export async function calculateProfitForRange(
   let commission = 0;
   let shippingCost = 0;
   let otherCost = 0;
-  let orderCount = 0;
+  const orderCount = orders.length;
 
   for (const o of orders) {
-    const amt = o.totalPrice || 0;
-    const qty = o.quantity || 0;
-    const p = o.product;
-
-    revenue += amt;
-    orderCount++;
-
-    if (!p) continue; // productId nullable → product null이면 비용 스킵
-
-    const resolved = resolvePricing({ option: p });
-    // commissionRate는 Decimal(5,4) = 0.108 (분수). /100 하지 않음
-    const commRate = resolved.commissionRate || 0.108;
-    costOfGoods += resolved.costPrice * qty;
-    commission += amt * commRate;
-    shippingCost += p.shippingCost || 0;
-    otherCost += (p.otherCost || 0) * qty;
+    for (const li of o.lineItems) {
+      revenue += li.totalPrice || 0; // I3: lineItem-level canonical
+      const p = li.option;
+      if (!p) continue; // option nullable — no pricing resolve possible
+      const resolved = resolvePricing({ option: p }); // v2 nested-only (C-08)
+      costOfGoods += resolved.costPrice * li.quantity;
+      commission += (li.totalPrice || 0) * resolved.commissionRate;
+      shippingCost += resolved.shippingCost; // per-lineItem (Plan D defer note above)
+      otherCost += resolved.otherCost * li.quantity;
+    }
   }
 
   // 광고비: 현재 기간이면 AdSnapshot → 일할계산, 폴백은 Ad 테이블

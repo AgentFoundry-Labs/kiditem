@@ -19,7 +19,7 @@ export class DashboardAdService {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  async getSummary(ctx: DashboardContext): Promise<DashboardAdSummary> {
+  async getSummary(ctx: DashboardContext, companyId: string): Promise<DashboardAdSummary> {
     try {
       const { year, month, monthStart, monthEnd, prevMonthDate, dateRange, now } = ctx;
 
@@ -55,14 +55,14 @@ export class DashboardAdService {
           GROUP BY 1
           ORDER BY 1
         `,
-        // Current month profit (Order-based)
-        calculateProfitForRange(this.prisma, monthStart, monthEnd),
+        // Current month profit (Order-based, v2 I3 lineItem canonical)
+        calculateProfitForRange(this.prisma, companyId, monthStart, monthEnd),
         // Previous month profit (Order-based)
-        calculateProfitForRange(this.prisma, prevMonthDate, monthStart),
+        calculateProfitForRange(this.prisma, companyId, prevMonthDate, monthStart),
         // Range profit current period (legacy L326: rangeProfitCur.adCost for rangeKpi)
-        calculateProfitForRange(this.prisma, dateRange.start, dateRange.end),
+        calculateProfitForRange(this.prisma, companyId, dateRange.start, dateRange.end),
         // Range profit previous period (legacy L344: rangeProfitPrev.adCost for prevAdCost)
-        calculateProfitForRange(this.prisma, dateRange.prevStart, dateRange.prevEnd),
+        calculateProfitForRange(this.prisma, companyId, dateRange.prevStart, dateRange.prevEnd),
         // Wing adSummary snapshot
         fetchWingAdSummary(this.prisma, year, month, monthStart),
       ]);
