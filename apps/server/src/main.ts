@@ -9,6 +9,8 @@ import { NestExpressApplication, ExpressAdapter } from '@nestjs/platform-express
 import type { Request, Response } from 'express';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const express = require('express') as () => import('express').Express;
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const cookieParser = require('cookie-parser') as () => (req: Request, res: Response, next: () => void) => void;
 import { AppModule } from './app.module';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 import { ChatService } from './chat/chat.service';
@@ -18,6 +20,7 @@ async function bootstrap() {
   // NestFactory 가 만든 default ExpressAdapter 를 쓰면 미들웨어가 Nest router
   // 뒤에 쌓여 `/api/chat/copilot/...` 이 Nest 의 404 에 먼저 잡힘.
   const expressApp = express();
+  expressApp.use(cookieParser());
 
   // ChatService 는 Nest 초기화 후에만 resolve 가능 — lazy ref 로 주입.
   let chatServiceRef: ChatService | null = null;
@@ -52,6 +55,7 @@ async function bootstrap() {
           'http://localhost:3002',
           /^http:\/\/localhost:\d+$/,
         ],
+    credentials: true,
   });
   app.useBodyParser('json', { limit: '5mb' });
   app.setGlobalPrefix('api');

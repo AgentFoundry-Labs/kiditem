@@ -28,6 +28,9 @@ export class DevAuthMiddleware implements NestMiddleware {
   }
 
   async use(req: Request, _res: Response, next: NextFunction): Promise<void> {
+    // SupabaseAuthMiddleware 가 먼저 authUser 를 세팅했으면 override 금지.
+    if (req.authUser) return next();
+
     const header = req.headers['x-dev-user-id'];
     const headerValue = Array.isArray(header) ? header[0] : header;
     // SSE용 쿼리 파라미터 fallback — EventSource 는 커스텀 헤더를 보낼 수 없다.
