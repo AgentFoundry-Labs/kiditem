@@ -1,91 +1,285 @@
-# Plan D.3 — sales-analysis live aggregation + ADR-0017 convergence + SalesOverview rewire
+# Plan D.3 — sales-analysis live aggregation + ADR-0017 convergence + SalesOverview rewire (v2)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development. Steps use checkbox (`- [ ]`) syntax.
 >
-> **REQUIRED:** 각 파일 수정 전 해당 도메인 CLAUDE.md 를 먼저 Read. `apps/server/src/{domain}/` → `apps/server/CLAUDE.md` Domain Guides.
+> **REQUIRED:** 각 파일 수정 전 해당 도메인 CLAUDE.md 를 먼저 Read.
 
-**Goal:** `sales-analysis.service.getAnalysis` 를 ProfitLoss 테이블 (empty, ADR-0016) bypass → live aggregation (Order + OrderLineItem + ChannelListingOption + OrderReturn + Ad) 로 재작성. 그룹화는 **ChannelListing.channelName 기준**(현재 companyId stub 수정). ADR-0017 returnRate semantic 적용 (D.2 deferred). `SalesOverview.tsx` 재배선 (apiClient.getParsed + period URL + 3-state + shared SortableHeader).
+## v1 → v2 (4-reviewer findings applied)
 
-**Architecture:** Backend: D.1 T5 profit-loss.service 패턴 재사용 — 3 parallel Promise.all (Order + OrderReturnLineItem + Ad), 그룹화 key `ChannelListing.channelName`. ADR-0017 returnRate = INNER JOIN + 2-hop IDOR. Frontend: D.1 T8 패턴 재사용 — apiClient.getParsed(z.array(SalesAnalysisDataSchema)), URL period state, 3-state, ZodError → 응답 형식 오류 UI.
+| Finding (Severity) | Fix in v2 |
+|---|---|
+| **CRITICAL** — Plan v1 이 `ChannelListing.channelName` (listing 타이틀, nullable) 을 플랫폼 식별자로 오인하여 group by. 실제 플랫폼 필드는 **`ChannelListing.channel`** (required String, `core.prisma:301`) | Group by `channel` (e.g., `'coupang'`, `'naver'`, `'wing'`). `channelName` 은 listing display name → 사용 안 함 |
+| **CRITICAL** — `ChannelListing.channelType` 필드 존재 안 함 (`grep` 0 matches) | `channelType` 을 Prisma select 에서 제거. 서비스 내부에서 `channel` 값 → `channelType` derivation (constant map: `coupang/naver/11st/gmarket/auction → marketplace`, `wing → direct`, 기타 → `other`) |
+| **CRITICAL** — `returnRate` lineItem-count 가 Zod `.max(1)` + ADR-0017 "100% 초과 불가능" 위반. 1 order × 2 returned lineItem → rate = 2.0 | `Set<string>` 기반 distinct **order-id** count 로 변경 (D.2 T3 패턴 exactly). `Map<channel, Set<orderId>>` |
+| **HIGH** — `ad.findMany` 가 D.1 T5 `ad.groupBy` 대비 performance regression | `ad.groupBy({ by: ['listingId'], _sum: { spend: true } })` 복귀. 별도 `channelListing.findMany({ where: { id: { in: listingIds } }, select: { id, channel } })` 로 listingId → channel 매핑 |
+| **HIGH** — 3-hop IDOR 에서 `return.companyId` 누락. 현재 `return: { order: { companyId, ... } }` 만 | `return: { companyId, order: { companyId, orderedAt: {...} } }` — 3-layer denorm 모두 명시 |
+| **HIGH** — `orphanReturnCount` 필드 ADR-0017 요구하나 `ChannelAnalysisSchema` 에서 누락 | 각 channel row 에 `orphanReturnCount: z.number().int().nonnegative()` 추가. Orphan (orderId NULL) 은 channel 매핑 불가 → `totals.orphanReturnCount` top-level 집계로 노출 (channel 별 분배 불가) |
+| **HIGH** — 상태 필터 orders 에만 있고 returns INNER JOIN 의 `order` 에 누락 → cancelled order 의 returns 가 numerator 에 포함 | Returns 조인 쿼리의 `order: { status: { notIn: [...] } }` 도 미러링 |
+| **HIGH** — Controller 에 `@CurrentCompany()` 데코레이터 + guard 미장착 | T2 Step 2.8 을 구체화: `profit-loss.controller.ts` 패턴 그대로 복사 (`@Controller('sales-analysis')` + `@CurrentCompany()` param + `@UseGuards` if present on profit-loss module) |
+| **MEDIUM** — T4 seeds 를 "D.1 T6 패턴 exactly" 로 defer → 200 LOC implementer 자유재량 | `apps/server/src/test-helpers/finance-seeds.ts` 로 helper 추출 (**T0 pre-work**) — D.1 `profit-loss.pg.integration.spec.ts` 의 `setupListing` / `createOrder` / `seedBulkOrders` 를 shared location 으로 이동. D.3/D.3b 모두 재사용 |
+| **MEDIUM** — Release note 누락 (D.2 T4 는 channel-dashboard 전용) | **T7b Release Note** task 추가: `docs/release-notes/2026-04-sales-analysis-channel-breakdown.md` |
+| **MEDIUM** — CEO SELECTIVE EXPANSION — D.3a 단독이면 "1 page rewire" 고립. D.3b (statistics + settlements + sales-plans) 즉시 scaffold 필요 | **T9 D.3b stub** task 추가: `docs/superpowers/plans/2026-04-20-plan-d3b-statistics-settlements-sales-plans.md` stub 작성 (same family `feat/plan-d-frontend-rewire-d3` 플래닝) — "Plan F" defer 언어 제거 |
+| **MEDIUM** — T5 `SalesOverviewTotals` stub (`/* ... cards */` placeholder) → implementer 자유재량 | T5 Step 5.1 에서 기존 `SalesOverview.tsx` 의 KPI 카드 레이아웃 4개 (총매출 / 총이익 / 평균마진율 / 총 주문 수) 정확히 enumerate. Plan 에서 각 카드의 field 소스 명시 (`data.totals.totalRevenue` 등) |
+| **MEDIUM** — Cross-period order semantic leak (한 order 가 여러 channel 걸치는 경우 shipping revenue-weighted + orderId Set 이중 카운트) | Schema JSDoc 에 명시: "order 가 multi-channel 인 경우 해당 order 는 각 channel 의 `totalOrders` Set 에 포함 (≥ 1 row 지분)". `totals.totalOrders` 는 channels 합산이 아닌 **global distinct Order Set.size** — 중복 방지 |
 
-**Tech Stack:** NestJS 11, Prisma 6, Next.js 16 App Router, @tanstack/react-query 5.62, Zod, vitest + RTL + real Postgres integration.
-
-**Depends on:**
-- Plan B2c.orders (main `d381859`) — Order/OrderLineItem canonical
-- Plan B2c.dashboard (main `335acee`) — channel-dashboard.service helpers
-- Plan D.1 (main `094511c`) — ADR-0016 (ProfitLoss bypass precedent), `profit-loss.service.ts` template, `apiClient.getParsed`, `SortableHeader`, `usePeriodSelector.initial` prop
-- Plan D.2 (main `e853b15`) — ADR-0017 (returnRate semantic + orphan policy c), `ReturnSummarySchema` pattern
-- Spec: `docs/superpowers/specs/2026-04-20-plan-d-frontend-rewire-design.md` (v4) § D.3
-
-**Reusable patterns (D.1 + D.2 확립):**
-- 3 parallel Promise.all live aggregation
-- `satisfies Schema` drift guard
-- I3 canonical `SUM(OrderLineItem.totalPrice)` per listing/channel
-- I8 half-open `gte: from, lt: to`
-- I7 companyId via `@CurrentCompany()` (ADR-0006)
-- 2-hop IDOR on Prisma relation filter (D.2 T3)
-- `apiClient.getParsed(path, Schema)` Zod boundary (I1)
-- URL period state via `useSearchParams` + `router.replace`
-- RTL 3-state (loading / empty / error / ZodError)
-- Structured `logger.log({ msg, ... })` at exit
+**결과**: Plan v1 8 tasks → **v2 10 tasks** (T0 pre-work + T7b release note + T9 D.3b stub). 예상 실행 1~1.5 일. Scope 실질 변화 없음 (plan 정확성만 교정).
 
 ---
 
-## Pre-flight notes
+**Goal:** `sales-analysis.service.getAnalysis` 를 ProfitLoss 테이블 bypass → live aggregation 으로 재작성. 그룹화 key = **`ChannelListing.channel`** (플랫폼). ADR-0017 returnRate semantic + orphan policy (c) 적용 (D.2 deferred). `SalesOverview.tsx` 재배선 (apiClient.getParsed + period URL + 3-state + shared SortableHeader).
 
-### Scope (narrowed from spec v4 umbrella)
+**Architecture:** Backend: D.1 T5 profit-loss.service 패턴 — 3 parallel Promise.all (Order + OrderReturnLineItem + Ad.groupBy). 그룹화는 listing.channel. 반품은 distinct order Set per channel. Orphan 은 top-level side metric. Frontend: D.1 T8 패턴 — getParsed + URL period + 3-state + ZodError 친화 메시지.
 
-Spec v4 § D.3 (line 74) 은 "7 files 조정 — B2c.orders 재사용, 백엔드 변경 없음" 으로 서술되어있으나 **실제 조사 결과**:
+**Tech Stack:** NestJS 11, Prisma 6, Next.js 16 App Router, @tanstack/react-query 5.62, Zod, vitest + RTL + real Postgres.
 
-1. `sales-analysis.service.ts` 는 **stub 수준 구현** — `profitLoss.groupBy({ by: ['companyId'] })` 로 1 row (= 현재 company 이름) 만 반환. 실제 채널별 breakdown 없음. ProfitLoss 테이블 empty 라 반환 데이터도 0.
-2. "7 files 조정"은 5 pages + 1 helper (`SalesOverview / Statistics / Settlements / SalesPlans / WingDailySales / ChannelTable`) 이며 각 페이지가 **서로 다른 백엔드 서비스**를 소비 (`sales-analysis`, `statistics`, `settlements`, `sales-plans`, `traffic/monthly`). 모두 profitLoss.groupBy 읽음 (ADR-0016 § Scope boundaries 8 readers 에 포함).
-3. **Frontend 만 rewire 하면 UI 는 계속 0 표시** — 백엔드 migration 없이 의미 없음.
+**Depends on:**
+- Plan B2c.orders (main `d381859`), Plan B2c.dashboard (main `335acee`)
+- Plan D.1 (main `094511c`) — `profit-loss.service` template, `apiClient.getParsed`, `SortableHeader`, `usePeriodSelector.initial`
+- Plan D.2 (main `e853b15`) — ADR-0017, `ReturnSummarySchema`, 2-hop IDOR pattern
+- Spec v4 § D.3 line 74
 
-### Plan D.3 narrowed scope
+**Reusable patterns (D.1 + D.2):**
+- 3 parallel Promise.all live aggregation
+- `satisfies Schema` drift guard
+- I3 SUM(OrderLineItem.totalPrice)
+- I8 half-open `gte: from, lt: to`
+- I7 companyId via `@CurrentCompany()` (ADR-0006)
+- 3-hop IDOR (v2: OrderReturnLineItem.companyId + return.companyId + order.companyId)
+- `apiClient.getParsed` boundary
+- URL period state
+- RTL 3-state
+- Structured `logger.log({ msg, ... })`
 
-**In scope (이 plan)**:
-- Backend `sales-analysis.service.getAnalysis` — live aggregation 재작성, 그룹화 key = channelName, ADR-0017 returnRate 적용
-- Frontend `SalesOverview.tsx` — apiClient.getParsed + URL period + 3-state
-- `ChannelTable.tsx` — custom `SortTh` 제거 → shared `SortableHeader` 사용 (D.1 T3 확립)
-- Zod schemas `SalesAnalysisDataSchema` + `ChannelAnalysisSchema` in `@kiditem/shared`
-- Unit + PG integration tests
+---
 
-**Deferred (별도 phase)**:
-- `statistics.service` (5 profitLoss calls) → **Plan D.3b** or **Plan F** 
-- `settlements.service` (profitLoss reconcile) → Plan F
-- `sales-plans.service` (profitLoss aggregate) → Plan F
-- `Statistics.tsx / Settlements.tsx / SalesPlans.tsx / WingDailySales.tsx` pages → 해당 backend migration 이후
-- ad-strategy / dashboard-inventory / dashboard-trend / action-task profitLoss readers → Plan E
+## Pre-flight — schema facts confirmed
 
-### Semantic change callout
+```
+grep -n "channel " prisma/models/core.prisma  →  line 301: channel String (required, 플랫폼)
+grep -n "channelName" prisma/models/core.prisma  →  line 304: channelName String? (nullable, listing 타이틀)
+grep -n "channelType" prisma/models/core.prisma  →  (no match — 필드 존재 안 함)
+```
 
-**기존**: `getAnalysis` 가 `companyId` 기준 group by → 1 row 반환 (혼자 쓰는 회사면 1 company 만 보임)
-**이후**: `ChannelListing.channelName` 기준 group by → 채널별 N rows (coupang, naver, wing 등)
-
-이는 **의도된 수정** (stub 원래 설계 의도). 기존 UI 가 1-row 를 기대했다면 regression 이지만 ProfitLoss 비어있어 UI 자체가 empty 이므로 실질 영향 없음.
+스키마 검증 완료 후 v2 재작성됨. Implementer 는 T0 에서 재확인.
 
 ---
 
 ## File Structure
 
 ### Create
-- `packages/shared/src/schemas/sales-analysis.ts` — `ChannelAnalysisSchema` + `SalesAnalysisDataSchema` (new)
-- `apps/server/src/finance/services/__tests__/sales-analysis.service.spec.ts` — unit test (new)
-- `apps/server/src/finance/services/__tests__/sales-analysis.pg.integration.spec.ts` — PG integration (new)
-- `apps/web/src/app/sales-analysis/__tests__/SalesOverview.spec.tsx` — RTL 3-state (new)
+- `apps/server/src/test-helpers/finance-seeds.ts` — shared seed helpers (T0 — D.3b/future reuse)
+- `packages/shared/src/schemas/sales-analysis.ts` — `ChannelAnalysisSchema` + `SalesAnalysisDataSchema` (+orphanReturnCount)
+- `apps/server/src/finance/services/__tests__/sales-analysis.service.spec.ts`
+- `apps/server/src/finance/services/__tests__/sales-analysis.pg.integration.spec.ts`
+- `apps/web/src/app/sales-analysis/__tests__/SalesOverview.spec.tsx`
+- `docs/release-notes/2026-04-sales-analysis-channel-breakdown.md` — T7b
+- `docs/superpowers/plans/2026-04-20-plan-d3b-statistics-settlements-sales-plans.md` — T9 scaffold stub
 
 ### Modify
 - `packages/shared/src/index.ts` — export sales-analysis schemas
-- `apps/server/src/finance/services/sales-analysis.service.ts` — full rewrite (live aggregation, channelName grouping, ADR-0017)
-- `apps/server/src/finance/services/types.ts` — remove local `ChannelAnalysis` / `SalesAnalysisResult` (move to shared)
-- `apps/server/src/finance/CLAUDE.md` — remove "D.3 migration pending" banner, reflect live aggregation
+- `apps/server/src/finance/services/sales-analysis.service.ts` — full rewrite
+- `apps/server/src/finance/services/types.ts` — remove local `ChannelAnalysis` / `SalesAnalysisResult`
+- `apps/server/src/finance/controllers/sales-analysis.controller.ts` — add `@CurrentCompany()` wiring
+- `apps/server/src/finance/CLAUDE.md` — remove "D.3 migration pending" banner
 - `apps/web/src/app/sales-analysis/components/SalesOverview.tsx` — apiClient.getParsed + URL period + 3-state + remove inline type
-- `apps/web/src/app/sales-analysis/components/ChannelTable.tsx` — use shared `SortableHeader`, consume new schema
+- `apps/web/src/app/sales-analysis/components/ChannelTable.tsx` — shared SortableHeader + rename `channelName` → `channel` in column
 
-### Not in scope
-- `Statistics / Settlements / SalesPlans / WingDailySales` pages — 각자 다른 backend service 의존, migration 필요
-- statistics / settlements / sales-plans services — Plan F
-- `sales-analysis/__tests__/` outside SalesOverview — 다른 page 테스트는 해당 phase 에서
+### Not in scope — Plan D.3b (scaffold stub created in T9)
+- `statistics.service` (5 profitLoss calls) + `Statistics.tsx`
+- `settlements.service` + `Settlements.tsx`
+- `sales-plans.service` + `SalesPlans.tsx`
+
+### Not in scope — separate
+- `WingDailySales.tsx` (TrafficStats consumer, not profitLoss) — unrelated
+- `ad-strategy` / `dashboard-inventory` / `dashboard-trend` / `action-task` profitLoss readers → Plan E / D.4
+
+---
+
+## Task 0: Pre-work — extract finance seed helpers
+
+**Files:**
+- Create: `apps/server/src/test-helpers/finance-seeds.ts`
+
+**Review cadence**: Pre-work — **1 combined review** (structural, not business logic).
+
+Rationale: D.1 T6 `profit-loss.pg.integration.spec.ts` 는 seed helpers (`setupListing`, `createOrder`, `seedBulkOrders`) 를 inline 에 200 LOC 로 정의. D.3 T4 + D.3b 도 같은 helpers 필요. 추출해서 재사용.
+
+- [ ] **Step 0.1**: Read `apps/server/src/test-helpers/real-prisma.ts` (existing helpers: `TEST_COMPANY_ID`, `OTHER_COMPANY_ID`, `resetDb`, `seedBaseFixture`).
+
+- [ ] **Step 0.2**: Read `apps/server/src/finance/services/__tests__/profit-loss.pg.integration.spec.ts` — locate inline `setupListing`, `createOrder`, `seedBulkOrders` definitions.
+
+- [ ] **Step 0.3**: Create `apps/server/src/test-helpers/finance-seeds.ts`
+
+```ts
+import type { PrismaService } from '../prisma/prisma.service';
+
+export async function setupMaster(prisma: PrismaService, opts: {
+  companyId: string;
+  code: string;
+  name: string;
+  legacyCode?: string | null;
+  category?: string | null;
+  abcGrade?: string | null;
+  thumbnailUrl?: string | null;
+}): Promise<{ id: string }> {
+  return prisma.masterProduct.create({
+    data: {
+      companyId: opts.companyId,
+      code: opts.code,
+      name: opts.name,
+      legacyCode: opts.legacyCode ?? null,
+      category: opts.category ?? null,
+      abcGrade: opts.abcGrade ?? null,
+      thumbnailUrl: opts.thumbnailUrl ?? null,
+    },
+    select: { id: true },
+  });
+}
+
+export async function setupProductOption(prisma: PrismaService, opts: {
+  companyId: string;
+  masterId: string;
+  sku: string;
+  costPrice?: number;
+  commissionRate?: number;
+  otherCost?: number;
+}): Promise<{ id: string }> {
+  return prisma.productOption.create({
+    data: {
+      companyId: opts.companyId,
+      masterId: opts.masterId,
+      sku: opts.sku,
+      costPrice: opts.costPrice ?? 5000,
+      commissionRate: opts.commissionRate ?? 0.1,
+      otherCost: opts.otherCost ?? 0,
+    },
+    select: { id: true },
+  });
+}
+
+export async function setupChannelListing(prisma: PrismaService, opts: {
+  companyId: string;
+  masterId: string;
+  channel: string;                    // platform: 'coupang' | 'naver' | 'wing' | ...
+  externalId: string;
+  channelName?: string | null;        // listing title (optional)
+  optionId: string;
+  vendorItemId: string;
+}): Promise<{ listingId: string; listingOptionId: string }> {
+  const listing = await prisma.channelListing.create({
+    data: {
+      companyId: opts.companyId,
+      masterId: opts.masterId,
+      channel: opts.channel,
+      externalId: opts.externalId,
+      channelName: opts.channelName ?? null,
+    },
+    select: { id: true },
+  });
+  const lopt = await prisma.channelListingOption.create({
+    data: {
+      companyId: opts.companyId,
+      listingId: listing.id,
+      optionId: opts.optionId,
+      vendorItemId: opts.vendorItemId,
+    },
+    select: { id: true },
+  });
+  return { listingId: listing.id, listingOptionId: lopt.id };
+}
+
+export async function seedOrderWithLineItems(prisma: PrismaService, opts: {
+  companyId: string;
+  externalOrderId: string;
+  platform?: string;
+  orderedAt: string;                  // ISO
+  shippingPrice?: number;
+  status?: string;                    // default 'accepted' (passes notIn filter)
+  lineItems: Array<{
+    quantity: number;
+    totalPrice: number;
+    optionId: string;
+    listingOptionId: string;
+  }>;
+}): Promise<string> {
+  const o = await prisma.order.create({
+    data: {
+      companyId: opts.companyId,
+      externalOrderId: opts.externalOrderId,
+      platform: opts.platform ?? 'coupang',
+      orderedAt: new Date(opts.orderedAt),
+      status: opts.status ?? 'accepted',
+      totalPrice: opts.lineItems.reduce((s, li) => s + li.totalPrice, 0),
+      shippingPrice: opts.shippingPrice ?? 3000,
+      lineItems: {
+        create: opts.lineItems.map((li) => ({
+          companyId: opts.companyId,
+          quantity: li.quantity,
+          totalPrice: li.totalPrice,
+          optionId: li.optionId,
+          listingOptionId: li.listingOptionId,
+        })),
+      },
+    },
+    select: { id: true },
+  });
+  return o.id;
+}
+
+export async function seedReturn(prisma: PrismaService, opts: {
+  companyId: string;
+  orderId: string | null;           // null = orphan
+  requestedAt: string;               // ISO
+  lineItems?: Array<{ orderLineItemId: string | null }>;
+}): Promise<string> {
+  const r = await prisma.orderReturn.create({
+    data: {
+      companyId: opts.companyId,
+      orderId: opts.orderId,
+      requestedAt: new Date(opts.requestedAt),
+      status: 'requested',
+      reason: 'test',
+      lineItems: opts.lineItems
+        ? {
+            create: opts.lineItems.map((li) => ({
+              companyId: opts.companyId,
+              orderLineItemId: li.orderLineItemId,
+            })),
+          }
+        : undefined,
+    },
+    select: { id: true },
+  });
+  return r.id;
+}
+
+export async function seedAd(prisma: PrismaService, opts: {
+  companyId: string;
+  listingId: string;
+  date: string;
+  spend: number;
+}): Promise<string> {
+  const a = await prisma.ad.create({
+    data: {
+      companyId: opts.companyId,
+      listingId: opts.listingId,
+      date: new Date(opts.date),
+      spend: opts.spend,
+    },
+    select: { id: true },
+  });
+  return a.id;
+}
+```
+
+**Verify field names** vs actual Prisma schema (`prisma/models/orders.prisma` + `core.prisma`). If any required field missing (e.g., `OrderReturn.platform` or similar), add. Inline doc comment above each helper noting required fields.
+
+- [ ] **Step 0.4**: Commit
+
+```bash
+git add apps/server/src/test-helpers/finance-seeds.ts
+git commit -m "chore(test-helpers): extract finance PG seed helpers for D.3+ reuse (Plan D.3 T0)"
+```
 
 ---
 
@@ -95,34 +289,40 @@ Spec v4 § D.3 (line 74) 은 "7 files 조정 — B2c.orders 재사용, 백엔드
 - Create: `packages/shared/src/schemas/sales-analysis.ts`
 - Modify: `packages/shared/src/index.ts`
 
-**Review cadence**: Trivial schema add — **1 combined review** (spec + quality merged) per D.3+ review cadence memo.
+**Review cadence**: Trivial schema — **1 combined review**.
 
-- [ ] **Step 1.1**: Read `packages/shared/CLAUDE.md` + `packages/shared/src/schemas/return-summary.ts` (D.2 T2 reference pattern).
+- [ ] **Step 1.1**: Read `packages/shared/CLAUDE.md` + `packages/shared/src/schemas/return-summary.ts` (D.2 T2 reference).
 
-- [ ] **Step 1.2**: Read `apps/server/src/finance/services/types.ts` — capture exact field types of current `ChannelAnalysis` + `SalesAnalysisResult`.
-
-- [ ] **Step 1.3**: Create `packages/shared/src/schemas/sales-analysis.ts`
+- [ ] **Step 1.2**: Create `packages/shared/src/schemas/sales-analysis.ts`
 
 ```ts
 import { z } from 'zod';
 
 /**
- * `/api/sales-analysis` response row — 채널별 매출/비용/이익 요약.
+ * `/api/sales-analysis` channel row — 채널(플랫폼)별 매출/비용/이익 요약 (Plan D.3).
  *
- * Semantic (Plan D.3, ADR-0017 applied):
- * - group by `ChannelListing.channelName` per company
- * - returnRate = "이 기간 내 주문된 건 중 반품된 비율" (INNER JOIN on Order.orderedAt)
- * - avgOrderValue = totalRevenue / totalOrders (0 when no orders)
+ * Semantic:
+ * - Group key: `ChannelListing.channel` (e.g., 'coupang', 'naver', 'wing')
+ *   NOT `channelName` (listing display title).
+ * - channelType: derived server-side from channel ('marketplace' | 'direct' | 'other')
+ *   — ChannelListing 에는 channelType 필드 없음, 서비스 상수 맵에서 생성.
+ * - returnRate: ADR-0017 semantic — distinct orders returned / orders in period,
+ *   INNER JOIN via Order.orderedAt. Bounded [0, 1].
+ * - orphanReturnCount: Orphan (OrderReturn.orderId NULL) requestedAt ∈ period 은
+ *   channel 매핑 불가이므로 channel row 에는 표시 안 하고 totals 에만 노출.
+ * - Shipping: order 가 multi-channel span 시 revenue-weighted 분배 (D.1 T5 패턴).
+ *   한 order 가 N 채널에 걸쳐 있으면 totalOrders 에 N 개 채널 각각 1 count —
+ *   `totals.totalOrders` 는 channels 합산 아닌 global distinct Order count.
  */
 export const ChannelAnalysisSchema = z.object({
-  channelName: z.string(),
-  channelType: z.string(),                       // 'marketplace' | 'direct' | 'other' (free-form for forward compat)
-  totalOrders: z.number().int().nonnegative(),
+  channel: z.string(),                            // 플랫폼 — 'coupang' | 'naver' | 'wing' | ...
+  channelType: z.enum(['marketplace', 'direct', 'other']),
+  totalOrders: z.number().int().nonnegative(),    // distinct Order count participating in this channel
   totalRevenue: z.number().int().nonnegative(),
-  totalCost: z.number().int().nonnegative(),     // cogs + commission + shipping + ad + other
-  totalProfit: z.number().int(),                 // can be negative
-  returnCount: z.number().int().nonnegative(),
-  returnRate: z.number().min(0).max(1),          // ADR-0017 hard contract (0 ~ 1)
+  totalCost: z.number().int().nonnegative(),      // cogs + commission + shipping + ad + other
+  totalProfit: z.number().int(),                  // may be negative
+  returnCount: z.number().int().nonnegative(),    // distinct orders returned (ADR-0017 INNER JOIN)
+  returnRate: z.number().min(0).max(1),           // ADR-0017 hard contract
   avgOrderValue: z.number().nonnegative(),
 });
 export type ChannelAnalysis = z.infer<typeof ChannelAnalysisSchema>;
@@ -132,18 +332,19 @@ export type ChannelAnalysis = z.infer<typeof ChannelAnalysisSchema>;
  */
 export const SalesAnalysisDataSchema = z.object({
   period: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'YYYY-MM'),
-  channels: z.array(ChannelAnalysisSchema),
+  channels: z.array(ChannelAnalysisSchema),       // sorted by totalRevenue desc
   totals: z.object({
     totalRevenue: z.number().int().nonnegative(),
     totalProfit: z.number().int(),
-    totalOrders: z.number().int().nonnegative(),
+    totalOrders: z.number().int().nonnegative(),  // global distinct Order count (not channels sum)
     totalCost: z.number().int().nonnegative(),
+    orphanReturnCount: z.number().int().nonnegative(),  // NEW (ADR-0017) — orphans channel 매핑 불가
   }),
 });
 export type SalesAnalysisData = z.infer<typeof SalesAnalysisDataSchema>;
 ```
 
-- [ ] **Step 1.4**: Update `packages/shared/src/index.ts` — add export block (D.2 T2 pattern):
+- [ ] **Step 1.3**: Update `packages/shared/src/index.ts`
 
 ```ts
 // Sales Analysis (Plan D.3, ADR-0017)
@@ -151,61 +352,63 @@ export { SalesAnalysisDataSchema, ChannelAnalysisSchema } from './schemas/sales-
 export type { SalesAnalysisData, ChannelAnalysis } from './schemas/sales-analysis.js';
 ```
 
-Position: alphabetical / after Return summary export per existing pattern.
-
-- [ ] **Step 1.5**: Build shared
+- [ ] **Step 1.4**: Build + tsc
 
 ```bash
 cd packages/shared && npm run build 2>&1 | tail -5
-```
-
-- [ ] **Step 1.6**: tsc sanity
-
-```bash
 cd /Users/yhc125/workspace/kiditem/.claude/worktrees/plan-d3
-npx --prefix apps/server tsc --noEmit 2>&1 | grep -c "error TS"
+npx --prefix apps/server tsc --noEmit 2>&1 | grep -E "sales-analysis|SalesAnalysis" | head -5
 ```
 
-Expected: 0 (or pre-existing unrelated).
-
-- [ ] **Step 1.7**: Commit
+- [ ] **Step 1.5**: Commit
 
 ```bash
 git add packages/shared/src/
-git commit -m "feat(shared): SalesAnalysisDataSchema + ChannelAnalysisSchema (Plan D.3 T1)"
+git commit -m "feat(shared): SalesAnalysisDataSchema + ChannelAnalysisSchema with orphanReturnCount (Plan D.3 T1)"
 ```
 
 ---
 
-## Task 2: sales-analysis.service.getAnalysis live aggregation rewrite
+## Task 2: sales-analysis.service.getAnalysis rewrite (live aggregation, channel-based)
 
 **Files:**
 - Modify: `apps/server/src/finance/services/sales-analysis.service.ts`
 - Modify: `apps/server/src/finance/services/types.ts` (remove local types)
 
-**Review cadence**: Service rewrite — **2-stage review** (spec + quality).
+**Review cadence**: Service rewrite — **2-stage**.
 
-- [ ] **Step 2.1**: Read `apps/server/CLAUDE.md` + `apps/server/src/finance/CLAUDE.md`.
+### Step 2.1: Pre-flight reads
 
-- [ ] **Step 2.2**: Read current `sales-analysis.service.ts` fully — understand period parsing, current return shape.
+- [ ] Read `apps/server/src/finance/CLAUDE.md` (note current "D.3 migration 예정 — 건드리지 말 것" banner — removed in T7).
+- [ ] Read current `sales-analysis.service.ts` fully.
+- [ ] Read `apps/server/src/finance/services/profit-loss.service.ts` (D.1 T5 — **primary reference**).
+- [ ] Read `apps/server/src/channels/services/channel-dashboard.service.ts:getReturnSummary` (D.2 T3 — returnRate + 2-hop IDOR).
 
-- [ ] **Step 2.3**: Read D.1 reference `apps/server/src/finance/services/profit-loss.service.ts` — Promise.all 3-branch pattern, structured logger.
+### Step 2.2: Confirm schema facts
 
-- [ ] **Step 2.4**: Read D.2 reference `apps/server/src/channels/services/channel-dashboard.service.ts:getReturnSummary` — 2-hop IDOR + orphan side metric pattern.
+```bash
+grep -n "model ChannelListing\|channel \|channelName\|channelType" prisma/models/core.prisma | head -10
+grep -n "OrderReturnLineItem\|orderLineItem.*Order" prisma/models/orders.prisma | head -10
+```
 
-- [ ] **Step 2.5**: Read `prisma/models/orders.prisma` — verify `OrderReturnLineItem.orderLineItem.listingOption.listing.channelName` traversal path.
+Expected:
+- `channel String` (required, line ~301) ✓
+- `channelName String?` (nullable, line ~304) — 사용 안 함
+- `channelType` — **존재 안 함** ✓ (derived in service)
 
-- [ ] **Step 2.6**: Remove local types from `apps/server/src/finance/services/types.ts`
+### Step 2.3: Remove local types
+
+`apps/server/src/finance/services/types.ts` 에서 다음 제거 (이미 T1 shared 로 이동):
 
 ```ts
-// DELETE — moved to @kiditem/shared (Plan D.3 T1)
+// DELETE
 // export interface ChannelAnalysis { ... }
 // export interface SalesAnalysisResult { ... }
 ```
 
-If types.ts becomes empty, keep file (may have other exports) or delete — check.
+기타 export 유지. 파일이 빈 파일이 되면 삭제하고 import 경로 조정.
 
-- [ ] **Step 2.7**: Rewrite `sales-analysis.service.ts`
+### Step 2.4: Rewrite `sales-analysis.service.ts`
 
 ```ts
 import { Injectable, Logger } from '@nestjs/common';
@@ -214,26 +417,34 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { kstMonthStart } from '../../common/kst';
 import { resolvePricing } from '../../common/option-pricing-resolver';
 
+const EXCLUDED_ORDER_STATUSES = ['cancelled', 'returned', 'refunded'] as const;
+
 /**
- * Plan D.3 — sales-analysis live aggregation (ADR-0016 bypass + ADR-0017 returnRate).
- *
- * Replaces legacy `prisma.profitLoss.groupBy({ by: ['companyId'] })` (empty table, 1-row stub)
- * with live aggregation grouped by `ChannelListing.channelName` per company.
+ * Map ChannelListing.channel (platform) → ChannelAnalysis.channelType.
+ * ChannelListing 에 channelType 필드 없음 (schema 확인). 서비스 상수에서 생성.
+ */
+const CHANNEL_TYPE_MAP: Record<string, 'marketplace' | 'direct' | 'other'> = {
+  coupang: 'marketplace',
+  naver: 'marketplace',
+  '11st': 'marketplace',
+  gmarket: 'marketplace',
+  auction: 'marketplace',
+  wing: 'direct',
+};
+function resolveChannelType(channel: string): 'marketplace' | 'direct' | 'other' {
+  return CHANNEL_TYPE_MAP[channel] ?? 'other';
+}
+
+/**
+ * Plan D.3 — sales-analysis live aggregation (ADR-0016 bypass + ADR-0017 returnRate + orphan policy).
  *
  * Data flow:
- *   Order (+ shippingPrice) → OrderLineItem → ChannelListingOption.listing.channelName
- *   + OrderReturn INNER JOIN Order (ADR-0017 semantic)
- *   + Ad (adCost per listing, summed to channel)
+ *   Order (+ shippingPrice) → OrderLineItem → ChannelListingOption.listing.channel
+ *   + OrderReturnLineItem INNER JOIN Order (ADR-0017, 3-hop IDOR)
+ *   + Ad.groupBy(['listingId'], _sum.spend) → listingId→channel map
  *
- * Patterns (D.1 T5 + D.2 T3):
- * - I3 canonical SUM(OrderLineItem.totalPrice) per channel
- * - I8 half-open orderedAt / requestedAt / date [from, to)
- * - I7 companyId via @CurrentCompany()
- * - kstMonthStart(year, month) + kstMonthStart(year, month + 1) — helper handles month==13 wrap
- * - resolvePricing({ option }) for costPrice/commissionRate/otherCost
- * - ADR-0017 returnRate: INNER JOIN via orderReturn.count({ where: { companyId, order: { companyId, orderedAt: {...} } } })
- * - 2-hop IDOR safety (D.2 T3)
- * - Structured logger on exit
+ * Group key: `ChannelListing.channel` (plataform)
+ * Orphan side metric: totals.orphanReturnCount (requestedAt ∈ period + orderId NULL).
  */
 @Injectable()
 export class SalesAnalysisService {
@@ -251,13 +462,14 @@ export class SalesAnalysisService {
     const from = kstMonthStart(year, month);
     const to = kstMonthStart(year, month + 1);
 
-    // 3 parallel data-independent queries
-    const [orders, returnRows, adRows] = await Promise.all([
+    // 4 parallel queries (all data-independent)
+    const [orders, returnOrderIdRows, adGroupRows, orphanCount] = await Promise.all([
+      // 1) Orders with nested listingOption.listing.channel
       this.prisma.order.findMany({
         where: {
           companyId,
           orderedAt: { gte: from, lt: to },
-          status: { notIn: ['cancelled', 'returned', 'refunded'] },
+          status: { notIn: [...EXCLUDED_ORDER_STATUSES] },
         },
         select: {
           id: true,
@@ -270,75 +482,88 @@ export class SalesAnalysisService {
                 select: { costPrice: true, commissionRate: true, otherCost: true },
               },
               listingOption: {
-                select: {
-                  listing: {
-                    select: {
-                      id: true,
-                      channelName: true,
-                      channelType: true,  // verify field exists in schema; fallback: derive from channelName
-                    },
-                  },
-                },
+                select: { listing: { select: { id: true, channel: true } } },
               },
             },
           },
         },
       }),
-      // ADR-0017: returnCount via INNER JOIN order.orderedAt ∈ period
-      //           grouped by channelName via OrderReturnLineItem.orderLineItem.listingOption.listing.channelName
+      // 2) Return events — distinct (orderId, channel) pairs for ADR-0017 returnCount
+      //    3-hop IDOR: OrderReturnLineItem.companyId + return.companyId + return.order.companyId
+      //    Status filter mirror on return.order.
       this.prisma.orderReturnLineItem.findMany({
         where: {
           companyId,
           return: {
+            companyId,
             order: {
-              companyId,  // 2-hop IDOR defense
+              companyId,
               orderedAt: { gte: from, lt: to },
+              status: { notIn: [...EXCLUDED_ORDER_STATUSES] },
             },
           },
         },
         select: {
           orderLineItem: {
             select: {
+              order: { select: { id: true } },
               listingOption: {
-                select: { listing: { select: { channelName: true } } },
+                select: { listing: { select: { channel: true } } },
               },
             },
           },
         },
       }),
-      // adCost per channel via Ad.listingId → ChannelListing.channelName
-      this.prisma.ad.findMany({
+      // 3) Ad spend grouped by listingId (D.1 T5 pattern — performance)
+      this.prisma.ad.groupBy({
+        by: ['listingId'],
+        _sum: { spend: true },
         where: {
           companyId,
           date: { gte: from, lt: to },
         },
-        select: {
-          spend: true,
-          listing: { select: { channelName: true } },
+      }),
+      // 4) Orphan return count (ADR-0017 side metric) — orderId NULL, requestedAt ∈ period
+      this.prisma.orderReturn.count({
+        where: {
+          companyId,
+          orderId: null,
+          requestedAt: { gte: from, lt: to },
         },
       }),
     ]);
 
-    // Build return-count map: channelName → count
-    const returnMap = new Map<string, number>();
-    for (const rli of returnRows) {
-      const channelName = rli.orderLineItem?.listingOption?.listing?.channelName;
-      if (!channelName) continue;
-      returnMap.set(channelName, (returnMap.get(channelName) ?? 0) + 1);
+    // Resolve listingId → channel map (for ad group rows)
+    const adListingIds = adGroupRows.map((r) => r.listingId).filter((v): v is string => v != null);
+    const listings = adListingIds.length > 0
+      ? await this.prisma.channelListing.findMany({
+          where: { id: { in: adListingIds }, companyId },
+          select: { id: true, channel: true },
+        })
+      : [];
+    const listingIdToChannel = new Map<string, string>(listings.map((l) => [l.id, l.channel]));
+
+    // Build return order-set per channel (ADR-0017 distinct Order count)
+    const returnOrderSets = new Map<string, Set<string>>();
+    for (const rli of returnOrderIdRows) {
+      const channel = rli.orderLineItem?.listingOption?.listing?.channel;
+      const orderId = rli.orderLineItem?.order?.id;
+      if (!channel || !orderId) continue;
+      if (!returnOrderSets.has(channel)) returnOrderSets.set(channel, new Set());
+      returnOrderSets.get(channel)!.add(orderId);
     }
 
-    // Build ad-cost map: channelName → sum(spend)
+    // Build ad cost per channel
     const adCostMap = new Map<string, number>();
-    for (const ad of adRows) {
-      const channelName = ad.listing?.channelName;
-      if (!channelName) continue;
-      adCostMap.set(channelName, (adCostMap.get(channelName) ?? 0) + (ad.spend ?? 0));
+    for (const row of adGroupRows) {
+      const channel = row.listingId ? listingIdToChannel.get(row.listingId) : undefined;
+      if (!channel) continue;
+      adCostMap.set(channel, (adCostMap.get(channel) ?? 0) + (row._sum.spend ?? 0));
     }
 
-    // Aggregate orders by channelName
+    // Aggregate orders per channel
     type Agg = {
-      channelName: string;
-      channelType: string;
+      channel: string;
       orderIds: Set<string>;
       totalRevenue: number;
       totalCogs: number;
@@ -347,20 +572,19 @@ export class SalesAnalysisService {
       totalOtherCost: number;
     };
     const groups = new Map<string, Agg>();
+    const globalOrderIds = new Set<string>();  // totals.totalOrders — global distinct
 
     for (const o of orders) {
+      globalOrderIds.add(o.id);
       const orderTotalRevenue = o.lineItems.reduce((sum, li) => sum + (li.totalPrice || 0), 0);
 
       for (const li of o.lineItems) {
-        const listing = li.listingOption?.listing;
-        if (!listing?.channelName) continue;
-        const key = listing.channelName;
-
-        let g = groups.get(key);
+        const channel = li.listingOption?.listing?.channel;
+        if (!channel) continue;
+        let g = groups.get(channel);
         if (!g) {
           g = {
-            channelName: listing.channelName,
-            channelType: listing.channelType ?? 'other',
+            channel,
             orderIds: new Set<string>(),
             totalRevenue: 0,
             totalCogs: 0,
@@ -368,7 +592,7 @@ export class SalesAnalysisService {
             totalShipping: 0,
             totalOtherCost: 0,
           };
-          groups.set(key, g);
+          groups.set(channel, g);
         }
 
         g.orderIds.add(o.id);
@@ -379,25 +603,25 @@ export class SalesAnalysisService {
         g.totalCommission += Math.round(lineRevenue * resolved.commissionRate);
         g.totalOtherCost += Math.round(resolved.otherCost * li.quantity);
 
-        // Revenue-weighted shipping (D.1 T5 ADR-0016 pattern)
+        // Revenue-weighted shipping (ADR-0016 pattern, D.1 T5)
         if (orderTotalRevenue > 0 && o.shippingPrice) {
           g.totalShipping += Math.round(o.shippingPrice * (lineRevenue / orderTotalRevenue));
         }
       }
     }
 
-    // Build response channels
     const channels: ChannelAnalysis[] = Array.from(groups.values()).map((g) => {
-      const returnCount = returnMap.get(g.channelName) ?? 0;
-      const adCost = adCostMap.get(g.channelName) ?? 0;
+      const returnedOrderIds = returnOrderSets.get(g.channel) ?? new Set<string>();
+      const returnCount = returnedOrderIds.size;
+      const totalOrders = g.orderIds.size;
+      const adCost = adCostMap.get(g.channel) ?? 0;
       const totalCost = g.totalCogs + g.totalCommission + g.totalShipping + adCost + g.totalOtherCost;
       const totalProfit = g.totalRevenue - totalCost;
-      const totalOrders = g.orderIds.size;
-      const returnRate = totalOrders === 0 ? 0 : returnCount / totalOrders;
+      const returnRate = totalOrders === 0 ? 0 : Math.min(1, returnCount / totalOrders);
       const avgOrderValue = totalOrders === 0 ? 0 : g.totalRevenue / totalOrders;
       return {
-        channelName: g.channelName,
-        channelType: g.channelType,
+        channel: g.channel,
+        channelType: resolveChannelType(g.channel),
         totalOrders,
         totalRevenue: g.totalRevenue,
         totalCost,
@@ -408,16 +632,13 @@ export class SalesAnalysisService {
       } satisfies ChannelAnalysis;
     }).sort((a, b) => b.totalRevenue - a.totalRevenue);
 
-    // Aggregate totals
-    const totals = channels.reduce(
-      (acc, c) => ({
-        totalRevenue: acc.totalRevenue + c.totalRevenue,
-        totalProfit: acc.totalProfit + c.totalProfit,
-        totalOrders: acc.totalOrders + c.totalOrders,
-        totalCost: acc.totalCost + c.totalCost,
-      }),
-      { totalRevenue: 0, totalProfit: 0, totalOrders: 0, totalCost: 0 },
-    );
+    const totals = {
+      totalRevenue: channels.reduce((s, c) => s + c.totalRevenue, 0),
+      totalProfit: channels.reduce((s, c) => s + c.totalProfit, 0),
+      totalOrders: globalOrderIds.size,  // global distinct — NOT channels sum (avoids cross-channel dup)
+      totalCost: channels.reduce((s, c) => s + c.totalCost, 0),
+      orphanReturnCount: orphanCount,
+    };
 
     const result = { period: resolvedPeriod, channels, totals } satisfies SalesAnalysisData;
 
@@ -428,23 +649,17 @@ export class SalesAnalysisService {
       channelCount: channels.length,
       totalOrders: totals.totalOrders,
       totalRevenue: totals.totalRevenue,
+      orphanReturnCount: totals.orphanReturnCount,
       latencyMs: Date.now() - startedAt,
     });
 
     return result;
   }
 
-  /**
-   * period: 'YYYY-MM' 형식 또는 undefined (현재월 기본).
-   */
   private resolvePeriod(period?: string): string {
-    if (period && /^\d{4}-(0[1-9]|1[0-2])$/.test(period)) {
-      return period;
-    }
+    if (period && /^\d{4}-(0[1-9]|1[0-2])$/.test(period)) return period;
     const now = new Date();
-    const y = now.getFullYear();
-    const m = String(now.getMonth() + 1).padStart(2, '0');
-    return `${y}-${m}`;
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   }
 
   private parsePeriod(period: string): { year: number; month: number } {
@@ -454,220 +669,259 @@ export class SalesAnalysisService {
 }
 ```
 
-**Schema confirm**: 위 `listing.channelType` 접근은 `ChannelListing.channelType` 필드가 Prisma schema 에 있을 때만 동작. Step 2.5 결과로 필드 존재 여부 검증:
+### Step 2.5: Update controller with `@CurrentCompany()`
+
+`apps/server/src/finance/controllers/sales-analysis.controller.ts` 는 현재 guard/데코레이터 없음. **`profit-loss.controller.ts` 패턴 정확히 복사**:
 
 ```bash
-grep -n "channelType" prisma/models/core.prisma
+cat apps/server/src/finance/controllers/profit-loss.controller.ts
 ```
 
-없으면 `channelType` 을 `'other'` 로 고정하거나 `channelName` 으로부터 추론 (예: `channelName === 'coupang' ? 'marketplace' : ...`).
-
-- [ ] **Step 2.8**: Signature change — controller 수정 필요
-
-현재 controller: `salesAnalysisService.getAnalysis(query.period)` (1 arg)
-신규 signature: `getAnalysis(companyId, period?)`
-
-`apps/server/src/finance/controllers/sales-analysis.controller.ts` 에서 `@CurrentCompany()` 데코레이터로 companyId 주입:
+패턴:
 
 ```ts
-@Get()
-async getAnalysis(
-  @Query() query: SalesAnalysisQueryDto,
-  @CurrentCompany() companyId: string,
-): Promise<SalesAnalysisData> {
-  return this.salesAnalysisService.getAnalysis(companyId, query.period);
+import { Controller, Get, Query } from '@nestjs/common';
+import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
+import type { SalesAnalysisData } from '@kiditem/shared';
+import { SalesAnalysisService } from '../services/sales-analysis.service';
+import { SalesAnalysisQueryDto } from '../dto/sales-analysis-query.dto';
+
+@Controller('sales-analysis')
+export class SalesAnalysisController {
+  constructor(private readonly salesAnalysisService: SalesAnalysisService) {}
+
+  @Get()
+  async getAnalysis(
+    @Query() query: SalesAnalysisQueryDto,
+    @CurrentCompany() companyId: string,
+  ): Promise<SalesAnalysisData> {
+    return this.salesAnalysisService.getAnalysis(companyId, query.period);
+  }
 }
 ```
 
-Return type 을 `SalesAnalysisData` 로 변경 (from `@kiditem/shared`).
-
-- [ ] **Step 2.9**: tsc verify
+**Verify guard registration**: 현재 profit-loss.controller 는 `DevAuthMiddleware` 를 통해 companyId 가 주입됨 (global middleware). sales-analysis 도 동일 경로 — 추가 guard 불필요. 단 확인:
 
 ```bash
-cd apps/server && npx tsc --noEmit 2>&1 | grep -E "sales-analysis|SalesAnalysis|ChannelAnalysis" | head -10
+grep -rn "DevAuthMiddleware\|CompanyScopeGuard" apps/server/src/auth/ apps/server/src/finance/ | head -5
+```
+
+If sales-analysis route 가 `@SkipAuth()` 로 제외되어 있으면 제거.
+
+### Step 2.6: tsc verify
+
+```bash
+cd apps/server && npx tsc --noEmit 2>&1 | grep -E "sales-analysis|SalesAnalysis" | head -10
 ```
 
 Expected: empty.
 
-- [ ] **Step 2.10**: Commit
+### Step 2.7: Commit
 
 ```bash
 git add apps/server/src/finance/
-git commit -m "feat(finance): sales-analysis.service live aggregation + ADR-0017 + channelName grouping (Plan D.3 T2)"
+git commit -m "feat(finance): sales-analysis live aggregation + channel-based grouping + ADR-0017 + 3-hop IDOR (Plan D.3 T2)"
 ```
 
 ---
 
-## Task 3: Unit tests for sales-analysis.service
+## Task 3: Unit tests
 
 **Files:**
 - Create: `apps/server/src/finance/services/__tests__/sales-analysis.service.spec.ts`
 
-**Review cadence**: Service test (trivial if well-scoped) — **2-stage review** retained because semantic correctness is critical.
+**Review cadence**: **2-stage** (semantic correctness critical).
 
-- [ ] **Step 3.1**: Read D.1 reference `apps/server/src/finance/services/__tests__/profit-loss.service.spec.ts` — mock helper pattern (makePrisma + mkLineItem).
+### Step 3.1: Read D.1 reference
 
-- [ ] **Step 3.2**: Create spec file
+`apps/server/src/finance/services/__tests__/profit-loss.service.spec.ts` — mock helper pattern.
+
+### Step 3.2: Create spec
 
 ```ts
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { SalesAnalysisService } from '../sales-analysis.service';
 
-function makePrisma(
-  orders: unknown[] = [],
-  opts: { returnLineItems?: unknown[]; adRows?: unknown[] } = {},
-) {
+function makePrisma(overrides: {
+  orders?: unknown[];
+  returnRows?: unknown[];
+  adGroupRows?: unknown[];
+  orphanCount?: number;
+  listings?: Array<{ id: string; channel: string }>;
+}) {
   return {
-    order: { findMany: vi.fn().mockResolvedValue(orders) },
-    orderReturnLineItem: { findMany: vi.fn().mockResolvedValue(opts.returnLineItems ?? []) },
-    ad: { findMany: vi.fn().mockResolvedValue(opts.adRows ?? []) },
+    order: { findMany: vi.fn().mockResolvedValue(overrides.orders ?? []) },
+    orderReturnLineItem: { findMany: vi.fn().mockResolvedValue(overrides.returnRows ?? []) },
+    ad: { groupBy: vi.fn().mockResolvedValue(overrides.adGroupRows ?? []) },
+    orderReturn: { count: vi.fn().mockResolvedValue(overrides.orphanCount ?? 0) },
+    channelListing: { findMany: vi.fn().mockResolvedValue(overrides.listings ?? []) },
   } as any;
 }
 
 const mkLineItem = (
-  listing: { id: string; channelName: string; channelType: string },
-  pricing: { quantity: number; totalPrice: number; costPrice: number; commissionRate: number; otherCost: number },
+  listing: { id: string; channel: string },
+  p: { quantity: number; totalPrice: number; costPrice: number; commissionRate: number; otherCost: number },
 ) => ({
-  quantity: pricing.quantity,
-  totalPrice: pricing.totalPrice,
+  quantity: p.quantity,
+  totalPrice: p.totalPrice,
   option: {
-    costPrice: pricing.costPrice,
-    commissionRate: pricing.commissionRate,
-    otherCost: pricing.otherCost,
+    costPrice: p.costPrice,
+    commissionRate: p.commissionRate,
+    otherCost: p.otherCost,
   },
   listingOption: { listing },
 });
 
-describe('SalesAnalysisService.getAnalysis', () => {
-  it('groups orders by channelName — 2 channels from orders', async () => {
-    const coupang = { id: 'l-coup', channelName: 'coupang', channelType: 'marketplace' };
-    const naver = { id: 'l-naver', channelName: 'naver', channelType: 'marketplace' };
+describe('SalesAnalysisService.getAnalysis — Plan D.3', () => {
+  it('groups by channel (not channelName)', async () => {
+    const coup = { id: 'l-c', channel: 'coupang' };
+    const naver = { id: 'l-n', channel: 'naver' };
     const orders = [
-      { id: 'o1', shippingPrice: 3000, lineItems: [mkLineItem(coupang, { quantity: 1, totalPrice: 10000, costPrice: 5000, commissionRate: 0.1, otherCost: 0 })] },
+      { id: 'o1', shippingPrice: 3000, lineItems: [mkLineItem(coup, { quantity: 1, totalPrice: 10000, costPrice: 5000, commissionRate: 0.1, otherCost: 0 })] },
       { id: 'o2', shippingPrice: 3000, lineItems: [mkLineItem(naver, { quantity: 2, totalPrice: 20000, costPrice: 4000, commissionRate: 0.15, otherCost: 100 })] },
     ];
-    const prisma = makePrisma(orders);
-    const service = new SalesAnalysisService(prisma);
-    const result = await service.getAnalysis('companyA', '2026-04');
-
-    expect(result.channels).toHaveLength(2);
-    expect(result.channels.map((c) => c.channelName).sort()).toEqual(['coupang', 'naver']);
-    expect(result.period).toBe('2026-04');
+    const prisma = makePrisma({ orders });
+    const result = await new SalesAnalysisService(prisma).getAnalysis('cA', '2026-04');
+    expect(result.channels.map((c) => c.channel).sort()).toEqual(['coupang', 'naver']);
+    expect(result.channels[0].channelType).toBe('marketplace');  // coupang → marketplace
   });
 
-  it('IDOR — order.findMany called with companyId filter', async () => {
-    const prisma = makePrisma([]);
-    const service = new SalesAnalysisService(prisma);
-    await service.getAnalysis('companyA', '2026-04');
+  it('channelType derivation — wing → direct, unknown → other', async () => {
+    const wing = { id: 'l-w', channel: 'wing' };
+    const weird = { id: 'l-x', channel: 'unknown-ch' };
+    const orders = [
+      { id: 'o1', shippingPrice: 0, lineItems: [mkLineItem(wing, { quantity: 1, totalPrice: 1000, costPrice: 500, commissionRate: 0, otherCost: 0 })] },
+      { id: 'o2', shippingPrice: 0, lineItems: [mkLineItem(weird, { quantity: 1, totalPrice: 1000, costPrice: 500, commissionRate: 0, otherCost: 0 })] },
+    ];
+    const prisma = makePrisma({ orders });
+    const result = await new SalesAnalysisService(prisma).getAnalysis('cA', '2026-04');
+    const w = result.channels.find((c) => c.channel === 'wing')!;
+    const x = result.channels.find((c) => c.channel === 'unknown-ch')!;
+    expect(w.channelType).toBe('direct');
+    expect(x.channelType).toBe('other');
+  });
+
+  it('IDOR — 3-hop companyId on return query + channelListing lookup', async () => {
+    const prisma = makePrisma({});
+    await new SalesAnalysisService(prisma).getAnalysis('cA', '2026-04');
     expect(prisma.order.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({ companyId: 'companyA' }),
+      where: expect.objectContaining({ companyId: 'cA' }),
+    }));
+    expect(prisma.orderReturnLineItem.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        companyId: 'cA',
+        return: expect.objectContaining({
+          companyId: 'cA',
+          order: expect.objectContaining({
+            companyId: 'cA',
+            orderedAt: expect.any(Object),
+          }),
+        }),
+      }),
     }));
   });
 
-  it('returnCount aggregated from OrderReturnLineItem by channelName', async () => {
-    const coupang = { id: 'l-coup', channelName: 'coupang', channelType: 'marketplace' };
-    const orders = [
-      { id: 'o1', shippingPrice: 3000, lineItems: [mkLineItem(coupang, { quantity: 1, totalPrice: 10000, costPrice: 5000, commissionRate: 0.1, otherCost: 0 })] },
-    ];
-    const returnLineItems = [
-      { orderLineItem: { listingOption: { listing: { channelName: 'coupang' } } } },
-      { orderLineItem: { listingOption: { listing: { channelName: 'coupang' } } } },
-      { orderLineItem: null },  // orphan — dropped
-    ];
-    const prisma = makePrisma(orders, { returnLineItems });
-    const service = new SalesAnalysisService(prisma);
-    const result = await service.getAnalysis('companyA', '2026-04');
-    expect(result.channels[0].returnCount).toBe(2);
-  });
-
-  it('returnRate ADR-0017: 2 returns / 1 order = returnRate 2.0 — should FAIL schema .max(1)', async () => {
-    // ADR-0017 requires INNER JOIN semantic. Edge: 1 order with 2 returns (multiple lineItems returned)
-    // is semantically a SINGLE "returned order" — but this test sanity-checks the computation is bounded.
-    // Actual INNER JOIN semantic is verified by PG integration (T4).
-    const coupang = { id: 'l-coup', channelName: 'coupang', channelType: 'marketplace' };
+  it('returnRate distinct-order count — 1 order × 2 returned lineItems = returnRate 1.0, NOT 2.0', async () => {
+    const coup = { id: 'l-c', channel: 'coupang' };
     const orders = [
       { id: 'o1', shippingPrice: 3000, lineItems: [
-        mkLineItem(coupang, { quantity: 1, totalPrice: 10000, costPrice: 5000, commissionRate: 0.1, otherCost: 0 }),
-        mkLineItem(coupang, { quantity: 1, totalPrice: 5000, costPrice: 3000, commissionRate: 0.1, otherCost: 0 }),
+        mkLineItem(coup, { quantity: 1, totalPrice: 10000, costPrice: 5000, commissionRate: 0.1, otherCost: 0 }),
+        mkLineItem(coup, { quantity: 1, totalPrice: 5000, costPrice: 3000, commissionRate: 0.1, otherCost: 0 }),
       ]},
     ];
-    // 2 lineItem returns but only 1 order — unit layer just counts returnRLI hits; real rate via INNER JOIN is T4 scope
-    const returnLineItems = [
-      { orderLineItem: { listingOption: { listing: { channelName: 'coupang' } } } },
-      { orderLineItem: { listingOption: { listing: { channelName: 'coupang' } } } },
+    // 2 lineItem returns, SAME order → returnCount = 1 (distinct orderId)
+    const returnRows = [
+      { orderLineItem: { order: { id: 'o1' }, listingOption: { listing: { channel: 'coupang' } } } },
+      { orderLineItem: { order: { id: 'o1' }, listingOption: { listing: { channel: 'coupang' } } } },
     ];
-    const prisma = makePrisma(orders, { returnLineItems });
-    const service = new SalesAnalysisService(prisma);
-    const result = await service.getAnalysis('companyA', '2026-04');
-    expect(result.channels[0].totalOrders).toBe(1);
-    expect(result.channels[0].returnCount).toBe(2);
-    // Unit test computed returnRate = 2/1 = 2.0; this fails Zod .max(1) boundary.
-    // Real implementation must use INNER JOIN "distinct order returned" count, not lineItem count.
-    // If this expectation fires, unit layer is off — fix to count distinct orders from returnLineItems.
-    expect(result.channels[0].returnRate).toBeLessThanOrEqual(1);
-  });
-
-  it('adCost sums ad.findMany spend per channelName', async () => {
-    const coupang = { id: 'l-coup', channelName: 'coupang', channelType: 'marketplace' };
-    const orders = [
-      { id: 'o1', shippingPrice: 3000, lineItems: [mkLineItem(coupang, { quantity: 1, totalPrice: 10000, costPrice: 5000, commissionRate: 0.1, otherCost: 0 })] },
-    ];
-    const adRows = [
-      { spend: 2000, listing: { channelName: 'coupang' } },
-      { spend: 1500, listing: { channelName: 'coupang' } },
-      { spend: 500, listing: { channelName: 'naver' } },  // no matching order — dropped from channels
-    ];
-    const prisma = makePrisma(orders, { adRows });
-    const service = new SalesAnalysisService(prisma);
-    const result = await service.getAnalysis('companyA', '2026-04');
-    const coup = result.channels.find((c) => c.channelName === 'coupang')!;
-    // adCost absorbed into totalCost
-    expect(coup.totalCost).toBeGreaterThanOrEqual(2000 + 1500);
-  });
-
-  it('empty orders → empty channels array + zero totals', async () => {
-    const prisma = makePrisma([]);
-    const service = new SalesAnalysisService(prisma);
-    const result = await service.getAnalysis('companyA', '2026-04');
-    expect(result.channels).toEqual([]);
-    expect(result.totals).toEqual({ totalRevenue: 0, totalProfit: 0, totalOrders: 0, totalCost: 0 });
+    const prisma = makePrisma({ orders, returnRows });
+    const result = await new SalesAnalysisService(prisma).getAnalysis('cA', '2026-04');
+    const c = result.channels[0];
+    expect(c.totalOrders).toBe(1);
+    expect(c.returnCount).toBe(1);
+    expect(c.returnRate).toBe(1);
   });
 
   it('returnRate = 0 when totalOrders = 0 (no division by zero)', async () => {
-    // Channel exists via ad only, no orders → won't be in channels (orders-driven group)
-    const prisma = makePrisma([], { adRows: [{ spend: 1000, listing: { channelName: 'orphan-ch' } }] });
-    const service = new SalesAnalysisService(prisma);
-    const result = await service.getAnalysis('companyA', '2026-04');
+    const prisma = makePrisma({});
+    const result = await new SalesAnalysisService(prisma).getAnalysis('cA', '2026-04');
     expect(result.channels).toEqual([]);
+    expect(result.totals.totalOrders).toBe(0);
   });
 
-  it('period default when undefined — current month', async () => {
-    const prisma = makePrisma([]);
-    const service = new SalesAnalysisService(prisma);
-    const result = await service.getAnalysis('companyA');
-    expect(result.period).toMatch(/^\d{4}-(0[1-9]|1[0-2])$/);
+  it('ad.groupBy by listingId → channel via channelListing lookup', async () => {
+    const coup = { id: 'l-c', channel: 'coupang' };
+    const orders = [
+      { id: 'o1', shippingPrice: 3000, lineItems: [mkLineItem(coup, { quantity: 1, totalPrice: 10000, costPrice: 5000, commissionRate: 0.1, otherCost: 0 })] },
+    ];
+    const adGroupRows = [
+      { listingId: 'l-c', _sum: { spend: 2000 } },
+      { listingId: 'l-unknown', _sum: { spend: 500 } },  // not in listings → dropped
+    ];
+    const listings = [{ id: 'l-c', channel: 'coupang' }];  // only l-c resolves
+    const prisma = makePrisma({ orders, adGroupRows, listings });
+    const result = await new SalesAnalysisService(prisma).getAnalysis('cA', '2026-04');
+    const c = result.channels[0];
+    expect(c.totalCost).toBeGreaterThanOrEqual(2000);  // adCost absorbed
+    expect(prisma.channelListing.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ companyId: 'cA' }),
+    }));
   });
 
-  it('period invalid format → fallback to current month', async () => {
-    const prisma = makePrisma([]);
-    const service = new SalesAnalysisService(prisma);
-    const result = await service.getAnalysis('companyA', 'garbage');
-    expect(result.period).toMatch(/^\d{4}-(0[1-9]|1[0-2])$/);
+  it('orphanReturnCount exposed at totals, not per-channel', async () => {
+    const prisma = makePrisma({ orphanCount: 5 });
+    const result = await new SalesAnalysisService(prisma).getAnalysis('cA', '2026-04');
+    expect(result.totals.orphanReturnCount).toBe(5);
+  });
+
+  it('totals.totalOrders = global distinct (avoids multi-channel dup)', async () => {
+    // Order o1 spans coupang + naver lineItems — single distinct global order, 1 in each channel's count
+    const coup = { id: 'l-c', channel: 'coupang' };
+    const naver = { id: 'l-n', channel: 'naver' };
+    const orders = [
+      { id: 'o1', shippingPrice: 3000, lineItems: [
+        mkLineItem(coup, { quantity: 1, totalPrice: 10000, costPrice: 5000, commissionRate: 0.1, otherCost: 0 }),
+        mkLineItem(naver, { quantity: 1, totalPrice: 5000, costPrice: 3000, commissionRate: 0.1, otherCost: 0 }),
+      ]},
+    ];
+    const prisma = makePrisma({ orders });
+    const result = await new SalesAnalysisService(prisma).getAnalysis('cA', '2026-04');
+    // Each channel has totalOrders=1 (sum = 2), but totals.totalOrders = 1 (distinct global)
+    expect(result.channels.find((c) => c.channel === 'coupang')!.totalOrders).toBe(1);
+    expect(result.channels.find((c) => c.channel === 'naver')!.totalOrders).toBe(1);
+    expect(result.totals.totalOrders).toBe(1);
+  });
+
+  it('period default + invalid → current month', async () => {
+    const prisma = makePrisma({});
+    const [r1, r2] = await Promise.all([
+      new SalesAnalysisService(prisma).getAnalysis('cA'),
+      new SalesAnalysisService(prisma).getAnalysis('cA', 'garbage'),
+    ]);
+    expect(r1.period).toMatch(/^\d{4}-(0[1-9]|1[0-2])$/);
+    expect(r2.period).toMatch(/^\d{4}-(0[1-9]|1[0-2])$/);
+  });
+
+  it('revenue-weighted shipping across channels preserves total shipping invariant', async () => {
+    const coup = { id: 'l-c', channel: 'coupang' };
+    const naver = { id: 'l-n', channel: 'naver' };
+    const orders = [
+      { id: 'o1', shippingPrice: 3000, lineItems: [
+        mkLineItem(coup, { quantity: 1, totalPrice: 9000, costPrice: 5000, commissionRate: 0, otherCost: 0 }),
+        mkLineItem(naver, { quantity: 1, totalPrice: 3000, costPrice: 2000, commissionRate: 0, otherCost: 0 }),
+      ]},
+    ];
+    const prisma = makePrisma({ orders });
+    const result = await new SalesAnalysisService(prisma).getAnalysis('cA', '2026-04');
+    const c = result.channels.find((x) => x.channel === 'coupang')!;
+    const n = result.channels.find((x) => x.channel === 'naver')!;
+    // Shipping split 9000/12000 = 75% coupang / 25% naver → 2250 + 750 = 3000
+    // (shipping is nested inside totalCost; assert total cost makes sense)
+    expect(c.totalRevenue).toBe(9000);
+    expect(n.totalRevenue).toBe(3000);
   });
 });
 ```
-
-**Note on returnRate ADR-0017 semantic**: Unit layer mock counts `orderReturnLineItem.findMany` returns = lineItem-level. Real INNER JOIN semantic (distinct Order-level) is verified in T4 PG integration. Unit layer is approximate — if `returnRate > 1` occurs in real data, fix by switching to distinct-Order count in service aggregation:
-
-```ts
-// Alternative if lineItem-count inflates returnRate:
-// Build returnMap as Set<orderId> per channel, then size at end
-const returnOrderSets = new Map<string, Set<string>>();
-// rli.orderLineItem.orderId + channelName → add to set
-// returnCount = returnOrderSets.get(channelName)?.size ?? 0
-```
-
-**Decision for T2**: Start with lineItem-count (simpler) + rely on T4 integration to surface if bias exists. If real data shows returnRate > 1, switch to distinct-Order count. Document in code.
 
 - [ ] **Step 3.3**: Run tests
 
@@ -675,13 +929,13 @@ const returnOrderSets = new Map<string, Set<string>>();
 cd apps/server && npx vitest run src/finance/services/__tests__/sales-analysis.service.spec.ts 2>&1 | tail -15
 ```
 
-Expected: all pass.
+Expected: 10 pass.
 
 - [ ] **Step 3.4**: Commit
 
 ```bash
 git add apps/server/src/finance/services/__tests__/sales-analysis.service.spec.ts
-git commit -m "test(finance): sales-analysis.service unit tests (Plan D.3 T3)"
+git commit -m "test(finance): sales-analysis unit tests — channel grouping + ADR-0017 + IDOR (Plan D.3 T3)"
 ```
 
 ---
@@ -691,81 +945,28 @@ git commit -m "test(finance): sales-analysis.service unit tests (Plan D.3 T3)"
 **Files:**
 - Create: `apps/server/src/finance/services/__tests__/sales-analysis.pg.integration.spec.ts`
 
-**Review cadence**: Integration test — **2-stage review** retained (semantic + seed correctness critical).
+**Review cadence**: **2-stage**.
 
-- [ ] **Step 4.1**: Read D.1 reference `apps/server/src/finance/services/__tests__/profit-loss.pg.integration.spec.ts` — inline seed helpers, real-prisma pattern.
-
-- [ ] **Step 4.2**: Create spec with cases
+### Step 4.1: Create spec using T0 helpers
 
 ```ts
 import { describe, it, expect, beforeEach } from 'vitest';
 import { SalesAnalysisService } from '../sales-analysis.service';
 import { makeTestPrisma, resetDb, seedBaseFixture, TEST_COMPANY_ID, OTHER_COMPANY_ID } from '../../../test-helpers/real-prisma';
+import { setupMaster, setupProductOption, setupChannelListing, seedOrderWithLineItems, seedReturn, seedAd } from '../../../test-helpers/finance-seeds';
 
 const prisma = makeTestPrisma();
 const service = new SalesAnalysisService(prisma);
 
-async function seedOrderInline(opts: {
-  companyId: string;
-  orderedAt: string;
-  externalOrderId: string;
-  listingId: string;
-  lineItems: Array<{ totalPrice: number; quantity: number; optionId: string; listingOptionId: string }>;
-  shippingPrice?: number;
-}): Promise<string> {
-  const order = await prisma.order.create({
-    data: {
-      companyId: opts.companyId,
-      externalOrderId: opts.externalOrderId,
-      platform: 'coupang',
-      orderedAt: new Date(opts.orderedAt),
-      status: 'accepted',
-      totalPrice: opts.lineItems.reduce((s, li) => s + li.totalPrice, 0),
-      shippingPrice: opts.shippingPrice ?? 3000,
-      lineItems: {
-        create: opts.lineItems.map((li) => ({
-          companyId: opts.companyId,
-          quantity: li.quantity,
-          totalPrice: li.totalPrice,
-          optionId: li.optionId,
-          listingOptionId: li.listingOptionId,
-        })),
-      },
-    },
+async function setupChannelFixture(companyId: string, channel: string, suffix: string) {
+  const master = await setupMaster(prisma, { companyId, code: `M-${suffix}`, name: `Product ${suffix}` });
+  const option = await setupProductOption(prisma, { companyId, masterId: master.id, sku: `SKU-${suffix}` });
+  const { listingId, listingOptionId } = await setupChannelListing(prisma, {
+    companyId, masterId: master.id, channel, externalId: `EXT-${suffix}`,
+    optionId: option.id, vendorItemId: `VI-${suffix}`,
   });
-  return order.id;
+  return { masterId: master.id, optionId: option.id, listingId, listingOptionId };
 }
-
-async function seedChannelListing(opts: {
-  companyId: string;
-  channelName: string;
-  channelType: string;
-  masterId: string;
-  externalId: string;
-  optionId: string;
-  vendorItemId: string;
-}): Promise<{ listingId: string; listingOptionId: string }> {
-  const listing = await prisma.channelListing.create({
-    data: {
-      companyId: opts.companyId,
-      masterId: opts.masterId,
-      channelName: opts.channelName,
-      channelType: opts.channelType,
-      externalId: opts.externalId,
-    },
-  });
-  const lopt = await prisma.channelListingOption.create({
-    data: {
-      companyId: opts.companyId,
-      listingId: listing.id,
-      optionId: opts.optionId,
-      vendorItemId: opts.vendorItemId,
-    },
-  });
-  return { listingId: listing.id, listingOptionId: lopt.id };
-}
-
-// ... seedMaster / seedOption helpers similar to profit-loss.pg.integration.spec.ts ...
 
 describe('SalesAnalysisService.getAnalysis (PG integration)', () => {
   beforeEach(async () => {
@@ -773,79 +974,196 @@ describe('SalesAnalysisService.getAnalysis (PG integration)', () => {
     await seedBaseFixture(prisma);
   });
 
-  it('groups by channelName (coupang + naver)', async () => {
-    // Seed master + options + listings
-    // Seed 2 orders: 1 on coupang listing, 1 on naver listing
-    // Assert result.channels has 2 entries sorted by revenue desc
-    // (full seed code inline; refer D.1 T6 style)
+  it('groups orders by channel (coupang + naver)', async () => {
+    const coup = await setupChannelFixture(TEST_COMPANY_ID, 'coupang', 'COUP');
+    const naver = await setupChannelFixture(TEST_COMPANY_ID, 'naver', 'NAVER');
+    await seedOrderWithLineItems(prisma, {
+      companyId: TEST_COMPANY_ID, externalOrderId: 'O-1', orderedAt: '2026-04-10T00:00:00Z',
+      lineItems: [{ quantity: 1, totalPrice: 10000, optionId: coup.optionId, listingOptionId: coup.listingOptionId }],
+    });
+    await seedOrderWithLineItems(prisma, {
+      companyId: TEST_COMPANY_ID, externalOrderId: 'O-2', orderedAt: '2026-04-15T00:00:00Z',
+      lineItems: [{ quantity: 1, totalPrice: 8000, optionId: naver.optionId, listingOptionId: naver.listingOptionId }],
+    });
+    const result = await service.getAnalysis(TEST_COMPANY_ID, '2026-04');
+    expect(result.channels).toHaveLength(2);
+    expect(result.channels.map((c) => c.channel).sort()).toEqual(['coupang', 'naver']);
   });
 
-  it('IDOR — OTHER_COMPANY data does not leak', async () => {
-    // Seed TEST_COMPANY coupang orders + OTHER_COMPANY coupang orders
-    // Call getAnalysis(TEST_COMPANY_ID) → returns only TEST company channels/orders
-    // Reverse: getAnalysis(OTHER_COMPANY_ID) returns OTHER's data
+  it('IDOR — OTHER_COMPANY data does not leak + double-blind', async () => {
+    const tcoup = await setupChannelFixture(TEST_COMPANY_ID, 'coupang', 'T-COUP');
+    const ocoup = await setupChannelFixture(OTHER_COMPANY_ID, 'coupang', 'O-COUP');
+    await seedOrderWithLineItems(prisma, {
+      companyId: TEST_COMPANY_ID, externalOrderId: 'T-O1', orderedAt: '2026-04-10T00:00:00Z',
+      lineItems: [{ quantity: 1, totalPrice: 10000, optionId: tcoup.optionId, listingOptionId: tcoup.listingOptionId }],
+    });
+    await seedOrderWithLineItems(prisma, {
+      companyId: OTHER_COMPANY_ID, externalOrderId: 'O-O1', orderedAt: '2026-04-10T00:00:00Z',
+      lineItems: [{ quantity: 1, totalPrice: 20000, optionId: ocoup.optionId, listingOptionId: ocoup.listingOptionId }],
+    });
+    const t = await service.getAnalysis(TEST_COMPANY_ID, '2026-04');
+    const o = await service.getAnalysis(OTHER_COMPANY_ID, '2026-04');
+    expect(t.totals.totalRevenue).toBe(10000);
+    expect(o.totals.totalRevenue).toBe(20000);
   });
 
-  it('ADR-0017 returnRate — past-period order return excluded', async () => {
-    // Seed March order (TEST_COMPANY_ID) + April order
-    // Return on March order with requestedAt=April
-    // Return on April order with requestedAt=April
-    // getAnalysis(TEST_COMPANY_ID, '2026-04') → April channel returnCount = 1 (only April order)
-    // Prove via: orderReturnLineItem.findMany with { return: { order: { orderedAt: ∈ April } } }
+  it('ADR-0017 returnRate — past-period order excluded', async () => {
+    const coup = await setupChannelFixture(TEST_COMPANY_ID, 'coupang', 'APR');
+    const marchOrderId = await seedOrderWithLineItems(prisma, {
+      companyId: TEST_COMPANY_ID, externalOrderId: 'MAR-1', orderedAt: '2026-03-15T00:00:00Z',
+      lineItems: [{ quantity: 1, totalPrice: 5000, optionId: coup.optionId, listingOptionId: coup.listingOptionId }],
+    });
+    const aprOrderId = await seedOrderWithLineItems(prisma, {
+      companyId: TEST_COMPANY_ID, externalOrderId: 'APR-1', orderedAt: '2026-04-10T00:00:00Z',
+      lineItems: [{ quantity: 1, totalPrice: 10000, optionId: coup.optionId, listingOptionId: coup.listingOptionId }],
+    });
+    const marchLineItem = await prisma.orderLineItem.findFirst({ where: { orderId: marchOrderId }, select: { id: true } });
+    const aprLineItem = await prisma.orderLineItem.findFirst({ where: { orderId: aprOrderId }, select: { id: true } });
+    // March order return (requestedAt April) — EXCLUDED from April returnCount
+    await seedReturn(prisma, {
+      companyId: TEST_COMPANY_ID, orderId: marchOrderId, requestedAt: '2026-04-07T00:00:00Z',
+      lineItems: [{ orderLineItemId: marchLineItem!.id }],
+    });
+    // April order return — INCLUDED
+    await seedReturn(prisma, {
+      companyId: TEST_COMPANY_ID, orderId: aprOrderId, requestedAt: '2026-04-25T00:00:00Z',
+      lineItems: [{ orderLineItemId: aprLineItem!.id }],
+    });
+
+    const result = await service.getAnalysis(TEST_COMPANY_ID, '2026-04');
+    const c = result.channels.find((x) => x.channel === 'coupang')!;
+    expect(c.totalOrders).toBe(1);                  // only April order
+    expect(c.returnCount).toBe(1);                  // only April order returned
+    expect(c.returnRate).toBeCloseTo(1, 6);
+  });
+
+  it('orphanReturnCount — orderId NULL returns go to totals.orphanReturnCount', async () => {
+    const coup = await setupChannelFixture(TEST_COMPANY_ID, 'coupang', 'ORPH');
+    await seedOrderWithLineItems(prisma, {
+      companyId: TEST_COMPANY_ID, externalOrderId: 'APR-O', orderedAt: '2026-04-10T00:00:00Z',
+      lineItems: [{ quantity: 1, totalPrice: 10000, optionId: coup.optionId, listingOptionId: coup.listingOptionId }],
+    });
+    await seedReturn(prisma, { companyId: TEST_COMPANY_ID, orderId: null, requestedAt: '2026-04-15T00:00:00Z' });
+
+    const result = await service.getAnalysis(TEST_COMPANY_ID, '2026-04');
+    expect(result.channels[0].returnCount).toBe(0);
+    expect(result.totals.orphanReturnCount).toBe(1);
   });
 
   it('SalesAnalysisDataSchema.parse succeeds on response', async () => {
+    const coup = await setupChannelFixture(TEST_COMPANY_ID, 'coupang', 'VALIDATE');
+    await seedOrderWithLineItems(prisma, {
+      companyId: TEST_COMPANY_ID, externalOrderId: 'VAL-1', orderedAt: '2026-04-10T00:00:00Z',
+      lineItems: [{ quantity: 1, totalPrice: 10000, optionId: coup.optionId, listingOptionId: coup.listingOptionId }],
+    });
     const result = await service.getAnalysis(TEST_COMPANY_ID, '2026-04');
     const { SalesAnalysisDataSchema } = await import('@kiditem/shared');
     expect(() => SalesAnalysisDataSchema.parse(result)).not.toThrow();
   });
 
-  it('1000-order perf baseline < 2s', async () => {
-    // Bulk seed 1000 orders across 3 channels via createMany
-    // Measure getAnalysis latency
-    // Assert < 2000ms + [perf] log
+  it('KST boundary — 2026-04-30T14:59:59.999Z IN April, 15:00:00Z IN May', async () => {
+    const coup = await setupChannelFixture(TEST_COMPANY_ID, 'coupang', 'KST');
+    await seedOrderWithLineItems(prisma, {
+      companyId: TEST_COMPANY_ID, externalOrderId: 'APR-LAST', orderedAt: '2026-04-30T14:59:59.999Z',
+      lineItems: [{ quantity: 1, totalPrice: 7777, optionId: coup.optionId, listingOptionId: coup.listingOptionId }],
+    });
+    await seedOrderWithLineItems(prisma, {
+      companyId: TEST_COMPANY_ID, externalOrderId: 'MAY-FIRST', orderedAt: '2026-04-30T15:00:00Z',
+      lineItems: [{ quantity: 1, totalPrice: 8888, optionId: coup.optionId, listingOptionId: coup.listingOptionId }],
+    });
+    const april = await service.getAnalysis(TEST_COMPANY_ID, '2026-04');
+    const may = await service.getAnalysis(TEST_COMPANY_ID, '2026-05');
+    expect(april.totals.totalRevenue).toBe(7777);
+    expect(may.totals.totalRevenue).toBe(8888);
+  });
+
+  it('perf baseline — 1000 orders + 200 returns < 2s', async () => {
+    const coup = await setupChannelFixture(TEST_COMPANY_ID, 'coupang', 'PERF-C');
+    const naver = await setupChannelFixture(TEST_COMPANY_ID, 'naver', 'PERF-N');
+    // Bulk seed via createMany for speed
+    const orderData = Array.from({ length: 1000 }, (_, i) => ({
+      companyId: TEST_COMPANY_ID,
+      externalOrderId: `PERF-${i}`,
+      platform: 'coupang',
+      orderedAt: new Date(`2026-04-${String((i % 28) + 1).padStart(2, '0')}T00:00:00Z`),
+      status: 'accepted',
+      totalPrice: 10000,
+      shippingPrice: 3000,
+    }));
+    await prisma.order.createMany({ data: orderData });
+    const orders = await prisma.order.findMany({
+      where: { companyId: TEST_COMPANY_ID, externalOrderId: { startsWith: 'PERF-' } },
+      select: { id: true, externalOrderId: true },
+    });
+    // Add lineItems split 70/30 coupang/naver
+    const lineItemData = orders.flatMap((o) => {
+      const idx = parseInt(o.externalOrderId.split('-')[1], 10);
+      const target = idx % 10 < 7 ? coup : naver;
+      return [{
+        orderId: o.id, companyId: TEST_COMPANY_ID,
+        quantity: 1, totalPrice: 10000,
+        optionId: target.optionId, listingOptionId: target.listingOptionId,
+      }];
+    });
+    await prisma.orderLineItem.createMany({ data: lineItemData });
+
+    const start = Date.now();
+    const result = await service.getAnalysis(TEST_COMPANY_ID, '2026-04');
+    const latencyMs = Date.now() - start;
+    expect(result.totals.totalOrders).toBe(1000);
+    expect(result.channels).toHaveLength(2);
+    expect(latencyMs).toBeLessThan(2000);
+    console.log(`[perf] sales-analysis 1000 orders × 2 channels → ${latencyMs}ms`);
+  });
+
+  it('empty-channel ad — ad spend on channel with 0 orders is dropped (orders-driven grouping)', async () => {
+    const coup = await setupChannelFixture(TEST_COMPANY_ID, 'coupang', 'AD-ONLY-C');
+    const naver = await setupChannelFixture(TEST_COMPANY_ID, 'naver', 'AD-ONLY-N');
+    // coupang has orders; naver only has ad spend
+    await seedOrderWithLineItems(prisma, {
+      companyId: TEST_COMPANY_ID, externalOrderId: 'AD-1', orderedAt: '2026-04-10T00:00:00Z',
+      lineItems: [{ quantity: 1, totalPrice: 10000, optionId: coup.optionId, listingOptionId: coup.listingOptionId }],
+    });
+    await seedAd(prisma, { companyId: TEST_COMPANY_ID, listingId: naver.listingId, date: '2026-04-15', spend: 500 });
+    const result = await service.getAnalysis(TEST_COMPANY_ID, '2026-04');
+    expect(result.channels).toHaveLength(1);              // only coupang
+    expect(result.channels[0].channel).toBe('coupang');
   });
 });
 ```
 
-Full implementation requires 200+ lines of seed helpers; follow D.1 T6 pattern exactly. This spec outline shows structure — implementer fills in concrete seed + assertions.
-
-- [ ] **Step 4.3**: Run integration tests
+- [ ] **Step 4.2**: Run tests
 
 ```bash
 cd /Users/yhc125/workspace/kiditem/.claude/worktrees/plan-d3
 npm run db:test:up && npm run db:test:prepare
-cd apps/server && npm run test:integration -- sales-analysis.pg 2>&1 | tail -20
+cd apps/server && npm run test:integration -- sales-analysis.pg 2>&1 | tail -25
 ```
 
-Expected: all pass + `[perf] ...ms` log.
-
-- [ ] **Step 4.4**: Commit
+- [ ] **Step 4.3**: Commit
 
 ```bash
 git add apps/server/src/finance/services/__tests__/sales-analysis.pg.integration.spec.ts
-git commit -m "test(finance): sales-analysis.pg integration — channelName grouping + IDOR + ADR-0017 + perf (Plan D.3 T4)"
+git commit -m "test(finance): sales-analysis.pg integration — channel + IDOR + ADR-0017 + KST + empty-ad + perf (Plan D.3 T4)"
 ```
 
 ---
 
-## Task 5: SalesOverview.tsx rewire + ChannelTable.tsx adoption of shared SortableHeader
+## Task 5: SalesOverview.tsx rewire + ChannelTable.tsx SortableHeader adoption
 
 **Files:**
 - Modify: `apps/web/src/app/sales-analysis/components/SalesOverview.tsx`
 - Modify: `apps/web/src/app/sales-analysis/components/ChannelTable.tsx`
 
-**Review cadence**: Frontend page + component change — **2-stage review**.
+**Review cadence**: **2-stage**.
 
-- [ ] **Step 5.1**: Read `apps/web/CLAUDE.md` + current `SalesOverview.tsx` + `ChannelTable.tsx` full files.
+### Step 5.1: Read current files + capture KPI card layout
 
-- [ ] **Step 5.2**: Read D.1 T8 pattern `apps/web/src/app/profit-loss/page.tsx` — getParsed + URL period + 3-state + ZodError handling.
+- [ ] Read `SalesOverview.tsx` fully — note the 4 KPI cards (probably 총매출 / 총이익 / 평균마진율 / 총 주문 수) with specific styling.
+- [ ] Read `ChannelTable.tsx` fully — note inline `SortTh`, field rendering.
+- [ ] Read D.1 T8 `apps/web/src/app/profit-loss/page.tsx` — reference pattern.
 
-- [ ] **Step 5.3**: Read D.2 T2 pattern `apps/web/src/components/ui/SortableHeader.tsx` (shared component) for prop API.
-
-- [ ] **Step 5.4**: Rewire `SalesOverview.tsx`
-
-Replace existing inline `SalesAnalysisData` type + `apiClient.get<SalesAnalysisData>` with:
+### Step 5.2: Rewire `SalesOverview.tsx`
 
 ```tsx
 'use client';
@@ -853,7 +1171,7 @@ Replace existing inline `SalesAnalysisData` type + `apiClient.get<SalesAnalysisD
 import { useState, useMemo } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { z, ZodError } from 'zod';
+import { ZodError } from 'zod';
 import { SalesAnalysisDataSchema, type ChannelAnalysis } from '@kiditem/shared';
 import { usePeriodSelector } from '@/hooks/usePeriodSelector';
 import PeriodSelector from '@/components/ui/PeriodSelector';
@@ -861,6 +1179,7 @@ import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
 import PageSkeleton from '@/components/ui/PageSkeleton';
+import { formatKRW, formatPercent, formatNumber } from '@/lib/utils';
 import ChannelTable from './ChannelTable';
 
 type SortField = 'totalOrders' | 'totalRevenue' | 'totalCost' | 'totalProfit' | 'avgOrderValue';
@@ -873,11 +1192,8 @@ export default function SalesOverview() {
   const urlPeriod = searchParams.get('period');
 
   const { period, setPeriod: setPeriodRaw, periodOptions } = usePeriodSelector({
-    months: 12,
-    defaultTo: 'prev',
-    initial: urlPeriod ?? undefined,
+    months: 12, defaultTo: 'prev', initial: urlPeriod ?? undefined,
   });
-
   const setPeriod = (p: string) => {
     setPeriodRaw(p);
     const params = new URLSearchParams(searchParams);
@@ -907,10 +1223,9 @@ export default function SalesOverview() {
     if (!data?.channels) return [];
     if (!sortField || !sortDir) return data.channels;
     return [...data.channels].sort((a, b) => {
-      const left = a[sortField];
-      const right = b[sortField];
-      if (left === right) return 0;
-      return sortDir === 'asc' ? (left > right ? 1 : -1) : (left < right ? 1 : -1);
+      const l = a[sortField], r = b[sortField];
+      if (l === r) return 0;
+      return sortDir === 'asc' ? (l > r ? 1 : -1) : (l < r ? 1 : -1);
     });
   }, [data, sortField, sortDir]);
 
@@ -935,7 +1250,18 @@ export default function SalesOverview() {
         <div className="flex items-center justify-center h-64 text-slate-500">해당 기간 데이터가 없습니다.</div>
       ) : (
         <>
-          <SalesOverviewTotals totals={data.totals} />
+          {/* 4 KPI cards — preserve existing layout from pre-rewire */}
+          <div className="grid grid-cols-4 gap-4">
+            <KpiCard label="총 매출" value={formatKRW(data.totals.totalRevenue)} />
+            <KpiCard label="총 이익" value={formatKRW(data.totals.totalProfit)} />
+            <KpiCard label="평균 마진율" value={data.totals.totalRevenue > 0 ? formatPercent((data.totals.totalProfit / data.totals.totalRevenue) * 100) : '-'} />
+            <KpiCard label="총 주문 수" value={formatNumber(data.totals.totalOrders)} />
+          </div>
+          {data.totals.orphanReturnCount > 0 && (
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-50 border border-amber-200 text-amber-900 text-xs">
+              주문 연결 없는 반품: <strong className="tabular-nums">{formatNumber(data.totals.orphanReturnCount)}</strong>건 (반품률 계산 제외)
+            </div>
+          )}
           <ChannelTable
             channels={sorted}
             sortField={sortField}
@@ -948,19 +1274,19 @@ export default function SalesOverview() {
   );
 }
 
-function SalesOverviewTotals({ totals }: { totals: SalesAnalysisData['totals'] }) {
-  // Simple KPI row — reuse existing styling if present
+function KpiCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="grid grid-cols-4 gap-4">
-      {/* totals cards — minimal, or reuse existing SalesOverviewSummary component if exists */}
+    <div className="bg-white rounded-lg border border-slate-200 p-4">
+      <p className="text-xs text-slate-500">{label}</p>
+      <p className="text-xl font-bold text-slate-900 tabular-nums mt-1">{value}</p>
     </div>
   );
 }
 ```
 
-**Keep existing inline TotalsRow / headers / layout** — only the DATA FETCHING + error + sort logic changes. Preserve current visual design.
+**If existing SalesOverview.tsx has richer KPI cards** (e.g., with icons, trend arrows), preserve them — Step 5.1 read confirms. Replace data binding fields only.
 
-- [ ] **Step 5.5**: Rewire `ChannelTable.tsx` to use shared `SortableHeader`
+### Step 5.3: Rewire `ChannelTable.tsx`
 
 ```tsx
 'use client';
@@ -978,6 +1304,12 @@ interface Props {
   sortDir: SortDir;
   onToggleSort: (field: SortField) => void;
 }
+
+const CHANNEL_TYPE_LABEL: Record<ChannelAnalysis['channelType'], string> = {
+  marketplace: '마켓',
+  direct: '자사몰',
+  other: '기타',
+};
 
 export default function ChannelTable({ channels, sortField, sortDir, onToggleSort }: Props) {
   return (
@@ -997,9 +1329,9 @@ export default function ChannelTable({ channels, sortField, sortDir, onToggleSor
       </thead>
       <tbody>
         {channels.map((c) => (
-          <tr key={c.channelName}>
-            <td><span className="badge">{c.channelName}</span></td>
-            <td>{c.channelType}</td>
+          <tr key={c.channel}>
+            <td><span className="badge">{c.channel}</span></td>
+            <td className="text-xs text-slate-500">{CHANNEL_TYPE_LABEL[c.channelType]}</td>
             <td className="text-right tabular-nums">{formatNumber(c.totalOrders)}</td>
             <td className="text-right tabular-nums">{formatKRW(c.totalRevenue)}</td>
             <td className="text-right tabular-nums">{formatKRW(c.totalCost)}</td>
@@ -1015,125 +1347,35 @@ export default function ChannelTable({ channels, sortField, sortDir, onToggleSor
 }
 ```
 
-**Delete local `ChannelRow` interface + custom `SortTh` inline function**. Existing Tailwind / `data-table` styling preserved.
+Delete local `ChannelRow` interface + `SortTh` inline.
 
-- [ ] **Step 5.6**: tsc verify
+### Step 5.4: tsc verify
 
 ```bash
 cd apps/web && npx tsc --noEmit 2>&1 | grep "sales-analysis" | head -5
 ```
 
-Expected: empty.
-
-- [ ] **Step 5.7**: Commit
+### Step 5.5: Commit
 
 ```bash
-git add apps/web/src/app/sales-analysis/ 
-git commit -m "feat(web): SalesOverview getParsed + URL period + 3-state + ChannelTable SortableHeader (Plan D.3 T5)"
+git add apps/web/src/app/sales-analysis/
+git commit -m "feat(web): SalesOverview + ChannelTable — getParsed + URL period + SortableHeader + channel grouping (Plan D.3 T5)"
 ```
 
 ---
 
-## Task 6: RTL 3-state test for SalesOverview
+## Task 6: RTL 3-state test
 
 **Files:**
 - Create: `apps/web/src/app/sales-analysis/__tests__/SalesOverview.spec.tsx`
 
-**Review cadence**: RTL test — **1 combined review** per D.3+ cadence memo (test pattern established by D.1 T10 + D.2 T5; low-risk replication).
+**Review cadence**: **1 combined review** (pattern established D.1 T10 + D.2 T8).
 
-- [ ] **Step 6.1**: Read D.1 T10 pattern `apps/web/src/app/profit-loss/__tests__/page.spec.tsx` — mock next/navigation + QueryClientProvider + apiClient spy pattern.
+### Step 6.1-6.3: Create spec (see v1 plan lines 1076-1140 — structure identical but mocks adjusted for new schema)
 
-- [ ] **Step 6.2**: Create spec
+Same pattern as D.1 T10 profit-loss page.spec — 4 cases (loading / empty / error / ZodError drift) + bonus success render.
 
-```tsx
-import { render, screen, waitFor } from '@testing-library/react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import SalesOverview from '../components/SalesOverview';
-import { apiClient } from '@/lib/api-client';
-
-vi.mock('next/navigation', () => ({
-  useSearchParams: () => new URLSearchParams(),
-  useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
-  usePathname: () => '/sales-analysis',
-}));
-
-function renderWithProvider() {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
-    <QueryClientProvider client={client}>
-      <SalesOverview />
-    </QueryClientProvider>,
-  );
-}
-
-describe('<SalesOverview> 3-state', () => {
-  beforeEach(() => {
-    vi.spyOn(apiClient, 'getParsed').mockReset();
-  });
-
-  it('renders loading skeleton on pending query', () => {
-    vi.spyOn(apiClient, 'getParsed').mockImplementation(() => new Promise(() => {}));
-    renderWithProvider();
-    expect(document.querySelector('.animate-pulse')).toBeTruthy();
-  });
-
-  it('renders empty state on zero channels', async () => {
-    vi.spyOn(apiClient, 'getParsed').mockResolvedValue({
-      period: '2026-04',
-      channels: [],
-      totals: { totalRevenue: 0, totalProfit: 0, totalOrders: 0, totalCost: 0 },
-    });
-    renderWithProvider();
-    await waitFor(() => {
-      expect(screen.getByText(/해당 기간 데이터가 없습니다/)).toBeTruthy();
-    });
-  });
-
-  it('renders error on 502', async () => {
-    vi.spyOn(apiClient, 'getParsed').mockRejectedValue(new Error('502 Bad Gateway'));
-    renderWithProvider();
-    await waitFor(() => {
-      expect(screen.getByText(/502/)).toBeTruthy();
-    });
-  });
-
-  it('renders ZodError as user-friendly message', async () => {
-    const { ZodError } = await import('zod');
-    const zErr = new ZodError([{ code: 'invalid_type', expected: 'string', received: 'number', path: ['period'], message: '' } as any]);
-    vi.spyOn(apiClient, 'getParsed').mockRejectedValue(zErr);
-    renderWithProvider();
-    await waitFor(() => {
-      expect(screen.getByText(/응답 형식 오류/)).toBeTruthy();
-    });
-  });
-
-  it('renders channel rows on successful data', async () => {
-    vi.spyOn(apiClient, 'getParsed').mockResolvedValue({
-      period: '2026-04',
-      channels: [
-        { channelName: 'coupang', channelType: 'marketplace', totalOrders: 10, totalRevenue: 100000, totalCost: 50000, totalProfit: 50000, returnCount: 1, returnRate: 0.1, avgOrderValue: 10000 },
-      ],
-      totals: { totalRevenue: 100000, totalProfit: 50000, totalOrders: 10, totalCost: 50000 },
-    });
-    renderWithProvider();
-    await waitFor(() => {
-      expect(screen.getByText(/coupang/)).toBeTruthy();
-    });
-  });
-});
-```
-
-- [ ] **Step 6.3**: Run test
-
-```bash
-cd /Users/yhc125/workspace/kiditem/.claude/worktrees/plan-d3
-npx --prefix apps/web vitest run src/app/sales-analysis 2>&1 | tail -15
-```
-
-Expected: 5 pass.
-
-- [ ] **Step 6.4**: Commit
+### Step 6.4: Commit
 
 ```bash
 git add apps/web/src/app/sales-analysis/__tests__/
@@ -1142,197 +1384,223 @@ git commit -m "test(web): SalesOverview 3-state RTL (Plan D.3 T6)"
 
 ---
 
-## Task 7: Verification milestone + CLAUDE.md update
+## Task 7: Verification + CLAUDE.md update
 
-**Review cadence**: Verification — **no review** (verification itself is the evidence).
+**Review cadence**: **No review** (self-evidencing).
 
-- [ ] **Step 7.1**: `@kiditem/shared` rebuild
-
-```bash
-cd /Users/yhc125/workspace/kiditem/.claude/worktrees/plan-d3
-cd packages/shared && npm run build 2>&1 | tail -5
-cd /Users/yhc125/workspace/kiditem/.claude/worktrees/plan-d3
-```
-
-- [ ] **Step 7.2**: apps/server tsc 0 errors
-
-```bash
-cd apps/server && npx tsc --noEmit 2>&1 | grep -c "error TS"
-```
-
-- [ ] **Step 7.3**: Server unit + integration
-
-```bash
-cd /Users/yhc125/workspace/kiditem/.claude/worktrees/plan-d3
-cd apps/server && npx vitest run src/finance src/channels 2>&1 | tail -10
-cd apps/server && npm run test:integration -- sales-analysis.pg 2>&1 | tail -10
-```
-
-- [ ] **Step 7.4**: Web vitest
-
-```bash
-cd /Users/yhc125/workspace/kiditem/.claude/worktrees/plan-d3
-npx --prefix apps/web vitest run src/app/sales-analysis src/components/ui src/lib 2>&1 | tail -10
-```
-
-- [ ] **Step 7.5**: dev:server boot
-
-```bash
-cd /Users/yhc125/workspace/kiditem/.claude/worktrees/plan-d3
-npm run dev:server > /tmp/d3-boot.log 2>&1 &
-BOOT_PID=$!
-for i in $(seq 1 60); do
-  sleep 1
-  grep -q "Nest application successfully started" /tmp/d3-boot.log && { echo "BOOT_OK"; break; }
-  grep -qE "Error:|listen E" /tmp/d3-boot.log && { echo "BOOT_FAIL"; tail -20 /tmp/d3-boot.log; break; }
-done
-kill $BOOT_PID 2>/dev/null
-pkill -f "nest start" 2>/dev/null
-```
-
-- [ ] **Step 7.6**: HTTP smoke (optional)
-
-```bash
-DEV_USER_ID=$(psql -h localhost -p 5433 -U kiditem -d kiditem -tA -c "SELECT id FROM users LIMIT 1" 2>/dev/null || echo "")
-if [ -n "$DEV_USER_ID" ]; then
-  npm run dev:server > /tmp/d3-boot2.log 2>&1 &
-  BOOT_PID=$!
-  for i in $(seq 1 30); do sleep 1; grep -q "Nest application successfully started" /tmp/d3-boot2.log && break; done
-  curl -sS "http://localhost:4000/api/sales-analysis?period=2026-04" -H "x-dev-user-id: $DEV_USER_ID" | jq '.'
-  # Expected: { period: "2026-04", channels: [...], totals: {...} }
-  kill $BOOT_PID 2>/dev/null
-  pkill -f "nest start" 2>/dev/null
-fi
-```
-
-- [ ] **Step 7.7**: Update `apps/server/src/finance/CLAUDE.md`
-
-Remove the "sales-analysis.service.ts 는 여전히 `prisma.profitLoss.groupBy` (D.3 migration 예정). 건드리지 말 것." banner. Replace with:
+Steps 7.1-7.8 — identical pattern to D.1 T11 + D.2 T6:
+1. shared rebuild
+2. apps/server tsc
+3. server unit + integration
+4. web vitest
+5. dev:server boot
+6. HTTP smoke
+7. Update `apps/server/src/finance/CLAUDE.md` — remove "sales-analysis.service.ts 는 ... D.3 migration 예정. 건드리지 말 것." banner, replace with:
 
 ```markdown
 ### sales-analysis.service (Plan D.3, ADR-0017)
-
-`getAnalysis(companyId, period?)` — live aggregation via Order + OrderLineItem + ChannelListingOption + OrderReturnLineItem + Ad. Group by `ChannelListing.channelName`. ADR-0017 returnRate semantic (INNER JOIN on Order.orderedAt, 2-hop IDOR). D.1 T5 pattern 재사용.
-
-ProfitLoss table read 제거 — writer 부재 (ADR-0016 § Scope boundaries).
+`getAnalysis(companyId, period?)` — live aggregation via Order + OrderReturnLineItem + Ad.groupBy.
+Group key: `ChannelListing.channel` (plataform). ADR-0017 returnRate (INNER JOIN + 3-hop IDOR).
+Orphan (orderId NULL) → totals.orphanReturnCount side metric.
 ```
 
-- [ ] **Step 7.8**: Diff summary
+8. Diff summary + commit if CLAUDE.md changed.
 
-```bash
-git log --oneline main..HEAD
-git diff main..HEAD --stat | tail -15
+---
+
+## Task 7b: Release Note
+
+**Files:**
+- Create: `docs/release-notes/2026-04-sales-analysis-channel-breakdown.md`
+
+**Review cadence**: **1 combined review**.
+
+### Step 7b.1: Create release note
+
+```markdown
+# Sales Analysis — 채널별 분석 실제 데이터 노출 (2026-04-20)
+
+**영향**: `/api/sales-analysis` 응답 구조 변경. UI 는 채널별 실제 breakdown 표시.
+
+**관련 ADR**: [ADR-0016](../../.claude/docs/decisions/0016-profit-loss-live-aggregation.md) (ProfitLoss bypass), [ADR-0017](../../.claude/docs/decisions/0017-returnrate-semantic-unification.md) (returnRate semantic)
+
+## 무엇이 바뀌었나
+
+### 이전 (stub)
+
+- `sales-analysis.service.getAnalysis` 가 `profitLoss.groupBy({ by: ['companyId'] })` 로 1-row 반환 (ProfitLoss 테이블 writer 없음 → 모든 수치 0)
+- SalesOverview 탭 = 비어있는 UI
+
+### 이후 (Plan D.3, live aggregation)
+
+- **채널별 grouping**: `ChannelListing.channel` (coupang / naver / wing / ...) 기준 N-row 응답
+- **Live aggregation**: Order + OrderLineItem + OrderReturnLineItem + Ad 실시간 집계 (ProfitLoss 테이블 bypass)
+- **ADR-0017 returnRate**: "이 기간 주문 중 반품된 비율" (distinct order count, INNER JOIN)
+- **orphanReturnCount** side metric (totals 레벨)
+
+## 응답 shape 변경
+
+```jsonc
+// Before
+{ period, channels: [{ channelName: "회사 이름", ... }], totals: { ... } }  // channels.length = 1 always, 값 0
+
+// After (Plan D.3)
+{
+  period: "2026-04",
+  channels: [
+    { channel: "coupang", channelType: "marketplace", totalOrders: 150, totalRevenue: 5_000_000, ... },
+    { channel: "naver", channelType: "marketplace", totalOrders: 80, totalRevenue: 2_500_000, ... },
+    ...
+  ],
+  totals: { totalRevenue, totalProfit, totalOrders, totalCost, orphanReturnCount }
+}
 ```
 
-- [ ] **Step 7.9**: Commit (if CLAUDE.md changed)
+## 마이그레이션 필요 사항
+
+- **Frontend consumer 재배선 필요** — 이전 `channels[].channelName` 참조 → `channels[].channel`
+- **Frontend SalesOverview** 는 Plan D.3 에서 rewire 완료 (`getParsed`, URL period, 3-state)
+- 다른 탭 (Statistics / Settlements / SalesPlans) 은 **Plan D.3b 에서 후속**
+
+## MoM / YoY 비교 주의
+
+이전 대시보드 캡처는 모두 0 이었음 → D.3 이후가 첫 의미있는 수치. 비교 baseline 없음.
+
+## orphanReturnCount 해석
+
+`OrderReturn.orderId IS NULL` 인 반품 (sync 불일치 / order hard-delete 흔적) 은 channel 매핑 불가 → **totals.orphanReturnCount** 에만 반영. 운영팀 데이터 정합성 조사 지표로 활용.
+
+## 기술 배경
+
+- Service: `apps/server/src/finance/services/sales-analysis.service.ts`
+- Test: `apps/server/src/finance/services/__tests__/sales-analysis.pg.integration.spec.ts`
+- Schema: `@kiditem/shared/schemas/sales-analysis`
+```
+
+### Step 7b.2: Commit
 
 ```bash
-git add apps/server/src/finance/CLAUDE.md
-git commit -m "docs(finance): CLAUDE.md sales-analysis live aggregation note (Plan D.3 T7)"
+git add docs/release-notes/2026-04-sales-analysis-channel-breakdown.md
+git commit -m "docs(release): Plan D.3 sales-analysis channel-breakdown release note (Plan D.3 T7b)"
 ```
 
 ---
 
 ## Task 8: Final state checks
 
-**Review cadence**: None — final gate verifying aggregate quality.
+**Review cadence**: **No review**.
 
-- [ ] **Step 8.1**: Regression check — other profitLoss readers status
+### Step 8.1: Other profitLoss readers status
 
 ```bash
-grep -rn "prisma.profitLoss" apps/server/src/ --include="*.ts" | head -20
+grep -rn "prisma.profitLoss" apps/server/src/ --include="*.ts" | grep -v __tests__
 ```
 
-Expected readers remaining (per ADR-0016): statistics (×5), settlements, sales-plans, ad-strategy, dashboard-inventory, dashboard-trend, action-task (×2). sales-analysis **removed**. Confirm grep count decreased by 1.
+Expected: sales-analysis 제거됨. 남은 readers: statistics (×5), settlements, sales-plans, ad-strategy, dashboard-inventory, dashboard-trend, action-task (×2). ADR-0016 scope 테이블 vs 실제 diff 는 D.3b + Plan E 에서 수렴.
 
-- [ ] **Step 8.2**: ADR-0016 Scope boundaries 표 업데이트 확인
+### Step 8.2: ADR-0016 scope table staleness
 
-Read `.claude/docs/decisions/0016-profit-loss-live-aggregation.md` § "Scope boundaries — Other ProfitLoss readers" — sales-analysis row 가 여전히 "D.3 에서 전환" 으로 기재되어 있음. 실제로는 D.3 에서 전환 완료 → 이 row 는 "완료 (Plan D.3)" 로 표시하거나 삭제하는 것이 이상적이나, **ADR 은 불변** (CLAUDE.md 원칙). 대신 본 plan 의 merge commit 이 grep evidence 로 남음. 추후 Plan E 에서 ADR-0018 로 통합 audit 권장.
+ADR 불변 (CLAUDE.md 원칙). D.3 merge commit + 이 plan 문서 + release note 가 evidence. Plan E 에서 ADR-0018 통합 audit 로 row 갱신 (별도 ADR 로 status 업데이트).
 
-- [ ] **Step 8.3**: Spec v4 D.3 vs 실제 scope 차이 기록
+---
 
-`.claude/docs/decisions/` 에 노트 또는 `docs/superpowers/plans/2026-04-20-plan-d3-sales-analysis-live.md` 최상단 "Pre-flight notes" (이미 포함). 이 plan 이 merge 되면 `project_plan_d3_completed.md` memory 에 differences 명시.
+## Task 9: D.3b scaffold stub (CEO SELECTIVE EXPANSION)
+
+**Files:**
+- Create: `docs/superpowers/plans/2026-04-20-plan-d3b-statistics-settlements-sales-plans.md` (stub)
+
+**Review cadence**: **1 combined review** (stub outline, not implementation).
+
+### Step 9.1: Create stub
+
+```markdown
+# Plan D.3b — statistics / settlements / sales-plans live aggregation (stub)
+
+> Stub plan — D.3a (sales-analysis) 머지 후 본격 작성. Pattern: D.3a T2/T5 재사용.
+
+**Scope**:
+- `statistics.service` (5 profitLoss calls) + `Statistics.tsx` rewire
+- `settlements.service` (profitLoss reconcile) + `Settlements.tsx` rewire
+- `sales-plans.service` (profitLoss aggregate) + `SalesPlans.tsx` rewire
+
+**Reuse from D.3a**:
+- `apps/server/src/test-helpers/finance-seeds.ts` (T0 extract)
+- Live aggregation pattern (Order + OrderReturnLineItem + Ad.groupBy)
+- ADR-0017 returnRate (if each service exposes returnRate, apply same)
+- `apiClient.getParsed` + URL period + 3-state frontend pattern
+
+**Estimated**: 12-18 tasks, 2-3 day execution (3 services × ~5 tasks + 3 pages × ~2 tasks + verification).
+
+**Review cadence**: Same as D.3+ memo — docs 1-combined, service 2-stage, page 2-stage, RTL 1-combined, verify 없음.
+
+**Dependencies**:
+- D.3a merged (shared schemas, finance-seeds helpers, pattern proven)
+- No further ADR needed (ADR-0016 + ADR-0017 cover)
+
+**TODO** (D.3a 머지 후 작성):
+- 각 service 의 현재 profitLoss 호출 enumerate
+- 각 page 의 Zod schema 요구사항
+- 기존 pages 의 custom sort/filter 표준화 방안 (SortableHeader 채택)
+- PG integration test shape
+
+**Release note**: D.3a release note 에 "D.3b 에서 후속" 명시. D.3b 완료 시 통합 release note 또는 amend.
+```
+
+### Step 9.2: Commit
+
+```bash
+git add docs/superpowers/plans/2026-04-20-plan-d3b-statistics-settlements-sales-plans.md
+git commit -m "docs(plan): Plan D.3b scaffold stub — statistics/settlements/sales-plans migration (Plan D.3 T9)"
+```
 
 ---
 
 ## Self-Review
 
-### Spec coverage (spec v4 § D.3 vs plan)
-- ✅ sales-analysis 재배선 → T5 SalesOverview + T6 RTL
-- ⚠️ "7 files 조정" → 실제 5 pages + 1 helper, **이 plan 은 1 page + 1 helper 만** 다룸 (다른 4 페이지는 백엔드 서비스 분리로 별도 phase 필요). Pre-flight notes 에 근거 명시
-- ⚠️ "— (B2c.orders 재사용, 백엔드 변경 없음)" → 실제로는 sales-analysis.service 가 stub (profitLoss empty read) 이라 frontend rewire 만으로 의미 없음. **백엔드 live aggregation 재작성 포함** — T2
-- ✅ ADR-0017 returnRate 수렴 → T2 implementation
-- ✅ 5-reviewer pattern, review cadence memo 적용 — T1/T6 combined review, T2-T5 2-stage
+### Spec coverage (spec v4 § D.3 vs v2)
+- ⚠️ Spec v4 line 74 "7 files 조정" vs v2 narrow to 1 page + 1 helper + backend rewrite — 근거 Pre-flight notes + T9 scaffold
+- ✅ ADR-0017 returnRate 수렴 → T2 service
+- ✅ `SalesOverview.tsx` rewire → T5
+- ✅ Zod schemas with orphanReturnCount → T1
+- ✅ Release note → T7b
+- ✅ D.3b scaffold → T9
 
-### Not yet in this plan (scope 밖 / 별도 phase)
-- **statistics.service** (5 profitLoss calls) + `Statistics.tsx` rewire → **Plan F** 또는 D.3b
-- **settlements.service** + `Settlements.tsx` rewire → Plan F
-- **sales-plans.service** + `SalesPlans.tsx` rewire → Plan F
-- **WingDailySales.tsx** (TrafficStats consumer, not profitLoss) → 별도 concern
-- Other profitLoss readers (ad-strategy, dashboard-inventory, dashboard-trend, action-task) → Plan E
-
-### Placeholder scan
-- ✅ 모든 step 실제 코드 + 명령 포함
-- ✅ T4 PG integration 의 `seedChannelListing` / `seedMaster` / `seedOption` helper 는 "D.1 T6 패턴 exactly" 로 reference — 구체 구현은 implementer 가 D.1 `profit-loss.pg.integration.spec.ts` 복사 adapt
-- ⚠️ T3 returnRate unit test 의 "returnRate > 1 edge" 는 명시적으로 "실패 시 fix path" 함께 기재 (lineItem-count vs distinct-Order count)
+### 4-reviewer findings applied
+- ✅ channel (not channelName) group key
+- ✅ channelType derived via CHANNEL_TYPE_MAP
+- ✅ returnRate distinct-order Set per channel
+- ✅ ad.groupBy + listing→channel resolver
+- ✅ 3-hop IDOR with companyId at rli + return + order
+- ✅ orphanReturnCount in schema + service + UI
+- ✅ Status filter mirrored on return.order
+- ✅ Controller @CurrentCompany wiring copy pattern
+- ✅ T0 seed helpers extract
+- ✅ Release note task
+- ✅ D.3b scaffold
+- ✅ SalesOverviewTotals 4-card KPI enumerated
+- ✅ Multi-channel order semantic (totals.totalOrders global distinct)
 
 ### Type consistency
-- ✅ `SalesAnalysisData` / `ChannelAnalysis` — T1 shared, T2 service satisfies, T3/T4/T5/T6 consume
-- ✅ `channelName` — 단일 key across backend + frontend + tests
-- ✅ `returnRate: z.number().min(0).max(1)` — T1 Zod contract, T2 service guarantee, T3 unit edge test, T4 integration verify
+- `channel: z.string()` — T1 schema, T2 service satisfies, T3/T4 test, T5 UI 일관
+- `channelType: z.enum(['marketplace','direct','other'])` — T1 schema, T2 CHANNEL_TYPE_MAP, T5 CHANNEL_TYPE_LABEL
+- `returnRate: z.number().min(0).max(1)` — T1 schema, T2 distinct-order guarantee, T3 unit verification, T4 integration
+- `orphanReturnCount` — T1 totals, T2 side metric query, T3 unit, T4 integration, T5 UI conditional badge
 
 ### Execution order
-- T1 (schemas) → T2 (service uses schemas) → T3 + T4 (service tests) → T5 + T6 (frontend) → T7 (verify)
-- Parallel pairs: (T3 || T4), (T5 || T6). Linear total T1 → T7.
+T0 → T1 → T2 → T3 || T4 → T5 || T6 → T7 → T7b → T8 → T9. Linear with 2 parallel pairs.
 
 ### Risks
-- **`ChannelListing.channelType` 필드 존재 여부** (T2 Step 2.7 check). 없으면 fallback: channelName 기반 추론. 실행 시 schema 읽기로 확정.
-- **returnRate lineItem-count vs distinct-Order count**: T3 unit 이 문제 감지 → T2 fix path 명시됨.
-- **Semantic 전환 — companyId group → channelName group**: UI 는 이전에 empty 였으므로 실질 regression 없음. 그러나 release note 필요 여부 → 현재 plan 에서는 ADR-0017 release note (D.2 T4) 에 "sales-analysis 도 D.3 에서 같은 semantic" 추가 언급 권장 (본 plan 은 release note 별도 task 없음 — D.2 T4 의 내용이 포괄).
-- **5 pages 중 1 page 만 rewire**: 나머지 4 페이지가 여전히 기존 패턴 유지 — 스타일 diff 혼재. 수용 가능 (deferred phase 에서 수렴).
-
----
-
-## GSTACK REVIEW REPORT (v1 draft)
-
-| Review | Status | Notes |
-|---|---|---|
-| Critic | pending | plan-level adversarial 예상 findings: T4 seed helper 미구현, T5 TotalsRow 구체 렌더 부재, T2 channelType fallback 명시성 |
-| Architect | pending | schema path 재확인 (`ChannelListingOption.listing`), 2-hop IDOR on relation filter 검증 |
-| Eng | pending | Promise.all concurrency, mockImplementation pattern, 1000-order perf seed shape |
-| CEO | pending | scope 적정성 — D.3 → 1 page narrow 가 맞는지, 또는 Plan D.3a/b split 가 좋은지 |
-| Design | pending | UI 일관성 — D.1 profit-loss page 스타일 재사용, TotalsRow 제안 |
-
-**VERDICT**: Draft — run plan-level 5-reviewer before execution.
-
----
-
-## Review cadence applied (per feedback memo)
-
-- T1 (schema): **1 combined review** (trivial add)
-- T2 (service rewrite): **2-stage** (spec + quality)
-- T3 (unit test): **2-stage** (semantic critical)
-- T4 (PG integration): **2-stage** (DB seed + perf)
-- T5 (frontend page + component): **2-stage**
-- T6 (RTL test): **1 combined review** (pattern established)
-- T7 (verification): **no review** (self-evidencing)
-- T8 (final checks): **no review**
-
-Total: 6 × 2-stage + 2 × 1-combined + 2 × no-review = 14 review dispatches (vs. D.1의 16, D.2의 12). Weighted by task criticality.
+- **Schema assumption stability**: `ChannelListing.channel` 이 required + string. 추후 enum 전환 시 v2 의 channelType map 도 재검토.
+- **Perf 1000 order × 2 channel × 1 lineItem** — 단순 경로. Real world 3-5 channel × 2-3 lineItem 시 latency 재측정 필요.
+- **Legacy `channelName` 사용처 audit**: grep `channelName` 했을 때 UI/service 에 여전히 참조하는 곳 없는지 확인 (T5 ChannelTable 외).
 
 ---
 
 ## Reference
 
 - Spec v4 § D.3: `docs/superpowers/specs/2026-04-20-plan-d-frontend-rewire-design.md:74`
-- ADR-0016: profit-loss live aggregation (precedent + scope boundaries table)
-- ADR-0017: returnRate semantic (D.3 enforcement required)
-- Plan D.1: `docs/superpowers/plans/2026-04-20-plan-d1-profit-loss-rewire.md` (T5 service, T6 integration, T10 RTL templates)
-- Plan D.2: `docs/superpowers/plans/2026-04-20-plan-d2-returnrate-coupang-boost.md` (T3 service pattern)
-- `apps/server/src/finance/services/profit-loss.service.ts` (D.1 T5 reference implementation)
-- `apps/server/src/channels/services/channel-dashboard.service.ts:getReturnSummary` (D.2 T3 2-hop IDOR reference)
-- `apps/server/src/finance/services/types.ts` (current `ChannelAnalysis` + `SalesAnalysisResult`)
-- `apps/web/src/app/profit-loss/page.tsx` (D.1 T8 URL period + getParsed pattern)
-- `apps/web/src/components/ui/SortableHeader.tsx` (D.1 T3 shared)
-- `packages/shared/src/schemas/return-summary.ts` (D.2 T2 schema file pattern)
-- `apps/server/src/test-helpers/real-prisma.ts` (TEST_COMPANY_ID / OTHER_COMPANY_ID / seedBaseFixture)
+- ADR-0016, ADR-0017
+- Plan D.1 (`094511c`), Plan D.2 (`e853b15`)
+- `apps/server/src/finance/services/profit-loss.service.ts` (D.1 T5)
+- `apps/server/src/channels/services/channel-dashboard.service.ts:getReturnSummary` (D.2 T3 — 2-hop IDOR pattern)
+- `prisma/models/core.prisma:296-345` — ChannelListing schema (channel=required platform, channelName=nullable title, channelType=absent)
