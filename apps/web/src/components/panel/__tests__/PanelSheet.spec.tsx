@@ -37,7 +37,8 @@ const makeAlertItem = (id: string): PanelItem => ({
   type: 'internal:rules',
   title: `알림 ${id}`,
   message: null,
-  productId: null,
+  targetType: null,
+  targetId: null,
   isRead: false,
   actionTaskId: null,
   actorUserId: null, // alerts always null
