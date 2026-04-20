@@ -38,13 +38,13 @@ export class DashboardAdService {
         wingAdSummary,
       ] = await Promise.all([
         // Current calendar-month ad aggregation (replaces inline L78-88 raw SQL)
-        aggregateAdForRange(this.prisma, monthStart, monthEnd),
+        aggregateAdForRange(this.prisma, companyId, monthStart, monthEnd),
         // Previous calendar-month ad aggregation (replaces inline L89-99 raw SQL)
-        aggregateAdForRange(this.prisma, prevMonthDate, monthStart),
+        aggregateAdForRange(this.prisma, companyId, prevMonthDate, monthStart),
         // Range KPI current period
-        aggregateAdForRange(this.prisma, dateRange.start, dateRange.end),
+        aggregateAdForRange(this.prisma, companyId, dateRange.start, dateRange.end),
         // Range KPI previous period
-        aggregateAdForRange(this.prisma, dateRange.prevStart, dateRange.prevEnd),
+        aggregateAdForRange(this.prisma, companyId, dateRange.prevStart, dateRange.prevEnd),
         // 30-day daily ad cost (L224-232)
         this.prisma.$queryRaw<{ date: string; ad_cost: number }[]>`
           SELECT

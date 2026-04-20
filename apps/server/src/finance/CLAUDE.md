@@ -1,8 +1,8 @@
-# finance — P&L + Sales Analysis (Raw SQL Aggregation)
+# finance — P&L + Sales Analysis (Live Aggregation)
 
-> **⚠ Plan B2 pending (ADR-0013)**: 이 모듈은 Plan A 3-layer 전환 이후 아직 포팅되지 않음. `ProfitLoss.productId` (profit-loss.service.ts:26,29,109 — Plan A 에서 `listingId` 로 rename 예정), `prisma.product.findMany` (profit-loss.service.ts:73 — Product 모델 drop, MasterProduct/ChannelListing 로 분리) 등 **stale Prisma model refs** 가 남아 있어 full server tsc 실패. 아래 본문은 **현재 코드의 실제 동작** 을 기술 (정확하지만 stale 모델 참조 포함). Plan B2 에서 `ChannelListing` + 새 `ProfitLoss.listingId` 기반으로 포팅 예정.
+> **Plan D.1 완료 (ADR-0016)**: `profit-loss.service.ts` 가 live aggregation 으로 재작성됨 (2026-04-20). `ProfitLoss` 테이블 read-path 는 제거. `ProfitLoss` 테이블 자체는 drop 하지 않음 (legacy data 보존, Plan E 에서 writer 신설 시 cache 재활용 가능). **8개 other readers** (statistics × 5, settlements, sales-plans, sales-analysis, ad-strategy, dashboard-inventory, dashboard-trend, action-task × 2) 는 ADR-0016 scope 밖 — 각 D.3/D.4/D.5/Plan E phase 에서 migration.
 
-10 파일. **$queryRaw 기반 cross-table 집계** + period parsing + cross-domain pricing resolver.
+10 파일. **Prisma ORM 기반 live cross-table 집계** + period parsing + cross-domain pricing resolver.
 
 ## Directory
 
@@ -24,9 +24,30 @@ finance/
 
 ## 핵심 패턴
 
-### 1. $queryRaw — Cross-table 집계 (Plan B2c 재작성 예정)
+### 1. Live Aggregation — profit-loss.service (ADR-0016, Plan D.1 T5)
 
-기존: `profitLoss + coupangOrders + coupangOrderItems` 조인 raw SQL. Plan A.5 (ADR-0015) 가 `coupang_orders` / `coupang_order_items` 를 drop 했고, `profit-loss.service.ts` 는 현재 `findAll()` 만 stub 으로 남아있다. B2c 가 `Order` + `OrderLineItem` (channel-agnostic) 기반으로 재작성. Parameterized binding 필수 (string concat 절대 금지) 는 동일.
+**ProfitLoss 테이블을 bypass** 한다 — writer 부재로 항상 empty 상태 (dev DB COUNT = 0). 대신 아래 6개 source table 에서 직접 집계:
+
+```
+Order (+ shippingPrice)
+  └─ OrderLineItem.quantity / totalPrice
+       └─ ChannelListingOption → ChannelListing → MasterProduct
+  + OrderReturnLineItem (returnCount)
+  + Ad (adCost per listing, canonical daily spend)
+```
+
+**Data flow (3 parallel Promise.all)**:
+1. `prisma.order.findMany` — Order + lineItems + listingOption 체인 (I3/I8 패턴 재사용)
+2. `prisma.orderReturnLineItem.findMany` — listingId 경유 반품 수 집계
+3. `prisma.ad.groupBy({ by: ['listingId'], _sum: { spend: true } })` — listing 별 광고비
+
+**Shipping 배분**: `Order.shippingPrice` 를 lineItem revenue 비율로 revenue-weighted 분배. 분모 0 guard: 모든 lineItem totalPrice = 0 인 경우 해당 order shipping drop (ADR-0016 §zero-revenue edge).
+
+**Exit log**: `this.logger.log('profit-loss.findAll', { companyId, year, month, orderCount, listingCount, latencyMs })`.
+
+**Prohibit (ADR-0016 Enforcement)**: `prisma.profitLoss.*` 호출 금지. `ProductOption.shippingCost` live read 금지 (source-of-truth = `Order.shippingPrice`).
+
+> sales-analysis.service.ts 는 여전히 `prisma.profitLoss.groupBy` (D.3 migration 예정). 건드리지 말 것.
 
 ### 2. Period 파싱 — YYYY-MM 형식
 
@@ -37,7 +58,7 @@ profit-loss.service.ts:12-14, sales-analysis.service.ts:16-23:
 
 ### 3. resolvePricing 적용
 
-profit-loss.service.ts:3 — `common/master-product-resolver.ts` 의 `resolvePricing()` 을 row 별로 적용. master product fallback 가격 반영.
+`common/option-pricing-resolver.ts` 의 `resolvePricing({ option })` 을 listing 별로 적용. `nested-only` 모드 — option data 에서 costPrice/commissionRate/otherCost 추출. master product fallback 가격 반영.
 
 ### 4. Channel 집계 (sales-analysis)
 
@@ -49,24 +70,26 @@ profit-loss.service.ts:3 — `common/master-product-resolver.ts` 의 `resolvePri
 - 모든 monetary 값은 integer (소수점 없음, KRW)
 - Return rate / profit rate 는 **fetch 후 클라이언트 계산** (서비스가 raw 만 반환)
 - Period default: 현재 월
-- profit 계산 자체는 DB profitLoss 테이블에 이미 있음 (서비스에서 재계산 금지)
+- profit 은 **live 집계** 에서 계산 (ADR-0016). `profitLoss` 테이블 read 금지.
 
 ## Prohibits
 
-- ❌ 서비스에서 profit 재계산 (DB 값 사용)
+- ❌ `prisma.profitLoss.*` 호출 (ADR-0016 enforcement)
+- ❌ `ProductOption.shippingCost` live read (source-of-truth = `Order.shippingPrice`)
 - ❌ Date range query (월 단위 강제)
 - ❌ $queryRaw 에 string concat (parameterized 만)
 
 ## Cross-domain deps
 
-- **common** — `resolvePricing` helper
-- **prisma** — PrismaService
+- **common/option-pricing-resolver** — `resolvePricing({ option })` (nested-only)
+- **common/kst** — `kstMonthStart(year, month)` (KST 월 경계)
+- **prisma** — PrismaService (Order, OrderLineItem, OrderReturnLineItem, Ad)
 
 ## 함께 수정할 파일 맵
 
 | 수정 시 | 같이 봐야 할 파일 |
 |---|---|
 | 새 metric 추가 | `services/profit-loss.service.ts` 또는 `sales-analysis.service.ts` $queryRaw + 응답 타입 + `__tests__/pl-flow.spec.ts` |
-| Pricing 로직 변경 | `common/master-product-resolver.ts` (resolvePricing) + 호출자 (`profit-loss.service.ts:3`) |
+| Pricing 로직 변경 | `common/option-pricing-resolver.ts` (resolvePricing) + 호출자 (`profit-loss.service.ts`) |
 | Date range 지원 | period 파싱 로직 + DTO + ADR (현재 월 단위 의도) |
 | 채널 추가 | `prisma/schema.prisma` (Company), seed, sales-analysis 그룹핑 |

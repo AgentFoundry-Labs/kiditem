@@ -1,13 +1,16 @@
 'use client';
 
-import type { ReactNode } from 'react';
-import { ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { cn, formatKRW, formatPercent, getGradeColor, getProfitColor } from '@/lib/utils';
 import type { PLData } from '@kiditem/shared';
+import SortableHeader from '@/components/ui/SortableHeader';
 
+// Plan D.1 T7 note: `orderCount` is intentionally NOT sortable — the plan narrows
+// sortable dimensions to the 8 financial fields below. Pre-T7 users could sort by
+// 주문수 but that adds little P&L analysis value vs revenue/profit columns.
+// If user feedback requires it, re-add 'orderCount' here and wire the <th>주문수</th>.
 export type SortField =
-  | 'revenue' | 'costOfGoods' | 'commission' | 'shippingCost'
-  | 'adCost' | 'netProfit' | 'profitRate' | 'orderCount';
+  | 'revenue' | 'cogs' | 'commission' | 'shippingCost'
+  | 'adCost' | 'otherCost' | 'netProfit' | 'profitRate';
 
 interface Props {
   data: PLData[];
@@ -27,21 +30,6 @@ export default function ProfitLossTable({
   selectedGrades, onToggleGrade, onResetGrades,
   sortField, sortDirection, onToggleSort,
 }: Props) {
-  const renderSortIcon = (field: SortField) => {
-    if (sortField !== field || !sortDirection) {
-      return <ArrowUpDown size={14} className="text-slate-400" />;
-    }
-    if (sortDirection === 'asc') {
-      return <ArrowUp size={14} className="text-purple-600" />;
-    }
-    return <ArrowDown size={14} className="text-purple-600" />;
-  };
-
-  const getAriaSort = (field: SortField): 'ascending' | 'descending' | 'none' => {
-    if (sortField !== field || !sortDirection) return 'none';
-    return sortDirection === 'asc' ? 'ascending' : 'descending';
-  };
-
   return (
     <>
       {/* 이익률 필터 */}
@@ -90,30 +78,88 @@ export default function ProfitLossTable({
               <tr>
                 <th>등급</th>
                 <th>상품명</th>
+                <th>SKU</th>
                 <th>회사</th>
-                <SortableHeader label="매출" align="right" icon={renderSortIcon("revenue")} onClick={() => onToggleSort("revenue")} ariaSort={getAriaSort("revenue")} />
-                <SortableHeader label="매입원가" align="right" icon={renderSortIcon("costOfGoods")} onClick={() => onToggleSort("costOfGoods")} ariaSort={getAriaSort("costOfGoods")} />
-                <SortableHeader label="수수료" align="right" icon={renderSortIcon("commission")} onClick={() => onToggleSort("commission")} ariaSort={getAriaSort("commission")} />
-                <SortableHeader label="배송비" align="right" icon={renderSortIcon("shippingCost")} onClick={() => onToggleSort("shippingCost")} ariaSort={getAriaSort("shippingCost")} />
-                <SortableHeader label="광고비" align="right" icon={renderSortIcon("adCost")} onClick={() => onToggleSort("adCost")} ariaSort={getAriaSort("adCost")} />
-                <th className="text-right">기타비용</th>
-                <SortableHeader label="순이익" align="right" icon={renderSortIcon("netProfit")} onClick={() => onToggleSort("netProfit")} ariaSort={getAriaSort("netProfit")} />
-                <SortableHeader label="이익률" align="right" icon={renderSortIcon("profitRate")} onClick={() => onToggleSort("profitRate")} ariaSort={getAriaSort("profitRate")} />
-                <SortableHeader label="주문수" align="right" icon={renderSortIcon("orderCount")} onClick={() => onToggleSort("orderCount")} ariaSort={getAriaSort("orderCount")} />
+                <SortableHeader<SortField>
+                  field="revenue"
+                  label="매출"
+                  activeField={sortField}
+                  direction={sortDirection}
+                  onSort={onToggleSort}
+                  align="right"
+                />
+                <SortableHeader<SortField>
+                  field="cogs"
+                  label="매입원가"
+                  activeField={sortField}
+                  direction={sortDirection}
+                  onSort={onToggleSort}
+                  align="right"
+                />
+                <SortableHeader<SortField>
+                  field="commission"
+                  label="수수료"
+                  activeField={sortField}
+                  direction={sortDirection}
+                  onSort={onToggleSort}
+                  align="right"
+                />
+                <SortableHeader<SortField>
+                  field="shippingCost"
+                  label="배송비"
+                  activeField={sortField}
+                  direction={sortDirection}
+                  onSort={onToggleSort}
+                  align="right"
+                />
+                <SortableHeader<SortField>
+                  field="adCost"
+                  label="광고비"
+                  activeField={sortField}
+                  direction={sortDirection}
+                  onSort={onToggleSort}
+                  align="right"
+                />
+                <SortableHeader<SortField>
+                  field="otherCost"
+                  label="기타비용"
+                  activeField={sortField}
+                  direction={sortDirection}
+                  onSort={onToggleSort}
+                  align="right"
+                />
+                <SortableHeader<SortField>
+                  field="netProfit"
+                  label="순이익"
+                  activeField={sortField}
+                  direction={sortDirection}
+                  onSort={onToggleSort}
+                  align="right"
+                />
+                <SortableHeader<SortField>
+                  field="profitRate"
+                  label="이익률"
+                  activeField={sortField}
+                  direction={sortDirection}
+                  onSort={onToggleSort}
+                  align="right"
+                />
+                <th className="text-right">주문수</th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={12} className="empty-state">해당 기간 데이터가 없습니다.</td>
+                  <td colSpan={13} className="empty-state">해당 기간 데이터가 없습니다.</td>
                 </tr>
               ) : filtered.map((d) => (
-                <tr key={d.id} className={d.profitRate < 0 ? "bg-red-50/50" : d.profitRate <= 3 ? "bg-orange-50/30" : ""}>
-                  <td><span className={cn('px-2 py-0.5 rounded text-xs font-bold', getGradeColor(d.grade))}>{d.grade}</span></td>
-                  <td className="font-medium text-slate-900">{d.productName}</td>
-                  <td className="text-slate-500 text-xs">{d.company}</td>
+                <tr key={d.listingId} className={d.profitRate < 0 ? "bg-red-50/50" : d.profitRate <= 3 ? "bg-orange-50/30" : ""}>
+                  <td><span className={cn('px-2 py-0.5 rounded text-xs font-bold', getGradeColor(d.grade ?? ''))}>{d.grade}</span></td>
+                  <td className="font-medium text-slate-900">{d.masterName}</td>
+                  <td className="text-slate-500 text-xs font-mono">{d.masterCode ?? '-'}</td>
+                  <td className="text-slate-500 text-xs">{d.channelName ?? '-'}</td>
                   <td className="text-right tabular-nums">{formatKRW(d.revenue)}</td>
-                  <td className="text-right tabular-nums text-slate-500">{formatKRW(d.costOfGoods)}</td>
+                  <td className="text-right tabular-nums text-slate-500">{formatKRW(d.cogs)}</td>
                   <td className="text-right tabular-nums text-slate-500">{formatKRW(d.commission)}</td>
                   <td className="text-right tabular-nums text-slate-500">{formatKRW(d.shippingCost)}</td>
                   <td className="text-right tabular-nums text-orange-600">{formatKRW(d.adCost)}</td>
@@ -128,29 +174,5 @@ export default function ProfitLossTable({
         </div>
       </div>
     </>
-  );
-}
-
-function SortableHeader({
-  label, align, icon, onClick, ariaSort,
-}: {
-  label: string;
-  align?: 'left' | 'right';
-  icon: ReactNode;
-  onClick: () => void;
-  ariaSort?: 'ascending' | 'descending' | 'none';
-}) {
-  return (
-    <th className={cn(align === 'right' ? 'text-right' : 'text-left')}>
-      <button
-        type="button"
-        onClick={onClick}
-        aria-sort={ariaSort ?? 'none'}
-        className={cn('inline-flex items-center gap-1.5 hover:text-slate-900', align === 'right' && 'ml-auto justify-end')}
-      >
-        <span>{label}</span>
-        {icon}
-      </button>
-    </th>
   );
 }

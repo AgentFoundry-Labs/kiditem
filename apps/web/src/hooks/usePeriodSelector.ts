@@ -12,6 +12,8 @@ interface UsePeriodSelectorOptions {
   months?: number;
   /** 기본 선택 기간. 'current' = 이번달, 'prev' = 이전달 */
   defaultTo?: 'current' | 'prev';
+  /** URL 등 외부에서 주입하는 초기 period 값 (YYYY-MM). 지정 시 defaultTo 무시. */
+  initial?: string;
 }
 
 function getDefaultPeriod(defaultTo: 'current' | 'prev'): string {
@@ -35,10 +37,14 @@ function generatePeriodOptions(months: number): PeriodOption[] {
   return options;
 }
 
+const PERIOD_SHAPE = /^\d{4}-(0[1-9]|1[0-2])$/;
+
 export function usePeriodSelector(options?: UsePeriodSelectorOptions) {
-  const { months, defaultTo = 'current' } = options ?? {};
+  const { months, defaultTo = 'current', initial } = options ?? {};
   const periodOptions = months ? generatePeriodOptions(months) : [];
-  const [period, setPeriod] = useState(() => getDefaultPeriod(defaultTo));
+  const [period, setPeriod] = useState(() =>
+    initial && PERIOD_SHAPE.test(initial) ? initial : getDefaultPeriod(defaultTo),
+  );
 
   return { period, setPeriod, periodOptions };
 }

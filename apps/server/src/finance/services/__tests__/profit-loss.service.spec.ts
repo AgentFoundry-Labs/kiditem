@@ -1,211 +1,184 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { PLDataSchema } from '@kiditem/shared';
 import { ProfitLossService } from '../profit-loss.service';
 
-/**
- * Plan B2c.dashboard T14 — ProfitLossService unit (mock Prisma).
- *
- * 5 cases:
- *   - happy path: 3 rows hydrated with master + listing.
- *   - `listing === null` filter (defensive, even though onDelete:Restrict guarantees it).
- *   - Decimal `profitRate` → JS number via `.toNumber()`.
- *   - masterCode = `legacyCode ?? code` fallback.
- *   - `abcGrade` / `category` / `thumbnailUrl` null hydration.
- *
- * Integration path (real Postgres) covered by `profit-loss.pg.integration.spec.ts`.
- */
-
-type DecimalLike = { toNumber(): number };
-function decimal(n: number): DecimalLike {
-  return { toNumber: () => n };
-}
-
-function makeRow(overrides: Partial<Record<string, unknown>> = {}) {
+// v2 canonical mock — service 는 order.findMany + orderReturnLineItem.findMany + ad.groupBy 호출
+function makePrisma(
+  orders: unknown[],
+  opts: { returnLineItems?: unknown[]; adRows?: unknown[] } = {},
+) {
   return {
-    listingId: 'listing-uuid-1',
-    year: 2026,
-    month: 4,
-    revenue: 700_000,
-    cogs: 350_000,
-    commission: 70_000,
-    shippingCost: 20_000,
-    adCost: 50_000,
-    otherCost: 10_000,
-    netProfit: 200_000,
-    profitRate: decimal(0.2857),
-    orderCount: 3,
-    returnCount: 1,
-    listing: {
-      externalId: 'EXT-L1',
-      channelName: 'Coupang L1',
-      master: {
-        id: 'master-uuid-1',
-        code: 'M-001',
-        legacyCode: 'LEGACY-001',
-        name: 'Master M1',
-        category: '유아용품',
-        abcGrade: 'A',
-        thumbnailUrl: 'https://cdn/m1.jpg',
-      },
-    },
-    ...overrides,
-  };
+    order: { findMany: vi.fn().mockResolvedValue(orders) },
+    orderReturnLineItem: { findMany: vi.fn().mockResolvedValue(opts.returnLineItems ?? []) },
+    ad: { groupBy: vi.fn().mockResolvedValue(opts.adRows ?? []) },
+  } as any;
 }
 
-function makePrisma() {
-  return {
-    profitLoss: {
-      findMany: vi.fn(),
-    },
-  };
-}
+// v2 canonical lineItem shape — option (pricing) + listingOption.listing (identity/master)
+const mkLineItem = (listing: {
+  id: string; externalId: string; channelName: string | null;
+  master: { id: string; code: string; legacyCode: string | null; name: string; category: string | null; abcGrade: string | null; thumbnailUrl: string | null };
+}, pricing: { quantity: number; totalPrice: number; costPrice: number; commissionRate: number; otherCost: number }) => ({
+  quantity: pricing.quantity,
+  totalPrice: pricing.totalPrice,
+  option: {
+    costPrice: pricing.costPrice,
+    commissionRate: pricing.commissionRate,
+    otherCost: pricing.otherCost,
+  },
+  listingOption: { listing },
+});
 
-describe('ProfitLossService', () => {
-  let service: ProfitLossService;
-  let prisma: ReturnType<typeof makePrisma>;
-
-  beforeEach(() => {
-    prisma = makePrisma();
-    service = new ProfitLossService(prisma as any);
-  });
-
-  it('happy path — 3 rows hydrated into PLData shape (passes PLDataSchema.parse)', async () => {
-    prisma.profitLoss.findMany.mockResolvedValue([
-      makeRow(),
-      makeRow({
-        listingId: 'listing-uuid-2',
-        revenue: 300_000,
-        netProfit: 60_000,
-        profitRate: decimal(0.2),
-        orderCount: 1,
-        returnCount: 0,
-        listing: {
-          externalId: 'EXT-L2',
-          channelName: null,
-          master: {
-            id: 'master-uuid-2',
-            code: 'M-002',
-            legacyCode: null,
-            name: 'Master M2',
-            category: '완구',
-            abcGrade: 'B',
-            thumbnailUrl: null,
-          },
-        },
-      }),
-      makeRow({
-        listingId: 'c1c2c3c4-c5c6-4c7c-8c9c-0c1c2c3c4c5c',
-        listing: {
-          externalId: 'EXT-L3',
-          channelName: 'Third',
-          master: {
-            id: 'd1d2d3d4-d5d6-4d7d-8d9d-0d1d2d3d4d5d',
-            code: 'M-003',
-            legacyCode: null,
-            name: 'Master M3',
-            category: null,
-            abcGrade: null,
-            thumbnailUrl: null,
-          },
-        },
-      }),
-    ]);
-
-    const result = await service.findAll('company-1', 2026, 4);
-
-    expect(prisma.profitLoss.findMany).toHaveBeenCalledWith({
-      where: { companyId: 'company-1', year: 2026, month: 4 },
-      include: expect.any(Object),
-    });
-    expect(result).toHaveLength(3);
-    // Shape sanity (listing hydration fields)
-    expect(result[0].externalId).toBe('EXT-L1');
-    expect(result[0].masterId).toBe('master-uuid-1');
-    expect(result[0].masterName).toBe('Master M1');
-    // Schema drift check: use real-world UUIDs for 3rd row so PLDataSchema.parse passes.
-    // Rows 0/1 use synthetic listingId/masterId (not valid UUIDs) → skip schema parse, but assert shape.
-    expect(PLDataSchema.safeParse(result[2]).success).toBe(true);
-  });
-
-  it('filters out rows with listing === null (defensive — onDelete:Restrict guarantee)', async () => {
-    prisma.profitLoss.findMany.mockResolvedValue([
-      makeRow(),
-      makeRow({ listing: null, listingId: 'orphan-1' }),
-      makeRow({ listingId: 'l3' }),
-    ]);
-
-    const result = await service.findAll('company-1', 2026, 4);
-
+describe('ProfitLossService.findAll (live aggregation)', () => {
+  it('IDOR — findMany called with companyId filter + grouping returns only that company rows', async () => {
+    const l1 = { id: 'listing-a1', externalId: 'ext-a1', channelName: 'coupang', master: { id: 'master-a1', code: 'MA1', legacyCode: null, name: 'ProductA1', category: 'kids', abcGrade: 'A', thumbnailUrl: null } };
+    const l2 = { id: 'listing-a2', externalId: 'ext-a2', channelName: 'coupang', master: { id: 'master-a2', code: 'MA2', legacyCode: 'LEG-A2', name: 'ProductA2', category: 'baby', abcGrade: 'B', thumbnailUrl: 'https://x.com/a2.jpg' } };
+    const orders = [
+      { id: 'oA1', shippingPrice: 3000, lineItems: [mkLineItem(l1, { quantity: 1, totalPrice: 10000, costPrice: 5000, commissionRate: 0.108, otherCost: 0 })] },
+      { id: 'oA2', shippingPrice: 3000, lineItems: [mkLineItem(l2, { quantity: 2, totalPrice: 20000, costPrice: 4000, commissionRate: 0.1, otherCost: 100 })] },
+      { id: 'oA3', shippingPrice: 3000, lineItems: [mkLineItem(l2, { quantity: 1, totalPrice: 5000, costPrice: 3000, commissionRate: 0.1, otherCost: 0 })] },
+    ];
+    const prisma = makePrisma(orders);
+    const service = new ProfitLossService(prisma);
+    const result = await service.findAll('companyA', 2026, 4);
+    expect(prisma.order.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ companyId: 'companyA' }),
+    }));
     expect(result).toHaveLength(2);
-    expect(result.map((r) => r.listingId)).not.toContain('orphan-1');
+    expect(result.map(r => r.listingId).sort()).toEqual(['listing-a1', 'listing-a2']);
   });
 
-  it('Decimal profitRate → JS number via .toNumber() (null falls back to 0)', async () => {
-    prisma.profitLoss.findMany.mockResolvedValue([
-      makeRow({ profitRate: decimal(0.3141) }),
-      makeRow({ listingId: 'no-rate', profitRate: null }),
-    ]);
-
-    const result = await service.findAll('company-1', 2026, 4);
-
-    expect(result[0].profitRate).toBe(0.3141);
-    expect(typeof result[0].profitRate).toBe('number');
-    expect(result[1].profitRate).toBe(0);
+  it('shipping revenue-weighted — single listing gets full order shipping', async () => {
+    const l1 = { id: 'listing-1', externalId: 'ext-1', channelName: 'coupang', master: { id: 'master-1', code: 'M1', legacyCode: null, name: 'P1', category: null, abcGrade: null, thumbnailUrl: null } };
+    const orders = [{
+      id: 'o1',
+      shippingPrice: 3000,
+      lineItems: [
+        mkLineItem(l1, { quantity: 1, totalPrice: 10000, costPrice: 5000, commissionRate: 0.1, otherCost: 0 }),
+        mkLineItem(l1, { quantity: 2, totalPrice: 20000, costPrice: 5000, commissionRate: 0.1, otherCost: 0 }),
+      ],
+    }];
+    const prisma = makePrisma(orders);
+    const service = new ProfitLossService(prisma);
+    const result = await service.findAll('companyA', 2026, 4);
+    expect(result).toHaveLength(1);
+    expect(result[0].shippingCost).toBe(3000);
   });
 
-  it('masterCode = legacyCode ?? code (legacyCode present → use it)', async () => {
-    prisma.profitLoss.findMany.mockResolvedValue([
-      makeRow(), // legacyCode: 'LEGACY-001'
-      makeRow({
-        listingId: 'l2',
-        listing: {
-          externalId: 'EXT-L2',
-          channelName: 'L2',
-          master: {
-            id: 'm2',
-            code: 'M-002',
-            legacyCode: null,
-            name: 'Master M2',
-            category: '완구',
-            abcGrade: 'B',
-            thumbnailUrl: null,
-          },
-        },
+  it('shipping revenue-weighted — split across 2 listings by lineItem revenue ratio', async () => {
+    const la = { id: 'la', externalId: 'exA', channelName: 'coupang', master: { id: 'ma', code: 'MA', legacyCode: null, name: 'A', category: null, abcGrade: null, thumbnailUrl: null } };
+    const lb = { id: 'lb', externalId: 'exB', channelName: 'coupang', master: { id: 'mb', code: 'MB', legacyCode: null, name: 'B', category: null, abcGrade: null, thumbnailUrl: null } };
+    const orders = [{
+      id: 'o1',
+      shippingPrice: 3000,
+      lineItems: [
+        mkLineItem(la, { quantity: 1, totalPrice: 9000, costPrice: 5000, commissionRate: 0.1, otherCost: 0 }),
+        mkLineItem(lb, { quantity: 1, totalPrice: 3000, costPrice: 2000, commissionRate: 0.1, otherCost: 0 }),
+      ],
+    }];
+    const prisma = makePrisma(orders);
+    const service = new ProfitLossService(prisma);
+    const result = await service.findAll('companyA', 2026, 4);
+    const a = result.find(r => r.listingId === 'la')!;
+    const b = result.find(r => r.listingId === 'lb')!;
+    expect(a.shippingCost).toBe(Math.round(3000 * 9000 / 12000));
+    expect(b.shippingCost).toBe(Math.round(3000 * 3000 / 12000));
+    expect(a.shippingCost + b.shippingCost).toBe(3000);
+  });
+
+  it('PLData shape — satisfies schema fields (listingId/masterName/legacyCode fallback/netProfit)', async () => {
+    const l = { id: 'l1', externalId: 'ext-1', channelName: 'coupang', master: { id: 'm1', code: 'M1', legacyCode: 'LEG-1', name: 'Product1', category: 'kids', abcGrade: 'A', thumbnailUrl: 'https://x.com/1.jpg' } };
+    const orders = [{ id: 'o1', shippingPrice: 3000, lineItems: [mkLineItem(l, { quantity: 1, totalPrice: 10000, costPrice: 5000, commissionRate: 0.108, otherCost: 0 })] }];
+    const prisma = makePrisma(orders);
+    const service = new ProfitLossService(prisma);
+    const [row] = await service.findAll('companyA', 2026, 4);
+    expect(row).toMatchObject({
+      listingId: 'l1',
+      externalId: 'ext-1',
+      channelName: 'coupang',
+      masterId: 'm1',
+      masterCode: 'LEG-1',
+      masterName: 'Product1',
+      category: 'kids',
+      grade: 'A',
+      thumbnailUrl: 'https://x.com/1.jpg',
+      revenue: 10000,
+      cogs: 5000,
+      shippingCost: 3000,
+      otherCost: 0,
+    });
+    expect(row.commission).toBeCloseTo(1080, 0);
+    expect(row.netProfit).toBe(10000 - 5000 - row.commission - 3000 - 0 - 0);
+    expect(row.orderCount).toBe(1);
+  });
+
+  it('empty orders → empty array', async () => {
+    const prisma = makePrisma([]);
+    const service = new ProfitLossService(prisma);
+    const result = await service.findAll('companyA', 2026, 4);
+    expect(result).toEqual([]);
+  });
+
+  it('empty orderReturnLineItem + empty ad rows → returnCount/adCost fallback 0', async () => {
+    const l = { id: 'l1', externalId: 'e1', channelName: 'coupang', master: { id: 'm1', code: 'M1', legacyCode: null, name: 'P1', category: null, abcGrade: null, thumbnailUrl: null } };
+    const orders = [{ id: 'o1', shippingPrice: 3000, lineItems: [mkLineItem(l, { quantity: 1, totalPrice: 10000, costPrice: 5000, commissionRate: 0.1, otherCost: 0 })] }];
+    const prisma = makePrisma(orders, { returnLineItems: [], adRows: [] });
+    const service = new ProfitLossService(prisma);
+    const [row] = await service.findAll('companyA', 2026, 4);
+    expect(row.returnCount).toBe(0);
+    expect(row.adCost).toBe(0);
+  });
+
+  it('orderCount = distinct order count per listing (same listing across 3 orders → 3)', async () => {
+    const l = { id: 'l1', externalId: 'e1', channelName: 'coupang', master: { id: 'm1', code: 'M1', legacyCode: null, name: 'P1', category: null, abcGrade: null, thumbnailUrl: null } };
+    const orders = [
+      { id: 'order-1', shippingPrice: 3000, lineItems: [mkLineItem(l, { quantity: 1, totalPrice: 10000, costPrice: 5000, commissionRate: 0.1, otherCost: 0 })] },
+      { id: 'order-2', shippingPrice: 3000, lineItems: [mkLineItem(l, { quantity: 1, totalPrice: 20000, costPrice: 5000, commissionRate: 0.1, otherCost: 0 })] },
+      { id: 'order-3', shippingPrice: 3000, lineItems: [
+        mkLineItem(l, { quantity: 1, totalPrice: 5000, costPrice: 5000, commissionRate: 0.1, otherCost: 0 }),
+        mkLineItem(l, { quantity: 2, totalPrice: 7000, costPrice: 5000, commissionRate: 0.1, otherCost: 0 }),
+      ]},
+    ];
+    const prisma = makePrisma(orders);
+    const service = new ProfitLossService(prisma);
+    const [row] = await service.findAll('companyA', 2026, 4);
+    expect(row.orderCount).toBe(3);
+  });
+
+  it('returnCount aggregated from orderReturnLineItem.findMany → listingId via orderLineItem.listingOption', async () => {
+    const l = { id: 'l1', externalId: 'e1', channelName: 'coupang', master: { id: 'm1', code: 'M1', legacyCode: null, name: 'P1', category: null, abcGrade: null, thumbnailUrl: null } };
+    const orders = [{ id: 'o1', shippingPrice: 3000, lineItems: [mkLineItem(l, { quantity: 1, totalPrice: 10000, costPrice: 5000, commissionRate: 0.1, otherCost: 0 })] }];
+    const returnLineItems = [
+      { orderLineItem: { listingOption: { listingId: 'l1' } } },
+      { orderLineItem: { listingOption: { listingId: 'l1' } } },
+      { orderLineItem: null },
+    ];
+    const prisma = makePrisma(orders, { returnLineItems });
+    const service = new ProfitLossService(prisma);
+    const [row] = await service.findAll('companyA', 2026, 4);
+    expect(row.returnCount).toBe(2);
+    expect(prisma.orderReturnLineItem.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        companyId: 'companyA',
+        return: expect.objectContaining({
+          requestedAt: expect.objectContaining({ gte: expect.any(Date), lt: expect.any(Date) }),
+        }),
       }),
-    ]);
-
-    const result = await service.findAll('company-1', 2026, 4);
-
-    expect(result[0].masterCode).toBe('LEGACY-001'); // legacyCode wins
-    expect(result[1].masterCode).toBe('M-002'); // fallback to code
+    }));
   });
 
-  it('abcGrade / category / thumbnailUrl null → passthrough null (not undefined)', async () => {
-    prisma.profitLoss.findMany.mockResolvedValue([
-      makeRow({
-        listing: {
-          externalId: 'EXT-L1',
-          channelName: null,
-          master: {
-            id: 'master-uuid-1',
-            code: 'M-001',
-            legacyCode: null,
-            name: 'Master M1',
-            category: null,
-            abcGrade: null,
-            thumbnailUrl: null,
-          },
-        },
-      }),
-    ]);
-
-    const result = await service.findAll('company-1', 2026, 4);
-
-    expect(result[0].grade).toBeNull();
-    expect(result[0].category).toBeNull();
-    expect(result[0].thumbnailUrl).toBeNull();
-    expect(result[0].channelName).toBeNull();
-    // masterCode fallback: legacyCode null → use code
-    expect(result[0].masterCode).toBe('M-001');
+  it('adCost aggregated from ad.groupBy by listingId with companyId filter', async () => {
+    const l = { id: 'l1', externalId: 'e1', channelName: 'coupang', master: { id: 'm1', code: 'M1', legacyCode: null, name: 'P1', category: null, abcGrade: null, thumbnailUrl: null } };
+    const orders = [{ id: 'o1', shippingPrice: 3000, lineItems: [mkLineItem(l, { quantity: 1, totalPrice: 10000, costPrice: 5000, commissionRate: 0.1, otherCost: 0 })] }];
+    const adRows = [{ listingId: 'l1', _sum: { spend: 1500 } }];
+    const prisma = makePrisma(orders, { adRows });
+    const service = new ProfitLossService(prisma);
+    const [row] = await service.findAll('companyA', 2026, 4);
+    expect(row.adCost).toBe(1500);
+    expect(row.netProfit).toBe(10000 - 5000 - 1000 - 3000 - 1500 - 0);
+    expect(prisma.ad.groupBy).toHaveBeenCalledWith(expect.objectContaining({
+      by: ['listingId'],
+      _sum: { spend: true },
+      where: expect.objectContaining({ companyId: 'companyA' }),
+    }));
   });
 });

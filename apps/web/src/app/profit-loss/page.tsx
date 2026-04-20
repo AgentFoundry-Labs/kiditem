@@ -1,8 +1,11 @@
 'use client';
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
+import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { Download } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
+import { z, ZodError } from 'zod';
+import { PLDataSchema } from '@kiditem/shared';
 import { usePeriodSelector } from '@/hooks/usePeriodSelector';
 import PeriodSelector from '@/components/ui/PeriodSelector';
 import { cn, timeAgo } from "@/lib/utils";
@@ -10,13 +13,28 @@ import { apiClient } from "@/lib/api-client";
 import { isApiError } from "@/lib/api-error";
 import { queryKeys } from "@/lib/query-keys";
 import PageSkeleton from "@/components/ui/PageSkeleton";
+import { Pagination } from "@/components/ui/Pagination";
 import ProfitLossSummaryCards from "./components/ProfitLossSummaryCards";
 import ProfitLossTable from "./components/ProfitLossTable";
-import type { PLData, SyncInfo } from '@kiditem/shared';
+import type { SyncInfo } from '@kiditem/shared';
 import type { SortField } from "./components/ProfitLossTable";
 
 export default function ProfitLossPage() {
-  const { period, setPeriod, periodOptions } = usePeriodSelector({ months: 6, defaultTo: 'prev' });
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const urlPeriod = searchParams.get('period');
+
+  const { period, setPeriod: setPeriodRaw, periodOptions } =
+    usePeriodSelector({ months: 6, defaultTo: 'prev', initial: urlPeriod ?? undefined });
+
+  const setPeriod = (p: string) => {
+    setPeriodRaw(p);
+    const params = new URLSearchParams(searchParams);
+    params.set('period', p);
+    router.replace(`${pathname}?${params.toString()}`);
+  };
+
   const [filter, setFilter] = useState("all");
   const [selectedGrades, setSelectedGrades] = useState<string[]>([]);
   const [sortField, setSortField] = useState<SortField | null>(null);
@@ -36,13 +54,17 @@ export default function ProfitLossPage() {
 
   const { data = [], isLoading: loading, error: queryError } = useQuery({
     queryKey: queryKeys.profitLoss.list(period),
-    queryFn: async () => {
-      const d = await apiClient.get<PLData[]>(`/api/profit-loss?period=${period}`);
-      if (!Array.isArray(d)) throw new Error("데이터 형식 오류");
-      return d;
-    },
+    queryFn: () => apiClient.getParsed(`/api/profit-loss?period=${period}`, z.array(PLDataSchema)),
   });
-  const error = queryError ? (isApiError(queryError) ? queryError.detail : queryError instanceof Error ? queryError.message : "조회 실패") : null;
+  const error = queryError
+    ? isApiError(queryError)
+      ? queryError.detail
+      : queryError instanceof ZodError
+        ? "응답 형식 오류 — 개발팀에 문의하세요"
+        : queryError instanceof Error
+          ? queryError.message
+          : "조회 실패"
+    : null;
 
   const filtered = useMemo(() => data.filter((d) => {
     const matchesProfitFilter =
@@ -65,6 +87,15 @@ export default function ProfitLossPage() {
     });
   }, [filtered, sortField, sortDirection]);
 
+  const [page, setPage] = useState(1);
+  const pageSize = 20;
+  const paginated = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return sorted.slice(start, start + pageSize);
+  }, [sorted, page, pageSize]);
+
+  useEffect(() => { setPage(1); }, [filter, selectedGrades, sortField, sortDirection, period]);
+
   const toggleSort = (field: SortField) => {
     if (sortField !== field) { setSortField(field); setSortDirection('desc'); return; }
     if (sortDirection === 'desc') { setSortDirection('asc'); return; }
@@ -86,8 +117,8 @@ export default function ProfitLossPage() {
     import("xlsx").then((XLSX) => {
       const ws = XLSX.utils.json_to_sheet(
         sorted.map((d) => ({
-          등급: d.grade, 상품명: d.productName, SKU: d.sku, 회사: d.company,
-          매출: d.revenue, 매입원가: d.costOfGoods, 수수료: d.commission,
+          등급: d.grade, 상품명: d.masterName, SKU: d.masterCode, 채널: d.channelName ?? '',
+          매출: d.revenue, 매입원가: d.cogs, 수수료: d.commission,
           배송비: d.shippingCost, 광고비: d.adCost, 기타비용: d.otherCost,
           순이익: d.netProfit, "이익률(%)": d.profitRate, 주문수: d.orderCount,
         }))
@@ -113,7 +144,7 @@ export default function ProfitLossPage() {
         {syncInfo && (
           <div className="flex items-center gap-2 text-xs text-slate-400 mt-2">
             <div className={cn('w-1.5 h-1.5 rounded-full', syncInfo.lastSyncedAt ? 'bg-green-400' : 'bg-amber-400')} />
-            {syncInfo.lastSyncedAt 
+            {syncInfo.lastSyncedAt
               ? `최근 동기화: ${timeAgo(syncInfo.lastSyncedAt)}`
               : '동기화 기록 없음 — 설정에서 동기화를 실행하세요'}
           </div>
@@ -134,7 +165,7 @@ export default function ProfitLossPage() {
           />
           <ProfitLossTable
             data={data}
-            filtered={sorted}
+            filtered={paginated}
             filter={filter}
             onFilter={setFilter}
             selectedGrades={selectedGrades}
@@ -143,6 +174,12 @@ export default function ProfitLossPage() {
             sortField={sortField}
             sortDirection={sortDirection}
             onToggleSort={toggleSort}
+          />
+          <Pagination
+            page={page}
+            limit={pageSize}
+            total={sorted.length}
+            onPageChange={setPage}
           />
         </>
       )}

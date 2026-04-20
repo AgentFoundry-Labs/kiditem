@@ -1,32 +1,33 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import type { PLData } from '@kiditem/shared';
 import { PrismaService } from '../../prisma/prisma.service';
+import { kstMonthStart } from '../../common/kst';
+import { resolvePricing } from '../../common/option-pricing-resolver';
 
 /**
- * Plan B2c.dashboard T14 — listingId-primary P&L service.
+ * Plan D.1 T5 (v2) — ADR-0016 live aggregation.
  *
- * ADR-0013 (3-layer) / ADR-0015 (Order schema unification) 완료 후 쓰기 가능.
- * ProfitLoss row 는 이미 `(year, month)` + `listingId` 조합으로 집계된 상태(다른 워크플로우가 채운다).
- * 본 service 는 **읽기 전용** — row 를 회사 스코프로 가져와 master hydration 후 PLData shape 로 반환한다.
+ * Replaces the legacy `prisma.profitLoss.findMany` read-path with direct aggregation.
+ * `ProfitLoss` 테이블은 writer 부재로 비어 있음. Plan E 에서 writer 검토.
  *
- * ## 프로젝션 선택 (explicit select, NOT spread)
+ * Data flow:
+ *   Order (+ shippingPrice) → OrderLineItem → ChannelListingOption.listing → MasterProduct
+ *   + OrderReturnLineItem (returnCount)
+ *   + Ad (adCost, canonical daily spend per listing)
  *
- * `LISTING_WITH_MASTER_SELECT_EXTENDED` 는 statistics/settlements 용으로 `channel`/`isDeleted` 등
- * 추가 필드를 포함한다. P&L 은 PLData shape 에만 필요한 컬럼만 가져와 drift 여지를 줄이기 위해
- * 독자적으로 select 를 기술한다 (plan v2 R-03).
+ * Patterns (B2c.orders 재사용):
+ * - I3: SUM(OrderLineItem.totalPrice) per listing
+ * - I8: orderedAt: { gte, lt } half-open
+ * - I7: companyId from @CurrentCompany() caller
+ * - kstMonthStart wrap (month+1 자동 처리)
+ * - resolvePricing({ option }) nested-only
  *
- * ## Decimal → number 변환 (R-04)
- *
- * `profitRate` 는 Prisma `Decimal(5,4)`. JS number 로 좁혀 API 경계에서 serializable 하게 유지.
- * null 인 row 는 0 으로 폴백 (스키마 default 와 동일).
- *
- * ## null listing 방어 (onDelete: Restrict)
- *
- * `ChannelListing` FK 는 `onDelete: Restrict` — listing 삭제 시 PL row 도 유지된다(거부됨).
- * 즉 런타임에 `listing === null` 경로는 이론상 불가하지만, 저비용 방어로 filter 한다.
+ * Shipping: Order.shippingPrice 를 listing 간 revenue-weighted 분배 (ADR-0016).
  */
 @Injectable()
 export class ProfitLossService {
+  private readonly logger = new Logger(ProfitLossService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   async findAll(
@@ -34,51 +35,190 @@ export class ProfitLossService {
     year: number,
     month: number,
   ): Promise<PLData[]> {
-    const rows = await this.prisma.profitLoss.findMany({
-      where: { companyId, year, month },
-      include: {
-        listing: {
-          select: {
-            externalId: true,
-            channelName: true,
-            master: {
-              select: {
-                id: true,
-                code: true,
-                legacyCode: true,
-                name: true,
-                category: true,
-                abcGrade: true,
-                thumbnailUrl: true,
+    const startedAt = Date.now();
+    const from = kstMonthStart(year, month);
+    const to = kstMonthStart(year, month + 1);
+
+    const [orders, returnRows, adRows] = await Promise.all([
+      this.prisma.order.findMany({
+        where: {
+          companyId,
+          orderedAt: { gte: from, lt: to },
+          status: { notIn: ['cancelled', 'returned', 'refunded'] },
+        },
+        select: {
+          id: true,
+          shippingPrice: true,
+          lineItems: {
+            select: {
+              quantity: true,
+              totalPrice: true,
+              option: {
+                select: { costPrice: true, commissionRate: true, otherCost: true },
+              },
+              listingOption: {
+                select: {
+                  listing: {
+                    select: {
+                      id: true,
+                      externalId: true,
+                      channelName: true,
+                      master: {
+                        select: {
+                          id: true,
+                          code: true,
+                          legacyCode: true,
+                          name: true,
+                          category: true,
+                          abcGrade: true,
+                          thumbnailUrl: true,
+                        },
+                      },
+                    },
+                  },
+                },
               },
             },
           },
         },
-      },
+      }),
+      this.prisma.orderReturnLineItem.findMany({
+        where: {
+          companyId,
+          return: { requestedAt: { gte: from, lt: to } },
+        },
+        select: {
+          orderLineItem: {
+            select: { listingOption: { select: { listingId: true } } },
+          },
+        },
+      }),
+      this.prisma.ad.groupBy({
+        by: ['listingId'],
+        _sum: { spend: true },
+        where: {
+          companyId,
+          date: { gte: from, lt: to },
+        },
+      }),
+    ]);
+
+    type Agg = {
+      listingId: string;
+      externalId: string;
+      channelName: string | null;
+      masterId: string;
+      masterCode: string;
+      masterName: string;
+      category: string | null;
+      grade: string | null;
+      thumbnailUrl: string | null;
+      revenue: number;
+      cogs: number;
+      commission: number;
+      shippingCost: number;
+      otherCost: number;
+      orderIds: Set<string>;
+    };
+    const groups = new Map<string, Agg>();
+
+    for (const o of orders) {
+      const orderTotalRevenue = o.lineItems.reduce((sum, li) => sum + (li.totalPrice || 0), 0);
+
+      for (const li of o.lineItems) {
+        const listing = li.listingOption?.listing;
+        if (!listing) continue;
+        const key = listing.id;
+
+        let g = groups.get(key);
+        if (!g) {
+          g = {
+            listingId: listing.id,
+            externalId: listing.externalId,
+            channelName: listing.channelName ?? null,
+            masterId: listing.master.id,
+            masterCode: listing.master.legacyCode ?? listing.master.code,
+            masterName: listing.master.name,
+            category: listing.master.category ?? null,
+            grade: listing.master.abcGrade ?? null,
+            thumbnailUrl: listing.master.thumbnailUrl ?? null,
+            revenue: 0,
+            cogs: 0,
+            commission: 0,
+            shippingCost: 0,
+            otherCost: 0,
+            orderIds: new Set<string>(),
+          };
+          groups.set(key, g);
+        }
+
+        g.orderIds.add(o.id);
+
+        const resolved = resolvePricing({ option: li.option ?? {} });
+        const lineRevenue = li.totalPrice || 0;
+        g.revenue += lineRevenue;
+        g.cogs += resolved.costPrice * li.quantity;
+        g.commission += lineRevenue * resolved.commissionRate;
+        g.otherCost += resolved.otherCost * li.quantity;
+
+        if (orderTotalRevenue > 0 && o.shippingPrice) {
+          g.shippingCost += Math.round(o.shippingPrice * (lineRevenue / orderTotalRevenue));
+        }
+      }
+    }
+
+    const returnMap = new Map<string, number>();
+    for (const rli of returnRows) {
+      const listingId = rli.orderLineItem?.listingOption?.listingId;
+      if (!listingId) continue;
+      returnMap.set(listingId, (returnMap.get(listingId) ?? 0) + 1);
+    }
+
+    const adCostMap = new Map<string, number>(
+      adRows.map((r) => [r.listingId, r._sum.spend ?? 0]),
+    );
+
+    const rows = Array.from(groups.values()).map((g) => {
+      const returnCount = returnMap.get(g.listingId) ?? 0;
+      const adCost = adCostMap.get(g.listingId) ?? 0;
+      const commission = Math.round(g.commission);
+      const cogs = Math.round(g.cogs);
+      const otherCost = Math.round(g.otherCost);
+      const netProfit = g.revenue - cogs - commission - g.shippingCost - adCost - otherCost;
+      const profitRate = g.revenue > 0 ? Math.round((netProfit / g.revenue) * 1000) / 10 : 0;
+      return {
+        listingId: g.listingId,
+        externalId: g.externalId,
+        channelName: g.channelName,
+        masterId: g.masterId,
+        masterCode: g.masterCode,
+        masterName: g.masterName,
+        category: g.category,
+        grade: g.grade,
+        thumbnailUrl: g.thumbnailUrl,
+        revenue: g.revenue,
+        cogs,
+        commission,
+        shippingCost: g.shippingCost,
+        adCost,
+        otherCost,
+        netProfit,
+        profitRate,
+        orderCount: g.orderIds.size,
+        returnCount,
+      } satisfies PLData;
+    }).sort((a, b) => b.revenue - a.revenue);
+
+    this.logger.log({
+      msg: 'profit-loss.findAll',
+      companyId,
+      year,
+      month,
+      orderCount: orders.length,
+      listingCount: rows.length,
+      latencyMs: Date.now() - startedAt,
     });
 
-    return rows
-      .filter((r) => r.listing !== null)
-      .map((r) => ({
-        listingId: r.listingId,
-        externalId: r.listing!.externalId,
-        channelName: r.listing!.channelName ?? null,
-        masterId: r.listing!.master.id,
-        masterCode: r.listing!.master.legacyCode ?? r.listing!.master.code,
-        masterName: r.listing!.master.name,
-        category: r.listing!.master.category ?? null,
-        grade: r.listing!.master.abcGrade ?? null,
-        thumbnailUrl: r.listing!.master.thumbnailUrl ?? null,
-        revenue: r.revenue,
-        cogs: r.cogs,
-        commission: r.commission,
-        shippingCost: r.shippingCost,
-        adCost: r.adCost,
-        otherCost: r.otherCost,
-        netProfit: r.netProfit,
-        profitRate: r.profitRate?.toNumber() ?? 0,
-        orderCount: r.orderCount,
-        returnCount: r.returnCount,
-      } satisfies PLData));
+    return rows;
   }
 }

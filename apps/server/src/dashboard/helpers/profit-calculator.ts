@@ -28,11 +28,11 @@ export interface RangeProfitMetrics {
  *  - I8: half-open range `orderedAt >= from && orderedAt < to` (never `lte`)
  *  - C-08: v2 nested-only resolver — `resolvePricing({ option })`
  *
- * Note (shippingCost over-count — Plan D deferred): currently accumulates
- * `resolved.shippingCost` **per-lineItem**. For an order with N lineItems this
- * over-counts shipping by up to Nx when shipping is really order-level. Plan D
- * (§4.6 spec note) will reintroduce order-level shipping once the canonical
- * field exists on `Order`.
+ * R-1 (Plan D.1 T4): shipping is order-level, not lineItem-level.
+ * `Order.shippingPrice` is accumulated once per order (outer loop).
+ * `option.shippingCost` is intentionally excluded from the select clause and
+ * the inner-loop accumulation. `ProductOption.shippingCost` is kept in schema
+ * for legacy compat but must NOT be used in revenue/cost aggregation.
  */
 export async function calculateProfitForRange(
   prisma: PrismaService,
@@ -47,6 +47,7 @@ export async function calculateProfitForRange(
       status: { notIn: ['cancelled', 'returned', 'refunded'] },
     },
     select: {
+      shippingPrice: true, // R-1 (Plan D.1 T4): order-level shipping source
       lineItems: {
         select: {
           quantity: true,
@@ -58,7 +59,7 @@ export async function calculateProfitForRange(
               // falls back to option.costPrice which is the canonical KRW cost.
               costPrice: true,
               commissionRate: true,
-              shippingCost: true,
+              // shippingCost: removed — Plan D.1 R-1 moves shipping to order level
               otherCost: true,
             },
           },
@@ -75,6 +76,7 @@ export async function calculateProfitForRange(
   const orderCount = orders.length;
 
   for (const o of orders) {
+    shippingCost += o.shippingPrice || 0; // R-1 (Plan D.1 T4): once per order
     for (const li of o.lineItems) {
       revenue += li.totalPrice || 0; // I3: lineItem-level canonical
       const p = li.option;
@@ -82,7 +84,7 @@ export async function calculateProfitForRange(
       const resolved = resolvePricing({ option: p }); // v2 nested-only (C-08)
       costOfGoods += resolved.costPrice * li.quantity;
       commission += (li.totalPrice || 0) * resolved.commissionRate;
-      shippingCost += resolved.shippingCost; // per-lineItem (Plan D defer note above)
+      // shippingCost removed from inner loop — R-1 moves to outer (order-level)
       otherCost += resolved.otherCost * li.quantity;
     }
   }
@@ -99,13 +101,14 @@ export async function calculateProfitForRange(
 
   if (isCurrentPeriod) {
     const latestCapturedAt = await prisma.adSnapshot.aggregate({
-      where: { source: 'advertising', pageType: 'campaign' },
+      where: { companyId, source: 'advertising', pageType: 'campaign' }, // IDOR fix (Plan D.1 T4)
       _max: { capturedAt: true },
     });
 
     if (latestCapturedAt._max.capturedAt) {
       const snapshots = await prisma.adSnapshot.findMany({
         where: {
+          companyId, // IDOR fix (Plan D.1 T4)
           source: 'advertising',
           pageType: 'campaign',
           capturedAt: latestCapturedAt._max.capturedAt,
@@ -146,7 +149,7 @@ export async function calculateProfitForRange(
   // 폴백: Ad 테이블
   if (adCost === 0) {
     const adAgg = await prisma.ad.aggregate({
-      where: { date: { gte: from, lt: to } },
+      where: { companyId, date: { gte: from, lt: to } }, // IDOR fix (Plan D.1 T4)
       _sum: { spend: true, impressions: true, clicks: true, conversions: true, revenue: true },
     });
     adCost = adAgg._sum.spend || 0;

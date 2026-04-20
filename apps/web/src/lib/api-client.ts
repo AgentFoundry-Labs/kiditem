@@ -1,3 +1,4 @@
+import { ZodType, ZodError } from 'zod';
 import { API_BASE } from './api';
 import { ApiError } from './api-error';
 
@@ -33,6 +34,21 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const apiClient = {
   get: <T>(path: string) => request<T>(path),
+  /**
+   * GET + Zod parse at the client boundary (Plan D spec § I1).
+   * Surfaces API schema drift as a runtime ZodError rather than a silent type cast.
+   */
+  getParsed: async <T>(path: string, schema: ZodType<T>): Promise<T> => {
+    const raw = await request<unknown>(path);
+    try {
+      return schema.parse(raw);
+    } catch (err) {
+      if (err instanceof ZodError) {
+        console.error('[apiClient.getParsed] ZodError', { path, issues: err.issues });
+      }
+      throw err;
+    }
+  },
   post: <T>(path: string, body?: unknown, options?: { signal?: AbortSignal }) =>
     request<T>(path, {
       method: 'POST',
