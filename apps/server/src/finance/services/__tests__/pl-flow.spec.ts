@@ -1,18 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ProfitLossService } from '../profit-loss.service';
 import { SettlementsService } from '../../../settlements/settlements.service';
 import { BadRequestException } from '@nestjs/common';
 
 // ── Prisma mocks ──
+// NOTE: ProfitLossService 의 happy/edge case 는 `profit-loss.service.spec.ts` 로 분리됨
+// (Plan B2c.dashboard T14 — listingId/master hydrate + Decimal + satisfies drift).
 
 function makePrisma() {
   return {
-    profitLoss: {
-      findMany: vi.fn().mockResolvedValue([]),
-    },
-    product: {
-      findMany: vi.fn().mockResolvedValue([]),
-    },
     settlement: {
       findMany: vi.fn().mockResolvedValue([]),
       // T8 IDOR fix — update path 는 findFirst({id, companyId}) 경유. findUnique 는 레거시 (이 spec 외 무사용).
@@ -27,24 +22,6 @@ function makePrisma() {
     $queryRaw: vi.fn().mockResolvedValue([]),
   };
 }
-
-// ── ProfitLossService — Plan B2c pending (stubbed in Plan A.5) ──
-
-describe('ProfitLossService — Plan B2c pending', () => {
-  let service: ProfitLossService;
-
-  beforeEach(() => {
-    service = new ProfitLossService(makePrisma() as any);
-  });
-
-  it('findAll throws until Plan B2c rewrites against Order/OrderLineItem', async () => {
-    await expect(service.findAll('2026-01')).rejects.toThrow(/Plan B2c migration/);
-  });
-
-  it('findAll with no period also throws (stub does not differentiate)', async () => {
-    await expect(service.findAll()).rejects.toThrow(/Plan B2c migration/);
-  });
-});
 
 // ── SettlementsService ──
 
