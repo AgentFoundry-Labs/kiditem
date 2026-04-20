@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { HeartbeatService } from './heartbeat/heartbeat.service';
 import type { AgentListItem, DailyCost, AgentCostSummary, CostAnalytics } from '@kiditem/shared';
 import { validateAllowedTools } from './safety/dangerous-patterns';
+import { TEAM_LABELS, TEAM_ORDER } from './types';
 import type { OrgNode } from './types';
 import { scrubSecrets } from '@kiditem/shared';
 
@@ -398,23 +399,19 @@ export class AgentRegistryService implements OnModuleInit {
   // ── Org Chart ──
 
   async getOrgTree(companyId: string): Promise<OrgNode[]> {
-    // 마켓플레이스 전체 카탈로그 (claude_local만 — 조직도 대상)
+    // 마켓플레이스 전체 카탈로그 (모든 adapter 포함)
     const catalog = await this.prisma.marketplace.findMany({
-      where: { type: 'agent', isPublished: true, adapterType: 'claude_local' },
+      where: { type: 'agent', isPublished: true },
       orderBy: { name: 'asc' },
     });
 
-    // 해당 company에서 고용한 에이전트
+    // 해당 company에서 고용한 에이전트 (모든 adapter)
     const hired = await this.prisma.agentDefinition.findMany({
-      where: { companyId, adapterType: 'claude_local', isActive: true },
+      where: { companyId, isActive: true },
     });
     const hiredByMarketplaceId = new Map(
       hired.filter(h => h.marketplaceId).map(h => [h.marketplaceId!, h]),
     );
-
-    // 카탈로그 기반으로 트리 구성 (manager → specialist)
-    const managerCatalog = catalog.find((c) => c.role === 'manager');
-    const specialistCatalog = catalog.filter((c) => c.role !== 'manager');
 
     const toNode = (c: typeof catalog[number]): OrgNode => {
       const agent = hiredByMarketplaceId.get(c.id);
@@ -426,6 +423,7 @@ export class AgentRegistryService implements OnModuleInit {
         title: agent?.title ?? c.name,
         status: agent?.status ?? 'not_hired',
         adapterType: c.adapterType ?? 'claude_local',
+        category: c.category,
         lastHeartbeatAt: agent?.lastHeartbeatAt?.toISOString() ?? null,
         hired: !!agent,
         marketplaceId: c.id,
@@ -433,10 +431,40 @@ export class AgentRegistryService implements OnModuleInit {
       };
     };
 
-    if (!managerCatalog) return specialistCatalog.map(toNode);
+    // manager → team nodes → agent nodes 3-tier tree
+    const managerCatalog = catalog.find((c) => c.role === 'manager');
+    const specialistCatalog = catalog.filter((c) => c.role !== 'manager');
+
+    // category 기반 그룹핑
+    const byCategory = new Map<string, OrgNode[]>();
+    for (const c of specialistCatalog) {
+      const cat = c.category;
+      if (!byCategory.has(cat)) byCategory.set(cat, []);
+      byCategory.get(cat)!.push(toNode(c));
+    }
+
+    // 팀 노드 생성 (정렬 순서 보장)
+    const teamNodes: OrgNode[] = TEAM_ORDER
+      .filter(cat => byCategory.has(cat))
+      .map(cat => ({
+        id: `team_${cat}`,
+        name: TEAM_LABELS[cat] ?? cat,
+        type: 'team',
+        role: 'team_lead',
+        title: TEAM_LABELS[cat] ?? cat,
+        status: 'active',
+        adapterType: '',
+        category: cat,
+        lastHeartbeatAt: null,
+        hired: true,
+        marketplaceId: null,
+        reports: byCategory.get(cat) ?? [],
+      }));
+
+    if (!managerCatalog) return teamNodes;
 
     const managerNode = toNode(managerCatalog);
-    managerNode.reports = specialistCatalog.map(toNode);
+    managerNode.reports = teamNodes;
     return [managerNode];
   }
 }
