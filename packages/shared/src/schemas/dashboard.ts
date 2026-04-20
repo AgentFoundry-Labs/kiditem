@@ -3,10 +3,11 @@ import { zIsoDate } from './common.js';
 
 // ─── Shared building blocks ───────────────────────────────────────────────
 
-// DashboardAlertItemSchema — dashboard card projection (nullable optional targetType/targetId).
+// schemas/dashboard.ts: DashboardAlertItemSchema — dashboard card projection
+// (nullable+optional targetType/targetId; server may omit them when a card row has no polymorphic target).
 // NOTE: alerts.ts defines AlertItemSchema with a required companyId field (full DB row).
 // Dashboard alerts are a projected subset (no companyId), defined separately rather than reusing/importing.
-// (Plan B2c.dashboard T9 — was `productId`; DB schema has `targetType + targetId`)
+// (Plan B2c.dashboard T9, BREAKING — was `productId`; DB schema has `targetType + targetId`)
 export const DashboardAlertItemSchema = z.object({
   id: z.string(),
   type: z.string(),
