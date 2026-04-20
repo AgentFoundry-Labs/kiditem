@@ -96,7 +96,7 @@ export class PanelService {
             { updatedAt: { gte: twentyFourHoursAgo } },
           ],
         },
-        include: { product: { select: { id: true, name: true } } },
+        include: { master: { select: { id: true, name: true } } },
         orderBy: { createdAt: 'desc' },
         take: 100,
       });
@@ -104,7 +104,7 @@ export class PanelService {
       for (const gen of thumbnailGens) {
         items.push(
           imagePanelAdapter.mapToItem(
-            { generation: gen, product: { id: gen.product.id, title: gen.product.name } },
+            { generation: gen, product: { id: gen.master.id, title: gen.master.name } },
             companyId,
           ),
         );

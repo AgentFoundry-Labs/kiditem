@@ -4,14 +4,14 @@ import { imagePanelAdapter, ImageAdapterInput } from '../image.adapter';
 import type { ThumbnailGeneration } from '@prisma/client';
 
 const GEN_ID = '11111111-1111-1111-1111-111111111111';
-const PRODUCT_ID = '22222222-2222-2222-2222-222222222222';
+const MASTER_ID = '22222222-2222-2222-2222-222222222222';
 const COMPANY_ID = '33333333-3333-3333-3333-333333333333';
 const USER_ID = '44444444-4444-4444-4444-444444444444';
 
 const baseGeneration: ThumbnailGeneration = {
   id: GEN_ID,
   companyId: COMPANY_ID,
-  productId: PRODUCT_ID,
+  masterId: MASTER_ID,
   originalUrl: null,
   candidates: [],
   selectedUrl: null,
@@ -27,7 +27,7 @@ const baseGeneration: ThumbnailGeneration = {
   updatedAt: new Date('2026-04-15T01:00:00Z'),
 };
 
-const baseProduct = { id: PRODUCT_ID, title: '테스트 상품' };
+const baseProduct = { id: MASTER_ID, title: '테스트 상품' };
 
 const makeInput = (
   genOverrides: Partial<ThumbnailGeneration> = {},
@@ -126,6 +126,6 @@ describe('imagePanelAdapter', () => {
 
   it('deepLink follows /products/:productId/thumbnails/:generationId pattern', () => {
     const item = imagePanelAdapter.mapToItem(makeInput(), 'co-1');
-    expect(item.deepLink).toBe(`/products/${PRODUCT_ID}/thumbnails/${GEN_ID}`);
+    expect(item.deepLink).toBe(`/products/${MASTER_ID}/thumbnails/${GEN_ID}`);
   });
 });
