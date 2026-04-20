@@ -16,13 +16,13 @@ import { PanelAlertItem } from '@kiditem/shared';
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 type _PanelAlertItemDrift = Pick<
   Alert,
-  'id' | 'severity' | 'type' | 'title' | 'message' | 'productId' | 'isRead'
+  'id' | 'severity' | 'type' | 'title' | 'message' | 'targetType' | 'targetId' | 'isRead'
 > extends Record<string, unknown>
   ? true
   : never;
 
 const ALERT_ID = '00000000-0000-0000-0000-000000000010';
-const PRODUCT_ID = '00000000-0000-0000-0000-000000000011';
+const TARGET_ID = '00000000-0000-0000-0000-000000000011';
 
 describe('PanelAlertItem drift detection', () => {
   it('parses an Alert-shaped object correctly', () => {
@@ -33,7 +33,8 @@ describe('PanelAlertItem drift detection', () => {
       type: 'internal:stock',
       title: 'Stock low',
       message: null,
-      productId: null,
+      targetType: null,
+      targetId: null,
       isRead: false,
       actionTaskId: null,
       actorUserId: null,
@@ -46,12 +47,13 @@ describe('PanelAlertItem drift detection', () => {
     expect(result.type).toBe('internal:stock');
     expect(result.title).toBe('Stock low');
     expect(result.message).toBeNull();
-    expect(result.productId).toBeNull();
+    expect(result.targetType).toBeNull();
+    expect(result.targetId).toBeNull();
     expect(result.isRead).toBe(false);
     expect(result.actorUserId).toBeNull();
   });
 
-  it('parses an Alert-shaped object with non-null message and productId', () => {
+  it('parses an Alert-shaped object with non-null message and target', () => {
     const alertLike = {
       kind: 'alert' as const,
       id: ALERT_ID,
@@ -59,14 +61,16 @@ describe('PanelAlertItem drift detection', () => {
       type: 'rule:margin',
       title: 'Margin too low',
       message: 'Margin is below 10%',
-      productId: PRODUCT_ID,
+      targetType: 'master',
+      targetId: TARGET_ID,
       isRead: true,
       actionTaskId: null,
       actorUserId: null,
       createdAt: '2026-04-15T12:00:00Z',
     };
     const result = PanelAlertItem.parse(alertLike);
-    expect(result.productId).toBe(PRODUCT_ID);
+    expect(result.targetType).toBe('master');
+    expect(result.targetId).toBe(TARGET_ID);
     expect(result.message).toBe('Margin is below 10%');
     expect(result.isRead).toBe(true);
     expect(result.severity).toBe('critical');

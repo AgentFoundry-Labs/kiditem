@@ -5,14 +5,15 @@ import type { Alert } from '@prisma/client';
 
 const ALERT_ID = '11111111-1111-1111-1111-111111111111';
 const COMPANY_ID = '22222222-2222-2222-2222-222222222222';
-const PRODUCT_ID = '33333333-3333-3333-3333-333333333333';
+const TARGET_ID = '33333333-3333-3333-3333-333333333333';
 
 const ACTION_TASK_ID = '44444444-4444-4444-4444-444444444444';
 
 const baseAlert: Alert = {
   id: ALERT_ID,
   companyId: COMPANY_ID,
-  productId: PRODUCT_ID,
+  targetType: 'master',
+  targetId: TARGET_ID,
   type: 'rule_violation',
   severity: 'critical',
   title: '순이익률 -10%',
@@ -41,7 +42,8 @@ describe('alertPanelAdapter', () => {
     expect(item.type).toBe('rule_violation');
     expect(item.title).toBe('순이익률 -10%');
     expect(item.message).toBe('가격 재검토 필요');
-    expect(item.productId).toBe(PRODUCT_ID);
+    expect(item.targetType).toBe('master');
+    expect(item.targetId).toBe(TARGET_ID);
     expect(item.isRead).toBe(false);
     expect(item.createdAt).toBe('2026-04-15T00:00:00.000Z');
   });
@@ -51,11 +53,27 @@ describe('alertPanelAdapter', () => {
     expect(item.actorUserId).toBeNull();
   });
 
-  it('handles null productId', () => {
-    const item = alertPanelAdapter.mapToItem({ ...baseAlert, productId: null });
-    expect(item.productId).toBeNull();
+  it('handles null targetType and targetId', () => {
+    const item = alertPanelAdapter.mapToItem({
+      ...baseAlert,
+      targetType: null,
+      targetId: null,
+    });
+    expect(item.targetType).toBeNull();
+    expect(item.targetId).toBeNull();
     const result = PanelAlertItem.safeParse(item);
     expect(result.success).toBe(true);
+  });
+
+  it('passes through non-null targetType and targetId', () => {
+    const item = alertPanelAdapter.mapToItem({
+      ...baseAlert,
+      targetType: 'product',
+      targetId: TARGET_ID,
+    });
+    expect(item.targetType).toBe('product');
+    expect(item.targetId).toBe(TARGET_ID);
+    expect(PanelAlertItem.safeParse(item).success).toBe(true);
   });
 
   it('handles null message', () => {
