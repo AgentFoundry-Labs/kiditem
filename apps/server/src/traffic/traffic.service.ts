@@ -2,7 +2,7 @@ import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import * as XLSX from 'xlsx';
 import type { MulterFile } from '../common/types';
-import { resolvePricing } from '../common/master-product-resolver';
+import { resolvePricing } from '../common/option-pricing-resolver';
 
 export interface DayRevenue {
   date: string;
@@ -279,7 +279,7 @@ export class TrafficService {
         const prod = productMap.get(row.product_id);
         if (!prod) continue;
 
-        const resolved = resolvePricing(prod);
+        const resolved = resolvePricing({ option: prod });
         // commissionRate: Decimal(5,4) = 0.108 형식 (분수), /100 하지 않음
         const commRate = resolved.commissionRate || 0.108;
         // shippingCost는 주문 단위 고정비 — orders_count 기준으로 곱해야 과계산 방지
@@ -375,7 +375,7 @@ export class TrafficService {
       if (salesQty === 0) continue;
       const prod = productMap.get(row.product_id);
       if (!prod) continue;
-      const resolved = resolvePricing(prod);
+      const resolved = resolvePricing({ option: prod });
       const commRate = resolved.commissionRate || 0.108;
       const ordersCount = Number(row.orders_count) || salesQty;
       const rowNetProfit =

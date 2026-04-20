@@ -1,5 +1,5 @@
 import type { PrismaService } from '../../prisma/prisma.service';
-import { resolvePricing } from '../../common/master-product-resolver';
+import { resolvePricing } from '../../common/option-pricing-resolver';
 
 export interface RangeProfitMetrics {
   revenue: number;
@@ -64,7 +64,7 @@ export async function calculateProfitForRange(
 
     if (!p) continue; // productId nullable → product null이면 비용 스킵
 
-    const resolved = resolvePricing(p);
+    const resolved = resolvePricing({ option: p });
     // commissionRate는 Decimal(5,4) = 0.108 (분수). /100 하지 않음
     const commRate = resolved.commissionRate || 0.108;
     costOfGoods += resolved.costPrice * qty;
