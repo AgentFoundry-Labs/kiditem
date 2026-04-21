@@ -11,6 +11,7 @@ import type {
 import type { DashboardContext } from './context';
 import { calculateProfitForRange, type RangeProfitMetrics } from '../helpers/profit-calculator';
 import { fetchWingAdSummary, type WingAdSummaryResult } from '../helpers/wing-ad-summary';
+import { pct1 } from '../helpers/percent';
 
 /**
  * Plan F1 T2 — full implementation (replaces Plan B2c-deferred stub).
@@ -66,19 +67,6 @@ export class DashboardSalesService {
         fetchWingAdSummary(this.prisma, companyId, year, month, monthStart),
       ]);
 
-      const result: DashboardSalesSummary = {
-        today: todayRows,
-        monthly: this.buildMonthly(curMonth, prevMonth),
-        topProducts: topProductRows,
-        monthlyTrend,
-        profitDetail: this.buildProfitDetail(curMonth),
-        rangeKpi: this.buildRangeKpi(ctx.effectiveRange, rangeCur, rangePrev),
-        dailyRevenue: dailyRevenueRows,
-        planAchievement: null, // F1 out-of-scope (D.3b will wire)
-        trafficKpi: this.buildTrafficKpi(curMonth, wing),
-        lastSyncAt: wing?.lastSyncAt?.toISOString() ?? null,
-      };
-
       this.logger.debug({
         msg: 'dashboard-sales.getSummary',
         companyId,
@@ -89,7 +77,18 @@ export class DashboardSalesService {
         hasWingOverride: wing !== null,
       });
 
-      return result;
+      return {
+        today: todayRows,
+        monthly: this.buildMonthly(curMonth, prevMonth),
+        topProducts: topProductRows,
+        monthlyTrend,
+        profitDetail: this.buildProfitDetail(curMonth),
+        rangeKpi: this.buildRangeKpi(ctx.effectiveRange, rangeCur, rangePrev),
+        dailyRevenue: dailyRevenueRows,
+        planAchievement: null, // F1 out-of-scope (D.3b will wire)
+        trafficKpi: this.buildTrafficKpi(curMonth, wing),
+        lastSyncAt: wing?.lastSyncAt?.toISOString() ?? null,
+      } satisfies DashboardSalesSummary;
     } catch (error) {
       this.logger.error('Failed to get sales summary', error);
       throw new InternalServerErrorException('Failed to get sales summary');
@@ -122,18 +121,12 @@ export class DashboardSalesService {
     cur: RangeProfitMetrics,
     prev: RangeProfitMetrics,
   ): DashboardSalesSummary['monthly'] {
-    const adRate = cur.revenue > 0
-      ? Math.round((cur.adCost / cur.revenue) * 1000) / 10
-      : 0;
-    const prevAdRate = prev.revenue > 0
-      ? Math.round((prev.adCost / prev.revenue) * 1000) / 10
-      : 0;
-    const revenueChange = prev.revenue > 0
-      ? Math.round(((cur.revenue - prev.revenue) / prev.revenue) * 1000) / 10
-      : 0;
-    const profitChange = prev.netProfit !== 0
-      ? Math.round(((cur.netProfit - prev.netProfit) / Math.abs(prev.netProfit)) * 1000) / 10
-      : 0;
+    const adRate = pct1(cur.adCost, cur.revenue);
+    const prevAdRate = pct1(prev.adCost, prev.revenue);
+    const revenueChange = pct1(cur.revenue - prev.revenue, prev.revenue);
+    // abs-guarded: prev.netProfit can be negative; pct1 doc notes this exact pattern.
+    // Math.abs(prev.netProfit) > 0 ⟺ prev.netProfit !== 0, so guard semantics match.
+    const profitChange = pct1(cur.netProfit - prev.netProfit, Math.abs(prev.netProfit));
 
     return {
       revenue: cur.revenue,
@@ -144,7 +137,7 @@ export class DashboardSalesService {
       revenueChange,
       profitChange,
       prevAdRate,
-    };
+    } satisfies DashboardSalesSummary['monthly'];
   }
 
   // ── profitDetail: 8-field subset of RangeProfitMetrics (R-05 explicit) ───
@@ -167,18 +160,12 @@ export class DashboardSalesService {
     cur: RangeProfitMetrics,
     prev: RangeProfitMetrics,
   ): NonNullable<DashboardSalesSummary['rangeKpi']> {
-    const profitRate = cur.revenue > 0
-      ? Math.round((cur.netProfit / cur.revenue) * 1000) / 10
-      : 0;
-    const prevProfitRate = prev.revenue > 0
-      ? Math.round((prev.netProfit / prev.revenue) * 1000) / 10
-      : 0;
-    const revenueChange = prev.revenue > 0
-      ? Math.round(((cur.revenue - prev.revenue) / prev.revenue) * 1000) / 10
-      : 0;
-    const profitChange = prev.netProfit !== 0
-      ? Math.round(((cur.netProfit - prev.netProfit) / Math.abs(prev.netProfit)) * 1000) / 10
-      : 0;
+    const profitRate = pct1(cur.netProfit, cur.revenue);
+    const prevProfitRate = pct1(prev.netProfit, prev.revenue);
+    const revenueChange = pct1(cur.revenue - prev.revenue, prev.revenue);
+    // abs-guarded: prev.netProfit can be negative; pct1 doc notes this exact pattern.
+    // Math.abs(prev.netProfit) > 0 ⟺ prev.netProfit !== 0, so guard semantics match.
+    const profitChange = pct1(cur.netProfit - prev.netProfit, Math.abs(prev.netProfit));
     return {
       range,
       revenue: cur.revenue,
@@ -189,8 +176,9 @@ export class DashboardSalesService {
       profitChange,
       profitRate,
       prevProfitRate,
+      // Delta of two already-rounded 1dp percents (not a ratio) — pct1 doesn't apply.
       profitRateChange: Math.round((profitRate - prevProfitRate) * 10) / 10,
-    };
+    } satisfies NonNullable<DashboardSalesSummary['rangeKpi']>;
   }
 
   // ── topProducts N=10, company = ChannelListing.channelName ───────────────
@@ -301,9 +289,7 @@ export class DashboardSalesService {
       adSummary: wing?.rawAdSummary ?? null,
       source: wing ? 'wing' : undefined,
       netProfit: cur.netProfit,
-      profitRate: cur.revenue > 0
-        ? Math.round((cur.netProfit / cur.revenue) * 1000) / 10
-        : 0,
-    };
+      profitRate: pct1(cur.netProfit, cur.revenue),
+    } satisfies TrafficKpi;
   }
 }
