@@ -10,7 +10,6 @@ import {
   seedBaseFixture,
   TEST_COMPANY_ID,
   OTHER_COMPANY_ID,
-  IDOR_SENTINEL,
 } from '../../test-helpers/real-prisma';
 import {
   setupMaster,
