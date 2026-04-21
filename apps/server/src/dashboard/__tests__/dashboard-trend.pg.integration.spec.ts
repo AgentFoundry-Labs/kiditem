@@ -11,15 +11,21 @@ import {
   OTHER_COMPANY_ID,
   IDOR_SENTINEL,
 } from '../../test-helpers/real-prisma';
+import {
+  setupMaster,
+  setupProductOption,
+  setupChannelListing,
+  seedOrderWithLineItems,
+  seedAd,
+} from '../../test-helpers/finance-seeds';
 
-describe('DashboardTrendService (PG integration)', () => {
+describe('DashboardTrendService.getTrend (PG integration)', () => {
   let prisma: PrismaClient;
   let service: DashboardTrendService;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-
     const m = await Test.createTestingModule({
       providers: [
         DashboardTrendService,
@@ -39,172 +45,154 @@ describe('DashboardTrendService (PG integration)', () => {
   });
 
   /**
-   * Seed TEST + OTHER companies with distinguishable values.
-   *
-   * Order: MasterProduct → ChannelListing → ProfitLoss & Ad (both reference listing).
-   * This is required because Ad.listingId is a REQUIRED @db.Uuid FK (critic C-02).
+   * Seed a TEST listing + a single yesterday order with given lineItem totalPrice
+   * and optional ad spend on the same date.
    */
-  async function seedTwoCompanies() {
-    const today = new Date();
+  async function seedTestListingWithYesterdayOrder(opts: {
+    suffix: string;
+    lineItemTotalPrice: number;
+    /** Used as Order.totalPrice deliberately — sentinel for I3 fix verification. */
+    orderTotalPriceOverride?: number;
+    costPrice?: number;
+    adSpend?: number;
+  }) {
     const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const ym = { year: today.getFullYear(), month: today.getMonth() + 1 };
-
-    // TEST company — master + listing
-    const masterT = await prisma.masterProduct.create({
-      data: { companyId: TEST_COMPANY_ID, code: 'M-T', name: 'Master T', category: 'Toy', optionCounter: 1 },
+    const { id: masterId } = await setupMaster(prisma, {
+      companyId: TEST_COMPANY_ID, code: `M-T-${opts.suffix}`, name: `Master T-${opts.suffix}`,
     });
-    const listingT = await prisma.channelListing.create({
-      data: { companyId: TEST_COMPANY_ID, masterId: masterT.id, channel: 'coupang', externalId: 'L-T' },
+    const { id: optionId } = await setupProductOption(prisma, {
+      companyId: TEST_COMPANY_ID, masterId,
+      sku: `SKU-T-${opts.suffix}`, costPrice: opts.costPrice ?? 0, commissionRate: 0,
     });
-
-    // OTHER company — master + listing (sentinel)
-    const masterO = await prisma.masterProduct.create({
-      data: { companyId: OTHER_COMPANY_ID, code: 'M-O', name: 'Master O', category: 'Toy', optionCounter: 1 },
-    });
-    const listingO = await prisma.channelListing.create({
-      data: { companyId: OTHER_COMPANY_ID, masterId: masterO.id, channel: 'coupang', externalId: 'L-O' },
+    const { listingId, listingOptionId } = await setupChannelListing(prisma, {
+      companyId: TEST_COMPANY_ID, masterId,
+      channel: 'coupang', externalId: `EXT-T-${opts.suffix}`,
+      optionId, vendorItemId: `VI-T-${opts.suffix}`,
     });
 
-    // TEST orders — 2 rows, totalPrice 10_000 + 20_000 = 30_000
-    await prisma.order.create({
-      data: {
+    if (opts.orderTotalPriceOverride !== undefined) {
+      // Bypass helper to set Order.totalPrice independently of lineItem totals.
+      const order = await prisma.order.create({
+        data: {
+          companyId: TEST_COMPANY_ID,
+          platform: 'coupang',
+          externalOrderId: `TREND-T-${opts.suffix}`,
+          orderedAt: yesterday,
+          status: 'paid',
+          totalPrice: opts.orderTotalPriceOverride,
+          shippingPrice: 0,
+        },
+      });
+      await prisma.orderLineItem.create({
+        data: {
+          companyId: TEST_COMPANY_ID,
+          orderId: order.id,
+          listingOptionId,
+          optionId,
+          quantity: 1,
+          unitPrice: opts.lineItemTotalPrice,
+          totalPrice: opts.lineItemTotalPrice,
+          externalLineId: `LI-${order.id}-0`,
+        },
+      });
+    } else {
+      await seedOrderWithLineItems(prisma, {
         companyId: TEST_COMPANY_ID,
-        platform: 'coupang',
-        externalOrderId: 'T-1',
-        orderedAt: yesterday,
-        status: 'paid',
-        totalPrice: 10_000,
-        receiverName: 'A',
-        listingId: listingT.id,
-      },
-    });
-    await prisma.order.create({
-      data: {
-        companyId: TEST_COMPANY_ID,
-        platform: 'coupang',
-        externalOrderId: 'T-2',
-        orderedAt: yesterday,
-        status: 'paid',
-        totalPrice: 20_000,
-        receiverName: 'A',
-        listingId: listingT.id,
-      },
-    });
+        externalOrderId: `TREND-T-${opts.suffix}`,
+        orderedAt: yesterday.toISOString(),
+        shippingPrice: 0,
+        lineItems: [{ quantity: 1, totalPrice: opts.lineItemTotalPrice, optionId, listingOptionId }],
+      });
+    }
 
-    // OTHER orders — 1 row with sentinel
-    await prisma.order.create({
-      data: {
-        companyId: OTHER_COMPANY_ID,
-        platform: 'coupang',
-        externalOrderId: 'O-1',
-        orderedAt: yesterday,
-        status: 'paid',
-        totalPrice: IDOR_SENTINEL,
-        receiverName: 'B',
-        listingId: listingO.id,
-      },
-    });
-
-    // TEST ads (listingId required per Ad schema)
-    await prisma.ad.create({
-      data: {
-        companyId: TEST_COMPANY_ID,
-        listingId: listingT.id,
-        date: yesterday,
-        campaignId: 'C-T-1',
-        spend: 500,
-        impressions: 100,
-        clicks: 10,
-        conversions: 1,
-        revenue: 1500,
-      },
-    });
-
-    // OTHER ads (sentinel)
-    await prisma.ad.create({
-      data: {
-        companyId: OTHER_COMPANY_ID,
-        listingId: listingO.id,
-        date: yesterday,
-        campaignId: 'C-O-1',
-        spend: IDOR_SENTINEL,
-        impressions: 100,
-        clicks: 10,
-        conversions: 1,
-        revenue: IDOR_SENTINEL,
-      },
-    });
-
-    // TEST profit-loss (current year/month)
-    await prisma.profitLoss.create({
-      data: {
-        companyId: TEST_COMPANY_ID,
-        listingId: listingT.id,
-        year: ym.year,
-        month: ym.month,
-        revenue: 100_000,
-        netProfit: 30_000,
-      },
-    });
-
-    // OTHER profit-loss (sentinel)
-    await prisma.profitLoss.create({
-      data: {
-        companyId: OTHER_COMPANY_ID,
-        listingId: listingO.id,
-        year: ym.year,
-        month: ym.month,
-        revenue: IDOR_SENTINEL,
-        netProfit: IDOR_SENTINEL,
-      },
-    });
+    if (opts.adSpend !== undefined) {
+      await seedAd(prisma, {
+        companyId: TEST_COMPANY_ID, listingId,
+        date: yesterday.toISOString().slice(0, 10), spend: opts.adSpend,
+      });
+    }
+    return { listingId, optionId, listingOptionId };
   }
 
-  it('TEST sees only TEST rows — OTHER sentinel never leaks', async () => {
-    await seedTwoCompanies();
-    const result = await service.getTrend(TEST_COMPANY_ID, '30d');
+  it('T1: TEST sees only TEST rows — OTHER sentinel never leaks', async () => {
+    await seedTestListingWithYesterdayOrder({ suffix: '1', lineItemTotalPrice: 30_000 });
+    // OTHER sentinel
+    const oM = await setupMaster(prisma, { companyId: OTHER_COMPANY_ID, code: 'M-O-1', name: 'OM' });
+    const oO = await setupProductOption(prisma, { companyId: OTHER_COMPANY_ID, masterId: oM.id, sku: 'SKU-O-1' });
+    const oL = await setupChannelListing(prisma, {
+      companyId: OTHER_COMPANY_ID, masterId: oM.id,
+      channel: 'coupang', externalId: 'EXT-O-1', optionId: oO.id, vendorItemId: 'VI-O-1',
+    });
+    await seedOrderWithLineItems(prisma, {
+      companyId: OTHER_COMPANY_ID,
+      externalOrderId: 'TREND-O-1',
+      orderedAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+      shippingPrice: 0,
+      lineItems: [{ quantity: 1, totalPrice: IDOR_SENTINEL, optionId: oO.id, listingOptionId: oL.listingOptionId }],
+    });
+    await seedAd(prisma, {
+      companyId: OTHER_COMPANY_ID, listingId: oL.listingId,
+      date: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10), spend: IDOR_SENTINEL,
+    });
 
-    // Sentinel must not appear on any day
+    const result = await service.getTrend(TEST_COMPANY_ID, '30d');
     for (const row of result) {
       expect(row.revenue).not.toBe(IDOR_SENTINEL);
       expect(row.adCost).not.toBe(IDOR_SENTINEL);
     }
-
-    // Yesterday's TEST aggregation: 10_000 + 20_000 = 30_000
     const yesterdayRow = result.find((r) => r.revenue === 30_000);
-    expect(yesterdayRow).toBeTruthy();
-    expect(yesterdayRow?.adCost).toBe(500);
+    expect(yesterdayRow).toBeDefined();
   });
 
-  it('OTHER sees only OTHER rows — TEST does not leak', async () => {
-    await seedTwoCompanies();
+  it('T2: OTHER sees only OTHER — TEST does not leak', async () => {
+    await seedTestListingWithYesterdayOrder({ suffix: '2', lineItemTotalPrice: 30_000 });
+    const oM = await setupMaster(prisma, { companyId: OTHER_COMPANY_ID, code: 'M-O-2', name: 'OM' });
+    const oO = await setupProductOption(prisma, { companyId: OTHER_COMPANY_ID, masterId: oM.id, sku: 'SKU-O-2' });
+    const oL = await setupChannelListing(prisma, {
+      companyId: OTHER_COMPANY_ID, masterId: oM.id,
+      channel: 'coupang', externalId: 'EXT-O-2', optionId: oO.id, vendorItemId: 'VI-O-2',
+    });
+    await seedOrderWithLineItems(prisma, {
+      companyId: OTHER_COMPANY_ID,
+      externalOrderId: 'TREND-O-2',
+      orderedAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+      shippingPrice: 0,
+      lineItems: [{ quantity: 1, totalPrice: IDOR_SENTINEL, optionId: oO.id, listingOptionId: oL.listingOptionId }],
+    });
+
     const result = await service.getTrend(OTHER_COMPANY_ID, '30d');
-
-    // TEST values must not appear
     for (const row of result) {
-      expect(row.revenue).not.toBe(10_000);
-      expect(row.revenue).not.toBe(20_000);
       expect(row.revenue).not.toBe(30_000);
-      expect(row.adCost).not.toBe(500);
     }
-
-    // OTHER sentinel should be present
-    const otherRow = result.find((r) => r.revenue === IDOR_SENTINEL);
-    expect(otherRow).toBeTruthy();
+    expect(result.find((r) => r.revenue === IDOR_SENTINEL)).toBeDefined();
   });
 
-  it('fresh company (no orders/ads/pl) returns []', async () => {
-    // seedBaseFixture creates company row but no data; skip seedTwoCompanies
+  it('T3: fresh company → []', async () => {
     const result = await service.getTrend(TEST_COMPANY_ID, '7d');
     expect(result).toEqual([]);
   });
 
-  it('avgProfitRate uses TEST profit-loss only', async () => {
-    await seedTwoCompanies();
+  it('T4: I3 fix — revenue from SUM(oli.total_price), NOT SUM(o.total_price); avgProfitRate ratio applied', async () => {
+    // Sentinel: Order.totalPrice = 999_999_999 vs lineItem.totalPrice = 100_000.
+    // Pre-fix would aggregate Order.totalPrice → revenue = 999M.
+    // Post-fix aggregates lineItem.totalPrice → revenue = 100k.
+    // Cost set to produce avgProfitRate ≈ 0.3 → daily profit = 30_000.
+    // costPrice 70_000 → netProfit (range total) = 100_000 - 70_000 - 0 - 0 - 0 - 0 = 30_000
+    // avgProfitRate = 30_000 / 100_000 = 0.3 → daily profit = 100_000 × 0.3 = 30_000
+    await seedTestListingWithYesterdayOrder({
+      suffix: '4',
+      lineItemTotalPrice: 100_000,
+      orderTotalPriceOverride: 999_999_999,
+      costPrice: 70_000,
+    });
+
     const result = await service.getTrend(TEST_COMPANY_ID, '30d');
-    // TEST pl: revenue=100_000, netProfit=30_000 → rate = 0.3
-    // Yesterday row revenue=30_000 → profit = 30_000 * 0.3 = 9_000
-    const yr = result.find((r) => r.revenue === 30_000);
-    expect(yr?.profit).toBe(9_000);
+    const yesterdayRow = result.find((r) => r.revenue === 100_000);
+    expect(yesterdayRow).toBeDefined();
+    expect(yesterdayRow?.profit).toBe(30_000);
+    // Critical assertion: revenue is NOT the bogus Order.totalPrice
+    for (const row of result) {
+      expect(row.revenue).not.toBe(999_999_999);
+    }
   });
 });

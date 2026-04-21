@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { DashboardTrendItem } from '@kiditem/shared';
+import { calculateProfitForRange } from '../helpers/profit-calculator';
 
 @Injectable()
 export class DashboardTrendService {
@@ -14,25 +15,23 @@ export class DashboardTrendService {
     const since = new Date();
     since.setDate(since.getDate() - days);
 
-    // 월별 평균 이익률 계산 (ProfitLoss 기준, company-scoped per ADR-0018 Rule 1)
-    const plAgg = await this.prisma.profitLoss.aggregate({
-      where: { companyId },
-      _sum: { revenue: true, netProfit: true },
-    });
+    // Plan F1 T4 — avgProfitRate via calculateProfitForRange (replaces profitLoss.aggregate, ADR-0016).
+    // Returns ratio (e.g. 0.3 for 30%) — used as a per-day multiplier downstream.
+    const profitMetrics = await calculateProfitForRange(this.prisma, companyId, since, new Date());
     const avgProfitRate =
-      (plAgg._sum.revenue ?? 0) > 0
-        ? (plAgg._sum.netProfit ?? 0) / (plAgg._sum.revenue ?? 1)
-        : 0;
+      profitMetrics.revenue > 0 ? profitMetrics.netProfit / profitMetrics.revenue : 0;
 
-    // ADR-0018 Rule 2 — $queryRaw bound via ${companyId}::uuid
+    // ADR-0018 Rule 2 + Plan F1 T4 — I3 fix: SUM(oli.total_price), NOT SUM(o.total_price).
+    // Both queries bind ${companyId}::uuid via Prisma tagged template (ADR-0009).
     const [orderRows, adRows] = await Promise.all([
       this.prisma.$queryRaw<{ date: string; revenue: number }[]>`
         SELECT
-          TO_CHAR(ordered_at AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD') AS date,
-          COALESCE(SUM(total_price), 0)::int AS revenue
-        FROM orders
-        WHERE company_id = ${companyId}::uuid
-          AND ordered_at >= ${since}
+          TO_CHAR(o.ordered_at AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD') AS date,
+          COALESCE(SUM(oli.total_price), 0)::int AS revenue
+        FROM orders o
+        JOIN order_line_items oli ON oli.order_id = o.id
+        WHERE o.company_id = ${companyId}::uuid
+          AND o.ordered_at >= ${since}
         GROUP BY 1
         ORDER BY 1
       `,
@@ -67,6 +66,7 @@ export class DashboardTrendService {
       range,
       days,
       rowCount: result.length,
+      avgProfitRate,
       latencyMs: Date.now() - startedAt,
     });
 
