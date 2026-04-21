@@ -23,9 +23,12 @@ export class DashboardController {
   ) {}
 
   @Get('sales')
-  async getSales(@Query() query: DashboardQueryDto): Promise<DashboardSalesSummary> {
+  async getSales(
+    @Query() query: DashboardQueryDto,
+    @CurrentCompany() companyId: string,
+  ): Promise<DashboardSalesSummary> {
     const ctx = buildDashboardContext(query.range, query.from, query.to);
-    return this.salesService.getSummary(ctx);
+    return this.salesService.getSummary(ctx, companyId);
   }
 
   @Get('ad')
@@ -38,14 +41,19 @@ export class DashboardController {
   }
 
   @Get('inventory')
-  async getInventory(): Promise<DashboardInventorySummary> {
+  async getInventory(
+    @CurrentCompany() companyId: string,
+  ): Promise<DashboardInventorySummary> {
     // range-agnostic — snapshot only
     const ctx = buildDashboardContext();
-    return this.inventoryService.getSummary(ctx);
+    return this.inventoryService.getSummary(ctx, companyId);
   }
 
   @Get('trend')
-  async getTrend(@Query() query: DashboardTrendQueryDto): Promise<DashboardTrendItem[]> {
-    return this.trendService.getTrend(query.range ?? '30d');
+  async getTrend(
+    @Query() query: DashboardTrendQueryDto,
+    @CurrentCompany() companyId: string,
+  ): Promise<DashboardTrendItem[]> {
+    return this.trendService.getTrend(companyId, query.range ?? '30d');
   }
 }

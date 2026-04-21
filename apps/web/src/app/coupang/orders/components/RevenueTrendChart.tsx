@@ -9,16 +9,11 @@ import {
   ResponsiveContainer,
   CartesianGrid,
 } from 'recharts';
+import type { RevenueTrendPoint } from '@kiditem/shared';
 import { formatKRW } from '@/lib/utils';
 
-export interface TrendRow {
-  day: string;
-  revenue: number;
-  orderCount: number;
-}
-
 interface RevenueTrendChartProps {
-  data: TrendRow[];
+  data: RevenueTrendPoint[];
 }
 
 export function RevenueTrendChart({ data }: RevenueTrendChartProps) {

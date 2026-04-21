@@ -69,6 +69,14 @@ export const TEST_USER_ID = 'f1234567-89ab-4cde-8f01-23456789abcd';
 export const OTHER_COMPANY_ID = 'b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e';
 export const OTHER_USER_ID = 'e2345678-9abc-4def-8012-3456789abcde';
 
+/**
+ * Sentinel value used in IDOR integration tests — seed OTHER_COMPANY_ID rows with
+ * this value, then assert TEST_COMPANY_ID queries never surface it. A partial leak
+ * (sum of TEST + OTHER) wouldn't equal IDOR_SENTINEL exactly, so a stricter
+ * positive-value assertion should accompany (e.g., expect(row.x).toBe(500)).
+ */
+export const IDOR_SENTINEL = 999_999_999;
+
 export async function seedBaseFixture(prisma: PrismaClient): Promise<void> {
   await prisma.company.createMany({
     data: [

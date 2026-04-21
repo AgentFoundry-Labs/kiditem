@@ -8,13 +8,15 @@ export class DashboardTrendService {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  async getTrend(range: string): Promise<DashboardTrendItem[]> {
+  async getTrend(companyId: string, range: string): Promise<DashboardTrendItem[]> {
+    const startedAt = Date.now();
     const days = range === '7d' ? 7 : range === '90d' ? 90 : 30;
     const since = new Date();
     since.setDate(since.getDate() - days);
 
-    // 월별 평균 이익률 계산 (ProfitLoss 기준)
+    // 월별 평균 이익률 계산 (ProfitLoss 기준, company-scoped per ADR-0018 Rule 1)
     const plAgg = await this.prisma.profitLoss.aggregate({
+      where: { companyId },
       _sum: { revenue: true, netProfit: true },
     });
     const avgProfitRate =
@@ -22,13 +24,15 @@ export class DashboardTrendService {
         ? (plAgg._sum.netProfit ?? 0) / (plAgg._sum.revenue ?? 1)
         : 0;
 
+    // ADR-0018 Rule 2 — $queryRaw bound via ${companyId}::uuid
     const [orderRows, adRows] = await Promise.all([
       this.prisma.$queryRaw<{ date: string; revenue: number }[]>`
         SELECT
           TO_CHAR(ordered_at AT TIME ZONE 'Asia/Seoul', 'YYYY-MM-DD') AS date,
           COALESCE(SUM(total_price), 0)::int AS revenue
         FROM orders
-        WHERE ordered_at >= ${since}
+        WHERE company_id = ${companyId}::uuid
+          AND ordered_at >= ${since}
         GROUP BY 1
         ORDER BY 1
       `,
@@ -37,7 +41,8 @@ export class DashboardTrendService {
           TO_CHAR(date, 'YYYY-MM-DD') AS date,
           COALESCE(SUM(spend), 0)::int AS ad_cost
         FROM ads
-        WHERE date >= ${since}::date
+        WHERE company_id = ${companyId}::uuid
+          AND date >= ${since}::date
         GROUP BY 1
         ORDER BY 1
       `,
@@ -45,7 +50,7 @@ export class DashboardTrendService {
 
     const adMap = new Map(adRows.map((r) => [r.date, Number(r.ad_cost)]));
 
-    return orderRows.map((r) => {
+    const result = orderRows.map((r) => {
       const revenue = Number(r.revenue);
       const profit = Math.round(revenue * avgProfitRate);
       return {
@@ -55,5 +60,16 @@ export class DashboardTrendService {
         adCost: adMap.get(r.date) ?? 0,
       } satisfies DashboardTrendItem;
     });
+
+    this.logger.debug({
+      msg: 'dashboard-trend.getTrend',
+      companyId,
+      range,
+      days,
+      rowCount: result.length,
+      latencyMs: Date.now() - startedAt,
+    });
+
+    return result;
   }
 }

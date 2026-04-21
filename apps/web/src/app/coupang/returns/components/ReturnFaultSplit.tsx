@@ -1,13 +1,9 @@
 'use client';
 import { Users, Package } from 'lucide-react';
-
-export interface FaultSplit {
-  customer: number;
-  vendor: number;
-}
+import type { ReturnFaultSplit as ReturnFaultSplitData } from '@kiditem/shared';
 
 interface Props {
-  faultSplit: FaultSplit;
+  faultSplit: ReturnFaultSplitData;
 }
 
 export function ReturnFaultSplit({ faultSplit }: Props) {

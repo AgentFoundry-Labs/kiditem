@@ -45,13 +45,14 @@ export class DashboardAdService {
         aggregateAdForRange(this.prisma, companyId, dateRange.start, dateRange.end),
         // Range KPI previous period
         aggregateAdForRange(this.prisma, companyId, dateRange.prevStart, dateRange.prevEnd),
-        // 30-day daily ad cost (L224-232)
+        // 30-day daily ad cost (L224-232) — ADR-0018 companyId binding
         this.prisma.$queryRaw<{ date: string; ad_cost: number }[]>`
           SELECT
             TO_CHAR(date, 'YYYY-MM-DD') AS date,
             COALESCE(SUM(spend), 0)::int AS ad_cost
           FROM ads
-          WHERE date >= ${thirtyDaysAgo}::date
+          WHERE company_id = ${companyId}::uuid
+            AND date >= ${thirtyDaysAgo}::date
           GROUP BY 1
           ORDER BY 1
         `,
@@ -63,8 +64,8 @@ export class DashboardAdService {
         calculateProfitForRange(this.prisma, companyId, dateRange.start, dateRange.end),
         // Range profit previous period (legacy L344: rangeProfitPrev.adCost for prevAdCost)
         calculateProfitForRange(this.prisma, companyId, dateRange.prevStart, dateRange.prevEnd),
-        // Wing adSummary snapshot
-        fetchWingAdSummary(this.prisma, year, month, monthStart),
+        // Wing adSummary snapshot (ADR-0018 — companyId threaded)
+        fetchWingAdSummary(this.prisma, companyId, year, month, monthStart),
       ]);
 
       return {

@@ -1,96 +1,117 @@
 'use client';
 
-import { useState } from 'react';
-import { format, subDays } from 'date-fns';
-import { type DateRange } from 'react-day-picker';
+import { useMemo, useCallback } from 'react';
+import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
+import { z } from 'zod';
+import {
+  ChannelDashboardSummarySchema,
+  RevenueTrendPointSchema,
+  ProductRankingRowSchema,
+} from '@kiditem/shared';
 import { apiClient } from '@/lib/api-client';
+import { friendlyError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
+import PageSkeleton from '@/components/ui/PageSkeleton';
+import { ErrorState } from '@/components/ui/EmptyState';
+import { toParam, parseUrlState } from '../lib/date-range-url';
 import { KpiBar } from './components/KpiBar';
 import { RevenueTrendChart } from './components/RevenueTrendChart';
 import OrdersDateFilter from './components/OrdersDateFilter';
 import OrderRankingTable from './components/OrderRankingTable';
-import type { TrendRow } from './components/RevenueTrendChart';
-
-function toParam(d: Date) {
-  return format(d, 'yyyy-MM-dd');
-}
-
-function getPreset(days: number): DateRange {
-  const to = new Date();
-  const from = subDays(to, days);
-  return { from, to };
-}
-
-interface KpiData {
-  todayOrders: { count: number; revenue: number };
-  pendingAccept: number;
-  pendingReturns: number;
-}
-
-interface RankingRow {
-  sellerProductId: string;
-  sellerProductName: string;
-  revenue: number;
-  orderCount: number;
-}
 
 export default function CoupangOrdersPage() {
-  const [dateRange, setDateRange] = useState<DateRange>(getPreset(30));
-  const [activePreset, setActivePreset] = useState<number>(30);
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  const { preset: activePreset, range: dateRange } = useMemo(
+    () => parseUrlState(new URLSearchParams(searchParams.toString())),
+    [searchParams],
+  );
 
   const from = dateRange.from ? toParam(dateRange.from) : '';
   const to = dateRange.to ? toParam(dateRange.to) : '';
 
-  const { data: kpis } = useQuery({
+  const setPreset = useCallback(
+    (days: number) => {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set('preset', String(days));
+      params.delete('from');
+      params.delete('to');
+      router.replace(`${pathname}?${params.toString()}`);
+    },
+    [searchParams, router, pathname],
+  );
+
+  const setCustomRange = useCallback(
+    (range: { from?: Date; to?: Date } | undefined) => {
+      if (!range?.from || !range?.to) return;
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete('preset');
+      params.set('from', toParam(range.from));
+      params.set('to', toParam(range.to));
+      router.replace(`${pathname}?${params.toString()}`);
+    },
+    [searchParams, router, pathname],
+  );
+
+  const { data: kpis, error: kpisErr, isLoading: kpisLoading } = useQuery({
     queryKey: queryKeys.coupangDashboard.kpis(),
-    queryFn: () => apiClient.get<KpiData>('/api/coupang-dashboard'),
+    queryFn: () => apiClient.getParsed('/api/coupang-dashboard', ChannelDashboardSummarySchema),
   });
 
-  const { data: trend = [], isLoading: loading } = useQuery({
+  const { data: trend = [], error: trendErr, isLoading: trendLoading } = useQuery({
     queryKey: queryKeys.coupangDashboard.trend({ from, to }),
-    queryFn: () => apiClient.get<TrendRow[]>(`/api/coupang-dashboard/trend?from=${from}&to=${to}`),
+    queryFn: () =>
+      apiClient.getParsed(
+        `/api/coupang-dashboard/trend?from=${from}&to=${to}`,
+        z.array(RevenueTrendPointSchema),
+      ),
     enabled: !!from && !!to,
   });
 
-  const { data: ranking = [] } = useQuery({
+  const { data: ranking = [], error: rankingErr, isLoading: rankingLoading } = useQuery({
     queryKey: queryKeys.coupangDashboard.ranking({ from, to }),
-    queryFn: () => apiClient.get<RankingRow[]>(`/api/coupang-dashboard/ranking?from=${from}&to=${to}`),
+    queryFn: () =>
+      apiClient.getParsed(
+        `/api/coupang-dashboard/ranking?from=${from}&to=${to}`,
+        z.array(ProductRankingRowSchema),
+      ),
     enabled: !!from && !!to,
   });
 
-  function handlePreset(days: number) {
-    setActivePreset(days);
-    setDateRange(getPreset(days));
-  }
-
-  function handleCustomRange(range: DateRange | undefined) {
-    if (range) {
-      setActivePreset(0);
-      setDateRange(range);
-    }
-  }
+  // All 3 endpoints share the same period filter; if one fails all likely fail.
+  // Collapse into single full-page error display (intentional — see Plan E.1 E5).
+  const error = friendlyError(kpisErr ?? trendErr ?? rankingErr);
+  const loading = kpisLoading || trendLoading || rankingLoading;
 
   return (
     <div className="space-y-6">
       <OrdersDateFilter
         activePreset={activePreset}
         dateRange={dateRange}
-        onPreset={handlePreset}
-        onCustomRange={handleCustomRange}
+        onPreset={setPreset}
+        onCustomRange={setCustomRange}
       />
 
-      {kpis && (
-        <KpiBar
-          todayOrderCount={kpis.todayOrders.count}
-          todayRevenue={kpis.todayOrders.revenue}
-          pendingConfirmCount={kpis.pendingAccept}
-        />
+      {loading ? (
+        <PageSkeleton variant="dashboard" />
+      ) : error ? (
+        <ErrorState message={error} />
+      ) : (
+        <>
+          {kpis && (
+            <KpiBar
+              todayOrderCount={kpis.todayOrders.count}
+              todayRevenue={kpis.todayOrders.revenue}
+              pendingConfirmCount={kpis.pendingAccept}
+            />
+          )}
+          <RevenueTrendChart data={trend} />
+          <OrderRankingTable ranking={ranking} loading={rankingLoading} />
+        </>
       )}
-
-      <RevenueTrendChart data={trend} />
-
-      <OrderRankingTable ranking={ranking} loading={loading} />
     </div>
   );
 }

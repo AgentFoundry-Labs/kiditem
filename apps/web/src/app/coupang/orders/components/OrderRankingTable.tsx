@@ -1,15 +1,9 @@
 'use client';
+import type { ProductRankingRow } from '@kiditem/shared';
 import { formatKRW } from '@/lib/utils';
 
-interface RankingRow {
-  sellerProductId: string;
-  sellerProductName: string;
-  revenue: number;
-  orderCount: number;
-}
-
 interface Props {
-  ranking: RankingRow[];
+  ranking: ProductRankingRow[];
   loading: boolean;
 }
 

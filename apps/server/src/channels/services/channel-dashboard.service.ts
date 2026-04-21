@@ -1,11 +1,18 @@
 import { Injectable, Logger } from '@nestjs/common';
-import type { ReturnSummary } from '@kiditem/shared';
+import type {
+  ReturnSummary,
+  ChannelDashboardSummary,
+  RevenueTrendPoint,
+  ProductRankingRow,
+  ReturnReasonRow,
+  ReturnFaultSplit,
+} from '@kiditem/shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import { kstDayStart } from '../../common/kst';
 
 /**
- * Channel dashboard response shapes — service-internal interfaces.
- * (NestJS CLAUDE.md: `services/types.ts` 대안 — 단일 service 전용 타입은 파일 내부 export)
+ * Channel dashboard response shapes — typed via `@kiditem/shared` Zod schemas.
+ * (Plan E.1 T1 — local interfaces removed, shared types + `satisfies` drift guard.)
  *
  * Plan B2c.dashboard T15 rewrite notes:
  * - I3 canonical: revenue = SUM(oli.total_price), never SUM(o.total_price).
@@ -18,37 +25,6 @@ import { kstDayStart } from '../../common/kst';
  * - R-06 returnRate known limitation: past-period orders' returns land in current
  *   period numerator. Plan D will fix by JOINing return.orderId → order.orderedAt.
  */
-
-export interface ChannelDashboardSummary {
-  todayOrders: { count: number; revenue: number };
-  pendingAccept: number;
-  pendingReturns: number;
-  /** Latest ChannelListing.updatedAt for the company. Null when no listing exists. */
-  lastModifiedAt: Date | null;
-}
-
-export interface RevenueTrendPoint {
-  day: string;
-  revenue: number;
-  orderCount: number;
-}
-
-export interface ProductRankingRow {
-  sellerProductId: string;
-  sellerProductName: string;
-  revenue: number;
-  orderCount: number;
-}
-
-export interface ReturnReasonRow {
-  reason: string;
-  count: number;
-}
-
-export interface ReturnFaultSplit {
-  customer: number;
-  vendor: number;
-}
 
 @Injectable()
 export class ChannelDashboardService {
@@ -84,7 +60,7 @@ export class ChannelDashboardService {
       pendingAccept,
       pendingReturns,
       lastModifiedAt: lastSync?.updatedAt ?? null,
-    };
+    } satisfies ChannelDashboardSummary;
   }
 
   async getRevenueTrend(
@@ -108,7 +84,7 @@ export class ChannelDashboardService {
       day: r.day.toISOString().split('T')[0],
       revenue: Number(r.revenue ?? 0n),
       orderCount: Number(r.orderCount),
-    }));
+    }) satisfies RevenueTrendPoint);
   }
 
   async getProductRanking(
@@ -143,7 +119,7 @@ export class ChannelDashboardService {
       sellerProductName: r.sellerProductName,
       revenue: Number(r.revenue ?? 0n),
       orderCount: Number(r.orderCount),
-    }));
+    }) satisfies ProductRankingRow);
   }
 
   async getReturnSummary(
@@ -216,7 +192,7 @@ export class ChannelDashboardService {
       where: { companyId, requestedAt: { gte: from, lt: to } },
     });
     // R-12 flat _count: Prisma returns `_count: number` for flat form.
-    return groups.map((g) => ({ reason: g.reason, count: g._count }));
+    return groups.map((g) => ({ reason: g.reason, count: g._count }) satisfies ReturnReasonRow);
   }
 
   async getReturnFaultSplit(
@@ -231,6 +207,6 @@ export class ChannelDashboardService {
     });
     // C-11 unknown faultBy drop: faultBy is VarChar(20) — only CUSTOMER/VENDOR are reported.
     const find = (key: string) => groups.find((g) => g.faultBy === key)?._count ?? 0;
-    return { customer: find('CUSTOMER'), vendor: find('VENDOR') };
+    return { customer: find('CUSTOMER'), vendor: find('VENDOR') } satisfies ReturnFaultSplit;
   }
 }

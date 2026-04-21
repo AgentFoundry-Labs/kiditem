@@ -217,6 +217,22 @@ export type {
 export { ReturnSummarySchema } from './schemas/return-summary.js';
 export type { ReturnSummary } from './schemas/return-summary.js';
 
+// Channel Dashboard (Plan E.1 T1 — drift guard for channel-dashboard.service.ts)
+export {
+  ChannelDashboardSummarySchema,
+  RevenueTrendPointSchema,
+  ProductRankingRowSchema,
+  ReturnReasonRowSchema,
+  ReturnFaultSplitSchema,
+} from './schemas/channel-dashboard.js';
+export type {
+  ChannelDashboardSummary,
+  RevenueTrendPoint,
+  ProductRankingRow,
+  ReturnReasonRow,
+  ReturnFaultSplit,
+} from './schemas/channel-dashboard.js';
+
 // Sales Analysis (Plan D.3, ADR-0017)
 export { SalesAnalysisDataSchema, ChannelAnalysisSchema } from './schemas/sales-analysis.js';
 export type { SalesAnalysisData, ChannelAnalysis } from './schemas/sales-analysis.js';

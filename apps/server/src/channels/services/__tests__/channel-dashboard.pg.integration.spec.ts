@@ -322,7 +322,9 @@ describe('Channel dashboard (PG integration)', () => {
 
       expect(result.lastModifiedAt).toBeInstanceOf(Date);
       // Must equal the listing's updatedAt (only one ChannelListing for TEST_COMPANY_ID)
-      expect(result.lastModifiedAt?.getTime()).toBe(listingA.updatedAt.getTime());
+      // Shared type is `string | Date | null` (zIsoDate union); runtime assertion above
+      // guarantees Date here — cast to compare via getTime().
+      expect((result.lastModifiedAt as Date).getTime()).toBe(listingA.updatedAt.getTime());
       // No lastSyncedAt leakage
       expect((result as unknown as Record<string, unknown>).lastSyncedAt).toBeUndefined();
     });

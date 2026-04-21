@@ -6,7 +6,7 @@ export interface WingAdSummaryResult extends WingAdSummary {
 }
 
 /**
- * Fetch + parse the current month's Wing adSummary snapshot.
+ * Fetch + parse the current month's Wing adSummary snapshot for a specific company.
  *
  * Source: ad_snapshots rows where source='wing', page_type='dashboard_kpi',
  * captured_at >= monthStart, raw_json.startDate == current-month-first-day,
@@ -17,11 +17,13 @@ export interface WingAdSummaryResult extends WingAdSummary {
  * not run). Caller should treat null as "no override data" and keep their
  * base calculations.
  *
- * Extracted from dashboard.service.ts:422-447 (raw_json query + lastSyncAt
- * fetch + numeric parsing).
+ * ADR-0018 multi-tenant IDOR guard: companyId is bound via $queryRaw tagged
+ * template → ${companyId}::uuid. Each AdSnapshot row MUST belong to the caller's
+ * company — cross-tenant wing snapshot pool previously leaked (IDOR sweep 2026-04).
  */
 export async function fetchWingAdSummary(
   prisma: PrismaService,
+  companyId: string,
   year: number,
   month: number,
   monthStart: Date,
@@ -31,7 +33,8 @@ export async function fetchWingAdSummary(
   const wingAdSnapRows = await prisma.$queryRaw<{ raw_json: Record<string, unknown> }[]>`
     SELECT raw_json
     FROM ad_snapshots
-    WHERE source = 'wing'
+    WHERE company_id = ${companyId}::uuid
+      AND source = 'wing'
       AND page_type = 'dashboard_kpi'
       AND captured_at >= ${monthStart}
       AND raw_json->>'startDate' = ${monthStartStr}
@@ -50,7 +53,7 @@ export async function fetchWingAdSummary(
   }
 
   const lastSyncRow = await prisma.adSnapshot.findFirst({
-    where: { source: 'wing' },
+    where: { companyId, source: 'wing' },
     orderBy: { capturedAt: 'desc' },
     select: { capturedAt: true },
   });

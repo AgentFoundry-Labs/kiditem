@@ -3,15 +3,15 @@
 import { useState, useMemo } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { ZodError } from 'zod';
 import { BarChart3 } from 'lucide-react';
 import { SalesAnalysisDataSchema } from '@kiditem/shared';
 import { usePeriodSelector } from '@/hooks/usePeriodSelector';
 import PeriodSelector from '@/components/ui/PeriodSelector';
 import { apiClient } from '@/lib/api-client';
-import { isApiError } from '@/lib/api-error';
+import { friendlyError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
 import PageSkeleton from '@/components/ui/PageSkeleton';
+import { ErrorState } from '@/components/ui/EmptyState';
 import { cn, formatKRW, formatNumber } from '@/lib/utils';
 import ChannelTable from './ChannelTable';
 
@@ -44,15 +44,7 @@ export default function SalesOverview() {
     queryFn: () => apiClient.getParsed(`/api/sales-analysis?period=${period}`, SalesAnalysisDataSchema),
   });
 
-  const error = queryError
-    ? isApiError(queryError)
-      ? queryError.detail
-      : queryError instanceof ZodError
-        ? '응답 형식 오류 — 개발팀에 문의하세요'
-        : queryError instanceof Error
-          ? queryError.message
-          : '조회 실패'
-    : null;
+  const error = friendlyError(queryError);
 
   const sorted = useMemo(() => {
     if (!data?.channels) return [];
@@ -85,7 +77,7 @@ export default function SalesOverview() {
       {isLoading ? (
         <PageSkeleton variant="table" />
       ) : error ? (
-        <div className="flex items-center justify-center h-64 text-red-500">{error}</div>
+        <ErrorState message={error} />
       ) : !data || data.channels.length === 0 ? (
         <div className="flex items-center justify-center h-64 text-slate-500">해당 기간 데이터가 없습니다.</div>
       ) : (

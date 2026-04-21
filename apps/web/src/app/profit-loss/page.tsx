@@ -4,15 +4,16 @@ import { useMemo, useState, useEffect } from "react";
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { Download } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { z, ZodError } from 'zod';
+import { z } from 'zod';
 import { PLDataSchema } from '@kiditem/shared';
 import { usePeriodSelector } from '@/hooks/usePeriodSelector';
 import PeriodSelector from '@/components/ui/PeriodSelector';
 import { cn, timeAgo } from "@/lib/utils";
 import { apiClient } from "@/lib/api-client";
-import { isApiError } from "@/lib/api-error";
+import { friendlyError } from "@/lib/api-error";
 import { queryKeys } from "@/lib/query-keys";
 import PageSkeleton from "@/components/ui/PageSkeleton";
+import { ErrorState } from "@/components/ui/EmptyState";
 import { Pagination } from "@/components/ui/Pagination";
 import ProfitLossSummaryCards from "./components/ProfitLossSummaryCards";
 import ProfitLossTable from "./components/ProfitLossTable";
@@ -56,15 +57,7 @@ export default function ProfitLossPage() {
     queryKey: queryKeys.profitLoss.list(period),
     queryFn: () => apiClient.getParsed(`/api/profit-loss?period=${period}`, z.array(PLDataSchema)),
   });
-  const error = queryError
-    ? isApiError(queryError)
-      ? queryError.detail
-      : queryError instanceof ZodError
-        ? "응답 형식 오류 — 개발팀에 문의하세요"
-        : queryError instanceof Error
-          ? queryError.message
-          : "조회 실패"
-    : null;
+  const error = friendlyError(queryError);
 
   const filtered = useMemo(() => data.filter((d) => {
     const matchesProfitFilter =
@@ -154,7 +147,7 @@ export default function ProfitLossPage() {
       {loading ? (
         <PageSkeleton variant="table" />
       ) : error ? (
-        <div className="flex items-center justify-center h-64 text-red-500">{error}</div>
+        <ErrorState message={error} />
       ) : (
         <>
           <ProfitLossSummaryCards
