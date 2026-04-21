@@ -8,6 +8,7 @@ import type {
   DataFreshness,
 } from '@kiditem/shared';
 import type { DashboardContext } from './context';
+import { buildPerListingMetrics } from '../../common/per-listing-profit';
 
 @Injectable()
 export class DashboardInventoryService {
@@ -20,14 +21,14 @@ export class DashboardInventoryService {
     companyId: string,
   ): Promise<DashboardInventorySummary> {
     try {
-      const { year, month, now } = ctx;
+      const { now } = ctx;
       const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
       const [
         gradeRows,
         unreadAlerts,
         totalActiveProducts,
-        allPLCurrentMonth,
+        perListingMetrics,
         inventoryRows,
         gradeChangesRows,
         lowCtrProducts,
@@ -52,12 +53,9 @@ export class DashboardInventoryService {
           where: { companyId, isDeleted: false },
         }),
 
-        // P&L rows for warnings.minusProducts / lowProfitProducts / highAdProducts
-        // Self-owned query per plan Q3 (decoupled from sales service)
-        this.prisma.profitLoss.findMany({
-          where: { companyId, year, month },
-          select: { netProfit: true, revenue: true, adCost: true },
-        }),
+        // Plan F1 T3 — replaces profitLoss.findMany; live aggregation via shared helper.
+        // ADR-0016 (no profitLoss reads), ADR-0018 (companyId scoped via helper signature).
+        buildPerListingMetrics(this.prisma, companyId, ctx.monthStart, ctx.monthEnd),
 
         // inventoryRows for needReorder — JS-side filter per CLAUDE.md
         // Fetch rows with currentStock > 0, then filter currentStock <= reorderPoint in JS
@@ -111,27 +109,20 @@ export class DashboardInventoryService {
           p.listings.reduce((sum, l) => sum + l._count.reviews, 0) < 10,
       ).length;
 
-      // warnings — P&L-based signals (thresholds ported exactly from legacy)
-      //
-      // minusProducts: netProfit < 0 (legacy L761-763)
-      const minusProducts = allPLCurrentMonth.filter(
-        (pl) => pl.netProfit < 0,
+      // warnings — F1 live aggregation via PerListingMetrics
+      // (ADR-0016 — no profitLoss table reads; helper provides identical shape)
+
+      // minusProducts: netProfit < 0
+      const minusProducts = perListingMetrics.filter((m) => m.netProfit < 0).length;
+
+      // lowProfitProducts: profitRate >= 0 && profitRate <= 3 (percentage; helper emits 1-decimal percent)
+      const lowProfitProducts = perListingMetrics.filter(
+        (m) => m.profitRate >= 0 && m.profitRate <= 3,
       ).length;
 
-      // lowProfitProducts: profitRate >= 0 && profitRate <= 3 (legacy L765-769)
-      // Note: threshold is 3%, NOT 5%. Exact port of legacy logic.
-      const lowProfitProducts = allPLCurrentMonth.filter((pl) => {
-        const profitRate = pl.revenue > 0 ? (pl.netProfit / pl.revenue) * 100 : 0;
-        return profitRate >= 0 && profitRate <= 3;
-      }).length;
-
-      // highAdProducts: adRate > 15% (legacy L771-776)
-      // Condition: revenue > 0 && adCost > 0 && (adCost / revenue) * 100 > 15
-      const highAdProducts = allPLCurrentMonth.filter(
-        (pl) =>
-          pl.revenue > 0 &&
-          pl.adCost > 0 &&
-          (pl.adCost / pl.revenue) * 100 > 15,
+      // highAdProducts: revenue > 0 && adCost > 0 && (adCost/revenue) * 100 > 15
+      const highAdProducts = perListingMetrics.filter(
+        (m) => m.revenue > 0 && m.adCost > 0 && (m.adCost / m.revenue) * 100 > 15,
       ).length;
 
       const warnings: Warnings = {

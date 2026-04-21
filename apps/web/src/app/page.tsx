@@ -23,19 +23,25 @@ const DashboardCharts = dynamic(
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatKRW, formatNumber, formatPercent, formatDateTime, getGradeColor, getProfitColor } from '@/lib/utils';
 import AgentFace from '@/components/AgentFace';
-import type {
-  DashboardSalesSummary,
-  DashboardAdSummary,
-  DashboardInventorySummary,
-  DashboardTrendItem,
+import {
+  DashboardSalesSummarySchema,
+  DashboardAdSummarySchema,
+  DashboardInventorySummarySchema,
+  DashboardTrendItemSchema,
+  type DashboardSalesSummary,
+  type DashboardAdSummary,
+  type DashboardInventorySummary,
+  type DashboardTrendItem,
 } from '@kiditem/shared';
+import { z } from 'zod';
 import type { ActionTask } from '@kiditem/shared';
+import { friendlyError } from '@/lib/api-error';
 
 
-function SectionError({ onRetry }: { onRetry: () => void }) {
+function SectionError({ msg, onRetry }: { msg?: string; onRetry: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center gap-2 py-6">
-      <p className="text-sm text-slate-500">이 섹션을 불러올 수 없습니다</p>
+      <p className="text-sm text-slate-500">{msg ?? '이 섹션을 불러올 수 없습니다'}</p>
       <button
         onClick={onRetry}
         className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-purple-600 text-white hover:bg-purple-700 transition-colors"
@@ -63,52 +69,86 @@ export default function Dashboard() {
   const [dateTo, setDateTo] = useState('');
 
   // Baseline (month) — always fetched
-  const { data: salesBaseline, isLoading: salesBaselineLoading, isError: salesBaselineErr, refetch: refetchSalesBaseline } = useQuery({
+  const {
+    data: salesBaseline,
+    isLoading: salesBaselineLoading,
+    isError: salesBaselineHasErr,
+    error: salesBaselineError,
+    refetch: refetchSalesBaseline,
+  } = useQuery({
     queryKey: queryKeys.dashboard.salesBaseline(),
-    queryFn: () => apiClient.get<DashboardSalesSummary>('/api/dashboard/sales'),
+    queryFn: () => apiClient.getParsed('/api/dashboard/sales', DashboardSalesSummarySchema),
     refetchInterval: 60_000,
   });
 
-  const { data: adBaseline, isLoading: adBaselineLoading, isError: adBaselineErr, refetch: refetchAdBaseline } = useQuery({
+  const {
+    data: adBaseline,
+    isLoading: adBaselineLoading,
+    isError: adBaselineHasErr,
+    error: adBaselineError,
+    refetch: refetchAdBaseline,
+  } = useQuery({
     queryKey: queryKeys.dashboard.adBaseline(),
-    queryFn: () => apiClient.get<DashboardAdSummary>('/api/dashboard/ad'),
+    queryFn: () => apiClient.getParsed('/api/dashboard/ad', DashboardAdSummarySchema),
     refetchInterval: 60_000,
   });
 
-  const { data: inventoryData, isLoading: inventoryLoading, isError: inventoryErr, refetch: refetchInventory } = useQuery({
+  const {
+    data: inventoryData,
+    isLoading: inventoryLoading,
+    isError: inventoryHasErr,
+    error: inventoryError,
+    refetch: refetchInventory,
+  } = useQuery({
     queryKey: queryKeys.dashboard.inventory(),
-    queryFn: () => apiClient.get<DashboardInventorySummary>('/api/dashboard/inventory'),
+    queryFn: () => apiClient.getParsed('/api/dashboard/inventory', DashboardInventorySummarySchema),
     refetchInterval: 60_000,
   });
 
-  const { data: trendData = [], isError: trendErr, refetch: refetchTrend } = useQuery({
+  const {
+    data: trendData = [],
+    isError: trendHasErr,
+    error: trendError,
+    refetch: refetchTrend,
+  } = useQuery({
     queryKey: queryKeys.dashboard.trend('30d'),
-    queryFn: () => apiClient.get<DashboardTrendItem[]>('/api/dashboard/trend?range=30d'),
+    queryFn: () =>
+      apiClient.getParsed('/api/dashboard/trend?range=30d', z.array(DashboardTrendItemSchema)),
     refetchInterval: 60_000,
   });
 
   // Range-aware — enabled when not month; custom requires both dates
   const rangeEnabled = kpiRange === 'custom' ? (!!dateFrom && !!dateTo) : kpiRange !== 'month';
 
-  const { data: salesRange, isError: salesRangeErr, refetch: refetchSalesRange } = useQuery({
+  const {
+    data: salesRange,
+    isError: salesRangeHasErr,
+    error: salesRangeError,
+    refetch: refetchSalesRange,
+  } = useQuery({
     queryKey: queryKeys.dashboard.salesRange(kpiRange, dateFrom, dateTo),
     queryFn: () => {
       const params = kpiRange === 'custom' && dateFrom && dateTo
         ? `?range=custom&from=${dateFrom}&to=${dateTo}`
         : `?range=${kpiRange}`;
-      return apiClient.get<DashboardSalesSummary>(`/api/dashboard/sales${params}`);
+      return apiClient.getParsed(`/api/dashboard/sales${params}`, DashboardSalesSummarySchema);
     },
     enabled: rangeEnabled,
     refetchInterval: 60_000,
   });
 
-  const { data: adRange, isError: adRangeErr, refetch: refetchAdRange } = useQuery({
+  const {
+    data: adRange,
+    isError: adRangeHasErr,
+    error: adRangeError,
+    refetch: refetchAdRange,
+  } = useQuery({
     queryKey: queryKeys.dashboard.adRange(kpiRange, dateFrom, dateTo),
     queryFn: () => {
       const params = kpiRange === 'custom' && dateFrom && dateTo
         ? `?range=custom&from=${dateFrom}&to=${dateTo}`
         : `?range=${kpiRange}`;
-      return apiClient.get<DashboardAdSummary>(`/api/dashboard/ad${params}`);
+      return apiClient.getParsed(`/api/dashboard/ad${params}`, DashboardAdSummarySchema);
     },
     enabled: rangeEnabled,
     refetchInterval: 60_000,
@@ -127,12 +167,6 @@ export default function Dashboard() {
   const { data: actionTasks = [] } = useQuery({
     queryKey: queryKeys.actionTasks.list(),
     queryFn: () => apiClient.get<ActionTask[]>('/api/action-tasks'),
-    refetchInterval: 60_000,
-  });
-
-  const { data: pipelineStats } = useQuery({
-    queryKey: queryKeys.products.pipelineStats(),
-    queryFn: () => apiClient.get<{ gradeA: number; gradeB: number; gradeC: number; total: number }>('/api/products/pipeline-stats'),
     refetchInterval: 60_000,
   });
 
@@ -441,7 +475,9 @@ export default function Dashboard() {
       {/* 차트 + 사이드패널 */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-3 overflow-hidden" style={{ height: 620 }}>
         <div className="lg:col-span-3 h-full">
-          {trendErr ? <SectionError onRetry={refetchTrend} /> : (
+          {trendHasErr ? (
+            <SectionError msg={friendlyError(trendError) ?? undefined} onRetry={refetchTrend} />
+          ) : (
             <DashboardChart
               dailyTrend={dailyTrend}
               aiActions={aiActions}
@@ -449,7 +485,9 @@ export default function Dashboard() {
             />
           )}
         </div>
-        {inventoryErr ? <SectionError onRetry={refetchInventory} /> : (
+        {inventoryHasErr ? (
+          <SectionError msg={friendlyError(inventoryError) ?? undefined} onRetry={refetchInventory} />
+        ) : (
           <SidePanel
             alerts={inventoryData.alerts}
             router={router}
@@ -461,9 +499,8 @@ export default function Dashboard() {
       {/* 등급 카드 */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {(['A', 'B', 'C'] as const).map(g => {
-          const psKey = { A: 'gradeA', B: 'gradeB', C: 'gradeC' } as const;
-          const count = pipelineStats?.[psKey[g]] ?? inventoryData.gradeCount[g] ?? 0;
-          const total = pipelineStats?.total ?? inventoryData.totalProducts;
+          const count = inventoryData.gradeCount[g] ?? 0;
+          const total = inventoryData.totalProducts;
           const pct = total > 0 ? Math.round((count / total) * 100) : 0;
           const barColor = g === 'C' ? 'bg-red-500' : 'bg-purple-600';
           const labelMap = { A: '핵심상품', B: '성장상품', C: '정리대상' };
@@ -484,7 +521,9 @@ export default function Dashboard() {
       </div>
 
       {/* 경고 카드 */}
-      {inventoryErr ? <SectionError onRetry={refetchInventory} /> : (
+      {inventoryHasErr ? (
+        <SectionError msg={friendlyError(inventoryError) ?? undefined} onRetry={refetchInventory} />
+      ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           <Link href="/product-hub?tab=cleanup" className="rounded-2xl p-4 hover:shadow-md transition-all bg-white border border-slate-100 shadow-sm">
             <div className="text-sm font-bold mb-1 text-slate-900">적자 상품</div>
@@ -505,7 +544,9 @@ export default function Dashboard() {
       )}
 
       {/* Top Products */}
-      {salesBaselineErr ? <SectionError onRetry={refetchSalesBaseline} /> : (
+      {salesBaselineHasErr ? (
+        <SectionError msg={friendlyError(salesBaselineError) ?? undefined} onRetry={refetchSalesBaseline} />
+      ) : (
       <div className="rounded-2xl bg-white border border-slate-100 shadow-sm overflow-hidden">
         <div className="flex items-center justify-between px-5 py-3 border-b border-slate-100">
           <div className="flex items-center gap-2">
