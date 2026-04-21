@@ -35,13 +35,18 @@ Per `feedback_review_cadence.md` and spec § Execution strategy:
 | Task | Scope | Files | Review |
 |---|---|---|---|
 | T1 | `common/per-listing-profit.ts` extract + `profit-loss.service.findAll` refactor + integration spec (5 tests) | 3 | **2-stage** (cross-domain shared helper; finance regression risk) |
-| T2 | `DashboardSalesService` full impl + integration spec NEW (6 tests) | 2 | **2-stage** |
-| T3 | `DashboardInventoryService` warnings rewire + spec rewrite (5 tests) | 2 | **2-stage** |
-| T4 | `DashboardTrendService` avgProfitRate + I3 raw-SQL fix + spec rewrite (4 tests) | 2 | **2-stage** |
-| T5 | Root `page.tsx` rewire + `SectionError` extension + RTL spec NEW (6 tests) | 2 | **2-stage** |
+| T2 | `DashboardSalesService` full impl + integration spec NEW (6 tests) | 2 | **2-stage** (new service; complex 9-promise impl) |
+| T3 | `DashboardInventoryService` warnings rewire + spec rewrite (5 tests) | 2 | **1-combined** (mechanical query swap; thresholds preserved verbatim) |
+| T4 | `DashboardTrendService` avgProfitRate + I3 raw-SQL fix + spec rewrite (4 tests) | 2 | **2-stage** (I3 SQL fix — silent data-corruption risk) |
+| T5 | Root `page.tsx` rewire + `SectionError` extension + RTL spec NEW (6 tests) | 2 | **1-combined** (schema-driven mechanical rewire; RTL spec self-validates behavior) |
 | T6 | Verification + release note (+ ADR-0016 reader-count update) | 1 | no review (self-evidencing) |
 
-Two-stage = one `kiditem-reviewer` (MODE: spec) + one `kiditem-reviewer` (MODE: quality) per the team workflow. CRITICAL findings block next commit; MINOR may be deferred.
+Cadence rationale (per `feedback_review_cadence.md` — "Plan 구체성이 task review 대체"):
+- **2-stage** = one `kiditem-reviewer` MODE: spec + one MODE: quality. Reserved for cross-domain risk (T1), new service implementation (T2), or correctness-critical SQL changes (T4).
+- **1-combined** = single `kiditem-reviewer` covering both spec adherence + code quality. Used when the plan's code blocks are exhaustive and the change is mechanical (T3 query swap, T5 schema-driven rewire).
+- **no review** = self-evidencing (T6 release note).
+
+CRITICAL findings block next commit; MINOR may be deferred.
 
 ---
 
@@ -1676,9 +1681,8 @@ EOF
 )"
 ```
 
-**Review** (2-stage):
-- Spec reviewer: confirm 7 unchanged Promise.all entries are intact (gradeRows / alerts / totalActiveProducts / inventoryRows / gradeChangesRows / lowCtrProducts / lowReviewProductsRaw); confirm warnings thresholds copy exact percentages.
-- Quality reviewer: confirm new spec uses `setup*` helpers from `finance-seeds.ts` (no inline `prisma.x.create` for repetitive setup); IDOR sentinel pattern preserved for cross-tenant tests.
+**Review** (1-combined):
+- Single reviewer: (a) confirm 7 unchanged Promise.all entries are intact (gradeRows / alerts / totalActiveProducts / inventoryRows / gradeChangesRows / lowCtrProducts / lowReviewProductsRaw); (b) confirm warnings thresholds copy exact percentages from legacy (minus<0, lowProfit 0-3%, highAd >15%); (c) confirm new spec uses `setup*` helpers from `finance-seeds.ts` (no inline `prisma.x.create` for repetitive setup); (d) verify IDOR sentinel pattern preserved for T1/T2 cross-tenant tests.
 
 ---
 
@@ -2487,9 +2491,8 @@ EOF
 )"
 ```
 
-**Review** (2-stage):
-- Spec reviewer: confirm I6 (no pipeline-stats grep). Confirm I7 — the **5 dashboard endpoints** (`/api/dashboard/{sales,ad,inventory,trend}` × baseline/range variants) all use `getParsed`. The 2 GETs that intentionally **stay** as `apiClient.get<T>` (out of F1 scope, would require additional shared schemas — F2/F4 work): `/api/action-tasks` (L127-131) and `/api/agent-registry/org` (L780-783, inside `DashboardChart`). Document this distinction in the release note.
-- Quality reviewer: confirm `SectionError msg` flows to UI; verify `friendlyError(err) ?? undefined` is used (NOT `friendlyError(err) ?? ''` — empty string would render an empty `<p>`).
+**Review** (1-combined):
+- Single reviewer: (a) confirm I6 (no `pipeline-stats` grep matches in page.tsx); (b) confirm I7 — the **5 dashboard endpoints** (`/api/dashboard/{sales,ad,inventory,trend}` × baseline/range variants) all use `getParsed`, while the 2 GETs that intentionally **stay** as `apiClient.get<T>` are out of F1 scope (require shared schemas — F2/F4 work): `/api/action-tasks` (L127-131) and `/api/agent-registry/org` (L780-783, inside `DashboardChart`); (c) confirm `SectionError msg` flows to UI in all 4 call sites; (d) verify `friendlyError(err) ?? undefined` is used (NOT `?? ''` — empty string would render an empty `<p>`); (e) verify RTL spec passes 6/6 with proper `next/dynamic` + `next/navigation` mocks.
 
 ---
 
