@@ -34,7 +34,7 @@ Per `feedback_review_cadence.md` and spec § Execution strategy:
 
 | Task | Scope | Files | Review |
 |---|---|---|---|
-| T1 | `common/per-listing-profit.ts` extract + `profit-loss.service.findAll` refactor + integration spec | 3 | **2-stage** (cross-domain shared helper; finance regression risk) |
+| T1 | `common/per-listing-profit.ts` extract + `profit-loss.service.findAll` refactor + integration spec (5 tests) | 3 | **2-stage** (cross-domain shared helper; finance regression risk) |
 | T2 | `DashboardSalesService` full impl + integration spec NEW (6 tests) | 2 | **2-stage** |
 | T3 | `DashboardInventoryService` warnings rewire + spec rewrite (5 tests) | 2 | **2-stage** |
 | T4 | `DashboardTrendService` avgProfitRate + I3 raw-SQL fix + spec rewrite (4 tests) | 2 | **2-stage** |
@@ -50,7 +50,7 @@ Two-stage = one `kiditem-reviewer` (MODE: spec) + one `kiditem-reviewer` (MODE: 
 ### Created (5)
 
 - `apps/server/src/common/per-listing-profit.ts` — NEW shared helper (T1)
-- `apps/server/src/common/__tests__/per-listing-profit.pg.integration.spec.ts` — NEW (T1, 4 tests)
+- `apps/server/src/common/__tests__/per-listing-profit.pg.integration.spec.ts` — NEW (T1, 5 tests)
 - `apps/server/src/dashboard/__tests__/dashboard-sales.pg.integration.spec.ts` — NEW (T2, 6 tests)
 - `apps/web/src/app/__tests__/page.spec.tsx` — NEW (T5, 6 tests)
 - `docs/release-notes/2026-04-root-dashboard-rewire.md` — NEW (T6)
@@ -532,6 +532,39 @@ describe('buildPerListingMetrics (PG integration)', () => {
     expect(result[0].netProfit).toBe(80_000);           // 100k - 0 - 0 - 0 - 20k - 0
   });
 
+  it('T5: EXCLUDED_ORDER_STATUSES filter — cancelled/returned/refunded orders are excluded', async () => {
+    const { id: masterId } = await setupMaster(prisma, {
+      companyId: TEST_COMPANY_ID, code: 'M-T5', name: 'Master T5',
+    });
+    const { id: optionId } = await setupProductOption(prisma, {
+      companyId: TEST_COMPANY_ID, masterId, sku: 'SKU-T5', costPrice: 0, commissionRate: 0,
+    });
+    const { listingOptionId } = await setupChannelListing(prisma, {
+      companyId: TEST_COMPANY_ID, masterId,
+      channel: 'coupang', externalId: 'EXT-T5',
+      optionId, vendorItemId: 'VI-T5',
+    });
+    // 1 paid (included), 3 excluded statuses (each one a sentinel)
+    await seedOrderWithLineItems(prisma, {
+      companyId: TEST_COMPANY_ID, externalOrderId: 'PERLIST-T-5-PAID',
+      orderedAt: '2026-04-15T03:00:00Z', shippingPrice: 0, status: 'paid',
+      lineItems: [{ quantity: 1, totalPrice: 1_000, optionId, listingOptionId }],
+    });
+    for (const status of ['cancelled', 'returned', 'refunded']) {
+      await seedOrderWithLineItems(prisma, {
+        companyId: TEST_COMPANY_ID, externalOrderId: `PERLIST-T-5-${status.toUpperCase()}`,
+        orderedAt: '2026-04-15T03:00:00Z', shippingPrice: 0, status,
+        lineItems: [{ quantity: 1, totalPrice: IDOR_SENTINEL, optionId, listingOptionId }],
+      });
+    }
+
+    const result = await buildPerListingMetrics(prisma as unknown as PrismaService, TEST_COMPANY_ID, FROM, TO);
+    expect(result).toHaveLength(1);
+    expect(result[0].revenue).toBe(1_000);                    // only the paid order
+    expect(result[0].revenue).not.toBe(IDOR_SENTINEL);        // excluded statuses' totalPrice never appears
+    expect(result[0].orderCount).toBe(1);                     // 3 excluded orders dropped
+  });
+
   it('T4: cross-company isolation — OTHER sentinel never leaks into TEST', async () => {
     // TEST: 1 small order
     const tMaster = await setupMaster(prisma, { companyId: TEST_COMPANY_ID, code: 'M-T4', name: 'Master T4' });
@@ -976,10 +1009,12 @@ export class DashboardSalesService {
       LIMIT 10
     `;
 
-    // netProfit / profitRate are top-level summary projections; for the top-N
-    // ranking widget we approximate using a flat 30% margin assumption (legacy
-    // behaviour of the page; precise per-listing math is in /api/profit-loss).
-    // Mark approximation in spec test § T6.
+    // KNOWN APPROXIMATION (Plan F1 critic MAJOR #2 — documented in release note):
+    // For the top-N ranking widget we approximate netProfit/profitRate using a flat
+    // 30% margin assumption. Precise per-listing math lives in /api/profit-loss
+    // (which uses buildPerListingMetrics). Top-N is a summary visual, not a financial
+    // report — users who need exact margin per master must drill into /profit-loss.
+    // T6 spec asserts the approximation explicitly so future drift is caught.
     return rows.map((r) => {
       const revenue = Number(r.revenue ?? 0);
       const netProfit = Math.round(revenue * 0.3);
@@ -1293,6 +1328,13 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     expect(result.topProducts[9].revenue).toBe(3_000);
     expect(result.topProducts[0].name).toBe('Top 1');
     expect(result.topProducts[0].company).toBe('채널1');     // ChannelListing.channelName
+
+    // KNOWN APPROXIMATION assertion (critic MAJOR #2):
+    // Top-N rows always carry profitRate=30.0 and netProfit=round(revenue*0.3).
+    // If this assertion fails, someone replaced the approximation — update release
+    // note + remove this guard.
+    expect(result.topProducts[0].profitRate).toBe(30.0);
+    expect(result.topProducts[0].netProfit).toBe(Math.round(12_000 * 0.3));
   });
 });
 ```
@@ -2446,7 +2488,7 @@ EOF
 ```
 
 **Review** (2-stage):
-- Spec reviewer: confirm I6 (no pipeline-stats grep), I7 (no `apiClient.get<` in this file aside from POST/PATCH/upload — controller mutations are fine).
+- Spec reviewer: confirm I6 (no pipeline-stats grep). Confirm I7 — the **5 dashboard endpoints** (`/api/dashboard/{sales,ad,inventory,trend}` × baseline/range variants) all use `getParsed`. The 2 GETs that intentionally **stay** as `apiClient.get<T>` (out of F1 scope, would require additional shared schemas — F2/F4 work): `/api/action-tasks` (L127-131) and `/api/agent-registry/org` (L780-783, inside `DashboardChart`). Document this distinction in the release note.
 - Quality reviewer: confirm `SectionError msg` flows to UI; verify `friendlyError(err) ?? undefined` is used (NOT `friendlyError(err) ?? ''` — empty string would render an empty `<p>`).
 
 ---
@@ -2536,6 +2578,12 @@ Create `docs/release-notes/2026-04-root-dashboard-rewire.md`:
 - `@kiditem/shared` Zod 스키마 변경 시 **클라이언트 배포 먼저**, 서버 배포 나중
 - 역순 배포 시 (서버 먼저, 클라이언트 나중) 배포 기간 중 사용자에게 `응답 형식 오류` 노출 가능
 - 필드 이름 변경은 shared 패키지 bump → 클라이언트 deploy → 서버 deploy 순으로 진행
+
+## Known limitations (F1-scope deferred)
+
+- **Top Revenue Products 의 `netProfit`/`profitRate`** — 모든 행이 `revenue × 30%` 근사값 사용 (`profitRate=30.0` 고정). 정확한 per-listing 마진은 `/profit-loss` (좌측 메뉴) 에서 확인. 사용자 노출 위젯이지만 요약 시각화 목적 — 재무 보고서 아님. 정밀 계산은 `buildPerListingMetrics` 호출 추가 필요 (성능 trade-off — F1.1 후속 검토).
+- **`calculateProfitForRange` 의 `isCurrentPeriod` 타이밍 엣지** — `dashboard-trend` 가 `to = new Date()` 를 helper 로 넘기고, helper 내부에서 다시 `now = new Date()` 를 만드는 구조. `to > now` 비교가 sub-millisecond 타이밍에 의존 → 현재 월 호출 시 AdSnapshot pro-rata 분기 vs Ad fallback 분기가 비결정적으로 선택됨. 두 분기의 결과 차이는 1% 미만 (실측 안 됨, 추정). 수정은 helper 시그니처에 `now: Date` 파라미터 추가 — F1 범위 외 helper 변경이라 후속 plan 으로 이연.
+- **`apiClient.get<T>` 잔존 2건** — `/api/action-tasks` (page L127), `/api/agent-registry/org` (DashboardChart L780). 둘 다 별도 shared Zod 스키마 필요 + 서버 controller drift 가드 필요 → F2/F4 범위. F1 의 I7 invariant 는 dashboard 5 endpoint 에만 적용.
 
 ## ADR-0016 reader-count update
 
