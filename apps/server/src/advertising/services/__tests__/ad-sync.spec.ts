@@ -70,7 +70,11 @@ describe('AdSyncService', () => {
       expect(map.externalIdMap.get('COUPANG-2')).toEqual({ listingId: 'L2' });
 
       expect(prisma.channelListingOption.findMany).toHaveBeenCalledWith({
-        where: { companyId: 'company-1', isActive: true },
+        where: {
+          companyId: 'company-1',
+          isActive: true,
+          listing: { channel: 'coupang', isDeleted: false },
+        },
         select: { externalOptionId: true, listingId: true, optionId: true },
       });
       expect(prisma.channelListing.findMany).toHaveBeenCalledWith({

@@ -98,7 +98,11 @@ export class AdSyncService {
   async buildListingMap(companyId: string): Promise<ListingMap> {
     const [options, listings] = await Promise.all([
       this.prisma.channelListingOption.findMany({
-        where: { companyId, isActive: true },
+        where: {
+          companyId,
+          isActive: true,
+          listing: { channel: 'coupang', isDeleted: false },
+        },
         select: { externalOptionId: true, listingId: true, optionId: true },
       }),
       this.prisma.channelListing.findMany({

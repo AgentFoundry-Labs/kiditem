@@ -117,6 +117,29 @@ async function importKiditem(
     inventoryUpserted: 0,
   };
 
+  // Write-mode pre-flight: duplicate legacy codes in the sheet would silently
+  // collapse onto the first-matched ProductOption, overwriting inventory and
+  // warehouseLocation on subsequent rows. Refuse to write without explicit
+  // deduplication by the caller. Dry-run is unaffected — it still counts the
+  // duplicates and reports them for inspection.
+  if (write) {
+    const seen = new Set<string>();
+    const dupes: string[] = [];
+    for (const row of rows) {
+      const lc = clean(row['상품코드']);
+      if (!lc) continue;
+      if (seen.has(lc)) dupes.push(lc);
+      else seen.add(lc);
+    }
+    if (dupes.length > 0) {
+      const sample = dupes.slice(0, 5).join(', ');
+      const more = dupes.length > 5 ? `, ... (${dupes.length - 5} more)` : '';
+      throw new Error(
+        `Refusing to write: ${dupes.length} duplicate 상품코드 row(s) would silently collapse onto the first-matched ProductOption. Deduplicate the sheet first or re-run without --write to inspect. Sample: ${sample}${more}`,
+      );
+    }
+  }
+
   const seenLegacyCodes = new Set<string>();
 
   for (const row of rows) {
