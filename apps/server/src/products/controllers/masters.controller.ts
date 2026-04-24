@@ -6,8 +6,9 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
 import {
+  MasterImageItemSchema,
   MasterSchema, MasterWithOptionsSchema,
-  type Master, type MasterWithOptions,
+  type Master, type MasterImageItem, type MasterWithOptions,
 } from '@kiditem/shared';
 import type { MulterFile } from '../../common/types';
 import { toSerializable } from '../util/serialize';
@@ -15,6 +16,7 @@ import { MastersService } from '../services/masters.service';
 import { OptionsService } from '../services/options.service';
 import { CreateMasterDto } from '../dto/create-master.dto';
 import { UpdateMasterDto } from '../dto/update-master.dto';
+import { UpdateMasterImagesDto } from '../dto/update-master-images.dto';
 import { ListMastersQuery } from '../dto/list-masters.query';
 import { ListOptionsQuery } from '../dto/list-options.query';
 
@@ -66,14 +68,37 @@ export class MastersController {
     return MasterSchema.parse(toSerializable(await this.svc.findByLegacy(companyId, legacyCode)));
   }
 
+  @Get(':id/images')
+  async getImages(
+    @CurrentCompany() companyId: string,
+    @Param('id') id: string,
+  ): Promise<{ images: MasterImageItem[] }> {
+    const images = await this.svc.getImages(companyId, id);
+    return { images: images.map((img) => MasterImageItemSchema.parse(img)) };
+  }
+
+  @Patch(':id/images')
+  async updateImages(
+    @CurrentCompany() companyId: string,
+    @Param('id') id: string,
+    @Body() dto: UpdateMasterImagesDto,
+  ): Promise<{ images: MasterImageItem[] }> {
+    const row = await this.svc.updateImages(companyId, id, dto.items);
+    const images = ((row as unknown as { images: MasterImageItem[] | null }).images ?? []).map(
+      (img) => MasterImageItemSchema.parse(img),
+    );
+    return { images };
+  }
+
   @Post(':id/images/upload')
   @UseInterceptors(FileInterceptor('file'))
   async uploadImage(
     @CurrentCompany() companyId: string,
     @Param('id') id: string,
     @UploadedFile() file: MulterFile,
-  ): Promise<{ url: string }> {
-    return this.svc.uploadImage(companyId, id, file);
+  ): Promise<{ image: MasterImageItem }> {
+    const image = await this.svc.uploadImage(companyId, id, file);
+    return { image: MasterImageItemSchema.parse(image) };
   }
 
   @Get(':id')

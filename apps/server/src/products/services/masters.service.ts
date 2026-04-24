@@ -8,6 +8,7 @@ import { MasterProduct, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StorageService } from '../../common/storage/storage.service';
 import type { MulterFile } from '../../common/types';
+import type { MasterImageItem } from '@kiditem/shared';
 import { MasterCodeService } from './master-code.service';
 import { CreateMasterDto } from '../dto/create-master.dto';
 import { UpdateMasterDto } from '../dto/update-master.dto';
@@ -182,6 +183,19 @@ export class MastersService {
     } catch (e) { mapPrismaError(e, 'master update'); }
   }
 
+  /**
+   * Read the normalized image list for a master. Wraps `findById` +
+   * `normalizeMasterImages` so controllers can emit `{ images }` envelopes
+   * without duplicating the read-path lenience logic.
+   */
+  async getImages(
+    companyId: string,
+    id: string,
+  ): Promise<MasterImageItem[]> {
+    const row = await this.findById(companyId, id, {});
+    return normalizeMasterImages((row as unknown as { images: unknown }).images);
+  }
+
   async updateImages(
     companyId: string,
     id: string,
@@ -197,11 +211,18 @@ export class MastersService {
     return withNormalizedMasterImages(row) as MasterProduct;
   }
 
+  /**
+   * Persist `file` to object storage under the master-scoped prefix and
+   * synthesize a canonical `MasterImageItem` shell (role='product',
+   * label=null, sortOrder=0) for the caller to stage in local state. The
+   * row is NOT appended to `MasterProduct.images` here — the client
+   * commits the full dirty list via PATCH `:id/images`.
+   */
   async uploadImage(
     companyId: string,
     id: string,
     file: MulterFile,
-  ): Promise<{ url: string }> {
+  ): Promise<MasterImageItem> {
     if (!file) throw new BadRequestException('file is required');
     await this.findById(companyId, id, {});
     const ext = file.mimetype === 'image/png'
@@ -211,7 +232,7 @@ export class MastersService {
         : 'jpg';
     const key = `product-images/${id}/${randomUUID()}.${ext}`;
     const url = await this.storage.save(key, file.buffer, file.mimetype);
-    return { url };
+    return { url, role: 'product', label: null, sortOrder: 0 };
   }
 
   async originalImageBase64(
