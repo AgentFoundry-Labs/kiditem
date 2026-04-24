@@ -1,9 +1,9 @@
 import { formatNumber } from '@/lib/utils';
-import type { InventoryItem } from '@kiditem/shared';
+import type { InventoryListItem } from '@kiditem/shared';
 
-export function printBarcodeWindow(items: InventoryItem[]): void {
+export function printBarcodeWindow(items: InventoryListItem[]): void {
   const barcodeItems = items.map((item) => {
-    const code = item.sku || item.productId;
+    const code = item.sku || item.optionId;
     const bars = code
       .split('')
       .map((ch) => {
@@ -16,7 +16,7 @@ export function printBarcodeWindow(items: InventoryItem[]): void {
       <div style="display:inline-block; width:280px; padding:20px; margin:10px; border:1px solid #ddd; text-align:center; page-break-inside:avoid; vertical-align:top;">
         <div style="font-family:'Courier New',monospace; font-size:28px; letter-spacing:1px; line-height:1; margin-bottom:6px; overflow:hidden; white-space:nowrap;">${bars}</div>
         <div style="font-family:'Courier New',monospace; font-size:13px; letter-spacing:2px; margin-bottom:4px;">${code}</div>
-        <div style="font-size:12px; color:#333; margin-bottom:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:260px;">${item.productName}</div>
+        <div style="font-size:12px; color:#333; margin-bottom:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:260px;">${item.masterName}</div>
         <div style="font-size:11px; color:#666;">재고: ${formatNumber(item.currentStock)}개</div>
       </div>`;
   });

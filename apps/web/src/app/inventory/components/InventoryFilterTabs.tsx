@@ -12,8 +12,8 @@ interface InventoryFilterTabsProps {
 export function InventoryFilterTabs({ filter, summary, onFilterChange }: InventoryFilterTabsProps) {
   const tabs = [
     { key: 'all', label: '전체', count: summary.total },
-    { key: 'reorder', label: '발주 필요', count: summary.reorderCount },
-    { key: 'overstock', label: '과재고', count: summary.overstockCount },
+    { key: 'low', label: '재고 부족', count: summary.low },
+    { key: 'out', label: '재고 없음', count: summary.out },
   ];
 
   return (

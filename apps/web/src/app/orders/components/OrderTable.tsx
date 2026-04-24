@@ -1,7 +1,27 @@
 'use client';
 import { Check, Printer, FileText } from "lucide-react";
 import { cn, formatKRW } from "@/lib/utils";
-import type { OrderRow } from "@kiditem/shared";
+
+// Local row shape — legacy /api/orders flat row. Shared `Order` + `OrderLineItem` split
+// is the canonical contract; this table is legacy scope and uses a loose shape until
+// the orders page is rewired through a separate plan.
+interface OrderRow {
+  id: string;
+  productName?: string | null;
+  orderNumber?: string | null;
+  platform?: string | null;
+  totalPrice: number;
+  quantity?: number;
+  customerName?: string | null;
+  receiverName?: string | null;
+  receiverAddr?: string | null;
+  memo?: string | null;
+  orderedAt: string | Date;
+  shippedAt?: string | Date | null;
+  deliveredAt?: string | Date | null;
+  shippingCompany?: string | null;
+  trackingNumber?: string | null;
+}
 
 interface OrderNode {
   key: string;

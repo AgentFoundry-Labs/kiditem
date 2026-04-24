@@ -9,7 +9,27 @@ import { formatTime } from "@/lib/utils";
 import OrderHeader from "./components/OrderHeader";
 import PipelineVisualization from "./components/PipelineVisualization";
 import OrderTable from "./components/OrderTable";
-import type { OrderRow } from "@kiditem/shared";
+
+// Legacy flat row shape for /api/orders responses. The canonical Order/OrderLineItem
+// split in @kiditem/shared is not wired through this page yet — tracked in the orders
+// domain's own rewire plan.
+interface OrderRow {
+  id: string;
+  productName?: string | null;
+  orderNumber?: string | null;
+  platform?: string | null;
+  totalPrice: number;
+  quantity?: number;
+  customerName?: string | null;
+  receiverName?: string | null;
+  receiverAddr?: string | null;
+  memo?: string | null;
+  orderedAt: string | Date;
+  shippedAt?: string | Date | null;
+  deliveredAt?: string | Date | null;
+  shippingCompany?: string | null;
+  trackingNumber?: string | null;
+}
 
 const ACTIVE_NODES = [
   { key: "ACCEPT", label: "신규주문", sub: "Order Received", icon: Clock, color: "#3b82f6" },
