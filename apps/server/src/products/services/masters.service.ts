@@ -258,20 +258,23 @@ export class MastersService {
     if (ipKind === 0) return;
 
     if (ipKind === 4) {
-      // IPv4 private + special ranges. node's isIPv4 already guarantees dotted quads.
-      const blocked4 =
-        /^127\./.test(host) ||            // loopback
-        /^10\./.test(host) ||              // RFC1918
-        /^192\.168\./.test(host) ||        // RFC1918
-        /^172\.(1[6-9]|2\d|3[01])\./.test(host) || // RFC1918
-        /^169\.254\./.test(host) ||        // link-local incl. 169.254.169.254 cloud metadata
-        /^0\./.test(host) ||               // unspecified / "this network"
-        /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(host); // CGNAT 100.64/10
-      if (blocked4) throw new BadRequestException('image url host not allowed');
+      if (this.isPrivateIPv4(host)) throw new BadRequestException('image url host not allowed');
       return;
     }
 
     if (ipKind === 6) {
+      // RFC 4291 §2.5.5.2 IPv4-mapped (`::ffff:A.B.C.D`) and §2.5.5.1 IPv4-compatible
+      // (deprecated `::A.B.C.D`) resolve to an embedded IPv4. WHATWG URL normalizes
+      // both to 16-bit hex groups — e.g. `::ffff:127.0.0.1` → `::ffff:7f00:1`,
+      // `::127.0.0.1` → `::7f00:1`. Decode the last 32 bits and apply IPv4 rules,
+      // otherwise `::ffff:127.0.0.1` / `::ffff:169.254.169.254` etc. bypass the
+      // loopback + metadata blocks.
+      const embeddedV4 = this.extractEmbeddedIPv4(host);
+      if (embeddedV4) {
+        if (this.isPrivateIPv4(embeddedV4)) throw new BadRequestException('image url host not allowed');
+        return;
+      }
+
       // Canonical IPv6 forms for loopback / unspecified / link-local / ULA.
       const blocked6 =
         host === '::1' ||
@@ -282,6 +285,40 @@ export class MastersService {
       if (blocked6) throw new BadRequestException('image url host not allowed');
       return;
     }
+  }
+
+  private extractEmbeddedIPv4(host: string): string | null {
+    // Text forms (rare after URL normalization but keep for defense-in-depth).
+    const mapText = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(host);
+    if (mapText && isIP(mapText[1]) === 4) return mapText[1];
+    const compatText = /^::(\d+\.\d+\.\d+\.\d+)$/.exec(host);
+    if (compatText && isIP(compatText[1]) === 4) return compatText[1];
+
+    // Hex forms produced by WHATWG URL: `::ffff:HHHH:HHHH` / `::HHHH:HHHH`.
+    const decodeHex = (hi: string, lo: string): string => {
+      const h = parseInt(hi, 16);
+      const l = parseInt(lo, 16);
+      return `${(h >> 8) & 0xff}.${h & 0xff}.${(l >> 8) & 0xff}.${l & 0xff}`;
+    };
+    const mapHex = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(host);
+    if (mapHex) return decodeHex(mapHex[1], mapHex[2]);
+    // `::HHHH:HHHH` (IPv4-compat). Skip `::1` / `::` — handled by literal check.
+    const compatHex = /^::([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(host);
+    if (compatHex) return decodeHex(compatHex[1], compatHex[2]);
+
+    return null;
+  }
+
+  private isPrivateIPv4(ip: string): boolean {
+    return (
+      /^127\./.test(ip) ||
+      /^10\./.test(ip) ||
+      /^192\.168\./.test(ip) ||
+      /^172\.(1[6-9]|2\d|3[01])\./.test(ip) ||
+      /^169\.254\./.test(ip) ||
+      /^0\./.test(ip) ||
+      /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(ip)
+    );
   }
 
   /**

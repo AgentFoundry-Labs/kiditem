@@ -34,6 +34,12 @@ describe('MastersService.originalImageBase64 — SSRF defense', () => {
     ['http://[fe80::1%eth0]/x.png', 'IPv6 link-local with zone id'],
     ['http://[fc00::1]/x.png', 'IPv6 ULA fc00::/7'],
     ['http://[fd12::1]/x.png', 'IPv6 ULA fd00::/8'],
+    ['http://[::ffff:127.0.0.1]/x.png', 'IPv4-mapped IPv6 loopback'],
+    ['http://[::ffff:10.0.0.1]/x.png', 'IPv4-mapped IPv6 RFC1918 10/8'],
+    ['http://[::ffff:192.168.1.1]/x.png', 'IPv4-mapped IPv6 RFC1918 192.168/16'],
+    ['http://[::ffff:169.254.169.254]/meta', 'IPv4-mapped IPv6 cloud metadata'],
+    ['http://[::127.0.0.1]/x.png', 'IPv4-compatible IPv6 deprecated form (loopback)'],
+    ['http://[::169.254.169.254]/meta', 'IPv4-compatible IPv6 deprecated form (metadata)'],
     ['ftp://example.com/x.png', 'non-http scheme'],
   ];
 
