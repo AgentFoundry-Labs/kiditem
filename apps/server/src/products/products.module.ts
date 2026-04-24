@@ -10,6 +10,7 @@ import { MastersController } from './controllers/masters.controller';
 import { OptionsController } from './controllers/options.controller';
 import { BundleComponentsController } from './controllers/bundle-components.controller';
 import { ProductCatalogController } from './controllers/product-catalog.controller';
+import { ProductsLegacyController } from './controllers/products-legacy.controller';
 
 @Module({
   controllers: [
@@ -17,6 +18,7 @@ import { ProductCatalogController } from './controllers/product-catalog.controll
     OptionsController,
     BundleComponentsController,
     ProductCatalogController,
+    ProductsLegacyController, // last — resolves after sibling /products/* controllers
   ],
   providers: [
     MasterCodeService, MastersService, OptionsService,
