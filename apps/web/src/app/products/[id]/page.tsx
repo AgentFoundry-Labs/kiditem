@@ -44,7 +44,7 @@ export default function ProductDetailPage() {
 
   // Activities fetch
   const { data: activities = [] } = useQuery({
-    queryKey: [...queryKeys.products.detail(productId), "activities"],
+    queryKey: [...queryKeys.products.catalog.detail(productId), "activities"],
     queryFn: async () => {
       const companyId = product?.companyId;
       if (!companyId) return [];
@@ -61,7 +61,7 @@ export default function ProductDetailPage() {
 
   // Violations fetch
   const { data: violations = [] } = useQuery({
-    queryKey: [...queryKeys.products.detail(productId), "violations"],
+    queryKey: [...queryKeys.products.catalog.detail(productId), "violations"],
     queryFn: async () => {
       const data = await apiClient.get<any[]>(`/api/activity-events?objectType=product&objectId=${productId}&eventType=rule_violation&limit=20`);
       return Array.isArray(data) ? data : [];

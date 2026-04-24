@@ -91,15 +91,31 @@ export default function ProductsPage() {
   };
 
   const handleExcelDownload = async () => {
-    const params = new URLSearchParams();
-    if (gradeFilter !== "all") params.set("grade", gradeFilter);
-    if (statusFilter !== "all") params.set("status", statusFilter);
-    if (submittedSearch) params.set("search", submittedSearch);
-    params.set("limit", "200");
-    const data = await apiClient.getParsed(`/api/products/catalog?${params}`, ProductCatalogListResponseSchema);
+    // Catalog API caps a single response at limit=200, so we page through until
+    // every row in `total` is fetched before writing the workbook.
+    const EXPORT_PAGE_SIZE = 200;
+    const baseParams = new URLSearchParams();
+    if (gradeFilter !== "all") baseParams.set("grade", gradeFilter);
+    if (statusFilter !== "all") baseParams.set("status", statusFilter);
+    if (submittedSearch) baseParams.set("search", submittedSearch);
+    baseParams.set("limit", String(EXPORT_PAGE_SIZE));
+
+    const collected: Product[] = [];
+    let page = 1;
+    let total = Infinity;
+    while (collected.length < total) {
+      const params = new URLSearchParams(baseParams);
+      params.set("page", String(page));
+      const data = await apiClient.getParsed(`/api/products/catalog?${params}`, ProductCatalogListResponseSchema);
+      total = data.total;
+      collected.push(...data.items);
+      if (data.items.length < EXPORT_PAGE_SIZE) break;
+      page += 1;
+    }
+
     import("xlsx").then((XLSX) => {
       const ws = XLSX.utils.json_to_sheet(
-        data.items.map((p) => ({
+        collected.map((p) => ({
           등급: p.abcGrade ?? '',
           상품명: p.name,
           상품코드: p.code,
