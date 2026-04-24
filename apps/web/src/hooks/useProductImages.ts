@@ -1,82 +1,116 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useCallback } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  GetMasterImagesResponseSchema,
+  UploadMasterImageResponseSchema,
+  type MasterImageItem,
+} from '@kiditem/shared';
 import { apiClient } from '@/lib/api-client';
-import type { MasterImageItem } from '@kiditem/shared';
+import { queryKeys } from '@/lib/query-keys';
 
-export function useProductImages(productId: string | null) {
-  const [images, setImages] = useState<MasterImageItem[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
+/**
+ * Product image management for a single MasterProduct (`masterId`).
+ *
+ * W1 rewrite (ADR-0020 successor):
+ * - Fetches via `GET /api/products/masters/:id/images` (not the master detail
+ *   route's embedded `.images` field).
+ * - Uploads to `POST /api/products/masters/:id/images/upload` and expects the
+ *   canonical `{ image: MasterImageItem }` envelope.
+ * - Saves the full list via `PATCH /api/products/masters/:id/images` with
+ *   `{ items: MasterImageItem[] }`; the server response becomes the new truth.
+ * - Errors propagate to the caller (no silent `setImages([])` fallback).
+ *   Callers read `error`/`uploadError`/`saveError` and render UI accordingly.
+ */
+export function useProductImages(masterId: string | null) {
+  const queryClient = useQueryClient();
 
-  useEffect(() => {
-    if (!productId) {
-      setImages([]);
-      return;
-    }
-    setLoading(true);
-    apiClient
-      .get<{ images?: unknown }>(`/api/products/masters/${productId}`)
-      .then((master) => {
-        const imgs = (master as { images?: unknown })?.images;
-        if (Array.isArray(imgs)) setImages(imgs as MasterImageItem[]);
-        else setImages([]);
-      })
-      .catch(() => setImages([]))
-      .finally(() => setLoading(false));
-  }, [productId]);
+  const query = useQuery({
+    queryKey: masterId ? queryKeys.products.images(masterId) : ['products', 'images', 'disabled'],
+    queryFn: async () => {
+      if (!masterId) return [] as MasterImageItem[];
+      const res = await apiClient.getParsed(
+        `/api/products/masters/${masterId}/images`,
+        GetMasterImagesResponseSchema,
+      );
+      return res.images;
+    },
+    enabled: Boolean(masterId),
+  });
 
-  /** Upload a File object (e.g. from file input / drag-and-drop) */
-  const uploadFile = useCallback(
-    async (file: File): Promise<string | null> => {
-      if (!productId) return null;
+  const uploadMutation = useMutation({
+    mutationFn: async (file: File): Promise<MasterImageItem> => {
+      if (!masterId) throw new Error('useProductImages.uploadFile: masterId is required');
       const formData = new FormData();
       formData.append('file', file);
-      try {
-        const result = await apiClient.upload<{ url: string }>(
-          `/api/products/masters/${productId}/images/upload`,
-          formData,
-        );
-        return result.url;
-      } catch {
-        return null;
+      const res = await apiClient.uploadParsed(
+        `/api/products/masters/${masterId}/images/upload`,
+        UploadMasterImageResponseSchema,
+        formData,
+      );
+      return res.image;
+    },
+  });
+
+  const uploadBase64Mutation = useMutation({
+    mutationFn: async (dataUrl: string): Promise<MasterImageItem> => {
+      if (!masterId) throw new Error('useProductImages.uploadBase64: masterId is required');
+      const res = await fetch(dataUrl);
+      const blob = await res.blob();
+      const formData = new FormData();
+      formData.append('file', blob, 'thumbnail.png');
+      const parsed = await apiClient.uploadParsed(
+        `/api/products/masters/${masterId}/images/upload`,
+        UploadMasterImageResponseSchema,
+        formData,
+      );
+      return parsed.image;
+    },
+  });
+
+  const saveMutation = useMutation({
+    mutationFn: async (items: MasterImageItem[]): Promise<MasterImageItem[]> => {
+      if (!masterId) throw new Error('useProductImages.saveImages: masterId is required');
+      const res = await apiClient.patchParsed(
+        `/api/products/masters/${masterId}/images`,
+        GetMasterImagesResponseSchema,
+        { items },
+      );
+      return res.images;
+    },
+    onSuccess: (images) => {
+      if (masterId) {
+        queryClient.setQueryData(queryKeys.products.images(masterId), images);
       }
     },
-    [productId],
-  );
+  });
 
-  /** Upload a base64 data-URL string (e.g. from canvas / generated thumbnail) */
+  const uploadFile = useCallback(
+    async (file: File) => uploadMutation.mutateAsync(file),
+    [uploadMutation],
+  );
   const uploadBase64 = useCallback(
-    async (dataUrl: string): Promise<string | null> => {
-      if (!productId) return null;
-      try {
-        const res = await fetch(dataUrl);
-        const blob = await res.blob();
-        const formData = new FormData();
-        formData.append('file', blob, 'thumbnail.png');
-        const result = await apiClient.upload<{ url: string }>(
-          `/api/products/masters/${productId}/images/upload`,
-          formData,
-        );
-        return result.url;
-      } catch {
-        return null;
-      }
-    },
-    [productId],
+    async (dataUrl: string) => uploadBase64Mutation.mutateAsync(dataUrl),
+    [uploadBase64Mutation],
   );
-
   const saveImages = useCallback(
-    async (imgs: MasterImageItem[]) => {
-      if (!productId) return;
-      setSaving(true);
-      try {
-        await apiClient.patch(`/api/products/masters/${productId}`, { images: imgs });
-        setImages(imgs);
-      } finally {
-        setSaving(false);
-      }
-    },
-    [productId],
+    async (items: MasterImageItem[]) => saveMutation.mutateAsync(items),
+    [saveMutation],
   );
 
-  return { images, loading, saving, uploadFile, uploadBase64, saveImages, setImages };
+  return {
+    images: query.data ?? [],
+    // When masterId is null the query is disabled; React Query still reports
+    // isPending=true. Mask that so consumers don't see a misleading loading
+    // spinner on the empty state.
+    loading: Boolean(masterId) && query.isPending,
+    saving: saveMutation.isPending,
+    uploading: uploadMutation.isPending || uploadBase64Mutation.isPending,
+    error: query.error,
+    uploadError: uploadMutation.error ?? uploadBase64Mutation.error,
+    saveError: saveMutation.error,
+    uploadFile,
+    uploadBase64,
+    saveImages,
+    refetch: query.refetch,
+  };
 }
