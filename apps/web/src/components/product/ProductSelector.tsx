@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { Search } from 'lucide-react';
+import { ProductCatalogListResponseSchema, type ProductCatalogListItem } from '@kiditem/shared';
 import { apiClient } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 
@@ -10,6 +11,15 @@ interface Product {
   name: string;
   imageUrl: string | null;
   sku: string | null;
+}
+
+function toSelectorProduct(item: ProductCatalogListItem): Product {
+  return {
+    id: item.id,
+    name: item.name,
+    imageUrl: item.imageUrl ?? item.thumbnailUrl,
+    sku: item.representativeSku,
+  };
 }
 
 interface Props {
@@ -43,8 +53,11 @@ export function ProductSelector({ selectedId, onSelect }: Props) {
     const timer = setTimeout(() => {
       setSearching(true);
       apiClient
-        .get<{ items: Product[] }>(`/api/products?search=${encodeURIComponent(query)}&limit=10`)
-        .then((data) => setResults(data.items))
+        .getParsed(
+          `/api/products/catalog?search=${encodeURIComponent(query)}&limit=10`,
+          ProductCatalogListResponseSchema,
+        )
+        .then((data) => setResults(data.items.map(toSelectorProduct)))
         .catch(() => setResults([]))
         .finally(() => setSearching(false));
     }, 300);

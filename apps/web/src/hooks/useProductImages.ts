@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { apiClient } from '@/lib/api-client';
-import type { ProductImageItem } from '@kiditem/shared';
+import type { MasterImageItem } from '@kiditem/shared';
 
 export function useProductImages(productId: string | null) {
-  const [images, setImages] = useState<ProductImageItem[]>([]);
+  const [images, setImages] = useState<MasterImageItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -14,10 +14,10 @@ export function useProductImages(productId: string | null) {
     }
     setLoading(true);
     apiClient
-      .get<{ images?: unknown }>(`/api/products/${productId}`)
-      .then((product) => {
-        const imgs = (product as any)?.images;
-        if (Array.isArray(imgs)) setImages(imgs);
+      .get<{ images?: unknown }>(`/api/products/masters/${productId}`)
+      .then((master) => {
+        const imgs = (master as { images?: unknown })?.images;
+        if (Array.isArray(imgs)) setImages(imgs as MasterImageItem[]);
         else setImages([]);
       })
       .catch(() => setImages([]))
@@ -32,7 +32,7 @@ export function useProductImages(productId: string | null) {
       formData.append('file', file);
       try {
         const result = await apiClient.upload<{ url: string }>(
-          `/api/products/${productId}/images/upload`,
+          `/api/products/masters/${productId}/images/upload`,
           formData,
         );
         return result.url;
@@ -53,7 +53,7 @@ export function useProductImages(productId: string | null) {
         const formData = new FormData();
         formData.append('file', blob, 'thumbnail.png');
         const result = await apiClient.upload<{ url: string }>(
-          `/api/products/${productId}/images/upload`,
+          `/api/products/masters/${productId}/images/upload`,
           formData,
         );
         return result.url;
@@ -65,11 +65,11 @@ export function useProductImages(productId: string | null) {
   );
 
   const saveImages = useCallback(
-    async (imgs: ProductImageItem[]) => {
+    async (imgs: MasterImageItem[]) => {
       if (!productId) return;
       setSaving(true);
       try {
-        await apiClient.patch(`/api/products/${productId}/images`, { images: imgs });
+        await apiClient.patch(`/api/products/masters/${productId}`, { images: imgs });
         setImages(imgs);
       } finally {
         setSaving(false);

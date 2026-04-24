@@ -12,9 +12,9 @@ import { InventorySummaryCards } from './components/InventorySummaryCards';
 import { InventoryFilterTabs } from './components/InventoryFilterTabs';
 import { InventoryTable } from './components/InventoryTable';
 import { printBarcodeWindow } from './lib/barcode-print';
-import type { InventoryItem, InventorySummary, SyncInfo } from '@kiditem/shared';
+import type { InventoryListItem, InventorySummary, SyncInfo } from '@kiditem/shared';
 
-const DEFAULT_SUMMARY: InventorySummary = { total: 0, reorderCount: 0, outOfStockCount: 0, unsyncedCount: 0, overstockCount: 0 };
+const DEFAULT_SUMMARY: InventorySummary = { total: 0, healthy: 0, low: 0, out: 0 };
 
 export default function InventoryPage() {
   const queryClient = useQueryClient();
@@ -27,7 +27,7 @@ export default function InventoryPage() {
     queryFn: () => {
       const params = new URLSearchParams({ page: String(page), limit: String(PAGE_SIZE) });
       if (filter !== "all") params.set("status", filter);
-      return apiClient.get<{ items: InventoryItem[]; total: number; summary?: InventorySummary }>(`/api/inventory?${params}`);
+      return apiClient.get<{ items: InventoryListItem[]; total: number; summary?: InventorySummary }>(`/api/inventory?${params}`);
     },
   });
   const items = inventoryData?.items ?? [];
@@ -50,14 +50,21 @@ export default function InventoryPage() {
   const handleExcel = async () => {
     const params = new URLSearchParams({ limit: "10000" });
     if (filter !== "all") params.set("status", filter);
-    const data = await apiClient.get<{ items: InventoryItem[] }>(`/api/inventory?${params}`);
+    const data = await apiClient.get<{ items: InventoryListItem[] }>(`/api/inventory?${params}`);
     import("xlsx").then((XLSX) => {
       const ws = XLSX.utils.json_to_sheet(
-        data.items.map((d: InventoryItem) => ({
-          등급: d.grade, 상품명: d.productName, SKU: d.sku, 회사: d.company,
-          현재고: d.currentStock, 안전재고: d.safetyStock, 발주점: d.reorderPoint,
-          "일평균판매": d.avgDailySales, 적정재고: d.optimalStock,
-          "남은일수": d.daysRemaining, 추천발주량: d.recommendedOrder, 상태: d.status,
+        data.items.map((d: InventoryListItem) => ({
+          상품명: d.masterName,
+          옵션: d.optionName ?? '',
+          SKU: d.sku,
+          종류: d.kind,
+          현재고: d.currentStock,
+          가용재고: d.availableStock,
+          안전재고: d.safetyStock,
+          발주시점: d.reorderPoint,
+          리드타임_일: d.leadTimeDays ?? '',
+          창고: d.warehouseLocation ?? '',
+          상태: d.status,
         }))
       );
       const wb = XLSX.utils.book_new();
@@ -68,10 +75,10 @@ export default function InventoryPage() {
 
   const handleStockCheck = async () => {
     try {
-      const data = await apiClient.get<{ total: number }>(`/api/inventory?status=reorder&limit=1`);
+      const data = await apiClient.get<{ total: number }>(`/api/inventory?status=low&limit=1`);
       toast.info(`재고 부족 상품: ${data.total}건 — 발주가 필요한 상품을 확인하세요.`);
       if (data.total > 0) {
-        setFilter("reorder");
+        setFilter('low');
         setPage(1);
       }
     } catch (err) {
@@ -80,53 +87,7 @@ export default function InventoryPage() {
   };
 
   const handleReceiveStock = async () => {
-    const term = prompt('입고할 상품명 또는 SKU:');
-    if (!term) return;
-
-    try {
-      const data = await apiClient.get<{ items: { id: string; name: string; sku: string | null; currentStock: number }[] }>(`/api/products?search=${encodeURIComponent(term)}&limit=5&status=active`);
-      const products: { id: string; name: string; sku: string | null; currentStock: number }[] = data.items ?? [];
-
-      if (products.length === 0) {
-        toast.warning('검색 결과가 없습니다.');
-        return;
-      }
-
-      let selectedProduct = products[0];
-      if (products.length > 1) {
-        const list = products.map((p, i) => `${i + 1}. ${p.name}${p.sku ? ` (${p.sku})` : ''} [재고: ${p.currentStock}]`).join('\n');
-        const choice = prompt(`상품을 선택하세요:\n${list}`);
-        if (!choice) return;
-        const idx = parseInt(choice, 10) - 1;
-        if (isNaN(idx) || idx < 0 || idx >= products.length) {
-          toast.warning('잘못된 선택입니다.');
-          return;
-        }
-        selectedProduct = products[idx];
-      }
-
-      const qtyStr = prompt(`"${selectedProduct.name}" 입고 수량:`);
-      if (!qtyStr) return;
-      const qty = parseInt(qtyStr, 10);
-      if (isNaN(qty) || qty <= 0) {
-        toast.warning('수량은 1 이상의 숫자를 입력하세요.');
-        return;
-      }
-
-      let invData;
-      try {
-        invData = await apiClient.get<{ id: string }>(`/api/inventory/by-product/${selectedProduct.id}`);
-      } catch {
-        toast.warning('해당 상품의 재고 항목이 없습니다.');
-        return;
-      }
-
-      const result = await apiClient.patch<{ productName: string; received: number; currentStock: number }>(`/api/inventory/${invData.id}/receive`, { quantity: qty });
-      toast.success(`입고 완료 — ${result.productName}: ${result.received}개 입고, 현재고 ${result.currentStock}개`);
-      queryClient.invalidateQueries({ queryKey: queryKeys.inventory.all });
-    } catch (err) {
-      toast.error(isApiError(err) ? err.detail : '입고 처리 중 오류가 발생했습니다.');
-    }
+    toast.info('입고 처리는 재설계 중입니다. 상품 상세 페이지에서 옵션 선택 후 입고하세요.');
   };
 
   const handleBarcodePrint = () => {

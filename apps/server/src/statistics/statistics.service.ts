@@ -10,39 +10,55 @@ import type {
   StatisticsDeliveryResponse,
 } from '@kiditem/shared';
 import { PrismaService } from '../prisma/prisma.service';
-import { LISTING_WITH_MASTER_SELECT_EXTENDED } from '../common/listing-select';
+import { buildPerListingMetrics } from '../common/per-listing-profit';
 import { kstMonthStart } from '../common/kst';
+
+const EXCLUDED_ORDER_STATUSES = ['cancelled', 'returned', 'refunded'] as const;
 
 @Injectable()
 export class StatisticsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  private buildPlPeriodFilter(period?: string) {
-    if (!period) return {};
-    const [year, month] = period.split('-').map(Number);
-    return { year, month };
+  private resolveWindow(period?: string) {
+    if (period) {
+      const [year, month] = period.split('-').map(Number);
+      return { from: kstMonthStart(year, month), to: kstMonthStart(year, month + 1) };
+    }
+
+    const now = new Date();
+    return {
+      from: new Date(0),
+      to: kstMonthStart(now.getFullYear(), now.getMonth() + 2),
+    };
+  }
+
+  private buildOrderWhere(companyId: string, period?: string): Prisma.OrderWhereInput {
+    const { from, to } = this.resolveWindow(period);
+    return {
+      companyId,
+      orderedAt: { gte: from, lt: to },
+      status: { notIn: [...EXCLUDED_ORDER_STATUSES] },
+    };
+  }
+
+  private getListingMetrics(companyId: string, period?: string) {
+    const { from, to } = this.resolveWindow(period);
+    return buildPerListingMetrics(this.prisma, companyId, from, to);
   }
 
   async overview(companyId: string, period?: string) {
-    const plWhere = { companyId, ...this.buildPlPeriodFilter(period) };
-
-    const [agg, totalProducts] = await Promise.all([
-      this.prisma.profitLoss.aggregate({
-        where: plWhere,
-        _sum: {
-          revenue: true,
-          netProfit: true,
-          orderCount: true,
-        },
-      }),
+    const [metrics, totalProducts, totalOrders] = await Promise.all([
+      this.getListingMetrics(companyId, period),
       this.prisma.masterProduct.count({
         where: { companyId, isDeleted: false },
       }),
+      this.prisma.order.count({
+        where: this.buildOrderWhere(companyId, period),
+      }),
     ]);
 
-    const totalRevenue = agg._sum.revenue ?? 0;
-    const totalProfit = agg._sum.netProfit ?? 0;
-    const totalOrders = agg._sum.orderCount ?? 0;
+    const totalRevenue = metrics.reduce((sum, metric) => sum + metric.revenue, 0);
+    const totalProfit = metrics.reduce((sum, metric) => sum + metric.netProfit, 0);
     const avgMargin = totalRevenue > 0 ? totalProfit / totalRevenue : 0;
 
     return {
@@ -55,56 +71,43 @@ export class StatisticsService {
   }
 
   async products(companyId: string, period?: string) {
-    const plWhere = { companyId, ...this.buildPlPeriodFilter(period) };
+    const metrics = await this.getListingMetrics(companyId, period);
 
-    const records = await this.prisma.profitLoss.findMany({
-      where: plWhere,
-      include: {
-        listing: { select: LISTING_WITH_MASTER_SELECT_EXTENDED },
-      },
-      orderBy: { revenue: 'desc' },
-    });
-
-    return records.map((r) => ({
-      listingId: r.listingId,
-      externalId: r.listing.externalId,
-      channelName: r.listing.channelName,
-      masterId: r.listing.master.id,
-      masterCode: r.listing.master.code,
-      productName: r.listing.master.name,
-      category: r.listing.master.category,
-      grade: r.listing.master.abcGrade,
-      thumbnailUrl: r.listing.master.thumbnailUrl,
-      totalRevenue: r.revenue,
-      netProfit: r.netProfit,
-      orderCount: r.orderCount,
-      profitRate: r.revenue > 0
-        ? Math.round((r.netProfit / r.revenue) * 10000) / 10000
-        : 0,
-      margin: r.revenue > 0
-        ? Math.round((r.netProfit / r.revenue) * 10000) / 10000
-        : 0,
-    } satisfies StatisticsProductRow));
+    return [...metrics]
+      .sort((a, b) => b.revenue - a.revenue)
+      .map((metric) => ({
+        listingId: metric.listingId,
+        externalId: metric.externalId,
+        channelName: metric.channelName,
+        masterId: metric.masterId,
+        masterCode: metric.masterCode,
+        productName: metric.masterName,
+        category: metric.category,
+        grade: metric.grade,
+        thumbnailUrl: metric.thumbnailUrl,
+        totalRevenue: metric.revenue,
+        netProfit: metric.netProfit,
+        orderCount: metric.orderCount,
+        profitRate: metric.revenue > 0
+          ? Math.round((metric.netProfit / metric.revenue) * 10000) / 10000
+          : 0,
+        margin: metric.revenue > 0
+          ? Math.round((metric.netProfit / metric.revenue) * 10000) / 10000
+          : 0,
+      } satisfies StatisticsProductRow));
   }
 
   async categories(companyId: string, period?: string) {
-    const plWhere = { companyId, ...this.buildPlPeriodFilter(period) };
-
-    const records = await this.prisma.profitLoss.findMany({
-      where: plWhere,
-      include: {
-        listing: { select: { master: { select: { category: true } } } },
-      },
-    });
+    const metrics = await this.getListingMetrics(companyId, period);
 
     const categoryMap = new Map<string, { revenue: number; orders: number; profit: number }>();
 
-    for (const r of records) {
-      const cat = r.listing.master.category ?? '미분류';
+    for (const metric of metrics) {
+      const cat = metric.category ?? '미분류';
       const entry = categoryMap.get(cat) ?? { revenue: 0, orders: 0, profit: 0 };
-      entry.revenue += r.revenue;
-      entry.orders += r.orderCount;
-      entry.profit += r.netProfit;
+      entry.revenue += metric.revenue;
+      entry.orders += metric.orderCount;
+      entry.profit += metric.netProfit;
       categoryMap.set(cat, entry);
     }
 
@@ -219,24 +222,17 @@ export class StatisticsService {
   }
 
   async grades(companyId: string, period?: string) {
-    const plWhere = { companyId, ...this.buildPlPeriodFilter(period) };
-
-    const records = await this.prisma.profitLoss.findMany({
-      where: plWhere,
-      include: {
-        listing: { select: { master: { select: { abcGrade: true } } } },
-      },
-    });
+    const metrics = await this.getListingMetrics(companyId, period);
 
     const gradeMap = new Map<string, { revenue: number; profit: number; productCount: number; adCost: number }>();
 
-    for (const r of records) {
-      const grade = r.listing.master.abcGrade ?? 'N/A';
+    for (const metric of metrics) {
+      const grade = metric.grade ?? 'N/A';
       const entry = gradeMap.get(grade) ?? { revenue: 0, profit: 0, productCount: 0, adCost: 0 };
-      entry.revenue += r.revenue;
-      entry.profit += r.netProfit;
+      entry.revenue += metric.revenue;
+      entry.profit += metric.netProfit;
       entry.productCount += 1;
-      entry.adCost += r.adCost;
+      entry.adCost += metric.adCost;
       gradeMap.set(grade, entry);
     }
 
@@ -253,43 +249,31 @@ export class StatisticsService {
   }
 
   async pareto(companyId: string, period?: string) {
-    const plWhere = { companyId, ...this.buildPlPeriodFilter(period) };
+    const metrics = [...await this.getListingMetrics(companyId, period)]
+      .sort((a, b) => b.revenue - a.revenue);
 
-    const records = await this.prisma.profitLoss.findMany({
-      where: plWhere,
-      include: {
-        listing: {
-          select: {
-            id: true,
-            master: { select: { id: true, name: true, abcGrade: true } },
-          },
-        },
-      },
-      orderBy: { revenue: 'desc' },
-    });
-
-    const totalRevenue = records.reduce((sum, r) => sum + r.revenue, 0);
+    const totalRevenue = metrics.reduce((sum, metric) => sum + metric.revenue, 0);
 
     // Compute full pareto items with cumulative percent
     let cumulativeRevenue = 0;
-    const fullParetoItems = records.map((r, index) => {
-      cumulativeRevenue += r.revenue;
+    const fullParetoItems = metrics.map((metric, index) => {
+      cumulativeRevenue += metric.revenue;
       const revenuePercent = totalRevenue > 0
-        ? Math.round((r.revenue / totalRevenue) * 1000) / 10
+        ? Math.round((metric.revenue / totalRevenue) * 1000) / 10
         : 0;
       const cumulativePercent = totalRevenue > 0
         ? Math.round((cumulativeRevenue / totalRevenue) * 1000) / 10
         : 0;
-      const currentGrade = r.listing.master.abcGrade ?? 'N/A';
+      const currentGrade = metric.grade ?? 'N/A';
       const suggestedGrade = cumulativePercent <= 70 ? 'A' : cumulativePercent <= 90 ? 'B' : 'C';
       return {
-        id: r.listingId,
+        id: metric.listingId,
         rank: index + 1,
-        name: r.listing.master.name,
+        name: metric.masterName,
         currentGrade,
         suggestedGrade,
         gradeMatch: currentGrade === suggestedGrade,
-        revenue: r.revenue,
+        revenue: metric.revenue,
         revenuePercent,
         cumulativePercent,
       };

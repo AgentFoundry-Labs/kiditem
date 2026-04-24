@@ -12,10 +12,10 @@ export interface TaskSeed {
 
 export interface RelatedProduct {
   /**
-   * masterId 의미 (B2c.dashboard 이후).
-   * ProfitLoss path: listing.master.id (fallback: listingId).
+   * masterId 의미.
+   * Live metrics path: `PerListingMetrics.masterId`.
    * Inventory path: option.master.id (fallback: optionId).
-   * 필드명은 id 로 유지 — downstream frontend 재배선은 Plan D 범위.
+   * 필드명은 id 로 유지 — downstream frontend rewire 는 별도 typed-boundary follow-up.
    */
   id: string;
   name: string;

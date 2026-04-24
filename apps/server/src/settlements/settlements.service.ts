@@ -4,13 +4,23 @@ import type {
   SettlementReconcileResponse,
 } from '@kiditem/shared';
 import { PrismaService } from '../prisma/prisma.service';
-import { LISTING_WITH_MASTER_SELECT_EXTENDED } from '../common/listing-select';
+import { buildPerListingMetrics } from '../common/per-listing-profit';
 import { kstMonthStart } from '../common/kst';
 import { CreateSettlementDto, UpdateSettlementDto } from './dto';
 
 @Injectable()
 export class SettlementsService {
   constructor(private readonly prisma: PrismaService) {}
+
+  private resolveWindow(period: string) {
+    const [year, month] = period.split('-').map(Number);
+    return {
+      year,
+      month,
+      from: kstMonthStart(year, month),
+      to: kstMonthStart(year, month + 1),
+    };
+  }
 
   async findAll(companyId: string, period?: string) {
     const periodFilter =
@@ -41,70 +51,65 @@ export class SettlementsService {
   }
 
   async reconcile(companyId: string, period: string) {
-    const [year, month] = period.split('-').map(Number);
-    const periodStart = kstMonthStart(year, month);
-    const periodEnd = kstMonthStart(year, month + 1);
+    const { from, to } = this.resolveWindow(period);
 
-    // 1. ProfitLoss records for the period — listing/master hydrate
-    const plRecords = await this.prisma.profitLoss.findMany({
-      where: { companyId, year, month },
-      include: { listing: { select: LISTING_WITH_MASTER_SELECT_EXTENDED } },
-    });
-
-    // 2. Aggregate order line items by listing_id (via channel_listing_options join).
+    // 1. Build live metrics and compare them to the order aggregate side.
     //    SUM(total_price)::bigint — 단일 월 매출이 int32 (~21억 KRW) 초과 가능성 (대형 셀러).
     //    bigint → Number() 로 안전 변환 (2^53 이하 보장).
-    const rows = await this.prisma.$queryRaw<
-      Array<{
-        listing_id: string;
-        total_price: bigint;
-        order_count: bigint;
-      }>
-    >`
-      SELECT clo.listing_id AS listing_id,
-             SUM(oli.total_price)::bigint AS total_price,
-             COUNT(DISTINCT o.id)::bigint  AS order_count
-        FROM order_line_items oli
-        JOIN channel_listing_options clo ON oli.listing_option_id = clo.id
-        JOIN orders o ON oli.order_id = o.id
-       WHERE o.company_id = ${companyId}::uuid
-         AND o.ordered_at >= ${periodStart}
-         AND o.ordered_at <  ${periodEnd}
-         AND o.status NOT IN ('cancelled', 'returned')
-       GROUP BY clo.listing_id
-    `;
+    const [metrics, rows] = await Promise.all([
+      buildPerListingMetrics(this.prisma, companyId, from, to),
+      this.prisma.$queryRaw<
+        Array<{
+          listing_id: string;
+          total_price: bigint;
+          order_count: bigint;
+        }>
+      >`
+        SELECT clo.listing_id AS listing_id,
+               SUM(oli.total_price)::bigint AS total_price,
+               COUNT(DISTINCT o.id)::bigint  AS order_count
+          FROM order_line_items oli
+          JOIN channel_listing_options clo ON oli.listing_option_id = clo.id
+          JOIN orders o ON oli.order_id = o.id
+         WHERE o.company_id = ${companyId}::uuid
+           AND o.ordered_at >= ${from}
+           AND o.ordered_at <  ${to}
+           AND o.status NOT IN ('cancelled', 'returned', 'refunded')
+         GROUP BY clo.listing_id
+      `,
+    ]);
     const orderMap = new Map<string, { total: number; count: number }>(
       rows.map((r) => [r.listing_id, { total: Number(r.total_price), count: Number(r.order_count) }]),
     );
 
-    // 3. Match PL records with order aggregates by listingId
+    // 2. Match live finance metrics with order aggregates by listingId.
     let totalPlRevenue = 0;
     let totalOrderRevenue = 0;
     let matchedCount = 0;
     let mismatchCount = 0;
 
-    const details = plRecords.map((r) => {
-      const od = orderMap.get(r.listingId) ?? { total: 0, count: 0 };
-      const revenueDiff = r.revenue - od.total;
+    const details = metrics.map((metric) => {
+      const od = orderMap.get(metric.listingId) ?? { total: 0, count: 0 };
+      const revenueDiff = metric.revenue - od.total;
       const absDiff = Math.abs(revenueDiff);
       const status: 'matched' | 'minor_diff' | 'mismatch' =
         absDiff <= 100 ? 'matched' : absDiff <= 1000 ? 'minor_diff' : 'mismatch';
 
-      totalPlRevenue += r.revenue;
+      totalPlRevenue += metric.revenue;
       totalOrderRevenue += od.total;
       if (status === 'matched') matchedCount++;
       else mismatchCount++;
 
       return {
-        listingId: r.listingId,
-        externalId: r.listing.externalId,
-        channelName: r.listing.channelName,
-        masterCode: r.listing.master.code,
-        masterName: r.listing.master.name,
-        plRevenue: r.revenue,
-        plCommission: r.commission,
-        plNetProfit: r.netProfit,
-        plOrderCount: r.orderCount,
+        listingId: metric.listingId,
+        externalId: metric.externalId,
+        channelName: metric.channelName,
+        masterCode: metric.masterCode,
+        masterName: metric.masterName,
+        plRevenue: metric.revenue,
+        plCommission: metric.commission,
+        plNetProfit: metric.netProfit,
+        plOrderCount: metric.orderCount,
         orderTotal: od.total,
         orderCount: od.count,
         revenueDiff,
@@ -124,8 +129,8 @@ export class SettlementsService {
       summary: {
         totalPlRevenue,
         totalOrderRevenue,
-        totalCommission: plRecords.reduce((s, r) => s + r.commission, 0),
-        totalShipping: plRecords.reduce((s, r) => s + r.shippingCost, 0),
+        totalCommission: metrics.reduce((sum, metric) => sum + metric.commission, 0),
+        totalShipping: metrics.reduce((sum, metric) => sum + metric.shippingCost, 0),
         revenueDifference: totalPlRevenue - totalOrderRevenue,
         productCount,
         orderCount: rows.reduce((s, r) => s + Number(r.order_count), 0),

@@ -12,7 +12,7 @@ import ActivityHistory from "./components/ActivityHistory";
 import ProductSidebar from "./components/ProductSidebar";
 import ProductInfoCards, { type InventoryData } from "./components/ProductInfoCards";
 import { useProductActions } from "./hooks/useProductActions";
-import type { ProductDetail as Product } from "@kiditem/shared";
+import { ProductCatalogDetailSchema, type ProductCatalogDetail as Product } from "@kiditem/shared";
 
 // Re-export types consumed by co-located components
 export type { ActivityEvent, Workflow } from "./hooks/useProductActions";
@@ -20,32 +20,31 @@ export type { ActivityEvent, Workflow } from "./hooks/useProductActions";
 export default function ProductDetailPage() {
   const params = useParams();
   const productId = params.id as string;
-  // Main product + inventory fetch
-  const { data: productData, isLoading: loading, error: productError } = useQuery({
-    queryKey: queryKeys.products.detail(productId),
+  // productId in the route is the master id per spec §6.1.
+  const { data: product, isLoading: loading, error: productError } = useQuery({
+    queryKey: queryKeys.products.catalog.detail(productId),
+    queryFn: () => apiClient.getParsed(`/api/products/catalog/${productId}`, ProductCatalogDetailSchema),
+    enabled: !!productId,
+  });
+
+  // Inventory side-call uses masterId (canonical per spec §6.1 inventory fix). Tolerant
+  // to array/object response shapes from the legacy /api/inventory endpoint.
+  const { data: inventory = null } = useQuery<InventoryData | null>({
+    queryKey: queryKeys.inventory.byMaster(productId),
     queryFn: async () => {
-      const [prod, inv] = await Promise.all([
-        apiClient.get<Product>(`/api/products/${productId}`).catch(() => null),
-        apiClient.get<InventoryData[] | InventoryData>(`/api/inventory?productId=${productId}`).catch(() => null),
-      ]);
-      let inventory: InventoryData | null = null;
-      if (Array.isArray(inv) && inv.length > 0) {
-        inventory = inv[0];
-      } else if (inv && !Array.isArray(inv)) {
-        inventory = inv;
-      }
-      return { product: prod, inventory };
+      const inv = await apiClient.get<InventoryData[] | InventoryData>(`/api/inventory?masterId=${productId}`).catch(() => null);
+      if (Array.isArray(inv) && inv.length > 0) return inv[0];
+      if (inv && !Array.isArray(inv)) return inv;
+      return null;
     },
     enabled: !!productId,
   });
 
-  const product = productData?.product ?? null;
-  const inventory = productData?.inventory ?? null;
   const error = productError ? "데이터를 불러오지 못했습니다." : !loading && !product ? "상품을 찾을 수 없습니다." : null;
 
   // Activities fetch
   const { data: activities = [] } = useQuery({
-    queryKey: [...queryKeys.products.detail(productId), "activities"],
+    queryKey: [...queryKeys.products.catalog.detail(productId), "activities"],
     queryFn: async () => {
       const companyId = product?.companyId;
       if (!companyId) return [];
@@ -62,7 +61,7 @@ export default function ProductDetailPage() {
 
   // Violations fetch
   const { data: violations = [] } = useQuery({
-    queryKey: [...queryKeys.products.detail(productId), "violations"],
+    queryKey: [...queryKeys.products.catalog.detail(productId), "violations"],
     queryFn: async () => {
       const data = await apiClient.get<any[]>(`/api/activity-events?objectType=product&objectId=${productId}&eventType=rule_violation&limit=20`);
       return Array.isArray(data) ? data : [];
@@ -81,7 +80,7 @@ export default function ProductDetailPage() {
   });
 
   const { showWfMenu, setShowWfMenu, runWorkflow, runBatchWorkflows, handleAction } =
-    useProductActions({ productId, product, workflows });
+    useProductActions({ productId, product: product ?? null, workflows });
 
   if (loading) return <PageSkeleton variant="detail" />;
   if (error || !product)

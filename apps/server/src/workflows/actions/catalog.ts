@@ -13,54 +13,13 @@ export const ACTION_CATALOG: ActionDefinition[] = [
     executor: 'navigate',
     executorConfig: { path: '/products/{productId}' },
   },
-  {
-    type: 'product.adjust_price',
-    label: '가격 조정',
-    description: '판매가를 변경합니다. 경쟁가 대비 적정 가격으로 조정할 때 사용합니다.',
-    objectType: 'product',
-    conditions: [{ field: 'status', operator: 'eq', value: 'active' }],
-    params: [
-      { key: 'productId', label: '상품 ID', type: 'string', required: true },
-      { key: 'newPrice', label: '변경 가격', type: 'number', required: true },
-    ],
-    executor: 'api_call',
-    executorConfig: { method: 'PUT', path: '/api/products/{productId}', body: { sellPrice: '{newPrice}' } },
-  },
-  {
-    type: 'product.stop_ads',
-    label: '광고 중단',
-    description: '상품의 광고를 중단합니다. 광고비율이 높거나 적자 상품에 사용합니다.',
-    objectType: 'product',
-    conditions: [{ field: 'adTier', operator: 'exists' }],
-    params: [{ key: 'productId', label: '상품 ID', type: 'string', required: true }],
-    executor: 'api_call',
-    executorConfig: { method: 'PUT', path: '/api/products/{productId}', body: { adTier: null } },
-  },
-  {
-    type: 'product.discontinue',
-    label: '판매 중지 (정리)',
-    description: '상품을 판매 중지 처리합니다. 지속적 적자 상품에 사용합니다.',
-    objectType: 'product',
-    conditions: [{ field: 'status', operator: 'eq', value: 'active' }],
-    params: [{ key: 'productId', label: '상품 ID', type: 'string', required: true }],
-    executor: 'api_call',
-    executorConfig: { method: 'PUT', path: '/api/products/{productId}', body: { status: 'discontinued' } },
-  },
-  {
-    type: 'product.change_grade',
-    label: 'ABC 등급 변경',
-    description: '상품의 ABC 등급을 수동으로 변경합니다.',
-    objectType: 'product',
-    conditions: [],
-    params: [
-      { key: 'productId', label: '상품 ID', type: 'string', required: true },
-      { key: 'grade', label: '등급', type: 'select', required: true, options: [
-        { value: 'A', label: 'A등급' }, { value: 'B', label: 'B등급' }, { value: 'C', label: 'C등급' },
-      ]},
-    ],
-    executor: 'api_call',
-    executorConfig: { method: 'PUT', path: '/api/products/{productId}', body: { abcGrade: '{grade}' } },
-  },
+  // product.adjust_price / stop_ads / discontinue / change_grade are removed in the
+  // product-contract rewire. They used `PUT /api/products/{productId}` which is no
+  // longer registered (spec §3.4 — legacy alias is GET-only in this slice), so keeping
+  // the entries would cause LLM-generated plans + frontend handleAction to invoke a
+  // 404 at runtime. Canonical replacements land with the agent/workflow redesign — see
+  // TODOS.md "Agent/Workflow 재설계 — 제품 액션 계약". The frontend retains the action
+  // buttons with a "기능 준비 중" toast until then.
 
   // ─── 재고/발주 액션 ─────────────────────────────────────────────────────────
 

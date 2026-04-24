@@ -82,26 +82,11 @@ export default function ExcelUploadModal({ onClose, onComplete }: Props) {
   };
 
   const handleUpload = async () => {
-    setUploading(true);
-    setError(null);
-    try {
-      const summary = { total: 0, created: 0, updated: 0, errors: 0 };
-      const mergedResults: (UploadResult & { fileName: string })[] = [];
-      for (const dataset of datasets) {
-        const data = await apiClient.post<UploadResponse>('/api/products/upload', { rows: dataset.rows });
-        summary.total += data.summary.total;
-        summary.created += data.summary.created;
-        summary.updated += data.summary.updated;
-        summary.errors += data.summary.errors;
-        mergedResults.push(...data.results.map((item) => ({ ...item, fileName: dataset.fileName })));
-      }
-      setResult({ success: summary.errors === 0, summary, results: mergedResults });
-      setStep('result');
-    } catch (e) {
-      setError(e instanceof Error ? e.message : '업로드 중 오류 발생');
-    } finally {
-      setUploading(false);
-    }
+    // Bulk Excel upload depends on a legacy /api/products/upload endpoint that no longer
+    // exists in the 3-layer contract. UI stays reachable for continuity, but the upload
+    // action is unwired. Canonical bulk-create flow (master + options + inventory) is a
+    // follow-up under the agent/workflow redesign.
+    setError('엑셀 일괄 업로드는 새 계약 기반으로 재설계 중입니다. 상품 추가 버튼으로 개별 등록해 주세요.');
   };
 
   const handleDownloadTemplate = () => {
