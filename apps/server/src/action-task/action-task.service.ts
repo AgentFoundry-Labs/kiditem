@@ -1,70 +1,82 @@
 import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { PrismaService } from '../prisma/prisma.service';
-import { kstDayStart } from '../common/kst';
-import type { TaskSeed, RelatedProduct } from './types';
 import { scrubSecrets } from '@kiditem/shared';
 import type { ActionTask, ActionTaskRelatedProduct } from '@kiditem/shared';
+import {
+  buildPerListingMetrics,
+  type PerListingMetrics,
+} from '../common/per-listing-profit';
+import { kstDayStart, kstMonthStart } from '../common/kst';
+import { PrismaService } from '../prisma/prisma.service';
+import type { TaskSeed, RelatedProduct } from './types';
 
 export type { RelatedProduct } from './types';
+
+const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
 
 @Injectable()
 export class ActionTaskService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async resolveCompanyId(companyId?: string): Promise<string> {
-    if (companyId) return companyId;
-    const first = await this.prisma.company.findFirst({ select: { id: true } });
-    if (!first) throw new Error('No company found');
-    return first.id;
+  private resolveTodayContext(now: Date = new Date()) {
+    const today = kstDayStart(now);
+    const kstNow = new Date(now.getTime() + KST_OFFSET_MS);
+    const year = kstNow.getUTCFullYear();
+    const month = kstNow.getUTCMonth() + 1;
+    return {
+      today,
+      from: kstMonthStart(year, month),
+      to: kstMonthStart(year, month + 1),
+    };
   }
 
-  async getTasks(companyId?: string) {
-    const cid = await this.resolveCompanyId(companyId);
-    const now = new Date();
-    const today = kstDayStart(now);
-    const year = now.getFullYear();
-    const month = now.getMonth() + 1;
+  async getTasks(companyId: string) {
+    const { today, from, to } = this.resolveTodayContext();
 
     // 1. Gather warnings data (same logic as dashboard)
-    const [allPL, inventoryRows, lowCtrCount, lowReviewCount] =
+    const [metrics, inventoryRows, lowCtrCount, lowReviewCount] =
       await Promise.all([
-        this.prisma.profitLoss.findMany({ where: { year, month } }),
+        buildPerListingMetrics(this.prisma, companyId, from, to),
         this.prisma.inventory.findMany({
-          where: { currentStock: { gt: 0 } },
+          where: { companyId, currentStock: { gt: 0 } },
           select: { currentStock: true, reorderPoint: true },
         }),
         this.prisma.thumbnail.count({
-          where: { ctr: { gt: 0, lt: 1.5 } },
+          where: { companyId, ctr: { gt: 0, lt: 1.5 } },
         }),
-        this.prisma.masterProduct.findMany({
-          where: { isDeleted: false, abcGrade: 'A' },
-          include: {
-            listings: {
-              select: { _count: { select: { reviews: true } } },
+        this.prisma.masterProduct
+          .findMany({
+            where: { companyId, isDeleted: false, abcGrade: 'A' },
+            include: {
+              listings: {
+                where: { companyId, isDeleted: false },
+                select: { _count: { select: { reviews: true } } },
+              },
             },
-          },
-        }).then((products) =>
-          products.filter(
-            (p) => p.listings.reduce((sum, l) => sum + l._count.reviews, 0) < 10,
-          ).length,
-        ),
+          })
+          .then((products) =>
+            products.filter(
+              (p) => p.listings.reduce((sum, l) => sum + l._count.reviews, 0) < 10,
+            ).length,
+          ),
       ]);
 
-    const minusProducts = allPL.filter((pl) => pl.netProfit < 0).length;
-    const lowProfitProducts = allPL.filter((pl) => {
-      const rate = pl.revenue > 0 ? (pl.netProfit / pl.revenue) * 100 : 0;
-      return rate >= 0 && rate <= 3;
-    }).length;
-    const highAdProducts = allPL.filter(
-      (pl) => pl.revenue > 0 && pl.adCost > 0 && (pl.adCost / pl.revenue) * 100 > 15,
+    const minusProducts = metrics.filter((metric) => metric.netProfit < 0).length;
+    const lowProfitProducts = metrics.filter(
+      (metric) => metric.profitRate >= 0 && metric.profitRate <= 3,
+    ).length;
+    const highAdProducts = metrics.filter(
+      (metric) =>
+        metric.revenue > 0 &&
+        metric.adCost > 0 &&
+        (metric.adCost / metric.revenue) * 100 > 15,
     ).length;
     const needReorder = inventoryRows.filter(
       (inv) => inv.reorderPoint > 0 && inv.currentStock <= inv.reorderPoint,
     ).length;
 
-    const totalRevenue = allPL.reduce((s, pl) => s + pl.revenue, 0);
-    const totalAdCost = allPL.reduce((s, pl) => s + pl.adCost, 0);
+    const totalRevenue = metrics.reduce((sum, metric) => sum + metric.revenue, 0);
+    const totalAdCost = metrics.reduce((sum, metric) => sum + metric.adCost, 0);
     const adRate = totalRevenue > 0 ? (totalAdCost / totalRevenue) * 100 : 0;
 
     // 2. Generate task seeds
@@ -82,10 +94,10 @@ export class ActionTaskService {
     for (const seed of seeds) {
       await this.prisma.actionTask.upsert({
         where: {
-          companyId_taskKey_date: { companyId: cid, taskKey: seed.taskKey, date: today },
+          companyId_taskKey_date: { companyId, taskKey: seed.taskKey, date: today },
         },
         create: {
-          companyId: cid,
+          companyId,
           taskKey: seed.taskKey,
           type: seed.type,
           label: seed.label,
@@ -108,7 +120,7 @@ export class ActionTaskService {
     // 4. Fetch today's tasks (sort by priority weight: urgent→high→medium)
     const priorityWeight: Record<string, number> = { urgent: 0, high: 1, medium: 2 };
     const tasks = await this.prisma.actionTask.findMany({
-      where: { companyId: cid, date: today },
+      where: { companyId, date: today },
       orderBy: { createdAt: 'asc' },
     });
     tasks.sort((a, b) =>
@@ -116,7 +128,7 @@ export class ActionTaskService {
     );
 
     // 5. Attach related products
-    const relatedMap = await this.getRelatedProducts(cid, year, month, inventoryRows);
+    const relatedMap = await this.getRelatedProducts(companyId, metrics);
 
     const result = tasks.map((t) => ({
       ...t,
@@ -454,40 +466,35 @@ export class ActionTaskService {
 
   private async getRelatedProducts(
     companyId: string,
-    year: number,
-    month: number,
-    inventoryRows: { currentStock: number; reorderPoint: number }[],
+    metrics: PerListingMetrics[],
   ): Promise<Record<string, RelatedProduct[]>> {
     const map: Record<string, RelatedProduct[]> = {};
-
-    // High ad rate products — ProfitLoss → listing → master (2-hop, B2c.dashboard C-03)
-    const plRows = await this.prisma.profitLoss.findMany({
-      where: { companyId, year, month },
-      include: {
-        listing: { include: { master: { select: { id: true, name: true } } } },
-      },
-    });
-
-    map['h-ad-bid'] = plRows
-      .filter((pl) => pl.revenue > 0 && pl.adCost > 0 && (pl.adCost / pl.revenue) * 100 > 15)
+    const highAdRows = metrics
+      .filter(
+        (metric) =>
+          metric.revenue > 0 &&
+          metric.adCost > 0 &&
+          (metric.adCost / metric.revenue) * 100 > 15,
+      )
       .slice(0, 20)
-      .map((pl) => ({
-        id: pl.listing?.master.id ?? pl.listingId,
-        name: pl.listing?.master.name ?? 'N/A',
+      .map((metric) => ({
+        id: metric.masterId,
+        name: metric.masterName,
         metric: '광고비율',
-        value: `${Math.round((pl.adCost / pl.revenue) * 1000) / 10}%`,
+        value: `${Math.round((metric.adCost / metric.revenue) * 1000) / 10}%`,
       })) satisfies ActionTaskRelatedProduct[];
+    map['h-ad-bid'] = highAdRows;
+    map['analyze-ad'] = highAdRows;
 
-    // Minus products
-    const minusRows = plRows.filter((pl) => pl.netProfit < 0).slice(0, 20);
-    const minusProducts = minusRows.map((pl) => ({
-      id: pl.listing?.master.id ?? pl.listingId,
-      name: pl.listing?.master.name ?? 'N/A',
-      metric: '이익률',
-      value: pl.revenue > 0
-        ? `${Math.round((pl.netProfit / pl.revenue) * 1000) / 10}%`
-        : '매출 0',
-    })) satisfies ActionTaskRelatedProduct[];
+    const minusProducts = metrics
+      .filter((metric) => metric.netProfit < 0)
+      .slice(0, 20)
+      .map((metric) => ({
+        id: metric.masterId,
+        name: metric.masterName,
+        metric: '이익률',
+        value: metric.revenue > 0 ? `${Math.round(metric.profitRate * 10) / 10}%` : '매출 0',
+      })) satisfies ActionTaskRelatedProduct[];
     map['h-minus-ad-stop'] = minusProducts;
     map['h-minus-price'] = minusProducts;
     map['h-price-reset'] = minusProducts;
