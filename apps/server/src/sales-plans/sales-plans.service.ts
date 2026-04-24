@@ -1,11 +1,22 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { buildPerListingMetrics } from '../common/per-listing-profit';
 import { kstMonthStart } from '../common/kst';
 import { CreateSalesPlanDto, UpdateSalesPlanDto } from './dto';
+
+const EXCLUDED_ORDER_STATUSES = ['cancelled', 'returned', 'refunded'] as const;
 
 @Injectable()
 export class SalesPlansService {
   constructor(private readonly prisma: PrismaService) {}
+
+  private resolveWindow(period: string) {
+    const [year, month] = period.split('-').map(Number);
+    return {
+      from: kstMonthStart(year, month),
+      to: kstMonthStart(year, month + 1),
+    };
+  }
 
   async findAll(companyId: string) {
     return this.prisma.salesPlan.findMany({
@@ -62,40 +73,31 @@ export class SalesPlansService {
       throw new NotFoundException('판매 계획을 찾을 수 없습니다');
     }
 
-    const [year, month] = plan.period.split('-').map(Number);
-    const periodStart = kstMonthStart(year, month);
-    const periodEnd = kstMonthStart(year, month + 1);
+    const { from, to } = this.resolveWindow(plan.period);
 
-    // Aggregate actuals from Order (KST month boundary)
-    const orderAgg = await this.prisma.order.aggregate({
-      where: {
-        companyId,
-        orderedAt: {
-          gte: periodStart,
-          lt: periodEnd,
+    const [orderAgg, metrics] = await Promise.all([
+      this.prisma.order.aggregate({
+        where: {
+          companyId,
+          orderedAt: {
+            gte: from,
+            lt: to,
+          },
+          status: { notIn: [...EXCLUDED_ORDER_STATUSES] },
         },
-        status: { notIn: ['cancelled', 'returned'] },
-      },
-      _sum: { totalPrice: true },
-      _count: { id: true },
-    });
-
-    // Aggregate actuals from ProfitLoss
-    const plAgg = await this.prisma.profitLoss.aggregate({
-      where: {
-        companyId,
-        year,
-        month,
-      },
-      _sum: { netProfit: true },
-    });
+        _sum: { totalPrice: true },
+        _count: { id: true },
+      }),
+      buildPerListingMetrics(this.prisma, companyId, from, to),
+    ]);
+    const actualProfit = metrics.reduce((sum, metric) => sum + metric.netProfit, 0);
 
     return this.prisma.salesPlan.update({
       where: { id },
       data: {
         actualRevenue: orderAgg._sum.totalPrice ?? 0,
         actualOrders: orderAgg._count.id ?? 0,
-        actualProfit: plAgg._sum.netProfit ?? 0,
+        actualProfit,
       },
     });
   }

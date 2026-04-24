@@ -1,6 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
+import { buildPerListingMetrics } from '../../common/per-listing-profit';
 import { SalesPlansService } from '../sales-plans.service';
+
+vi.mock('../../common/per-listing-profit', () => ({
+  buildPerListingMetrics: vi.fn(),
+}));
+
+const mockedBuildPerListingMetrics = vi.mocked(buildPerListingMetrics);
 
 /**
  * Plan B2c.orders T9 — sales-plans IDOR 3건 + KST boundary.
@@ -21,9 +28,6 @@ function makePrisma() {
     order: {
       aggregate: vi.fn(),
     },
-    profitLoss: {
-      aggregate: vi.fn(),
-    },
   };
 }
 
@@ -34,6 +38,8 @@ describe('SalesPlansService', () => {
   beforeEach(() => {
     prisma = makePrisma();
     service = new SalesPlansService(prisma as any);
+    mockedBuildPerListingMetrics.mockReset();
+    mockedBuildPerListingMetrics.mockResolvedValue([]);
   });
 
   describe('findAll', () => {
@@ -121,7 +127,7 @@ describe('SalesPlansService', () => {
       );
 
       expect(prisma.order.aggregate).not.toHaveBeenCalled();
-      expect(prisma.profitLoss.aggregate).not.toHaveBeenCalled();
+      expect(mockedBuildPerListingMetrics).not.toHaveBeenCalled();
     });
 
     it('uses kstMonthStart for Order.aggregate window (2026-04-30 23:30 KST falls into April)', async () => {
@@ -134,7 +140,9 @@ describe('SalesPlansService', () => {
         _sum: { totalPrice: 5_000_000 },
         _count: { id: 12 },
       });
-      prisma.profitLoss.aggregate.mockResolvedValue({ _sum: { netProfit: 1_000_000 } });
+      mockedBuildPerListingMetrics.mockResolvedValue([
+        { listingId: 'l1', netProfit: 1_000_000 } as any,
+      ]);
       prisma.salesPlan.update.mockResolvedValue({ id: 'p1' });
 
       await service.syncActuals('p1', 'company-1');
@@ -157,7 +165,15 @@ describe('SalesPlansService', () => {
 
       // Scope check — uses injected companyId, not plan.companyId implicitly
       expect(aggregateCall.where.companyId).toBe('company-1');
-      expect(aggregateCall.where.status).toEqual({ notIn: ['cancelled', 'returned'] });
+      expect(aggregateCall.where.status).toEqual({
+        notIn: ['cancelled', 'returned', 'refunded'],
+      });
+      expect(mockedBuildPerListingMetrics).toHaveBeenCalledWith(
+        prisma as any,
+        'company-1',
+        window.gte,
+        window.lt,
+      );
     });
 
     it('writes aggregate sums to actualRevenue / actualOrders / actualProfit', async () => {
@@ -170,7 +186,10 @@ describe('SalesPlansService', () => {
         _sum: { totalPrice: 3_200_000 },
         _count: { id: 27 },
       });
-      prisma.profitLoss.aggregate.mockResolvedValue({ _sum: { netProfit: 640_000 } });
+      mockedBuildPerListingMetrics.mockResolvedValue([
+        { listingId: 'l1', netProfit: 700_000 } as any,
+        { listingId: 'l2', netProfit: -60_000 } as any,
+      ]);
       prisma.salesPlan.update.mockResolvedValue({ id: 'p1' });
 
       await service.syncActuals('p1', 'company-1');
@@ -185,7 +204,7 @@ describe('SalesPlansService', () => {
       });
     });
 
-    it('defaults to zero when Order.aggregate and ProfitLoss.aggregate return null sums', async () => {
+    it('defaults to zero when Order.aggregate is empty and live metrics are empty', async () => {
       prisma.salesPlan.findFirst.mockResolvedValue({
         id: 'p1',
         companyId: 'company-1',
@@ -195,7 +214,7 @@ describe('SalesPlansService', () => {
         _sum: { totalPrice: null },
         _count: { id: 0 },
       });
-      prisma.profitLoss.aggregate.mockResolvedValue({ _sum: { netProfit: null } });
+      mockedBuildPerListingMetrics.mockResolvedValue([]);
       prisma.salesPlan.update.mockResolvedValue({ id: 'p1' });
 
       await service.syncActuals('p1', 'company-1');
@@ -220,7 +239,7 @@ describe('SalesPlansService', () => {
         _sum: { totalPrice: 0 },
         _count: { id: 0 },
       });
-      prisma.profitLoss.aggregate.mockResolvedValue({ _sum: { netProfit: 0 } });
+      mockedBuildPerListingMetrics.mockResolvedValue([]);
       prisma.salesPlan.update.mockResolvedValue({ id: 'p1' });
 
       await service.syncActuals('p1', 'company-1');
@@ -230,6 +249,12 @@ describe('SalesPlansService', () => {
       expect(window.gte.toISOString()).toBe('2026-11-30T15:00:00.000Z');
       // periodEnd = 2027-01-01 KST = 2026-12-31 15:00 UTC
       expect(window.lt.toISOString()).toBe('2026-12-31T15:00:00.000Z');
+      expect(mockedBuildPerListingMetrics).toHaveBeenCalledWith(
+        prisma as any,
+        'company-1',
+        window.gte,
+        window.lt,
+      );
     });
   });
 
