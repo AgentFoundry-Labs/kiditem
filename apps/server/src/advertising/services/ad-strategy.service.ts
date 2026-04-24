@@ -6,6 +6,8 @@ import {
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AgentRegistryService } from '../../agent-registry/agent-registry.service';
+import { buildPerListingMetrics } from '../../common/per-listing-profit';
+import { kstMonthStart } from '../../common/kst';
 import { AdConfigService } from './ad-config.service';
 import { AdGradeRulesService } from './ad-grade-rules.service';
 import { AdBudgetAllocatorService } from './ad-budget-allocator.service';
@@ -52,6 +54,13 @@ export class AdStrategyService {
     private readonly adExposure: AdExposureService,
     private readonly adRecommend: AdRecommendService,
   ) {}
+
+  private resolveMonthWindow(year: number, month: number) {
+    return {
+      from: kstMonthStart(year, month),
+      to: kstMonthStart(year, month + 1),
+    };
+  }
 
   // ───── PUBLIC API (6 endpoints) ─────
 
@@ -103,7 +112,6 @@ export class AdStrategyService {
         adGroups: ctx.adGroups,
       }),
       top20: this.adBudgetAllocator.calcTop20({
-        profitLosses: ctx.profitLosses,
         listings: ctx.listings,
         adGroups: ctx.adGroups,
       }),
@@ -361,7 +369,7 @@ export class AdStrategyService {
    *
    * B2b 원본 calcActions (line 653-938) 의 fetch 부분과 정합:
    *  - prisma.ad.groupBy(['listingId']) 전체 기간 aggregate
-   *  - listingIds + current month profitLoss 병렬 hydrate
+   *  - listingIds + current month live metrics 병렬 hydrate
    *  - ad-grade-rules.calcActions 에 adGroups + listings + gradeMap + profitRate 전달
    */
   private async buildActions(companyId: string): Promise<AdStrategyAction[]> {
@@ -380,7 +388,7 @@ export class AdStrategyService {
    *
    * calcActions 대상: 전체 기간 ad aggregate.
    * calcAdIssues 대상: 최근 14 일 ad aggregate (B2b 원본 line 955-963).
-   * profitLoss: 현재 year/month 기준 listing 별 profitRate (* 100 으로 백분율화).
+   * live metrics: 현재 year/month 기준 listing 별 profitRate percentage.
    */
   private async loadStrategyContext(companyId: string, year: number, month: number) {
     const since14d = new Date();
@@ -404,34 +412,26 @@ export class AdStrategyService {
       ...adAggAll.map((a) => a.listingId),
       ...adAgg14d.map((a) => a.listingId),
     ]);
+    const listingIdSet = new Set(listingIds);
+    const { from, to } = this.resolveMonthWindow(year, month);
 
-    const [listings, profitLossRows] = await Promise.all([
+    const [listings, liveMetrics] = await Promise.all([
       hydrateListings(this.prisma, companyId, listingIds),
-      this.prisma.profitLoss.findMany({
-        where: { companyId, year, month, listingId: { in: listingIds } },
-        select: { listingId: true, netProfit: true, profitRate: true, revenue: true, adCost: true },
-      }),
+      listingIds.length === 0
+        ? Promise.resolve([])
+        : buildPerListingMetrics(this.prisma, companyId, from, to).then((rows) =>
+            rows.filter((row) => listingIdSet.has(row.listingId)),
+          ),
     ]);
 
-    // B2b 원본: profitRate 는 Number(pl.profitRate ?? 0) * 100 으로 백분율화.
-    const profitRateByListing = new Map<string, number>();
-    for (const pl of profitLossRows) {
-      if (!pl.listingId) continue;
-      const rate = pl.profitRate != null ? Number(pl.profitRate) * 100 : 0;
-      profitRateByListing.set(pl.listingId, rate);
-    }
-    // Top20Input 용 profitLoss remap (profit = netProfit).
-    const profitLosses = profitLossRows.map((pl) => ({
-      listingId: pl.listingId as string | null,
-      profit: pl.netProfit as number | null,
-      profitRate: pl.profitRate,
-    }));
+    const profitRateByListing = new Map<string, number>(
+      liveMetrics.map((metric) => [metric.listingId, metric.profitRate]),
+    );
 
     return {
       adGroups: toAdAggregateRows(adAggAll),
       adIssuesAdGroups: toAdAggregateRows(adAgg14d),
       listings,
-      profitLosses,
       profitRateByListing,
       gradeMap: buildGradeMap(listings),
       config: config satisfies AdsConfig,

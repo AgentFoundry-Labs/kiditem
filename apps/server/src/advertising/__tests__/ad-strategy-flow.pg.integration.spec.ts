@@ -17,6 +17,7 @@ import {
   TEST_COMPANY_ID,
   OTHER_COMPANY_ID,
 } from '../../test-helpers/real-prisma';
+import { seedOrderWithLineItems } from '../../test-helpers/finance-seeds';
 
 describe('AdStrategy flow (PG integration)', () => {
   let prisma: PrismaClient;
@@ -67,7 +68,7 @@ describe('AdStrategy flow (PG integration)', () => {
         channelName: `Channel ${params.suffix}`,
       },
     });
-    await prisma.channelListingOption.create({
+    const listingOption = await prisma.channelListingOption.create({
       data: {
         companyId: params.companyId,
         listingId: listing.id,
@@ -76,7 +77,7 @@ describe('AdStrategy flow (PG integration)', () => {
         isActive: true,
       },
     });
-    return { master, option, listing };
+    return { master, option, listing, listingOption };
   }
 
   async function seedAd(params: {
@@ -141,46 +142,46 @@ describe('AdStrategy flow (PG integration)', () => {
 
   describe('getRules / getWeeklyPlan — 3-grade listing scenario', () => {
     it('#1 A 등급 ROAS 480+ → recommendations 에 포함 + summary 집계', async () => {
-      const now = new Date();
-      const { year, month } = { year: now.getFullYear(), month: now.getMonth() + 1 };
-
       const a = await seedGradedListing({
         companyId: TEST_COMPANY_ID,
         abcGrade: 'A',
         adTier: '1차',
         healthScore: 80,
+        costPrice: 10_000,
         suffix: 'A-EXPAND',
+      });
+      await seedOrderWithLineItems(prisma, {
+        companyId: TEST_COMPANY_ID,
+        externalOrderId: 'ORD-A-EXPAND',
+        orderedAt: new Date().toISOString(),
+        shippingPrice: 2_000,
+        lineItems: [
+          {
+            quantity: 1,
+            totalPrice: 20_000,
+            optionId: a.option.id,
+            listingOptionId: a.listingOption.id,
+          },
+        ],
       });
       await seedAd({
         companyId: TEST_COMPANY_ID,
         listingId: a.listing.id,
         optionId: a.option.id,
-        spend: 10000,
-        revenue: 50000,
+        spend: 2_000,
+        revenue: 10_000,
         clicks: 100,
         impressions: 10000,
         conversions: 10,
-      });
-      await prisma.profitLoss.create({
-        data: {
-          companyId: TEST_COMPANY_ID,
-          listingId: a.listing.id,
-          year,
-          month,
-          revenue: 50000,
-          adCost: 10000,
-          profitRate: 0.2,
-        },
       });
 
       const rules = await service.getRules('14d', TEST_COMPANY_ID);
 
       expect(rules.recommendations.length).toBeGreaterThanOrEqual(1);
-      const aAction = rules.recommendations.find(
-        (a) => a.listing.listingId === rules.recommendations[0].listing.listingId,
-      );
+      const aAction = rules.recommendations.find((row) => row.listing.listingId === a.listing.id);
       expect(aAction?.grade).toBe('A');
       expect(aAction?.priority).toBe('high');
+      expect(aAction?.proposedValue).toBe(20);
       expect(rules.summary.totalActions).toBe(rules.recommendations.length);
       expect(rules.summary.urgentCount).toBe(
         rules.recommendations.filter((r) => r.priority === 'urgent').length,
@@ -252,13 +253,11 @@ describe('AdStrategy flow (PG integration)', () => {
     });
 
     it('#3 getWeeklyPlan 의 issues + tierAnalysis + top20 shape', async () => {
-      const now = new Date();
-      const { year, month } = { year: now.getFullYear(), month: now.getMonth() + 1 };
-
       const a = await seedGradedListing({
         companyId: TEST_COMPANY_ID,
         abcGrade: 'A',
         adTier: '1차',
+        costPrice: 10_000,
         suffix: 'A-TOP',
       });
 
@@ -276,17 +275,19 @@ describe('AdStrategy flow (PG integration)', () => {
           conversions: 5,
         });
       }
-
-      await prisma.profitLoss.create({
-        data: {
-          companyId: TEST_COMPANY_ID,
-          listingId: a.listing.id,
-          year,
-          month,
-          revenue: 300000,
-          adCost: 150000,
-          profitRate: 0.15,
-        },
+      await seedOrderWithLineItems(prisma, {
+        companyId: TEST_COMPANY_ID,
+        externalOrderId: 'ORD-A-TOP',
+        orderedAt: new Date().toISOString(),
+        shippingPrice: 2_000,
+        lineItems: [
+          {
+            quantity: 1,
+            totalPrice: 20_000,
+            optionId: a.option.id,
+            listingOptionId: a.listingOption.id,
+          },
+        ],
       });
 
       const plan = await service.getWeeklyPlan('14d', TEST_COMPANY_ID);

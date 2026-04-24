@@ -1,5 +1,12 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { buildPerListingMetrics } from '../../../common/per-listing-profit';
 import { AdStrategyService } from '../ad-strategy.service';
+
+vi.mock('../../../common/per-listing-profit', () => ({
+  buildPerListingMetrics: vi.fn(),
+}));
+
+const mockedBuildPerListingMetrics = vi.mocked(buildPerListingMetrics);
 
 /**
  * Orchestrator 의 thin delegation 확인 전용 (Plan B2b.refactor T9 + T7-fix).
@@ -22,10 +29,11 @@ describe('AdStrategyService (orchestrator delegation)', () => {
       ad: { groupBy: vi.fn().mockResolvedValue([]) },
       channelListing: { findMany: vi.fn().mockResolvedValue([]) },
       channelListingOption: { findMany: vi.fn().mockResolvedValue([]) },
-      profitLoss: { findMany: vi.fn().mockResolvedValue([]) },
       review: { groupBy: vi.fn().mockResolvedValue([]) },
       trafficStats: { findMany: vi.fn().mockResolvedValue([]) },
     };
+    mockedBuildPerListingMetrics.mockReset();
+    mockedBuildPerListingMetrics.mockResolvedValue([]);
     adConfig = { getConfig: vi.fn().mockResolvedValue({}) };
     agentRegistry = { findByType: vi.fn().mockResolvedValue(null) };
     adGradeRules = {
@@ -81,6 +89,48 @@ describe('AdStrategyService (orchestrator delegation)', () => {
     expect(adGradeRules.calcAdIssues).toHaveBeenCalled();
     expect(adBudgetAllocator.calcTierAnalysis).toHaveBeenCalled();
     expect(adBudgetAllocator.calcTop20).toHaveBeenCalled();
+  });
+
+  it('getWeeklyPlan passes live percentage profit rates without multiplying by 100', async () => {
+    prisma.ad.groupBy
+      .mockResolvedValueOnce([
+        {
+          listingId: 'L1',
+          _sum: { spend: 10000, revenue: 50000, clicks: 100, impressions: 10000, conversions: 10 },
+        },
+      ])
+      .mockResolvedValueOnce([]);
+    mockedBuildPerListingMetrics.mockResolvedValue([
+      {
+        listingId: 'L1',
+        externalId: 'EXT-1',
+        channel: 'coupang',
+        channelName: '쿠팡',
+        masterId: 'M1',
+        masterCode: 'M-1',
+        masterName: '상품 1',
+        category: null,
+        grade: 'A',
+        thumbnailUrl: null,
+        revenue: 20000,
+        costOfGoods: 10000,
+        commission: 2000,
+        shippingCost: 2000,
+        adCost: 2000,
+        otherCost: 0,
+        netProfit: 4000,
+        profitRate: 20,
+        orderCount: 1,
+      },
+    ]);
+
+    await service.getWeeklyPlan('14d', 'company-1');
+
+    const gradeArg = adGradeRules.calcActions.mock.calls[0]?.[0];
+    expect(gradeArg.profitRateByListing.get('L1')).toBe(20);
+
+    const top20Arg = adBudgetAllocator.calcTop20.mock.calls[0]?.[0];
+    expect(top20Arg).not.toHaveProperty('profitLosses');
   });
 
   it('getAiEnhancedPlan → getWeeklyPlan 결과를 adRecommend.enhanceActionsWithAi 로 전달', async () => {

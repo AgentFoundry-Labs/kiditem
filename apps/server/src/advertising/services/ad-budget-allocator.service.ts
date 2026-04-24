@@ -26,7 +26,7 @@ import { toListingSummary } from './util/ad-strategy-helpers';
  *  - 모든 prisma.* / adConfigService.getConfig 호출 제거 (orchestrator 가 input 으로 hydrate).
  *  - productId → listingId.
  *  - calcTierAnalysis: 단일 prisma.ad.groupBy(['listingId']) 결과 + listing.masterProduct.adTier 로 in-memory roll-up.
- *  - calcTop20: 정렬은 ad spend desc → revenue desc tie-break (Plan v2 amendment, profitLosses 는 input 보존).
+ *  - calcTop20: 정렬은 ad spend desc → revenue desc tie-break (Plan v2 amendment).
  *  - toListingSummary 는 util/ad-strategy-helpers import (DRY).
  */
 @Injectable()
@@ -167,9 +167,8 @@ export class AdBudgetAllocatorService {
    *
    * 기존 ad-strategy.service.ts:1067-1144 본문 이전.
    * 변경:
-   *  - prisma.profitLoss.findMany / prisma.channelListing.findMany / prisma.ad.groupBy 제거.
-   *  - 정렬 기준: ad spend desc → revenue desc tie-break (기존 profitLoss.revenue desc 에서 변경, Plan v2).
-   *  - profitLosses 는 input 으로 보존 (향후 profit-aware enrichment 자리만 마련; 현재는 unused).
+   *  - prisma.channelListing.findMany / prisma.ad.groupBy 제거.
+   *  - 정렬 기준: ad spend desc → revenue desc tie-break.
    *  - listing 에 매칭되는 adGroup 이 없으면 (광고 0건) skip.
    */
   calcTop20(input: Top20Input): AdTop20Item[] {

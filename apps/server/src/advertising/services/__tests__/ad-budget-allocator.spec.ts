@@ -327,7 +327,6 @@ describe('AdBudgetAllocatorService.calcTop20', () => {
       { listingId: 'L_C', spend: 5000, impressions: 0, clicks: 0, conversions: 0, revenue: 0 },
     ];
     const result = service.calcTop20({
-      profitLosses: [],
       listings: [listingA, listingB, listingC],
       adGroups,
     });
@@ -343,7 +342,6 @@ describe('AdBudgetAllocatorService.calcTop20', () => {
 
   it('skips listings without an adGroup match (광고 0건)', () => {
     const result = service.calcTop20({
-      profitLosses: [],
       listings: [listingA, listingB],
       adGroups: [
         { listingId: 'L_A', spend: 1000, impressions: 0, clicks: 0, conversions: 0, revenue: 5000 },
@@ -381,7 +379,7 @@ describe('AdBudgetAllocatorService.calcTop20', () => {
         revenue: 0,
       });
     }
-    const result = service.calcTop20({ profitLosses: [], listings, adGroups });
+    const result = service.calcTop20({ listings, adGroups });
     expect(result).toHaveLength(20);
     // 첫 번째 = spend 가장 큰 listing (i=24)
     expect(result[0].listing.listingId).toBe('L_24');
@@ -391,7 +389,6 @@ describe('AdBudgetAllocatorService.calcTop20', () => {
 
   it('returns AdListingSummary with option:null + masterProduct trimmed (toListingSummary)', () => {
     const result = service.calcTop20({
-      profitLosses: [],
       listings: [listingA],
       adGroups: [
         { listingId: 'L_A', spend: 100, impressions: 1000, clicks: 50, conversions: 5, revenue: 500 },

@@ -141,22 +141,13 @@ export interface AdAggregateRow {
   revenue: number;
 }
 
-/**
- * listingId 당 profitLoss 축약. B2b calcActions 는 `profitRate * 100` 을
- * action.proposedValue 로 환원 (원본 line 691).
- */
-export interface ProfitLossRow {
-  listingId: string;
-  profitRate: number;
-}
-
 // ───── Sub-service input types ─────
 
 export interface GradeRulesInput {
   adGroups: AdAggregateRow[];
   listings: HydratedListing[];
   gradeMap: Map<string, 'A' | 'B' | 'C' | null>;
-  /** listingId → profitRate 백분율 (profitLoss.profitRate * 100). miss 시 0. */
+  /** listingId -> live monthly profitRate percentage (for example 20, -5.4, 0). */
   profitRateByListing: Map<string, number>;
 }
 
@@ -190,7 +181,6 @@ export interface TierAnalysisInput {
 }
 
 export interface Top20Input {
-  profitLosses: Array<{ listingId: string | null; profit: number | null; profitRate: Prisma.Decimal | null }>;
   listings: HydratedListing[];
   adGroups: AdAggregateRow[];
 }
