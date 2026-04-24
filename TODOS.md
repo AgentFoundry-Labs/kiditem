@@ -42,3 +42,88 @@ Cross-cutting deferred work. Each item has Context (why), Depends on (blockers),
 - [ ] `apps/web/src/hooks/__tests__/useProductImages.test.ts` 에 error path 케이스 추가.
 
 **Refs**: `apps/web/src/hooks/useProductImages.ts`, `apps/web/src/app/image-hub/page.tsx`, `apps/web/src/app/generate/page.tsx`, `docs/superpowers/specs/2026-04-16-thumbnail-editor-hub-import-design.md` (이 PR 에서 모달 silent fallback 감지)
+
+---
+
+## Agent/Workflow 재설계 — 제품 액션 계약 (post product-contract-rewire)
+
+**Context**: `docs/superpowers/plans/2026-04-24-product-contract-rewire.md` 가 product read path 만 배달하면서 복잡 write 경로의 **backend 연결**을 제거함. 상태:
+
+- 프론트 `apps/web/src/app/products/[id]/hooks/useProductActions.ts` 의 4 액션 (adjust_price / stop_ads / discontinue / change_grade) — UI 버튼 + 확인 모달은 그대로 유지됨. Hook 의 `product.*` 브랜치는 legacy `PATCH /api/products/:id` 호출을 제거하고 "기능 준비 중" 토스트만 남김. 본 TODO 는 canonical 계약 확정 후 이 hook 에 `/api/products/masters/:id` + `/api/products/options/:optionId` write 배선 복구가 목표.
+- 백엔드는 compile-only 로 남겨둠: `apps/server/src/workflows/actions/catalog.ts:27,37,47,62` 의 액션 템플릿은 legacy URL 문자열 그대로라 런타임 404 발생 (accepted breakage)
+- `apps/server/src/action-task/action-task.service.ts:411,419,435,453` 의 write-like `/api/products/*` 호출도 동 위
+
+스펙 §6.1 write-path matrix 가 캐노니컬 계약 확정 — 이걸 구현체로 옮기고 + multi-option picker UX + workflow/agent action 체계 재설계 함께 진행.
+
+**Depends on / blocked by**:
+- Product contract rewire PR 선착 (공유 타입/카탈로그 엔드포인트/GET alias 존재 전제)
+- Agent 자율성 레벨 (feedback_agent_autonomy_levels memory: 챗봇 = HITL, 매니저 = 자율) 기반으로 workflow action trigger 신뢰모델 재검토
+
+**Acceptance (완료 조건)**:
+- [ ] Master/Option 레벨 PATCH 를 분기하는 UI hook (`useProductActions` 부활 or 대체) — spec §6.1 write-path matrix 준수
+- [ ] Multi-option master 의 sell price 쓰기 — option picker UI (단일옵션이면 자동 선택, 그 외에는 명시적 선택)
+- [ ] `stop_ads` 의 `adTier: 'off'` vs `null` 결단 + 서버 count 정합
+- [ ] `workflows/actions/catalog.ts` 액션 템플릿 재작성 — `/api/products/masters/:id` + `/api/products/options/:optionId` 직접 호출로
+- [ ] `action-task.service.ts` 의 `/api/products/*` write 호출 재작성 (필요시 `/calculate-grades` POST 재도입 결정 포함)
+- [ ] Legacy alias 컨트롤러에서 PATCH/PUT 안 열고 이전 PR 의 GET-only 상태 유지 (write 는 모두 canonical 경로)
+- [ ] `AddProductModal` 옵션 생성 flow — master 생성 후 옵션 추가 wizard/모달 (현재는 master-only)
+- [ ] Activity feed subscription 이 `/api/products/masters/:id` + `/options/:optionId` 쓰기에 반응하는지 검증
+
+**Refs**:
+- `docs/superpowers/specs/2026-04-24-product-contract-rewire-design.md` §6.1 write-path matrix
+- `docs/superpowers/plans/2026-04-24-product-contract-rewire.md` §Deferred Work
+- `apps/server/src/workflows/actions/catalog.ts`
+- `apps/server/src/action-task/action-task.service.ts`
+
+---
+
+## ProductImageItem phantom import 정리 — image-hub / thumbnail-editor
+
+**Context**: product-contract-rewire PR 이 `@kiditem/shared` 의 `ProductImageItem` 을 실제 존재하는 `MasterImageItem` 으로 교체. product 도메인 내부 소비자는 정리했으나, 도메인 경계 밖 4 파일이 여전히 phantom import 를 사용:
+
+- `apps/web/src/app/image-hub/page.tsx:12`
+- `apps/web/src/app/image-hub/components/ImageGrid.tsx:5`
+- `apps/web/src/app/thumbnail-editor/components/EditorInputPanel.tsx:8`
+- `apps/web/src/app/thumbnail-editor/components/HubInlinePicker.tsx:9`
+
+각 도메인 자체 plan 에서 처리해야 함 (product-contract PR 의 ADR-0019 세션 경계 밖).
+
+**Depends on / blocked by**:
+- Product contract rewire PR 선착 (`MasterImageItem` export 확보)
+
+**Acceptance (완료 조건)**:
+- [ ] image-hub 2 파일 → `MasterImageItem` import 로 교체 + 필드 참조 확인
+- [ ] thumbnail-editor 2 파일 → 동 위
+- [ ] 빌드 통과 + 해당 페이지 image 로드 스모크 테스트
+
+**Refs**: `packages/shared/src/schemas/product.ts` (MasterImageItem), product-contract rewire PR
+
+---
+
+## ProductCatalogService.counts — groupBy 최적화
+
+**Context**: product-contract-rewire 에서 도입된 `apps/server/src/products/services/product-catalog.service.ts` 의 `counts()` 메서드가 `findMany` 로 매칭 master 전수를 메모리 로드 후 카운트. 현재 kiditem 규모 (<5k 상품) 에선 수용 가능하지만 10k+ 로 커지면 O(N) 메모리/네트워크 낭비.
+
+**Depends on / blocked by**: 독립. 로우 카운트 모니터링 후 착수.
+
+**Acceptance (완료 조건)**:
+- [ ] `counts()` 을 `prisma.masterProduct.groupBy` 로 재작성 (abcGrade, adTier, pipelineStep, isTemporary 축별 SQL 집계)
+- [ ] 기존 테스트 유지 (계약 불변)
+- [ ] `pipeline-stats` alias 경로도 동일 최적화 혜택
+
+**Refs**: `apps/server/src/products/services/product-catalog.service.ts:977`
+
+---
+
+## originalImageBase64 SSRF allowlist
+
+**Context**: `apps/server/src/products/services/masters.service.ts` 의 `originalImageBase64` 가 `MasterProduct.imageUrl`/`thumbnailUrl`/`images[0].url` 에 대해 검증 없는 `fetch(url)` 호출. URL 출처가 1688/Alibaba 스크래핑이라 완전 신뢰 불가. SSRF 인접 리스크. product-contract-rewire 이전부터 있던 동작.
+
+**Depends on / blocked by**: 독립.
+
+**Acceptance (완료 조건)**:
+- [ ] CDN 도메인 allowlist 설정 (환경변수 또는 configuration, `*.alicdn.com`, `*.cdn.example.com` 등)
+- [ ] `originalImageBase64` 에서 URL 파싱 후 allowlist 체크, 불일치 시 `BadRequestException`
+- [ ] 동일 allowlist 를 `MasterSchema.images.url` write 검증에 재사용 (선택)
+
+**Refs**: `apps/server/src/products/services/masters.service.ts` originalImageBase64 method
