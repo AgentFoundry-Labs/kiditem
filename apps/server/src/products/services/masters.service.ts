@@ -1,5 +1,6 @@
 // apps/server/src/products/services/masters.service.ts
 import { randomUUID } from 'node:crypto';
+import { isIP } from 'node:net';
 import {
   BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException,
 } from '@nestjs/common';
@@ -237,22 +238,50 @@ export class MastersService {
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
       throw new BadRequestException('image url protocol must be http(s)');
     }
-    const host = parsed.hostname.toLowerCase();
-    // Block loopback / unspecified / known private ranges / metadata endpoints.
-    const blocked =
-      host === 'localhost' ||
-      host === '0.0.0.0' ||
-      host === '::1' ||
-      host === '::' ||
-      host === '169.254.169.254' || // cloud metadata
-      /^127\./.test(host) ||
-      /^10\./.test(host) ||
-      /^192\.168\./.test(host) ||
-      /^172\.(1[6-9]|2\d|3[01])\./.test(host) ||
-      /^169\.254\./.test(host) ||
-      /^fc[0-9a-f]{2}:/i.test(host) ||
-      /^fe80:/i.test(host);
-    if (blocked) throw new BadRequestException('image url host not allowed');
+    // `new URL('http://[::1]/').hostname` returns `[::1]` with brackets; strip them
+    // before IP classification. IPv6 zone-id (fe80::1%eth0) is also stripped.
+    const rawHost = parsed.hostname.toLowerCase();
+    let host = rawHost;
+    if (host.startsWith('[') && host.endsWith(']')) host = host.slice(1, -1);
+    const zoneIdx = host.indexOf('%');
+    if (zoneIdx !== -1) host = host.slice(0, zoneIdx);
+
+    // Hostname blocklist (non-IP).
+    if (host === 'localhost' || host === '') {
+      throw new BadRequestException('image url host not allowed');
+    }
+
+    const ipKind = isIP(host);
+    // Non-IP hostnames: accept here (full CDN allowlist is a follow-up — TODOS.md).
+    // We cannot resolve DNS synchronously in this path without adding latency and
+    // TOCTOU complexity; tracked for the allowlist slice.
+    if (ipKind === 0) return;
+
+    if (ipKind === 4) {
+      // IPv4 private + special ranges. node's isIPv4 already guarantees dotted quads.
+      const blocked4 =
+        /^127\./.test(host) ||            // loopback
+        /^10\./.test(host) ||              // RFC1918
+        /^192\.168\./.test(host) ||        // RFC1918
+        /^172\.(1[6-9]|2\d|3[01])\./.test(host) || // RFC1918
+        /^169\.254\./.test(host) ||        // link-local incl. 169.254.169.254 cloud metadata
+        /^0\./.test(host) ||               // unspecified / "this network"
+        /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(host); // CGNAT 100.64/10
+      if (blocked4) throw new BadRequestException('image url host not allowed');
+      return;
+    }
+
+    if (ipKind === 6) {
+      // Canonical IPv6 forms for loopback / unspecified / link-local / ULA.
+      const blocked6 =
+        host === '::1' ||
+        host === '::' ||
+        /^fe[89ab][0-9a-f]?:/.test(host) || // fe80::/10 link-local (and fe8X:/fe9X:/feAX:/feBX:)
+        /^fc[0-9a-f]{2}:/.test(host) ||     // fc00::/7 ULA
+        /^fd[0-9a-f]{2}:/.test(host);       // fd00::/8 ULA
+      if (blocked6) throw new BadRequestException('image url host not allowed');
+      return;
+    }
   }
 
   /**

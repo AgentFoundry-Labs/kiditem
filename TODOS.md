@@ -50,8 +50,8 @@ Cross-cutting deferred work. Each item has Context (why), Depends on (blockers),
 **Context**: `docs/superpowers/plans/2026-04-24-product-contract-rewire.md` 가 product read path 만 배달하면서 복잡 write 경로의 **backend 연결**을 제거함. 상태:
 
 - 프론트 `apps/web/src/app/products/[id]/hooks/useProductActions.ts` 의 4 액션 (adjust_price / stop_ads / discontinue / change_grade) — UI 버튼 + 확인 모달은 그대로 유지됨. Hook 의 `product.*` 브랜치는 legacy `PATCH /api/products/:id` 호출을 제거하고 "기능 준비 중" 토스트만 남김. 본 TODO 는 canonical 계약 확정 후 이 hook 에 `/api/products/masters/:id` + `/api/products/options/:optionId` write 배선 복구가 목표.
-- 백엔드는 compile-only 로 남겨둠: `apps/server/src/workflows/actions/catalog.ts:27,37,47,62` 의 액션 템플릿은 legacy URL 문자열 그대로라 런타임 404 발생 (accepted breakage)
-- `apps/server/src/action-task/action-task.service.ts:411,419,435,453` 의 write-like `/api/products/*` 호출도 동 위
+- 서버 `apps/server/src/workflows/actions/catalog.ts` — 4 개 product write action 템플릿 (`product.adjust_price` / `stop_ads` / `discontinue` / `change_grade`) 이 이번 PR 에서 **삭제**됨. LLM 프롬프트가 더 이상 이 액션을 제안하지 않음. 본 TODO 는 canonical 경로 (`/api/products/masters/:id`, `/api/products/options/:optionId`) 로 재정의 + multi-option picker 를 고려한 새 액션 템플릿 추가.
+- `apps/server/src/action-task/action-task.service.ts:411,419,435,453` 의 `/api/products/*` 호출은 현재 GET alias 를 통해 동작 (`POST /calculate-grades` 도 alias 에 등록됨). 실제 grade 재계산 로직은 redesign 시 복원.
 
 스펙 §6.1 write-path matrix 가 캐노니컬 계약 확정 — 이걸 구현체로 옮기고 + multi-option picker UX + workflow/agent action 체계 재설계 함께 진행.
 
@@ -118,15 +118,16 @@ Cross-cutting deferred work. Each item has Context (why), Depends on (blockers),
 
 ---
 
-## originalImageBase64 SSRF allowlist
+## originalImageBase64 SSRF CDN allowlist
 
-**Context**: `apps/server/src/products/services/masters.service.ts` 의 `originalImageBase64` 가 `MasterProduct.imageUrl`/`thumbnailUrl`/`images[0].url` 에 대해 검증 없는 `fetch(url)` 호출. URL 출처가 1688/Alibaba 스크래핑이라 완전 신뢰 불가. SSRF 인접 리스크. product-contract-rewire 이전부터 있던 동작.
+**Context**: `apps/server/src/products/services/masters.service.ts` 의 `originalImageBase64` 는 product-contract-rewire PR 에서 최소 SSRF 방어를 추가함 — http(s) 스킴 강제 + IPv4/IPv6 private/loopback/link-local/ULA/CGNAT/cloud-metadata 차단. 그러나 임의 public host 는 여전히 허용됨. 1688/Alibaba 스크래핑 URL 외의 제3자 host 가 들어와도 통과.
 
 **Depends on / blocked by**: 독립.
 
 **Acceptance (완료 조건)**:
 - [ ] CDN 도메인 allowlist 설정 (환경변수 또는 configuration, `*.alicdn.com`, `*.cdn.example.com` 등)
-- [ ] `originalImageBase64` 에서 URL 파싱 후 allowlist 체크, 불일치 시 `BadRequestException`
+- [ ] `originalImageBase64` 에서 allowlist 체크, 불일치 시 `BadRequestException`
 - [ ] 동일 allowlist 를 `MasterSchema.images.url` write 검증에 재사용 (선택)
+- [ ] DNS rebinding / TOCTOU 완화 검토 (allowlist 이후 DNS resolve 시점과 fetch 시점 사이 race)
 
-**Refs**: `apps/server/src/products/services/masters.service.ts` originalImageBase64 method
+**Refs**: `apps/server/src/products/services/masters.service.ts` — `originalImageBase64` + `assertPublicHttpUrl`

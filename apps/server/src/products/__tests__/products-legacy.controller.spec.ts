@@ -61,6 +61,13 @@ describe('ProductsLegacyController (GET-only alias, e2e)', () => {
     expect(catalog.counts).toHaveBeenCalled();
   });
 
+  it('POST /products/calculate-grades returns counts with no write (action-task caller)', async () => {
+    const res = await request(app.getHttpServer()).post('/products/calculate-grades').send({});
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(catalog.counts).toHaveBeenCalled();
+  });
+
   it('GET /products/:id with non-UUID returns 400 (ParseUUIDPipe)', async () => {
     const res = await request(app.getHttpServer()).get('/products/not-a-uuid');
     expect(res.status).toBe(400);

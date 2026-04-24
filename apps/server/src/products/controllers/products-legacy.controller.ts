@@ -1,4 +1,4 @@
-import { Controller, Get, Header, Param, ParseUUIDPipe, Query } from '@nestjs/common';
+import { Controller, Get, Header, HttpCode, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
 import { ProductCatalogService } from '../services/product-catalog.service';
 import { MastersService } from '../services/masters.service';
@@ -41,12 +41,27 @@ export class ProductsLegacyController {
     return this.catalog.counts(companyId, q);
   }
 
+  // Both GET and POST supported for calculate-grades: action-task.service.ts:411
+  // currently POSTs it, while any manual invocation tends to GET. Spec §3.4 lists
+  // POST explicitly; we expose both to match real callers. No grade write occurs —
+  // it returns current catalog counts as a read-only stub until the agent/workflow
+  // redesign reimplements full grade recalculation.
   @Get('calculate-grades')
   @Header('Deprecation', DEPRECATION_HEADER)
   @Header('Sunset', SUNSET_HEADER)
-  async calculateGrades(
-    @CurrentCompany() companyId: string,
-  ) {
+  async calculateGradesGet(@CurrentCompany() companyId: string) {
+    return this.calculateGradesImpl(companyId);
+  }
+
+  @Post('calculate-grades')
+  @HttpCode(200)
+  @Header('Deprecation', DEPRECATION_HEADER)
+  @Header('Sunset', SUNSET_HEADER)
+  async calculateGradesPost(@CurrentCompany() companyId: string) {
+    return this.calculateGradesImpl(companyId);
+  }
+
+  private async calculateGradesImpl(companyId: string) {
     return {
       ok: true,
       counts: await this.catalog.counts(companyId),

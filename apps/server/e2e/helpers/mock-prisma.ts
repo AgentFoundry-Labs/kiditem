@@ -18,7 +18,10 @@ function createModelMock() {
 
 const models = [
   'user',
-  'product', 'order', 'coupangOrderItem', 'inventory', 'review',
+  // 3-layer product schema (ADR-0013): MasterProduct + ProductOption + BundleComponent.
+  // Legacy `product` kept for any test harness references; real Prisma schema no longer has it.
+  'product', 'masterProduct', 'productOption', 'bundleComponent',
+  'order', 'coupangOrderItem', 'inventory', 'review',
   'company', 'supplier', 'warehouse', 'ad', 'profitLoss',
   'workflowTemplate', 'workflowRun', 'activityEvent', 'alert',
   'agentDefinition', 'agentTask', 'agentLog', 'agentEvent',

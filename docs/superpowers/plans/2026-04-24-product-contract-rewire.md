@@ -1359,7 +1359,11 @@ export class ProductsLegacyController {
 ```
 
 Notes:
-- `calculate-grades` is GET (not POST) because this slice ships a read-only stub. The existing action-task caller was POSTing; after this slice, it will 404 on POST and succeed on GET. If the caller cannot be updated here (it lives in `apps/server/src/action-task/action-task.service.ts` which is out of scope), accept the POST→404 breakage and capture it in §Deferred Work.
+- `calculate-grades` is exposed as BOTH `GET` and `POST` to match real callers:
+  `apps/server/src/action-task/action-task.service.ts:411` POSTs the endpoint on a
+  scheduled cadence, while manual/diagnostic callers typically GET. Both delegate to
+  the same read-only implementation that returns current catalog counts without
+  writing grades. Full grade recalculation is deferred to the agent/workflow redesign.
 - Registration order (Step 4) is what prevents `/api/products/catalog` from being caught by `:id`. `ParseUUIDPipe` is a defensive secondary filter, not the primary collision guard.
 
 - [ ] **Step 4: Register legacy controller last**
@@ -1973,10 +1977,10 @@ Everything below is intentionally OUT of this slice. Each item captures enough c
 
 ### Agent / Workflow redesign dependencies
 
-These files compile today but reference legacy `/api/products/*` URLs in action templates and will 404 at runtime after this slice lands. They are left untouched here because the agent/workflow layer is scheduled for its own redesign.
+The agent/workflow layer that drives LLM-generated product write actions is scheduled for its own redesign. Until that lands:
 
-- `apps/server/src/workflows/actions/catalog.ts:27,37,47,62` — 4 action templates (`product.adjust_price` PUT `/api/products/:id` with sellPrice; `product.stop_ads`; `product.discontinue`; `product.change_grade`). Runtime breakage accepted.
-- `apps/server/src/action-task/action-task.service.ts:411,419,435,453` — write-like calls to `/api/products/*`. Reads via `/api/products` keep working through the GET alias; writes (if any) will 404.
+- `apps/server/src/workflows/actions/catalog.ts` — the 4 product write action definitions (`product.adjust_price`, `product.stop_ads`, `product.discontinue`, `product.change_grade`) are **removed in this slice** so the LLM no longer proposes them and so no execution path 404s. Their canonical replacements (routed via `/api/products/masters/:id` + `/api/products/options/:optionId` per spec §6.1 write-path matrix) ship with the redesign.
+- `apps/server/src/action-task/action-task.service.ts` — remaining `/api/products/*` calls go through the read-path GET alias (including `POST /api/products/calculate-grades` which returns counts with no grade write). Actual grade recalculation logic is rebuilt with the redesign.
 - Frontend: `useProductActions` 4 action branches have their fetch removed in Task 6 Step 5; UI buttons + confirmation modals stay rendered and surface a "기능 준비 중" toast until the redesign wires them to canonical writes.
 
 Next plan: design the canonical action surface (multi-option picker + spec §6.1 write-path matrix) and migrate these callers.

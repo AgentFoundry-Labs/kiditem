@@ -117,11 +117,12 @@ The products module therefore registers a deprecated legacy alias controller tha
 |---|---|---|
 | `GET /api/products` | catalog list service | Same filters/pagination as `/api/products/catalog` |
 | `GET /api/products/:id` | catalog detail by master id | `:id` is the master id |
-| `PATCH /api/products/:id` | masters PATCH for master-level fields; option-level fields return 400 with an error message naming the canonical option route | See write-path matrix in §6.1 for field ownership |
-| `PUT /api/products/:id` | same rules as PATCH | Required because `workflows/actions/catalog.ts` writes with PUT |
-| `GET /api/products/:id/original-image-base64` | masters image service | Existing legacy image fetch |
+| `PATCH /api/products/:id` | masters PATCH for master-level fields; option-level fields return 400 with an error message naming the canonical option route | See write-path matrix in §6.1 for field ownership. **Not registered in this slice** — the write path ships with the agent/workflow redesign. See §Deferred Work in the implementation plan |
+| `PUT /api/products/:id` | same rules as PATCH | **Not registered in this slice**. `workflows/actions/catalog.ts` entries that used this path are removed in this slice; replacements land with the agent/workflow redesign |
+| `GET /api/products/:id/original-image-base64` | masters image service | Existing legacy image fetch; SSRF-blocked for private/loopback hosts (IPv4 RFC1918 / CGNAT / 169.254 + IPv6 ::1 / fe80::/10 / fc00::/7 / fd00::/8) with full CDN allowlist deferred to a follow-up |
 | `GET /api/products/pipeline-stats` | catalog counts service | Legacy product list/count callers only |
-| `POST /api/products/calculate-grades` | catalog counts service with no grade write | Backend action-task caller compatibility only; full grade recalculation remains outside this slice |
+| `GET /api/products/calculate-grades` | catalog counts service with no grade write | Manual / diagnostic callers |
+| `POST /api/products/calculate-grades` | catalog counts service with no grade write | Backend `action-task.service.ts` scheduled caller. Accepts empty body; returns `{ok, counts}`. Full grade recalculation remains outside this slice |
 
 Rules:
 
