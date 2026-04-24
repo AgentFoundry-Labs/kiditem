@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { zIsoDate } from './common.js';
 
 /**
  * Statistics domain response schemas — Plan B2c.orders T10.
@@ -104,7 +105,7 @@ export const StatisticsRepurchaseCustomerSchema = z.object({
   name: z.string(),
   count: z.number().int(),
   totalAmount: z.number().int(),
-  lastOrder: z.date().nullable(),
+  lastOrder: zIsoDate.nullable(),
 });
 export type StatisticsRepurchaseCustomer = z.infer<typeof StatisticsRepurchaseCustomerSchema>;
 
