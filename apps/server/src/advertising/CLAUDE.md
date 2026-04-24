@@ -14,12 +14,12 @@ ADR-0006 준수 — 모든 service 가 companyId 말미 파라미터 + `@Current
 ## Data Flow
 
 ```
-Extension scrape (vendor_item_id, external_id)
+Extension scrape (Coupang vendor_item_id, external_id)
     ↓ POST /api/ads/extension/sync
 AdSyncService.sync
-  ↳ buildListingMap(companyId): vendorItemMap + externalIdMap
+  ↳ buildListingMap(companyId): externalOptionIdMap + externalIdMap
   ↳ matchListingFromRow 우선순위:
-      1) vendorItemId → ChannelListingOption.vendorItemId → {listingId, optionId}
+      1) Coupang vendorItemId → ChannelListingOption.externalOptionId → {listingId, optionId}
       2) externalId → ChannelListing.externalId + platform='coupang' → {listingId, optionId: null}
       3) 매칭 실패 → AdSnapshot 만 저장 (listingId=null, rawJson)
   ↓ AdSnapshot / Ad / TrafficStats upsert (listingId null 이면 Ad/TrafficStats skip)

@@ -98,14 +98,14 @@ describe('Statistics flow (PG integration)', () => {
       externalId: `${prefix}-EXT-L1`,
       channelName: `${prefix} L1`,
       optionId: optM1a,
-      vendorItemId: `${prefix}-VI-L1A`,
+      externalOptionId: `${prefix}-VI-L1A`,
     });
     const listingL1b = await prisma.channelListingOption.create({
       data: {
         companyId,
         listingId: listingL1.listingId,
         optionId: optM1b,
-        vendorItemId: `${prefix}-VI-L1B`,
+        externalOptionId: `${prefix}-VI-L1B`,
       },
       select: { id: true },
     });
@@ -116,7 +116,7 @@ describe('Statistics flow (PG integration)', () => {
       externalId: `${prefix}-EXT-L2`,
       channelName: `${prefix} L2`,
       optionId: optM2a,
-      vendorItemId: `${prefix}-VI-L2A`,
+      externalOptionId: `${prefix}-VI-L2A`,
     });
 
     const o1 = await seedOrderWithLineItems(prisma, {

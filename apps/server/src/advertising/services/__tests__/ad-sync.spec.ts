@@ -46,10 +46,10 @@ describe('AdSyncService', () => {
   });
 
   describe('buildListingMap', () => {
-    it('builds vendorItemMap + externalIdMap from ChannelListingOption + ChannelListing', async () => {
+    it('builds externalOptionIdMap + externalIdMap from ChannelListingOption + ChannelListing', async () => {
       prisma.channelListingOption.findMany.mockResolvedValue([
-        { vendorItemId: 'V1', listingId: 'L1', optionId: 'O1' },
-        { vendorItemId: 'V2', listingId: 'L2', optionId: 'O2' },
+        { externalOptionId: 'V1', listingId: 'L1', optionId: 'O1' },
+        { externalOptionId: 'V2', listingId: 'L2', optionId: 'O2' },
       ]);
       prisma.channelListing.findMany.mockResolvedValue([
         { id: 'L1', externalId: 'COUPANG-1' },
@@ -58,11 +58,11 @@ describe('AdSyncService', () => {
 
       const map = await service.buildListingMap('company-1');
 
-      expect(map.vendorItemMap.get('V1')).toEqual({
+      expect(map.externalOptionIdMap.get('V1')).toEqual({
         listingId: 'L1',
         optionId: 'O1',
       });
-      expect(map.vendorItemMap.get('V2')).toEqual({
+      expect(map.externalOptionIdMap.get('V2')).toEqual({
         listingId: 'L2',
         optionId: 'O2',
       });
@@ -71,7 +71,7 @@ describe('AdSyncService', () => {
 
       expect(prisma.channelListingOption.findMany).toHaveBeenCalledWith({
         where: { companyId: 'company-1', isActive: true },
-        select: { vendorItemId: true, listingId: true, optionId: true },
+        select: { externalOptionId: true, listingId: true, optionId: true },
       });
       expect(prisma.channelListing.findMany).toHaveBeenCalledWith({
         where: { companyId: 'company-1', isDeleted: false, channel: 'coupang' },
@@ -79,27 +79,27 @@ describe('AdSyncService', () => {
       });
     });
 
-    it('skips vendorItemMap entries with missing optionId', async () => {
+    it('skips externalOptionIdMap entries with missing optionId', async () => {
       prisma.channelListingOption.findMany.mockResolvedValue([
-        { vendorItemId: 'V1', listingId: 'L1', optionId: null },
+        { externalOptionId: 'V1', listingId: 'L1', optionId: null },
       ]);
       prisma.channelListing.findMany.mockResolvedValue([]);
 
       const map = await service.buildListingMap('company-1');
 
-      expect(map.vendorItemMap.has('V1')).toBe(false);
+      expect(map.externalOptionIdMap.has('V1')).toBe(false);
     });
   });
 
   describe('matchListingFromRow', () => {
     const map: ListingMap = {
-      vendorItemMap: new Map([
+      externalOptionIdMap: new Map([
         ['V-HIT', { listingId: 'L-V', optionId: 'O-V' }],
       ]),
       externalIdMap: new Map([['E-HIT', { listingId: 'L-E' }]]),
     };
 
-    it('returns listingId+optionId when vendorItemId hits', () => {
+    it('returns listingId+optionId when provider vendorItemId hits externalOptionIdMap', () => {
       const result = service.matchListingFromRow(
         { vendorItemId: 'V-HIT' },
         map,
@@ -135,7 +135,7 @@ describe('AdSyncService', () => {
   describe('sync behavior', () => {
     beforeEach(() => {
       prisma.channelListingOption.findMany.mockResolvedValue([
-        { vendorItemId: 'V1', listingId: 'L1', optionId: 'O1' },
+        { externalOptionId: 'V1', listingId: 'L1', optionId: 'O1' },
       ]);
       prisma.channelListing.findMany.mockResolvedValue([
         { id: 'L1', externalId: 'COUPANG-1' },
@@ -285,13 +285,13 @@ describe('AdSyncService', () => {
       );
     });
 
-    it('cross-tenant isolation — company B vendorItemId does not leak into company A map', async () => {
+    it('cross-tenant isolation — company B externalOptionId does not leak into company A map', async () => {
       prisma.channelListingOption.findMany.mockResolvedValue([]);
       prisma.channelListing.findMany.mockResolvedValue([]);
 
       const map = await service.buildListingMap('company-A');
 
-      expect(map.vendorItemMap.size).toBe(0);
+      expect(map.externalOptionIdMap.size).toBe(0);
       expect(map.externalIdMap.size).toBe(0);
 
       expect(prisma.channelListingOption.findMany).toHaveBeenCalledWith(

@@ -83,7 +83,7 @@ describe('ActionTask.getTasks (PG integration)', () => {
       externalId: 'ACT-NEG-EXT',
       channelName: 'Own Negative Listing',
       optionId: ownOption.id,
-      vendorItemId: 'ACT-NEG-VI',
+      externalOptionId: 'ACT-NEG-VI',
     });
     await seedOrderWithLineItems(prisma, {
       companyId: TEST_COMPANY_ID,
@@ -133,7 +133,7 @@ describe('ActionTask.getTasks (PG integration)', () => {
       externalId: 'ACT-FGN-EXT',
       channelName: 'Foreign Negative Listing',
       optionId: foreignOption.id,
-      vendorItemId: 'ACT-FGN-VI',
+      externalOptionId: 'ACT-FGN-VI',
     });
     await seedOrderWithLineItems(prisma, {
       companyId: OTHER_COMPANY_ID,

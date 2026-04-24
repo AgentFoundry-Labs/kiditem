@@ -58,7 +58,7 @@ describe('buildPerListingMetrics (PG integration)', () => {
     const { listingId, listingOptionId } = await setupChannelListing(prisma, {
       companyId: TEST_COMPANY_ID, masterId,
       channel: 'coupang', externalId: 'EXT-T1', channelName: '쿠팡',
-      optionId, vendorItemId: 'VI-T1',
+      optionId, externalOptionId: 'VI-T1',
     });
     await seedOrderWithLineItems(prisma, {
       companyId: TEST_COMPANY_ID,
@@ -99,7 +99,7 @@ describe('buildPerListingMetrics (PG integration)', () => {
     const { listingOptionId } = await setupChannelListing(prisma, {
       companyId: TEST_COMPANY_ID, masterId,
       channel: 'coupang', externalId: 'EXT-T2',
-      optionId, vendorItemId: 'VI-T2',
+      optionId, externalOptionId: 'VI-T2',
     });
     // Order 1: shipping 3000, single lineItem 9000 → entire ship = 3000
     await seedOrderWithLineItems(prisma, {
@@ -137,7 +137,7 @@ describe('buildPerListingMetrics (PG integration)', () => {
     const { listingId, listingOptionId } = await setupChannelListing(prisma, {
       companyId: TEST_COMPANY_ID, masterId,
       channel: 'coupang', externalId: 'EXT-T3',
-      optionId, vendorItemId: 'VI-T3',
+      optionId, externalOptionId: 'VI-T3',
     });
     await seedOrderWithLineItems(prisma, {
       companyId: TEST_COMPANY_ID,
@@ -167,7 +167,7 @@ describe('buildPerListingMetrics (PG integration)', () => {
     const { listingOptionId } = await setupChannelListing(prisma, {
       companyId: TEST_COMPANY_ID, masterId,
       channel: 'coupang', externalId: 'EXT-T5',
-      optionId, vendorItemId: 'VI-T5',
+      optionId, externalOptionId: 'VI-T5',
     });
     // 1 paid (included), 3 excluded statuses (each one a sentinel)
     await seedOrderWithLineItems(prisma, {
@@ -199,7 +199,7 @@ describe('buildPerListingMetrics (PG integration)', () => {
     const tListing = await setupChannelListing(prisma, {
       companyId: TEST_COMPANY_ID, masterId: tMaster.id,
       channel: 'coupang', externalId: 'EXT-T4',
-      optionId: tOption.id, vendorItemId: 'VI-T4',
+      optionId: tOption.id, externalOptionId: 'VI-T4',
     });
     await seedOrderWithLineItems(prisma, {
       companyId: TEST_COMPANY_ID,
@@ -217,7 +217,7 @@ describe('buildPerListingMetrics (PG integration)', () => {
     const oListing = await setupChannelListing(prisma, {
       companyId: OTHER_COMPANY_ID, masterId: oMaster.id,
       channel: 'coupang', externalId: 'EXT-O4',
-      optionId: oOption.id, vendorItemId: 'VI-O4',
+      optionId: oOption.id, externalOptionId: 'VI-O4',
     });
     await seedOrderWithLineItems(prisma, {
       companyId: OTHER_COMPANY_ID,

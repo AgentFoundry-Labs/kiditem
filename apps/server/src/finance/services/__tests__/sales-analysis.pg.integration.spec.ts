@@ -22,7 +22,7 @@ async function setupChannelFixture(companyId: string, channel: string, suffix: s
     channel,
     externalId: `EXT-${suffix}`,
     optionId: option.id,
-    vendorItemId: `VI-${suffix}`,
+    externalOptionId: `VI-${suffix}`,
   });
   return { masterId: master.id, optionId: option.id, listingId, listingOptionId };
 }

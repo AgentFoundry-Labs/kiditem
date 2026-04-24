@@ -139,7 +139,7 @@ describe('Order sync (PG integration)', () => {
         companyId,
         listingId: listing.id,
         optionId: option.id,
-        vendorItemId: 'V_KNOWN',
+        externalOptionId: 'V_KNOWN',
         itemName: 'Red',
       },
     });

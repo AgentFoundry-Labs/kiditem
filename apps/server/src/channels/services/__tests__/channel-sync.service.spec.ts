@@ -13,7 +13,7 @@ describe('ChannelSyncService.syncSingleOrder (Plan A.5)', () => {
     tx = {
       order: { upsert: vi.fn() },
       orderLineItem: { upsert: vi.fn() },
-      channelListingOption: { findUnique: vi.fn() },
+      channelListingOption: { findFirst: vi.fn() },
     };
     prisma = {
       $transaction: vi.fn(async (cb: any) => cb(tx)),
@@ -29,7 +29,7 @@ describe('ChannelSyncService.syncSingleOrder (Plan A.5)', () => {
 
   it('upserts Order with platform=coupang + externalOrderId=shipmentBoxId', async () => {
     tx.order.upsert.mockResolvedValue({ id: 'order-1', companyId: 'c1' });
-    tx.channelListingOption.findUnique.mockResolvedValue(null);
+    tx.channelListingOption.findFirst.mockResolvedValue(null);
     tx.orderLineItem.upsert.mockResolvedValue({});
 
     await (service as any).syncSingleOrder({
@@ -56,7 +56,7 @@ describe('ChannelSyncService.syncSingleOrder (Plan A.5)', () => {
 
   it('vendorItemId match → optionId denormalized on OrderLineItem', async () => {
     tx.order.upsert.mockResolvedValue({ id: 'order-1' });
-    tx.channelListingOption.findUnique.mockResolvedValue({
+    tx.channelListingOption.findFirst.mockResolvedValue({
       id: 'lo-1',
       optionId: 'opt-1',
       option: { sku: 'SKU-1', optionName: 'Red' },
@@ -76,7 +76,7 @@ describe('ChannelSyncService.syncSingleOrder (Plan A.5)', () => {
 
   it('vendorItemId no match → optionId null', async () => {
     tx.order.upsert.mockResolvedValue({ id: 'order-1' });
-    tx.channelListingOption.findUnique.mockResolvedValue(null);
+    tx.channelListingOption.findFirst.mockResolvedValue(null);
     tx.orderLineItem.upsert.mockResolvedValue({});
 
     await (service as any).syncSingleOrder({
@@ -92,7 +92,7 @@ describe('ChannelSyncService.syncSingleOrder (Plan A.5)', () => {
 
   it('totalPrice computed from sum(orderItems.orderPrice)', async () => {
     tx.order.upsert.mockResolvedValue({ id: 'order-1' });
-    tx.channelListingOption.findUnique.mockResolvedValue(null);
+    tx.channelListingOption.findFirst.mockResolvedValue(null);
     tx.orderLineItem.upsert.mockResolvedValue({});
 
     await (service as any).syncSingleOrder({
@@ -119,13 +119,13 @@ describe('ChannelSyncService.syncSingleOrder (Plan A.5)', () => {
       } as any, 'c1'),
     ).rejects.toBeInstanceOf(BadRequestException);
 
-    expect(tx.channelListingOption.findUnique).not.toHaveBeenCalled();
+    expect(tx.channelListingOption.findFirst).not.toHaveBeenCalled();
     expect(tx.orderLineItem.upsert).not.toHaveBeenCalled();
   });
 
   it('paidAt 누락 → create.paidAt = null', async () => {
     tx.order.upsert.mockResolvedValue({ id: 'order-1' });
-    tx.channelListingOption.findUnique.mockResolvedValue(null);
+    tx.channelListingOption.findFirst.mockResolvedValue(null);
     tx.orderLineItem.upsert.mockResolvedValue({});
 
     await (service as any).syncSingleOrder({
@@ -140,7 +140,7 @@ describe('ChannelSyncService.syncSingleOrder (Plan A.5)', () => {
 
   it('orderLineItem upsert 실패 시 transaction 전체 rollback (callback throw 전파)', async () => {
     tx.order.upsert.mockResolvedValue({ id: 'order-1' });
-    tx.channelListingOption.findUnique.mockResolvedValue(null);
+    tx.channelListingOption.findFirst.mockResolvedValue(null);
     tx.orderLineItem.upsert.mockRejectedValue(new Error('FK violation'));
 
     await expect(

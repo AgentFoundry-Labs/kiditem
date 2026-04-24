@@ -74,7 +74,11 @@ await this.prisma.$transaction(async (tx) => {
     if (!item.vendorItemId) {
       throw new BadRequestException(`OrderLineItem missing vendorItemId — cannot upsert (shipmentBoxId=${shipmentBoxId})`);
     }
-    const listingOption = await tx.channelListingOption.findUnique({...});
+    const listingOption = await tx.channelListingOption.findFirst({
+      where: { companyId, externalOptionId: vendorItemId, isActive: true,
+               listing: { channel: 'coupang', isDeleted: false, ... } },
+      ...,
+    });
     await tx.orderLineItem.upsert({
       where: { orderId_externalLineId: { orderId: order.id, externalLineId: vendorItemId } },
       ...,

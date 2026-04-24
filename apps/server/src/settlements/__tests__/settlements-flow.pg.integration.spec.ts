@@ -50,7 +50,7 @@ describe('Settlements flow (PG integration)', () => {
       externalId: `SET-${opts.suffix}-EXT`,
       channelName: `SET ${opts.suffix}`,
       optionId: option.id,
-      vendorItemId: `SET-${opts.suffix}-VI`,
+      externalOptionId: `SET-${opts.suffix}-VI`,
     });
     return { master, option, listing };
   }

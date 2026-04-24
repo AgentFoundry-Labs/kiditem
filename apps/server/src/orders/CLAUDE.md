@@ -9,7 +9,7 @@
 ### 핵심 키 / unique
 
 - `Order` — `@@unique([companyId, platform, externalOrderId])` (Coupang 의 경우 `externalOrderId = shipmentBoxId`, `externalNumber = orderId`)
-- `OrderLineItem` — `@@unique([orderId, externalLineId])` (Coupang 의 경우 `externalLineId = vendorItemId`)
+- `OrderLineItem` — `@@unique([orderId, externalLineId])` (Coupang 의 경우 `externalLineId` 는 Coupang `vendorItemId` 값이 들어가며, 캐노니컬 매핑은 `ChannelListingOption.externalOptionId` 경유 — ADR-0020)
 - `OrderReturn` — `@@unique([companyId, platform, externalReturnId])`
 - `OrderLineItem.optionId` denormalized — SKU 조회 single join
 

@@ -93,7 +93,7 @@ describe('Channel dashboard (PG integration)', () => {
         companyId: TEST_COMPANY_ID,
         listingId: listingA.id,
         optionId: optA.id,
-        vendorItemId: 'VI-A',
+        externalOptionId: 'VI-A',
       },
     });
 
@@ -265,7 +265,7 @@ describe('Channel dashboard (PG integration)', () => {
         companyId: OTHER_COMPANY_ID,
         listingId: otherListing.id,
         optionId: otherOpt.id,
-        vendorItemId: 'VI-OTHER',
+        externalOptionId: 'VI-OTHER',
       },
     });
     const otherOrder = await prisma.order.create({

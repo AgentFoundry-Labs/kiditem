@@ -73,7 +73,7 @@ describe('AdStrategy flow (PG integration)', () => {
         companyId: params.companyId,
         listingId: listing.id,
         optionId: option.id,
-        vendorItemId: `VI-${params.suffix}`,
+        externalOptionId: `VI-${params.suffix}`,
         isActive: true,
       },
     });
