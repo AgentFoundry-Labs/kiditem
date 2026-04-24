@@ -44,7 +44,7 @@ describe('useProductImages', () => {
       expect(result.current.loading).toBe(false);
     });
 
-    expect(mockGet).toHaveBeenCalledWith('/api/products/prod-1');
+    expect(mockGet).toHaveBeenCalledWith('/api/products/masters/prod-1');
     expect(result.current.images).toEqual(mockImages);
   });
 
@@ -63,7 +63,7 @@ describe('useProductImages', () => {
 
     expect(url).toBe('https://cdn.example.com/uploaded.jpg');
     expect(mockUpload).toHaveBeenCalledWith(
-      '/api/products/prod-1/images/upload',
+      '/api/products/masters/prod-1/images/upload',
       expect.any(FormData),
     );
   });
@@ -86,7 +86,7 @@ describe('useProductImages', () => {
 
     expect(url).toBe('https://cdn.example.com/gen.png');
     expect(mockUpload).toHaveBeenCalledWith(
-      '/api/products/prod-1/images/upload',
+      '/api/products/masters/prod-1/images/upload',
       expect.any(FormData),
     );
 
@@ -107,7 +107,7 @@ describe('useProductImages', () => {
       await result.current.saveImages(newImages as any);
     });
 
-    expect(mockPatch).toHaveBeenCalledWith('/api/products/prod-1/images', {
+    expect(mockPatch).toHaveBeenCalledWith('/api/products/masters/prod-1', {
       images: newImages,
     });
     expect(result.current.images).toEqual(newImages);

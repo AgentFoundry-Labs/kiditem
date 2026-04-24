@@ -9,7 +9,7 @@ import {
   getProfitColor,
   getProductStatusBadge,
 } from '@/lib/utils';
-import type { ProductDetail as Product } from '@kiditem/shared';
+import type { ProductCatalogDetail as Product } from '@kiditem/shared';
 
 const categoryNames: Record<string, string> = {
   '4944': '완구 > 퍼즐',
@@ -56,13 +56,16 @@ function MetricCard({
 }
 
 export default function ProductMetrics({ product }: ProductMetricsProps) {
-  const badge = getProductStatusBadge(product.status);
+  const badge = getProductStatusBadge(product.pipelineStep ?? 'draft');
 
-  // resolved costPrice/sellPrice 기반으로 marginRate 재계산
+  const representativeOption = product.options[0] ?? null;
+  const sellPrice = representativeOption?.sellPrice ?? product.priceRange?.min ?? null;
+  const costPrice = representativeOption?.costPrice ?? product.costRange?.min ?? null;
   const marginRate =
-    product.sellPrice && product.sellPrice > 0 && product.costPrice && product.costPrice > 0
-      ? (product.sellPrice - product.costPrice) / product.sellPrice
+    sellPrice && sellPrice > 0 && costPrice && costPrice > 0
+      ? (sellPrice - costPrice) / sellPrice
       : null;
+  const commissionRate = representativeOption?.commissionRate ?? null;
 
   return (
     <div className="card p-6">
@@ -80,44 +83,31 @@ export default function ProductMetrics({ product }: ProductMetricsProps) {
         </span>
       </div>
 
-      {product.sellPrice == null && product.costPrice == null && marginRate == null && product.commissionRate == null && (
+      {sellPrice == null && costPrice == null && commissionRate == null && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-center text-amber-700">
-          쿠팡 동기화를 실행하면 판매 데이터가 표시됩니다{" "}
-          <a href="/settings" className="underline font-medium">설정으로 이동</a>
+          옵션을 등록하면 가격 지표가 표시됩니다.
         </div>
       )}
       <div className="grid grid-cols-4 gap-4">
         <MetricCard
           label="판매가"
-          value={product.sellPrice ? `${formatKRW(product.sellPrice)}원` : "-"}
+          value={sellPrice ? `${formatKRW(sellPrice)}원` : "-"}
           icon={<Package size={16} className="text-blue-500" />}
         />
         <MetricCard
           label="매입가"
-          value={product.costPrice ? `${formatKRW(product.costPrice)}원` : "-"}
+          value={costPrice ? `${formatKRW(costPrice)}원` : "-"}
           icon={<TrendingUp size={16} className="text-green-500" />}
         />
         <MetricCard
           label="이익률"
-          value={
-            marginRate != null
-              ? formatPercent(marginRate * 100)
-              : "-"
-          }
+          value={marginRate != null ? formatPercent(marginRate * 100) : "-"}
           icon={<BarChart3 size={16} className="text-purple-500" />}
-          valueColor={
-            marginRate != null
-              ? getProfitColor(marginRate * 100)
-              : ""
-          }
+          valueColor={marginRate != null ? getProfitColor(marginRate * 100) : ""}
         />
         <MetricCard
           label="수수료율"
-          value={
-            product.commissionRate != null
-              ? formatPercent(Number(product.commissionRate) * 100)
-              : "-"
-          }
+          value={commissionRate != null ? formatPercent(Number(commissionRate) * 100) : "-"}
           icon={<Star size={16} className="text-amber-500" />}
         />
       </div>

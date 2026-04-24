@@ -8,7 +8,7 @@ import {
   getGradeColor,
   getProductStatusBadge,
 } from '@/lib/utils';
-import type { ProductDetail as Product } from '@kiditem/shared';
+import type { ProductCatalogDetail as Product } from '@kiditem/shared';
 
 interface ProductSidebarProps {
   product: Product;
@@ -50,7 +50,10 @@ export function InfoRow({
 }
 
 export default function ProductSidebar({ product }: ProductSidebarProps) {
-  const badge = getProductStatusBadge(product.status);
+  const badge = getProductStatusBadge(product.pipelineStep ?? 'draft');
+  const representativeOption = product.options[0] ?? null;
+  const commissionRate = representativeOption?.commissionRate ?? null;
+  const shippingCost = representativeOption?.shippingCost ?? null;
 
   return (
     <div className="w-72 flex-shrink-0 space-y-6">
@@ -58,8 +61,8 @@ export default function ProductSidebar({ product }: ProductSidebarProps) {
         <InfoRow label="상태" value={<span className={cn('px-2 py-0.5 rounded text-xs font-medium', badge.color)}>{badge.label}</span>} />
         <InfoRow label="ABC등급" value={product.abcGrade ? <span className={cn('px-2 py-0.5 rounded text-xs font-bold', getGradeColor(product.abcGrade))}>{product.abcGrade}</span> : "-"} />
         <InfoRow label="광고 티어" value={product.adTier ?? "-"} />
-        <InfoRow label="수수료율" value={product.commissionRate != null ? formatPercent(Number(product.commissionRate) * 100) : "-"} />
-        <InfoRow label="배송비" value={product.shippingCost ? `₩${formatKRW(product.shippingCost)}` : "-"} />
+        <InfoRow label="수수료율" value={commissionRate != null ? formatPercent(Number(commissionRate) * 100) : "-"} />
+        <InfoRow label="배송비" value={shippingCost ? `₩${formatKRW(shippingCost)}` : "-"} />
       </InfoCard>
 
       <InfoCard title="링크">
@@ -73,12 +76,7 @@ export default function ProductSidebar({ product }: ProductSidebarProps) {
             <ExternalLink size={13} /> 상세페이지
           </a>
         )}
-        {product.coupangProductId && (
-          <a href={`https://www.coupang.com/vp/products/${product.coupangProductId}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-sm text-purple-600 hover:underline py-1">
-            <ExternalLink size={13} /> 쿠팡 리스팅
-          </a>
-        )}
-        {!product.sourceUrl && !product.detailPageUrl && !product.coupangProductId && (
+        {!product.sourceUrl && !product.detailPageUrl && (
           <p className="text-sm text-slate-400">등록된 링크 없음</p>
         )}
       </InfoCard>

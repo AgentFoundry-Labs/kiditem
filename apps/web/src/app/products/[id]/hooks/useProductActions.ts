@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { apiClient } from "@/lib/api-client";
 import { isApiError } from "@/lib/api-error";
 import { queryKeys } from "@/lib/query-keys";
-import type { ProductDetail as Product } from "@kiditem/shared";
+import type { ProductCatalogDetail as Product } from "@kiditem/shared";
 
 export interface ActivityEvent {
   id: string;
@@ -45,7 +45,7 @@ export function useProductActions({ productId, product, workflows }: UseProductA
   const [batchPollState, setBatchPollState] = useState<{ runs: { id: string }[]; toastId: string | number; runsCompleted: boolean } | null>(null);
 
   const refreshActivities = () => {
-    queryClient.invalidateQueries({ queryKey: [...queryKeys.products.detail(productId), "activities"] });
+    queryClient.invalidateQueries({ queryKey: [...queryKeys.products.catalog.detail(productId), "activities"] });
   };
 
   // Poll single workflow run
@@ -152,20 +152,11 @@ export function useProductActions({ productId, product, workflows }: UseProductA
       if (wf) runWorkflow(wf);
     } else if (type === "product.view_detail") {
       window.location.href = `/products/${actionParams.productId}`;
-    } else if (type.startsWith("product.") && actionParams.productId) {
-      apiClient.put(
-        `/api/products/${actionParams.productId}`,
-        type === "product.adjust_price" ? { sellPrice: actionParams.newPrice } :
-        type === "product.stop_ads" ? { adTier: null } :
-        type === "product.discontinue" ? { status: "discontinued" } :
-        type === "product.change_grade" ? { abcGrade: actionParams.grade } :
-        {}
-      ).then(() => {
-        toast.success(`${action.label} 완료`, { duration: 3000 });
-        refreshActivities();
-      }).catch(() => {
-        toast.error(`${action.label} 실패`, { duration: 5000 });
-      });
+    } else if (type.startsWith("product.")) {
+      // Write path (adjust_price / stop_ads / discontinue / change_grade) is unwired
+      // in this slice. UI action triggers stay rendered; backend wiring lands with
+      // the agent/workflow redesign (see TODOS.md "Agent/Workflow 재설계").
+      toast.info(`${action.label}: 기능 준비 중`, { duration: 3000 });
     } else if (type === "inventory.create_purchase_order") {
       window.location.href = `/purchase-orders/new?productId=${actionParams.productId}&quantity=${actionParams.quantity ?? ""}`;
     } else if (type === "report.export_excel") {

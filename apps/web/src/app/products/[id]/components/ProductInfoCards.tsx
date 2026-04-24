@@ -3,7 +3,7 @@ import { Package, Box, ExternalLink } from "lucide-react";
 import { formatKRW } from "@/lib/utils";
 import { InfoCard, InfoRow } from "./ProductSidebar";
 import { categoryNames } from "./ProductMetrics";
-import type { ProductDetail as Product } from "@kiditem/shared";
+import type { ProductCatalogDetail as Product } from "@kiditem/shared";
 
 export interface InventoryData {
   currentStock: number;
@@ -30,6 +30,7 @@ export default function ProductInfoCards({ product, inventory }: ProductInfoCard
     <>
       <InfoCard title="상품 정보" icon={<Package size={16} />}>
         <InfoRow label="카테고리" value={categoryNames[product.category || ""] || product.category || "-"} />
+        <InfoRow label="브랜드" value={product.brand ?? "-"} />
         <InfoRow label="소싱 플랫폼" value={product.sourcePlatform ?? "-"} />
         {product.sourceUrl && (
           <InfoRow
@@ -46,16 +47,27 @@ export default function ProductInfoCards({ product, inventory }: ProductInfoCard
             }
           />
         )}
-        <InfoRow label="쿠팡 상품 ID" value={product.coupangProductId ?? "-"} />
-        <InfoRow label="배송비" value={product.shippingCost ? `₩${formatKRW(product.shippingCost)}` : "-"} />
-        {product.masterProduct && (
+        <InfoRow label="상품 코드" value={product.code} />
+        <InfoRow label="대표 SKU" value={product.representativeSku ?? "-"} />
+        <InfoRow label="옵션 수" value={`${product.optionCount}개`} />
+        {product.options.length > 0 && (
           <>
             <div className="border-t border-slate-100 my-2" />
-            <InfoRow label="내부 SKU" value={product.masterProduct.sku ?? "-"} />
-            <InfoRow label="매입가" value={product.masterProduct.costPrice ? `₩${formatKRW(product.masterProduct.costPrice)}` : "-"} />
-            <InfoRow label="판매가 (내부)" value={product.masterProduct.sellPrice ? `₩${formatKRW(product.masterProduct.sellPrice)}` : "-"} />
+            {product.options.map((option) => (
+              <div key={option.id} className="rounded-lg border border-slate-100 p-2 space-y-1">
+                <InfoRow label="옵션" value={option.optionName ?? option.sku} />
+                <InfoRow label="SKU" value={option.sku} />
+                <InfoRow label="매입가" value={option.costPrice ? `₩${formatKRW(option.costPrice)}` : "-"} />
+                <InfoRow label="판매가" value={option.sellPrice ? `₩${formatKRW(option.sellPrice)}` : "-"} />
+                {option.commissionRate != null && (
+                  <InfoRow label="수수료율" value={`${(Number(option.commissionRate) * 100).toFixed(1)}%`} />
+                )}
+              </div>
+            ))}
           </>
         )}
+        <div className="border-t border-slate-100 my-2" />
+        <InfoRow label="총 가용 재고" value={`${product.totalAvailableStock}개`} />
       </InfoCard>
 
       {inventory ? (
