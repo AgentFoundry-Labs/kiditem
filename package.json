@@ -19,6 +19,7 @@
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio",
     "migrate:dashboard": "tsx scripts/migrate-dashboard-data.ts",
+    "import:product-baseline": "tsx scripts/import-product-baseline.ts",
     "db:test:up": "docker compose -f docker-compose.test.yml up -d --wait",
     "db:test:down": "docker compose -f docker-compose.test.yml down -v",
     "db:test:prepare": "bash prisma/test-db-setup.sh",
