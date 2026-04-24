@@ -69,13 +69,13 @@ No CI workflow wiring in this plan (that's a separate Plan — still deferred), 
 
 ### Cross-domain audit kill-switch (MEDIUM)
 
-**A-04 (architect)** — T5 audit will find 2 known cross-domain leaks: `ontology/ontology.service.ts:13` (master_products query, no companyId) + `traffic/traffic.service.ts:280,383` (traffic_stats queries, no companyId). Root CLAUDE.md "One domain per session" rule forbids fixing those here.
+**A-04 (architect)** — T5 audit will find 2 known cross-domain leaks: `ontology/ontology.service.ts:13` (master_products query, no companyId) + `traffic/traffic.service.ts:280,383` (traffic_stats queries, no companyId). ADR-0019 session-boundary rule still forbids fixing those unrelated business domains here.
 
 **Action**: T5 audit step MUST explicitly:
 1. Run the new `check:idor` script.
 2. Any findings in OTHER domains (ontology/traffic/etc.) get recorded in ADR-0018 Consequences section under a new `## 미준수 목록` heading — file path + line + "도메인별 후속 Plan 대상" annotation.
 3. Only dashboard-domain findings get fixed in this Plan (since this Plan's scope is dashboard).
-4. This preserves "No follow-up issues" (findings are recorded, not silently lost) while respecting "One domain per session."
+4. This preserves "No follow-up issues" (findings are recorded, not silently lost) while respecting "One business domain per session."
 
 ### Release note + compliance (MAJOR)
 
