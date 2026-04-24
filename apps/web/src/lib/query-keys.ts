@@ -119,6 +119,8 @@ export const queryKeys = {
   salesAnalysis: {
     all: ['salesAnalysis'] as const,
     data: (period: string) => [...queryKeys.salesAnalysis.all, 'data', period] as const,
+    statistics: (tab: string, period: string) =>
+      [...queryKeys.salesAnalysis.all, 'statistics', tab, period] as const,
   },
   thumbnails: {
     all: ['thumbnails'] as const,
