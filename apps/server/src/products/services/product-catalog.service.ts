@@ -107,7 +107,7 @@ export class ProductCatalogService {
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         skip: (page - 1) * limit,
         take: limit,
-        include: this.include(),
+        select: this.masterSelect(),
       }),
       this.prisma.masterProduct.count({ where }),
     ]);
@@ -122,7 +122,7 @@ export class ProductCatalogService {
   async detail(companyId: string, id: string): Promise<ProductCatalogDetail> {
     const row = await this.prisma.masterProduct.findFirst({
       where: { id, companyId, isDeleted: false },
-      include: this.include(),
+      select: this.masterSelect(),
     });
     if (!row) throw new NotFoundException('master not found');
     const typed = row as unknown as CatalogMasterRow;
@@ -180,8 +180,47 @@ export class ProductCatalogService {
     };
   }
 
-  private include() {
+  /**
+   * Explicit `select` so we never load `rawData` / `processedData` / `draftContent`
+   * JSON blobs for catalog list/detail. Zod strips unknown keys on response but the
+   * DB + network cost would still be paid without this.
+   */
+  private masterSelect() {
     return {
+      id: true,
+      companyId: true,
+      code: true,
+      legacyCode: true,
+      name: true,
+      description: true,
+      category: true,
+      brand: true,
+      tags: true,
+      optionCounter: true,
+      thumbnailUrl: true,
+      imageUrl: true,
+      images: true,
+      abcGrade: true,
+      profitTag: true,
+      adTier: true,
+      adBudgetLimit: true,
+      healthScore: true,
+      healthUpdatedAt: true,
+      sourceUrl: true,
+      sourcePlatform: true,
+      costCny: true,
+      marginRate: true,
+      pipelineStep: true,
+      detailPageUrl: true,
+      thumbnailStrategy: true,
+      supplierId: true,
+      isDeleted: true,
+      deletedAt: true,
+      isTemporary: true,
+      temporaryReason: true,
+      memo: true,
+      createdAt: true,
+      updatedAt: true,
       options: {
         where: { isDeleted: false, isActive: true },
         orderBy: [{ sortOrder: 'asc' as const }, { createdAt: 'asc' as const }],
