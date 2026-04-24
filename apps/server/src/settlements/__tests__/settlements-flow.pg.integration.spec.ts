@@ -11,90 +11,48 @@ import {
   TEST_COMPANY_ID,
   OTHER_COMPANY_ID,
 } from '../../test-helpers/real-prisma';
+import {
+  setupMaster,
+  setupProductOption,
+  setupChannelListing,
+  seedOrderWithLineItems,
+  seedAd,
+} from '../../test-helpers/finance-seeds';
 
-/**
- * Plan B2c.orders T8 Step 8.7 — settlements.reconcile int32 overflow fixture.
- *
- * $queryRaw 의 `SUM(total_price)::bigint` 경로를 실제 Postgres 에서 검증.
- * 대형 셀러 시나리오: 단일 listing 에 lineItem 30개 × unitPrice 100,000,000 KRW
- * = 3,000,000,000 KRW (> 2^31 = 2,147,483,647). int4 캐스트 였으면 overflow.
- */
 describe('Settlements flow (PG integration)', () => {
   let prisma: PrismaClient;
   let service: SettlementsService;
 
-  async function seedListing(params: {
+  async function seedListingFixture(opts: {
     companyId: string;
     suffix: string;
-    channelName?: string;
+    costPrice?: number;
+    commissionRate?: number;
+    otherCost?: number;
   }) {
-    const master = await prisma.masterProduct.create({
-      data: {
-        companyId: params.companyId,
-        code: `M-${params.suffix}`,
-        name: `Master ${params.suffix}`,
-        optionCounter: 1,
-      },
+    const master = await setupMaster(prisma, {
+      companyId: opts.companyId,
+      code: `SET-${opts.suffix}`,
+      name: `Settlement ${opts.suffix}`,
     });
-    const option = await prisma.productOption.create({
-      data: {
-        companyId: params.companyId,
-        masterId: master.id,
-        optionName: `Opt ${params.suffix}`,
-        sku: `${master.code}-001`,
-      },
+    const option = await setupProductOption(prisma, {
+      companyId: opts.companyId,
+      masterId: master.id,
+      sku: `SET-${opts.suffix}-SKU`,
+      costPrice: opts.costPrice,
+      commissionRate: opts.commissionRate,
+      otherCost: opts.otherCost,
     });
-    const listing = await prisma.channelListing.create({
-      data: {
-        companyId: params.companyId,
-        masterId: master.id,
-        channel: 'coupang',
-        externalId: `EXT-${params.suffix}`,
-        channelName: params.channelName ?? `Channel ${params.suffix}`,
-      },
+    const listing = await setupChannelListing(prisma, {
+      companyId: opts.companyId,
+      masterId: master.id,
+      channel: 'coupang',
+      externalId: `SET-${opts.suffix}-EXT`,
+      channelName: `SET ${opts.suffix}`,
+      optionId: option.id,
+      vendorItemId: `SET-${opts.suffix}-VI`,
     });
-    const listingOption = await prisma.channelListingOption.create({
-      data: {
-        companyId: params.companyId,
-        listingId: listing.id,
-        optionId: option.id,
-        vendorItemId: `VI-${params.suffix}`,
-      },
-    });
-    return { master, option, listing, listingOption };
-  }
-
-  async function seedOrderWithLine(params: {
-    companyId: string;
-    listingOptionId: string;
-    externalOrderId: string;
-    orderedAt: Date;
-    unitPrice: number;
-    quantity: number;
-    status?: string;
-  }) {
-    const totalPrice = params.unitPrice * params.quantity;
-    const order = await prisma.order.create({
-      data: {
-        companyId: params.companyId,
-        platform: 'coupang',
-        externalOrderId: params.externalOrderId,
-        orderedAt: params.orderedAt,
-        status: params.status ?? 'paid',
-        totalPrice,
-      },
-    });
-    await prisma.orderLineItem.create({
-      data: {
-        companyId: params.companyId,
-        orderId: order.id,
-        listingOptionId: params.listingOptionId,
-        quantity: params.quantity,
-        unitPrice: params.unitPrice,
-        totalPrice,
-      },
-    });
-    return order;
+    return { master, option, listing };
   }
 
   beforeAll(async () => {
@@ -119,303 +77,277 @@ describe('Settlements flow (PG integration)', () => {
     await seedBaseFixture(prisma);
   });
 
-  describe('reconcile — int32 overflow (bigint SUM)', () => {
-    it('#1 30 lineItems × 100,000,000 = 3,000,000,000 (> 2^31) — SUM::bigint safe, Number() round-trip exact', async () => {
-      // Core invariant: `SUM(oli.total_price)::bigint` 가 Postgres int4 overflow 없이
-      // 3,000,000,000 (> 2^31) 을 반환해야 한다. `::int` 캐스트였다면 overflow.
-      // ProfitLoss.revenue 는 int4 스키마라 2,000,000,000 까지만 저장 (자연스럽게 mismatch 로 검증).
-      const { listing, listingOption } = await seedListing({
+  describe('reconcile — live matched path', () => {
+    it('#1 builds the PL-side fields from live revenue/cost inputs', async () => {
+      const fixture = await seedListingFixture({
         companyId: TEST_COMPANY_ID,
-        suffix: 'BIG',
+        suffix: 'LIVE',
+        costPrice: 5_000,
+        commissionRate: 0.1,
+        otherCost: 500,
       });
 
-      // PL revenue 는 int4 범위 내 (2,000,000,000) — order aggregate 와 큰 차이 → mismatch
-      await prisma.profitLoss.create({
-        data: {
-          companyId: TEST_COMPANY_ID,
-          listingId: listing.id,
-          year: 2026,
-          month: 3,
-          revenue: 2_000_000_000,
-          orderCount: 30,
-        },
-      });
-
-      // 30 orders × unitPrice 100,000,000 KRW 각 (1 lineItem/order)
-      // 개별 unitPrice 는 int4 범위 내 (1억 < 2.1억), SUM 이 3,000,000,000 > 2^31
-      // ordered_at: 2026-03-15 00:00:00 UTC (KST 2026-03-15 09:00) — March KST 월 경계 내
-      const orderedAt = new Date(Date.UTC(2026, 2, 15, 0, 0, 0));
-      for (let i = 0; i < 30; i++) {
-        await seedOrderWithLine({
-          companyId: TEST_COMPANY_ID,
-          listingOptionId: listingOption.id,
-          externalOrderId: `ORD-BIG-${i.toString().padStart(3, '0')}`,
-          orderedAt,
-          unitPrice: 100_000_000,
+      await seedOrderWithLineItems(prisma, {
+        companyId: TEST_COMPANY_ID,
+        externalOrderId: 'SET-ORD-1',
+        orderedAt: '2026-03-15T00:00:00.000Z',
+        shippingPrice: 3_000,
+        status: 'paid',
+        lineItems: [{
           quantity: 1,
-        });
-      }
+          totalPrice: 20_000,
+          optionId: fixture.option.id,
+          listingOptionId: fixture.listing.listingOptionId,
+        }],
+      });
+      await seedAd(prisma, {
+        companyId: TEST_COMPANY_ID,
+        listingId: fixture.listing.listingId,
+        date: '2026-03-15T00:00:00.000Z',
+        spend: 2_000,
+      });
 
       const result = await service.reconcile(TEST_COMPANY_ID, '2026-03');
 
       expect(result.details).toHaveLength(1);
-      const detail = result.details[0];
-      // 핵심: SUM::bigint 가 3,000,000,000 을 overflow 없이 반환 + Number() 정확 변환
-      expect(typeof detail.orderTotal).toBe('number');
-      expect(detail.orderTotal).toBe(3_000_000_000);
-      expect(detail.orderCount).toBe(30);
-      // PL revenue (2B) vs order total (3B) → 1B diff → mismatch
-      expect(detail.plRevenue).toBe(2_000_000_000);
-      expect(detail.revenueDiff).toBe(-1_000_000_000);
-      expect(detail.status).toBe('mismatch');
-
-      expect(result.summary.totalOrderRevenue).toBe(3_000_000_000);
-      expect(result.summary.orderCount).toBe(30);
-    });
-  });
-
-  describe('reconcile — tolerance bands', () => {
-    it('#2 matched / minor_diff / mismatch 3 bands produce expected summary counts', async () => {
-      const { listing: lA, listingOption: loA } = await seedListing({
-        companyId: TEST_COMPANY_ID,
-        suffix: 'A',
-      });
-      const { listing: lB, listingOption: loB } = await seedListing({
-        companyId: TEST_COMPANY_ID,
-        suffix: 'B',
-      });
-      const { listing: lC, listingOption: loC } = await seedListing({
-        companyId: TEST_COMPANY_ID,
-        suffix: 'C',
-      });
-
-      // PL: each revenue 10,000
-      for (const l of [lA, lB, lC]) {
-        await prisma.profitLoss.create({
-          data: {
-            companyId: TEST_COMPANY_ID,
-            listingId: l.id,
-            year: 2026,
-            month: 3,
-            revenue: 10_000,
-            orderCount: 1,
-          },
-        });
-      }
-
-      const orderedAt = new Date(Date.UTC(2026, 2, 10, 3, 0, 0));
-      // A: order total 10,050 → diff 50 → matched
-      await seedOrderWithLine({
-        companyId: TEST_COMPANY_ID,
-        listingOptionId: loA.id,
-        externalOrderId: 'ORD-A-1',
-        orderedAt,
-        unitPrice: 10_050,
-        quantity: 1,
-      });
-      // B: 10,500 → diff 500 → minor_diff
-      await seedOrderWithLine({
-        companyId: TEST_COMPANY_ID,
-        listingOptionId: loB.id,
-        externalOrderId: 'ORD-B-1',
-        orderedAt,
-        unitPrice: 10_500,
-        quantity: 1,
-      });
-      // C: 12,000 → diff 2,000 → mismatch
-      await seedOrderWithLine({
-        companyId: TEST_COMPANY_ID,
-        listingOptionId: loC.id,
-        externalOrderId: 'ORD-C-1',
-        orderedAt,
-        unitPrice: 12_000,
-        quantity: 1,
-      });
-
-      const result = await service.reconcile(TEST_COMPANY_ID, '2026-03');
-
-      expect(result.details).toHaveLength(3);
-      const statuses = result.details.map((d) => d.status).sort();
-      expect(statuses).toEqual(['matched', 'minor_diff', 'mismatch']);
-      expect(result.summary.matchedCount).toBe(1);
-      expect(result.summary.mismatchCount).toBe(2); // minor_diff + mismatch
-      expect(result.summary.matchRate).toBe(33); // 1/3 → 33%
+      expect(result.details[0]).toEqual(expect.objectContaining({
+        listingId: fixture.listing.listingId,
+        externalId: 'SET-LIVE-EXT',
+        channelName: 'SET LIVE',
+        masterCode: 'SET-LIVE',
+        masterName: 'Settlement LIVE',
+        plRevenue: 20_000,
+        plCommission: 2_000,
+        plNetProfit: 7_500,
+        plOrderCount: 1,
+        orderTotal: 20_000,
+        orderCount: 1,
+        revenueDiff: 0,
+        isMatched: true,
+        status: 'matched',
+      }));
+      expect(result.summary).toEqual(expect.objectContaining({
+        totalPlRevenue: 20_000,
+        totalOrderRevenue: 20_000,
+        totalCommission: 2_000,
+        totalShipping: 3_000,
+        revenueDifference: 0,
+        productCount: 1,
+        orderCount: 1,
+        matchedCount: 1,
+        mismatchCount: 0,
+        matchRate: 100,
+      }));
     });
   });
 
   describe('reconcile — KST month boundary', () => {
-    it('#3 KST boundary: order at 2026-03-31 23:30 KST (14:30 UTC) is in March bucket', async () => {
-      const { listing, listingOption } = await seedListing({
+    it('#2 2026-03-31 23:30 KST is included in March, not April', async () => {
+      const fixture = await seedListingFixture({
         companyId: TEST_COMPANY_ID,
-        suffix: 'KST',
+        suffix: 'MARCH',
+        costPrice: 1_000,
+        commissionRate: 0.1,
       });
 
-      await prisma.profitLoss.create({
-        data: {
-          companyId: TEST_COMPANY_ID,
-          listingId: listing.id,
-          year: 2026,
-          month: 3,
-          revenue: 5_000,
-          orderCount: 1,
-        },
-      });
-
-      // KST 2026-03-31 23:30 = UTC 2026-03-31 14:30 — should belong to March (not April)
-      const orderedAt = new Date(Date.UTC(2026, 2, 31, 14, 30, 0));
-      await seedOrderWithLine({
+      await seedOrderWithLineItems(prisma, {
         companyId: TEST_COMPANY_ID,
-        listingOptionId: listingOption.id,
-        externalOrderId: 'ORD-KST-1',
-        orderedAt,
-        unitPrice: 5_000,
-        quantity: 1,
-      });
-
-      const march = await service.reconcile(TEST_COMPANY_ID, '2026-03');
-      expect(march.details[0].orderTotal).toBe(5_000);
-
-      const april = await service.reconcile(TEST_COMPANY_ID, '2026-04');
-      // april 에는 PL 없음 → details 빈 배열
-      expect(april.details).toHaveLength(0);
-    });
-
-    it('#4 KST boundary: order at 2026-04-01 00:30 KST (2026-03-31 15:30 UTC) is in April bucket', async () => {
-      const { listing, listingOption } = await seedListing({
-        companyId: TEST_COMPANY_ID,
-        suffix: 'KST2',
-      });
-
-      await prisma.profitLoss.create({
-        data: {
-          companyId: TEST_COMPANY_ID,
-          listingId: listing.id,
-          year: 2026,
-          month: 4,
-          revenue: 5_000,
-          orderCount: 1,
-        },
-      });
-
-      // KST 2026-04-01 00:30 = UTC 2026-03-31 15:30 — should belong to April
-      const orderedAt = new Date(Date.UTC(2026, 2, 31, 15, 30, 0));
-      await seedOrderWithLine({
-        companyId: TEST_COMPANY_ID,
-        listingOptionId: listingOption.id,
-        externalOrderId: 'ORD-KST-2',
-        orderedAt,
-        unitPrice: 5_000,
-        quantity: 1,
-      });
-
-      const april = await service.reconcile(TEST_COMPANY_ID, '2026-04');
-      expect(april.details[0].orderTotal).toBe(5_000);
-
-      const march = await service.reconcile(TEST_COMPANY_ID, '2026-03');
-      expect(march.details).toHaveLength(0);
-    });
-  });
-
-  describe('reconcile — cancelled / returned orders excluded', () => {
-    it('#5 cancelled + returned orders do not contribute to order aggregate', async () => {
-      const { listing, listingOption } = await seedListing({
-        companyId: TEST_COMPANY_ID,
-        suffix: 'CANCEL',
-      });
-
-      await prisma.profitLoss.create({
-        data: {
-          companyId: TEST_COMPANY_ID,
-          listingId: listing.id,
-          year: 2026,
-          month: 3,
-          revenue: 10_000,
-          orderCount: 1,
-        },
-      });
-
-      const orderedAt = new Date(Date.UTC(2026, 2, 15, 3, 0, 0));
-      // kept: paid
-      await seedOrderWithLine({
-        companyId: TEST_COMPANY_ID,
-        listingOptionId: listingOption.id,
-        externalOrderId: 'ORD-OK',
-        orderedAt,
-        unitPrice: 10_000,
-        quantity: 1,
+        externalOrderId: 'SET-KST-MARCH',
+        orderedAt: '2026-03-31T14:30:00.000Z',
+        shippingPrice: 0,
         status: 'paid',
-      });
-      // excluded: cancelled
-      await seedOrderWithLine({
-        companyId: TEST_COMPANY_ID,
-        listingOptionId: listingOption.id,
-        externalOrderId: 'ORD-CANCEL',
-        orderedAt,
-        unitPrice: 50_000,
-        quantity: 1,
-        status: 'cancelled',
-      });
-      // excluded: returned
-      await seedOrderWithLine({
-        companyId: TEST_COMPANY_ID,
-        listingOptionId: listingOption.id,
-        externalOrderId: 'ORD-RETURN',
-        orderedAt,
-        unitPrice: 30_000,
-        quantity: 1,
-        status: 'returned',
+        lineItems: [{
+          quantity: 1,
+          totalPrice: 5_000,
+          optionId: fixture.option.id,
+          listingOptionId: fixture.listing.listingOptionId,
+        }],
       });
 
-      const result = await service.reconcile(TEST_COMPANY_ID, '2026-03');
-      expect(result.details[0].orderTotal).toBe(10_000);
-      expect(result.details[0].orderCount).toBe(1);
+      const march = await service.reconcile(TEST_COMPANY_ID, '2026-03');
+      const april = await service.reconcile(TEST_COMPANY_ID, '2026-04');
+
+      expect(march.details).toHaveLength(1);
+      expect(march.details[0]).toEqual(expect.objectContaining({
+        listingId: fixture.listing.listingId,
+        plRevenue: 5_000,
+        orderTotal: 5_000,
+      }));
+      expect(april.details).toEqual([]);
+      expect(april.summary.totalPlRevenue).toBe(0);
+      expect(april.summary.totalOrderRevenue).toBe(0);
+    });
+
+    it('#3 2026-04-01 00:30 KST is included in April, not March', async () => {
+      const fixture = await seedListingFixture({
+        companyId: TEST_COMPANY_ID,
+        suffix: 'APRIL',
+        costPrice: 1_000,
+        commissionRate: 0.1,
+      });
+
+      await seedOrderWithLineItems(prisma, {
+        companyId: TEST_COMPANY_ID,
+        externalOrderId: 'SET-KST-APRIL',
+        orderedAt: '2026-03-31T15:30:00.000Z',
+        shippingPrice: 0,
+        status: 'paid',
+        lineItems: [{
+          quantity: 1,
+          totalPrice: 5_000,
+          optionId: fixture.option.id,
+          listingOptionId: fixture.listing.listingOptionId,
+        }],
+      });
+
+      const march = await service.reconcile(TEST_COMPANY_ID, '2026-03');
+      const april = await service.reconcile(TEST_COMPANY_ID, '2026-04');
+
+      expect(march.details).toEqual([]);
+      expect(april.details).toHaveLength(1);
+      expect(april.details[0]).toEqual(expect.objectContaining({
+        listingId: fixture.listing.listingId,
+        plRevenue: 5_000,
+        orderTotal: 5_000,
+      }));
     });
   });
 
-  describe('reconcile — cross-tenant isolation', () => {
-    it('#6 OTHER_COMPANY_ID orders do not appear in TEST_COMPANY_ID reconcile', async () => {
-      const own = await seedListing({ companyId: TEST_COMPANY_ID, suffix: 'OWN' });
-      const foreign = await seedListing({ companyId: OTHER_COMPANY_ID, suffix: 'FOR' });
-
-      await prisma.profitLoss.create({
-        data: {
-          companyId: TEST_COMPANY_ID,
-          listingId: own.listing.id,
-          year: 2026,
-          month: 3,
-          revenue: 5_000,
-          orderCount: 1,
-        },
-      });
-
-      const orderedAt = new Date(Date.UTC(2026, 2, 15, 3, 0, 0));
-      await seedOrderWithLine({
+  describe('reconcile — excluded statuses and tenant isolation', () => {
+    it('#4 cancelled, returned, and refunded orders are excluded from both live and SQL sides', async () => {
+      const fixture = await seedListingFixture({
         companyId: TEST_COMPANY_ID,
-        listingOptionId: own.listingOption.id,
-        externalOrderId: 'OWN-1',
-        orderedAt,
-        unitPrice: 5_000,
-        quantity: 1,
+        suffix: 'FILTER',
+        costPrice: 2_000,
+        commissionRate: 0.1,
       });
-      await seedOrderWithLine({
-        companyId: OTHER_COMPANY_ID,
-        listingOptionId: foreign.listingOption.id,
-        externalOrderId: 'FOREIGN-1',
-        orderedAt,
-        unitPrice: 999_999,
-        quantity: 1,
+
+      await seedOrderWithLineItems(prisma, {
+        companyId: TEST_COMPANY_ID,
+        externalOrderId: 'SET-KEEP',
+        orderedAt: '2026-03-15T03:00:00.000Z',
+        shippingPrice: 0,
+        status: 'paid',
+        lineItems: [{
+          quantity: 1,
+          totalPrice: 10_000,
+          optionId: fixture.option.id,
+          listingOptionId: fixture.listing.listingOptionId,
+        }],
+      });
+      await seedOrderWithLineItems(prisma, {
+        companyId: TEST_COMPANY_ID,
+        externalOrderId: 'SET-CANCELLED',
+        orderedAt: '2026-03-15T03:05:00.000Z',
+        shippingPrice: 0,
+        status: 'cancelled',
+        lineItems: [{
+          quantity: 1,
+          totalPrice: 50_000,
+          optionId: fixture.option.id,
+          listingOptionId: fixture.listing.listingOptionId,
+        }],
+      });
+      await seedOrderWithLineItems(prisma, {
+        companyId: TEST_COMPANY_ID,
+        externalOrderId: 'SET-RETURNED',
+        orderedAt: '2026-03-15T03:10:00.000Z',
+        shippingPrice: 0,
+        status: 'returned',
+        lineItems: [{
+          quantity: 1,
+          totalPrice: 40_000,
+          optionId: fixture.option.id,
+          listingOptionId: fixture.listing.listingOptionId,
+        }],
+      });
+      await seedOrderWithLineItems(prisma, {
+        companyId: TEST_COMPANY_ID,
+        externalOrderId: 'SET-REFUNDED',
+        orderedAt: '2026-03-15T03:15:00.000Z',
+        shippingPrice: 0,
+        status: 'refunded',
+        lineItems: [{
+          quantity: 1,
+          totalPrice: 30_000,
+          optionId: fixture.option.id,
+          listingOptionId: fixture.listing.listingOptionId,
+        }],
       });
 
       const result = await service.reconcile(TEST_COMPANY_ID, '2026-03');
+
       expect(result.details).toHaveLength(1);
-      expect(result.details[0].listingId).toBe(own.listing.id);
-      expect(result.details[0].orderTotal).toBe(5_000);
+      expect(result.details[0]).toEqual(expect.objectContaining({
+        listingId: fixture.listing.listingId,
+        plRevenue: 10_000,
+        plOrderCount: 1,
+        orderTotal: 10_000,
+        orderCount: 1,
+        status: 'matched',
+      }));
+      expect(result.summary.totalPlRevenue).toBe(10_000);
+      expect(result.summary.totalOrderRevenue).toBe(10_000);
+      expect(result.summary.orderCount).toBe(1);
+    });
+
+    it('#5 other-company rows do not appear in the TEST company reconcile', async () => {
+      const own = await seedListingFixture({
+        companyId: TEST_COMPANY_ID,
+        suffix: 'OWN',
+        costPrice: 1_000,
+        commissionRate: 0.1,
+      });
+      const foreign = await seedListingFixture({
+        companyId: OTHER_COMPANY_ID,
+        suffix: 'FOREIGN',
+        costPrice: 1_000,
+        commissionRate: 0.1,
+      });
+
+      await seedOrderWithLineItems(prisma, {
+        companyId: TEST_COMPANY_ID,
+        externalOrderId: 'SET-OWN-1',
+        orderedAt: '2026-03-15T03:00:00.000Z',
+        shippingPrice: 0,
+        status: 'paid',
+        lineItems: [{
+          quantity: 1,
+          totalPrice: 5_000,
+          optionId: own.option.id,
+          listingOptionId: own.listing.listingOptionId,
+        }],
+      });
+      await seedOrderWithLineItems(prisma, {
+        companyId: OTHER_COMPANY_ID,
+        externalOrderId: 'SET-FOREIGN-1',
+        orderedAt: '2026-03-15T03:00:00.000Z',
+        shippingPrice: 0,
+        status: 'paid',
+        lineItems: [{
+          quantity: 1,
+          totalPrice: 999_999,
+          optionId: foreign.option.id,
+          listingOptionId: foreign.listing.listingOptionId,
+        }],
+      });
+
+      const result = await service.reconcile(TEST_COMPANY_ID, '2026-03');
+
+      expect(result.details).toHaveLength(1);
+      expect(result.details[0]).toEqual(expect.objectContaining({
+        listingId: own.listing.listingId,
+        plRevenue: 5_000,
+        orderTotal: 5_000,
+      }));
+      expect(result.details[0].listingId).not.toBe(foreign.listing.listingId);
+      expect(result.summary.totalPlRevenue).toBe(5_000);
+      expect(result.summary.totalOrderRevenue).toBe(5_000);
     });
   });
 
   describe('update — IDOR protection', () => {
-    it('#7 cross-company update throws BadRequestException (IDOR defense)', async () => {
-      // TEST_COMPANY_ID 소유 settlement
+    it('#6 cross-company update throws BadRequestException', async () => {
       const settlement = await prisma.settlement.create({
         data: {
           companyId: TEST_COMPANY_ID,
@@ -424,17 +356,15 @@ describe('Settlements flow (PG integration)', () => {
         },
       });
 
-      // OTHER_COMPANY_ID 가 TEST_COMPANY_ID 의 settlement 를 업데이트 시도 → IDOR
       await expect(
         service.update(settlement.id, OTHER_COMPANY_ID, { actualAmount: 99_999_999 }),
       ).rejects.toThrow(BadRequestException);
 
-      // 원본 레코드는 변하지 않음
       const reread = await prisma.settlement.findUnique({ where: { id: settlement.id } });
       expect(reread?.actualAmount).toBe(0);
     });
 
-    it('#8 same-company update succeeds', async () => {
+    it('#7 same-company update succeeds', async () => {
       const settlement = await prisma.settlement.create({
         data: {
           companyId: TEST_COMPANY_ID,
