@@ -116,7 +116,7 @@ describe('Supplier-stats flow (PG integration)', () => {
           companyId: params.companyId,
           listingId: listing.id,
           optionId: params.options[i].id,
-          vendorItemId: `VI-${params.suffix}-${i}`,
+          externalOptionId: `VI-${params.suffix}-${i}`,
         },
       });
       listingOptions.push(lo);
