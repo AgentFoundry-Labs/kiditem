@@ -105,7 +105,7 @@ export class MastersService {
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: limit + 1,
     });
-    const items = rows.slice(0, limit);
+    const items = rows.slice(0, limit).map((r) => withNormalizedMasterImages(r) as MasterProduct);
     const nextCursor = rows.length > limit
       ? encodeCursor({
           createdAt: items[items.length - 1].createdAt.toISOString(),

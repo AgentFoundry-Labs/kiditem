@@ -17,6 +17,7 @@ import { BundleComponentsService } from '../services/bundle-components.service';
 import { MasterCodeService } from '../services/master-code.service';
 import { BundleStockService } from '../services/bundle-stock.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { StorageService } from '../../common/storage/storage.service';
 
 // 실제 PrismaModule 과 동일한 @Global 계약으로 PrismaService 를 전파하는 stub.
 // ProductsModule 내부 provider 들이 PrismaService 를 주입받으려면 같은 모양의 @Global
@@ -29,12 +30,21 @@ import { PrismaService } from '../../prisma/prisma.service';
 })
 class StubPrismaModule {}
 
+// StorageModule 은 @Global 이지만 isolated TestingModule 에는 자동 주입되지 않는다.
+// MastersService.uploadImage 가 StorageService 에 의존하므로 같은 @Global 계약으로 stub 제공.
+@Global()
+@Module({
+  providers: [{ provide: StorageService, useValue: {} as unknown as StorageService }],
+  exports: [StorageService],
+})
+class StubStorageModule {}
+
 describe('ProductsModule DI', () => {
   let moduleRef: TestingModule;
 
   beforeAll(async () => {
     moduleRef = await Test.createTestingModule({
-      imports: [StubPrismaModule, ProductsModule],
+      imports: [StubPrismaModule, StubStorageModule, ProductsModule],
     }).compile();
     await moduleRef.init();
   });
