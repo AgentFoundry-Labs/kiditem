@@ -318,6 +318,16 @@ export const MasterImageItemSchema = z.object({
 });
 export type MasterImageItem = z.infer<typeof MasterImageItemSchema>;
 
+/**
+ * @deprecated Temporary alias for legacy call sites in apps/web/src/app/image-hub
+ * and apps/web/src/app/thumbnail-editor. Remove once those domains migrate to
+ * `MasterImageItem` through their own plans — tracked in TODOS.md "ProductImageItem
+ * phantom import 정리". Keeps `npm run build --workspace=apps/web` green during
+ * this product-contract slice.
+ */
+export const ProductImageItemSchema = MasterImageItemSchema;
+export type ProductImageItem = MasterImageItem;
+
 export const MoneyRangeSchema = z.object({
   min: z.number().int(),
   max: z.number().int(),
@@ -411,6 +421,7 @@ Modify both `packages/shared/src/index.ts` and `packages/shared/src/schemas/inde
 ```typescript
 export {
   MasterImageItemSchema,
+  ProductImageItemSchema, // @deprecated alias — see product.ts
   MoneyRangeSchema,
   MasterSchema,
   ProductOptionSchema,
@@ -424,6 +435,7 @@ export {
 } from './schemas/product.js';
 export type {
   MasterImageItem,
+  ProductImageItem, // @deprecated alias — see product.ts
   MoneyRange,
   Master,
   ProductOption,

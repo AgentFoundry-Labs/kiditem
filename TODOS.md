@@ -77,26 +77,29 @@ Cross-cutting deferred work. Each item has Context (why), Depends on (blockers),
 
 ---
 
-## ProductImageItem phantom import 정리 — image-hub / thumbnail-editor
+## ProductImageItem deprecated alias 제거 — image-hub / thumbnail-editor 마이그레이션
 
-**Context**: product-contract-rewire PR 이 `@kiditem/shared` 의 `ProductImageItem` 을 실제 존재하는 `MasterImageItem` 으로 교체. product 도메인 내부 소비자는 정리했으나, 도메인 경계 밖 4 파일이 여전히 phantom import 를 사용:
+**Context**: product-contract-rewire PR 이 `@kiditem/shared` 의 `ProductImageItem` 을 `MasterImageItem` 의 `@deprecated` 타입 alias 로 보존 (`packages/shared/src/schemas/product.ts`). `apps/web` 빌드 green 유지 목적. 실제 phantom 을 쓰고 있는 도메인 경계 밖 4 파일:
 
 - `apps/web/src/app/image-hub/page.tsx:12`
 - `apps/web/src/app/image-hub/components/ImageGrid.tsx:5`
 - `apps/web/src/app/thumbnail-editor/components/EditorInputPanel.tsx:8`
 - `apps/web/src/app/thumbnail-editor/components/HubInlinePicker.tsx:9`
 
-각 도메인 자체 plan 에서 처리해야 함 (product-contract PR 의 ADR-0019 세션 경계 밖).
+각 도메인 자체 plan 에서 import 를 `MasterImageItem` 으로 교체 후, 본 alias 를 shared 에서 제거.
 
 **Depends on / blocked by**:
-- Product contract rewire PR 선착 (`MasterImageItem` export 확보)
+- Product contract rewire PR 선착 (`MasterImageItem` export + `ProductImageItem` alias 확보)
+- image-hub + thumbnail-editor 각자의 rewire plan
 
 **Acceptance (완료 조건)**:
-- [ ] image-hub 2 파일 → `MasterImageItem` import 로 교체 + 필드 참조 확인
+- [ ] image-hub 2 파일 → `MasterImageItem` import 로 교체 + 필드 참조 확인 (url/role/label/sortOrder)
 - [ ] thumbnail-editor 2 파일 → 동 위
 - [ ] 빌드 통과 + 해당 페이지 image 로드 스모크 테스트
+- [ ] `packages/shared/src/schemas/product.ts` 에서 `ProductImageItemSchema` / `ProductImageItem` alias 제거
+- [ ] `packages/shared/src/index.ts` + `packages/shared/src/schemas/index.ts` export 정리
 
-**Refs**: `packages/shared/src/schemas/product.ts` (MasterImageItem), product-contract rewire PR
+**Refs**: `packages/shared/src/schemas/product.ts` (MasterImageItem + @deprecated ProductImageItem alias), product-contract rewire PR
 
 ---
 

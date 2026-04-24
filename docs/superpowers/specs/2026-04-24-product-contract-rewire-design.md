@@ -317,7 +317,7 @@ Implementation must remove or stop exporting:
 
 - `ProductListItem` — already phantom in `@kiditem/shared`; delete all imports, replace with `ProductCatalogListItem`
 - `ProductDetail` — already phantom in `@kiditem/shared`; delete all imports, replace with `ProductCatalogDetail`
-- `ProductImageItem` — already phantom; replace consumers with `MasterImageItem`
+- `ProductImageItem` — kept as a `@deprecated` type alias re-exporting `MasterImageItem` to keep `apps/web/src/app/image-hub` and `apps/web/src/app/thumbnail-editor` compiling until their own migration plans run. In-scope product-domain callers use `MasterImageItem` directly. The alias is removed once image-hub and thumbnail-editor migrate — tracked in TODOS.md
 - `PipelineCounts` — already phantom; replace with `ProductCatalogCounts` sourced from the catalog pipeline-stats endpoint response shape. Do not preserve the old name under any condition
 - root `/api/products` direct calls from in-scope product-domain consumers (products list, product detail, product selector for product-domain screens). Out-of-scope consumers in other domains keep calling `/api/products` via the §3.4 legacy alias until each domain's own migration plan lands
 - flat product creation payloads that post SKU, price, or stock fields to the master form (per §5.4)
