@@ -1,12 +1,15 @@
 // apps/server/src/products/controllers/masters.controller.ts
 import {
   Body, Controller, Delete, Get, Param, Patch, Post, Query,
+  UploadedFile, UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
 import {
   MasterSchema, MasterWithOptionsSchema,
   type Master, type MasterWithOptions,
 } from '@kiditem/shared';
+import type { MulterFile } from '../../common/types';
 import { toSerializable } from '../util/serialize';
 import { MastersService } from '../services/masters.service';
 import { OptionsService } from '../services/options.service';
@@ -61,6 +64,16 @@ export class MastersController {
     @Param('legacyCode') legacyCode: string,
   ): Promise<Master> {
     return MasterSchema.parse(toSerializable(await this.svc.findByLegacy(companyId, legacyCode)));
+  }
+
+  @Post(':id/images/upload')
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadImage(
+    @CurrentCompany() companyId: string,
+    @Param('id') id: string,
+    @UploadedFile() file: MulterFile,
+  ): Promise<{ url: string }> {
+    return this.svc.uploadImage(companyId, id, file);
   }
 
   @Get(':id')

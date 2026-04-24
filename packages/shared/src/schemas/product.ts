@@ -1,6 +1,31 @@
 import { z } from 'zod';
 import { zIsoDate } from './common.js';
 
+// ===== Image item =====
+export const MasterImageItemSchema = z.object({
+  url: z.string().url(),
+  role: z.string(),
+  label: z.string(),
+  sortOrder: z.number().int().nonnegative(),
+});
+export type MasterImageItem = z.infer<typeof MasterImageItemSchema>;
+
+/**
+ * @deprecated Temporary alias for legacy call sites in apps/web/src/app/image-hub
+ * and apps/web/src/app/thumbnail-editor. Remove once those domains migrate to
+ * `MasterImageItem` through their own plans — tracked in TODOS.md "ProductImageItem
+ * deprecated alias 제거". Keeps apps/web build green during the product-contract slice.
+ */
+export const ProductImageItemSchema = MasterImageItemSchema;
+export type ProductImageItem = MasterImageItem;
+
+// ===== Money range (derived display) =====
+export const MoneyRangeSchema = z.object({
+  min: z.number().int(),
+  max: z.number().int(),
+});
+export type MoneyRange = z.infer<typeof MoneyRangeSchema>;
+
 // ===== Master (family) =====
 export const MasterSchema = z.object({
   id: z.string().uuid(),
@@ -15,7 +40,7 @@ export const MasterSchema = z.object({
   optionCounter: z.number().int(),
   thumbnailUrl: z.string().url().nullable(),
   imageUrl: z.string().url().nullable(),
-  images: z.array(z.string().url()).nullable(),
+  images: z.array(MasterImageItemSchema).nullable(),
   abcGrade: z.enum(['A', 'B', 'C']).nullable(),
   profitTag: z.string().nullable(),
   adTier: z.string().nullable(),
@@ -40,6 +65,7 @@ export const MasterSchema = z.object({
 });
 export type Master = z.infer<typeof MasterSchema>;
 
+// ===== Product option (sellable SKU) =====
 export const ProductOptionSchema = z.object({
   id: z.string().uuid(),
   masterId: z.string().uuid(),
@@ -86,3 +112,41 @@ export const OptionWithComponentsSchema = ProductOptionSchema.extend({
   components: z.array(BundleComponentSchema),
 });
 export type OptionWithComponents = z.infer<typeof OptionWithComponentsSchema>;
+
+// ===== Catalog read model =====
+export const ProductCatalogListItemSchema = MasterSchema.extend({
+  optionCount: z.number().int().nonnegative(),
+  representativeSku: z.string().nullable(),
+  priceRange: MoneyRangeSchema.nullable(),
+  costRange: MoneyRangeSchema.nullable(),
+  totalAvailableStock: z.number().int().nonnegative(),
+});
+export type ProductCatalogListItem = z.infer<typeof ProductCatalogListItemSchema>;
+
+export const ProductCatalogDetailSchema = ProductCatalogListItemSchema.extend({
+  options: z.array(ProductOptionSchema),
+});
+export type ProductCatalogDetail = z.infer<typeof ProductCatalogDetailSchema>;
+
+export const ProductCatalogCountsSchema = z.object({
+  total: z.number().int().nonnegative(),
+  gradeA: z.number().int().nonnegative(),
+  gradeB: z.number().int().nonnegative(),
+  gradeC: z.number().int().nonnegative(),
+  adCount: z.number().int().nonnegative(),
+  noAdCount: z.number().int().nonnegative(),
+  draftCount: z.number().int().nonnegative(),
+  processingCount: z.number().int().nonnegative(),
+  processedCount: z.number().int().nonnegative(),
+  discontinuedCount: z.number().int().nonnegative(),
+  temporaryCount: z.number().int().nonnegative(),
+});
+export type ProductCatalogCounts = z.infer<typeof ProductCatalogCountsSchema>;
+
+export const ProductCatalogListResponseSchema = z.object({
+  items: z.array(ProductCatalogListItemSchema),
+  total: z.number().int().nonnegative(),
+  page: z.number().int().positive(),
+  limit: z.number().int().positive(),
+});
+export type ProductCatalogListResponse = z.infer<typeof ProductCatalogListResponseSchema>;

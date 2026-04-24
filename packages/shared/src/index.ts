@@ -4,12 +4,32 @@ export type { PaginatedResponse, ApiErrorResponse, SyncInfo } from './schemas/co
 
 // Product
 export {
-  MasterSchema, ProductOptionSchema, BundleComponentSchema,
-  MasterWithOptionsSchema, OptionWithComponentsSchema,
+  MasterImageItemSchema,
+  ProductImageItemSchema, // @deprecated alias — see schemas/product.ts
+  MoneyRangeSchema,
+  MasterSchema,
+  ProductOptionSchema,
+  BundleComponentSchema,
+  MasterWithOptionsSchema,
+  OptionWithComponentsSchema,
+  ProductCatalogListItemSchema,
+  ProductCatalogDetailSchema,
+  ProductCatalogCountsSchema,
+  ProductCatalogListResponseSchema,
 } from './schemas/product.js';
 export type {
-  Master, ProductOption, BundleComponent,
-  MasterWithOptions, OptionWithComponents,
+  MasterImageItem,
+  ProductImageItem, // @deprecated alias — see schemas/product.ts
+  MoneyRange,
+  Master,
+  ProductOption,
+  BundleComponent,
+  MasterWithOptions,
+  OptionWithComponents,
+  ProductCatalogListItem,
+  ProductCatalogDetail,
+  ProductCatalogCounts,
+  ProductCatalogListResponse,
 } from './schemas/product.js';
 
 // Order (Plan A.5 — channel-agnostic)
