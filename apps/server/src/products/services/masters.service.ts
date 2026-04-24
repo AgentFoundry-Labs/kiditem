@@ -221,11 +221,38 @@ export class MastersService {
     const images = normalizeMasterImages((row as unknown as { images: unknown }).images);
     const url = row.imageUrl ?? row.thumbnailUrl ?? images[0]?.url ?? null;
     if (!url) throw new NotFoundException('image not found');
+    // Minimum SSRF defense: only http(s), block internal hosts. Full domain allowlist
+    // is a follow-up (see TODOS.md "originalImageBase64 SSRF allowlist").
+    this.assertPublicHttpUrl(url);
     const res = await fetch(url);
     if (!res.ok) throw new NotFoundException('image not found');
     const contentType = res.headers.get('content-type') ?? 'image/jpeg';
     const buffer = Buffer.from(await res.arrayBuffer());
     return { dataUrl: `data:${contentType};base64,${buffer.toString('base64')}` };
+  }
+
+  private assertPublicHttpUrl(raw: string): void {
+    let parsed: URL;
+    try { parsed = new URL(raw); } catch { throw new BadRequestException('invalid image url'); }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new BadRequestException('image url protocol must be http(s)');
+    }
+    const host = parsed.hostname.toLowerCase();
+    // Block loopback / unspecified / known private ranges / metadata endpoints.
+    const blocked =
+      host === 'localhost' ||
+      host === '0.0.0.0' ||
+      host === '::1' ||
+      host === '::' ||
+      host === '169.254.169.254' || // cloud metadata
+      /^127\./.test(host) ||
+      /^10\./.test(host) ||
+      /^192\.168\./.test(host) ||
+      /^172\.(1[6-9]|2\d|3[01])\./.test(host) ||
+      /^169\.254\./.test(host) ||
+      /^fc[0-9a-f]{2}:/i.test(host) ||
+      /^fe80:/i.test(host);
+    if (blocked) throw new BadRequestException('image url host not allowed');
   }
 
   /**

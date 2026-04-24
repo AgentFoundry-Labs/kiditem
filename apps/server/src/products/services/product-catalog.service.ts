@@ -170,14 +170,25 @@ export class ProductCatalogService {
         ],
       });
     }
-    const pipelineStep = q.pipelineStep ?? q.status;
+    const pipelineStep = this.normalizePipelineStep(q.pipelineStep ?? q.status);
     return {
       companyId,
       isDeleted: false,
       ...(q.grade ? { abcGrade: q.grade } : {}),
-      ...(pipelineStep && pipelineStep !== 'all' ? { pipelineStep } : {}),
+      ...(pipelineStep ? { pipelineStep } : {}),
       ...(ands.length > 0 ? { AND: ands } : {}),
     };
+  }
+
+  /**
+   * Legacy callers pass `status=active` etc. through the deprecated /api/products
+   * alias. Only forward values that match a real pipeline step; unknown and 'all'
+   * become no filter so we don't return empty lists for meaningless pipelineStep.
+   */
+  private normalizePipelineStep(value: string | undefined | null): string | null {
+    if (!value || value === 'all') return null;
+    const KNOWN = new Set(['draft', 'processing', 'processed', 'discontinued']);
+    return KNOWN.has(value) ? value : null;
   }
 
   /**
