@@ -39,6 +39,22 @@ CREATE UNIQUE INDEX IF NOT EXISTS product_options_company_legacy_active
   ON product_options (company_id, legacy_code)
   WHERE is_deleted = false AND legacy_code IS NOT NULL;
 
+-- 2d. ChannelListing: active-row uniqueness on (company_id, channel, external_id) — ADR-0020.
+-- Prisma @@unique([companyId, channel, externalId]) creates the full constraint; this partial
+-- index supersedes it so that soft-deleted listings don't block re-registration of the same
+-- external_id for an active listing.
+ALTER TABLE channel_listings
+  DROP CONSTRAINT IF EXISTS channel_listings_channel_external_id_key;
+ALTER TABLE channel_listings
+  DROP CONSTRAINT IF EXISTS channel_listings_company_id_channel_external_id_key;
+DROP INDEX IF EXISTS channel_listings_channel_external_id_key;
+DROP INDEX IF EXISTS channel_listings_company_id_channel_external_id_key;
+DROP INDEX IF EXISTS channel_listings_company_channel_external_active;
+
+CREATE UNIQUE INDEX channel_listings_company_channel_external_active
+  ON channel_listings(company_id, channel, external_id)
+  WHERE is_deleted = false;
+
 -- 3. ActionTask target_type CHECK
 ALTER TABLE action_tasks
   DROP CONSTRAINT IF EXISTS action_task_target_type;

@@ -336,7 +336,7 @@ model ChannelListing {
   csRecords          CSRecord[]
   profitLoss         ProfitLoss[]
 
-  @@unique([channel, externalId])
+  @@unique([companyId, channel, externalId])
   @@index([companyId])
   @@index([masterId])
   @@index([channel, isDeleted])
@@ -346,16 +346,16 @@ model ChannelListing {
 }
 
 /// @namespace Core
-/// @describe 채널 listing 내 옵션 (vendorItemId) 과 내부 ProductOption 매핑.
+/// @describe 채널 listing 내 옵션 externalOptionId 와 내부 ProductOption 매핑.
 model ChannelListingOption {
-  id           String   @id @default(uuid()) @db.Uuid
-  listingId    String   @map("listing_id") @db.Uuid
-  optionId     String?  @map("option_id") @db.Uuid
-  companyId    String   @map("company_id") @db.Uuid
+  id               String   @id @default(uuid()) @db.Uuid
+  listingId        String   @map("listing_id") @db.Uuid
+  optionId         String?  @map("option_id") @db.Uuid
+  companyId        String   @map("company_id") @db.Uuid
 
-  vendorItemId String   @map("vendor_item_id") @db.VarChar(60)
-  itemName     String?  @map("item_name")
-  salePrice    Int?     @map("sale_price")
+  externalOptionId String   @map("external_option_id") @db.VarChar(60)
+  itemName         String?  @map("item_name")
+  salePrice        Int?     @map("sale_price")
 
   isActive     Boolean  @default(true) @map("is_active")
   isUnmatched  Boolean  @default(false) @map("is_unmatched")
@@ -368,10 +368,10 @@ model ChannelListingOption {
   company Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
   orderLineItems    OrderLineItem[]
 
-  @@unique([listingId, vendorItemId])
-  @@unique([companyId, vendorItemId])
+  @@unique([listingId, externalOptionId])
+  @@index([companyId, externalOptionId])
   @@index([optionId])
-  @@index([vendorItemId])
+  @@index([externalOptionId])
   @@index([companyId, isUnmatched])
   @@map("channel_listing_options")
 }

@@ -417,3 +417,7 @@ Integration tests in scope:
 | Route a single `PATCH /api/products/:id` for mixed master/option field writes? | No. Split per §6.1 write-path matrix. Master fields to `/api/products/masters/:id`, option fields to `/api/products/options/:optionId`. |
 | Add a `status` field to master for "discontinued"? | No. Use an existing `pipelineStep` enum value. |
 | Rewire all domains at once? | No. Only direct product catalog reads are in scope. Other domains remain on the legacy alias until their own plans migrate them. |
+
+## Successor: Channel Option Identity
+
+ADR-0020 moves provider-specific channel option naming out of the canonical DB model. Product catalog read paths should treat `ChannelListing.externalId` as listing-level and `ChannelListingOption.externalOptionId` as option-level. Coupang payloads may still use `vendorItemId` before boundary normalization.
