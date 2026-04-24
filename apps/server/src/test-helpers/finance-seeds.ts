@@ -94,7 +94,7 @@ export async function setupChannelListing(
     externalId: string;
     channelName?: string | null;
     optionId: string;
-    vendorItemId: string;
+    externalOptionId: string;
   },
 ): Promise<{ listingId: string; listingOptionId: string }> {
   const listing = await prisma.channelListing.create({
@@ -113,7 +113,7 @@ export async function setupChannelListing(
       companyId: opts.companyId,
       listingId: listing.id,
       optionId: opts.optionId,
-      vendorItemId: opts.vendorItemId,
+      externalOptionId: opts.externalOptionId,
     },
     select: { id: true },
   });

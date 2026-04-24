@@ -50,7 +50,7 @@ describe('Sales-plans flow (PG integration)', () => {
       externalId: `SP-${opts.suffix}-EXT`,
       channelName: `SP ${opts.suffix}`,
       optionId: option.id,
-      vendorItemId: `SP-${opts.suffix}-VI`,
+      externalOptionId: `SP-${opts.suffix}-VI`,
     });
     return { master, option, listing };
   }

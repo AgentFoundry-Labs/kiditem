@@ -59,7 +59,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     const { listingId, listingOptionId } = await setupChannelListing(prisma, {
       companyId: TEST_COMPANY_ID, masterId,
       channel: 'coupang', externalId: `EXT-T-${suffix}`, channelName: '쿠팡',
-      optionId, vendorItemId: `VI-T-${suffix}`,
+      optionId, externalOptionId: `VI-T-${suffix}`,
     });
     return { masterId, optionId, listingId, listingOptionId };
   }
@@ -109,7 +109,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     const oListing = await setupChannelListing(prisma, {
       companyId: OTHER_COMPANY_ID, masterId: oMaster.id,
       channel: 'coupang', externalId: 'EXT-O-2',
-      optionId: oOption.id, vendorItemId: 'VI-O-2',
+      optionId: oOption.id, externalOptionId: 'VI-O-2',
     });
     await seedOrderWithLineItems(prisma, {
       companyId: OTHER_COMPANY_ID,
@@ -207,7 +207,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
       const { listingOptionId } = await setupChannelListing(prisma, {
         companyId: TEST_COMPANY_ID, masterId,
         channel: 'coupang', externalId: `EXT-T-TOP-${i}`, channelName: `채널${i}`,
-        optionId, vendorItemId: `VI-T-TOP-${i}`,
+        optionId, externalOptionId: `VI-T-TOP-${i}`,
       });
       await seedOrderWithLineItems(prisma, {
         companyId: TEST_COMPANY_ID,

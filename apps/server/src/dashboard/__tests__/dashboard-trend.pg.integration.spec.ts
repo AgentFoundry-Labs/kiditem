@@ -67,7 +67,7 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
     const { listingId, listingOptionId } = await setupChannelListing(prisma, {
       companyId: TEST_COMPANY_ID, masterId,
       channel: 'coupang', externalId: `EXT-T-${opts.suffix}`,
-      optionId, vendorItemId: `VI-T-${opts.suffix}`,
+      optionId, externalOptionId: `VI-T-${opts.suffix}`,
     });
 
     if (opts.orderTotalPriceOverride !== undefined) {
@@ -121,7 +121,7 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
     const oO = await setupProductOption(prisma, { companyId: OTHER_COMPANY_ID, masterId: oM.id, sku: 'SKU-O-1' });
     const oL = await setupChannelListing(prisma, {
       companyId: OTHER_COMPANY_ID, masterId: oM.id,
-      channel: 'coupang', externalId: 'EXT-O-1', optionId: oO.id, vendorItemId: 'VI-O-1',
+      channel: 'coupang', externalId: 'EXT-O-1', optionId: oO.id, externalOptionId: 'VI-O-1',
     });
     await seedOrderWithLineItems(prisma, {
       companyId: OTHER_COMPANY_ID,
@@ -150,7 +150,7 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
     const oO = await setupProductOption(prisma, { companyId: OTHER_COMPANY_ID, masterId: oM.id, sku: 'SKU-O-2' });
     const oL = await setupChannelListing(prisma, {
       companyId: OTHER_COMPANY_ID, masterId: oM.id,
-      channel: 'coupang', externalId: 'EXT-O-2', optionId: oO.id, vendorItemId: 'VI-O-2',
+      channel: 'coupang', externalId: 'EXT-O-2', optionId: oO.id, externalOptionId: 'VI-O-2',
     });
     await seedOrderWithLineItems(prisma, {
       companyId: OTHER_COMPANY_ID,

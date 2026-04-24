@@ -74,7 +74,7 @@ async function setupListing(
       companyId,
       listingId: listing.id,
       optionId: option.id,
-      vendorItemId: `VI-${suffix}`,
+      externalOptionId: `VI-${suffix}`,
     },
   });
   return { master, listing, option, listingOption };

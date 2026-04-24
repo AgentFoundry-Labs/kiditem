@@ -191,13 +191,20 @@ export class ChannelSyncService {
               `OrderLineItem missing vendorItemId — cannot upsert (shipmentBoxId=${shipmentBoxId})`,
             );
           }
-          const vendorItemId = String(item.vendorItemId);
-          const externalLineId = vendorItemId;
-          const listingOption = await tx.channelListingOption.findUnique({
+          const externalOptionId = String(item.vendorItemId);
+          const sellerProductId = item.sellerProductId
+            ? String(item.sellerProductId)
+            : null;
+          const externalLineId = externalOptionId;
+          const listingOption = await tx.channelListingOption.findFirst({
             where: {
-              companyId_vendorItemId: {
-                companyId,
-                vendorItemId,
+              companyId,
+              externalOptionId,
+              isActive: true,
+              listing: {
+                channel: 'coupang',
+                isDeleted: false,
+                ...(sellerProductId ? { externalId: sellerProductId } : {}),
               },
             },
             select: {

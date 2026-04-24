@@ -19,7 +19,7 @@ describe('AdSync flow (PG integration)', () => {
   async function seedListing(params: {
     companyId: string;
     externalId: string;
-    vendorItemId: string;
+    externalOptionId: string;
     legacySuffix?: string;
   }) {
     const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}${params.legacySuffix ?? ''}`;
@@ -52,7 +52,7 @@ describe('AdSync flow (PG integration)', () => {
         companyId: params.companyId,
         listingId: listing.id,
         optionId: option.id,
-        vendorItemId: params.vendorItemId,
+        externalOptionId: params.externalOptionId,
         isActive: true,
       },
     });
@@ -83,28 +83,28 @@ describe('AdSync flow (PG integration)', () => {
   });
 
   describe('buildListingMap', () => {
-    it('#1 populates vendorItemMap + externalIdMap only for scoped company', async () => {
+    it('#1 populates externalOptionIdMap + externalIdMap only for scoped company', async () => {
       const a = await seedListing({
         companyId: TEST_COMPANY_ID,
         externalId: 'EXT-A',
-        vendorItemId: 'VENDOR-A',
+        externalOptionId: 'VENDOR-A',
         legacySuffix: '-a',
       });
       await seedListing({
         companyId: OTHER_COMPANY_ID,
         externalId: 'EXT-OTHER',
-        vendorItemId: 'VENDOR-OTHER',
+        externalOptionId: 'VENDOR-OTHER',
         legacySuffix: '-other',
       });
 
       const map = await adSyncService.buildListingMap(TEST_COMPANY_ID);
 
-      expect(map.vendorItemMap.get('VENDOR-A')).toEqual({
+      expect(map.externalOptionIdMap.get('VENDOR-A')).toEqual({
         listingId: a.listing.id,
         optionId: a.option.id,
       });
       expect(map.externalIdMap.get('EXT-A')).toEqual({ listingId: a.listing.id });
-      expect(map.vendorItemMap.has('VENDOR-OTHER')).toBe(false);
+      expect(map.externalOptionIdMap.has('VENDOR-OTHER')).toBe(false);
       expect(map.externalIdMap.has('EXT-OTHER')).toBe(false);
     });
   });
@@ -114,7 +114,7 @@ describe('AdSync flow (PG integration)', () => {
       const seeded = await seedListing({
         companyId: TEST_COMPANY_ID,
         externalId: 'EXT-COUPANG-1',
-        vendorItemId: 'VI-HIT-1',
+        externalOptionId: 'VI-HIT-1',
       });
 
       const result = await adSyncService.sync(
@@ -169,7 +169,7 @@ describe('AdSync flow (PG integration)', () => {
       const seeded = await seedListing({
         companyId: TEST_COMPANY_ID,
         externalId: 'EXT-COUPANG-2',
-        vendorItemId: 'VI-UNUSED-2',
+        externalOptionId: 'VI-UNUSED-2',
       });
 
       await adSyncService.sync(
@@ -213,7 +213,7 @@ describe('AdSync flow (PG integration)', () => {
       await seedListing({
         companyId: TEST_COMPANY_ID,
         externalId: 'EXT-PRESENT',
-        vendorItemId: 'VI-PRESENT',
+        externalOptionId: 'VI-PRESENT',
       });
 
       const result = await adSyncService.sync(
@@ -262,7 +262,7 @@ describe('AdSync flow (PG integration)', () => {
       await seedListing({
         companyId: OTHER_COMPANY_ID,
         externalId: 'EXT-OTHER-ONLY',
-        vendorItemId: 'VI-OTHER-ONLY',
+        externalOptionId: 'VI-OTHER-ONLY',
         legacySuffix: '-xt',
       });
 

@@ -130,6 +130,7 @@ docker exec kiditem-postgres pg_dump -U kiditem --data-only --column-inserts \
 - `product_options(master_id, option_name)` → `product_options_master_option_name_active` + `product_options_master_null_option` (`option_name IS NULL` 케이스)
 - `product_options(company_id, barcode)` → `product_options_company_barcode_active`
 - `product_options(company_id, legacy_code)` → `product_options_company_legacy_active`
+- `channel_listings(company_id, channel, external_id)` → `channel_listings_company_channel_external_active` (ADR-0020, active-row uniqueness)
 
 서비스 코드는 `findUnique({ companyId_xxx })` 대신 **`findFirst({ where: { ..., isDeleted: false } })`** 사용.
 

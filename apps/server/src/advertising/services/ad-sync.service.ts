@@ -9,7 +9,7 @@ import { ExtensionSyncDto } from '../dto';
 import type { NormalizedCampaignKpi } from './types';
 
 export interface ListingMap {
-  vendorItemMap: Map<string, { listingId: string; optionId: string }>;
+  externalOptionIdMap: Map<string, { listingId: string; optionId: string }>;
   externalIdMap: Map<string, { listingId: string }>;
 }
 
@@ -98,8 +98,12 @@ export class AdSyncService {
   async buildListingMap(companyId: string): Promise<ListingMap> {
     const [options, listings] = await Promise.all([
       this.prisma.channelListingOption.findMany({
-        where: { companyId, isActive: true },
-        select: { vendorItemId: true, listingId: true, optionId: true },
+        where: {
+          companyId,
+          isActive: true,
+          listing: { channel: 'coupang', isDeleted: false },
+        },
+        select: { externalOptionId: true, listingId: true, optionId: true },
       }),
       this.prisma.channelListing.findMany({
         where: { companyId, isDeleted: false, channel: 'coupang' },
@@ -107,13 +111,13 @@ export class AdSyncService {
       }),
     ]);
 
-    const vendorItemMap = new Map<
+    const externalOptionIdMap = new Map<
       string,
       { listingId: string; optionId: string }
     >();
     for (const opt of options) {
-      if (opt.vendorItemId && opt.optionId) {
-        vendorItemMap.set(opt.vendorItemId, {
+      if (opt.externalOptionId && opt.optionId) {
+        externalOptionIdMap.set(opt.externalOptionId, {
           listingId: opt.listingId,
           optionId: opt.optionId,
         });
@@ -125,20 +129,20 @@ export class AdSyncService {
       externalIdMap.set(l.externalId, { listingId: l.id });
     }
 
-    return { vendorItemMap, externalIdMap };
+    return { externalOptionIdMap, externalIdMap };
   }
 
   matchListingFromRow(
     row: Record<string, unknown>,
     map: ListingMap,
   ): ListingMatch {
-    const vendorItemId = this.pickStringField(row, [
+    const providerOptionId = this.pickStringField(row, [
       'vendorItemId',
       'vendor_item_id',
       'itemId',
     ]);
-    if (vendorItemId) {
-      const hit = map.vendorItemMap.get(vendorItemId);
+    if (providerOptionId) {
+      const hit = map.externalOptionIdMap.get(providerOptionId);
       if (hit) return hit;
     }
 

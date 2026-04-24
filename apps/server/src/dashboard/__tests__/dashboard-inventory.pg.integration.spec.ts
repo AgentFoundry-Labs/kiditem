@@ -145,7 +145,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     const { listingOptionId } = await setupChannelListing(prisma, {
       companyId: TEST_COMPANY_ID, masterId,
       channel: 'coupang', externalId: 'EXT-T-LOSS',
-      optionId, vendorItemId: 'VI-T-LOSS',
+      optionId, externalOptionId: 'VI-T-LOSS',
     });
     await seedOrderWithLineItems(prisma, {
       companyId: TEST_COMPANY_ID,
@@ -167,7 +167,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     // Listing A: minus (cost > revenue)
     const a = await setupMaster(prisma, { companyId: TEST_COMPANY_ID, code: 'M-T-A', name: 'A', abcGrade: 'A' });
     const aOpt = await setupProductOption(prisma, { companyId: TEST_COMPANY_ID, masterId: a.id, sku: 'SKU-T-A', costPrice: 80_000, commissionRate: 0.1 });
-    const aList = await setupChannelListing(prisma, { companyId: TEST_COMPANY_ID, masterId: a.id, channel: 'coupang', externalId: 'EXT-T-A', optionId: aOpt.id, vendorItemId: 'VI-T-A' });
+    const aList = await setupChannelListing(prisma, { companyId: TEST_COMPANY_ID, masterId: a.id, channel: 'coupang', externalId: 'EXT-T-A', optionId: aOpt.id, externalOptionId: 'VI-T-A' });
     await seedOrderWithLineItems(prisma, {
       companyId: TEST_COMPANY_ID, externalOrderId: 'INV-T-A-1', orderedAt: midMonth().toISOString(),
       shippingPrice: 0, lineItems: [{ quantity: 1, totalPrice: 50_000, optionId: aOpt.id, listingOptionId: aList.listingOptionId }],
@@ -179,7 +179,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     // Adjust: costPrice=88_000 → netProfit = 100_000 - 88_000 - 10_000 = 2_000 → 2.0% (lowProfit ✓)
     const b = await setupMaster(prisma, { companyId: TEST_COMPANY_ID, code: 'M-T-B', name: 'B', abcGrade: 'A' });
     const bOpt = await setupProductOption(prisma, { companyId: TEST_COMPANY_ID, masterId: b.id, sku: 'SKU-T-B', costPrice: 88_000, commissionRate: 0.1 });
-    const bList = await setupChannelListing(prisma, { companyId: TEST_COMPANY_ID, masterId: b.id, channel: 'coupang', externalId: 'EXT-T-B', optionId: bOpt.id, vendorItemId: 'VI-T-B' });
+    const bList = await setupChannelListing(prisma, { companyId: TEST_COMPANY_ID, masterId: b.id, channel: 'coupang', externalId: 'EXT-T-B', optionId: bOpt.id, externalOptionId: 'VI-T-B' });
     await seedOrderWithLineItems(prisma, {
       companyId: TEST_COMPANY_ID, externalOrderId: 'INV-T-B-1', orderedAt: midMonth().toISOString(),
       shippingPrice: 0, lineItems: [{ quantity: 1, totalPrice: 100_000, optionId: bOpt.id, listingOptionId: bList.listingOptionId }],
@@ -189,7 +189,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     // revenue=100_000, adCost=20_000 → adRate=20% (>15)
     const c = await setupMaster(prisma, { companyId: TEST_COMPANY_ID, code: 'M-T-C', name: 'C', abcGrade: 'A' });
     const cOpt = await setupProductOption(prisma, { companyId: TEST_COMPANY_ID, masterId: c.id, sku: 'SKU-T-C', costPrice: 0, commissionRate: 0 });
-    const cList = await setupChannelListing(prisma, { companyId: TEST_COMPANY_ID, masterId: c.id, channel: 'coupang', externalId: 'EXT-T-C', optionId: cOpt.id, vendorItemId: 'VI-T-C' });
+    const cList = await setupChannelListing(prisma, { companyId: TEST_COMPANY_ID, masterId: c.id, channel: 'coupang', externalId: 'EXT-T-C', optionId: cOpt.id, externalOptionId: 'VI-T-C' });
     await seedOrderWithLineItems(prisma, {
       companyId: TEST_COMPANY_ID, externalOrderId: 'INV-T-C-1', orderedAt: midMonth().toISOString(),
       shippingPrice: 0, lineItems: [{ quantity: 1, totalPrice: 100_000, optionId: cOpt.id, listingOptionId: cList.listingOptionId }],
