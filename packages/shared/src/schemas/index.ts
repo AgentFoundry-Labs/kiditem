@@ -4,8 +4,13 @@ export type { PaginatedResponse, ApiErrorResponse, SyncInfo } from './common.js'
 
 // Product
 export {
+  MasterImageRoleSchema,
   MasterImageItemSchema,
+  ProductImageRoleSchema, // @deprecated alias — see product.ts
   ProductImageItemSchema, // @deprecated alias — see product.ts
+  GetMasterImagesResponseSchema,
+  UpdateMasterImagesRequestSchema,
+  UploadMasterImageResponseSchema,
   MoneyRangeSchema,
   MasterSchema,
   ProductOptionSchema,
@@ -18,8 +23,13 @@ export {
   ProductCatalogListResponseSchema,
 } from './product.js';
 export type {
+  MasterImageRole,
   MasterImageItem,
+  ProductImageRole, // @deprecated alias — see product.ts
   ProductImageItem, // @deprecated alias — see product.ts
+  GetMasterImagesResponse,
+  UpdateMasterImagesRequest,
+  UploadMasterImageResponse,
   MoneyRange,
   Master,
   ProductOption,
