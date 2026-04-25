@@ -85,9 +85,14 @@ export function useProductImages(masterId: string | null) {
       await queryClient.cancelQueries({ queryKey: queryKeys.products.images(masterId) });
     },
     onSuccess: (images) => {
-      if (masterId) {
-        queryClient.setQueryData(queryKeys.products.images(masterId), images);
-      }
+      if (!masterId) return;
+      queryClient.setQueryData(queryKeys.products.images(masterId), images);
+      // MasterProduct.images is embedded in the detail + catalog read models,
+      // so any cached copy of those must be marked stale after save. External
+      // review MEDIUM — without this the products list / detail view can
+      // surface images that were overwritten here.
+      queryClient.invalidateQueries({ queryKey: queryKeys.products.detail(masterId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.products.catalog.all });
     },
   });
 
