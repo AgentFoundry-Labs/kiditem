@@ -45,6 +45,7 @@ interface MenuItem {
   href: string;
   label: string;
   icon: LucideIcon;
+  gatedReason?: string;
 }
 
 interface MenuSection {
@@ -60,7 +61,12 @@ const menuSections: MenuSection[] = [
     items: [
       { href: '/', label: '대시보드', icon: LayoutDashboard },
       { href: '/ad-ops', label: '광고전략 AI', icon: Zap },
-      { href: '/thumbnails', label: '썸네일 AI', icon: ImageIcon },
+      {
+        href: '/thumbnails',
+        label: '썸네일 AI',
+        icon: ImageIcon,
+        gatedReason: 'AI 썸네일 backend contract 준비 중',
+      },
       { href: '/action-board', label: '액션 보드', icon: ClipboardList },
     ],
   },
@@ -79,8 +85,18 @@ const menuSections: MenuSection[] = [
     collapsible: true,
     items: [
       { href: '/product-hub', label: '상품 관리', icon: Package },
-      { href: '/reviews', label: '리뷰 관리', icon: MessageSquare },
-      { href: '/option-masters', label: '옵션 마스터', icon: Layers },
+      {
+        href: '/reviews',
+        label: '리뷰 관리',
+        icon: MessageSquare,
+        gatedReason: '리뷰 backend contract 준비 중',
+      },
+      {
+        href: '/option-masters',
+        label: '옵션 마스터',
+        icon: Layers,
+        gatedReason: '상품 옵션 contract 결정 대기',
+      },
     ],
   },
   {
@@ -300,6 +316,54 @@ export default function Sidebar({ onChatToggle, chatOpen }: { onChatToggle?: () 
                   {section.items.map((item) => {
                     const active = isItemActive(item.href, pathname);
                     const Icon = item.icon;
+                    const content = (
+                      <>
+                        {active && (
+                          <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-violet-500 rounded-r" />
+                        )}
+                        <Icon
+                          size={18}
+                          strokeWidth={active ? 2 : 1.5}
+                          className={cn(
+                            'shrink-0 transition-colors',
+                            item.gatedReason
+                              ? 'text-slate-300'
+                              : active ? 'text-violet-500' : 'text-slate-400 group-hover:text-slate-500'
+                          )}
+                        />
+                        {sidebarOpen && (
+                          <>
+                            <span className={active ? 'font-semibold' : 'font-medium'}>
+                              {item.label}
+                            </span>
+                            {item.gatedReason && (
+                              <span className="ml-auto rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-400">
+                                준비 중
+                              </span>
+                            )}
+                          </>
+                        )}
+                      </>
+                    );
+
+                    if (item.gatedReason) {
+                      return (
+                        <button
+                          key={item.href}
+                          type="button"
+                          disabled
+                          data-sidebar-gated-route={item.href}
+                          aria-label={`${item.label} — 준비 중`}
+                          className={cn(
+                            'group flex w-full cursor-not-allowed items-center gap-3 rounded-lg px-3 py-2 text-left text-[14px] text-slate-300 opacity-75 relative',
+                            !sidebarOpen && 'justify-center px-0'
+                          )}
+                          title={item.gatedReason}
+                        >
+                          {content}
+                        </button>
+                      );
+                    }
 
                     return (
                       <Link
@@ -314,22 +378,7 @@ export default function Sidebar({ onChatToggle, chatOpen }: { onChatToggle?: () 
                         )}
                         title={!sidebarOpen ? item.label : undefined}
                       >
-                        {active && (
-                          <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-violet-500 rounded-r" />
-                        )}
-                        <Icon
-                          size={18}
-                          strokeWidth={active ? 2 : 1.5}
-                          className={cn(
-                            'shrink-0 transition-colors',
-                            active ? 'text-violet-500' : 'text-slate-400 group-hover:text-slate-500'
-                          )}
-                        />
-                        {sidebarOpen && (
-                          <span className={active ? 'font-semibold' : 'font-medium'}>
-                            {item.label}
-                          </span>
-                        )}
+                        {content}
                       </Link>
                     );
                   })}
