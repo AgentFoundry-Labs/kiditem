@@ -9,12 +9,20 @@ import { apiClient } from '@/lib/api-client';
 import { useProductImages } from '@/hooks/useProductImages';
 import { ProductSelector } from '@/components/product/ProductSelector';
 import { ImageGrid } from './components/ImageGrid';
-import type { ProductImageItem } from '@kiditem/shared';
+import {
+  MasterImageRoleSchema,
+  MasterSchema,
+  type MasterImageItem,
+  type MasterImageRole,
+} from '@kiditem/shared';
 
 interface SelectedProduct {
   id: string;
   name: string;
   imageUrl: string | null;
+  // Representative sku coming from the catalog selector. The URL-initial
+  // fetch route only has `master.code` (no sku without an option lookup),
+  // so this can be null even when a product is selected.
   sku: string | null;
 }
 
@@ -26,23 +34,39 @@ export default function ImageHubPage() {
     initialProductId ? { id: initialProductId, name: '', imageUrl: null, sku: null } : null,
   );
   const [isDirty, setIsDirty] = useState(false);
+  const [draft, setDraft] = useState<MasterImageItem[]>([]);
 
-  // URL 진입 시 상품 상세 fetch (name/imageUrl 채우기)
+  // URL 진입 시 master 상세 fetch (name/imageUrl 채우기). ADR-0020 successor:
+  // canonical `/api/products/masters/:id`, not the legacy `/api/products/:id` alias.
   useEffect(() => {
     if (!initialProductId) return;
     apiClient
-      .get<{ id: string; name: string; imageUrl: string | null; sku: string | null }>(`/api/products/${initialProductId}`)
-      .then((product) => setSelectedProduct((prev) => {
-        // 이미 다른 상품으로 바뀌었으면 무시
-        if (prev?.id !== initialProductId) return prev;
-        return { id: product.id, name: product.name, imageUrl: product.imageUrl, sku: product.sku };
-      }))
+      .getParsed(`/api/products/masters/${initialProductId}`, MasterSchema)
+      .then((master) =>
+        setSelectedProduct((prev) => {
+          if (prev?.id !== initialProductId) return prev;
+          return {
+            id: master.id,
+            name: master.name,
+            imageUrl: master.imageUrl,
+            sku: null,
+          };
+        }),
+      )
       .catch(() => toast.error('상품 정보를 불러오지 못했습니다'));
   }, [initialProductId]);
 
-  const { images, loading, saving, uploadFile, saveImages, setImages } = useProductImages(
+  const { images, loading, saving, uploadFile, saveImages } = useProductImages(
     selectedProduct?.id ?? null,
   );
+
+  // Sync server-truth images into the local draft whenever the query cache
+  // changes (product switch, save success, background refetch) — but only if
+  // the user has no unsaved edits, so in-progress labels don't get clobbered.
+  useEffect(() => {
+    if (isDirty) return;
+    setDraft(images);
+  }, [images, isDirty]);
 
   useEffect(() => {
     if (!isDirty) return;
@@ -55,39 +79,45 @@ export default function ImageHubPage() {
 
   const handleProductSelect = (product: SelectedProduct) => {
     setSelectedProduct(product);
+    setIsDirty(false);
   };
 
   const handleAddImage = async (role: string, file: File) => {
     if (!selectedProduct) return;
-    const url = await uploadFile(file);
-    if (!url) {
-      toast.error('이미지 업로드 실패');
+    const roleParse = MasterImageRoleSchema.safeParse(role);
+    if (!roleParse.success) {
+      toast.error('알 수 없는 이미지 역할');
       return;
     }
-    const newImage: ProductImageItem = {
-      url,
-      role,
-      label: '',
-      sortOrder: images.filter((img) => img.role === role).length,
-    };
-    setImages((prev) => [...prev, newImage]);
-    setIsDirty(true);
-    toast.success('이미지 업로드 완료');
+    const resolvedRole: MasterImageRole = roleParse.data;
+    try {
+      const uploaded = await uploadFile(file);
+      const newImage: MasterImageItem = {
+        ...uploaded,
+        role: resolvedRole,
+        sortOrder: draft.filter((img) => img.role === resolvedRole).length,
+      };
+      setDraft((prev) => [...prev, newImage]);
+      setIsDirty(true);
+      toast.success('이미지 업로드 완료');
+    } catch {
+      toast.error('이미지 업로드 실패');
+    }
   };
 
   const handleRemoveImage = (index: number) => {
-    setImages((prev) => prev.filter((_, i) => i !== index));
+    setDraft((prev) => prev.filter((_, i) => i !== index));
     setIsDirty(true);
   };
 
   const handleLabelChange = (index: number, label: string) => {
-    setImages((prev) => prev.map((img, i) => (i === index ? { ...img, label } : img)));
+    setDraft((prev) => prev.map((img, i) => (i === index ? { ...img, label } : img)));
     setIsDirty(true);
   };
 
   const handleSave = async () => {
     try {
-      await saveImages(images);
+      await saveImages(draft);
       setIsDirty(false);
       toast.success('이미지가 저장되었습니다');
     } catch {
@@ -110,7 +140,7 @@ export default function ImageHubPage() {
             </p>
           </div>
         </div>
-        {selectedProduct && images.length > 0 && (
+        {selectedProduct && draft.length > 0 && (
           <div className="flex items-center gap-2">
             <Link
               href={`/thumbnail-editor?productId=${selectedProduct.id}`}
@@ -167,7 +197,7 @@ export default function ImageHubPage() {
             <div>
               <div className="text-sm font-medium text-slate-900">{selectedProduct.name}</div>
               {selectedProduct.sku && (
-                <div className="text-xs text-slate-400">SKU: {selectedProduct.sku}</div>
+                <div className="text-xs text-[var(--text-tertiary)]">SKU: {selectedProduct.sku}</div>
               )}
             </div>
           </div>
@@ -184,7 +214,7 @@ export default function ImageHubPage() {
             </div>
           ) : (
             <ImageGrid
-              images={images}
+              images={draft}
               onAdd={handleAddImage}
               onRemove={handleRemoveImage}
               onLabelChange={handleLabelChange}
