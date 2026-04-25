@@ -1,44 +1,20 @@
 'use client';
 import { Check, Printer, FileText } from "lucide-react";
-import { cn, formatKRW } from "@/lib/utils";
-
-// Local row shape — legacy /api/orders flat row. Shared `Order` + `OrderLineItem` split
-// is the canonical contract; this table is legacy scope and uses a loose shape until
-// the orders page is rewired through a separate plan.
-interface OrderRow {
-  id: string;
-  productName?: string | null;
-  orderNumber?: string | null;
-  platform?: string | null;
-  totalPrice: number;
-  quantity?: number;
-  customerName?: string | null;
-  receiverName?: string | null;
-  receiverAddr?: string | null;
-  memo?: string | null;
-  orderedAt: string | Date;
-  shippedAt?: string | Date | null;
-  deliveredAt?: string | Date | null;
-  shippingCompany?: string | null;
-  trackingNumber?: string | null;
-}
-
-interface OrderNode {
-  key: string;
-  label: string;
-  sub: string;
-  color: string;
-}
+import { cn, formatKRW, formatDate, formatTime } from "@/lib/utils";
+import type { OrderListItem } from '@kiditem/shared';
+import type { OrderPipelineNode } from '../lib/order-pipeline';
 
 interface OrderTableProps {
   activeNode: string;
-  activeOrders: OrderRow[];
-  allNodes: OrderNode[];
+  activeOrders: OrderListItem[];
+  allNodes: OrderPipelineNode[];
   selectedOrders: Record<string, boolean>;
   selectedCount: number;
   allChecked: boolean;
   loading: boolean;
   error: string | null;
+  confirming: boolean;
+  invoicing: boolean;
   onToggleAll: () => void;
   onToggleOrder: (id: string) => void;
   onConfirm: () => void;
@@ -48,14 +24,16 @@ interface OrderTableProps {
 
 export default function OrderTable({
   activeNode, activeOrders, allNodes, selectedOrders, selectedCount,
-  allChecked, loading, error, onToggleAll, onToggleOrder,
-  onConfirm, onPrintLabel, onInvoice,
+  allChecked, loading, error, confirming, invoicing,
+  onToggleAll, onToggleOrder, onConfirm, onPrintLabel, onInvoice,
 }: OrderTableProps) {
   const nodeInfo = allNodes.find((n) => n.key === activeNode);
+  const actionPending = confirming || invoicing;
+  const isAcceptNode = activeNode === 'ACCEPT';
 
   return (
     <div className="table-card">
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-100">
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-[var(--border-subtle,#f1f5f9)]">
         <div className="flex items-center gap-2">
           <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: nodeInfo?.color }} />
           <span className="text-xs font-semibold text-slate-900 uppercase tracking-wider">
@@ -66,7 +44,8 @@ export default function OrderTable({
         <div className="flex items-center gap-2">
           <button
             onClick={onConfirm}
-            disabled={selectedCount === 0}
+            disabled={selectedCount === 0 || !isAcceptNode || actionPending}
+            title={!isAcceptNode ? '신규주문 단계에서만 발주확인 가능' : undefined}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono rounded-full bg-purple-500 text-white hover:bg-purple-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             <Check size={12} />
@@ -81,7 +60,7 @@ export default function OrderTable({
           </button>
           <button
             onClick={onInvoice}
-            disabled={selectedCount === 0}
+            disabled={selectedCount === 0 || actionPending}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono rounded-full bg-purple-500 text-white hover:bg-purple-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             <FileText size={12} />
@@ -143,20 +122,23 @@ export default function OrderTable({
                     </td>
                     <td className="max-w-[280px]">
                       <div className="text-sm font-medium text-slate-900 truncate">
-                        {order.productName || "-"}
+                        {order.primaryProductName || "-"}
                       </div>
                       <div className="flex items-center gap-1.5 mt-0.5">
-                        <span className="text-[11px] font-mono text-slate-400">#{order.orderNumber}</span>
-                        {order.platform && (
+                        <span className="text-[11px] font-mono text-slate-400">#{order.displayOrderNumber}</span>
+                        {order.primaryOptionName && (
+                          <span className="text-[11px] text-slate-400">{order.primaryOptionName}</span>
+                        )}
+                        {order.lineItemCount > 1 && (
                           <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-50 text-indigo-600">
-                            {order.platform}
+                            +{order.lineItemCount - 1}
                           </span>
                         )}
                       </div>
                     </td>
                     <td className="text-right">
                       <div className="font-medium">{formatKRW(order.totalPrice)}원</div>
-                      <div className="text-[11px] text-slate-400 mt-0.5">{order.quantity}개</div>
+                      <div className="text-[11px] text-slate-400 mt-0.5">{order.totalQuantity}개</div>
                     </td>
                     <td className="text-xs text-slate-600">{order.customerName || order.receiverName || "-"}</td>
                     <td className="text-xs text-slate-500 max-w-[160px]" title={order.receiverAddr || undefined}>
@@ -168,19 +150,19 @@ export default function OrderTable({
                       )}
                     </td>
                     <td className="text-xs text-slate-500">
-                      {new Date(order.orderedAt).toLocaleDateString("ko-KR")}
+                      {formatDate(order.orderedAt)}
                       <br />
                       <span className="text-slate-400">
-                        {new Date(order.orderedAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}
+                        {formatTime(order.orderedAt, { hour: '2-digit', minute: '2-digit' })}
                       </span>
                       {(activeNode === "DEPARTURE" || activeNode === "DELIVERING") && order.shippedAt && (
                         <div className="text-[11px] text-blue-500 mt-1">
-                          출고 {new Date(order.shippedAt).toLocaleDateString("ko-KR")}
+                          출고 {formatDate(order.shippedAt)}
                         </div>
                       )}
                       {activeNode === "FINAL_DELIVERY" && order.deliveredAt && (
                         <div className="text-[11px] text-green-600 mt-1">
-                          배송완료 {new Date(order.deliveredAt).toLocaleDateString("ko-KR")}
+                          배송완료 {formatDate(order.deliveredAt)}
                         </div>
                       )}
                     </td>

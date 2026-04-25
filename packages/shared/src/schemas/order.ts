@@ -89,3 +89,112 @@ export const OrderReturnLineItemSchema = z.object({
   createdAt: zIsoDate,
 });
 export type OrderReturnLineItem = z.infer<typeof OrderReturnLineItemSchema>;
+
+// =============================================================================
+// W3 — UI-ready response schemas (typed boundary for /orders page)
+// =============================================================================
+
+export const OrderStatusSchema = z.enum([
+  'ACCEPT',
+  'INSTRUCT',
+  'DEPARTURE',
+  'DELIVERING',
+  'FINAL_DELIVERY',
+  'CANCELED',
+]);
+export type OrderStatus = z.infer<typeof OrderStatusSchema>;
+
+export const OrderPipelineStatusSchema = z.enum([
+  'ACCEPT',
+  'INSTRUCT',
+  'DEPARTURE',
+  'DELIVERING',
+  'FINAL_DELIVERY',
+]);
+export type OrderPipelineStatus = z.infer<typeof OrderPipelineStatusSchema>;
+
+export const OrderListLineItemSchema = z.object({
+  id: z.string().uuid(),
+  productName: z.string(),
+  optionName: z.string().nullable(),
+  sku: z.string().nullable(),
+  quantity: z.number().int().nonnegative(),
+  unitPrice: z.number().int(),
+  totalPrice: z.number().int(),
+  status: z.string(),
+  externalLineId: z.string().nullable(),
+});
+export type OrderListLineItem = z.infer<typeof OrderListLineItemSchema>;
+
+export const DeliveryCompanySchema = z.object({
+  code: z.string(),
+  name: z.string(),
+});
+export type DeliveryCompany = z.infer<typeof DeliveryCompanySchema>;
+
+export const OrderListItemSchema = z.object({
+  id: z.string().uuid(),
+  platform: z.string(),
+  externalOrderId: z.string(),
+  externalNumber: z.string().nullable(),
+  displayOrderNumber: z.string(),
+  shipmentBoxId: z.number().int().positive().nullable(),
+  status: OrderStatusSchema,
+  customerName: z.string(),
+  receiverName: z.string().nullable(),
+  receiverAddr: z.string().nullable(),
+  memo: z.string().nullable(),
+  orderedAt: zIsoDate,
+  shippedAt: zIsoDate.nullable(),
+  deliveredAt: zIsoDate.nullable(),
+  trackingNumber: z.string().nullable(),
+  shippingCompany: z.string().nullable(),
+  totalPrice: z.number().int(),
+  totalQuantity: z.number().int().nonnegative(),
+  lineItemCount: z.number().int().nonnegative(),
+  primaryProductName: z.string().nullable(),
+  primaryOptionName: z.string().nullable(),
+  lineItems: z.array(OrderListLineItemSchema),
+});
+export type OrderListItem = z.infer<typeof OrderListItemSchema>;
+
+export const OrderListResponseSchema = z.object({
+  items: z.array(OrderListItemSchema),
+  total: z.number().int().nonnegative(),
+  page: z.number().int().positive().optional(),
+  limit: z.number().int().positive().optional(),
+  deliveryCompanies: z.array(DeliveryCompanySchema),
+});
+export type OrderListResponse = z.infer<typeof OrderListResponseSchema>;
+
+export const OrderStatsResponseSchema = z.object({
+  stats: z.object({
+    total: z.number().int().nonnegative(),
+    accept: z.number().int().nonnegative(),
+    instruct: z.number().int().nonnegative(),
+    departure: z.number().int().nonnegative(),
+    delivering: z.number().int().nonnegative(),
+    finalDelivery: z.number().int().nonnegative(),
+  }),
+  today: z.object({
+    orders: z.number().int().nonnegative(),
+    revenue: z.number().int(),
+  }),
+  week: z.object({
+    orders: z.number().int().nonnegative(),
+    revenue: z.number().int(),
+  }),
+});
+export type OrderStatsResponse = z.infer<typeof OrderStatsResponseSchema>;
+
+export const OrderActionResponseSchema = z.object({
+  message: z.string(),
+  data: z.unknown().optional(),
+});
+export type OrderActionResponse = z.infer<typeof OrderActionResponseSchema>;
+
+export const OrderPipelineResponseSchema = z.object({
+  pipeline: z.record(OrderPipelineStatusSchema, z.array(OrderListItemSchema)),
+  counts: z.record(OrderPipelineStatusSchema, z.number().int().nonnegative()),
+});
+export type OrderPipelineResponse = z.infer<typeof OrderPipelineResponseSchema>;
