@@ -111,10 +111,19 @@ export class OrdersService {
       orderedAtFilter.lte = toDate;
     }
 
+    // 신규 sync 는 NONE_TRACKING → DEPARTURE 로 정규화하지만, 정규화 도입 이전에 저장된
+    // legacy row 는 raw NONE_TRACKING 그대로 남아있다. pipeline 의 DEPARTURE 탭이
+    // legacy row 까지 노출하도록 조회 단계에서도 두 status 를 함께 받는다 (toListItem 가
+    // response 시점에 다시 DEPARTURE 로 일원화).
+    const statusFilter =
+      dbStatus === 'DEPARTURE'
+        ? { in: ['DEPARTURE', 'NONE_TRACKING'] }
+        : dbStatus;
+
     const orders = await this.prisma.order.findMany({
       where: {
         companyId,
-        status: dbStatus,
+        status: statusFilter,
         ...(Object.keys(orderedAtFilter).length > 0 && {
           orderedAt: orderedAtFilter,
         }),

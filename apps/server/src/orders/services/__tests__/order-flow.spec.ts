@@ -193,6 +193,55 @@ describe('OrdersService — order query and actions', () => {
       expect(parsed.success).toBe(true);
     });
 
+    it('?status=DEPARTURE 가 legacy raw NONE_TRACKING row 까지 fetch + 응답에서 DEPARTURE 로 일원화 (regression)', async () => {
+      const departureOrder = {
+        ...MOCK_ORDER,
+        id: '00000000-0000-4000-8000-0000000000bb',
+        externalOrderId: '11111',
+        status: 'DEPARTURE',
+        lineItems: [MOCK_LINE_ITEM],
+      };
+      const legacyNoneTrackingOrder = {
+        ...MOCK_ORDER,
+        id: '00000000-0000-4000-8000-0000000000cc',
+        externalOrderId: '22222',
+        status: 'NONE_TRACKING',
+        lineItems: [MOCK_LINE_ITEM],
+      };
+      prisma.order.findMany.mockResolvedValue([departureOrder, legacyNoneTrackingOrder]);
+
+      const result = await service.findAll(COMPANY_ID, { status: 'DEPARTURE' });
+
+      // DEPARTURE 요청 시 legacy NONE_TRACKING 까지 함께 조회
+      expect(prisma.order.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            companyId: COMPANY_ID,
+            status: { in: ['DEPARTURE', 'NONE_TRACKING'] },
+          }),
+        }),
+      );
+      // 응답 status 는 두 row 모두 DEPARTURE 로 정규화됨
+      expect(result.items).toHaveLength(2);
+      expect(result.items[0]?.status).toBe('DEPARTURE');
+      expect(result.items[1]?.status).toBe('DEPARTURE');
+    });
+
+    it('?status=ACCEPT 등 비-DEPARTURE 요청은 단일 equality 유지', async () => {
+      prisma.order.findMany.mockResolvedValue([]);
+
+      await service.findAll(COMPANY_ID, { status: 'ACCEPT' });
+
+      expect(prisma.order.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            companyId: COMPANY_ID,
+            status: 'ACCEPT',
+          }),
+        }),
+      );
+    });
+
     it('shipmentBoxId 가 Number.MAX_SAFE_INTEGER 를 넘으면 null (regression — unsafe ID action 차단)', async () => {
       // externalOrderId 는 string 이지만 Number 캐스팅 시 안전 범위를 벗어나는 케이스
       const unsafeStr = String(BigInt(Number.MAX_SAFE_INTEGER) + 7n);
