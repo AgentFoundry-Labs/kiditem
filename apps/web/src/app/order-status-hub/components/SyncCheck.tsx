@@ -11,7 +11,7 @@ import {
   Search,
   Info,
 } from 'lucide-react';
-import { fetchOrderList, orderListKeyParams } from '../lib/orders-api';
+import { allOrderStatusesKeyParams, fetchOrderListAcrossStatuses } from '../lib/orders-api';
 import {
   aggregateOrdersByDay,
   summarizeOrderRange,
@@ -35,8 +35,8 @@ export default function SyncCheck() {
   );
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: queryKeys.orders.sync(orderListKeyParams(submittedRange ?? {})),
-    queryFn: () => fetchOrderList(submittedRange!),
+    queryKey: queryKeys.orders.sync(allOrderStatusesKeyParams(submittedRange ?? {})),
+    queryFn: () => fetchOrderListAcrossStatuses(submittedRange!),
     enabled: !!submittedRange,
   });
 

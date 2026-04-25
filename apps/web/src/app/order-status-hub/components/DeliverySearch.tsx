@@ -11,7 +11,7 @@ import {
   MapPin,
   Info,
 } from 'lucide-react';
-import { fetchOrderList, orderListKeyParams } from '../lib/orders-api';
+import { allOrderStatusesKeyParams, fetchOrderListAcrossStatuses } from '../lib/orders-api';
 import { filterOrderListItems, orderStatusBadge } from '../lib/order-projection';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatDate, formatNumber } from '@/lib/utils';
@@ -36,8 +36,8 @@ export default function DeliverySearch() {
   );
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: queryKeys.orders.search(orderListKeyParams(range)),
-    queryFn: () => fetchOrderList(range),
+    queryKey: queryKeys.orders.search(allOrderStatusesKeyParams(range)),
+    queryFn: () => fetchOrderListAcrossStatuses(range),
   });
 
   const allOrders = data?.items ?? [];

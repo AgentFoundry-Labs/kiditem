@@ -9,7 +9,7 @@ import {
   Info,
   TrendingUp,
 } from 'lucide-react';
-import { fetchOrderList, orderListKeyParams } from '../lib/orders-api';
+import { allOrderStatusesKeyParams, fetchOrderListAcrossStatuses } from '../lib/orders-api';
 import {
   aggregateOrdersByDay,
   summarizeOrderRange,
@@ -33,8 +33,8 @@ export default function OrderCompare() {
   );
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: queryKeys.orders.compare(orderListKeyParams(submittedRange ?? {})),
-    queryFn: () => fetchOrderList(submittedRange!),
+    queryKey: queryKeys.orders.compare(allOrderStatusesKeyParams(submittedRange ?? {})),
+    queryFn: () => fetchOrderListAcrossStatuses(submittedRange!),
     enabled: !!submittedRange,
   });
 
