@@ -70,6 +70,9 @@ export const StockTransactionSchema = z.object({
   optionId: z.string().uuid(),
   type: StockTransactionTypeSchema,
   quantity: z.number().int(),
+  // Signed stock impact: RECEIVE > 0, ISSUE < 0, ADJUST = signed delta as written.
+  // Aggregations (net stock change, ledger end stock) MUST use this, not `quantity`.
+  stockDelta: z.number().int(),
   unitCost: z.number().int(),
   createdAt: zIsoDate,
 });
@@ -90,6 +93,10 @@ export const TransactionListItemSchema = z.object({
   optionName: z.string().nullable(),
   type: StockTransactionTypeSchema,
   quantity: z.number().int(),
+  // Signed stock impact derived from type + stored quantity.
+  // RECEIVE: +quantity, ISSUE: -quantity, ADJUST: signed quantity as recorded.
+  // Use this for net stock change and ledger end-stock aggregations.
+  stockDelta: z.number().int(),
   unitCost: z.number().int(),
   totalCost: z.number().int(),
   warehouseId: z.string().uuid().nullable(),

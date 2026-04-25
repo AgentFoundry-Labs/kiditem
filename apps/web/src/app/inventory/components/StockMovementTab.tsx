@@ -1,14 +1,17 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { ArrowUpDown, RefreshCw, TrendingUp, TrendingDown } from 'lucide-react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatKRW, formatNumber } from '@/lib/utils';
 import { StockMovementSummaryCard } from './StockMovementSummaryCard';
 import { StockMovementTable, type GroupedRow } from './StockMovementTable';
-import { useInventoryTransactions, useInventoryTransactionSummary } from '../hooks/useInventoryTransactions';
+import {
+  fetchAllTransactionsInWindow,
+  transactionKeyParams,
+} from '../lib/inventory-api';
 import type { TransactionListItem } from '@kiditem/shared';
 
 const GROUP_TABS = [
@@ -43,7 +46,8 @@ function groupTransactions(rows: TransactionListItem[], groupBy: string): Groupe
       current.outQty += tx.quantity;
       current.outAmt += tx.totalCost;
     } else {
-      current.adjustQty += tx.quantity;
+      // ADJUST is signed via stockDelta — preserve direction for net stock change.
+      current.adjustQty += tx.stockDelta;
     }
     map.set(key, current);
   }
@@ -55,21 +59,45 @@ export function StockMovementTab() {
   const [groupBy, setGroupBy] = useState<string>('product');
   const [dateRange, setDateRange] = useState('30');
 
-  const days = DAYS_MAP[dateRange] ?? 30;
-  const from = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+  // Build an explicit `[from, to]` window so list and summary share the same
+  // boundaries — previously summary used a rolling `Date.now() - days` window
+  // while list used a `from`-only midnight cutoff, causing the cards and table
+  // to disagree at timezone/hour boundaries.
+  const { from, to } = useMemo(() => {
+    const days = DAYS_MAP[dateRange] ?? 30;
+    const now = new Date();
+    const fromDate = new Date(now.getTime() - days * 86400000);
+    return { from: fromDate.toISOString(), to: now.toISOString() };
+  }, [dateRange]);
 
-  const { data: txData, isLoading: txLoading, error: txError } = useInventoryTransactions({ page: 1, limit: 200, from });
-  const { data: summaryData, isLoading: summaryLoading, error: summaryError } = useInventoryTransactionSummary(days);
+  const { data, isLoading, error: rawError } = useQuery({
+    queryKey: queryKeys.inventory.transactions(transactionKeyParams({ from, to })),
+    // Page through the entire window — server caps `limit` at 200, so a single
+    // request would silently truncate periods with > 200 transactions.
+    queryFn: () => fetchAllTransactionsInWindow({ from, to }),
+  });
 
-  const loading = txLoading || summaryLoading;
-  const rawError = txError ?? summaryError;
   const error = rawError ? (isApiError(rawError) ? rawError.detail : '입출고 데이터를 불러오는데 실패했습니다.') : null;
 
-  const transactions = txData?.items ?? [];
-  const total = txData?.total ?? 0;
+  const transactions = useMemo<TransactionListItem[]>(() => data ?? [], [data]);
   const grouped = groupTransactions(transactions, groupBy);
 
-  const summary = summaryData ?? { inQty: 0, outQty: 0, adjustQty: 0, inAmount: 0, outAmount: 0 };
+  // Derive summary from the same fetched window so cards and table never disagree.
+  const summary = useMemo(() => {
+    let inQty = 0, outQty = 0, adjustQty = 0, inAmount = 0, outAmount = 0;
+    for (const tx of transactions) {
+      if (tx.type === 'RECEIVE') {
+        inQty += tx.quantity;
+        inAmount += tx.totalCost;
+      } else if (tx.type === 'ISSUE') {
+        outQty += tx.quantity;
+        outAmount += tx.totalCost;
+      } else {
+        adjustQty += tx.stockDelta;
+      }
+    }
+    return { inQty, outQty, adjustQty, inAmount, outAmount };
+  }, [transactions]);
 
   return (
     <div className="space-y-4">
@@ -83,7 +111,7 @@ export function StockMovementTab() {
         <div className="flex items-center gap-3">
           <ArrowUpDown size={20} className="text-indigo-500" />
           <div>
-            <p className="text-sm text-slate-500">{total}건 거래 내역</p>
+            <p className="text-sm text-slate-500">{transactions.length}건 거래 내역</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -127,7 +155,7 @@ export function StockMovementTab() {
         ))}
       </div>
 
-      <StockMovementTable grouped={grouped} loading={loading} groupBy={groupBy} />
+      <StockMovementTable grouped={grouped} loading={isLoading} groupBy={groupBy} />
     </div>
   );
 }

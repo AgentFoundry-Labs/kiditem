@@ -67,7 +67,9 @@ export default function StockLedger() {
       const entry = map.get(key)!;
       if (IN_TYPES.has(tx.type)) entry.inQty += tx.quantity;
       else if (OUT_TYPES.has(tx.type)) entry.outQty += tx.quantity;
-      else entry.adjustQty += tx.quantity;
+      // ADJUST sign survives via stockDelta — using `quantity` here would
+      // collapse a -3 shrinkage into a +3 ledger row.
+      else entry.adjustQty += tx.stockDelta;
     }
 
     let totalIn = 0, totalOut = 0, totalAdj = 0;

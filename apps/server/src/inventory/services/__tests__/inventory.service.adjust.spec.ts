@@ -49,7 +49,9 @@ describe('InventoryService.adjust', () => {
 
     await service.adjust('i1', { delta: -4, reason: 'shrinkage' }, 'c1', 'user-1');
     expect(tx.inventory.update.mock.calls[0][0].data.currentStock).toEqual({ increment: -4 });
-    expect(tx.stockTransaction.create.mock.calls[0][0].data.quantity).toBe(4);
+    // ADJUST persists the signed delta so the ledger preserves direction;
+    // aggregations downstream (StockMovementTab, StockLedger) read this signed value.
+    expect(tx.stockTransaction.create.mock.calls[0][0].data.quantity).toBe(-4);
   });
 
   it('negative delta exceeding stock → BadRequest', async () => {

@@ -55,6 +55,13 @@ After: paged fetches via `fetchAllInventoryForExport` at `apps/web/src/app/inven
 - `StockLedger.tsx` now groups by `tx.optionId` / `tx.optionName`, not product-level. Canonical `/api/inventory/transactions` does not expose product copy. Product-level ledger grouping stays out of W2; a later product-inventory join plan will own that migration.
 - `StockIo.tsx` derives KPI cards (입고/출고 수량·금액) client-side from the period-filtered transaction list rather than calling `/api/inventory/transactions/summary`. The summary endpoint computes `Date.now() - days`, which cannot represent past months when the user picks an earlier period; client-side derivation matches the explicit `from`/`to` window the user selects. To prevent the server `@Max(200)` cap from silently truncating large months, both `StockIo.tsx` and `StockLedger.tsx` now use `fetchAllTransactionsInWindow({ from, to })` from `inventory-api.ts`, which pages through the period at `limit=200` per request and assembles the full transaction set client-side.
 
+## Post-review fixes (PR #45 review)
+
+- **Signed `stockDelta` on transaction list (P1).** `TransactionListItem` and `StockTransaction` shared schemas now expose a signed `stockDelta` (`RECEIVE: +quantity`, `ISSUE: -quantity`, `ADJUST: signed quantity as written`). `InventoryService.applyDelta` stores the signed delta for `ADJUST` so a `delta: -3` shrinkage no longer collapses into a `+3` ledger row; `RECEIVE` and `ISSUE` keep absolute `quantity` since their direction is implied by `type` (and the DTOs already enforce `.positive()`). `StockMovementTab` and inventory-hub `StockLedger` now sum `stockDelta` for `ADJUST` so net stock change and end-stock totals reflect direction.
+- **Full-window paging in `StockMovementTab` (P1).** Replaced the single `?limit=200` request with `fetchAllTransactionsInWindow({ from, to })`. Periods with `> 200` movements are no longer silently truncated.
+- **Aligned summary + table window (P2).** `StockMovementTab` derives its KPI summary from the same transaction set the table groups, on an explicit `[from, to]` ISO8601 window. The previous split — list using `from`-only midnight cutoff and summary using a rolling `Date.now() - days` window — could disagree at timezone/hour boundaries.
+- **Test coverage gaps (P3).** Added `inventory-export.test.ts` for the page assembly (`total=401` → 3 calls with `{ limit: 200, status: 'low' }`; `total <= 200` → no second call) and expanded `barcode-print.test.ts` to cover `printBarcodeWindow` result branches (`empty`, `popup-blocked`, `opened` with escaped HTML).
+
 ## Period filtering (fix from codex critic round 1)
 
 Both `StockIo` and `StockLedger` now compute a closed period window:
