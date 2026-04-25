@@ -6,6 +6,12 @@ import { ShoppingCart, PackageX } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatNumber, getGradeColor } from '@/lib/utils';
+import {
+  fetchInventoryList,
+  inventoryListKeyParams,
+  type InventoryListParams,
+} from '../../inventory/lib/inventory-api';
+import { stockOpsInventoryName } from '../lib/inventory-projection';
 
 interface ProductItem {
   id: string;
@@ -21,13 +27,7 @@ interface ProductItem {
   orderCount: number;
 }
 
-interface InventoryItem {
-  productId: string;
-  productName: string;
-  sku: string | null;
-  currentStock: number;
-  grade: string;
-}
+const ZERO_STOCK_PARAMS: InventoryListParams = { status: 'out', limit: 200 };
 
 export default function ZeroItems() {
   const [tab, setTab] = useState<'zero_sales' | 'zero_stock'>('zero_sales');
@@ -36,14 +36,13 @@ export default function ZeroItems() {
     queryKey: queryKeys.products.list({ limit: '200', orderCount: '0' }),
     queryFn: () =>
       apiClient.get<{ items: ProductItem[]; total: number }>(
-        '/api/products?limit=200'
+        '/api/products?limit=200',
       ),
   });
 
   const { data: inventoryData, isLoading: loadingInventory } = useQuery({
-    queryKey: queryKeys.inventory.list({ status: 'zero_stock' }),
-    queryFn: () =>
-      apiClient.get<{ items: InventoryItem[]; total: number }>('/api/inventory?status=zero_stock&limit=200'),
+    queryKey: queryKeys.inventory.list(inventoryListKeyParams(ZERO_STOCK_PARAMS)),
+    queryFn: () => fetchInventoryList(ZERO_STOCK_PARAMS),
   });
 
   const isLoading = loadingProducts || loadingInventory;
@@ -69,12 +68,14 @@ export default function ZeroItems() {
         <div className="bg-white rounded-xl border border-slate-200 p-5">
           <div className="flex items-center gap-2 mb-1">
             <PackageX className="w-4 h-4 text-red-500" />
-            <p className="card-label">재고 0 상품</p>
+            <p className="card-label">재고 0 옵션</p>
           </div>
           <p className="card-value text-red-600">
             {isLoading ? '-' : `${zeroStockItems.length}개`}
           </p>
-          <p className="text-xs text-slate-400 mt-1">현재 재고가 0인 상품</p>
+          <p className="text-xs text-slate-400 mt-1">
+            현재 재고 상태가 <code className="px-1 rounded bg-slate-100">out</code> 인 옵션
+          </p>
         </div>
       </div>
 
@@ -82,14 +83,23 @@ export default function ZeroItems() {
       <div className="flex gap-2">
         <button
           onClick={() => setTab('zero_sales')}
-          className={cn('flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-colors', tab === 'zero_sales' ? 'bg-orange-600 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50')}
+          className={cn(
+            'flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-colors',
+            tab === 'zero_sales'
+              ? 'bg-orange-600 text-white'
+              : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50',
+          )}
         >
-          <ShoppingCart className="w-4 h-4" /> 판매 0건 (
-          {zeroSalesItems.length})
+          <ShoppingCart className="w-4 h-4" /> 판매 0건 ({zeroSalesItems.length})
         </button>
         <button
           onClick={() => setTab('zero_stock')}
-          className={cn('flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-colors', tab === 'zero_stock' ? 'bg-red-600 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50')}
+          className={cn(
+            'flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-colors',
+            tab === 'zero_stock'
+              ? 'bg-red-600 text-white'
+              : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50',
+          )}
         >
           <PackageX className="w-4 h-4" /> 재고 0 ({zeroStockItems.length})
         </button>
@@ -118,19 +128,13 @@ export default function ZeroItems() {
               <tbody>
                 {isLoading ? (
                   <tr>
-                    <td
-                      colSpan={8}
-                      className="py-12 text-center text-slate-400"
-                    >
+                    <td colSpan={8} className="py-12 text-center text-slate-400">
                       로딩 중...
                     </td>
                   </tr>
                 ) : zeroSalesItems.length === 0 ? (
                   <tr>
-                    <td
-                      colSpan={8}
-                      className="py-12 text-center text-slate-400"
-                    >
+                    <td colSpan={8} className="py-12 text-center text-slate-400">
                       판매 0건 상품 없음
                     </td>
                   </tr>
@@ -148,7 +152,10 @@ export default function ZeroItems() {
                       </td>
                       <td className="py-2 px-3 text-center">
                         <span
-                          className={cn('px-2 py-0.5 rounded text-xs font-bold', getGradeColor(item.abcGrade))}
+                          className={cn(
+                            'px-2 py-0.5 rounded text-xs font-bold',
+                            getGradeColor(item.abcGrade),
+                          )}
                         >
                           {item.abcGrade}
                         </span>
@@ -181,58 +188,48 @@ export default function ZeroItems() {
       {tab === 'zero_stock' && (
         <div className="bg-white rounded-xl border border-slate-200 p-5">
           <h2 className="text-lg font-semibold text-slate-800 mb-4">
-            재고 0 상품 목록
+            재고 0 옵션 목록
           </h2>
           <div className="overflow-x-auto">
             <table>
               <thead>
                 <tr className="border-b border-slate-200 text-slate-500">
-                  <th className="text-left py-2 px-3">상품명</th>
+                  <th className="text-left py-2 px-3">상품 / 옵션</th>
                   <th className="text-left py-2 px-3">SKU</th>
-                  <th className="text-center py-2 px-3">등급</th>
                   <th className="text-right py-2 px-3">현재재고</th>
+                  <th className="text-right py-2 px-3">발주점</th>
                 </tr>
               </thead>
               <tbody>
                 {isLoading ? (
                   <tr>
-                    <td
-                      colSpan={4}
-                      className="py-12 text-center text-slate-400"
-                    >
+                    <td colSpan={4} className="py-12 text-center text-slate-400">
                       로딩 중...
                     </td>
                   </tr>
                 ) : zeroStockItems.length === 0 ? (
                   <tr>
-                    <td
-                      colSpan={4}
-                      className="py-12 text-center text-slate-400"
-                    >
-                      재고 0 상품 없음
+                    <td colSpan={4} className="py-12 text-center text-slate-400">
+                      재고 0 옵션 없음
                     </td>
                   </tr>
                 ) : (
                   zeroStockItems.map((item) => (
                     <tr
-                      key={item.productId}
+                      key={item.id}
                       className="border-b border-slate-100 hover:bg-red-50/30"
                     >
-                      <td className="py-2 px-3 font-medium max-w-[200px] truncate">
-                        {item.productName}
+                      <td className="py-2 px-3 font-medium max-w-[240px] truncate">
+                        {stockOpsInventoryName(item)}
                       </td>
                       <td className="py-2 px-3 text-xs text-slate-500 font-mono">
                         {item.sku || '-'}
                       </td>
-                      <td className="py-2 px-3 text-center">
-                        <span
-                          className={cn('px-2 py-0.5 rounded text-xs font-bold', getGradeColor(item.grade))}
-                        >
-                          {item.grade}
-                        </span>
-                      </td>
                       <td className="py-2 px-3 text-right text-red-600 font-bold">
-                        0개
+                        {formatNumber(item.currentStock)}개
+                      </td>
+                      <td className="py-2 px-3 text-right text-slate-600">
+                        {formatNumber(item.reorderPoint)}개
                       </td>
                     </tr>
                   ))
