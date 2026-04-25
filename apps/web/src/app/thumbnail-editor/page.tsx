@@ -6,6 +6,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Sparkles, Scissors, ShoppingBag, ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 
+import { MasterSchema } from '@kiditem/shared';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import {
@@ -35,7 +36,8 @@ export default function ThumbnailEditorPage() {
 
   const { data: product } = useQuery({
     queryKey: queryKeys.products.detail(productId!),
-    queryFn: () => apiClient.get<{ id: string; name: string; imageUrl: string | null }>(`/api/products/${productId}`),
+    queryFn: () =>
+      apiClient.getParsed(`/api/products/masters/${productId}`, MasterSchema),
     enabled: !!productId,
   });
 
