@@ -1,12 +1,8 @@
-import type { MasterImageItem, MasterImageRole } from '@kiditem/shared';
+import { MasterImageRoleSchema, type MasterImageItem, type MasterImageRole } from '@kiditem/shared';
 
-const VALID_ROLES: ReadonlySet<MasterImageRole> = new Set([
-  'box',
-  'product',
-  'color_variant',
-  'size_chart',
-  'detail',
-]);
+// Derive from the shared enum so a new role added to MasterImageRoleSchema
+// propagates here automatically (external review LOW — drift prevention).
+const VALID_ROLES: ReadonlySet<MasterImageRole> = new Set(MasterImageRoleSchema.options);
 
 const DEFAULT_ROLE: MasterImageRole = 'product';
 

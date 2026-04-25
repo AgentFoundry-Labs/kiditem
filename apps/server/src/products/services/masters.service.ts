@@ -224,12 +224,20 @@ export class MastersService {
     file: MulterFile,
   ): Promise<MasterImageItem> {
     if (!file) throw new BadRequestException('file is required');
+    // Defense in depth: even though MastersController's FileInterceptor
+    // rejects non-image MIMEs, the service re-checks against a canonical
+    // mime→ext map so we never trust `file.mimetype` blindly to derive the
+    // storage key extension (external review HIGH).
+    const mimeToExt: Record<string, string> = {
+      'image/jpeg': 'jpg',
+      'image/png': 'png',
+      'image/webp': 'webp',
+    };
+    const ext = mimeToExt[file.mimetype];
+    if (!ext) {
+      throw new BadRequestException(`unsupported mime type: ${file.mimetype}`);
+    }
     await this.findById(companyId, id, {});
-    const ext = file.mimetype === 'image/png'
-      ? 'png'
-      : file.mimetype === 'image/webp'
-        ? 'webp'
-        : 'jpg';
     const key = `product-images/${id}/${randomUUID()}.${ext}`;
     const url = await this.storage.save(key, file.buffer, file.mimetype);
     return { url, role: 'product', label: null, sortOrder: 0 };

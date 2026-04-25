@@ -1,9 +1,23 @@
 // apps/server/src/products/controllers/masters.controller.ts
 import {
+  BadRequestException,
   Body, Controller, Delete, Get, Param, Patch, Post, Query,
   UploadedFile, UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+
+/**
+ * Image upload guardrails (external review HIGH — defense in depth).
+ *
+ * `accept="..."` on the client is NOT a security boundary; an authenticated
+ * caller can post arbitrary multipart bodies. Server enforces:
+ *   1. byte cap so a single upload can't exhaust memory (Multer buffers).
+ *   2. allow-listed MIME, rejected before the service touches storage.
+ *
+ * Magic-byte sniffing is a follow-up if these URLs become public/CDN-served.
+ */
+const MAX_IMAGE_UPLOAD_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
+const ALLOWED_IMAGE_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
 import {
   MasterImageItemSchema,
@@ -91,7 +105,18 @@ export class MastersController {
   }
 
   @Post(':id/images/upload')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: MAX_IMAGE_UPLOAD_SIZE_BYTES },
+      fileFilter: (_req, f, cb) => {
+        if (!ALLOWED_IMAGE_MIME_TYPES.has(f.mimetype)) {
+          cb(new BadRequestException(`unsupported mime type: ${f.mimetype}`), false);
+          return;
+        }
+        cb(null, true);
+      },
+    }),
+  )
   async uploadImage(
     @CurrentCompany() companyId: string,
     @Param('id') id: string,

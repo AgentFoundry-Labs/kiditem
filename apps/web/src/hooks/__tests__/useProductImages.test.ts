@@ -25,8 +25,11 @@ function renderWithClient<T>(hookCallback: () => T) {
   });
   const wrapper = ({ children }: { children: React.ReactNode }) =>
     React.createElement(QueryClientProvider, { client }, children);
-  return renderHook(hookCallback, { wrapper });
+  const result = renderHook(hookCallback, { wrapper });
+  return { ...result, client };
 }
+
+import { queryKeys } from '@/lib/query-keys';
 
 const sampleImage: MasterImageItem = {
   url: 'https://cdn.example.com/a.jpg',
@@ -128,6 +131,27 @@ describe('useProductImages', () => {
       { items: saved },
     );
     await waitFor(() => expect(result.current.images).toEqual(saved));
+  });
+
+  it('saveImages 후 detail + catalog 캐시가 invalidate 됨 (MasterProduct.images embed drift 방지)', async () => {
+    const saved = [sampleImage];
+    mockPatchParsed.mockResolvedValue({ images: saved });
+
+    const { result, client } = renderWithClient(() => useProductImages('prod-1'));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    // Seed detail + catalog cache as fresh, then assert they get marked stale after save.
+    client.setQueryData(queryKeys.products.detail('prod-1'), { id: 'prod-1' });
+    client.setQueryData(queryKeys.products.catalog.all, { items: [] });
+
+    await act(async () => {
+      await result.current.saveImages(saved);
+    });
+
+    const detailState = client.getQueryState(queryKeys.products.detail('prod-1'));
+    const catalogState = client.getQueryState(queryKeys.products.catalog.all);
+    expect(detailState?.isInvalidated).toBe(true);
+    expect(catalogState?.isInvalidated).toBe(true);
   });
 
   it('error — GET 실패는 error 상태로 surface, silent [] fallback 금지', async () => {
