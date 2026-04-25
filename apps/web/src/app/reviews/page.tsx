@@ -1,130 +1,75 @@
-'use client';
+import Link from 'next/link';
+import { ClipboardList, MessageSquareWarning, ShieldCheck, StarOff } from 'lucide-react';
 
-import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { MessageSquare, Star, RefreshCw } from 'lucide-react';
-import { queryKeys } from '@/lib/query-keys';
-import { apiClient } from '@/lib/api-client';
-import { cn, formatNumber } from '@/lib/utils';
-import { ReviewTable, type FilterTab } from './components/ReviewTable';
-import type { ReviewListItem as ReviewProduct } from '@kiditem/shared';
-
-interface ReviewSummaryData {
-  totalReviewCount: number;
-  weightedAvgRating: number;
-  needsAttentionCount: number;
-}
+const requirements = [
+  'reviews/orders-feedback owner와 child PRD가 먼저 필요합니다.',
+  '구현 시 GET /api/reviews는 shared Review schema와 pagination envelope를 사용해야 합니다.',
+  '서버 구현은 @CurrentCompany() tenant scope와 empty-state 테스트를 포함해야 합니다.',
+];
 
 export default function ReviewsPage() {
-  const [page, setPage] = useState(1);
-  const [activeFilter, setActiveFilter] = useState<FilterTab>('all');
-  const PAGE_SIZE = 50;
-
-  const { data: reviewData, isLoading: loading, refetch } = useQuery({
-    queryKey: queryKeys.reviews.list({ page: String(page), limit: String(PAGE_SIZE) }),
-    queryFn: () => {
-      const params = new URLSearchParams({
-        page: String(page),
-        limit: String(PAGE_SIZE),
-      });
-      return apiClient.get<{ items: ReviewProduct[]; total: number; summary?: ReviewSummaryData }>(`/api/reviews?${params}`);
-    },
-  });
-
-  const data = reviewData?.items ?? [];
-  const total = reviewData?.total ?? 0;
-  const summary = reviewData?.summary ?? null;
-
-  const filteredData = data.filter((d) => {
-    if (activeFilter === 'new') return d.totalReviews < 5;
-    if (activeFilter === 'needs-response') return d.avgRating < 3.5 && d.totalReviews >= 5;
-    return true;
-  });
-
-  const totalReviews = summary?.totalReviewCount ?? 0;
-  const avgRating = summary?.weightedAvgRating ?? 0;
-  const needsAttention = summary?.needsAttentionCount ?? 0;
-
-  const filterTabs: { key: FilterTab; label: string; count: number }[] = [
-    { key: 'all', label: '전체', count: data.length },
-    { key: 'new', label: '신규', count: data.filter((d) => d.totalReviews < 5).length },
-    { key: 'needs-response', label: '응답필요', count: data.filter((d) => d.avgRating < 3.5 && d.totalReviews >= 5).length },
-  ];
-
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="page-title flex items-center gap-2">
-          <MessageSquare className="w-6 h-6 text-green-500" />
-          리뷰 관리
-        </h1>
-        <button
-          onClick={() => refetch()}
-          disabled={loading}
-          className="flex items-center gap-2 px-3 py-1.5 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-50"
-        >
-          <RefreshCw className={cn('w-4 h-4', loading && 'animate-spin')} />
-          새로고침
-        </button>
-      </div>
-
-      <div className="grid grid-cols-4 gap-4">
-        <div className="card">
-          <div className="card-label">전체 상품</div>
-          <div className="card-value">{formatNumber(total)}개</div>
-        </div>
-        <div className="card">
-          <div className="card-label">총 리뷰</div>
-          <div className="card-value">{formatNumber(totalReviews)}개</div>
-        </div>
-        <div className="card">
-          <div className="card-label">평균 평점</div>
-          <div className="card-value flex items-center gap-1">
-            <Star className="w-5 h-5 text-yellow-500 fill-yellow-500" />
-            {avgRating.toFixed(1)}
+    <div className="mx-auto flex max-w-5xl flex-col gap-6 px-6 py-8">
+      <section className="rounded-2xl border border-emerald-200 bg-emerald-50/80 p-6 shadow-sm">
+        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+          <div className="flex gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700">
+              <MessageSquareWarning size={24} aria-hidden="true" />
+            </div>
+            <div className="space-y-2">
+              <p className="text-sm font-semibold text-emerald-700">리뷰/고객 피드백 결정 게이트</p>
+              <h1 className="text-2xl font-bold text-slate-900">리뷰 관리는 준비 중입니다</h1>
+              <p className="max-w-2xl text-sm leading-6 text-slate-600">
+                이 화면은 아직 등록되지 않은 <code className="rounded bg-white px-1 py-0.5 text-emerald-700">/api/reviews</code> 계약을
+                호출하던 legacy 화면입니다. 현재는 누락된 backend route를 호출하지 않고, 리뷰 데이터 ownership과 테스트 전략이
+                확정될 때까지 명시적으로 대기합니다.
+              </p>
+            </div>
           </div>
-        </div>
-        <div className="bg-white rounded-xl p-4 border border-red-200 bg-red-50">
-          <div className="text-sm text-red-600">리뷰 집중 필요</div>
-          <div className="text-xl font-bold text-red-700">{formatNumber(needsAttention)}개</div>
-          <div className="text-xs text-red-500 mt-0.5">리뷰 5건 미만 또는 평점 3.0 미만</div>
-        </div>
-      </div>
-
-      <div className="flex gap-1 border-b border-slate-200">
-        {filterTabs.map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => { setActiveFilter(tab.key); }}
-            className={cn(
-              'px-4 py-2.5 text-sm font-medium border-b-2 transition-colors flex items-center gap-2',
-              activeFilter === tab.key
-                ? 'border-purple-600 text-purple-600'
-                : 'border-transparent text-slate-500 hover:text-slate-700'
-            )}
+          <Link
+            href="/order-hub"
+            className="inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700"
           >
-            {tab.label}
-            <span className={cn(
-              'px-1.5 py-0.5 rounded-full text-[10px] font-medium',
-              activeFilter === tab.key
-                ? 'bg-blue-100 text-blue-700'
-                : 'bg-slate-100 text-slate-500'
-            )}>
-              {tab.count}
-            </span>
-          </button>
-        ))}
-      </div>
+            주문 허브로 이동
+          </Link>
+        </div>
+      </section>
 
-      <ReviewTable
-        filteredData={filteredData}
-        loading={loading}
-        activeFilter={activeFilter}
-        page={page}
-        total={total}
-        PAGE_SIZE={PAGE_SIZE}
-        onPageChange={setPage}
-      />
+      <section className="grid gap-4 md:grid-cols-3">
+        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <ClipboardList className="mb-3 text-violet-500" size={22} aria-hidden="true" />
+          <h2 className="font-semibold text-slate-900">소유권 필요</h2>
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            리뷰는 주문/고객 피드백 도메인입니다. 재고, 제품 옵션, AI 썸네일 PR과 섞어 구현하지 않습니다.
+          </p>
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <StarOff className="mb-3 text-amber-500" size={22} aria-hidden="true" />
+          <h2 className="font-semibold text-slate-900">가짜 지표 금지</h2>
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            실제 리뷰 수집/집계 경로 없이 평점, 응답 필요, 신규 리뷰 지표를 0으로 위장하지 않습니다.
+          </p>
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <ShieldCheck className="mb-3 text-emerald-500" size={22} aria-hidden="true" />
+          <h2 className="font-semibold text-slate-900">현재 안정화</h2>
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            페이지 로드와 normal navigation 모두 <code className="rounded bg-slate-100 px-1">/api/reviews</code>를 호출하지 않습니다.
+          </p>
+        </div>
+      </section>
+
+      <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 className="font-semibold text-slate-900">재개 조건</h2>
+        <ul className="mt-3 space-y-2 text-sm leading-6 text-slate-600">
+          {requirements.map((item) => (
+            <li key={item} className="flex gap-2">
+              <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" aria-hidden="true" />
+              <span>{item}</span>
+            </li>
+          ))}
+        </ul>
+      </section>
     </div>
   );
 }
