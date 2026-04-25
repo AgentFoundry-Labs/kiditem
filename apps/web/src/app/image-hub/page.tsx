@@ -56,9 +56,16 @@ export default function ImageHubPage() {
       .catch(() => toast.error('상품 정보를 불러오지 못했습니다'));
   }, [initialProductId]);
 
-  const { images, loading, saving, uploadFile, saveImages } = useProductImages(
+  const { images, loading, saving, uploadFile, saveImages, error } = useProductImages(
     selectedProduct?.id ?? null,
   );
+
+  // Surface query failure explicitly so the user sees "load failed" instead
+  // of the ambiguous empty grid (Codex review M2 — exposed error fields were
+  // previously not consumed).
+  useEffect(() => {
+    if (error) toast.error('이미지 목록을 불러오지 못했습니다');
+  }, [error]);
 
   // Sync server-truth images into the local draft whenever the query cache
   // changes (product switch, save success, background refetch) — but only if

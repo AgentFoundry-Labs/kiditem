@@ -77,6 +77,13 @@ export function useProductImages(masterId: string | null) {
       );
       return res.images;
     },
+    onMutate: async () => {
+      if (!masterId) return;
+      // Cancel any in-flight GET so a late-resolving refetch can't clobber
+      // the just-saved list (Codex review M1 — race condition between PATCH
+      // success and a concurrent background fetch).
+      await queryClient.cancelQueries({ queryKey: queryKeys.products.images(masterId) });
+    },
     onSuccess: (images) => {
       if (masterId) {
         queryClient.setQueryData(queryKeys.products.images(masterId), images);
