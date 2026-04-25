@@ -32,13 +32,29 @@ npx vitest run packages/shared/src/schemas/action-task.spec.ts → PASS (6) FAIL
                                                                   (includes 3 new IDOR rejection cases for
                                                                   executeTask / updateTask / addNote +
                                                                   ActionTaskSchema JSON-roundtrip drift assertion)
+DATABASE_URL=postgresql://kiditem_test:kiditem_test@localhost:5434/kiditem_test \
+  npm run test:integration --workspace=apps/server -- \
+  --run src/action-task/__tests__/action-task-mutations.pg.integration.spec.ts
+                                                               → PASS (3) FAIL (0)
+                                                                  (real Postgres IDOR unchanged-row coverage for
+                                                                  executeTask / updateTask / addNote)
 (cd apps/server && npx tsc --noEmit --pretty false)            → 0 errors in apps/server/src/action-task/**
 npm run dev:server                                             → "Nest application successfully started"
 
 # Web
-(cd apps/web && npx vitest run src/app/__tests__/page.spec.tsx) → PASS (7) FAIL (0)
+(cd apps/web && npx vitest run src/app/__tests__/page.spec.tsx) → PASS (9) FAIL (0)
+                                                                  (includes execute response parse success +
+                                                                  legacy `{ ok: true }` rejection)
+npm run test --workspace=apps/web                              → PASS (176) FAIL (0)
+(cd apps/web && npx eslint src/app/__tests__/page.spec.tsx)    → 0 errors
 (cd apps/web && npx tsc --noEmit --pretty false)               → 0 errors
 npm run build --workspace=apps/web                             → exit 0
+
+# Browser smoke (gstack-browse, web :3000 + server :4000 on test DB)
+GET http://localhost:3000/                                      → 200
+Browser console                                                 → no console errors
+GET /api/dashboard/{sales,ad,inventory,trend}                   → 200
+GET /api/action-tasks                                           → 200
 ```
 
 Closure greps:
