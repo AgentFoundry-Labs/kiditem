@@ -1,20 +1,9 @@
 'use client';
-
-export interface PipelineNode {
-  key: string;
-  label: string;
-  sub: string;
-  color: string;
-}
-
-interface PipelineEdge {
-  from: number;
-  to: number;
-}
+import type { OrderPipelineNode, OrderPipelineEdge } from '../lib/order-pipeline';
 
 interface PipelineVisualizationProps {
-  displayNodes: PipelineNode[];
-  displayEdges: PipelineEdge[];
+  displayNodes: OrderPipelineNode[];
+  displayEdges: OrderPipelineEdge[];
   counts: Record<string, number>;
   activeNode: string;
   onNodeClick: (key: string) => void;
@@ -34,7 +23,7 @@ export default function PipelineVisualization({
 
   return (
     <div className="table-card">
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-100">
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-[var(--border-subtle,#f1f5f9)]">
         <h3 className="text-xs font-semibold text-slate-900 uppercase tracking-wider">Autonomous Lineage</h3>
         <span className="text-[10px] text-emerald-600 font-mono flex items-center gap-1">
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> LIVE
@@ -59,7 +48,7 @@ export default function PipelineVisualization({
             const x1 = getNodeX(edge.from) + nodeW;
             const x2 = getNodeX(edge.to);
             const y = nodeY + nodeH / 2;
-            const fromCount = counts[displayNodes[edge.from]?.key] || 0;
+            const fromCount = counts[displayNodes[edge.from]?.key ?? ''] || 0;
             return (
               <g key={`edge-${i}`}>
                 <line x1={x1 + 2} y1={y} x2={x2 - 2} y2={y} stroke="#d1d5db" strokeWidth="2" strokeDasharray="5 3" />

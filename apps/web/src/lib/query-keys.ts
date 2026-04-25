@@ -92,9 +92,11 @@ export const queryKeys = {
   },
   orders: {
     all: ['orders'] as const,
-    pipeline: () => [...queryKeys.orders.all, 'pipeline'] as const,
+    pipeline: (params?: Record<string, string>) => [...queryKeys.orders.all, 'pipeline', params] as const,
     list: (params: Record<string, string>) => [...queryKeys.orders.all, 'list', params] as const,
     stats: () => [...queryKeys.orders.all, 'stats'] as const,
+    scheduledSync: (dateHour: string) => [...queryKeys.orders.all, 'scheduledSync', dateHour] as const,
+    action: (action: string) => [...queryKeys.orders.all, 'action', action] as const,
     search: (params: Record<string, string>) => [...queryKeys.orders.all, 'search', params] as const,
     compare: (params: Record<string, string>) => [...queryKeys.orders.all, 'compare', params] as const,
     sync: (params: Record<string, string>) => [...queryKeys.orders.all, 'sync', params] as const,

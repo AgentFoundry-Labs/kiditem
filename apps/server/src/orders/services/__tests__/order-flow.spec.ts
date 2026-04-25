@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { OrdersService } from '../orders.service';
-import { NotFoundException } from '@nestjs/common';
+import { NotFoundException, BadRequestException } from '@nestjs/common';
+import { OrderListResponseSchema, OrderActionResponseSchema, OrderStatsResponseSchema } from '@kiditem/shared';
 
 // Mock the coupang adapter module
 vi.mock('../../../channels/adapters/coupang/orders', () => ({
@@ -25,14 +26,43 @@ function makePrisma() {
   };
 }
 
+function ownedRows(ids: number[]): Array<{ externalOrderId: string }> {
+  return ids.map((id) => ({ externalOrderId: String(id) }));
+}
+
 const COMPANY_ID = 'company-1';
+const OTHER_COMPANY_ID = 'company-2';
+
+const MOCK_LINE_ITEM = {
+  id: '00000000-0000-4000-8000-000000000002',
+  productName: '키즈 티셔츠',
+  optionName: '120 / Blue',
+  sku: 'SKU-001',
+  quantity: 2,
+  unitPrice: 17500,
+  totalPrice: 35000,
+  status: 'ACCEPT',
+  externalLineId: '98765',
+};
 
 const MOCK_ORDER = {
-  id: 'order-1',
+  id: '00000000-0000-4000-8000-000000000001',
   status: 'ACCEPT',
-  orderedAt: new Date('2026-01-15'),
+  orderedAt: new Date('2026-01-15T01:00:00.000Z'),
+  shippedAt: null,
+  deliveredAt: null,
   totalPrice: 35000,
   companyId: COMPANY_ID,
+  platform: 'coupang',
+  externalOrderId: '12345',
+  externalNumber: 'CO-1',
+  customerName: '홍길동',
+  receiverName: '홍길동',
+  receiverAddr: '서울시 중구',
+  memo: null,
+  trackingNumber: null,
+  shippingCompany: null,
+  lineItems: [MOCK_LINE_ITEM],
 };
 
 describe('OrdersService — order query and actions', () => {
@@ -56,9 +86,22 @@ describe('OrdersService — order query and actions', () => {
           where: expect.objectContaining({ companyId: COMPANY_ID, status: 'ACCEPT' }),
         }),
       );
-      expect(result.items).toEqual([MOCK_ORDER]);
       expect(result.total).toBe(1);
       expect(result.deliveryCompanies).toBeDefined();
+
+      // Derived list item shape assertions
+      expect(result.items[0]).toEqual(expect.objectContaining({
+        displayOrderNumber: 'CO-1',
+        shipmentBoxId: 12345,
+        primaryProductName: '키즈 티셔츠',
+        totalQuantity: 2,
+        lineItemCount: 1,
+      }));
+      expect(result.items[0]?.lineItems[0]?.sku).toBe('SKU-001');
+
+      // OrderListResponseSchema JSON-roundtrip parse (simulates HTTP serialisation)
+      const parsed = OrderListResponseSchema.safeParse(JSON.parse(JSON.stringify(result)));
+      expect(parsed.success).toBe(true);
     });
 
     it('findAll with no filter → defaults to ACCEPT + companyId 적용', async () => {
@@ -90,6 +133,134 @@ describe('OrdersService — order query and actions', () => {
         }),
       );
     });
+
+    it('findAll lineItems include scoped by companyId (IDOR regression)', async () => {
+      // Prisma filters line items to companyId at DB level; we verify the include clause
+      // contains `where: { companyId }` — the Prisma mock simulates that only the
+      // in-company line item is returned (other-company item excluded by DB filter).
+      const inCompanyItem = { ...MOCK_LINE_ITEM, id: '00000000-0000-4000-8000-000000000002' };
+      const orderWithFilteredItems = { ...MOCK_ORDER, lineItems: [inCompanyItem] };
+      prisma.order.findMany.mockResolvedValue([orderWithFilteredItems]);
+
+      const result = await service.findAll(COMPANY_ID, {});
+
+      // Verify include contains companyId where clause (IDOR guard)
+      expect(prisma.order.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          include: expect.objectContaining({
+            lineItems: expect.objectContaining({
+              where: expect.objectContaining({ companyId: COMPANY_ID }),
+            }),
+          }),
+        }),
+      );
+
+      // Only the in-company line item appears in the mapped response
+      expect(result.items[0]?.lineItems).toHaveLength(1);
+      expect(result.items[0]?.lineItems[0]?.id).toBe(inCompanyItem.id);
+
+      // Confirm the other-company item is absent (it would not be returned by Prisma)
+      const allLineItemIds = result.items.flatMap((item) => item.lineItems.map((li) => li.id));
+      expect(allLineItemIds).not.toContain(OTHER_COMPANY_ID);
+    });
+
+    it('shipmentBoxId is numeric when externalOrderId is digits, null otherwise', async () => {
+      const numericOrder = { ...MOCK_ORDER, externalOrderId: '99999', externalNumber: null, lineItems: [MOCK_LINE_ITEM] };
+      const alphaOrder = { ...MOCK_ORDER, id: 'order-2', externalOrderId: 'ALPHA-123', externalNumber: null, lineItems: [MOCK_LINE_ITEM] };
+      prisma.order.findMany.mockResolvedValue([numericOrder, alphaOrder]);
+
+      const result = await service.findAll(COMPANY_ID, {});
+
+      expect(result.items[0]?.shipmentBoxId).toBe(99999);
+      expect(result.items[1]?.shipmentBoxId).toBeNull();
+    });
+
+    it('legacy NONE_TRACKING row → toListItem 에서 DEPARTURE 로 정규화 (regression)', async () => {
+      const noneTrackingOrder = {
+        ...MOCK_ORDER,
+        id: '00000000-0000-4000-8000-0000000000aa',
+        status: 'NONE_TRACKING',
+        lineItems: [MOCK_LINE_ITEM],
+      };
+      prisma.order.findMany.mockResolvedValue([noneTrackingOrder]);
+
+      const result = await service.findAll(COMPANY_ID, { status: 'NONE_TRACKING' });
+
+      // OrderStatusSchema 는 NONE_TRACKING 을 받지만, toListItem 이 pipeline 호환을 위해 DEPARTURE 로 정규화
+      expect(result.items[0]?.status).toBe('DEPARTURE');
+      // shared schema round-trip 통과
+      const parsed = OrderListResponseSchema.safeParse(JSON.parse(JSON.stringify(result)));
+      expect(parsed.success).toBe(true);
+    });
+
+    it('?status=DEPARTURE 가 legacy raw NONE_TRACKING row 까지 fetch + 응답에서 DEPARTURE 로 일원화 (regression)', async () => {
+      const departureOrder = {
+        ...MOCK_ORDER,
+        id: '00000000-0000-4000-8000-0000000000bb',
+        externalOrderId: '11111',
+        status: 'DEPARTURE',
+        lineItems: [MOCK_LINE_ITEM],
+      };
+      const legacyNoneTrackingOrder = {
+        ...MOCK_ORDER,
+        id: '00000000-0000-4000-8000-0000000000cc',
+        externalOrderId: '22222',
+        status: 'NONE_TRACKING',
+        lineItems: [MOCK_LINE_ITEM],
+      };
+      prisma.order.findMany.mockResolvedValue([departureOrder, legacyNoneTrackingOrder]);
+
+      const result = await service.findAll(COMPANY_ID, { status: 'DEPARTURE' });
+
+      // DEPARTURE 요청 시 legacy NONE_TRACKING 까지 함께 조회
+      expect(prisma.order.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            companyId: COMPANY_ID,
+            status: { in: ['DEPARTURE', 'NONE_TRACKING'] },
+          }),
+        }),
+      );
+      // 응답 status 는 두 row 모두 DEPARTURE 로 정규화됨
+      expect(result.items).toHaveLength(2);
+      expect(result.items[0]?.status).toBe('DEPARTURE');
+      expect(result.items[1]?.status).toBe('DEPARTURE');
+    });
+
+    it('?status=ACCEPT 등 비-DEPARTURE 요청은 단일 equality 유지', async () => {
+      prisma.order.findMany.mockResolvedValue([]);
+
+      await service.findAll(COMPANY_ID, { status: 'ACCEPT' });
+
+      expect(prisma.order.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            companyId: COMPANY_ID,
+            status: 'ACCEPT',
+          }),
+        }),
+      );
+    });
+
+    it('shipmentBoxId 가 Number.MAX_SAFE_INTEGER 를 넘으면 null (regression — unsafe ID action 차단)', async () => {
+      // externalOrderId 는 string 이지만 Number 캐스팅 시 안전 범위를 벗어나는 케이스
+      const unsafeStr = String(BigInt(Number.MAX_SAFE_INTEGER) + 7n);
+      const unsafeOrder = {
+        ...MOCK_ORDER,
+        id: '00000000-0000-4000-8000-000000000099',
+        externalOrderId: unsafeStr,
+        externalNumber: null,
+        lineItems: [MOCK_LINE_ITEM],
+      };
+      prisma.order.findMany.mockResolvedValue([unsafeOrder]);
+
+      const result = await service.findAll(COMPANY_ID, {});
+
+      expect(result.items[0]?.shipmentBoxId).toBeNull();
+      // shared schema 도 unsafe 값을 거부하므로 응답 전체가 round-trip parse 통과해야 함
+      const parsed = OrderListResponseSchema.safeParse(JSON.parse(JSON.stringify(result)));
+      expect(parsed.success).toBe(true);
+    });
   });
 
   describe('findOne', () => {
@@ -98,10 +269,16 @@ describe('OrdersService — order query and actions', () => {
 
       const result = await service.findOne('order-1', COMPANY_ID);
 
-      expect(prisma.order.findFirst).toHaveBeenCalledWith({
-        where: { id: 'order-1', companyId: COMPANY_ID },
-        include: { lineItems: true },
-      });
+      expect(prisma.order.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'order-1', companyId: COMPANY_ID },
+          include: expect.objectContaining({
+            lineItems: expect.objectContaining({
+              where: expect.objectContaining({ companyId: COMPANY_ID }),
+            }),
+          }),
+        }),
+      );
       expect(result).toEqual(MOCK_ORDER);
     });
 
@@ -110,31 +287,75 @@ describe('OrdersService — order query and actions', () => {
       prisma.order.findFirst.mockResolvedValue(null);
 
       await expect(service.findOne('order-1', COMPANY_ID)).rejects.toBeInstanceOf(NotFoundException);
-      expect(prisma.order.findFirst).toHaveBeenCalledWith({
-        where: { id: 'order-1', companyId: COMPANY_ID },
-        include: { lineItems: true },
-      });
+      expect(prisma.order.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'order-1', companyId: COMPANY_ID },
+        }),
+      );
     });
   });
 
   describe('confirm', () => {
-    it('confirm action → calls coupang confirmOrderSheets', async () => {
+    it('confirm action → 소유권 검증 후 coupang confirmOrderSheets 호출', async () => {
+      prisma.order.findMany.mockResolvedValueOnce(ownedRows([12345, 67890]));
       (confirmOrderSheets as ReturnType<typeof vi.fn>).mockResolvedValue({ code: '200', message: 'success' });
 
-      const result = await service.confirm([12345, 67890]);
+      const result = await service.confirm([12345, 67890], COMPANY_ID);
 
+      // 소유권 lookup 이 companyId + platform + externalOrderId 로 발생
+      expect(prisma.order.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            companyId: COMPANY_ID,
+            platform: 'coupang',
+            externalOrderId: { in: ['12345', '67890'] },
+          }),
+        }),
+      );
       expect(confirmOrderSheets).toHaveBeenCalledWith([12345, 67890]);
       expect(result.message).toBe('2건 승인 완료');
       expect(result.data).toEqual({ code: '200', message: 'success' });
+
+      const parsed = OrderActionResponseSchema.safeParse(result);
+      expect(parsed.success).toBe(true);
+    });
+
+    it('다른 회사의 shipmentBoxId 가 섞여있으면 NotFoundException + adapter 호출 안 함 (IDOR)', async () => {
+      // 12345 만 owned, 99999 는 missing
+      prisma.order.findMany.mockResolvedValueOnce(ownedRows([12345]));
+
+      await expect(service.confirm([12345, 99999], COMPANY_ID)).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+      expect(confirmOrderSheets).not.toHaveBeenCalled();
+    });
+
+    it('shipmentBoxId 가 safe integer 범위 밖이면 BadRequest + adapter/lookup 호출 안 함 (defensive)', async () => {
+      const unsafeId = Number.MAX_SAFE_INTEGER + 2;
+      await expect(service.confirm([12345, unsafeId], COMPANY_ID)).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+      expect(confirmOrderSheets).not.toHaveBeenCalled();
+      expect(prisma.order.findMany).not.toHaveBeenCalled();
     });
   });
 
   describe('uploadInvoice', () => {
-    it('invoice action with shipmentBoxId → calls coupang uploadInvoice', async () => {
+    it('invoice action → 소유권 검증 후 coupang uploadInvoice 호출', async () => {
+      prisma.order.findMany.mockResolvedValueOnce(ownedRows([12345]));
       (uploadInvoice as ReturnType<typeof vi.fn>).mockResolvedValue({ code: '200', message: 'ok' });
 
-      const result = await service.uploadInvoice(12345, 'CJGLS', 'INV-001');
+      const result = await service.uploadInvoice(12345, 'CJGLS', 'INV-001', COMPANY_ID);
 
+      expect(prisma.order.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            companyId: COMPANY_ID,
+            platform: 'coupang',
+            externalOrderId: { in: ['12345'] },
+          }),
+        }),
+      );
       expect(uploadInvoice).toHaveBeenCalledWith(
         12345,
         expect.objectContaining({
@@ -143,6 +364,18 @@ describe('OrdersService — order query and actions', () => {
         }),
       );
       expect(result.message).toBe('송장 전송 완료');
+
+      const parsed = OrderActionResponseSchema.safeParse(result);
+      expect(parsed.success).toBe(true);
+    });
+
+    it('다른 회사의 shipmentBoxId 면 NotFoundException + adapter 호출 안 함 (IDOR)', async () => {
+      prisma.order.findMany.mockResolvedValueOnce([]);
+
+      await expect(
+        service.uploadInvoice(99999, 'CJGLS', 'INV-001', COMPANY_ID),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(uploadInvoice).not.toHaveBeenCalled();
     });
   });
 
@@ -184,6 +417,10 @@ describe('OrdersService — order query and actions', () => {
       for (const [args] of aggCalls) {
         expect(args.where).toEqual(expect.objectContaining({ companyId: COMPANY_ID }));
       }
+
+      // OrderStatsResponse shape
+      const parsed = OrderStatsResponseSchema.safeParse(result);
+      expect(parsed.success).toBe(true);
     });
   });
 });

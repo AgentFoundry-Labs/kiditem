@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, Query, ServiceUnavailableException, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Query, ServiceUnavailableException, BadRequestException, NotFoundException } from '@nestjs/common';
 import { OrdersService } from '../services/orders.service';
 import { ListOrdersQueryDto, OrderActionBodyDto } from '../dto';
 import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
@@ -24,19 +24,30 @@ export class OrdersController {
   }
 
   @Post()
-  async handleAction(@Body() body: OrderActionBodyDto) {
+  async handleAction(
+    @Body() body: OrderActionBodyDto,
+    @CurrentCompany() companyId: string,
+  ) {
     if (body.action === 'confirm') {
       try {
-        return await this.ordersService.confirm(body.shipmentBoxIds!);
-      } catch {
+        return await this.ordersService.confirm(body.shipmentBoxIds!, companyId);
+      } catch (err) {
+        // 소유권 검증 실패 (NotFoundException) 는 그대로 통과 — 외부 API 다운으로 위장 금지.
+        if (err instanceof NotFoundException) throw err;
         throw new ServiceUnavailableException('쿠팡 API가 연결되지 않았습니다.');
       }
     }
 
     if (body.action === 'invoice') {
       try {
-        return await this.ordersService.uploadInvoice(body.shipmentBoxId!, body.deliveryCompanyCode!, body.invoiceNumber!);
-      } catch {
+        return await this.ordersService.uploadInvoice(
+          body.shipmentBoxId!,
+          body.deliveryCompanyCode!,
+          body.invoiceNumber!,
+          companyId,
+        );
+      } catch (err) {
+        if (err instanceof NotFoundException) throw err;
         throw new ServiceUnavailableException('쿠팡 API가 연결되지 않았습니다.');
       }
     }

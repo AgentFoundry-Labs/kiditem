@@ -20,6 +20,32 @@ import type {
 
 export type { SyncResult, HealthResult } from './types';
 
+/**
+ * Coupang raw status → 내부 canonical status 정규화. 현재 `NONE_TRACKING` (송장없는 배송)
+ * 만 매핑 (DEPARTURE = 출고완료 와 동일 의미). UI pipeline 5-stage bucket 과 정합 유지.
+ */
+export function normalizeCoupangOrderStatus(raw: string | null | undefined): string | undefined {
+  if (raw === 'NONE_TRACKING') return 'DEPARTURE';
+  return raw ?? undefined;
+}
+
+/**
+ * Coupang KR market timestamp formatter. UTC instant 을 KST wall-clock 으로 변환하고
+ * `+09:00` offset 을 명시한다. 예: `new Date('2026-04-25T00:30:00.000Z')`
+ * (KST 09:30) → `'2026-04-25T09:30:00+09:00'`.
+ */
+export function formatKstIso(d: Date): string {
+  const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+  const kst = new Date(d.getTime() + KST_OFFSET_MS);
+  const yyyy = kst.getUTCFullYear();
+  const mm = String(kst.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(kst.getUTCDate()).padStart(2, '0');
+  const hh = String(kst.getUTCHours()).padStart(2, '0');
+  const mi = String(kst.getUTCMinutes()).padStart(2, '0');
+  const ss = String(kst.getUTCSeconds()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}T${hh}:${mi}:${ss}+09:00`;
+}
+
 @Injectable()
 export class ChannelSyncService {
   private readonly logger = new Logger(ChannelSyncService.name);
@@ -68,12 +94,12 @@ export class ChannelSyncService {
       const dateFrom =
         from ?? new Date(dateTo.getTime() - 7 * 24 * 60 * 60 * 1000);
 
-      const formatDate = (d: Date): string =>
-        d.toISOString().split('T')[0] + 'T00:00:00';
-
+      // Coupang KR market 은 `yyyy-MM-ddTHH:mm:ss+09:00` 포맷 (KST 로컬 + offset) 을 기대한다.
+      // 단순 `toISOString().slice(0,19)` (UTC + offset 제거) 로 보내면 Coupang 이 KST 로 해석해
+      // 9시간 어긋난 윈도우로 조회됨 (예: KST 09:30 실행 → `00:30` 으로 인식, 00:30~09:30 누락).
       const response = (await getOrderSheets({
-        createdAtFrom: formatDate(dateFrom),
-        createdAtTo: formatDate(dateTo),
+        createdAtFrom: formatKstIso(dateFrom),
+        createdAtTo: formatKstIso(dateTo),
         maxPerPage: 50,
       })) as OrderSheetResponse;
 
@@ -152,7 +178,7 @@ export class ChannelSyncService {
             },
           },
           update: {
-            status: payload.status ?? undefined,
+            status: normalizeCoupangOrderStatus(payload.status),
             trackingNumber: payload.invoiceNumber ?? null,
             shippingCompany: payload.deliveryCompanyName ?? null,
             shippingPrice: payload.shippingPrice ?? 0,
@@ -168,7 +194,7 @@ export class ChannelSyncService {
             platform: 'coupang',
             externalOrderId: shipmentBoxId,
             externalNumber: payload.orderId ? String(payload.orderId) : null,
-            status: payload.status ?? 'ACCEPT',
+            status: normalizeCoupangOrderStatus(payload.status) ?? 'ACCEPT',
             customerName: payload.orderer?.name ?? '',
             receiverName: payload.receiver?.name ?? null,
             receiverPhone: payload.receiver?.safeNumber ?? null,

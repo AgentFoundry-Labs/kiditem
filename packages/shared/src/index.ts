@@ -42,7 +42,7 @@ export type {
   ProductCatalogListResponse,
 } from './schemas/product.js';
 
-// Order (Plan A.5 — channel-agnostic)
+// Order (Plan A.5 — channel-agnostic; W3 — UI-ready response schemas)
 export {
   OrderSchema,
   OrderLineItemSchema,
@@ -50,6 +50,15 @@ export {
   OrderReturnLineItemSchema,
   OrderPlatformSchema,
   OrderReturnTypeSchema,
+  OrderStatusSchema,
+  OrderPipelineStatusSchema,
+  OrderListLineItemSchema,
+  DeliveryCompanySchema,
+  OrderListItemSchema,
+  OrderListResponseSchema,
+  OrderStatsResponseSchema,
+  OrderActionResponseSchema,
+  OrderPipelineResponseSchema,
 } from './schemas/order.js';
 export type {
   Order,
@@ -58,6 +67,15 @@ export type {
   OrderReturnLineItem,
   OrderPlatform,
   OrderReturnType,
+  OrderStatus,
+  OrderPipelineStatus,
+  OrderListLineItem,
+  DeliveryCompany,
+  OrderListItem,
+  OrderListResponse,
+  OrderStatsResponse,
+  OrderActionResponse,
+  OrderPipelineResponse,
 } from './schemas/order.js';
 
 // Inventory
