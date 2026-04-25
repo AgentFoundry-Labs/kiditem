@@ -26,6 +26,10 @@ function makePrisma() {
   };
 }
 
+function ownedRows(ids: number[]): Array<{ externalOrderId: string }> {
+  return ids.map((id) => ({ externalOrderId: String(id) }));
+}
+
 const COMPANY_ID = 'company-1';
 const OTHER_COMPANY_ID = 'company-2';
 
@@ -170,6 +174,26 @@ describe('OrdersService — order query and actions', () => {
       expect(result.items[0]?.shipmentBoxId).toBe(99999);
       expect(result.items[1]?.shipmentBoxId).toBeNull();
     });
+
+    it('shipmentBoxId 가 Number.MAX_SAFE_INTEGER 를 넘으면 null (regression — unsafe ID action 차단)', async () => {
+      // externalOrderId 는 string 이지만 Number 캐스팅 시 안전 범위를 벗어나는 케이스
+      const unsafeStr = String(BigInt(Number.MAX_SAFE_INTEGER) + 7n);
+      const unsafeOrder = {
+        ...MOCK_ORDER,
+        id: '00000000-0000-4000-8000-000000000099',
+        externalOrderId: unsafeStr,
+        externalNumber: null,
+        lineItems: [MOCK_LINE_ITEM],
+      };
+      prisma.order.findMany.mockResolvedValue([unsafeOrder]);
+
+      const result = await service.findAll(COMPANY_ID, {});
+
+      expect(result.items[0]?.shipmentBoxId).toBeNull();
+      // shared schema 도 unsafe 값을 거부하므로 응답 전체가 round-trip parse 통과해야 함
+      const parsed = OrderListResponseSchema.safeParse(JSON.parse(JSON.stringify(result)));
+      expect(parsed.success).toBe(true);
+    });
   });
 
   describe('findOne', () => {
@@ -205,27 +229,57 @@ describe('OrdersService — order query and actions', () => {
   });
 
   describe('confirm', () => {
-    it('confirm action → calls coupang confirmOrderSheets', async () => {
+    it('confirm action → 소유권 검증 후 coupang confirmOrderSheets 호출', async () => {
+      prisma.order.findMany.mockResolvedValueOnce(ownedRows([12345, 67890]));
       (confirmOrderSheets as ReturnType<typeof vi.fn>).mockResolvedValue({ code: '200', message: 'success' });
 
-      const result = await service.confirm([12345, 67890]);
+      const result = await service.confirm([12345, 67890], COMPANY_ID);
 
+      // 소유권 lookup 이 companyId + platform + externalOrderId 로 발생
+      expect(prisma.order.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            companyId: COMPANY_ID,
+            platform: 'coupang',
+            externalOrderId: { in: ['12345', '67890'] },
+          }),
+        }),
+      );
       expect(confirmOrderSheets).toHaveBeenCalledWith([12345, 67890]);
       expect(result.message).toBe('2건 승인 완료');
       expect(result.data).toEqual({ code: '200', message: 'success' });
 
-      // OrderActionResponse shape
       const parsed = OrderActionResponseSchema.safeParse(result);
       expect(parsed.success).toBe(true);
+    });
+
+    it('다른 회사의 shipmentBoxId 가 섞여있으면 NotFoundException + adapter 호출 안 함 (IDOR)', async () => {
+      // 12345 만 owned, 99999 는 missing
+      prisma.order.findMany.mockResolvedValueOnce(ownedRows([12345]));
+
+      await expect(service.confirm([12345, 99999], COMPANY_ID)).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+      expect(confirmOrderSheets).not.toHaveBeenCalled();
     });
   });
 
   describe('uploadInvoice', () => {
-    it('invoice action with shipmentBoxId → calls coupang uploadInvoice', async () => {
+    it('invoice action → 소유권 검증 후 coupang uploadInvoice 호출', async () => {
+      prisma.order.findMany.mockResolvedValueOnce(ownedRows([12345]));
       (uploadInvoice as ReturnType<typeof vi.fn>).mockResolvedValue({ code: '200', message: 'ok' });
 
-      const result = await service.uploadInvoice(12345, 'CJGLS', 'INV-001');
+      const result = await service.uploadInvoice(12345, 'CJGLS', 'INV-001', COMPANY_ID);
 
+      expect(prisma.order.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            companyId: COMPANY_ID,
+            platform: 'coupang',
+            externalOrderId: { in: ['12345'] },
+          }),
+        }),
+      );
       expect(uploadInvoice).toHaveBeenCalledWith(
         12345,
         expect.objectContaining({
@@ -235,9 +289,17 @@ describe('OrdersService — order query and actions', () => {
       );
       expect(result.message).toBe('송장 전송 완료');
 
-      // OrderActionResponse shape
       const parsed = OrderActionResponseSchema.safeParse(result);
       expect(parsed.success).toBe(true);
+    });
+
+    it('다른 회사의 shipmentBoxId 면 NotFoundException + adapter 호출 안 함 (IDOR)', async () => {
+      prisma.order.findMany.mockResolvedValueOnce([]);
+
+      await expect(
+        service.uploadInvoice(99999, 'CJGLS', 'INV-001', COMPANY_ID),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(uploadInvoice).not.toHaveBeenCalled();
     });
   });
 

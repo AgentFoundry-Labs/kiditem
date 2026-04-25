@@ -68,12 +68,22 @@ export class ChannelSyncService {
       const dateFrom =
         from ?? new Date(dateTo.getTime() - 7 * 24 * 60 * 60 * 1000);
 
-      const formatDate = (d: Date): string =>
-        d.toISOString().split('T')[0] + 'T00:00:00';
+      // Coupang 은 `yyyy-MM-ddTHH:mm:ss` 포맷을 받음. date-only 입력 (자정) 으로 들어오면
+      // `from` 은 그대로 start-of-day, `to` 는 end-of-day (23:59:59) 로 해석해 당일 주문 누락 방지.
+      const formatStart = (d: Date): string => d.toISOString().slice(0, 19);
+      const formatEnd = (d: Date): string => {
+        const hasTime =
+          d.getUTCHours() !== 0 ||
+          d.getUTCMinutes() !== 0 ||
+          d.getUTCSeconds() !== 0 ||
+          d.getUTCMilliseconds() !== 0;
+        if (hasTime) return d.toISOString().slice(0, 19);
+        return d.toISOString().slice(0, 10) + 'T23:59:59';
+      };
 
       const response = (await getOrderSheets({
-        createdAtFrom: formatDate(dateFrom),
-        createdAtTo: formatDate(dateTo),
+        createdAtFrom: formatStart(dateFrom),
+        createdAtTo: formatEnd(dateTo),
         maxPerPage: 50,
       })) as OrderSheetResponse;
 

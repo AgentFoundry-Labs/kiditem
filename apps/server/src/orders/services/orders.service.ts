@@ -47,7 +47,13 @@ export class OrdersService {
   }): OrderListItem {
     const primary = order.lineItems[0] ?? null;
     const totalQuantity = order.lineItems.reduce((sum, item) => sum + item.quantity, 0);
-    const shipmentBoxId = /^\d+$/.test(order.externalOrderId) ? Number(order.externalOrderId) : null;
+    // shipmentBoxId 는 Coupang 외부 ID. JS Number 안전 범위 (Number.MAX_SAFE_INTEGER) 를 넘으면
+    // 캐스팅 시 반올림되어 다른 ID 로 action 이 나갈 수 있다 — null 로 떨어뜨려 action 대상에서 제외.
+    const shipmentBoxId = (() => {
+      if (!/^\d+$/.test(order.externalOrderId)) return null;
+      const num = Number(order.externalOrderId);
+      return Number.isSafeInteger(num) && num > 0 ? num : null;
+    })();
     const status = OrderStatusSchema.parse(order.status);
 
     return {
@@ -177,7 +183,37 @@ export class OrdersService {
     } satisfies OrderStatsResponse;
   }
 
-  async confirm(shipmentBoxIds: number[]): Promise<OrderActionResponse> {
+  /**
+   * shipmentBoxId 소유권 검증 — 주어진 ID 들이 모두 companyId 의 Coupang 주문이어야
+   * 외부 API 호출. 한 건이라도 누락되면 NotFoundException (IDOR 방어).
+   */
+  private async assertOwnedShipmentBoxIds(
+    shipmentBoxIds: number[],
+    companyId: string,
+  ): Promise<void> {
+    const externalOrderIds = shipmentBoxIds.map((id) => String(id));
+    const owned = await this.prisma.order.findMany({
+      where: {
+        companyId,
+        platform: 'coupang',
+        externalOrderId: { in: externalOrderIds },
+      },
+      select: { externalOrderId: true },
+    });
+    if (owned.length !== shipmentBoxIds.length) {
+      const ownedSet = new Set(owned.map((o) => o.externalOrderId));
+      const missing = externalOrderIds.filter((id) => !ownedSet.has(id));
+      throw new NotFoundException(
+        `Order(s) not found for company: ${missing.join(', ')}`,
+      );
+    }
+  }
+
+  async confirm(
+    shipmentBoxIds: number[],
+    companyId: string,
+  ): Promise<OrderActionResponse> {
+    await this.assertOwnedShipmentBoxIds(shipmentBoxIds, companyId);
     const result = await confirmOrderSheets(shipmentBoxIds);
     return {
       message: `${shipmentBoxIds.length}건 승인 완료`,
@@ -189,7 +225,9 @@ export class OrdersService {
     shipmentBoxId: number,
     deliveryCompanyCode: string,
     invoiceNumber: string,
+    companyId: string,
   ): Promise<OrderActionResponse> {
+    await this.assertOwnedShipmentBoxIds([shipmentBoxId], companyId);
     const result = await uploadInvoice(shipmentBoxId, {
       deliveryCompanyCode,
       invoiceNumber,

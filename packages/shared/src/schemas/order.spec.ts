@@ -65,6 +65,23 @@ describe('order response schemas', () => {
     expect(OrderStatusSchema.safeParse('CANCELED').success).toBe(true);
   });
 
+  it('rejects shipmentBoxId beyond Number.MAX_SAFE_INTEGER (regression)', () => {
+    const unsafeId = Number.MAX_SAFE_INTEGER + 2; // 안전 범위 밖 → 캐스팅 시 반올림
+    const result = OrderListItemSchema.safeParse({
+      ...baseOrderListItem,
+      shipmentBoxId: unsafeId,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('accepts null shipmentBoxId (non-numeric externalOrderId case)', () => {
+    const result = OrderListItemSchema.safeParse({
+      ...baseOrderListItem,
+      shipmentBoxId: null,
+    });
+    expect(result.success).toBe(true);
+  });
+
   it('parses stats and action responses', () => {
     expect(
       OrderStatsResponseSchema.parse({

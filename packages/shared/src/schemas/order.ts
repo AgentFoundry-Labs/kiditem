@@ -138,7 +138,16 @@ export const OrderListItemSchema = z.object({
   externalOrderId: z.string(),
   externalNumber: z.string().nullable(),
   displayOrderNumber: z.string(),
-  shipmentBoxId: z.number().int().positive().nullable(),
+  // safe-integer 제약 — Coupang shipmentBoxId 가 Number.MAX_SAFE_INTEGER 를 넘는 경우
+  // 캐스팅 반올림으로 다른 ID 로 외부 API 가 나갈 수 있어 unsafe 값은 거부한다.
+  shipmentBoxId: z
+    .number()
+    .int()
+    .positive()
+    .refine((n) => Number.isSafeInteger(n), {
+      message: 'shipmentBoxId must be a safe integer',
+    })
+    .nullable(),
   status: OrderStatusSchema,
   customerName: z.string(),
   receiverName: z.string().nullable(),

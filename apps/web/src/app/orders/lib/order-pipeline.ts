@@ -94,7 +94,9 @@ export function getCurrentSyncWindow(
   now: Date,
 ): { from: string; to: string; dateHour: string } | null {
   if (!SYNC_HOURS.includes(now.getHours() as (typeof SYNC_HOURS)[number])) return null;
-  const to = now.toISOString().slice(0, 10);
+  // `to` 는 윈도우 종료 시각(현재) 까지 보존 — date-only 면 서버에서 `T00:00:00` 으로 포맷되어
+  // 당일 주문이 누락된다. `from` 은 7일 전 start-of-day 로 충분.
+  const to = now.toISOString();
   const from = new Date(now.getTime() - 7 * 86400000).toISOString().slice(0, 10);
   return { from, to, dateHour: makeDateHourKey(now) };
 }

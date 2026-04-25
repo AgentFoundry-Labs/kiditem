@@ -54,6 +54,17 @@ describe('order pipeline helpers', () => {
     expect(getCurrentSyncWindow(new Date(2026, 3, 25, 10, 10))).toBeNull();
   });
 
+  it('sync window `to` preserves time component (regression — date-only dropped 당일 주문)', () => {
+    const now = new Date(2026, 3, 25, 9, 30);
+    const win = getCurrentSyncWindow(now);
+    expect(win).not.toBeNull();
+    // `to` 가 full ISO (THH:mm:ss[.sss]Z) 인지 — date-only (YYYY-MM-DD, len=10) 면 회귀
+    expect(win!.to.length).toBeGreaterThan(10);
+    expect(win!.to).toContain('T');
+    // `from` 은 7일 전 start-of-day (date-only) 로 충분
+    expect(win!.from).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
   it('extracts only numeric shipment box ids', () => {
     const { ids, skipped } = getNumericShipmentBoxIds([
       order({ shipmentBoxId: 123 }),
