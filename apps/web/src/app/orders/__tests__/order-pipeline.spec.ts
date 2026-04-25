@@ -54,15 +54,16 @@ describe('order pipeline helpers', () => {
     expect(getCurrentSyncWindow(new Date(2026, 3, 25, 10, 10))).toBeNull();
   });
 
-  it('sync window `to` preserves time component (regression — date-only dropped 당일 주문)', () => {
+  it('sync window sends full UTC ISO instants for both from and to (KST/Coupang regression)', () => {
     const now = new Date(2026, 3, 25, 9, 30);
     const win = getCurrentSyncWindow(now);
     expect(win).not.toBeNull();
-    // `to` 가 full ISO (THH:mm:ss[.sss]Z) 인지 — date-only (YYYY-MM-DD, len=10) 면 회귀
-    expect(win!.to.length).toBeGreaterThan(10);
-    expect(win!.to).toContain('T');
-    // `from` 은 7일 전 start-of-day (date-only) 로 충분
-    expect(win!.from).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    // 두 값 모두 full UTC ISO (`...Z`) — 서버가 KST `+09:00` 으로 변환.
+    // date-only 면 서버 KST 변환 시 KST 09:00 으로 어긋남 → 회귀 마커.
+    expect(win!.to).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+    expect(win!.from).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+    // `to` 는 윈도우 시점 (현재) 와 동일한 instant
+    expect(win!.to).toBe(now.toISOString());
   });
 
   it('extracts only numeric shipment box ids', () => {

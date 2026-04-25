@@ -94,6 +94,9 @@ export type OrderReturnLineItem = z.infer<typeof OrderReturnLineItemSchema>;
 // W3 — UI-ready response schemas (typed boundary for /orders page)
 // =============================================================================
 
+// NONE_TRACKING — Coupang 의 "송장없는 배송" status. PO API status 카탈로그에 포함되어
+// 있어 sync 가 raw 로 저장할 수 있다. 파싱 단계에서 throw 되지 않도록 enum 에 포함하고,
+// downstream 에서는 DEPARTURE 와 같은 의미 (출고됨) 로 정규화 처리.
 export const OrderStatusSchema = z.enum([
   'ACCEPT',
   'INSTRUCT',
@@ -101,6 +104,7 @@ export const OrderStatusSchema = z.enum([
   'DELIVERING',
   'FINAL_DELIVERY',
   'CANCELED',
+  'NONE_TRACKING',
 ]);
 export type OrderStatus = z.infer<typeof OrderStatusSchema>;
 

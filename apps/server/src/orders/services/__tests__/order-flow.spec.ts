@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { OrdersService } from '../orders.service';
-import { NotFoundException } from '@nestjs/common';
+import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { OrderListResponseSchema, OrderActionResponseSchema, OrderStatsResponseSchema } from '@kiditem/shared';
 
 // Mock the coupang adapter module
@@ -175,6 +175,24 @@ describe('OrdersService — order query and actions', () => {
       expect(result.items[1]?.shipmentBoxId).toBeNull();
     });
 
+    it('legacy NONE_TRACKING row → toListItem 에서 DEPARTURE 로 정규화 (regression)', async () => {
+      const noneTrackingOrder = {
+        ...MOCK_ORDER,
+        id: '00000000-0000-4000-8000-0000000000aa',
+        status: 'NONE_TRACKING',
+        lineItems: [MOCK_LINE_ITEM],
+      };
+      prisma.order.findMany.mockResolvedValue([noneTrackingOrder]);
+
+      const result = await service.findAll(COMPANY_ID, { status: 'NONE_TRACKING' });
+
+      // OrderStatusSchema 는 NONE_TRACKING 을 받지만, toListItem 이 pipeline 호환을 위해 DEPARTURE 로 정규화
+      expect(result.items[0]?.status).toBe('DEPARTURE');
+      // shared schema round-trip 통과
+      const parsed = OrderListResponseSchema.safeParse(JSON.parse(JSON.stringify(result)));
+      expect(parsed.success).toBe(true);
+    });
+
     it('shipmentBoxId 가 Number.MAX_SAFE_INTEGER 를 넘으면 null (regression — unsafe ID action 차단)', async () => {
       // externalOrderId 는 string 이지만 Number 캐스팅 시 안전 범위를 벗어나는 케이스
       const unsafeStr = String(BigInt(Number.MAX_SAFE_INTEGER) + 7n);
@@ -261,6 +279,15 @@ describe('OrdersService — order query and actions', () => {
         NotFoundException,
       );
       expect(confirmOrderSheets).not.toHaveBeenCalled();
+    });
+
+    it('shipmentBoxId 가 safe integer 범위 밖이면 BadRequest + adapter/lookup 호출 안 함 (defensive)', async () => {
+      const unsafeId = Number.MAX_SAFE_INTEGER + 2;
+      await expect(service.confirm([12345, unsafeId], COMPANY_ID)).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+      expect(confirmOrderSheets).not.toHaveBeenCalled();
+      expect(prisma.order.findMany).not.toHaveBeenCalled();
     });
   });
 

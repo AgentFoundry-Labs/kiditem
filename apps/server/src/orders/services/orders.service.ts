@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   confirmOrderSheets,
@@ -54,7 +54,12 @@ export class OrdersService {
       const num = Number(order.externalOrderId);
       return Number.isSafeInteger(num) && num > 0 ? num : null;
     })();
-    const status = OrderStatusSchema.parse(order.status);
+    // Coupang `NONE_TRACKING` (송장없는 배송) 은 sync 단계에서 DEPARTURE 로 정규화되지만,
+    // 기존 레거시 row 가 raw 로 남아있을 수 있어 toListItem 에서도 한 번 더 정규화한다.
+    // pipeline UI 5-stage bucket (ACCEPT/INSTRUCT/DEPARTURE/DELIVERING/FINAL_DELIVERY) 와 정합.
+    const normalizedRaw =
+      order.status === 'NONE_TRACKING' ? 'DEPARTURE' : order.status;
+    const status = OrderStatusSchema.parse(normalizedRaw);
 
     return {
       id: order.id,
@@ -184,13 +189,24 @@ export class OrdersService {
   }
 
   /**
-   * shipmentBoxId 소유권 검증 — 주어진 ID 들이 모두 companyId 의 Coupang 주문이어야
-   * 외부 API 호출. 한 건이라도 누락되면 NotFoundException (IDOR 방어).
+   * shipmentBoxId 소유권 + safe-integer 검증 — 주어진 ID 들이 모두
+   *   1) Number.MAX_SAFE_INTEGER 안전 범위 안 (정수 양수)
+   *   2) companyId 의 Coupang 주문 (companyId + platform + externalOrderId)
+   * 위 두 조건을 만족해야 외부 API 호출. DTO ValidationPipe 가 1차 방어이지만
+   * 내부 caller (workflow 등) 가 DTO 우회 가능하므로 service 에서도 defensive.
    */
   private async assertOwnedShipmentBoxIds(
     shipmentBoxIds: number[],
     companyId: string,
   ): Promise<void> {
+    const unsafe = shipmentBoxIds.filter(
+      (id) => !Number.isSafeInteger(id) || id <= 0,
+    );
+    if (unsafe.length > 0) {
+      throw new BadRequestException(
+        `shipmentBoxId(s) out of safe-integer range: ${unsafe.join(', ')}`,
+      );
+    }
     const externalOrderIds = shipmentBoxIds.map((id) => String(id));
     const owned = await this.prisma.order.findMany({
       where: {

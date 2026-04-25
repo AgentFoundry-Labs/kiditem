@@ -1,8 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Test } from '@nestjs/testing';
 import { BadRequestException } from '@nestjs/common';
-import { ChannelSyncService } from '../channel-sync.service';
+import { ChannelSyncService, formatKstIso, normalizeCoupangOrderStatus } from '../channel-sync.service';
 import { PrismaService } from '../../../prisma/prisma.service';
+
+vi.mock('../../adapters/coupang/orders', () => ({
+  getOrderSheets: vi.fn(),
+}));
+import { getOrderSheets } from '../../adapters/coupang/orders';
 
 describe('ChannelSyncService.syncSingleOrder (Plan A.5)', () => {
   let service: ChannelSyncService;
@@ -52,6 +57,23 @@ describe('ChannelSyncService.syncSingleOrder (Plan A.5)', () => {
     expect(upsertArgs.create.externalNumber).toBe('CO-200');
     expect(upsertArgs.create.totalPrice).toBe(2000);
     expect(upsertArgs.create.customerName).toBe('Alice');
+  });
+
+  it('payload.status=NONE_TRACKING → DB 에는 DEPARTURE 로 정규화 (regression)', async () => {
+    tx.order.upsert.mockResolvedValue({ id: 'order-nt' });
+    tx.channelListingOption.findFirst.mockResolvedValue(null);
+    tx.orderLineItem.upsert.mockResolvedValue({});
+
+    await (service as any).syncSingleOrder({
+      shipmentBoxId: 'SBX-NT', orderId: 'CO-NT',
+      status: 'NONE_TRACKING',
+      orderedAt: '2026-04-18T00:00:00Z',
+      orderItems: [{ vendorItemId: 'V1', sellerProductName: 'Toy', shippingCount: 1, salesPrice: 100, orderPrice: 100 }],
+    } as any, 'c1');
+
+    const upsertArgs = tx.order.upsert.mock.calls[0][0];
+    expect(upsertArgs.create.status).toBe('DEPARTURE');
+    expect(upsertArgs.update.status).toBe('DEPARTURE');
   });
 
   it('vendorItemId match → optionId denormalized on OrderLineItem', async () => {
@@ -246,5 +268,73 @@ describe('ChannelSyncService.syncSingleReturn (Plan A.5)', () => {
 
     expect(tx.orderReturnLineItem.deleteMany).toHaveBeenCalledWith({ where: { returnId: 'ret-1' } });
     expect(tx.orderReturnLineItem.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('formatKstIso (KR market timestamp regression)', () => {
+  it('KST 09:30 (UTC 00:30) → 2026-04-25T09:30:00+09:00', () => {
+    const utcInstant = new Date('2026-04-25T00:30:00.000Z');
+    expect(formatKstIso(utcInstant)).toBe('2026-04-25T09:30:00+09:00');
+  });
+
+  it('KST midnight (UTC previous-day 15:00) → start-of-day +09:00', () => {
+    const utcInstant = new Date('2026-04-24T15:00:00.000Z');
+    expect(formatKstIso(utcInstant)).toBe('2026-04-25T00:00:00+09:00');
+  });
+
+  it('zero-pads single-digit components', () => {
+    const utcInstant = new Date('2026-01-04T23:01:02.000Z'); // KST 2026-01-05 08:01:02
+    expect(formatKstIso(utcInstant)).toBe('2026-01-05T08:01:02+09:00');
+  });
+});
+
+describe('normalizeCoupangOrderStatus (NONE_TRACKING regression)', () => {
+  it('NONE_TRACKING → DEPARTURE (송장없는 배송 = 출고완료 의미)', () => {
+    expect(normalizeCoupangOrderStatus('NONE_TRACKING')).toBe('DEPARTURE');
+  });
+
+  it('canonical statuses 통과', () => {
+    expect(normalizeCoupangOrderStatus('ACCEPT')).toBe('ACCEPT');
+    expect(normalizeCoupangOrderStatus('DEPARTURE')).toBe('DEPARTURE');
+    expect(normalizeCoupangOrderStatus('FINAL_DELIVERY')).toBe('FINAL_DELIVERY');
+  });
+
+  it('null/undefined → undefined (upsert update branch 호환)', () => {
+    expect(normalizeCoupangOrderStatus(null)).toBeUndefined();
+    expect(normalizeCoupangOrderStatus(undefined)).toBeUndefined();
+  });
+});
+
+describe('ChannelSyncService.syncOrders (KST adapter boundary)', () => {
+  let service: ChannelSyncService;
+  let prisma: any;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    prisma = { $transaction: vi.fn() };
+    const m = await Test.createTestingModule({
+      providers: [
+        ChannelSyncService,
+        { provide: PrismaService, useValue: prisma },
+      ],
+    }).compile();
+    service = m.get(ChannelSyncService);
+  });
+
+  it('Coupang adapter receives `+09:00` KST timestamps (regression — KST 09:30 → 09:30)', async () => {
+    (getOrderSheets as ReturnType<typeof vi.fn>).mockResolvedValue({ code: 'SUCCESS', data: [] });
+
+    // KST 2026-04-25 09:30 = UTC 2026-04-25T00:30:00Z
+    const dateTo = new Date('2026-04-25T00:30:00.000Z');
+    const dateFrom = new Date('2026-04-18T00:00:00.000Z'); // KST 09:00 같은 날
+
+    await service.syncOrders('c1', dateFrom, dateTo);
+
+    expect(getOrderSheets).toHaveBeenCalledWith(
+      expect.objectContaining({
+        createdAtFrom: '2026-04-18T09:00:00+09:00',
+        createdAtTo: '2026-04-25T09:30:00+09:00',
+      }),
+    );
   });
 });

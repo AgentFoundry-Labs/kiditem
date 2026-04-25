@@ -94,10 +94,16 @@ export function getCurrentSyncWindow(
   now: Date,
 ): { from: string; to: string; dateHour: string } | null {
   if (!SYNC_HOURS.includes(now.getHours() as (typeof SYNC_HOURS)[number])) return null;
-  // `to` 는 윈도우 종료 시각(현재) 까지 보존 — date-only 면 서버에서 `T00:00:00` 으로 포맷되어
-  // 당일 주문이 누락된다. `from` 은 7일 전 start-of-day 로 충분.
+  // 두 값 모두 full UTC ISO instant 로 보낸다. 서버 channel-sync.service 가
+  // KST wall-clock + `+09:00` 으로 변환해 Coupang 에 전달.
+  // - `from`: 7일 전 KST start-of-day 의 UTC 표현
+  // - `to`: 현재 시각 (윈도우 종료)
+  const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+  const nowKstMs = now.getTime() + KST_OFFSET_MS;
+  const sevenDaysAgoKstStartMs =
+    Math.floor((nowKstMs - 7 * 86400000) / 86400000) * 86400000;
+  const from = new Date(sevenDaysAgoKstStartMs - KST_OFFSET_MS).toISOString();
   const to = now.toISOString();
-  const from = new Date(now.getTime() - 7 * 86400000).toISOString().slice(0, 10);
   return { from, to, dateHour: makeDateHourKey(now) };
 }
 

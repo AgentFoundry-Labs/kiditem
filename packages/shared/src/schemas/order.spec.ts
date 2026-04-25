@@ -65,6 +65,10 @@ describe('order response schemas', () => {
     expect(OrderStatusSchema.safeParse('CANCELED').success).toBe(true);
   });
 
+  it('accepts Coupang NONE_TRACKING status (송장없는 배송 — regression for sync raw passthrough)', () => {
+    expect(OrderStatusSchema.safeParse('NONE_TRACKING').success).toBe(true);
+  });
+
   it('rejects shipmentBoxId beyond Number.MAX_SAFE_INTEGER (regression)', () => {
     const unsafeId = Number.MAX_SAFE_INTEGER + 2; // 안전 범위 밖 → 캐스팅 시 반올림
     const result = OrderListItemSchema.safeParse({
