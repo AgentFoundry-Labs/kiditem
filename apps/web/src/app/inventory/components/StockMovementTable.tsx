@@ -1,23 +1,20 @@
 'use client';
 import { ArrowUpDown } from 'lucide-react';
-import { cn, formatKRW } from '@/lib/utils';
+import { cn, formatKRW, formatNumber } from '@/lib/utils';
 
 export interface GroupedRow {
   key: string;
   inQty: number;
   outQty: number;
+  adjustQty: number;
   inAmt: number;
   outAmt: number;
 }
 
 const TYPE_LABEL: Record<string, string> = {
-  in: '입고',
-  out: '출고',
-  purchase: '매입입고',
-  return_in: '반품입고',
-  sale: '판매출고',
-  adjustment: '조정',
-  unknown: '기타',
+  RECEIVE: '입고',
+  ISSUE: '출고',
+  ADJUST: '조정',
 };
 
 const GROUP_COLUMN_LABEL: Record<string, string> = {
@@ -66,6 +63,7 @@ export function StockMovementTable({ grouped, loading, groupBy }: Props) {
               <th>{GROUP_COLUMN_LABEL[groupBy]}</th>
               <th className="text-right">입고수량</th>
               <th className="text-right">출고수량</th>
+              <th className="text-right">조정수량</th>
               <th className="text-right">입고금액</th>
               <th className="text-right">출고금액</th>
               <th className="text-right">순증감</th>
@@ -73,18 +71,21 @@ export function StockMovementTable({ grouped, loading, groupBy }: Props) {
           </thead>
           <tbody>
             {grouped.map((row) => {
-              const net = row.inQty - row.outQty;
+              const net = row.inQty - row.outQty + row.adjustQty;
               return (
                 <tr key={row.key}>
                   <td className="font-medium text-slate-900 max-w-[250px] truncate">
                     {formatGroupKey(row.key)}
                   </td>
-                  <td className="text-right tabular-nums text-green-600">+{formatKRW(row.inQty)}</td>
-                  <td className="text-right tabular-nums text-red-600">-{formatKRW(row.outQty)}</td>
+                  <td className="text-right tabular-nums text-green-600">+{formatNumber(row.inQty)}</td>
+                  <td className="text-right tabular-nums text-red-600">-{formatNumber(row.outQty)}</td>
+                  <td className="text-right tabular-nums text-purple-600">
+                    {row.adjustQty !== 0 ? (row.adjustQty > 0 ? '+' : '') + formatNumber(row.adjustQty) : '-'}
+                  </td>
                   <td className="text-right tabular-nums text-slate-700">{formatKRW(row.inAmt)}원</td>
                   <td className="text-right tabular-nums text-slate-700">{formatKRW(row.outAmt)}원</td>
                   <td className={cn('text-right tabular-nums font-semibold', net > 0 ? 'text-green-600' : net < 0 ? 'text-red-600' : 'text-slate-500')}>
-                    {net > 0 ? '+' : ''}{formatKRW(net)}
+                    {net > 0 ? '+' : ''}{formatNumber(net)}
                   </td>
                 </tr>
               );

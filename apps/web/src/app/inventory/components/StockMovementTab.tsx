@@ -2,20 +2,14 @@
 
 import { useState } from 'react';
 import { ArrowUpDown, RefreshCw, TrendingUp, TrendingDown } from 'lucide-react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { apiClient } from '@/lib/api-client';
+import { useQueryClient } from '@tanstack/react-query';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatKRW, formatNumber } from '@/lib/utils';
 import { StockMovementSummaryCard } from './StockMovementSummaryCard';
 import { StockMovementTable, type GroupedRow } from './StockMovementTable';
-
-interface Summary {
-  inQty: number;
-  outQty: number;
-  inAmount: number;
-  outAmount: number;
-}
+import { useInventoryTransactions, useInventoryTransactionSummary } from '../hooks/useInventoryTransactions';
+import type { TransactionListItem } from '@kiditem/shared';
 
 const GROUP_TABS = [
   { key: 'product', label: '상품별' },
@@ -30,34 +24,59 @@ const PERIOD_OPTIONS = [
   { value: '90', label: '90일' },
 ] as const;
 
+const DAYS_MAP: Record<string, number> = { '1': 1, '7': 7, '30': 30, '90': 90 };
+
+function groupTransactions(rows: TransactionListItem[], groupBy: string): GroupedRow[] {
+  const map = new Map<string, GroupedRow>();
+  for (const tx of rows) {
+    const key =
+      groupBy === 'date'
+        ? String(tx.createdAt).slice(0, 10)
+        : groupBy === 'type'
+          ? tx.type
+          : tx.optionName ?? tx.optionId;
+    const current = map.get(key) ?? { key, inQty: 0, outQty: 0, adjustQty: 0, inAmt: 0, outAmt: 0 };
+    if (tx.type === 'RECEIVE') {
+      current.inQty += tx.quantity;
+      current.inAmt += tx.totalCost;
+    } else if (tx.type === 'ISSUE') {
+      current.outQty += tx.quantity;
+      current.outAmt += tx.totalCost;
+    } else {
+      current.adjustQty += tx.quantity;
+    }
+    map.set(key, current);
+  }
+  return Array.from(map.values());
+}
+
 export function StockMovementTab() {
   const queryClient = useQueryClient();
   const [groupBy, setGroupBy] = useState<string>('product');
   const [dateRange, setDateRange] = useState('30');
 
-  const { data: stockData, isLoading: loading, error: queryError } = useQuery({
-    queryKey: queryKeys.stockMovement.data({ dateRange, groupBy }),
-    queryFn: async () => {
-      const daysMap: Record<string, number> = { '1': 1, '7': 7, '30': 30, '90': 90 };
-      const days = daysMap[dateRange] || 7;
-      const from = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
-      return apiClient.get<{ total: number; grouped: GroupedRow[]; summary: Summary }>(
-        `/api/stock-movement?from=${from}&groupBy=${groupBy}&limit=200`,
-      );
-    },
-  });
+  const days = DAYS_MAP[dateRange] ?? 30;
+  const from = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
 
-  const total = stockData?.total ?? 0;
-  const grouped = stockData?.grouped ?? [];
-  const summary = stockData?.summary ?? { inQty: 0, outQty: 0, inAmount: 0, outAmount: 0 };
-  const error = queryError ? (isApiError(queryError) ? queryError.detail : '입출고 데이터를 불러오는데 실패했습니다.') : null;
+  const { data: txData, isLoading: txLoading, error: txError } = useInventoryTransactions({ page: 1, limit: 200, from });
+  const { data: summaryData, isLoading: summaryLoading, error: summaryError } = useInventoryTransactionSummary(days);
+
+  const loading = txLoading || summaryLoading;
+  const rawError = txError ?? summaryError;
+  const error = rawError ? (isApiError(rawError) ? rawError.detail : '입출고 데이터를 불러오는데 실패했습니다.') : null;
+
+  const transactions = txData?.items ?? [];
+  const total = txData?.total ?? 0;
+  const grouped = groupTransactions(transactions, groupBy);
+
+  const summary = summaryData ?? { inQty: 0, outQty: 0, adjustQty: 0, inAmount: 0, outAmount: 0 };
 
   return (
     <div className="space-y-4">
       {error && (
         <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           <span>{error}</span>
-          <button onClick={() => queryClient.invalidateQueries({ queryKey: queryKeys.stockMovement.all })} className="ml-auto text-red-400 hover:text-red-600">&times;</button>
+          <button onClick={() => queryClient.invalidateQueries({ queryKey: queryKeys.inventory.all })} className="ml-auto text-red-400 hover:text-red-600">&times;</button>
         </div>
       )}
       <div className="flex items-center justify-between">
@@ -80,7 +99,7 @@ export function StockMovementTab() {
             ))}
           </div>
           <button
-            onClick={() => queryClient.invalidateQueries({ queryKey: queryKeys.stockMovement.all })}
+            onClick={() => queryClient.invalidateQueries({ queryKey: queryKeys.inventory.all })}
             className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded-lg border border-slate-200"
           >
             <RefreshCw size={14} />

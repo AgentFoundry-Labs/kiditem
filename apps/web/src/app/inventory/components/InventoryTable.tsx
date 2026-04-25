@@ -3,6 +3,7 @@
 import { Pagination } from '@/components/ui/Pagination';
 import { cn, formatNumber } from '@/lib/utils';
 import type { InventoryListItem } from '@kiditem/shared';
+import type { StockOperationMode } from './StockOperationDialog';
 
 function StatusBadge({ status }: { status: string }) {
   const styles: Record<string, string> = {
@@ -24,9 +25,17 @@ interface InventoryTableProps {
   pageSize: number;
   total: number;
   onPageChange: (page: number) => void;
+  onOpenOperation?: (item: InventoryListItem, mode: StockOperationMode) => void;
 }
 
-export function InventoryTable({ items, page, pageSize, total, onPageChange }: InventoryTableProps) {
+const ACTION_BUTTONS: { mode: StockOperationMode; label: string }[] = [
+  { mode: 'receive', label: '입고' },
+  { mode: 'issue', label: '출고' },
+  { mode: 'adjust', label: '조정' },
+  { mode: 'metadata', label: '설정' },
+];
+
+export function InventoryTable({ items, page, pageSize, total, onPageChange, onOpenOperation }: InventoryTableProps) {
   if (items.length === 0) {
     return (
       <div className="bg-white rounded-xl border border-slate-200 p-12 text-center text-slate-500">
@@ -50,6 +59,7 @@ export function InventoryTable({ items, page, pageSize, total, onPageChange }: I
             <th className="text-right">발주시점</th>
             <th>창고</th>
             <th>상태</th>
+            {onOpenOperation && <th className="w-[240px]">액션</th>}
           </tr>
         </thead>
         <tbody>
@@ -69,6 +79,22 @@ export function InventoryTable({ items, page, pageSize, total, onPageChange }: I
               <td>
                 <StatusBadge status={i.status} />
               </td>
+              {onOpenOperation && (
+                <td>
+                  <div className="flex items-center gap-1">
+                    {ACTION_BUTTONS.map(({ mode, label }) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        onClick={() => onOpenOperation(i, mode)}
+                        className="px-2 py-0.5 rounded border border-border text-xs text-foreground hover:bg-muted"
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </td>
+              )}
             </tr>
           ))}
         </tbody>

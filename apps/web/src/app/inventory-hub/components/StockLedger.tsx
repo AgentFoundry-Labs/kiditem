@@ -1,6 +1,11 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+// NOTE(W2-T6): Ledger rows are grouped by optionId/optionName (canonical transaction field).
+// Product-level ledger grouping is outside W2 scope — canonical transactions expose optionId/optionName,
+// not productId/productName. Add product-level grouping in a future release when the transactions
+// endpoint returns product metadata.
+
+import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   BookOpen,
@@ -9,33 +14,25 @@ import {
 } from 'lucide-react';
 import { usePeriodSelector } from '@/hooks/usePeriodSelector';
 import PeriodSelector from '@/components/ui/PeriodSelector';
-import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import { formatNumber } from '@/lib/utils';
+import {
+  fetchAllTransactionsInWindow,
+  monthPeriodWindow,
+  transactionKeyParams,
+} from '@/app/inventory/lib/inventory-api';
+import type { TransactionListItem } from '@kiditem/shared';
 
-interface StockTransaction {
-  id: string;
-  productId: string;
-  productName: string | null;
-  type: string;
-  quantity: number;
-  unitCost: number;
-  totalCost: number;
-  createdAt: string;
-  product?: { id: string; name: string } | null;
-}
+const IN_TYPES = new Set<string>(['RECEIVE']);
+const OUT_TYPES = new Set<string>(['ISSUE']);
 
 interface LedgerItem {
-  productId: string;
-  productName: string;
-  sku: string | null;
-  category: string;
-  beginStock: number;
+  optionId: string;
+  optionLabel: string;
   inbound: number;
   outbound: number;
   adjust: number;
   endStock: number;
-  currentStock: number;
 }
 
 interface Totals {
@@ -46,29 +43,26 @@ interface Totals {
   endStock: number;
 }
 
-const IN_TYPES = new Set(['in', 'purchase', 'return_in', 'inbound']);
-const OUT_TYPES = new Set(['out', 'sale', 'outbound']);
-
 export default function StockLedger() {
   const { period, setPeriod } = usePeriodSelector();
 
+  const { from, to } = useMemo(() => monthPeriodWindow(period), [period]);
+  // Page through every transaction in the period — server caps limit at 200,
+  // so a single request would silently truncate ledger totals when a month has
+  // more than 200 movements.
   const { data, isLoading } = useQuery({
-    queryKey: queryKeys.stockMovement.data({ period, action: 'ledger' }),
-    queryFn: () =>
-      apiClient.get<{ items: StockTransaction[]; summary: { inQty: number; outQty: number; inAmount: number; outAmount: number } }>(
-        `/api/stock-movement?from=${period}-01&limit=200`
-      ),
+    queryKey: queryKeys.inventory.transactions(transactionKeyParams({ from, to })),
+    queryFn: () => fetchAllTransactionsInWindow({ from, to }),
   });
 
-  // 트랜잭션을 상품별로 그룹핑하여 수불부 생성
   const { ledger, totals } = useMemo(() => {
-    const txs = data?.items ?? [];
-    const map = new Map<string, { name: string; inQty: number; outQty: number; adjustQty: number }>();
+    const txs: TransactionListItem[] = data ?? [];
+    const map = new Map<string, { label: string; inQty: number; outQty: number; adjustQty: number }>();
 
     for (const tx of txs) {
-      const key = tx.productId;
+      const key = tx.optionId;
       if (!map.has(key)) {
-        map.set(key, { name: tx.product?.name || tx.productName || key, inQty: 0, outQty: 0, adjustQty: 0 });
+        map.set(key, { label: tx.optionName ?? tx.optionId, inQty: 0, outQty: 0, adjustQty: 0 });
       }
       const entry = map.get(key)!;
       if (IN_TYPES.has(tx.type)) entry.inQty += tx.quantity;
@@ -77,28 +71,26 @@ export default function StockLedger() {
     }
 
     let totalIn = 0, totalOut = 0, totalAdj = 0;
-    const items: LedgerItem[] = Array.from(map.entries()).map(([pid, v]) => {
+    const items: LedgerItem[] = Array.from(map.entries()).map(([optionId, v]) => {
       totalIn += v.inQty;
       totalOut += v.outQty;
       totalAdj += v.adjustQty;
       const endStock = v.inQty - v.outQty + v.adjustQty;
       return {
-        productId: pid,
-        productName: v.name,
-        sku: null,
-        category: '-',
-        beginStock: 0,
+        optionId,
+        optionLabel: v.label,
         inbound: v.inQty,
         outbound: v.outQty,
         adjust: v.adjustQty,
         endStock,
-        currentStock: endStock,
       };
     });
 
     return {
       ledger: items,
-      totals: items.length > 0 ? { beginStock: 0, inbound: totalIn, outbound: totalOut, adjust: totalAdj, endStock: totalIn - totalOut + totalAdj } as Totals : null,
+      totals: items.length > 0
+        ? { beginStock: 0, inbound: totalIn, outbound: totalOut, adjust: totalAdj, endStock: totalIn - totalOut + totalAdj } as Totals
+        : null,
     };
   }, [data]);
 
@@ -162,101 +154,70 @@ export default function StockLedger() {
         <h2 className="text-lg font-semibold text-slate-800 mb-4">
           {period} 재고수불부
           <span className="text-sm text-slate-400 ml-2">
-            ({ledger.length}개 상품)
+            ({ledger.length}개 옵션)
           </span>
         </h2>
         <div className="overflow-x-auto">
           <table>
             <thead>
               <tr className="border-b border-slate-200 text-slate-500">
-                <th className="text-left py-2 px-3">상품명</th>
-                <th className="text-left py-2 px-3">SKU</th>
-                <th className="text-left py-2 px-3">카테고리</th>
+                <th className="text-left py-2 px-3">옵션명</th>
                 <th className="text-right py-2 px-3 bg-slate-50">기초재고</th>
                 <th className="text-right py-2 px-3 bg-green-50">입고</th>
                 <th className="text-right py-2 px-3 bg-red-50">출고</th>
                 <th className="text-right py-2 px-3 bg-purple-50">조정</th>
                 <th className="text-right py-2 px-3 bg-blue-50">기말재고</th>
-                <th className="text-right py-2 px-3">실재고</th>
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={9} className="py-12 text-center text-slate-400">
+                  <td colSpan={6} className="py-12 text-center text-slate-400">
                     로딩 중...
                   </td>
                 </tr>
               ) : ledger.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="py-12 text-center text-slate-400">
+                  <td colSpan={6} className="py-12 text-center text-slate-400">
                     해당 기간 데이터 없음
                   </td>
                 </tr>
               ) : (
-                ledger.map((item) => {
-                  const diff = item.currentStock - item.endStock;
-                  return (
-                    <tr
-                      key={item.productId}
-                      className="border-b border-slate-100 hover:bg-slate-50"
-                    >
-                      <td className="py-2 px-3 font-medium max-w-[160px] truncate">
-                        {item.productName}
-                      </td>
-                      <td className="py-2 px-3 text-xs text-slate-500 font-mono">
-                        {item.sku || '-'}
-                      </td>
-                      <td className="py-2 px-3 text-slate-500 text-xs">
-                        {item.category}
-                      </td>
-                      <td className="py-2 px-3 text-right bg-slate-50">
-                        {formatNumber(item.beginStock)}
-                      </td>
-                      <td className="py-2 px-3 text-right bg-green-50 text-green-700 font-medium">
-                        {item.inbound > 0 ? `+${formatNumber(item.inbound)}` : '-'}
-                      </td>
-                      <td className="py-2 px-3 text-right bg-red-50 text-red-700 font-medium">
-                        {item.outbound > 0 ? `-${formatNumber(item.outbound)}` : '-'}
-                      </td>
-                      <td className="py-2 px-3 text-right bg-purple-50 text-purple-700">
-                        {item.adjust !== 0
-                          ? item.adjust > 0
-                            ? `+${formatNumber(item.adjust)}`
-                            : formatNumber(item.adjust)
-                          : '-'}
-                      </td>
-                      <td className="py-2 px-3 text-right bg-blue-50 font-bold text-blue-700">
-                        {formatNumber(item.endStock)}
-                      </td>
-                      <td className="py-2 px-3 text-right">
-                        <span
-                          className={
-                            diff !== 0
-                              ? 'text-red-600 font-medium'
-                              : 'text-slate-600'
-                          }
-                        >
-                          {formatNumber(item.currentStock)}
-                          {diff !== 0 && (
-                            <span className="text-xs ml-1">
-                              ({diff > 0 ? '+' : ''}
-                              {diff})
-                            </span>
-                          )}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })
+                ledger.map((item) => (
+                  <tr
+                    key={item.optionId}
+                    className="border-b border-slate-100 hover:bg-slate-50"
+                  >
+                    <td className="py-2 px-3 font-medium max-w-[200px] truncate">
+                      {item.optionLabel}
+                    </td>
+                    <td className="py-2 px-3 text-right bg-slate-50">
+                      0
+                    </td>
+                    <td className="py-2 px-3 text-right bg-green-50 text-green-700 font-medium">
+                      {item.inbound > 0 ? `+${formatNumber(item.inbound)}` : '-'}
+                    </td>
+                    <td className="py-2 px-3 text-right bg-red-50 text-red-700 font-medium">
+                      {item.outbound > 0 ? `-${formatNumber(item.outbound)}` : '-'}
+                    </td>
+                    <td className="py-2 px-3 text-right bg-purple-50 text-purple-700">
+                      {item.adjust !== 0
+                        ? item.adjust > 0
+                          ? `+${formatNumber(item.adjust)}`
+                          : formatNumber(item.adjust)
+                        : '-'}
+                    </td>
+                    <td className="py-2 px-3 text-right bg-blue-50 font-bold text-blue-700">
+                      {formatNumber(item.endStock)}
+                    </td>
+                  </tr>
+                ))
               )}
             </tbody>
             {ledger.length > 0 && totals && (
               <tfoot>
                 <tr className="border-t-2 border-slate-300 font-bold text-slate-800">
-                  <td className="py-2 px-3" colSpan={3}>
-                    합계
-                  </td>
+                  <td className="py-2 px-3">합계</td>
                   <td className="py-2 px-3 text-right bg-slate-50">
                     {formatNumber(totals.beginStock)}
                   </td>
@@ -272,11 +233,6 @@ export default function StockLedger() {
                   </td>
                   <td className="py-2 px-3 text-right bg-blue-50 text-blue-700">
                     {formatNumber(totals.endStock)}
-                  </td>
-                  <td className="py-2 px-3 text-right">
-                    {formatNumber(
-                      ledger.reduce((s, l) => s + l.currentStock, 0)
-                    )}
                   </td>
                 </tr>
               </tfoot>
