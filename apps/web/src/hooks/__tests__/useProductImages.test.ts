@@ -52,6 +52,15 @@ describe('useProductImages', () => {
     expect(mockGetParsed).not.toHaveBeenCalled();
   });
 
+  it('empty images fallback keeps a stable reference across rerenders', () => {
+    const { result, rerender } = renderWithClient(() => useProductImages(null));
+
+    const firstImages = result.current.images;
+    rerender();
+
+    expect(result.current.images).toBe(firstImages);
+  });
+
   it('masterId 있으면 /images 엔드포인트 호출하여 images 로드', async () => {
     mockGetParsed.mockResolvedValue({ images: [sampleImage] });
 

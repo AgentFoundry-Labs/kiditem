@@ -8,6 +8,8 @@ import {
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 
+const EMPTY_PRODUCT_IMAGES: MasterImageItem[] = [];
+
 /**
  * Product image management for a single MasterProduct (`masterId`).
  *
@@ -110,7 +112,7 @@ export function useProductImages(masterId: string | null) {
   );
 
   return {
-    images: query.data ?? [],
+    images: query.data ?? EMPTY_PRODUCT_IMAGES,
     // When masterId is null the query is disabled; React Query still reports
     // isPending=true. Mask that so consumers don't see a misleading loading
     // spinner on the empty state.
