@@ -31,6 +31,15 @@ function deriveStatus(currentStock: number, reorderPoint: number): InventoryStat
   return 'healthy';
 }
 
+// Signed stock impact derived from type + stored quantity.
+// RECEIVE/ISSUE store an absolute `quantity` and rely on `type` for direction;
+// ADJUST stores the signed delta directly (post B2a).
+function deriveStockDelta(type: StockTransactionType, quantity: number): number {
+  if (type === 'RECEIVE') return Math.abs(quantity);
+  if (type === 'ISSUE') return -Math.abs(quantity);
+  return quantity;
+}
+
 @Injectable()
 export class InventoryService {
   constructor(
@@ -224,13 +233,18 @@ export class InventoryService {
         select: { optionName: true },
       });
 
+      // ADJUST stores the signed delta so the sign survives in the ledger.
+      // RECEIVE/ISSUE keep the absolute amount because their direction is
+      // implied by `type` (and DTOs already enforce a positive `quantity`).
+      const storedQuantity = txParams.type === 'ADJUST' ? delta : Math.abs(delta);
+
       const transaction = await tx.stockTransaction.create({
         data: {
           companyId,
           optionId: updated.optionId,
           optionName: option?.optionName ?? null,
           type: txParams.type,
-          quantity: Math.abs(delta),
+          quantity: storedQuantity,
           unitCost: txParams.unitCost,
           totalCost: txParams.unitCost * Math.abs(delta),
           warehouseId: txParams.warehouseId,
@@ -253,6 +267,7 @@ export class InventoryService {
           optionId: transaction.optionId,
           type: transaction.type as StockTransactionType,
           quantity: transaction.quantity,
+          stockDelta: deriveStockDelta(transaction.type as StockTransactionType, transaction.quantity),
           unitCost: transaction.unitCost,
           createdAt: transaction.createdAt.toISOString(),
         },
@@ -290,21 +305,25 @@ export class InventoryService {
       this.prisma.stockTransaction.count({ where }),
     ]);
 
-    const items = rows.map((r) => ({
-      id: r.id,
-      optionId: r.optionId,
-      optionName: r.optionName,
-      type: r.type as StockTransactionType,
-      quantity: r.quantity,
-      unitCost: r.unitCost,
-      totalCost: r.totalCost,
-      warehouseId: r.warehouseId,
-      relatedId: r.relatedId,
-      relatedType: r.relatedType,
-      note: r.note,
-      createdBy: r.createdBy,
-      createdAt: r.createdAt.toISOString(),
-    } satisfies TransactionListItem));
+    const items = rows.map((r) => {
+      const type = r.type as StockTransactionType;
+      return {
+        id: r.id,
+        optionId: r.optionId,
+        optionName: r.optionName,
+        type,
+        quantity: r.quantity,
+        stockDelta: deriveStockDelta(type, r.quantity),
+        unitCost: r.unitCost,
+        totalCost: r.totalCost,
+        warehouseId: r.warehouseId,
+        relatedId: r.relatedId,
+        relatedType: r.relatedType,
+        note: r.note,
+        createdBy: r.createdBy,
+        createdAt: r.createdAt.toISOString(),
+      } satisfies TransactionListItem;
+    });
 
     return { items, total, page, limit } satisfies TransactionListResponse;
   }

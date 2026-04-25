@@ -46,7 +46,12 @@ export const queryKeys = {
   inventory: {
     all: ['inventory'] as const,
     list: (params: Record<string, string>) => [...queryKeys.inventory.all, 'list', params] as const,
+    detail: (id: string) => [...queryKeys.inventory.all, 'detail', id] as const,
     byMaster: (masterId: string) => [...queryKeys.inventory.all, 'byMaster', masterId] as const,
+    transactions: (params: Record<string, string>) =>
+      [...queryKeys.inventory.all, 'transactions', params] as const,
+    transactionSummary: (params: Record<string, string>) =>
+      [...queryKeys.inventory.all, 'transactionSummary', params] as const,
   },
   dashboard: {
     all: ['dashboard'] as const,

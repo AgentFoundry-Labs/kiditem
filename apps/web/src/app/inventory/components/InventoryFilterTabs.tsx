@@ -2,15 +2,16 @@
 
 import { cn, formatNumber } from '@/lib/utils';
 import type { InventorySummary } from '@kiditem/shared';
+import type { InventoryFilterKey } from '../lib/inventory-api';
 
 interface InventoryFilterTabsProps {
-  filter: string;
+  filter: InventoryFilterKey;
   summary: InventorySummary;
-  onFilterChange: (key: string) => void;
+  onFilterChange: (key: InventoryFilterKey) => void;
 }
 
 export function InventoryFilterTabs({ filter, summary, onFilterChange }: InventoryFilterTabsProps) {
-  const tabs = [
+  const tabs: { key: InventoryFilterKey; label: string; count: number }[] = [
     { key: 'all', label: '전체', count: summary.total },
     { key: 'low', label: '재고 부족', count: summary.low },
     { key: 'out', label: '재고 없음', count: summary.out },
@@ -22,7 +23,12 @@ export function InventoryFilterTabs({ filter, summary, onFilterChange }: Invento
         <button
           key={f.key}
           onClick={() => onFilterChange(f.key)}
-          className={cn('px-4 py-2 rounded-lg text-sm font-medium', filter === f.key ? 'bg-purple-600 text-white' : 'bg-white border border-slate-200 hover:bg-slate-50')}
+          className={cn(
+            'px-4 py-2 rounded-lg text-sm font-medium',
+            filter === f.key
+              ? 'bg-purple-600 text-white'
+              : 'bg-card border border-border text-foreground hover:bg-muted',
+          )}
         >
           {f.label} ({formatNumber(f.count)})
         </button>

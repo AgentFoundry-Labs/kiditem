@@ -140,7 +140,7 @@ describe('Inventory flow (PG integration)', () => {
       where: { optionId: simple.option.id, type: 'ADJUST' },
       orderBy: { createdAt: 'desc' },
     });
-    expect(adjustTx?.quantity).toBe(4);
+    expect(adjustTx?.quantity).toBe(-4);
     const updatedBundle = await prisma.productOption.findUnique({ where: { id: bundle.option.id } });
     expect(updatedBundle?.availableStock).toBe(3);
   });
