@@ -353,8 +353,20 @@ export { RuleItemSchema } from './schemas/rules.js';
 export type { RuleItem } from './schemas/rules.js';
 
 // Action Task
-export { ActionTaskSchema, ActionTaskRelatedProductSchema, ActionTaskSourceAlertSchema } from './schemas/action-task.js';
-export type { ActionTask, ActionTaskRelatedProduct, ActionTaskSourceAlert } from './schemas/action-task.js';
+export {
+  ActionTaskSchema,
+  ActionTaskRelatedProductSchema,
+  ActionTaskSourceAlertSchema,
+  ActionTaskListSchema,
+  ActionTaskExecuteResponseSchema,
+} from './schemas/action-task.js';
+export type {
+  ActionTask,
+  ActionTaskRelatedProduct,
+  ActionTaskSourceAlert,
+  ActionTaskList,
+  ActionTaskExecuteResponse,
+} from './schemas/action-task.js';
 
 // Inspection
 export { InspectionItemSchema, InspectionResultSchema } from './schemas/inspection.js';

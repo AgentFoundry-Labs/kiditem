@@ -74,9 +74,12 @@ const successTrend: unknown[] = [];
 beforeEach(() => {
   getParsedMock.mockReset();
   getMock.mockReset();
-  // Default: action-tasks endpoint via apiClient.get returns []
-  getMock.mockImplementation((path: string) => {
+  // Default: action-tasks endpoint via apiClient.getParsed returns []
+  getParsedMock.mockImplementation((path: string) => {
     if (path === '/api/action-tasks') return Promise.resolve([]);
+    return Promise.resolve(null);
+  });
+  getMock.mockImplementation((path: string) => {
     if (path === '/api/agent-registry/org') return Promise.resolve([]);
     return Promise.resolve([]);
   });
@@ -102,6 +105,7 @@ describe('Root dashboard page (RTL)', () => {
       if (path === '/api/dashboard/ad') return Promise.resolve(successAd);
       if (path === '/api/dashboard/inventory') return Promise.resolve(successInv);
       if (path.startsWith('/api/dashboard/trend')) return Promise.resolve(successTrend);
+      if (path === '/api/action-tasks') return Promise.resolve([]);
       return Promise.resolve(null);
     });
     renderPage();
@@ -119,6 +123,7 @@ describe('Root dashboard page (RTL)', () => {
       if (path.startsWith('/api/dashboard/trend')) {
         return Promise.reject(new ApiError(502, 'BAD_GATEWAY', '502 Bad Gateway'));
       }
+      if (path === '/api/action-tasks') return Promise.resolve([]);
       return Promise.resolve(null);
     });
     renderPage();
@@ -135,6 +140,7 @@ describe('Root dashboard page (RTL)', () => {
       if (path === '/api/dashboard/ad') return Promise.resolve(successAd);
       if (path === '/api/dashboard/inventory') return Promise.resolve(successInv);
       if (path.startsWith('/api/dashboard/trend')) return Promise.resolve(successTrend);
+      if (path === '/api/action-tasks') return Promise.resolve([]);
       return Promise.resolve(null);
     });
     renderPage();
@@ -154,6 +160,7 @@ describe('Root dashboard page (RTL)', () => {
       if (path.startsWith('/api/dashboard/trend')) {
         return Promise.reject(new ZodError([{ code: 'invalid_type', expected: 'number', received: 'string', path: [0, 'revenue'], message: 'Expected number' } as never]));
       }
+      if (path === '/api/action-tasks') return Promise.resolve([]);
       return Promise.resolve(null);
     });
     renderPage();
@@ -162,12 +169,31 @@ describe('Root dashboard page (RTL)', () => {
     });
   });
 
+  it('T7: /api/action-tasks goes through getParsed, not get', async () => {
+    getParsedMock.mockImplementation((path: string) => {
+      if (path === '/api/dashboard/sales') return Promise.resolve(successSales);
+      if (path === '/api/dashboard/ad') return Promise.resolve(successAd);
+      if (path === '/api/dashboard/inventory') return Promise.resolve(successInv);
+      if (path.startsWith('/api/dashboard/trend')) return Promise.resolve(successTrend);
+      if (path === '/api/action-tasks') return Promise.resolve([]);
+      return Promise.resolve(null);
+    });
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText('Kiditem Foundry')).toBeTruthy();
+    });
+    const parsedPaths = getParsedMock.mock.calls.map((c) => c[0]);
+    expect(parsedPaths).toContain('/api/action-tasks');
+    expect(getMock).not.toHaveBeenCalledWith('/api/action-tasks');
+  });
+
   it('T6: pipeline-stats endpoint is NOT called', async () => {
     getParsedMock.mockImplementation((path: string) => {
       if (path === '/api/dashboard/sales') return Promise.resolve(successSales);
       if (path === '/api/dashboard/ad') return Promise.resolve(successAd);
       if (path === '/api/dashboard/inventory') return Promise.resolve(successInv);
       if (path.startsWith('/api/dashboard/trend')) return Promise.resolve(successTrend);
+      if (path === '/api/action-tasks') return Promise.resolve([]);
       return Promise.resolve(null);
     });
     renderPage();

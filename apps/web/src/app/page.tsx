@@ -28,13 +28,15 @@ import {
   DashboardAdSummarySchema,
   DashboardInventorySummarySchema,
   DashboardTrendItemSchema,
+  ActionTaskListSchema,
+  ActionTaskExecuteResponseSchema,
   type DashboardSalesSummary,
   type DashboardAdSummary,
   type DashboardInventorySummary,
   type DashboardTrendItem,
+  type ActionTask,
 } from '@kiditem/shared';
 import { z } from 'zod';
-import type { ActionTask } from '@kiditem/shared';
 import { friendlyError } from '@/lib/api-error';
 
 
@@ -166,7 +168,7 @@ export default function Dashboard() {
 
   const { data: actionTasks = [] } = useQuery({
     queryKey: queryKeys.actionTasks.list(),
-    queryFn: () => apiClient.get<ActionTask[]>('/api/action-tasks'),
+    queryFn: () => apiClient.getParsed('/api/action-tasks', ActionTaskListSchema),
     refetchInterval: 60_000,
   });
 
@@ -828,7 +830,10 @@ function DashboardChart({
   const agents: AgentDisplay[] = flattenOrgNodes(orgNodes);
 
   const { mutate: executeAction, variables: executingId } = useMutation({
-    mutationFn: (id: string) => apiClient.post<{ ok: boolean }>(`/api/action-tasks/${id}/execute`, {}),
+    mutationFn: async (id: string) => {
+      const raw = await apiClient.post<unknown>(`/api/action-tasks/${id}/execute`, {});
+      return ActionTaskExecuteResponseSchema.parse(raw);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.actionTasks.list() });
       toast.success('액션을 실행했습니다.');

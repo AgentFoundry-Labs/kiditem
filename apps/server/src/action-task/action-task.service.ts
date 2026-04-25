@@ -145,8 +145,8 @@ export class ActionTaskService {
     return result;
   }
 
-  async updateTask(id: string, data: { status?: string; priority?: string }) {
-    const task = await this.prisma.actionTask.findUnique({ where: { id } });
+  async updateTask(id: string, companyId: string, data: { status?: string; priority?: string }) {
+    const task = await this.prisma.actionTask.findFirst({ where: { id, companyId } });
     if (!task) throw new NotFoundException('Task not found');
 
     const log = (task.activityLog as Array<Record<string, unknown>>) || [];
@@ -177,8 +177,8 @@ export class ActionTaskService {
     });
   }
 
-  async addNote(id: string, text: string) {
-    const task = await this.prisma.actionTask.findUnique({ where: { id } });
+  async addNote(id: string, companyId: string, text: string) {
+    const task = await this.prisma.actionTask.findFirst({ where: { id, companyId } });
     if (!task) throw new NotFoundException('Task not found');
 
     const notes = (task.notes as Array<Record<string, unknown>>) || [];
@@ -196,8 +196,8 @@ export class ActionTaskService {
     });
   }
 
-  async executeTask(id: string) {
-    const task = await this.prisma.actionTask.findUnique({ where: { id } });
+  async executeTask(id: string, companyId: string) {
+    const task = await this.prisma.actionTask.findFirst({ where: { id, companyId } });
     if (!task) throw new NotFoundException('Task not found');
     if (!task.apiCall) throw new NotFoundException('No apiCall defined for this task');
 

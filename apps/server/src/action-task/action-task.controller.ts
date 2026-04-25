@@ -40,17 +40,25 @@ export class ActionTaskController {
   }
 
   @Patch(':id')
-  updateTask(@Param('id') id: string, @Body() dto: UpdateTaskDto) {
-    return this.actionTaskService.updateTask(id, dto);
+  updateTask(
+    @Param('id') id: string,
+    @CurrentCompany() companyId: string,
+    @Body() dto: UpdateTaskDto,
+  ) {
+    return this.actionTaskService.updateTask(id, companyId, dto);
   }
 
   @Post(':id/notes')
-  addNote(@Param('id') id: string, @Body() dto: AddNoteDto) {
-    return this.actionTaskService.addNote(id, dto.text);
+  addNote(
+    @Param('id') id: string,
+    @CurrentCompany() companyId: string,
+    @Body() dto: AddNoteDto,
+  ) {
+    return this.actionTaskService.addNote(id, companyId, dto.text);
   }
 
   @Post(':id/execute')
-  executeTask(@Param('id') id: string) {
-    return this.actionTaskService.executeTask(id);
+  executeTask(@Param('id') id: string, @CurrentCompany() companyId: string) {
+    return this.actionTaskService.executeTask(id, companyId);
   }
 }

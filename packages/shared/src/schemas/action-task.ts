@@ -49,3 +49,13 @@ export const ActionTaskSchema = z.object({
 export type ActionTask = z.infer<typeof ActionTaskSchema>;
 export type ActionTaskRelatedProduct = z.infer<typeof ActionTaskRelatedProductSchema>;
 export type ActionTaskSourceAlert = z.infer<typeof ActionTaskSourceAlertSchema>;
+
+// =============================================================================
+// W6a — root action-task boundary response schemas
+// =============================================================================
+
+export const ActionTaskListSchema = z.array(ActionTaskSchema);
+export type ActionTaskList = z.infer<typeof ActionTaskListSchema>;
+
+export const ActionTaskExecuteResponseSchema = ActionTaskSchema;
+export type ActionTaskExecuteResponse = z.infer<typeof ActionTaskExecuteResponseSchema>;
