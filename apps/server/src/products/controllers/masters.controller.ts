@@ -1,13 +1,28 @@
 // apps/server/src/products/controllers/masters.controller.ts
 import {
+  BadRequestException,
   Body, Controller, Delete, Get, Param, Patch, Post, Query,
   UploadedFile, UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+
+/**
+ * Image upload guardrails (external review HIGH — defense in depth).
+ *
+ * `accept="..."` on the client is NOT a security boundary; an authenticated
+ * caller can post arbitrary multipart bodies. Server enforces:
+ *   1. byte cap so a single upload can't exhaust memory (Multer buffers).
+ *   2. allow-listed MIME, rejected before the service touches storage.
+ *
+ * Magic-byte sniffing is a follow-up if these URLs become public/CDN-served.
+ */
+const MAX_IMAGE_UPLOAD_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
+const ALLOWED_IMAGE_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
 import {
+  MasterImageItemSchema,
   MasterSchema, MasterWithOptionsSchema,
-  type Master, type MasterWithOptions,
+  type Master, type MasterImageItem, type MasterWithOptions,
 } from '@kiditem/shared';
 import type { MulterFile } from '../../common/types';
 import { toSerializable } from '../util/serialize';
@@ -15,6 +30,7 @@ import { MastersService } from '../services/masters.service';
 import { OptionsService } from '../services/options.service';
 import { CreateMasterDto } from '../dto/create-master.dto';
 import { UpdateMasterDto } from '../dto/update-master.dto';
+import { UpdateMasterImagesDto } from '../dto/update-master-images.dto';
 import { ListMastersQuery } from '../dto/list-masters.query';
 import { ListOptionsQuery } from '../dto/list-options.query';
 
@@ -66,14 +82,48 @@ export class MastersController {
     return MasterSchema.parse(toSerializable(await this.svc.findByLegacy(companyId, legacyCode)));
   }
 
+  @Get(':id/images')
+  async getImages(
+    @CurrentCompany() companyId: string,
+    @Param('id') id: string,
+  ): Promise<{ images: MasterImageItem[] }> {
+    const images = await this.svc.getImages(companyId, id);
+    return { images: images.map((img) => MasterImageItemSchema.parse(img)) };
+  }
+
+  @Patch(':id/images')
+  async updateImages(
+    @CurrentCompany() companyId: string,
+    @Param('id') id: string,
+    @Body() dto: UpdateMasterImagesDto,
+  ): Promise<{ images: MasterImageItem[] }> {
+    const row = await this.svc.updateImages(companyId, id, dto.items);
+    const images = ((row as unknown as { images: MasterImageItem[] | null }).images ?? []).map(
+      (img) => MasterImageItemSchema.parse(img),
+    );
+    return { images };
+  }
+
   @Post(':id/images/upload')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: MAX_IMAGE_UPLOAD_SIZE_BYTES },
+      fileFilter: (_req, f, cb) => {
+        if (!ALLOWED_IMAGE_MIME_TYPES.has(f.mimetype)) {
+          cb(new BadRequestException(`unsupported mime type: ${f.mimetype}`), false);
+          return;
+        }
+        cb(null, true);
+      },
+    }),
+  )
   async uploadImage(
     @CurrentCompany() companyId: string,
     @Param('id') id: string,
     @UploadedFile() file: MulterFile,
-  ): Promise<{ url: string }> {
-    return this.svc.uploadImage(companyId, id, file);
+  ): Promise<{ image: MasterImageItem }> {
+    const image = await this.svc.uploadImage(companyId, id, file);
+    return { image: MasterImageItemSchema.parse(image) };
   }
 
   @Get(':id')

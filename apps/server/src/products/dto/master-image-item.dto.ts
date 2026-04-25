@@ -1,14 +1,26 @@
-import { IsInt, IsString, IsUrl, Min } from 'class-validator';
+import { IsIn, IsInt, IsString, IsUrl, Min, ValidateIf } from 'class-validator';
+import { MasterImageRoleSchema, type MasterImageRole } from '@kiditem/shared';
+
+/**
+ * Role enum values derive from the shared `MasterImageRoleSchema` so the
+ * server DTO cannot drift from the Zod contract when a role is added or
+ * removed. Exported as a readonly array for class-validator's `@IsIn`.
+ */
+export const MASTER_IMAGE_ROLES = MasterImageRoleSchema.options;
 
 export class MasterImageItemDto {
   @IsUrl()
   url!: string;
 
-  @IsString()
-  role!: string;
+  @IsIn([...MASTER_IMAGE_ROLES])
+  role!: MasterImageRole;
 
+  // Shared contract is `string | null` — the key is required, only the value
+  // may be null. `ValidateIf(value !== null)` defers `@IsString` until the
+  // value is non-null, so `null` passes but `undefined` does not.
+  @ValidateIf((_obj, value) => value !== null)
   @IsString()
-  label!: string;
+  label!: string | null;
 
   @IsInt()
   @Min(0)

@@ -62,6 +62,40 @@ export const apiClient = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }),
+  /**
+   * PATCH + Zod parse at the client boundary. Mirrors `getParsed` so write paths
+   * that depend on server-returned envelope shapes (e.g. `{ images }`) surface
+   * drift as a ZodError rather than a silent type cast.
+   */
+  patchParsed: async <T>(path: string, schema: ZodType<T>, body: unknown): Promise<T> => {
+    const raw = await request<unknown>(path, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    try {
+      return schema.parse(raw);
+    } catch (err) {
+      if (err instanceof ZodError) {
+        console.error('[apiClient.patchParsed] ZodError', { path, issues: err.issues });
+      }
+      throw err;
+    }
+  },
+  /**
+   * Multipart upload + Zod parse of the server response envelope.
+   */
+  uploadParsed: async <T>(path: string, schema: ZodType<T>, formData: FormData): Promise<T> => {
+    const raw = await request<unknown>(path, { method: 'POST', body: formData });
+    try {
+      return schema.parse(raw);
+    } catch (err) {
+      if (err instanceof ZodError) {
+        console.error('[apiClient.uploadParsed] ZodError', { path, issues: err.issues });
+      }
+      throw err;
+    }
+  },
   put: <T>(path: string, body: unknown) =>
     request<T>(path, {
       method: 'PUT',

@@ -1,115 +1,166 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, waitFor, act } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import React from 'react';
+import type { MasterImageItem } from '@kiditem/shared';
 import { useProductImages } from '../useProductImages';
 
-// Mock apiClient
 vi.mock('@/lib/api-client', () => ({
   apiClient: {
-    get: vi.fn(),
-    patch: vi.fn(),
-    upload: vi.fn(),
+    getParsed: vi.fn(),
+    patchParsed: vi.fn(),
+    uploadParsed: vi.fn(),
   },
 }));
 
 import { apiClient } from '@/lib/api-client';
 
-const mockGet = apiClient.get as ReturnType<typeof vi.fn>;
-const mockPatch = apiClient.patch as ReturnType<typeof vi.fn>;
-const mockUpload = apiClient.upload as ReturnType<typeof vi.fn>;
+const mockGetParsed = apiClient.getParsed as ReturnType<typeof vi.fn>;
+const mockPatchParsed = apiClient.patchParsed as ReturnType<typeof vi.fn>;
+const mockUploadParsed = apiClient.uploadParsed as ReturnType<typeof vi.fn>;
+
+function renderWithClient<T>(hookCallback: () => T) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  const wrapper = ({ children }: { children: React.ReactNode }) =>
+    React.createElement(QueryClientProvider, { client }, children);
+  const result = renderHook(hookCallback, { wrapper });
+  return { ...result, client };
+}
+
+import { queryKeys } from '@/lib/query-keys';
+
+const sampleImage: MasterImageItem = {
+  url: 'https://cdn.example.com/a.jpg',
+  role: 'product',
+  label: null,
+  sortOrder: 0,
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
-  // Default: get returns empty images
-  mockGet.mockResolvedValue({ images: [] });
+  mockGetParsed.mockResolvedValue({ images: [] });
 });
 
 describe('useProductImages', () => {
-  it('productId가 null이면 빈 배열', () => {
-    const { result } = renderHook(() => useProductImages(null));
+  it('masterId가 null이면 API 호출 안함, 빈 배열 반환', () => {
+    const { result } = renderWithClient(() => useProductImages(null));
 
     expect(result.current.images).toEqual([]);
     expect(result.current.loading).toBe(false);
-    expect(mockGet).not.toHaveBeenCalled();
+    expect(mockGetParsed).not.toHaveBeenCalled();
   });
 
-  it('productId 있으면 API 호출하여 images 로드', async () => {
-    const mockImages = [
-      { url: 'https://cdn.example.com/a.jpg', role: 'main', sortOrder: 0 },
-    ];
-    mockGet.mockResolvedValue({ images: mockImages });
+  it('masterId 있으면 /images 엔드포인트 호출하여 images 로드', async () => {
+    mockGetParsed.mockResolvedValue({ images: [sampleImage] });
 
-    const { result } = renderHook(() => useProductImages('prod-1'));
+    const { result } = renderWithClient(() => useProductImages('prod-1'));
 
     await waitFor(() => {
       expect(result.current.loading).toBe(false);
     });
 
-    expect(mockGet).toHaveBeenCalledWith('/api/products/masters/prod-1');
-    expect(result.current.images).toEqual(mockImages);
+    expect(mockGetParsed).toHaveBeenCalledWith(
+      '/api/products/masters/prod-1/images',
+      expect.anything(),
+    );
+    expect(result.current.images).toEqual([sampleImage]);
   });
 
-  it('uploadFile -- FormData 전송 후 URL 반환', async () => {
-    mockUpload.mockResolvedValue({ url: 'https://cdn.example.com/uploaded.jpg' });
+  it('uploadFile — FormData 전송 후 MasterImageItem 반환', async () => {
+    mockUploadParsed.mockResolvedValue({ image: sampleImage });
 
-    const { result } = renderHook(() => useProductImages('prod-1'));
-
+    const { result } = renderWithClient(() => useProductImages('prod-1'));
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    let url: string | null = null;
+    let uploaded: MasterImageItem | null = null;
     await act(async () => {
       const file = new File(['dummy'], 'test.jpg', { type: 'image/jpeg' });
-      url = await result.current.uploadFile(file);
+      uploaded = await result.current.uploadFile(file);
     });
 
-    expect(url).toBe('https://cdn.example.com/uploaded.jpg');
-    expect(mockUpload).toHaveBeenCalledWith(
+    expect(uploaded).toEqual(sampleImage);
+    expect(mockUploadParsed).toHaveBeenCalledWith(
       '/api/products/masters/prod-1/images/upload',
+      expect.anything(),
       expect.any(FormData),
     );
   });
 
-  it('uploadBase64 -- blob 변환 후 업로드', async () => {
-    mockUpload.mockResolvedValue({ url: 'https://cdn.example.com/gen.png' });
+  it('uploadBase64 — blob 변환 후 업로드', async () => {
+    mockUploadParsed.mockResolvedValue({ image: sampleImage });
 
-    // Mock global fetch for base64 → blob conversion
     const mockBlob = new Blob(['fake'], { type: 'image/png' });
     const origFetch = globalThis.fetch;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     globalThis.fetch = vi.fn().mockResolvedValue({ blob: () => Promise.resolve(mockBlob) }) as any;
 
-    const { result } = renderHook(() => useProductImages('prod-1'));
+    const { result } = renderWithClient(() => useProductImages('prod-1'));
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    let url: string | null = null;
+    let uploaded: MasterImageItem | null = null;
     await act(async () => {
-      url = await result.current.uploadBase64('data:image/png;base64,AAAA');
+      uploaded = await result.current.uploadBase64('data:image/png;base64,AAAA');
     });
 
-    expect(url).toBe('https://cdn.example.com/gen.png');
-    expect(mockUpload).toHaveBeenCalledWith(
+    expect(uploaded).toEqual(sampleImage);
+    expect(mockUploadParsed).toHaveBeenCalledWith(
       '/api/products/masters/prod-1/images/upload',
+      expect.anything(),
       expect.any(FormData),
     );
 
     globalThis.fetch = origFetch;
   });
 
-  it('saveImages -- PATCH 호출', async () => {
-    mockPatch.mockResolvedValue({});
+  it('saveImages — PATCH /images 호출 후 반환된 images 를 캐시에 반영', async () => {
+    const saved = [sampleImage];
+    mockPatchParsed.mockResolvedValue({ images: saved });
 
-    const { result } = renderHook(() => useProductImages('prod-1'));
+    const { result } = renderWithClient(() => useProductImages('prod-1'));
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    const newImages = [
-      { url: 'https://cdn.example.com/a.jpg', role: 'main', sortOrder: 0 },
-    ];
+    await act(async () => {
+      await result.current.saveImages(saved);
+    });
+
+    expect(mockPatchParsed).toHaveBeenCalledWith(
+      '/api/products/masters/prod-1/images',
+      expect.anything(),
+      { items: saved },
+    );
+    await waitFor(() => expect(result.current.images).toEqual(saved));
+  });
+
+  it('saveImages 후 detail + catalog 캐시가 invalidate 됨 (MasterProduct.images embed drift 방지)', async () => {
+    const saved = [sampleImage];
+    mockPatchParsed.mockResolvedValue({ images: saved });
+
+    const { result, client } = renderWithClient(() => useProductImages('prod-1'));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    // Seed detail + catalog cache as fresh, then assert they get marked stale after save.
+    client.setQueryData(queryKeys.products.detail('prod-1'), { id: 'prod-1' });
+    client.setQueryData(queryKeys.products.catalog.all, { items: [] });
 
     await act(async () => {
-      await result.current.saveImages(newImages as any);
+      await result.current.saveImages(saved);
     });
 
-    expect(mockPatch).toHaveBeenCalledWith('/api/products/masters/prod-1', {
-      images: newImages,
-    });
-    expect(result.current.images).toEqual(newImages);
+    const detailState = client.getQueryState(queryKeys.products.detail('prod-1'));
+    const catalogState = client.getQueryState(queryKeys.products.catalog.all);
+    expect(detailState?.isInvalidated).toBe(true);
+    expect(catalogState?.isInvalidated).toBe(true);
+  });
+
+  it('error — GET 실패는 error 상태로 surface, silent [] fallback 금지', async () => {
+    mockGetParsed.mockRejectedValue(new Error('boom'));
+
+    const { result } = renderWithClient(() => useProductImages('prod-1'));
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.error).toBeTruthy();
+    expect(result.current.images).toEqual([]);
   });
 });

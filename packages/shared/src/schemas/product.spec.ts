@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+  GetMasterImagesResponseSchema,
   MasterImageItemSchema,
+  MasterImageRoleSchema,
   MasterSchema,
   ProductCatalogDetailSchema,
   ProductCatalogListItemSchema,
+  UpdateMasterImagesRequestSchema,
+  UploadMasterImageResponseSchema,
 } from './product.js';
 
 const iso = '2026-04-24T00:00:00.000Z';
@@ -152,5 +156,89 @@ describe('product schemas', () => {
       totalAvailableStock: 0,
     });
     expect(ProductCatalogDetailSchema.parse({ ...base, options: [] }).options).toEqual([]);
+  });
+});
+
+describe('MasterImageRoleSchema (W1)', () => {
+  it('accepts every documented role value', () => {
+    for (const role of ['box', 'product', 'color_variant', 'size_chart', 'detail']) {
+      expect(MasterImageRoleSchema.parse(role)).toBe(role);
+    }
+  });
+
+  it('rejects unknown role values', () => {
+    expect(() => MasterImageRoleSchema.parse('banner')).toThrow();
+  });
+});
+
+describe('MasterImageItemSchema (W1)', () => {
+  it('accepts null label', () => {
+    const parsed = MasterImageItemSchema.parse({
+      url: 'https://cdn.example.com/detail-1.jpg',
+      role: 'detail',
+      label: null,
+      sortOrder: 3,
+    });
+    expect(parsed.label).toBeNull();
+  });
+
+  it('rejects an unknown role', () => {
+    expect(() =>
+      MasterImageItemSchema.parse({
+        url: 'https://cdn.example.com/1.jpg',
+        role: 'banner',
+        label: null,
+        sortOrder: 0,
+      }),
+    ).toThrow();
+  });
+
+  it('rejects a negative sortOrder', () => {
+    expect(() =>
+      MasterImageItemSchema.parse({
+        url: 'https://cdn.example.com/1.jpg',
+        role: 'product',
+        label: null,
+        sortOrder: -1,
+      }),
+    ).toThrow();
+  });
+
+  it('rejects a non-url string', () => {
+    expect(() =>
+      MasterImageItemSchema.parse({
+        url: 'not-a-url',
+        role: 'product',
+        label: null,
+        sortOrder: 0,
+      }),
+    ).toThrow();
+  });
+});
+
+describe('image endpoint envelopes (W1)', () => {
+  it('GetMasterImagesResponseSchema parses wrapped array', () => {
+    const parsed = GetMasterImagesResponseSchema.parse({
+      images: [
+        { url: 'https://cdn.example.com/1.jpg', role: 'product', label: null, sortOrder: 0 },
+      ],
+    });
+    expect(parsed.images).toHaveLength(1);
+  });
+
+  it('UpdateMasterImagesRequestSchema parses items array', () => {
+    const parsed = UpdateMasterImagesRequestSchema.parse({
+      items: [
+        { url: 'https://cdn.example.com/1.jpg', role: 'detail', label: '상세', sortOrder: 0 },
+      ],
+    });
+    expect(parsed.items[0].role).toBe('detail');
+  });
+
+  it('UploadMasterImageResponseSchema parses single image wrapper', () => {
+    const parsed = UploadMasterImageResponseSchema.parse({
+      image: { url: 'https://cdn.example.com/1.jpg', role: 'product', label: null, sortOrder: 0 },
+    });
+    expect(parsed.image.url).toBe('https://cdn.example.com/1.jpg');
   });
 });
