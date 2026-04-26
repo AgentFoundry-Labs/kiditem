@@ -199,8 +199,10 @@ export const queryKeys = {
     list: (scope?: string) => [...queryKeys.actionTasks.all, 'list', scope ?? 'all'] as const,
   },
   syncInfo: () => ['syncInfo'] as const,
-  optionMasters: {
-    all: ['option-masters'] as const,
+  productOptions: {
+    all: ['product-options'] as const,
+    list: (params: Record<string, string>) => [...queryKeys.productOptions.all, 'list', params] as const,
+    detail: (id: string) => [...queryKeys.productOptions.all, 'detail', id] as const,
   },
   manualLedger: {
     all: ['manual-ledger'] as const,

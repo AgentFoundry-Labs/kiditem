@@ -92,10 +92,9 @@ const menuSections: MenuSection[] = [
         gatedReason: '리뷰 backend contract 준비 중',
       },
       {
-        href: '/option-masters',
-        label: '옵션 마스터',
+        href: '/products/options',
+        label: '상품 옵션 관리',
         icon: Layers,
-        gatedReason: '상품 옵션 contract 결정 대기',
       },
     ],
   },
