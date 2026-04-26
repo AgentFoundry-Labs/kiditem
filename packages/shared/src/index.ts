@@ -287,11 +287,13 @@ export type { SalesAnalysisData, ChannelAnalysis } from './schemas/sales-analysi
 
 // Reviews
 export {
+  ReviewFilterSchema,
   ReviewListItemSchema,
   ReviewListResponseSchema,
   ReviewSummarySchema,
 } from './schemas/reviews.js';
 export type {
+  ReviewFilter,
   ReviewListItem,
   ReviewListResponse,
   ReviewSummary,

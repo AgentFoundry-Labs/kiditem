@@ -16,7 +16,7 @@ export default function ReviewsPage() {
   const [page, setPage] = useState(1);
   const [activeFilter, setActiveFilter] = useState<FilterTab>('all');
 
-  const queryParams = { page: String(page), limit: String(PAGE_SIZE) };
+  const queryParams = { page: String(page), limit: String(PAGE_SIZE), filter: activeFilter };
   const { data, isLoading: loading, isError, error, refetch } = useQuery({
     queryKey: queryKeys.reviews.list(queryParams),
     queryFn: () => {
@@ -28,24 +28,21 @@ export default function ReviewsPage() {
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
   const summary = data?.summary ?? {
+    listingCount: 0,
     totalReviewCount: 0,
     weightedAvgRating: 0,
+    newListingCount: 0,
+    needsResponseCount: 0,
     needsAttentionCount: 0,
   };
 
-  const filteredData = items.filter((d) => {
-    if (activeFilter === 'new') return d.totalReviews < 5;
-    if (activeFilter === 'needs-response') return d.avgRating < 3.5 && d.totalReviews >= 5;
-    return true;
-  });
-
   const filterTabs: { key: FilterTab; label: string; count: number }[] = [
-    { key: 'all', label: '전체', count: items.length },
-    { key: 'new', label: '신규', count: items.filter((d) => d.totalReviews < 5).length },
+    { key: 'all', label: '전체', count: summary.listingCount },
+    { key: 'new', label: '신규', count: summary.newListingCount },
     {
       key: 'needs-response',
       label: '응답필요',
-      count: items.filter((d) => d.avgRating < 3.5 && d.totalReviews >= 5).length,
+      count: summary.needsResponseCount,
     },
   ];
 
@@ -103,7 +100,10 @@ export default function ReviewsPage() {
         {filterTabs.map((tab) => (
           <button
             key={tab.key}
-            onClick={() => setActiveFilter(tab.key)}
+            onClick={() => {
+              setActiveFilter(tab.key);
+              setPage(1);
+            }}
             className={cn(
               'px-4 py-2.5 text-sm font-medium border-b-2 transition-colors flex items-center gap-2',
               activeFilter === tab.key
@@ -127,7 +127,7 @@ export default function ReviewsPage() {
       </div>
 
       <ReviewTable
-        filteredData={filteredData}
+        items={items}
         loading={loading}
         activeFilter={activeFilter}
         page={page}

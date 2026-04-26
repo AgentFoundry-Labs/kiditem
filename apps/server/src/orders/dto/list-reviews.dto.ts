@@ -1,6 +1,9 @@
 // apps/server/src/orders/dto/list-reviews.dto.ts
 import { Transform } from 'class-transformer';
-import { IsInt, IsOptional, Max, Min } from 'class-validator';
+import { IsIn, IsInt, IsOptional, Max, Min } from 'class-validator';
+
+export const REVIEW_FILTERS = ['all', 'new', 'needs-response'] as const;
+export type ReviewFilter = (typeof REVIEW_FILTERS)[number];
 
 export class ListReviewsQueryDto {
   @IsOptional()
@@ -15,4 +18,8 @@ export class ListReviewsQueryDto {
   @Min(1)
   @Max(200)
   limit?: number;
+
+  @IsOptional()
+  @IsIn(REVIEW_FILTERS)
+  filter?: ReviewFilter;
 }

@@ -223,11 +223,13 @@ export type {
 
 // Reviews
 export {
+  ReviewFilterSchema,
   ReviewListItemSchema,
   ReviewListResponseSchema,
   ReviewSummarySchema,
 } from './reviews.js';
 export type {
+  ReviewFilter,
   ReviewListItem,
   ReviewListResponse,
   ReviewSummary,

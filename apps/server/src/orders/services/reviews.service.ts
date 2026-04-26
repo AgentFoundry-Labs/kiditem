@@ -6,7 +6,7 @@ import type {
   ReviewSummary,
 } from '@kiditem/shared';
 import { PrismaService } from '../../prisma/prisma.service';
-import { ListReviewsQueryDto } from '../dto/list-reviews.dto';
+import { ListReviewsQueryDto, type ReviewFilter } from '../dto/list-reviews.dto';
 
 const RECENT_DAYS = 30;
 const RECENT_WINDOW_MS = RECENT_DAYS * 24 * 60 * 60 * 1000;
@@ -19,6 +19,7 @@ export const NEEDS_ATTENTION_MIN_REVIEWS = 5;
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 50;
+const DEFAULT_FILTER: ReviewFilter = 'all';
 
 interface ListingAggregate {
   listingId: string;
@@ -57,26 +58,33 @@ export class ReviewsService {
   ): Promise<ReviewListResponse> {
     const page = query.page ?? DEFAULT_PAGE;
     const limit = query.limit ?? DEFAULT_LIMIT;
+    const filter = query.filter ?? DEFAULT_FILTER;
 
-    const aggregates = await this.aggregateListings(companyId);
-    const recentByListing = await this.recentReviewsByListing(companyId);
+    const allAggregates = await this.aggregateListings(companyId);
+    const listingDisplays = await this.loadListingDisplays(
+      companyId,
+      allAggregates.map((a) => a.listingId),
+    );
+    const aggregates = allAggregates.filter((a) => listingDisplays.has(a.listingId));
+    const recentByListing = await this.recentReviewsByListing(
+      companyId,
+      aggregates.map((a) => a.listingId),
+    );
     const summary = computeSummary(aggregates);
+    const filteredAggregates = applyReviewFilter(aggregates, filter);
 
-    aggregates.sort((a, b) => {
+    filteredAggregates.sort((a, b) => {
       if (a.totalReviews !== b.totalReviews) return b.totalReviews - a.totalReviews;
       return a.listingId.localeCompare(b.listingId);
     });
-    const total = aggregates.length;
+    const total = filteredAggregates.length;
     const skip = (page - 1) * limit;
-    const slice = aggregates.slice(skip, skip + limit);
+    const slice = filteredAggregates.slice(skip, skip + limit);
 
-    const listingDisplays = await this.loadListingDisplays(
-      companyId,
-      slice.map((a) => a.listingId),
-    );
     const items: ReviewListItem[] = slice.map((agg) => {
       const display = listingDisplays.get(agg.listingId);
       return {
+        listingId: agg.listingId,
         productId: display?.masterId ?? agg.listingId,
         productName: display?.productName ?? '-',
         sku: display?.sku ?? null,
@@ -123,13 +131,17 @@ export class ReviewsService {
     return out;
   }
 
-  private async recentReviewsByListing(companyId: string): Promise<Map<string, number>> {
+  private async recentReviewsByListing(
+    companyId: string,
+    listingIds: string[],
+  ): Promise<Map<string, number>> {
+    if (listingIds.length === 0) return new Map();
     const since = new Date(Date.now() - RECENT_WINDOW_MS);
     const rows = await this.prisma.review.groupBy({
       by: ['listingId'],
       where: {
         companyId,
-        listingId: { not: null },
+        listingId: { in: listingIds },
         reviewedAt: { gte: since },
       },
       _count: { _all: true },
@@ -154,9 +166,9 @@ export class ReviewsService {
         channelName: true,
         master: { select: { id: true, name: true, abcGrade: true } },
         options: {
-          select: { sku: true },
-          where: { isDeleted: false },
-          orderBy: { sortOrder: 'asc' },
+          select: { option: { select: { sku: true } } },
+          where: { option: { isDeleted: false } },
+          orderBy: { createdAt: 'asc' },
           take: 1,
         },
         company: { select: { name: true } },
@@ -167,7 +179,7 @@ export class ReviewsService {
       map.set(row.id, {
         masterId: row.master?.id ?? null,
         productName: row.master?.name ?? row.channelName ?? null,
-        sku: row.options[0]?.sku ?? null,
+        sku: row.options[0]?.option?.sku ?? null,
         companyName: row.company?.name ?? null,
         grade: row.master?.abcGrade ?? null,
       });
@@ -187,24 +199,44 @@ interface ListingDisplay {
 export function computeSummary(aggregates: ReadonlyArray<ListingAggregate>): ReviewSummary {
   let totalReviews = 0;
   let weightedSum = 0;
-  let needsAttention = 0;
+  let newListings = 0;
+  let needsResponse = 0;
   for (const a of aggregates) {
     totalReviews += a.totalReviews;
     weightedSum += a.totalReviews * a.avgRating;
-    if (
-      a.avgRating < NEEDS_ATTENTION_RATING_THRESHOLD ||
-      a.totalReviews < NEEDS_ATTENTION_MIN_REVIEWS
-    ) {
-      needsAttention += 1;
+    if (a.totalReviews < NEEDS_ATTENTION_MIN_REVIEWS) {
+      newListings += 1;
+    } else if (a.avgRating < NEEDS_ATTENTION_RATING_THRESHOLD) {
+      needsResponse += 1;
     }
   }
   const weightedAvgRating =
     totalReviews > 0 ? round2(weightedSum / totalReviews) : 0;
   return {
+    listingCount: aggregates.length,
     totalReviewCount: totalReviews,
     weightedAvgRating,
-    needsAttentionCount: needsAttention,
+    newListingCount: newListings,
+    needsResponseCount: needsResponse,
+    needsAttentionCount: newListings + needsResponse,
   } satisfies ReviewSummary;
+}
+
+function applyReviewFilter(
+  aggregates: ListingAggregate[],
+  filter: ReviewFilter,
+): ListingAggregate[] {
+  if (filter === 'new') {
+    return aggregates.filter((a) => a.totalReviews < NEEDS_ATTENTION_MIN_REVIEWS);
+  }
+  if (filter === 'needs-response') {
+    return aggregates.filter(
+      (a) =>
+        a.totalReviews >= NEEDS_ATTENTION_MIN_REVIEWS &&
+        a.avgRating < NEEDS_ATTENTION_RATING_THRESHOLD,
+    );
+  }
+  return [...aggregates];
 }
 
 function round2(value: number): number {
