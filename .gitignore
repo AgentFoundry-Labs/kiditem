@@ -10,7 +10,7 @@ build/
 # Generated files
 generated-thumbnails/
 
-# Graphify — keep committed outputs (erd/), ignore temp build artifacts
+# Graphify — keep committed curated outputs, ignore temp build artifacts
 graphify-out/.erd-corpus/
 graphify-out/cache/
 graphify-out/.graphify_*

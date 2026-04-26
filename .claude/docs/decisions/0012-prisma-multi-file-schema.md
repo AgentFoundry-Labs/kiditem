@@ -4,7 +4,7 @@ title: Prisma v7 multi-file schema with namespace annotations
 status: Accepted
 date: 2026-04-17
 supersedes: []
-superseded-by: null
+superseded-by: 0021
 affects:
   - prisma
   - apps/server

@@ -1,0 +1,53 @@
+# Dependencies / vendored code
+node_modules/
+vendor/
+
+# Build outputs / caches
+.next/
+dist/
+build/
+coverage/
+.turbo/
+.cache/
+*.tsbuildinfo
+
+# Python local environments / caches
+.venv/
+__pycache__/
+.pytest_cache/
+
+# Local agent/session artifacts
+.omc/
+.omx/
+.claude-flow/
+.swarm/
+.gstack/
+.superpowers/
+
+# Graphify output should not be re-ingested as source input.
+graphify-out/
+
+# Generated or bulky local data
+generated-thumbnails/
+data/
+prisma/init.sql
+prisma/init.sql.gz
+*.db
+
+# Binary/reference payloads. Remove a pattern temporarily if you explicitly want
+# graphify to process a specific reference asset.
+docs/references/
+*.pdf
+*.xlsx
+*.xls
+*.csv
+*.tsv
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+*.mp4
+*.mov
+*.mp3
+*.wav
