@@ -22,7 +22,6 @@ export default function ProductOptionEditModal({
 }: Props) {
   const [optionName, setOptionName] = useState(option.optionName ?? '');
   const [legacyCode, setLegacyCode] = useState(option.legacyCode ?? '');
-  const [barcode, setBarcode] = useState(option.barcode ?? '');
   const [costPrice, setCostPrice] = useState<string>(
     option.costPrice == null ? '' : String(option.costPrice),
   );
@@ -43,7 +42,6 @@ export default function ProductOptionEditModal({
     const patch: ProductOptionEditableFields = {
       optionName: optionName.trim() === '' ? null : optionName.trim(),
       legacyCode: legacyCode.trim() === '' ? null : legacyCode.trim(),
-      barcode: barcode.trim() === '' ? null : barcode.trim(),
       costPrice: costPrice === '' ? null : Number(costPrice),
       sellPrice: sellPrice === '' ? null : Number(sellPrice),
       isActive,
@@ -51,14 +49,12 @@ export default function ProductOptionEditModal({
     onSave(patch);
   };
 
-  const barcodeInvalid =
-    barcode.trim().length > 0 && !/^\d{13}$/.test(barcode.trim());
   const costPriceInvalid =
     costPrice !== '' && (!Number.isFinite(Number(costPrice)) || Number(costPrice) < 0);
   const sellPriceInvalid =
     sellPrice !== '' && (!Number.isFinite(Number(sellPrice)) || Number(sellPrice) < 0);
   const submitDisabled =
-    saving || barcodeInvalid || costPriceInvalid || sellPriceInvalid;
+    saving || costPriceInvalid || sellPriceInvalid;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm">
@@ -81,11 +77,6 @@ export default function ProductOptionEditModal({
         </div>
 
         <div className="p-5 space-y-4">
-          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-            EAN / 자사상품코드는 <span className="font-semibold">MasterProduct.barcode</span> 입니다.
-            여기 옵션 바코드 칸은 실제 옵션/스캐너 단위 13자리 EAN 일 때만 입력하세요.
-          </div>
-
           <div>
             <label className="block text-xs text-slate-500 mb-1">옵션명</label>
             <input
@@ -106,20 +97,6 @@ export default function ProductOptionEditModal({
               maxLength={100}
               className="w-full h-10 px-3 text-sm border border-slate-200 rounded-lg font-mono focus:outline-none focus:ring-2 focus:ring-purple-500"
             />
-          </div>
-
-          <div>
-            <label className="block text-xs text-slate-500 mb-1">옵션 바코드 (EAN-13, 옵션이면 비워두세요)</label>
-            <input
-              type="text"
-              value={barcode}
-              onChange={(e) => setBarcode(e.target.value)}
-              placeholder="13자리 숫자"
-              className="w-full h-10 px-3 text-sm border border-slate-200 rounded-lg font-mono focus:outline-none focus:ring-2 focus:ring-purple-500"
-            />
-            {barcodeInvalid && (
-              <p className="text-xs text-red-600 mt-1">서버 검증: 13자리 숫자여야 합니다.</p>
-            )}
           </div>
 
           <div className="grid grid-cols-2 gap-3">

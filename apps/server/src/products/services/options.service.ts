@@ -90,7 +90,6 @@ export class OptionsService {
       ands.push({
         OR: [
           { sku: { contains: q.search, mode: 'insensitive' } },
-          { barcode: { contains: q.search } },
           { legacyCode: { contains: q.search } },
           { optionName: { contains: q.search, mode: 'insensitive' } },
         ],
