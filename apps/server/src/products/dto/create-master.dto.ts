@@ -13,6 +13,11 @@ export class CreateMasterDto {
   @IsOptional() @IsString() @MaxLength(100)
   legacyCode?: string;
 
+  /** ADR-0022 — source barcode/EAN. Non-unique. Real workbook values can include
+   *  whitespace + non-EAN tokens, so we only cap length and do not enforce EAN-13. */
+  @IsOptional() @IsString() @MaxLength(100)
+  barcode?: string;
+
   @IsOptional() @IsString()
   description?: string;
 

@@ -33,6 +33,7 @@ describe('product schemas', () => {
       companyId: '22222222-2222-4222-8222-222222222222',
       code: 'M-00000001',
       legacyCode: null,
+      barcode: null,
       name: 'Toy',
       description: '',
       category: null,
@@ -72,6 +73,7 @@ describe('product schemas', () => {
       companyId: '22222222-2222-4222-8222-222222222222',
       code: 'M-00000001',
       legacyCode: null,
+      barcode: null,
       name: 'Toy',
       description: '',
       category: null,
@@ -119,6 +121,7 @@ describe('product schemas', () => {
       companyId: '22222222-2222-4222-8222-222222222222',
       code: 'M-00000001',
       legacyCode: null,
+      barcode: null,
       name: 'Toy',
       description: '',
       category: null,
@@ -156,6 +159,62 @@ describe('product schemas', () => {
       totalAvailableStock: 0,
     });
     expect(ProductCatalogDetailSchema.parse({ ...base, options: [] }).options).toEqual([]);
+  });
+});
+
+describe('master source barcode (ADR-0022, R0)', () => {
+  const baseRow = {
+    id: '11111111-1111-4111-8111-111111111111',
+    companyId: '22222222-2222-4222-8222-222222222222',
+    code: 'M-00000001',
+    legacyCode: null,
+    barcode: null,
+    name: 'Toy',
+    description: '',
+    category: null,
+    brand: null,
+    tags: [],
+    optionCounter: 0,
+    thumbnailUrl: null,
+    imageUrl: null,
+    images: [],
+    abcGrade: null,
+    profitTag: null,
+    adTier: null,
+    adBudgetLimit: null,
+    healthScore: null,
+    healthUpdatedAt: null,
+    sourceUrl: null,
+    sourcePlatform: null,
+    costCny: null,
+    marginRate: null,
+    pipelineStep: null,
+    detailPageUrl: null,
+    thumbnailStrategy: 'standard',
+    supplierId: null,
+    isDeleted: false,
+    deletedAt: null,
+    isTemporary: false,
+    temporaryReason: null,
+    memo: null,
+    createdAt: iso,
+    updatedAt: iso,
+  };
+
+  it('accepts a non-null source EAN on MasterSchema', () => {
+    const parsed = MasterSchema.parse({ ...baseRow, barcode: '8806384882841' });
+    expect(parsed.barcode).toBe('8806384882841');
+  });
+
+  it('accepts null barcode (master without source EAN)', () => {
+    const parsed = MasterSchema.parse({ ...baseRow, barcode: null });
+    expect(parsed.barcode).toBeNull();
+  });
+
+  it('rejects masters that omit the barcode field entirely', () => {
+    const { barcode: _omit, ...withoutBarcode } = baseRow;
+    void _omit;
+    expect(() => MasterSchema.parse(withoutBarcode)).toThrow();
   });
 });
 

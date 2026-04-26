@@ -43,6 +43,7 @@ type CatalogMasterRow = {
   companyId: string;
   code: string;
   legacyCode: string | null;
+  barcode: string | null;
   name: string;
   description: string;
   category: string | null;
@@ -166,7 +167,13 @@ export class ProductCatalogService {
           { name: { contains: q.search, mode: 'insensitive' } },
           { code: { contains: q.search } },
           { legacyCode: { contains: q.search } },
+          // ADR-0022 — source barcode/EAN. May match multiple masters because
+          // (companyId, barcode) is non-unique by design.
+          { barcode: { contains: q.search } },
           { options: { some: { sku: { contains: q.search, mode: 'insensitive' }, isDeleted: false } } },
+          // Also match option-level legacy code (판매자 상품코드) so users can find
+          // a master from any per-row source code from the workbook.
+          { options: { some: { legacyCode: { contains: q.search }, isDeleted: false } } },
         ],
       });
     }
@@ -202,6 +209,7 @@ export class ProductCatalogService {
       companyId: true,
       code: true,
       legacyCode: true,
+      barcode: true,
       name: true,
       description: true,
       category: true,

@@ -62,6 +62,10 @@ export const MasterSchema = z.object({
   companyId: z.string().uuid(),
   code: z.string(),
   legacyCode: z.string().nullable(),
+  // Source barcode/EAN (ADR-0022). Non-unique — search may return multiple
+  // masters. Distinct from `ProductOptionSchema.barcode` which is the true
+  // option/scanner barcode and remains unique per company.
+  barcode: z.string().nullable(),
   name: z.string(),
   description: z.string(),
   category: z.string().nullable(),
