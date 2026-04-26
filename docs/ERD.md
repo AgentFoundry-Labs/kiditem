@@ -1,0 +1,1366 @@
+# Database ERD
+
+> Generated from `prisma/models/*.prisma`. Do not edit the diagram by hand.
+> Regenerate with `npm run db:erd` after Prisma schema changes.
+
+This ERD is a development-time navigation aid. The source of truth is still the Prisma schema under `prisma/`, plus PostgreSQL-only constraints in `prisma/3layer-setup.sql`.
+
+## Sources
+
+- `prisma/models/advertising.prisma`
+- `prisma/models/agents.prisma`
+- `prisma/models/ai.prisma`
+- `prisma/models/core.prisma`
+- `prisma/models/finance.prisma`
+- `prisma/models/inventory.prisma`
+- `prisma/models/orders.prisma`
+- `prisma/models/supply.prisma`
+- `prisma/models/system.prisma`
+
+## Model Index
+
+| Model | Domain | Table | Description |
+|---|---:|---|---|
+| Ad | Advertising | `ads` | 상품×날짜별 광고 성과 (groupBy 집계). |
+| AdAction | Advertising | `ad_actions` | 광고 자동 실행 큐. AdSnapshot→AdAction→ExecutionTask→ExecutionLog 파이프라인. |
+| AdSnapshot | Advertising | `ad_snapshots` | 익스텐션이 수집한 raw 데이터. level 로 구분 (campaign\|product\|null). |
+| ExecutionLog | Advertising | `execution_logs` | - |
+| ExecutionTask | Advertising | `execution_tasks` | - |
+| ExecutionWorker | Advertising | `execution_workers` | - |
+| ItemWinner | Advertising | `item_winners` | 아이템위너 현황 (Wing 데이터). |
+| ScrapeTarget | Advertising | `scrape_targets` | - |
+| TrafficStats | Advertising | `traffic_stats` | - |
+| AgentDefinition | Agents | `agent_definitions` | 에이전트 정의. rt_* 필드로 런타임 상태 내장 (별도 테이블 없음). reportsTo 자기참조 (매니저→전문가 계층). |
+| AgentEvent | Agents | `agent_events` | eventType 으로 permission_denied / action_snapshot 통합. |
+| AgentLog | Agents | `agent_logs` | - |
+| AgentTask | Agents | `agent_tasks` | - |
+| AgentWakeupRequest | Agents | `agent_wakeup_requests` | - |
+| HeartbeatRun | Agents | `heartbeat_runs` | 에이전트 안전 파이프라인 (Budget/Cap/DryRun). AgentDefinition 과 함께 agent runtime state 구성. |
+| WorkflowRun | Agents | `workflow_runs` | steps Json 으로 단계별 결과 흡수 (별도 StepRun 없음). |
+| WorkflowTemplate | Agents | `workflow_templates` | - |
+| ContentGeneration | AI | `content_generations` | - |
+| Thumbnail | AI | `thumbnails` | CTR 기반 썸네일 트래킹 (ThumbnailAnalysis 와 별도 시스템). |
+| ThumbnailAnalysis | AI | `thumbnail_analyses` | 5차원 scores(heroShot·composition·branding·mobile·differentiation) + complianceGrade(PASS/WARN/FAIL) + imageSpec(사전검수). 스펙 FAIL 시 AI 호출 생략. |
+| ThumbnailGeneration | AI | `thumbnail_generations` | 상태: pending→generating→ready/failed→applied/skipped. method=edit 만 사용 (generate Imagen 방식 삭제됨). |
+| ThumbnailTracking | AI | `thumbnail_trackings` | - |
+| BundleComponent | Core | `bundle_components` | 세트 옵션의 구성품 관계. bundleOption(isBundle=true) ↔ componentOption. Cross-master 허용, cross-company 금지. |
+| CategoryMapping | Core | `category_mappings` | - |
+| ChannelListing | Core | `channel_listings` | 채널에 올라간 판매 등록상품. 쿠팡 등록상품ID, 네이버 상품번호 등. |
+| ChannelListingOption | Core | `channel_listing_options` | 채널 listing 내 옵션 externalOptionId 와 내부 ProductOption 매핑. |
+| Company | Core | `companies` | - |
+| MasterProduct | Core | `master_products` | 기획상품 family. 같은 컨셉의 옵션들을 묶는 entity. 운영/광고/전략 단위. |
+| ProductOption | Core | `product_options` | 물리 SKU. 바코드 1:1. 재고/매입/창고 단위. isBundle 이면 구성품 기반 계산. |
+| User | Core | `users` | human(직원) / agent(AI, agentDefinitionId 연결) / system(챗봇, companyId=null) 통합 관리. |
+| GradeHistory | Finance | `grade_histories` | ABC 등급 변경 추적. |
+| ManualLedger | Finance | `manual_ledgers` | 자동 집계 외 수기 수입/지출. |
+| ProcessingCost | Finance | `processing_costs` | - |
+| ProfitLoss | Finance | `profit_loss` | 월간 손익. companyId+listingId+year+month unique. |
+| SalesPlan | Finance | `sales_plans` | - |
+| Inventory | Inventory | `inventory` | ProductOption 에 1:1. Bundle option 은 inventory 미생성 (availableStock 계산값 사용). |
+| PickingItem | Inventory | `picking_items` | - |
+| PickingList | Inventory | `picking_lists` | - |
+| ReturnTransfer | Inventory | `return_transfers` | - |
+| StockAudit | Inventory | `stock_audits` | - |
+| StockTransaction | Inventory | `stock_transactions` | - |
+| StockTransfer | Inventory | `stock_transfers` | 창고 간 이동 (from → to warehouse). |
+| Warehouse | Inventory | `warehouses` | - |
+| CSRecord | Orders | `cs_records` | - |
+| Order | Orders | `orders` | 채널-agnostic 주문 aggregate. Coupang 등 채널별 raw payload 는 metadata Json. 라인 아이템은 OrderLineItem. |
+| OrderLineItem | Orders | `order_line_items` | 주문 라인 아이템 — 1 SKU 단위. listingOption → option 으로 SKU 해상도. companyId 는 IDOR 방어용 denormalize (B2a 패턴). |
+| OrderReturn | Orders | `order_returns` | 채널-agnostic 반품 aggregate. CoupangReturn 의 items JSON → OrderReturnLineItem 정규화. type=RETURN/EXCHANGE 구분 first-class. |
+| OrderReturnLineItem | Orders | `order_return_line_items` | 반품 라인 아이템 — 반품 건 내 SKU 단위 상세. companyId 는 IDOR 방어용 denormalize. |
+| Review | Orders | `reviews` | - |
+| Settlement | Orders | `settlements` | 월별 정산 (예상 vs 실제 비교). |
+| Shipment | Orders | `shipments` | - |
+| UnshippedItem | Orders | `unshipped_items` | - |
+| MasterSupplierProduct | Supply | `master_supplier_products` | Master 단위 주공급처 정책. 여러 supplier 후보 중 isPrimary 가 기본. |
+| PurchaseOrder | Supply | `purchase_orders` | 발주 state machine (draft→pending→ordered→shipped→received). 입고 검수 필드 포함 (receivedQty, defectQty). 단위는 CNY(Decimal 12,2). |
+| PurchaseOrderItem | Supply | `purchase_order_items` | - |
+| Supplier | Supply | `suppliers` | - |
+| SupplierPayment | Supply | `supplier_payments` | - |
+| SupplierProduct | Supply | `supplier_products` | 공급사별 SKU(옵션) 단위 공급가 관리. |
+| ActionTask | System | `action_tasks` | 액션 보드 (수동 할일 관리). |
+| ActivityEvent | System | `activity_events` | - |
+| Alert | System | `alerts` | - |
+| BusinessRule | System | `business_rules` | 온톨로지 룰 엔진 (조건→액션 자동화). |
+| FeatureGate | System | `feature_gates` | 피처 플래그. allowedCompanies: string[] 로 회사별 enable. |
+| Marketplace | System | `marketplace` | type 으로 agent/workflow 카탈로그 통합. |
+| MigrationCheckpoint | System | `migration_checkpoints` | 이관 스크립트 체크포인트 (Plan C 용). 이관 완료 후 drop 가능. |
+| ProductMemo | System | `product_memos` | 상품 관련 메모 (polymorphic). Master / Option / Listing 어디든 붙음. |
+| SystemSetting | System | `system_settings` | - |
+
+## Mermaid ER Diagram
+
+```mermaid
+erDiagram
+  ActionTask {
+    String id PK
+    String companyId FK
+    String taskKey
+    String type
+    String label
+    String detail
+    String where
+    String href
+    String priority
+    String status
+    String role
+    Json apiCall
+    Json result
+    Json notes
+    Json activityLog
+    DateTime date
+    String assigneeUserId FK
+    String targetType
+    String targetId
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  ActivityEvent {
+    String id PK
+    String companyId FK
+    String objectType
+    String objectId
+    String eventType
+    String source
+    String title
+    Json data
+    DateTime createdAt
+  }
+  Ad {
+    String id PK
+    String companyId FK
+    String listingId FK
+    String optionId FK
+    String platform
+    String campaignName
+    Int dailyBudget
+    Int spend
+    Int impressions
+    Int clicks
+    Int conversions
+    Int revenue
+    Decimal roas
+    String billingType
+    String saleType
+    String adType
+    String campaignId
+    String adGroup
+    String adProductName
+    String adOptionId
+    String convProductName
+    String convOptionId
+    String placement
+    String keyword
+    String note
+    Int directOrders1d
+    Int indirectOrders1d
+    Int directQty1d
+    Int indirectQty1d
+    Int directRevenue1d
+    Int indirectRevenue1d
+    Decimal totalRoas1d
+    Decimal directRoas1d
+    Int totalOrders14d
+    Int directOrders14d
+    Int indirectOrders14d
+    Int totalQty14d
+    Int directQty14d
+    Int indirectQty14d
+    Int totalRevenue14d
+    Int directRevenue14d
+    Int indirectRevenue14d
+    Decimal totalRoas14d
+    Decimal directRoas14d
+    DateTime campaignStartDate
+    DateTime campaignEndDate
+    DateTime date
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  AdAction {
+    String id PK
+    String companyId FK
+    String listingId FK
+    String snapshotId FK
+    String actionType
+    String targetType
+    String externalId
+    String targetLabel
+    String reason
+    String priority
+    Int currentValue
+    Int proposedValue
+    Json payload
+    String approvalStatus
+    String executeStatus
+    Json beforeJson
+    Json afterJson
+    String errorMessage
+    DateTime approvedAt
+    DateTime executedAt
+    DateTime createdAt
+  }
+  AdSnapshot {
+    String id PK
+    String companyId FK
+    String listingId FK
+    String optionId FK
+    String source
+    String pageType
+    String level
+    String externalId
+    String campaignName
+    String period
+    DateTime date
+    String keyword
+    String productName
+    String vendorItemId
+    String status
+    String onOff
+    Int currentBid
+    Int dailyBudget
+    Int budget
+    Int todaySpend
+    Int impressions
+    Int clicks
+    Int conversions
+    Int adConversions
+    Int orders
+    Int spend
+    Int adSpend
+    Int revenue
+    Int adRevenue
+    Int totalRevenue
+    Decimal roas
+    Decimal ctr
+    Decimal conversionRate
+    DateTime collectedAt
+    Json rawJson
+    DateTime capturedAt
+    DateTime createdAt
+  }
+  AgentDefinition {
+    String id PK
+    String companyId FK
+    String name
+    String type UK
+    String description
+    String adapterType
+    Json adapterConfig
+    Json runtimeConfig
+    String role
+    String title
+    String icon
+    String reportsTo FK
+    String status
+    String pauseReason
+    DateTime pausedAt
+    Json permissions
+    StringArray skills
+    StringArray deniedSkills
+    Json actionCap
+    Int trustLevel
+    String promptTemplate
+    String allowedTools
+    String permissionMode
+    StringArray fallbackChain
+    Int monthlyTokenBudget
+    Int tokensUsed
+    DateTime budgetResetAt
+    String schedule
+    Int timeoutSeconds
+    Int maxOutputTokens
+    Boolean requiresApproval
+    Boolean isActive
+    Int resultRetentionDays
+    String contextStrategy
+    DateTime lastHeartbeatAt
+    Json metadata
+    String rtSessionId
+    Json rtStateJson
+    String rtLastRunId
+    String rtLastRunStatus
+    Int rtTotalInputTokens
+    Int rtTotalOutputTokens
+    Int rtTotalCostCents
+    String rtLastError
+    Int rtConsecutiveFailCount
+    DateTime rtLastFailedAt
+    DateTime createdAt
+    DateTime updatedAt
+    String marketplaceId FK
+  }
+  AgentEvent {
+    String id PK
+    String companyId FK
+    String agentId FK
+    String runId
+    String eventType
+    String category
+    String detail
+    String action
+    String tableName
+    String recordId
+    String fieldName
+    Json valueBefore
+    Json valueAfter
+    DateTime restoredAt
+    DateTime createdAt
+  }
+  AgentLog {
+    String id PK
+    String taskId FK
+    String level
+    String message
+    Json data
+    DateTime createdAt
+  }
+  AgentTask {
+    String id PK
+    String companyId
+    String agentType
+    String status
+    Int priority
+    String workflowRunId
+    String workflowNodeId
+    String sourceDataId
+    Json input
+    Json output
+    String error
+    DateTime scheduledAt
+    DateTime startedAt
+    DateTime completedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  AgentWakeupRequest {
+    String id PK
+    String companyId FK
+    String agentId FK
+    String source
+    String triggerDetail
+    String reason
+    Json payload
+    String status
+    Int coalescedCount
+    String requestedByType
+    String requestedById
+    String runId
+    DateTime requestedAt
+    DateTime claimedAt
+    DateTime finishedAt
+    String error
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  Alert {
+    String id PK
+    String companyId FK
+    String targetType
+    String targetId
+    String type
+    String severity
+    String title
+    String message
+    Boolean isRead
+    String actionTaskId FK
+    DateTime createdAt
+  }
+  BundleComponent {
+    String id PK
+    String bundleOptionId FK
+    String componentOptionId FK
+    String companyId FK
+    Int qty
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  BusinessRule {
+    String id PK
+    String companyId FK
+    String name
+    String displayName
+    String description
+    String category
+    String severity
+    String field
+    String operator
+    Json threshold
+    String messageTemplate
+    String actionType
+    Json conditions
+    Boolean autoExecute
+    Boolean active
+    Int sortOrder
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  CategoryMapping {
+    String id PK
+    String companyId FK
+    String internalCategory
+    String coupangCategoryId
+    String coupangCategoryName
+    String keywords
+    Boolean isActive
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  ChannelListing {
+    String id PK
+    String masterId FK
+    String companyId FK
+    String channel
+    String externalId
+    String channelName
+    Int channelPrice
+    String status
+    String exposureStatus
+    String deliveryChargeType
+    Int freeShipOverAmount
+    Int returnCharge
+    Json deliveryInfo
+    Boolean isDeleted
+    DateTime deletedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  ChannelListingOption {
+    String id PK
+    String listingId FK
+    String optionId FK
+    String companyId FK
+    String externalOptionId
+    String itemName
+    Int salePrice
+    Boolean isActive
+    Boolean isUnmatched
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  Company {
+    String id PK
+    String name
+    String slug UK
+    String businessNumber
+    Boolean isActive
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  ContentGeneration {
+    String id PK
+    String companyId FK
+    String masterId FK
+    Json originalImages
+    Json processedImages
+    String generatedTitle
+    String generatedDescription
+    String generatedCopy
+    String detailPageHtml
+    String status
+    Int retryCount
+    String errorMessage
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  CSRecord {
+    String id PK
+    String companyId FK
+    String orderId
+    String listingId FK
+    String csType
+    String csStatus
+    String priority
+    String assignee
+    String content
+    String resolution
+    String createdBy
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  ExecutionLog {
+    String id PK
+    String taskId FK
+    String level
+    String step
+    String message
+    Json payloadJson
+    DateTime createdAt
+  }
+  ExecutionTask {
+    String id PK
+    String actionId FK
+    String workerId FK
+    String status
+    DateTime leasedAt
+    DateTime startedAt
+    DateTime finishedAt
+    Int attempt
+    Json beforeJson
+    Json afterJson
+    String errorMessage
+    String screenshotPath
+    DateTime createdAt
+  }
+  ExecutionWorker {
+    String id PK
+    String companyId FK
+    String workerKey UK
+    String label
+    String status
+    String currentTaskRef
+    String currentUrl
+    String currentPageType
+    Json metaJson
+    DateTime lastHeartbeatAt
+    DateTime createdAt
+  }
+  FeatureGate {
+    String id PK
+    String name UK
+    String description
+    Boolean enabled
+    StringArray allowedCompanies
+    Json metadata
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  GradeHistory {
+    String id PK
+    String companyId FK
+    String masterId FK
+    String oldGrade
+    String newGrade
+    Decimal score
+    Decimal revenueScore
+    Decimal marginScore
+    Decimal velocityScore
+    String reason
+    DateTime calculatedAt
+  }
+  HeartbeatRun {
+    String id PK
+    String companyId FK
+    String agentId FK
+    String invocationSource
+    String triggerDetail
+    String status
+    String failureType
+    DateTime startedAt
+    DateTime finishedAt
+    String error
+    Int exitCode
+    String signal
+    Json usageJson
+    Json resultJson
+    String sessionIdBefore
+    String sessionIdAfter
+    String stdoutExcerpt
+    String stderrExcerpt
+    String errorCode
+    Int processPid
+    String wakeupRequestId FK
+    String nextSchedule
+    Boolean isSummarized
+    String summary
+    String triggeredByUserId FK
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  Inventory {
+    String id PK
+    String optionId FK,UK
+    String companyId FK
+    Int currentStock
+    Int reservedStock
+    Int safetyStock
+    Int reorderPoint
+    Int reorderQuantity
+    Int leadTimeDays
+    Decimal dailySalesAvg
+    String warehouseLocation
+    DateTime lastRestockedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  ItemWinner {
+    String id PK
+    String companyId FK
+    String listingId FK
+    String productName
+    Boolean isWinner
+    Int myPrice
+    Int winnerPrice
+    DateTime checkedAt
+  }
+  ManualLedger {
+    String id PK
+    String companyId FK
+    DateTime date
+    String type
+    String category
+    String counterpart
+    String description
+    Int amount
+    Int tax
+    String memo
+    String createdBy
+    DateTime createdAt
+  }
+  Marketplace {
+    String id PK
+    String type
+    String name
+    String description
+    String category
+    String icon
+    String module
+    Json nodesJson
+    Json edgesJson
+    String role
+    String adapterType
+    String promptTemplate
+    StringArray skills
+    Json permissions
+    Json configurableParams
+    Int version
+    Int installCount
+    Boolean isPublished
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  MasterProduct {
+    String id PK
+    String companyId FK
+    String code UK
+    String legacyCode
+    String name
+    String description
+    String category
+    String brand
+    Json tags
+    Int optionCounter
+    String thumbnailUrl
+    Json images
+    String imageUrl
+    String abcGrade
+    String profitTag
+    String adTier
+    Int adBudgetLimit
+    Int healthScore
+    DateTime healthUpdatedAt
+    String sourceUrl
+    String sourcePlatform
+    Decimal costCny
+    Decimal marginRate
+    Json rawData
+    Json processedData
+    Json draftContent
+    String pipelineStep
+    String detailPageUrl
+    String thumbnailStrategy
+    String supplierId FK
+    Boolean isDeleted
+    DateTime deletedAt
+    Boolean isTemporary
+    String temporaryReason
+    String memo
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  MasterSupplierProduct {
+    String id PK
+    String masterId FK
+    String supplierId FK
+    Boolean isPrimary
+    Int minOrderQty
+    String memo
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  MigrationCheckpoint {
+    String id PK
+    String scriptName
+    String stepName
+    String entityKey
+    String status
+    String error
+    Json payload
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  Order {
+    String id PK
+    String companyId FK
+    String platform
+    String externalOrderId
+    String externalNumber
+    String customerName
+    String receiverName
+    String receiverPhone
+    String receiverAddr
+    String memo
+    String status
+    DateTime orderedAt
+    DateTime paidAt
+    DateTime shippedAt
+    DateTime deliveredAt
+    String trackingNumber
+    String shippingCompany
+    Int shippingPrice
+    Int totalPrice
+    String listingId FK
+    Json metadata
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  OrderLineItem {
+    String id PK
+    String companyId FK
+    String orderId FK
+    String listingOptionId FK
+    String optionId FK
+    String productName
+    String optionName
+    String sku
+    Int quantity
+    Int unitPrice
+    Int totalPrice
+    String status
+    String externalLineId
+    Json metadata
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  OrderReturn {
+    String id PK
+    String companyId FK
+    String orderId FK
+    String platform
+    String externalReturnId
+    String type
+    String status
+    String reason
+    String reasonCategory1
+    String reasonCategory2
+    String faultBy
+    String requesterName
+    Int enclosePrice
+    DateTime requestedAt
+    DateTime completedAt
+    Json metadata
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  OrderReturnLineItem {
+    String id PK
+    String companyId FK
+    String returnId FK
+    String orderLineItemId FK
+    String optionId FK
+    String productName
+    Int quantity
+    Json metadata
+    DateTime createdAt
+  }
+  PickingItem {
+    String id PK
+    String pickingListId FK
+    String orderId
+    String optionId FK
+    String productName
+    String sku
+    Int quantity
+    String location
+    Boolean isPicked
+    Boolean isVerified
+    DateTime pickedAt
+    DateTime verifiedAt
+    DateTime createdAt
+  }
+  PickingList {
+    String id PK
+    String companyId FK
+    String listNumber
+    String status
+    Int totalItems
+    Int pickedItems
+    String assignedTo
+    DateTime startedAt
+    DateTime completedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  ProcessingCost {
+    String id PK
+    String companyId FK
+    String masterId FK
+    String productName
+    String vendor
+    String processType
+    Int unitCost
+    Int quantity
+    Int totalCost
+    DateTime date
+    String status
+    String notes
+    DateTime createdAt
+  }
+  ProductMemo {
+    String id PK
+    String companyId FK
+    String targetType
+    String targetId
+    String content
+    String author
+    String memoType
+    Boolean isResolved
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  ProductOption {
+    String id PK
+    String masterId FK
+    String companyId FK
+    String sku UK
+    String barcode
+    String legacyCode
+    String optionName
+    Int sortOrder
+    Int costPrice
+    Int sellPrice
+    Decimal commissionRate
+    Int shippingCost
+    Int otherCost
+    Boolean isBundle
+    Int availableStock
+    Boolean isDeleted
+    DateTime deletedAt
+    Boolean isTemporary
+    String temporaryReason
+    Boolean isActive
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  ProfitLoss {
+    String id PK
+    String companyId FK
+    String listingId FK
+    Int year
+    Int month
+    Int revenue
+    Int cogs
+    Int commission
+    Int shippingCost
+    Int adCost
+    Int otherCost
+    Int netProfit
+    Decimal profitRate
+    Int orderCount
+    Int returnCount
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  PurchaseOrder {
+    String id PK
+    String companyId FK
+    String supplierName
+    String supplierContact
+    String supplierId FK
+    Decimal totalAmountCny
+    String status
+    DateTime orderDate
+    DateTime expectedDeliveryDate
+    String trackingNumber
+    DateTime receivedAt
+    Int receivedQty
+    Int defectQty
+    String defectType
+    String defectAction
+    String defectNote
+    DateTime inspectedAt
+    String inspectedBy
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  PurchaseOrderItem {
+    String id PK
+    String orderId FK
+    String optionId FK
+    String productName
+    Int quantity
+    Decimal unitPriceCny
+    DateTime createdAt
+  }
+  ReturnTransfer {
+    String id PK
+    String companyId FK
+    String rtNumber
+    String orderId
+    String optionId FK
+    String optionName
+    Int quantity
+    String status
+    String condition
+    Int restockedQty
+    Int disposedQty
+    String notes
+    String processedBy
+    DateTime createdAt
+    DateTime completedAt
+    DateTime updatedAt
+  }
+  Review {
+    String id PK
+    String companyId FK
+    String listingId FK
+    String platform
+    Int rating
+    String content
+    String reviewerName
+    DateTime reviewedAt
+    DateTime createdAt
+  }
+  SalesPlan {
+    String id PK
+    String companyId FK
+    String period
+    Int targetRevenue
+    Int targetOrders
+    Int targetProfit
+    Int actualRevenue
+    Int actualOrders
+    Int actualProfit
+    String notes
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  ScrapeTarget {
+    String id PK
+    String companyId FK
+    String url
+    String label
+    String category
+    Boolean isActive
+    DateTime lastScrapedAt
+    DateTime createdAt
+  }
+  Settlement {
+    String id PK
+    String companyId FK
+    String period
+    Int expectedAmount
+    Int actualAmount
+    Int commission
+    Int shippingFee
+    Int adjustments
+    Int difference
+    Int orderCount
+    Int returnCount
+    String status
+    DateTime settledAt
+    String notes
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  Shipment {
+    String id PK
+    String companyId FK
+    String orderId FK
+    String listingId FK
+    String optionId FK
+    String trackingNo
+    String courierCode
+    String courierName
+    String status
+    DateTime shippedAt
+    DateTime deliveredAt
+    Int deliveryDays
+    String warehouseId FK
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  StockAudit {
+    String id PK
+    String companyId FK
+    String auditNumber
+    String status
+    Int totalProducts
+    Int matchedCount
+    Int diffCount
+    String auditedBy
+    DateTime completedAt
+    String notes
+    Json items
+    DateTime createdAt
+  }
+  StockTransaction {
+    String id PK
+    String companyId FK
+    String optionId FK
+    String optionName
+    String type
+    Int quantity
+    Int unitCost
+    Int totalCost
+    String relatedId
+    String relatedType
+    String warehouseId FK
+    String note
+    String createdBy
+    DateTime createdAt
+  }
+  StockTransfer {
+    String id PK
+    String companyId FK
+    String optionId FK
+    String optionName
+    String fromWarehouseId FK
+    String toWarehouseId FK
+    Int quantity
+    String status
+    String requestedBy
+    DateTime completedAt
+    String notes
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  Supplier {
+    String id PK
+    String companyId FK
+    String name
+    String contactName
+    String phone
+    String email
+    String address
+    Int leadTimeDays
+    String paymentTerms
+    String notes
+    String status
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  SupplierPayment {
+    String id PK
+    String companyId FK
+    String supplierId FK
+    String supplierName
+    Int amount
+    Int paidAmount
+    String status
+    DateTime dueDate
+    DateTime paidDate
+    String purchaseOrderId FK
+    String notes
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  SupplierProduct {
+    String id PK
+    String supplierId FK
+    String optionId FK
+    Int supplyPrice
+    Int minOrderQty
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  SystemSetting {
+    String id PK
+    String companyId FK
+    String key
+    Json value
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  Thumbnail {
+    String id PK
+    String companyId FK
+    String listingId FK
+    String imageUrl
+    String strategy
+    String status
+    Decimal ctr
+    Decimal prevClickRate
+    Int impressions
+    Int clicks
+    DateTime measuredAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  ThumbnailAnalysis {
+    String id PK
+    String companyId FK
+    String masterId FK,UK
+    String imageUrl
+    Int overallScore
+    String grade
+    Json scores
+    Json issues
+    Json suggestions
+    String method
+    String complianceGrade
+    Json complianceScores
+    Json imageSpec
+    DateTime qualityAnalyzedAt
+    DateTime complianceAnalyzedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  ThumbnailGeneration {
+    String id PK
+    String companyId FK
+    String masterId FK
+    String originalUrl
+    Json candidates
+    String selectedUrl
+    String status
+    String phase
+    String grade
+    Int score
+    String prompt
+    String method
+    Json editAnalysis
+    String triggeredByUserId FK
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  ThumbnailTracking {
+    String id PK
+    String companyId FK
+    String listingId FK
+    String generationId FK
+    String originalGrade
+    Int originalScore
+    DateTime appliedAt
+    Float ctrBefore
+    Float ctrAfter
+    Int reviewsBefore
+    Int reviewsAfter
+    Int salesBefore
+    Int salesAfter
+    String status
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  TrafficStats {
+    String id PK
+    String companyId FK
+    String listingId FK
+    DateTime date
+    Int periodDays
+    Int visitors
+    Int views
+    Int cartAdds
+    Int orders
+    Int salesQty
+    Int revenue
+    Decimal conversionRate
+    DateTime createdAt
+  }
+  UnshippedItem {
+    String id PK
+    String companyId FK
+    String orderId
+    String listingId FK
+    String optionId FK
+    String productName
+    Int quantity
+    DateTime orderDate
+    Int delayDays
+    String reason
+    Boolean isNotified
+    DateTime notifiedAt
+    DateTime createdAt
+  }
+  User {
+    String id PK
+    String companyId FK
+    String email UK
+    String name
+    String password
+    String role
+    String type
+    String team
+    String avatarUrl
+    String agentDefinitionId FK
+    Boolean isActive
+    DateTime lastLoginAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  Warehouse {
+    String id PK
+    String companyId FK
+    String name
+    String code
+    String address
+    String manager
+    String phone
+    Boolean isDefault
+    String status
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  WorkflowRun {
+    String id PK
+    String companyId
+    String templateId FK
+    String status
+    String triggeredBy
+    String triggeredByUserId FK
+    Json contextData
+    Json steps
+    String error
+    DateTime startedAt
+    DateTime completedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  WorkflowTemplate {
+    String id PK
+    String companyId FK
+    String name
+    String description
+    String module
+    Boolean isActive
+    String triggerType
+    String schedule
+    Json nodesJson
+    Json edgesJson
+    Int version
+    DateTime createdAt
+    DateTime updatedAt
+    String marketplaceId FK
+  }
+  ActionTask o|--o{ Alert : "actionTask"
+  AdAction ||--o{ ExecutionTask : "action"
+  AdSnapshot o|--o{ AdAction : "snapshot"
+  AgentDefinition o|--o{ AgentDefinition : "parent"
+  AgentDefinition ||--o{ AgentEvent : "agent"
+  AgentDefinition ||--o{ AgentWakeupRequest : "agent"
+  AgentDefinition ||--o{ HeartbeatRun : "agent"
+  AgentDefinition o|--o{ User : "agentDefinition"
+  AgentTask ||--o{ AgentLog : "task"
+  AgentWakeupRequest o|--o{ HeartbeatRun : "wakeupRequest"
+  ChannelListing ||--o{ Ad : "listing"
+  ChannelListing o|--o{ AdAction : "listing"
+  ChannelListing o|--o{ AdSnapshot : "listing"
+  ChannelListing ||--o{ ChannelListingOption : "listing"
+  ChannelListing o|--o{ CSRecord : "listing"
+  ChannelListing ||--o{ ItemWinner : "listing"
+  ChannelListing o|--o{ Order : "listing"
+  ChannelListing ||--o{ ProfitLoss : "listing"
+  ChannelListing o|--o{ Review : "listing"
+  ChannelListing o|--o{ Shipment : "listing"
+  ChannelListing ||--o{ Thumbnail : "listing"
+  ChannelListing ||--o{ ThumbnailTracking : "listing"
+  ChannelListing ||--o{ TrafficStats : "listing"
+  ChannelListing o|--o{ UnshippedItem : "listing"
+  ChannelListingOption o|--o{ OrderLineItem : "listingOption"
+  Company ||--o{ ActionTask : "company"
+  Company ||--o{ ActivityEvent : "company"
+  Company ||--o{ Ad : "company"
+  Company ||--o{ AdAction : "company"
+  Company ||--o{ AdSnapshot : "company"
+  Company o|--o{ AgentDefinition : "company"
+  Company ||--o{ AgentEvent : "company"
+  Company ||--o{ AgentWakeupRequest : "company"
+  Company ||--o{ Alert : "company"
+  Company ||--o{ BundleComponent : "company"
+  Company ||--o{ BusinessRule : "company"
+  Company ||--o{ CategoryMapping : "company"
+  Company ||--o{ ChannelListing : "company"
+  Company ||--o{ ChannelListingOption : "company"
+  Company ||--o{ ContentGeneration : "company"
+  Company ||--o{ CSRecord : "company"
+  Company ||--o{ ExecutionWorker : "company"
+  Company ||--o{ GradeHistory : "company"
+  Company ||--o{ HeartbeatRun : "company"
+  Company ||--o{ Inventory : "company"
+  Company ||--o{ ItemWinner : "company"
+  Company ||--o{ ManualLedger : "company"
+  Company ||--o{ MasterProduct : "company"
+  Company ||--o{ Order : "company"
+  Company ||--o{ OrderLineItem : "company"
+  Company ||--o{ OrderReturn : "company"
+  Company ||--o{ OrderReturnLineItem : "company"
+  Company ||--o{ PickingList : "company"
+  Company ||--o{ ProcessingCost : "company"
+  Company ||--o{ ProductMemo : "company"
+  Company ||--o{ ProductOption : "company"
+  Company ||--o{ ProfitLoss : "company"
+  Company ||--o{ PurchaseOrder : "company"
+  Company ||--o{ ReturnTransfer : "company"
+  Company ||--o{ Review : "company"
+  Company ||--o{ SalesPlan : "company"
+  Company ||--o{ ScrapeTarget : "company"
+  Company ||--o{ Settlement : "company"
+  Company ||--o{ Shipment : "company"
+  Company ||--o{ StockAudit : "company"
+  Company ||--o{ StockTransaction : "company"
+  Company ||--o{ StockTransfer : "company"
+  Company ||--o{ Supplier : "company"
+  Company ||--o{ SupplierPayment : "company"
+  Company ||--o{ SystemSetting : "company"
+  Company ||--o{ Thumbnail : "company"
+  Company ||--o{ ThumbnailAnalysis : "company"
+  Company ||--o{ ThumbnailGeneration : "company"
+  Company ||--o{ ThumbnailTracking : "company"
+  Company ||--o{ TrafficStats : "company"
+  Company ||--o{ UnshippedItem : "company"
+  Company o|--o{ User : "company"
+  Company ||--o{ Warehouse : "company"
+  Company ||--o{ WorkflowTemplate : "company"
+  ExecutionTask ||--o{ ExecutionLog : "task"
+  ExecutionWorker o|--o{ ExecutionTask : "worker"
+  Marketplace o|--o{ AgentDefinition : "marketplace"
+  Marketplace o|--o{ WorkflowTemplate : "marketplace"
+  MasterProduct ||--o{ ChannelListing : "master"
+  MasterProduct ||--o{ ContentGeneration : "master"
+  MasterProduct ||--o{ GradeHistory : "master"
+  MasterProduct ||--o{ MasterSupplierProduct : "master"
+  MasterProduct ||--o{ ProcessingCost : "master"
+  MasterProduct ||--o{ ProductOption : "master"
+  MasterProduct ||--|| ThumbnailAnalysis : "master"
+  MasterProduct ||--o{ ThumbnailGeneration : "master"
+  Order ||--o{ OrderLineItem : "order"
+  Order o|--o{ OrderReturn : "order"
+  Order o|--o{ Shipment : "order"
+  OrderLineItem o|--o{ OrderReturnLineItem : "orderLineItem"
+  OrderReturn ||--o{ OrderReturnLineItem : "return"
+  PickingList ||--o{ PickingItem : "pickingList"
+  ProductOption o|--o{ Ad : "option"
+  ProductOption o|--o{ AdSnapshot : "option"
+  ProductOption ||--o{ BundleComponent : "bundleOption"
+  ProductOption ||--o{ BundleComponent : "componentOption"
+  ProductOption o|--o{ ChannelListingOption : "option"
+  ProductOption ||--|| Inventory : "option"
+  ProductOption o|--o{ OrderLineItem : "option"
+  ProductOption o|--o{ OrderReturnLineItem : "option"
+  ProductOption ||--o{ PickingItem : "option"
+  ProductOption o|--o{ PurchaseOrderItem : "option"
+  ProductOption ||--o{ ReturnTransfer : "option"
+  ProductOption o|--o{ Shipment : "option"
+  ProductOption ||--o{ StockTransaction : "option"
+  ProductOption ||--o{ StockTransfer : "option"
+  ProductOption ||--o{ SupplierProduct : "option"
+  ProductOption o|--o{ UnshippedItem : "option"
+  PurchaseOrder ||--o{ PurchaseOrderItem : "order"
+  PurchaseOrder o|--o{ SupplierPayment : "purchaseOrder"
+  Supplier o|--o{ MasterProduct : "supplier"
+  Supplier ||--o{ MasterSupplierProduct : "supplier"
+  Supplier o|--o{ PurchaseOrder : "supplier"
+  Supplier ||--o{ SupplierPayment : "supplier"
+  Supplier ||--o{ SupplierProduct : "supplier"
+  ThumbnailGeneration ||--o{ ThumbnailTracking : "generation"
+  User o|--o{ ActionTask : "assigneeUser"
+  User o|--o{ HeartbeatRun : "triggeredByUser"
+  User o|--o{ ThumbnailGeneration : "triggeredByUser"
+  User o|--o{ WorkflowRun : "triggeredByUser"
+  Warehouse o|--o{ Shipment : "warehouse"
+  Warehouse o|--o{ StockTransaction : "warehouse"
+  Warehouse ||--o{ StockTransfer : "fromWarehouse"
+  Warehouse ||--o{ StockTransfer : "toWarehouse"
+  WorkflowTemplate ||--o{ WorkflowRun : "template"
+```

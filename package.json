@@ -14,6 +14,8 @@
     "build": "npm run build --workspace=apps/web && npm run build --workspace=apps/server",
     "check:idor": "./scripts/check-queryraw-tenancy.sh",
     "db:3layer-setup": "docker exec -i kiditem-postgres psql -U kiditem kiditem < prisma/3layer-setup.sql",
+    "db:erd": "node scripts/generate-prisma-erd.mjs",
+    "graphify:schema": "npm run db:erd && uv run --with graphifyy --python 3.11 python scripts/generate-schema-graphify.py",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
