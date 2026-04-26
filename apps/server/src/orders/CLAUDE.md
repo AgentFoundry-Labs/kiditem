@@ -2,9 +2,9 @@
 
 15 파일. **3개 무관한 도메인(orders / returns / cs)이 한 NestJS 모듈에 묶임**. Plan A.5 (ADR-0015) 가 schema 를 channel-agnostic 으로 통합.
 
-## Schema (ADR-0015)
+## Schema — channel-agnostic 통합 (Plan A.5)
 
-`Order` (aggregate root) + `OrderLineItem` (per-SKU) + `OrderReturn` + `OrderReturnLineItem`. 채널은 `platform String` 필드, 채널별 raw payload 는 `metadata Json`. `CoupangOrder` / `CoupangOrderItem` / `CoupangReturn` 는 drop. 상세: [ADR-0015](../../../../.claude/docs/decisions/0015-order-schema-unification.md).
+`Order` (aggregate root) + `OrderLineItem` (per-SKU) + `OrderReturn` + `OrderReturnLineItem`. 채널은 `platform String` 필드, 채널별 raw payload 는 `metadata Json`. `CoupangOrder` / `CoupangOrderItem` / `CoupangReturn` 는 drop. 신규 채널 추가 시 별도 channel-specific 테이블 만들지 말고 `platform` 값만 추가.
 
 ### 핵심 키 / unique
 

@@ -12,9 +12,9 @@ Plan B2a (2026-04-18) 가 재작성한 Inventory 도메인. Plan A 3-layer schem
 
 ## 핵심 규약
 
-### ADR-0014 — 단일 writer invariant
+### 단일 writer invariant
 
-`Inventory.currentStock` / `Inventory.reservedStock` 변경은 오직 `InventoryService.receive()` / `issue()` / `adjust()` 경유. 상세: [ADR-0014](../../../../.claude/docs/decisions/0014-stock-mutation-single-writer.md).
+`Inventory.currentStock` / `Inventory.reservedStock` 변경은 오직 `InventoryService.receive()` / `issue()` / `adjust()` 경유.
 
 외부 호출자 (orders / procurement / picking / advertising 등) 는 `InventoryService` 를 주입하고 semantic 메서드만 호출. `prisma.inventory.update({ currentStock })` 직접 호출 금지. `prisma.stockTransaction.create()` 직접 호출도 금지 (ledger 는 InventoryService 가 자동 append).
 

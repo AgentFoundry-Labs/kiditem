@@ -71,7 +71,7 @@ E-commerce operations automation for kids' products. Sourcing → AI processing 
 | 2~5 파일 수정 | 스코프 먼저 설명 후 진행 |
 | 5+ 파일 또는 신규 피처 | Plan mode. Sign-off 후 코딩 |
 | 스키마 변경 (Prisma/Zod) | 항상 Plan mode + 레이어별 영향 분석 |
-| Cross-business-domain 변경 | 금지. same-domain cross-layer(`server` + `shared` + direct `web`/root consumer)만 허용. 예외는 ADR + 승인된 plan 선행 |
+| Cross-business-domain 변경 | 금지. same-domain cross-layer(`server` + `shared` + direct `web`/root consumer)만 허용. 예외는 boundary plan 선행 (root AGENTS.md "Cross-Domain Rules" 의 Session boundary 규칙 참고) |
 
 ### 3. Verification — 완료 주장 전 필수 실행
 
@@ -95,12 +95,14 @@ E-commerce operations automation for kids' products. Sourcing → AI processing 
 ## Cross-Domain Rules
 
 - **No direct DB access from frontend** — must go through NestJS API.
-- **Session boundary** — ADR-0019 기준. 같은 business domain이면 `apps/server/src/{domain}` + 필요한 `packages/shared` + 직접 소비하는 `apps/web`/root consumer 를 한 세션에서 함께 수정할 수 있다. 서로 다른 business domain 을 섞는 것은 금지. 경계 예외는 ADR + plan 선행.
+- **Session boundary** — 같은 business domain 이면 `apps/server/src/{domain}` + 필요한 `packages/shared` + 직접 소비하는 `apps/web`/root consumer 를 한 세션에서 함께 수정할 수 있다. 서로 다른 business domain 을 섞는 것은 금지. 경계 예외는 boundary plan + 명시적 PR 사인오프로 처리.
 - **Workflows must never call LLMs directly** — delegate to agents via `agent_task.create`.
-- **No silent model fallback** — `model = model or default` pattern prohibited.
+- **No silent model fallback** — `model = model or default` 패턴 금지. 모델 미지정은 explicit error.
 - **No native PG enums** — `String` + app-level validation. Production cast error experience.
-- **아키텍처 결정 기록** — 경계·정책·폐기 선언·cross-domain 규칙 전복은 `.claude/docs/decisions/NNNN-*.md` 에 ADR. 기존 ADR 불변, 뒤집을 땐 새 ADR + `superseded-by`. 트리거·운영 규칙: [decisions/README](.claude/docs/decisions/README.md).
+- **No `$queryRawUnsafe`** — Prisma raw SQL 은 항상 tagged template (`$queryRaw\`...\``). 동적 식별자가 필요하면 whitelist + tagged interpolation.
+- **Multi-tenant scope** — 모든 mutating service 는 `@CurrentCompany()` 로 받은 `companyId` 를 WHERE/INSERT 에 포함. 단일 리소스 GET/PATCH/DELETE 는 `findFirst({ where: { id, companyId } })`. `findUnique({ where: { id } })` 금지 (IDOR).
 - **DB 동기화** — `git pull` 은 DB 를 자동 갱신하지 않는다. 스키마/데이터/init.sql.gz 역할: [prisma/AGENTS.md — DB 동기화](prisma/AGENTS.md#db-동기화--schema-vs-data-중요).
+- **신규 영구 규칙** — incident-driven 또는 cross-domain 새 규칙은 해당 scope 의 `AGENTS.md` 또는 `CLAUDE.md` 본문에 직접 등록. 별도 결정 이력 폴더는 두지 않는다 (ADR 체계 폐지, 2026-04-26).
 
 ## Structure
 
@@ -126,4 +128,3 @@ extensions/          — Chrome extensions (product-scraper: 1688/Alibaba, coupa
 - [Architecture](.claude/docs/architecture.md) — data flow, agent runtimes, @kiditem/shared, workflow vs agent boundary
 - [Testing Strategy](docs/TESTING.md) — 3-tier (unit mock / e2e HTTP mock / **integration real Postgres**). Race guard·IDOR 검증은 integration tier 로. `npm run db:test:up && npm run db:test:prepare && npm run test:integration`
 - [Commands & Environment](.claude/docs/commands.md) — quick start, dev commands, ports, env vars, tests
-- [Architecture Decisions (ADR)](.claude/docs/decisions/README.md) — 결정 이력(불변). 트리거·규칙·도메인별 인덱스

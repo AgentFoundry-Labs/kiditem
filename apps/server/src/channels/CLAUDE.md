@@ -2,7 +2,7 @@
 
 13 파일. **외부 마켓플레이스(Coupang) 어댑터 + 데이터 동기화 + 분석 대시보드** 가 결합된 도메인. `adapters/coupang/` 하위가 외부 API 격리 레이어.
 
-> **Plan A.5 (ADR-0015) 완료 (2026-04-18)**: `syncSingleOrder` / `syncSingleReturn` 은 channel-agnostic `Order` / `OrderLineItem` / `OrderReturn` / `OrderReturnLineItem` 으로 재작성됨. 채널 구분은 `platform String` (현재 `'coupang'`), 채널-특수 raw 데이터는 `metadata Json`. `CoupangOrder` / `CoupangOrderItem` / `CoupangReturn` 는 drop. 상세: [ADR-0015](../../../../.claude/docs/decisions/0015-order-schema-unification.md).
+> **Plan A.5 완료 (2026-04-18)**: `syncSingleOrder` / `syncSingleReturn` 은 channel-agnostic `Order` / `OrderLineItem` / `OrderReturn` / `OrderReturnLineItem` 으로 재작성됨. 채널 구분은 `platform String` (현재 `'coupang'`), 채널-특수 raw 데이터는 `metadata Json`. `CoupangOrder` / `CoupangOrderItem` / `CoupangReturn` 는 drop. 신규 채널 추가 시 별도 channel-specific 테이블 만들지 말고 `platform` 값만 추가 ([apps/server/src/orders/CLAUDE.md](../orders/CLAUDE.md) 참고).
 >
 > **⚠ Plan B2c pending**: `syncProducts` 와 `channel-dashboard.service.ts` 는 ADR-0013 drop 모델 (`Product`, `ProductItem`) 참조 + Plan A.5 drop 모델 (`coupangOrder*`) 참조로 stub 상태. B2c 가 `ChannelListing` + `ChannelListingOption` + `Order` / `OrderLineItem` 기반으로 재작성 예정.
 
@@ -105,7 +105,7 @@ await this.prisma.$transaction(async (tx) => {
 
 #### getReturnSummary (ADR-0017, Plan D.2)
 
-`GET /api/coupang-dashboard/return-summary` — 반품율 집계 엔드포인트. **[ADR-0017](../../../../.claude/docs/decisions/0017-returnrate-semantic-unification.md)** 에 따라 다음 정책 적용:
+`GET /api/coupang-dashboard/return-summary` — 반품율 집계 엔드포인트. **returnRate semantic unification (Plan D.2)** 에 따라 다음 정책 적용:
 
 - **INNER JOIN on Order.orderedAt** — `OrderReturn` 을 matched `Order` 에 join, `Order.orderedAt` 기준으로 시간 필터. 반품이 접수된 시점(`returnedAt`)이 아니라 주문 발생 시점 기준 분모/분자 정합 (ADR-0017 §reason-3).
 - **반환 4 필드**: `orderCount`, `returnCount`, `returnRate` (= returnCount / orderCount, `[0,1]`), `orphanReturnCount` (= `order_id = NULL` 인 반품 건 수 — ADR-0017 policy c 보조 지표).

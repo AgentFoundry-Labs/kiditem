@@ -245,12 +245,12 @@ def add_schema_graph(builder: GraphBuilder, models: dict[str, dict]) -> None:
                     builder.edge(fid, target_model_id, 'foreign_key_to', model['file'])
 
     # Explicit ontology aliases around the current channel option identity refactor.
-    concept_vendor = builder.node('concept_vendor_item_id', 'vendorItemId provider term', 'rationale', '.claude/docs/decisions/0020-channel-option-external-id.md', node_type='provider_term')
+    concept_vendor = builder.node('concept_vendor_item_id', 'vendorItemId provider term', 'rationale', 'apps/server/src/channels/CLAUDE.md', node_type='provider_term')
     concept_external = builder.node('concept_external_option_id', 'externalOptionId canonical option identity', 'rationale', 'prisma/models/core.prisma', node_type='canonical_concept')
     field_external = 'field_channellistingoption_externaloptionid'
     if field_external in builder.nodes:
         builder.edge(concept_external, field_external, 'implemented_by_field', 'prisma/models/core.prisma')
-        builder.edge(concept_vendor, concept_external, 'mapped_to_canonical_name', '.claude/docs/decisions/0020-channel-option-external-id.md', confidence='EXTRACTED')
+        builder.edge(concept_vendor, concept_external, 'mapped_to_canonical_name', 'apps/server/src/channels/CLAUDE.md', confidence='EXTRACTED')
 
 
 def markdown_title(path: Path, text: str) -> str:

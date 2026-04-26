@@ -17,12 +17,11 @@
 - [ ] `npm run dev:server` 부트 확인
 - [ ] `npm run build -w apps/web` 빌드 성공
 
-## 아키텍처 결정
+## 새 영구 규칙
 - [ ] 해당 없음 (리팩터링/버그픽스/기능 추가/단일 도메인 내부 구현)
-- [ ] ADR 신규 발행 → `.claude/docs/decisions/NNNN-*.md`
-- [ ] 기존 ADR Supersede → 새 ADR + 기존 `superseded-by` 한 줄 추가
+- [ ] 신규 영구 규칙을 해당 scope 의 `AGENTS.md` / `CLAUDE.md` 본문에 추가했음
 
-> 트리거(하나라도 해당되면 ADR 필요): 새 cross-domain 규칙 / 기존 금지·허용 규칙 전복 / 런타임·모듈 경계 이동 / 기술 선택 교체 / 기능·모듈 Deprecated 선언 / 인시던트로 새 영구 규칙 생성. 상세: [decisions/README](.claude/docs/decisions/README.md)
+> 트리거(하나라도 해당되면 governance 본문 갱신 필요): 새 cross-domain 규칙 / 기존 금지·허용 규칙 전복 / 런타임·모듈 경계 이동 / 기술 선택 교체 / 기능·모듈 Deprecated 선언 / 인시던트로 새 영구 규칙 생성.
 
 ## 리뷰
 ```bash

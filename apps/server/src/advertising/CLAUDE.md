@@ -94,5 +94,5 @@ Threshold (5000 / 100/200/480 / 0.85 / 1.2 / 0.5 / 3000) 는 현재 하드코딩
 ## 참고
 
 - 모델 스펙: [`prisma/models/advertising.prisma`](../../../../prisma/models/advertising.prisma)
-- ADR-0013: [.claude/docs/decisions/0013-product-schema-3layer.md](../../../../.claude/docs/decisions/0013-product-schema-3layer.md)
+- 3-layer 책임 분리 규칙: [`apps/server/src/products/CLAUDE.md`](../products/CLAUDE.md)
 - Plan B2b spec: [docs/superpowers/specs/2026-04-18-plan-b2b-advertising-listing-migration-design.md](../../../../docs/superpowers/specs/2026-04-18-plan-b2b-advertising-listing-migration-design.md)

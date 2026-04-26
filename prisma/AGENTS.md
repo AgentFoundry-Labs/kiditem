@@ -136,6 +136,24 @@ docker exec kiditem-postgres pg_dump -U kiditem --data-only --column-inserts \
 
 Prisma `db:push` 재실행 시 full unique constraint 가 다시 생성 → 반드시 `npm run db:3layer-setup` 재실행 (스크립트는 idempotent: `DROP ... IF EXISTS` → `CREATE`).
 
+## Barcode 의미 분리 (R0)
+
+- `MasterProduct.barcode` = source EAN/자사상품코드. **nullable + non-unique**, `(companyId, barcode)` index 만. 같은 EAN 이 여러 product family 에 걸치는 외부 데이터를 그대로 보존. 검색은 multi-result 가능 — `findUnique` 가정 금지.
+- `ProductOption.barcode` = 진짜 옵션/스캐너 단위 barcode. `(companyId, barcode)` partial unique 유지 (`product_options_company_barcode_active`). `/options/by-barcode/:barcode` 의 single-result 의미는 이 컬럼이 보장.
+- baseline import (`scripts/import-product-baseline.ts`) 는 source EAN 을 절대 `ProductOption.barcode` 에 쓰지 않는다 (null). master 식별자는 `(source barcode or blank fallback, normalized product name)` 결정적 키로 `MasterProduct.legacyCode = kiditem:v1:<sha256-16chars>` 에 저장 (idempotency 전용 — UI 노출 금지, user-facing code 는 `MasterProduct.code`).
+- 별도 source 가 진짜 옵션 barcode 를 제공하면 별도 import path 로 `ProductOption.barcode` 채움. baseline path 와 섞지 말 것.
+
+## ERD / Graphify 재생성
+
+Prisma 모델 / `scripts/generate-prisma-erd.mjs` / 스키마 consumer (`apps/server/src/channels`, `packages/shared`, `scripts`) / 기타 import script 변경 후 반드시:
+
+```bash
+npm run db:erd
+npm run graphify:schema
+```
+
+산출물 (`docs/ERD.md`, `graphify-out/schema/**`, `graphify-out/schema-consumers/**`) 는 navigation aid 일 뿐 source of truth 가 아님 — Graphify `INFERRED`/`AMBIGUOUS` edge 는 review 힌트로만 사용하고 중요한 주장은 source 파일로 검증한다.
+
 ## Phase 3+4 스키마 필드 (2026-04-13)
 
 AgentDefinition 추가 필드:
