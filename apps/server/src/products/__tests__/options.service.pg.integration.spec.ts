@@ -78,6 +78,24 @@ describe('OptionsService integration', () => {
     expect(skus.size).toBe(10);
   });
 
+  it('searches by seller product code legacyCode', async () => {
+    const master = await mastersSvc.create(TEST_COMPANY_ID, { name: 'Legacy Search Master' } as any);
+    const match = await svc.create(TEST_COMPANY_ID, {
+      masterId: master.id,
+      optionName: 'Legacy Search Match',
+      legacyCode: '10349-1',
+    } as any);
+    await svc.create(TEST_COMPANY_ID, {
+      masterId: master.id,
+      optionName: 'Other Option',
+      legacyCode: '10349-2',
+    } as any);
+
+    const { items } = await svc.list(TEST_COMPANY_ID, { search: '10349-1', limit: 10 } as any);
+
+    expect(items.map((item) => item.id)).toEqual([match.id]);
+  });
+
   it('prevents isBundle flip true → false when BundleComponent rows exist', async () => {
     const m = await mastersSvc.create(TEST_COMPANY_ID, { name: 'M6' } as any);
     const bundle = await svc.create(TEST_COMPANY_ID, {
