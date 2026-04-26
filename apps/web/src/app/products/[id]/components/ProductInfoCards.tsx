@@ -48,6 +48,13 @@ export default function ProductInfoCards({ product, inventory }: ProductInfoCard
           />
         )}
         <InfoRow label="상품 코드" value={product.code} />
+        {/* ADR-0022 — source barcode/EAN from kiditem_list. Distinct from
+            option-level SKU/barcode below. May be shared across multiple
+            masters (search returns a list). */}
+        <InfoRow
+          label="EAN / 자사상품코드"
+          value={product.barcode ? <span className="font-mono">{product.barcode}</span> : "-"}
+        />
         <InfoRow label="대표 SKU" value={product.representativeSku ?? "-"} />
         <InfoRow label="옵션 수" value={`${product.optionCount}개`} />
         {product.options.length > 0 && (
@@ -55,8 +62,16 @@ export default function ProductInfoCards({ product, inventory }: ProductInfoCard
             <div className="border-t border-slate-100 my-2" />
             {product.options.map((option) => (
               <div key={option.id} className="rounded-lg border border-slate-100 p-2 space-y-1">
-                <InfoRow label="옵션" value={option.optionName ?? option.sku} />
-                <InfoRow label="SKU" value={option.sku} />
+                <InfoRow label="옵션명" value={option.optionName ?? "-"} />
+                <InfoRow label="SKU" value={<span className="font-mono">{option.sku}</span>} />
+                <InfoRow
+                  label="판매자 상품코드"
+                  value={option.legacyCode ? <span className="font-mono">{option.legacyCode}</span> : "-"}
+                />
+                <InfoRow
+                  label="옵션 바코드"
+                  value={option.barcode ? <span className="font-mono">{option.barcode}</span> : "-"}
+                />
                 <InfoRow label="매입가" value={option.costPrice ? `₩${formatKRW(option.costPrice)}` : "-"} />
                 <InfoRow label="판매가" value={option.sellPrice ? `₩${formatKRW(option.sellPrice)}` : "-"} />
                 {option.commissionRate != null && (

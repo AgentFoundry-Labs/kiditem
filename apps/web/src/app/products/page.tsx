@@ -119,6 +119,8 @@ export default function ProductsPage() {
           등급: p.abcGrade ?? '',
           상품명: p.name,
           상품코드: p.code,
+          // ADR-0022 — source barcode/EAN from kiditem_list. Distinct from option SKU.
+          'EAN/자사상품코드': p.barcode ?? '',
           SKU: p.representativeSku ?? '',
           카테고리: p.category ?? '',
           브랜드: p.brand ?? '',
@@ -190,6 +192,7 @@ export default function ProductsPage() {
             <div className="text-[11px] text-slate-400 mt-1.5 space-x-1">
               <span>코드: {p.code}</span>
               {p.representativeSku && <span>&#183; SKU: {p.representativeSku}</span>}
+              {p.barcode && <span>&#183; EAN: <span className="font-mono">{p.barcode}</span></span>}
               {p.optionCount > 0 && <span>&#183; 옵션 {p.optionCount}개</span>}
             </div>
             <div className="text-[11px] text-slate-400 mt-0.5">

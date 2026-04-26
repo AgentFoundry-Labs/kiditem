@@ -77,6 +77,9 @@ export class MastersService {
           { name: { contains: q.search, mode: 'insensitive' } },
           { legacyCode: { contains: q.search } },
           { code: { contains: q.search } },
+          // ADR-0022 — search by source barcode/EAN. May return multiple masters
+          // because (companyId, barcode) is non-unique by design.
+          { barcode: { contains: q.search } },
         ],
       });
     }

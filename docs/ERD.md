@@ -635,6 +635,7 @@ erDiagram
     String companyId FK
     String code UK
     String legacyCode
+    String barcode
     String name
     String description
     String category
