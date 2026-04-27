@@ -1,11 +1,11 @@
 # Graph Report - schema  (2026-04-27)
 
 ## Corpus Check
-- 12 files · ~13,233 words
+- 12 files · ~13,309 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 1427 nodes · 2205 edges · 26 communities detected
+- 1427 nodes · 2209 edges · 26 communities detected
 - Extraction: 100% EXTRACTED · 0% INFERRED · 0% AMBIGUOUS
 - Token cost: 0 input · 0 output
 
@@ -39,7 +39,7 @@
 
 ## God Nodes (most connected - your core abstractions)
 1. `Database ERD` - 238 edges
-2. `prisma — Shared Schema` - 131 edges
+2. `prisma — Shared Schema` - 135 edges
 3. `Company` - 127 edges
 4. `ProductOption` - 68 edges
 5. `AgentDefinition` - 66 edges
@@ -47,8 +47,8 @@
 7. `ChannelListing` - 60 edges
 8. `Ad` - 59 edges
 9. `AdSnapshot` - 49 edges
-10. `HeartbeatRun` - 39 edges
-11. `ChannelListingOptionDailySnapshot` - 39 edges
+10. `ChannelListingOptionDailySnapshot` - 40 edges
+11. `HeartbeatRun` - 39 edges
 12. `Order` - 38 edges
 
 ## Surprising Connections (you probably didn't know these)
@@ -183,11 +183,11 @@ Nodes (13): CategoryMapping.company, CategoryMapping.companyId, CategoryMapping.
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `Database ERD` connect `Orders schema` to `Supply schema`, `Channels schema`, `Finance schema`, `Core schema`, `Agents schema`, `Inventory schema`, `Advertising schema`, `Agents schema`, `AI schema`, `Core schema`, `Orders schema`, `System schema`, `System schema`, `Agents schema`, `Advertising schema`, `Orders schema`, `AI schema`, `Advertising schema`, `Inventory schema`, `System schema`, `Finance schema`, `Inventory schema`, `Orders schema`, `Advertising schema`, `Core schema`?**
-  _High betweenness centrality (0.477) - this node is a cross-community bridge._
+  _High betweenness centrality (0.459) - this node is a cross-community bridge._
 - **Why does `Company` connect `Finance schema` to `Orders schema`, `Supply schema`, `Channels schema`, `Core schema`, `Agents schema`, `Inventory schema`, `Advertising schema`, `Agents schema`, `AI schema`, `Core schema`, `Orders schema`, `System schema`, `System schema`, `Agents schema`, `Advertising schema`, `Orders schema`, `AI schema`, `Advertising schema`, `Inventory schema`, `Finance schema`, `Inventory schema`, `Orders schema`, `Advertising schema`, `Core schema`?**
-  _High betweenness centrality (0.235) - this node is a cross-community bridge._
+  _High betweenness centrality (0.223) - this node is a cross-community bridge._
 - **Why does `prisma — Shared Schema` connect `AI schema` to `Orders schema`, `Supply schema`, `Channels schema`, `Finance schema`, `Core schema`, `Agents schema`, `Inventory schema`, `Advertising schema`, `Agents schema`, `Core schema`, `Orders schema`, `System schema`, `System schema`, `Agents schema`, `Advertising schema`, `Orders schema`, `AI schema`, `Advertising schema`, `Inventory schema`, `System schema`, `Finance schema`, `Inventory schema`, `Orders schema`, `Advertising schema`, `Core schema`?**
-  _High betweenness centrality (0.155) - this node is a cross-community bridge._
+  _High betweenness centrality (0.187) - this node is a cross-community bridge._
 - **What connects `Ad.platform`, `Ad.campaignName`, `Ad.dailyBudget` to the rest of the system?**
   _963 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Orders schema` be split into smaller, more focused modules?**

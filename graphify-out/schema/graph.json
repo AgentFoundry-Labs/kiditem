@@ -25107,6 +25107,17 @@
       "confidence_score": 1.0
     },
     {
+      "relation": "mentions_model",
+      "confidence": "EXTRACTED",
+      "source_file": "prisma/AGENTS.md",
+      "weight": 1.0,
+      "_src": "doc_prisma_agents_md",
+      "_tgt": "model_channelscraperun",
+      "source": "model_channelscraperun",
+      "target": "doc_prisma_agents_md",
+      "confidence_score": 1.0
+    },
+    {
       "relation": "primary_key_on",
       "confidence": "EXTRACTED",
       "source_file": "prisma/models/channels.prisma",
@@ -25522,6 +25533,17 @@
       "_tgt": "model_channelscrapesnapshot",
       "source": "model_channelscrapesnapshot",
       "target": "doc_docs_erd_md",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "mentions_model",
+      "confidence": "EXTRACTED",
+      "source_file": "prisma/AGENTS.md",
+      "weight": 1.0,
+      "_src": "doc_prisma_agents_md",
+      "_tgt": "model_channelscrapesnapshot",
+      "source": "model_channelscrapesnapshot",
+      "target": "doc_prisma_agents_md",
       "confidence_score": 1.0
     },
     {
@@ -26028,6 +26050,17 @@
       "_tgt": "model_channellistingdailysnapshot",
       "source": "model_channellistingdailysnapshot",
       "target": "doc_docs_erd_md",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "mentions_model",
+      "confidence": "EXTRACTED",
+      "source_file": "prisma/AGENTS.md",
+      "weight": 1.0,
+      "_src": "doc_prisma_agents_md",
+      "_tgt": "model_channellistingdailysnapshot",
+      "source": "model_channellistingdailysnapshot",
+      "target": "doc_prisma_agents_md",
       "confidence_score": 1.0
     },
     {
@@ -26545,6 +26578,17 @@
       "_tgt": "model_channellistingoptiondailysnapshot",
       "source": "model_channellistingoptiondailysnapshot",
       "target": "doc_docs_erd_md",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "mentions_model",
+      "confidence": "EXTRACTED",
+      "source_file": "prisma/AGENTS.md",
+      "weight": 1.0,
+      "_src": "doc_prisma_agents_md",
+      "_tgt": "model_channellistingoptiondailysnapshot",
+      "source": "model_channellistingoptiondailysnapshot",
+      "target": "doc_prisma_agents_md",
       "confidence_score": 1.0
     },
     {

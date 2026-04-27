@@ -8,10 +8,11 @@ DB schema source of truth for the entire system. Prisma v7 (multi-file).
 prisma/
 ├── schema.prisma       # generator + datasource 만
 ├── migrations/         # 마이그레이션 이력
-└── models/             # 도메인별 모델 (9 파일, alphabetical)
+└── models/             # 도메인별 모델 (10 파일, alphabetical)
     ├── advertising.prisma      (Ad, AdAction, AdSnapshot, ItemWinner, ScrapeTarget, TrafficStats, Execution*)
     ├── agents.prisma           (AgentDefinition, AgentTask, AgentEvent, AgentLog, AgentWakeupRequest, HeartbeatRun, WorkflowRun, WorkflowTemplate)
     ├── ai.prisma               (Thumbnail*, ContentGeneration)
+    ├── channels.prisma         (ChannelScrapeRun, ChannelScrapeSnapshot, ChannelListingDailySnapshot, ChannelListingOptionDailySnapshot)
     ├── core.prisma             (Company, User, MasterProduct, ProductOption, ChannelListing, ChannelListingOption, BundleComponent, CategoryMapping)
     ├── finance.prisma          (ProfitLoss, GradeHistory, ManualLedger, ProcessingCost, SalesPlan)
     ├── inventory.prisma        (Inventory, Stock*, Warehouse, Picking*, ReturnTransfer)
@@ -22,7 +23,7 @@ prisma/
     └── system.prisma           (Marketplace, BusinessRule, ActionTask, FeatureGate, ActivityEvent, Alert, SystemSetting, ProductMemo, MigrationCheckpoint)
 ```
 
-각 모델 위 `/// @namespace <도메인>` + `/// @describe <한줄>` 주석으로 도메인 경계 + 의미를 schema 자체에 inline. `prisma generate` 가 9 파일을 자동 merge (single schema 와 동일 동작). 새 모델 추가 시 도메인에 맞는 파일에 넣고 namespace 주석 붙이기.
+각 모델 위 `/// @namespace <도메인>` + `/// @describe <한줄>` 주석으로 도메인 경계 + 의미를 schema 자체에 inline. `prisma generate` 가 10 파일을 자동 merge (single schema 와 동일 동작). 새 모델 추가 시 도메인에 맞는 파일에 넣고 namespace 주석 붙이기.
 
 **Prisma v7 config 위치**: `prisma.config.ts` (root) 의 `schema: 'prisma'` — 디렉토리 지정이 공식 best-practice.
 
@@ -31,6 +32,9 @@ prisma/
 ```bash
 npm run db:generate   # Generate Prisma client
 npm run db:push       # Dev — apply directly to DB
+npm run db:3layer-setup # Reapply partial indexes / RLS / CHECK constraints after db:push
+npm run db:erd        # Regenerate docs/ERD.md after Prisma model changes
+npm run graphify:schema # Regenerate ERD + graphify-out schema navigation artifacts
 npm run db:migrate    # Production — create migration files
 npm run db:studio     # DB browser (localhost:5555)
 ```
@@ -63,7 +67,9 @@ git pull
 npm install --legacy-peer-deps
 npm run db:push -- --accept-data-loss   # drop 이 포함됐으면 플래그 필요
 npx prisma generate
-npm run db:3layer-setup                 # partial unique indexes + 7 RLS policies + 3 CHECK constraints 재적용
+npm run db:3layer-setup                 # partial unique indexes + company-id RLS policies + 3 CHECK constraints 재적용
+npm run db:erd                          # docs/ERD.md 재생성
+npm run graphify:schema                 # graphify-out/schema/** + schema-consumers/** 재생성
 ```
 
 `--accept-data-loss` 는 **삭제(drop)** 가 있을 때만 필수. PR 설명에 drop 포함 여부 명시한다.
@@ -105,7 +111,7 @@ docker exec kiditem-postgres pg_dump -U kiditem --data-only --column-inserts \
 - Timestamps: `@db.Timestamptz`
 - Currency: `Int` (KRW) or `Decimal(12,2)` (CNY)
 - Python accesses snake_case DB column names directly (asyncpg raw SQL)
-- After schema changes: always run `npm run db:push` + `npx prisma generate`
+- After schema changes: always run the schema-change checklist above (`db:push` + `prisma generate` + `db:3layer-setup` + generated ERD/Graphify artifacts)
 - Keep Zod schemas in sync: use `satisfies z.infer<typeof Schema>` pattern in services
 - Json 흡수 패턴: 부모의 `items Json @default("[]")` 사용 (CoupangReturn 등 — 자식이 별도 테이블을 가질 이유가 없을 때). 서비스에서 `as unknown as T[]` 캐스트.
 - **FK 컬럼에 `@@index` 명시 필수** — Prisma 는 FK 에 자동 인덱스를 만들지 **않는다**. JOIN/역방향 조회가 있는 FK (대부분) 는 명시적 `@@index([foreignKey])` 추가. 복합이 자주 쓰이면 `@@index([companyId, foreignKey])` 등 조합 인덱스도 함께.
