@@ -15,7 +15,7 @@ echo "[test-db-setup] prisma db push ..."
 DATABASE_URL="$DB_URL" npx prisma db push --accept-data-loss
 
 echo "[test-db-setup] ensure chatbot_readonly role ..."
-docker exec "$CONTAINER" psql -U "$DB_USER" "$DB_NAME" <<SQL
+docker exec -i "$CONTAINER" psql -v ON_ERROR_STOP=1 -U "$DB_USER" "$DB_NAME" <<SQL
 DO \$\$
 BEGIN
   IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'chatbot_readonly') THEN
@@ -30,6 +30,6 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO chatbot_read
 SQL
 
 echo "[test-db-setup] apply 3layer-setup.sql ..."
-docker exec -i "$CONTAINER" psql -U "$DB_USER" "$DB_NAME" < "$(dirname "$0")/3layer-setup.sql"
+docker exec -i "$CONTAINER" psql -v ON_ERROR_STOP=1 -U "$DB_USER" "$DB_NAME" < "$(dirname "$0")/3layer-setup.sql"
 
 echo "[test-db-setup] done."
