@@ -322,6 +322,7 @@ export {
   RECOMPOSE_KINDS,
   THUMBNAIL_PHASES,
   THUMBNAIL_REGISTRATION_STATUSES,
+  THUMBNAIL_TRACKING_STATUSES,
 } from './schemas/thumbnails.js';
 export type {
   ThumbnailListItem,
@@ -345,6 +346,7 @@ export type {
   RecomposeKind,
   ThumbnailPhase,
   ThumbnailRegistrationStatus,
+  ThumbnailTrackingStatus,
 } from './schemas/thumbnails.js';
 
 // Ads (Plan B2b — listingId-primary)

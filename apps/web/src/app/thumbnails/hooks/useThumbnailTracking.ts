@@ -1,44 +1,19 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import type {
+  ThumbnailTrackingListResponse,
+  ThumbnailTrackingRecord,
+  UpdateThumbnailTrackingMetricsInput,
+} from '@kiditem/shared';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 
-export interface ThumbnailTrackingRecord {
-  id: string;
-  productId: string;
-  productName: string;
-  generationId: string;
-  originalGrade: string;
-  originalScore: number;
-  appliedAt: string;
-  daysElapsed: number;
-  status: string;
-  ctrBefore: number | null;
-  ctrAfter: number | null;
-  ctrChange: number | null;
-  reviewsBefore: number | null;
-  reviewsAfter: number | null;
-  salesBefore: number | null;
-  salesAfter: number | null;
-}
+export type { ThumbnailTrackingListResponse, ThumbnailTrackingRecord };
+export type UpdateMetricsInput = UpdateThumbnailTrackingMetricsInput;
+type TrackingStatus = ThumbnailTrackingRecord['status'];
 
-export interface UpdateMetricsInput {
-  ctrBefore?: number;
-  ctrAfter?: number;
-  reviewsBefore?: number;
-  reviewsAfter?: number;
-  salesBefore?: number;
-  salesAfter?: number;
-  status?: string;
-}
-
-export interface ThumbnailTrackingListResponse {
-  items: ThumbnailTrackingRecord[];
-  total: number;
-  page: number;
-  limit: number;
-}
-
-export function useTrackingList(params: { page?: number; limit?: number; status?: string } = {}) {
+export function useTrackingList(
+  params: { page?: number; limit?: number; status?: TrackingStatus } = {},
+) {
   const { page = 1, limit = 50, status } = params;
   const search = new URLSearchParams({ page: String(page), limit: String(limit) });
   if (status) search.set('status', status);

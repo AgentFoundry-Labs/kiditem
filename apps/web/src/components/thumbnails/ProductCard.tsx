@@ -88,7 +88,7 @@ export function ProductCard({
           <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
             <div className="text-center">
               <Loader2 size={28} className="text-white animate-spin mx-auto" />
-              <div className="text-white text-xs font-medium mt-2">Gemini 생성 중...</div>
+              <div className="text-white text-xs font-medium mt-2">이미지 생성 중...</div>
             </div>
           </div>
         )}

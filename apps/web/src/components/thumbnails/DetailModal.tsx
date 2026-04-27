@@ -79,6 +79,8 @@ export function DetailModal({
   const [slideIndex, setSlideIndex] = useState(0);
 
   const display = aiResult || product;
+  const analysisMethodLabel =
+    display?.method === 'ai' ? 'Gemini' : display?.method === 'rule' ? '룰 기반' : 'AI';
   const candidates = gen?.candidates || [];
   const productName = gen?.product.name || product?.productName || '';
   const originalImage = resolveImageUrl(gen?.originalUrl || gen?.product.imageUrl || product?.imageUrl || null);
@@ -286,7 +288,7 @@ export function DetailModal({
                     <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">분석 결과</p>
                     {aiResult && (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] text-purple-500 bg-purple-50 rounded-md font-medium">
-                        <Zap size={10} /> Gemini
+                        <Zap size={10} /> {analysisMethodLabel}
                       </span>
                     )}
                     <button
@@ -628,7 +630,7 @@ export function DetailModal({
                     </button>
                     {aiResult && (
                       <span className="inline-flex items-center gap-1 px-2.5 py-2.5 text-xs text-purple-500 bg-purple-50 rounded-xl font-medium">
-                        <Zap size={12} /> Gemini 분석됨
+                        <Zap size={12} /> {analysisMethodLabel} 분석됨
                       </span>
                     )}
                   </div>

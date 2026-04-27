@@ -57,7 +57,7 @@ export class ThumbnailAnalysisController {
    * 가짜 connected:true 로 위장하지 말고 truthful 한 status 응답.
    */
   @Get('playwriter-status')
-  checkPlaywriterStatus() {
+  checkPlaywriterStatus(@CurrentCompany() _companyId: string) {
     return { connected: false, error: WING_UNAVAILABLE };
   }
 
@@ -80,7 +80,7 @@ export class ThumbnailAnalysisController {
   }
 
   @Post('image-spec')
-  checkImageSpec(@Body() body: CheckImageSpecDto) {
+  checkImageSpec(@Body() body: CheckImageSpecDto, @CurrentCompany() _companyId: string) {
     return this.analysisService.checkImageSpec(body.imageUrl);
   }
 

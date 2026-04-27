@@ -39,7 +39,8 @@ export function UploadAnalyzer({ onAnalyzed }: UploadAnalyzerProps) {
       if (data.grade) {
         setResults((prev) => [data, ...prev]);
         onAnalyzed?.(data);
-        toast.success(`${data.grade}등급 (${data.overallScore}점) — Gemini Vision 분류 완료`);
+        const methodLabel = data.method === 'ai' ? 'Gemini Vision' : '룰 기반';
+        toast.success(`${data.grade}등급 (${data.overallScore}점) — ${methodLabel} 분류 완료`);
       }
     } catch {
       toast.error('AI 분석 실패');
@@ -65,7 +66,7 @@ export function UploadAnalyzer({ onAnalyzed }: UploadAnalyzerProps) {
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <Zap size={14} className="text-purple-600" />
-            <span className="text-sm font-bold text-purple-600">Gemini Vision 분류 기준</span>
+            <span className="text-sm font-bold text-purple-600">썸네일 분류 기준</span>
           </div>
           <span className="text-[11px] font-mono text-slate-400">S: 90+ | A: 75+ | B: 60+ | C: 40+ | F: 39-</span>
         </div>

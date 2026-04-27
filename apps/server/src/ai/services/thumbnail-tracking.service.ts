@@ -1,8 +1,11 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import type {
-  ThumbnailTrackingListResponse,
-  ThumbnailTrackingRecord,
-  UpdateThumbnailTrackingMetricsInput,
+import { Prisma } from '@prisma/client';
+import {
+  THUMBNAIL_TRACKING_STATUSES,
+  type ThumbnailTrackingListResponse,
+  type ThumbnailTrackingRecord,
+  type ThumbnailTrackingStatus,
+  type UpdateThumbnailTrackingMetricsInput,
 } from '@kiditem/shared';
 import { PrismaService } from '../../prisma/prisma.service';
 
@@ -34,6 +37,9 @@ const LISTING_INCLUDE = {
 } as const;
 
 function toRecord(row: TrackingRow, nowMs: number = Date.now()): ThumbnailTrackingRecord {
+  const status = (THUMBNAIL_TRACKING_STATUSES as readonly string[]).includes(row.status)
+    ? (row.status as ThumbnailTrackingStatus)
+    : 'tracking';
   const ctrChange =
     row.ctrBefore != null && row.ctrAfter != null
       ? Math.round((row.ctrAfter - row.ctrBefore) * 10) / 10
@@ -47,7 +53,7 @@ function toRecord(row: TrackingRow, nowMs: number = Date.now()): ThumbnailTracki
     originalScore: row.originalScore,
     appliedAt: row.appliedAt.toISOString(),
     daysElapsed: Math.floor((nowMs - row.appliedAt.getTime()) / (1000 * 60 * 60 * 24)),
-    status: row.status,
+    status,
     ctrBefore: row.ctrBefore,
     ctrAfter: row.ctrAfter,
     ctrChange,
@@ -65,7 +71,7 @@ export class ThumbnailTrackingService {
   constructor(private readonly prisma: PrismaService) {}
 
   async findAll(
-    query: { page?: number; limit?: number; status?: string },
+    query: { page?: number; limit?: number; status?: ThumbnailTrackingStatus },
     companyId: string,
   ): Promise<ThumbnailTrackingListResponse> {
     const page = query.page ?? 1;
@@ -109,25 +115,42 @@ export class ThumbnailTrackingService {
       return null;
     }
 
-    const existing = await this.prisma.thumbnailTracking.findUnique({
+    const existing = await this.prisma.thumbnailTracking.findFirst({
       where: {
-        listingId_generationId: { listingId: listing.id, generationId: input.generationId },
+        companyId: input.companyId,
+        listingId: listing.id,
+        generationId: input.generationId,
       },
       include: LISTING_INCLUDE,
     });
     if (existing) return toRecord(existing as unknown as TrackingRow);
 
-    const row = await this.prisma.thumbnailTracking.create({
-      data: {
-        companyId: input.companyId,
-        listingId: listing.id,
-        generationId: input.generationId,
-        originalGrade: input.originalGrade,
-        originalScore: input.originalScore,
-      },
-      include: LISTING_INCLUDE,
-    });
-    return toRecord(row as unknown as TrackingRow);
+    try {
+      const row = await this.prisma.thumbnailTracking.create({
+        data: {
+          companyId: input.companyId,
+          listingId: listing.id,
+          generationId: input.generationId,
+          originalGrade: input.originalGrade,
+          originalScore: input.originalScore,
+        },
+        include: LISTING_INCLUDE,
+      });
+      return toRecord(row as unknown as TrackingRow);
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        const row = await this.prisma.thumbnailTracking.findFirst({
+          where: {
+            companyId: input.companyId,
+            listingId: listing.id,
+            generationId: input.generationId,
+          },
+          include: LISTING_INCLUDE,
+        });
+        if (row) return toRecord(row as unknown as TrackingRow);
+      }
+      throw err;
+    }
   }
 
   async updateMetrics(
@@ -156,11 +179,17 @@ export class ThumbnailTrackingService {
       updateData.status = 'measured';
     }
 
-    const row = await this.prisma.thumbnailTracking.update({
-      where: { id },
+    const result = await this.prisma.thumbnailTracking.updateMany({
+      where: { id, companyId },
       data: updateData,
+    });
+    if (result.count === 0) throw new NotFoundException(`ThumbnailTracking ${id} not found`);
+
+    const row = await this.prisma.thumbnailTracking.findFirst({
+      where: { id, companyId },
       include: LISTING_INCLUDE,
     });
+    if (!row) throw new NotFoundException(`ThumbnailTracking ${id} not found`);
     return toRecord(row as unknown as TrackingRow);
   }
 }

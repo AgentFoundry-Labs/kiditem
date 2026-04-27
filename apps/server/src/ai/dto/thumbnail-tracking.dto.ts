@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
-import { IsInt, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { IsIn, IsInt, IsNumber, IsOptional, Min } from 'class-validator';
+import { THUMBNAIL_TRACKING_STATUSES, type ThumbnailTrackingStatus } from '@kiditem/shared';
 
 export class ListTrackingQueryDto {
   @IsOptional()
@@ -15,8 +16,8 @@ export class ListTrackingQueryDto {
   limit?: number;
 
   @IsOptional()
-  @IsString()
-  status?: string;
+  @IsIn(THUMBNAIL_TRACKING_STATUSES)
+  status?: ThumbnailTrackingStatus;
 }
 
 export class UpdateMetricsDto {
@@ -45,6 +46,6 @@ export class UpdateMetricsDto {
   salesAfter?: number;
 
   @IsOptional()
-  @IsString()
-  status?: string;
+  @IsIn(THUMBNAIL_TRACKING_STATUSES)
+  status?: ThumbnailTrackingStatus;
 }

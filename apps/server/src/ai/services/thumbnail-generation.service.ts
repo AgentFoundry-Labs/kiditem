@@ -81,15 +81,14 @@ export class ThumbnailGenerationService {
     if (!isDeselect && !candidates.some((c) => c.url === selectedUrl)) {
       throw new BadRequestException('selectedUrl 은 해당 generation 의 candidates 중 하나여야 합니다');
     }
-    const updated = await this.prisma.thumbnailGeneration.update({
-      where: { id },
+    await this.prisma.thumbnailGeneration.updateMany({
+      where: { id, companyId },
       data: {
         selectedUrl: isDeselect ? null : selectedUrl,
         ...(isDeselect ? {} : { status: 'succeeded', phase: 'ready' }),
       },
-      include: { master: { select: { id: true, name: true, imageUrl: true } } },
     });
-    return this.toItem(updated as unknown as GenerationRow);
+    return this.findOne(id, companyId);
   }
 
   async applyGeneration(id: string, companyId: string): Promise<ThumbnailGenerationItem> {
@@ -105,10 +104,9 @@ export class ThumbnailGenerationService {
       });
     }
 
-    const updated = await this.prisma.thumbnailGeneration.update({
-      where: { id },
+    await this.prisma.thumbnailGeneration.updateMany({
+      where: { id, companyId },
       data: { status: 'succeeded', phase: 'applied' },
-      include: { master: { select: { id: true, name: true, imageUrl: true } } },
     });
 
     const analysis = await this.prisma.thumbnailAnalysis.findFirst({
@@ -131,7 +129,7 @@ export class ThumbnailGenerationService {
         );
       });
 
-    return this.toItem(updated as unknown as GenerationRow);
+    return this.findOne(id, companyId);
   }
 
   async skipGeneration(id: string, companyId: string): Promise<ThumbnailGenerationItem> {
@@ -140,12 +138,11 @@ export class ThumbnailGenerationService {
       select: { id: true },
     });
     if (!existing) throw new NotFoundException(`ThumbnailGeneration ${id} not found`);
-    const updated = await this.prisma.thumbnailGeneration.update({
-      where: { id },
+    await this.prisma.thumbnailGeneration.updateMany({
+      where: { id, companyId },
       data: { status: 'cancelled', phase: null },
-      include: { master: { select: { id: true, name: true, imageUrl: true } } },
     });
-    return this.toItem(updated as unknown as GenerationRow);
+    return this.findOne(id, companyId);
   }
 
   async deleteGeneration(id: string, companyId: string): Promise<{ ok: true }> {
@@ -154,7 +151,7 @@ export class ThumbnailGenerationService {
       select: { id: true },
     });
     if (!existing) throw new NotFoundException(`ThumbnailGeneration ${id} not found`);
-    await this.prisma.thumbnailGeneration.delete({ where: { id } });
+    await this.prisma.thumbnailGeneration.deleteMany({ where: { id, companyId } });
     return { ok: true };
   }
 
@@ -174,12 +171,12 @@ export class ThumbnailGenerationService {
       throw new NotFoundException('해당 candidate URL 을 찾을 수 없습니다');
     }
     if (next.length === 0) {
-      await this.prisma.thumbnailGeneration.delete({ where: { id } });
+      await this.prisma.thumbnailGeneration.deleteMany({ where: { id, companyId } });
       return { ok: true, generationDeleted: true, remaining: 0 };
     }
     const shouldClearSelected = existing.selectedUrl === candidateUrl;
-    await this.prisma.thumbnailGeneration.update({
-      where: { id },
+    await this.prisma.thumbnailGeneration.updateMany({
+      where: { id, companyId },
       data: {
         candidates: next as unknown as Prisma.InputJsonValue,
         ...(shouldClearSelected ? { selectedUrl: null } : {}),

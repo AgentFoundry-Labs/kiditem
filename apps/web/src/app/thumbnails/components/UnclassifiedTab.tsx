@@ -97,7 +97,7 @@ export function UnclassifiedTab({
           <div className="flex items-center gap-2">
             <Zap size={16} style={{ color: 'var(--thumb-primary)' }} />
             <span className="text-sm font-semibold" style={{ color: 'var(--thumb-primary)' }}>
-              {unclassifiedWithImage.length}개 — Gemini AI 분류 필요
+              {unclassifiedWithImage.length}개 — 썸네일 분류 필요
             </span>
           </div>
           <div className="flex items-center gap-2">

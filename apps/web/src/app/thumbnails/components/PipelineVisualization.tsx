@@ -70,7 +70,7 @@ export function PipelineVisualization({
       color: '#3182f6',
       icon: Zap,
       tab: 'all',
-      desc: 'Gemini Vision 완료',
+      desc: '분류 완료',
       tasks: recentClassified.map((p) => ({ name: p.productName, status: `${p.grade}등급` })),
       emptyText: '분석 대기',
     },
@@ -230,4 +230,3 @@ export function PipelineVisualization({
     </div>
   );
 }
-

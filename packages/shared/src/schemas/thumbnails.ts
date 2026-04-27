@@ -229,6 +229,9 @@ export const ThumbnailGenerationListResponseSchema = z.object({
 
 // ─── 트래킹 ──────────────────────────────────────────────
 
+export const THUMBNAIL_TRACKING_STATUSES = ['tracking', 'measured', 'inconclusive'] as const;
+export type ThumbnailTrackingStatus = (typeof THUMBNAIL_TRACKING_STATUSES)[number];
+
 export const ThumbnailTrackingRecordSchema = z.object({
   id: z.string(),
   productId: z.string(),
@@ -238,7 +241,7 @@ export const ThumbnailTrackingRecordSchema = z.object({
   originalScore: z.number(),
   appliedAt: z.string(),
   daysElapsed: z.number(),
-  status: z.string(),
+  status: z.enum(THUMBNAIL_TRACKING_STATUSES),
   ctrBefore: z.number().nullable(),
   ctrAfter: z.number().nullable(),
   ctrChange: z.number().nullable(),
@@ -263,7 +266,7 @@ export const UpdateThumbnailTrackingMetricsSchema = z
     reviewsAfter: z.number().optional(),
     salesBefore: z.number().optional(),
     salesAfter: z.number().optional(),
-    status: z.string().optional(),
+    status: z.enum(THUMBNAIL_TRACKING_STATUSES).optional(),
   })
   .strict();
 
