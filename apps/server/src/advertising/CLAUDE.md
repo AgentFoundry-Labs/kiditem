@@ -43,13 +43,15 @@ AdSyncService.sync
 - KST business date: `payload.timestamp` 같은 ISO 문자열은 `+09:00` shift 후 day slice. `YYYY-MM-DD` 형태는 이미 KST business date 로 간주. helper `toBusinessDate()` 한 곳에서만 처리 — handler 가 직접 `new Date(...).slice(0,10)` 하지 말 것.
 - payload date-range: extension 이 `dateFrom` / `dateTo` 를 보내면 `ExtensionSyncDto` 가 명시적으로 받아야 함 (전역 `ValidationPipe({whitelist:true})` 가 미선언 필드 strip). 받은 값은 `ChannelScrapeRun.periodStart` / `periodEnd` 로 매핑.
 
-## Wave C5 — Legacy consumer audit (참고)
+## Wave C5 checkpoint — Legacy consumer audit (참고)
 
 C2/C3/C4 도입 후 legacy `AdSnapshot` / `TrafficStats` / `ItemWinner` / `Ad` consumer 를 전수 조사한 결과는 [docs/superpowers/plans/2026-04-27-channel-market-data-legacy-audit.md](../../../../docs/superpowers/plans/2026-04-27-channel-market-data-legacy-audit.md). 핵심:
 
-- C4 가 strategy state evidence read path migration 을 이미 끝냈고, **C5 시점에 추가로 옮길 read path 는 없음**. legacy quartet 의 모든 read 는 daily snapshot 이 들고 있지 않은 필드 (ad metric / traffic metric / wing KPI rawJson) 를 본다.
+- 원래 plan §7 의 C5 `ProductStrategyDaily` cache 는 optional 이며, C4 이후 반복 join latency / strategy-history 요구가 측정되지 않아 만들지 않는다.
+- C4 가 strategy state evidence read path migration 을 이미 끝냈고, **이 checkpoint 에서 추가 1:1 read-path migration 은 없음**. 대부분의 legacy read 는 daily snapshot 이 들고 있지 않은 필드 (ad metric / traffic metric / wing KPI rawJson) 를 보며, `ItemWinner` status/count 처럼 daily snapshot 에 필드가 있어도 lifetime count → current/latest count 로 의미가 바뀌는 건 C6 로 defer.
+- C2 raw snapshot 은 모든 payload 의 audit trail 이고, C3 daily snapshot 은 product/option state payload 에만 적용한다. `coupang_ads_daily` 같은 ad metric payload 는 legacy `AdSnapshot` + C2 raw 까지만 쓰는 게 의도다.
 - C2/C3 dual-write 는 계속 필수 — legacy read 가 다 빠지기 전엔 write 도 못 뺀다.
-- C6 후보: `getExtensionStatus` 의 `ItemWinner.groupBy` (현재 lifetime 카운트, 의미상 "현재 winner 인 listing 수" 가 맞음 → daily snapshot `DISTINCT ON` 로 옮길 수 있음) / `ad-collect.getStatus` 의 `AdSnapshot.findFirst` (`ChannelScrapeRun.startedAt` 으로 대체 가능). 둘 다 의미가 살짝 바뀌므로 spec 합의 후 진행.
+- C6 후보: `getExtensionStatus` 의 `ItemWinner.groupBy` / `AdSnapshot.count`, `ad-action.listActions` 의 latest snapshot summary, `ad-collect.getStatus` 의 `AdSnapshot.findFirst+count`. 모두 의미가 바뀌므로 spec 합의 후 진행.
 - 새 모델/서비스가 이 도메인에 들어오면 audit doc 의 inventory 표를 갱신할 것.
 
 ## Wave C4 — Channel state signals on strategy reads (영구 규칙)
