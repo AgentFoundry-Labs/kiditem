@@ -1,5 +1,6 @@
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { WingAdSummary } from '@kiditem/shared';
+import { pct2 } from './percent';
 
 export interface WingAdSummaryResult extends WingAdSummary {
   lastSyncAt: Date | null;
@@ -90,10 +91,10 @@ export async function fetchWingAdSummary(
   const summary = chosen.normalized.adSummary as Record<string, unknown>;
   const adRevenue = Math.round(Number(summary.adGmv) || 0);
   const adSpend = Math.round(Number(summary.adSpend) || 0);
-  // ROAS recompute from the additive numerator/denominator the same way the
-  // ratio-recompute helper does (revenue / spend * 100, 2-decimal rounded).
-  const adRoas =
-    adSpend > 0 ? Math.round((adRevenue / adSpend) * 100 * 100) / 100 : 0;
+  // ROAS recompute from the additive numerator/denominator using the shared
+  // 2-decimal percent helper (revenue / spend * 100, 2-decimal rounded, 0 when
+  // spend <= 0). Same helper used 6× by dashboard-ad.service.
+  const adRoas = pct2(adRevenue, adSpend);
 
   return {
     adRevenue,
