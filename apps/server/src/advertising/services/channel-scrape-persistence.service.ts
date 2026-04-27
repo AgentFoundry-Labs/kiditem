@@ -53,6 +53,7 @@ export interface ScrapeSnapshotInput {
 
 export interface ScrapeRunFinalize {
   scrapeRunId: string;
+  companyId: string;
   status: 'complete' | 'error' | 'partial';
   rowCount?: number;
   matchedCount?: number;
@@ -81,7 +82,7 @@ export class ChannelScrapePersistenceService {
         status: 'running',
         metaJson:
           input.metaJson === undefined || input.metaJson === null
-            ? Prisma.JsonNull
+            ? Prisma.DbNull
             : input.metaJson,
       },
       select: { id: true },
@@ -108,7 +109,7 @@ export class ChannelScrapePersistenceService {
         rawJson: input.rawJson,
         normalizedJson:
           input.normalizedJson === undefined || input.normalizedJson === null
-            ? Prisma.JsonNull
+            ? Prisma.DbNull
             : input.normalizedJson,
       },
       select: { id: true },
@@ -116,8 +117,8 @@ export class ChannelScrapePersistenceService {
   }
 
   async finalizeRun(input: ScrapeRunFinalize): Promise<void> {
-    await this.prisma.channelScrapeRun.update({
-      where: { id: input.scrapeRunId },
+    const result = await this.prisma.channelScrapeRun.updateMany({
+      where: { id: input.scrapeRunId, companyId: input.companyId },
       data: {
         status: input.status,
         rowCount: input.rowCount ?? 0,
@@ -127,10 +128,15 @@ export class ChannelScrapePersistenceService {
         finishedAt: new Date(),
         errorJson:
           input.errorJson === undefined || input.errorJson === null
-            ? Prisma.JsonNull
+            ? Prisma.DbNull
             : input.errorJson,
       },
     });
+    if (result.count !== 1) {
+      throw new Error(
+        `ChannelScrapeRun not found for company scope: ${input.scrapeRunId}`,
+      );
+    }
   }
 
 }

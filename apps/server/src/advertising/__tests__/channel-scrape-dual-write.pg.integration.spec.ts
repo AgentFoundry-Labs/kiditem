@@ -12,6 +12,7 @@ import {
   makeTestPrisma,
   resetDb,
   seedBaseFixture,
+  OTHER_COMPANY_ID,
   TEST_COMPANY_ID,
 } from '../../test-helpers/real-prisma';
 
@@ -32,6 +33,7 @@ import {
 describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
   let prisma: PrismaClient;
   let adSyncService: AdSyncService;
+  let scrapePersistence: ChannelScrapePersistenceService;
   const companyId = TEST_COMPANY_ID;
 
   async function seedListingWithOption(opts: {
@@ -91,6 +93,7 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
       ],
     }).compile();
     adSyncService = m.get(AdSyncService);
+    scrapePersistence = m.get(ChannelScrapePersistenceService);
   });
 
   afterAll(async () => {
@@ -114,6 +117,39 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
     expect(dto.dateTo).toBe('2026-04-14');
   });
 
+  it('ChannelScrapeRun finalization is company-scoped', async () => {
+    const run = await scrapePersistence.createRun({
+      companyId,
+      channel: 'coupang',
+      source: 'advertising',
+      pageType: 'campaign',
+    });
+
+    await expect(
+      scrapePersistence.finalizeRun({
+        scrapeRunId: run.id,
+        companyId: OTHER_COMPANY_ID,
+        status: 'complete',
+      }),
+    ).rejects.toThrow('ChannelScrapeRun not found for company scope');
+
+    const stillRunning = await prisma.channelScrapeRun.findUnique({
+      where: { id: run.id },
+    });
+    expect(stillRunning?.status).toBe('running');
+
+    await scrapePersistence.finalizeRun({
+      scrapeRunId: run.id,
+      companyId,
+      status: 'complete',
+      rowCount: 0,
+    });
+    const finalized = await prisma.channelScrapeRun.findUnique({
+      where: { id: run.id },
+    });
+    expect(finalized?.status).toBe('complete');
+  });
+
   it('ad_campaign creates one run + one snapshot per row, with matchStatus reflecting the match', async () => {
     const matched = await seedListingWithOption({
       externalId: 'EXT-A',
@@ -125,9 +161,26 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
         type: 'ad_campaign',
         campaignName: 'Camp-1',
         period: '7d',
+        timestamp: '2026-04-13T15:30:00Z',
         dateFrom: '2026-04-01',
         dateTo: '2026-04-07',
+        data: [
+          { rawRowId: 'raw-kpi', text: 'summary total' },
+          { rawRowId: 'raw-missing-identity', text: 'blank identity' },
+          { rawRowId: 'raw-vendor-a', text: 'vendor item row' },
+          { rawRowId: 'raw-ext-a', text: 'external id row' },
+          { rawRowId: 'raw-unmatched', text: 'unknown row' },
+        ],
         normalizedRows: [
+          {
+            pageType: 'summary',
+            _kpiOnly: true,
+            metric: 'total',
+          },
+          {
+            pageType: 'product',
+            spend: '333',
+          },
           {
             pageType: 'product',
             campaignName: 'Camp-1',
@@ -160,9 +213,9 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
       scrapeUnmatchedCount: number;
     };
 
-    expect(result.scrapeSnapshotCount).toBe(3);
+    expect(result.scrapeSnapshotCount).toBe(5);
     expect(result.scrapeMatchedCount).toBe(2);
-    expect(result.scrapeUnmatchedCount).toBe(1);
+    expect(result.scrapeUnmatchedCount).toBe(3);
 
     const run = await prisma.channelScrapeRun.findUnique({
       where: { id: result.scrapeRunId },
@@ -171,9 +224,10 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
     expect(run?.source).toBe('advertising');
     expect(run?.pageType).toBe('campaign');
     expect(run?.status).toBe('complete');
-    expect(run?.rowCount).toBe(3);
+    expect(run?.businessDate?.toISOString().slice(0, 10)).toBe('2026-04-14');
+    expect(run?.rowCount).toBe(5);
     expect(run?.matchedCount).toBe(2);
-    expect(run?.unmatchedCount).toBe(1);
+    expect(run?.unmatchedCount).toBe(3);
     expect(run?.periodStart?.toISOString().slice(0, 10)).toBe('2026-04-01');
     expect(run?.periodEnd?.toISOString().slice(0, 10)).toBe('2026-04-07');
     expect(run?.finishedAt).not.toBeNull();
@@ -182,14 +236,28 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
       where: { scrapeRunId: result.scrapeRunId },
       orderBy: { observedAt: 'asc' },
     });
-    expect(snapshots).toHaveLength(3);
+    expect(snapshots).toHaveLength(5);
+
+    const kpiOnly = snapshots.find((s) => s.matchReason?.includes('kpi-only'));
+    expect(kpiOnly?.matchStatus).toBe('unmatched');
+    expect(kpiOnly?.rawJson).toMatchObject({ rawRowId: 'raw-kpi' });
+    expect(kpiOnly?.normalizedJson).toMatchObject({ _kpiOnly: true });
+
+    const missingIdentity = snapshots.find((s) =>
+      s.matchReason?.includes('missing campaign/product/keyword identity'),
+    );
+    expect(missingIdentity?.matchStatus).toBe('unmatched');
+    expect(missingIdentity?.rawJson).toMatchObject({ rawRowId: 'raw-missing-identity' });
+    expect(missingIdentity?.normalizedJson).toMatchObject({ spend: '333' });
 
     const matchedSnap = snapshots.find((s) => s.externalOptionId === 'VENDOR-A');
     expect(matchedSnap?.matchStatus).toBe('matched');
+    expect(matchedSnap?.businessDate?.toISOString().slice(0, 10)).toBe('2026-04-14');
     expect(matchedSnap?.listingId).toBe(matched.listing.id);
     expect(matchedSnap?.listingOptionId).toBe(matched.listingOption.id);
     expect(matchedSnap?.optionId).toBe(matched.productOption?.id ?? null);
-    expect(matchedSnap?.rawJson).toMatchObject({ vendorItemId: 'VENDOR-A' });
+    expect(matchedSnap?.rawJson).toMatchObject({ rawRowId: 'raw-vendor-a' });
+    expect(matchedSnap?.normalizedJson).toMatchObject({ vendorItemId: 'VENDOR-A' });
 
     const listingOnly = snapshots.find((s) => s.externalId === 'EXT-A');
     expect(listingOnly?.matchStatus).toBe('matched_listing_only');
@@ -248,7 +316,7 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
       {
         type: 'traffic',
         period: 14,
-        startDate: '2026-04-14',
+        startDate: '2026-04-13T15:30:00Z',
         dateFrom: '2026-04-01',
         dateTo: '2026-04-14',
         data: [
@@ -286,6 +354,7 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
     });
     expect(run?.source).toBe('wing');
     expect(run?.pageType).toBe('traffic');
+    expect(run?.businessDate?.toISOString().slice(0, 10)).toBe('2026-04-14');
     expect(run?.periodStart?.toISOString().slice(0, 10)).toBe('2026-04-01');
     expect(run?.periodEnd?.toISOString().slice(0, 10)).toBe('2026-04-14');
 
@@ -293,13 +362,15 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
       where: { scrapeRunId: result.scrapeRunId, externalId: 'EXT-TRAFFIC' },
     });
     expect(matchedSnap?.matchStatus).toBe('matched_listing_only');
+    expect(matchedSnap?.businessDate?.toISOString().slice(0, 10)).toBe('2026-04-14');
     expect(matchedSnap?.listingId).toBe(matched.listing.id);
 
     // Existing TrafficStats write must still happen for matched rows (regression).
-    const trafficStats = await prisma.trafficStats.count({
+    const trafficStats = await prisma.trafficStats.findMany({
       where: { companyId, listingId: matched.listing.id },
     });
-    expect(trafficStats).toBe(1);
+    expect(trafficStats).toHaveLength(1);
+    expect(trafficStats[0].date.toISOString().slice(0, 10)).toBe('2026-04-14');
   });
 
   it('coupang_ads_daily run records a snapshot per row with matchStatus=unmatched (no listing identity)', async () => {
@@ -307,32 +378,45 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
       {
         type: 'coupang_ads_daily',
         dateFrom: '2026-04-12',
-        dateTo: '2026-04-14',
+        dateTo: '2026-4-14',
         data: [
           { date: '2026-04-12', adSpend: 1000, adRevenue: 3000, impressions: 10, clicks: 1 },
-          { date: '2026-04-13', adSpend: 2000, adRevenue: 5000, impressions: 20, clicks: 2 },
+          { date: '2026-4-13', adSpend: 2000, adRevenue: 5000, impressions: 20, clicks: 2 },
+          { date: '2026-04-13T15:30:00Z', adSpend: 3000, adRevenue: 7000, impressions: 30, clicks: 3 },
         ],
       },
       companyId,
-    )) as { scrapeRunId: string; scrapeSnapshotCount: number };
+    )) as {
+      scrapeRunId: string;
+      scrapeSnapshotCount: number;
+      scrapeMatchedCount: number;
+      scrapeUnmatchedCount: number;
+    };
 
-    expect(result.scrapeSnapshotCount).toBe(2);
+    expect(result.scrapeSnapshotCount).toBe(3);
+    expect(result.scrapeMatchedCount).toBe(0);
+    expect(result.scrapeUnmatchedCount).toBe(3);
     const run = await prisma.channelScrapeRun.findUnique({
       where: { id: result.scrapeRunId },
     });
     expect(run?.source).toBe('coupang_ads');
     expect(run?.pageType).toBe('dashboard_daily');
+    expect(run?.status).toBe('complete');
+    expect(run?.finishedAt).not.toBeNull();
+    expect(run?.periodStart?.toISOString().slice(0, 10)).toBe('2026-04-12');
+    expect(run?.periodEnd?.toISOString().slice(0, 10)).toBe('2026-04-14');
     expect(run?.matchedCount).toBe(0);
-    expect(run?.unmatchedCount).toBe(2);
+    expect(run?.unmatchedCount).toBe(3);
 
     const snaps = await prisma.channelScrapeSnapshot.findMany({
       where: { scrapeRunId: result.scrapeRunId },
       orderBy: { businessDate: 'asc' },
     });
-    expect(snaps).toHaveLength(2);
+    expect(snaps).toHaveLength(3);
     expect(snaps.every((s) => s.matchStatus === 'unmatched')).toBe(true);
     expect(snaps[0].businessDate?.toISOString().slice(0, 10)).toBe('2026-04-12');
     expect(snaps[1].businessDate?.toISOString().slice(0, 10)).toBe('2026-04-13');
+    expect(snaps[2].businessDate?.toISOString().slice(0, 10)).toBe('2026-04-14');
   });
 
   it('handler error path: ChannelScrapeRun is finalized as status="error" with errorJson — never stuck on "running"', async () => {
@@ -378,9 +462,16 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
       where: { companyId, source: 'advertising' },
       orderBy: { startedAt: 'desc' },
     });
+    expect(errored).toBeDefined();
     expect(errored?.status).toBe('error');
     expect(errored?.finishedAt).not.toBeNull();
+    expect(errored?.rowCount).toBe(1);
     expect(errored?.errorJson).toMatchObject({ message: expect.stringContaining('boom') });
+    const preservedRows = await prisma.channelScrapeSnapshot.findMany({
+      where: { scrapeRunId: errored!.id },
+    });
+    expect(preservedRows).toHaveLength(1);
+    expect(preservedRows[0].normalizedJson).toMatchObject({ vendorItemId: 'VENDOR-BOOM' });
   });
 
   it('raw_scrape with unknown source still snapshots every payload row (raw preservation)', async () => {
@@ -404,6 +495,60 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
     expect(snaps).toHaveLength(2);
     expect(snaps.every((s) => s.matchStatus === 'unmatched')).toBe(true);
     expect(snaps[0].matchReason).toContain("unknown source 'mystery'");
+  });
+
+  it('raw_scrape advertising keeps source rawJson separate from normalizedJson', async () => {
+    const matched = await seedListingWithOption({
+      externalId: 'EXT-RAW-AD',
+      externalOptionId: 'VENDOR-RAW-AD',
+    });
+
+    const result = (await adSyncService.sync(
+      {
+        type: 'raw_scrape',
+        source: 'advertising',
+        timestamp: '2026-04-14T01:00:00Z',
+        data: [
+          { rawRowId: 'raw-ad-row', rawText: '원본 광고 row' },
+          { rawRowId: 'raw-only-row', rawText: 'normalizer skipped this row' },
+        ],
+        normalizedRows: [
+          {
+            pageType: 'product',
+            campaignName: 'Raw Campaign',
+            productName: 'Raw Product',
+            vendorItemId: 'VENDOR-RAW-AD',
+            spend: '42',
+          },
+        ],
+      },
+      companyId,
+    )) as {
+      scrapeRunId: string;
+      scrapeSnapshotCount: number;
+      scrapeMatchedCount: number;
+      scrapeUnmatchedCount: number;
+      snapshotCount: number;
+    };
+
+    expect(result.scrapeSnapshotCount).toBe(2);
+    expect(result.scrapeMatchedCount).toBe(1);
+    expect(result.scrapeUnmatchedCount).toBe(1);
+    expect(result.snapshotCount).toBe(1);
+
+    const matchedSnap = await prisma.channelScrapeSnapshot.findFirst({
+      where: { scrapeRunId: result.scrapeRunId, listingId: matched.listing.id },
+    });
+    expect(matchedSnap?.rawJson).toMatchObject({ rawRowId: 'raw-ad-row' });
+    expect(matchedSnap?.normalizedJson).toMatchObject({
+      vendorItemId: 'VENDOR-RAW-AD',
+    });
+
+    const rawOnlySnap = await prisma.channelScrapeSnapshot.findFirst({
+      where: { scrapeRunId: result.scrapeRunId, matchReason: { contains: 'missing normalized row' } },
+    });
+    expect(rawOnlySnap?.rawJson).toMatchObject({ rawRowId: 'raw-only-row' });
+    expect(rawOnlySnap?.normalizedJson).toBeNull();
   });
 
   it('coupang_ads_daily preserves rows missing `date` as snapshots (no AdSnapshot upsert)', async () => {

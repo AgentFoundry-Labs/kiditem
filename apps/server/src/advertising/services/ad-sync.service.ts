@@ -31,6 +31,12 @@ export interface ListingMatch {
   optionId: string | null;
 }
 
+type ScrapeRowPair = {
+  rawRow: Record<string, any>;
+  normalizedRow: Record<string, any>;
+  hasNormalizedRow: boolean;
+};
+
 @Injectable()
 export class AdSyncService {
   private readonly logger = new Logger(AdSyncService.name);
@@ -200,6 +206,38 @@ export class AdSyncService {
     return 'unmatched';
   }
 
+  private asScrapeRow(row: unknown): Record<string, any> {
+    if (row && typeof row === 'object' && !Array.isArray(row)) {
+      return row as Record<string, any>;
+    }
+    return { value: row };
+  }
+
+  /**
+   * Pair raw extension rows with normalized parser rows. Matching/legacy writes
+   * use the normalized row, while `ChannelScrapeSnapshot.rawJson` keeps the
+   * original source row for replay/debuggability.
+   */
+  private pairScrapeRows(
+    rawRowsInput: unknown[] | undefined,
+    normalizedRowsInput: unknown[] | undefined,
+  ): ScrapeRowPair[] {
+    const rawRows = (rawRowsInput ?? []).map((row) => this.asScrapeRow(row));
+    const normalizedRows = (normalizedRowsInput ?? []).map((row) =>
+      this.asScrapeRow(row),
+    );
+    const rowCount = Math.max(rawRows.length, normalizedRows.length);
+
+    return Array.from({ length: rowCount }, (_, index) => {
+      const normalizedRow = normalizedRows[index] ?? rawRows[index] ?? {};
+      return {
+        rawRow: rawRows[index] ?? normalizedRow,
+        normalizedRow,
+        hasNormalizedRow: normalizedRows[index] !== undefined,
+      };
+    });
+  }
+
   /**
    * Convert any payload date string to a KST `@db.Date` Date (UTC midnight of
    * the KST day). Pre-MEDIUM-1 fix: naive `slice(0,10)` of a UTC ISO string
@@ -208,16 +246,31 @@ export class AdSyncService {
    * 2026-04-13). Plan §10 risk explicitly calls this out.
    *
    * Accepts:
-   * - `YYYY-MM-DD` (treated as already a KST business date)
+   * - `YYYY-MM-DD` / `YYYY-M-D` (treated as already a KST business date)
    * - any longer ISO/parseable string (parsed → shifted to KST → date slice)
    */
   private toBusinessDate(raw: string | undefined | null): Date | null {
     if (!raw) return null;
-    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
-      return new Date(`${raw}T00:00:00Z`);
+    const trimmed = raw.trim();
+    const ymd = trimmed.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if (ymd) {
+      const [, year, monthRaw, dayRaw] = ymd;
+      const month = Number(monthRaw);
+      const day = Number(dayRaw);
+      if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+      const normalized = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      const parsed = new Date(`${normalized}T00:00:00Z`);
+      if (
+        parsed.getUTCFullYear() !== Number(year) ||
+        parsed.getUTCMonth() + 1 !== month ||
+        parsed.getUTCDate() !== day
+      ) {
+        return null;
+      }
+      return parsed;
     }
-    if (/^\d{4}-\d{2}-\d{2}T/.test(raw)) {
-      const parsed = new Date(raw);
+    if (trimmed.includes('T')) {
+      const parsed = new Date(trimmed);
       if (!Number.isFinite(parsed.getTime())) return null;
       const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
       const kstDate = new Date(parsed.getTime() + KST_OFFSET_MS);
@@ -229,6 +282,13 @@ export class AdSyncService {
     return null;
   }
 
+  private currentBusinessDate(): Date {
+    return (
+      this.toBusinessDate(new Date().toISOString()) ??
+      new Date(new Date().toISOString().slice(0, 10))
+    );
+  }
+
   /**
    * Wave C2 — finalize a scrape run with `status='error'` after a thrown
    * exception. Keeps the run row from being stuck on `status='running'`
@@ -237,12 +297,14 @@ export class AdSyncService {
    */
   private async finalizeScrapeRunOnError(
     scrapeRunId: string,
+    companyId: string,
     counts: { rowCount: number; matchedCount: number; unmatchedCount: number },
     err: unknown,
   ): Promise<void> {
     try {
       await this.scrapePersistence.finalizeRun({
         scrapeRunId,
+        companyId,
         status: 'error',
         rowCount: counts.rowCount,
         matchedCount: counts.matchedCount,
@@ -280,9 +342,10 @@ export class AdSyncService {
   ) {
     const campaignName = payload.campaignName || '_전체';
     const period = String(payload.period || '7d');
-    const today = new Date(new Date().toISOString().slice(0, 10));
+    const today = this.toBusinessDate(payload.timestamp) ?? this.currentBusinessDate();
     const kpis = payload.kpis || {};
     const normalizedRows = payload.normalizedRows ?? [];
+    const scrapeRows = this.pairScrapeRows(payload.data, normalizedRows);
     const capturedAt = payload.timestamp
       ? new Date(payload.timestamp)
       : new Date();
@@ -302,7 +365,8 @@ export class AdSyncService {
       metaJson: {
         campaignName,
         kpis,
-        rowCount: normalizedRows.length,
+        rowCount: scrapeRows.length,
+        normalizedRowCount: normalizedRows.length,
       } as unknown as Prisma.InputJsonValue,
     });
     let scrapeSnapshotCount = 0;
@@ -310,6 +374,66 @@ export class AdSyncService {
     let scrapeUnmatched = 0;
 
     try {
+    let productCount = 0;
+    let campaignSnapshotCount = 0;
+    let snapshotCount = 0;
+    let adCount = 0;
+    const rowContexts: Array<
+      ScrapeRowPair & {
+        match: ListingMatch;
+        matchStatus: ScrapeMatchStatus;
+      }
+    > = [];
+
+    // Wave C2 raw-first contract: persist every source/normalized row before
+    // any legacy AdSnapshot/Ad writes. If a downstream legacy write fails, the
+    // ChannelScrapeSnapshot rows are still available for replay.
+    for (const pair of scrapeRows) {
+      const row = pair.normalizedRow;
+      const match = this.matchListingFromRow(row, map);
+      const matchStatus = this.matchStatusOf(match);
+      const externalIdRaw = this.pickStringField(row, [
+        'externalId',
+        'external_id',
+        'productId',
+        'coupangProductId',
+      ]);
+      const externalOptionIdRaw = this.pickStringField(row, [
+        'vendorItemId',
+        'vendor_item_id',
+        'itemId',
+      ]);
+      await this.scrapePersistence.appendSnapshot({
+        scrapeRunId: scrapeRun.id,
+        companyId,
+        channel: 'coupang',
+        source: 'advertising',
+        pageType: this.cleanString(row.pageType) || 'campaign',
+        businessDate: today,
+        externalId: externalIdRaw,
+        externalOptionId: externalOptionIdRaw,
+        listingId: match.listingId,
+        listingOptionId: match.listingOptionId,
+        optionId: match.optionId,
+        matchStatus,
+        matchReason: !pair.hasNormalizedRow
+          ? 'missing normalized row (snapshot only)'
+          : row._kpiOnly
+            ? 'kpi-only row (snapshot only)'
+            : !row.campaignName && !row.productName && !row.keyword
+              ? 'missing campaign/product/keyword identity (snapshot only)'
+              : null,
+        rawJson: pair.rawRow as unknown as Prisma.InputJsonValue,
+        normalizedJson: pair.hasNormalizedRow
+          ? (row as unknown as Prisma.InputJsonValue)
+          : null,
+      });
+      scrapeSnapshotCount += 1;
+      if (matchStatus === 'unmatched') scrapeUnmatched += 1;
+      else scrapeMatched += 1;
+      rowContexts.push({ ...pair, match, matchStatus });
+    }
+
     const totalKpi: NormalizedCampaignKpi = {
       adSpend: Math.round(
         this.getKpiNumber(kpis, ['전체 집행 광고비', '집행 광고비', '광고비']),
@@ -362,46 +486,10 @@ export class AdSyncService {
       });
     }
 
-    let productCount = 0;
-    let campaignSnapshotCount = 0;
-    let snapshotCount = 0;
-    let adCount = 0;
-
-    for (const row of normalizedRows) {
+    for (const { normalizedRow: row, match, hasNormalizedRow } of rowContexts) {
+      if (!hasNormalizedRow) continue;
       if (!row.campaignName && !row.productName && !row.keyword) continue;
       if (row._kpiOnly) continue;
-
-      const match = this.matchListingFromRow(row, map);
-      const matchStatus = this.matchStatusOf(match);
-      const externalIdRaw = this.pickStringField(row, [
-        'externalId',
-        'external_id',
-        'productId',
-        'coupangProductId',
-      ]);
-      const externalOptionIdRaw = this.pickStringField(row, [
-        'vendorItemId',
-        'vendor_item_id',
-        'itemId',
-      ]);
-      await this.scrapePersistence.appendSnapshot({
-        scrapeRunId: scrapeRun.id,
-        companyId,
-        channel: 'coupang',
-        source: 'advertising',
-        pageType: this.cleanString(row.pageType) || 'campaign',
-        businessDate: today,
-        externalId: externalIdRaw,
-        externalOptionId: externalOptionIdRaw,
-        listingId: match.listingId,
-        listingOptionId: match.listingOptionId,
-        optionId: match.optionId,
-        matchStatus,
-        rawJson: row as unknown as Prisma.InputJsonValue,
-      });
-      scrapeSnapshotCount += 1;
-      if (matchStatus === 'unmatched') scrapeUnmatched += 1;
-      else scrapeMatched += 1;
       const rowCampaignName = this.cleanString(row.campaignName) || campaignName;
       const rowStatus = this.cleanString(row.status);
       const rowOnOff = this.cleanString(row.onOff);
@@ -570,6 +658,7 @@ export class AdSyncService {
 
     await this.scrapePersistence.finalizeRun({
       scrapeRunId: scrapeRun.id,
+      companyId,
       status: 'complete',
       rowCount: scrapeSnapshotCount,
       matchedCount: scrapeMatched,
@@ -594,6 +683,7 @@ export class AdSyncService {
     } catch (err) {
       await this.finalizeScrapeRunOnError(
         scrapeRun.id,
+        companyId,
         {
           rowCount: scrapeSnapshotCount,
           matchedCount: scrapeMatched,
@@ -725,9 +815,11 @@ export class AdSyncService {
     }
 
     const normalizedRows = payload.normalizedRows ?? [];
+    const advertisingScrapeRows = this.pairScrapeRows(rows, normalizedRows);
     let snapshotCount = 0;
-    if (source === 'advertising' && normalizedRows.length > 0) {
-      for (const row of normalizedRows) {
+    if (source === 'advertising' && advertisingScrapeRows.length > 0) {
+      for (const pair of advertisingScrapeRows) {
+        const row = pair.normalizedRow;
         const match = this.matchListingFromRow(row, map);
         const matchStatus = this.matchStatusOf(match);
         const roas = this.toNumber(row.roas);
@@ -758,11 +850,20 @@ export class AdSyncService {
           listingOptionId: match.listingOptionId,
           optionId: match.optionId,
           matchStatus,
-          rawJson: row as unknown as Prisma.InputJsonValue,
+          matchReason: pair.hasNormalizedRow
+            ? null
+            : 'missing normalized row (snapshot only)',
+          rawJson: pair.rawRow as unknown as Prisma.InputJsonValue,
+          normalizedJson: pair.hasNormalizedRow
+            ? (row as unknown as Prisma.InputJsonValue)
+            : null,
         });
         scrapeSnapshotCount += 1;
         if (matchStatus === 'unmatched') scrapeUnmatched += 1;
         else scrapeMatched += 1;
+
+        if (!pair.hasNormalizedRow) continue;
+
         const rawExternalId = String(
           row.externalId ||
             [
@@ -848,6 +949,7 @@ export class AdSyncService {
 
     await this.scrapePersistence.finalizeRun({
       scrapeRunId: scrapeRun.id,
+      companyId,
       status: 'complete',
       rowCount: scrapeSnapshotCount,
       matchedCount: scrapeMatched,
@@ -870,6 +972,7 @@ export class AdSyncService {
     } catch (err) {
       await this.finalizeScrapeRunOnError(
         scrapeRun.id,
+        companyId,
         {
           rowCount: scrapeSnapshotCount,
           matchedCount: scrapeMatched,
@@ -887,10 +990,8 @@ export class AdSyncService {
     map: ListingMap,
   ) {
     const period = Number(payload.period) || 14;
-    const dateStr = payload.startDate
-      ? payload.startDate.slice(0, 10)
-      : new Date().toISOString().slice(0, 10);
-    const today = new Date(dateStr);
+    const today = this.toBusinessDate(payload.startDate ?? payload.timestamp)
+      ?? this.currentBusinessDate();
     const data = payload.data ?? [];
     let upserted = 0;
     let skipped = 0;
@@ -902,7 +1003,7 @@ export class AdSyncService {
       channel: 'coupang',
       source: 'wing',
       pageType: 'traffic',
-      businessDate: this.toBusinessDate(payload.startDate),
+      businessDate: today,
       periodStart: this.toBusinessDate(payload.dateFrom ?? payload.startDate),
       periodEnd: this.toBusinessDate(payload.dateTo ?? payload.endDate),
       targetUrl: payload.url ?? null,
@@ -1058,6 +1159,7 @@ export class AdSyncService {
 
     await this.scrapePersistence.finalizeRun({
       scrapeRunId: scrapeRun.id,
+      companyId,
       status: 'complete',
       rowCount: scrapeSnapshotCount,
       matchedCount: scrapeMatched,
@@ -1078,6 +1180,7 @@ export class AdSyncService {
     } catch (err) {
       await this.finalizeScrapeRunOnError(
         scrapeRun.id,
+        companyId,
         {
           rowCount: scrapeSnapshotCount,
           matchedCount: scrapeMatched,
@@ -1139,8 +1242,8 @@ export class AdSyncService {
       });
       scrapeSnapshotCount += 1;
 
-      if (!row.date) continue;
-      const date = new Date(row.date);
+      const date = row.date ? this.toBusinessDate(String(row.date)) : null;
+      if (!date) continue;
       const adSpend = Math.round(Number(row.adSpend) || 0);
       const adRevenue = Math.round(Number(row.adRevenue) || 0);
       const impressions = Math.round(Number(row.impressions) || 0);
@@ -1204,6 +1307,7 @@ export class AdSyncService {
 
     await this.scrapePersistence.finalizeRun({
       scrapeRunId: scrapeRun.id,
+      companyId,
       status: 'complete',
       rowCount: scrapeSnapshotCount,
       matchedCount: 0,
@@ -1216,10 +1320,13 @@ export class AdSyncService {
       upserted,
       scrapeRunId: scrapeRun.id,
       scrapeSnapshotCount,
+      scrapeMatchedCount: 0,
+      scrapeUnmatchedCount: scrapeSnapshotCount,
     };
     } catch (err) {
       await this.finalizeScrapeRunOnError(
         scrapeRun.id,
+        companyId,
         {
           rowCount: scrapeSnapshotCount,
           matchedCount: 0,
