@@ -1,231 +1,206 @@
-# Graph Report - schema-consumers  (2026-04-26)
+# Graph Report - schema-consumers  (2026-04-27)
 
 ## Corpus Check
-- 115 files · ~65,857 words
+- 92 files · ~53,174 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 1582 nodes · 6233 edges · 31 communities detected
-- Extraction: 53% EXTRACTED · 47% INFERRED · 0% AMBIGUOUS · INFERRED: 2918 edges (avg confidence: 0.73)
+- 1675 nodes · 5803 edges · 26 communities detected
+- Extraction: 45% EXTRACTED · 55% INFERRED · 0% AMBIGUOUS · INFERRED: 3169 edges (avg confidence: 0.73)
 - Token cost: 0 input · 0 output
 
 ## Community Hubs (Navigation)
-- [[_COMMUNITY_Finance schema|Finance schema]]
 - [[_COMMUNITY_Core schema|Core schema]]
-- [[_COMMUNITY_AI schema|AI schema]]
 - [[_COMMUNITY_Agents schema|Agents schema]]
-- [[_COMMUNITY_Inventory schema|Inventory schema]]
-- [[_COMMUNITY_Core schema|Core schema]]
-- [[_COMMUNITY_Advertising schema|Advertising schema]]
 - [[_COMMUNITY_Orders schema|Orders schema]]
+- [[_COMMUNITY_Advertising schema|Advertising schema]]
 - [[_COMMUNITY_System schema|System schema]]
+- [[_COMMUNITY_Inventory schema|Inventory schema]]
+- [[_COMMUNITY_Channels schema|Channels schema]]
+- [[_COMMUNITY_AI schema|AI schema]]
+- [[_COMMUNITY_Advertising schema|Advertising schema]]
 - [[_COMMUNITY_Supply schema|Supply schema]]
+- [[_COMMUNITY_Finance schema|Finance schema]]
 - [[_COMMUNITY_AI schema|AI schema]]
 - [[_COMMUNITY_Agents schema|Agents schema]]
-- [[_COMMUNITY_Finance schema|Finance schema]]
-- [[_COMMUNITY_Inventory schema|Inventory schema]]
-- [[_COMMUNITY_Community 14|Community 14]]
-- [[_COMMUNITY_Agents schema|Agents schema]]
-- [[_COMMUNITY_Orders schema|Orders schema]]
 - [[_COMMUNITY_System schema|System schema]]
-- [[_COMMUNITY_code file generate-prisma-erd.mjs|code file: generate-prisma-erd.mjs]]
-- [[_COMMUNITY_Inventory schema|Inventory schema]]
-- [[_COMMUNITY_Advertising schema|Advertising schema]]
-- [[_COMMUNITY_Finance schema|Finance schema]]
-- [[_COMMUNITY_Orders schema|Orders schema]]
+- [[_COMMUNITY_System schema|System schema]]
+- [[_COMMUNITY_Community 15|Community 15]]
 - [[_COMMUNITY_Core schema|Core schema]]
-- [[_COMMUNITY_Community 24|Community 24]]
-- [[_COMMUNITY_Community 25|Community 25]]
-- [[_COMMUNITY_Community 26|Community 26]]
-- [[_COMMUNITY_Community 27|Community 27]]
-- [[_COMMUNITY_Community 28|Community 28]]
-- [[_COMMUNITY_code file coupang-date-range.dto.ts|code file: coupang-date-range.dto.ts]]
+- [[_COMMUNITY_code file generate-prisma-erd.mjs|code file: generate-prisma-erd.mjs]]
+- [[_COMMUNITY_Advertising schema|Advertising schema]]
+- [[_COMMUNITY_Community 19|Community 19]]
+- [[_COMMUNITY_Community 20|Community 20]]
+- [[_COMMUNITY_Community 21|Community 21]]
+- [[_COMMUNITY_Community 22|Community 22]]
+- [[_COMMUNITY_Community 23|Community 23]]
 - [[_COMMUNITY_code file channels.module.ts|code file: channels.module.ts]]
+- [[_COMMUNITY_code file coupang-date-range.dto.ts|code file: coupang-date-range.dto.ts]]
 
 ## God Nodes (most connected - your core abstractions)
-1. `Database ERD` - 216 edges
-2. `Company` - 162 edges
-3. `prisma — Shared Schema` - 126 edges
-4. `Ad` - 112 edges
-5. `channels — Coupang 통합 + Sync + Dashboard 도메인` - 103 edges
-6. `Order schema channel-agnostic unification` - 89 edges
-7. `Order` - 86 edges
-8. `profit-loss Live Aggregation (ProfitLoss Table Bypass)` - 86 edges
-9. `MasterProduct` - 77 edges
-10. `ProductOption` - 77 edges
-11. `Dashboard IDOR Sweep + $queryRaw Tenancy Guarantee` - 75 edges
-12. `AgentDefinition` - 70 edges
+1. `Database ERD` - 238 edges
+2. `Company` - 170 edges
+3. `prisma — Shared Schema` - 135 edges
+4. `channels — Coupang 통합 + Sync + Dashboard 도메인` - 113 edges
+5. `Ad` - 109 edges
+6. `Order` - 77 edges
+7. `ProductOption` - 76 edges
+8. `MasterProduct` - 71 edges
+9. `ChannelListing` - 71 edges
+10. `AgentDefinition` - 70 edges
+11. `AdSnapshot` - 52 edges
+12. `HeartbeatRun` - 46 edges
 
 ## Surprising Connections (you probably didn't know these)
-- `Secret scrub — write / read / backfill` --mentions_domain--> `Advertising`  [EXTRACTED]
-  .claude/docs/decisions/0007-secret-scrub-write-and-read.md → prisma/models/advertising.prisma
-- `profit-loss Live Aggregation (ProfitLoss Table Bypass)` --mentions_domain--> `Advertising`  [EXTRACTED]
-  .claude/docs/decisions/0016-profit-loss-live-aggregation.md → prisma/models/advertising.prisma
-- `Business-domain scoped session boundary` --mentions_domain--> `Advertising`  [EXTRACTED]
-  .claude/docs/decisions/0019-business-domain-scoped-session-boundary.md → prisma/models/advertising.prisma
-- `Channel Option External ID Naming` --mentions_domain--> `Advertising`  [EXTRACTED]
-  .claude/docs/decisions/0020-channel-option-external-id.md → prisma/models/advertising.prisma
 - `Database ERD` --mentions_domain--> `Advertising`  [EXTRACTED]
   docs/ERD.md → prisma/models/advertising.prisma
-- `Meta: 왜 ADR 을 쓰는가` --mentions_model--> `Ad`  [EXTRACTED]
-  .claude/docs/decisions/0000-meta-why-adr.md → prisma/models/advertising.prisma
-- `profit-loss Live Aggregation (ProfitLoss Table Bypass)` --mentions_model--> `Ad`  [EXTRACTED]
-  .claude/docs/decisions/0016-profit-loss-live-aggregation.md → prisma/models/advertising.prisma
-- `Channel Option External ID Naming` --mentions_model--> `Ad`  [EXTRACTED]
-  .claude/docs/decisions/0020-channel-option-external-id.md → prisma/models/advertising.prisma
+- `Database ERD` --mentions_model--> `Ad`  [EXTRACTED]
+  docs/ERD.md → prisma/models/advertising.prisma
+- `Database ERD` --mentions_field--> `Ad.companyId`  [EXTRACTED]
+  docs/ERD.md → prisma/models/advertising.prisma
+- `channels — Coupang 통합 + Sync + Dashboard 도메인` --mentions_field--> `Ad.optionId`  [EXTRACTED]
+  apps/server/src/channels/CLAUDE.md → prisma/models/advertising.prisma
+- `Database ERD` --mentions_model--> `AdAction`  [EXTRACTED]
+  docs/ERD.md → prisma/models/advertising.prisma
+- `Database ERD` --mentions_field--> `AdAction.companyId`  [EXTRACTED]
+  docs/ERD.md → prisma/models/advertising.prisma
+- `Database ERD` --mentions_field--> `AdAction.targetType`  [EXTRACTED]
+  docs/ERD.md → prisma/models/advertising.prisma
+- `Database ERD` --mentions_model--> `AdSnapshot`  [EXTRACTED]
+  docs/ERD.md → prisma/models/advertising.prisma
 
 ## Communities
 
-### Community 0 - "Finance schema"
-Cohesion: 0.01
-Nodes (193): No PG native enum, NestJS DTO 는 class-validator, Python agents communicate via DB, Agent pipeline event-driven, No silent model fallback, No $queryRawUnsafe, Panel 도메인 SSE 프론트엔드 예외, Status canonical lifecycle (+185 more)
-
-### Community 1 - "Core schema"
+### Community 0 - "Core schema"
 Cohesion: 0.05
-Nodes (161): externalOptionId canonical option identity, vendorItemId provider term, channels — Coupang 통합 + Sync + Dashboard 도메인, Database ERD, Ad.listingId, Ad.optionId, AdAction.externalId, AdAction.listingId (+153 more)
+Nodes (160): externalOptionId canonical option identity, vendorItemId provider term, Database ERD, Ad.listingId, Ad.optionId, AdAction.externalId, AdAction.listingId, AdSnapshot.externalId (+152 more)
 
-### Community 2 - "AI schema"
+### Community 1 - "Agents schema"
+Cohesion: 0.01
+Nodes (150): packages/shared — @kiditem/shared, Agents, AI, AgentDefinition.actionCap, AgentDefinition.adapterConfig, AgentDefinition.adapterType, AgentDefinition.allowedTools, AgentDefinition.budgetResetAt (+142 more)
+
+### Community 2 - "Orders schema"
 Cohesion: 0.02
-Nodes (111): AppException, Ad.adGroup, Ad.adOptionId, Ad.adProductName, Ad.adType, Ad.billingType, Ad.campaignEndDate, Ad.campaignId (+103 more)
+Nodes (136): Orders, CSRecord.assignee, CSRecord.company, CSRecord.content, CSRecord.createdAt, CSRecord.createdBy, CSRecord.csStatus, CSRecord.csType (+128 more)
 
-### Community 3 - "Agents schema"
+### Community 3 - "Advertising schema"
 Cohesion: 0.02
-Nodes (121): AgentDefinition.actionCap, AgentDefinition.adapterConfig, AgentDefinition.adapterType, AgentDefinition.allowedTools, AgentDefinition.budgetResetAt, AgentDefinition.company, AgentDefinition.contextStrategy, AgentDefinition.createdAt (+113 more)
+Nodes (119): Advertising, AdAction.actionType, AdAction.afterJson, AdAction.approvalStatus, AdAction.approvedAt, AdAction.beforeJson, AdAction.company, AdAction.createdAt (+111 more)
 
-### Community 4 - "Inventory schema"
+### Community 4 - "System schema"
+Cohesion: 0.27
+Nodes (82): channels — Coupang 통합 + Sync + Dashboard 도메인, prisma — Shared Schema, ActionTask.companyId, ActivityEvent.companyId, Ad.companyId, AdAction.companyId, AdSnapshot.companyId, AgentDefinition.companyId (+74 more)
+
+### Community 5 - "Inventory schema"
 Cohesion: 0.02
-Nodes (104): ActivityEvent.company, ActivityEvent.createdAt, ActivityEvent.data, ActivityEvent.eventType, ActivityEvent.id, ActivityEvent.objectId, ActivityEvent.objectType, ActivityEvent.source (+96 more)
+Nodes (112): Inventory, PickingItem.createdAt, PickingItem.id, PickingItem.isPicked, PickingItem.isVerified, PickingItem.location, PickingItem.option, PickingItem.pickedAt (+104 more)
 
-### Community 5 - "Core schema"
-Cohesion: 0.38
-Nodes (76): Meta: 왜 ADR 을 쓰는가, Authenticated company scope, Secret scrub — write / read / backfill, Admin role-gated observability, Product schema 3-layer redesign (non-coexistence), Order schema channel-agnostic unification, profit-loss Live Aggregation (ProfitLoss Table Bypass), returnRate Semantic Unification + Orphan Return Policy (+68 more)
-
-### Community 6 - "Advertising schema"
+### Community 6 - "Channels schema"
 Cohesion: 0.02
-Nodes (99): AdAction.actionType, AdAction.afterJson, AdAction.approvalStatus, AdAction.approvedAt, AdAction.beforeJson, AdAction.company, AdAction.createdAt, AdAction.currentValue (+91 more)
+Nodes (100): Channels, ChannelListingDailySnapshot.avgRating, ChannelListingDailySnapshot.businessDate, ChannelListingDailySnapshot.categoryRank, ChannelListingDailySnapshot.channel, ChannelListingDailySnapshot.channelPrice, ChannelListingDailySnapshot.company, ChannelListingDailySnapshot.createdAt (+92 more)
 
-### Community 7 - "Orders schema"
-Cohesion: 0.04
-Nodes (61): ChannelSyncService, formatKstIso(), coupangRequest(), generateAuthorization(), getEnvOrThrow(), getVendorId(), Order.company, Order.createdAt (+53 more)
+### Community 7 - "AI schema"
+Cohesion: 0.02
+Nodes (87): ChannelDashboardService, Thumbnail.clicks, Thumbnail.company, Thumbnail.createdAt, Thumbnail.ctr, Thumbnail.id, Thumbnail.imageUrl, Thumbnail.impressions (+79 more)
 
-### Community 8 - "System schema"
-Cohesion: 0.04
-Nodes (69): ActionTask.activityLog, ActionTask.apiCall, ActionTask.assigneeUser, ActionTask.assigneeUserId, ActionTask.company, ActionTask.createdAt, ActionTask.date, ActionTask.detail (+61 more)
+### Community 8 - "Advertising schema"
+Cohesion: 0.03
+Nodes (73): AppException, ChannelSyncService, formatKstIso(), coupangRequest(), generateAuthorization(), getEnvOrThrow(), getVendorId(), Ad.adGroup (+65 more)
 
 ### Community 9 - "Supply schema"
 Cohesion: 0.03
-Nodes (73): PurchaseOrder.company, PurchaseOrder.createdAt, PurchaseOrder.defectAction, PurchaseOrder.defectNote, PurchaseOrder.defectQty, PurchaseOrder.defectType, PurchaseOrder.expectedDeliveryDate, PurchaseOrder.id (+65 more)
+Nodes (82): Supply, MasterSupplierProduct.createdAt, MasterSupplierProduct.id, MasterSupplierProduct.isPrimary, MasterSupplierProduct.master, MasterSupplierProduct.memo, MasterSupplierProduct.minOrderQty, MasterSupplierProduct.supplier (+74 more)
 
-### Community 10 - "AI schema"
+### Community 10 - "Finance schema"
+Cohesion: 0.03
+Nodes (78): Finance, GradeHistory.calculatedAt, GradeHistory.company, GradeHistory.id, GradeHistory.marginScore, GradeHistory.master, GradeHistory.newGrade, GradeHistory.oldGrade (+70 more)
+
+### Community 11 - "AI schema"
+Cohesion: 0.03
+Nodes (70): ContentGeneration.company, ContentGeneration.createdAt, ContentGeneration.detailPageHtml, ContentGeneration.errorMessage, ContentGeneration.generatedCopy, ContentGeneration.generatedDescription, ContentGeneration.generatedTitle, ContentGeneration.id (+62 more)
+
+### Community 12 - "Agents schema"
+Cohesion: 0.03
+Nodes (71): AgentDefinition.marketplaceId, Inventory.company, Inventory.createdAt, Inventory.currentStock, Inventory.dailySalesAvg, Inventory.id, Inventory.lastRestockedAt, Inventory.leadTimeDays (+63 more)
+
+### Community 13 - "System schema"
 Cohesion: 0.04
-Nodes (60): ChannelDashboardService, ThumbnailGeneration.candidates, ThumbnailGeneration.company, ThumbnailGeneration.createdAt, ThumbnailGeneration.editAnalysis, ThumbnailGeneration.grade, ThumbnailGeneration.id, ThumbnailGeneration.master (+52 more)
+Nodes (64): System, ActivityEvent.company, ActivityEvent.createdAt, ActivityEvent.data, ActivityEvent.eventType, ActivityEvent.id, ActivityEvent.objectId, ActivityEvent.objectType (+56 more)
 
-### Community 11 - "Agents schema"
+### Community 14 - "System schema"
 Cohesion: 0.04
-Nodes (55): AgentDefinition.marketplaceId, Marketplace.adapterType, Marketplace.category, Marketplace.configurableParams, Marketplace.createdAt, Marketplace.description, Marketplace.edgesJson, Marketplace.icon (+47 more)
+Nodes (58): ActionTask.activityLog, ActionTask.apiCall, ActionTask.assigneeUser, ActionTask.assigneeUserId, ActionTask.company, ActionTask.createdAt, ActionTask.date, ActionTask.detail (+50 more)
 
-### Community 12 - "Finance schema"
-Cohesion: 0.06
-Nodes (35): ProfitLoss.adCost, ProfitLoss.cogs, ProfitLoss.commission, ProfitLoss.company, ProfitLoss.createdAt, ProfitLoss.id, ProfitLoss.listing, ProfitLoss.month (+27 more)
-
-### Community 13 - "Inventory schema"
-Cohesion: 0.08
-Nodes (29): PickingItem.createdAt, PickingItem.id, PickingItem.isPicked, PickingItem.isVerified, PickingItem.location, PickingItem.option, PickingItem.pickedAt, PickingItem.pickingList (+21 more)
-
-### Community 14 - "Community 14"
+### Community 15 - "Community 15"
 Cohesion: 0.13
 Nodes (23): add_code_reference_edges(), add_document_mentions(), add_schema_graph(), camel(), collect_block(), collect_code(), collect_doc_comments(), community_labels() (+15 more)
 
-### Community 15 - "Agents schema"
-Cohesion: 0.09
-Nodes (26): AgentLog.createdAt, AgentLog.data, AgentLog.id, AgentLog.level, AgentLog.message, AgentLog.task, AgentLog.taskId, AgentTask.agentType (+18 more)
-
-### Community 16 - "Orders schema"
-Cohesion: 0.11
-Nodes (21): OrderReturn.company, OrderReturn.completedAt, OrderReturn.createdAt, OrderReturn.enclosePrice, OrderReturn.externalReturnId, OrderReturn.faultBy, OrderReturn.id, OrderReturn.metadata (+13 more)
-
-### Community 17 - "System schema"
+### Community 16 - "Core schema"
 Cohesion: 0.1
-Nodes (21): BusinessRule.actionType, BusinessRule.active, BusinessRule.autoExecute, BusinessRule.category, BusinessRule.company, BusinessRule.conditions, BusinessRule.createdAt, BusinessRule.description (+13 more)
+Nodes (24): Core, BundleComponent.bundleOption, BundleComponent.bundleOptionId, BundleComponent.company, BundleComponent.componentOption, BundleComponent.componentOptionId, BundleComponent.createdAt, BundleComponent.id (+16 more)
 
-### Community 18 - "code file: generate-prisma-erd.mjs"
+### Community 17 - "code file: generate-prisma-erd.mjs"
 Cohesion: 0.2
 Nodes (17): collectDocComments(), collectModelBlock(), collectUniqueSignatures(), countChar(), extractDocValue(), extractRelationFields(), generateErdMarkdown(), generateMermaidErDiagram() (+9 more)
 
-### Community 19 - "Inventory schema"
-Cohesion: 0.12
-Nodes (18): ReturnTransfer.company, ReturnTransfer.completedAt, ReturnTransfer.condition, ReturnTransfer.createdAt, ReturnTransfer.disposedQty, ReturnTransfer.id, ReturnTransfer.notes, ReturnTransfer.option (+10 more)
-
-### Community 20 - "Advertising schema"
+### Community 18 - "Advertising schema"
 Cohesion: 0.15
 Nodes (16): TrafficStats.cartAdds, TrafficStats.company, TrafficStats.conversionRate, TrafficStats.createdAt, TrafficStats.date, TrafficStats.id, TrafficStats.listing, TrafficStats.orders (+8 more)
 
-### Community 21 - "Finance schema"
-Cohesion: 0.15
-Nodes (14): ManualLedger.amount, ManualLedger.category, ManualLedger.company, ManualLedger.counterpart, ManualLedger.createdAt, ManualLedger.createdBy, ManualLedger.date, ManualLedger.description (+6 more)
-
-### Community 22 - "Orders schema"
-Cohesion: 0.15
-Nodes (14): CSRecord.assignee, CSRecord.company, CSRecord.content, CSRecord.createdAt, CSRecord.createdBy, CSRecord.csStatus, CSRecord.csType, CSRecord.id (+6 more)
-
-### Community 23 - "Core schema"
-Cohesion: 0.21
-Nodes (12): BundleComponent.bundleOption, BundleComponent.bundleOptionId, BundleComponent.company, BundleComponent.componentOption, BundleComponent.componentOptionId, BundleComponent.createdAt, BundleComponent.id, BundleComponent.qty (+4 more)
-
-### Community 24 - "Community 24"
+### Community 19 - "Community 19"
 Cohesion: 0.36
 Nodes (1): ChannelDashboardController
 
-### Community 25 - "Community 25"
+### Community 20 - "Community 20"
 Cohesion: 0.33
 Nodes (1): ChannelSyncController
 
-### Community 26 - "Community 26"
+### Community 21 - "Community 21"
 Cohesion: 0.33
 Nodes (6): log(), main(), toDecimal(), toInt(), toTimestamptz(), toUUID()
 
-### Community 27 - "Community 27"
+### Community 22 - "Community 22"
 Cohesion: 0.4
 Nodes (5): makeEvent(), makeHeartbeat(), makeLog(), makeTask(), makeTrace()
 
-### Community 28 - "Community 28"
+### Community 23 - "Community 23"
 Cohesion: 0.4
 Nodes (5): main(), parse_schema(), Return (header_block_lines, dict[model_name -> block_lines]).      header = gene, Inject `/// @namespace <ns>` and optional `/// @describe <text>` above the model, render_model()
 
-### Community 29 - "code file: coupang-date-range.dto.ts"
-Cohesion: 1.0
-Nodes (1): CoupangDateRangeQueryDto
-
-### Community 30 - "code file: channels.module.ts"
+### Community 24 - "code file: channels.module.ts"
 Cohesion: 1.0
 Nodes (1): ChannelsModule
 
+### Community 25 - "code file: coupang-date-range.dto.ts"
+Cohesion: 1.0
+Nodes (1): CoupangDateRangeQueryDto
+
 ## Knowledge Gaps
-- **891 isolated node(s):** `Ad.platform`, `Ad.campaignName`, `Ad.dailyBudget`, `Ad.spend`, `Ad.impressions` (+886 more)
+- **967 isolated node(s):** `Ad.platform`, `Ad.campaignName`, `Ad.dailyBudget`, `Ad.spend`, `Ad.impressions` (+962 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **Thin community `Community 24`** (9 nodes): `ChannelDashboardController`, `.constructor()`, `.getProductRanking()`, `.getReturnFaultSplit()`, `.getReturnReasonBreakdown()`, `.getReturnSummary()`, `.getRevenueTrend()`, `.getSummary()`, `.resolveDateRange()`
+- **Thin community `Community 19`** (9 nodes): `ChannelDashboardController`, `.constructor()`, `.getProductRanking()`, `.getReturnFaultSplit()`, `.getReturnReasonBreakdown()`, `.getReturnSummary()`, `.getRevenueTrend()`, `.getSummary()`, `.resolveDateRange()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 25`** (6 nodes): `ChannelSyncController`, `.checkHealth()`, `.constructor()`, `.syncInventory()`, `.syncOrders()`, `.syncProducts()`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `code file: coupang-date-range.dto.ts`** (2 nodes): `coupang-date-range.dto.ts`, `CoupangDateRangeQueryDto`
+- **Thin community `Community 20`** (6 nodes): `ChannelSyncController`, `.checkHealth()`, `.constructor()`, `.syncInventory()`, `.syncOrders()`, `.syncProducts()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
 - **Thin community `code file: channels.module.ts`** (2 nodes): `channels.module.ts`, `ChannelsModule`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `code file: coupang-date-range.dto.ts`** (2 nodes): `coupang-date-range.dto.ts`, `CoupangDateRangeQueryDto`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `Database ERD` connect `Core schema` to `Finance schema`, `AI schema`, `Agents schema`, `Inventory schema`, `Core schema`, `Advertising schema`, `Orders schema`, `System schema`, `Supply schema`, `AI schema`, `Agents schema`, `Finance schema`, `Inventory schema`, `Agents schema`, `Orders schema`, `System schema`, `Inventory schema`, `Advertising schema`, `Finance schema`, `Orders schema`, `Core schema`?**
-  _High betweenness centrality (0.204) - this node is a cross-community bridge._
-- **Why does `Company` connect `Core schema` to `Finance schema`, `Core schema`, `AI schema`, `Agents schema`, `Inventory schema`, `Advertising schema`, `Orders schema`, `System schema`, `Supply schema`, `AI schema`, `Agents schema`, `Finance schema`, `Inventory schema`, `Orders schema`, `System schema`, `Inventory schema`, `Advertising schema`, `Finance schema`, `Orders schema`, `Core schema`?**
-  _High betweenness centrality (0.144) - this node is a cross-community bridge._
-- **Why does `Ad` connect `AI schema` to `Finance schema`, `Core schema`, `Inventory schema`, `Core schema`, `Orders schema`, `System schema`, `AI schema`, `Agents schema`, `code file: generate-prisma-erd.mjs`?**
-  _High betweenness centrality (0.108) - this node is a cross-community bridge._
+- **Why does `Database ERD` connect `Core schema` to `Agents schema`, `Orders schema`, `Advertising schema`, `System schema`, `Inventory schema`, `Channels schema`, `AI schema`, `Advertising schema`, `Supply schema`, `Finance schema`, `AI schema`, `Agents schema`, `System schema`, `System schema`, `Core schema`, `Advertising schema`?**
+  _High betweenness centrality (0.232) - this node is a cross-community bridge._
+- **Why does `Company` connect `System schema` to `Core schema`, `Agents schema`, `Orders schema`, `Advertising schema`, `Inventory schema`, `Channels schema`, `AI schema`, `Advertising schema`, `Supply schema`, `Finance schema`, `AI schema`, `Agents schema`, `System schema`, `System schema`, `Core schema`, `Advertising schema`?**
+  _High betweenness centrality (0.161) - this node is a cross-community bridge._
+- **Why does `Ad` connect `Advertising schema` to `Core schema`, `Orders schema`, `Advertising schema`, `System schema`, `AI schema`, `AI schema`, `Agents schema`, `System schema`, `System schema`, `code file: generate-prisma-erd.mjs`?**
+  _High betweenness centrality (0.118) - this node is a cross-community bridge._
 - **Are the 42 inferred relationships involving `Company` (e.g. with `order-sync.pg.integration.spec.ts` and `orders.ts`) actually correct?**
   _`Company` has 42 INFERRED edges - model-reasoned connections that need verification._
 - **Are the 50 inferred relationships involving `Ad` (e.g. with `order-sync.pg.integration.spec.ts` and `coupang-client.ts`) actually correct?**
   _`Ad` has 50 INFERRED edges - model-reasoned connections that need verification._
 - **What connects `Ad.platform`, `Ad.campaignName`, `Ad.dailyBudget` to the rest of the system?**
-  _891 weakly-connected nodes found - possible documentation gaps or missing edges._
-- **Should `Finance schema` be split into smaller, more focused modules?**
-  _Cohesion score 0.01 - nodes in this community are weakly interconnected._
+  _967 weakly-connected nodes found - possible documentation gaps or missing edges._
+- **Should `Core schema` be split into smaller, more focused modules?**
+  _Cohesion score 0.05 - nodes in this community are weakly interconnected._

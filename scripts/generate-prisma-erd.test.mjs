@@ -80,6 +80,7 @@ test('generateErdMarkdown documents regeneration command and embeds the diagram'
 
   assert.match(markdown, /# Database ERD/);
   assert.match(markdown, /npm run db:erd/);
+  assert.match(markdown, /npm run graphify:schema/);
   assert.match(markdown, /```mermaid\n/);
   assert.match(markdown, /\| Company \| Core \| `companies` \| 회사\/테넌트 루트\. \|/);
 });
