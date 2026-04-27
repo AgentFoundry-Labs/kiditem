@@ -286,8 +286,18 @@ export { SalesAnalysisDataSchema, ChannelAnalysisSchema } from './schemas/sales-
 export type { SalesAnalysisData, ChannelAnalysis } from './schemas/sales-analysis.js';
 
 // Reviews
-export { ReviewListItemSchema } from './schemas/reviews.js';
-export type { ReviewListItem } from './schemas/reviews.js';
+export {
+  ReviewFilterSchema,
+  ReviewListItemSchema,
+  ReviewListResponseSchema,
+  ReviewSummarySchema,
+} from './schemas/reviews.js';
+export type {
+  ReviewFilter,
+  ReviewListItem,
+  ReviewListResponse,
+  ReviewSummary,
+} from './schemas/reviews.js';
 
 // Thumbnails
 export { ThumbnailListItemSchema, ThumbnailSummarySchema, ThumbnailScoresSchema, ComplianceScoresSchema, ThumbnailAnalysisResultSchema, ThumbnailAnalysisSummarySchema, ThumbnailGenerationItemSchema, EditAnalysisResultSchema, ImageSpecSchema, ImageSpecIssueSchema } from './schemas/thumbnails.js';

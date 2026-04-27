@@ -14,7 +14,7 @@ function getReviewStatus(d: ReviewProduct): string {
 }
 
 interface Props {
-  filteredData: ReviewProduct[];
+  items: ReviewProduct[];
   loading: boolean;
   activeFilter: FilterTab;
   page: number;
@@ -23,7 +23,7 @@ interface Props {
   onPageChange: (p: number) => void;
 }
 
-export function ReviewTable({ filteredData, loading, activeFilter, page, total, PAGE_SIZE, onPageChange }: Props) {
+export function ReviewTable({ items, loading, activeFilter, page, total, PAGE_SIZE, onPageChange }: Props) {
   if (loading) {
     return (
       <div className="animate-pulse space-y-2 py-4">
@@ -34,7 +34,7 @@ export function ReviewTable({ filteredData, loading, activeFilter, page, total, 
     );
   }
 
-  if (filteredData.length === 0) {
+  if (items.length === 0) {
     return (
       <div className="bg-white rounded-xl border border-slate-200 p-12 text-center text-slate-500">
         {activeFilter === 'all' ? '리뷰 데이터가 없습니다.' : '해당 필터에 맞는 데이터가 없습니다.'}
@@ -59,11 +59,11 @@ export function ReviewTable({ filteredData, loading, activeFilter, page, total, 
             </tr>
           </thead>
           <tbody>
-            {filteredData.map((d) => {
+            {items.map((d) => {
               const status = getReviewStatus(d);
               return (
                 <tr
-                  key={d.productId}
+                  key={d.listingId}
                   className={
                     status === 'low-rating'
                       ? 'bg-red-50/30'

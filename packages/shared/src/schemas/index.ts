@@ -222,8 +222,18 @@ export type {
 } from './dashboard.js';
 
 // Reviews
-export { ReviewListItemSchema } from './reviews.js';
-export type { ReviewListItem } from './reviews.js';
+export {
+  ReviewFilterSchema,
+  ReviewListItemSchema,
+  ReviewListResponseSchema,
+  ReviewSummarySchema,
+} from './reviews.js';
+export type {
+  ReviewFilter,
+  ReviewListItem,
+  ReviewListResponse,
+  ReviewSummary,
+} from './reviews.js';
 
 // Thumbnails
 export { ThumbnailListItemSchema, ThumbnailSummarySchema, ThumbnailScoresSchema, ComplianceScoresSchema, ThumbnailAnalysisResultSchema, ThumbnailAnalysisSummarySchema, ThumbnailGenerationItemSchema, EditAnalysisResultSchema } from './thumbnails.js';

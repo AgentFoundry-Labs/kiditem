@@ -89,7 +89,6 @@ const menuSections: MenuSection[] = [
         href: '/reviews',
         label: '리뷰 관리',
         icon: MessageSquare,
-        gatedReason: '리뷰 backend contract 준비 중',
       },
       {
         href: '/products/options',
