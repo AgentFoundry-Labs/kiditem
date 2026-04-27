@@ -1,13 +1,13 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { recomputeRoas } from '../util/ratio-recompute';
 import type { AdActionTargetType } from './types';
 
-const GENERATION_LOOKBACK_HOURS = 72;
 const ACTION_DEDUP_HOURS = 24;
 
 type ActionCandidate = {
-  snapshotId: string;
+  adTargetDailyId: string;
   listingId: string | null;
   actionType: string;
   targetType: AdActionTargetType;
@@ -30,6 +30,37 @@ export interface AdActionQuery {
   limit?: number;
 }
 
+/**
+ * Latest target-daily row per `targetKey` shape. Mirrors the per-row legacy
+ * snapshot shape that `createActionCandidate` used to consume — fields are
+ * sourced from `ChannelAdTargetDailySnapshot` columns instead of `AdSnapshot`.
+ */
+type LatestTargetRow = {
+  id: string;
+  targetType: string;
+  targetKey: string;
+  listingId: string | null;
+  listingOptionId: string | null;
+  externalId: string | null;
+  campaignId: string | null;
+  campaignName: string | null;
+  keyword: string | null;
+  status: string | null;
+  currentBid: number | null;
+  dailyBudget: number | null;
+  spend: number;
+  revenue: number;
+  impressions: number;
+  clicks: number;
+  conversions: number;
+  abcGrade: string | null;
+  optionAvailableStock: number | null;
+  optionCostPrice: number | null;
+  optionSellPrice: number | null;
+  optionCommissionRate: number | null;
+  productName: string | null;
+};
+
 @Injectable()
 export class AdActionService {
   constructor(private readonly prisma: PrismaService) {}
@@ -44,7 +75,7 @@ export class AdActionService {
     if (query.targetType && query.targetType !== 'all') where.targetType = query.targetType;
     if (query.priority && query.priority !== 'all') where.priority = query.priority;
 
-    const [items, counts, latestSnapshot] = await Promise.all([
+    const [items, counts, latestRun] = await Promise.all([
       this.prisma.adAction.findMany({
         where,
         include: {
@@ -56,13 +87,13 @@ export class AdActionService {
               master: { select: { id: true, code: true, name: true, abcGrade: true, adTier: true } },
             },
           },
-          snapshot: {
+          adTargetDaily: {
             select: {
-              pageType: true,
+              targetType: true,
               campaignName: true,
               keyword: true,
-              productName: true,
-              capturedAt: true,
+              businessDate: true,
+              lastObservedAt: true,
             },
           },
         },
@@ -76,10 +107,15 @@ export class AdActionService {
         this.prisma.adAction.count({ where: { companyId, executeStatus: 'done' } }),
         this.prisma.adAction.count({ where: { companyId, executeStatus: 'failed' } }),
       ]),
-      this.prisma.adSnapshot.findFirst({
+      // H3 — latest scrape metadata from ChannelScrapeRun, not AdSnapshot.
+      this.prisma.channelScrapeRun.findFirst({
         where: { companyId },
-        orderBy: { capturedAt: 'desc' },
-        select: { capturedAt: true, pageType: true },
+        orderBy: [
+          { finishedAt: 'desc' },
+          { startedAt: 'desc' },
+          { id: 'desc' },
+        ],
+        select: { finishedAt: true, startedAt: true, pageType: true },
       }),
     ]);
 
@@ -92,6 +128,9 @@ export class AdActionService {
       return +new Date(b.createdAt) - +new Date(a.createdAt);
     });
 
+    const latestSnapshotAt =
+      latestRun?.finishedAt ?? latestRun?.startedAt ?? null;
+
     return {
       items: sortedItems,
       summary: {
@@ -100,70 +139,146 @@ export class AdActionService {
         running: counts[2],
         done: counts[3],
         failed: counts[4],
-        latestSnapshotAt: latestSnapshot?.capturedAt || null,
-        latestSnapshotPageType: latestSnapshot?.pageType || null,
+        // H3 semantic shift: now latest channel scrape run, not legacy
+        // AdSnapshot.capturedAt. Field names preserved for client compat.
+        latestSnapshotAt,
+        latestSnapshotPageType: latestRun?.pageType || null,
       },
     };
   }
 
+  /**
+   * H3 — generate AdAction rows from `ChannelAdTargetDailySnapshot`.
+   *
+   * The 5 rules are unchanged in threshold but the input shape moves from
+   * `AdSnapshot` rows to one latest-businessDate row per `targetKey`.
+   * Rule 1 (zero stock) needs option stock — when `listingOptionId` is set we
+   * fetch the latest `ChannelListingOptionDailySnapshot.stockQty`, and when
+   * absent we skip Rule 1 (same as legacy).
+   *
+   * On creation `adTargetDailyId` is set to the source target-daily row's
+   * `id`. Legacy `snapshotId` is left null (column kept until H4).
+   */
   async generateActions(companyId: string) {
-    const lookback = new Date(Date.now() - GENERATION_LOOKBACK_HOURS * 60 * 60 * 1000);
-    const dedupCutoff = new Date(Date.now() - ACTION_DEDUP_HOURS * 60 * 60 * 1000);
+    const dedupCutoff = new Date(
+      Date.now() - ACTION_DEDUP_HOURS * 60 * 60 * 1000,
+    );
 
-    const [snapshots, existingActions] = await Promise.all([
-      this.prisma.adSnapshot.findMany({
-        where: {
-          companyId,
-          source: 'advertising',
-          capturedAt: { gte: lookback },
-          listingId: { not: null },
-        },
-        orderBy: { capturedAt: 'desc' },
-        include: {
-          listing: {
-            select: {
-              id: true,
-              externalId: true,
-              channelName: true,
-              master: { select: { id: true, code: true, name: true, abcGrade: true, adTier: true } },
-            },
-          },
-          option: {
-            select: {
-              id: true,
-              sku: true,
-              optionName: true,
-              availableStock: true,
-              costPrice: true,
-              sellPrice: true,
-              commissionRate: true,
-            },
-          },
-        },
-      }),
-      this.prisma.adAction.findMany({
-        where: {
-          companyId,
-          createdAt: { gte: dedupCutoff },
-          approvalStatus: { in: ['pending_review', 'approved'] },
-          executeStatus: { in: ['queued', 'running'] },
-        },
-        select: {
-          actionType: true,
-          externalId: true,
-          targetLabel: true,
-          currentValue: true,
-          proposedValue: true,
-        },
-      }),
-    ]);
+    // DISTINCT ON (target_key) returns one row per target — the row with the
+    // newest business_date. JS-side post-processing avoided so we don't
+    // stream every historical day to the app.
+    // We left-join the master product (via listing) to surface ABC grade and
+    // the primary product option to surface cost/sell/commission for the
+    // profit rate check (Rule 3 priority bump). The option is identified by
+    // the active ChannelListingOption.id with the lowest id (deterministic
+    // primary-option pick — same convention strategy hydrate uses).
+    const latestRows = await this.prisma.$queryRaw<LatestTargetRow[]>(
+      Prisma.sql`
+        WITH latest AS (
+          SELECT DISTINCT ON (cad.target_key)
+            cad.id,
+            cad.target_type,
+            cad.target_key,
+            cad.listing_id,
+            cad.listing_option_id,
+            cad.external_id,
+            cad.campaign_id,
+            cad.campaign_name,
+            cad.keyword,
+            cad.status,
+            cad.current_bid,
+            cad.daily_budget,
+            cad.spend,
+            cad.revenue,
+            cad.impressions,
+            cad.clicks,
+            cad.conversions
+          FROM channel_ad_target_daily_snapshots cad
+          WHERE cad.company_id = ${companyId}::uuid
+            AND cad.target_type IN ('campaign', 'keyword', 'product')
+          ORDER BY cad.target_key, cad.business_date DESC
+        )
+        SELECT
+          latest.id,
+          latest.target_type           AS "targetType",
+          latest.target_key            AS "targetKey",
+          latest.listing_id            AS "listingId",
+          latest.listing_option_id     AS "listingOptionId",
+          latest.external_id           AS "externalId",
+          latest.campaign_id           AS "campaignId",
+          latest.campaign_name         AS "campaignName",
+          latest.keyword,
+          latest.status,
+          latest.current_bid           AS "currentBid",
+          latest.daily_budget          AS "dailyBudget",
+          latest.spend,
+          latest.revenue,
+          latest.impressions,
+          latest.clicks,
+          latest.conversions,
+          mp.abc_grade                 AS "abcGrade",
+          po.available_stock           AS "optionAvailableStock",
+          po.cost_price                AS "optionCostPrice",
+          po.sell_price                AS "optionSellPrice",
+          po.commission_rate           AS "optionCommissionRate",
+          mp.name                      AS "productName"
+        FROM latest
+        LEFT JOIN channel_listings cl
+               ON cl.id = latest.listing_id AND cl.is_deleted = false
+        LEFT JOIN master_products mp
+               ON mp.id = cl.master_id
+        LEFT JOIN channel_listing_options clo
+               ON clo.id = latest.listing_option_id AND clo.is_active = true
+        LEFT JOIN product_options po
+               ON po.id = clo.option_id
+      `,
+    );
 
-    type SnapshotWithRelations = (typeof snapshots)[number];
-    const latestByTarget = new Map<string, SnapshotWithRelations>();
-    for (const snapshot of snapshots) {
-      const key = buildSnapshotKey(snapshot);
-      if (!latestByTarget.has(key)) latestByTarget.set(key, snapshot);
+    // Rule 1 stock-zero check: prefer the latest option daily snapshot's
+    // stockQty when listingOptionId is set. Legacy used the live
+    // `ProductOption.availableStock`; the daily-fact replacement gives the
+    // observed channel stock at the same time the ad metric was captured.
+    // Either signal === 0 fires the rule.
+    const optionDailyStockMap = new Map<string, number | null>();
+    const listingOptionIds = Array.from(
+      new Set(
+        latestRows
+          .map((r) => r.listingOptionId)
+          .filter((id): id is string => id != null),
+      ),
+    );
+    if (listingOptionIds.length > 0) {
+      const optionDailies = await this.prisma.$queryRaw<
+        { listingOptionId: string; stockQty: number | null }[]
+      >(Prisma.sql`
+        SELECT DISTINCT ON (listing_option_id)
+          listing_option_id AS "listingOptionId",
+          stock_qty         AS "stockQty"
+        FROM channel_listing_option_daily_snapshots
+        WHERE company_id = ${companyId}::uuid
+          AND listing_option_id = ANY(${listingOptionIds}::uuid[])
+        ORDER BY listing_option_id, business_date DESC
+      `);
+      for (const row of optionDailies) {
+        optionDailyStockMap.set(row.listingOptionId, row.stockQty);
+      }
     }
+
+    const existingActions = await this.prisma.adAction.findMany({
+      where: {
+        companyId,
+        createdAt: { gte: dedupCutoff },
+        approvalStatus: { in: ['pending_review', 'approved'] },
+        executeStatus: { in: ['queued', 'running'] },
+      },
+      select: {
+        actionType: true,
+        externalId: true,
+        targetLabel: true,
+        currentValue: true,
+        proposedValue: true,
+      },
+    });
 
     const dedupSet = new Set(
       existingActions.map((item) =>
@@ -174,8 +289,8 @@ export class AdActionService {
     const candidates: ActionCandidate[] = [];
     let skippedExisting = 0;
 
-    for (const snapshot of latestByTarget.values()) {
-      const candidate = createActionCandidate(snapshot);
+    for (const row of latestRows) {
+      const candidate = createActionCandidate(row, optionDailyStockMap);
       if (!candidate) continue;
 
       const dedupKey = [
@@ -196,20 +311,18 @@ export class AdActionService {
     }
 
     if (candidates.length === 0) {
-      const targetCount = latestByTarget.size;
+      const targetCount = latestRows.length;
       const reason =
-        snapshots.length === 0
-          ? '광고 스냅샷이 아직 없습니다. 광고센터에서 익스텐션 동기화를 먼저 해주세요.'
-          : targetCount === 0
-            ? '추천 대상을 식별할 수 있는 광고 스냅샷이 없습니다. 캠페인/키워드 페이지에서 다시 동기화해주세요.'
-            : '현재 규칙에 걸린 광고 액션이 없습니다. 최근 스냅샷 기준으로는 즉시 조정할 항목이 없습니다.';
+        latestRows.length === 0
+          ? '광고 일별 fact 가 아직 없습니다. 광고센터에서 익스텐션 동기화를 먼저 해주세요.'
+          : '현재 규칙에 걸린 광고 액션이 없습니다. 최근 일별 fact 기준으로는 즉시 조정할 항목이 없습니다.';
 
       return {
         generated: 0,
         skippedExisting,
         items: [],
         reason,
-        stats: { snapshotCount: snapshots.length, targetCount },
+        stats: { snapshotCount: latestRows.length, targetCount },
       };
     }
 
@@ -219,7 +332,9 @@ export class AdActionService {
           data: {
             companyId,
             listingId: c.listingId,
-            snapshotId: c.snapshotId,
+            // H3 — audit pointer to source daily fact row. legacy snapshotId
+            // intentionally left null (column removed in H4).
+            adTargetDailyId: c.adTargetDailyId,
             actionType: c.actionType,
             targetType: c.targetType,
             externalId: c.externalId,
@@ -239,7 +354,7 @@ export class AdActionService {
       skippedExisting,
       items: created.slice(0, 10),
       reason: `${created.length}개의 광고 액션을 생성했습니다.`,
-      stats: { snapshotCount: snapshots.length, targetCount: latestByTarget.size },
+      stats: { snapshotCount: latestRows.length, targetCount: latestRows.length },
     };
   }
 
@@ -366,155 +481,156 @@ export class AdActionService {
   }
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────
 
-function buildSnapshotKey(snapshot: {
-  pageType: string;
-  externalId: string | null;
-  campaignName: string | null;
-  keyword: string | null;
-  productName: string | null;
-}) {
-  return snapshot.externalId || [snapshot.pageType, snapshot.campaignName, snapshot.keyword, snapshot.productName].join('::');
-}
+/**
+ * H3 — derive a candidate from one latest target-daily row. Mirrors legacy
+ * `createActionCandidate`'s 5 rules but reads from target-daily column shape.
+ *
+ * `optionDailyStockMap` provides the latest channel-observed `stockQty` per
+ * `listingOptionId` so Rule 1 can fire even when the in-memory live
+ * `ProductOption.availableStock` is non-zero (channel may have observed
+ * sold-out before our internal counter updated).
+ */
+function createActionCandidate(
+  row: LatestTargetRow,
+  optionDailyStockMap: Map<string, number | null>,
+): ActionCandidate | null {
+  const grade = row.abcGrade || 'C';
+  // Per-row ROAS for rule decisions — daily target row holds today's revenue
+  // and spend for the (campaign|keyword|product) at this grain. Recompute
+  // from the row's own numerator/denominator (do not trust any provider
+  // ratio that may live in metaJson).
+  const roas = recomputeRoas(row.revenue, row.spend) ?? 0;
+  const profitRateNum = calcProfitRate({
+    costPrice: row.optionCostPrice,
+    sellPrice: row.optionSellPrice,
+    commissionRate: row.optionCommissionRate,
+  });
+  const targetLabel =
+    row.keyword ||
+    row.campaignName ||
+    row.productName ||
+    row.externalId ||
+    '미식별 대상';
+  const statusText = (row.status || '').toLowerCase();
 
-function createActionCandidate(snapshot: {
-  id: string;
-  listingId: string | null;
-  pageType: string;
-  externalId: string | null;
-  campaignName: string | null;
-  keyword: string | null;
-  productName: string | null;
-  status: string | null;
-  currentBid: number | null;
-  dailyBudget: number | null;
-  impressions: number;
-  clicks: number;
-  conversions: number;
-  spend: number;
-  revenue: number;
-  roas: unknown;
-  ctr: unknown;
-  listing: {
-    id: string;
-    externalId: string;
-    channelName: string | null;
-    master: { id: string; code: string; name: string; abcGrade: string | null; adTier: string | null } | null;
-  } | null;
-  option: {
-    id: string;
-    sku: string;
-    optionName: string | null;
-    availableStock: number | null;
-    costPrice: number | null;
-    sellPrice: number | null;
-    commissionRate: Prisma.Decimal | null;
-  } | null;
-  [key: string]: unknown;
-}): ActionCandidate | null {
-  const grade = snapshot.listing?.master?.abcGrade || 'C';
-  const roas = Number(snapshot.roas ?? 0);
-  const profitRateNum = calcProfitRate(snapshot.option);
-  const targetLabel = snapshot.keyword || snapshot.campaignName || snapshot.productName || snapshot.externalId || '미식별 대상';
-  const statusText = (snapshot.status || '').toLowerCase();
-
-  // Rule 1: zero stock → budget cut (option null 이면 Rule 1 skip)
-  if (snapshot.option && snapshot.option.availableStock === 0 && snapshot.pageType === 'campaign' && snapshot.dailyBudget && snapshot.dailyBudget > 0) {
-    return {
-      snapshotId: snapshot.id,
-      listingId: snapshot.listingId,
-      actionType: 'change_daily_budget',
-      targetType: 'campaign',
-      externalId: snapshot.externalId,
-      targetLabel,
-      reason: `재고 0개인데 광고 예산 ${formatNumber(snapshot.dailyBudget)}원이 유지 중입니다. 즉시 축소가 필요합니다.`,
-      priority: 'urgent',
-      currentValue: snapshot.dailyBudget,
-      proposedValue: 3000,
-      payload: basePayload(snapshot, { pageType: 'campaign' }),
-    };
+  // Rule 1: zero stock → budget cut (option-stock not observable → skip)
+  if (
+    row.targetType === 'campaign' &&
+    row.dailyBudget != null &&
+    row.dailyBudget > 0 &&
+    row.listingOptionId !== null
+  ) {
+    const observedStockQty = optionDailyStockMap.has(row.listingOptionId)
+      ? optionDailyStockMap.get(row.listingOptionId)
+      : undefined;
+    const liveStock = row.optionAvailableStock;
+    // Rule fires when EITHER the live internal stock OR the latest daily
+    // observed channel stock is exactly 0. (`null`/undefined means "not
+    // observed" → don't fire.)
+    const liveZero = liveStock === 0;
+    const observedZero = observedStockQty === 0;
+    if (liveZero || observedZero) {
+      return {
+        adTargetDailyId: row.id,
+        listingId: row.listingId,
+        actionType: 'change_daily_budget',
+        targetType: 'campaign',
+        externalId: row.externalId,
+        targetLabel,
+        reason: `재고 0개인데 광고 예산 ${formatNumber(row.dailyBudget)}원이 유지 중입니다. 즉시 축소가 필요합니다.`,
+        priority: 'urgent',
+        currentValue: row.dailyBudget,
+        proposedValue: 3000,
+        payload: basePayload(row, { pageType: 'campaign' }),
+      };
+    }
   }
 
   // Rule 2 & 3: keyword pause / bid change
-  if (snapshot.pageType === 'keyword') {
-    const zeroConversionSpend = snapshot.conversions === 0 && snapshot.spend >= 5000;
+  if (row.targetType === 'keyword') {
+    const zeroConversionSpend = row.conversions === 0 && row.spend >= 5000;
     const poorRoas = roas > 0 && roas < 100;
 
     if (!isPaused(statusText) && (zeroConversionSpend || poorRoas)) {
       return {
-        snapshotId: snapshot.id,
-        listingId: snapshot.listingId,
+        adTargetDailyId: row.id,
+        listingId: row.listingId,
         actionType: 'pause_keyword',
         targetType: 'keyword',
-        externalId: snapshot.externalId,
+        externalId: row.externalId,
         targetLabel,
         reason: zeroConversionSpend
-          ? `전환 0건인데 광고비 ${formatNumber(snapshot.spend)}원이 누적되었습니다. 즉시 OFF 권장.`
+          ? `전환 0건인데 광고비 ${formatNumber(row.spend)}원이 누적되었습니다. 즉시 OFF 권장.`
           : `ROAS ${Math.round(roas)}%로 기준 미달입니다. 키워드 OFF 후 재검토가 필요합니다.`,
         priority: grade === 'A' ? 'high' : 'urgent',
         currentValue: null,
         proposedValue: null,
-        payload: basePayload(snapshot, { pageType: 'keyword' }),
+        payload: basePayload(row, { pageType: 'keyword' }),
       };
     }
 
-    if (snapshot.currentBid && snapshot.currentBid > 0 && roas >= 100 && roas < 200) {
-      const nextBid = roundBid(snapshot.currentBid * 0.85);
-      if (nextBid < snapshot.currentBid) {
+    if (row.currentBid && row.currentBid > 0 && roas >= 100 && roas < 200) {
+      const nextBid = roundBid(row.currentBid * 0.85);
+      if (nextBid < row.currentBid) {
         return {
-          snapshotId: snapshot.id,
-          listingId: snapshot.listingId,
+          adTargetDailyId: row.id,
+          listingId: row.listingId,
           actionType: 'change_bid',
           targetType: 'keyword',
-          externalId: snapshot.externalId,
+          externalId: row.externalId,
           targetLabel,
-          reason: `ROAS ${Math.round(roas)}%로 입찰가 하향 구간입니다. 현재 ${formatNumber(snapshot.currentBid)}원 → ${formatNumber(nextBid)}원.`,
+          reason: `ROAS ${Math.round(roas)}%로 입찰가 하향 구간입니다. 현재 ${formatNumber(row.currentBid)}원 → ${formatNumber(nextBid)}원.`,
           priority: profitRateNum !== null && profitRateNum < 0 ? 'high' : 'medium',
-          currentValue: snapshot.currentBid,
+          currentValue: row.currentBid,
           proposedValue: nextBid,
-          payload: basePayload(snapshot, { pageType: 'keyword' }),
+          payload: basePayload(row, { pageType: 'keyword' }),
         };
       }
     }
   }
 
   // Rule 4 & 5: campaign budget increase / decrease
-  if (snapshot.pageType === 'campaign' && snapshot.dailyBudget && snapshot.dailyBudget > 0) {
+  if (
+    row.targetType === 'campaign' &&
+    row.dailyBudget != null &&
+    row.dailyBudget > 0
+  ) {
     if (grade === 'A' && roas >= 480) {
-      const nextBudget = roundBudget(snapshot.dailyBudget * 1.2);
-      if (nextBudget > snapshot.dailyBudget) {
+      const nextBudget = roundBudget(row.dailyBudget * 1.2);
+      if (nextBudget > row.dailyBudget) {
         return {
-          snapshotId: snapshot.id,
-          listingId: snapshot.listingId,
+          adTargetDailyId: row.id,
+          listingId: row.listingId,
           actionType: 'change_daily_budget',
           targetType: 'campaign',
-          externalId: snapshot.externalId,
+          externalId: row.externalId,
           targetLabel,
-          reason: `A등급 / ROAS ${Math.round(roas)}%로 예산 확대 구간입니다. 현재 ${formatNumber(snapshot.dailyBudget)}원 → ${formatNumber(nextBudget)}원.`,
+          reason: `A등급 / ROAS ${Math.round(roas)}%로 예산 확대 구간입니다. 현재 ${formatNumber(row.dailyBudget)}원 → ${formatNumber(nextBudget)}원.`,
           priority: 'high',
-          currentValue: snapshot.dailyBudget,
+          currentValue: row.dailyBudget,
           proposedValue: nextBudget,
-          payload: basePayload(snapshot, { pageType: 'campaign' }),
+          payload: basePayload(row, { pageType: 'campaign' }),
         };
       }
     }
 
-    if ((grade === 'C' || roas < 100) && snapshot.dailyBudget > 3000) {
-      const nextBudget = Math.max(3000, roundBudget(snapshot.dailyBudget * 0.5));
-      if (nextBudget < snapshot.dailyBudget) {
+    if ((grade === 'C' || roas < 100) && row.dailyBudget > 3000) {
+      const nextBudget = Math.max(3000, roundBudget(row.dailyBudget * 0.5));
+      if (nextBudget < row.dailyBudget) {
         return {
-          snapshotId: snapshot.id,
-          listingId: snapshot.listingId,
+          adTargetDailyId: row.id,
+          listingId: row.listingId,
           actionType: 'change_daily_budget',
           targetType: 'campaign',
-          externalId: snapshot.externalId,
+          externalId: row.externalId,
           targetLabel,
-          reason: `${grade}등급 / ROAS ${Math.round(roas)}%로 예산 축소 구간입니다. 현재 ${formatNumber(snapshot.dailyBudget)}원 → ${formatNumber(nextBudget)}원.`,
+          reason: `${grade}등급 / ROAS ${Math.round(roas)}%로 예산 축소 구간입니다. 현재 ${formatNumber(row.dailyBudget)}원 → ${formatNumber(nextBudget)}원.`,
           priority: grade === 'C' ? 'high' : 'medium',
-          currentValue: snapshot.dailyBudget,
+          currentValue: row.dailyBudget,
           proposedValue: nextBudget,
-          payload: basePayload(snapshot, { pageType: 'campaign' }),
+          payload: basePayload(row, { pageType: 'campaign' }),
         };
       }
     }
@@ -526,36 +642,32 @@ function createActionCandidate(snapshot: {
 function calcProfitRate(option: {
   costPrice: number | null;
   sellPrice: number | null;
-  commissionRate: Prisma.Decimal | null;
-} | null): number | null {
-  if (!option) return null;
+  commissionRate: number | null;
+}): number | null {
   const cost = option.costPrice ?? 0;
   const sell = option.sellPrice ?? 0;
   if (sell <= 0) return null;
-  const commission = option.commissionRate != null ? Number(option.commissionRate) : 0;
+  const commission =
+    option.commissionRate != null ? Number(option.commissionRate) : 0;
   const commissionFee = sell * commission;
   const profit = sell - cost - commissionFee;
   return Math.round((profit / sell) * 10000) / 100;
 }
 
 function basePayload(
-  snapshot: {
-    pageType: string;
-    campaignName: string | null;
-    keyword: string | null;
-    productName: string | null;
-    externalId: string | null;
-    status: string | null;
-  },
+  row: Pick<
+    LatestTargetRow,
+    'targetType' | 'campaignName' | 'keyword' | 'productName' | 'externalId' | 'status'
+  >,
   extras: Record<string, unknown>,
 ) {
   return {
-    pageType: snapshot.pageType,
-    campaignName: snapshot.campaignName,
-    keyword: snapshot.keyword,
-    productName: snapshot.productName,
-    externalId: snapshot.externalId,
-    status: snapshot.status,
+    pageType: row.targetType,
+    campaignName: row.campaignName,
+    keyword: row.keyword,
+    productName: row.productName,
+    externalId: row.externalId,
+    status: row.status,
     ...extras,
   };
 }

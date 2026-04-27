@@ -1,5 +1,6 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import type { AdCollectStatus } from '@kiditem/shared';
 
 @Injectable()
 export class AdCollectService {
@@ -12,28 +13,56 @@ export class AdCollectService {
     };
   }
 
-  async getStatus(companyId: string) {
+  /**
+   * H3 — collection status from `ChannelScrapeRun`. `lastCollectedAt` is the
+   * latest run's `finishedAt ?? startedAt`. Counts are run rows under the
+   * advertising vs wing buckets (plan §C6 §2 mapping). Empty state is
+   * deterministic — no legacy `AdSnapshot` fallback.
+   *
+   * Counting choice: we count `ChannelScrapeRun` rows (one per scrape session)
+   * under each bucket because that matches the "수집 횟수" semantics the UI
+   * has historically surfaced. `ChannelScrapeSnapshot` count would be
+   * "row 수" which is reported separately by `getExtensionStatus`.
+   */
+  async getStatus(companyId: string): Promise<AdCollectStatus> {
     try {
-      const [lastCampaign, lastProduct, campaignCount, productCount] = await Promise.all([
-        this.prisma.adSnapshot.findFirst({
-          where: { companyId, level: 'campaign' },
-          orderBy: { createdAt: 'desc' },
-          select: { createdAt: true },
+      const [latestRun, campaignCount, productCount] = await Promise.all([
+        this.prisma.channelScrapeRun.findFirst({
+          where: { companyId },
+          orderBy: [
+            { finishedAt: 'desc' },
+            { startedAt: 'desc' },
+            { id: 'desc' },
+          ],
+          select: { finishedAt: true, startedAt: true },
         }),
-        this.prisma.adSnapshot.findFirst({
-          where: { companyId, level: 'product' },
-          orderBy: { createdAt: 'desc' },
-          select: { createdAt: true },
+        // Advertising-side scrape runs (campaign / keyword / product /
+        // generic 'advertising') from the Coupang ad center.
+        this.prisma.channelScrapeRun.count({
+          where: {
+            companyId,
+            source: 'advertising',
+            pageType: { in: ['campaign', 'keyword', 'product', 'advertising'] },
+          },
         }),
-        this.prisma.adSnapshot.count({ where: { companyId, level: 'campaign' } }),
-        this.prisma.adSnapshot.count({ where: { companyId, level: 'product' } }),
+        // Wing-side scrape runs (item-winner status, traffic dashboard).
+        this.prisma.channelScrapeRun.count({
+          where: {
+            companyId,
+            source: 'wing',
+            pageType: { in: ['itemwinner', 'traffic'] },
+          },
+        }),
       ]);
 
+      const lastCollectedAt =
+        latestRun?.finishedAt ?? latestRun?.startedAt ?? null;
+
       return {
-        lastCollectedAt: lastCampaign?.createdAt ?? lastProduct?.createdAt ?? null,
+        lastCollectedAt,
         campaignSnapshotCount: campaignCount,
         productSnapshotCount: productCount,
-      };
+      } satisfies AdCollectStatus;
     } catch (e) {
       if (e instanceof InternalServerErrorException) throw e;
       throw new InternalServerErrorException('수집 상태 조회 실패');

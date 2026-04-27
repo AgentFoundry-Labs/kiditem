@@ -54,13 +54,32 @@ describe('AdAction flow (PG integration)', () => {
         externalId: `EXT-${unique}${params.externalIdSuffix ?? ''}`,
       },
     });
-    return { master, option, listing };
+    // H3 — AdAction's $queryRaw joins target-daily → channel_listing_options
+    // → product_options to surface ABC grade + option pricing. Make sure the
+    // ChannelListingOption row exists so the join lands.
+    const listingOption = await prisma.channelListingOption.create({
+      data: {
+        companyId: params.companyId,
+        listingId: listing.id,
+        optionId: option.id,
+        externalOptionId: `VID-${unique}`,
+        isActive: true,
+      },
+    });
+    return { master, option, listing, listingOption };
   }
 
+  /**
+   * H3 — seed `ChannelAdTargetDailySnapshot` (the new source-of-truth) instead
+   * of legacy `AdSnapshot`. Maps the legacy `seedSnapshot` shape onto the new
+   * target-daily columns (pageType → targetType, etc.). Each row uses today's
+   * KST businessDate so the latest-per-targetKey query lands it.
+   */
   async function seedSnapshot(params: {
     companyId: string;
     listingId: string;
-    optionId: string | null;
+    listingOptionId?: string | null;
+    optionId?: string | null;
     pageType: 'campaign' | 'keyword' | 'product';
     externalId: string;
     campaignName?: string;
@@ -73,15 +92,44 @@ describe('AdAction flow (PG integration)', () => {
     conversions?: number;
     spend?: number;
     revenue?: number;
+    /** Legacy ROAS input — when provided, derive revenue from spend so
+     * `recomputeRoas(revenue, spend)` returns this value (matches the old
+     * provider-ratio expectation in tests). */
     roas?: number;
   }) {
-    return prisma.adSnapshot.create({
+    // Today's KST business date (same `@db.Date` shape ingestion writes).
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // targetKey shape per util/ad-target-key.ts
+    const targetKey =
+      params.pageType === 'keyword'
+        ? `keyword:${params.campaignName ?? 'C'}::${params.keyword ?? params.externalId}`
+        : params.pageType === 'product'
+          ? `product:${params.externalId}:${params.campaignName ?? params.externalId}`
+          : `campaign:${params.campaignName ?? params.externalId}`;
+
+    // When the test passes `roas` without an explicit spend, default spend to
+    // 1000 so `recomputeRoas(revenue, spend)` returns the intended ratio.
+    const spend =
+      params.spend ?? (params.roas != null && params.revenue == null ? 1000 : 0);
+    // Derive revenue from explicit value, or from legacy roas hint, else 0.
+    const revenue =
+      params.revenue ??
+      (params.roas != null && spend > 0
+        ? Math.round((params.roas / 100) * spend)
+        : 0);
+
+    return prisma.channelAdTargetDailySnapshot.create({
       data: {
         companyId: params.companyId,
+        channel: 'coupang',
+        businessDate: today,
+        targetType: params.pageType,
+        targetKey,
         listingId: params.listingId,
-        optionId: params.optionId,
-        source: 'advertising',
-        pageType: params.pageType,
+        listingOptionId: params.listingOptionId ?? null,
+        optionId: params.optionId ?? null,
         externalId: params.externalId,
         campaignName: params.campaignName ?? null,
         keyword: params.keyword ?? null,
@@ -91,9 +139,10 @@ describe('AdAction flow (PG integration)', () => {
         impressions: params.impressions ?? 0,
         clicks: params.clicks ?? 0,
         conversions: params.conversions ?? 0,
-        spend: params.spend ?? 0,
-        revenue: params.revenue ?? 0,
-        roas: params.roas ?? 0,
+        spend,
+        revenue,
+        adSpend: spend,
+        adRevenue: revenue,
       },
     });
   }
@@ -122,7 +171,7 @@ describe('AdAction flow (PG integration)', () => {
 
   describe('generateActions — 5 rules', () => {
     it('#1 Rule 1: zero stock + campaign + dailyBudget>0 → change_daily_budget urgent', async () => {
-      const { listing, option } = await seedListingWithOption({
+      const { listing, option, listingOption } = await seedListingWithOption({
         companyId: TEST_COMPANY_ID,
         abcGrade: 'B',
         availableStock: 0,
@@ -130,6 +179,7 @@ describe('AdAction flow (PG integration)', () => {
       await seedSnapshot({
         companyId: TEST_COMPANY_ID,
         listingId: listing.id,
+        listingOptionId: listingOption.id,
         optionId: option.id,
         pageType: 'campaign',
         externalId: 'CAMP-ZERO-STOCK',
@@ -150,7 +200,7 @@ describe('AdAction flow (PG integration)', () => {
       expect(action.proposedValue).toBe(3000);
     });
 
-    it('#2 Rule 1 skip when snapshot.optionId is null (option join 불가)', async () => {
+    it('#2 Rule 1 skip when target row has no listingOptionId (option daily join 불가)', async () => {
       const { listing } = await seedListingWithOption({
         companyId: TEST_COMPANY_ID,
         abcGrade: 'B',
@@ -158,6 +208,7 @@ describe('AdAction flow (PG integration)', () => {
       await seedSnapshot({
         companyId: TEST_COMPANY_ID,
         listingId: listing.id,
+        listingOptionId: null,
         optionId: null,
         pageType: 'campaign',
         externalId: 'CAMP-NO-OPTION',
@@ -174,13 +225,14 @@ describe('AdAction flow (PG integration)', () => {
     });
 
     it('#3 Rule 2: keyword + spend>=5000 + conversions=0 → pause_keyword urgent', async () => {
-      const { listing, option } = await seedListingWithOption({
+      const { listing, option, listingOption } = await seedListingWithOption({
         companyId: TEST_COMPANY_ID,
         abcGrade: 'B',
       });
       await seedSnapshot({
         companyId: TEST_COMPANY_ID,
         listingId: listing.id,
+        listingOptionId: listingOption.id,
         optionId: option.id,
         pageType: 'keyword',
         externalId: 'KW-WASTE',
@@ -201,13 +253,14 @@ describe('AdAction flow (PG integration)', () => {
     });
 
     it('#4 Rule 3: keyword + currentBid>0 + 100<=roas<200 → change_bid to 85% rounded', async () => {
-      const { listing, option } = await seedListingWithOption({
+      const { listing, option, listingOption } = await seedListingWithOption({
         companyId: TEST_COMPANY_ID,
         abcGrade: 'B',
       });
       await seedSnapshot({
         companyId: TEST_COMPANY_ID,
         listingId: listing.id,
+        listingOptionId: listingOption.id,
         optionId: option.id,
         pageType: 'keyword',
         externalId: 'KW-BID-DOWN',
@@ -230,7 +283,7 @@ describe('AdAction flow (PG integration)', () => {
     });
 
     it('#5 Rule 4: A grade + campaign + roas>=480 → budget expand 1.2x', async () => {
-      const { listing, option } = await seedListingWithOption({
+      const { listing, option, listingOption } = await seedListingWithOption({
         companyId: TEST_COMPANY_ID,
         abcGrade: 'A',
         availableStock: 100,
@@ -238,6 +291,7 @@ describe('AdAction flow (PG integration)', () => {
       await seedSnapshot({
         companyId: TEST_COMPANY_ID,
         listingId: listing.id,
+        listingOptionId: listingOption.id,
         optionId: option.id,
         pageType: 'campaign',
         externalId: 'CAMP-A-EXPAND',
@@ -259,7 +313,7 @@ describe('AdAction flow (PG integration)', () => {
     });
 
     it('#6 Rule 5: C grade campaign + dailyBudget>3000 → budget shrink to 50% (min 3000)', async () => {
-      const { listing, option } = await seedListingWithOption({
+      const { listing, option, listingOption } = await seedListingWithOption({
         companyId: TEST_COMPANY_ID,
         abcGrade: 'C',
         availableStock: 50,
@@ -267,6 +321,7 @@ describe('AdAction flow (PG integration)', () => {
       await seedSnapshot({
         companyId: TEST_COMPANY_ID,
         listingId: listing.id,
+        listingOptionId: listingOption.id,
         optionId: option.id,
         pageType: 'campaign',
         externalId: 'CAMP-C-SHRINK',
@@ -289,7 +344,7 @@ describe('AdAction flow (PG integration)', () => {
 
   describe('lifecycle + ExecutionTask', () => {
     it('#7 approve → ExecutionTask created (idempotent)', async () => {
-      const { listing, option } = await seedListingWithOption({
+      const { listing, option, listingOption } = await seedListingWithOption({
         companyId: TEST_COMPANY_ID,
         abcGrade: 'B',
         availableStock: 0,
@@ -297,6 +352,7 @@ describe('AdAction flow (PG integration)', () => {
       await seedSnapshot({
         companyId: TEST_COMPANY_ID,
         listingId: listing.id,
+        listingOptionId: listingOption.id,
         optionId: option.id,
         pageType: 'campaign',
         externalId: 'CAMP-APPROVE',
@@ -323,7 +379,7 @@ describe('AdAction flow (PG integration)', () => {
     });
 
     it('#8 markRunning → markFailed → resetFailed → re-queued + new ExecutionTask', async () => {
-      const { listing, option } = await seedListingWithOption({
+      const { listing, option, listingOption } = await seedListingWithOption({
         companyId: TEST_COMPANY_ID,
         abcGrade: 'B',
         availableStock: 0,
@@ -331,6 +387,7 @@ describe('AdAction flow (PG integration)', () => {
       await seedSnapshot({
         companyId: TEST_COMPANY_ID,
         listingId: listing.id,
+        listingOptionId: listingOption.id,
         optionId: option.id,
         pageType: 'campaign',
         externalId: 'CAMP-RETRY',
@@ -366,7 +423,7 @@ describe('AdAction flow (PG integration)', () => {
     });
 
     it('#9 markDone → executeStatus=done + executedAt set', async () => {
-      const { listing, option } = await seedListingWithOption({
+      const { listing, option, listingOption } = await seedListingWithOption({
         companyId: TEST_COMPANY_ID,
         abcGrade: 'B',
         availableStock: 0,
@@ -374,6 +431,7 @@ describe('AdAction flow (PG integration)', () => {
       await seedSnapshot({
         companyId: TEST_COMPANY_ID,
         listingId: listing.id,
+        listingOptionId: listingOption.id,
         optionId: option.id,
         pageType: 'campaign',
         externalId: 'CAMP-DONE',
@@ -395,7 +453,7 @@ describe('AdAction flow (PG integration)', () => {
     });
 
     it('#10 reject → approvalStatus=rejected + open tasks cancelled', async () => {
-      const { listing, option } = await seedListingWithOption({
+      const { listing, option, listingOption } = await seedListingWithOption({
         companyId: TEST_COMPANY_ID,
         abcGrade: 'B',
         availableStock: 0,
@@ -403,6 +461,7 @@ describe('AdAction flow (PG integration)', () => {
       await seedSnapshot({
         companyId: TEST_COMPANY_ID,
         listingId: listing.id,
+        listingOptionId: listingOption.id,
         optionId: option.id,
         pageType: 'campaign',
         externalId: 'CAMP-REJECT',
@@ -434,6 +493,7 @@ describe('AdAction flow (PG integration)', () => {
       await seedSnapshot({
         companyId: TEST_COMPANY_ID,
         listingId: mine.listing.id,
+        listingOptionId: mine.listingOption.id,
         optionId: mine.option.id,
         pageType: 'campaign',
         externalId: 'MINE-CAMP',
@@ -450,6 +510,7 @@ describe('AdAction flow (PG integration)', () => {
       await seedSnapshot({
         companyId: OTHER_COMPANY_ID,
         listingId: other.listing.id,
+        listingOptionId: other.listingOption.id,
         optionId: other.option.id,
         pageType: 'campaign',
         externalId: 'OTHER-CAMP',
@@ -475,6 +536,7 @@ describe('AdAction flow (PG integration)', () => {
       await seedSnapshot({
         companyId: OTHER_COMPANY_ID,
         listingId: other.listing.id,
+        listingOptionId: other.listingOption.id,
         optionId: other.option.id,
         pageType: 'campaign',
         externalId: 'OTHER-ONLY',

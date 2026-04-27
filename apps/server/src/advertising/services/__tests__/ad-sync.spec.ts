@@ -17,19 +17,19 @@ describe('AdSyncService', () => {
       channelListingOption: {
         findMany: vi.fn(),
       },
-      // Read-side legacy access remains here in this branch (getExtensionStatus
-      // still touches AdSnapshot/ItemWinner — H3 rewrites those reads). The
-      // ingestion path no longer calls these.
-      adSnapshot: {
+      // H3 — read paths now use channel-generic daily-fact + scrape-run
+      // tables. Legacy AdSnapshot/ItemWinner are not consulted at all.
+      channelScrapeRun: {
         findFirst: vi.fn(),
-        findMany: vi.fn(),
+      },
+      channelScrapeSnapshot: {
         count: vi.fn(),
-        create: vi.fn(),
-        update: vi.fn(),
       },
-      itemWinner: {
-        groupBy: vi.fn(),
+      channelAccountDailyKpiSnapshot: {
+        findFirst: vi.fn(),
       },
+      // $queryRaw is used by getExtensionStatus (DISTINCT ON listing_id).
+      $queryRaw: vi.fn().mockResolvedValue([]),
       scrapeTarget: {
         findFirst: vi.fn(),
         findMany: vi.fn(),
@@ -314,9 +314,10 @@ describe('AdSyncService', () => {
         'company-1',
       );
 
-      // No legacy writes happened.
-      expect(prisma.adSnapshot.create).not.toHaveBeenCalled();
-      expect(prisma.adSnapshot.update).not.toHaveBeenCalled();
+      // No legacy writes happened — prisma mock intentionally omits the
+      // `adSnapshot` / `ad` / `itemWinner` / `trafficStats` model accessors so
+      // any leftover write would throw at access time.
+      expect(prisma.adSnapshot).toBeUndefined();
 
       // Listing-day metric upsert occurred for the matched row.
       expect(scrapePersistence.upsertListingDaily).toHaveBeenCalledTimes(1);
@@ -385,7 +386,8 @@ describe('AdSyncService', () => {
       expect(kpiCall.normalizedJson).toMatchObject({
         kpis: { '광고비': '5,000' },
       });
-      expect(prisma.adSnapshot.create).not.toHaveBeenCalled();
+      // Mock omits `adSnapshot` entirely — any legacy write would throw.
+      expect(prisma.adSnapshot).toBeUndefined();
     });
 
     it('handleTraffic: matched row upserts ChannelListingDailySnapshot traffic metrics (no TrafficStats write)', async () => {
@@ -479,7 +481,8 @@ describe('AdSyncService', () => {
         'company-1',
       );
 
-      expect(prisma.adSnapshot.create).not.toHaveBeenCalled();
+      // Mock omits `adSnapshot` entirely — any legacy write would throw.
+      expect(prisma.adSnapshot).toBeUndefined();
       expect(scrapePersistence.upsertAccountKpi).toHaveBeenCalledTimes(1);
       const kpiCall = scrapePersistence.upsertAccountKpi.mock.calls[0][0];
       expect(kpiCall.source).toBe('coupang_ads');
@@ -564,6 +567,97 @@ describe('AdSyncService', () => {
           category: 'advertising',
         }),
       });
+    });
+  });
+
+  describe('getExtensionStatus (H3 — current-state semantics)', () => {
+    it('aggregates winner/non-winner/unknown counts from latest daily snapshot per listing', async () => {
+      prisma.channelListing.count.mockResolvedValue(7);
+      prisma.$queryRaw.mockResolvedValue([
+        { isOfferWinner: true, lastObservedAt: new Date('2026-04-25T00:00:00Z') },
+        { isOfferWinner: true, lastObservedAt: new Date('2026-04-26T00:00:00Z') },
+        { isOfferWinner: false, lastObservedAt: new Date('2026-04-26T00:00:00Z') },
+        { isOfferWinner: null, lastObservedAt: new Date('2026-04-27T00:00:00Z') },
+      ]);
+      prisma.channelScrapeSnapshot.count.mockResolvedValue(42);
+      prisma.channelScrapeRun.findFirst.mockResolvedValue({
+        finishedAt: new Date('2026-04-27T03:00:00Z'),
+        startedAt: new Date('2026-04-27T02:00:00Z'),
+        pageType: 'itemwinner',
+      });
+      prisma.channelAccountDailyKpiSnapshot.findFirst.mockResolvedValue({
+        normalizedJson: { kpis: { '아이템위너 상품': '2', '노출제한 상품': '0' } },
+        lastObservedAt: new Date('2026-04-27T03:00:00Z'),
+      });
+
+      const result = await service.getExtensionStatus('company-1');
+
+      expect(result.connected).toBe(true);
+      expect(result.listingCount).toBe(7);
+      expect(result.currentWinnerCount).toBe(2);
+      expect(result.currentNonWinnerCount).toBe(1);
+      expect(result.currentUnknownWinnerCount).toBe(1);
+      expect(result.currentWinnerObservedListings).toBe(4);
+      expect(result.rawSnapshotCount).toBe(42);
+      expect(result.latestScrapeAt).toEqual(new Date('2026-04-27T03:00:00Z'));
+      expect(result.latestScrapePageType).toBe('itemwinner');
+      // latestChannelStateAt = max(lastObservedAt) across rows
+      expect(result.latestChannelStateAt).toEqual(
+        new Date('2026-04-27T00:00:00Z'),
+      );
+      expect(result.wing.kpis['아이템위너 상품']).toBe('2');
+    });
+
+    it('empty-state — no daily-fact rows returns explicit zeros + null timestamps (legacy ItemWinner ignored)', async () => {
+      prisma.channelListing.count.mockResolvedValue(3);
+      prisma.$queryRaw.mockResolvedValue([]);
+      prisma.channelScrapeSnapshot.count.mockResolvedValue(0);
+      prisma.channelScrapeRun.findFirst.mockResolvedValue(null);
+      prisma.channelAccountDailyKpiSnapshot.findFirst.mockResolvedValue(null);
+
+      const result = await service.getExtensionStatus('company-1');
+
+      expect(result.currentWinnerCount).toBe(0);
+      expect(result.currentNonWinnerCount).toBe(0);
+      expect(result.currentUnknownWinnerCount).toBe(0);
+      expect(result.currentWinnerObservedListings).toBe(0);
+      expect(result.rawSnapshotCount).toBe(0);
+      expect(result.latestScrapeAt).toBeNull();
+      expect(result.latestScrapePageType).toBeNull();
+      expect(result.latestChannelStateAt).toBeNull();
+      expect(result.wing.kpis).toEqual({});
+      expect(result.wing.lastSync).toBeNull();
+    });
+
+    it('passes companyId through all reads (no default fallback) — no legacy AdSnapshot/ItemWinner reads', async () => {
+      prisma.channelListing.count.mockResolvedValue(0);
+      prisma.$queryRaw.mockResolvedValue([]);
+      prisma.channelScrapeSnapshot.count.mockResolvedValue(0);
+      prisma.channelScrapeRun.findFirst.mockResolvedValue(null);
+      prisma.channelAccountDailyKpiSnapshot.findFirst.mockResolvedValue(null);
+
+      await service.getExtensionStatus('company-xyz');
+
+      expect(prisma.channelListing.count).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ companyId: 'company-xyz' }),
+        }),
+      );
+      expect(prisma.channelScrapeSnapshot.count).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { companyId: 'company-xyz' } }),
+      );
+      expect(prisma.channelScrapeRun.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { companyId: 'company-xyz' } }),
+      );
+      expect(prisma.channelAccountDailyKpiSnapshot.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            companyId: 'company-xyz',
+            source: 'wing',
+            kpiType: 'wing_itemwinner_kpi',
+          }),
+        }),
+      );
     });
   });
 });

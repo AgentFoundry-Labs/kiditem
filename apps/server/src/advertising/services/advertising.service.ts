@@ -7,6 +7,11 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AdConfigService } from './ad-config.service';
 import { paginationParams } from '../../common/pagination';
 import { LISTING_SUMMARY_SELECT } from './types';
+import {
+  recomputeRoas,
+  recomputeCtr,
+  recomputeCvr,
+} from '../util/ratio-recompute';
 import type {
   AdMetrics,
   AdsHubData,
@@ -17,10 +22,6 @@ import type {
 
 const VALID_TIERS = ['1차', '2차', '3차', 'OFF'] as const;
 type ValidTier = (typeof VALID_TIERS)[number];
-
-function toRoasValue(spend: number, revenue: number): number | null {
-  return spend > 0 ? Math.round((revenue / spend) * 10000) / 100 : null;
-}
 
 function buildMetrics(sums: {
   spend: number;
@@ -36,13 +37,9 @@ function buildMetrics(sums: {
     clicks,
     conversions,
     revenue,
-    ctr:
-      impressions > 0
-        ? Math.round((clicks / impressions) * 10000) / 100
-        : null,
-    roas: toRoasValue(spend, revenue),
-    cvr:
-      clicks > 0 ? Math.round((conversions / clicks) * 10000) / 100 : null,
+    ctr: recomputeCtr(clicks, impressions),
+    roas: recomputeRoas(revenue, spend),
+    cvr: recomputeCvr(conversions, clicks),
   };
 }
 
@@ -76,6 +73,13 @@ export class AdvertisingService {
     } satisfies FindAllAdsResponse;
   }
 
+  /**
+   * H3 — change ad tier by listing id (was previously by Ad row id). The
+   * legacy `Ad` model is going away in H4, so we route the IDOR check
+   * through `ChannelListing` directly. The supplied id is interpreted as a
+   * `ChannelListing.id`. (No frontend URL change — the ad-ops UI already
+   * passes listingId.)
+   */
   async changeTier(
     id: string,
     adTier: string,
@@ -84,17 +88,17 @@ export class AdvertisingService {
     if (!(VALID_TIERS as readonly string[]).includes(adTier)) {
       throw new BadRequestException('유효하지 않은 티어입니다');
     }
-    const ad = await this.prisma.ad.findFirst({
-      where: { id, companyId },
-      include: { listing: { select: { masterId: true } } },
+    const listing = await this.prisma.channelListing.findFirst({
+      where: { id, companyId, isDeleted: false },
+      select: { masterId: true },
     });
-    if (!ad?.listing) throw new NotFoundException('Ad not found');
+    if (!listing) throw new NotFoundException('Ad not found');
 
     const nextTier: string | null =
       (adTier as ValidTier) === 'OFF' ? null : adTier;
 
     await this.prisma.masterProduct.update({
-      where: { id: ad.listing.masterId },
+      where: { id: listing.masterId },
       data: { adTier: nextTier },
     });
 
@@ -104,16 +108,19 @@ export class AdvertisingService {
   private async buildListingItems(companyId: string): Promise<AdsListItem[]> {
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    thirtyDaysAgo.setHours(0, 0, 0, 0);
 
-    const perListing = await this.prisma.ad.groupBy({
+    // H3 — listing-level ad metrics aggregate from
+    // `ChannelListingDailySnapshot` over the last 30 businessDates.
+    const perListing = await this.prisma.channelListingDailySnapshot.groupBy({
       by: ['listingId'],
-      where: { companyId, date: { gte: thirtyDaysAgo } },
+      where: { companyId, businessDate: { gte: thirtyDaysAgo } },
       _sum: {
-        spend: true,
-        impressions: true,
-        clicks: true,
-        conversions: true,
-        revenue: true,
+        adSpend: true,
+        adImpressions: true,
+        adClicks: true,
+        adConversions: true,
+        adRevenue: true,
       },
     });
 
@@ -149,11 +156,11 @@ export class AdvertisingService {
       if (!listing) return [];
 
       const metrics = buildMetrics({
-        spend: row._sum.spend ?? 0,
-        impressions: row._sum.impressions ?? 0,
-        clicks: row._sum.clicks ?? 0,
-        conversions: row._sum.conversions ?? 0,
-        revenue: row._sum.revenue ?? 0,
+        spend: row._sum.adSpend ?? 0,
+        impressions: row._sum.adImpressions ?? 0,
+        clicks: row._sum.adClicks ?? 0,
+        conversions: row._sum.adConversions ?? 0,
+        revenue: row._sum.adRevenue ?? 0,
       });
 
       const grade = (listing.master.abcGrade ?? null) as
@@ -185,7 +192,7 @@ export class AdvertisingService {
   private computeSummary(products: AdsListItem[]): AdsHubSummary {
     const totalSpend = products.reduce((s, p) => s + p.metrics.spend, 0);
     const totalRevenue = products.reduce((s, p) => s + p.metrics.revenue, 0);
-    const totalRoas = toRoasValue(totalSpend, totalRevenue);
+    const totalRoas = recomputeRoas(totalRevenue, totalSpend);
 
     const gradeSpend: Record<'A' | 'B' | 'C', number> = { A: 0, B: 0, C: 0 };
     const tierSpend: Record<string, number> = {};

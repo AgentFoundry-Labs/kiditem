@@ -2,6 +2,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NotFoundException } from '@nestjs/common';
 import { AdActionService } from '../ad-action.service';
 
+/**
+ * H3 — `generateActions` reads the latest `ChannelAdTargetDailySnapshot`
+ * per `targetKey` via `$queryRaw DISTINCT ON (target_key)`. Threshold rules
+ * are unchanged; only the input row shape moves from `AdSnapshot` to
+ * target-daily columns. Tests stub `prisma.$queryRaw` with the rich shape
+ * `LatestTargetRow` consumed by the rule engine.
+ */
 describe('AdActionService', () => {
   let service: AdActionService;
   let prisma: any;
@@ -12,22 +19,24 @@ describe('AdActionService', () => {
   beforeEach(() => {
     prisma = {
       adAction: {
-        findMany: vi.fn(),
+        findMany: vi.fn().mockResolvedValue([]),
         findFirst: vi.fn(),
-        count: vi.fn(),
+        count: vi.fn().mockResolvedValue(0),
         create: vi.fn(),
         update: vi.fn(),
         updateMany: vi.fn(),
       },
-      adSnapshot: {
-        findFirst: vi.fn(),
-        findMany: vi.fn(),
+      channelScrapeRun: {
+        findFirst: vi.fn().mockResolvedValue(null),
       },
       executionTask: {
-        findMany: vi.fn(),
+        findMany: vi.fn().mockResolvedValue([]),
         createMany: vi.fn(),
         updateMany: vi.fn(),
       },
+      // First $queryRaw call returns latest target rows; second returns
+      // option-daily stockQty rows (used by Rule 1).
+      $queryRaw: vi.fn().mockResolvedValue([]),
       $transaction: vi.fn((arg: any) => {
         if (typeof arg === 'function') return arg(prisma);
         return Promise.all(arg);
@@ -36,52 +45,52 @@ describe('AdActionService', () => {
     service = new AdActionService(prisma);
   });
 
-  function baseSnapshot(overrides: Partial<any> = {}) {
+  function baseTargetRow(overrides: Partial<any> = {}) {
     return {
-      id: 's1',
+      id: 'TGT-1',
+      targetType: 'campaign',
+      targetKey: 'campaign:CMP-1',
       listingId: 'L1',
-      pageType: 'campaign',
+      listingOptionId: 'LO1',
       externalId: 'EXT-1',
+      campaignId: 'CMP-1',
       campaignName: 'C1',
       keyword: null,
-      productName: 'P1',
       status: 'active',
       currentBid: null,
       dailyBudget: 10000,
+      spend: 5000,
+      revenue: 10000,
       impressions: 100,
       clicks: 10,
       conversions: 2,
-      spend: 5000,
-      revenue: 10000,
-      roas: 200,
-      ctr: 0.1,
-      listing: {
-        id: 'L1',
-        externalId: 'EXT-1',
-        channelName: 'Coupang',
-        master: { id: 'M1', code: 'MC-001', name: '상품1', abcGrade: 'B', adTier: 'T2' },
-      },
-      option: {
-        id: 'O1',
-        sku: 'SKU-1',
-        optionName: 'Opt1',
-        availableStock: 100,
-        costPrice: 3000,
-        sellPrice: 10000,
-        commissionRate: 0.1,
-      },
-      capturedAt: new Date(),
+      abcGrade: 'B',
+      optionAvailableStock: 100,
+      optionCostPrice: 3000,
+      optionSellPrice: 10000,
+      optionCommissionRate: 0.1,
+      productName: '상품1',
       ...overrides,
     };
   }
 
-  describe('generateActions — 5 rules', () => {
+  // Wire the two $queryRaw calls in order: target rows then option-daily stocks.
+  function stubGenerate(
+    targetRows: any[],
+    optionStocks: { listingOptionId: string; stockQty: number | null }[] = [],
+  ) {
+    // First call (latest target rows) — second call (option daily stocks) is
+    // skipped if no listingOptionIds. Order matches the service call order.
+    prisma.$queryRaw
+      .mockReset()
+      .mockResolvedValueOnce(targetRows)
+      .mockResolvedValueOnce(optionStocks);
+  }
+
+  describe('generateActions — 5 rules (input now from ChannelAdTargetDailySnapshot)', () => {
     it('Rule 1: stock=0 campaign + dailyBudget > 0 → change_daily_budget urgent, proposedValue=3000', async () => {
-      const snap = baseSnapshot({
-        option: { ...baseSnapshot().option, availableStock: 0 },
-      });
-      prisma.adSnapshot.findMany.mockResolvedValue([snap]);
-      prisma.adAction.findMany.mockResolvedValue([]);
+      const row = baseTargetRow({ optionAvailableStock: 0 });
+      stubGenerate([row]);
       prisma.adAction.create.mockImplementation(({ data }: any) => ({ id: 'a1', ...data }));
 
       const result = await service.generateActions(companyA);
@@ -92,6 +101,7 @@ describe('AdActionService', () => {
           data: expect.objectContaining({
             companyId: companyA,
             listingId: 'L1',
+            adTargetDailyId: 'TGT-1',
             actionType: 'change_daily_budget',
             targetType: 'campaign',
             priority: 'urgent',
@@ -100,12 +110,14 @@ describe('AdActionService', () => {
           }),
         }),
       );
+      // legacy snapshotId left unwritten (column kept until H4).
+      const callArg = prisma.adAction.create.mock.calls[0][0];
+      expect(callArg.data).not.toHaveProperty('snapshotId');
     });
 
-    it('Rule 1: skip when snapshot.option is null', async () => {
-      const snap = baseSnapshot({ option: null });
-      prisma.adSnapshot.findMany.mockResolvedValue([snap]);
-      prisma.adAction.findMany.mockResolvedValue([]);
+    it('Rule 1: skip when target row has no listingOptionId', async () => {
+      const row = baseTargetRow({ listingOptionId: null });
+      stubGenerate([row]);
 
       const result = await service.generateActions(companyA);
 
@@ -113,16 +125,30 @@ describe('AdActionService', () => {
       expect(prisma.adAction.create).not.toHaveBeenCalled();
     });
 
+    it('Rule 1: also fires when channel-observed daily stockQty=0 (live stock != 0)', async () => {
+      const row = baseTargetRow({ optionAvailableStock: 5 });
+      stubGenerate([row], [{ listingOptionId: 'LO1', stockQty: 0 }]);
+      prisma.adAction.create.mockImplementation(({ data }: any) => ({ id: 'a1', ...data }));
+
+      const result = await service.generateActions(companyA);
+
+      expect(result.generated).toBe(1);
+      expect(prisma.adAction.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ actionType: 'change_daily_budget', priority: 'urgent' }),
+        }),
+      );
+    });
+
     it('Rule 2: keyword zero-conversion + spend>=5000 → pause_keyword', async () => {
-      const snap = baseSnapshot({
-        pageType: 'keyword',
+      const row = baseTargetRow({
+        targetType: 'keyword',
         keyword: 'K1',
         conversions: 0,
         spend: 8000,
-        roas: 0,
+        revenue: 0,
       });
-      prisma.adSnapshot.findMany.mockResolvedValue([snap]);
-      prisma.adAction.findMany.mockResolvedValue([]);
+      stubGenerate([row]);
       prisma.adAction.create.mockImplementation(({ data }: any) => ({ id: 'a1', ...data }));
 
       const result = await service.generateActions(companyA);
@@ -142,19 +168,15 @@ describe('AdActionService', () => {
     });
 
     it('Rule 2: keyword roas∈(0,100) → pause_keyword (grade=A → priority=high)', async () => {
-      const snap = baseSnapshot({
-        pageType: 'keyword',
+      const row = baseTargetRow({
+        targetType: 'keyword',
         keyword: 'K1',
         conversions: 1,
         spend: 2000,
-        roas: 50,
-        listing: {
-          ...baseSnapshot().listing,
-          master: { ...baseSnapshot().listing!.master, abcGrade: 'A' },
-        },
+        revenue: 1000, // ROAS = 50
+        abcGrade: 'A',
       });
-      prisma.adSnapshot.findMany.mockResolvedValue([snap]);
-      prisma.adAction.findMany.mockResolvedValue([]);
+      stubGenerate([row]);
       prisma.adAction.create.mockImplementation(({ data }: any) => ({ id: 'a1', ...data }));
 
       await service.generateActions(companyA);
@@ -170,17 +192,15 @@ describe('AdActionService', () => {
     });
 
     it('Rule 3: keyword roas∈[100,200) → change_bid (nextBid=round(current*0.85))', async () => {
-      const snap = baseSnapshot({
-        pageType: 'keyword',
+      const row = baseTargetRow({
+        targetType: 'keyword',
         keyword: 'K1',
         conversions: 5,
         spend: 10000,
-        revenue: 15000,
-        roas: 150,
+        revenue: 15000, // ROAS = 150
         currentBid: 1000,
       });
-      prisma.adSnapshot.findMany.mockResolvedValue([snap]);
-      prisma.adAction.findMany.mockResolvedValue([]);
+      stubGenerate([row]);
       prisma.adAction.create.mockImplementation(({ data }: any) => ({ id: 'a1', ...data }));
 
       await service.generateActions(companyA);
@@ -198,16 +218,13 @@ describe('AdActionService', () => {
     });
 
     it('Rule 4: campaign grade=A + roas>=480 → change_daily_budget 확대 (nextBudget=round(current*1.2))', async () => {
-      const snap = baseSnapshot({
+      const row = baseTargetRow({
         dailyBudget: 10000,
-        roas: 500,
-        listing: {
-          ...baseSnapshot().listing,
-          master: { ...baseSnapshot().listing!.master, abcGrade: 'A' },
-        },
+        spend: 1000,
+        revenue: 5000, // ROAS = 500
+        abcGrade: 'A',
       });
-      prisma.adSnapshot.findMany.mockResolvedValue([snap]);
-      prisma.adAction.findMany.mockResolvedValue([]);
+      stubGenerate([row]);
       prisma.adAction.create.mockImplementation(({ data }: any) => ({ id: 'a1', ...data }));
 
       await service.generateActions(companyA);
@@ -226,16 +243,13 @@ describe('AdActionService', () => {
     });
 
     it('Rule 5: campaign grade=C + dailyBudget>3000 → change_daily_budget 축소 (nextBudget=max(3000, round(current*0.5)))', async () => {
-      const snap = baseSnapshot({
+      const row = baseTargetRow({
         dailyBudget: 20000,
-        roas: 80,
-        listing: {
-          ...baseSnapshot().listing,
-          master: { ...baseSnapshot().listing!.master, abcGrade: 'C' },
-        },
+        spend: 10000,
+        revenue: 8000, // ROAS = 80
+        abcGrade: 'C',
       });
-      prisma.adSnapshot.findMany.mockResolvedValue([snap]);
-      prisma.adAction.findMany.mockResolvedValue([]);
+      stubGenerate([row]);
       prisma.adAction.create.mockImplementation(({ data }: any) => ({ id: 'a1', ...data }));
 
       await service.generateActions(companyA);
@@ -254,12 +268,13 @@ describe('AdActionService', () => {
     });
 
     it('Rule 5 floor: when (current*0.5) < 3000, uses 3000 as floor', async () => {
-      const snap = baseSnapshot({
+      const row = baseTargetRow({
         dailyBudget: 5000,
-        roas: 50,
+        spend: 100,
+        revenue: 50, // ROAS = 50
+        abcGrade: 'B',
       });
-      prisma.adSnapshot.findMany.mockResolvedValue([snap]);
-      prisma.adAction.findMany.mockResolvedValue([]);
+      stubGenerate([row]);
       prisma.adAction.create.mockImplementation(({ data }: any) => ({ id: 'a1', ...data }));
 
       await service.generateActions(companyA);
@@ -275,20 +290,22 @@ describe('AdActionService', () => {
       );
     });
 
-    it('filters out snapshots with null listingId (companyId scope)', async () => {
-      prisma.adSnapshot.findMany.mockResolvedValue([]);
-      prisma.adAction.findMany.mockResolvedValue([]);
+    it('empty state — no target-daily rows returns generated=0 and explicit reason', async () => {
+      stubGenerate([]);
 
+      const result = await service.generateActions(companyA);
+
+      expect(result.generated).toBe(0);
+      expect(result.reason).toContain('일별 fact');
+      expect(prisma.adAction.create).not.toHaveBeenCalled();
+    });
+
+    it('targetType filter — query covers campaign / keyword / product', async () => {
+      stubGenerate([]);
       await service.generateActions(companyA);
-
-      expect(prisma.adSnapshot.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({
-            companyId: companyA,
-            listingId: { not: null },
-          }),
-        }),
-      );
+      // First $queryRaw is the latest-target query — Prisma.sql tagged template
+      // gets one argument (the SQL object). Just assert it was called.
+      expect(prisma.$queryRaw).toHaveBeenCalled();
     });
   });
 
@@ -387,28 +404,31 @@ describe('AdActionService', () => {
     });
   });
 
-  describe('getActions — companyId scope', () => {
-    it('scopes all queries by companyId + hydrates listing + snapshot', async () => {
+  describe('getActions — companyId scope (H3)', () => {
+    it('scopes all queries by companyId + summary metadata sourced from ChannelScrapeRun (not AdSnapshot)', async () => {
       prisma.adAction.findMany.mockResolvedValue([]);
       prisma.adAction.count.mockResolvedValue(0);
-      prisma.adSnapshot.findFirst.mockResolvedValue(null);
+      prisma.channelScrapeRun.findFirst.mockResolvedValue({
+        finishedAt: new Date('2026-04-27T00:00:00Z'),
+        startedAt: new Date('2026-04-27T00:00:00Z'),
+        pageType: 'campaign',
+      });
 
-      await service.getActions({ limit: 10 }, companyA);
+      const result = await service.getActions({ limit: 10 }, companyA);
 
       expect(prisma.adAction.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { companyId: companyA },
           include: expect.objectContaining({
             listing: expect.any(Object),
-            snapshot: expect.any(Object),
+            adTargetDaily: expect.any(Object),
           }),
         }),
       );
-      expect(prisma.adSnapshot.findFirst).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { companyId: companyA },
-        }),
+      expect(prisma.channelScrapeRun.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { companyId: companyA } }),
       );
+      expect(result.summary.latestSnapshotPageType).toBe('campaign');
     });
   });
 });

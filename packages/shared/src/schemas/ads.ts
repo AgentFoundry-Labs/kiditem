@@ -225,6 +225,64 @@ export const AdBenchmarkDataSchema = z.object({
 });
 export type AdBenchmarkData = z.infer<typeof AdBenchmarkDataSchema>;
 
+// ───── Extension status (H3 — current-state semantics) ─────
+
+/**
+ * `/api/ads/extension/status` response. Hard rewrite Phase H3 — all counts
+ * come from latest `ChannelListingDailySnapshot` per listing
+ * (orderBy businessDate desc, lastObservedAt desc, updatedAt desc, id desc),
+ * `ChannelScrapeRun` / `ChannelScrapeSnapshot` for raw collection metadata,
+ * and `ChannelAccountDailyKpiSnapshot(source='wing', kpiType='wing_itemwinner_kpi')`
+ * for Wing KPI sidebar. Legacy `ItemWinner` / `AdSnapshot` are NOT consulted.
+ *
+ * Field semantics:
+ *  - `currentWinnerCount`: latest daily snapshot per listing where
+ *    `isOfferWinner === true`.
+ *  - `currentNonWinnerCount`: latest daily snapshot per listing where
+ *    `isOfferWinner === false`.
+ *  - `currentUnknownWinnerCount`: latest daily snapshot per listing where
+ *    `isOfferWinner === null` (observed but provider didn't surface winner
+ *    flag).
+ *  - `currentWinnerObservedListings`: total listings with at least one daily
+ *    snapshot (winner + non-winner + unknown). Replaces the legacy
+ *    `itemWinnerCount`, which had been all `ItemWinner` rows ever recorded.
+ *  - `latestChannelStateAt`: max(`lastObservedAt`) across daily snapshots —
+ *    "현재 상태 마지막 갱신 시각".
+ *  - `rawSnapshotCount`: count of `ChannelScrapeSnapshot` rows. Replaces the
+ *    legacy `snapshotCount` (which was `AdSnapshot` rows).
+ *  - `latestScrapeAt`: latest `ChannelScrapeRun.finishedAt ?? startedAt`.
+ *  - `latestScrapePageType`: pageType of the latest run.
+ */
+export const AdExtensionStatusSchema = z.object({
+  connected: z.literal(true),
+  listingCount: z.number().int(),
+  currentWinnerCount: z.number().int(),
+  currentNonWinnerCount: z.number().int(),
+  currentUnknownWinnerCount: z.number().int(),
+  currentWinnerObservedListings: z.number().int(),
+  latestChannelStateAt: z.union([z.string(), z.date()]).nullable(),
+  rawSnapshotCount: z.number().int(),
+  latestScrapeAt: z.union([z.string(), z.date()]).nullable(),
+  latestScrapePageType: z.string().nullable(),
+  wing: z.object({
+    kpis: z.record(z.string(), z.string()),
+    lastSync: z.union([z.string(), z.date()]).nullable(),
+  }),
+});
+export type AdExtensionStatus = z.infer<typeof AdExtensionStatusSchema>;
+
+/**
+ * `/api/ads/collect/status` response. H3 — `lastCollectedAt` is the latest
+ * `ChannelScrapeRun.finishedAt ?? startedAt`. Counts are run-row counts under
+ * advertising / wing buckets respectively (see plan §C6 §2 mapping).
+ */
+export const AdCollectStatusSchema = z.object({
+  lastCollectedAt: z.union([z.string(), z.date()]).nullable(),
+  campaignSnapshotCount: z.number().int(),
+  productSnapshotCount: z.number().int(),
+});
+export type AdCollectStatus = z.infer<typeof AdCollectStatusSchema>;
+
 // ───── Exposure Analysis ─────
 
 export const ExposureFactorScoreSchema = z.object({

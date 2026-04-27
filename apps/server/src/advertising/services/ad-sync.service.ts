@@ -8,6 +8,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ExtensionSyncDto } from '../dto';
+import type { AdExtensionStatus } from '@kiditem/shared';
 import {
   buildAdTargetKey,
   type AdTargetType,
@@ -87,59 +88,135 @@ export class AdSyncService {
   }
 
   /**
-   * H2 stub — read paths still touch the legacy `AdSnapshot`/`ItemWinner`
-   * models in this branch. The H3 task replaces this with daily-fact /
-   * scrape-run reads. Kept here so tests/imports compile until then.
+   * H3 — current-state extension status from daily-fact + scrape-run +
+   * account KPI tables. No legacy `ItemWinner` / `AdSnapshot` reads.
+   *
+   * Winner counts come from the latest `ChannelListingDailySnapshot` per
+   * listing (deterministic ordering: businessDate desc, lastObservedAt desc,
+   * updatedAt desc, id desc). `isOfferWinner=true` → winner;
+   * `isOfferWinner=false` → non-winner; `null` → unknown (observed but
+   * provider did not surface the winner flag).
+   *
+   * Wing KPI sidebar fields come from
+   * `ChannelAccountDailyKpiSnapshot(source='wing', kpiType='wing_itemwinner_kpi')`.
+   * Empty-state returns explicit zero/null — legacy rows are ignored even
+   * when present.
    */
-  async getExtensionStatus(companyId: string) {
-    const [listingCount, snapshotCount, wingKpiSnapshot, itemWinnerStats] =
-      await Promise.all([
-        this.prisma.channelListing.count({
-          where: { companyId, isDeleted: false },
-        }),
-        this.prisma.adSnapshot.count({ where: { companyId } }),
-        this.prisma.adSnapshot.findFirst({
-          where: { companyId, source: 'wing', pageType: 'itemwinner_kpi' },
-          orderBy: { capturedAt: 'desc' },
-          select: { rawJson: true, capturedAt: true },
-        }),
-        this.prisma.itemWinner.groupBy({
-          by: ['isWinner'],
-          where: { companyId },
-          _count: true,
-        }),
-      ]);
+  async getExtensionStatus(companyId: string): Promise<AdExtensionStatus> {
+    const [
+      listingCount,
+      latestPerListing,
+      rawSnapshotCount,
+      latestRun,
+      wingKpiRow,
+    ] = await Promise.all([
+      this.prisma.channelListing.count({
+        where: { companyId, isDeleted: false },
+      }),
+      // DISTINCT ON (listing_id) returns one row per listing — the latest
+      // daily snapshot per the deterministic ordering above. Bound is N rows
+      // for N listings regardless of history depth.
+      this.prisma.$queryRaw<
+        { isOfferWinner: boolean | null; lastObservedAt: Date }[]
+      >(Prisma.sql`
+        SELECT DISTINCT ON (listing_id)
+          is_offer_winner   AS "isOfferWinner",
+          last_observed_at  AS "lastObservedAt"
+        FROM channel_listing_daily_snapshots
+        WHERE company_id = ${companyId}::uuid
+        ORDER BY
+          listing_id,
+          business_date DESC,
+          last_observed_at DESC,
+          updated_at DESC,
+          id DESC
+      `),
+      this.prisma.channelScrapeSnapshot.count({ where: { companyId } }),
+      this.prisma.channelScrapeRun.findFirst({
+        where: { companyId },
+        orderBy: [
+          { finishedAt: 'desc' },
+          { startedAt: 'desc' },
+          { id: 'desc' },
+        ],
+        select: {
+          finishedAt: true,
+          startedAt: true,
+          pageType: true,
+        },
+      }),
+      this.prisma.channelAccountDailyKpiSnapshot.findFirst({
+        where: {
+          companyId,
+          source: 'wing',
+          kpiType: 'wing_itemwinner_kpi',
+        },
+        orderBy: [
+          { businessDate: 'desc' },
+          { lastObservedAt: 'desc' },
+          { id: 'desc' },
+        ],
+        select: { normalizedJson: true, lastObservedAt: true },
+      }),
+    ]);
+
+    let currentWinnerCount = 0;
+    let currentNonWinnerCount = 0;
+    let currentUnknownWinnerCount = 0;
+    let latestChannelStateAt: Date | null = null;
+    for (const row of latestPerListing) {
+      if (row.isOfferWinner === true) currentWinnerCount += 1;
+      else if (row.isOfferWinner === false) currentNonWinnerCount += 1;
+      else currentUnknownWinnerCount += 1;
+      if (
+        latestChannelStateAt === null ||
+        row.lastObservedAt > latestChannelStateAt
+      ) {
+        latestChannelStateAt = row.lastObservedAt;
+      }
+    }
 
     let wingKpis: Record<string, string> = {};
-    if (wingKpiSnapshot?.rawJson) {
-      const raw = wingKpiSnapshot.rawJson as Record<string, unknown>;
-      if (raw.kpis && typeof raw.kpis === 'object') {
-        wingKpis = raw.kpis as Record<string, string>;
+    if (wingKpiRow?.normalizedJson) {
+      const normalized = wingKpiRow.normalizedJson as Record<string, unknown>;
+      if (normalized.kpis && typeof normalized.kpis === 'object') {
+        const raw = normalized.kpis as Record<string, unknown>;
+        const out: Record<string, string> = {};
+        for (const [k, v] of Object.entries(raw)) {
+          if (typeof v === 'string') out[k] = v;
+          else if (typeof v === 'number') out[k] = String(v);
+          else if (
+            v &&
+            typeof v === 'object' &&
+            'value' in (v as Record<string, unknown>) &&
+            typeof (v as { value: unknown }).value === 'string'
+          ) {
+            out[k] = (v as { value: string }).value;
+          }
+        }
+        wingKpis = out;
       }
     }
 
-    if (Object.keys(wingKpis).length === 0) {
-      const total = itemWinnerStats.reduce((s, g) => s + g._count, 0);
-      const winners = itemWinnerStats.find((g) => g.isWinner)?._count || 0;
-      const nonWinners = itemWinnerStats.find((g) => !g.isWinner)?._count || 0;
-      if (total > 0) {
-        wingKpis = {
-          '아이템위너 상품': String(winners),
-          '노출제한 상품': '0',
-          '아이템위너 아닌 상품': String(nonWinners),
-          '쿠팡 상위 20% 인기 상품': '0',
-          '판매자 자동가격조정 상품': '0',
-        };
-      }
-    }
+    const latestScrapeAt =
+      latestRun?.finishedAt ?? latestRun?.startedAt ?? null;
+    const latestScrapePageType = latestRun?.pageType ?? null;
+    const currentWinnerObservedListings =
+      currentWinnerCount + currentNonWinnerCount + currentUnknownWinnerCount;
 
     return {
       connected: true,
       listingCount,
-      snapshotCount,
-      itemWinnerCount: itemWinnerStats.reduce((s, g) => s + g._count, 0),
-      wing: { kpis: wingKpis, lastSync: wingKpiSnapshot?.capturedAt ?? null },
-    };
+      currentWinnerCount,
+      currentNonWinnerCount,
+      currentUnknownWinnerCount,
+      currentWinnerObservedListings,
+      latestChannelStateAt,
+      rawSnapshotCount,
+      latestScrapeAt,
+      latestScrapePageType,
+      wing: { kpis: wingKpis, lastSync: wingKpiRow?.lastObservedAt ?? null },
+    } satisfies AdExtensionStatus;
   }
 
   async buildListingMap(companyId: string): Promise<ListingMap> {

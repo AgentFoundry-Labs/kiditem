@@ -162,17 +162,18 @@ export class AdStrategyService {
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-    // Promise.all 통합 fetch — adGroups + review aggregate (전체+최근 30d) 한 번에.
-    const [adAgg, reviewAgg, recentReviewAgg] = await Promise.all([
-      this.prisma.ad.groupBy({
+    // H3 — ad aggregate moved from `prisma.ad.groupBy` to
+    // `ChannelListingDailySnapshot.groupBy` (lifetime aggregate per listing).
+    const [adAggAll, reviewAgg, recentReviewAgg] = await Promise.all([
+      this.prisma.channelListingDailySnapshot.groupBy({
         by: ['listingId'],
         where: { companyId },
         _sum: {
-          spend: true,
-          revenue: true,
-          clicks: true,
-          impressions: true,
-          conversions: true,
+          adSpend: true,
+          adRevenue: true,
+          adClicks: true,
+          adImpressions: true,
+          adConversions: true,
         },
       }),
       this.prisma.review.groupBy({
@@ -192,7 +193,7 @@ export class AdStrategyService {
       }),
     ]);
 
-    const listingIds = adAgg
+    const listingIds = adAggAll
       .map((a) => a.listingId)
       .filter((id): id is string => id != null);
 
@@ -200,19 +201,37 @@ export class AdStrategyService {
       return { scores: [], urgentActions: [] } satisfies ExposureAnalysisData;
     }
 
-    // listings + trafficStats + inventoryByListing 을 병렬로 fetch.
-    const [listings, trafficStats, inventoryByOption, leadTimeByListing] = await Promise.all([
-      hydrateListings(this.prisma, companyId, listingIds),
-      this.prisma.trafficStats.findMany({
-        where: { companyId, listingId: { in: listingIds }, periodDays: 14 },
-        orderBy: { date: 'desc' },
-        select: { listingId: true, revenue: true, orders: true, date: true },
-      }),
-      getInventorySnapshot(this.prisma, companyId, listingIds),
-      this.loadLeadTimeByListing(companyId, listingIds),
-    ]);
+    // H3 — traffic aggregation switches from `TrafficStats` to
+    // `ChannelListingDailySnapshot` filtered by businessDate. Two windows:
+    //   - last 7 businessDates → "current period"
+    //   - businessDates 8..14 ago → "prior period" (used for delta)
+    // Today (KST start of day) is the cutoff for the current 7-day window.
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const since14d = new Date(today.getTime() - 14 * 24 * 60 * 60 * 1000);
+    const cutoff7d = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
 
-    const adGroups = toAdAggregateRows(adAgg);
+    const [listings, trafficDailyRows, inventoryByOption, leadTimeByListing] =
+      await Promise.all([
+        hydrateListings(this.prisma, companyId, listingIds),
+        this.prisma.channelListingDailySnapshot.findMany({
+          where: {
+            companyId,
+            listingId: { in: listingIds },
+            businessDate: { gte: since14d },
+          },
+          select: {
+            listingId: true,
+            businessDate: true,
+            trafficRevenue: true,
+            trafficOrders: true,
+          },
+        }),
+        getInventorySnapshot(this.prisma, companyId, listingIds),
+        this.loadLeadTimeByListing(companyId, listingIds),
+      ]);
+
+    const adGroups = toAdAggregateRows(adAggAll);
     const metricsResult = this.adBudgetAllocator.calcSnapshotKeyMetrics({
       snapshots: adAggregatesToMetricSnapshots(adGroups),
       listings,
@@ -231,17 +250,30 @@ export class AdStrategyService {
       recentReviewAgg.map((r) => [r.listingId!, r._count.id]),
     );
 
-    // traffic aggregate: 최신 period 를 rev, 직전 period 를 prevRev 로 (원본 line 248-256).
-    const trafficByListing = new Map<string, { rev: number; prevRev: number; orders: number }>();
-    for (const t of trafficStats) {
-      const cur = trafficByListing.get(t.listingId);
-      if (!cur) {
-        trafficByListing.set(t.listingId, { rev: t.revenue, prevRev: 0, orders: t.orders });
-      } else if (cur.prevRev === 0) {
-        cur.prevRev = t.revenue;
+    // Aggregate listing daily rows into current(0..7) / prior(8..14) windows.
+    const trafficByListing = new Map<
+      string,
+      { rev: number; prevRev: number; orders: number }
+    >();
+    for (const row of trafficDailyRows) {
+      const isCurrent = row.businessDate >= cutoff7d;
+      const slot = trafficByListing.get(row.listingId) ?? {
+        rev: 0,
+        prevRev: 0,
+        orders: 0,
+      };
+      if (isCurrent) {
+        slot.rev += row.trafficRevenue;
+        slot.orders += row.trafficOrders;
+      } else {
+        slot.prevRev += row.trafficRevenue;
       }
+      trafficByListing.set(row.listingId, slot);
     }
-    const maxT14 = Math.max(1, ...[...trafficByListing.values()].map((t) => t.rev));
+    const maxT14 = Math.max(
+      1,
+      ...[...trafficByListing.values()].map((t) => t.rev),
+    );
 
     // listingId → 첫번째 optionId 매핑 (score/profitRate 계산에 primary option 사용).
     const primaryOptionByListing = firstOptionByListing(inventoryByOption);
@@ -396,17 +428,34 @@ export class AdStrategyService {
   private async loadStrategyContext(companyId: string, year: number, month: number) {
     const since14d = new Date();
     since14d.setDate(since14d.getDate() - 14);
+    since14d.setHours(0, 0, 0, 0);
 
+    // H3 — aggregate from `ChannelListingDailySnapshot` instead of `Ad`.
+    // Lifetime = all rows for the company; 14-day = rows since the cutoff
+    // businessDate. Provider ratios in `metaJson` are NOT consulted; ratios
+    // recompute downstream from these additive sums.
     const [adAggAll, adAgg14d, config] = await Promise.all([
-      this.prisma.ad.groupBy({
+      this.prisma.channelListingDailySnapshot.groupBy({
         by: ['listingId'],
         where: { companyId },
-        _sum: { spend: true, revenue: true, clicks: true, impressions: true, conversions: true },
+        _sum: {
+          adSpend: true,
+          adRevenue: true,
+          adClicks: true,
+          adImpressions: true,
+          adConversions: true,
+        },
       }),
-      this.prisma.ad.groupBy({
+      this.prisma.channelListingDailySnapshot.groupBy({
         by: ['listingId'],
-        where: { companyId, date: { gte: since14d } },
-        _sum: { spend: true, revenue: true, clicks: true, impressions: true, conversions: true },
+        where: { companyId, businessDate: { gte: since14d } },
+        _sum: {
+          adSpend: true,
+          adRevenue: true,
+          adClicks: true,
+          adImpressions: true,
+          adConversions: true,
+        },
       }),
       this.adConfigService.getConfig(companyId),
     ]);
@@ -683,16 +732,20 @@ function toGradeMapStrict(
   return out;
 }
 
-/** prisma.ad.groupBy 결과 → AdAggregateRow[]. listingId null 은 drop. */
+/**
+ * H3 — `ChannelListingDailySnapshot.groupBy` result → AdAggregateRow[].
+ * listingId null 은 drop. Source columns shifted from `spend/revenue/...` to
+ * `adSpend/adRevenue/adClicks/adImpressions/adConversions`.
+ */
 function toAdAggregateRows(
   rows: Array<{
     listingId: string | null;
     _sum: {
-      spend: number | null;
-      revenue: number | null;
-      clicks: number | null;
-      impressions: number | null;
-      conversions: number | null;
+      adSpend: number | null;
+      adRevenue: number | null;
+      adClicks: number | null;
+      adImpressions: number | null;
+      adConversions: number | null;
     };
   }>,
 ): AdAggregateRow[] {
@@ -701,11 +754,11 @@ function toAdAggregateRows(
     if (!r.listingId) continue;
     out.push({
       listingId: r.listingId,
-      spend: r._sum.spend ?? 0,
-      revenue: r._sum.revenue ?? 0,
-      clicks: r._sum.clicks ?? 0,
-      impressions: r._sum.impressions ?? 0,
-      conversions: r._sum.conversions ?? 0,
+      spend: r._sum.adSpend ?? 0,
+      revenue: r._sum.adRevenue ?? 0,
+      clicks: r._sum.adClicks ?? 0,
+      impressions: r._sum.adImpressions ?? 0,
+      conversions: r._sum.adConversions ?? 0,
     });
   }
   return out;

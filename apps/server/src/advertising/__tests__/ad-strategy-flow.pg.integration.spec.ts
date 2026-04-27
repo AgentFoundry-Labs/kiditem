@@ -80,10 +80,18 @@ describe('AdStrategy flow (PG integration)', () => {
     return { master, option, listing, listingOption };
   }
 
+  /**
+   * H3 — strategy reads now aggregate `ChannelListingDailySnapshot.adSpend /
+   * adRevenue / adClicks / adImpressions / adConversions` over the period
+   * window. Seed the daily-fact table directly. `optionId` is no longer
+   * material to the strategy aggregate but is kept on the param shape so
+   * call-sites need not change.
+   */
   async function seedAd(params: {
     companyId: string;
     listingId: string;
     optionId?: string | null;
+    externalId?: string;
     daysAgo?: number;
     spend: number;
     revenue: number;
@@ -93,18 +101,25 @@ describe('AdStrategy flow (PG integration)', () => {
   }) {
     const date = new Date();
     date.setDate(date.getDate() - (params.daysAgo ?? 0));
-    return prisma.ad.create({
+    date.setHours(0, 0, 0, 0);
+    // Pull the listing's externalId so daily-fact has a stable canonical
+    // identifier when the caller doesn't pass one.
+    const listing = await prisma.channelListing.findUniqueOrThrow({
+      where: { id: params.listingId },
+      select: { externalId: true },
+    });
+    return prisma.channelListingDailySnapshot.create({
       data: {
         companyId: params.companyId,
         listingId: params.listingId,
-        optionId: params.optionId ?? null,
-        platform: 'coupang',
-        date,
-        spend: params.spend,
-        revenue: params.revenue,
-        clicks: params.clicks ?? 0,
-        impressions: params.impressions ?? 0,
-        conversions: params.conversions ?? 0,
+        channel: 'coupang',
+        externalId: params.externalId ?? listing.externalId,
+        businessDate: date,
+        adSpend: params.spend,
+        adRevenue: params.revenue,
+        adClicks: params.clicks ?? 0,
+        adImpressions: params.impressions ?? 0,
+        adConversions: params.conversions ?? 0,
       },
     });
   }
@@ -420,17 +435,24 @@ describe('AdStrategy flow (PG integration)', () => {
         })),
       });
 
-      // TrafficStats seed
-      await prisma.trafficStats.create({
+      // H3 — Traffic metrics now live on the same `ChannelListingDailySnapshot`
+      // row. Update the daily-fact created by `seedAd` (same listing + today)
+      // to add `trafficRevenue / trafficOrders / trafficVisitors / trafficViews`.
+      const todayUpdate = new Date();
+      todayUpdate.setHours(0, 0, 0, 0);
+      await prisma.channelListingDailySnapshot.update({
+        where: {
+          companyId_listingId_businessDate: {
+            companyId: TEST_COMPANY_ID,
+            listingId: listing.listing.id,
+            businessDate: todayUpdate,
+          },
+        },
         data: {
-          companyId: TEST_COMPANY_ID,
-          listingId: listing.listing.id,
-          date: new Date(),
-          periodDays: 14,
-          revenue: 500000,
-          orders: 30,
-          visitors: 1000,
-          views: 3000,
+          trafficRevenue: 500000,
+          trafficOrders: 30,
+          trafficVisitors: 1000,
+          trafficViews: 3000,
         },
       });
 
@@ -734,17 +756,10 @@ describe('AdStrategy flow (PG integration)', () => {
         adTier: '1차',
         suffix: 'C4-EV',
       });
-      await seedAd({
-        companyId: TEST_COMPANY_ID,
-        listingId: a.listing.id,
-        optionId: a.option.id,
-        spend: 10000,
-        revenue: 60000,
-        clicks: 100,
-        impressions: 10000,
-        conversions: 10,
-      });
-      // Two days of listing daily — pick the latest businessDate.
+      // H3 — the strategy aggregate now reads ad-metric columns from the
+      // same `ChannelListingDailySnapshot` rows. Land the ad metrics on the
+      // 2026-04-14 row so it remains the latest businessDate AND carries
+      // the spend/revenue the rule engine needs.
       await seedListingDaily({
         companyId: TEST_COMPANY_ID,
         listingId: a.listing.id,
@@ -753,15 +768,23 @@ describe('AdStrategy flow (PG integration)', () => {
         isOfferWinner: true,
         myPrice: 12000,
       });
-      await seedListingDaily({
-        companyId: TEST_COMPANY_ID,
-        listingId: a.listing.id,
-        externalId: a.listing.externalId,
-        businessDate: '2026-04-14',
-        isOfferWinner: false,
-        myPrice: 12000,
-        winnerPrice: 11500,
-        winnerGapPrice: -500,
+      await prisma.channelListingDailySnapshot.create({
+        data: {
+          companyId: TEST_COMPANY_ID,
+          listingId: a.listing.id,
+          channel: 'coupang',
+          externalId: a.listing.externalId,
+          businessDate: new Date('2026-04-14T00:00:00Z'),
+          isOfferWinner: false,
+          myPrice: 12000,
+          winnerPrice: 11500,
+          winnerGapPrice: -500,
+          adSpend: 10000,
+          adRevenue: 60000,
+          adClicks: 100,
+          adImpressions: 10000,
+          adConversions: 10,
+        },
       });
       await seedOptionDaily({
         companyId: TEST_COMPANY_ID,
@@ -818,22 +841,22 @@ describe('AdStrategy flow (PG integration)', () => {
           createdAt: new Date('2026-04-01T00:00:00.000Z'),
         },
       });
-      await seedAd({
-        companyId: TEST_COMPANY_ID,
-        listingId: a.listing.id,
-        optionId: a.option.id,
-        spend: 10000,
-        revenue: 60000,
-        clicks: 100,
-        impressions: 10000,
-        conversions: 10,
-      });
-      await seedListingDaily({
-        companyId: TEST_COMPANY_ID,
-        listingId: a.listing.id,
-        externalId: a.listing.externalId,
-        businessDate: '2026-04-14',
-        isOfferWinner: true,
+      // H3 — bake ad metrics into the 2026-04-14 listing-daily so it remains
+      // the strategy aggregate input AND the latest channel-state.
+      await prisma.channelListingDailySnapshot.create({
+        data: {
+          companyId: TEST_COMPANY_ID,
+          listingId: a.listing.id,
+          channel: 'coupang',
+          externalId: a.listing.externalId,
+          businessDate: new Date('2026-04-14T00:00:00Z'),
+          isOfferWinner: true,
+          adSpend: 10000,
+          adRevenue: 60000,
+          adClicks: 100,
+          adImpressions: 10000,
+          adConversions: 10,
+        },
       });
       await seedOptionDaily({
         companyId: TEST_COMPANY_ID,
@@ -866,7 +889,13 @@ describe('AdStrategy flow (PG integration)', () => {
       expect(action?.reason).not.toContain('옵션 재고 0');
     });
 
-    it('snapshot absent → channelState=null + reason untouched (C4-#2 fallback)', async () => {
+    it('observable state absent → reason untouched (C4-#2 fallback, H3 semantics)', async () => {
+      // H3 — ad metrics now live on the same daily-fact table that backs
+      // `channelState`. So a listing with ad-metric-only daily rows still
+      // produces a (mostly empty) `channelState`. The C4 contract that
+      // matters here is: when no observable winner/exposure/saleStatus is
+      // present, the rule engine MUST NOT append the ' · 관측' evidence
+      // suffix to `reason`.
       const a = await seedGradedListing({
         companyId: TEST_COMPANY_ID,
         abcGrade: 'A',
@@ -889,13 +918,18 @@ describe('AdStrategy flow (PG integration)', () => {
         (r) => r.listing.listingId === a.listing.id,
       );
       expect(action).toBeDefined();
-      expect(action?.channelState ?? null).toBeNull();
-      // No '관측' suffix, no winner-loss appendix.
+      // channelState exists (ad-metric daily-fact row), but observable
+      // winner/exposure/sale fields are all null.
+      expect(action?.channelState?.isOfferWinner).toBeNull();
+      expect(action?.channelState?.exposureStatus).toBeNull();
+      expect(action?.channelState?.saleStatus).toBeNull();
+      expect(action?.channelState?.primaryOption).toBeNull();
+      // No '관측' suffix, no winner-loss appendix — observable state was empty.
       expect(action?.reason).not.toContain('관측');
       expect(action?.reason).not.toContain('아이템위너');
     });
 
-    it('cross-tenant — OTHER_COMPANY daily snapshot does not bleed into TEST_COMPANY action (C4-#3)', async () => {
+    it('cross-tenant — OTHER_COMPANY daily snapshot does not bleed into TEST_COMPANY action (C4-#3, H3 semantics)', async () => {
       const ours = await seedGradedListing({
         companyId: TEST_COMPANY_ID,
         abcGrade: 'A',
@@ -933,7 +967,13 @@ describe('AdStrategy flow (PG integration)', () => {
         (r) => r.listing.listingId === ours.listing.id,
       );
       expect(action).toBeDefined();
-      expect(action?.channelState ?? null).toBeNull();
+      // H3 — ours has an ad-metric daily-fact row from seedAd, so
+      // channelState exists but carries OUR externalId (not OTHER's
+      // -9999 winner gap). The cross-tenant invariant is the externalId
+      // and the absence of OTHER's winner state.
+      expect(action?.channelState?.externalId).toBe(ours.listing.externalId);
+      expect(action?.channelState?.winnerGapPrice).toBeNull();
+      expect(action?.channelState?.isOfferWinner).toBeNull();
     });
   });
 });

@@ -11,6 +11,11 @@ const mockedBuildPerListingMetrics = vi.mocked(buildPerListingMetrics);
 /**
  * Orchestrator 의 thin delegation 확인 전용 (Plan B2b.refactor T9 + T7-fix).
  *
+ * H3 — orchestrator no longer reads `prisma.ad`/`prisma.trafficStats`.
+ * Lifetime + 14-day ad aggregates come from `ChannelListingDailySnapshot`,
+ * exposure traffic windowing comes from the same daily-fact table, and the
+ * exposure aggregate uses `ChannelListingDailySnapshot.groupBy` directly.
+ *
  * 계산 정확성 / threshold / ABC grade 로직 회귀 보호는 sub-service unit spec +
  * integration 12 시나리오 (ad-strategy-flow.pg.integration.spec.ts) 로 위임.
  */
@@ -26,19 +31,21 @@ describe('AdStrategyService (orchestrator delegation)', () => {
 
   beforeEach(() => {
     prisma = {
-      ad: { groupBy: vi.fn().mockResolvedValue([]) },
+      // H3 — primary ad-aggregate source: ChannelListingDailySnapshot.
+      channelListingDailySnapshot: {
+        groupBy: vi.fn().mockResolvedValue([]),
+        findMany: vi.fn().mockResolvedValue([]),
+      },
       channelListing: { findMany: vi.fn().mockResolvedValue([]) },
       channelListingOption: { findMany: vi.fn().mockResolvedValue([]) },
-      // Wave C4: orchestrator now reads latest daily snapshots into the
-      // strategy context. Stub both models with empty results so the unit
-      // tests stay focused on delegation; the integration tier exercises the
-      // real PG path with daily fact upsert.
-      channelListingDailySnapshot: { findMany: vi.fn().mockResolvedValue([]) },
       channelListingOptionDailySnapshot: {
         findMany: vi.fn().mockResolvedValue([]),
       },
       review: { groupBy: vi.fn().mockResolvedValue([]) },
-      trafficStats: { findMany: vi.fn().mockResolvedValue([]) },
+      // Wave C4: orchestrator now reads latest daily snapshots into the
+      // strategy context via $queryRaw (DISTINCT ON). Stubbed here so the
+      // unit test stays focused on delegation.
+      $queryRaw: vi.fn().mockResolvedValue([]),
     };
     mockedBuildPerListingMetrics.mockReset();
     mockedBuildPerListingMetrics.mockResolvedValue([]);
@@ -80,10 +87,16 @@ describe('AdStrategyService (orchestrator delegation)', () => {
   });
 
   it('getRules → adGradeRules.calcActions 호출 (adGroups 기반)', async () => {
-    prisma.ad.groupBy.mockResolvedValue([
+    prisma.channelListingDailySnapshot.groupBy.mockResolvedValue([
       {
         listingId: 'L1',
-        _sum: { spend: 10000, revenue: 50000, clicks: 100, impressions: 10000, conversions: 10 },
+        _sum: {
+          adSpend: 10000,
+          adRevenue: 50000,
+          adClicks: 100,
+          adImpressions: 10000,
+          adConversions: 10,
+        },
       },
     ]);
     await service.getRules('14d', 'company-1');
@@ -100,11 +113,17 @@ describe('AdStrategyService (orchestrator delegation)', () => {
   });
 
   it('getWeeklyPlan passes live percentage profit rates without multiplying by 100', async () => {
-    prisma.ad.groupBy
+    prisma.channelListingDailySnapshot.groupBy
       .mockResolvedValueOnce([
         {
           listingId: 'L1',
-          _sum: { spend: 10000, revenue: 50000, clicks: 100, impressions: 10000, conversions: 10 },
+          _sum: {
+            adSpend: 10000,
+            adRevenue: 50000,
+            adClicks: 100,
+            adImpressions: 10000,
+            adConversions: 10,
+          },
         },
       ])
       .mockResolvedValueOnce([]);
@@ -147,10 +166,16 @@ describe('AdStrategyService (orchestrator delegation)', () => {
   });
 
   it('getRecommendations → adGradeRules.calcActions 기반 (B2b 복원, agent task 미사용)', async () => {
-    prisma.ad.groupBy.mockResolvedValue([
+    prisma.channelListingDailySnapshot.groupBy.mockResolvedValue([
       {
         listingId: 'L1',
-        _sum: { spend: 10000, revenue: 50000, clicks: 100, impressions: 10000, conversions: 10 },
+        _sum: {
+          adSpend: 10000,
+          adRevenue: 50000,
+          adClicks: 100,
+          adImpressions: 10000,
+          adConversions: 10,
+        },
       },
     ]);
     await service.getRecommendations('company-1');
@@ -160,10 +185,16 @@ describe('AdStrategyService (orchestrator delegation)', () => {
   });
 
   it('getExposureAnalysis → adExposure.assembleExposureData 호출', async () => {
-    prisma.ad.groupBy.mockResolvedValue([
+    prisma.channelListingDailySnapshot.groupBy.mockResolvedValue([
       {
         listingId: 'L1',
-        _sum: { spend: 0, revenue: 0, clicks: 0, impressions: 0, conversions: 0 },
+        _sum: {
+          adSpend: 0,
+          adRevenue: 0,
+          adClicks: 0,
+          adImpressions: 0,
+          adConversions: 0,
+        },
       },
     ]);
     await service.getExposureAnalysis('company-1');

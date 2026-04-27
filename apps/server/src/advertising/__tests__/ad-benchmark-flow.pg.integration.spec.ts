@@ -41,9 +41,16 @@ describe('AdBenchmark flow (PG integration)', () => {
     return { master, listing };
   }
 
+  /**
+   * H3 — seeds `ChannelListingDailySnapshot` (the new ad-metric source-of-
+   * truth) instead of legacy `Ad`. The benchmark service reads `adSpend`,
+   * `adRevenue`, `adImpressions`, `adClicks`, `adConversions` from this
+   * table aggregated over the last 30 businessDates.
+   */
   async function seedAd(params: {
     companyId: string;
     listingId: string;
+    externalId?: string;
     daysAgo?: number;
     spend: number;
     revenue: number;
@@ -53,17 +60,19 @@ describe('AdBenchmark flow (PG integration)', () => {
   }) {
     const date = new Date();
     date.setDate(date.getDate() - (params.daysAgo ?? 0));
-    return prisma.ad.create({
+    date.setHours(0, 0, 0, 0);
+    return prisma.channelListingDailySnapshot.create({
       data: {
         companyId: params.companyId,
         listingId: params.listingId,
-        platform: 'coupang',
-        date,
-        spend: params.spend,
-        revenue: params.revenue,
-        impressions: params.impressions ?? 0,
-        clicks: params.clicks ?? 0,
-        conversions: params.conversions ?? 0,
+        channel: 'coupang',
+        externalId: params.externalId ?? `EXT-${params.listingId.slice(0, 8)}`,
+        businessDate: date,
+        adSpend: params.spend,
+        adRevenue: params.revenue,
+        adImpressions: params.impressions ?? 0,
+        adClicks: params.clicks ?? 0,
+        adConversions: params.conversions ?? 0,
       },
     });
   }
