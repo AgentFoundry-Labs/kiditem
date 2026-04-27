@@ -33,13 +33,13 @@ Order (+ shippingPrice)
   └─ OrderLineItem.quantity / totalPrice
        └─ ChannelListingOption → ChannelListing → MasterProduct
   + OrderReturnLineItem (returnCount)
-  + Ad (adCost per listing, canonical daily spend)
+  + ChannelListingDailySnapshot (adSpend per listing, canonical daily spend)
 ```
 
 **Data flow (3 parallel Promise.all)**:
 1. `prisma.order.findMany` — Order + lineItems + listingOption 체인 (I3/I8 패턴 재사용)
 2. `prisma.orderReturnLineItem.findMany` — listingId 경유 반품 수 집계
-3. `prisma.ad.groupBy({ by: ['listingId'], _sum: { spend: true } })` — listing 별 광고비
+3. `prisma.channelListingDailySnapshot.groupBy({ by: ['listingId'], _sum: { adSpend: true } })` — listing 별 광고비 (daily-fact source-of-truth)
 
 **Shipping 배분**: `Order.shippingPrice` 를 lineItem revenue 비율로 revenue-weighted 분배. 분모 0 guard: 모든 lineItem totalPrice = 0 인 경우 해당 order shipping drop (ADR-0016 §zero-revenue edge).
 
@@ -49,7 +49,7 @@ Order (+ shippingPrice)
 
 ### 2. sales-analysis.service (Plan D.3, ADR-0017)
 
-`getAnalysis(companyId, period?)` — live aggregation via Order + OrderReturnLineItem + Ad.groupBy (D.1 T5 pattern). Group key: `ChannelListing.channel` (platform: coupang/naver/wing/...). ADR-0017 returnRate (distinct-order count, INNER JOIN + 3-hop IDOR). Orphan returns (orderId NULL) → `totals.orphanReturnCount` side metric.
+`getAnalysis(companyId, period?)` — live aggregation via Order + OrderReturnLineItem + ChannelListingDailySnapshot.groupBy (D.1 T5 pattern). Group key: `ChannelListing.channel` (platform: coupang/naver/wing/...). ADR-0017 returnRate (distinct-order count, INNER JOIN + 3-hop IDOR). Orphan returns (orderId NULL) → `totals.orphanReturnCount` side metric.
 
 `ProfitLoss` table read 제거 (ADR-0016 § Scope boundaries — sales-analysis row now satisfied).
 
@@ -89,7 +89,7 @@ profit-loss.service.ts:12-14, sales-analysis.service.ts:16-23:
 
 - **common/option-pricing-resolver** — `resolvePricing({ option })` (nested-only)
 - **common/kst** — `kstMonthStart(year, month)` (KST 월 경계)
-- **prisma** — PrismaService (Order, OrderLineItem, OrderReturnLineItem, Ad)
+- **prisma** — PrismaService (Order, OrderLineItem, OrderReturnLineItem, ChannelListingDailySnapshot)
 
 ## 함께 수정할 파일 맵
 

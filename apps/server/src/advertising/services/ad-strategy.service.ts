@@ -162,8 +162,8 @@ export class AdStrategyService {
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-    // H3 — ad aggregate moved from `legacy ad groupBy` to
-    // `ChannelListingDailySnapshot.groupBy` (lifetime aggregate per listing).
+    // Ad aggregate sums per-listing additive ad metrics across all daily
+    // facts (lifetime aggregate per listing).
     const [adAggAll, reviewAgg, recentReviewAgg] = await Promise.all([
       this.prisma.channelListingDailySnapshot.groupBy({
         by: ['listingId'],
@@ -201,8 +201,8 @@ export class AdStrategyService {
       return { scores: [], urgentActions: [] } satisfies ExposureAnalysisData;
     }
 
-    // H3 — traffic aggregation switches from `TrafficStats` to
-    // `ChannelListingDailySnapshot` filtered by businessDate. Two windows:
+    // Traffic aggregation reads `ChannelListingDailySnapshot` filtered by
+    // businessDate. Two windows:
     //   - last 7 businessDates → "current period"
     //   - businessDates 8..14 ago → "prior period" (used for delta)
     // KST day start — period cutoff anchored at Asia/Seoul midnight (Docker prod runs UTC)
@@ -401,7 +401,7 @@ export class AdStrategyService {
    * getRules / getRecommendations 공통 — adGroups(listing-level) hydrate 후 rule 평가.
    *
    * B2b 원본 calcActions (line 653-938) 의 fetch 부분과 정합:
-   *  - legacy ad groupBy(['listingId']) 전체 기간 aggregate
+   *  - ChannelListingDailySnapshot.groupBy(['listingId']) 전체 기간 aggregate
    *  - listingIds + current month live metrics 병렬 hydrate
    *  - ad-grade-rules.calcActions 에 adGroups + listings + gradeMap + profitRate 전달
    */
@@ -428,7 +428,7 @@ export class AdStrategyService {
     const today = kstDayStart(new Date());
     const since14d = new Date(today.getTime() - 14 * 86_400_000);
 
-    // H3 — aggregate from `ChannelListingDailySnapshot` instead of `Ad`.
+    // Aggregate from `ChannelListingDailySnapshot`.
     // Lifetime = all rows for the company; 14-day = rows since the cutoff
     // businessDate. Provider ratios in `metaJson` are NOT consulted; ratios
     // recompute downstream from these additive sums.
@@ -743,7 +743,7 @@ function toGradeMapStrict(
 }
 
 /**
- * H3 — `ChannelListingDailySnapshot.groupBy` result → AdAggregateRow[].
+ * `ChannelListingDailySnapshot.groupBy` result → AdAggregateRow[].
  * listingId null 은 drop. Source columns shifted from `spend/revenue/...` to
  * `adSpend/adRevenue/adClicks/adImpressions/adConversions`.
  */

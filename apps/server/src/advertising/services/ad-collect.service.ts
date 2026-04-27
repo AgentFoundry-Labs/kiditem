@@ -14,10 +14,9 @@ export class AdCollectService {
   }
 
   /**
-   * H3 — collection status from `ChannelScrapeRun`. `lastCollectedAt` is the
+   * Collection status from `ChannelScrapeRun`. `lastCollectedAt` is the
    * latest run's `finishedAt ?? startedAt`. Counts are run rows under the
-   * advertising vs wing buckets (plan §C6 §2 mapping). Empty state is
-   * deterministic — no legacy `AdSnapshot` fallback.
+   * advertising vs wing buckets.
    *
    * Counting choice: we count `ChannelScrapeRun` rows (one per scrape session)
    * under each bucket because that matches the "수집 횟수" semantics the UI

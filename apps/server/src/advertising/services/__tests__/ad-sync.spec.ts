@@ -17,8 +17,7 @@ describe('AdSyncService', () => {
       channelListingOption: {
         findMany: vi.fn(),
       },
-      // H3 — read paths now use channel-generic daily-fact + scrape-run
-      // tables. Legacy AdSnapshot/ItemWinner are not consulted at all.
+      // Read paths use channel-generic daily-fact + scrape-run tables.
       channelScrapeRun: {
         findFirst: vi.fn(),
       },
@@ -39,10 +38,9 @@ describe('AdSyncService', () => {
       $transaction: vi.fn((ops) => Promise.all(ops)),
     };
     eventEmitter = { emit: vi.fn() };
-    // H2: AdSyncService now writes only into the channel-generic persistence
-    // helper. Legacy `Ad`/`AdSnapshot`/`TrafficStats`/`ItemWinner` writes have
-    // been removed. Mocking the helper covers the contract: createRun /
-    // appendSnapshot / finalizeRun / upsertListingDaily / upsertOptionDaily /
+    // AdSyncService writes only into the channel-generic persistence helper.
+    // Mocking the helper covers the contract: createRun / appendSnapshot /
+    // finalizeRun / upsertListingDaily / upsertOptionDaily /
     // upsertAdTargetDaily / upsertAccountKpi.
     scrapePersistence = {
       createRun: vi.fn().mockResolvedValue({ id: 'run-1' }),
@@ -314,11 +312,6 @@ describe('AdSyncService', () => {
         'company-1',
       );
 
-      // No legacy writes happened — prisma mock intentionally omits the
-      // `adSnapshot` / `ad` / `itemWinner` / `trafficStats` model accessors so
-      // any leftover write would throw at access time.
-      expect(prisma.adSnapshot).toBeUndefined();
-
       // Listing-day metric upsert occurred for the matched row.
       expect(scrapePersistence.upsertListingDaily).toHaveBeenCalledTimes(1);
       const listingCall =
@@ -386,11 +379,9 @@ describe('AdSyncService', () => {
       expect(kpiCall.normalizedJson).toMatchObject({
         kpis: { '광고비': '5,000' },
       });
-      // Mock omits `adSnapshot` entirely — any legacy write would throw.
-      expect(prisma.adSnapshot).toBeUndefined();
     });
 
-    it('handleTraffic: matched row upserts ChannelListingDailySnapshot traffic metrics (no TrafficStats write)', async () => {
+    it('handleTraffic: matched row upserts ChannelListingDailySnapshot traffic metrics', async () => {
       const result = await service.sync(
         {
           type: 'traffic',
@@ -481,8 +472,6 @@ describe('AdSyncService', () => {
         'company-1',
       );
 
-      // Mock omits `adSnapshot` entirely — any legacy write would throw.
-      expect(prisma.adSnapshot).toBeUndefined();
       expect(scrapePersistence.upsertAccountKpi).toHaveBeenCalledTimes(1);
       const kpiCall = scrapePersistence.upsertAccountKpi.mock.calls[0][0];
       expect(kpiCall.source).toBe('coupang_ads');

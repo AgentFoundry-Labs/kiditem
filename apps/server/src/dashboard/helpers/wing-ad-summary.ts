@@ -9,27 +9,23 @@ export interface WingAdSummaryResult extends WingAdSummary {
 /**
  * Fetch + parse the current month's Wing adSummary KPI snapshot for a company.
  *
- * Hard rewrite Phase H3b — source moved from legacy `AdSnapshot(source='wing',
- * page_type='dashboard_kpi')` to
- * `ChannelAccountDailyKpiSnapshot(source='wing', kpiType='wing_dashboard')`.
- * The H2 ingestion writes the wing dashboard payload (`kpis`, `adSummary`,
- * `summary`, `period`, `startDate`, `endDate`, `timestamp`) into
- * `normalizedJson`; we read the latest row whose `startDate` matches the
- * caller-supplied month and whose `adGmv` is positive.
+ * Source: `ChannelAccountDailyKpiSnapshot(source='wing',
+ * kpiType='wing_dashboard')`. The ingestion writes the wing dashboard payload
+ * (`kpis`, `adSummary`, `summary`, `period`, `startDate`, `endDate`,
+ * `timestamp`) into `normalizedJson`; we read the latest row whose
+ * `startDate` matches the caller-supplied month and whose `adGmv` is
+ * positive.
  *
- * Selection order (deterministic, reviewer-locked H3a tiebreaker chain):
+ * Selection order (deterministic tiebreaker chain):
  *   businessDate DESC, lastObservedAt DESC, id DESC
- * — `period` (longer-span snapshot wins) is no longer the primary key because
- * the daily-fact upserts overwrite the same `(companyId, channel, source,
- * businessDate, kpiType)` row each scrape. The most-recent observation already
- * carries the longest-span normalized payload.
+ * — daily-fact upserts overwrite the same `(companyId, channel, source,
+ * businessDate, kpiType)` row each scrape, so the most-recent observation
+ * already carries the longest-span normalized payload.
  *
  * Returns null when no qualifying snapshot exists for this company.
  *
  * Multi-tenant: `companyId` filter is part of the unique key + every where
- * clause; legacy `AdSnapshot` rows present in the DB are ignored even if
- * `kpiType='wing_dashboard'` rows are missing — H3 sunsets the legacy
- * fallback.
+ * clause.
  */
 export async function fetchWingAdSummary(
   prisma: PrismaService,

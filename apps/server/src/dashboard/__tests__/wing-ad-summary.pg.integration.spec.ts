@@ -29,8 +29,7 @@ describe('fetchWingAdSummary (PG integration) — daily-fact source', () => {
   });
 
   /**
-   * Hard rewrite Phase H3b — wing dashboard ad-summary source moved from
-   * legacy `AdSnapshot(source='wing', page_type='dashboard_kpi')` to
+   * Wing dashboard ad-summary reads the daily-fact row
    * `ChannelAccountDailyKpiSnapshot(source='wing', kpiType='wing_dashboard')`.
    * Tests seed the daily-fact row directly and assert the helper reads it
    * with company isolation + month matching + adGmv > 0 filter.
@@ -121,49 +120,7 @@ describe('fetchWingAdSummary (PG integration) — daily-fact source', () => {
     expect(result).toBeNull();
   });
 
-  it('ignores legacy AdSnapshot rows even when present (no fallback)', async () => {
-    const now = new Date();
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const monthStartStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
-
-    // Seed a legacy AdSnapshot row matching the old source/pageType. Helper must
-    // ignore it under H3b daily-fact-as-source-of-truth and return null because
-    // no `ChannelAccountDailyKpiSnapshot(wing_dashboard)` row exists.
-    const master = await prisma.masterProduct.create({
-      data: { companyId: TEST_COMPANY_ID, code: 'LEGACY-M', name: 'Legacy', category: 'Toy', optionCounter: 1 },
-    });
-    const listing = await prisma.channelListing.create({
-      data: { companyId: TEST_COMPANY_ID, masterId: master.id, channel: 'coupang', externalId: 'LEGACY-L' },
-    });
-    await prisma.adSnapshot.create({
-      data: {
-        companyId: TEST_COMPANY_ID,
-        listingId: listing.id,
-        source: 'wing',
-        pageType: 'dashboard_kpi',
-        date: now,
-        capturedAt: now,
-        level: 'dashboard',
-        rawJson: {
-          startDate: monthStartStr,
-          period: 30,
-          adSummary: { adGmv: '12345', adSpend: '6789' },
-        },
-      },
-    });
-
-    const result = await fetchWingAdSummary(
-      prisma as unknown as PrismaService,
-      TEST_COMPANY_ID,
-      now.getFullYear(),
-      now.getMonth() + 1,
-      monthStart,
-    );
-
-    expect(result).toBeNull();
-  });
-
-  it('lastSyncAt pulled from chosen daily-fact row (not legacy)', async () => {
+  it('lastSyncAt pulled from chosen daily-fact row', async () => {
     const now = new Date();
     const otherEarlier = new Date(now.getTime() - 60 * 60 * 1000);
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);

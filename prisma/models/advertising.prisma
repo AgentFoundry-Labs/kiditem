@@ -1,86 +1,11 @@
 // advertising.prisma — Advertising domain
 
 /// @namespace Advertising
-/// @describe 상품×날짜별 광고 성과 (groupBy 집계).
-model Ad {
-  id        String @id @default(uuid()) @db.Uuid
-  companyId String @map("company_id") @db.Uuid
-  listingId String @map("listing_id") @db.Uuid
-  optionId  String? @map("option_id") @db.Uuid
-
-  platform     String  @default("coupang")
-  campaignName String? @map("campaign_name")
-  dailyBudget  Int?    @map("daily_budget")
-  spend        Int     @default(0)
-  impressions  Int     @default(0)
-  clicks       Int     @default(0)
-  conversions  Int     @default(0)
-  revenue      Int     @default(0)
-  roas         Decimal? @db.Decimal(10, 2)
-
-  // Detailed attribution (from dashboard)
-  billingType   String? @map("billing_type")
-  saleType      String? @map("sale_type")
-  adType        String? @map("ad_type")
-  campaignId    String? @map("campaign_id")
-  adGroup       String? @map("ad_group")
-  adProductName String? @map("ad_product_name")
-  adOptionId    String? @map("ad_option_id")
-  convProductName String? @map("conv_product_name")
-  convOptionId  String? @map("conv_option_id")
-  placement     String?
-  keyword       String?
-  note          String?
-
-  // 1-day attribution
-  directOrders1d    Int @default(0) @map("direct_orders_1d")
-  indirectOrders1d  Int @default(0) @map("indirect_orders_1d")
-  directQty1d       Int @default(0) @map("direct_qty_1d")
-  indirectQty1d     Int @default(0) @map("indirect_qty_1d")
-  directRevenue1d   Int @default(0) @map("direct_revenue_1d")
-  indirectRevenue1d Int @default(0) @map("indirect_revenue_1d")
-  totalRoas1d       Decimal? @default(0) @map("total_roas_1d") @db.Decimal(10, 2)
-  directRoas1d      Decimal? @default(0) @map("direct_roas_1d") @db.Decimal(10, 2)
-
-  // 14-day attribution
-  totalOrders14d     Int @default(0) @map("total_orders_14d")
-  directOrders14d    Int @default(0) @map("direct_orders_14d")
-  indirectOrders14d  Int @default(0) @map("indirect_orders_14d")
-  totalQty14d        Int @default(0) @map("total_qty_14d")
-  directQty14d       Int @default(0) @map("direct_qty_14d")
-  indirectQty14d     Int @default(0) @map("indirect_qty_14d")
-  totalRevenue14d    Int @default(0) @map("total_revenue_14d")
-  directRevenue14d   Int @default(0) @map("direct_revenue_14d")
-  indirectRevenue14d Int @default(0) @map("indirect_revenue_14d")
-  totalRoas14d       Decimal? @default(0) @map("total_roas_14d") @db.Decimal(10, 2)
-  directRoas14d      Decimal? @default(0) @map("direct_roas_14d") @db.Decimal(10, 2)
-
-  campaignStartDate DateTime? @map("campaign_start_date") @db.Date
-  campaignEndDate   DateTime? @map("campaign_end_date") @db.Date
-
-  date      DateTime @default(now()) @db.Date
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  company Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  listing ChannelListing @relation(fields: [listingId], references: [id], onDelete: Restrict)
-  option  ProductOption? @relation(fields: [optionId], references: [id], onDelete: SetNull)
-
-  @@index([companyId])
-  @@index([listingId])
-  @@index([listingId, date])
-  @@index([optionId])
-  @@index([date])
-  @@map("ads")
-}
-
-/// @namespace Advertising
-/// @describe 광고 자동 실행 큐. AdSnapshot→AdAction→ExecutionTask→ExecutionLog 파이프라인.
+/// @describe 광고 자동 실행 큐. ChannelAdTargetDailySnapshot→AdAction→ExecutionTask→ExecutionLog 파이프라인.
 model AdAction {
   id              String    @id @default(uuid()) @db.Uuid
   companyId       String    @map("company_id") @db.Uuid
   listingId       String?   @map("listing_id") @db.Uuid
-  snapshotId      String?   @map("snapshot_id") @db.Uuid
   adTargetDailyId String?   @map("ad_target_daily_id") @db.Uuid
   actionType      String    @map("action_type")
   targetType      String    @map("target_type")
@@ -102,93 +27,16 @@ model AdAction {
 
   company         Company                       @relation(fields: [companyId], references: [id], onDelete: Cascade)
   listing         ChannelListing?               @relation(fields: [listingId], references: [id], onDelete: SetNull)
-  snapshot        AdSnapshot?                   @relation(fields: [snapshotId], references: [id], onDelete: SetNull)
   adTargetDaily   ChannelAdTargetDailySnapshot? @relation(fields: [adTargetDailyId], references: [id], onDelete: SetNull)
   executionTasks  ExecutionTask[]
 
   @@index([companyId, approvalStatus])
   @@index([executeStatus])
   @@index([externalId])
-  @@index([snapshotId])
   @@index([adTargetDailyId])
   @@index([listingId])
   @@index([createdAt])
   @@map("ad_actions")
-}
-
-/// @namespace Advertising
-/// @describe 익스텐션이 수집한 raw 데이터. level 로 구분 (campaign|product|null).
-model AdSnapshot {
-  id           String   @id @default(uuid()) @db.Uuid
-  companyId    String   @map("company_id") @db.Uuid
-  listingId    String?  @map("listing_id") @db.Uuid
-  optionId     String?  @map("option_id") @db.Uuid
-  source       String   // "advertising" | "wing"
-  pageType     String   @map("page_type") // "campaign" | "keyword" | "product"
-  level        String?  // "campaign" | "product" | null(raw)
-  externalId   String?  @map("external_id")
-  campaignName String?  @map("campaign_name")
-  period       String?  // "7d" | "month" | "yesterday"
-  date         DateTime? @db.Date
-  keyword      String?
-  productName  String?  @map("product_name")
-  vendorItemId String?  @map("vendor_item_id")
-  status       String?
-  onOff        String?  @map("on_off")
-  currentBid   Int?     @map("current_bid")
-  dailyBudget  Int?     @map("daily_budget")
-  budget       Int?
-  todaySpend   Int?     @map("today_spend")
-  impressions  Int      @default(0)
-  clicks       Int      @default(0)
-  conversions  Int      @default(0)
-  adConversions Int     @default(0) @map("ad_conversions")
-  orders       Int      @default(0)
-  spend        Int      @default(0)
-  adSpend      Int      @default(0) @map("ad_spend")
-  revenue      Int      @default(0)
-  adRevenue    Int      @default(0) @map("ad_revenue")
-  totalRevenue Int      @default(0) @map("total_revenue")
-  roas         Decimal? @db.Decimal(10, 2)
-  ctr          Decimal? @db.Decimal(8, 4)
-  conversionRate Decimal? @map("conversion_rate") @db.Decimal(8, 4)
-  collectedAt  DateTime? @map("collected_at") @db.Timestamptz
-  rawJson      Json?    @map("raw_json")
-  capturedAt   DateTime @default(now()) @map("captured_at") @db.Timestamptz
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
-
-  company      Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  listing      ChannelListing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
-  option       ProductOption?  @relation(fields: [optionId], references: [id], onDelete: SetNull)
-  adActions    AdAction[]
-
-  @@index([companyId, source])
-  @@index([companyId, date, level])
-  @@index([companyId, capturedAt])
-  @@index([capturedAt])
-  @@index([listingId])
-  @@index([optionId])
-  @@map("ad_snapshots")
-}
-
-/// @namespace Advertising
-/// @describe 아이템위너 현황 (Wing 데이터).
-model ItemWinner {
-  id           String   @id @default(uuid()) @db.Uuid
-  companyId    String   @map("company_id") @db.Uuid
-  listingId    String   @map("listing_id") @db.Uuid
-  productName  String?  @map("product_name")
-  isWinner     Boolean  @default(false) @map("is_winner")
-  myPrice      Int?     @map("my_price")
-  winnerPrice  Int?     @map("winner_price")
-  checkedAt    DateTime @default(now()) @map("checked_at") @db.Timestamptz
-
-  company      Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  listing      ChannelListing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
-
-  @@index([companyId])
-  @@index([listingId])
-  @@map("item_winners")
 }
 
 /// @namespace Advertising
@@ -206,33 +54,6 @@ model ScrapeTarget {
 
   @@index([companyId, isActive])
   @@map("scrape_targets")
-}
-
-/// @namespace Advertising
-model TrafficStats {
-  id             String   @id @default(uuid()) @db.Uuid
-  companyId      String   @map("company_id") @db.Uuid
-  listingId      String   @map("listing_id") @db.Uuid
-  date           DateTime @db.Date
-  periodDays     Int      @default(7) @map("period_days")
-  visitors       Int      @default(0)
-  views          Int      @default(0)
-  cartAdds       Int      @default(0) @map("cart_adds")
-  orders         Int      @default(0)
-  salesQty       Int      @default(0) @map("sales_qty")
-  revenue        Int      @default(0)
-  conversionRate Decimal  @default(0) @map("conversion_rate") @db.Decimal(5, 2)
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
-
-  listing ChannelListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
-  company Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  @@unique([listingId, date, periodDays])
-  @@index([listingId])
-  @@index([companyId])
-  @@index([date])
-  @@index([periodDays])
-  @@map("traffic_stats")
 }
 
 /// @namespace Advertising

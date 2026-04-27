@@ -43,25 +43,23 @@ const LISTING_PRICING_SELECT = {
 } as const;
 
 /**
- * Hard rewrite Phase H3b — `TrafficService` reads + writes daily facts only.
+ * `TrafficService` reads + writes daily facts only.
  *
  * Read paths (`getTrafficSummary`, `getMonthlyRevenue`) aggregate
  * `ChannelListingDailySnapshot.trafficVisitors / trafficViews / trafficCartAdds
  * / trafficOrders / trafficSalesQty / trafficRevenue` over the requested
- * KST-anchored window. Replaces the legacy `TrafficStats.aggregate` /
- * `TrafficStats.groupBy` / `FROM traffic_stats` raw SQL.
+ * KST-anchored window.
  *
  * Ingest path (`uploadTrafficStats`) — CSV/XLSX upload from the operator
- * console. **Decision**: rewire to write `ChannelListingDailySnapshot` (the
- * H1 daily-fact table) directly with the same overwrite-on-replay semantics
- * the H2 extension-sync ingest uses. Raw audit lands in `ChannelScrapeSnapshot`
- * via a single `ChannelScrapeRun`. The traffic domain still owns its own
- * ingest entrypoint (controller route `POST /api/traffic/upload`) — the
- * ingest is not unified into `/api/ads/extension/sync` because the upload
- * flow is operator-driven (not extension-pushed) and the cross-domain
- * service injection is forbidden by `apps/server/AGENTS.md`. Inline use
- * of the same low-level Prisma primitives keeps the domain boundary clean
- * while retiring the `TrafficStats` writes.
+ * console. Writes `ChannelListingDailySnapshot` directly with the same
+ * overwrite-on-replay semantics the extension-sync ingest uses. Raw audit
+ * lands in `ChannelScrapeSnapshot` via a single `ChannelScrapeRun`. The
+ * traffic domain owns its own ingest entrypoint (controller route `POST
+ * /api/traffic/upload`) — not unified into `/api/ads/extension/sync` because
+ * the upload flow is operator-driven (not extension-pushed) and the
+ * cross-domain service injection is forbidden by `apps/server/AGENTS.md`.
+ * Inline use of the same low-level Prisma primitives keeps the domain
+ * boundary clean.
  *
  * Daily fact upsert keys on `(companyId, listingId, businessDate)` matching
  * the unique index on `ChannelListingDailySnapshot`. Repeated uploads for
@@ -367,9 +365,8 @@ export class TrafficService {
    * Period traffic summary — KST-anchored half-open window over
    * `ChannelListingDailySnapshot.traffic*` columns.
    *
-   * `companyId` is required by the H3b multi-tenant rule (legacy code allowed
-   * `undefined` here because legacy `TrafficStats.aggregate` was filtered by
-   * `periodDays = 1` only). The controller passes the request company.
+   * `companyId` is required by the multi-tenant rule. The controller passes
+   * the request company.
    */
   async getTrafficSummary(days: number, companyId: string) {
     const todayStart = kstDayStart(new Date());

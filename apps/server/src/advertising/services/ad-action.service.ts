@@ -31,9 +31,9 @@ export interface AdActionQuery {
 }
 
 /**
- * Latest target-daily row per `targetKey` shape. Mirrors the per-row legacy
- * snapshot shape that `createActionCandidate` used to consume — fields are
- * sourced from `ChannelAdTargetDailySnapshot` columns instead of `AdSnapshot`.
+ * Latest target-daily row per `targetKey` shape consumed by
+ * `createActionCandidate`. Fields are sourced from
+ * `ChannelAdTargetDailySnapshot` columns.
  */
 type LatestTargetRow = {
   id: string;
@@ -107,7 +107,7 @@ export class AdActionService {
         this.prisma.adAction.count({ where: { companyId, executeStatus: 'done' } }),
         this.prisma.adAction.count({ where: { companyId, executeStatus: 'failed' } }),
       ]),
-      // H3 — latest scrape metadata from ChannelScrapeRun, not AdSnapshot.
+      // Latest scrape metadata sourced from ChannelScrapeRun.
       this.prisma.channelScrapeRun.findFirst({
         where: { companyId },
         orderBy: [
@@ -139,8 +139,9 @@ export class AdActionService {
         running: counts[2],
         done: counts[3],
         failed: counts[4],
-        // H3 semantic shift: now latest channel scrape run, not legacy
-        // AdSnapshot.capturedAt. Field names preserved for client compat.
+        // Latest channel scrape run timestamp. Field names preserved for
+        // client compat (originally `latestSnapshotAt` from the channel
+        // scrape run rather than a per-row snapshot).
         latestSnapshotAt,
         latestSnapshotPageType: latestRun?.pageType || null,
       },
@@ -148,16 +149,15 @@ export class AdActionService {
   }
 
   /**
-   * H3 — generate AdAction rows from `ChannelAdTargetDailySnapshot`.
+   * Generate `AdAction` rows from `ChannelAdTargetDailySnapshot`.
    *
-   * The 5 rules are unchanged in threshold but the input shape moves from
-   * `AdSnapshot` rows to one latest-businessDate row per `targetKey`.
-   * Rule 1 (zero stock) needs option stock — when `listingOptionId` is set we
-   * fetch the latest `ChannelListingOptionDailySnapshot.stockQty`, and when
-   * absent we skip Rule 1 (same as legacy).
+   * Rules apply to one latest-businessDate row per `targetKey`. Rule 1 (zero
+   * stock) needs option stock — when `listingOptionId` is set we fetch the
+   * latest `ChannelListingOptionDailySnapshot.stockQty`, and when absent we
+   * skip Rule 1.
    *
-   * On creation `adTargetDailyId` is set to the source target-daily row's
-   * `id`. Legacy `snapshotId` is left null (column kept until H4).
+   * Each created `AdAction` carries `adTargetDailyId` pointing at the source
+   * target-daily row for audit/replay.
    */
   async generateActions(companyId: string) {
     const dedupCutoff = new Date(
@@ -344,8 +344,7 @@ export class AdActionService {
           data: {
             companyId,
             listingId: c.listingId,
-            // H3 — audit pointer to source daily fact row. legacy snapshotId
-            // intentionally left null (column removed in H4).
+            // Audit pointer to source daily fact row.
             adTargetDailyId: c.adTargetDailyId,
             actionType: c.actionType,
             targetType: c.targetType,
@@ -496,8 +495,8 @@ export class AdActionService {
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
 /**
- * H3 — derive a candidate from one latest target-daily row. Mirrors legacy
- * `createActionCandidate`'s 5 rules but reads from target-daily column shape.
+ * Derive a candidate from one latest target-daily row. Implements the 5
+ * rules over the target-daily column shape.
  *
  * `optionDailyStockMap` provides the latest channel-observed `stockQty` per
  * `listingOptionId` so Rule 1 can fire even when the in-memory live

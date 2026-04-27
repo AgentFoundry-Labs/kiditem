@@ -14,7 +14,6 @@ model Company {
   users          User[]
   orders         Order[]
   purchaseOrders PurchaseOrder[]
-  ads            Ad[]
   profitLoss     ProfitLoss[]
   thumbnails            Thumbnail[]
   thumbnailAnalyses     ThumbnailAnalysis[]
@@ -78,10 +77,8 @@ model Company {
 
   agentEvents            AgentEvent[]
 
-  // Ad Snapshots
+  // Ad Scrape Targets
   scrapeTargets        ScrapeTarget[]
-  adSnapshots          AdSnapshot[]
-  itemWinners          ItemWinner[]
 
   // Ad Execution
   adActions            AdAction[]
@@ -110,7 +107,6 @@ model Company {
 
   // Additional back-relations for FK rename additions
   gradeHistory            GradeHistory[]            // Task 8 Step 2 adds companyId to GradeHistory
-  trafficStats            TrafficStats[]            // Task 4 Step 4 adds companyId to TrafficStats
   productMemos            ProductMemo[]             // Task 9 Step 3 polymorphic ProductMemo
 
   @@map("companies")
@@ -287,8 +283,6 @@ model ProductOption {
   supplierProducts    SupplierProduct[]
   shipments           Shipment[]
   unshippedItems      UnshippedItem[]
-  ads                 Ad[]
-  adSnapshots         AdSnapshot[]
 
   // Order domain (Plan A.5)
   orderLineItems        OrderLineItem[]
@@ -345,12 +339,8 @@ model ChannelListing {
   options ChannelListingOption[]
 
   reviews            Review[]
-  itemWinners        ItemWinner[]
-  trafficStats       TrafficStats[]
-  adSnapshots        AdSnapshot[]
   thumbnails         Thumbnail[]
   thumbnailTrackings ThumbnailTracking[]
-  ads                Ad[]
   adActions          AdAction[]
   orders             Order[]
   unshippedItems     UnshippedItem[]

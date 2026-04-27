@@ -14,12 +14,11 @@ import {
 import { kstDayStart } from '../../common/kst';
 
 /**
- * Hard rewrite Phase H3b — `TrafficService` reads + writes daily facts only.
- * Tests cover period aggregation correctness over `ChannelListingDailySnapshot`,
- * empty-state, multi-tenant isolation, and verify legacy `TrafficStats` rows
- * (when planted) are ignored.
+ * `TrafficService` reads + writes daily facts only. Tests cover period
+ * aggregation correctness over `ChannelListingDailySnapshot`, empty-state,
+ * and multi-tenant isolation.
  */
-describe('TrafficService (PG integration) — H3b daily facts', () => {
+describe('TrafficService (PG integration) — daily facts', () => {
   let prisma: PrismaClient;
   let service: TrafficService;
 
@@ -171,34 +170,4 @@ describe('TrafficService (PG integration) — H3b daily facts', () => {
     expect(result.days.length).toBe(3);
   });
 
-  it('legacy TrafficStats rows are NOT consulted by reads', async () => {
-    // Seed a legacy traffic_stats row + a daily-fact row. Helper must read
-    // only the daily fact and never the legacy table.
-    const listing = await seedListing(TEST_COMPANY_ID, 'L');
-    const todayKst = kstDayStart(new Date());
-
-    await prisma.trafficStats.create({
-      data: {
-        companyId: TEST_COMPANY_ID,
-        listingId: listing.id,
-        date: todayKst,
-        periodDays: 1,
-        visitors: IDOR_SENTINEL,
-        views: 0,
-        cartAdds: 0,
-        orders: IDOR_SENTINEL,
-        salesQty: 0,
-        revenue: IDOR_SENTINEL,
-      },
-    });
-    await seedDailyFact(TEST_COMPANY_ID, listing.id, listing.externalId, 0, {
-      revenue: 333,
-      orders: 3,
-    });
-
-    const result = await service.getTrafficSummary(1, TEST_COMPANY_ID);
-    expect(result.revenue).toBe(333);
-    expect(result.revenue).not.toBe(IDOR_SENTINEL);
-    expect(result.orders).toBe(3);
-  });
 });

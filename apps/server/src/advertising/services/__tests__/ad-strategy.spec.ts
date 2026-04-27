@@ -11,7 +11,6 @@ const mockedBuildPerListingMetrics = vi.mocked(buildPerListingMetrics);
 /**
  * Orchestrator 의 thin delegation 확인 전용 (Plan B2b.refactor T9 + T7-fix).
  *
- * H3 — orchestrator no longer reads `prisma.ad`/`prisma.trafficStats`.
  * Lifetime + 14-day ad aggregates come from `ChannelListingDailySnapshot`,
  * exposure traffic windowing comes from the same daily-fact table, and the
  * exposure aggregate uses `ChannelListingDailySnapshot.groupBy` directly.

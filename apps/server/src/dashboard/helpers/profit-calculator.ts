@@ -34,18 +34,12 @@ export interface RangeProfitMetrics {
  * the inner-loop accumulation. `ProductOption.shippingCost` is kept in schema
  * for legacy compat but must NOT be used in revenue/cost aggregation.
  *
- * Hard rewrite Phase H3b — ad metrics now aggregate from
- * `ChannelListingDailySnapshot` (additive ad columns: adSpend / adRevenue /
- * adImpressions / adClicks / adConversions). The dual-source legacy chain
- * (`AdSnapshot.aggregate` then `Ad.aggregate` fallback) is gone — daily facts
- * are the single source-of-truth.
+ * Ad metrics aggregate from `ChannelListingDailySnapshot` (additive ad
+ * columns: adSpend / adRevenue / adImpressions / adClicks / adConversions).
+ * Daily facts are the single source-of-truth.
  *
- * Proration: the legacy code pro-rated against elapsed-vs-total days because
- * `AdSnapshot` rollups represented month-to-date totals; a 7-day window over
- * a current month had to scale that MTD down. Daily facts are per-day rows,
- * so a `businessDate >= from && < to` aggregate already covers exactly the
- * requested days. No proration is applied — daily-fact-as-source-of-truth
- * removes the need for derived per-period scaling.
+ * No proration: daily facts are per-day rows, so a `businessDate >= from
+ * && < to` aggregate already covers exactly the requested days.
  */
 export async function calculateProfitForRange(
   prisma: PrismaService,

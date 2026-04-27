@@ -88,8 +88,8 @@ export class AdSyncService {
   }
 
   /**
-   * H3 — current-state extension status from daily-fact + scrape-run +
-   * account KPI tables. No legacy `ItemWinner` / `AdSnapshot` reads.
+   * Current-state extension status from daily-fact + scrape-run +
+   * account KPI tables.
    *
    * Winner counts come from the latest `ChannelListingDailySnapshot` per
    * listing (deterministic ordering: businessDate desc, lastObservedAt desc,
@@ -99,8 +99,7 @@ export class AdSyncService {
    *
    * Wing KPI sidebar fields come from
    * `ChannelAccountDailyKpiSnapshot(source='wing', kpiType='wing_itemwinner_kpi')`.
-   * Empty-state returns explicit zero/null — legacy rows are ignored even
-   * when present.
+   * Empty-state returns explicit zero/null.
    */
   async getExtensionStatus(companyId: string): Promise<AdExtensionStatus> {
     const [
@@ -853,8 +852,7 @@ export class AdSyncService {
           else scrapeMatched += 1;
 
           // Wave C3 — daily fact upsert for matched rows. Winner state is
-          // valuable independent of legacy `ItemWinner` filters (short
-          // product names still produce useful state observations).
+          // valuable even when productName is short (no legacy filter applied).
           if (match.listingId && businessDate) {
             const listingState = this.normalizeWingListingState(row);
             if (listingState) {
