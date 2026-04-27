@@ -24,11 +24,11 @@ import {
 } from './channel-scrape-persistence.service';
 
 export interface ListingMap {
-  // Wave C2: option matches keep `listingOptionId` even when internal
-  // `optionId` is null. C3 daily option-snapshot upsert needs the listing
-  // option id to land facts before internal product matching is complete.
-  // Wave C3: also carry the listing's `externalId` so daily-snapshot rows can
-  // populate the denormalized `externalId` column without an extra DB lookup.
+  // Option matches keep `listingOptionId` even when internal `optionId` is
+  // null. Daily option-snapshot upsert needs the listing option id to land
+  // facts before internal product matching is complete. Also carry the
+  // listing's `externalId` so daily-snapshot rows can populate the
+  // denormalized `externalId` column without an extra DB lookup.
   externalOptionIdMap: Map<
     string,
     {
@@ -45,7 +45,7 @@ export interface ListingMatch {
   listingId: string | null;
   listingOptionId: string | null;
   optionId: string | null;
-  // Wave C3: canonical channel identifiers needed for daily-snapshot upsert.
+  // Canonical channel identifiers needed for daily-snapshot upsert.
   // `externalId` is the `ChannelListing.externalId` (e.g. Coupang sellerProductId).
   // `externalOptionId` is `ChannelListingOption.externalOptionId` (e.g. vendorItemId).
   externalId: string | null;
@@ -231,7 +231,7 @@ export class AdSyncService {
           externalOptionId: true,
           listingId: true,
           optionId: true,
-          // Wave C3: pull listing's externalId so daily-option-snapshot upsert
+          // Pull listing's externalId so daily-option-snapshot upsert
           // can populate the denormalized column without extra round-trips.
           listing: { select: { externalId: true } },
         },
@@ -245,9 +245,9 @@ export class AdSyncService {
     const externalOptionIdMap: ListingMap['externalOptionIdMap'] = new Map();
     for (const opt of options) {
       if (!opt.externalOptionId) continue;
-      // Wave C2: 내부 ProductOption 매칭이 아직 안 된 row 도 listingOption 자체는
-      // 보존한다. C3 가 option daily snapshot 을 land 하려면 listingOptionId 가
-      // 필요하기 때문 (internal optionId 가 null 이어도).
+      // 내부 ProductOption 매칭이 아직 안 된 row 도 listingOption 자체는 보존한다.
+      // option daily snapshot 을 land 하려면 listingOptionId 가 필요하기 때문
+      // (internal optionId 가 null 이어도).
       externalOptionIdMap.set(opt.externalOptionId, {
         listingId: opt.listingId,
         listingOptionId: opt.id,
@@ -314,7 +314,7 @@ export class AdSyncService {
     };
   }
 
-  /** Wave C2: snapshot match status derivation. */
+  /** Snapshot match status derivation. */
   private matchStatusOf(match: ListingMatch): ScrapeMatchStatus {
     if (match.listingOptionId) return 'matched';
     if (match.listingId) return 'matched_listing_only';
@@ -415,10 +415,10 @@ export class AdSyncService {
   }
 
   /**
-   * Wave C2 — finalize a scrape run with `status='error'` after a thrown
-   * exception. Keeps the run row from being stuck on `status='running'`
-   * forever (HIGH-1 in code review). Counts at the time of failure are
-   * recorded so observability can see partial progress.
+   * Finalize a scrape run with `status='error'` after a thrown exception.
+   * Keeps the run row from being stuck on `status='running'` forever.
+   * Counts at the time of failure are recorded so observability can see
+   * partial progress.
    */
   private async finalizeScrapeRunOnError(
     scrapeRunId: string,
@@ -461,7 +461,7 @@ export class AdSyncService {
   }
 
   /**
-   * H2 — `ad_campaign` payloads land in three places:
+   * `ad_campaign` payloads land in three places:
    *   1. `ChannelScrapeRun` + `ChannelScrapeSnapshot` per row (raw audit/replay)
    *   2. `ChannelListingDailySnapshot` listing-day metrics + state when the
    *      row has listing identity (matched or matched_listing_only)
@@ -751,7 +751,7 @@ export class AdSyncService {
   }
 
   /**
-   * H2 — derive the appropriate target grain for a campaign-page row.
+   * Derive the appropriate target grain for a campaign-page row.
    * `keyword` rows always fall to keyword grain; otherwise infer from
    * `pageType`. Ad-product rows are reserved for `coupang_ads_daily` since
    * that's where the provider distinguishes ad placement.
@@ -766,11 +766,11 @@ export class AdSyncService {
   }
 
   /**
-   * H2 — `raw_scrape` covers both wing item-winner rows and advertising
-   * dashboard rows. Each row creates a `ChannelScrapeSnapshot` first;
-   * matched rows then upsert listing/option daily state (winner state)
-   * for wing, and listing-day ad metrics + target-day fact for advertising.
-   * Wing dashboard KPI cards land in `ChannelAccountDailyKpiSnapshot`.
+   * `raw_scrape` covers both wing item-winner rows and advertising dashboard
+   * rows. Each row creates a `ChannelScrapeSnapshot` first; matched rows
+   * then upsert listing/option daily state (winner state) for wing, and
+   * listing-day ad metrics + target-day fact for advertising. Wing
+   * dashboard KPI cards land in `ChannelAccountDailyKpiSnapshot`.
    */
   private async handleRawScrape(
     payload: ExtensionSyncDto,
@@ -851,8 +851,8 @@ export class AdSyncService {
           if (matchStatus === 'unmatched') scrapeUnmatched += 1;
           else scrapeMatched += 1;
 
-          // Wave C3 — daily fact upsert for matched rows. Winner state is
-          // valuable even when productName is short (no legacy filter applied).
+          // Daily fact upsert for matched rows. Winner state is valuable
+          // even when productName is short (no legacy filter applied).
           if (match.listingId && businessDate) {
             const listingState = this.normalizeWingListingState(row);
             if (listingState) {
@@ -1066,7 +1066,7 @@ export class AdSyncService {
         }
       }
 
-      // Wave C2 — unknown source fallback. Snapshot every row as unmatched.
+      // Unknown source fallback. Snapshot every row as unmatched.
       if (source !== 'wing' && source !== 'advertising') {
         for (const row of rows) {
           const match = this.matchListingFromRow(row, map);
@@ -1144,7 +1144,7 @@ export class AdSyncService {
   }
 
   /**
-   * H2 — `traffic` payloads (Wing page-traffic dashboard) land as:
+   * `traffic` payloads (Wing page-traffic dashboard) land as:
    *   1. `ChannelScrapeSnapshot` per row
    *   2. `ChannelListingDailySnapshot` traffic-metric upsert per matched row
    *   3. `ChannelAccountDailyKpiSnapshot` for dashboard-level KPI cards
@@ -1332,8 +1332,8 @@ export class AdSyncService {
   }
 
   /**
-   * H2 — `coupang_ads_daily` is the Coupang ads dashboard daily-aggregate
-   * KPI feed. There is no listing identity per row, so each row lands in
+   * `coupang_ads_daily` is the Coupang ads dashboard daily-aggregate KPI
+   * feed. There is no listing identity per row, so each row lands in
    * `ChannelAccountDailyKpiSnapshot` with `source='coupang_ads'`.
    */
   private async handleCoupangAdsDaily(
@@ -1364,10 +1364,10 @@ export class AdSyncService {
     try {
       let accountKpiCount = 0;
       for (const row of rows) {
-        // Wave C2 — snapshot every row before applying the missing-date skip
-        // so raw payload data is preserved (plan §3 principle "Raw before
-        // normalized"). Rows without `date` get a null businessDate + a
-        // matchReason so reviewers can see why downstream KPI was skipped.
+        // Snapshot every row before applying the missing-date skip so raw
+        // payload data is preserved ("Raw before normalized" principle).
+        // Rows without `date` get a null businessDate + a matchReason so
+        // reviewers can see why downstream KPI was skipped.
         const rowBusinessDate = row.date
           ? this.toBusinessDate(String(row.date))
           : null;
@@ -1539,10 +1539,10 @@ export class AdSyncService {
   }
 
   /**
-   * Wave C3 — derive listing-level observable state from a Wing item-winner
-   * row. Returns `null` when the row carries no observable state, so the
-   * caller can skip the daily upsert entirely (e.g., a row that is only there
-   * to feed `ChannelScrapeSnapshot` raw preservation).
+   * Derive listing-level observable state from a Wing item-winner row.
+   * Returns `null` when the row carries no observable state, so the caller
+   * can skip the daily upsert entirely (e.g., a row that is only there to
+   * feed `ChannelScrapeSnapshot` raw preservation).
    */
   private normalizeWingListingState(
     row: Record<string, any>,
@@ -1571,9 +1571,9 @@ export class AdSyncService {
   }
 
   /**
-   * Wave C3 — Wing item-winner rows are per-vendor-item, so the same winner
-   * fields apply to the option daily fact. Returns `null` when no observable
-   * field is present.
+   * Wing item-winner rows are per-vendor-item, so the same winner fields
+   * apply to the option daily fact. Returns `null` when no observable field
+   * is present.
    */
   private normalizeWingOptionState(
     row: Record<string, any>,

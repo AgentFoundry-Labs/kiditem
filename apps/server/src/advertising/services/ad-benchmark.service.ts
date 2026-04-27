@@ -63,8 +63,8 @@ export class AdBenchmarkService {
   ) {}
 
   /**
-   * H3 — benchmark aggregation from `ChannelListingDailySnapshot` over the
-   * last 30 businessDates. Ratios recompute from sums via util/ratio-recompute.
+   * Benchmark aggregation from `ChannelListingDailySnapshot` over the last
+   * 30 businessDates. Ratios recompute from sums via util/ratio-recompute.
    */
   async getDiagnosis(companyId: string): Promise<AdBenchmarkData> {
     const config = await this.adConfigService.getConfig(companyId);

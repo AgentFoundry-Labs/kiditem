@@ -466,9 +466,8 @@ export class AdStrategyService {
     const { from, to } = this.resolveMonthWindow(year, month);
 
     // Hydrate listings first so we can hand the channel-state loader an exact
-    // primary-option list (avoids attaching the wrong option's daily snapshot
-    // — see Wave C4 review feedback). Live profit metrics + channel state run
-    // in parallel after hydrate.
+    // primary-option list (avoids attaching the wrong option's daily snapshot).
+    // Live profit metrics + channel state run in parallel after hydrate.
     const listings = await hydrateListings(this.prisma, companyId, listingIds);
     const [liveMetrics, channelStateByListing] = await Promise.all([
       listingIds.length === 0
@@ -495,18 +494,18 @@ export class AdStrategyService {
   }
 
   /**
-   * Wave C4 — read the latest `ChannelListingDailySnapshot` per listing and
-   * the latest `ChannelListingOptionDailySnapshot` for each listing's
-   * deterministic hydrated primary option, hydrated into a
-   * `ChannelStateSignal` map keyed by listingId. The map omits listings
-   * without any daily snapshot, so the rule engine sees a real `null` (not
-   * stale state) and skips evidence enrichment.
+   * Read the latest `ChannelListingDailySnapshot` per listing and the latest
+   * `ChannelListingOptionDailySnapshot` for each listing's deterministic
+   * hydrated primary option, hydrated into a `ChannelStateSignal` map keyed
+   * by listingId. The map omits listings without any daily snapshot, so the
+   * rule engine sees a real `null` (not stale state) and skips evidence
+   * enrichment.
    *
    * Cross-domain note: `ChannelListing*DailySnapshot` are channels-namespace
-   * Prisma models, but advertising owns the dual-write helper today
-   * (`apps/server/src/advertising/CLAUDE.md` Wave C2/C3). Reading them here
-   * via `PrismaService` keeps that boundary intact — no `ChannelSyncService`
-   * inject.
+   * Prisma models, but advertising owns the dual-write helper today (see
+   * `apps/server/src/advertising/CLAUDE.md` "Cross-domain coupling
+   * exception"). Reading them here via `PrismaService` keeps that boundary
+   * intact — no `ChannelSyncService` inject.
    */
   private async loadChannelStateByListing(
     companyId: string,

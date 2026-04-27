@@ -51,10 +51,9 @@ export class DashboardAdService {
         aggregateAdForRange(this.prisma, companyId, dateRange.start, dateRange.end),
         // Range KPI previous period
         aggregateAdForRange(this.prisma, companyId, dateRange.prevStart, dateRange.prevEnd),
-        // 30-day daily ad cost — Hard rewrite Phase H3b: source moved from
-        // legacy `ads` table to `channel_listing_daily_snapshots`. Group by
-        // `business_date` (KST date) and SUM the additive `ad_spend` column.
-        // ADR-0018 companyId binding via Prisma.sql tagged-template.
+        // 30-day daily ad cost from `channel_listing_daily_snapshots`. Group
+        // by `business_date` (KST date) and SUM the additive `ad_spend`
+        // column. ADR-0018 companyId binding via Prisma.sql tagged-template.
         this.prisma.$queryRaw<{ date: string; ad_cost: number }[]>(Prisma.sql`
           SELECT
             TO_CHAR(business_date, 'YYYY-MM-DD') AS date,

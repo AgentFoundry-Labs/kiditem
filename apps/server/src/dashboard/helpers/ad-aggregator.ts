@@ -13,11 +13,10 @@ export interface RangeAdMetrics {
  * `ChannelListingDailySnapshot` over the requested half-open `[from, to)`
  * window scoped to a company.
  *
- * Hard rewrite Phase H3b — replaces the legacy `SELECT ... FROM ads` raw SQL
- * (and earlier legacy `Ad` aggregate) read path. Daily facts are now the
- * single source-of-truth for listing/day ad metrics; period views derive
- * via SUM. Caller-side ROAS/CTR/CVR must use the shared `ratio-recompute`
- * helper — provider ratios are not stored on additive columns.
+ * Daily facts are the single source-of-truth for listing/day ad metrics;
+ * period views derive via SUM. Caller-side ROAS/CTR/CVR must use the shared
+ * `ratio-recompute` helper — provider ratios are not stored on additive
+ * columns.
  *
  * Multi-tenant: every read is scoped by `companyId`.
  */

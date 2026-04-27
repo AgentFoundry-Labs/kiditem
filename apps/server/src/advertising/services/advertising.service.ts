@@ -75,9 +75,8 @@ export class AdvertisingService {
   }
 
   /**
-   * H3 — change ad tier by listing id (was previously by Ad row id). The
-   * legacy `Ad` model is going away in H4, so we route the IDOR check
-   * through `ChannelListing` directly. The supplied id is interpreted as a
+   * Change ad tier by listing id. The IDOR check routes through
+   * `ChannelListing` directly; the supplied id is interpreted as a
    * `ChannelListing.id`. (No frontend URL change — the ad-ops UI already
    * passes listingId.)
    */
@@ -111,7 +110,7 @@ export class AdvertisingService {
     const today = kstDayStart(new Date());
     const thirtyDaysAgo = new Date(today.getTime() - 30 * 86_400_000);
 
-    // H3 — listing-level ad metrics aggregate from
+    // Listing-level ad metrics aggregate from
     // `ChannelListingDailySnapshot` over the last 30 businessDates.
     const perListing = await this.prisma.channelListingDailySnapshot.groupBy({
       by: ['listingId'],

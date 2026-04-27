@@ -1,6 +1,6 @@
 // apps/server/src/advertising/util/ad-target-key.ts
 //
-// Hard rewrite Phase H2 — deterministic canonical key builder for
+// Deterministic canonical key builder for
 // `ChannelAdTargetDailySnapshot.targetKey`.
 //
 // The daily-fact table is uniquely keyed by

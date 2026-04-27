@@ -26,11 +26,10 @@ function resolveChannelType(channel: string): 'marketplace' | 'direct' | 'other'
 /**
  * Plan D.3 — sales-analysis live aggregation (ADR-0016 bypass + ADR-0017 returnRate + orphan policy).
  *
- * Hard rewrite Phase H3b — per-channel ad spend now sources from
- * `ChannelListingDailySnapshot.adSpend` aggregated by listing over the
- * requested KST month window. Replaces the legacy legacy `Ad.groupBy`
- * call that read the `ads` table. Daily facts are the single source-of-truth
- * for listing/day ad metrics; period totals are SUMs over `businessDate`.
+ * Per-channel ad spend sources from `ChannelListingDailySnapshot.adSpend`
+ * aggregated by listing over the requested KST month window. Daily facts
+ * are the single source-of-truth for listing/day ad metrics; period totals
+ * are SUMs over `businessDate`.
  *
  * Data flow:
  *   Order (+ shippingPrice) → OrderLineItem → ChannelListingOption.listing.channel
@@ -109,10 +108,9 @@ export class SalesAnalysisService {
           },
         },
       }),
-      // 3) Ad spend grouped by listingId — Hard rewrite Phase H3b: source
-      // moved from legacy `Ad` to `ChannelListingDailySnapshot.adSpend`.
-      // listingId is non-nullable on the daily-fact row so the resulting
-      // shape is straightforward.
+      // 3) Ad spend grouped by listingId — sourced from
+      // `ChannelListingDailySnapshot.adSpend`. listingId is non-nullable on
+      // the daily-fact row so the resulting shape is straightforward.
       this.prisma.channelListingDailySnapshot.groupBy({
         by: ['listingId'],
         _sum: { adSpend: true },

@@ -63,7 +63,7 @@ export class AdCampaignsService {
   ) {}
 
   /**
-   * H3 — campaign-grain rollup from `ChannelAdTargetDailySnapshot`. Aggregates
+   * Campaign-grain rollup from `ChannelAdTargetDailySnapshot`. Aggregates
    * the `targetType='campaign'` rows by `(targetKey)` over the requested
    * period. Period mapping: `7d`→7 days, `14d`→14 days, `month`→days-of-month.
    * Ratios recompute via util/ratio-recompute.
@@ -160,7 +160,7 @@ export class AdCampaignsService {
   }
 
   /**
-   * H3 — daily ad trend from `ChannelListingDailySnapshot` aggregated by
+   * Daily ad trend from `ChannelListingDailySnapshot` aggregated by
    * `businessDate`. Each daily row already represents one day of additive
    * spend/revenue/etc per listing — sum across listings to get the trend
    * point.

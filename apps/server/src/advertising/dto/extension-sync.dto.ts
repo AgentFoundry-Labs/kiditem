@@ -48,7 +48,7 @@ export class ExtensionSyncDto {
   @IsString()
   endDate?: string;
 
-  // Wave C2: extension 이 보내는 date-range 필드. 전역 `ValidationPipe({whitelist:true})`
+  // extension 이 보내는 date-range 필드. 전역 `ValidationPipe({whitelist:true})`
   // 가 미선언 필드를 strip 하므로 명시적으로 받아두고, AdSyncService 가
   // ChannelScrapeRun.periodStart / periodEnd 로 매핑한다.
   @IsOptional()

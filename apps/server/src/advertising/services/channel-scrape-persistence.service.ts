@@ -1,23 +1,23 @@
 // apps/server/src/advertising/services/channel-scrape-persistence.service.ts
 //
-// Wave C2 — advertising-local helper that writes raw extension scrape data
-// into the channel-generic `ChannelScrapeRun` / `ChannelScrapeSnapshot` tables
-// added by Wave C0. Lives inside the advertising domain on purpose:
-// per `apps/server/AGENTS.md`, services from one business domain must not
-// inject services from another. We therefore reach into the channels-namespace
-// Prisma models directly through `PrismaService` rather than calling
-// `ChannelSyncService`.
+// Advertising-local helper that writes raw extension scrape data into the
+// channel-generic `ChannelScrapeRun` / `ChannelScrapeSnapshot` tables. Lives
+// inside the advertising domain on purpose: per `apps/server/AGENTS.md`,
+// services from one business domain must not inject services from another.
+// We therefore reach into the channels-namespace Prisma models directly
+// through `PrismaService` rather than calling `ChannelSyncService`.
 //
-// Wave C3 — adds idempotent daily upsert for listing/option state
-// (`ChannelListingDailySnapshot` / `ChannelListingOptionDailySnapshot`).
-// Same `(companyId, listingId, businessDate)` (or `listingOptionId`) is
-// upserted: `sampleCount` increments, `lastObservedAt` updates, observable
-// fields overwrite when explicitly non-null. Raw snapshots stay append-only.
+// Daily upserts for listing/option state are idempotent on
+// (`ChannelListingDailySnapshot` / `ChannelListingOptionDailySnapshot`):
+// same `(companyId, listingId, businessDate)` (or `listingOptionId`) is
+// upserted with `sampleCount` increments, `lastObservedAt` updates, and
+// observable fields overwriting when explicitly non-null. Raw snapshots
+// stay append-only.
 //
-// Hard rewrite Phase H2 — additionally upserts
+// Listing daily upsert also accepts optional ad and traffic metric blocks.
 // `ChannelAdTargetDailySnapshot` (campaign/keyword/product grain) and
-// `ChannelAccountDailyKpiSnapshot` (account/store-level KPI). Listing
-// daily upsert is extended to accept ad and traffic metric blocks.
+// `ChannelAccountDailyKpiSnapshot` (account/store-level KPI) are upserted
+// separately.
 //
 // Daily-fact metric semantics (single source-of-truth rule):
 //   The provider sends a *daily total* per (listing, businessDate) or
@@ -120,7 +120,7 @@ export interface ScrapeRunFinalize {
 }
 
 /**
- * Wave C3 — observable listing-level state derived from a single raw row.
+ * Observable listing-level state derived from a single raw row.
  * Caller passes only the fields that this scrape actually observed; `null`
  * and `undefined` mean "not observed" and won't overwrite an existing value
  * on a repeated upsert. Non-null values overwrite.
@@ -142,9 +142,9 @@ export interface ListingDailyState {
 }
 
 /**
- * H2 — additive metric block for listing-day. The provider sends a daily
- * total per `(listing, businessDate)`; helpers overwrite the column to that
- * total on replay (no `{ increment }`).
+ * Additive metric block for listing-day. The provider sends a daily total
+ * per `(listing, businessDate)`; helpers overwrite the column to that total
+ * on replay (no `{ increment }`).
  */
 export interface ListingDailyAdMetrics {
   adSpend?: number | null;
@@ -222,7 +222,7 @@ export interface ListingOptionDailyUpsertInput extends ListingOptionDailyState {
   metaJson?: MetaJsonInput;
 }
 
-/** H2 — see `ChannelAdTargetDailySnapshot`. */
+/** See `ChannelAdTargetDailySnapshot`. */
 export type AdTargetType = 'campaign' | 'keyword' | 'product';
 
 export interface AdTargetDailyMetrics {
@@ -406,8 +406,8 @@ function pickObservedFields<T extends object, K extends keyof T>(
 }
 
 /**
- * H2 — convert an `ad`/`traffic` metric block into the shape consumed by
- * the listing-daily upsert. Missing keys → `0` on create (matches the
+ * Convert an `ad`/`traffic` metric block into the shape consumed by the
+ * listing-daily upsert. Missing keys → `0` on create (matches the
  * `Int @default(0)` columns), undefined on update (don't touch the column).
  */
 function spreadMetricsForCreate<K extends string>(
@@ -556,14 +556,14 @@ export class ChannelScrapePersistenceService {
   }
 
   /**
-   * Wave C3 — upsert listing-level daily state.
+   * Upsert listing-level daily state.
    *
    * Idempotent on `(companyId, listingId, businessDate)`. Repeated calls
    * increment `sampleCount`, refresh `lastObservedAt` and `rawSnapshotId`,
    * and overwrite observable fields when the new value is non-null.
    * `firstObservedAt` is preserved across updates.
    *
-   * H2 — also accepts an optional `metrics.ad` / `metrics.traffic` block.
+   * Also accepts an optional `metrics.ad` / `metrics.traffic` block.
    * Metric values use **overwrite-on-replay** semantics: provider sends a
    * daily total per (listing, businessDate) and repeated calls overwrite
    * the column to that same total. They do NOT use `{ increment }`.
@@ -672,7 +672,7 @@ export class ChannelScrapePersistenceService {
   }
 
   /**
-   * Wave C3 — upsert option-level daily state.
+   * Upsert option-level daily state.
    * Idempotent on `(companyId, listingOptionId, businessDate)`. Same update
    * semantics as `upsertListingDaily`.
    */
@@ -752,7 +752,7 @@ export class ChannelScrapePersistenceService {
   }
 
   /**
-   * H2 — upsert ad target (campaign/keyword/product) daily fact.
+   * Upsert ad target (campaign/keyword/product) daily fact.
    *
    * Idempotent on `(companyId, channel, businessDate, targetType, targetKey)`.
    *
@@ -862,8 +862,8 @@ export class ChannelScrapePersistenceService {
   }
 
   /**
-   * H2 — upsert account/store-level KPI daily fact (Wing dashboard cards
-   * and similar provider KPI surfaces that cannot be attributed to one
+   * Upsert account/store-level KPI daily fact (Wing dashboard cards and
+   * similar provider KPI surfaces that cannot be attributed to one
    * listing).
    *
    * Idempotent on `(companyId, channel, source, businessDate, kpiType)`.

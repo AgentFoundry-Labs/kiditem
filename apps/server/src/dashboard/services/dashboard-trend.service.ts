@@ -38,9 +38,9 @@ export class DashboardTrendService {
         GROUP BY 1
         ORDER BY 1
       `,
-      // Hard rewrite Phase H3b — source moved from legacy `ads` to
-      // `channel_listing_daily_snapshots`. SUM(ad_spend) per business_date
-      // (KST date) over the same window the order revenue query uses.
+      // SUM(ad_spend) per business_date (KST date) from
+      // `channel_listing_daily_snapshots` over the same window the order
+      // revenue query uses.
       this.prisma.$queryRaw<{ date: string; ad_cost: number }[]>(Prisma.sql`
         SELECT
           TO_CHAR(business_date, 'YYYY-MM-DD') AS date,

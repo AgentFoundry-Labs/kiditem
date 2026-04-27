@@ -1,10 +1,10 @@
 // apps/server/src/advertising/util/ratio-recompute.ts
 //
-// Hard rewrite Phase H3 — recompute ROAS/CTR/CVR from additive numerator and
-// denominator sums. Reads MUST NOT trust per-row provider ratios — those are
-// captured (in `metaJson`) for audit only. The source-of-truth is the additive
-// columns on `ChannelListingDailySnapshot` / `ChannelAdTargetDailySnapshot`,
-// and ratios over a period are recomputed as `SUM(numerator) / SUM(denominator)`.
+// Recompute ROAS/CTR/CVR from additive numerator and denominator sums.
+// Reads MUST NOT trust per-row provider ratios — those are captured (in
+// `metaJson`) for audit only. The source-of-truth is the additive columns
+// on `ChannelListingDailySnapshot` / `ChannelAdTargetDailySnapshot`, and
+// ratios over a period are recomputed as `SUM(numerator) / SUM(denominator)`.
 //
 // Returns `null` when the denominator is 0 / NaN / non-finite — callers MUST
 // surface `null` (not 0) so the UI can label "no data" correctly.

@@ -95,10 +95,10 @@ export async function buildPerListingMetrics(
         },
       },
     }),
-    // H3 — listing-level ad spend now aggregates from
+    // Listing-level ad spend aggregates from
     // `ChannelListingDailySnapshot.adSpend` over the same `[from, to)` window.
     // Caller signature is unchanged; the result columns (`adCost` per listing)
-    // remain populated by the rewritten map below.
+    // remain populated by the map below.
     prisma.channelListingDailySnapshot.groupBy({
       by: ['listingId'],
       _sum: { adSpend: true },

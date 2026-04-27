@@ -191,11 +191,11 @@ export class AdGradeRulesService {
       const currentValue = roas;
       const proposedValue = profitRate > 0 ? Math.round(profitRate) : null;
 
-      // Wave C4 — attach channel-state evidence (latest daily snapshot) when
+      // Attach channel-state evidence (latest daily snapshot) when
       // available. Reason text is enriched only when the snapshot reveals a
       // meaningful adverse condition (offer-winner lost / option out of stock /
       // exposure suspended); otherwise the reason stays exactly as before so
-      // pre-C4 callers see no diff.
+      // callers without a snapshot see no diff.
       const channelState = channelStateByListing?.get(listing.id) ?? null;
       const reason = channelState
         ? appendChannelEvidence(main.reason, channelState)
@@ -332,7 +332,7 @@ function calcOptionMargin(option: HydratedListing['primaryOption']): number {
 }
 
 /**
- * Wave C4 — append channel daily-snapshot evidence to the reason text.
+ * Append channel daily-snapshot evidence to the reason text.
  *
  * Rules (only adverse signals — positive states stay implicit):
  * - offer-winner lost → `· 아이템위너 아님` (+ winner price/gap when known)

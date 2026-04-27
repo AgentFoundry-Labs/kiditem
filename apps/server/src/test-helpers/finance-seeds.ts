@@ -237,11 +237,11 @@ export async function seedReturn(
 // ---------------------------------------------------------------------------
 
 /**
- * Seed a per-listing/per-day ad spend row. Hard rewrite Phase H3b — now writes
- * `ChannelListingDailySnapshot` (daily-fact source-of-truth) instead of the
- * legacy `Ad` table. Read paths in dashboard / finance / advertising aggregate
- * the additive `adSpend` column, so existing call sites observe the same
- * `getTrend(...).adCost` / `salesAnalysis.totalCost` numbers without changes.
+ * Seed a per-listing/per-day ad spend row. Writes
+ * `ChannelListingDailySnapshot` (daily-fact source-of-truth). Read paths in
+ * dashboard / finance / advertising aggregate the additive `adSpend` column,
+ * so call sites observe `getTrend(...).adCost` /
+ * `salesAnalysis.totalCost` numbers from this seed.
  *
  * Returns the daily-fact row ID.
  */
