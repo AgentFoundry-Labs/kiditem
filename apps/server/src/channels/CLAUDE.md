@@ -1,6 +1,6 @@
 # channels — Coupang 통합 + Sync + Dashboard 도메인
 
-13 파일. **외부 마켓플레이스(Coupang) 어댑터 + 데이터 동기화 + 분석 대시보드** 가 결합된 도메인. `adapters/coupang/` 하위가 외부 API 격리 레이어.
+**외부 마켓플레이스(Coupang) 어댑터 + 데이터 동기화 + 분석 대시보드** 가 결합된 도메인. `adapters/coupang/` 하위가 외부 API 격리 레이어.
 
 > **Plan A.5 완료 (2026-04-18)**: `syncSingleOrder` / `syncSingleReturn` 은 channel-agnostic `Order` / `OrderLineItem` / `OrderReturn` / `OrderReturnLineItem` 으로 재작성됨. 채널 구분은 `platform String` (현재 `'coupang'`), 채널-특수 raw 데이터는 `metadata Json`. `CoupangOrder` / `CoupangOrderItem` / `CoupangReturn` 는 drop. 신규 채널 추가 시 별도 channel-specific 테이블 만들지 말고 `platform` 값만 추가 ([apps/server/src/orders/CLAUDE.md](../orders/CLAUDE.md) 참고).
 >
@@ -104,7 +104,7 @@ await this.prisma.$transaction(async (tx) => {
 
 ### 4. $queryRaw — Dashboard 분석 전용
 
-`channel-dashboard.service.ts:53, 81, 115, 122, 142, 163` — 6개 raw SQL 쿼리 (트렌드, 랭킹, 반품 집계).
+`channel-dashboard.service.ts` — 트렌드 / 랭킹 / 반품 집계용 `$queryRaw` 쿼리 다수.
 
 **규칙**:
 - Parameterized binding 만 사용: `${companyId}::uuid`. **String concat 절대 금지** (SQL injection 위험).
