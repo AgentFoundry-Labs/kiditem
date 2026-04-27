@@ -209,6 +209,13 @@ describe('Product sync (PG integration, Wave C1)', () => {
     expect(afterSecond[1].id).toBe(afterFirst[1].id);
     expect(afterSecond[0].itemName).toBe('Pink (refreshed)');
     expect(afterSecond[0].salePrice).toBe(10500);
+
+    const [deliveryInfoState] = await prisma.$queryRaw<Array<{ isNull: boolean }>>`
+      SELECT delivery_info IS NULL AS "isNull"
+        FROM channel_listings
+       WHERE id = ${listing.id}::uuid
+    `;
+    expect(deliveryInfoState?.isNull).toBe(true);
   });
 
   it('skips and reports sellerProductId without an existing ChannelListing — does not create master', async () => {
@@ -246,6 +253,73 @@ describe('Product sync (PG integration, Wave C1)', () => {
     expect(listingA.id).not.toBe(listingB.id);
   });
 
+  it('records a detail endpoint non-success response as a listing error and continues', async () => {
+    await seedListing('350');
+    await seedListing('351');
+
+    getSellerProductsMock.mockResolvedValueOnce(
+      listOk([{ sellerProductId: 350 }, { sellerProductId: 351 }]),
+    );
+    getSellerProductMock
+      .mockResolvedValueOnce({
+        code: 'FORBIDDEN',
+        message: 'invalid credentials',
+        data: undefined,
+      } as SellerProductDetailResponse)
+      .mockResolvedValueOnce(
+        detailOk({
+          sellerProductId: 351,
+          sellerProductName: 'Still Synced',
+          statusName: 'APPROVED',
+          items: [],
+        }),
+      );
+
+    const result = await service.syncProducts(companyId);
+    expect(result.synced).toBe(1);
+    expect(result.errors).toBe(1);
+    expect(result.details?.[0]).toContain('Listing 350');
+    expect(result.details?.[0]).toContain('FORBIDDEN');
+
+    const synced = await prisma.channelListing.findFirst({
+      where: { companyId, externalId: '351' },
+    });
+    expect(synced?.channelName).toBe('Still Synced');
+    expect(synced?.status).toBe('active');
+  });
+
+  it('does not update options when the matched listing is soft-deleted after the precheck', async () => {
+    const listing = await seedListing('360');
+
+    getSellerProductsMock.mockResolvedValueOnce(
+      listOk([{ sellerProductId: 360 }]),
+    );
+    getSellerProductMock.mockImplementationOnce(async () => {
+      await prisma.channelListing.update({
+        where: { id: listing.id },
+        data: { isDeleted: true, deletedAt: new Date() },
+      });
+      return detailOk({
+        sellerProductId: 360,
+        sellerProductName: 'Should Not Apply',
+        statusName: 'APPROVED',
+        items: [{ vendorItemId: 36001, itemName: 'Late Option', salePrice: 1000 }],
+      });
+    });
+
+    const result = await service.syncProducts(companyId);
+    expect(result.synced).toBe(0);
+    expect(result.errors).toBe(1);
+    expect(result.details?.[0]).toContain('Listing 360');
+    expect(result.details?.[0]).toContain('no longer active');
+
+    const after = await prisma.channelListing.findUnique({ where: { id: listing.id } });
+    expect(after?.isDeleted).toBe(true);
+    expect(after?.channelName).toBeNull();
+    const options = await prisma.channelListingOption.findMany({ where: { listingId: listing.id } });
+    expect(options).toHaveLength(0);
+  });
+
   it('throws inside transaction when Coupang item is missing vendorItemId; option upserts roll back, listing field changes do too', async () => {
     const listing = await seedListing('400');
 
@@ -278,16 +352,17 @@ describe('Product sync (PG integration, Wave C1)', () => {
     expect(options).toHaveLength(0);
   });
 
-  it('list endpoint ERROR aborts the run with a single recorded error', async () => {
+  it('list endpoint non-success response aborts the run with a single recorded error', async () => {
     getSellerProductsMock.mockResolvedValueOnce({
-      code: 'ERROR',
-      message: 'rate limited',
+      code: 'FORBIDDEN',
+      message: 'invalid credentials',
       data: undefined,
     } as SellerProductListResponse);
     const result = await service.syncProducts(companyId);
     expect(result.synced).toBe(0);
     expect(result.errors).toBe(1);
-    expect(result.details?.[0]).toContain('rate limited');
+    expect(result.details?.[0]).toContain('FORBIDDEN');
+    expect(result.details?.[0]).toContain('invalid credentials');
     expect(getSellerProductMock).not.toHaveBeenCalled();
   });
 });

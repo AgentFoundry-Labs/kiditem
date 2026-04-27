@@ -138,9 +138,11 @@ export class ChannelSyncService {
           maxPerPage: PRODUCT_PAGE_SIZE,
         })) as SellerProductListResponse;
 
-        if (listResponse.code === 'ERROR') {
+        if (listResponse.code !== 'SUCCESS') {
           result.errors += 1;
-          result.details?.push(`seller-products list error: ${listResponse.message}`);
+          result.details?.push(
+            `seller-products list ${listResponse.code}: ${listResponse.message || 'Unknown API error'}`,
+          );
           break;
         }
 
@@ -192,7 +194,7 @@ export class ChannelSyncService {
         externalId: sellerProductId,
         isDeleted: false,
       },
-      select: { id: true, masterId: true },
+      select: { id: true },
     });
     if (!existing) {
       result.details?.push(
@@ -202,8 +204,10 @@ export class ChannelSyncService {
     }
 
     const detailResponse = (await getSellerProduct(sellerProductId)) as SellerProductDetailResponse;
-    if (detailResponse.code === 'ERROR') {
-      throw new Error(`detail error: ${detailResponse.message}`);
+    if (detailResponse.code !== 'SUCCESS') {
+      throw new Error(
+        `detail ${detailResponse.code}: ${detailResponse.message || 'Unknown API error'}`,
+      );
     }
     const detail = detailResponse.data;
     if (!detail) {
@@ -212,21 +216,32 @@ export class ChannelSyncService {
 
     await this.prisma.$transaction(
       async (tx) => {
-        await tx.channelListing.update({
-          where: { id: existing.id },
+        const updated = await tx.channelListing.updateMany({
+          where: {
+            id: existing.id,
+            companyId,
+            channel: 'coupang',
+            externalId: sellerProductId,
+            isDeleted: false,
+          },
           data: {
             channelName: detail.sellerProductName ?? null,
             status: normalizeCoupangProductStatus(detail.statusName),
             deliveryChargeType: detail.deliveryChargeType ?? null,
             freeShipOverAmount: detail.freeShipOverAmount ?? null,
             returnCharge: detail.returnCharge ?? null,
-            // Prisma `Json?` 컬럼: 명시적 null 표현은 `Prisma.JsonNull` (SQL NULL).
+            // Prisma `Json?` 컬럼: SQL NULL 표현은 `Prisma.DbNull`.
             // payload 가 deliveryInfo 를 안 보내면 컬럼을 비우고, 보내면 그대로 저장.
             deliveryInfo: detail.deliveryInfo === undefined
-              ? Prisma.JsonNull
+              ? Prisma.DbNull
               : (detail.deliveryInfo as Prisma.InputJsonValue),
           },
         });
+        if (updated.count !== 1) {
+          throw new BadRequestException(
+            `ChannelListing ${sellerProductId} is no longer active for this company`,
+          );
+        }
 
         const items = Array.isArray(detail.items) ? detail.items : [];
         for (const item of items) {
@@ -327,7 +342,7 @@ export class ChannelSyncService {
 
   async syncInventory(_companyId: string): Promise<SyncResult> {
     throw new NotImplementedException(
-      'Inventory sync requires Plan B3 listingId-based rewrite — uses dropped Product/ProductItem/MasterInventory models (ADR-0013)',
+      'Inventory sync is not implemented yet — define the InventoryService single-writer boundary before adding channel inventory writes',
     );
   }
 
