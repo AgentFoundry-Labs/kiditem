@@ -29,6 +29,14 @@ describe('AdStrategyService (orchestrator delegation)', () => {
       ad: { groupBy: vi.fn().mockResolvedValue([]) },
       channelListing: { findMany: vi.fn().mockResolvedValue([]) },
       channelListingOption: { findMany: vi.fn().mockResolvedValue([]) },
+      // Wave C4: orchestrator now reads latest daily snapshots into the
+      // strategy context. Stub both models with empty results so the unit
+      // tests stay focused on delegation; the integration tier exercises the
+      // real PG path with daily fact upsert.
+      channelListingDailySnapshot: { findMany: vi.fn().mockResolvedValue([]) },
+      channelListingOptionDailySnapshot: {
+        findMany: vi.fn().mockResolvedValue([]),
+      },
       review: { groupBy: vi.fn().mockResolvedValue([]) },
       trafficStats: { findMany: vi.fn().mockResolvedValue([]) },
     };

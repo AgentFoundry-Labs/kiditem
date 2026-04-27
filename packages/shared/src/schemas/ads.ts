@@ -97,6 +97,49 @@ export type AdTrendsData = z.infer<typeof AdTrendsDataSchema>;
 
 // ───── Strategy (rules / plan / recommendations) ─────
 
+// Wave C4 — read-only product/option state signal derived from
+// `ChannelListingDailySnapshot` / `ChannelListingOptionDailySnapshot`. Surfaced
+// on strategy actions so reviewers see the product-state evidence behind a
+// recommendation (item-winner status, winner price gap, current sale/exposure
+// status, option stock/status, last observed timestamp).
+export const ChannelOptionStateSignalSchema = z.object({
+  listingOptionId: z.string().uuid(),
+  externalOptionId: z.string(),
+  optionName: z.string().nullable(),
+  saleStatus: z.string().nullable(),
+  isActive: z.boolean().nullable(),
+  salePrice: z.number().int().nullable(),
+  stockQty: z.number().int().nullable(),
+  isOfferWinner: z.boolean().nullable(),
+  myPrice: z.number().int().nullable(),
+  winnerPrice: z.number().int().nullable(),
+  winnerGapPrice: z.number().int().nullable(),
+});
+export type ChannelOptionStateSignal = z.infer<
+  typeof ChannelOptionStateSignalSchema
+>;
+
+export const ChannelStateSignalSchema = z.object({
+  channel: z.string(),
+  externalId: z.string(),
+  businessDate: z.string(),
+  lastObservedAt: z.string(),
+  sampleCount: z.number().int(),
+  productName: z.string().nullable(),
+  status: z.string().nullable(),
+  exposureStatus: z.string().nullable(),
+  saleStatus: z.string().nullable(),
+  channelPrice: z.number().int().nullable(),
+  isOfferWinner: z.boolean().nullable(),
+  myPrice: z.number().int().nullable(),
+  winnerPrice: z.number().int().nullable(),
+  winnerGapPrice: z.number().int().nullable(),
+  productRank: z.number().int().nullable(),
+  categoryRank: z.number().int().nullable(),
+  primaryOption: ChannelOptionStateSignalSchema.nullable(),
+});
+export type ChannelStateSignal = z.infer<typeof ChannelStateSignalSchema>;
+
 export const AdStrategyActionSchema = z.object({
   listing: AdListingSummarySchema,
   grade: z.enum(['A', 'B', 'C']).nullable(),
@@ -105,6 +148,10 @@ export const AdStrategyActionSchema = z.object({
   reason: z.string(),
   currentValue: z.number().int().nullable(),
   proposedValue: z.number().int().nullable(),
+  // Wave C4 — optional channel-state evidence (null when no daily snapshot
+  // exists yet for the listing). Backwards-compatible — old clients can
+  // ignore the field.
+  channelState: ChannelStateSignalSchema.nullable().optional(),
 });
 export type AdStrategyAction = z.infer<typeof AdStrategyActionSchema>;
 

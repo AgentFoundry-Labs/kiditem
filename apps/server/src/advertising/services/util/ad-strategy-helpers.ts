@@ -64,6 +64,10 @@ export async function hydrateListings(
       options: {
         where: { isActive: true },
         select: {
+          // Wave C4: also surface the active ChannelListingOption.id so the
+          // strategy reader can fetch option daily snapshots for the same
+          // option that hydrate picked as primary (not the lowest-id row).
+          id: true,
           option: {
             select: {
               id: true,
@@ -79,7 +83,8 @@ export async function hydrateListings(
     },
   });
   return rows.map((r) => {
-    const firstOpt = r.options.map((clo) => clo.option).find((o): o is NonNullable<typeof o> => o != null) ?? null;
+    const firstClo =
+      r.options.find((clo): clo is typeof clo & { option: NonNullable<typeof clo.option> } => clo.option != null) ?? null;
     return {
       id: r.id,
       externalId: r.externalId,
@@ -92,14 +97,15 @@ export async function hydrateListings(
         adTier: r.master.adTier,
         healthScore: r.master.healthScore,
       },
-      primaryOption: firstOpt
+      primaryOption: firstClo
         ? {
-            id: firstOpt.id,
-            availableStock: firstOpt.availableStock,
-            costPrice: firstOpt.costPrice,
-            sellPrice: firstOpt.sellPrice,
-            commissionRate: firstOpt.commissionRate,
-            shippingCost: firstOpt.shippingCost,
+            id: firstClo.option.id,
+            listingOptionId: firstClo.id,
+            availableStock: firstClo.option.availableStock,
+            costPrice: firstClo.option.costPrice,
+            sellPrice: firstClo.option.sellPrice,
+            commissionRate: firstClo.option.commissionRate,
+            shippingCost: firstClo.option.shippingCost,
           }
         : null,
     };

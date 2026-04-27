@@ -7,7 +7,11 @@ import {
   Download, FileSpreadsheet, Search, Target, Sparkles, Loader2,
 } from "lucide-react";
 import Link from "next/link";
-import type { AdWeeklyPlan, AdStrategyAction } from "@kiditem/shared";
+import type {
+  AdWeeklyPlan,
+  AdStrategyAction,
+  ChannelStateSignal,
+} from "@kiditem/shared";
 import { apiClient } from "@/lib/api-client";
 import { queryKeys } from "@/lib/query-keys";
 import { formatKRW, formatNumber } from "@/lib/utils";
@@ -42,6 +46,97 @@ interface StrategyContentProps {
   onOpenRegisterModal: (payload: RegisterCampaignPayload) => void;
   onAiRefresh: () => void;
   isAiRefreshing: boolean;
+}
+
+/**
+ * Wave C4 — channel state evidence chips. Read-only — surfaces signals from
+ * the latest `ChannelListingDailySnapshot` (+ primary option daily) so the
+ * reviewer sees product-state context behind a recommendation. Falls back to
+ * a single "관측" chip when no specific adverse signal is present, so users
+ * still see "we have a snapshot, dated X" instead of silence.
+ */
+function ChannelStateChips({ state }: { state: ChannelStateSignal }) {
+  const chips: { label: string; tone: "danger" | "warn" | "neutral" }[] = [];
+
+  if (state.isOfferWinner === true) {
+    chips.push({ label: "아이템위너", tone: "neutral" });
+  } else if (state.isOfferWinner === false) {
+    if (state.winnerGapPrice != null) {
+      chips.push({
+        label: `아이템위너 아님 · 차이 ${state.winnerGapPrice.toLocaleString()}원`,
+        tone: "danger",
+      });
+    } else {
+      chips.push({ label: "아이템위너 아님", tone: "danger" });
+    }
+  }
+
+  const isAdverse = (value: string | null): boolean =>
+    value != null && value.length > 0 && value.toLowerCase() !== "active";
+  if (isAdverse(state.exposureStatus)) {
+    chips.push({ label: `노출 ${state.exposureStatus}`, tone: "warn" });
+  }
+  if (isAdverse(state.saleStatus)) {
+    chips.push({ label: `판매 ${state.saleStatus}`, tone: "warn" });
+  }
+
+  const optStock = state.primaryOption?.stockQty;
+  if (optStock != null) {
+    if (optStock === 0) {
+      chips.push({ label: "옵션 재고 0", tone: "danger" });
+    } else if (optStock < 10) {
+      chips.push({ label: `옵션 재고 ${optStock}`, tone: "warn" });
+    }
+  }
+
+  if (chips.length === 0) {
+    // No explicit positive OR adverse signal observed in this snapshot.
+    // Per Wave C4 review: don't label unknown state as "양호" (healthy) —
+    // present the snapshot honestly as observed-without-additional-signal so
+    // reviewers don't read missing evidence as a verified clean bill.
+    chips.push({ label: "추가 신호 없음", tone: "neutral" });
+  }
+
+  const toneStyles = (tone: "danger" | "warn" | "neutral") => {
+    if (tone === "danger") {
+      return { background: "#fee2e2", color: "#991b1b", border: "1px solid #fecaca" };
+    }
+    if (tone === "warn") {
+      return { background: "#fef3c7", color: "#92400e", border: "1px solid #fde68a" };
+    }
+    return {
+      background: "var(--surface-sunken)",
+      color: "var(--text-secondary)",
+      border: "1px solid var(--border-subtle)",
+    };
+  };
+
+  return (
+    <div
+      className="rounded-lg p-2.5 space-y-1.5"
+      style={{ background: "var(--surface-sunken)", border: "1px solid var(--border-subtle)" }}
+    >
+      <div className="flex items-center justify-between">
+        <span className="text-[9px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>
+          채널 상태 ({state.channel})
+        </span>
+        <span className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+          {state.businessDate} 관측 · n={state.sampleCount}
+        </span>
+      </div>
+      <div className="flex flex-wrap gap-1">
+        {chips.map((c, i) => (
+          <span
+            key={i}
+            className="px-1.5 py-px rounded text-[10px] font-semibold"
+            style={toneStyles(c.tone)}
+          >
+            {c.label}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function ProductStrategyRow({ action: a, gradeBudget, gradeCount, color, expanded, onToggle, isNew }: {
@@ -92,6 +187,11 @@ function ProductStrategyRow({ action: a, gradeBudget, gradeCount, color, expande
               {a.spend > 0 && <span>광고비 <b className="font-bold" style={{ color: "var(--text-secondary)" }}>{formatNumber(a.spend)}원</b></span>}
             </div>
           )}
+
+          {/* Wave C4 — read-only product/option state evidence from latest
+              channel daily snapshot. Only shown when the strategy backend
+              returns `channelState` (snapshot exists for this listing). */}
+          {a.channelState && <ChannelStateChips state={a.channelState} />}
           <div className="rounded-lg p-2.5" style={{ background: `${color}06`, border: `1px solid ${color}18` }}>
             <div className="flex items-center gap-1.5 mb-0.5">
               <Target size={11} style={{ color }} />
