@@ -18,16 +18,30 @@ Extension scrape (Coupang vendor_item_id, external_id)
     ↓ POST /api/ads/extension/sync
 AdSyncService.sync
   ↳ buildListingMap(companyId): externalOptionIdMap + externalIdMap
-  ↳ matchListingFromRow 우선순위:
-      1) Coupang vendorItemId → ChannelListingOption.externalOptionId → {listingId, optionId}
-      2) externalId → ChannelListing.externalId + platform='coupang' → {listingId, optionId: null}
-      3) 매칭 실패 → AdSnapshot 만 저장 (listingId=null, rawJson)
-  ↓ AdSnapshot / Ad / TrafficStats upsert (listingId null 이면 Ad/TrafficStats skip)
+       ↳ Wave C2: externalOptionIdMap entries carry { listingId, listingOptionId, optionId|null }
+  ↳ matchListingFromRow returns ListingMatch { listingId, listingOptionId, optionId } 우선순위:
+      1) Coupang vendorItemId → ChannelListingOption.externalOptionId → {listingId, listingOptionId, optionId|null}
+      2) externalId → ChannelListing.externalId + platform='coupang' → {listingId, listingOptionId:null, optionId:null}
+      3) 매칭 실패 → matchStatus='unmatched' (snapshot 보존, AdSnapshot 만 저장 — Ad/TrafficStats skip)
+  ↓ ChannelScrapeRun + ChannelScrapeSnapshot dual-write (Wave C2 — channel-generic raw layer)
+  ↓ AdSnapshot / Ad / TrafficStats / ItemWinner upsert (legacy facts, listingId null 이면 Ad/TrafficStats skip)
   ↓ ad-strategy.calcActions listing 단위 aggregate
   ↓ AdAction create (targetType: 'campaign' | 'keyword')
   ↓ execution-worker lease → markRunning → markDone/markFailed
   ↓ ExecutionLog 감사
 ```
+
+## Wave C2 — Channel-generic raw scrape dual-write (영구 규칙)
+
+`ChannelScrapeRun` / `ChannelScrapeSnapshot` 은 channels namespace 의 Prisma 모델이지만 **advertising 도메인이 dual-write** 한다. cross-domain coupling 회피용 예외:
+
+- 이유: scrape ingestion 진입점이 `/api/ads/extension/sync` 하나라 advertising 안에서 raw + normalized 를 같이 쓰는 게 trace 가 단순. `ChannelSyncService` 인젝션은 금지 (`apps/server/AGENTS.md` 의 service-to-service 규칙).
+- helper: `ChannelScrapePersistenceService` (`apps/server/src/advertising/services/channel-scrape-persistence.service.ts`). `PrismaService` 만 의존하며 `channelScrapeRun` / `channelScrapeSnapshot` 모델을 직접 만진다. 다른 도메인이 같은 패턴을 쓸 때까지는 advertising-local 로 유지.
+- run lifecycle: `createRun(status:'running')` → `appendSnapshot(...)` × N → `finalizeRun(status:'complete')`. 모든 handler 가 try/catch 로 감싸 실패 시 `finalizeScrapeRunOnError(scrapeRunId, counts, err)` 로 `status:'error'` + `errorJson` 저장 — `running` 상태로 leak 금지.
+- raw row 보존 우선: 매칭 실패 / 도메인 필터 (productName 짧음, missing date, unknown source) 가 있어도 row 의 `ChannelScrapeSnapshot` 은 항상 먼저 작성하고 `matchReason` 에 사유 기록. legacy AdSnapshot/Ad/TrafficStats/ItemWinner 만 그 뒤 필터 적용.
+- `ListingMatch` 는 internal `optionId` 가 null 이어도 `listingOptionId` 를 반드시 보존 (C3 daily option snapshot 이 listingOption 식별자만으로 land 가능해야 함).
+- KST business date: `payload.timestamp` 같은 ISO 문자열은 `+09:00` shift 후 day slice. `YYYY-MM-DD` 형태는 이미 KST business date 로 간주. helper `toBusinessDate()` 한 곳에서만 처리 — handler 가 직접 `new Date(...).slice(0,10)` 하지 말 것.
+- payload date-range: extension 이 `dateFrom` / `dateTo` 를 보내면 `ExtensionSyncDto` 가 명시적으로 받아야 함 (전역 `ValidationPipe({whitelist:true})` 가 미선언 필드 strip). 받은 값은 `ChannelScrapeRun.periodStart` / `periodEnd` 로 매핑.
 
 ## API Endpoints
 

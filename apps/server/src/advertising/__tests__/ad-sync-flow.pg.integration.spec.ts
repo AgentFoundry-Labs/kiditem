@@ -3,6 +3,7 @@ import { Test } from '@nestjs/testing';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import type { PrismaClient } from '@prisma/client';
 import { AdSyncService } from '../services/ad-sync.service';
+import { ChannelScrapePersistenceService } from '../services/channel-scrape-persistence.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   makeTestPrisma,
@@ -66,6 +67,7 @@ describe('AdSync flow (PG integration)', () => {
     const m = await Test.createTestingModule({
       providers: [
         AdSyncService,
+        ChannelScrapePersistenceService,
         EventEmitter2,
         { provide: PrismaService, useValue: prisma },
       ],
@@ -99,8 +101,13 @@ describe('AdSync flow (PG integration)', () => {
 
       const map = await adSyncService.buildListingMap(TEST_COMPANY_ID);
 
+      // Wave C2: externalOptionIdMap entries now carry listingOptionId so C3
+      // can land option daily snapshots even when the internal optionId is
+      // null. Existing matched-option case still resolves to the same internal
+      // optionId / listingId.
       expect(map.externalOptionIdMap.get('VENDOR-A')).toEqual({
         listingId: a.listing.id,
+        listingOptionId: a.listingOption.id,
         optionId: a.option.id,
       });
       expect(map.externalIdMap.get('EXT-A')).toEqual({ listingId: a.listing.id });

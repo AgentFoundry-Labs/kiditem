@@ -1,28 +1,44 @@
 import {
   Injectable,
   BadRequestException,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ExtensionSyncDto } from '../dto';
 import type { NormalizedCampaignKpi } from './types';
+import {
+  ChannelScrapePersistenceService,
+  type ScrapeMatchStatus,
+} from './channel-scrape-persistence.service';
 
 export interface ListingMap {
-  externalOptionIdMap: Map<string, { listingId: string; optionId: string }>;
+  // Wave C2: option matches keep `listingOptionId` even when internal
+  // `optionId` is null. C3 daily option-snapshot upsert needs the listing
+  // option id to land facts before internal product matching is complete.
+  externalOptionIdMap: Map<
+    string,
+    { listingId: string; listingOptionId: string; optionId: string | null }
+  >;
   externalIdMap: Map<string, { listingId: string }>;
 }
 
 export interface ListingMatch {
   listingId: string | null;
+  listingOptionId: string | null;
   optionId: string | null;
 }
 
 @Injectable()
 export class AdSyncService {
+  private readonly logger = new Logger(AdSyncService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly scrapePersistence: ChannelScrapePersistenceService,
   ) {}
 
   async sync(payload: ExtensionSyncDto, companyId: string) {
@@ -103,7 +119,12 @@ export class AdSyncService {
           isActive: true,
           listing: { channel: 'coupang', isDeleted: false },
         },
-        select: { externalOptionId: true, listingId: true, optionId: true },
+        select: {
+          id: true,
+          externalOptionId: true,
+          listingId: true,
+          optionId: true,
+        },
       }),
       this.prisma.channelListing.findMany({
         where: { companyId, isDeleted: false, channel: 'coupang' },
@@ -111,17 +132,17 @@ export class AdSyncService {
       }),
     ]);
 
-    const externalOptionIdMap = new Map<
-      string,
-      { listingId: string; optionId: string }
-    >();
+    const externalOptionIdMap: ListingMap['externalOptionIdMap'] = new Map();
     for (const opt of options) {
-      if (opt.externalOptionId && opt.optionId) {
-        externalOptionIdMap.set(opt.externalOptionId, {
-          listingId: opt.listingId,
-          optionId: opt.optionId,
-        });
-      }
+      if (!opt.externalOptionId) continue;
+      // Wave C2: 내부 ProductOption 매칭이 아직 안 된 row 도 listingOption 자체는
+      // 보존한다. C3 가 option daily snapshot 을 land 하려면 listingOptionId 가
+      // 필요하기 때문 (internal optionId 가 null 이어도).
+      externalOptionIdMap.set(opt.externalOptionId, {
+        listingId: opt.listingId,
+        listingOptionId: opt.id,
+        optionId: opt.optionId ?? null,
+      });
     }
 
     const externalIdMap = new Map<string, { listingId: string }>();
@@ -143,7 +164,13 @@ export class AdSyncService {
     ]);
     if (providerOptionId) {
       const hit = map.externalOptionIdMap.get(providerOptionId);
-      if (hit) return hit;
+      if (hit) {
+        return {
+          listingId: hit.listingId,
+          listingOptionId: hit.listingOptionId,
+          optionId: hit.optionId,
+        };
+      }
     }
 
     const externalId = this.pickStringField(row, [
@@ -154,10 +181,96 @@ export class AdSyncService {
     ]);
     if (externalId) {
       const hit = map.externalIdMap.get(externalId);
-      if (hit) return { listingId: hit.listingId, optionId: null };
+      if (hit) {
+        return {
+          listingId: hit.listingId,
+          listingOptionId: null,
+          optionId: null,
+        };
+      }
     }
 
-    return { listingId: null, optionId: null };
+    return { listingId: null, listingOptionId: null, optionId: null };
+  }
+
+  /** Wave C2: snapshot match status derivation. */
+  private matchStatusOf(match: ListingMatch): ScrapeMatchStatus {
+    if (match.listingOptionId) return 'matched';
+    if (match.listingId) return 'matched_listing_only';
+    return 'unmatched';
+  }
+
+  /**
+   * Convert any payload date string to a KST `@db.Date` Date (UTC midnight of
+   * the KST day). Pre-MEDIUM-1 fix: naive `slice(0,10)` of a UTC ISO string
+   * dropped the day for KST early-morning timestamps (e.g.,
+   * `2026-04-13T15:30:00Z` is 2026-04-14 00:30 KST but used to land as
+   * 2026-04-13). Plan §10 risk explicitly calls this out.
+   *
+   * Accepts:
+   * - `YYYY-MM-DD` (treated as already a KST business date)
+   * - any longer ISO/parseable string (parsed → shifted to KST → date slice)
+   */
+  private toBusinessDate(raw: string | undefined | null): Date | null {
+    if (!raw) return null;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+      return new Date(`${raw}T00:00:00Z`);
+    }
+    if (/^\d{4}-\d{2}-\d{2}T/.test(raw)) {
+      const parsed = new Date(raw);
+      if (!Number.isFinite(parsed.getTime())) return null;
+      const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+      const kstDate = new Date(parsed.getTime() + KST_OFFSET_MS);
+      const y = kstDate.getUTCFullYear();
+      const m = String(kstDate.getUTCMonth() + 1).padStart(2, '0');
+      const d = String(kstDate.getUTCDate()).padStart(2, '0');
+      return new Date(`${y}-${m}-${d}T00:00:00Z`);
+    }
+    return null;
+  }
+
+  /**
+   * Wave C2 — finalize a scrape run with `status='error'` after a thrown
+   * exception. Keeps the run row from being stuck on `status='running'`
+   * forever (HIGH-1 in code review). Counts at the time of failure are
+   * recorded so observability can see partial progress.
+   */
+  private async finalizeScrapeRunOnError(
+    scrapeRunId: string,
+    counts: { rowCount: number; matchedCount: number; unmatchedCount: number },
+    err: unknown,
+  ): Promise<void> {
+    try {
+      await this.scrapePersistence.finalizeRun({
+        scrapeRunId,
+        status: 'error',
+        rowCount: counts.rowCount,
+        matchedCount: counts.matchedCount,
+        unmatchedCount: counts.unmatchedCount,
+        errorCount: 1,
+        errorJson: this.serializeError(err),
+      });
+    } catch (finalizeError) {
+      // 운영 모니터링은 최종적으로 channel_scrape_runs 의 stuck 'running' row
+      // 로 잡힘. finalize 자체가 실패하는 상황은 PG 연결 자체가 죽은 케이스라
+      // 이 시점에 다시 throw 해봐야 원본 에러를 가린다.
+      this.logger.error(
+        `Failed to record error status on scrape run ${scrapeRunId}: ${
+          finalizeError instanceof Error ? finalizeError.message : String(finalizeError)
+        }`,
+      );
+    }
+  }
+
+  private serializeError(err: unknown): Prisma.InputJsonValue {
+    if (err instanceof Error) {
+      return {
+        name: err.name,
+        message: err.message,
+        stack: err.stack ?? null,
+      } as unknown as Prisma.InputJsonValue;
+    }
+    return { message: String(err) } as unknown as Prisma.InputJsonValue;
   }
 
   private async handleAdCampaign(
@@ -174,6 +287,29 @@ export class AdSyncService {
       ? new Date(payload.timestamp)
       : new Date();
 
+    // Wave C2 — dual-write into channel-generic ChannelScrapeRun/Snapshot.
+    // Existing AdSnapshot/Ad writes below are preserved unchanged.
+    const scrapeRun = await this.scrapePersistence.createRun({
+      companyId,
+      channel: 'coupang',
+      source: 'advertising',
+      pageType: 'campaign',
+      businessDate: today,
+      periodStart: this.toBusinessDate(payload.dateFrom),
+      periodEnd: this.toBusinessDate(payload.dateTo),
+      targetUrl: payload.url ?? null,
+      period,
+      metaJson: {
+        campaignName,
+        kpis,
+        rowCount: normalizedRows.length,
+      } as unknown as Prisma.InputJsonValue,
+    });
+    let scrapeSnapshotCount = 0;
+    let scrapeMatched = 0;
+    let scrapeUnmatched = 0;
+
+    try {
     const totalKpi: NormalizedCampaignKpi = {
       adSpend: Math.round(
         this.getKpiNumber(kpis, ['전체 집행 광고비', '집행 광고비', '광고비']),
@@ -236,6 +372,36 @@ export class AdSyncService {
       if (row._kpiOnly) continue;
 
       const match = this.matchListingFromRow(row, map);
+      const matchStatus = this.matchStatusOf(match);
+      const externalIdRaw = this.pickStringField(row, [
+        'externalId',
+        'external_id',
+        'productId',
+        'coupangProductId',
+      ]);
+      const externalOptionIdRaw = this.pickStringField(row, [
+        'vendorItemId',
+        'vendor_item_id',
+        'itemId',
+      ]);
+      await this.scrapePersistence.appendSnapshot({
+        scrapeRunId: scrapeRun.id,
+        companyId,
+        channel: 'coupang',
+        source: 'advertising',
+        pageType: this.cleanString(row.pageType) || 'campaign',
+        businessDate: today,
+        externalId: externalIdRaw,
+        externalOptionId: externalOptionIdRaw,
+        listingId: match.listingId,
+        listingOptionId: match.listingOptionId,
+        optionId: match.optionId,
+        matchStatus,
+        rawJson: row as unknown as Prisma.InputJsonValue,
+      });
+      scrapeSnapshotCount += 1;
+      if (matchStatus === 'unmatched') scrapeUnmatched += 1;
+      else scrapeMatched += 1;
       const rowCampaignName = this.cleanString(row.campaignName) || campaignName;
       const rowStatus = this.cleanString(row.status);
       const rowOnOff = this.cleanString(row.onOff);
@@ -402,6 +568,14 @@ export class AdSyncService {
       }
     }
 
+    await this.scrapePersistence.finalizeRun({
+      scrapeRunId: scrapeRun.id,
+      status: 'complete',
+      rowCount: scrapeSnapshotCount,
+      matchedCount: scrapeMatched,
+      unmatchedCount: scrapeUnmatched,
+    });
+
     return {
       success: true,
       type: 'ad_campaign',
@@ -412,7 +586,23 @@ export class AdSyncService {
       snapshotCount,
       productCount,
       adCount,
+      scrapeRunId: scrapeRun.id,
+      scrapeSnapshotCount,
+      scrapeMatchedCount: scrapeMatched,
+      scrapeUnmatchedCount: scrapeUnmatched,
     };
+    } catch (err) {
+      await this.finalizeScrapeRunOnError(
+        scrapeRun.id,
+        {
+          rowCount: scrapeSnapshotCount,
+          matchedCount: scrapeMatched,
+          unmatchedCount: scrapeUnmatched,
+        },
+        err,
+      );
+      throw err;
+    }
   }
 
   private async handleRawScrape(
@@ -422,14 +612,76 @@ export class AdSyncService {
   ) {
     const source = payload.source || 'unknown';
     const rows = payload.data ?? [];
+    const normalizedRowsAll = payload.normalizedRows ?? [];
     let upserted = 0;
 
+    // Wave C2 — pageType: wing → 'itemwinner', advertising rows are
+    // per-row pageType. businessDate from payload.timestamp (KST date).
+    const businessDate = this.toBusinessDate(payload.timestamp ?? null);
+    const scrapeRun = await this.scrapePersistence.createRun({
+      companyId,
+      channel: 'coupang',
+      source,
+      pageType: source === 'wing' ? 'itemwinner' : 'advertising',
+      businessDate,
+      periodStart: this.toBusinessDate(payload.dateFrom),
+      periodEnd: this.toBusinessDate(payload.dateTo),
+      targetUrl: payload.url ?? null,
+      metaJson: {
+        kpis: payload.kpis ?? {},
+        rowCount: rows.length,
+        normalizedRowCount: normalizedRowsAll.length,
+      } as unknown as Prisma.InputJsonValue,
+    });
+    let scrapeSnapshotCount = 0;
+    let scrapeMatched = 0;
+    let scrapeUnmatched = 0;
+
+    try {
     if (source === 'wing') {
       for (const row of rows) {
         const productName = row.productName || '';
-        if (!productName || productName.length < 3) continue;
-
+        // Wave C2 — snapshot raw row first regardless of downstream filters.
+        // The ItemWinner write below skips short product names, but the raw
+        // row must be preserved (plan §3 principle "Raw before normalized").
         const match = this.matchListingFromRow(row, map);
+        const matchStatus = this.matchStatusOf(match);
+        const externalIdRaw = this.pickStringField(row, [
+          'externalId',
+          'external_id',
+          'productId',
+          'coupangProductId',
+        ]);
+        const externalOptionIdRaw = this.pickStringField(row, [
+          'vendorItemId',
+          'vendor_item_id',
+          'itemId',
+        ]);
+        await this.scrapePersistence.appendSnapshot({
+          scrapeRunId: scrapeRun.id,
+          companyId,
+          channel: 'coupang',
+          source: 'wing',
+          pageType: 'itemwinner',
+          businessDate,
+          externalId: externalIdRaw,
+          externalOptionId: externalOptionIdRaw,
+          listingId: match.listingId,
+          listingOptionId: match.listingOptionId,
+          optionId: match.optionId,
+          matchStatus,
+          matchReason:
+            !productName || productName.length < 3
+              ? 'short-product-name (snapshot only)'
+              : null,
+          rawJson: row as unknown as Prisma.InputJsonValue,
+        });
+        scrapeSnapshotCount += 1;
+        if (matchStatus === 'unmatched') scrapeUnmatched += 1;
+        else scrapeMatched += 1;
+
+        // Legacy ItemWinner downstream write keeps its original filters.
+        if (!productName || productName.length < 3) continue;
         if (!match.listingId) continue;
 
         await this.prisma.itemWinner.create({
@@ -477,10 +729,40 @@ export class AdSyncService {
     if (source === 'advertising' && normalizedRows.length > 0) {
       for (const row of normalizedRows) {
         const match = this.matchListingFromRow(row, map);
+        const matchStatus = this.matchStatusOf(match);
         const roas = this.toNumber(row.roas);
         const ctr = this.toNumber(row.ctr);
 
         const pageType = this.cleanString(row.pageType) || 'campaign';
+        const externalIdRaw = this.pickStringField(row, [
+          'externalId',
+          'external_id',
+          'productId',
+          'coupangProductId',
+        ]);
+        const externalOptionIdRaw = this.pickStringField(row, [
+          'vendorItemId',
+          'vendor_item_id',
+          'itemId',
+        ]);
+        await this.scrapePersistence.appendSnapshot({
+          scrapeRunId: scrapeRun.id,
+          companyId,
+          channel: 'coupang',
+          source: 'advertising',
+          pageType,
+          businessDate,
+          externalId: externalIdRaw,
+          externalOptionId: externalOptionIdRaw,
+          listingId: match.listingId,
+          listingOptionId: match.listingOptionId,
+          optionId: match.optionId,
+          matchStatus,
+          rawJson: row as unknown as Prisma.InputJsonValue,
+        });
+        scrapeSnapshotCount += 1;
+        if (matchStatus === 'unmatched') scrapeUnmatched += 1;
+        else scrapeMatched += 1;
         const rawExternalId = String(
           row.externalId ||
             [
@@ -521,6 +803,57 @@ export class AdSyncService {
       }
     }
 
+    // Wave C2 — unknown source fallback. If `source` is neither 'wing' nor
+    // 'advertising', the loops above don't fire. Without this fallback
+    // `payload.data` rows would be silently dropped — violating plan §3
+    // ("preserve scrape source rows"). Snapshot every row as unmatched and
+    // record the matchReason so the channel namespace owner can see the
+    // unrecognised source surfaced.
+    if (source !== 'wing' && source !== 'advertising') {
+      for (const row of rows) {
+        const match = this.matchListingFromRow(row, map);
+        const matchStatus = this.matchStatusOf(match);
+        const externalIdRaw = this.pickStringField(row, [
+          'externalId',
+          'external_id',
+          'productId',
+          'coupangProductId',
+        ]);
+        const externalOptionIdRaw = this.pickStringField(row, [
+          'vendorItemId',
+          'vendor_item_id',
+          'itemId',
+        ]);
+        await this.scrapePersistence.appendSnapshot({
+          scrapeRunId: scrapeRun.id,
+          companyId,
+          channel: 'coupang',
+          source,
+          pageType: 'unknown',
+          businessDate,
+          externalId: externalIdRaw,
+          externalOptionId: externalOptionIdRaw,
+          listingId: match.listingId,
+          listingOptionId: match.listingOptionId,
+          optionId: match.optionId,
+          matchStatus,
+          matchReason: `unknown source '${source}' — raw preserved`,
+          rawJson: row as unknown as Prisma.InputJsonValue,
+        });
+        scrapeSnapshotCount += 1;
+        if (matchStatus === 'unmatched') scrapeUnmatched += 1;
+        else scrapeMatched += 1;
+      }
+    }
+
+    await this.scrapePersistence.finalizeRun({
+      scrapeRunId: scrapeRun.id,
+      status: 'complete',
+      rowCount: scrapeSnapshotCount,
+      matchedCount: scrapeMatched,
+      unmatchedCount: scrapeUnmatched,
+    });
+
     return {
       success: true,
       type: 'raw_scrape',
@@ -529,7 +862,23 @@ export class AdSyncService {
       kpiCount: Object.keys(payload.kpis || {}).length,
       upserted,
       snapshotCount,
+      scrapeRunId: scrapeRun.id,
+      scrapeSnapshotCount,
+      scrapeMatchedCount: scrapeMatched,
+      scrapeUnmatchedCount: scrapeUnmatched,
     };
+    } catch (err) {
+      await this.finalizeScrapeRunOnError(
+        scrapeRun.id,
+        {
+          rowCount: scrapeSnapshotCount,
+          matchedCount: scrapeMatched,
+          unmatchedCount: scrapeUnmatched,
+        },
+        err,
+      );
+      throw err;
+    }
   }
 
   private async handleTraffic(
@@ -546,6 +895,30 @@ export class AdSyncService {
     let upserted = 0;
     let skipped = 0;
 
+    // Wave C2 — traffic 는 wing 의 page-traffic dashboard. periodStart/periodEnd 는
+    // dateFrom/dateTo > startDate/endDate 우선순위로 채운다.
+    const scrapeRun = await this.scrapePersistence.createRun({
+      companyId,
+      channel: 'coupang',
+      source: 'wing',
+      pageType: 'traffic',
+      businessDate: this.toBusinessDate(payload.startDate),
+      periodStart: this.toBusinessDate(payload.dateFrom ?? payload.startDate),
+      periodEnd: this.toBusinessDate(payload.dateTo ?? payload.endDate),
+      targetUrl: payload.url ?? null,
+      period: String(period),
+      metaJson: {
+        kpis: payload.kpis ?? {},
+        adSummary: payload.adSummary ?? null,
+        summary: payload.summary ?? null,
+        rowCount: data.length,
+      } as unknown as Prisma.InputJsonValue,
+    });
+    let scrapeSnapshotCount = 0;
+    let scrapeMatched = 0;
+    let scrapeUnmatched = 0;
+
+    try {
     type TrafficUpsertRow = {
       listingId: string;
       companyId: string;
@@ -563,6 +936,37 @@ export class AdSyncService {
     const toUpsert: TrafficUpsertRow[] = [];
     for (const item of data) {
       const match = this.matchListingFromRow(item, map);
+      const matchStatus = this.matchStatusOf(match);
+      const externalIdRaw = this.pickStringField(item, [
+        'externalId',
+        'external_id',
+        'productId',
+        'coupangProductId',
+      ]);
+      const externalOptionIdRaw = this.pickStringField(item, [
+        'vendorItemId',
+        'vendor_item_id',
+        'itemId',
+      ]);
+      await this.scrapePersistence.appendSnapshot({
+        scrapeRunId: scrapeRun.id,
+        companyId,
+        channel: 'coupang',
+        source: 'wing',
+        pageType: 'traffic',
+        businessDate: today,
+        externalId: externalIdRaw,
+        externalOptionId: externalOptionIdRaw,
+        listingId: match.listingId,
+        listingOptionId: match.listingOptionId,
+        optionId: match.optionId,
+        matchStatus,
+        rawJson: item as unknown as Prisma.InputJsonValue,
+      });
+      scrapeSnapshotCount += 1;
+      if (matchStatus === 'unmatched') scrapeUnmatched += 1;
+      else scrapeMatched += 1;
+
       if (!match.listingId) {
         skipped++;
         continue;
@@ -652,13 +1056,37 @@ export class AdSyncService {
       this.eventEmitter.emit('products.classify-grades');
     }
 
+    await this.scrapePersistence.finalizeRun({
+      scrapeRunId: scrapeRun.id,
+      status: 'complete',
+      rowCount: scrapeSnapshotCount,
+      matchedCount: scrapeMatched,
+      unmatchedCount: scrapeUnmatched,
+    });
+
     return {
       success: true,
       type: 'traffic',
       upserted,
       skipped: skipped + (data.length - toUpsert.length - skipped),
       wingSnapshotSaved,
+      scrapeRunId: scrapeRun.id,
+      scrapeSnapshotCount,
+      scrapeMatchedCount: scrapeMatched,
+      scrapeUnmatchedCount: scrapeUnmatched,
     };
+    } catch (err) {
+      await this.finalizeScrapeRunOnError(
+        scrapeRun.id,
+        {
+          rowCount: scrapeSnapshotCount,
+          matchedCount: scrapeMatched,
+          unmatchedCount: scrapeUnmatched,
+        },
+        err,
+      );
+      throw err;
+    }
   }
 
   private async handleCoupangAdsDaily(
@@ -668,7 +1096,49 @@ export class AdSyncService {
     const rows = payload.data ?? [];
     let upserted = 0;
 
+    // Wave C2 — coupang_ads_daily 는 일별 dashboard scrape. 각 row 가 자체
+    // businessDate 를 가지므로 run-level 은 dateFrom/dateTo 만 채우고 row append 시
+    // 정확한 businessDate 를 부착한다. 이 source 는 listing 매칭이 없는 KPI 집계라
+    // matchStatus = 'unmatched' 로 일관 기록.
+    const scrapeRun = await this.scrapePersistence.createRun({
+      companyId,
+      channel: 'coupang',
+      source: 'coupang_ads',
+      pageType: 'dashboard_daily',
+      businessDate: this.toBusinessDate(payload.startDate),
+      periodStart: this.toBusinessDate(payload.dateFrom ?? payload.startDate),
+      periodEnd: this.toBusinessDate(payload.dateTo ?? payload.endDate),
+      targetUrl: payload.url ?? null,
+      metaJson: { rowCount: rows.length } as unknown as Prisma.InputJsonValue,
+    });
+    let scrapeSnapshotCount = 0;
+
+    try {
     for (const row of rows) {
+      // Wave C2 — snapshot every row before applying the missing-date skip
+      // so raw payload data is preserved (plan §3 principle "Raw before
+      // normalized"). Rows without `date` get a null businessDate + a
+      // matchReason so reviewers can see why downstream AdSnapshot was skipped.
+      await this.scrapePersistence.appendSnapshot({
+        scrapeRunId: scrapeRun.id,
+        companyId,
+        channel: 'coupang',
+        source: 'coupang_ads',
+        pageType: 'dashboard_daily',
+        businessDate: row.date ? this.toBusinessDate(String(row.date)) : null,
+        externalId: null,
+        externalOptionId: null,
+        listingId: null,
+        listingOptionId: null,
+        optionId: null,
+        matchStatus: 'unmatched',
+        matchReason: row.date
+          ? 'kpi-only daily aggregate (no listing identity)'
+          : 'missing-date — snapshot only, no AdSnapshot upsert',
+        rawJson: row as unknown as Prisma.InputJsonValue,
+      });
+      scrapeSnapshotCount += 1;
+
       if (!row.date) continue;
       const date = new Date(row.date);
       const adSpend = Math.round(Number(row.adSpend) || 0);
@@ -732,7 +1202,33 @@ export class AdSyncService {
       upserted++;
     }
 
-    return { success: true, type: 'coupang_ads_daily', upserted };
+    await this.scrapePersistence.finalizeRun({
+      scrapeRunId: scrapeRun.id,
+      status: 'complete',
+      rowCount: scrapeSnapshotCount,
+      matchedCount: 0,
+      unmatchedCount: scrapeSnapshotCount,
+    });
+
+    return {
+      success: true,
+      type: 'coupang_ads_daily',
+      upserted,
+      scrapeRunId: scrapeRun.id,
+      scrapeSnapshotCount,
+    };
+    } catch (err) {
+      await this.finalizeScrapeRunOnError(
+        scrapeRun.id,
+        {
+          rowCount: scrapeSnapshotCount,
+          matchedCount: 0,
+          unmatchedCount: scrapeSnapshotCount,
+        },
+        err,
+      );
+      throw err;
+    }
   }
 
   async getScrapeTargets(companyId: string) {
