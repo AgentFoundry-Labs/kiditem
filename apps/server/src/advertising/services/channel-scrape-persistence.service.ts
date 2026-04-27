@@ -41,11 +41,11 @@
 //   `source` key:
 //     metaJson: { source: 'advertising.campaign', data: {...} }
 //   On create the helper writes `{ [source]: data }`. On update the helper
-//   reads the existing metaJson and spreads the new source key in,
-//   preserving keys from earlier sources. Each logical caller MUST pick a
-//   distinct `source` (e.g. `advertising.campaign`, `advertising.raw`,
-//   `wing.traffic`, `wing.dashboard`) so concurrent writers never clobber
-//   each other.
+//   applies an atomic Postgres jsonb merge (`meta_json = meta_json || patch`)
+//   so independent source keys do not clobber each other even when sync and
+//   upload jobs touch the same daily-fact row concurrently. Each logical
+//   caller MUST pick a distinct `source` (e.g. `advertising.campaign`,
+//   `advertising.raw`, `wing.traffic`, `wing.dashboard`).
 
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
@@ -63,7 +63,7 @@ export type ScrapeMatchStatus = 'matched' | 'matched_listing_only' | 'unmatched'
  * - explicit `null` → wipe the metaJson column entirely (rare; reserved
  *   for tests/admin tooling).
  * - `{ source, data }` → write `{ [source]: data }` on create; on update
- *   spread the new source key into the existing object.
+ *   atomically merge the new source key into the existing object.
  *
  * `data` is `Record<string, unknown>` because it eventually serializes to
  * Postgres jsonb; helpers cast to `Prisma.InputJsonValue` at write time.
@@ -437,31 +437,14 @@ function spreadMetricsForUpdate<K extends string>(
   return out;
 }
 
-/**
- * Build a merged metaJson object for an upsert update path. Reads the
- * existing row's metaJson and spreads the new source key in, preserving
- * keys from earlier sources. Pure function for testability — see file
- * header "metaJson namespacing".
- *
- * Returns:
- *   - `undefined` when caller passed undefined (don't touch the column)
- *   - `Prisma.DbNull` when caller passed explicit null (wipe the column)
- *   - merged object otherwise
- */
-function mergeNamespacedMeta(
-  existing: Prisma.JsonValue | null | undefined,
+function buildNamespacedMetaPatchJson(input: NamespacedMetaJson): string {
+  return JSON.stringify({ [input.source]: input.data });
+}
+
+function isNamespacedMetaJson(
   input: MetaJsonInput,
-): Prisma.InputJsonValue | typeof Prisma.DbNull | undefined {
-  if (input === undefined) return undefined;
-  if (input === null) return Prisma.DbNull;
-  const existingObject =
-    existing && typeof existing === 'object' && !Array.isArray(existing)
-      ? (existing as Record<string, unknown>)
-      : {};
-  return {
-    ...existingObject,
-    [input.source]: input.data,
-  } as unknown as Prisma.InputJsonValue;
+): input is NamespacedMetaJson {
+  return input !== undefined && input !== null;
 }
 
 /**
@@ -481,6 +464,44 @@ function buildNamespacedMetaForCreate(
 @Injectable()
 export class ChannelScrapePersistenceService {
   constructor(private readonly prisma: PrismaService) {}
+
+  private async mergeNamespacedMetaJson(
+    tx: Prisma.TransactionClient,
+    table:
+      | 'channel_listing_daily_snapshots'
+      | 'channel_listing_option_daily_snapshots'
+      | 'channel_ad_target_daily_snapshots',
+    id: string,
+    companyId: string,
+    metaJson: MetaJsonInput,
+  ): Promise<void> {
+    if (!isNamespacedMetaJson(metaJson)) return;
+    const patchJson = buildNamespacedMetaPatchJson(metaJson);
+    if (table === 'channel_listing_daily_snapshots') {
+      await tx.$executeRaw(Prisma.sql`
+        UPDATE channel_listing_daily_snapshots
+        SET meta_json = COALESCE(meta_json, '{}'::jsonb) || ${patchJson}::jsonb
+        WHERE id = ${id}::uuid
+          AND company_id = ${companyId}::uuid
+      `);
+      return;
+    }
+    if (table === 'channel_listing_option_daily_snapshots') {
+      await tx.$executeRaw(Prisma.sql`
+        UPDATE channel_listing_option_daily_snapshots
+        SET meta_json = COALESCE(meta_json, '{}'::jsonb) || ${patchJson}::jsonb
+        WHERE id = ${id}::uuid
+          AND company_id = ${companyId}::uuid
+      `);
+      return;
+    }
+    await tx.$executeRaw(Prisma.sql`
+      UPDATE channel_ad_target_daily_snapshots
+      SET meta_json = COALESCE(meta_json, '{}'::jsonb) || ${patchJson}::jsonb
+      WHERE id = ${id}::uuid
+        AND company_id = ${companyId}::uuid
+    `);
+  }
 
   async createRun(input: ScrapeRunInput): Promise<{ id: string }> {
     return this.prisma.channelScrapeRun.create({
@@ -600,27 +621,7 @@ export class ChannelScrapePersistenceService {
     );
 
     return this.prisma.$transaction(async (tx) => {
-      // Read existing metaJson so the update path can merge per-source.
-      // Audit data from a different caller on the same row must survive.
-      const existing =
-        input.metaJson !== undefined
-          ? await tx.channelListingDailySnapshot.findUnique({
-              where: {
-                companyId_listingId_businessDate: {
-                  companyId: input.companyId,
-                  listingId: input.listingId,
-                  businessDate: input.businessDate,
-                },
-              },
-              select: { metaJson: true },
-            })
-          : null;
-      const mergedMeta = mergeNamespacedMeta(
-        existing?.metaJson,
-        input.metaJson,
-      );
-
-      return tx.channelListingDailySnapshot.upsert({
+      const row = await tx.channelListingDailySnapshot.upsert({
         where: {
           companyId_listingId_businessDate: {
             companyId: input.companyId,
@@ -661,13 +662,21 @@ export class ChannelScrapePersistenceService {
           ...(input.rawSnapshotId !== undefined
             ? { rawSnapshotId: input.rawSnapshotId }
             : {}),
-          ...(mergedMeta !== undefined ? { metaJson: mergedMeta } : {}),
+          ...(input.metaJson === null ? { metaJson: Prisma.DbNull } : {}),
           ...observedState,
           ...adMetricsUpdate,
           ...trafficMetricsUpdate,
         },
         select: { id: true },
       });
+      await this.mergeNamespacedMetaJson(
+        tx,
+        'channel_listing_daily_snapshots',
+        row.id,
+        input.companyId,
+        input.metaJson,
+      );
+      return row;
     });
   }
 
@@ -684,25 +693,7 @@ export class ChannelScrapePersistenceService {
     const metaJsonForCreate = buildNamespacedMetaForCreate(input.metaJson);
 
     return this.prisma.$transaction(async (tx) => {
-      const existing =
-        input.metaJson !== undefined
-          ? await tx.channelListingOptionDailySnapshot.findUnique({
-              where: {
-                companyId_listingOptionId_businessDate: {
-                  companyId: input.companyId,
-                  listingOptionId: input.listingOptionId,
-                  businessDate: input.businessDate,
-                },
-              },
-              select: { metaJson: true },
-            })
-          : null;
-      const mergedMeta = mergeNamespacedMeta(
-        existing?.metaJson,
-        input.metaJson,
-      );
-
-      return tx.channelListingOptionDailySnapshot.upsert({
+      const row = await tx.channelListingOptionDailySnapshot.upsert({
         where: {
           companyId_listingOptionId_businessDate: {
             companyId: input.companyId,
@@ -740,7 +731,7 @@ export class ChannelScrapePersistenceService {
           ...(input.rawSnapshotId !== undefined
             ? { rawSnapshotId: input.rawSnapshotId }
             : {}),
-          ...(mergedMeta !== undefined ? { metaJson: mergedMeta } : {}),
+          ...(input.metaJson === null ? { metaJson: Prisma.DbNull } : {}),
           ...(input.optionId !== undefined && input.optionId !== null
             ? { optionId: input.optionId }
             : {}),
@@ -748,6 +739,14 @@ export class ChannelScrapePersistenceService {
         },
         select: { id: true },
       });
+      await this.mergeNamespacedMetaJson(
+        tx,
+        'channel_listing_option_daily_snapshots',
+        row.id,
+        input.companyId,
+        input.metaJson,
+      );
+      return row;
     });
   }
 
@@ -789,27 +788,7 @@ export class ChannelScrapePersistenceService {
     );
 
     return this.prisma.$transaction(async (tx) => {
-      const existing =
-        input.metaJson !== undefined
-          ? await tx.channelAdTargetDailySnapshot.findUnique({
-              where: {
-                companyId_channel_businessDate_targetType_targetKey: {
-                  companyId: input.companyId,
-                  channel: input.channel,
-                  businessDate: input.businessDate,
-                  targetType: input.targetType,
-                  targetKey: input.targetKey,
-                },
-              },
-              select: { metaJson: true },
-            })
-          : null;
-      const mergedMeta = mergeNamespacedMeta(
-        existing?.metaJson,
-        input.metaJson,
-      );
-
-      return tx.channelAdTargetDailySnapshot.upsert({
+      const row = await tx.channelAdTargetDailySnapshot.upsert({
         where: {
           companyId_channel_businessDate_targetType_targetKey: {
             companyId: input.companyId,
@@ -852,12 +831,20 @@ export class ChannelScrapePersistenceService {
           ...(input.rawSnapshotId !== undefined
             ? { rawSnapshotId: input.rawSnapshotId }
             : {}),
-          ...(mergedMeta !== undefined ? { metaJson: mergedMeta } : {}),
+          ...(input.metaJson === null ? { metaJson: Prisma.DbNull } : {}),
           ...observedDescriptors,
           ...metricsUpdate,
         },
         select: { id: true },
       });
+      await this.mergeNamespacedMetaJson(
+        tx,
+        'channel_ad_target_daily_snapshots',
+        row.id,
+        input.companyId,
+        input.metaJson,
+      );
+      return row;
     });
   }
 

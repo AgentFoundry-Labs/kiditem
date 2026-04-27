@@ -57,9 +57,9 @@ describe('Advertising read services — KST cutoff', () => {
 
       await service.getDiagnosis('company-1');
 
-      // KST midnight 30 days ago = (today KST midnight 2026-04-27T00:00 KST)
-      //   - 30 days = 2026-03-28T00:00 KST = 2026-03-27T15:00:00.000Z
-      const expectedKstCutoff = new Date('2026-03-27T15:00:00.000Z');
+      // Inclusive 30 businessDates = today plus 29 prior KST dates.
+      // KST midnight cutoff = 2026-03-29T00:00 KST = 2026-03-28T15:00:00.000Z.
+      const expectedKstCutoff = new Date('2026-03-28T15:00:00.000Z');
       // UTC midnight equivalent (the WRONG value before the fix) would be
       // 2026-03-28T00:00:00.000Z. Assert we are using the KST instant.
       const aggregateCall =
@@ -86,7 +86,7 @@ describe('Advertising read services — KST cutoff', () => {
 
       await service.getHubData('company-1');
 
-      const expectedKstCutoff = new Date('2026-03-27T15:00:00.000Z');
+      const expectedKstCutoff = new Date('2026-03-28T15:00:00.000Z');
       const groupByCall =
         prisma.channelListingDailySnapshot.groupBy.mock.calls[0][0];
       expect(groupByCall.where.businessDate.gte).toEqual(expectedKstCutoff);

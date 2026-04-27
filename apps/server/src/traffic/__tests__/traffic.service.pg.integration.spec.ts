@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Test } from '@nestjs/testing';
 import type { PrismaClient } from '@prisma/client';
+import * as XLSX from 'xlsx';
 import { TrafficService } from '../traffic.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
@@ -135,6 +136,156 @@ describe('TrafficService (PG integration) — daily facts', () => {
     const oResult = await service.getTrafficSummary(7, OTHER_COMPANY_ID);
     expect(oResult.revenue).toBe(IDOR_SENTINEL);
     expect(oResult.revenue).not.toBe(500);
+  });
+
+  it('uploadTrafficStats — preserves every raw CSV/XLSX row and upserts one summed daily fact per listing/date', async () => {
+    const listing = await seedListing(TEST_COMPANY_ID, 'UPLOAD-RAW');
+    const rows = [
+      {
+        등록상품ID: listing.externalId,
+        날짜: '2026-04-14',
+        방문자: 10,
+        조회: 20,
+        주문: 1,
+        판매량: 1,
+        '매출(원)': 1000,
+      },
+      {
+        등록상품ID: listing.externalId,
+        날짜: '2026-04-14',
+        방문자: 30,
+        조회: 40,
+        주문: 2,
+        판매량: 3,
+        '매출(원)': 4000,
+      },
+    ];
+    const sheet = XLSX.utils.json_to_sheet(rows);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, sheet, 'traffic');
+    const buffer = XLSX.write(workbook, {
+      type: 'buffer',
+      bookType: 'xlsx',
+    }) as Buffer;
+
+    const result = await service.uploadTrafficStats(
+      {
+        fieldname: 'file',
+        buffer,
+        encoding: '7bit',
+        mimetype:
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        size: buffer.length,
+        originalname: 'traffic-upload.xlsx',
+      },
+      TEST_COMPANY_ID,
+    );
+
+    expect(result).toMatchObject({ success: true, upserted: 1, skipped: 0 });
+
+    const run = await prisma.channelScrapeRun.findFirst({
+      where: {
+        companyId: TEST_COMPANY_ID,
+        source: 'traffic_csv_upload',
+        pageType: 'traffic',
+      },
+      orderBy: { startedAt: 'desc' },
+    });
+    expect(run).toBeDefined();
+    expect(run?.rowCount).toBe(2);
+    expect(run?.matchedCount).toBe(2);
+    expect(run?.unmatchedCount).toBe(0);
+    expect(run?.status).toBe('complete');
+
+    const snapshots = await prisma.channelScrapeSnapshot.findMany({
+      where: { scrapeRunId: run!.id },
+      orderBy: { observedAt: 'asc' },
+    });
+    expect(snapshots).toHaveLength(2);
+    expect(snapshots[0].rawJson).toMatchObject({ 방문자: 10 });
+    expect(snapshots[1].rawJson).toMatchObject({ 방문자: 30 });
+    expect(snapshots.every((s) => s.matchStatus === 'matched')).toBe(true);
+
+    const daily = await prisma.channelListingDailySnapshot.findFirst({
+      where: { companyId: TEST_COMPANY_ID, listingId: listing.id },
+    });
+    expect(daily?.businessDate.toISOString().slice(0, 10)).toBe('2026-04-14');
+    expect(daily?.trafficVisitors).toBe(40);
+    expect(daily?.trafficViews).toBe(60);
+    expect(daily?.trafficOrders).toBe(3);
+    expect(daily?.trafficSalesQty).toBe(4);
+    expect(daily?.trafficRevenue).toBe(5000);
+  });
+
+  it('uploadTrafficStats — daily fact failure keeps raw snapshots and marks run error', async () => {
+    const listing = await seedListing(TEST_COMPANY_ID, 'UPLOAD-FAIL');
+    const sheet = XLSX.utils.json_to_sheet([
+      {
+        등록상품ID: listing.externalId,
+        날짜: '2026-04-14',
+        방문자: 10,
+        조회: 20,
+        주문: 1,
+        판매량: 1,
+        '매출(원)': 1000,
+      },
+    ]);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, sheet, 'traffic');
+    const buffer = XLSX.write(workbook, {
+      type: 'buffer',
+      bookType: 'xlsx',
+    }) as Buffer;
+
+    const originalTransaction = prisma.$transaction.bind(prisma);
+    (prisma as { $transaction: typeof originalTransaction }).$transaction =
+      (async () => {
+      throw new Error('boom daily upsert');
+    }) as typeof originalTransaction;
+
+    try {
+      await expect(
+        service.uploadTrafficStats(
+          {
+            fieldname: 'file',
+            buffer,
+            encoding: '7bit',
+            mimetype:
+              'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            size: buffer.length,
+            originalname: 'traffic-upload-fail.xlsx',
+          },
+          TEST_COMPANY_ID,
+        ),
+      ).rejects.toThrow('boom daily upsert');
+    } finally {
+      (prisma as { $transaction: typeof originalTransaction }).$transaction =
+        originalTransaction;
+    }
+
+    const run = await prisma.channelScrapeRun.findFirst({
+      where: {
+        companyId: TEST_COMPANY_ID,
+        source: 'traffic_csv_upload',
+        pageType: 'traffic',
+      },
+      orderBy: { startedAt: 'desc' },
+    });
+    expect(run?.status).toBe('error');
+    expect(run?.matchedCount).toBe(1);
+    expect(run?.errorJson).toMatchObject({
+      message: expect.stringContaining('boom daily upsert'),
+    });
+    const snapshots = await prisma.channelScrapeSnapshot.findMany({
+      where: { scrapeRunId: run!.id },
+    });
+    expect(snapshots).toHaveLength(1);
+    expect(snapshots[0].rawJson).toMatchObject({ 방문자: 10 });
+
+    const dailyCount = await prisma.channelListingDailySnapshot.count({
+      where: { companyId: TEST_COMPANY_ID, listingId: listing.id },
+    });
+    expect(dailyCount).toBe(0);
   });
 
   it('getMonthlyRevenue — aggregates by businessDate within KST month', async () => {

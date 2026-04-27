@@ -143,6 +143,7 @@ export class TrafficService {
     type AggregatedRow = {
       listingId: string;
       externalId: string;
+      rawSnapshotId: string | null;
       visitors: number;
       views: number;
       cartAdds: number;
@@ -151,9 +152,23 @@ export class TrafficService {
       revenue: number;
       date: string; // 'YYYY-MM-DD' KST
     };
+    type ParsedUploadRow = {
+      raw: Record<string, unknown>;
+      listingId: string | null;
+      externalId: string | null;
+      date: string | null;
+      visitors: number;
+      views: number;
+      cartAdds: number;
+      orders: number;
+      salesQty: number;
+      revenue: number;
+      matchStatus: 'matched' | 'unmatched';
+      matchReason: string | null;
+    };
 
     const aggregated = new Map<string, AggregatedRow>();
-    const skippedRows: Array<{ raw: Record<string, unknown>; reason: string }> = [];
+    const parsedRows: ParsedUploadRow[] = [];
 
     let skipped = 0;
 
@@ -161,21 +176,46 @@ export class TrafficService {
       const cpId = String(row[colProductId] || '').trim();
       if (!cpId) {
         skipped++;
-        skippedRows.push({ raw: row, reason: 'missing-external-id' });
+        parsedRows.push({
+          raw: row,
+          listingId: null,
+          externalId: null,
+          date: null,
+          visitors: 0,
+          views: 0,
+          cartAdds: 0,
+          orders: 0,
+          salesQty: 0,
+          revenue: 0,
+          matchStatus: 'unmatched',
+          matchReason: 'missing-external-id',
+        });
         continue;
       }
 
       const listingId = listingMap.get(cpId);
       if (!listingId) {
         skipped++;
-        skippedRows.push({ raw: row, reason: 'unmatched-listing' });
+        parsedRows.push({
+          raw: row,
+          listingId: null,
+          externalId: cpId,
+          date: null,
+          visitors: 0,
+          views: 0,
+          cartAdds: 0,
+          orders: 0,
+          salesQty: 0,
+          revenue: 0,
+          matchStatus: 'unmatched',
+          matchReason: 'unmatched-listing',
+        });
         continue;
       }
 
       const date = colDate
         ? String(row[colDate] || todayStr).slice(0, 10)
         : todayStr;
-      const key = `${listingId}::${date}`;
 
       const visitors = parseNum(colVisitors ? row[colVisitors] : 0);
       const views = parseNum(colViews ? row[colViews] : 0);
@@ -184,169 +224,212 @@ export class TrafficService {
       const salesQty = parseNum(colSalesQty ? row[colSalesQty] : 0);
       const revenue = parseNum(colRevenue ? row[colRevenue] : 0);
 
-      const existing = aggregated.get(key);
-      if (existing) {
-        existing.visitors += visitors;
-        existing.views += views;
-        existing.cartAdds += cartAdds;
-        existing.orders += orders;
-        existing.salesQty += salesQty;
-        existing.revenue += revenue;
-      } else {
-        aggregated.set(key, {
-          listingId,
-          externalId: cpId,
-          date,
-          visitors,
-          views,
-          cartAdds,
-          orders,
-          salesQty,
-          revenue,
-        });
-      }
+      parsedRows.push({
+        raw: row,
+        listingId,
+        externalId: cpId,
+        date,
+        visitors,
+        views,
+        cartAdds,
+        orders,
+        salesQty,
+        revenue,
+        matchStatus: 'matched',
+        matchReason: null,
+      });
     }
 
-    const dataArr = [...aggregated.values()];
     const observedAt = new Date();
+    let upserted = 0;
 
-    if (dataArr.length > 0 || skippedRows.length > 0) {
+    if (parsedRows.length > 0) {
       // Persist a `ChannelScrapeRun` + per-row `ChannelScrapeSnapshot` so the
       // raw upload is auditable / replay-able the same way extension-sync
-      // payloads are. Daily-fact upserts run in the same transaction so a
-      // partial failure rolls everything back.
-      await this.prisma.$transaction(async (tx) => {
-        const run = await tx.channelScrapeRun.create({
+      // payloads are. Raw capture is committed before normalization so daily
+      // upsert failures never erase audit/replay rows.
+      const run = await this.prisma.channelScrapeRun.create({
+        data: {
+          companyId,
+          channel: 'coupang',
+          source: 'traffic_csv_upload',
+          pageType: 'traffic',
+          businessDate: todayKst,
+          status: 'running',
+          rowCount: rows.length,
+          metaJson: {
+            detectedColumns: {
+              productId: colProductId,
+              visitors: colVisitors,
+              views: colViews,
+              cart: colCart,
+              orders: colOrders,
+              salesQty: colSalesQty,
+              revenue: colRevenue,
+              date: colDate,
+            },
+            fileName: file.originalname,
+          } as Prisma.InputJsonValue,
+        },
+        select: { id: true },
+      });
+
+      let matchedRows = 0;
+      const unmatchedRows = skipped;
+
+      for (const parsed of parsedRows) {
+        const businessDate = parsed.date ? new Date(parsed.date) : null;
+        const snapshot = await this.prisma.channelScrapeSnapshot.create({
           data: {
             companyId,
+            scrapeRunId: run.id,
             channel: 'coupang',
             source: 'traffic_csv_upload',
             pageType: 'traffic',
-            businessDate: todayKst,
-            status: 'running',
-            rowCount: rows.length,
-            metaJson: {
-              detectedColumns: {
-                productId: colProductId,
-                visitors: colVisitors,
-                views: colViews,
-                cart: colCart,
-                orders: colOrders,
-                salesQty: colSalesQty,
-                revenue: colRevenue,
-                date: colDate,
-              },
-              fileName: file.originalname,
-            } as Prisma.InputJsonValue,
+            businessDate,
+            externalId: parsed.externalId,
+            listingId: parsed.listingId,
+            matchStatus: parsed.matchStatus,
+            matchReason: parsed.matchReason,
+            rawJson: parsed.raw as Prisma.InputJsonValue,
+            normalizedJson:
+              parsed.matchStatus === 'matched'
+                ? ({
+                    visitors: parsed.visitors,
+                    views: parsed.views,
+                    cartAdds: parsed.cartAdds,
+                    orders: parsed.orders,
+                    salesQty: parsed.salesQty,
+                    revenue: parsed.revenue,
+                  } as Prisma.InputJsonValue)
+                : Prisma.DbNull,
           },
           select: { id: true },
         });
 
-        for (const d of dataArr) {
-          const businessDate = new Date(d.date);
-          const snapshot = await tx.channelScrapeSnapshot.create({
-            data: {
-              companyId,
-              scrapeRunId: run.id,
-              channel: 'coupang',
-              source: 'traffic_csv_upload',
-              pageType: 'traffic',
-              businessDate,
-              externalId: d.externalId,
-              listingId: d.listingId,
-              matchStatus: 'matched',
-              rawJson: {
-                visitors: d.visitors,
-                views: d.views,
-                cartAdds: d.cartAdds,
-                orders: d.orders,
-                salesQty: d.salesQty,
-                revenue: d.revenue,
-              } as Prisma.InputJsonValue,
-            },
-            select: { id: true },
+        if (
+          parsed.matchStatus !== 'matched' ||
+          !parsed.listingId ||
+          !parsed.externalId ||
+          !parsed.date
+        ) {
+          continue;
+        }
+        matchedRows += 1;
+        const key = `${parsed.listingId}::${parsed.date}`;
+        const existing = aggregated.get(key);
+        if (existing) {
+          existing.rawSnapshotId = snapshot.id;
+          existing.visitors += parsed.visitors;
+          existing.views += parsed.views;
+          existing.cartAdds += parsed.cartAdds;
+          existing.orders += parsed.orders;
+          existing.salesQty += parsed.salesQty;
+          existing.revenue += parsed.revenue;
+        } else {
+          aggregated.set(key, {
+            listingId: parsed.listingId,
+            externalId: parsed.externalId,
+            rawSnapshotId: snapshot.id,
+            date: parsed.date,
+            visitors: parsed.visitors,
+            views: parsed.views,
+            cartAdds: parsed.cartAdds,
+            orders: parsed.orders,
+            salesQty: parsed.salesQty,
+            revenue: parsed.revenue,
           });
+        }
+      }
 
-          // Daily-fact upsert — overwrite-on-replay metric semantics so a
-          // re-upload of the same day yields the same totals (idempotent).
-          await tx.channelListingDailySnapshot.upsert({
-            where: {
-              companyId_listingId_businessDate: {
+      const dataArr = [...aggregated.values()];
+      try {
+        await this.prisma.$transaction(async (tx) => {
+          for (const d of dataArr) {
+            const businessDate = new Date(d.date);
+            // Daily-fact upsert — overwrite-on-replay metric semantics so a
+            // re-upload of the same day yields the same totals (idempotent).
+            await tx.channelListingDailySnapshot.upsert({
+              where: {
+                companyId_listingId_businessDate: {
+                  companyId,
+                  listingId: d.listingId,
+                  businessDate,
+                },
+              },
+              create: {
                 companyId,
                 listingId: d.listingId,
+                channel: 'coupang',
+                externalId: d.externalId,
                 businessDate,
-              },
-            },
-            create: {
-              companyId,
-              listingId: d.listingId,
-              channel: 'coupang',
-              externalId: d.externalId,
-              businessDate,
-              sampleCount: 1,
-              firstObservedAt: observedAt,
-              lastObservedAt: observedAt,
-              rawSnapshotId: snapshot.id,
-              trafficVisitors: d.visitors,
-              trafficViews: d.views,
-              trafficCartAdds: d.cartAdds,
-              trafficOrders: d.orders,
-              trafficSalesQty: d.salesQty,
-              trafficRevenue: d.revenue,
-              metaJson: {
-                'traffic.csv_upload': {
-                  source: 'traffic_csv_upload',
-                  data: {
-                    fileName: file.originalname,
-                    uploadedAt: observedAt.toISOString(),
+                sampleCount: 1,
+                firstObservedAt: observedAt,
+                lastObservedAt: observedAt,
+                rawSnapshotId: d.rawSnapshotId,
+                trafficVisitors: d.visitors,
+                trafficViews: d.views,
+                trafficCartAdds: d.cartAdds,
+                trafficOrders: d.orders,
+                trafficSalesQty: d.salesQty,
+                trafficRevenue: d.revenue,
+                metaJson: {
+                  'traffic.csv_upload': {
+                    source: 'traffic_csv_upload',
+                    data: {
+                      fileName: file.originalname,
+                      uploadedAt: observedAt.toISOString(),
+                    },
                   },
-                },
-              } as Prisma.InputJsonValue,
-            },
-            update: {
-              sampleCount: { increment: 1 },
-              lastObservedAt: observedAt,
-              rawSnapshotId: snapshot.id,
-              trafficVisitors: d.visitors,
-              trafficViews: d.views,
-              trafficCartAdds: d.cartAdds,
-              trafficOrders: d.orders,
-              trafficSalesQty: d.salesQty,
-              trafficRevenue: d.revenue,
-            },
-          });
-        }
-
-        for (const s of skippedRows) {
-          await tx.channelScrapeSnapshot.create({
-            data: {
-              companyId,
-              scrapeRunId: run.id,
-              channel: 'coupang',
-              source: 'traffic_csv_upload',
-              pageType: 'traffic',
-              matchStatus: 'unmatched',
-              matchReason: s.reason,
-              rawJson: s.raw as Prisma.InputJsonValue,
-            },
-          });
-        }
-
-        await tx.channelScrapeRun.update({
+                } as Prisma.InputJsonValue,
+              },
+              update: {
+                sampleCount: { increment: 1 },
+                lastObservedAt: observedAt,
+                rawSnapshotId: d.rawSnapshotId,
+                trafficVisitors: d.visitors,
+                trafficViews: d.views,
+                trafficCartAdds: d.cartAdds,
+                trafficOrders: d.orders,
+                trafficSalesQty: d.salesQty,
+                trafficRevenue: d.revenue,
+              },
+            });
+          }
+        });
+      } catch (err) {
+        await this.prisma.channelScrapeRun.update({
           where: { id: run.id },
           data: {
-            status: 'complete',
-            matchedCount: dataArr.length,
-            unmatchedCount: skippedRows.length,
+            status: 'error',
+            matchedCount: matchedRows,
+            unmatchedCount: unmatchedRows,
+            errorCount: 1,
+            errorJson: {
+              message: err instanceof Error ? err.message : String(err),
+              name: err instanceof Error ? err.name : 'Error',
+            } as Prisma.InputJsonValue,
             finishedAt: new Date(),
           },
         });
+        throw err;
+      }
+
+      upserted = dataArr.length;
+      await this.prisma.channelScrapeRun.update({
+        where: { id: run.id },
+        data: {
+          status: 'complete',
+          matchedCount: matchedRows,
+          unmatchedCount: unmatchedRows,
+          finishedAt: new Date(),
+        },
       });
     }
 
     return {
       success: true,
-      upserted: dataArr.length,
+      upserted,
       skipped,
       detectedColumns: {
         productId: colProductId,

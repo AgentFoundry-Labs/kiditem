@@ -17,7 +17,6 @@ import {
   ChannelScrapePersistenceService,
   type ListingDailyState,
   type ListingOptionDailyState,
-  type ListingDailyAdMetrics,
   type ListingDailyTrafficMetrics,
   type AdTargetDailyMetrics,
   type ScrapeMatchStatus,
@@ -57,6 +56,37 @@ type ScrapeRowPair = {
   normalizedRow: Record<string, any>;
   hasNormalizedRow: boolean;
 };
+
+type SummedListingAdMetrics = {
+  adSpend: number;
+  adRevenue: number;
+  adImpressions: number;
+  adClicks: number;
+  adConversions: number;
+  adOrders: number;
+};
+
+type ListingAdMetricAccumulator = {
+  companyId: string;
+  listingId: string;
+  channel: string;
+  externalId: string;
+  businessDate: Date;
+  rawSnapshotId: string | null;
+  productName: string | null;
+  metaSource: string;
+  metaRows: Array<Record<string, unknown>>;
+  metrics: SummedListingAdMetrics;
+};
+
+const LISTING_AD_SUM_KEYS = [
+  'adSpend',
+  'adRevenue',
+  'adImpressions',
+  'adClicks',
+  'adConversions',
+  'adOrders',
+] as const satisfies ReadonlyArray<keyof SummedListingAdMetrics>;
 
 @Injectable()
 export class AdSyncService {
@@ -460,6 +490,87 @@ export class AdSyncService {
     return { message: String(err) } as unknown as Prisma.InputJsonValue;
   }
 
+  private addListingAdMetrics(
+    accumulators: Map<string, ListingAdMetricAccumulator>,
+    input: {
+      companyId: string;
+      listingId: string;
+      channel: string;
+      externalId: string;
+      businessDate: Date;
+      rawSnapshotId: string | null;
+      productName: string | null;
+      metaSource: string;
+      metaRow: Record<string, unknown>;
+      metrics: SummedListingAdMetrics;
+    },
+  ): void {
+    const key = [
+      input.companyId,
+      input.listingId,
+      input.businessDate.toISOString().slice(0, 10),
+    ].join('::');
+    const existing = accumulators.get(key);
+    if (existing) {
+      existing.rawSnapshotId = input.rawSnapshotId;
+      if (input.productName) existing.productName = input.productName;
+      existing.metaRows.push(input.metaRow);
+      for (const metricKey of LISTING_AD_SUM_KEYS) {
+        existing.metrics[metricKey] += input.metrics[metricKey];
+      }
+      return;
+    }
+
+    accumulators.set(key, {
+      companyId: input.companyId,
+      listingId: input.listingId,
+      channel: input.channel,
+      externalId: input.externalId,
+      businessDate: input.businessDate,
+      rawSnapshotId: input.rawSnapshotId,
+      productName: input.productName,
+      metaSource: input.metaSource,
+      metaRows: [input.metaRow],
+      metrics: { ...input.metrics },
+    });
+  }
+
+  private buildListingAdMetaData(
+    accumulator: ListingAdMetricAccumulator,
+  ): Record<string, unknown> {
+    if (accumulator.metaRows.length === 1) {
+      return accumulator.metaRows[0];
+    }
+    return {
+      rowCount: accumulator.metaRows.length,
+      rows: accumulator.metaRows,
+    };
+  }
+
+  private async flushListingAdMetrics(
+    accumulators: Map<string, ListingAdMetricAccumulator>,
+  ): Promise<number> {
+    let count = 0;
+    for (const accumulator of accumulators.values()) {
+      await this.scrapePersistence.upsertListingDaily({
+        companyId: accumulator.companyId,
+        listingId: accumulator.listingId,
+        channel: accumulator.channel,
+        externalId: accumulator.externalId,
+        businessDate: accumulator.businessDate,
+        rawSnapshotId: accumulator.rawSnapshotId,
+        productName: accumulator.productName,
+        metaJson: {
+          source: accumulator.metaSource,
+          data: this.buildListingAdMetaData(accumulator),
+        },
+        metrics: { ad: accumulator.metrics },
+      });
+      count += 1;
+    }
+    return count;
+  }
+
   /**
    * `ad_campaign` payloads land in three places:
    *   1. `ChannelScrapeRun` + `ChannelScrapeSnapshot` per row (raw audit/replay)
@@ -517,6 +628,7 @@ export class AdSyncService {
       let listingDailyCount = 0;
       let targetDailyCount = 0;
       let accountKpiCount = 0;
+      const listingAdMetrics = new Map<string, ListingAdMetricAccumulator>();
 
       for (const pair of scrapeRows) {
         const row = pair.normalizedRow;
@@ -590,7 +702,7 @@ export class AdSyncService {
 
         // Listing-day metric upsert when listing identity is known.
         if (match.listingId && match.externalId) {
-          const adMetrics: ListingDailyAdMetrics = {
+          const adMetrics: SummedListingAdMetrics = {
             adSpend: rowSpend,
             adRevenue: rowRevenue,
             adImpressions: rowImpressions,
@@ -598,7 +710,7 @@ export class AdSyncService {
             adConversions: rowConversions,
             adOrders: rowOrders,
           };
-          await this.scrapePersistence.upsertListingDaily({
+          this.addListingAdMetrics(listingAdMetrics, {
             companyId,
             listingId: match.listingId,
             channel: 'coupang',
@@ -606,18 +718,15 @@ export class AdSyncService {
             businessDate: today,
             rawSnapshotId: snapshot.id,
             productName: this.cleanString(row.productName),
-            metaJson: {
-              source: 'advertising.campaign',
-              data: {
-                campaignName: rowCampaignName,
-                providerRoas,
-                providerCtr,
-                providerConversionRate,
-              },
+            metaSource: 'advertising.campaign',
+            metaRow: {
+              campaignName: rowCampaignName,
+              providerRoas,
+              providerCtr,
+              providerConversionRate,
             },
-            metrics: { ad: adMetrics },
+            metrics: adMetrics,
           });
-          listingDailyCount += 1;
         }
 
         // Target-day fact: prefer the most specific grain available on the row.
@@ -687,6 +796,8 @@ export class AdSyncService {
           );
         }
       }
+
+      listingDailyCount += await this.flushListingAdMetrics(listingAdMetrics);
 
       // Account-level KPI fact for the campaign-as-a-whole. Provider ROAS /
       // CTR / CVR live inside `metaJson`/`normalizedJson` only — reads
@@ -811,6 +922,7 @@ export class AdSyncService {
       let optionDailyCount = 0;
       let targetDailyCount = 0;
       let accountKpiCount = 0;
+      const listingAdMetrics = new Map<string, ListingAdMetricAccumulator>();
 
       if (source === 'wing') {
         for (const row of rows) {
@@ -974,7 +1086,7 @@ export class AdSyncService {
 
           // Listing-day metric upsert when listing identity is known.
           if (match.listingId && match.externalId) {
-            await this.scrapePersistence.upsertListingDaily({
+            this.addListingAdMetrics(listingAdMetrics, {
               companyId,
               listingId: match.listingId,
               channel: 'coupang',
@@ -982,26 +1094,21 @@ export class AdSyncService {
               businessDate,
               rawSnapshotId: snapshot.id,
               productName: this.cleanString(row.productName),
-              metaJson: {
-                source: 'advertising.raw',
-                data: {
-                  campaignName: rowCampaignName,
-                  providerRoas,
-                  providerCtr,
-                },
+              metaSource: 'advertising.raw',
+              metaRow: {
+                campaignName: rowCampaignName,
+                providerRoas,
+                providerCtr,
               },
               metrics: {
-                ad: {
-                  adSpend: rowSpend,
-                  adRevenue: rowRevenue,
-                  adImpressions: rowImpressions,
-                  adClicks: rowClicks,
-                  adConversions: rowConversions,
-                  adOrders: rowOrders,
-                },
+                adSpend: rowSpend,
+                adRevenue: rowRevenue,
+                adImpressions: rowImpressions,
+                adClicks: rowClicks,
+                adConversions: rowConversions,
+                adOrders: rowOrders,
               },
             });
-            listingDailyCount += 1;
           }
 
           // Target-day fact at the row's grain.
@@ -1065,6 +1172,8 @@ export class AdSyncService {
           }
         }
       }
+
+      listingDailyCount += await this.flushListingAdMetrics(listingAdMetrics);
 
       // Unknown source fallback. Snapshot every row as unmatched.
       if (source !== 'wing' && source !== 'advertising') {

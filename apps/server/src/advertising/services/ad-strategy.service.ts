@@ -7,7 +7,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AgentRegistryService } from '../../agent-registry/agent-registry.service';
 import { buildPerListingMetrics } from '../../common/per-listing-profit';
-import { kstDayStart, kstMonthStart } from '../../common/kst';
+import { kstInclusiveDaysStart, kstMonthStart } from '../../common/kst';
 import { AdConfigService } from './ad-config.service';
 import { AdGradeRulesService } from './ad-grade-rules.service';
 import { AdBudgetAllocatorService } from './ad-budget-allocator.service';
@@ -206,9 +206,8 @@ export class AdStrategyService {
     //   - last 7 businessDates → "current period"
     //   - businessDates 8..14 ago → "prior period" (used for delta)
     // KST day start — period cutoff anchored at Asia/Seoul midnight (Docker prod runs UTC)
-    const today = kstDayStart(new Date());
-    const since14d = new Date(today.getTime() - 14 * 24 * 60 * 60 * 1000);
-    const cutoff7d = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const since14d = kstInclusiveDaysStart(14);
+    const cutoff7d = kstInclusiveDaysStart(7);
 
     const [listings, trafficDailyRows, inventoryByOption, leadTimeByListing] =
       await Promise.all([
@@ -425,8 +424,7 @@ export class AdStrategyService {
    * live metrics: 현재 year/month 기준 listing 별 profitRate percentage.
    */
   private async loadStrategyContext(companyId: string, year: number, month: number) {
-    const today = kstDayStart(new Date());
-    const since14d = new Date(today.getTime() - 14 * 86_400_000);
+    const since14d = kstInclusiveDaysStart(14);
 
     // Aggregate from `ChannelListingDailySnapshot`.
     // Lifetime = all rows for the company; 14-day = rows since the cutoff

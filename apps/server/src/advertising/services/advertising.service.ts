@@ -6,7 +6,7 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { AdConfigService } from './ad-config.service';
 import { paginationParams } from '../../common/pagination';
-import { kstDayStart } from '../../common/kst';
+import { kstInclusiveDaysStart } from '../../common/kst';
 import { LISTING_SUMMARY_SELECT } from './types';
 import {
   recomputeRoas,
@@ -106,9 +106,8 @@ export class AdvertisingService {
   }
 
   private async buildListingItems(companyId: string): Promise<AdsListItem[]> {
-    // KST day start — period cutoff anchored at Asia/Seoul midnight (Docker prod runs UTC)
-    const today = kstDayStart(new Date());
-    const thirtyDaysAgo = new Date(today.getTime() - 30 * 86_400_000);
+    // Inclusive KST window: 30 businessDates = today + 29 prior dates.
+    const thirtyDaysAgo = kstInclusiveDaysStart(30);
 
     // Listing-level ad metrics aggregate from
     // `ChannelListingDailySnapshot` over the last 30 businessDates.

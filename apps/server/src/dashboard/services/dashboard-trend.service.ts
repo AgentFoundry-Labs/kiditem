@@ -3,7 +3,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { DashboardTrendItem } from '@kiditem/shared';
 import { calculateProfitForRange } from '../helpers/profit-calculator';
-import { kstDayStart } from '../../common/kst';
+import { kstInclusiveDaysStart } from '../../common/kst';
 
 @Injectable()
 export class DashboardTrendService {
@@ -16,7 +16,7 @@ export class DashboardTrendService {
     const days = range === '7d' ? 7 : range === '90d' ? 90 : 30;
     // KST-anchored cutoff so the day grouping aligns with daily-fact
     // `business_date` (KST date column) and order rows tagged at KST.
-    const since = new Date(kstDayStart(new Date()).getTime() - days * 86400000);
+    const since = kstInclusiveDaysStart(days);
 
     // Plan F1 T4 — avgProfitRate via calculateProfitForRange (replaces profitLoss.aggregate, ADR-0016).
     // Returns ratio (e.g. 0.3 for 30%) — used as a per-day multiplier downstream.

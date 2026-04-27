@@ -4,6 +4,14 @@ Status: completed 2026-04-27 KST
 Branch: `feat/c5-channel-market-data-legacy-audit`
 Plan reference: `.omx/plans/channel-market-data-daily-snapshots-plan.md` (the source plan lives outside the repo — `.omx/` is gitignored; this audit ships in `docs/superpowers/plans/` instead).
 
+> **Superseded by PR 67 hard rewrite (2026-04-27)**: this file is retained as
+> the C5 historical audit, not as current architecture guidance. The legacy
+> quartet (`Ad`, `AdSnapshot`, `TrafficStats`, `ItemWinner`) has been removed
+> from Prisma, runtime reads/writes have moved to channel daily facts, and the
+> obsolete SQLite/Postgres migration scripts that targeted those tables were
+> removed. Current source of truth: Prisma schema + service code. Graphify
+> consumer graphs remain navigation artifacts only.
+
 Original plan §7 labels Wave C5 as the **optional** `ProductStrategyDaily`
 strategy cache, only to be built after C4 proves repeated expensive joins or a
 strategy-history requirement. C4 did not prove either condition, so this PR does
@@ -104,8 +112,8 @@ No other consumer reads daily snapshots yet. The dashboard / finance / channels-
 
 | File | Refs | Disposition |
 |---|---|---|
-| `scripts/migrate-ad-data.ts` | `ItemWinner` | One-shot SQLite → Postgres migration (legacy import). Not a runtime consumer. **KEEP** as-is. |
-| `scripts/migrate-dashboard-data.ts` | `TrafficStats`, `ItemWinner` | Same — historical migration script. **KEEP**. |
+| `scripts/migrate-ad-data.ts` | `ItemWinner` / `AdSnapshot` | **REMOVED in PR 67** — target tables no longer exist. |
+| `scripts/migrate-dashboard-data.ts` | `TrafficStats`, `ItemWinner`, `AdSnapshot`, `Ad` | **REMOVED in PR 67** — target tables no longer exist. |
 | `scripts/split-prisma-schema.py` | mentions `AdSnapshot` in tooling output | Schema-splitter helper. **KEEP**. |
 
 ## C2 / C3 dual-write necessity
@@ -114,9 +122,11 @@ No other consumer reads daily snapshots yet. The dashboard / finance / channels-
 |---|---|---|
 | `ChannelScrapeRun` / `ChannelScrapeSnapshot` (C2) | YES | Replayable raw row capture. No replacement consumer exists. Required for parser/matching iteration without re-scraping. |
 | `ChannelListingDailySnapshot` / `ChannelListingOptionDailySnapshot` (C3) | YES | Sole feed for C4 strategy state evidence + future C6 read consolidation. |
-| Legacy `AdSnapshot` / `TrafficStats` / `ItemWinner` / `Ad` writes (`ad-sync.service.ts`) | YES | Every read path in the inventory above still depends on them. Cannot drop any single write until every consumer of that table moves off. |
+| Legacy `AdSnapshot` / `TrafficStats` / `ItemWinner` / `Ad` writes (`ad-sync.service.ts`) | NO | Superseded by PR 67 hard rewrite; all runtime consumers now use channel daily facts / account KPI facts. |
 
-**Conclusion**: dual-write is the steady-state contract until at least one full read-path migration round (C6 or later) clears a model.
+**Current conclusion after PR 67**: dual-write is no longer the steady-state
+contract. Raw rows go to `ChannelScrapeSnapshot`; listing/option/target/account
+daily facts are the source-of-truth for market-data reads.
 
 ## C6 current-state rewire candidates
 

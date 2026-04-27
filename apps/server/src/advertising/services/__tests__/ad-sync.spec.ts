@@ -360,6 +360,69 @@ describe('AdSyncService', () => {
       expect(finalize.status).toBe('complete');
     });
 
+    it('handleAdCampaign: multiple target rows for one listing/date are summed into one listing-day ad metric upsert', async () => {
+      const result = await service.sync(
+        {
+          type: 'ad_campaign',
+          campaignName: 'MyCamp',
+          period: '7d',
+          timestamp: '2026-04-14T01:00:00Z',
+          kpis: {},
+          normalizedRows: [
+            {
+              pageType: 'keyword',
+              campaignName: 'MyCamp',
+              campaignId: 'CAMP-1',
+              adGroup: 'AG-1',
+              keyword: 'toy',
+              externalId: 'COUPANG-1',
+              spend: 1000,
+              revenue: 2000,
+              impressions: 500,
+              clicks: 10,
+              conversions: 1,
+              orders: 1,
+            },
+            {
+              pageType: 'keyword',
+              campaignName: 'MyCamp',
+              campaignId: 'CAMP-1',
+              adGroup: 'AG-1',
+              keyword: 'kids',
+              externalId: 'COUPANG-1',
+              spend: 300,
+              revenue: 700,
+              impressions: 200,
+              clicks: 4,
+              conversions: 2,
+              orders: 2,
+            },
+          ],
+        },
+        'company-1',
+      );
+
+      expect(result).toMatchObject({
+        success: true,
+        listingDailyCount: 1,
+        targetDailyCount: 2,
+      });
+      expect(scrapePersistence.appendSnapshot).toHaveBeenCalledTimes(2);
+      expect(scrapePersistence.upsertAdTargetDaily).toHaveBeenCalledTimes(2);
+      expect(scrapePersistence.upsertListingDaily).toHaveBeenCalledTimes(1);
+      const listingCall =
+        scrapePersistence.upsertListingDaily.mock.calls[0][0];
+      expect(listingCall.listingId).toBe('L1');
+      expect(listingCall.metrics?.ad).toMatchObject({
+        adSpend: 1300,
+        adRevenue: 2700,
+        adImpressions: 700,
+        adClicks: 14,
+        adConversions: 3,
+        adOrders: 3,
+      });
+    });
+
     it('handleAdCampaign: payload-level kpis land in ChannelAccountDailyKpiSnapshot, never in legacy AdSnapshot', async () => {
       await service.sync(
         {
