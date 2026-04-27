@@ -26,7 +26,7 @@ AdSyncService.sync
   ↓ ChannelScrapeRun + ChannelScrapeSnapshot (raw audit/replay)
   ↓ ChannelListingDailySnapshot upsert (listing-day state + ad/traffic 가산 metrics)
   ↓ ChannelListingOptionDailySnapshot upsert (option-day state)
-  ↓ ChannelAdTargetDailySnapshot upsert (campaign/keyword/product/ad_product grain)
+  ↓ ChannelAdTargetDailySnapshot upsert (campaign/keyword/product grain)
   ↓ ChannelAccountDailyKpiSnapshot upsert (account/store-level KPI)
   ↓ ad-strategy.calcActions listing 단위 aggregate
   ↓ AdAction create (targetType: 'campaign' | 'keyword')
@@ -43,7 +43,8 @@ AdSyncService.sync
 - **Raw row 우선** — 모든 row 가 `ChannelScrapeSnapshot` 을 먼저 append. 이후 daily-fact upsert 가 실패해도 raw 는 보존.
 - **Overwrite-on-replay metric semantics** — `adSpend`/`adRevenue`/`adImpressions` ... `trafficVisitors` 등 daily 가산 metric 컬럼은 provider 가 보내는 **daily total** 로 매번 덮어쓴다. `{ increment }` 금지 — 같은 payload 두 번 들어오면 같은 값이 유지돼야 idempotent. `sampleCount` 만 관측 횟수로 증가.
 - **Provider ratio 신뢰 금지** — ROAS/CTR/CVR 은 `metaJson` 에만 보존. 가산 numerator/denominator 컬럼이 source-of-truth. 기간 view 에서 ratio 는 `SUM(numerator) / SUM(denominator)` 로 recompute (H3).
-- **`buildAdTargetKey()` 단일 source** — `apps/server/src/advertising/util/ad-target-key.ts` 가 `ChannelAdTargetDailySnapshot.targetKey` 를 만든다. 패턴: `campaign:<id|name>` / `keyword:<id|name>:<adGroup>:<keyword>` / `product:<externalId|listingId>:<id|name>` / `ad_product:<...>:<...>`. usable identifier 가 없으면 throw — `unknown:unknown` row 금지.
+- **`metaJson` 는 caller-source 로 namespace** — `ChannelListingDailySnapshot` / `ChannelListingOptionDailySnapshot` / `ChannelAdTargetDailySnapshot` 의 `metaJson` 은 동일 row 에 여러 payload (예: `handleAdCampaign` + `handleTraffic`) 가 land 할 수 있다. 각 caller 는 `{ source: '<logical-source>', data: {...} }` 형태로 넘기고 helper 가 transaction 안에서 read → spread → write 로 머지한다. source key 충돌 금지 (현재 사용: `advertising.campaign`, `advertising.campaign.target`, `advertising.raw`, `advertising.raw.target`, `wing.traffic`, `wing.itemwinner` 등). 신규 caller 가 들어오면 unique source 이름을 쓸 것 — 그래야 다른 caller 의 audit data 가 wipe 되지 않는다.
+- **`buildAdTargetKey()` 단일 source** — `apps/server/src/advertising/util/ad-target-key.ts` 가 `ChannelAdTargetDailySnapshot.targetKey` 를 만든다. 패턴: `campaign:<id|name>` / `keyword:<id|name>:<adGroup>:<keyword>` / `product:<externalId|listingId>:<id|name>`. usable identifier 가 없으면 throw — `unknown:unknown` row 금지. (`ad_product` 는 H2 에서 production producer 가 없어 제거됨 — 향후 producer 가 wired 되면 재도입.)
 - **Account/store KPI** — listing 에 귀속되지 않는 dashboard KPI 는 `ChannelAccountDailyKpiSnapshot` 으로 land. `kpiType`: `wing_dashboard` (traffic), `wing_itemwinner_kpi` (raw_scrape wing kpi), `advertising_campaign_kpis` (ad_campaign top-level kpis), `coupang_ads_daily` (coupang ads daily aggregate).
 - **`rawSnapshotId` link** — 모든 daily-fact upsert 는 latest 관측 row 의 `ChannelScrapeSnapshot.id` 를 들고 있어 audit/replay 가능.
 - **Read path 미동기** — 이 branch 에서 `getExtensionStatus` 등 일부 read path 가 legacy 모델을 계속 read 한다. H3 가 rewrite, H4 가 모델 삭제.

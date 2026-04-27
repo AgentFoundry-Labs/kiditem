@@ -333,11 +333,16 @@ describe('AdSyncService', () => {
         adOrders: 1,
       });
       // Provider ratios are not stored as additive numerator columns —
-      // they survive only inside metaJson for audit.
+      // they survive only inside metaJson for audit. metaJson is
+      // namespaced per caller-source so concurrent payloads on the same
+      // listing-day preserve each other's audit data.
       expect(listingCall.metrics?.ad).not.toHaveProperty('roas');
       expect(listingCall.metaJson).toMatchObject({
-        providerRoas: 200,
-        providerCtr: 2,
+        source: 'advertising.campaign',
+        data: {
+          providerRoas: 200,
+          providerCtr: 2,
+        },
       });
 
       // Target-day fact landed at product grain.
@@ -348,8 +353,11 @@ describe('AdSyncService', () => {
       expect(targetCall.spend).toBe(1000);
       expect(targetCall.adSpend).toBe(1000);
       expect(targetCall.adRevenue).toBe(2000);
-      // Provider ROAS stays in metaJson only.
-      expect(targetCall.metaJson).toMatchObject({ providerRoas: 200 });
+      // Provider ROAS stays in metaJson only (namespaced per caller).
+      expect(targetCall.metaJson).toMatchObject({
+        source: 'advertising.campaign.target',
+        data: { providerRoas: 200 },
+      });
 
       // Run lifecycle.
       expect(scrapePersistence.createRun).toHaveBeenCalled();

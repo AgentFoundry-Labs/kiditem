@@ -15,8 +15,8 @@
 // fields overwrite when explicitly non-null. Raw snapshots stay append-only.
 //
 // Hard rewrite Phase H2 — additionally upserts
-// `ChannelAdTargetDailySnapshot` (campaign/keyword/product/ad_product grain)
-// and `ChannelAccountDailyKpiSnapshot` (account/store-level KPI). Listing
+// `ChannelAdTargetDailySnapshot` (campaign/keyword/product grain) and
+// `ChannelAccountDailyKpiSnapshot` (account/store-level KPI). Listing
 // daily upsert is extended to accept ad and traffic metric blocks.
 //
 // Daily-fact metric semantics (single source-of-truth rule):
@@ -30,12 +30,50 @@
 //   Provider ratios (ROAS / CTR / CVR) are NOT trusted: callers store them
 //   inside `metaJson` only. Reads recompute ratios from the additive
 //   numerator/denominator columns.
+//
+// metaJson namespacing (audit-data preservation rule):
+//   Multiple payloads can land on the same `(companyId, listingId,
+//   businessDate)` (or other daily-fact unique key) row — e.g.
+//   `handleAdCampaign` writes provider ROAS/CTR, then `handleTraffic`
+//   writes provider conversion rate to the same listing-day row. To
+//   preserve each caller's audit data without a fetch-merge-update
+//   transaction proliferating, callers nest their metaJson under a
+//   `source` key:
+//     metaJson: { source: 'advertising.campaign', data: {...} }
+//   On create the helper writes `{ [source]: data }`. On update the helper
+//   reads the existing metaJson and spreads the new source key in,
+//   preserving keys from earlier sources. Each logical caller MUST pick a
+//   distinct `source` (e.g. `advertising.campaign`, `advertising.raw`,
+//   `wing.traffic`, `wing.dashboard`) so concurrent writers never clobber
+//   each other.
 
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 
 export type ScrapeMatchStatus = 'matched' | 'matched_listing_only' | 'unmatched';
+
+/**
+ * Namespaced metaJson input — the helper merges this under `data.source`
+ * so concurrent payloads on the same daily-fact row preserve each other's
+ * audit data. See file header "metaJson namespacing".
+ *
+ * - `undefined` (or omitted) → leave column untouched on update; write
+ *   `Prisma.DbNull` on create.
+ * - explicit `null` → wipe the metaJson column entirely (rare; reserved
+ *   for tests/admin tooling).
+ * - `{ source, data }` → write `{ [source]: data }` on create; on update
+ *   spread the new source key into the existing object.
+ *
+ * `data` is `Record<string, unknown>` because it eventually serializes to
+ * Postgres jsonb; helpers cast to `Prisma.InputJsonValue` at write time.
+ */
+export interface NamespacedMetaJson {
+  source: string;
+  data: Record<string, unknown>;
+}
+
+export type MetaJsonInput = NamespacedMetaJson | null | undefined;
 
 export interface ScrapeRunInput {
   companyId: string;
@@ -154,7 +192,7 @@ export interface ListingDailyUpsertInput extends ListingDailyState {
   businessDate: Date;
   observedAt?: Date;
   rawSnapshotId?: string | null;
-  metaJson?: Prisma.InputJsonValue | null;
+  metaJson?: MetaJsonInput;
   metrics?: ListingDailyMetrics;
 }
 
@@ -181,11 +219,11 @@ export interface ListingOptionDailyUpsertInput extends ListingOptionDailyState {
   businessDate: Date;
   observedAt?: Date;
   rawSnapshotId?: string | null;
-  metaJson?: Prisma.InputJsonValue | null;
+  metaJson?: MetaJsonInput;
 }
 
 /** H2 — see `ChannelAdTargetDailySnapshot`. */
-export type AdTargetType = 'campaign' | 'keyword' | 'product' | 'ad_product';
+export type AdTargetType = 'campaign' | 'keyword' | 'product';
 
 export interface AdTargetDailyMetrics {
   spend?: number | null;
@@ -223,7 +261,7 @@ export interface UpsertAdTargetDailyInput extends AdTargetDailyMetrics {
 
   observedAt?: Date;
   rawSnapshotId?: string | null;
-  metaJson?: Prisma.InputJsonValue | null;
+  metaJson?: MetaJsonInput;
 }
 
 export interface UpsertAccountKpiInput {
@@ -238,6 +276,11 @@ export interface UpsertAccountKpiInput {
   rawJson?: Prisma.InputJsonValue | null;
   rawSnapshotId?: string | null;
   observedAt?: Date;
+  // No `metaJson` column on ChannelAccountDailyKpiSnapshot — audit data
+  // lives in `normalizedJson` (structured KPI payload) and `rawJson` (raw
+  // provider blob). Cross-source preservation isn't needed because the
+  // table's unique key already includes `source` + `kpiType`, so each
+  // logical caller writes to its own row.
 }
 
 const LISTING_STATE_KEYS: ReadonlyArray<keyof ListingDailyState> = [
@@ -394,6 +437,47 @@ function spreadMetricsForUpdate<K extends string>(
   return out;
 }
 
+/**
+ * Build a merged metaJson object for an upsert update path. Reads the
+ * existing row's metaJson and spreads the new source key in, preserving
+ * keys from earlier sources. Pure function for testability — see file
+ * header "metaJson namespacing".
+ *
+ * Returns:
+ *   - `undefined` when caller passed undefined (don't touch the column)
+ *   - `Prisma.DbNull` when caller passed explicit null (wipe the column)
+ *   - merged object otherwise
+ */
+function mergeNamespacedMeta(
+  existing: Prisma.JsonValue | null | undefined,
+  input: MetaJsonInput,
+): Prisma.InputJsonValue | typeof Prisma.DbNull | undefined {
+  if (input === undefined) return undefined;
+  if (input === null) return Prisma.DbNull;
+  const existingObject =
+    existing && typeof existing === 'object' && !Array.isArray(existing)
+      ? (existing as Record<string, unknown>)
+      : {};
+  return {
+    ...existingObject,
+    [input.source]: input.data,
+  } as unknown as Prisma.InputJsonValue;
+}
+
+/**
+ * Build the `metaJson` value for the `create` path of an upsert. Always
+ * namespaces under `input.source`. Returns `Prisma.DbNull` when caller
+ * passed null/undefined so we never write a non-null empty object.
+ */
+function buildNamespacedMetaForCreate(
+  input: MetaJsonInput,
+): Prisma.InputJsonValue | typeof Prisma.DbNull {
+  if (input === undefined || input === null) return Prisma.DbNull;
+  return {
+    [input.source]: input.data,
+  } as unknown as Prisma.InputJsonValue;
+}
+
 @Injectable()
 export class ChannelScrapePersistenceService {
   constructor(private readonly prisma: PrismaService) {}
@@ -485,16 +569,19 @@ export class ChannelScrapePersistenceService {
    * the column to that same total. They do NOT use `{ increment }`.
    * Missing metric keys mean "not observed in this scrape" and leave any
    * previously written column untouched on update.
+   *
+   * `metaJson` is namespaced per logical caller (see file header). Pass
+   * `{ source: 'advertising.campaign', data: {...} }` and concurrent
+   * payloads on the same listing-day preserve each other's audit data
+   * — `handleAdCampaign`'s `providerRoas` and `handleTraffic`'s
+   * `providerConversionRate` survive together.
    */
   async upsertListingDaily(
     input: ListingDailyUpsertInput,
   ): Promise<{ id: string }> {
     const observedAt = input.observedAt ?? new Date();
     const observedState = pickObservedFields(input, LISTING_STATE_KEYS);
-    const metaJsonForCreate =
-      input.metaJson === undefined || input.metaJson === null
-        ? Prisma.DbNull
-        : input.metaJson;
+    const metaJsonForCreate = buildNamespacedMetaForCreate(input.metaJson);
     const adMetricsCreate = spreadMetricsForCreate(
       input.metrics?.ad,
       LISTING_AD_METRIC_KEYS,
@@ -512,58 +599,75 @@ export class ChannelScrapePersistenceService {
       LISTING_TRAFFIC_METRIC_KEYS,
     );
 
-    return this.prisma.channelListingDailySnapshot.upsert({
-      where: {
-        companyId_listingId_businessDate: {
+    return this.prisma.$transaction(async (tx) => {
+      // Read existing metaJson so the update path can merge per-source.
+      // Audit data from a different caller on the same row must survive.
+      const existing =
+        input.metaJson !== undefined
+          ? await tx.channelListingDailySnapshot.findUnique({
+              where: {
+                companyId_listingId_businessDate: {
+                  companyId: input.companyId,
+                  listingId: input.listingId,
+                  businessDate: input.businessDate,
+                },
+              },
+              select: { metaJson: true },
+            })
+          : null;
+      const mergedMeta = mergeNamespacedMeta(
+        existing?.metaJson,
+        input.metaJson,
+      );
+
+      return tx.channelListingDailySnapshot.upsert({
+        where: {
+          companyId_listingId_businessDate: {
+            companyId: input.companyId,
+            listingId: input.listingId,
+            businessDate: input.businessDate,
+          },
+        },
+        create: {
           companyId: input.companyId,
           listingId: input.listingId,
+          channel: input.channel,
+          externalId: input.externalId,
           businessDate: input.businessDate,
+          sampleCount: 1,
+          firstObservedAt: observedAt,
+          lastObservedAt: observedAt,
+          rawSnapshotId: input.rawSnapshotId ?? null,
+          metaJson: metaJsonForCreate,
+          productName: input.productName ?? null,
+          status: input.status ?? null,
+          exposureStatus: input.exposureStatus ?? null,
+          saleStatus: input.saleStatus ?? null,
+          channelPrice: input.channelPrice ?? null,
+          reviewCount: input.reviewCount ?? null,
+          avgRating: input.avgRating ?? null,
+          isOfferWinner: input.isOfferWinner ?? null,
+          myPrice: input.myPrice ?? null,
+          winnerPrice: input.winnerPrice ?? null,
+          winnerGapPrice: input.winnerGapPrice ?? null,
+          productRank: input.productRank ?? null,
+          categoryRank: input.categoryRank ?? null,
+          ...adMetricsCreate,
+          ...trafficMetricsCreate,
         },
-      },
-      create: {
-        companyId: input.companyId,
-        listingId: input.listingId,
-        channel: input.channel,
-        externalId: input.externalId,
-        businessDate: input.businessDate,
-        sampleCount: 1,
-        firstObservedAt: observedAt,
-        lastObservedAt: observedAt,
-        rawSnapshotId: input.rawSnapshotId ?? null,
-        metaJson: metaJsonForCreate,
-        productName: input.productName ?? null,
-        status: input.status ?? null,
-        exposureStatus: input.exposureStatus ?? null,
-        saleStatus: input.saleStatus ?? null,
-        channelPrice: input.channelPrice ?? null,
-        reviewCount: input.reviewCount ?? null,
-        avgRating: input.avgRating ?? null,
-        isOfferWinner: input.isOfferWinner ?? null,
-        myPrice: input.myPrice ?? null,
-        winnerPrice: input.winnerPrice ?? null,
-        winnerGapPrice: input.winnerGapPrice ?? null,
-        productRank: input.productRank ?? null,
-        categoryRank: input.categoryRank ?? null,
-        ...adMetricsCreate,
-        ...trafficMetricsCreate,
-      },
-      update: {
-        sampleCount: { increment: 1 },
-        lastObservedAt: observedAt,
-        ...(input.rawSnapshotId !== undefined
-          ? { rawSnapshotId: input.rawSnapshotId }
-          : {}),
-        ...(input.metaJson !== undefined
-          ? {
-              metaJson:
-                input.metaJson === null ? Prisma.DbNull : input.metaJson,
-            }
-          : {}),
-        ...observedState,
-        ...adMetricsUpdate,
-        ...trafficMetricsUpdate,
-      },
-      select: { id: true },
+        update: {
+          sampleCount: { increment: 1 },
+          lastObservedAt: observedAt,
+          ...(input.rawSnapshotId !== undefined
+            ? { rawSnapshotId: input.rawSnapshotId }
+            : {}),
+          ...(mergedMeta !== undefined ? { metaJson: mergedMeta } : {}),
+          ...observedState,
+          ...adMetricsUpdate,
+          ...trafficMetricsUpdate,
+        },
+        select: { id: true },
+      });
     });
   }
 
@@ -577,66 +681,78 @@ export class ChannelScrapePersistenceService {
   ): Promise<{ id: string }> {
     const observedAt = input.observedAt ?? new Date();
     const observedState = pickObservedFields(input, OPTION_STATE_KEYS);
-    const metaJsonForCreate =
-      input.metaJson === undefined || input.metaJson === null
-        ? Prisma.DbNull
-        : input.metaJson;
+    const metaJsonForCreate = buildNamespacedMetaForCreate(input.metaJson);
 
-    return this.prisma.channelListingOptionDailySnapshot.upsert({
-      where: {
-        companyId_listingOptionId_businessDate: {
-          companyId: input.companyId,
-          listingOptionId: input.listingOptionId,
-          businessDate: input.businessDate,
+    return this.prisma.$transaction(async (tx) => {
+      const existing =
+        input.metaJson !== undefined
+          ? await tx.channelListingOptionDailySnapshot.findUnique({
+              where: {
+                companyId_listingOptionId_businessDate: {
+                  companyId: input.companyId,
+                  listingOptionId: input.listingOptionId,
+                  businessDate: input.businessDate,
+                },
+              },
+              select: { metaJson: true },
+            })
+          : null;
+      const mergedMeta = mergeNamespacedMeta(
+        existing?.metaJson,
+        input.metaJson,
+      );
+
+      return tx.channelListingOptionDailySnapshot.upsert({
+        where: {
+          companyId_listingOptionId_businessDate: {
+            companyId: input.companyId,
+            listingOptionId: input.listingOptionId,
+            businessDate: input.businessDate,
+          },
         },
-      },
-      create: {
-        companyId: input.companyId,
-        listingId: input.listingId,
-        listingOptionId: input.listingOptionId,
-        optionId: input.optionId ?? null,
-        channel: input.channel,
-        externalId: input.externalId,
-        externalOptionId: input.externalOptionId,
-        businessDate: input.businessDate,
-        sampleCount: 1,
-        firstObservedAt: observedAt,
-        lastObservedAt: observedAt,
-        rawSnapshotId: input.rawSnapshotId ?? null,
-        metaJson: metaJsonForCreate,
-        optionName: input.optionName ?? null,
-        salePrice: input.salePrice ?? null,
-        stockQty: input.stockQty ?? null,
-        saleStatus: input.saleStatus ?? null,
-        isActive: input.isActive ?? null,
-        isOfferWinner: input.isOfferWinner ?? null,
-        myPrice: input.myPrice ?? null,
-        winnerPrice: input.winnerPrice ?? null,
-        winnerGapPrice: input.winnerGapPrice ?? null,
-      },
-      update: {
-        sampleCount: { increment: 1 },
-        lastObservedAt: observedAt,
-        ...(input.rawSnapshotId !== undefined
-          ? { rawSnapshotId: input.rawSnapshotId }
-          : {}),
-        ...(input.metaJson !== undefined
-          ? {
-              metaJson:
-                input.metaJson === null ? Prisma.DbNull : input.metaJson,
-            }
-          : {}),
-        ...(input.optionId !== undefined && input.optionId !== null
-          ? { optionId: input.optionId }
-          : {}),
-        ...observedState,
-      },
-      select: { id: true },
+        create: {
+          companyId: input.companyId,
+          listingId: input.listingId,
+          listingOptionId: input.listingOptionId,
+          optionId: input.optionId ?? null,
+          channel: input.channel,
+          externalId: input.externalId,
+          externalOptionId: input.externalOptionId,
+          businessDate: input.businessDate,
+          sampleCount: 1,
+          firstObservedAt: observedAt,
+          lastObservedAt: observedAt,
+          rawSnapshotId: input.rawSnapshotId ?? null,
+          metaJson: metaJsonForCreate,
+          optionName: input.optionName ?? null,
+          salePrice: input.salePrice ?? null,
+          stockQty: input.stockQty ?? null,
+          saleStatus: input.saleStatus ?? null,
+          isActive: input.isActive ?? null,
+          isOfferWinner: input.isOfferWinner ?? null,
+          myPrice: input.myPrice ?? null,
+          winnerPrice: input.winnerPrice ?? null,
+          winnerGapPrice: input.winnerGapPrice ?? null,
+        },
+        update: {
+          sampleCount: { increment: 1 },
+          lastObservedAt: observedAt,
+          ...(input.rawSnapshotId !== undefined
+            ? { rawSnapshotId: input.rawSnapshotId }
+            : {}),
+          ...(mergedMeta !== undefined ? { metaJson: mergedMeta } : {}),
+          ...(input.optionId !== undefined && input.optionId !== null
+            ? { optionId: input.optionId }
+            : {}),
+          ...observedState,
+        },
+        select: { id: true },
+      });
     });
   }
 
   /**
-   * H2 — upsert ad target (campaign/keyword/product/ad_product) daily fact.
+   * H2 — upsert ad target (campaign/keyword/product) daily fact.
    *
    * Idempotent on `(companyId, channel, businessDate, targetType, targetKey)`.
    *
@@ -645,6 +761,10 @@ export class ChannelScrapePersistenceService {
    * overwrite the column to the same total — they do not increment. Missing
    * metric keys leave any previously written column untouched on update.
    * Provider ratios are NOT trusted; if needed, attach them via `metaJson`.
+   *
+   * `metaJson` is namespaced per logical caller (see file header). Pass
+   * `{ source: 'advertising.campaign.target', data: {...} }` and concurrent
+   * payloads on the same row preserve each other's audit data.
    *
    * `sampleCount` increments per call; `firstObservedAt` is preserved;
    * `lastObservedAt` advances every call. `rawSnapshotId` updates to the
@@ -660,10 +780,7 @@ export class ChannelScrapePersistenceService {
       );
     }
     const observedAt = input.observedAt ?? new Date();
-    const metaJsonForCreate =
-      input.metaJson === undefined || input.metaJson === null
-        ? Prisma.DbNull
-        : input.metaJson;
+    const metaJsonForCreate = buildNamespacedMetaForCreate(input.metaJson);
     const metricsCreate = spreadMetricsForCreate(input, AD_TARGET_METRIC_KEYS);
     const metricsUpdate = spreadMetricsForUpdate(input, AD_TARGET_METRIC_KEYS);
     const observedDescriptors = pickObservedFields(
@@ -671,59 +788,76 @@ export class ChannelScrapePersistenceService {
       AD_TARGET_DESCRIPTOR_KEYS,
     );
 
-    return this.prisma.channelAdTargetDailySnapshot.upsert({
-      where: {
-        companyId_channel_businessDate_targetType_targetKey: {
+    return this.prisma.$transaction(async (tx) => {
+      const existing =
+        input.metaJson !== undefined
+          ? await tx.channelAdTargetDailySnapshot.findUnique({
+              where: {
+                companyId_channel_businessDate_targetType_targetKey: {
+                  companyId: input.companyId,
+                  channel: input.channel,
+                  businessDate: input.businessDate,
+                  targetType: input.targetType,
+                  targetKey: input.targetKey,
+                },
+              },
+              select: { metaJson: true },
+            })
+          : null;
+      const mergedMeta = mergeNamespacedMeta(
+        existing?.metaJson,
+        input.metaJson,
+      );
+
+      return tx.channelAdTargetDailySnapshot.upsert({
+        where: {
+          companyId_channel_businessDate_targetType_targetKey: {
+            companyId: input.companyId,
+            channel: input.channel,
+            businessDate: input.businessDate,
+            targetType: input.targetType,
+            targetKey: input.targetKey,
+          },
+        },
+        create: {
           companyId: input.companyId,
           channel: input.channel,
           businessDate: input.businessDate,
           targetType: input.targetType,
           targetKey: input.targetKey,
+          listingId: input.listingId ?? null,
+          listingOptionId: input.listingOptionId ?? null,
+          optionId: input.optionId ?? null,
+          externalId: input.externalId ?? null,
+          externalOptionId: input.externalOptionId ?? null,
+          campaignId: input.campaignId ?? null,
+          campaignName: input.campaignName ?? null,
+          adGroup: input.adGroup ?? null,
+          keyword: input.keyword ?? null,
+          placement: input.placement ?? null,
+          status: input.status ?? null,
+          onOff: input.onOff ?? null,
+          currentBid: input.currentBid ?? null,
+          dailyBudget: input.dailyBudget ?? null,
+          rawSnapshotId: input.rawSnapshotId ?? null,
+          metaJson: metaJsonForCreate,
+          sampleCount: 1,
+          firstObservedAt: observedAt,
+          lastObservedAt: observedAt,
+          ...metricsCreate,
         },
-      },
-      create: {
-        companyId: input.companyId,
-        channel: input.channel,
-        businessDate: input.businessDate,
-        targetType: input.targetType,
-        targetKey: input.targetKey,
-        listingId: input.listingId ?? null,
-        listingOptionId: input.listingOptionId ?? null,
-        optionId: input.optionId ?? null,
-        externalId: input.externalId ?? null,
-        externalOptionId: input.externalOptionId ?? null,
-        campaignId: input.campaignId ?? null,
-        campaignName: input.campaignName ?? null,
-        adGroup: input.adGroup ?? null,
-        keyword: input.keyword ?? null,
-        placement: input.placement ?? null,
-        status: input.status ?? null,
-        onOff: input.onOff ?? null,
-        currentBid: input.currentBid ?? null,
-        dailyBudget: input.dailyBudget ?? null,
-        rawSnapshotId: input.rawSnapshotId ?? null,
-        metaJson: metaJsonForCreate,
-        sampleCount: 1,
-        firstObservedAt: observedAt,
-        lastObservedAt: observedAt,
-        ...metricsCreate,
-      },
-      update: {
-        sampleCount: { increment: 1 },
-        lastObservedAt: observedAt,
-        ...(input.rawSnapshotId !== undefined
-          ? { rawSnapshotId: input.rawSnapshotId }
-          : {}),
-        ...(input.metaJson !== undefined
-          ? {
-              metaJson:
-                input.metaJson === null ? Prisma.DbNull : input.metaJson,
-            }
-          : {}),
-        ...observedDescriptors,
-        ...metricsUpdate,
-      },
-      select: { id: true },
+        update: {
+          sampleCount: { increment: 1 },
+          lastObservedAt: observedAt,
+          ...(input.rawSnapshotId !== undefined
+            ? { rawSnapshotId: input.rawSnapshotId }
+            : {}),
+          ...(mergedMeta !== undefined ? { metaJson: mergedMeta } : {}),
+          ...observedDescriptors,
+          ...metricsUpdate,
+        },
+        select: { id: true },
+      });
     });
   }
 

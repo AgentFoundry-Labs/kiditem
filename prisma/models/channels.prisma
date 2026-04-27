@@ -248,7 +248,7 @@ model ChannelAdTargetDailySnapshot {
   externalId       String? @map("external_id")
   externalOptionId String? @map("external_option_id")
 
-  targetType   String  @map("target_type") // 'campaign' | 'keyword' | 'product' | 'ad_product'
+  targetType   String  @map("target_type") // 'campaign' | 'keyword' | 'product'
   targetKey    String  @map("target_key")  // deterministic canonical key, NOT NULL
   campaignId   String? @map("campaign_id")
   campaignName String? @map("campaign_name")

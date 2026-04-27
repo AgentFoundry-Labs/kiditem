@@ -531,12 +531,14 @@ export class AdSyncService {
             rawSnapshotId: snapshot.id,
             productName: this.cleanString(row.productName),
             metaJson: {
-              source: 'advertising',
-              campaignName: rowCampaignName,
-              providerRoas,
-              providerCtr,
-              providerConversionRate,
-            } as unknown as Prisma.InputJsonValue,
+              source: 'advertising.campaign',
+              data: {
+                campaignName: rowCampaignName,
+                providerRoas,
+                providerCtr,
+                providerConversionRate,
+              },
+            },
             metrics: { ad: adMetrics },
           });
           listingDailyCount += 1;
@@ -587,11 +589,14 @@ export class AdSyncService {
             dailyBudget: rowDailyBudget,
             rawSnapshotId: snapshot.id,
             metaJson: {
-              providerRoas,
-              providerCtr,
-              providerConversionRate,
-              pageType: rowPageType,
-            } as unknown as Prisma.InputJsonValue,
+              source: 'advertising.campaign.target',
+              data: {
+                providerRoas,
+                providerCtr,
+                providerConversionRate,
+                pageType: rowPageType,
+              },
+            },
             ...targetMetrics,
           });
           targetDailyCount += 1;
@@ -903,11 +908,13 @@ export class AdSyncService {
               rawSnapshotId: snapshot.id,
               productName: this.cleanString(row.productName),
               metaJson: {
-                source: 'advertising',
-                campaignName: rowCampaignName,
-                providerRoas,
-                providerCtr,
-              } as unknown as Prisma.InputJsonValue,
+                source: 'advertising.raw',
+                data: {
+                  campaignName: rowCampaignName,
+                  providerRoas,
+                  providerCtr,
+                },
+              },
               metrics: {
                 ad: {
                   adSpend: rowSpend,
@@ -957,10 +964,13 @@ export class AdSyncService {
               dailyBudget: this.toNumberOrNull(row.dailyBudget),
               rawSnapshotId: snapshot.id,
               metaJson: {
-                providerRoas,
-                providerCtr,
-                pageType,
-              } as unknown as Prisma.InputJsonValue,
+                source: 'advertising.raw.target',
+                data: {
+                  providerRoas,
+                  providerCtr,
+                  pageType,
+                },
+              },
               spend: rowSpend,
               revenue: rowRevenue,
               impressions: rowImpressions,
@@ -1164,9 +1174,11 @@ export class AdSyncService {
           rawSnapshotId: snapshot.id,
           metaJson: {
             source: 'wing.traffic',
-            periodDays: period,
-            providerConversionRate,
-          } as unknown as Prisma.InputJsonValue,
+            data: {
+              periodDays: period,
+              providerConversionRate,
+            },
+          },
           metrics: { traffic: trafficMetrics },
         });
         listingDailyCount += 1;

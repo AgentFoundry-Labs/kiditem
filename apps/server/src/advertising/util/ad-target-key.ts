@@ -11,13 +11,17 @@
 //   campaign:<campaignId || campaignName>
 //   keyword:<campaignId || campaignName>:<adGroup>:<keyword>
 //   product:<externalId || listingId>:<campaignId || campaignName>
-//   ad_product:<externalId || listingId>:<campaignId || campaignName>
 //
 // Throws when no usable identifier is present so we never store
 // `unknown:unknown` rows. Two distinct payloads with different identifiers
 // produce different keys; two identical payloads produce identical keys.
+//
+// 2026-04-27 — ad-product variant removed. It had a full type/branch but
+// no production producer (`deriveTargetType` never returned it; the
+// `coupang_ads_daily` payload lands in account KPI, not target daily).
+// Re-add when a producer is wired (YAGNI).
 
-export type AdTargetType = 'campaign' | 'keyword' | 'product' | 'ad_product';
+export type AdTargetType = 'campaign' | 'keyword' | 'product';
 
 export interface BuildAdTargetKeyInput {
   targetType: AdTargetType;
@@ -80,14 +84,6 @@ export function buildAdTargetKey(input: BuildAdTargetKeyInput): string {
         );
       }
       return `product:${productAnchor}:${campaignAnchor}`;
-    }
-    case 'ad_product': {
-      if (!productAnchor || !campaignAnchor) {
-        throw new Error(
-          'buildAdTargetKey: ad_product target requires (externalId|listingId) and (campaignId|campaignName)',
-        );
-      }
-      return `ad_product:${productAnchor}:${campaignAnchor}`;
     }
     default: {
       // Defensive — TS already narrows targetType, but raw payloads may slip in.

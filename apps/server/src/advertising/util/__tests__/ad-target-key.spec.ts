@@ -123,24 +123,6 @@ describe('buildAdTargetKey', () => {
     });
   });
 
-  describe('ad_product', () => {
-    it('produces ad_product key with externalId + campaignId', () => {
-      expect(
-        buildAdTargetKey({
-          targetType: 'ad_product',
-          externalId: 'EXT-1',
-          campaignId: 'CAMP-1',
-        }),
-      ).toBe('ad_product:EXT-1:CAMP-1');
-    });
-
-    it('throws when both anchors missing', () => {
-      expect(() =>
-        buildAdTargetKey({ targetType: 'ad_product' }),
-      ).toThrowError(/ad_product target requires/);
-    });
-  });
-
   describe('idempotency / distinctness', () => {
     it('two identical inputs produce identical keys', () => {
       const inputA = {

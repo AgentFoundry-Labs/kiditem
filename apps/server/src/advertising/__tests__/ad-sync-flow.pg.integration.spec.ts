@@ -175,8 +175,12 @@ describe('AdSync flow (PG integration, H2)', () => {
       expect(listingDaily?.adClicks).toBe(50);
       expect(listingDaily?.adConversions).toBe(3);
       expect(listingDaily?.adOrders).toBe(3);
-      // Provider ROAS NOT trusted at column level — only metaJson.
-      expect(listingDaily?.metaJson).toMatchObject({ providerRoas: 333.33 });
+      // Provider ROAS NOT trusted at column level — only metaJson, and
+      // metaJson is namespaced per caller-source (file header
+      // "metaJson namespacing").
+      expect(listingDaily?.metaJson).toMatchObject({
+        'advertising.campaign': { providerRoas: 333.33 },
+      });
 
       // Target daily fact at product grain. The targetKey is built from
       // the listing's externalId (EXT-COUPANG-1) — when the row only carries
@@ -451,6 +455,98 @@ describe('AdSync flow (PG integration, H2)', () => {
       expect(listingDaily?.trafficOrders).toBe(5);
       expect(listingDaily?.trafficSalesQty).toBe(5);
       expect(listingDaily?.trafficRevenue).toBe(30000);
+    });
+  });
+
+  describe('cross-source metaJson namespacing', () => {
+    it('#9 ad_campaign + traffic on same (listing, businessDate) preserve each other`s metaJson keys', async () => {
+      const seeded = await seedListing({
+        companyId: TEST_COMPANY_ID,
+        externalId: 'EXT-META-MERGE',
+        externalOptionId: 'VI-META-MERGE',
+      });
+
+      // First payload: ad_campaign writes provider ROAS / CTR under
+      // `advertising.campaign` source.
+      await adSyncService.sync(
+        {
+          type: 'ad_campaign',
+          campaignName: 'CampaignMerge',
+          period: '7d',
+          timestamp: '2026-04-14T01:00:00Z',
+          normalizedRows: [
+            {
+              pageType: 'product',
+              campaignName: 'CampaignMerge',
+              campaignId: 'CAMP-MERGE',
+              productName: 'Product-Merge',
+              vendorItemId: 'VI-META-MERGE',
+              spend: '1500',
+              revenue: '5000',
+              impressions: '1000',
+              clicks: '50',
+              roas: '333.33',
+              ctr: '5.0',
+            },
+          ],
+        },
+        TEST_COMPANY_ID,
+      );
+
+      // Second payload: traffic on the same listing/day writes provider
+      // conversion rate under `wing.traffic` source. Without per-source
+      // namespacing the ad_campaign keys would be wiped here.
+      await adSyncService.sync(
+        {
+          type: 'traffic',
+          period: 14,
+          startDate: '2026-04-14T01:00:00Z',
+          data: [
+            {
+              vendorItemId: 'VI-META-MERGE',
+              visitors: 200,
+              views: 400,
+              cartAdds: 10,
+              orders: 8,
+              salesQty: 8,
+              revenue: 40000,
+            },
+          ],
+        },
+        TEST_COMPANY_ID,
+      );
+
+      const listingDaily = await prisma.channelListingDailySnapshot.findFirst({
+        where: { companyId: TEST_COMPANY_ID, listingId: seeded.listing.id },
+      });
+      expect(listingDaily).toBeDefined();
+      expect(listingDaily?.businessDate.toISOString().slice(0, 10)).toBe(
+        '2026-04-14',
+      );
+
+      // Both ad and traffic numerator columns survive (overwrite-on-replay
+      // applies per metric block; missing keys leave columns alone).
+      expect(listingDaily?.adSpend).toBe(1500);
+      expect(listingDaily?.adRevenue).toBe(5000);
+      expect(listingDaily?.trafficVisitors).toBe(200);
+      expect(listingDaily?.trafficOrders).toBe(8);
+
+      // metaJson preserves BOTH source keys — the second payload did not
+      // wipe the first's audit data.
+      const meta = listingDaily?.metaJson as Record<string, unknown>;
+      expect(meta).toMatchObject({
+        'advertising.campaign': {
+          providerRoas: 333.33,
+          providerCtr: 5,
+        },
+        'wing.traffic': {
+          periodDays: 14,
+        },
+      });
+      // Ensure both top-level source keys are present.
+      expect(Object.keys(meta).sort()).toEqual(
+        ['advertising.campaign', 'wing.traffic'].sort(),
+      );
     });
   });
 
