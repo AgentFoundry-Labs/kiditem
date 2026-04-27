@@ -51,7 +51,11 @@ C2/C3/C4 도입 후 legacy `AdSnapshot` / `TrafficStats` / `ItemWinner` / `Ad` c
 - C4 가 strategy state evidence read path migration 을 이미 끝냈고, **이 checkpoint 에서 추가 1:1 read-path migration 은 없음**. 대부분의 legacy read 는 daily snapshot 이 들고 있지 않은 필드 (ad metric / traffic metric / wing KPI rawJson) 를 보며, `ItemWinner` status/count 처럼 daily snapshot 에 필드가 있어도 lifetime count → current/latest count 로 의미가 바뀌는 건 C6 로 defer.
 - C2 raw snapshot 은 모든 payload 의 audit trail 이고, C3 daily snapshot 은 product/option state payload 에만 적용한다. `coupang_ads_daily` 같은 ad metric payload 는 legacy `AdSnapshot` + C2 raw 까지만 쓰는 게 의도다.
 - C2/C3 dual-write 는 계속 필수 — legacy read 가 다 빠지기 전엔 write 도 못 뺀다.
-- C6 후보: `getExtensionStatus` 의 `ItemWinner.groupBy` / `AdSnapshot.count`, `ad-action.listActions` 의 latest snapshot summary, `ad-collect.getStatus` 의 `AdSnapshot.findFirst+count`. 모두 의미가 바뀌므로 spec 합의 후 진행.
+- 더 강한 최종 방향: daily channel facts 가 product/listing/day source-of-truth 이다. 기간별(7d/14d/month/custom) 값은 daily fact 의 `SUM`/ratio recompute 로 계산하고, period source table 을 새로 만들지 않는다. 상세 방향은 [docs/superpowers/plans/2026-04-27-channel-market-data-daily-facts-source-of-truth.md](../../../../docs/superpowers/plans/2026-04-27-channel-market-data-daily-facts-source-of-truth.md).
+- 구현 방향은 hard rewrite 로 확정: compatibility 병행이 아니라 daily fact source-of-truth 를 만들고 legacy market-data pipeline 을 대체한다. 상세 구현 계약은 [docs/superpowers/plans/2026-04-27-channel-market-data-c6-current-state-rewire.md](../../../../docs/superpowers/plans/2026-04-27-channel-market-data-c6-current-state-rewire.md).
+- C6 대상: `getExtensionStatus` 의 `ItemWinner.groupBy` / `AdSnapshot.count`, `ad-action.listActions` 의 latest snapshot summary, `ad-collect.getStatus` 의 `AdSnapshot.findFirst+count`.
+- C6 원칙: winner/status/count 는 latest `ChannelListingDailySnapshot` / `ChannelScrapeRun` / `ChannelScrapeSnapshot` 기준으로 계산한다. legacy lifetime count 나 legacy `AdSnapshot` count fallback 으로 사용자-visible status 를 되살리지 않는다.
+- `Ad` / `TrafficStats` / metric-bearing `AdSnapshot` / `ItemWinner` 는 최종 sunset 대상이다. 같은 grain/의미의 daily fact 와 read rewrite 가 같은 branch 에서 완성되면 Prisma 모델과 legacy code 삭제를 허용한다. 삭제 전 consumer search, 테스트, RLS/ERD/Graphify 갱신은 필수.
 - 새 모델/서비스가 이 도메인에 들어오면 audit doc 의 inventory 표를 갱신할 것.
 
 ## Wave C4 — Channel state signals on strategy reads (영구 규칙)
