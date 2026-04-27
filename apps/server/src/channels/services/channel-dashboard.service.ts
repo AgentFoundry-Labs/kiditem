@@ -11,19 +11,21 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { kstDayStart } from '../../common/kst';
 
 /**
- * Channel dashboard response shapes — typed via `@kiditem/shared` Zod schemas.
- * (Plan E.1 T1 — local interfaces removed, shared types + `satisfies` drift guard.)
+ * Channel dashboard response shapes — typed via `@kiditem/shared` Zod schemas
+ * with `satisfies` drift guard (no local interfaces).
  *
- * Plan B2c.dashboard T15 rewrite notes:
- * - I3 canonical: revenue = SUM(oli.total_price), never SUM(o.total_price).
- * - I7 @CurrentCompany: companyId threaded from controller.
- * - I8 half-open: `gte` / `lt` only (never `lte`).
- * - R-07 rename: `lastSyncedAt` → `lastModifiedAt`
- *   ChannelListing.updatedAt is bumped on any edit, not only sync ops.
- * - R-12 flat `_count: true`: Prisma returns `number` (no wrapper object).
- * - C-11 unknown faultBy drop: faultBy is `VarChar(20)` — CUSTOMER/VENDOR only.
- * - R-06 returnRate known limitation: past-period orders' returns land in current
- *   period numerator. Plan D will fix by JOINing return.orderId → order.orderedAt.
+ * Service invariants (must be preserved by future edits):
+ * - revenue = SUM(oli.total_price), never SUM(o.total_price).
+ * - companyId is threaded from `@CurrentCompany()` and required on every read.
+ * - Time windows are half-open: `gte` / `lt` only, never `lte`.
+ * - `ChannelListing.updatedAt` ("lastModifiedAt") is bumped on any edit, not
+ *   only sync ops — do not present it as "last synced at".
+ * - `_count: true` in Prisma returns a flat `number` (no wrapper object).
+ * - `OrderReturn.faultBy` is `VarChar(20)` and is currently `CUSTOMER` /
+ *   `VENDOR` only; unknown values must be dropped before persistence.
+ * - returnRate has a known limitation: past-period orders' returns land in
+ *   the current period numerator. The fix is to JOIN
+ *   `OrderReturn.orderId → Order.orderedAt` (tracked but not implemented here).
  */
 
 @Injectable()

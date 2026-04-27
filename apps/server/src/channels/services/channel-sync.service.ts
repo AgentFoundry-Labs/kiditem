@@ -6,13 +6,14 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { getSellerProducts } from '../adapters/coupang/products';
+import { getSellerProduct, getSellerProducts } from '../adapters/coupang/products';
 import { getOrderSheets } from '../adapters/coupang/orders';
 import { getVendorId } from '../adapters/coupang/coupang-client';
 import type {
   SyncResult,
   HealthResult,
   SellerProductListResponse,
+  SellerProductDetailResponse,
   OrderSheetResponse,
   CoupangSyncOrderPayload,
   CoupangSyncReturnPayload,
@@ -27,6 +28,31 @@ export type { SyncResult, HealthResult } from './types';
 export function normalizeCoupangOrderStatus(raw: string | null | undefined): string | undefined {
   if (raw === 'NONE_TRACKING') return 'DEPARTURE';
   return raw ?? undefined;
+}
+
+/**
+ * Coupang seller_product `statusName` → 내부 ChannelListing `status`.
+ * 새 raw status 는 lowercase fallback 으로 통과시키되, 매핑된 값은 product UI / strategy
+ * 에서 안정적으로 쿼리할 수 있는 canonical 값으로 정규화한다. C1 — Wave C.
+ */
+export function normalizeCoupangProductStatus(
+  raw: string | null | undefined,
+): string | undefined {
+  if (!raw) return undefined;
+  switch (raw) {
+    case 'APPROVED':
+    case 'ON_SALE':
+      return 'active';
+    case 'SUSPEND':
+      return 'paused';
+    case 'DELETED':
+      return 'deleted';
+    case 'UNDER_EXAMINATION':
+    case 'REJECTED':
+      return 'draft';
+    default:
+      return raw.toLowerCase();
+  }
 }
 
 /**
@@ -80,10 +106,183 @@ export class ChannelSyncService {
     }
   }
 
-  async syncProducts(_companyId: string): Promise<SyncResult> {
-    throw new NotImplementedException(
-      'Product sync requires Plan B3 listingId-based rewrite — uses dropped Product/ProductItem/MasterInventory models (ADR-0013)',
+  /**
+   * Coupang seller-product → ChannelListing/ChannelListingOption 동기화 (Wave C1).
+   *
+   * 페이지네이션은 `nextToken` 기반. 각 listing 은 별도 transaction 으로 처리해서
+   * batch 중간 실패가 다른 listing 의 동기화를 막지 않도록 한다 (`syncOrders` 와 동일
+   * continue-on-error 패턴).
+   *
+   * **Master 자동 생성 안 함**: `ChannelListing.masterId` 는 required 이므로, 기존
+   * listing 이 없는 sellerProductId 는 skip + report 한다. 신규 listing 생성은
+   * 제품 import / admin UI 가 담당해야 함 (ADR-0019 same-business-domain rule).
+   * 한 번이라도 listing 이 등록된 sellerProductId 는 매번 sync 가 refresh 한다 →
+   * 재실행 idempotent (같은 (listingId, externalOptionId) 는 update 만).
+   *
+   * `vendorItemId` 는 항상 `ChannelListingOption.externalOptionId` 로 mapping.
+   * 내부 `optionId` 는 별도 매칭 단계가 채우며 여기서는 nullable 그대로 유지
+   * (unmatched 옵션이 ingestion 을 막지 않게).
+   */
+  async syncProducts(companyId: string): Promise<SyncResult> {
+    const result: SyncResult = { synced: 0, errors: 0, details: [] };
+    const PRODUCT_PAGE_SIZE = 50;
+    const MAX_PAGES = 200;
+
+    let nextToken: string | undefined;
+    let pages = 0;
+
+    try {
+      do {
+        const listResponse = (await getSellerProducts({
+          nextToken,
+          maxPerPage: PRODUCT_PAGE_SIZE,
+        })) as SellerProductListResponse;
+
+        if (listResponse.code !== 'SUCCESS') {
+          result.errors += 1;
+          result.details?.push(
+            `seller-products list ${listResponse.code}: ${listResponse.message || 'Unknown API error'}`,
+          );
+          break;
+        }
+
+        const items = listResponse.data?.content ?? [];
+        for (const summary of items) {
+          const sellerProductId = String(summary.sellerProductId);
+          try {
+            await this.syncSingleProductListing(sellerProductId, companyId, result);
+          } catch (error: unknown) {
+            result.errors += 1;
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            result.details?.push(`Listing ${sellerProductId}: ${message}`);
+            this.logger.error(`Failed to sync listing ${sellerProductId}: ${message}`);
+          }
+        }
+
+        nextToken = listResponse.data?.nextToken;
+        pages += 1;
+      } while (nextToken && pages < MAX_PAGES);
+
+      if (nextToken && pages >= MAX_PAGES) {
+        result.details?.push(
+          `Stopped after ${MAX_PAGES} pages of seller-products — re-run to continue`,
+        );
+      }
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      result.errors += 1;
+      result.details?.push(`Product sync failed: ${message}`);
+      this.logger.error(`Product sync failed: ${message}`);
+    }
+
+    this.logger.log(
+      `Product sync complete: ${result.synced} synced, ${result.errors} errors`,
     );
+    return result;
+  }
+
+  private async syncSingleProductListing(
+    sellerProductId: string,
+    companyId: string,
+    result: SyncResult,
+  ): Promise<void> {
+    // Refresh-only: 신규 master 자동 생성 금지. 기존 listing 이 있을 때만 진행.
+    const existing = await this.prisma.channelListing.findFirst({
+      where: {
+        companyId,
+        channel: 'coupang',
+        externalId: sellerProductId,
+        isDeleted: false,
+      },
+      select: { id: true },
+    });
+    if (!existing) {
+      result.details?.push(
+        `Listing ${sellerProductId}: no matching ChannelListing — create via product import / admin UI first`,
+      );
+      return;
+    }
+
+    const detailResponse = (await getSellerProduct(sellerProductId)) as SellerProductDetailResponse;
+    if (detailResponse.code !== 'SUCCESS') {
+      throw new Error(
+        `detail ${detailResponse.code}: ${detailResponse.message || 'Unknown API error'}`,
+      );
+    }
+    const detail = detailResponse.data;
+    if (!detail) {
+      throw new Error('detail returned no data');
+    }
+
+    await this.prisma.$transaction(
+      async (tx) => {
+        const updated = await tx.channelListing.updateMany({
+          where: {
+            id: existing.id,
+            companyId,
+            channel: 'coupang',
+            externalId: sellerProductId,
+            isDeleted: false,
+          },
+          data: {
+            channelName: detail.sellerProductName ?? null,
+            status: normalizeCoupangProductStatus(detail.statusName),
+            deliveryChargeType: detail.deliveryChargeType ?? null,
+            freeShipOverAmount: detail.freeShipOverAmount ?? null,
+            returnCharge: detail.returnCharge ?? null,
+            // Prisma `Json?` 컬럼: SQL NULL 표현은 `Prisma.DbNull`.
+            // payload 가 deliveryInfo 를 안 보내면 컬럼을 비우고, 보내면 그대로 저장.
+            deliveryInfo: detail.deliveryInfo === undefined
+              ? Prisma.DbNull
+              : (detail.deliveryInfo as Prisma.InputJsonValue),
+          },
+        });
+        if (updated.count !== 1) {
+          throw new BadRequestException(
+            `ChannelListing ${sellerProductId} is no longer active for this company`,
+          );
+        }
+
+        const items = Array.isArray(detail.items) ? detail.items : [];
+        for (const item of items) {
+          if (!item.vendorItemId) {
+            // Coupang seller-product detail 은 item 에 vendorItemId 항상 채워서 보냄.
+            // 누락 시 (listingId, externalOptionId) upsert key 충돌 방지 + 계약 명시화.
+            throw new BadRequestException(
+              `Coupang item missing vendorItemId — cannot upsert (sellerProductId=${sellerProductId})`,
+            );
+          }
+          const externalOptionId = String(item.vendorItemId);
+
+          await tx.channelListingOption.upsert({
+            where: {
+              listingId_externalOptionId: {
+                listingId: existing.id,
+                externalOptionId,
+              },
+            },
+            update: {
+              itemName: item.itemName ?? null,
+              salePrice: item.salePrice ?? null,
+              isActive: true,
+            },
+            create: {
+              companyId,
+              listingId: existing.id,
+              externalOptionId,
+              itemName: item.itemName ?? null,
+              salePrice: item.salePrice ?? null,
+              isActive: true,
+              // optionId 는 internal ProductOption 매칭 단계가 채움. C1 에서는 nullable
+              // 그대로 두어 unmatched 옵션이 ingestion 을 막지 않게 한다.
+            },
+          });
+        }
+      },
+      { timeout: 15_000 },
+    );
+
+    result.synced += 1;
   }
 
   async syncOrders(companyId: string, from?: Date, to?: Date): Promise<SyncResult> {
@@ -143,7 +342,7 @@ export class ChannelSyncService {
 
   async syncInventory(_companyId: string): Promise<SyncResult> {
     throw new NotImplementedException(
-      'Inventory sync requires Plan B3 listingId-based rewrite — uses dropped Product/ProductItem/MasterInventory models (ADR-0013)',
+      'Inventory sync is not implemented yet — define the InventoryService single-writer boundary before adding channel inventory writes',
     );
   }
 

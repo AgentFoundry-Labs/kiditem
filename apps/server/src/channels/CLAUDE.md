@@ -1,10 +1,10 @@
 # channels — Coupang 통합 + Sync + Dashboard 도메인
 
-13 파일. **외부 마켓플레이스(Coupang) 어댑터 + 데이터 동기화 + 분석 대시보드** 가 결합된 도메인. `adapters/coupang/` 하위가 외부 API 격리 레이어.
+**외부 마켓플레이스(Coupang) 어댑터 + 데이터 동기화 + 분석 대시보드** 가 결합된 도메인. `adapters/coupang/` 하위가 외부 API 격리 레이어.
 
 > **Plan A.5 완료 (2026-04-18)**: `syncSingleOrder` / `syncSingleReturn` 은 channel-agnostic `Order` / `OrderLineItem` / `OrderReturn` / `OrderReturnLineItem` 으로 재작성됨. 채널 구분은 `platform String` (현재 `'coupang'`), 채널-특수 raw 데이터는 `metadata Json`. `CoupangOrder` / `CoupangOrderItem` / `CoupangReturn` 는 drop. 신규 채널 추가 시 별도 channel-specific 테이블 만들지 말고 `platform` 값만 추가 ([apps/server/src/orders/CLAUDE.md](../orders/CLAUDE.md) 참고).
 >
-> **⚠ Plan B2c pending**: `syncProducts` 와 `channel-dashboard.service.ts` 는 ADR-0013 drop 모델 (`Product`, `ProductItem`) 참조 + Plan A.5 drop 모델 (`coupangOrder*`) 참조로 stub 상태. B2c 가 `ChannelListing` + `ChannelListingOption` + `Order` / `OrderLineItem` 기반으로 재작성 예정.
+> **Wave C1 완료 (2026-04-27)**: `syncProducts` 를 `ChannelListing` / `ChannelListingOption` 기반으로 재작성. `syncInventory` 는 stub — 별도 wave 가 ADR-0014 단일 writer (`InventoryService`) 와의 경계를 정한 후 작성.
 
 ## Directory
 
@@ -45,23 +45,31 @@ channels/
 
 ### 2. Status Mapping (Coupang → 내부 enum)
 
-`channel-sync.service.ts:17-24` — `COUPANG_STATUS_MAP`:
+`normalizeCoupangProductStatus(raw)` — `ChannelListing.status` 정규화 (Wave C1):
 ```
-APPROVED|ON_SALE → 'active'
-SUSPEND          → 'paused'
-DELETED          → 'deleted'
-UNDER_EXAMINATION|REJECTED → 'draft'
+APPROVED|ON_SALE             → 'active'
+SUSPEND                      → 'paused'
+DELETED                      → 'deleted'
+UNDER_EXAMINATION|REJECTED   → 'draft'
+기타                         → raw.toLowerCase()  // fallback (raw 보존)
 ```
 
-매핑 안 된 status는 'draft' default (line 325). **새 status 발견 시 이 map 업데이트 필수**.
+`normalizeCoupangOrderStatus(raw)` — Order pipeline 5-stage. 현재 `NONE_TRACKING → DEPARTURE` 만 매핑.
+
+**새 status 발견 시**: 매핑 추가 + 단위 테스트 + 본 문서 갱신.
 
 ### 3. Sync 3종 (Products / Orders / Inventory)
 
 `channel-sync.service.ts`:
-- `syncProducts()` — Coupang seller products → 내부 ChannelListing/ChannelListingOption (B2c 가 재작성)
+- `syncProducts(companyId)` — Coupang seller-products → `ChannelListing` / `ChannelListingOption` 동기화 (Wave C1).
+  - `getSellerProducts({nextToken, maxPerPage})` 로 페이지 순회 (`MAX_PAGES=200` 안전 한도).
+  - 각 listing 은 별도 `prisma.$transaction({timeout: 15_000})` — batch 중 실패가 다른 listing 동기화를 막지 않음 (continue-on-error, `result.errors` 카운트).
+  - **Refresh-only**: `ChannelListing.masterId` 가 required 이므로, 기존 listing 이 없는 `sellerProductId` 는 skip + report. master 자동 생성 금지 (제품 import / admin UI 가 담당). 같은 `(companyId, channel='coupang', externalId=sellerProductId)` 는 매번 update — 재실행 idempotent.
+  - **Option upsert**: `ChannelListingOption` 은 `(listingId, externalOptionId=String(vendorItemId))` 로 upsert. `vendorItemId` 누락 시 `BadRequestException` (전체 listing transaction rollback). 내부 `optionId` 매칭은 별도 단계 (nullable 유지).
+  - **Status mapping**: `normalizeCoupangProductStatus(statusName)` 로 `APPROVED|ON_SALE → active`, `SUSPEND → paused`, `DELETED → deleted`, `UNDER_EXAMINATION|REJECTED → draft`. 기타는 lowercase fallback.
 - `syncOrders()` → `syncSingleOrder(payload, companyId)` — Coupang order sheets → `Order` + N `OrderLineItem` (`platform='coupang'`, `externalOrderId=shipmentBoxId`, `externalLineId=vendorItemId`). `prisma.$transaction(async (tx) => {...}, { timeout: 15_000 })` 원자.
 - `syncReturns()` → `syncSingleReturn(payload, companyId)` — Coupang receipts → `OrderReturn` + N `OrderReturnLineItem` (`type=RETURN|EXCHANGE` first-class). matchedOrder lookup (`tx.order.findFirst`) 도 transaction 내부.
-- `syncInventory()` — DB-only 집계. ADR-0014 단일 writer 위배 가능성으로 B2a/B2c 검토 필요.
+- `syncInventory()` — stub. 별도 wave (ADR-0014 단일 writer 경계 결정 후) 가 작성.
 
 **Sync 원자 패턴**:
 ```ts
@@ -96,7 +104,7 @@ await this.prisma.$transaction(async (tx) => {
 
 ### 4. $queryRaw — Dashboard 분석 전용
 
-`channel-dashboard.service.ts:53, 81, 115, 122, 142, 163` — 6개 raw SQL 쿼리 (트렌드, 랭킹, 반품 집계).
+`channel-dashboard.service.ts` — 트렌드 / 랭킹 / 반품 집계용 `$queryRaw` 쿼리 다수.
 
 **규칙**:
 - Parameterized binding 만 사용: `${companyId}::uuid`. **String concat 절대 금지** (SQL injection 위험).
@@ -146,7 +154,7 @@ await this.prisma.$transaction(async (tx) => {
 | 수정 시 | 같이 봐야 할 파일 |
 |---|---|
 | Coupang API endpoint 추가 | `adapters/coupang/{products,orders}.ts` + `services/channel-sync.service.ts` (호출자) + DTO 추가 |
-| Status map 변경 | `services/channel-sync.service.ts:17-24` + `services/channel-sync.service.ts:325` (default fallback) |
+| Status map 변경 | `normalizeCoupangProductStatus` / `normalizeCoupangOrderStatus` in `services/channel-sync.service.ts` + 본 문서 §2 표 업데이트 |
 | 새 sync 종류 (예: 카테고리) | `adapters/coupang/` 신규 모듈 + `channel-sync.controller.ts` + `services/channel-sync.service.ts` 메서드 추가 |
 | Dashboard 쿼리 추가 | `channel-dashboard.service.ts` ($queryRaw + companyId) + `channel-dashboard.controller.ts` + 응답 타입 |
 | 재시도/큐 도입 | adapter 설계 결정 ADR 필요 (현재 비재시도가 의도) |

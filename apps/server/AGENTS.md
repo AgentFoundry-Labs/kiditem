@@ -157,7 +157,7 @@ async getProduct(id: string, companyId: string) {
 | [`src/agent-registry/CLAUDE.md`](src/agent-registry/CLAUDE.md) | **261줄** | Agent OS — Adapters / EventEmitter2 / Manager Workflow / FeatureGate / ExecutionContext / Agent OS Phase 3+4 (8 patterns) |
 | [`src/ai/CLAUDE.md`](src/ai/CLAUDE.md) | 69줄 | Dual-Path — Image=Agent 위임 / Text=Gemini Direct. Preset → hardcoded prompt 매핑 |
 | [`src/auth/CLAUDE.md`](src/auth/CLAUDE.md) | 158줄 | 인증/권한 인프라. `@CurrentUser`/`@CurrentCompany`/`@Roles`/`@SkipAuth`, CompanyScopeGuard, DevAuthMiddleware |
-| [`src/channels/CLAUDE.md`](src/channels/CLAUDE.md) | 111줄 | Coupang 통합 — `adapters/coupang/` 외부 API 격리, Sync 3종 (Products/Orders/Inventory), $queryRaw 분석. **⚠ Plan B2 대기**: Product/ProductItem/MasterInventory 참조가 ADR-0013 drop 으로 stale, 포팅 전까지 build fail |
+| [`src/channels/CLAUDE.md`](src/channels/CLAUDE.md) | ~160줄 | Coupang 통합 — `adapters/coupang/` 외부 API 격리, Sync 3종 (Products/Orders/Inventory), $queryRaw 분석. Products/Orders/Returns 는 channel-agnostic spine 사용, Inventory sync 는 InventoryService 단일 writer 경계 결정 전까지 stub |
 | [`src/chat/CLAUDE.md`](src/chat/CLAUDE.md) | 155줄 | CopilotKit Runtime + ClaudeCliAdapter. Express pre-registration (NestJS 우회), SSE 토큰 스트리밍 |
 | [`src/dashboard/CLAUDE.md`](src/dashboard/CLAUDE.md) | 73줄 | Massive Parallel (Promise.all 11+ queries) + KST 경계 + MoM snapshot + $queryRaw ad metrics |
 | [`src/finance/CLAUDE.md`](src/finance/CLAUDE.md) | 70줄 | P&L + Sales Analysis — $queryRaw cross-table 집계, period parsing, pricing resolver |
