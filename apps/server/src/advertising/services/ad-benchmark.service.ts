@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { kstDayStart } from '../../common/kst';
 import { AdConfigService } from './ad-config.service';
 import {
   recomputeRoas,
@@ -68,9 +69,9 @@ export class AdBenchmarkService {
   async getDiagnosis(companyId: string): Promise<AdBenchmarkData> {
     const config = await this.adConfigService.getConfig(companyId);
 
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    thirtyDaysAgo.setHours(0, 0, 0, 0);
+    // KST day start — period cutoff anchored at Asia/Seoul midnight (Docker prod runs UTC)
+    const today = kstDayStart(new Date());
+    const thirtyDaysAgo = new Date(today.getTime() - 30 * 86_400_000);
 
     const [totals, perListing] = await Promise.all([
       this.prisma.channelListingDailySnapshot.aggregate({

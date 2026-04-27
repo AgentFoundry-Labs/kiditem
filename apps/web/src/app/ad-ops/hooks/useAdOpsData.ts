@@ -32,6 +32,11 @@ export type CampaignsResponse = {
 // instead of legacy AdSnapshot), and `itemWinnerCount` is now
 // `currentWinnerObservedListings` (latest daily-fact observed listings instead
 // of legacy ItemWinner row count). Aliased to the shared schema type.
+// H3: StatusContent surfaces `latestScrapeAt` / `latestChannelStateAt` /
+// `rawSnapshotCount` / `currentWinnerObservedListings` in the 아이템위너 카드.
+// `latestScrapePageType` stays on the wire (could feed a debug panel) but is
+// not user-facing — the raw page slug ('itemwinner', 'campaign', ...) carries
+// no operator value beyond what `latestScrapeAt` already conveys.
 export type ExtensionStatusResponse = AdExtensionStatus;
 
 export type TrafficSummaryResponse = {

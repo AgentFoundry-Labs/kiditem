@@ -7,7 +7,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AgentRegistryService } from '../../agent-registry/agent-registry.service';
 import { buildPerListingMetrics } from '../../common/per-listing-profit';
-import { kstMonthStart } from '../../common/kst';
+import { kstDayStart, kstMonthStart } from '../../common/kst';
 import { AdConfigService } from './ad-config.service';
 import { AdGradeRulesService } from './ad-grade-rules.service';
 import { AdBudgetAllocatorService } from './ad-budget-allocator.service';
@@ -205,9 +205,8 @@ export class AdStrategyService {
     // `ChannelListingDailySnapshot` filtered by businessDate. Two windows:
     //   - last 7 businessDates → "current period"
     //   - businessDates 8..14 ago → "prior period" (used for delta)
-    // Today (KST start of day) is the cutoff for the current 7-day window.
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    // KST day start — period cutoff anchored at Asia/Seoul midnight (Docker prod runs UTC)
+    const today = kstDayStart(new Date());
     const since14d = new Date(today.getTime() - 14 * 24 * 60 * 60 * 1000);
     const cutoff7d = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
 
@@ -426,9 +425,8 @@ export class AdStrategyService {
    * live metrics: 현재 year/month 기준 listing 별 profitRate percentage.
    */
   private async loadStrategyContext(companyId: string, year: number, month: number) {
-    const since14d = new Date();
-    since14d.setDate(since14d.getDate() - 14);
-    since14d.setHours(0, 0, 0, 0);
+    const today = kstDayStart(new Date());
+    const since14d = new Date(today.getTime() - 14 * 86_400_000);
 
     // H3 — aggregate from `ChannelListingDailySnapshot` instead of `Ad`.
     // Lifetime = all rows for the company; 14-day = rows since the cutoff
@@ -595,7 +593,13 @@ export class AdStrategyService {
         FROM channel_listing_daily_snapshots
         WHERE company_id = ${companyId}::uuid
           AND listing_id = ANY(${listingIds}::uuid[])
-        ORDER BY listing_id, business_date DESC
+        -- Deterministic latest: business_date DESC, last_observed_at DESC, updated_at DESC, id DESC
+        ORDER BY
+          listing_id,
+          business_date DESC,
+          last_observed_at DESC NULLS LAST,
+          updated_at DESC NULLS LAST,
+          id DESC
       `),
       primaryListingOptionIds.length === 0
         ? Promise.resolve([] as OptionDailyRow[])
@@ -617,7 +621,13 @@ export class AdStrategyService {
             FROM channel_listing_option_daily_snapshots
             WHERE company_id = ${companyId}::uuid
               AND listing_option_id = ANY(${primaryListingOptionIds}::uuid[])
-            ORDER BY listing_option_id, business_date DESC
+            -- Deterministic latest: business_date DESC, last_observed_at DESC, updated_at DESC, id DESC
+            ORDER BY
+              listing_option_id,
+              business_date DESC,
+              last_observed_at DESC NULLS LAST,
+              updated_at DESC NULLS LAST,
+              id DESC
           `),
     ]);
 

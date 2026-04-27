@@ -196,7 +196,13 @@ export class AdActionService {
           FROM channel_ad_target_daily_snapshots cad
           WHERE cad.company_id = ${companyId}::uuid
             AND cad.target_type IN ('campaign', 'keyword', 'product')
-          ORDER BY cad.target_key, cad.business_date DESC
+          -- Deterministic latest: business_date DESC, last_observed_at DESC, updated_at DESC, id DESC
+          ORDER BY
+            cad.target_key,
+            cad.business_date DESC,
+            cad.last_observed_at DESC NULLS LAST,
+            cad.updated_at DESC NULLS LAST,
+            cad.id DESC
         )
         SELECT
           latest.id,
@@ -257,7 +263,13 @@ export class AdActionService {
         FROM channel_listing_option_daily_snapshots
         WHERE company_id = ${companyId}::uuid
           AND listing_option_id = ANY(${listingOptionIds}::uuid[])
-        ORDER BY listing_option_id, business_date DESC
+        -- Deterministic latest: business_date DESC, last_observed_at DESC, updated_at DESC, id DESC
+        ORDER BY
+          listing_option_id,
+          business_date DESC,
+          last_observed_at DESC NULLS LAST,
+          updated_at DESC NULLS LAST,
+          id DESC
       `);
       for (const row of optionDailies) {
         optionDailyStockMap.set(row.listingOptionId, row.stockQty);

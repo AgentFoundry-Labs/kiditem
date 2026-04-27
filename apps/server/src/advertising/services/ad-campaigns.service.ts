@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { kstDayStart } from '../../common/kst';
 import { AdConfigService } from './ad-config.service';
 import { LISTING_SUMMARY_SELECT } from './types';
 import {
@@ -48,10 +49,9 @@ function periodToDays(period: CampaignsPeriod, fallback = 14): number {
 
 function periodCutoff(period: CampaignsPeriod): Date {
   const days = periodToDays(period, 14);
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - days);
-  cutoff.setHours(0, 0, 0, 0);
-  return cutoff;
+  // KST day start — period cutoff anchored at Asia/Seoul midnight (Docker prod runs UTC)
+  const today = kstDayStart(new Date());
+  return new Date(today.getTime() - days * 86_400_000);
 }
 
 @Injectable()
@@ -170,9 +170,8 @@ export class AdCampaignsService {
     companyId: string,
   ): Promise<AdTrendsData> {
     const d = period ? periodToDays(period) : Math.min(days ?? 14, 90);
-    const since = new Date();
-    since.setDate(since.getDate() - d);
-    since.setHours(0, 0, 0, 0);
+    const today = kstDayStart(new Date());
+    const since = new Date(today.getTime() - d * 86_400_000);
 
     const dailies = await this.prisma.channelListingDailySnapshot.findMany({
       where: { companyId, businessDate: { gte: since } },
