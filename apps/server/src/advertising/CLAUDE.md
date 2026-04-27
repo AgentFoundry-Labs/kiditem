@@ -47,7 +47,7 @@ AdSyncService.sync
 
 C3 가 만든 daily fact 를 strategy/recommendation 응답 시 함께 노출. 자동 액션 / threshold 변경은 일절 없음 — read-only evidence layer.
 
-- `AdStrategyService.loadStrategyContext` 가 `loadChannelStateByListing(companyId, listingIds)` 로 latest `ChannelListingDailySnapshot` (per listing) + latest `ChannelListingOptionDailySnapshot` (per listing 의 첫 option) 을 fetch 해 `Map<listingId, ChannelStateSignal>` 로 hydrate. cross-domain coupling 없음 — `PrismaService` 직접 사용 (channels namespace service 인젝션 금지 규칙 유지).
+- `AdStrategyService.loadStrategyContext` 가 listing hydrate 후 `loadChannelStateByListing(companyId, listings)` 로 latest `ChannelListingDailySnapshot` (per listing) + latest `ChannelListingOptionDailySnapshot` (hydrate 가 선택한 deterministic primary `ChannelListingOption.id`: `createdAt` → `externalOptionId` → `id`) 을 fetch 해 `Map<listingId, ChannelStateSignal>` 로 hydrate. cross-domain coupling 없음 — `PrismaService` 직접 사용 (channels namespace service 인젝션 금지 규칙 유지).
 - `AdGradeRulesService.calcActions` 가 `channelStateByListing` 을 옵션 input 으로 받아 결과 `AdStrategyAction` 의 `channelState` 필드에 attach. snapshot 부재 listing 은 `channelState: null` (없으면 reason 도 그대로 — pre-C4 와 동일).
 - adverse signal (offer-winner lost / exposure 또는 sale 상태가 'active' 가 아님 / `primaryOption.stockQty === 0`) 일 때만 reason 끝에 ` · <fragment> · (YYYY-MM-DD 관측)` evidence 추가. benign state 는 reason 무변경 — diff 로 인한 noise 최소화.
 - shared schema: `AdStrategyAction.channelState?: ChannelStateSignal | null` (선택 필드 — 구버전 client 와 호환). `ChannelStateSignal` / `ChannelOptionStateSignal` 은 `packages/shared/src/schemas/ads.ts` 에서 정의.

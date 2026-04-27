@@ -63,7 +63,7 @@ function ChannelStateChips({ state }: { state: ChannelStateSignal }) {
   } else if (state.isOfferWinner === false) {
     if (state.winnerGapPrice != null) {
       chips.push({
-        label: `아이템위너 아님 · 차이 ${state.winnerGapPrice.toLocaleString()}원`,
+        label: `아이템위너 아님 · 차이 ${formatNumber(state.winnerGapPrice)}원`,
         tone: "danger",
       });
     } else {

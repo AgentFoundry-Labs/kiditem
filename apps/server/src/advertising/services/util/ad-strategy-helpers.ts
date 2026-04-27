@@ -43,7 +43,8 @@ function formatLocalDate(d: Date): string {
  * Prisma relation 명은 `master` 이지만 결과는 `masterProduct` 로 remap (shared AdListingSummary 와 정합).
  * companyId scope 강제 (ADR-0006).
  *
- * primaryOption 은 ad-grade-rules 가 margin / adBudgetLimit 계산에 쓰는 active option 의 첫 번째.
+ * primaryOption 은 ad-grade-rules 가 margin / adBudgetLimit 계산에 쓰는 active option 의
+ * deterministic 첫 번째(오래된 매핑 우선, tie-breaker 로 externalOptionId/id).
  * isActive 인 옵션이 없으면 null.
  */
 export async function hydrateListings(
@@ -63,10 +64,15 @@ export async function hydrateListings(
       },
       options: {
         where: { isActive: true },
+        orderBy: [
+          { createdAt: 'asc' },
+          { externalOptionId: 'asc' },
+          { id: 'asc' },
+        ],
         select: {
           // Wave C4: also surface the active ChannelListingOption.id so the
           // strategy reader can fetch option daily snapshots for the same
-          // option that hydrate picked as primary (not the lowest-id row).
+          // deterministic primary option that hydrate picked.
           id: true,
           option: {
             select: {

@@ -788,6 +788,84 @@ describe('AdStrategy flow (PG integration)', () => {
       expect(action?.reason).toContain('2026-04-14 관측');
     });
 
+    it('uses the deterministic hydrated primary option, not an arbitrary option daily row (C4-#1b)', async () => {
+      const a = await seedGradedListing({
+        companyId: TEST_COMPANY_ID,
+        abcGrade: 'A',
+        adTier: '1차',
+        suffix: 'C4-MULTI',
+      });
+      const earlierOption = await prisma.productOption.create({
+        data: {
+          companyId: TEST_COMPANY_ID,
+          masterId: a.master.id,
+          sku: 'SKU-C4-MULTI-EARLY',
+          optionName: 'Option C4-MULTI EARLY',
+          availableStock: 100,
+          costPrice: 5000,
+          sellPrice: 20000,
+          commissionRate: 0.1,
+          shippingCost: 2500,
+        },
+      });
+      const earlierListingOption = await prisma.channelListingOption.create({
+        data: {
+          companyId: TEST_COMPANY_ID,
+          listingId: a.listing.id,
+          optionId: earlierOption.id,
+          externalOptionId: 'VI-C4-MULTI-EARLY',
+          isActive: true,
+          createdAt: new Date('2026-04-01T00:00:00.000Z'),
+        },
+      });
+      await seedAd({
+        companyId: TEST_COMPANY_ID,
+        listingId: a.listing.id,
+        optionId: a.option.id,
+        spend: 10000,
+        revenue: 60000,
+        clicks: 100,
+        impressions: 10000,
+        conversions: 10,
+      });
+      await seedListingDaily({
+        companyId: TEST_COMPANY_ID,
+        listingId: a.listing.id,
+        externalId: a.listing.externalId,
+        businessDate: '2026-04-14',
+        isOfferWinner: true,
+      });
+      await seedOptionDaily({
+        companyId: TEST_COMPANY_ID,
+        listingId: a.listing.id,
+        listingOptionId: a.listingOption.id,
+        externalId: a.listing.externalId,
+        externalOptionId: a.listingOption.externalOptionId,
+        businessDate: '2026-04-14',
+        stockQty: 0,
+      });
+      await seedOptionDaily({
+        companyId: TEST_COMPANY_ID,
+        listingId: a.listing.id,
+        listingOptionId: earlierListingOption.id,
+        externalId: a.listing.externalId,
+        externalOptionId: earlierListingOption.externalOptionId,
+        businessDate: '2026-04-14',
+        stockQty: 7,
+      });
+
+      const rules = await service.getRules('14d', TEST_COMPANY_ID);
+      const action = rules.recommendations.find(
+        (r) => r.listing.listingId === a.listing.id,
+      );
+      expect(action).toBeDefined();
+      expect(action?.channelState?.primaryOption?.listingOptionId).toBe(
+        earlierListingOption.id,
+      );
+      expect(action?.channelState?.primaryOption?.stockQty).toBe(7);
+      expect(action?.reason).not.toContain('옵션 재고 0');
+    });
+
     it('snapshot absent → channelState=null + reason untouched (C4-#2 fallback)', async () => {
       const a = await seedGradedListing({
         companyId: TEST_COMPANY_ID,

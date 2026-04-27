@@ -449,10 +449,11 @@ export class AdStrategyService {
 
   /**
    * Wave C4 — read the latest `ChannelListingDailySnapshot` per listing and
-   * the latest `ChannelListingOptionDailySnapshot` for each listing's first
-   * matched option, hydrated into a `ChannelStateSignal` map keyed by
-   * listingId. The map omits listings without any daily snapshot, so the rule
-   * engine sees a real `null` (not stale state) and skips evidence enrichment.
+   * the latest `ChannelListingOptionDailySnapshot` for each listing's
+   * deterministic hydrated primary option, hydrated into a
+   * `ChannelStateSignal` map keyed by listingId. The map omits listings
+   * without any daily snapshot, so the rule engine sees a real `null` (not
+   * stale state) and skips evidence enrichment.
    *
    * Cross-domain note: `ChannelListing*DailySnapshot` are channels-namespace
    * Prisma models, but advertising owns the dual-write helper today
