@@ -11,6 +11,8 @@ import { ExtensionSyncDto } from '../dto';
 import type { NormalizedCampaignKpi } from './types';
 import {
   ChannelScrapePersistenceService,
+  type ListingDailyState,
+  type ListingOptionDailyState,
   type ScrapeMatchStatus,
 } from './channel-scrape-persistence.service';
 
@@ -18,9 +20,16 @@ export interface ListingMap {
   // Wave C2: option matches keep `listingOptionId` even when internal
   // `optionId` is null. C3 daily option-snapshot upsert needs the listing
   // option id to land facts before internal product matching is complete.
+  // Wave C3: also carry the listing's `externalId` so daily-snapshot rows can
+  // populate the denormalized `externalId` column without an extra DB lookup.
   externalOptionIdMap: Map<
     string,
-    { listingId: string; listingOptionId: string; optionId: string | null }
+    {
+      listingId: string;
+      listingOptionId: string;
+      optionId: string | null;
+      externalId: string;
+    }
   >;
   externalIdMap: Map<string, { listingId: string }>;
 }
@@ -29,6 +38,11 @@ export interface ListingMatch {
   listingId: string | null;
   listingOptionId: string | null;
   optionId: string | null;
+  // Wave C3: canonical channel identifiers needed for daily-snapshot upsert.
+  // `externalId` is the `ChannelListing.externalId` (e.g. Coupang sellerProductId).
+  // `externalOptionId` is `ChannelListingOption.externalOptionId` (e.g. vendorItemId).
+  externalId: string | null;
+  externalOptionId: string | null;
 }
 
 type ScrapeRowPair = {
@@ -130,6 +144,9 @@ export class AdSyncService {
           externalOptionId: true,
           listingId: true,
           optionId: true,
+          // Wave C3: pull listing's externalId so daily-option-snapshot upsert
+          // can populate the denormalized column without extra round-trips.
+          listing: { select: { externalId: true } },
         },
       }),
       this.prisma.channelListing.findMany({
@@ -148,6 +165,7 @@ export class AdSyncService {
         listingId: opt.listingId,
         listingOptionId: opt.id,
         optionId: opt.optionId ?? null,
+        externalId: opt.listing.externalId,
       });
     }
 
@@ -175,6 +193,8 @@ export class AdSyncService {
           listingId: hit.listingId,
           listingOptionId: hit.listingOptionId,
           optionId: hit.optionId,
+          externalId: hit.externalId,
+          externalOptionId: providerOptionId,
         };
       }
     }
@@ -192,11 +212,19 @@ export class AdSyncService {
           listingId: hit.listingId,
           listingOptionId: null,
           optionId: null,
+          externalId,
+          externalOptionId: null,
         };
       }
     }
 
-    return { listingId: null, listingOptionId: null, optionId: null };
+    return {
+      listingId: null,
+      listingOptionId: null,
+      optionId: null,
+      externalId: null,
+      externalOptionId: null,
+    };
   }
 
   /** Wave C2: snapshot match status derivation. */
@@ -289,6 +317,16 @@ export class AdSyncService {
     );
   }
 
+  private resolveBusinessDate(
+    ...candidates: Array<string | undefined | null>
+  ): Date {
+    for (const candidate of candidates) {
+      const parsed = this.toBusinessDate(candidate);
+      if (parsed) return parsed;
+    }
+    return this.currentBusinessDate();
+  }
+
   /**
    * Wave C2 — finalize a scrape run with `status='error'` after a thrown
    * exception. Keeps the run row from being stuck on `status='running'`
@@ -342,7 +380,11 @@ export class AdSyncService {
   ) {
     const campaignName = payload.campaignName || '_전체';
     const period = String(payload.period || '7d');
-    const today = this.toBusinessDate(payload.timestamp) ?? this.currentBusinessDate();
+    const today = this.resolveBusinessDate(
+      payload.timestamp,
+      payload.dateFrom,
+      payload.dateTo,
+    );
     const kpis = payload.kpis || {};
     const normalizedRows = payload.normalizedRows ?? [];
     const scrapeRows = this.pairScrapeRows(payload.data, normalizedRows);
@@ -706,8 +748,14 @@ export class AdSyncService {
     let upserted = 0;
 
     // Wave C2 — pageType: wing → 'itemwinner', advertising rows are
-    // per-row pageType. businessDate from payload.timestamp (KST date).
-    const businessDate = this.toBusinessDate(payload.timestamp ?? null);
+    // per-row pageType. businessDate comes from timestamp/date-range fields
+    // through the shared KST resolver.
+    const businessDate = this.resolveBusinessDate(
+      payload.timestamp,
+      payload.startDate,
+      payload.dateFrom,
+      payload.dateTo,
+    );
     const scrapeRun = await this.scrapePersistence.createRun({
       companyId,
       channel: 'coupang',
@@ -747,7 +795,7 @@ export class AdSyncService {
           'vendor_item_id',
           'itemId',
         ]);
-        await this.scrapePersistence.appendSnapshot({
+        const snapshot = await this.scrapePersistence.appendSnapshot({
           scrapeRunId: scrapeRun.id,
           companyId,
           channel: 'coupang',
@@ -769,6 +817,43 @@ export class AdSyncService {
         scrapeSnapshotCount += 1;
         if (matchStatus === 'unmatched') scrapeUnmatched += 1;
         else scrapeMatched += 1;
+
+        // Wave C3 — daily fact upsert. We do this even when the legacy
+        // ItemWinner row is filtered out (short product name), because winner
+        // price/state observations are valuable on their own. We only require
+        // a listing match + a businessDate + at least one observable field.
+        if (match.listingId && businessDate) {
+          const listingState = this.normalizeWingListingState(row);
+          if (listingState) {
+            await this.scrapePersistence.upsertListingDaily({
+              companyId,
+              listingId: match.listingId,
+              channel: 'coupang',
+              externalId: match.externalId ?? externalIdRaw ?? '',
+              businessDate,
+              rawSnapshotId: snapshot.id,
+              ...listingState,
+            });
+          }
+          if (match.listingOptionId) {
+            const optionState = this.normalizeWingOptionState(row);
+            if (optionState) {
+              await this.scrapePersistence.upsertOptionDaily({
+                companyId,
+                listingId: match.listingId,
+                listingOptionId: match.listingOptionId,
+                optionId: match.optionId,
+                channel: 'coupang',
+                externalId: match.externalId ?? externalIdRaw ?? '',
+                externalOptionId:
+                  match.externalOptionId ?? externalOptionIdRaw ?? '',
+                businessDate,
+                rawSnapshotId: snapshot.id,
+                ...optionState,
+              });
+            }
+          }
+        }
 
         // Legacy ItemWinner downstream write keeps its original filters.
         if (!productName || productName.length < 3) continue;
@@ -990,8 +1075,13 @@ export class AdSyncService {
     map: ListingMap,
   ) {
     const period = Number(payload.period) || 14;
-    const today = this.toBusinessDate(payload.startDate ?? payload.timestamp)
-      ?? this.currentBusinessDate();
+    const today = this.resolveBusinessDate(
+      payload.startDate,
+      payload.dateFrom,
+      payload.timestamp,
+      payload.endDate,
+      payload.dateTo,
+    );
     const data = payload.data ?? [];
     let upserted = 0;
     let skipped = 0;
@@ -1208,7 +1298,13 @@ export class AdSyncService {
       channel: 'coupang',
       source: 'coupang_ads',
       pageType: 'dashboard_daily',
-      businessDate: this.toBusinessDate(payload.startDate),
+      businessDate: this.resolveBusinessDate(
+        payload.startDate,
+        payload.dateFrom,
+        payload.timestamp,
+        payload.endDate,
+        payload.dateTo,
+      ),
       periodStart: this.toBusinessDate(payload.dateFrom ?? payload.startDate),
       periodEnd: this.toBusinessDate(payload.dateTo ?? payload.endDate),
       targetUrl: payload.url ?? null,
@@ -1436,5 +1532,67 @@ export class AdSyncService {
     if (value === null || value === undefined || value === '') return null;
     const num = this.toNumber(value);
     return Number.isFinite(num) ? Math.round(num) : null;
+  }
+
+  /**
+   * Wave C3 — derive listing-level observable state from a Wing item-winner
+   * row. Returns `null` when the row carries no observable state, so the
+   * caller can skip the daily upsert entirely (e.g., a row that is only there
+   * to feed `ChannelScrapeSnapshot` raw preservation).
+   */
+  private normalizeWingListingState(
+    row: Record<string, any>,
+  ): ListingDailyState | null {
+    const productName = this.cleanString(row.productName);
+    const isOfferWinner = this.toBooleanOrNull(row.isWinner);
+    const myPrice = this.toNumberOrNull(row.myPrice);
+    const winnerPrice = this.toNumberOrNull(row.winnerPrice);
+    if (
+      productName === null &&
+      isOfferWinner === null &&
+      myPrice === null &&
+      winnerPrice === null
+    ) {
+      return null;
+    }
+    const winnerGapPrice =
+      myPrice !== null && winnerPrice !== null ? winnerPrice - myPrice : null;
+    return {
+      productName,
+      isOfferWinner,
+      myPrice,
+      winnerPrice,
+      winnerGapPrice,
+    };
+  }
+
+  /**
+   * Wave C3 — Wing item-winner rows are per-vendor-item, so the same winner
+   * fields apply to the option daily fact. Returns `null` when no observable
+   * field is present.
+   */
+  private normalizeWingOptionState(
+    row: Record<string, any>,
+  ): ListingOptionDailyState | null {
+    const isOfferWinner = this.toBooleanOrNull(row.isWinner);
+    const myPrice = this.toNumberOrNull(row.myPrice);
+    const winnerPrice = this.toNumberOrNull(row.winnerPrice);
+    if (isOfferWinner === null && myPrice === null && winnerPrice === null) {
+      return null;
+    }
+    const winnerGapPrice =
+      myPrice !== null && winnerPrice !== null ? winnerPrice - myPrice : null;
+    return {
+      isOfferWinner,
+      myPrice,
+      winnerPrice,
+      winnerGapPrice,
+    };
+  }
+
+  private toBooleanOrNull(value: unknown): boolean | null {
+    if (value === true || value === 'true') return true;
+    if (value === false || value === 'false') return false;
+    return null;
   }
 }

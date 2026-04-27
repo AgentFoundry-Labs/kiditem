@@ -8,9 +8,11 @@
 // Prisma models directly through `PrismaService` rather than calling
 // `ChannelSyncService`.
 //
-// Existing ingestion paths (`AdSnapshot` / `TrafficStats` / `ItemWinner` /
-// `Ad`) keep writing as before. C2 adds raw run/snapshot rows alongside,
-// preparing C3 (daily upsert) and C4 (strategy reads).
+// Wave C3 — adds idempotent daily upsert for listing/option state
+// (`ChannelListingDailySnapshot` / `ChannelListingOptionDailySnapshot`).
+// Same `(companyId, listingId, businessDate)` (or `listingOptionId`) is
+// upserted: `sampleCount` increments, `lastObservedAt` updates, observable
+// fields overwrite when explicitly non-null. Raw snapshots stay append-only.
 
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
@@ -60,6 +62,107 @@ export interface ScrapeRunFinalize {
   unmatchedCount?: number;
   errorCount?: number;
   errorJson?: Prisma.InputJsonValue | null;
+}
+
+/**
+ * Wave C3 — observable listing-level state derived from a single raw row.
+ * Caller passes only the fields that this scrape actually observed; `null`
+ * and `undefined` mean "not observed" and won't overwrite an existing value
+ * on a repeated upsert. Non-null values overwrite.
+ */
+export interface ListingDailyState {
+  productName?: string | null;
+  status?: string | null;
+  exposureStatus?: string | null;
+  saleStatus?: string | null;
+  channelPrice?: number | null;
+  reviewCount?: number | null;
+  avgRating?: number | null;
+  isOfferWinner?: boolean | null;
+  myPrice?: number | null;
+  winnerPrice?: number | null;
+  winnerGapPrice?: number | null;
+  productRank?: number | null;
+  categoryRank?: number | null;
+}
+
+export interface ListingDailyUpsertInput extends ListingDailyState {
+  companyId: string;
+  listingId: string;
+  channel: string;
+  externalId: string;
+  businessDate: Date;
+  observedAt?: Date;
+  rawSnapshotId?: string | null;
+  metaJson?: Prisma.InputJsonValue | null;
+}
+
+export interface ListingOptionDailyState {
+  optionName?: string | null;
+  salePrice?: number | null;
+  stockQty?: number | null;
+  saleStatus?: string | null;
+  isActive?: boolean | null;
+  isOfferWinner?: boolean | null;
+  myPrice?: number | null;
+  winnerPrice?: number | null;
+  winnerGapPrice?: number | null;
+}
+
+export interface ListingOptionDailyUpsertInput extends ListingOptionDailyState {
+  companyId: string;
+  listingId: string;
+  listingOptionId: string;
+  optionId?: string | null;
+  channel: string;
+  externalId: string;
+  externalOptionId: string;
+  businessDate: Date;
+  observedAt?: Date;
+  rawSnapshotId?: string | null;
+  metaJson?: Prisma.InputJsonValue | null;
+}
+
+const LISTING_STATE_KEYS: ReadonlyArray<keyof ListingDailyState> = [
+  'productName',
+  'status',
+  'exposureStatus',
+  'saleStatus',
+  'channelPrice',
+  'reviewCount',
+  'avgRating',
+  'isOfferWinner',
+  'myPrice',
+  'winnerPrice',
+  'winnerGapPrice',
+  'productRank',
+  'categoryRank',
+];
+
+const OPTION_STATE_KEYS: ReadonlyArray<keyof ListingOptionDailyState> = [
+  'optionName',
+  'salePrice',
+  'stockQty',
+  'saleStatus',
+  'isActive',
+  'isOfferWinner',
+  'myPrice',
+  'winnerPrice',
+  'winnerGapPrice',
+];
+
+function pickObservedFields<T extends object, K extends keyof T>(
+  source: T,
+  keys: ReadonlyArray<K>,
+): Partial<Pick<T, K>> {
+  const out: Partial<Pick<T, K>> = {};
+  for (const key of keys) {
+    const value = source[key];
+    if (value !== null && value !== undefined) {
+      out[key] = value;
+    }
+  }
+  return out;
 }
 
 @Injectable()
@@ -139,4 +242,139 @@ export class ChannelScrapePersistenceService {
     }
   }
 
+  /**
+   * Wave C3 — upsert listing-level daily state.
+   * Idempotent on `(companyId, listingId, businessDate)`. Repeated calls
+   * increment `sampleCount`, refresh `lastObservedAt` and `rawSnapshotId`,
+   * and overwrite observable fields when the new value is non-null.
+   * `firstObservedAt` is preserved across updates.
+   */
+  async upsertListingDaily(
+    input: ListingDailyUpsertInput,
+  ): Promise<{ id: string }> {
+    const observedAt = input.observedAt ?? new Date();
+    const observedState = pickObservedFields(input, LISTING_STATE_KEYS);
+    const metaJsonForCreate =
+      input.metaJson === undefined || input.metaJson === null
+        ? Prisma.DbNull
+        : input.metaJson;
+
+    return this.prisma.channelListingDailySnapshot.upsert({
+      where: {
+        companyId_listingId_businessDate: {
+          companyId: input.companyId,
+          listingId: input.listingId,
+          businessDate: input.businessDate,
+        },
+      },
+      create: {
+        companyId: input.companyId,
+        listingId: input.listingId,
+        channel: input.channel,
+        externalId: input.externalId,
+        businessDate: input.businessDate,
+        sampleCount: 1,
+        firstObservedAt: observedAt,
+        lastObservedAt: observedAt,
+        rawSnapshotId: input.rawSnapshotId ?? null,
+        metaJson: metaJsonForCreate,
+        productName: input.productName ?? null,
+        status: input.status ?? null,
+        exposureStatus: input.exposureStatus ?? null,
+        saleStatus: input.saleStatus ?? null,
+        channelPrice: input.channelPrice ?? null,
+        reviewCount: input.reviewCount ?? null,
+        avgRating: input.avgRating ?? null,
+        isOfferWinner: input.isOfferWinner ?? null,
+        myPrice: input.myPrice ?? null,
+        winnerPrice: input.winnerPrice ?? null,
+        winnerGapPrice: input.winnerGapPrice ?? null,
+        productRank: input.productRank ?? null,
+        categoryRank: input.categoryRank ?? null,
+      },
+      update: {
+        sampleCount: { increment: 1 },
+        lastObservedAt: observedAt,
+        ...(input.rawSnapshotId !== undefined
+          ? { rawSnapshotId: input.rawSnapshotId }
+          : {}),
+        ...(input.metaJson !== undefined
+          ? {
+              metaJson:
+                input.metaJson === null ? Prisma.DbNull : input.metaJson,
+            }
+          : {}),
+        ...observedState,
+      },
+      select: { id: true },
+    });
+  }
+
+  /**
+   * Wave C3 — upsert option-level daily state.
+   * Idempotent on `(companyId, listingOptionId, businessDate)`. Same update
+   * semantics as `upsertListingDaily`.
+   */
+  async upsertOptionDaily(
+    input: ListingOptionDailyUpsertInput,
+  ): Promise<{ id: string }> {
+    const observedAt = input.observedAt ?? new Date();
+    const observedState = pickObservedFields(input, OPTION_STATE_KEYS);
+    const metaJsonForCreate =
+      input.metaJson === undefined || input.metaJson === null
+        ? Prisma.DbNull
+        : input.metaJson;
+
+    return this.prisma.channelListingOptionDailySnapshot.upsert({
+      where: {
+        companyId_listingOptionId_businessDate: {
+          companyId: input.companyId,
+          listingOptionId: input.listingOptionId,
+          businessDate: input.businessDate,
+        },
+      },
+      create: {
+        companyId: input.companyId,
+        listingId: input.listingId,
+        listingOptionId: input.listingOptionId,
+        optionId: input.optionId ?? null,
+        channel: input.channel,
+        externalId: input.externalId,
+        externalOptionId: input.externalOptionId,
+        businessDate: input.businessDate,
+        sampleCount: 1,
+        firstObservedAt: observedAt,
+        lastObservedAt: observedAt,
+        rawSnapshotId: input.rawSnapshotId ?? null,
+        metaJson: metaJsonForCreate,
+        optionName: input.optionName ?? null,
+        salePrice: input.salePrice ?? null,
+        stockQty: input.stockQty ?? null,
+        saleStatus: input.saleStatus ?? null,
+        isActive: input.isActive ?? null,
+        isOfferWinner: input.isOfferWinner ?? null,
+        myPrice: input.myPrice ?? null,
+        winnerPrice: input.winnerPrice ?? null,
+        winnerGapPrice: input.winnerGapPrice ?? null,
+      },
+      update: {
+        sampleCount: { increment: 1 },
+        lastObservedAt: observedAt,
+        ...(input.rawSnapshotId !== undefined
+          ? { rawSnapshotId: input.rawSnapshotId }
+          : {}),
+        ...(input.metaJson !== undefined
+          ? {
+              metaJson:
+                input.metaJson === null ? Prisma.DbNull : input.metaJson,
+            }
+          : {}),
+        ...(input.optionId !== undefined && input.optionId !== null
+          ? { optionId: input.optionId }
+          : {}),
+        ...observedState,
+      },
+      select: { id: true },
+    });
+  }
 }

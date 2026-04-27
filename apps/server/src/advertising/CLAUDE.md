@@ -36,12 +36,25 @@ AdSyncService.sync
 `ChannelScrapeRun` / `ChannelScrapeSnapshot` 은 channels namespace 의 Prisma 모델이지만 **advertising 도메인이 dual-write** 한다. cross-domain coupling 회피용 예외:
 
 - 이유: scrape ingestion 진입점이 `/api/ads/extension/sync` 하나라 advertising 안에서 raw + normalized 를 같이 쓰는 게 trace 가 단순. `ChannelSyncService` 인젝션은 금지 (`apps/server/AGENTS.md` 의 service-to-service 규칙).
-- helper: `ChannelScrapePersistenceService` (`apps/server/src/advertising/services/channel-scrape-persistence.service.ts`). `PrismaService` 만 의존하며 `channelScrapeRun` / `channelScrapeSnapshot` 모델을 직접 만진다. 다른 도메인이 같은 패턴을 쓸 때까지는 advertising-local 로 유지.
+- helper: `ChannelScrapePersistenceService` (`apps/server/src/advertising/services/channel-scrape-persistence.service.ts`). `PrismaService` 만 의존하며 `channelScrapeRun` / `channelScrapeSnapshot` / `channelListingDailySnapshot` / `channelListingOptionDailySnapshot` 모델을 직접 만진다. 다른 도메인이 같은 패턴을 쓸 때까지는 advertising-local 로 유지.
 - run lifecycle: `createRun(status:'running')` → `appendSnapshot(...)` × N → `finalizeRun(status:'complete')`. 모든 handler 가 try/catch 로 감싸 실패 시 `finalizeScrapeRunOnError(scrapeRunId, counts, err)` 로 `status:'error'` + `errorJson` 저장 — `running` 상태로 leak 금지.
 - raw row 보존 우선: 매칭 실패 / 도메인 필터 (productName 짧음, missing date, unknown source) 가 있어도 row 의 `ChannelScrapeSnapshot` 은 항상 먼저 작성하고 `matchReason` 에 사유 기록. legacy AdSnapshot/Ad/TrafficStats/ItemWinner 만 그 뒤 필터 적용.
-- `ListingMatch` 는 internal `optionId` 가 null 이어도 `listingOptionId` 를 반드시 보존 (C3 daily option snapshot 이 listingOption 식별자만으로 land 가능해야 함).
+- `ListingMatch` 는 internal `optionId` 가 null 이어도 `listingOptionId` 를 반드시 보존 (C3 daily option snapshot 이 listingOption 식별자만으로 land 가능해야 함). Wave C3 부터 `externalId` / `externalOptionId` 도 함께 carry — daily snapshot 의 denormalized column 채우기용.
 - KST business date: `payload.timestamp` 같은 ISO 문자열은 `+09:00` shift 후 day slice. `YYYY-MM-DD` 형태는 이미 KST business date 로 간주. helper `toBusinessDate()` 한 곳에서만 처리 — handler 가 직접 `new Date(...).slice(0,10)` 하지 말 것.
 - payload date-range: extension 이 `dateFrom` / `dateTo` 를 보내면 `ExtensionSyncDto` 가 명시적으로 받아야 함 (전역 `ValidationPipe({whitelist:true})` 가 미선언 필드 strip). 받은 값은 `ChannelScrapeRun.periodStart` / `periodEnd` 로 매핑.
+
+## Wave C3 — Daily listing/option snapshot upsert (영구 규칙)
+
+raw `ChannelScrapeSnapshot` 다음 단계로, **관측된 product/option 상태를 일별 fact 로 정규화** 한다. raw row 는 그대로 append-only, daily fact 는 idempotent upsert.
+
+- helper: 같은 `ChannelScrapePersistenceService` 가 `upsertListingDaily(input)` / `upsertOptionDaily(input)` 노출. `(companyId, listingId, businessDate)` / `(companyId, listingOptionId, businessDate)` 복합 unique 로 upsert.
+- create path: `sampleCount = 1`, `firstObservedAt = lastObservedAt = now`, observable field set, `rawSnapshotId` link.
+- update path: `sampleCount: { increment: 1 }`, `lastObservedAt = now`, `rawSnapshotId` 는 최신 관측 row 로 갱신, `firstObservedAt` 은 보존. observable field 는 caller 가 explicit non-null 일 때만 overwrite (later scrape 가 빠뜨린 field 를 wipe 하지 않음).
+- 현재 daily fact 발생 source: **wing item-winner row 만**. (handleRawScrape 의 `source === 'wing'` 분기). 이유: 현 payload 중 product/option **상태** 필드 (productName / isWinner / myPrice / winnerPrice) 가 들어오는 곳이 wing 뿐. traffic 은 metric 만, ad_campaign / coupang_ads_daily 는 광고 metric 이라 daily snapshot 에 land 할 product state 가 없다 — 향후 product state 가 추가되면 normalizer 함수 (`normalizeWingListingState` / `normalizeWingOptionState` 패턴) 만 추가하고 같은 upsert helper 재사용.
+- listing-only match (vendorItemId miss → externalId fallback) 는 listing daily 만 land. option daily 는 `match.listingOptionId !== null` 일 때만.
+- option daily 는 internal `optionId === null` 이어도 land (`listingOptionId` 만으로 충분).
+- 관측 가능한 field 가 하나도 없으면 (빈 row) normalizer 가 `null` 반환 → upsert 자체 skip. 빈 row 가 sampleCount 만 올리지 않게 한다.
+- legacy `AdSnapshot` / `TrafficStats` / `ItemWinner` / `Ad` write 는 변경 없이 유지. daily snapshot 은 strategy/dashboard read model 이 향후 join 할 단일 source — C4 에서 사용.
 
 ## API Endpoints
 
