@@ -662,4 +662,538 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
     });
     expect(itemWinners).toBe(1);
   });
+
+  // -----------------------------------------------------------------------
+  // Wave C3 — Daily listing/option snapshot upsert.
+  // -----------------------------------------------------------------------
+
+  it('Wave C3 — wing item-winner row upserts both listing daily and option daily fact (full vendor match)', async () => {
+    const matched = await seedListingWithOption({
+      externalId: 'EXT-C3-A',
+      externalOptionId: 'VENDOR-C3-A',
+    });
+
+    const result = (await adSyncService.sync(
+      {
+        type: 'raw_scrape',
+        source: 'wing',
+        timestamp: '2026-04-14T02:00:00Z',
+        data: [
+          {
+            productName: 'Daily Winner',
+            externalId: 'EXT-C3-A',
+            vendorItemId: 'VENDOR-C3-A',
+            isWinner: true,
+            myPrice: 12000,
+            winnerPrice: 11500,
+          },
+        ],
+      },
+      companyId,
+    )) as { scrapeRunId: string };
+
+    const listingDaily = await prisma.channelListingDailySnapshot.findFirst({
+      where: { companyId, listingId: matched.listing.id },
+    });
+    expect(listingDaily).toBeDefined();
+    expect(listingDaily?.businessDate.toISOString().slice(0, 10)).toBe(
+      '2026-04-14',
+    );
+    expect(listingDaily?.channel).toBe('coupang');
+    expect(listingDaily?.externalId).toBe('EXT-C3-A');
+    expect(listingDaily?.productName).toBe('Daily Winner');
+    expect(listingDaily?.isOfferWinner).toBe(true);
+    expect(listingDaily?.myPrice).toBe(12000);
+    expect(listingDaily?.winnerPrice).toBe(11500);
+    expect(listingDaily?.winnerGapPrice).toBe(-500);
+    expect(listingDaily?.sampleCount).toBe(1);
+    expect(listingDaily?.firstObservedAt).not.toBeNull();
+    expect(listingDaily?.lastObservedAt).not.toBeNull();
+    expect(listingDaily?.rawSnapshotId).not.toBeNull();
+
+    const linkedSnap = await prisma.channelScrapeSnapshot.findUnique({
+      where: { id: listingDaily!.rawSnapshotId! },
+    });
+    expect(linkedSnap?.scrapeRunId).toBe(result.scrapeRunId);
+
+    const optionDaily =
+      await prisma.channelListingOptionDailySnapshot.findFirst({
+        where: { companyId, listingOptionId: matched.listingOption.id },
+      });
+    expect(optionDaily).toBeDefined();
+    expect(optionDaily?.externalOptionId).toBe('VENDOR-C3-A');
+    expect(optionDaily?.optionId).toBe(matched.productOption?.id ?? null);
+    expect(optionDaily?.isOfferWinner).toBe(true);
+    expect(optionDaily?.myPrice).toBe(12000);
+    expect(optionDaily?.winnerPrice).toBe(11500);
+    expect(optionDaily?.winnerGapPrice).toBe(-500);
+    expect(optionDaily?.sampleCount).toBe(1);
+  });
+
+  it('Wave C3 — second scrape on the same KST businessDate is idempotent: 1 listing daily + 1 option daily, sampleCount=2, lastObservedAt advances, firstObservedAt preserved, raw rows multiply', async () => {
+    const matched = await seedListingWithOption({
+      externalId: 'EXT-C3-IDEM',
+      externalOptionId: 'VENDOR-C3-IDEM',
+    });
+
+    await adSyncService.sync(
+      {
+        type: 'raw_scrape',
+        source: 'wing',
+        timestamp: '2026-04-14T02:00:00Z',
+        data: [
+          {
+            productName: 'Idem Toy',
+            externalId: 'EXT-C3-IDEM',
+            vendorItemId: 'VENDOR-C3-IDEM',
+            isWinner: true,
+            myPrice: 10000,
+            winnerPrice: 9500,
+          },
+        ],
+      },
+      companyId,
+    );
+    const firstListing = await prisma.channelListingDailySnapshot.findFirst({
+      where: { companyId, listingId: matched.listing.id },
+    });
+    const firstOption =
+      await prisma.channelListingOptionDailySnapshot.findFirst({
+        where: { companyId, listingOptionId: matched.listingOption.id },
+      });
+    expect(firstListing).toBeDefined();
+    expect(firstOption).toBeDefined();
+    const firstObservedListingAt = firstListing!.firstObservedAt;
+    const firstObservedOptionAt = firstOption!.firstObservedAt;
+    const firstLastListingAt = firstListing!.lastObservedAt;
+    const firstRawSnapshotId = firstListing!.rawSnapshotId;
+
+    // Force at least 5ms gap so lastObservedAt can be observed to advance.
+    await new Promise((r) => setTimeout(r, 10));
+
+    await adSyncService.sync(
+      {
+        type: 'raw_scrape',
+        source: 'wing',
+        // Same KST business date (2026-04-14), different observation time.
+        timestamp: '2026-04-14T05:00:00Z',
+        data: [
+          {
+            productName: 'Idem Toy',
+            externalId: 'EXT-C3-IDEM',
+            vendorItemId: 'VENDOR-C3-IDEM',
+            isWinner: false,
+            myPrice: 9800,
+            winnerPrice: 9500,
+          },
+        ],
+      },
+      companyId,
+    );
+
+    // Listing daily — exactly one row, sampleCount=2, fields overwritten.
+    const listingDailies = await prisma.channelListingDailySnapshot.findMany({
+      where: { companyId, listingId: matched.listing.id },
+    });
+    expect(listingDailies).toHaveLength(1);
+    const listingDaily = listingDailies[0];
+    expect(listingDaily.sampleCount).toBe(2);
+    expect(listingDaily.firstObservedAt.toISOString()).toBe(
+      firstObservedListingAt.toISOString(),
+    );
+    expect(listingDaily.lastObservedAt.getTime()).toBeGreaterThan(
+      firstLastListingAt.getTime(),
+    );
+    expect(listingDaily.isOfferWinner).toBe(false);
+    expect(listingDaily.myPrice).toBe(9800);
+    expect(listingDaily.winnerPrice).toBe(9500);
+    expect(listingDaily.winnerGapPrice).toBe(-300);
+    // rawSnapshotId points at the most recent observation.
+    expect(listingDaily.rawSnapshotId).not.toBeNull();
+    expect(listingDaily.rawSnapshotId).not.toBe(firstRawSnapshotId);
+
+    // Option daily — same idempotent shape.
+    const optionDailies =
+      await prisma.channelListingOptionDailySnapshot.findMany({
+        where: { companyId, listingOptionId: matched.listingOption.id },
+      });
+    expect(optionDailies).toHaveLength(1);
+    expect(optionDailies[0].sampleCount).toBe(2);
+    expect(optionDailies[0].firstObservedAt.toISOString()).toBe(
+      firstObservedOptionAt.toISOString(),
+    );
+    expect(optionDailies[0].isOfferWinner).toBe(false);
+    expect(optionDailies[0].myPrice).toBe(9800);
+    expect(optionDailies[0].winnerPrice).toBe(9500);
+
+    // Raw snapshots accumulate (one per scrape, append-only).
+    const rawCount = await prisma.channelScrapeSnapshot.count({
+      where: { companyId, listingId: matched.listing.id },
+    });
+    expect(rawCount).toBe(2);
+  });
+
+  it('Wave C3 — different KST businessDate creates a new daily row (no merge across days)', async () => {
+    const matched = await seedListingWithOption({
+      externalId: 'EXT-C3-DAY',
+      externalOptionId: 'VENDOR-C3-DAY',
+    });
+
+    await adSyncService.sync(
+      {
+        type: 'raw_scrape',
+        source: 'wing',
+        timestamp: '2026-04-13T03:00:00Z', // KST 2026-04-13 12:00
+        data: [
+          {
+            productName: 'Day1',
+            vendorItemId: 'VENDOR-C3-DAY',
+            externalId: 'EXT-C3-DAY',
+            isWinner: true,
+            myPrice: 1000,
+            winnerPrice: 1000,
+          },
+        ],
+      },
+      companyId,
+    );
+    await adSyncService.sync(
+      {
+        type: 'raw_scrape',
+        source: 'wing',
+        timestamp: '2026-04-14T03:00:00Z', // KST 2026-04-14 12:00
+        data: [
+          {
+            productName: 'Day2',
+            vendorItemId: 'VENDOR-C3-DAY',
+            externalId: 'EXT-C3-DAY',
+            isWinner: false,
+            myPrice: 1100,
+            winnerPrice: 1000,
+          },
+        ],
+      },
+      companyId,
+    );
+
+    const listings = await prisma.channelListingDailySnapshot.findMany({
+      where: { companyId, listingId: matched.listing.id },
+      orderBy: { businessDate: 'asc' },
+    });
+    expect(listings).toHaveLength(2);
+    expect(listings[0].businessDate.toISOString().slice(0, 10)).toBe(
+      '2026-04-13',
+    );
+    expect(listings[1].businessDate.toISOString().slice(0, 10)).toBe(
+      '2026-04-14',
+    );
+    const options = await prisma.channelListingOptionDailySnapshot.findMany({
+      where: { companyId, listingOptionId: matched.listingOption.id },
+      orderBy: { businessDate: 'asc' },
+    });
+    expect(options).toHaveLength(2);
+  });
+
+  it('Wave C3 — listing-only match (vendorItemId miss → externalId fallback) writes listing daily but no option daily', async () => {
+    const matched = await seedListingWithOption({
+      externalId: 'EXT-C3-LO',
+      externalOptionId: 'VENDOR-C3-LO',
+    });
+
+    await adSyncService.sync(
+      {
+        type: 'raw_scrape',
+        source: 'wing',
+        timestamp: '2026-04-14T02:00:00Z',
+        data: [
+          {
+            productName: 'Listing Only',
+            externalId: 'EXT-C3-LO', // matches listing
+            vendorItemId: 'VENDOR-MISS', // misses option map
+            isWinner: true,
+            myPrice: 5000,
+            winnerPrice: 4900,
+          },
+        ],
+      },
+      companyId,
+    );
+
+    const listingDaily = await prisma.channelListingDailySnapshot.findFirst({
+      where: { companyId, listingId: matched.listing.id },
+    });
+    expect(listingDaily).toBeDefined();
+    expect(listingDaily?.isOfferWinner).toBe(true);
+
+    const optionDaily =
+      await prisma.channelListingOptionDailySnapshot.findFirst({
+        where: { companyId, listingOptionId: matched.listingOption.id },
+      });
+    expect(optionDaily).toBeNull();
+  });
+
+  it('Wave C3 — option daily fact lands even when internal optionId is null (channel option matched, ProductOption unmatched)', async () => {
+    const matched = await seedListingWithOption({
+      externalId: 'EXT-C3-OPTNULL',
+      externalOptionId: 'VENDOR-C3-OPTNULL',
+      optionId: 'null',
+    });
+    expect(matched.listingOption.optionId).toBeNull();
+
+    await adSyncService.sync(
+      {
+        type: 'raw_scrape',
+        source: 'wing',
+        timestamp: '2026-04-14T02:00:00Z',
+        data: [
+          {
+            productName: 'Null Option Toy',
+            externalId: 'EXT-C3-OPTNULL',
+            vendorItemId: 'VENDOR-C3-OPTNULL',
+            isWinner: false,
+            myPrice: 7000,
+            winnerPrice: 6900,
+          },
+        ],
+      },
+      companyId,
+    );
+
+    const optionDaily =
+      await prisma.channelListingOptionDailySnapshot.findFirst({
+        where: { companyId, listingOptionId: matched.listingOption.id },
+      });
+    expect(optionDaily).toBeDefined();
+    expect(optionDaily?.optionId).toBeNull();
+    expect(optionDaily?.externalOptionId).toBe('VENDOR-C3-OPTNULL');
+    expect(optionDaily?.myPrice).toBe(7000);
+  });
+
+  it('Wave C3 — unmatched row preserves raw snapshot but creates no daily fact', async () => {
+    await adSyncService.sync(
+      {
+        type: 'raw_scrape',
+        source: 'wing',
+        timestamp: '2026-04-14T02:00:00Z',
+        data: [
+          {
+            productName: 'Lost Toy',
+            externalId: 'EXT-C3-NONE',
+            vendorItemId: 'VENDOR-C3-NONE',
+            isWinner: false,
+            myPrice: 100,
+            winnerPrice: 100,
+          },
+        ],
+      },
+      companyId,
+    );
+
+    const listingCount = await prisma.channelListingDailySnapshot.count({
+      where: { companyId },
+    });
+    const optionCount = await prisma.channelListingOptionDailySnapshot.count({
+      where: { companyId },
+    });
+    expect(listingCount).toBe(0);
+    expect(optionCount).toBe(0);
+
+    const rawCount = await prisma.channelScrapeSnapshot.count({
+      where: { companyId, externalId: 'EXT-C3-NONE' },
+    });
+    expect(rawCount).toBe(1);
+  });
+
+  it('Wave C3 — short product name still upserts daily fact (winner state is valuable independent of ItemWinner filter)', async () => {
+    const matched = await seedListingWithOption({
+      externalId: 'EXT-C3-SHORT',
+      externalOptionId: 'VENDOR-C3-SHORT',
+    });
+
+    await adSyncService.sync(
+      {
+        type: 'raw_scrape',
+        source: 'wing',
+        timestamp: '2026-04-14T02:00:00Z',
+        data: [
+          {
+            productName: 'X', // <3 chars → ItemWinner filter kicks in
+            externalId: 'EXT-C3-SHORT',
+            vendorItemId: 'VENDOR-C3-SHORT',
+            isWinner: true,
+            myPrice: 2000,
+            winnerPrice: 1900,
+          },
+        ],
+      },
+      companyId,
+    );
+
+    // Legacy ItemWinner skipped.
+    const itemWinnerCount = await prisma.itemWinner.count({
+      where: { companyId, listingId: matched.listing.id },
+    });
+    expect(itemWinnerCount).toBe(0);
+
+    // Daily fact still landed — winner state is independent.
+    const listingDaily = await prisma.channelListingDailySnapshot.findFirst({
+      where: { companyId, listingId: matched.listing.id },
+    });
+    expect(listingDaily?.isOfferWinner).toBe(true);
+    expect(listingDaily?.myPrice).toBe(2000);
+  });
+
+  it('Wave C3 — observable fields are not wiped when a later scrape omits them', async () => {
+    const matched = await seedListingWithOption({
+      externalId: 'EXT-C3-NULL',
+      externalOptionId: 'VENDOR-C3-NULL',
+    });
+
+    // First scrape: full state.
+    await adSyncService.sync(
+      {
+        type: 'raw_scrape',
+        source: 'wing',
+        timestamp: '2026-04-14T02:00:00Z',
+        data: [
+          {
+            productName: 'Persistent State',
+            externalId: 'EXT-C3-NULL',
+            vendorItemId: 'VENDOR-C3-NULL',
+            isWinner: true,
+            myPrice: 8000,
+            winnerPrice: 7900,
+          },
+        ],
+      },
+      companyId,
+    );
+    // Second scrape: row is observed but lacks winnerPrice/myPrice/isWinner.
+    // The previous values must survive.
+    await adSyncService.sync(
+      {
+        type: 'raw_scrape',
+        source: 'wing',
+        timestamp: '2026-04-14T05:00:00Z',
+        data: [
+          {
+            productName: 'Persistent State', // only product name re-observed
+            externalId: 'EXT-C3-NULL',
+            vendorItemId: 'VENDOR-C3-NULL',
+          },
+        ],
+      },
+      companyId,
+    );
+
+    const listingDaily = await prisma.channelListingDailySnapshot.findFirst({
+      where: { companyId, listingId: matched.listing.id },
+    });
+    expect(listingDaily?.productName).toBe('Persistent State');
+    expect(listingDaily?.isOfferWinner).toBe(true);
+    expect(listingDaily?.myPrice).toBe(8000);
+    expect(listingDaily?.winnerPrice).toBe(7900);
+    expect(listingDaily?.sampleCount).toBe(2);
+  });
+
+  it('Wave C3 — cross-tenant isolation: same listing identifiers in another company never bleed into this companys daily snapshots', async () => {
+    const ours = await seedListingWithOption({
+      externalId: 'EXT-C3-XT',
+      externalOptionId: 'VENDOR-C3-XT',
+    });
+
+    // Set up a row in OTHER_COMPANY_ID with the same external identifiers.
+    const otherStamp = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const otherMaster = await prisma.masterProduct.create({
+      data: {
+        companyId: OTHER_COMPANY_ID,
+        code: `M-OTHER-${otherStamp}`,
+        name: `Master ${otherStamp}`,
+        optionCounter: 0,
+      },
+    });
+    const otherListing = await prisma.channelListing.create({
+      data: {
+        companyId: OTHER_COMPANY_ID,
+        masterId: otherMaster.id,
+        channel: 'coupang',
+        externalId: 'EXT-C3-XT',
+      },
+    });
+    const otherListingOption = await prisma.channelListingOption.create({
+      data: {
+        companyId: OTHER_COMPANY_ID,
+        listingId: otherListing.id,
+        externalOptionId: 'VENDOR-C3-XT',
+        isActive: true,
+      },
+    });
+
+    await adSyncService.sync(
+      {
+        type: 'raw_scrape',
+        source: 'wing',
+        timestamp: '2026-04-14T02:00:00Z',
+        data: [
+          {
+            productName: 'Ours',
+            externalId: 'EXT-C3-XT',
+            vendorItemId: 'VENDOR-C3-XT',
+            isWinner: true,
+            myPrice: 3000,
+            winnerPrice: 2900,
+          },
+        ],
+      },
+      companyId,
+    );
+    await adSyncService.sync(
+      {
+        type: 'raw_scrape',
+        source: 'wing',
+        timestamp: '2026-04-14T02:00:00Z',
+        data: [
+          {
+            productName: 'Theirs',
+            externalId: 'EXT-C3-XT',
+            vendorItemId: 'VENDOR-C3-XT',
+            isWinner: false,
+            myPrice: 4000,
+            winnerPrice: 3900,
+          },
+        ],
+      },
+      OTHER_COMPANY_ID,
+    );
+
+    // Ours: matches the company-scoped listing only.
+    const oursDaily = await prisma.channelListingDailySnapshot.findMany({
+      where: { companyId },
+    });
+    expect(oursDaily).toHaveLength(1);
+    expect(oursDaily[0].listingId).toBe(ours.listing.id);
+    expect(oursDaily[0].productName).toBe('Ours');
+
+    const oursOptionDaily =
+      await prisma.channelListingOptionDailySnapshot.findMany({
+        where: { companyId },
+      });
+    expect(oursOptionDaily).toHaveLength(1);
+    expect(oursOptionDaily[0].listingOptionId).toBe(ours.listingOption.id);
+
+    // Theirs: matches its own scope.
+    const theirsDaily = await prisma.channelListingDailySnapshot.findMany({
+      where: { companyId: OTHER_COMPANY_ID },
+    });
+    expect(theirsDaily).toHaveLength(1);
+    expect(theirsDaily[0].listingId).toBe(otherListing.id);
+    expect(theirsDaily[0].productName).toBe('Theirs');
+
+    const theirsOptionDaily =
+      await prisma.channelListingOptionDailySnapshot.findMany({
+        where: { companyId: OTHER_COMPANY_ID },
+      });
+    expect(theirsOptionDaily).toHaveLength(1);
+    expect(theirsOptionDaily[0].listingOptionId).toBe(otherListingOption.id);
+  });
 });

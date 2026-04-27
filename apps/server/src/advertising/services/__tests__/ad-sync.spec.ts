@@ -50,6 +50,10 @@ describe('AdSyncService', () => {
       createRun: vi.fn().mockResolvedValue({ id: 'run-1' }),
       appendSnapshot: vi.fn().mockResolvedValue({ id: 'snap-1' }),
       finalizeRun: vi.fn().mockResolvedValue(undefined),
+      // Wave C3: daily upsert helpers — unit tests stub them; the integration
+      // tier exercises the real Postgres path.
+      upsertListingDaily: vi.fn().mockResolvedValue({ id: 'listing-daily-1' }),
+      upsertOptionDaily: vi.fn().mockResolvedValue({ id: 'option-daily-1' }),
     };
     service = new AdSyncService(prisma, eventEmitter, scrapePersistence);
   });
@@ -57,8 +61,20 @@ describe('AdSyncService', () => {
   describe('buildListingMap', () => {
     it('builds externalOptionIdMap (with listingOptionId) + externalIdMap from ChannelListingOption + ChannelListing', async () => {
       prisma.channelListingOption.findMany.mockResolvedValue([
-        { id: 'LO1', externalOptionId: 'V1', listingId: 'L1', optionId: 'O1' },
-        { id: 'LO2', externalOptionId: 'V2', listingId: 'L2', optionId: 'O2' },
+        {
+          id: 'LO1',
+          externalOptionId: 'V1',
+          listingId: 'L1',
+          optionId: 'O1',
+          listing: { externalId: 'COUPANG-1' },
+        },
+        {
+          id: 'LO2',
+          externalOptionId: 'V2',
+          listingId: 'L2',
+          optionId: 'O2',
+          listing: { externalId: 'COUPANG-2' },
+        },
       ]);
       prisma.channelListing.findMany.mockResolvedValue([
         { id: 'L1', externalId: 'COUPANG-1' },
@@ -71,11 +87,13 @@ describe('AdSyncService', () => {
         listingId: 'L1',
         listingOptionId: 'LO1',
         optionId: 'O1',
+        externalId: 'COUPANG-1',
       });
       expect(map.externalOptionIdMap.get('V2')).toEqual({
         listingId: 'L2',
         listingOptionId: 'LO2',
         optionId: 'O2',
+        externalId: 'COUPANG-2',
       });
       expect(map.externalIdMap.get('COUPANG-1')).toEqual({ listingId: 'L1' });
       expect(map.externalIdMap.get('COUPANG-2')).toEqual({ listingId: 'L2' });
@@ -91,6 +109,7 @@ describe('AdSyncService', () => {
           externalOptionId: true,
           listingId: true,
           optionId: true,
+          listing: { select: { externalId: true } },
         },
       });
       expect(prisma.channelListing.findMany).toHaveBeenCalledWith({
@@ -101,7 +120,13 @@ describe('AdSyncService', () => {
 
     it('preserves externalOptionIdMap entries with null internal optionId (Wave C2)', async () => {
       prisma.channelListingOption.findMany.mockResolvedValue([
-        { id: 'LO1', externalOptionId: 'V1', listingId: 'L1', optionId: null },
+        {
+          id: 'LO1',
+          externalOptionId: 'V1',
+          listingId: 'L1',
+          optionId: null,
+          listing: { externalId: 'COUPANG-NULL' },
+        },
       ]);
       prisma.channelListing.findMany.mockResolvedValue([]);
 
@@ -114,14 +139,31 @@ describe('AdSyncService', () => {
         listingId: 'L1',
         listingOptionId: 'LO1',
         optionId: null,
+        externalId: 'COUPANG-NULL',
       });
     });
   });
 
   describe('matchListingFromRow', () => {
     const map: ListingMap = {
-      externalOptionIdMap: new Map([
-        ['V-HIT', { listingId: 'L-V', listingOptionId: 'LO-V', optionId: 'O-V' }],
+      externalOptionIdMap: new Map<
+        string,
+        {
+          listingId: string;
+          listingOptionId: string;
+          optionId: string | null;
+          externalId: string;
+        }
+      >([
+        [
+          'V-HIT',
+          {
+            listingId: 'L-V',
+            listingOptionId: 'LO-V',
+            optionId: 'O-V',
+            externalId: 'E-V',
+          },
+        ],
       ]),
       externalIdMap: new Map([['E-HIT', { listingId: 'L-E' }]]),
     };
@@ -135,6 +177,8 @@ describe('AdSyncService', () => {
         listingId: 'L-V',
         listingOptionId: 'LO-V',
         optionId: 'O-V',
+        externalId: 'E-V',
+        externalOptionId: 'V-HIT',
       });
     });
 
@@ -147,6 +191,8 @@ describe('AdSyncService', () => {
         listingId: 'L-E',
         listingOptionId: null,
         optionId: null,
+        externalId: 'E-HIT',
+        externalOptionId: null,
       });
     });
 
@@ -159,6 +205,8 @@ describe('AdSyncService', () => {
         listingId: null,
         listingOptionId: null,
         optionId: null,
+        externalId: null,
+        externalOptionId: null,
       });
     });
 
@@ -171,6 +219,8 @@ describe('AdSyncService', () => {
         listingId: null,
         listingOptionId: null,
         optionId: null,
+        externalId: null,
+        externalOptionId: null,
       });
     });
   });
@@ -178,7 +228,13 @@ describe('AdSyncService', () => {
   describe('sync behavior', () => {
     beforeEach(() => {
       prisma.channelListingOption.findMany.mockResolvedValue([
-        { id: 'LO1', externalOptionId: 'V1', listingId: 'L1', optionId: 'O1' },
+        {
+          id: 'LO1',
+          externalOptionId: 'V1',
+          listingId: 'L1',
+          optionId: 'O1',
+          listing: { externalId: 'COUPANG-1' },
+        },
       ]);
       prisma.channelListing.findMany.mockResolvedValue([
         { id: 'L1', externalId: 'COUPANG-1' },
