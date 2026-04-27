@@ -19,13 +19,13 @@ import { toListingSummary } from './util/ad-strategy-helpers';
  * 기존 ad-strategy.service.ts 의 4 메서드 본문 이전:
  *  - calcSnapshotKeyMetrics  (557-607)
  *  - calcBudgetAllocation    (609-651)
- *  - calcTierAnalysis        (1028-1065, per-tier prisma.ad.aggregate N+1 제거)
+ *  - calcTierAnalysis        (1028-1065, per-tier legacy ad aggregate N+1 제거)
  *  - calcTop20               (1067-1144)
  *
  * 변경:
  *  - 모든 prisma.* / adConfigService.getConfig 호출 제거 (orchestrator 가 input 으로 hydrate).
  *  - productId → listingId.
- *  - calcTierAnalysis: 단일 prisma.ad.groupBy(['listingId']) 결과 + listing.masterProduct.adTier 로 in-memory roll-up.
+ *  - calcTierAnalysis: 단일 legacy ad groupBy(['listingId']) 결과 + listing.masterProduct.adTier 로 in-memory roll-up.
  *  - calcTop20: 정렬은 ad spend desc → revenue desc tie-break (Plan v2 amendment).
  *  - toListingSummary 는 util/ad-strategy-helpers import (DRY).
  */
@@ -35,7 +35,7 @@ export class AdBudgetAllocatorService {
    * snapshot-level metrics 집계 + perListing 분배 + gradeMap 산출.
    *
    * 기존 ad-strategy.service.ts:557-607 본문 이전.
-   * 변경: prisma.adSnapshot.findMany 제거 (snapshots 가 input).
+   * 변경: legacy adSnapshot findMany 제거 (snapshots 가 input).
    *
    * gradeMap 은 listing.masterProduct.abcGrade 기준 (`A` | `B` | `C` 만 매핑, null 제외).
    * orchestrator 가 grade-rules / 기타 sub-service 에 그대로 전달한다.
@@ -98,7 +98,7 @@ export class AdBudgetAllocatorService {
    *
    * 기존 ad-strategy.service.ts:609-651 본문 이전.
    * 변경:
-   *  - prisma.ad.groupBy / prisma.channelListing.findMany / adConfigService.getConfig 제거.
+   *  - legacy ad groupBy / prisma.channelListing.findMany / adConfigService.getConfig 제거.
    *  - config / adGroups / listings / gradeMap 이 input.
    *  - suggestedBudget 비율: A=0.5 / B=0.3 / C=0.2 (Plan v2 고정 값; config.budget.allocation 향후 enrich 가능).
    */
@@ -128,8 +128,8 @@ export class AdBudgetAllocatorService {
    *
    * 기존 ad-strategy.service.ts:1028-1065 본문 이전.
    * 변경:
-   *  - prisma.masterProduct.findMany + per-tier prisma.ad.aggregate (N+1) 제거.
-   *  - orchestrator 가 단일 prisma.ad.groupBy(['listingId']) 결과 + listing.masterProduct.adTier 로 in-memory roll-up.
+   *  - prisma.masterProduct.findMany + per-tier legacy ad aggregate (N+1) 제거.
+   *  - orchestrator 가 단일 legacy ad groupBy(['listingId']) 결과 + listing.masterProduct.adTier 로 in-memory roll-up.
    *
    * adTier 가 null 인 listing 은 '미분류' tier 로 묶는다 (기존 코드는 null adTier 를 필터링했으나 in-memory roll-up 후엔 명시적 bucket 이 더 안전).
    */
@@ -167,7 +167,7 @@ export class AdBudgetAllocatorService {
    *
    * 기존 ad-strategy.service.ts:1067-1144 본문 이전.
    * 변경:
-   *  - prisma.channelListing.findMany / prisma.ad.groupBy 제거.
+   *  - prisma.channelListing.findMany / legacy ad groupBy 제거.
    *  - 정렬 기준: ad spend desc → revenue desc tie-break.
    *  - listing 에 매칭되는 adGroup 이 없으면 (광고 0건) skip.
    */

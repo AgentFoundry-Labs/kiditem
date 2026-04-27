@@ -6,70 +6,100 @@ export interface WingAdSummaryResult extends WingAdSummary {
 }
 
 /**
- * Fetch + parse the current month's Wing adSummary snapshot for a specific company.
+ * Fetch + parse the current month's Wing adSummary KPI snapshot for a company.
  *
- * Source: ad_snapshots rows where source='wing', page_type='dashboard_kpi',
- * captured_at >= monthStart, raw_json.startDate == current-month-first-day,
- * raw_json.adSummary.adGmv > 0. Ordered by raw_json.period DESC (longer-span
- * snapshots win over partial/daily), then captured_at DESC. Limit 1.
+ * Hard rewrite Phase H3b — source moved from legacy `AdSnapshot(source='wing',
+ * page_type='dashboard_kpi')` to
+ * `ChannelAccountDailyKpiSnapshot(source='wing', kpiType='wing_dashboard')`.
+ * The H2 ingestion writes the wing dashboard payload (`kpis`, `adSummary`,
+ * `summary`, `period`, `startDate`, `endDate`, `timestamp`) into
+ * `normalizedJson`; we read the latest row whose `startDate` matches the
+ * caller-supplied month and whose `adGmv` is positive.
  *
- * Returns null when no qualifying snapshot exists (fresh tenant / Wing sync
- * not run). Caller should treat null as "no override data" and keep their
- * base calculations.
+ * Selection order (deterministic, reviewer-locked H3a tiebreaker chain):
+ *   businessDate DESC, lastObservedAt DESC, id DESC
+ * — `period` (longer-span snapshot wins) is no longer the primary key because
+ * the daily-fact upserts overwrite the same `(companyId, channel, source,
+ * businessDate, kpiType)` row each scrape. The most-recent observation already
+ * carries the longest-span normalized payload.
  *
- * ADR-0018 multi-tenant IDOR guard: companyId is bound via $queryRaw tagged
- * template → ${companyId}::uuid. Each AdSnapshot row MUST belong to the caller's
- * company — cross-tenant wing snapshot pool previously leaked (IDOR sweep 2026-04).
+ * Returns null when no qualifying snapshot exists for this company.
+ *
+ * Multi-tenant: `companyId` filter is part of the unique key + every where
+ * clause; legacy `AdSnapshot` rows present in the DB are ignored even if
+ * `kpiType='wing_dashboard'` rows are missing — H3 sunsets the legacy
+ * fallback.
  */
 export async function fetchWingAdSummary(
   prisma: PrismaService,
   companyId: string,
   year: number,
   month: number,
-  monthStart: Date,
+  _monthStart: Date,
 ): Promise<WingAdSummaryResult | null> {
   const monthStartStr = `${year}-${String(month).padStart(2, '0')}-01`;
 
-  const wingAdSnapRows = await prisma.$queryRaw<{ raw_json: Record<string, unknown> }[]>`
-    SELECT raw_json
-    FROM ad_snapshots
-    WHERE company_id = ${companyId}::uuid
-      AND source = 'wing'
-      AND page_type = 'dashboard_kpi'
-      AND captured_at >= ${monthStart}
-      AND raw_json->>'startDate' = ${monthStartStr}
-      AND raw_json->'adSummary'->>'adGmv' IS NOT NULL
-      AND (raw_json->'adSummary'->>'adGmv')::float > 0
-    ORDER BY (raw_json->>'period')::int DESC, captured_at DESC
-    LIMIT 1
-  `;
+  // Pull a small page of recent rows so we can match the caller-supplied month
+  // against the snapshot's normalized `startDate`. The H2 ingest stamps
+  // `startDate` from the wing payload, which can lag/lead the businessDate by
+  // a day at month boundaries — we must filter on the payload field, not on
+  // businessDate, to match legacy semantics. Bound the scan to the last 60
+  // days; older wing dashboard kpi rows do not represent the current month.
+  const sinceCutoff = new Date(year, month - 1, 1);
+  sinceCutoff.setMonth(sinceCutoff.getMonth() - 1); // safety margin
 
-  const rawAdSummary = wingAdSnapRows[0]?.raw_json
-    ? ((wingAdSnapRows[0].raw_json as Record<string, unknown>).adSummary ?? null)
-    : null;
+  const candidateRows = await prisma.channelAccountDailyKpiSnapshot.findMany({
+    where: {
+      companyId,
+      source: 'wing',
+      kpiType: 'wing_dashboard',
+      businessDate: { gte: sinceCutoff },
+    },
+    orderBy: [
+      { businessDate: 'desc' },
+      { lastObservedAt: 'desc' },
+      { id: 'desc' },
+    ],
+    select: { normalizedJson: true, lastObservedAt: true },
+    take: 30,
+  });
 
-  if (!rawAdSummary) {
+  let chosen: { normalized: Record<string, unknown>; lastObservedAt: Date } | null = null;
+  for (const row of candidateRows) {
+    const normalized = (row.normalizedJson as Record<string, unknown> | null) ?? null;
+    if (!normalized) continue;
+    if (normalized.startDate !== monthStartStr) continue;
+    const adSummary = normalized.adSummary as Record<string, unknown> | null | undefined;
+    if (!adSummary) continue;
+    const adGmvRaw = adSummary.adGmv;
+    const adGmvNum =
+      typeof adGmvRaw === 'number'
+        ? adGmvRaw
+        : typeof adGmvRaw === 'string'
+          ? Number(adGmvRaw)
+          : NaN;
+    if (!Number.isFinite(adGmvNum) || adGmvNum <= 0) continue;
+    chosen = { normalized, lastObservedAt: row.lastObservedAt };
+    break;
+  }
+
+  if (!chosen) {
     return null;
   }
 
-  const lastSyncRow = await prisma.adSnapshot.findFirst({
-    where: { companyId, source: 'wing' },
-    orderBy: { capturedAt: 'desc' },
-    select: { capturedAt: true },
-  });
-
-  const summary = rawAdSummary as Record<string, unknown>;
+  const summary = chosen.normalized.adSummary as Record<string, unknown>;
   const adRevenue = Math.round(Number(summary.adGmv) || 0);
   const adSpend = Math.round(Number(summary.adSpend) || 0);
-  const adRoas = adSpend > 0
-    ? Math.round((adRevenue / adSpend) * 100 * 100) / 100
-    : 0;
+  // ROAS recompute from the additive numerator/denominator the same way the
+  // ratio-recompute helper does (revenue / spend * 100, 2-decimal rounded).
+  const adRoas =
+    adSpend > 0 ? Math.round((adRevenue / adSpend) * 100 * 100) / 100 : 0;
 
   return {
     adRevenue,
     adSpend,
     adRoas,
     rawAdSummary: summary,
-    lastSyncAt: lastSyncRow?.capturedAt ?? null,
+    lastSyncAt: chosen.lastObservedAt,
   } satisfies WingAdSummaryResult;
 }

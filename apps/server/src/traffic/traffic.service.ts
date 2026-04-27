@@ -1,8 +1,10 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import * as XLSX from 'xlsx';
 import type { MulterFile } from '../common/types';
 import { resolvePricing } from '../common/option-pricing-resolver';
+import { kstDayStart } from '../common/kst';
 
 export interface DayRevenue {
   date: string;
@@ -16,11 +18,9 @@ export interface DayRevenue {
 
 /**
  * Pricing 원천 — ProductOption. ChannelListing.master.options[0] 을 대표 옵션으로 사용.
- * 멀티 option listing 은 TrafficStats 가 listing 단위 집계라 첫 option 기준으로 충분.
+ * 멀티 option listing 은 listing 단위 일별 트래픽이 listing 단위 집계라
+ * 첫 option 기준으로 충분.
  * option 이 0 개이면 pricing 없음 → row skip (아래 profit 루프에서 처리).
- *
- * NOTE: ProductOption 에는 costCny 필드가 없음 (MasterProduct 에만 있음). resolvePricing 의
- * costCny 경로는 사용되지 않고 option.costPrice (Int, KRW) 를 직접 사용.
  */
 const LISTING_PRICING_SELECT = {
   id: true,
@@ -42,6 +42,32 @@ const LISTING_PRICING_SELECT = {
   },
 } as const;
 
+/**
+ * Hard rewrite Phase H3b — `TrafficService` reads + writes daily facts only.
+ *
+ * Read paths (`getTrafficSummary`, `getMonthlyRevenue`) aggregate
+ * `ChannelListingDailySnapshot.trafficVisitors / trafficViews / trafficCartAdds
+ * / trafficOrders / trafficSalesQty / trafficRevenue` over the requested
+ * KST-anchored window. Replaces the legacy `TrafficStats.aggregate` /
+ * `TrafficStats.groupBy` / `FROM traffic_stats` raw SQL.
+ *
+ * Ingest path (`uploadTrafficStats`) — CSV/XLSX upload from the operator
+ * console. **Decision**: rewire to write `ChannelListingDailySnapshot` (the
+ * H1 daily-fact table) directly with the same overwrite-on-replay semantics
+ * the H2 extension-sync ingest uses. Raw audit lands in `ChannelScrapeSnapshot`
+ * via a single `ChannelScrapeRun`. The traffic domain still owns its own
+ * ingest entrypoint (controller route `POST /api/traffic/upload`) — the
+ * ingest is not unified into `/api/ads/extension/sync` because the upload
+ * flow is operator-driven (not extension-pushed) and the cross-domain
+ * service injection is forbidden by `apps/server/AGENTS.md`. Inline use
+ * of the same low-level Prisma primitives keeps the domain boundary clean
+ * while retiring the `TrafficStats` writes.
+ *
+ * Daily fact upsert keys on `(companyId, listingId, businessDate)` matching
+ * the unique index on `ChannelListingDailySnapshot`. Repeated uploads for
+ * the same day overwrite the additive `traffic*` columns to the new total
+ * (idempotent under operator re-uploads of the same period).
+ */
 @Injectable()
 export class TrafficService {
   constructor(private readonly prisma: PrismaService) {}
@@ -107,7 +133,8 @@ export class TrafficService {
       listings.map((l) => [l.externalId, l.id]),
     );
 
-    const todayStr = new Date().toISOString().slice(0, 10);
+    const todayKst = kstDayStart(new Date());
+    const todayStr = todayKst.toISOString().slice(0, 10);
 
     const parseNum = (val: unknown): number => {
       if (val === null || val === undefined) return 0;
@@ -117,18 +144,18 @@ export class TrafficService {
 
     type AggregatedRow = {
       listingId: string;
-      periodDays: number;
+      externalId: string;
       visitors: number;
       views: number;
       cartAdds: number;
       orders: number;
       salesQty: number;
       revenue: number;
-      conversionRate: number;
-      date: string; // 'YYYY-MM-DD' — upsert 시 Date 로 변환
+      date: string; // 'YYYY-MM-DD' KST
     };
 
     const aggregated = new Map<string, AggregatedRow>();
+    const skippedRows: Array<{ raw: Record<string, unknown>; reason: string }> = [];
 
     let skipped = 0;
 
@@ -136,20 +163,21 @@ export class TrafficService {
       const cpId = String(row[colProductId] || '').trim();
       if (!cpId) {
         skipped++;
+        skippedRows.push({ raw: row, reason: 'missing-external-id' });
         continue;
       }
 
       const listingId = listingMap.get(cpId);
       if (!listingId) {
         skipped++;
+        skippedRows.push({ raw: row, reason: 'unmatched-listing' });
         continue;
       }
 
       const date = colDate
         ? String(row[colDate] || todayStr).slice(0, 10)
         : todayStr;
-      const periodDays = 7;
-      const key = `${listingId}::${date}::${periodDays}`;
+      const key = `${listingId}::${date}`;
 
       const visitors = parseNum(colVisitors ? row[colVisitors] : 0);
       const views = parseNum(colViews ? row[colViews] : 0);
@@ -169,64 +197,153 @@ export class TrafficService {
       } else {
         aggregated.set(key, {
           listingId,
+          externalId: cpId,
           date,
-          periodDays,
           visitors,
           views,
           cartAdds,
           orders,
           salesQty,
           revenue,
-          conversionRate: 0,
         });
       }
     }
 
-    for (const d of aggregated.values()) {
-      d.conversionRate =
-        d.visitors > 0
-          ? Math.round((d.orders / d.visitors) * 10000) / 100
-          : 0;
-    }
-
     const dataArr = [...aggregated.values()];
-    if (dataArr.length > 0) {
-      await this.prisma.$transaction(
-        dataArr.map((d) => {
-          const dateObj = new Date(d.date);
-          return this.prisma.trafficStats.upsert({
+    const observedAt = new Date();
+
+    if (dataArr.length > 0 || skippedRows.length > 0) {
+      // Persist a `ChannelScrapeRun` + per-row `ChannelScrapeSnapshot` so the
+      // raw upload is auditable / replay-able the same way extension-sync
+      // payloads are. Daily-fact upserts run in the same transaction so a
+      // partial failure rolls everything back.
+      await this.prisma.$transaction(async (tx) => {
+        const run = await tx.channelScrapeRun.create({
+          data: {
+            companyId,
+            channel: 'coupang',
+            source: 'traffic_csv_upload',
+            pageType: 'traffic',
+            businessDate: todayKst,
+            status: 'running',
+            rowCount: rows.length,
+            metaJson: {
+              detectedColumns: {
+                productId: colProductId,
+                visitors: colVisitors,
+                views: colViews,
+                cart: colCart,
+                orders: colOrders,
+                salesQty: colSalesQty,
+                revenue: colRevenue,
+                date: colDate,
+              },
+              fileName: file.originalname,
+            } as Prisma.InputJsonValue,
+          },
+          select: { id: true },
+        });
+
+        for (const d of dataArr) {
+          const businessDate = new Date(d.date);
+          const snapshot = await tx.channelScrapeSnapshot.create({
+            data: {
+              companyId,
+              scrapeRunId: run.id,
+              channel: 'coupang',
+              source: 'traffic_csv_upload',
+              pageType: 'traffic',
+              businessDate,
+              externalId: d.externalId,
+              listingId: d.listingId,
+              matchStatus: 'matched',
+              rawJson: {
+                visitors: d.visitors,
+                views: d.views,
+                cartAdds: d.cartAdds,
+                orders: d.orders,
+                salesQty: d.salesQty,
+                revenue: d.revenue,
+              } as Prisma.InputJsonValue,
+            },
+            select: { id: true },
+          });
+
+          // Daily-fact upsert — overwrite-on-replay metric semantics so a
+          // re-upload of the same day yields the same totals (idempotent).
+          await tx.channelListingDailySnapshot.upsert({
             where: {
-              listingId_date_periodDays: {
+              companyId_listingId_businessDate: {
+                companyId,
                 listingId: d.listingId,
-                date: dateObj,
-                periodDays: d.periodDays,
+                businessDate,
               },
             },
-            update: {
-              visitors: d.visitors,
-              views: d.views,
-              cartAdds: d.cartAdds,
-              orders: d.orders,
-              salesQty: d.salesQty,
-              revenue: d.revenue,
-              conversionRate: d.conversionRate,
-            },
             create: {
-              listingId: d.listingId,
               companyId,
-              date: dateObj,
-              periodDays: d.periodDays,
-              visitors: d.visitors,
-              views: d.views,
-              cartAdds: d.cartAdds,
-              orders: d.orders,
-              salesQty: d.salesQty,
-              revenue: d.revenue,
-              conversionRate: d.conversionRate,
+              listingId: d.listingId,
+              channel: 'coupang',
+              externalId: d.externalId,
+              businessDate,
+              sampleCount: 1,
+              firstObservedAt: observedAt,
+              lastObservedAt: observedAt,
+              rawSnapshotId: snapshot.id,
+              trafficVisitors: d.visitors,
+              trafficViews: d.views,
+              trafficCartAdds: d.cartAdds,
+              trafficOrders: d.orders,
+              trafficSalesQty: d.salesQty,
+              trafficRevenue: d.revenue,
+              metaJson: {
+                'traffic.csv_upload': {
+                  source: 'traffic_csv_upload',
+                  data: {
+                    fileName: file.originalname,
+                    uploadedAt: observedAt.toISOString(),
+                  },
+                },
+              } as Prisma.InputJsonValue,
+            },
+            update: {
+              sampleCount: { increment: 1 },
+              lastObservedAt: observedAt,
+              rawSnapshotId: snapshot.id,
+              trafficVisitors: d.visitors,
+              trafficViews: d.views,
+              trafficCartAdds: d.cartAdds,
+              trafficOrders: d.orders,
+              trafficSalesQty: d.salesQty,
+              trafficRevenue: d.revenue,
             },
           });
-        }),
-      );
+        }
+
+        for (const s of skippedRows) {
+          await tx.channelScrapeSnapshot.create({
+            data: {
+              companyId,
+              scrapeRunId: run.id,
+              channel: 'coupang',
+              source: 'traffic_csv_upload',
+              pageType: 'traffic',
+              matchStatus: 'unmatched',
+              matchReason: s.reason,
+              rawJson: s.raw as Prisma.InputJsonValue,
+            },
+          });
+        }
+
+        await tx.channelScrapeRun.update({
+          where: { id: run.id },
+          data: {
+            status: 'complete',
+            matchedCount: dataArr.length,
+            unmatchedCount: skippedRows.length,
+            finishedAt: new Date(),
+          },
+        });
+      });
     }
 
     return {
@@ -246,9 +363,16 @@ export class TrafficService {
     };
   }
 
-  async getTrafficSummary(days: number) {
-    const now = new Date();
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  /**
+   * Period traffic summary — KST-anchored half-open window over
+   * `ChannelListingDailySnapshot.traffic*` columns.
+   *
+   * `companyId` is required by the H3b multi-tenant rule (legacy code allowed
+   * `undefined` here because legacy `TrafficStats.aggregate` was filtered by
+   * `periodDays = 1` only). The controller passes the request company.
+   */
+  async getTrafficSummary(days: number, companyId: string) {
+    const todayStart = kstDayStart(new Date());
     const todayEnd = new Date(todayStart.getTime() + 86400000);
 
     let start: Date;
@@ -261,45 +385,55 @@ export class TrafficService {
       end = todayEnd;
     }
 
-    // 이전 동일 기간 (비교용)
     const duration = end.getTime() - start.getTime();
     const prevStart = new Date(start.getTime() - duration);
     const prevEnd = start;
 
     const [cur, prev, listingRows] = await Promise.all([
-      this.prisma.trafficStats.aggregate({
-        _sum: { revenue: true, orders: true, salesQty: true, visitors: true, views: true, cartAdds: true },
-        where: { periodDays: 1, date: { gte: start, lt: end } },
+      this.prisma.channelListingDailySnapshot.aggregate({
+        _sum: {
+          trafficRevenue: true,
+          trafficOrders: true,
+          trafficSalesQty: true,
+          trafficVisitors: true,
+          trafficViews: true,
+          trafficCartAdds: true,
+        },
+        where: { companyId, businessDate: { gte: start, lt: end } },
       }),
-      this.prisma.trafficStats.aggregate({
-        _sum: { revenue: true, orders: true, salesQty: true, visitors: true },
-        where: { periodDays: 1, date: { gte: prevStart, lt: prevEnd } },
+      this.prisma.channelListingDailySnapshot.aggregate({
+        _sum: {
+          trafficRevenue: true,
+          trafficOrders: true,
+          trafficSalesQty: true,
+          trafficVisitors: true,
+        },
+        where: { companyId, businessDate: { gte: prevStart, lt: prevEnd } },
       }),
-      // 기간 내 listing 별 revenue/salesQty 집계 (수익 계산용).
-      // column rename: product_id → listing_id, table: traffic_stats 유지.
-      this.prisma.$queryRaw<{ listing_id: string; revenue: number; sales_qty: number; orders_count: number }[]>`
-        SELECT listing_id, SUM(revenue)::int AS revenue, SUM(sales_qty)::int AS sales_qty,
-               SUM(orders)::int AS orders_count
-        FROM traffic_stats
-        WHERE period_days = 1 AND date >= ${start} AND date < ${end}
-        GROUP BY listing_id
-      `,
+      this.prisma.channelListingDailySnapshot.groupBy({
+        by: ['listingId'],
+        _sum: {
+          trafficRevenue: true,
+          trafficSalesQty: true,
+          trafficOrders: true,
+        },
+        where: { companyId, businessDate: { gte: start, lt: end } },
+      }),
     ]);
 
-    const revenue = cur._sum.revenue ?? 0;
-    const prevRevenue = prev._sum.revenue ?? 0;
-    const orders = cur._sum.orders ?? 0;
-    const prevOrders = prev._sum.orders ?? 0;
+    const revenue = cur._sum.trafficRevenue ?? 0;
+    const prevRevenue = prev._sum.trafficRevenue ?? 0;
+    const orders = cur._sum.trafficOrders ?? 0;
+    const prevOrders = prev._sum.trafficOrders ?? 0;
 
-    // 수익 계산 — listing → master.options[0] pricing 조회
     let netProfit: number | undefined;
     let profitRate: number | undefined;
     let costCoverage: number | undefined;
 
     if (listingRows.length > 0) {
-      const listingIds = listingRows.map((r) => r.listing_id);
+      const listingIds = listingRows.map((r) => r.listingId);
       const listings = await this.prisma.channelListing.findMany({
-        where: { id: { in: listingIds }, isDeleted: false },
+        where: { id: { in: listingIds }, companyId, isDeleted: false },
         select: LISTING_PRICING_SELECT,
       });
       const listingMap = new Map(listings.map((l) => [l.id, l]));
@@ -308,20 +442,18 @@ export class TrafficService {
       let revenueWithCost = 0;
 
       for (const row of listingRows) {
-        const salesQty = Number(row.sales_qty) || 0;
-        const rowRevenue = Number(row.revenue) || 0;
+        const salesQty = row._sum.trafficSalesQty ?? 0;
+        const rowRevenue = row._sum.trafficRevenue ?? 0;
         if (salesQty === 0) continue;
 
-        const listing = listingMap.get(row.listing_id);
+        const listing = listingMap.get(row.listingId);
         if (!listing) continue;
         const option = listing.master.options[0];
-        if (!option) continue; // options 비어있으면 pricing 없음 → skip
+        if (!option) continue;
 
         const resolved = resolvePricing({ option });
-        // commissionRate: Decimal(5,4) = 0.108 형식 (분수), /100 하지 않음
         const commRate = resolved.commissionRate || 0.108;
-        // shippingCost는 주문 단위 고정비 — orders_count 기준으로 곱해야 과계산 방지
-        const ordersCount = Number(row.orders_count) || salesQty;
+        const ordersCount = row._sum.trafficOrders ?? salesQty;
         const rowNetProfit =
           rowRevenue -
           resolved.costPrice * salesQty -
@@ -344,10 +476,10 @@ export class TrafficService {
       days,
       revenue,
       orders,
-      salesQty: cur._sum.salesQty ?? 0,
-      visitors: cur._sum.visitors ?? 0,
-      views: cur._sum.views ?? 0,
-      cartAdds: cur._sum.cartAdds ?? 0,
+      salesQty: cur._sum.trafficSalesQty ?? 0,
+      visitors: cur._sum.trafficVisitors ?? 0,
+      views: cur._sum.trafficViews ?? 0,
+      cartAdds: cur._sum.trafficCartAdds ?? 0,
       prevRevenue,
       prevOrders,
       revenueChange: prevRevenue > 0 ? Math.round(((revenue - prevRevenue) / prevRevenue) * 1000) / 10 : 0,
@@ -358,81 +490,84 @@ export class TrafficService {
     };
   }
 
-  async getMonthlyRevenue(year: number, month: number) {
-    const start = new Date(year, month - 1, 1);
-    const end = new Date(year, month, 0); // 해당 월 마지막 날
-    const endExclusive = new Date(year, month, 1);
+  async getMonthlyRevenue(year: number, month: number, companyId: string) {
+    // KST month boundaries via `kstDayStart` of month-first / next-month-first.
+    const startUtc = new Date(Date.UTC(year, month - 1, 1));
+    const endUtcExclusive = new Date(Date.UTC(year, month, 1));
+    const start = kstDayStart(startUtc);
+    const endExclusive = kstDayStart(endUtcExclusive);
 
     const [rows, listingRows] = await Promise.all([
-      this.prisma.trafficStats.groupBy({
-        by: ['date'],
+      this.prisma.channelListingDailySnapshot.groupBy({
+        by: ['businessDate'],
         where: {
-          periodDays: 1,
-          date: { gte: start, lte: end },
+          companyId,
+          businessDate: { gte: start, lt: endExclusive },
         },
         _sum: {
-          revenue: true,
-          orders: true,
-          salesQty: true,
-          visitors: true,
+          trafficRevenue: true,
+          trafficOrders: true,
+          trafficSalesQty: true,
+          trafficVisitors: true,
         },
-        orderBy: { date: 'asc' },
+        orderBy: { businessDate: 'asc' },
       }),
-      // 월간 listing 별 집계 (수익 계산용).
-      // column rename: product_id → listing_id.
-      this.prisma.$queryRaw<{ listing_id: string; date: string; revenue: number; sales_qty: number; orders_count: number }[]>`
-        SELECT listing_id, date::text AS date, SUM(revenue)::int AS revenue, SUM(sales_qty)::int AS sales_qty,
-               SUM(orders)::int AS orders_count
-        FROM traffic_stats
-        WHERE period_days = 1 AND date >= ${start} AND date < ${endExclusive}
-        GROUP BY listing_id, date
-      `,
+      this.prisma.channelListingDailySnapshot.groupBy({
+        by: ['listingId', 'businessDate'],
+        where: {
+          companyId,
+          businessDate: { gte: start, lt: endExclusive },
+        },
+        _sum: {
+          trafficRevenue: true,
+          trafficSalesQty: true,
+          trafficOrders: true,
+        },
+      }),
     ]);
 
-    // listing pricing 조회 (master.options[0] 기반)
-    const listingIds = [...new Set(listingRows.map((r) => r.listing_id))];
+    const listingIds = [...new Set(listingRows.map((r) => r.listingId))];
     const listings =
       listingIds.length > 0
         ? await this.prisma.channelListing.findMany({
-            where: { id: { in: listingIds }, isDeleted: false },
+            where: { id: { in: listingIds }, companyId, isDeleted: false },
             select: LISTING_PRICING_SELECT,
           })
         : [];
     const listingMap = new Map(listings.map((l) => [l.id, l]));
 
-    // 일별 netProfit 집계
     const dailyProfitMap = new Map<string, number>();
     for (const row of listingRows) {
-      const salesQty = Number(row.sales_qty) || 0;
-      const rowRevenue = Number(row.revenue) || 0;
+      const salesQty = row._sum.trafficSalesQty ?? 0;
+      const rowRevenue = row._sum.trafficRevenue ?? 0;
       if (salesQty === 0) continue;
-      const listing = listingMap.get(row.listing_id);
+      const listing = listingMap.get(row.listingId);
       if (!listing) continue;
       const option = listing.master.options[0];
       if (!option) continue;
       const resolved = resolvePricing({ option });
       const commRate = resolved.commissionRate || 0.108;
-      const ordersCount = Number(row.orders_count) || salesQty;
+      const ordersCount = row._sum.trafficOrders ?? salesQty;
       const rowNetProfit =
         rowRevenue -
         resolved.costPrice * salesQty -
         rowRevenue * commRate -
         resolved.shippingCost * ordersCount -
         resolved.otherCost * salesQty;
-      const dateKey = typeof row.date === 'string' ? row.date.slice(0, 10) : new Date(row.date).toISOString().slice(0, 10);
+      const dateKey = row.businessDate.toISOString().slice(0, 10);
       dailyProfitMap.set(dateKey, (dailyProfitMap.get(dateKey) ?? 0) + rowNetProfit);
     }
 
     const days: DayRevenue[] = rows.map((r) => {
-      const dateKey = r.date.toISOString().slice(0, 10);
-      const rev = r._sum.revenue ?? 0;
+      const dateKey = r.businessDate.toISOString().slice(0, 10);
+      const rev = r._sum.trafficRevenue ?? 0;
       const np = Math.round(dailyProfitMap.get(dateKey) ?? 0);
       return {
         date: dateKey,
         revenue: rev,
-        orders: r._sum.orders ?? 0,
-        salesQty: r._sum.salesQty ?? 0,
-        visitors: r._sum.visitors ?? 0,
+        orders: r._sum.trafficOrders ?? 0,
+        salesQty: r._sum.trafficSalesQty ?? 0,
+        visitors: r._sum.trafficVisitors ?? 0,
         netProfit: np,
         profitRate: rev > 0 ? Math.round((np / rev) * 1000) / 10 : 0,
       };

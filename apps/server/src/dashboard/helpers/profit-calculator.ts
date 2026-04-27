@@ -33,6 +33,19 @@ export interface RangeProfitMetrics {
  * `option.shippingCost` is intentionally excluded from the select clause and
  * the inner-loop accumulation. `ProductOption.shippingCost` is kept in schema
  * for legacy compat but must NOT be used in revenue/cost aggregation.
+ *
+ * Hard rewrite Phase H3b — ad metrics now aggregate from
+ * `ChannelListingDailySnapshot` (additive ad columns: adSpend / adRevenue /
+ * adImpressions / adClicks / adConversions). The dual-source legacy chain
+ * (`AdSnapshot.aggregate` then `Ad.aggregate` fallback) is gone — daily facts
+ * are the single source-of-truth.
+ *
+ * Proration: the legacy code pro-rated against elapsed-vs-total days because
+ * `AdSnapshot` rollups represented month-to-date totals; a 7-day window over
+ * a current month had to scale that MTD down. Daily facts are per-day rows,
+ * so a `businessDate >= from && < to` aggregate already covers exactly the
+ * requested days. No proration is applied — daily-fact-as-source-of-truth
+ * removes the need for derived per-period scaling.
  */
 export async function calculateProfitForRange(
   prisma: PrismaService,
@@ -89,75 +102,28 @@ export async function calculateProfitForRange(
     }
   }
 
-  // 광고비: 현재 기간이면 AdSnapshot → 일할계산, 폴백은 Ad 테이블
-  const now = new Date();
-  const isCurrentPeriod = from <= now && to > now;
+  // 광고비: ChannelListingDailySnapshot 기간 합계.
+  // Daily-fact-as-source-of-truth — 기간 view 는 SUM(additive metrics).
+  // 비율(ROAS/CTR/CVR) 은 호출자가 ratio-recompute 헬퍼로 별도 산출.
+  const adAgg = await prisma.channelListingDailySnapshot.aggregate({
+    where: {
+      companyId,
+      businessDate: { gte: from, lt: to },
+    },
+    _sum: {
+      adSpend: true,
+      adRevenue: true,
+      adImpressions: true,
+      adClicks: true,
+      adConversions: true,
+    },
+  });
 
-  let adCost = 0;
-  let adImpressions = 0;
-  let adClicks = 0;
-  let adConversions = 0;
-  let adRevenue = 0;
-
-  if (isCurrentPeriod) {
-    const latestCapturedAt = await prisma.adSnapshot.aggregate({
-      where: { companyId, source: 'advertising', pageType: 'campaign' }, // IDOR fix (Plan D.1 T4)
-      _max: { capturedAt: true },
-    });
-
-    if (latestCapturedAt._max.capturedAt) {
-      const snapshots = await prisma.adSnapshot.findMany({
-        where: {
-          companyId, // IDOR fix (Plan D.1 T4)
-          source: 'advertising',
-          pageType: 'campaign',
-          capturedAt: latestCapturedAt._max.capturedAt,
-        },
-        select: { spend: true, impressions: true, clicks: true, conversions: true, revenue: true },
-      });
-
-      const monthlyAdCost = snapshots.reduce((s, r) => s + (r.spend || 0), 0);
-      const totalImp = snapshots.reduce((s, r) => s + (r.impressions || 0), 0);
-      const totalClk = snapshots.reduce((s, r) => s + (r.clicks || 0), 0);
-      const totalConv = snapshots.reduce((s, r) => s + (r.conversions || 0), 0);
-      const totalRev = snapshots.reduce((s, r) => s + (r.revenue || 0), 0);
-
-      if (monthlyAdCost > 0) {
-        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-        const daysElapsed = Math.max(1, Math.ceil((now.getTime() - monthStart.getTime()) / 86400000));
-        const rangeEnd = to > now ? now : to;
-        const daysInRange = Math.max(1, Math.ceil((rangeEnd.getTime() - from.getTime()) / 86400000));
-
-        if (daysInRange >= daysElapsed) {
-          adCost = monthlyAdCost;
-          adImpressions = totalImp;
-          adClicks = totalClk;
-          adConversions = totalConv;
-          adRevenue = totalRev;
-        } else {
-          const ratio = daysInRange / daysElapsed;
-          adCost = Math.round(monthlyAdCost * ratio);
-          adImpressions = Math.round(totalImp * ratio);
-          adClicks = Math.round(totalClk * ratio);
-          adConversions = Math.round(totalConv * ratio);
-          adRevenue = Math.round(totalRev * ratio);
-        }
-      }
-    }
-  }
-
-  // 폴백: Ad 테이블
-  if (adCost === 0) {
-    const adAgg = await prisma.ad.aggregate({
-      where: { companyId, date: { gte: from, lt: to } }, // IDOR fix (Plan D.1 T4)
-      _sum: { spend: true, impressions: true, clicks: true, conversions: true, revenue: true },
-    });
-    adCost = adAgg._sum.spend || 0;
-    adImpressions = adAgg._sum.impressions || 0;
-    adClicks = adAgg._sum.clicks || 0;
-    adConversions = adAgg._sum.conversions || 0;
-    adRevenue = adAgg._sum.revenue || 0;
-  }
+  const adCost = adAgg._sum.adSpend ?? 0;
+  const adRevenue = adAgg._sum.adRevenue ?? 0;
+  const adImpressions = adAgg._sum.adImpressions ?? 0;
+  const adClicks = adAgg._sum.adClicks ?? 0;
+  const adConversions = adAgg._sum.adConversions ?? 0;
 
   const netProfit = revenue - costOfGoods - commission - shippingCost - adCost - otherCost;
   const profitRate = revenue > 0 ? Math.round((netProfit / revenue) * 1000) / 10 : 0;

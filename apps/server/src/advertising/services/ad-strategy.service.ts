@@ -162,7 +162,7 @@ export class AdStrategyService {
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-    // H3 — ad aggregate moved from `prisma.ad.groupBy` to
+    // H3 — ad aggregate moved from `legacy ad groupBy` to
     // `ChannelListingDailySnapshot.groupBy` (lifetime aggregate per listing).
     const [adAggAll, reviewAgg, recentReviewAgg] = await Promise.all([
       this.prisma.channelListingDailySnapshot.groupBy({
@@ -401,7 +401,7 @@ export class AdStrategyService {
    * getRules / getRecommendations 공통 — adGroups(listing-level) hydrate 후 rule 평가.
    *
    * B2b 원본 calcActions (line 653-938) 의 fetch 부분과 정합:
-   *  - prisma.ad.groupBy(['listingId']) 전체 기간 aggregate
+   *  - legacy ad groupBy(['listingId']) 전체 기간 aggregate
    *  - listingIds + current month live metrics 병렬 hydrate
    *  - ad-grade-rules.calcActions 에 adGroups + listings + gradeMap + profitRate 전달
    */

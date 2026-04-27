@@ -9,11 +9,17 @@ export interface RangeAdMetrics {
 }
 
 /**
- * Period ad aggregation (ads table raw query).
- * Extracted from dashboard.service.ts (aggregateAdForRange).
+ * Period ad aggregation — sums additive ad metrics from
+ * `ChannelListingDailySnapshot` over the requested half-open `[from, to)`
+ * window scoped to a company.
  *
- * IDOR fix (Plan D.1 T4): companyId added to signature and raw SQL WHERE clause
- * to prevent cross-tenant data leakage (ADR-0006).
+ * Hard rewrite Phase H3b — replaces the legacy `SELECT ... FROM ads` raw SQL
+ * (and earlier legacy `Ad` aggregate) read path. Daily facts are now the
+ * single source-of-truth for listing/day ad metrics; period views derive
+ * via SUM. Caller-side ROAS/CTR/CVR must use the shared `ratio-recompute`
+ * helper — provider ratios are not stored on additive columns.
+ *
+ * Multi-tenant: every read is scoped by `companyId`.
  */
 export async function aggregateAdForRange(
   prisma: PrismaService,
@@ -21,20 +27,24 @@ export async function aggregateAdForRange(
   from: Date,
   to: Date,
 ): Promise<RangeAdMetrics> {
-  // ADR-0006 multi-tenant IDOR guard: companyId is bound via $queryRaw tagged template → $1::uuid
-  // (NOT string concatenation — do not refactor to template literal)
-  const agg = await prisma.$queryRaw<
-    { spend: number; impressions: number; clicks: number; conversions: number; revenue: number }[]
-  >`
-    SELECT
-      COALESCE(SUM(spend), 0)::int AS spend,
-      COALESCE(SUM(impressions), 0)::int AS impressions,
-      COALESCE(SUM(clicks), 0)::int AS clicks,
-      COALESCE(SUM(conversions), 0)::int AS conversions,
-      COALESCE(SUM(revenue), 0)::int AS revenue
-    FROM ads
-    WHERE date >= ${from}::date AND date < ${to}::date
-      AND company_id = ${companyId}::uuid
-  `;
-  return agg[0] ?? { spend: 0, impressions: 0, clicks: 0, conversions: 0, revenue: 0 };
+  const agg = await prisma.channelListingDailySnapshot.aggregate({
+    where: {
+      companyId,
+      businessDate: { gte: from, lt: to },
+    },
+    _sum: {
+      adSpend: true,
+      adRevenue: true,
+      adImpressions: true,
+      adClicks: true,
+      adConversions: true,
+    },
+  });
+  return {
+    spend: agg._sum.adSpend ?? 0,
+    revenue: agg._sum.adRevenue ?? 0,
+    impressions: agg._sum.adImpressions ?? 0,
+    clicks: agg._sum.adClicks ?? 0,
+    conversions: agg._sum.adConversions ?? 0,
+  } satisfies RangeAdMetrics;
 }

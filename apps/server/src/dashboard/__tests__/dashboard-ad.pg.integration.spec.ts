@@ -40,9 +40,14 @@ describe('DashboardAdService.getSummary (PG integration) — IDOR + dailyAdRows'
   });
 
   async function seedAdsTwoCompanies() {
+    // Hard rewrite Phase H3b — seed `ChannelListingDailySnapshot` rows
+    // (daily-fact source-of-truth) instead of legacy `Ad` rows. Reads still
+    // assert IDOR + value isolation but on the new column shape.
     const today = new Date();
+    const businessDate = new Date(
+      Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()),
+    );
 
-    // Setup masters + listings per company (Ad.listingId required)
     const masterT = await prisma.masterProduct.create({
       data: { companyId: TEST_COMPANY_ID, code: 'M-T', name: 'Master T', category: 'Toy', optionCounter: 1 },
     });
@@ -56,33 +61,35 @@ describe('DashboardAdService.getSummary (PG integration) — IDOR + dailyAdRows'
       data: { companyId: OTHER_COMPANY_ID, masterId: masterO.id, channel: 'coupang', externalId: 'L-O' },
     });
 
-    // TEST ad — 1 row, spend 500
-    await prisma.ad.create({
+    // TEST daily fact — adSpend 500
+    await prisma.channelListingDailySnapshot.create({
       data: {
         companyId: TEST_COMPANY_ID,
         listingId: listingT.id,
-        date: today,
-        campaignId: 'C-T',
-        spend: 500,
-        impressions: 100,
-        clicks: 10,
-        conversions: 1,
-        revenue: 1500,
+        channel: 'coupang',
+        externalId: 'L-T',
+        businessDate,
+        adSpend: 500,
+        adImpressions: 100,
+        adClicks: 10,
+        adConversions: 1,
+        adRevenue: 1500,
       },
     });
 
-    // OTHER ad — sentinel
-    await prisma.ad.create({
+    // OTHER daily fact — sentinel
+    await prisma.channelListingDailySnapshot.create({
       data: {
         companyId: OTHER_COMPANY_ID,
         listingId: listingO.id,
-        date: today,
-        campaignId: 'C-O',
-        spend: IDOR_SENTINEL,
-        impressions: 100,
-        clicks: 10,
-        conversions: 1,
-        revenue: IDOR_SENTINEL,
+        channel: 'coupang',
+        externalId: 'L-O',
+        businessDate,
+        adSpend: IDOR_SENTINEL,
+        adImpressions: 100,
+        adClicks: 10,
+        adConversions: 1,
+        adRevenue: IDOR_SENTINEL,
       },
     });
   }

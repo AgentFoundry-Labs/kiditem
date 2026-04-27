@@ -26,10 +26,17 @@ function resolveChannelType(channel: string): 'marketplace' | 'direct' | 'other'
 /**
  * Plan D.3 — sales-analysis live aggregation (ADR-0016 bypass + ADR-0017 returnRate + orphan policy).
  *
+ * Hard rewrite Phase H3b — per-channel ad spend now sources from
+ * `ChannelListingDailySnapshot.adSpend` aggregated by listing over the
+ * requested KST month window. Replaces the legacy legacy `Ad.groupBy`
+ * call that read the `ads` table. Daily facts are the single source-of-truth
+ * for listing/day ad metrics; period totals are SUMs over `businessDate`.
+ *
  * Data flow:
  *   Order (+ shippingPrice) → OrderLineItem → ChannelListingOption.listing.channel
  *   + OrderReturnLineItem INNER JOIN Order (ADR-0017, 3-hop IDOR)
- *   + Ad.groupBy(['listingId'], _sum.spend) → listingId→channel map
+ *   + ChannelListingDailySnapshot.groupBy(['listingId'], _sum.adSpend)
+ *     → listingId→channel map
  *
  * Group key: `ChannelListing.channel` (platform)
  * Orphan side metric: `totals.orphanReturnCount` (requestedAt ∈ period + orderId NULL).
@@ -102,13 +109,16 @@ export class SalesAnalysisService {
           },
         },
       }),
-      // 3) Ad spend grouped by listingId (D.1 T5 pattern — perf)
-      this.prisma.ad.groupBy({
+      // 3) Ad spend grouped by listingId — Hard rewrite Phase H3b: source
+      // moved from legacy `Ad` to `ChannelListingDailySnapshot.adSpend`.
+      // listingId is non-nullable on the daily-fact row so the resulting
+      // shape is straightforward.
+      this.prisma.channelListingDailySnapshot.groupBy({
         by: ['listingId'],
-        _sum: { spend: true },
+        _sum: { adSpend: true },
         where: {
           companyId,
-          date: { gte: from, lt: to },
+          businessDate: { gte: from, lt: to },
         },
       }),
       // 4) Orphan return count (ADR-0017 side metric) — orderId NULL, requestedAt ∈ period
@@ -121,10 +131,11 @@ export class SalesAnalysisService {
       }),
     ]);
 
-    // Resolve listingId → channel (for ad rows)
-    const adListingIds = adGroupRows
-      .map((r) => r.listingId)
-      .filter((v): v is string => v != null);
+    // Resolve listingId → channel (for ad rows). `listingId` is non-nullable
+    // on `ChannelListingDailySnapshot` so the filter just dedupes.
+    const adListingIds = Array.from(
+      new Set(adGroupRows.map((r) => r.listingId)),
+    );
     const listings =
       adListingIds.length > 0
         ? await this.prisma.channelListing.findMany({
@@ -146,12 +157,13 @@ export class SalesAnalysisService {
       returnOrderSets.get(channel)!.add(orderId);
     }
 
-    // Build ad cost per channel
+    // Build ad cost per channel — daily-fact `adSpend` SUM grouped by listing,
+    // mapped to channel via the IDOR-scoped listing lookup above.
     const adCostMap = new Map<string, number>();
     for (const row of adGroupRows) {
-      const channel = row.listingId ? listingIdToChannel.get(row.listingId) : undefined;
+      const channel = listingIdToChannel.get(row.listingId);
       if (!channel) continue;
-      adCostMap.set(channel, (adCostMap.get(channel) ?? 0) + (row._sum.spend ?? 0));
+      adCostMap.set(channel, (adCostMap.get(channel) ?? 0) + (row._sum.adSpend ?? 0));
     }
 
     // Aggregate orders per channel
