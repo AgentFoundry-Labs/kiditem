@@ -81,6 +81,7 @@ model AdAction {
   companyId       String    @map("company_id") @db.Uuid
   listingId       String?   @map("listing_id") @db.Uuid
   snapshotId      String?   @map("snapshot_id") @db.Uuid
+  adTargetDailyId String?   @map("ad_target_daily_id") @db.Uuid
   actionType      String    @map("action_type")
   targetType      String    @map("target_type")
   externalId      String?   @map("external_id")
@@ -99,15 +100,17 @@ model AdAction {
   executedAt      DateTime? @map("executed_at") @db.Timestamptz
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
-  company         Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  listing         ChannelListing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
-  snapshot        AdSnapshot?     @relation(fields: [snapshotId], references: [id], onDelete: SetNull)
+  company         Company                       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  listing         ChannelListing?               @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  snapshot        AdSnapshot?                   @relation(fields: [snapshotId], references: [id], onDelete: SetNull)
+  adTargetDaily   ChannelAdTargetDailySnapshot? @relation(fields: [adTargetDailyId], references: [id], onDelete: SetNull)
   executionTasks  ExecutionTask[]
 
   @@index([companyId, approvalStatus])
   @@index([executeStatus])
   @@index([externalId])
   @@index([snapshotId])
+  @@index([adTargetDailyId])
   @@index([listingId])
   @@index([createdAt])
   @@map("ad_actions")

@@ -45,6 +45,8 @@ This ERD is a development-time navigation aid. The source of truth is still the 
 | ThumbnailAnalysis | AI | `thumbnail_analyses` | 5차원 scores(heroShot·composition·branding·mobile·differentiation) + complianceGrade(PASS/WARN/FAIL) + imageSpec(사전검수). 스펙 FAIL 시 AI 호출 생략. |
 | ThumbnailGeneration | AI | `thumbnail_generations` | 상태: pending→generating→ready/failed→applied/skipped. method=edit 만 사용 (generate Imagen 방식 삭제됨). |
 | ThumbnailTracking | AI | `thumbnail_trackings` | - |
+| ChannelAccountDailyKpiSnapshot | Channels | `channel_account_daily_kpi_snapshots` | 채널 계정/스토어 단위 KPI 일별 정규화 fact (listing 에 귀속되지 않는 dashboard KPI 용). |
+| ChannelAdTargetDailySnapshot | Channels | `channel_ad_target_daily_snapshots` | 채널 광고 타겟(캠페인/키워드/상품)의 일별 정규화 fact. 기간 view 는 SUM 으로 derive. |
 | ChannelListingDailySnapshot | Channels | `channel_listing_daily_snapshots` | 채널 listing 의 일별 정규화 상태. 반복 scrape 는 businessDate row 를 upsert. |
 | ChannelListingOptionDailySnapshot | Channels | `channel_listing_option_daily_snapshots` | 채널 listing option/vendor item 의 일별 정규화 상태. |
 | ChannelScrapeRun | Channels | `channel_scrape_runs` | 채널별 상품/광고/트래픽 스크래핑 실행 단위. 원본 row 는 ChannelScrapeSnapshot 에 저장. |
@@ -189,6 +191,7 @@ erDiagram
     String companyId FK
     String listingId FK
     String snapshotId FK
+    String adTargetDailyId FK
     String actionType
     String targetType
     String externalId
@@ -413,6 +416,61 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  ChannelAccountDailyKpiSnapshot {
+    String id PK
+    String companyId FK
+    String channel
+    String source
+    String kpiType
+    DateTime businessDate
+    DateTime periodStart
+    DateTime periodEnd
+    Json normalizedJson
+    Json rawJson
+    String rawSnapshotId FK
+    Int sampleCount
+    DateTime firstObservedAt
+    DateTime lastObservedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  ChannelAdTargetDailySnapshot {
+    String id PK
+    String companyId FK
+    String channel
+    DateTime businessDate
+    String listingId FK
+    String listingOptionId FK
+    String optionId FK
+    String externalId
+    String externalOptionId
+    String targetType
+    String targetKey
+    String campaignId
+    String campaignName
+    String adGroup
+    String keyword
+    String placement
+    String status
+    String onOff
+    Int currentBid
+    Int dailyBudget
+    Int spend
+    Int revenue
+    Int impressions
+    Int clicks
+    Int conversions
+    Int orders
+    Int adSpend
+    Int adRevenue
+    String rawSnapshotId FK
+    Json metaJson
+    Int sampleCount
+    DateTime firstObservedAt
+    DateTime lastObservedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
   ChannelListing {
     String id PK
     String masterId FK
@@ -452,6 +510,33 @@ erDiagram
     Int winnerGapPrice
     Int productRank
     Int categoryRank
+    Int adSpend
+    Int adRevenue
+    Int adImpressions
+    Int adClicks
+    Int adConversions
+    Int adOrders
+    Int adDirectOrders1d
+    Int adIndirectOrders1d
+    Int adDirectQty1d
+    Int adIndirectQty1d
+    Int adDirectRevenue1d
+    Int adIndirectRevenue1d
+    Int adTotalOrders14d
+    Int adDirectOrders14d
+    Int adIndirectOrders14d
+    Int adTotalQty14d
+    Int adDirectQty14d
+    Int adIndirectQty14d
+    Int adTotalRevenue14d
+    Int adDirectRevenue14d
+    Int adIndirectRevenue14d
+    Int trafficVisitors
+    Int trafficViews
+    Int trafficCartAdds
+    Int trafficOrders
+    Int trafficSalesQty
+    Int trafficRevenue
     Int sampleCount
     DateTime firstObservedAt
     DateTime lastObservedAt
@@ -1350,9 +1435,11 @@ erDiagram
   AgentDefinition o|--o{ User : "agentDefinition"
   AgentTask ||--o{ AgentLog : "task"
   AgentWakeupRequest o|--o{ HeartbeatRun : "wakeupRequest"
+  ChannelAdTargetDailySnapshot o|--o{ AdAction : "adTargetDaily"
   ChannelListing ||--o{ Ad : "listing"
   ChannelListing o|--o{ AdAction : "listing"
   ChannelListing o|--o{ AdSnapshot : "listing"
+  ChannelListing o|--o{ ChannelAdTargetDailySnapshot : "listing"
   ChannelListing ||--o{ ChannelListingDailySnapshot : "listing"
   ChannelListing ||--o{ ChannelListingOption : "listing"
   ChannelListing ||--o{ ChannelListingOptionDailySnapshot : "listing"
@@ -1367,10 +1454,13 @@ erDiagram
   ChannelListing ||--o{ ThumbnailTracking : "listing"
   ChannelListing ||--o{ TrafficStats : "listing"
   ChannelListing o|--o{ UnshippedItem : "listing"
+  ChannelListingOption o|--o{ ChannelAdTargetDailySnapshot : "listingOption"
   ChannelListingOption ||--o{ ChannelListingOptionDailySnapshot : "listingOption"
   ChannelListingOption o|--o{ ChannelScrapeSnapshot : "listingOption"
   ChannelListingOption o|--o{ OrderLineItem : "listingOption"
   ChannelScrapeRun o|--o{ ChannelScrapeSnapshot : "scrapeRun"
+  ChannelScrapeSnapshot o|--o{ ChannelAccountDailyKpiSnapshot : "rawSnapshot"
+  ChannelScrapeSnapshot o|--o{ ChannelAdTargetDailySnapshot : "rawSnapshot"
   ChannelScrapeSnapshot o|--o{ ChannelListingDailySnapshot : "rawSnapshot"
   ChannelScrapeSnapshot o|--o{ ChannelListingOptionDailySnapshot : "rawSnapshot"
   Company ||--o{ ActionTask : "company"
@@ -1385,6 +1475,8 @@ erDiagram
   Company ||--o{ BundleComponent : "company"
   Company ||--o{ BusinessRule : "company"
   Company ||--o{ CategoryMapping : "company"
+  Company ||--o{ ChannelAccountDailyKpiSnapshot : "company"
+  Company ||--o{ ChannelAdTargetDailySnapshot : "company"
   Company ||--o{ ChannelListing : "company"
   Company ||--o{ ChannelListingDailySnapshot : "company"
   Company ||--o{ ChannelListingOption : "company"
@@ -1453,6 +1545,7 @@ erDiagram
   ProductOption o|--o{ AdSnapshot : "option"
   ProductOption ||--o{ BundleComponent : "bundleOption"
   ProductOption ||--o{ BundleComponent : "componentOption"
+  ProductOption o|--o{ ChannelAdTargetDailySnapshot : "option"
   ProductOption o|--o{ ChannelListingOption : "option"
   ProductOption o|--o{ ChannelListingOptionDailySnapshot : "option"
   ProductOption o|--o{ ChannelScrapeSnapshot : "option"
