@@ -23,6 +23,7 @@ import type { AgentDetailTab } from '../lib/agent-types';
 /* ---------- constants ---------- */
 
 const ALL_TABS: AgentDetailTab[] = ['dashboard', 'instructions', 'skills', 'configuration', 'runs', 'budget'];
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const TAB_LABELS: Record<AgentDetailTab, string> = {
   dashboard: '대시보드',
@@ -40,6 +41,7 @@ export default function AgentDetailPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const id = typeof params?.id === 'string' ? params.id : '';
+  const agentId = UUID_RE.test(id) ? id : '';
 
   const [activeTab, setActiveTab] = useState<AgentDetailTab>('dashboard');
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
@@ -50,9 +52,9 @@ export default function AgentDetailPage() {
   const saveConfigRef = useRef<(() => void) | null>(null);
   const cancelConfigRef = useRef<(() => void) | null>(null);
 
-  const { data: agent, isLoading: agentLoading, error: agentError } = useAgent(id, { refetchInterval: 15_000 });
-  const { data: runsData, isLoading: runsLoading } = useAgentRuns(id, 30, { refetchInterval: 15_000 });
-  const { data: runtimeState } = useAgentRuntimeState(id, { refetchInterval: 15_000 });
+  const { data: agent, isLoading: agentLoading, error: agentError } = useAgent(agentId, { refetchInterval: 15_000 });
+  const { data: runsData, isLoading: runsLoading } = useAgentRuns(agentId, 30, { refetchInterval: 15_000 });
+  const { data: runtimeState } = useAgentRuntimeState(agentId, { refetchInterval: 15_000 });
   const runs = Array.isArray(runsData) ? runsData : [];
   const loading = agentLoading || runsLoading;
   const error = agentError ? (isApiError(agentError) ? agentError.detail : '에이전트 정보를 불러오는데 실패했습니다.') : null;
@@ -85,7 +87,13 @@ export default function AgentDetailPage() {
     setConfigSaving(false);
   }, [activeTab]);
 
-  const invalidateAgent = () => queryClient.invalidateQueries({ queryKey: queryKeys.agents.detail(id) });
+  useEffect(() => {
+    if (id && !agentId) router.replace('/agents');
+  }, [agentId, id, router]);
+
+  const invalidateAgent = () => {
+    if (agentId) queryClient.invalidateQueries({ queryKey: queryKeys.agents.detail(agentId) });
+  };
 
   if (loading) {
     return (

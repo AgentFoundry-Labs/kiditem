@@ -1,4 +1,17 @@
-import { Controller, Get, Post, Patch, Delete, Body, Query, Param, Sse, Optional, ServiceUnavailableException } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Optional,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Query,
+  ServiceUnavailableException,
+  Sse,
+} from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { AgentRegistryService } from './agent-registry.service';
 import { AgentSseService } from './events/agent-sse.service';
@@ -68,7 +81,7 @@ export class AgentRegistryController {
   }
 
   @Get(':id')
-  getById(@Param('id') id: string, @CurrentCompany() companyId: string) {
+  getById(@Param('id', new ParseUUIDPipe()) id: string, @CurrentCompany() companyId: string) {
     return this.service.getById(id, companyId);
   }
 
@@ -78,19 +91,23 @@ export class AgentRegistryController {
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() body: UpdateAgentBodyDto) {
+  update(@Param('id', new ParseUUIDPipe()) id: string, @Body() body: UpdateAgentBodyDto) {
     return this.service.update(id, body as any);
   }
 
   @Delete(':id')
-  delete(@Param('id') id: string) {
+  delete(@Param('id', new ParseUUIDPipe()) id: string) {
     return this.service.delete(id);
   }
 
   // ── 실행 ──
 
   @Post(':id/run')
-  run(@Param('id') id: string, @Body() body: RunAgentBodyDto, @CurrentCompany() companyId: string) {
+  run(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: RunAgentBodyDto,
+    @CurrentCompany() companyId: string,
+  ) {
     return this.service.run(id, { ...body, companyId });
   }
 
@@ -107,27 +124,27 @@ export class AgentRegistryController {
   }
 
   @Post(':id/pause')
-  pause(@Param('id') id: string, @Body() body: PauseAgentBodyDto) {
+  pause(@Param('id', new ParseUUIDPipe()) id: string, @Body() body: PauseAgentBodyDto) {
     return this.service.pauseAgent(id, body.reason);
   }
 
   @Post(':id/resume')
-  resume(@Param('id') id: string) {
+  resume(@Param('id', new ParseUUIDPipe()) id: string) {
     return this.service.resumeAgent(id);
   }
 
   @Post(':id/reset-session')
-  resetSession(@Param('id') id: string) {
+  resetSession(@Param('id', new ParseUUIDPipe()) id: string) {
     return this.service.resetSession(id);
   }
 
   @Get(':id/runs')
-  getRunHistory(@Param('id') id: string, @Query() query: RunHistoryQueryDto) {
+  getRunHistory(@Param('id', new ParseUUIDPipe()) id: string, @Query() query: RunHistoryQueryDto) {
     return this.service.getRunHistory(id, query.limit);
   }
 
   @Get(':id/runtime-state')
-  getRuntimeState(@Param('id') id: string) {
+  getRuntimeState(@Param('id', new ParseUUIDPipe()) id: string) {
     return this.service.getRuntimeState(id);
   }
 
@@ -135,7 +152,7 @@ export class AgentRegistryController {
 
   @Post(':parentId/delegate')
   delegate(
-    @Param('parentId') parentId: string,
+    @Param('parentId', new ParseUUIDPipe()) parentId: string,
     @Body() body: DelegateAgentBodyDto,
     @CurrentCompany() companyId: string,
   ) {
@@ -154,7 +171,7 @@ export class AgentRegistryController {
 
   @Roles('admin')
   @Get(':id/denials')
-  getDenials(@Param('id') id: string) {
+  getDenials(@Param('id', new ParseUUIDPipe()) id: string) {
     if (!this.denialTracker) return [];
     return this.denialTracker.listDenials(id);
   }
@@ -163,14 +180,14 @@ export class AgentRegistryController {
 
   @Roles('admin')
   @Get('runs/:runId/snapshots')
-  getSnapshots(@Param('runId') runId: string) {
+  getSnapshots(@Param('runId', new ParseUUIDPipe()) runId: string) {
     if (!this.snapshotService) return [];
     return this.snapshotService.getSnapshots(runId);
   }
 
   @Roles('admin')
   @Get('runs/:runId/reasoning')
-  async getReasoning(@Param('runId') runId: string) {
+  async getReasoning(@Param('runId', new ParseUUIDPipe()) runId: string) {
     const run = await this.service.getRunById(runId);
     if (!run?.resultJson) return { actions: [] };
     const result = run.resultJson as any;
@@ -185,13 +202,13 @@ export class AgentRegistryController {
 
   @Roles('admin')
   @Post('runs/:runId/rollback')
-  rollback(@Param('runId') runId: string) {
+  rollback(@Param('runId', new ParseUUIDPipe()) runId: string) {
     if (!this.snapshotService) return { restored: 0 };
     return this.snapshotService.rollback(runId);
   }
 
   @Patch(':id/trust-level')
-  async updateTrustLevel(@Param('id') id: string, @Body() body: UpdateTrustLevelDto) {
+  async updateTrustLevel(@Param('id', new ParseUUIDPipe()) id: string, @Body() body: UpdateTrustLevelDto) {
     return this.service.update(id, { trustLevel: body.trustLevel });
   }
 }
