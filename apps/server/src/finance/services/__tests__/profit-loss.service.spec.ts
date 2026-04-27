@@ -1,7 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ProfitLossService } from '../profit-loss.service';
 
-// v2 canonical mock — service 는 order.findMany + orderReturnLineItem.findMany + ad.groupBy 호출
+// Hard rewrite Phase H3a/H3b — service composes:
+//   order.findMany + orderReturnLineItem.findMany +
+//   channelListingDailySnapshot.groupBy(['listingId'], _sum.adSpend)
+// `adRows` shape uses `_sum.adSpend` (daily-fact additive ad column),
+// not legacy `ad.groupBy._sum.spend`.
 function makePrisma(
   orders: unknown[],
   opts: { returnLineItems?: unknown[]; adRows?: unknown[] } = {},
@@ -9,7 +13,9 @@ function makePrisma(
   return {
     order: { findMany: vi.fn().mockResolvedValue(orders) },
     orderReturnLineItem: { findMany: vi.fn().mockResolvedValue(opts.returnLineItems ?? []) },
-    ad: { groupBy: vi.fn().mockResolvedValue(opts.adRows ?? []) },
+    channelListingDailySnapshot: {
+      groupBy: vi.fn().mockResolvedValue(opts.adRows ?? []),
+    },
   } as any;
 }
 
@@ -166,19 +172,22 @@ describe('ProfitLossService.findAll (live aggregation)', () => {
     }));
   });
 
-  it('adCost aggregated from ad.groupBy by listingId with companyId filter', async () => {
+  it('adCost aggregated from channelListingDailySnapshot.groupBy by listingId with companyId filter', async () => {
     const l = { id: 'l1', externalId: 'e1', channelName: 'coupang', master: { id: 'm1', code: 'M1', legacyCode: null, name: 'P1', category: null, abcGrade: null, thumbnailUrl: null } };
     const orders = [{ id: 'o1', shippingPrice: 3000, lineItems: [mkLineItem(l, { quantity: 1, totalPrice: 10000, costPrice: 5000, commissionRate: 0.1, otherCost: 0 })] }];
-    const adRows = [{ listingId: 'l1', _sum: { spend: 1500 } }];
+    const adRows = [{ listingId: 'l1', _sum: { adSpend: 1500 } }];
     const prisma = makePrisma(orders, { adRows });
     const service = new ProfitLossService(prisma);
     const [row] = await service.findAll('companyA', 2026, 4);
     expect(row.adCost).toBe(1500);
     expect(row.netProfit).toBe(10000 - 5000 - 1000 - 3000 - 1500 - 0);
-    expect(prisma.ad.groupBy).toHaveBeenCalledWith(expect.objectContaining({
+    expect(prisma.channelListingDailySnapshot.groupBy).toHaveBeenCalledWith(expect.objectContaining({
       by: ['listingId'],
-      _sum: { spend: true },
-      where: expect.objectContaining({ companyId: 'companyA' }),
+      _sum: { adSpend: true },
+      where: expect.objectContaining({
+        companyId: 'companyA',
+        businessDate: expect.objectContaining({ gte: expect.any(Date), lt: expect.any(Date) }),
+      }),
     }));
   });
 });

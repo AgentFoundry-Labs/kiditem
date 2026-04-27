@@ -329,6 +329,8 @@ export {
   ExposureAnalysisDataSchema,
   ChannelStateSignalSchema,
   ChannelOptionStateSignalSchema,
+  AdExtensionStatusSchema,
+  AdCollectStatusSchema,
 } from './schemas/ads.js';
 export type {
   AdListingSummary,
@@ -356,6 +358,8 @@ export type {
   ExposureAnalysisData,
   ChannelStateSignal,
   ChannelOptionStateSignal,
+  AdExtensionStatus,
+  AdCollectStatus,
 } from './schemas/ads.js';
 
 // Alerts

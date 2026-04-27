@@ -85,6 +85,8 @@ model ChannelScrapeSnapshot {
 
   listingDailySnapshots ChannelListingDailySnapshot[]       @relation("ListingDailyRawSnapshot")
   optionDailySnapshots  ChannelListingOptionDailySnapshot[] @relation("OptionDailyRawSnapshot")
+  adTargetDailySnapshots ChannelAdTargetDailySnapshot[]    @relation("AdTargetDailyRawSnapshot")
+  accountKpiSnapshots    ChannelAccountDailyKpiSnapshot[]  @relation("AccountKpiRawSnapshot")
 
   @@index([companyId, channel, source, businessDate])
   @@index([companyId, channel, pageType, businessDate])
@@ -126,6 +128,37 @@ model ChannelListingDailySnapshot {
 
   productRank  Int? @map("product_rank")
   categoryRank Int? @map("category_rank")
+
+  // Ad additive metrics (Hard rewrite H1) — sums only, ratios recompute in reads.
+  adSpend             Int @default(0) @map("ad_spend")
+  adRevenue           Int @default(0) @map("ad_revenue")
+  adImpressions       Int @default(0) @map("ad_impressions")
+  adClicks            Int @default(0) @map("ad_clicks")
+  adConversions       Int @default(0) @map("ad_conversions")
+  adOrders            Int @default(0) @map("ad_orders")
+  adDirectOrders1d    Int @default(0) @map("ad_direct_orders_1d")
+  adIndirectOrders1d  Int @default(0) @map("ad_indirect_orders_1d")
+  adDirectQty1d       Int @default(0) @map("ad_direct_qty_1d")
+  adIndirectQty1d     Int @default(0) @map("ad_indirect_qty_1d")
+  adDirectRevenue1d   Int @default(0) @map("ad_direct_revenue_1d")
+  adIndirectRevenue1d Int @default(0) @map("ad_indirect_revenue_1d")
+  adTotalOrders14d    Int @default(0) @map("ad_total_orders_14d")
+  adDirectOrders14d   Int @default(0) @map("ad_direct_orders_14d")
+  adIndirectOrders14d Int @default(0) @map("ad_indirect_orders_14d")
+  adTotalQty14d       Int @default(0) @map("ad_total_qty_14d")
+  adDirectQty14d      Int @default(0) @map("ad_direct_qty_14d")
+  adIndirectQty14d    Int @default(0) @map("ad_indirect_qty_14d")
+  adTotalRevenue14d   Int @default(0) @map("ad_total_revenue_14d")
+  adDirectRevenue14d  Int @default(0) @map("ad_direct_revenue_14d")
+  adIndirectRevenue14d Int @default(0) @map("ad_indirect_revenue_14d")
+
+  // Traffic additive metrics (Hard rewrite H1)
+  trafficVisitors Int @default(0) @map("traffic_visitors")
+  trafficViews    Int @default(0) @map("traffic_views")
+  trafficCartAdds Int @default(0) @map("traffic_cart_adds")
+  trafficOrders   Int @default(0) @map("traffic_orders")
+  trafficSalesQty Int @default(0) @map("traffic_sales_qty")
+  trafficRevenue  Int @default(0) @map("traffic_revenue")
 
   sampleCount     Int      @default(1) @map("sample_count")
   firstObservedAt DateTime @default(now()) @map("first_observed_at") @db.Timestamptz
@@ -199,4 +232,97 @@ model ChannelListingOptionDailySnapshot {
   @@index([optionId, businessDate])
   @@index([companyId, externalOptionId])
   @@map("channel_listing_option_daily_snapshots")
+}
+
+/// @namespace Channels
+/// @describe 채널 광고 타겟(캠페인/키워드/상품)의 일별 정규화 fact. 기간 view 는 SUM 으로 derive.
+model ChannelAdTargetDailySnapshot {
+  id           String   @id @default(uuid()) @db.Uuid
+  companyId    String   @map("company_id") @db.Uuid
+  channel      String
+  businessDate DateTime @map("business_date") @db.Date
+
+  listingId        String? @map("listing_id") @db.Uuid
+  listingOptionId  String? @map("listing_option_id") @db.Uuid
+  optionId         String? @map("option_id") @db.Uuid
+  externalId       String? @map("external_id")
+  externalOptionId String? @map("external_option_id")
+
+  targetType   String  @map("target_type") // 'campaign' | 'keyword' | 'product'
+  targetKey    String  @map("target_key")  // deterministic canonical key, NOT NULL
+  campaignId   String? @map("campaign_id")
+  campaignName String? @map("campaign_name")
+  adGroup      String? @map("ad_group")
+  keyword      String?
+  placement    String?
+  status       String?
+  onOff        String? @map("on_off")
+  currentBid   Int?    @map("current_bid")
+  dailyBudget  Int?    @map("daily_budget")
+
+  spend       Int @default(0)
+  revenue     Int @default(0)
+  impressions Int @default(0)
+  clicks      Int @default(0)
+  conversions Int @default(0)
+  orders      Int @default(0)
+  adSpend     Int @default(0) @map("ad_spend")
+  adRevenue   Int @default(0) @map("ad_revenue")
+
+  rawSnapshotId String? @map("raw_snapshot_id") @db.Uuid
+  metaJson      Json?   @map("meta_json")
+
+  sampleCount     Int      @default(1) @map("sample_count")
+  firstObservedAt DateTime @default(now()) @map("first_observed_at") @db.Timestamptz
+  lastObservedAt  DateTime @default(now()) @map("last_observed_at") @db.Timestamptz
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company       Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  listing       ChannelListing?        @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  listingOption ChannelListingOption?  @relation(fields: [listingOptionId], references: [id], onDelete: SetNull)
+  option        ProductOption?         @relation(fields: [optionId], references: [id], onDelete: SetNull)
+  rawSnapshot   ChannelScrapeSnapshot? @relation("AdTargetDailyRawSnapshot", fields: [rawSnapshotId], references: [id], onDelete: SetNull)
+
+  adActions AdAction[]
+
+  @@unique([companyId, channel, businessDate, targetType, targetKey])
+  @@index([companyId, channel, businessDate])
+  @@index([listingId, businessDate])
+  @@index([listingOptionId, businessDate])
+  @@index([companyId, targetType, businessDate])
+  @@index([rawSnapshotId])
+  @@index([optionId, businessDate])
+  @@map("channel_ad_target_daily_snapshots")
+}
+
+/// @namespace Channels
+/// @describe 채널 계정/스토어 단위 KPI 일별 정규화 fact (listing 에 귀속되지 않는 dashboard KPI 용).
+model ChannelAccountDailyKpiSnapshot {
+  id           String    @id @default(uuid()) @db.Uuid
+  companyId    String    @map("company_id") @db.Uuid
+  channel      String
+  source       String                              // 'wing' | 'advertising' | ...
+  kpiType      String    @map("kpi_type")          // e.g. 'wing_dashboard' | 'wing_itemwinner_kpi'
+  businessDate DateTime  @map("business_date") @db.Date
+  periodStart  DateTime? @map("period_start") @db.Date
+  periodEnd    DateTime? @map("period_end") @db.Date
+
+  normalizedJson Json    @map("normalized_json")
+  rawJson        Json?   @map("raw_json")
+  rawSnapshotId  String? @map("raw_snapshot_id") @db.Uuid
+
+  sampleCount     Int      @default(1) @map("sample_count")
+  firstObservedAt DateTime @default(now()) @map("first_observed_at") @db.Timestamptz
+  lastObservedAt  DateTime @default(now()) @map("last_observed_at") @db.Timestamptz
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company     Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  rawSnapshot ChannelScrapeSnapshot? @relation("AccountKpiRawSnapshot", fields: [rawSnapshotId], references: [id], onDelete: SetNull)
+
+  @@unique([companyId, channel, source, businessDate, kpiType])
+  @@index([companyId, channel, businessDate])
+  @@index([rawSnapshotId])
+  @@map("channel_account_daily_kpi_snapshots")
 }

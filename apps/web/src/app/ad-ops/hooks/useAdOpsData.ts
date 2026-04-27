@@ -5,6 +5,7 @@ import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import type {
   AdCampaignSnapshot,
+  AdExtensionStatus,
   AdProductSnapshot,
   AdRulesData,
   AdWeeklyPlan,
@@ -26,14 +27,17 @@ export type CampaignsResponse = {
   totalKpi: Record<string, number>;
 };
 
-export type ExtensionStatusResponse = {
-  wing: {
-    kpis: Record<string, string | { value: string; change?: string; numValue?: number }>;
-    lastSync: string | null;
-  };
-  snapshotCount: number;
-  itemWinnerCount: number;
-};
+// H3 — `/api/ads/extension/status` shape moved to current-state semantics.
+// `snapshotCount` is now `rawSnapshotCount` (counts ChannelScrapeSnapshot rows
+// instead of legacy AdSnapshot), and `itemWinnerCount` is now
+// `currentWinnerObservedListings` (latest daily-fact observed listings instead
+// of legacy ItemWinner row count). Aliased to the shared schema type.
+// H3: StatusContent surfaces `latestScrapeAt` / `latestChannelStateAt` /
+// `rawSnapshotCount` / `currentWinnerObservedListings` in the 아이템위너 카드.
+// `latestScrapePageType` stays on the wire (could feed a debug panel) but is
+// not user-facing — the raw page slug ('itemwinner', 'campaign', ...) carries
+// no operator value beyond what `latestScrapeAt` already conveys.
+export type ExtensionStatusResponse = AdExtensionStatus;
 
 export type TrafficSummaryResponse = {
   days: number;

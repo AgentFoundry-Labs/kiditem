@@ -24,7 +24,7 @@ const PRIORITY_ORDER: Record<Priority, number> = {
  *
  * 기존 ad-strategy.service.ts (B2b, 2c17850) line 653-1026 본문 이전.
  * 변경:
- *  - prisma 호출 제거 (input 으로 이동; adGroups = `prisma.ad.groupBy(['listingId'])` 결과)
+ *  - prisma 호출 제거 (input 으로 이동; adGroups = `legacy ad groupBy(['listingId'])` 결과)
  *  - productId → listingId (B2b 도입분)
  *  - toListingSummary 는 util/ad-strategy-helpers import
  *
@@ -191,11 +191,11 @@ export class AdGradeRulesService {
       const currentValue = roas;
       const proposedValue = profitRate > 0 ? Math.round(profitRate) : null;
 
-      // Wave C4 — attach channel-state evidence (latest daily snapshot) when
+      // Attach channel-state evidence (latest daily snapshot) when
       // available. Reason text is enriched only when the snapshot reveals a
       // meaningful adverse condition (offer-winner lost / option out of stock /
       // exposure suspended); otherwise the reason stays exactly as before so
-      // pre-C4 callers see no diff.
+      // callers without a snapshot see no diff.
       const channelState = channelStateByListing?.get(listing.id) ?? null;
       const reason = channelState
         ? appendChannelEvidence(main.reason, channelState)
@@ -223,7 +223,7 @@ export class AdGradeRulesService {
    * Ad issues 카테고리화 (zeroConversion / lowRoas / highSpend).
    *
    * 기존 ad-strategy.service.ts:955-1026 의 calcAdIssues 본문 이전.
-   * adGroups 는 orchestrator 가 prisma.ad.groupBy(['listingId']) (최근 14d) 으로 사전 fetch.
+   * adGroups 는 orchestrator 가 legacy ad groupBy(['listingId']) (최근 14d) 으로 사전 fetch.
    * Threshold 복원 (B2b 원본):
    *  - zeroConversion: spend > 0 && conversions === 0
    *  - lowRoas:        spend > 0 && revenue > 0 && roas < 100
@@ -332,7 +332,7 @@ function calcOptionMargin(option: HydratedListing['primaryOption']): number {
 }
 
 /**
- * Wave C4 — append channel daily-snapshot evidence to the reason text.
+ * Append channel daily-snapshot evidence to the reason text.
  *
  * Rules (only adverse signals — positive states stay implicit):
  * - offer-winner lost → `· 아이템위너 아님` (+ winner price/gap when known)

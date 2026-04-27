@@ -1,6 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
 import { SalesAnalysisService } from '../sales-analysis.service';
 
+// Hard rewrite Phase H3b — service now sources per-listing ad spend from
+// `ChannelListingDailySnapshot.groupBy` (additive `_sum.adSpend`) instead of
+// legacy `Ad.groupBy._sum.spend`.
 function makePrisma(overrides: {
   orders?: unknown[];
   returnRows?: unknown[];
@@ -11,7 +14,9 @@ function makePrisma(overrides: {
   return {
     order: { findMany: vi.fn().mockResolvedValue(overrides.orders ?? []) },
     orderReturnLineItem: { findMany: vi.fn().mockResolvedValue(overrides.returnRows ?? []) },
-    ad: { groupBy: vi.fn().mockResolvedValue(overrides.adGroupRows ?? []) },
+    channelListingDailySnapshot: {
+      groupBy: vi.fn().mockResolvedValue(overrides.adGroupRows ?? []),
+    },
     orderReturn: { count: vi.fn().mockResolvedValue(overrides.orphanCount ?? 0) },
     channelListing: { findMany: vi.fn().mockResolvedValue(overrides.listings ?? []) },
   } as any;
@@ -109,20 +114,28 @@ describe('SalesAnalysisService.getAnalysis — Plan D.3', () => {
     expect(result.totals.totalOrders).toBe(0);
   });
 
-  it('ad.groupBy by listingId → channel via channelListing lookup', async () => {
+  it('channelListingDailySnapshot.groupBy by listingId → channel via channelListing lookup', async () => {
     const coup = { id: 'l-c', channel: 'coupang' };
     const orders = [
       { id: 'o1', shippingPrice: 3000, lineItems: [mkLineItem(coup, { quantity: 1, totalPrice: 10000, costPrice: 5000, commissionRate: 0.1, otherCost: 0 })] },
     ];
     const adGroupRows = [
-      { listingId: 'l-c', _sum: { spend: 2000 } },
-      { listingId: 'l-unknown', _sum: { spend: 500 } },  // not in listings → dropped
+      { listingId: 'l-c', _sum: { adSpend: 2000 } },
+      { listingId: 'l-unknown', _sum: { adSpend: 500 } },  // not in listings → dropped
     ];
     const listings = [{ id: 'l-c', channel: 'coupang' }];  // only l-c resolves
     const prisma = makePrisma({ orders, adGroupRows, listings });
     const result = await new SalesAnalysisService(prisma).getAnalysis('cA', '2026-04');
     const c = result.channels[0];
     expect(c.totalCost).toBeGreaterThanOrEqual(2000);  // adCost absorbed
+    expect(prisma.channelListingDailySnapshot.groupBy).toHaveBeenCalledWith(expect.objectContaining({
+      by: ['listingId'],
+      _sum: { adSpend: true },
+      where: expect.objectContaining({
+        companyId: 'cA',
+        businessDate: expect.objectContaining({ gte: expect.any(Date), lt: expect.any(Date) }),
+      }),
+    }));
     expect(prisma.channelListing.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ companyId: 'cA' }),
     }));

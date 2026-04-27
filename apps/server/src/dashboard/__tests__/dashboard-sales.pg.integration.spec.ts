@@ -167,23 +167,27 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
   });
 
   it('T5: Wing override flows through trafficKpi.adSummary + lastSyncAt', async () => {
-    const { listingId } = await seedTestListing('5');
+    // Hard rewrite Phase H3b — wing dashboard ad-summary now lives in
+    // ChannelAccountDailyKpiSnapshot(source='wing', kpiType='wing_dashboard').
+    await seedTestListing('5');
     const now = new Date();
     const monthStartStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
-    await prisma.adSnapshot.create({
+    const businessDate = new Date(
+      Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()),
+    );
+    await prisma.channelAccountDailyKpiSnapshot.create({
       data: {
         companyId: TEST_COMPANY_ID,
-        listingId,
+        channel: 'coupang',
         source: 'wing',
-        pageType: 'dashboard_kpi',
-        date: now,
-        capturedAt: now,
-        level: 'dashboard',
-        rawJson: {
+        kpiType: 'wing_dashboard',
+        businessDate,
+        normalizedJson: {
           startDate: monthStartStr,
-          period: 30,
           adSummary: { adGmv: '7777', adSpend: '2222' },
         },
+        lastObservedAt: now,
+        firstObservedAt: now,
       },
     });
 

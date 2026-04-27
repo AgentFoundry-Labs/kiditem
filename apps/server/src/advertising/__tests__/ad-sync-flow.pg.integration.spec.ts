@@ -13,7 +13,14 @@ import {
   OTHER_COMPANY_ID,
 } from '../../test-helpers/real-prisma';
 
-describe('AdSync flow (PG integration)', () => {
+/**
+ * H2 — ad-sync ingestion flow against real Postgres. Asserts the new
+ * daily-fact pipeline (`ChannelListingDailySnapshot` /
+ * `ChannelAdTargetDailySnapshot` / `ChannelAccountDailyKpiSnapshot`)
+ * receives the rows and the legacy `Ad` / `AdSnapshot` / `TrafficStats`
+ * / `ItemWinner` writes have been removed.
+ */
+describe('AdSync flow (PG integration, H2)', () => {
   let prisma: PrismaClient;
   let adSyncService: AdSyncService;
 
@@ -101,25 +108,22 @@ describe('AdSync flow (PG integration)', () => {
 
       const map = await adSyncService.buildListingMap(TEST_COMPANY_ID);
 
-      // Wave C2: externalOptionIdMap entries now carry listingOptionId so C3
-      // can land option daily snapshots even when the internal optionId is
-      // null. Existing matched-option case still resolves to the same internal
-      // optionId / listingId. Wave C3 additionally carries listing.externalId
-      // for denormalized daily snapshot rows without a second DB lookup.
       expect(map.externalOptionIdMap.get('VENDOR-A')).toEqual({
         listingId: a.listing.id,
         listingOptionId: a.listingOption.id,
         optionId: a.option.id,
         externalId: 'EXT-A',
       });
-      expect(map.externalIdMap.get('EXT-A')).toEqual({ listingId: a.listing.id });
+      expect(map.externalIdMap.get('EXT-A')).toEqual({
+        listingId: a.listing.id,
+      });
       expect(map.externalOptionIdMap.has('VENDOR-OTHER')).toBe(false);
       expect(map.externalIdMap.has('EXT-OTHER')).toBe(false);
     });
   });
 
   describe('sync(ad_campaign)', () => {
-    it('#2 vendorItemId hit → snapshots + Ad row keyed by listingId+optionId', async () => {
+    it('#2 vendorItemId hit → ChannelListingDailySnapshot ad metrics + ChannelAdTargetDailySnapshot at product grain', async () => {
       const seeded = await seedListing({
         companyId: TEST_COMPANY_ID,
         externalId: 'EXT-COUPANG-1',
@@ -131,11 +135,13 @@ describe('AdSync flow (PG integration)', () => {
           type: 'ad_campaign',
           campaignName: 'Campaign-α',
           period: '7d',
+          timestamp: '2026-04-14T01:00:00Z',
           kpis: { '전체 집행 광고비': '12000', '광고 전환 매출': '30000' },
           normalizedRows: [
             {
               pageType: 'product',
               campaignName: 'Campaign-α',
+              campaignId: 'CAMP-1',
               productName: 'Product-α',
               vendorItemId: 'VI-HIT-1',
               itemId: 'VI-HIT-1',
@@ -145,7 +151,7 @@ describe('AdSync flow (PG integration)', () => {
               clicks: '50',
               conversions: '3',
               orders: '3',
-              roas: '3.33',
+              roas: '333.33',
               ctr: '5.0',
             },
           ],
@@ -154,27 +160,61 @@ describe('AdSync flow (PG integration)', () => {
       );
 
       expect(result.success).toBe(true);
-      const campaignResult = result as { snapshotCount: number; productCount: number; adCount: number };
-      expect(campaignResult.snapshotCount).toBe(1);
-      expect(campaignResult.productCount).toBe(1);
-      expect(campaignResult.adCount).toBe(1);
 
-      const productSnapshot = await prisma.adSnapshot.findFirst({
-        where: { companyId: TEST_COMPANY_ID, level: 'product' },
+      // Listing daily metric upsert.
+      const listingDaily = await prisma.channelListingDailySnapshot.findFirst({
+        where: { companyId: TEST_COMPANY_ID, listingId: seeded.listing.id },
       });
-      expect(productSnapshot?.listingId).toBe(seeded.listing.id);
-      expect(productSnapshot?.optionId).toBe(seeded.option.id);
+      expect(listingDaily).toBeDefined();
+      expect(listingDaily?.businessDate.toISOString().slice(0, 10)).toBe(
+        '2026-04-14',
+      );
+      expect(listingDaily?.adSpend).toBe(1500);
+      expect(listingDaily?.adRevenue).toBe(5000);
+      expect(listingDaily?.adImpressions).toBe(1000);
+      expect(listingDaily?.adClicks).toBe(50);
+      expect(listingDaily?.adConversions).toBe(3);
+      expect(listingDaily?.adOrders).toBe(3);
+      // Provider ROAS NOT trusted at column level — only metaJson, and
+      // metaJson is namespaced per caller-source (file header
+      // "metaJson namespacing").
+      expect(listingDaily?.metaJson).toMatchObject({
+        'advertising.campaign': { providerRoas: 333.33 },
+      });
 
-      const ad = await prisma.ad.findFirst({
-        where: { companyId: TEST_COMPANY_ID, platform: 'coupang' },
+      // Target daily fact at product grain. The targetKey is built from
+      // the listing's externalId (EXT-COUPANG-1) — when the row only carries
+      // vendorItemId, the match propagates the listing's externalId.
+      const targetDaily = await prisma.channelAdTargetDailySnapshot.findFirst({
+        where: {
+          companyId: TEST_COMPANY_ID,
+          targetType: 'product',
+          targetKey: 'product:EXT-COUPANG-1:CAMP-1',
+        },
       });
-      expect(ad?.listingId).toBe(seeded.listing.id);
-      expect(ad?.optionId).toBe(seeded.option.id);
-      expect(ad?.spend).toBe(1500);
-      expect(ad?.revenue).toBe(5000);
+      expect(targetDaily).toBeDefined();
+      expect(targetDaily?.spend).toBe(1500);
+      expect(targetDaily?.revenue).toBe(5000);
+      expect(targetDaily?.adSpend).toBe(1500);
+      expect(targetDaily?.adRevenue).toBe(5000);
+      expect(targetDaily?.listingId).toBe(seeded.listing.id);
+      expect(targetDaily?.listingOptionId).toBe(seeded.listingOption.id);
+
+      // Account-level KPI for the campaign-as-a-whole.
+      const kpi = await prisma.channelAccountDailyKpiSnapshot.findFirst({
+        where: {
+          companyId: TEST_COMPANY_ID,
+          source: 'advertising',
+          kpiType: 'advertising_campaign_kpis',
+        },
+      });
+      expect(kpi).toBeDefined();
+      expect(kpi?.normalizedJson).toMatchObject({
+        kpis: { '전체 집행 광고비': '12000' },
+      });
     });
 
-    it('#3 externalId hit (no vendorItemId) → snapshot with listingId but optionId null', async () => {
+    it('#3 keyword row → ChannelAdTargetDailySnapshot at keyword grain', async () => {
       const seeded = await seedListing({
         companyId: TEST_COMPANY_ID,
         externalId: 'EXT-COUPANG-2',
@@ -186,10 +226,13 @@ describe('AdSync flow (PG integration)', () => {
           type: 'ad_campaign',
           campaignName: 'Campaign-β',
           period: '7d',
+          timestamp: '2026-04-14T01:00:00Z',
           normalizedRows: [
             {
               pageType: 'keyword',
               campaignName: 'Campaign-β',
+              campaignId: 'CAMP-β',
+              adGroup: 'AG-1',
               keyword: 'widget',
               externalId: 'EXT-COUPANG-2',
               spend: '800',
@@ -201,39 +244,39 @@ describe('AdSync flow (PG integration)', () => {
         TEST_COMPANY_ID,
       );
 
-      const snapshot = await prisma.adSnapshot.findFirst({
+      const targetDaily = await prisma.channelAdTargetDailySnapshot.findFirst({
         where: {
           companyId: TEST_COMPANY_ID,
-          pageType: 'keyword',
-          keyword: 'widget',
+          targetType: 'keyword',
+          targetKey: 'keyword:CAMP-β:AG-1:widget',
         },
       });
-      expect(snapshot?.listingId).toBe(seeded.listing.id);
-      expect(snapshot?.optionId).toBeNull();
-
-      const ad = await prisma.ad.findFirst({
-        where: { companyId: TEST_COMPANY_ID, platform: 'coupang' },
-      });
-      expect(ad?.listingId).toBe(seeded.listing.id);
-      expect(ad?.optionId).toBeNull();
+      expect(targetDaily).toBeDefined();
+      expect(targetDaily?.spend).toBe(800);
+      expect(targetDaily?.impressions).toBe(200);
+      expect(targetDaily?.clicks).toBe(10);
+      expect(targetDaily?.listingId).toBe(seeded.listing.id);
+      expect(targetDaily?.listingOptionId).toBeNull();
     });
 
-    it('#4 unmatched row → snapshot row with null listing/option, no Ad created', async () => {
+    it('#4 unmatched row preserves raw snapshot but does not write listing daily — target daily lands only when key is buildable', async () => {
       await seedListing({
         companyId: TEST_COMPANY_ID,
         externalId: 'EXT-PRESENT',
         externalOptionId: 'VI-PRESENT',
       });
 
-      const result = await adSyncService.sync(
+      await adSyncService.sync(
         {
           type: 'ad_campaign',
           campaignName: 'Campaign-γ',
           period: '7d',
+          timestamp: '2026-04-14T01:00:00Z',
           normalizedRows: [
             {
               pageType: 'campaign',
               campaignName: 'Campaign-γ',
+              campaignId: 'CAMP-γ',
               vendorItemId: 'VI-NO-MATCH',
               externalId: 'EXT-NO-MATCH',
               spend: '500',
@@ -245,29 +288,32 @@ describe('AdSync flow (PG integration)', () => {
         TEST_COMPANY_ID,
       );
 
-      const campaignResult = result as { snapshotCount: number; productCount: number; adCount: number };
-      expect(campaignResult.snapshotCount).toBe(1);
-      expect(campaignResult.productCount).toBe(0);
-      expect(campaignResult.adCount).toBe(0);
+      // No listing daily because there's no listing match.
+      const listingDailyCount =
+        await prisma.channelListingDailySnapshot.count({
+          where: { companyId: TEST_COMPANY_ID },
+        });
+      expect(listingDailyCount).toBe(0);
 
-      const unmatchedSnapshot = await prisma.adSnapshot.findFirst({
+      // Target daily DOES land at campaign grain (campaignId is enough).
+      const targetDaily = await prisma.channelAdTargetDailySnapshot.findFirst({
         where: {
           companyId: TEST_COMPANY_ID,
-          pageType: 'campaign',
-          campaignName: 'Campaign-γ',
-          level: null,
+          targetType: 'campaign',
+          targetKey: 'campaign:CAMP-γ',
         },
       });
-      expect(unmatchedSnapshot?.listingId).toBeNull();
-      expect(unmatchedSnapshot?.optionId).toBeNull();
+      expect(targetDaily).toBeDefined();
+      expect(targetDaily?.listingId).toBeNull();
 
-      const adCount = await prisma.ad.count({
-        where: { companyId: TEST_COMPANY_ID },
+      // Raw snapshot preserved.
+      const rawCount = await prisma.channelScrapeSnapshot.count({
+        where: { companyId: TEST_COMPANY_ID, source: 'advertising' },
       });
-      expect(adCount).toBe(0);
+      expect(rawCount).toBe(1);
     });
 
-    it('#5 cross-tenant: other company vendorItemId must not match this company', async () => {
+    it('#5 cross-tenant: other-company vendorItemId never lands in this companys daily-fact tables', async () => {
       await seedListing({
         companyId: OTHER_COMPANY_ID,
         externalId: 'EXT-OTHER-ONLY',
@@ -275,15 +321,17 @@ describe('AdSync flow (PG integration)', () => {
         legacySuffix: '-xt',
       });
 
-      const result = await adSyncService.sync(
+      await adSyncService.sync(
         {
           type: 'ad_campaign',
           campaignName: 'Campaign-δ',
           period: '7d',
+          timestamp: '2026-04-14T01:00:00Z',
           normalizedRows: [
             {
               pageType: 'product',
               campaignName: 'Campaign-δ',
+              campaignId: 'CAMP-δ',
               productName: 'X',
               vendorItemId: 'VI-OTHER-ONLY',
               itemId: 'VI-OTHER-ONLY',
@@ -297,24 +345,256 @@ describe('AdSync flow (PG integration)', () => {
         TEST_COMPANY_ID,
       );
 
-      const campaignResult = result as { snapshotCount: number; productCount: number; adCount: number };
-      expect(campaignResult.snapshotCount).toBe(1);
-      expect(campaignResult.adCount).toBe(0);
+      const listingDailyCount =
+        await prisma.channelListingDailySnapshot.count({
+          where: { companyId: TEST_COMPANY_ID },
+        });
+      expect(listingDailyCount).toBe(0);
 
-      const snapshots = await prisma.adSnapshot.findMany({
+      const otherListingDaily =
+        await prisma.channelListingDailySnapshot.count({
+          where: { companyId: OTHER_COMPANY_ID },
+        });
+      expect(otherListingDaily).toBe(0);
+
+      // Target daily lands in TEST_COMPANY scope (we attribute by ingestion
+      // company), with listingId NULL — confirming no cross-tenant leak.
+      const targetDaily = await prisma.channelAdTargetDailySnapshot.findFirst({
         where: { companyId: TEST_COMPANY_ID },
       });
-      expect(snapshots.every((s) => s.listingId === null && s.optionId === null)).toBe(true);
+      expect(targetDaily?.listingId).toBeNull();
+      expect(targetDaily?.listingOptionId).toBeNull();
+    });
 
-      const otherSnapshots = await prisma.adSnapshot.count({
-        where: { companyId: OTHER_COMPANY_ID },
+    it('#6 idempotent replay: same payload twice → same listing-day metric values, sampleCount=2', async () => {
+      const seeded = await seedListing({
+        companyId: TEST_COMPANY_ID,
+        externalId: 'EXT-IDEM',
+        externalOptionId: 'VI-IDEM',
       });
-      expect(otherSnapshots).toBe(0);
 
-      const ads = await prisma.ad.count({
-        where: { companyId: TEST_COMPANY_ID },
+      const payload = {
+        type: 'ad_campaign' as const,
+        campaignName: 'Camp-Idem',
+        period: '7d',
+        timestamp: '2026-04-14T01:00:00Z',
+        normalizedRows: [
+          {
+            pageType: 'product',
+            campaignName: 'Camp-Idem',
+            campaignId: 'CAMP-IDEM',
+            productName: 'P-Idem',
+            vendorItemId: 'VI-IDEM',
+            spend: '1000',
+            revenue: '3000',
+            impressions: '500',
+            clicks: '20',
+            conversions: '2',
+            orders: '2',
+          },
+        ],
+      };
+      await adSyncService.sync(payload, TEST_COMPANY_ID);
+      await adSyncService.sync(payload, TEST_COMPANY_ID);
+
+      const listingDaily = await prisma.channelListingDailySnapshot.findFirst({
+        where: { companyId: TEST_COMPANY_ID, listingId: seeded.listing.id },
       });
-      expect(ads).toBe(0);
+      expect(listingDaily).toBeDefined();
+      expect(listingDaily?.adSpend).toBe(1000); // overwrite, not double
+      expect(listingDaily?.adRevenue).toBe(3000);
+      expect(listingDaily?.sampleCount).toBe(2);
+
+      const targetDaily = await prisma.channelAdTargetDailySnapshot.findFirst({
+        where: {
+          companyId: TEST_COMPANY_ID,
+          targetType: 'product',
+          targetKey: 'product:EXT-IDEM:CAMP-IDEM',
+        },
+      });
+      expect(targetDaily?.spend).toBe(1000);
+      expect(targetDaily?.revenue).toBe(3000);
+      expect(targetDaily?.sampleCount).toBe(2);
+    });
+  });
+
+  describe('sync(traffic)', () => {
+    it('#7 matched traffic row → listing-day traffic metrics (no TrafficStats write)', async () => {
+      const seeded = await seedListing({
+        companyId: TEST_COMPANY_ID,
+        externalId: 'EXT-TRAFFIC',
+        externalOptionId: 'VI-TRAFFIC',
+      });
+
+      await adSyncService.sync(
+        {
+          type: 'traffic',
+          period: 14,
+          startDate: '2026-04-14T01:00:00Z',
+          data: [
+            {
+              vendorItemId: 'VI-TRAFFIC',
+              visitors: 100,
+              views: 200,
+              cartAdds: 5,
+              orders: 5,
+              salesQty: 5,
+              revenue: 30000,
+            },
+          ],
+        },
+        TEST_COMPANY_ID,
+      );
+
+      const listingDaily = await prisma.channelListingDailySnapshot.findFirst({
+        where: { companyId: TEST_COMPANY_ID, listingId: seeded.listing.id },
+      });
+      expect(listingDaily?.trafficVisitors).toBe(100);
+      expect(listingDaily?.trafficViews).toBe(200);
+      expect(listingDaily?.trafficCartAdds).toBe(5);
+      expect(listingDaily?.trafficOrders).toBe(5);
+      expect(listingDaily?.trafficSalesQty).toBe(5);
+      expect(listingDaily?.trafficRevenue).toBe(30000);
+    });
+  });
+
+  describe('cross-source metaJson namespacing', () => {
+    it('#9 ad_campaign + traffic on same (listing, businessDate) preserve each other`s metaJson keys', async () => {
+      const seeded = await seedListing({
+        companyId: TEST_COMPANY_ID,
+        externalId: 'EXT-META-MERGE',
+        externalOptionId: 'VI-META-MERGE',
+      });
+
+      // First payload: ad_campaign writes provider ROAS / CTR under
+      // `advertising.campaign` source.
+      await adSyncService.sync(
+        {
+          type: 'ad_campaign',
+          campaignName: 'CampaignMerge',
+          period: '7d',
+          timestamp: '2026-04-14T01:00:00Z',
+          normalizedRows: [
+            {
+              pageType: 'product',
+              campaignName: 'CampaignMerge',
+              campaignId: 'CAMP-MERGE',
+              productName: 'Product-Merge',
+              vendorItemId: 'VI-META-MERGE',
+              spend: '1500',
+              revenue: '5000',
+              impressions: '1000',
+              clicks: '50',
+              roas: '333.33',
+              ctr: '5.0',
+            },
+          ],
+        },
+        TEST_COMPANY_ID,
+      );
+
+      // Second payload: traffic on the same listing/day writes provider
+      // conversion rate under `wing.traffic` source. Without per-source
+      // namespacing the ad_campaign keys would be wiped here.
+      await adSyncService.sync(
+        {
+          type: 'traffic',
+          period: 14,
+          startDate: '2026-04-14T01:00:00Z',
+          data: [
+            {
+              vendorItemId: 'VI-META-MERGE',
+              visitors: 200,
+              views: 400,
+              cartAdds: 10,
+              orders: 8,
+              salesQty: 8,
+              revenue: 40000,
+            },
+          ],
+        },
+        TEST_COMPANY_ID,
+      );
+
+      const listingDaily = await prisma.channelListingDailySnapshot.findFirst({
+        where: { companyId: TEST_COMPANY_ID, listingId: seeded.listing.id },
+      });
+      expect(listingDaily).toBeDefined();
+      expect(listingDaily?.businessDate.toISOString().slice(0, 10)).toBe(
+        '2026-04-14',
+      );
+
+      // Both ad and traffic numerator columns survive (overwrite-on-replay
+      // applies per metric block; missing keys leave columns alone).
+      expect(listingDaily?.adSpend).toBe(1500);
+      expect(listingDaily?.adRevenue).toBe(5000);
+      expect(listingDaily?.trafficVisitors).toBe(200);
+      expect(listingDaily?.trafficOrders).toBe(8);
+
+      // metaJson preserves BOTH source keys — the second payload did not
+      // wipe the first's audit data.
+      const meta = listingDaily?.metaJson as Record<string, unknown>;
+      expect(meta).toMatchObject({
+        'advertising.campaign': {
+          providerRoas: 333.33,
+          providerCtr: 5,
+        },
+        'wing.traffic': {
+          periodDays: 14,
+        },
+      });
+      // Ensure both top-level source keys are present.
+      expect(Object.keys(meta).sort()).toEqual(
+        ['advertising.campaign', 'wing.traffic'].sort(),
+      );
+    });
+  });
+
+  describe('sync(coupang_ads_daily)', () => {
+    it('#8 each daily row lands in ChannelAccountDailyKpiSnapshot — provider ROAS only in metaJson, not as additive numerator', async () => {
+      await adSyncService.sync(
+        {
+          type: 'coupang_ads_daily',
+          data: [
+            {
+              date: '2026-04-12',
+              adSpend: 1000,
+              adRevenue: 3000,
+              impressions: 100,
+              clicks: 10,
+              roas: 999, // provider ratio NOT trusted
+            },
+            {
+              date: '2026-04-13',
+              adSpend: 2000,
+              adRevenue: 5000,
+              impressions: 200,
+              clicks: 20,
+              roas: 250,
+            },
+          ],
+        },
+        TEST_COMPANY_ID,
+      );
+
+      const kpis = await prisma.channelAccountDailyKpiSnapshot.findMany({
+        where: {
+          companyId: TEST_COMPANY_ID,
+          source: 'coupang_ads',
+          kpiType: 'coupang_ads_daily',
+        },
+        orderBy: { businessDate: 'asc' },
+      });
+      expect(kpis).toHaveLength(2);
+      expect(kpis[0].businessDate.toISOString().slice(0, 10)).toBe(
+        '2026-04-12',
+      );
+      expect(kpis[0].normalizedJson).toMatchObject({
+        adSpend: 1000,
+        adRevenue: 3000,
+        providerRoas: 999,
+      });
+      // No legacy AdSnapshot row produced — H3 reads daily KPI directly.
     });
   });
 });

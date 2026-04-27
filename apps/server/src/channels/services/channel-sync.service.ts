@@ -107,7 +107,7 @@ export class ChannelSyncService {
   }
 
   /**
-   * Coupang seller-product → ChannelListing/ChannelListingOption 동기화 (Wave C1).
+   * Coupang seller-product → ChannelListing/ChannelListingOption 동기화.
    *
    * 페이지네이션은 `nextToken` 기반. 각 listing 은 별도 transaction 으로 처리해서
    * batch 중간 실패가 다른 listing 의 동기화를 막지 않도록 한다 (`syncOrders` 와 동일

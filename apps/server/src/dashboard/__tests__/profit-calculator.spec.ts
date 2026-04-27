@@ -1,28 +1,29 @@
 import { describe, it, expect, vi } from 'vitest';
 import { calculateProfitForRange } from '../helpers/profit-calculator';
 
+/**
+ * Hard rewrite Phase H3b — `calculateProfitForRange` ad spend now reads
+ * `ChannelListingDailySnapshot.aggregate({ _sum: { adSpend, adRevenue, ... } })`.
+ * Tests stay focused on R-1 shipping accumulation by stubbing the aggregate
+ * to return zero — the order/lineItem path is unchanged.
+ */
 type PrismaMock = {
   order: { findMany: ReturnType<typeof vi.fn> };
-  adSnapshot: { aggregate: ReturnType<typeof vi.fn>; findMany: ReturnType<typeof vi.fn> };
-  ad: { aggregate: ReturnType<typeof vi.fn> };
+  channelListingDailySnapshot: { aggregate: ReturnType<typeof vi.fn> };
 };
 
 function makePrisma(orders: unknown[]): PrismaMock {
   return {
     order: { findMany: vi.fn().mockResolvedValue(orders) },
-    adSnapshot: {
+    channelListingDailySnapshot: {
       aggregate: vi.fn().mockResolvedValue({
-        _sum: { spend: 0, revenue: 0, impressions: 0, clicks: 0, conversions: 0 },
-        // `_max.capturedAt: null` causes the AdSnapshot pro-rating branch to be skipped,
-        // isolating these tests to R-1 shipping assertion. If a future test needs to
-        // exercise the ad branch, override this mock per-test.
-        _max: { capturedAt: null },
-      }),
-      findMany: vi.fn().mockResolvedValue([]),
-    },
-    ad: {
-      aggregate: vi.fn().mockResolvedValue({
-        _sum: { spend: 0, impressions: 0, clicks: 0, conversions: 0, revenue: 0 },
+        _sum: {
+          adSpend: 0,
+          adRevenue: 0,
+          adImpressions: 0,
+          adClicks: 0,
+          adConversions: 0,
+        },
       }),
     },
   };
@@ -119,11 +120,17 @@ describe('calculateProfitForRange — R-1 shipping per-order', () => {
     ]);
     const prisma = {
       order: { findMany: findManyMock },
-      adSnapshot: {
-        aggregate: vi.fn().mockResolvedValue({ _sum: { spend: 0, revenue: 0, impressions: 0, clicks: 0, conversions: 0 }, _max: { capturedAt: null } }),
-        findMany: vi.fn().mockResolvedValue([]),
+      channelListingDailySnapshot: {
+        aggregate: vi.fn().mockResolvedValue({
+          _sum: {
+            adSpend: 0,
+            adRevenue: 0,
+            adImpressions: 0,
+            adClicks: 0,
+            adConversions: 0,
+          },
+        }),
       },
-      ad: { aggregate: vi.fn().mockResolvedValue({ _sum: { spend: 0 } }) },
     };
     const from = new Date('2026-04-01T00:00:00Z');
     const to = new Date('2026-05-01T00:00:00Z');
@@ -135,5 +142,70 @@ describe('calculateProfitForRange — R-1 shipping per-order', () => {
         status: expect.objectContaining({ notIn: expect.arrayContaining(['cancelled', 'returned', 'refunded']) }),
       }),
     }));
+  });
+});
+
+describe('calculateProfitForRange — daily-fact ad spend aggregation', () => {
+  it('aggregates adSpend/adRevenue/adImpressions/adClicks/adConversions from ChannelListingDailySnapshot', async () => {
+    const aggregateMock = vi.fn().mockResolvedValue({
+      _sum: {
+        adSpend: 12345,
+        adRevenue: 67890,
+        adImpressions: 1000,
+        adClicks: 50,
+        adConversions: 5,
+      },
+    });
+    const prisma = {
+      order: { findMany: vi.fn().mockResolvedValue([]) },
+      channelListingDailySnapshot: { aggregate: aggregateMock },
+    };
+    const from = new Date('2026-04-01T00:00:00Z');
+    const to = new Date('2026-05-01T00:00:00Z');
+    const result = await calculateProfitForRange(prisma as any, 'company-1', from, to);
+
+    expect(aggregateMock).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        companyId: 'company-1',
+        businessDate: { gte: from, lt: to },
+      }),
+      _sum: expect.objectContaining({
+        adSpend: true,
+        adRevenue: true,
+        adImpressions: true,
+        adClicks: true,
+        adConversions: true,
+      }),
+    }));
+    expect(result.adCost).toBe(12345);
+    expect(result.adRevenue).toBe(67890);
+    expect(result.adImpressions).toBe(1000);
+    expect(result.adClicks).toBe(50);
+    expect(result.adConversions).toBe(5);
+  });
+
+  it('empty daily-fact aggregate → zero ad metrics, no legacy fallback', async () => {
+    const prisma = {
+      order: { findMany: vi.fn().mockResolvedValue([]) },
+      channelListingDailySnapshot: {
+        aggregate: vi.fn().mockResolvedValue({
+          _sum: {
+            adSpend: null,
+            adRevenue: null,
+            adImpressions: null,
+            adClicks: null,
+            adConversions: null,
+          },
+        }),
+      },
+    };
+    const from = new Date('2026-04-01T00:00:00Z');
+    const to = new Date('2026-05-01T00:00:00Z');
+    const result = await calculateProfitForRange(prisma as any, 'company-1', from, to);
+    expect(result.adCost).toBe(0);
+    expect(result.adRevenue).toBe(0);
+    expect(result.adImpressions).toBe(0);
+    expect(result.adClicks).toBe(0);
+    expect(result.adConversions).toBe(0);
   });
 });

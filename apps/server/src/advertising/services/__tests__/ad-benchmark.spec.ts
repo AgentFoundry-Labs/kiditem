@@ -19,7 +19,9 @@ describe('AdBenchmarkService', () => {
 
   beforeEach(() => {
     prisma = {
-      ad: {
+      // H3 — benchmark reads moved from `prisma.ad` to
+      // `prisma.channelListingDailySnapshot`.
+      channelListingDailySnapshot: {
         aggregate: vi.fn(),
         groupBy: vi.fn(),
       },
@@ -32,12 +34,36 @@ describe('AdBenchmarkService', () => {
   });
 
   it('returns diagnosis with listing-primary results', async () => {
-    prisma.ad.aggregate.mockResolvedValue({
-      _sum: { spend: 100000, impressions: 10000, clicks: 150, conversions: 10, revenue: 300000 },
+    prisma.channelListingDailySnapshot.aggregate.mockResolvedValue({
+      _sum: {
+        adSpend: 100000,
+        adImpressions: 10000,
+        adClicks: 150,
+        adConversions: 10,
+        adRevenue: 300000,
+      },
     });
-    prisma.ad.groupBy.mockResolvedValue([
-      { listingId: 'L1', _sum: { spend: 50000, impressions: 5000, clicks: 75, conversions: 5, revenue: 200000 } },
-      { listingId: 'L2', _sum: { spend: 50000, impressions: 5000, clicks: 75, conversions: 5, revenue: 100000 } },
+    prisma.channelListingDailySnapshot.groupBy.mockResolvedValue([
+      {
+        listingId: 'L1',
+        _sum: {
+          adSpend: 50000,
+          adImpressions: 5000,
+          adClicks: 75,
+          adConversions: 5,
+          adRevenue: 200000,
+        },
+      },
+      {
+        listingId: 'L2',
+        _sum: {
+          adSpend: 50000,
+          adImpressions: 5000,
+          adClicks: 75,
+          adConversions: 5,
+          adRevenue: 100000,
+        },
+      },
     ]);
     prisma.channelListing.findMany.mockResolvedValue([
       { id: 'L1', externalId: 'COUPANG-1', channelName: '쿠팡', master: { id: 'M1', code: 'M-00000001', name: '상품1' } },
@@ -55,10 +81,16 @@ describe('AdBenchmarkService', () => {
   });
 
   it('computes delta against industry average (above / below / average)', async () => {
-    prisma.ad.aggregate.mockResolvedValue({
-      _sum: { spend: 100, impressions: 10000, clicks: 250, conversions: 20, revenue: 500 },
+    prisma.channelListingDailySnapshot.aggregate.mockResolvedValue({
+      _sum: {
+        adSpend: 100,
+        adImpressions: 10000,
+        adClicks: 250,
+        adConversions: 20,
+        adRevenue: 500,
+      },
     });
-    prisma.ad.groupBy.mockResolvedValue([]);
+    prisma.channelListingDailySnapshot.groupBy.mockResolvedValue([]);
     prisma.channelListing.findMany.mockResolvedValue([]);
 
     const result = await service.getDiagnosis('company-1');
@@ -74,20 +106,48 @@ describe('AdBenchmarkService', () => {
   });
 
   it('passes companyId through all reads (no default fallback)', async () => {
-    prisma.ad.aggregate.mockResolvedValue({
-      _sum: { spend: 0, impressions: 0, clicks: 0, conversions: 0, revenue: 0 },
+    prisma.channelListingDailySnapshot.aggregate.mockResolvedValue({
+      _sum: {
+        adSpend: 0,
+        adImpressions: 0,
+        adClicks: 0,
+        adConversions: 0,
+        adRevenue: 0,
+      },
     });
-    prisma.ad.groupBy.mockResolvedValue([]);
+    prisma.channelListingDailySnapshot.groupBy.mockResolvedValue([]);
     prisma.channelListing.findMany.mockResolvedValue([]);
 
     await service.getDiagnosis('company-xyz');
 
-    expect(prisma.ad.aggregate).toHaveBeenCalledWith(
+    expect(prisma.channelListingDailySnapshot.aggregate).toHaveBeenCalledWith(
       expect.objectContaining({ where: expect.objectContaining({ companyId: 'company-xyz' }) }),
     );
-    expect(prisma.ad.groupBy).toHaveBeenCalledWith(
+    expect(prisma.channelListingDailySnapshot.groupBy).toHaveBeenCalledWith(
       expect.objectContaining({ where: expect.objectContaining({ companyId: 'company-xyz' }) }),
     );
     expect(adConfig.getConfig).toHaveBeenCalledWith('company-xyz');
+  });
+
+  it('empty-state — no daily-fact rows returns null ratios (legacy Ad rows ignored)', async () => {
+    prisma.channelListingDailySnapshot.aggregate.mockResolvedValue({
+      _sum: {
+        adSpend: 0,
+        adImpressions: 0,
+        adClicks: 0,
+        adConversions: 0,
+        adRevenue: 0,
+      },
+    });
+    prisma.channelListingDailySnapshot.groupBy.mockResolvedValue([]);
+    prisma.channelListing.findMany.mockResolvedValue([]);
+
+    const result = await service.getDiagnosis('company-1');
+
+    expect(result.ownMetrics.spend).toBe(0);
+    expect(result.ownMetrics.roas).toBeNull();
+    expect(result.ownMetrics.ctr).toBeNull();
+    expect(result.ownMetrics.cvr).toBeNull();
+    expect(result.listings).toEqual([]);
   });
 });

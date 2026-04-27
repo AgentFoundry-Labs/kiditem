@@ -9,10 +9,10 @@ prisma/
 ├── schema.prisma       # generator + datasource 만
 ├── migrations/         # 마이그레이션 이력
 └── models/             # 도메인별 모델 (10 파일, alphabetical)
-    ├── advertising.prisma      (Ad, AdAction, AdSnapshot, ItemWinner, ScrapeTarget, TrafficStats, Execution*)
+    ├── advertising.prisma      (AdAction, ScrapeTarget, ExecutionTask, ExecutionLog, ExecutionWorker)
     ├── agents.prisma           (AgentDefinition, AgentTask, AgentEvent, AgentLog, AgentWakeupRequest, HeartbeatRun, WorkflowRun, WorkflowTemplate)
     ├── ai.prisma               (Thumbnail*, ContentGeneration)
-    ├── channels.prisma         (ChannelScrapeRun, ChannelScrapeSnapshot, ChannelListingDailySnapshot, ChannelListingOptionDailySnapshot)
+    ├── channels.prisma         (ChannelScrapeRun, ChannelScrapeSnapshot, ChannelListingDailySnapshot, ChannelListingOptionDailySnapshot, ChannelAdTargetDailySnapshot, ChannelAccountDailyKpiSnapshot — daily facts are source-of-truth for listing/option/day market data)
     ├── core.prisma             (Company, User, MasterProduct, ProductOption, ChannelListing, ChannelListingOption, BundleComponent, CategoryMapping)
     ├── finance.prisma          (ProfitLoss, GradeHistory, ManualLedger, ProcessingCost, SalesPlan)
     ├── inventory.prisma        (Inventory, Stock*, Warehouse, Picking*, ReturnTransfer)
@@ -121,7 +121,6 @@ docker exec kiditem-postgres pg_dump -U kiditem --data-only --column-inserts \
 
 - `AgentDefinition.rt_*` 필드: 런타임 상태 (sessionId, lastRunStatus, 토큰 사용량 등). 별도 테이블 없음.
 - `AgentEvent`: eventType(`permission_denied`|`action_snapshot`)으로 구분. snapshot 필드는 해당 타입만 사용.
-- `AdSnapshot`: level(`campaign`|`product`|null)로 구분. null은 raw 스냅샷.
 - `Marketplace`: type(`agent`|`workflow`)으로 구분.
 
 ## Partial unique index 패턴 (Plan A/B1 — ADR-0013)

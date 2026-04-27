@@ -7,7 +7,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AgentRegistryService } from '../../agent-registry/agent-registry.service';
 import { buildPerListingMetrics } from '../../common/per-listing-profit';
-import { kstMonthStart } from '../../common/kst';
+import { kstInclusiveDaysStart, kstMonthStart } from '../../common/kst';
 import { AdConfigService } from './ad-config.service';
 import { AdGradeRulesService } from './ad-grade-rules.service';
 import { AdBudgetAllocatorService } from './ad-budget-allocator.service';
@@ -162,17 +162,18 @@ export class AdStrategyService {
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-    // Promise.all 통합 fetch — adGroups + review aggregate (전체+최근 30d) 한 번에.
-    const [adAgg, reviewAgg, recentReviewAgg] = await Promise.all([
-      this.prisma.ad.groupBy({
+    // Ad aggregate sums per-listing additive ad metrics across all daily
+    // facts (lifetime aggregate per listing).
+    const [adAggAll, reviewAgg, recentReviewAgg] = await Promise.all([
+      this.prisma.channelListingDailySnapshot.groupBy({
         by: ['listingId'],
         where: { companyId },
         _sum: {
-          spend: true,
-          revenue: true,
-          clicks: true,
-          impressions: true,
-          conversions: true,
+          adSpend: true,
+          adRevenue: true,
+          adClicks: true,
+          adImpressions: true,
+          adConversions: true,
         },
       }),
       this.prisma.review.groupBy({
@@ -192,7 +193,7 @@ export class AdStrategyService {
       }),
     ]);
 
-    const listingIds = adAgg
+    const listingIds = adAggAll
       .map((a) => a.listingId)
       .filter((id): id is string => id != null);
 
@@ -200,19 +201,35 @@ export class AdStrategyService {
       return { scores: [], urgentActions: [] } satisfies ExposureAnalysisData;
     }
 
-    // listings + trafficStats + inventoryByListing 을 병렬로 fetch.
-    const [listings, trafficStats, inventoryByOption, leadTimeByListing] = await Promise.all([
-      hydrateListings(this.prisma, companyId, listingIds),
-      this.prisma.trafficStats.findMany({
-        where: { companyId, listingId: { in: listingIds }, periodDays: 14 },
-        orderBy: { date: 'desc' },
-        select: { listingId: true, revenue: true, orders: true, date: true },
-      }),
-      getInventorySnapshot(this.prisma, companyId, listingIds),
-      this.loadLeadTimeByListing(companyId, listingIds),
-    ]);
+    // Traffic aggregation reads `ChannelListingDailySnapshot` filtered by
+    // businessDate. Two windows:
+    //   - last 7 businessDates → "current period"
+    //   - businessDates 8..14 ago → "prior period" (used for delta)
+    // KST day start — period cutoff anchored at Asia/Seoul midnight (Docker prod runs UTC)
+    const since14d = kstInclusiveDaysStart(14);
+    const cutoff7d = kstInclusiveDaysStart(7);
 
-    const adGroups = toAdAggregateRows(adAgg);
+    const [listings, trafficDailyRows, inventoryByOption, leadTimeByListing] =
+      await Promise.all([
+        hydrateListings(this.prisma, companyId, listingIds),
+        this.prisma.channelListingDailySnapshot.findMany({
+          where: {
+            companyId,
+            listingId: { in: listingIds },
+            businessDate: { gte: since14d },
+          },
+          select: {
+            listingId: true,
+            businessDate: true,
+            trafficRevenue: true,
+            trafficOrders: true,
+          },
+        }),
+        getInventorySnapshot(this.prisma, companyId, listingIds),
+        this.loadLeadTimeByListing(companyId, listingIds),
+      ]);
+
+    const adGroups = toAdAggregateRows(adAggAll);
     const metricsResult = this.adBudgetAllocator.calcSnapshotKeyMetrics({
       snapshots: adAggregatesToMetricSnapshots(adGroups),
       listings,
@@ -231,17 +248,30 @@ export class AdStrategyService {
       recentReviewAgg.map((r) => [r.listingId!, r._count.id]),
     );
 
-    // traffic aggregate: 최신 period 를 rev, 직전 period 를 prevRev 로 (원본 line 248-256).
-    const trafficByListing = new Map<string, { rev: number; prevRev: number; orders: number }>();
-    for (const t of trafficStats) {
-      const cur = trafficByListing.get(t.listingId);
-      if (!cur) {
-        trafficByListing.set(t.listingId, { rev: t.revenue, prevRev: 0, orders: t.orders });
-      } else if (cur.prevRev === 0) {
-        cur.prevRev = t.revenue;
+    // Aggregate listing daily rows into current(0..7) / prior(8..14) windows.
+    const trafficByListing = new Map<
+      string,
+      { rev: number; prevRev: number; orders: number }
+    >();
+    for (const row of trafficDailyRows) {
+      const isCurrent = row.businessDate >= cutoff7d;
+      const slot = trafficByListing.get(row.listingId) ?? {
+        rev: 0,
+        prevRev: 0,
+        orders: 0,
+      };
+      if (isCurrent) {
+        slot.rev += row.trafficRevenue;
+        slot.orders += row.trafficOrders;
+      } else {
+        slot.prevRev += row.trafficRevenue;
       }
+      trafficByListing.set(row.listingId, slot);
     }
-    const maxT14 = Math.max(1, ...[...trafficByListing.values()].map((t) => t.rev));
+    const maxT14 = Math.max(
+      1,
+      ...[...trafficByListing.values()].map((t) => t.rev),
+    );
 
     // listingId → 첫번째 optionId 매핑 (score/profitRate 계산에 primary option 사용).
     const primaryOptionByListing = firstOptionByListing(inventoryByOption);
@@ -370,7 +400,7 @@ export class AdStrategyService {
    * getRules / getRecommendations 공통 — adGroups(listing-level) hydrate 후 rule 평가.
    *
    * B2b 원본 calcActions (line 653-938) 의 fetch 부분과 정합:
-   *  - prisma.ad.groupBy(['listingId']) 전체 기간 aggregate
+   *  - ChannelListingDailySnapshot.groupBy(['listingId']) 전체 기간 aggregate
    *  - listingIds + current month live metrics 병렬 hydrate
    *  - ad-grade-rules.calcActions 에 adGroups + listings + gradeMap + profitRate 전달
    */
@@ -394,19 +424,34 @@ export class AdStrategyService {
    * live metrics: 현재 year/month 기준 listing 별 profitRate percentage.
    */
   private async loadStrategyContext(companyId: string, year: number, month: number) {
-    const since14d = new Date();
-    since14d.setDate(since14d.getDate() - 14);
+    const since14d = kstInclusiveDaysStart(14);
 
+    // Aggregate from `ChannelListingDailySnapshot`.
+    // Lifetime = all rows for the company; 14-day = rows since the cutoff
+    // businessDate. Provider ratios in `metaJson` are NOT consulted; ratios
+    // recompute downstream from these additive sums.
     const [adAggAll, adAgg14d, config] = await Promise.all([
-      this.prisma.ad.groupBy({
+      this.prisma.channelListingDailySnapshot.groupBy({
         by: ['listingId'],
         where: { companyId },
-        _sum: { spend: true, revenue: true, clicks: true, impressions: true, conversions: true },
+        _sum: {
+          adSpend: true,
+          adRevenue: true,
+          adClicks: true,
+          adImpressions: true,
+          adConversions: true,
+        },
       }),
-      this.prisma.ad.groupBy({
+      this.prisma.channelListingDailySnapshot.groupBy({
         by: ['listingId'],
-        where: { companyId, date: { gte: since14d } },
-        _sum: { spend: true, revenue: true, clicks: true, impressions: true, conversions: true },
+        where: { companyId, businessDate: { gte: since14d } },
+        _sum: {
+          adSpend: true,
+          adRevenue: true,
+          adClicks: true,
+          adImpressions: true,
+          adConversions: true,
+        },
       }),
       this.adConfigService.getConfig(companyId),
     ]);
@@ -419,9 +464,8 @@ export class AdStrategyService {
     const { from, to } = this.resolveMonthWindow(year, month);
 
     // Hydrate listings first so we can hand the channel-state loader an exact
-    // primary-option list (avoids attaching the wrong option's daily snapshot
-    // — see Wave C4 review feedback). Live profit metrics + channel state run
-    // in parallel after hydrate.
+    // primary-option list (avoids attaching the wrong option's daily snapshot).
+    // Live profit metrics + channel state run in parallel after hydrate.
     const listings = await hydrateListings(this.prisma, companyId, listingIds);
     const [liveMetrics, channelStateByListing] = await Promise.all([
       listingIds.length === 0
@@ -448,18 +492,18 @@ export class AdStrategyService {
   }
 
   /**
-   * Wave C4 — read the latest `ChannelListingDailySnapshot` per listing and
-   * the latest `ChannelListingOptionDailySnapshot` for each listing's
-   * deterministic hydrated primary option, hydrated into a
-   * `ChannelStateSignal` map keyed by listingId. The map omits listings
-   * without any daily snapshot, so the rule engine sees a real `null` (not
-   * stale state) and skips evidence enrichment.
+   * Read the latest `ChannelListingDailySnapshot` per listing and the latest
+   * `ChannelListingOptionDailySnapshot` for each listing's deterministic
+   * hydrated primary option, hydrated into a `ChannelStateSignal` map keyed
+   * by listingId. The map omits listings without any daily snapshot, so the
+   * rule engine sees a real `null` (not stale state) and skips evidence
+   * enrichment.
    *
    * Cross-domain note: `ChannelListing*DailySnapshot` are channels-namespace
-   * Prisma models, but advertising owns the dual-write helper today
-   * (`apps/server/src/advertising/CLAUDE.md` Wave C2/C3). Reading them here
-   * via `PrismaService` keeps that boundary intact — no `ChannelSyncService`
-   * inject.
+   * Prisma models, but advertising owns the dual-write helper today (see
+   * `apps/server/src/advertising/CLAUDE.md` "Cross-domain coupling
+   * exception"). Reading them here via `PrismaService` keeps that boundary
+   * intact — no `ChannelSyncService` inject.
    */
   private async loadChannelStateByListing(
     companyId: string,
@@ -546,7 +590,13 @@ export class AdStrategyService {
         FROM channel_listing_daily_snapshots
         WHERE company_id = ${companyId}::uuid
           AND listing_id = ANY(${listingIds}::uuid[])
-        ORDER BY listing_id, business_date DESC
+        -- Deterministic latest: business_date DESC, last_observed_at DESC, updated_at DESC, id DESC
+        ORDER BY
+          listing_id,
+          business_date DESC,
+          last_observed_at DESC NULLS LAST,
+          updated_at DESC NULLS LAST,
+          id DESC
       `),
       primaryListingOptionIds.length === 0
         ? Promise.resolve([] as OptionDailyRow[])
@@ -568,7 +618,13 @@ export class AdStrategyService {
             FROM channel_listing_option_daily_snapshots
             WHERE company_id = ${companyId}::uuid
               AND listing_option_id = ANY(${primaryListingOptionIds}::uuid[])
-            ORDER BY listing_option_id, business_date DESC
+            -- Deterministic latest: business_date DESC, last_observed_at DESC, updated_at DESC, id DESC
+            ORDER BY
+              listing_option_id,
+              business_date DESC,
+              last_observed_at DESC NULLS LAST,
+              updated_at DESC NULLS LAST,
+              id DESC
           `),
     ]);
 
@@ -683,16 +739,20 @@ function toGradeMapStrict(
   return out;
 }
 
-/** prisma.ad.groupBy 결과 → AdAggregateRow[]. listingId null 은 drop. */
+/**
+ * `ChannelListingDailySnapshot.groupBy` result → AdAggregateRow[].
+ * listingId null 은 drop. Source columns shifted from `spend/revenue/...` to
+ * `adSpend/adRevenue/adClicks/adImpressions/adConversions`.
+ */
 function toAdAggregateRows(
   rows: Array<{
     listingId: string | null;
     _sum: {
-      spend: number | null;
-      revenue: number | null;
-      clicks: number | null;
-      impressions: number | null;
-      conversions: number | null;
+      adSpend: number | null;
+      adRevenue: number | null;
+      adClicks: number | null;
+      adImpressions: number | null;
+      adConversions: number | null;
     };
   }>,
 ): AdAggregateRow[] {
@@ -701,11 +761,11 @@ function toAdAggregateRows(
     if (!r.listingId) continue;
     out.push({
       listingId: r.listingId,
-      spend: r._sum.spend ?? 0,
-      revenue: r._sum.revenue ?? 0,
-      clicks: r._sum.clicks ?? 0,
-      impressions: r._sum.impressions ?? 0,
-      conversions: r._sum.conversions ?? 0,
+      spend: r._sum.adSpend ?? 0,
+      revenue: r._sum.adRevenue ?? 0,
+      clicks: r._sum.adClicks ?? 0,
+      impressions: r._sum.adImpressions ?? 0,
+      conversions: r._sum.adConversions ?? 0,
     });
   }
   return out;

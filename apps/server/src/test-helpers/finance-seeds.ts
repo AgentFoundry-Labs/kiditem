@@ -233,12 +233,17 @@ export async function seedReturn(
 }
 
 // ---------------------------------------------------------------------------
-// seedAd — Ad (daily ad spend record)
+// seedAd — daily ad spend record
 // ---------------------------------------------------------------------------
 
 /**
- * Create an Ad record for a listing on a specific date.
- * Returns the created ad ID.
+ * Seed a per-listing/per-day ad spend row. Writes
+ * `ChannelListingDailySnapshot` (daily-fact source-of-truth). Read paths in
+ * dashboard / finance / advertising aggregate the additive `adSpend` column,
+ * so call sites observe `getTrend(...).adCost` /
+ * `salesAnalysis.totalCost` numbers from this seed.
+ *
+ * Returns the daily-fact row ID.
  */
 export async function seedAd(
   prisma: PrismaClient,
@@ -249,14 +254,29 @@ export async function seedAd(
     spend: number;
   },
 ): Promise<string> {
-  const ad = await prisma.ad.create({
-    data: {
+  const listing = await prisma.channelListing.findFirstOrThrow({
+    where: { id: opts.listingId, companyId: opts.companyId },
+    select: { channel: true, externalId: true },
+  });
+  const businessDate = new Date(opts.date);
+  const row = await prisma.channelListingDailySnapshot.upsert({
+    where: {
+      companyId_listingId_businessDate: {
+        companyId: opts.companyId,
+        listingId: opts.listingId,
+        businessDate,
+      },
+    },
+    create: {
       companyId: opts.companyId,
       listingId: opts.listingId,
-      date: new Date(opts.date),
-      spend: opts.spend,
+      channel: listing.channel,
+      externalId: listing.externalId,
+      businessDate,
+      adSpend: opts.spend,
     },
+    update: { adSpend: opts.spend },
     select: { id: true },
   });
-  return ad.id;
+  return row.id;
 }

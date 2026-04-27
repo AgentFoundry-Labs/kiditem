@@ -4,6 +4,14 @@ Status: completed 2026-04-27 KST
 Branch: `feat/c5-channel-market-data-legacy-audit`
 Plan reference: `.omx/plans/channel-market-data-daily-snapshots-plan.md` (the source plan lives outside the repo — `.omx/` is gitignored; this audit ships in `docs/superpowers/plans/` instead).
 
+> **Superseded by PR 67 hard rewrite (2026-04-27)**: this file is retained as
+> the C5 historical audit, not as current architecture guidance. The legacy
+> quartet (`Ad`, `AdSnapshot`, `TrafficStats`, `ItemWinner`) has been removed
+> from Prisma, runtime reads/writes have moved to channel daily facts, and the
+> obsolete SQLite/Postgres migration scripts that targeted those tables were
+> removed. Current source of truth: Prisma schema + service code. Graphify
+> consumer graphs remain navigation artifacts only.
+
 Original plan §7 labels Wave C5 as the **optional** `ProductStrategyDaily`
 strategy cache, only to be built after C4 proves repeated expensive joins or a
 strategy-history requirement. C4 did not prove either condition, so this PR does
@@ -16,7 +24,7 @@ After Wave C4 (`feat(advertising): expose channel state evidence for safer ad de
 
 Most remaining reads of the legacy quartet (`AdSnapshot` / `TrafficStats` / `ItemWinner` / `Ad`) read fields that the daily snapshot tables do not carry — ad metrics (spend / revenue / clicks / impressions / conversions), traffic metrics (visitors / views / orders), or wing KPI dashboard JSON. `ItemWinner` is the exception: daily snapshots already carry winner-state fields, but the remaining read is a lifetime observation count, while the daily-snapshot replacement would be a current/latest-state count. That user-visible semantics change is deferred as a C6 candidate. The C2/C3 dual-write therefore stays in place; daily snapshots stay additive evidence, not a replacement.
 
-This document inventories every consumer, classifies its disposition, and lists the candidates that *could* migrate later (deferred to C6 with measurement/spec updates, not changed here).
+This document inventories every consumer, classifies its disposition, and lists the candidates that *could* migrate later. After this C5 checkpoint, the product decision changed: daily channel facts should become the long-term source-of-truth, and C6 should hard-switch eligible status/count surfaces to current-state channel market-data semantics. See `docs/superpowers/plans/2026-04-27-channel-market-data-daily-facts-source-of-truth.md` and `docs/superpowers/plans/2026-04-27-channel-market-data-c6-current-state-rewire.md`.
 
 ## Method
 
@@ -104,8 +112,8 @@ No other consumer reads daily snapshots yet. The dashboard / finance / channels-
 
 | File | Refs | Disposition |
 |---|---|---|
-| `scripts/migrate-ad-data.ts` | `ItemWinner` | One-shot SQLite → Postgres migration (legacy import). Not a runtime consumer. **KEEP** as-is. |
-| `scripts/migrate-dashboard-data.ts` | `TrafficStats`, `ItemWinner` | Same — historical migration script. **KEEP**. |
+| `scripts/migrate-ad-data.ts` | `ItemWinner` / `AdSnapshot` | **REMOVED in PR 67** — target tables no longer exist. |
+| `scripts/migrate-dashboard-data.ts` | `TrafficStats`, `ItemWinner`, `AdSnapshot`, `Ad` | **REMOVED in PR 67** — target tables no longer exist. |
 | `scripts/split-prisma-schema.py` | mentions `AdSnapshot` in tooling output | Schema-splitter helper. **KEEP**. |
 
 ## C2 / C3 dual-write necessity
@@ -114,24 +122,26 @@ No other consumer reads daily snapshots yet. The dashboard / finance / channels-
 |---|---|---|
 | `ChannelScrapeRun` / `ChannelScrapeSnapshot` (C2) | YES | Replayable raw row capture. No replacement consumer exists. Required for parser/matching iteration without re-scraping. |
 | `ChannelListingDailySnapshot` / `ChannelListingOptionDailySnapshot` (C3) | YES | Sole feed for C4 strategy state evidence + future C6 read consolidation. |
-| Legacy `AdSnapshot` / `TrafficStats` / `ItemWinner` / `Ad` writes (`ad-sync.service.ts`) | YES | Every read path in the inventory above still depends on them. Cannot drop any single write until every consumer of that table moves off. |
+| Legacy `AdSnapshot` / `TrafficStats` / `ItemWinner` / `Ad` writes (`ad-sync.service.ts`) | NO | Superseded by PR 67 hard rewrite; all runtime consumers now use channel daily facts / account KPI facts. |
 
-**Conclusion**: dual-write is the steady-state contract until at least one full read-path migration round (C6 or later) clears a model.
+**Current conclusion after PR 67**: dual-write is no longer the steady-state
+contract. Raw rows go to `ChannelScrapeSnapshot`; listing/option/target/account
+daily facts are the source-of-truth for market-data reads.
 
-## C6 deletion candidates (tentative)
+## C6 current-state rewire candidates
 
-None of the legacy quartet is safely deletable today. Soft candidates for *partial* migration in C6, all requiring a behavior-change spec + test update:
+None of the legacy quartet is safely deletable today. However, the user-visible status/count reads below should move in C6 from legacy lifetime/snapshot semantics to current channel market-data semantics. The implementation contract is in `docs/superpowers/plans/2026-04-27-channel-market-data-c6-current-state-rewire.md`.
 
-1. **`ItemWinner.groupBy({ by: ['isWinner'] })` in `getExtensionStatus`** — semantically should be "how many listings are currently winner", which is `DISTINCT ON (listing_id) ChannelListingDailySnapshot.isOfferWinner` aggregated. Existing implementation counts every observation row, which is misleading per the wing sidebar copy. Migration changes a user-visible number — needs a UX confirm.
-2. **`AdSnapshot.count` in `getExtensionStatus`** — `snapshotCount` could count C2 raw snapshots instead, but the number will differ because legacy `AdSnapshot` includes synthetic KPI/product rows. Needs UX copy/test updates before changing.
-3. **`AdSnapshot.findFirst` in `ad-action.service.ts:listActions`** — `latestSnapshotAt` / `latestSnapshotPageType` could come from the latest C2 run/snapshot, but the replacement must preserve what the action queue means by "latest snapshot".
-4. **`AdSnapshot.findFirst+count` in `ad-collect.service.ts:getStatus`** — `lastCollectedAt` could come from `ChannelScrapeRun.startedAt MAX()` filtered by `(source='advertising', pageType IN ('campaign','keyword','product'))`. Same data family, less coupling. Defer until C6 because the `level` ↔ `(source, pageType)` mapping needs a one-time review.
+1. **`ItemWinner.groupBy({ by: ['isWinner'] })` in `getExtensionStatus`** — hard-switch to latest/current `ChannelListingDailySnapshot.isOfferWinner` per listing. Existing lifetime observation count is no longer desired for status UX.
+2. **`AdSnapshot.count` in `getExtensionStatus`** — replace status-count semantics with C2 `ChannelScrapeRun` / `ChannelScrapeSnapshot` based counts. Number differences from legacy `AdSnapshot` are intentional and must be reflected in copy/tests.
+3. **`AdSnapshot.findFirst` in `ad-action.service.ts:listActions`** — replace latest queue-summary metadata with latest C2 run/snapshot metadata. Action generation rules may still use `AdSnapshot` because they require ad metric rows.
+4. **`AdSnapshot.findFirst+count` in `ad-collect.service.ts:getStatus`** — use `ChannelScrapeRun.finishedAt ?? startedAt` and run/snapshot counts instead of legacy `level` counts where possible.
 
-None are touched in C5 — no code changes ship from this audit.
+None were touched in C5 — no code changes shipped from this audit. C6 is expected to implement the hard switch for these status/read surfaces, not preserve both meanings indefinitely.
 
 ## Cannot-decide-yet items
 
-- Whether `ChannelListingDailySnapshot` should grow ad-metric fields (`adSpend` / `adRevenue`) so `Ad` becomes redundant. **Defer to Plan C5-cache or C6** — depends on whether the optional `ProductStrategyDaily` cache lands first. Today the daily snapshot is intentionally product-state only.
+- Whether `ChannelListingDailySnapshot` should grow ad-metric fields (`adSpend` / `adRevenue`) so `Ad` becomes redundant. **Resolved directionally** — daily listing facts should carry listing-day additive metrics when the source is product/listing/day grained. Implementation belongs to C7/C8, not C6.
 - Whether wing KPI dashboard JSON (currently `AdSnapshot(source='wing', pageType='itemwinner_kpi'/'dashboard_kpi')`) should move into `ChannelScrapeRun.metaJson` or a new `ChannelKpiSnapshot` table. **Defer** — needs a multi-channel view of what "KPI dashboard" means before designing.
 
 ## Verification

@@ -21,3 +21,17 @@ export function kstMonthStart(year: number, month: number): Date {
   const m = month === 13 ? 1 : month;
   return new Date(Date.UTC(y, m - 1, 1) - KST_OFFSET_MS);
 }
+
+/**
+ * Inclusive rolling business-date window start.
+ *
+ * `days=7` means "today's KST businessDate plus the 6 prior KST
+ * businessDates" — not today plus 7 prior dates. Use with
+ * `businessDate >= kstInclusiveDaysStart(days)`.
+ */
+export function kstInclusiveDaysStart(days: number, now = new Date()): Date {
+  const normalizedDays = Math.max(1, Math.floor(days));
+  return new Date(
+    kstDayStart(now).getTime() - (normalizedDays - 1) * 86400000,
+  );
+}

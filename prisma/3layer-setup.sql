@@ -159,4 +159,22 @@ CREATE POLICY channel_listing_option_daily_snapshots_chatbot_filter ON channel_l
   FOR SELECT TO chatbot_readonly
   USING (company_id = current_setting('app.company_id', true)::uuid);
 
+-- 8. Channels — daily fact extensions (Hard rewrite H1)
+-- 2 new company-scoped tables: channel_ad_target_daily_snapshots,
+-- channel_account_daily_kpi_snapshots. Same chatbot_readonly RLS pattern as
+-- section 7. NestJS server (kiditem owner) bypasses RLS via explicit
+-- companyId WHERE filters (apps/server/AGENTS.md).
+
+ALTER TABLE channel_ad_target_daily_snapshots ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS channel_ad_target_daily_snapshots_chatbot_filter ON channel_ad_target_daily_snapshots;
+CREATE POLICY channel_ad_target_daily_snapshots_chatbot_filter ON channel_ad_target_daily_snapshots
+  FOR SELECT TO chatbot_readonly
+  USING (company_id = current_setting('app.company_id', true)::uuid);
+
+ALTER TABLE channel_account_daily_kpi_snapshots ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS channel_account_daily_kpi_snapshots_chatbot_filter ON channel_account_daily_kpi_snapshots;
+CREATE POLICY channel_account_daily_kpi_snapshots_chatbot_filter ON channel_account_daily_kpi_snapshots
+  FOR SELECT TO chatbot_readonly
+  USING (company_id = current_setting('app.company_id', true)::uuid);
+
 -- migration_checkpoints — no RLS (internal tooling)

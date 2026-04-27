@@ -1,6 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { kstInclusiveDaysStart } from '../../common/kst';
 import { AdConfigService } from './ad-config.service';
+import {
+  recomputeRoas,
+  recomputeCtr,
+  recomputeCvr,
+} from '../util/ratio-recompute';
 import type { AdBenchmarkData, AdMetrics } from '@kiditem/shared';
 import { LISTING_SUMMARY_SELECT } from './types';
 
@@ -18,9 +24,9 @@ function computeMetrics(sums: {
     clicks,
     conversions,
     revenue,
-    ctr: impressions > 0 ? Math.round((clicks / impressions) * 10000) / 100 : null,
-    roas: spend > 0 ? Math.round((revenue / spend) * 10000) / 100 : null,
-    cvr: clicks > 0 ? Math.round((conversions / clicks) * 10000) / 100 : null,
+    ctr: recomputeCtr(clicks, impressions),
+    roas: recomputeRoas(revenue, spend),
+    cvr: recomputeCvr(conversions, clicks),
   };
 }
 
@@ -56,42 +62,46 @@ export class AdBenchmarkService {
     private readonly adConfigService: AdConfigService,
   ) {}
 
+  /**
+   * Benchmark aggregation from `ChannelListingDailySnapshot` over the last
+   * 30 businessDates. Ratios recompute from sums via util/ratio-recompute.
+   */
   async getDiagnosis(companyId: string): Promise<AdBenchmarkData> {
     const config = await this.adConfigService.getConfig(companyId);
 
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    // Inclusive KST window: 30 businessDates = today + 29 prior dates.
+    const thirtyDaysAgo = kstInclusiveDaysStart(30);
 
     const [totals, perListing] = await Promise.all([
-      this.prisma.ad.aggregate({
-        where: { companyId, date: { gte: thirtyDaysAgo } },
+      this.prisma.channelListingDailySnapshot.aggregate({
+        where: { companyId, businessDate: { gte: thirtyDaysAgo } },
         _sum: {
-          spend: true,
-          impressions: true,
-          clicks: true,
-          conversions: true,
-          revenue: true,
+          adSpend: true,
+          adImpressions: true,
+          adClicks: true,
+          adConversions: true,
+          adRevenue: true,
         },
       }),
-      this.prisma.ad.groupBy({
+      this.prisma.channelListingDailySnapshot.groupBy({
         by: ['listingId'],
-        where: { companyId, date: { gte: thirtyDaysAgo } },
+        where: { companyId, businessDate: { gte: thirtyDaysAgo } },
         _sum: {
-          spend: true,
-          impressions: true,
-          clicks: true,
-          conversions: true,
-          revenue: true,
+          adSpend: true,
+          adImpressions: true,
+          adClicks: true,
+          adConversions: true,
+          adRevenue: true,
         },
       }),
     ]);
 
     const ownMetrics = computeMetrics({
-      spend: totals._sum.spend ?? 0,
-      impressions: totals._sum.impressions ?? 0,
-      clicks: totals._sum.clicks ?? 0,
-      conversions: totals._sum.conversions ?? 0,
-      revenue: totals._sum.revenue ?? 0,
+      spend: totals._sum.adSpend ?? 0,
+      impressions: totals._sum.adImpressions ?? 0,
+      clicks: totals._sum.adClicks ?? 0,
+      conversions: totals._sum.adConversions ?? 0,
+      revenue: totals._sum.adRevenue ?? 0,
     });
 
     const industryAverage: AdMetrics = {
@@ -129,11 +139,11 @@ export class AdBenchmarkService {
       const summary = summaryMap.get(row.listingId);
       if (!summary) return [];
       const metrics = computeMetrics({
-        spend: row._sum.spend ?? 0,
-        impressions: row._sum.impressions ?? 0,
-        clicks: row._sum.clicks ?? 0,
-        conversions: row._sum.conversions ?? 0,
-        revenue: row._sum.revenue ?? 0,
+        spend: row._sum.adSpend ?? 0,
+        impressions: row._sum.adImpressions ?? 0,
+        clicks: row._sum.adClicks ?? 0,
+        conversions: row._sum.adConversions ?? 0,
+        revenue: row._sum.adRevenue ?? 0,
       });
       return [{
         listingId: summary.id,

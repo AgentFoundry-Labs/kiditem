@@ -11,7 +11,7 @@ import {
   IDOR_SENTINEL,
 } from '../../test-helpers/real-prisma';
 
-describe('fetchWingAdSummary (PG integration)', () => {
+describe('fetchWingAdSummary (PG integration) — daily-fact source', () => {
   let prisma: PrismaClient;
 
   beforeAll(async () => {
@@ -28,58 +28,47 @@ describe('fetchWingAdSummary (PG integration)', () => {
     await seedBaseFixture(prisma);
   });
 
-  async function seedWingSnapshot(
+  /**
+   * Wing dashboard ad-summary reads the daily-fact row
+   * `ChannelAccountDailyKpiSnapshot(source='wing', kpiType='wing_dashboard')`.
+   * Tests seed the daily-fact row directly and assert the helper reads it
+   * with company isolation + month matching + adGmv > 0 filter.
+   */
+  async function seedWingDailyKpi(
     companyId: string,
     adGmv: number,
     adSpend: number,
-    period: number,
     capturedAt: Date,
-    listingId: string,
   ) {
-    // Mirror the helper's format: "YYYY-MM-01" using local calendar year/month
-    // (not UTC ISO slice — that shifts by TZ offset in non-UTC locales).
     const year = capturedAt.getFullYear();
     const month = capturedAt.getMonth() + 1;
     const monthStartStr = `${year}-${String(month).padStart(2, '0')}-01`;
-    await prisma.adSnapshot.create({
+    const businessDate = new Date(
+      Date.UTC(capturedAt.getFullYear(), capturedAt.getMonth(), capturedAt.getDate()),
+    );
+    return prisma.channelAccountDailyKpiSnapshot.create({
       data: {
         companyId,
-        listingId,
+        channel: 'coupang',
         source: 'wing',
-        pageType: 'dashboard_kpi',
-        date: capturedAt,
-        capturedAt,
-        level: 'dashboard',
-        rawJson: {
+        kpiType: 'wing_dashboard',
+        businessDate,
+        normalizedJson: {
           startDate: monthStartStr,
-          period,
           adSummary: { adGmv: String(adGmv), adSpend: String(adSpend) },
         },
+        lastObservedAt: capturedAt,
+        firstObservedAt: capturedAt,
       },
     });
-  }
-
-  async function seedMasterAndListing(companyId: string, code: string, externalId: string) {
-    const master = await prisma.masterProduct.create({
-      data: { companyId, code, name: `Master ${code}`, category: 'Toy', optionCounter: 1 },
-    });
-    const listing = await prisma.channelListing.create({
-      data: { companyId, masterId: master.id, channel: 'coupang', externalId },
-    });
-    return listing;
   }
 
   it('returns TEST snapshot only — OTHER sentinel never leaks', async () => {
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
-    const listingT = await seedMasterAndListing(TEST_COMPANY_ID, 'M-T', 'L-T');
-    const listingO = await seedMasterAndListing(OTHER_COMPANY_ID, 'M-O', 'L-O');
-
-    // TEST — small values
-    await seedWingSnapshot(TEST_COMPANY_ID, 1000, 500, 30, now, listingT.id);
-    // OTHER — sentinel + longer period (would win if IDOR)
-    await seedWingSnapshot(OTHER_COMPANY_ID, IDOR_SENTINEL, IDOR_SENTINEL, 90, now, listingO.id);
+    await seedWingDailyKpi(TEST_COMPANY_ID, 1000, 500, now);
+    await seedWingDailyKpi(OTHER_COMPANY_ID, IDOR_SENTINEL, IDOR_SENTINEL, now);
 
     const result = await fetchWingAdSummary(
       prisma as unknown as PrismaService,
@@ -99,11 +88,8 @@ describe('fetchWingAdSummary (PG integration)', () => {
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
-    const listingT = await seedMasterAndListing(TEST_COMPANY_ID, 'M-T', 'L-T');
-    const listingO = await seedMasterAndListing(OTHER_COMPANY_ID, 'M-O', 'L-O');
-
-    await seedWingSnapshot(TEST_COMPANY_ID, 1000, 500, 30, now, listingT.id);
-    await seedWingSnapshot(OTHER_COMPANY_ID, IDOR_SENTINEL, IDOR_SENTINEL, 90, now, listingO.id);
+    await seedWingDailyKpi(TEST_COMPANY_ID, 1000, 500, now);
+    await seedWingDailyKpi(OTHER_COMPANY_ID, IDOR_SENTINEL, IDOR_SENTINEL, now);
 
     const result = await fetchWingAdSummary(
       prisma as unknown as PrismaService,
@@ -121,9 +107,7 @@ describe('fetchWingAdSummary (PG integration)', () => {
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
-    // Only OTHER has a snapshot
-    const listingO = await seedMasterAndListing(OTHER_COMPANY_ID, 'M-O', 'L-O');
-    await seedWingSnapshot(OTHER_COMPANY_ID, 500, 250, 30, now, listingO.id);
+    await seedWingDailyKpi(OTHER_COMPANY_ID, 500, 250, now);
 
     const result = await fetchWingAdSummary(
       prisma as unknown as PrismaService,
@@ -136,17 +120,13 @@ describe('fetchWingAdSummary (PG integration)', () => {
     expect(result).toBeNull();
   });
 
-  it('lastSyncAt pulled from TEST company only', async () => {
+  it('lastSyncAt pulled from chosen daily-fact row', async () => {
     const now = new Date();
-    const otherEarlier = new Date(now.getTime() - 60 * 60 * 1000); // 1h ago
+    const otherEarlier = new Date(now.getTime() - 60 * 60 * 1000);
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
-    const listingT = await seedMasterAndListing(TEST_COMPANY_ID, 'M-T', 'L-T');
-    const listingO = await seedMasterAndListing(OTHER_COMPANY_ID, 'M-O', 'L-O');
-
-    await seedWingSnapshot(TEST_COMPANY_ID, 1000, 500, 30, now, listingT.id);
-    // OTHER has a much older snapshot — if IDOR, lastSyncAt would return the TEST now value incorrectly
-    await seedWingSnapshot(OTHER_COMPANY_ID, 500, 250, 90, otherEarlier, listingO.id);
+    await seedWingDailyKpi(TEST_COMPANY_ID, 1000, 500, now);
+    await seedWingDailyKpi(OTHER_COMPANY_ID, 500, 250, otherEarlier);
 
     const result = await fetchWingAdSummary(
       prisma as unknown as PrismaService,
@@ -156,6 +136,25 @@ describe('fetchWingAdSummary (PG integration)', () => {
       monthStart,
     );
 
-    expect(result?.lastSyncAt?.getTime()).toBe(now.getTime());
+    expect(result?.lastSyncAt).not.toBeNull();
+    // Within ~5s tolerance — pg may round timestamps.
+    expect(Math.abs((result?.lastSyncAt?.getTime() ?? 0) - now.getTime())).toBeLessThan(5000);
+  });
+
+  it('skips rows whose adGmv is 0 or missing', async () => {
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    await seedWingDailyKpi(TEST_COMPANY_ID, 0, 500, now);
+
+    const result = await fetchWingAdSummary(
+      prisma as unknown as PrismaService,
+      TEST_COMPANY_ID,
+      now.getFullYear(),
+      now.getMonth() + 1,
+      monthStart,
+    );
+
+    expect(result).toBeNull();
   });
 });

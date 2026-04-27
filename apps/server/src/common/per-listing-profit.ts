@@ -95,10 +95,14 @@ export async function buildPerListingMetrics(
         },
       },
     }),
-    prisma.ad.groupBy({
+    // Listing-level ad spend aggregates from
+    // `ChannelListingDailySnapshot.adSpend` over the same `[from, to)` window.
+    // Caller signature is unchanged; the result columns (`adCost` per listing)
+    // remain populated by the map below.
+    prisma.channelListingDailySnapshot.groupBy({
       by: ['listingId'],
-      _sum: { spend: true },
-      where: { companyId, date: { gte: from, lt: to } },
+      _sum: { adSpend: true },
+      where: { companyId, businessDate: { gte: from, lt: to } },
     }),
   ]);
 
@@ -169,7 +173,7 @@ export async function buildPerListingMetrics(
   }
 
   const adCostMap = new Map<string, number>(
-    adRows.map((r) => [r.listingId, r._sum.spend ?? 0]),
+    adRows.map((r) => [r.listingId, r._sum.adSpend ?? 0]),
   );
 
   return Array.from(groups.values()).map((g) => {

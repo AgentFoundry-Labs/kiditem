@@ -1,4 +1,5 @@
 import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import type {
   DashboardAdSummary,
@@ -12,6 +13,7 @@ import { calculateProfitForRange, type RangeProfitMetrics } from '../helpers/pro
 import { aggregateAdForRange, type RangeAdMetrics } from '../helpers/ad-aggregator';
 import { fetchWingAdSummary, type WingAdSummaryResult } from '../helpers/wing-ad-summary';
 import { pct1, pct2 } from '../helpers/percent';
+import { kstDayStart } from '../../common/kst';
 
 @Injectable()
 export class DashboardAdService {
@@ -23,7 +25,11 @@ export class DashboardAdService {
     try {
       const { year, month, monthStart, monthEnd, prevMonthDate, dateRange, now } = ctx;
 
-      const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      // 30-day daily ad cost window — KST-anchored cutoff so the day grouping
+      // matches `ChannelListingDailySnapshot.businessDate` (KST date column).
+      const thirtyDaysAgo = new Date(
+        kstDayStart(now).getTime() - 30 * 24 * 60 * 60 * 1000,
+      );
 
       const [
         adAggCurrentMonth,
@@ -45,17 +51,19 @@ export class DashboardAdService {
         aggregateAdForRange(this.prisma, companyId, dateRange.start, dateRange.end),
         // Range KPI previous period
         aggregateAdForRange(this.prisma, companyId, dateRange.prevStart, dateRange.prevEnd),
-        // 30-day daily ad cost (L224-232) — ADR-0018 companyId binding
-        this.prisma.$queryRaw<{ date: string; ad_cost: number }[]>`
+        // 30-day daily ad cost from `channel_listing_daily_snapshots`. Group
+        // by `business_date` (KST date) and SUM the additive `ad_spend`
+        // column. ADR-0018 companyId binding via Prisma.sql tagged-template.
+        this.prisma.$queryRaw<{ date: string; ad_cost: number }[]>(Prisma.sql`
           SELECT
-            TO_CHAR(date, 'YYYY-MM-DD') AS date,
-            COALESCE(SUM(spend), 0)::int AS ad_cost
-          FROM ads
+            TO_CHAR(business_date, 'YYYY-MM-DD') AS date,
+            COALESCE(SUM(ad_spend), 0)::int AS ad_cost
+          FROM channel_listing_daily_snapshots
           WHERE company_id = ${companyId}::uuid
-            AND date >= ${thirtyDaysAgo}::date
+            AND business_date >= ${thirtyDaysAgo}::date
           GROUP BY 1
           ORDER BY 1
-        `,
+        `),
         // Current month profit (Order-based, v2 I3 lineItem canonical)
         calculateProfitForRange(this.prisma, companyId, monthStart, monthEnd),
         // Previous month profit (Order-based)

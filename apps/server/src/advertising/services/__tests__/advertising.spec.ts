@@ -27,12 +27,12 @@ describe('AdvertisingService', () => {
 
   beforeEach(() => {
     prisma = {
-      ad: {
-        groupBy: vi.fn(),
-        findFirst: vi.fn(),
+      channelListingDailySnapshot: {
+        groupBy: vi.fn().mockResolvedValue([]),
       },
       channelListing: {
-        findMany: vi.fn(),
+        findMany: vi.fn().mockResolvedValue([]),
+        findFirst: vi.fn(),
       },
       masterProduct: {
         update: vi.fn().mockResolvedValue({}),
@@ -42,15 +42,27 @@ describe('AdvertisingService', () => {
     service = new AdvertisingService(prisma, adConfig);
   });
 
-  it('getHubData returns listing-primary AdsHubData with grade summary', async () => {
-    prisma.ad.groupBy.mockResolvedValue([
+  it('getHubData returns listing-primary AdsHubData with grade summary (H3 — daily-fact aggregate)', async () => {
+    prisma.channelListingDailySnapshot.groupBy.mockResolvedValue([
       {
         listingId: 'L1',
-        _sum: { spend: 80000, impressions: 5000, clicks: 100, conversions: 8, revenue: 240000 },
+        _sum: {
+          adSpend: 80000,
+          adImpressions: 5000,
+          adClicks: 100,
+          adConversions: 8,
+          adRevenue: 240000,
+        },
       },
       {
         listingId: 'L2',
-        _sum: { spend: 20000, impressions: 2000, clicks: 20, conversions: 1, revenue: 30000 },
+        _sum: {
+          adSpend: 20000,
+          adImpressions: 2000,
+          adClicks: 20,
+          adConversions: 1,
+          adRevenue: 30000,
+        },
       },
     ]);
     prisma.channelListing.findMany.mockResolvedValue([
@@ -88,23 +100,23 @@ describe('AdvertisingService', () => {
   });
 
   it('changeTier throws NotFoundException when id crosses tenant', async () => {
-    prisma.ad.findFirst.mockResolvedValue(null);
+    prisma.channelListing.findFirst.mockResolvedValue(null);
 
-    await expect(service.changeTier('ad-x', '1차', 'company-A')).rejects.toBeInstanceOf(
+    await expect(service.changeTier('listing-x', '1차', 'company-A')).rejects.toBeInstanceOf(
       NotFoundException,
     );
-    expect(prisma.ad.findFirst).toHaveBeenCalledWith(
+    expect(prisma.channelListing.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({ id: 'ad-x', companyId: 'company-A' }),
+        where: expect.objectContaining({ id: 'listing-x', companyId: 'company-A' }),
       }),
     );
     expect(prisma.masterProduct.update).not.toHaveBeenCalled();
   });
 
   it('changeTier OFF sets masterProduct.adTier to null', async () => {
-    prisma.ad.findFirst.mockResolvedValue({ listing: { masterId: 'M1' } });
+    prisma.channelListing.findFirst.mockResolvedValue({ masterId: 'M1' });
 
-    const result = await service.changeTier('ad-1', 'OFF', 'company-1');
+    const result = await service.changeTier('listing-1', 'OFF', 'company-1');
 
     expect(result).toEqual({ ok: true });
     expect(prisma.masterProduct.update).toHaveBeenCalledWith({
@@ -114,17 +126,23 @@ describe('AdvertisingService', () => {
   });
 
   it('changeTier rejects invalid tier', async () => {
-    await expect(service.changeTier('ad-1', '4차', 'company-1')).rejects.toBeInstanceOf(
+    await expect(service.changeTier('listing-1', '4차', 'company-1')).rejects.toBeInstanceOf(
       BadRequestException,
     );
-    expect(prisma.ad.findFirst).not.toHaveBeenCalled();
+    expect(prisma.channelListing.findFirst).not.toHaveBeenCalled();
   });
 
   it('findAll paginates with default page=1 limit=50', async () => {
-    prisma.ad.groupBy.mockResolvedValue([
+    prisma.channelListingDailySnapshot.groupBy.mockResolvedValue([
       {
         listingId: 'L1',
-        _sum: { spend: 1000, impressions: 100, clicks: 5, conversions: 1, revenue: 3000 },
+        _sum: {
+          adSpend: 1000,
+          adImpressions: 100,
+          adClicks: 5,
+          adConversions: 1,
+          adRevenue: 3000,
+        },
       },
     ]);
     prisma.channelListing.findMany.mockResolvedValue([
@@ -146,15 +164,54 @@ describe('AdvertisingService', () => {
   });
 
   it('passes companyId through all reads (no default fallback)', async () => {
-    prisma.ad.groupBy.mockResolvedValue([]);
+    prisma.channelListingDailySnapshot.groupBy.mockResolvedValue([]);
 
     await service.getHubData('company-xyz');
 
     expect(adConfig.getConfig).toHaveBeenCalledWith('company-xyz');
-    expect(prisma.ad.groupBy).toHaveBeenCalledWith(
+    expect(prisma.channelListingDailySnapshot.groupBy).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({ companyId: 'company-xyz' }),
       }),
     );
+  });
+
+  it('empty-state — no daily-fact rows returns explicit empty hub (legacy Ad rows ignored)', async () => {
+    prisma.channelListingDailySnapshot.groupBy.mockResolvedValue([]);
+
+    const result = await service.getHubData('company-1');
+
+    expect(result.products).toEqual([]);
+    expect(result.summary.totalSpend).toBe(0);
+    expect(result.summary.totalRevenue).toBe(0);
+    expect(result.summary.totalRoas).toBeNull();
+  });
+
+  it('recomputes ROAS from sums (not averaged per-row provider ratio)', async () => {
+    prisma.channelListingDailySnapshot.groupBy.mockResolvedValue([
+      {
+        listingId: 'L1',
+        _sum: {
+          adSpend: 10000,
+          adImpressions: 1000,
+          adClicks: 50,
+          adConversions: 5,
+          adRevenue: 30000,
+        },
+      },
+    ]);
+    prisma.channelListing.findMany.mockResolvedValue([
+      {
+        id: 'L1',
+        externalId: 'COUPANG-1',
+        channelName: '쿠팡',
+        master: { id: 'M1', code: 'M-1', name: '상품1', abcGrade: 'A', adTier: '1차' },
+      },
+    ]);
+
+    const result = await service.getHubData('company-1');
+    // 30000/10000*100 = 300
+    expect(result.products[0].metrics.roas).toBe(300);
+    expect(result.summary.totalRoas).toBe(300);
   });
 });

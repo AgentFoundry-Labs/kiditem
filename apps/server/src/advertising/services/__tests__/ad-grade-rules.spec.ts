@@ -3,10 +3,10 @@ import { AdGradeRulesService } from '../ad-grade-rules.service';
 import type { GradeRulesInput, AdIssuesInput, HydratedListing } from '../types';
 
 /**
- * B2b (commit 2c17850) listing-level ABC rules 동작 검증.
+ * Listing-level ABC rules 동작 검증.
  *
- * ad-grade-rules.service.ts 는 `prisma.ad.groupBy(['listingId'])` 결과 (AdAggregateRow)
- * 와 listing hydrate 결과 + profitRate map 을 받아 rule 평가. snapshot 단위가 아님.
+ * ad-grade-rules.service.ts 는 `ChannelListingDailySnapshot.groupBy(['listingId'])`
+ * 결과 (AdAggregateRow) 와 listing hydrate 결과 + profitRate map 을 받아 rule 평가.
  */
 
 const listingBase = (

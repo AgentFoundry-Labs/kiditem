@@ -70,7 +70,7 @@ export async function hydrateListings(
           { id: 'asc' },
         ],
         select: {
-          // Wave C4: also surface the active ChannelListingOption.id so the
+          // Also surface the active ChannelListingOption.id so the
           // strategy reader can fetch option daily snapshots for the same
           // deterministic primary option that hydrate picked.
           id: true,

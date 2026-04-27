@@ -6,11 +6,11 @@ import {
   ResponsiveContainer, CartesianGrid,
 } from "recharts";
 import { useQuery } from "@tanstack/react-query";
-import { cn, formatKRW, formatNumber } from "@/lib/utils";
+import { cn, formatKRW, formatNumber, formatDateTime } from "@/lib/utils";
 import { apiClient } from "@/lib/api-client";
 import { queryKeys } from "@/lib/query-keys";
 import { roasColor } from "../lib/status-colors";
-import type { AdWeeklyPlan, AdTrendsData, AdCampaignSnapshot } from "@kiditem/shared";
+import type { AdWeeklyPlan, AdTrendsData, AdCampaignSnapshot, AdExtensionStatus } from "@kiditem/shared";
 import AdSidePanel from "./AdSidePanel";
 
 type RuleItem = { name: string; grade: string | null; rule: string; action: string; priority: string; roas: number; spend: number };
@@ -72,6 +72,12 @@ interface StatusContentProps {
   wingKpis: Record<string, string | { value: string; change?: string; numValue?: number }>;
   campaigns: AdCampaignSnapshot[];
   onGoToCampaign: (name?: string) => void;
+  // H3 — current-state extension status surfaced from `/api/ads/extension/status`.
+  // Carries `latestScrapeAt` / `latestChannelStateAt` / `rawSnapshotCount` /
+  // `currentWinnerObservedListings` (renamed from legacy lifetime counts).
+  // `latestScrapePageType` is intentionally NOT rendered — too internal for
+  // operators (raw page slug like 'itemwinner'); other consumers may use it.
+  extensionStatus?: AdExtensionStatus | null;
 }
 
 export default function StatusContent({
@@ -81,6 +87,7 @@ export default function StatusContent({
   wingKpis,
   campaigns,
   onGoToCampaign,
+  extensionStatus,
 }: StatusContentProps) {
   return (
     <div className="space-y-5">
@@ -166,14 +173,30 @@ export default function StatusContent({
         <AdSidePanel rules={rules} strategy={strategy} />
       </div>
 
-      {/* 아이템위너 · 노출 현황 */}
+      {/* 아이템위너 · 노출 현황 (현재 상태) */}
       {Object.keys(wingKpis).length > 0 && (
         <div className="rounded-2xl p-5" style={{ background: "var(--card-bg)", boxShadow: "var(--shadow-md)", border: "1px solid var(--border-subtle)" }}>
-          <div className="flex items-center gap-2 mb-4">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
             <AlertTriangle size={16} style={{ color: "var(--warning)" }} />
-            <h2 className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>아이템위너 · 노출 현황</h2>
-            <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>아이템위너 미보유 시 광고 전환율 급감</span>
+            <h2 className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>아이템위너 · 노출 현재 상태</h2>
+            <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>현재 아이템위너 미보유 항목은 광고 전환율 급감 위험</span>
           </div>
+          {/* H3 — current-state observation timeline. `latestChannelStateAt` is the
+              max(lastObservedAt) across daily snapshots; `latestScrapeAt` is the
+              latest ChannelScrapeRun finished/started time. `rawSnapshotCount`
+              replaces the legacy AdSnapshot count. */}
+          {extensionStatus && (
+            <div className="flex items-center gap-4 mb-4 text-[11px] flex-wrap" style={{ color: "var(--text-tertiary)" }}>
+              {extensionStatus.latestChannelStateAt && (
+                <span>현재 상태 관측: <span className="tabular-nums font-medium" style={{ color: "var(--text-secondary)" }}>{formatDateTime(extensionStatus.latestChannelStateAt)}</span></span>
+              )}
+              {extensionStatus.latestScrapeAt && (
+                <span>최근 수집: <span className="tabular-nums font-medium" style={{ color: "var(--text-secondary)" }}>{formatDateTime(extensionStatus.latestScrapeAt)}</span></span>
+              )}
+              <span>원시 수집 <span className="tabular-nums font-medium" style={{ color: "var(--text-secondary)" }}>{formatNumber(extensionStatus.rawSnapshotCount)}건</span></span>
+              <span>현재 관측 listing <span className="tabular-nums font-medium" style={{ color: "var(--text-secondary)" }}>{formatNumber(extensionStatus.currentWinnerObservedListings)}/{formatNumber(extensionStatus.listingCount)}</span></span>
+            </div>
+          )}
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
             {Object.entries(wingKpis).map(([label, raw]) => {
               const isObj = raw && typeof raw === "object";

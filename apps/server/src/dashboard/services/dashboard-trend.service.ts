@@ -1,7 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { DashboardTrendItem } from '@kiditem/shared';
 import { calculateProfitForRange } from '../helpers/profit-calculator';
+import { kstInclusiveDaysStart } from '../../common/kst';
 
 @Injectable()
 export class DashboardTrendService {
@@ -12,8 +14,9 @@ export class DashboardTrendService {
   async getTrend(companyId: string, range: string): Promise<DashboardTrendItem[]> {
     const startedAt = Date.now();
     const days = range === '7d' ? 7 : range === '90d' ? 90 : 30;
-    const since = new Date();
-    since.setDate(since.getDate() - days);
+    // KST-anchored cutoff so the day grouping aligns with daily-fact
+    // `business_date` (KST date column) and order rows tagged at KST.
+    const since = kstInclusiveDaysStart(days);
 
     // Plan F1 T4 — avgProfitRate via calculateProfitForRange (replaces profitLoss.aggregate, ADR-0016).
     // Returns ratio (e.g. 0.3 for 30%) — used as a per-day multiplier downstream.
@@ -35,16 +38,19 @@ export class DashboardTrendService {
         GROUP BY 1
         ORDER BY 1
       `,
-      this.prisma.$queryRaw<{ date: string; ad_cost: number }[]>`
+      // SUM(ad_spend) per business_date (KST date) from
+      // `channel_listing_daily_snapshots` over the same window the order
+      // revenue query uses.
+      this.prisma.$queryRaw<{ date: string; ad_cost: number }[]>(Prisma.sql`
         SELECT
-          TO_CHAR(date, 'YYYY-MM-DD') AS date,
-          COALESCE(SUM(spend), 0)::int AS ad_cost
-        FROM ads
+          TO_CHAR(business_date, 'YYYY-MM-DD') AS date,
+          COALESCE(SUM(ad_spend), 0)::int AS ad_cost
+        FROM channel_listing_daily_snapshots
         WHERE company_id = ${companyId}::uuid
-          AND date >= ${since}::date
+          AND business_date >= ${since}::date
         GROUP BY 1
         ORDER BY 1
-      `,
+      `),
     ]);
 
     const adMap = new Map(adRows.map((r) => [r.date, Number(r.ad_cost)]));

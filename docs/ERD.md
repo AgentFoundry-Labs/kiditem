@@ -23,15 +23,11 @@ This ERD is a development-time navigation aid. The source of truth is still the 
 
 | Model | Domain | Table | Description |
 |---|---:|---|---|
-| Ad | Advertising | `ads` | 상품×날짜별 광고 성과 (groupBy 집계). |
-| AdAction | Advertising | `ad_actions` | 광고 자동 실행 큐. AdSnapshot→AdAction→ExecutionTask→ExecutionLog 파이프라인. |
-| AdSnapshot | Advertising | `ad_snapshots` | 익스텐션이 수집한 raw 데이터. level 로 구분 (campaign\|product\|null). |
+| AdAction | Advertising | `ad_actions` | 광고 자동 실행 큐. ChannelAdTargetDailySnapshot→AdAction→ExecutionTask→ExecutionLog 파이프라인. |
 | ExecutionLog | Advertising | `execution_logs` | - |
 | ExecutionTask | Advertising | `execution_tasks` | - |
 | ExecutionWorker | Advertising | `execution_workers` | - |
-| ItemWinner | Advertising | `item_winners` | 아이템위너 현황 (Wing 데이터). |
 | ScrapeTarget | Advertising | `scrape_targets` | - |
-| TrafficStats | Advertising | `traffic_stats` | - |
 | AgentDefinition | Agents | `agent_definitions` | 에이전트 정의. rt_* 필드로 런타임 상태 내장 (별도 테이블 없음). reportsTo 자기참조 (매니저→전문가 계층). |
 | AgentEvent | Agents | `agent_events` | eventType 으로 permission_denied / action_snapshot 통합. |
 | AgentLog | Agents | `agent_logs` | - |
@@ -45,6 +41,8 @@ This ERD is a development-time navigation aid. The source of truth is still the 
 | ThumbnailAnalysis | AI | `thumbnail_analyses` | 5차원 scores(heroShot·composition·branding·mobile·differentiation) + complianceGrade(PASS/WARN/FAIL) + imageSpec(사전검수). 스펙 FAIL 시 AI 호출 생략. |
 | ThumbnailGeneration | AI | `thumbnail_generations` | 상태: pending→generating→ready/failed→applied/skipped. method=edit 만 사용 (generate Imagen 방식 삭제됨). |
 | ThumbnailTracking | AI | `thumbnail_trackings` | - |
+| ChannelAccountDailyKpiSnapshot | Channels | `channel_account_daily_kpi_snapshots` | 채널 계정/스토어 단위 KPI 일별 정규화 fact (listing 에 귀속되지 않는 dashboard KPI 용). |
+| ChannelAdTargetDailySnapshot | Channels | `channel_ad_target_daily_snapshots` | 채널 광고 타겟(캠페인/키워드/상품)의 일별 정규화 fact. 기간 view 는 SUM 으로 derive. |
 | ChannelListingDailySnapshot | Channels | `channel_listing_daily_snapshots` | 채널 listing 의 일별 정규화 상태. 반복 scrape 는 businessDate row 를 upsert. |
 | ChannelListingOptionDailySnapshot | Channels | `channel_listing_option_daily_snapshots` | 채널 listing option/vendor item 의 일별 정규화 상태. |
 | ChannelScrapeRun | Channels | `channel_scrape_runs` | 채널별 상품/광고/트래픽 스크래핑 실행 단위. 원본 row 는 ChannelScrapeSnapshot 에 저장. |
@@ -133,62 +131,11 @@ erDiagram
     Json data
     DateTime createdAt
   }
-  Ad {
-    String id PK
-    String companyId FK
-    String listingId FK
-    String optionId FK
-    String platform
-    String campaignName
-    Int dailyBudget
-    Int spend
-    Int impressions
-    Int clicks
-    Int conversions
-    Int revenue
-    Decimal roas
-    String billingType
-    String saleType
-    String adType
-    String campaignId
-    String adGroup
-    String adProductName
-    String adOptionId
-    String convProductName
-    String convOptionId
-    String placement
-    String keyword
-    String note
-    Int directOrders1d
-    Int indirectOrders1d
-    Int directQty1d
-    Int indirectQty1d
-    Int directRevenue1d
-    Int indirectRevenue1d
-    Decimal totalRoas1d
-    Decimal directRoas1d
-    Int totalOrders14d
-    Int directOrders14d
-    Int indirectOrders14d
-    Int totalQty14d
-    Int directQty14d
-    Int indirectQty14d
-    Int totalRevenue14d
-    Int directRevenue14d
-    Int indirectRevenue14d
-    Decimal totalRoas14d
-    Decimal directRoas14d
-    DateTime campaignStartDate
-    DateTime campaignEndDate
-    DateTime date
-    DateTime createdAt
-    DateTime updatedAt
-  }
   AdAction {
     String id PK
     String companyId FK
     String listingId FK
-    String snapshotId FK
+    String adTargetDailyId FK
     String actionType
     String targetType
     String externalId
@@ -205,45 +152,6 @@ erDiagram
     String errorMessage
     DateTime approvedAt
     DateTime executedAt
-    DateTime createdAt
-  }
-  AdSnapshot {
-    String id PK
-    String companyId FK
-    String listingId FK
-    String optionId FK
-    String source
-    String pageType
-    String level
-    String externalId
-    String campaignName
-    String period
-    DateTime date
-    String keyword
-    String productName
-    String vendorItemId
-    String status
-    String onOff
-    Int currentBid
-    Int dailyBudget
-    Int budget
-    Int todaySpend
-    Int impressions
-    Int clicks
-    Int conversions
-    Int adConversions
-    Int orders
-    Int spend
-    Int adSpend
-    Int revenue
-    Int adRevenue
-    Int totalRevenue
-    Decimal roas
-    Decimal ctr
-    Decimal conversionRate
-    DateTime collectedAt
-    Json rawJson
-    DateTime capturedAt
     DateTime createdAt
   }
   AgentDefinition {
@@ -413,6 +321,61 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  ChannelAccountDailyKpiSnapshot {
+    String id PK
+    String companyId FK
+    String channel
+    String source
+    String kpiType
+    DateTime businessDate
+    DateTime periodStart
+    DateTime periodEnd
+    Json normalizedJson
+    Json rawJson
+    String rawSnapshotId FK
+    Int sampleCount
+    DateTime firstObservedAt
+    DateTime lastObservedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  ChannelAdTargetDailySnapshot {
+    String id PK
+    String companyId FK
+    String channel
+    DateTime businessDate
+    String listingId FK
+    String listingOptionId FK
+    String optionId FK
+    String externalId
+    String externalOptionId
+    String targetType
+    String targetKey
+    String campaignId
+    String campaignName
+    String adGroup
+    String keyword
+    String placement
+    String status
+    String onOff
+    Int currentBid
+    Int dailyBudget
+    Int spend
+    Int revenue
+    Int impressions
+    Int clicks
+    Int conversions
+    Int orders
+    Int adSpend
+    Int adRevenue
+    String rawSnapshotId FK
+    Json metaJson
+    Int sampleCount
+    DateTime firstObservedAt
+    DateTime lastObservedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
   ChannelListing {
     String id PK
     String masterId FK
@@ -452,6 +415,33 @@ erDiagram
     Int winnerGapPrice
     Int productRank
     Int categoryRank
+    Int adSpend
+    Int adRevenue
+    Int adImpressions
+    Int adClicks
+    Int adConversions
+    Int adOrders
+    Int adDirectOrders1d
+    Int adIndirectOrders1d
+    Int adDirectQty1d
+    Int adIndirectQty1d
+    Int adDirectRevenue1d
+    Int adIndirectRevenue1d
+    Int adTotalOrders14d
+    Int adDirectOrders14d
+    Int adIndirectOrders14d
+    Int adTotalQty14d
+    Int adDirectQty14d
+    Int adIndirectQty14d
+    Int adTotalRevenue14d
+    Int adDirectRevenue14d
+    Int adIndirectRevenue14d
+    Int trafficVisitors
+    Int trafficViews
+    Int trafficCartAdds
+    Int trafficOrders
+    Int trafficSalesQty
+    Int trafficRevenue
     Int sampleCount
     DateTime firstObservedAt
     DateTime lastObservedAt
@@ -689,16 +679,6 @@ erDiagram
     DateTime lastRestockedAt
     DateTime createdAt
     DateTime updatedAt
-  }
-  ItemWinner {
-    String id PK
-    String companyId FK
-    String listingId FK
-    String productName
-    Boolean isWinner
-    Int myPrice
-    Int winnerPrice
-    DateTime checkedAt
   }
   ManualLedger {
     String id PK
@@ -1250,21 +1230,6 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
-  TrafficStats {
-    String id PK
-    String companyId FK
-    String listingId FK
-    DateTime date
-    Int periodDays
-    Int visitors
-    Int views
-    Int cartAdds
-    Int orders
-    Int salesQty
-    Int revenue
-    Decimal conversionRate
-    DateTime createdAt
-  }
   UnshippedItem {
     String id PK
     String companyId FK
@@ -1342,7 +1307,6 @@ erDiagram
   }
   ActionTask o|--o{ Alert : "actionTask"
   AdAction ||--o{ ExecutionTask : "action"
-  AdSnapshot o|--o{ AdAction : "snapshot"
   AgentDefinition o|--o{ AgentDefinition : "parent"
   AgentDefinition ||--o{ AgentEvent : "agent"
   AgentDefinition ||--o{ AgentWakeupRequest : "agent"
@@ -1350,34 +1314,33 @@ erDiagram
   AgentDefinition o|--o{ User : "agentDefinition"
   AgentTask ||--o{ AgentLog : "task"
   AgentWakeupRequest o|--o{ HeartbeatRun : "wakeupRequest"
-  ChannelListing ||--o{ Ad : "listing"
+  ChannelAdTargetDailySnapshot o|--o{ AdAction : "adTargetDaily"
   ChannelListing o|--o{ AdAction : "listing"
-  ChannelListing o|--o{ AdSnapshot : "listing"
+  ChannelListing o|--o{ ChannelAdTargetDailySnapshot : "listing"
   ChannelListing ||--o{ ChannelListingDailySnapshot : "listing"
   ChannelListing ||--o{ ChannelListingOption : "listing"
   ChannelListing ||--o{ ChannelListingOptionDailySnapshot : "listing"
   ChannelListing o|--o{ ChannelScrapeSnapshot : "listing"
   ChannelListing o|--o{ CSRecord : "listing"
-  ChannelListing ||--o{ ItemWinner : "listing"
   ChannelListing o|--o{ Order : "listing"
   ChannelListing ||--o{ ProfitLoss : "listing"
   ChannelListing o|--o{ Review : "listing"
   ChannelListing o|--o{ Shipment : "listing"
   ChannelListing ||--o{ Thumbnail : "listing"
   ChannelListing ||--o{ ThumbnailTracking : "listing"
-  ChannelListing ||--o{ TrafficStats : "listing"
   ChannelListing o|--o{ UnshippedItem : "listing"
+  ChannelListingOption o|--o{ ChannelAdTargetDailySnapshot : "listingOption"
   ChannelListingOption ||--o{ ChannelListingOptionDailySnapshot : "listingOption"
   ChannelListingOption o|--o{ ChannelScrapeSnapshot : "listingOption"
   ChannelListingOption o|--o{ OrderLineItem : "listingOption"
   ChannelScrapeRun o|--o{ ChannelScrapeSnapshot : "scrapeRun"
+  ChannelScrapeSnapshot o|--o{ ChannelAccountDailyKpiSnapshot : "rawSnapshot"
+  ChannelScrapeSnapshot o|--o{ ChannelAdTargetDailySnapshot : "rawSnapshot"
   ChannelScrapeSnapshot o|--o{ ChannelListingDailySnapshot : "rawSnapshot"
   ChannelScrapeSnapshot o|--o{ ChannelListingOptionDailySnapshot : "rawSnapshot"
   Company ||--o{ ActionTask : "company"
   Company ||--o{ ActivityEvent : "company"
-  Company ||--o{ Ad : "company"
   Company ||--o{ AdAction : "company"
-  Company ||--o{ AdSnapshot : "company"
   Company o|--o{ AgentDefinition : "company"
   Company ||--o{ AgentEvent : "company"
   Company ||--o{ AgentWakeupRequest : "company"
@@ -1385,6 +1348,8 @@ erDiagram
   Company ||--o{ BundleComponent : "company"
   Company ||--o{ BusinessRule : "company"
   Company ||--o{ CategoryMapping : "company"
+  Company ||--o{ ChannelAccountDailyKpiSnapshot : "company"
+  Company ||--o{ ChannelAdTargetDailySnapshot : "company"
   Company ||--o{ ChannelListing : "company"
   Company ||--o{ ChannelListingDailySnapshot : "company"
   Company ||--o{ ChannelListingOption : "company"
@@ -1397,7 +1362,6 @@ erDiagram
   Company ||--o{ GradeHistory : "company"
   Company ||--o{ HeartbeatRun : "company"
   Company ||--o{ Inventory : "company"
-  Company ||--o{ ItemWinner : "company"
   Company ||--o{ ManualLedger : "company"
   Company ||--o{ MasterProduct : "company"
   Company ||--o{ Order : "company"
@@ -1426,7 +1390,6 @@ erDiagram
   Company ||--o{ ThumbnailAnalysis : "company"
   Company ||--o{ ThumbnailGeneration : "company"
   Company ||--o{ ThumbnailTracking : "company"
-  Company ||--o{ TrafficStats : "company"
   Company ||--o{ UnshippedItem : "company"
   Company o|--o{ User : "company"
   Company ||--o{ Warehouse : "company"
@@ -1449,10 +1412,9 @@ erDiagram
   OrderLineItem o|--o{ OrderReturnLineItem : "orderLineItem"
   OrderReturn ||--o{ OrderReturnLineItem : "return"
   PickingList ||--o{ PickingItem : "pickingList"
-  ProductOption o|--o{ Ad : "option"
-  ProductOption o|--o{ AdSnapshot : "option"
   ProductOption ||--o{ BundleComponent : "bundleOption"
   ProductOption ||--o{ BundleComponent : "componentOption"
+  ProductOption o|--o{ ChannelAdTargetDailySnapshot : "option"
   ProductOption o|--o{ ChannelListingOption : "option"
   ProductOption o|--o{ ChannelListingOptionDailySnapshot : "option"
   ProductOption o|--o{ ChannelScrapeSnapshot : "option"
