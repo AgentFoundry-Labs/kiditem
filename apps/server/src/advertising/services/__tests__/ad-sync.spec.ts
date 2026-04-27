@@ -6,6 +6,7 @@ describe('AdSyncService', () => {
   let service: AdSyncService;
   let prisma: any;
   let eventEmitter: any;
+  let scrapePersistence: any;
 
   beforeEach(() => {
     prisma = {
@@ -42,14 +43,22 @@ describe('AdSyncService', () => {
       $transaction: vi.fn((ops) => Promise.all(ops)),
     };
     eventEmitter = { emit: vi.fn() };
-    service = new AdSyncService(prisma, eventEmitter);
+    // Wave C2: AdSyncService now takes ChannelScrapePersistenceService as a
+    // 3rd arg. Mock it as a stub for unit tests; integration tests exercise
+    // the real persistence path with PG.
+    scrapePersistence = {
+      createRun: vi.fn().mockResolvedValue({ id: 'run-1' }),
+      appendSnapshot: vi.fn().mockResolvedValue({ id: 'snap-1' }),
+      finalizeRun: vi.fn().mockResolvedValue(undefined),
+    };
+    service = new AdSyncService(prisma, eventEmitter, scrapePersistence);
   });
 
   describe('buildListingMap', () => {
-    it('builds externalOptionIdMap + externalIdMap from ChannelListingOption + ChannelListing', async () => {
+    it('builds externalOptionIdMap (with listingOptionId) + externalIdMap from ChannelListingOption + ChannelListing', async () => {
       prisma.channelListingOption.findMany.mockResolvedValue([
-        { externalOptionId: 'V1', listingId: 'L1', optionId: 'O1' },
-        { externalOptionId: 'V2', listingId: 'L2', optionId: 'O2' },
+        { id: 'LO1', externalOptionId: 'V1', listingId: 'L1', optionId: 'O1' },
+        { id: 'LO2', externalOptionId: 'V2', listingId: 'L2', optionId: 'O2' },
       ]);
       prisma.channelListing.findMany.mockResolvedValue([
         { id: 'L1', externalId: 'COUPANG-1' },
@@ -60,10 +69,12 @@ describe('AdSyncService', () => {
 
       expect(map.externalOptionIdMap.get('V1')).toEqual({
         listingId: 'L1',
+        listingOptionId: 'LO1',
         optionId: 'O1',
       });
       expect(map.externalOptionIdMap.get('V2')).toEqual({
         listingId: 'L2',
+        listingOptionId: 'LO2',
         optionId: 'O2',
       });
       expect(map.externalIdMap.get('COUPANG-1')).toEqual({ listingId: 'L1' });
@@ -75,7 +86,12 @@ describe('AdSyncService', () => {
           isActive: true,
           listing: { channel: 'coupang', isDeleted: false },
         },
-        select: { externalOptionId: true, listingId: true, optionId: true },
+        select: {
+          id: true,
+          externalOptionId: true,
+          listingId: true,
+          optionId: true,
+        },
       });
       expect(prisma.channelListing.findMany).toHaveBeenCalledWith({
         where: { companyId: 'company-1', isDeleted: false, channel: 'coupang' },
@@ -83,40 +99,55 @@ describe('AdSyncService', () => {
       });
     });
 
-    it('skips externalOptionIdMap entries with missing optionId', async () => {
+    it('preserves externalOptionIdMap entries with null internal optionId (Wave C2)', async () => {
       prisma.channelListingOption.findMany.mockResolvedValue([
-        { externalOptionId: 'V1', listingId: 'L1', optionId: null },
+        { id: 'LO1', externalOptionId: 'V1', listingId: 'L1', optionId: null },
       ]);
       prisma.channelListing.findMany.mockResolvedValue([]);
 
       const map = await service.buildListingMap('company-1');
 
-      expect(map.externalOptionIdMap.has('V1')).toBe(false);
+      // Wave C2 contract: listingOptionId 는 internal optionId 가 null 이어도
+      // 보존되어야 한다 (C3 의 option daily snapshot 이 listingOptionId 만으로
+      // upsert 가능하도록).
+      expect(map.externalOptionIdMap.get('V1')).toEqual({
+        listingId: 'L1',
+        listingOptionId: 'LO1',
+        optionId: null,
+      });
     });
   });
 
   describe('matchListingFromRow', () => {
     const map: ListingMap = {
       externalOptionIdMap: new Map([
-        ['V-HIT', { listingId: 'L-V', optionId: 'O-V' }],
+        ['V-HIT', { listingId: 'L-V', listingOptionId: 'LO-V', optionId: 'O-V' }],
       ]),
       externalIdMap: new Map([['E-HIT', { listingId: 'L-E' }]]),
     };
 
-    it('returns listingId+optionId when provider vendorItemId hits externalOptionIdMap', () => {
+    it('returns full match when provider vendorItemId hits externalOptionIdMap', () => {
       const result = service.matchListingFromRow(
         { vendorItemId: 'V-HIT' },
         map,
       );
-      expect(result).toEqual({ listingId: 'L-V', optionId: 'O-V' });
+      expect(result).toEqual({
+        listingId: 'L-V',
+        listingOptionId: 'LO-V',
+        optionId: 'O-V',
+      });
     });
 
-    it('falls back to externalId when vendorItemId misses', () => {
+    it('falls back to externalId when vendorItemId misses (listingOption + optionId null)', () => {
       const result = service.matchListingFromRow(
         { vendorItemId: 'V-MISS', externalId: 'E-HIT' },
         map,
       );
-      expect(result).toEqual({ listingId: 'L-E', optionId: null });
+      expect(result).toEqual({
+        listingId: 'L-E',
+        listingOptionId: null,
+        optionId: null,
+      });
     });
 
     it('returns nulls when both vendorItemId and externalId miss', () => {
@@ -124,7 +155,11 @@ describe('AdSyncService', () => {
         { vendorItemId: 'V-MISS', externalId: 'E-MISS' },
         map,
       );
-      expect(result).toEqual({ listingId: null, optionId: null });
+      expect(result).toEqual({
+        listingId: null,
+        listingOptionId: null,
+        optionId: null,
+      });
     });
 
     it('returns nulls when row has neither vendorItemId nor externalId', () => {
@@ -132,14 +167,18 @@ describe('AdSyncService', () => {
         { productName: 'unmatched' },
         map,
       );
-      expect(result).toEqual({ listingId: null, optionId: null });
+      expect(result).toEqual({
+        listingId: null,
+        listingOptionId: null,
+        optionId: null,
+      });
     });
   });
 
   describe('sync behavior', () => {
     beforeEach(() => {
       prisma.channelListingOption.findMany.mockResolvedValue([
-        { externalOptionId: 'V1', listingId: 'L1', optionId: 'O1' },
+        { id: 'LO1', externalOptionId: 'V1', listingId: 'L1', optionId: 'O1' },
       ]);
       prisma.channelListing.findMany.mockResolvedValue([
         { id: 'L1', externalId: 'COUPANG-1' },
@@ -149,7 +188,7 @@ describe('AdSyncService', () => {
       prisma.ad.create.mockResolvedValue({ id: 'ad-new' });
     });
 
-    it('handleAdCampaign skips Ad.create when unmatched but still stores AdSnapshot', async () => {
+    it('handleAdCampaign skips Ad.create when unmatched but still stores AdSnapshot + ChannelScrapeSnapshot', async () => {
       await service.sync(
         {
           type: 'ad_campaign',
@@ -181,6 +220,13 @@ describe('AdSyncService', () => {
       );
       expect(unmatchedSnapshot).toBeDefined();
       expect(unmatchedSnapshot[0].data.listingId).toBeNull();
+
+      // Wave C2: dual-write — ChannelScrapeSnapshot was appended for the
+      // unmatched row with matchStatus='unmatched'.
+      expect(scrapePersistence.appendSnapshot).toHaveBeenCalled();
+      const scrapeSnap = scrapePersistence.appendSnapshot.mock.calls[0][0];
+      expect(scrapeSnap.matchStatus).toBe('unmatched');
+      expect(scrapeSnap.listingId).toBeNull();
     });
 
     it('handleAdCampaign creates Ad + level=product AdSnapshot when vendorItemId hits', async () => {
@@ -213,9 +259,17 @@ describe('AdSyncService', () => {
       expect(adCall.data.optionId).toBe('O1');
       expect(adCall.data.spend).toBe(1000);
       expect(adCall.data.revenue).toBe(2000);
+
+      // Wave C2: scrape run + matched snapshot.
+      expect(scrapePersistence.createRun).toHaveBeenCalled();
+      const scrapeSnap = scrapePersistence.appendSnapshot.mock.calls[0][0];
+      expect(scrapeSnap.matchStatus).toBe('matched');
+      expect(scrapeSnap.listingId).toBe('L1');
+      expect(scrapeSnap.listingOptionId).toBe('LO1');
+      expect(scrapePersistence.finalizeRun).toHaveBeenCalled();
     });
 
-    it('handleTraffic upserts TrafficStats for matched rows, skips unmatched', async () => {
+    it('handleTraffic upserts TrafficStats for matched rows, skips unmatched, but appends ChannelScrapeSnapshot for both', async () => {
       prisma.trafficStats.upsert.mockResolvedValue({});
 
       const result = await service.sync(
@@ -250,9 +304,12 @@ describe('AdSyncService', () => {
       const upsertCall = prisma.trafficStats.upsert.mock.calls[0][0];
       expect(upsertCall.where.listingId_date_periodDays.listingId).toBe('L1');
       expect(upsertCall.create.listingId).toBe('L1');
+
+      // Wave C2: both rows snapshot, matched + unmatched.
+      expect(scrapePersistence.appendSnapshot).toHaveBeenCalledTimes(2);
     });
 
-    it('handleCoupangAdsDaily upserts AdSnapshot(source=coupang_ads, pageType=dashboard_daily)', async () => {
+    it('handleCoupangAdsDaily upserts AdSnapshot(source=coupang_ads, pageType=dashboard_daily) and snapshots per row', async () => {
       await service.sync(
         {
           type: 'coupang_ads_daily',
@@ -287,6 +344,12 @@ describe('AdSyncService', () => {
           }),
         }),
       );
+
+      // Wave C2: row snapshot landed with source='coupang_ads' and
+      // matchStatus='unmatched' (KPI-only daily aggregate, no listing identity).
+      const scrapeSnap = scrapePersistence.appendSnapshot.mock.calls[0][0];
+      expect(scrapeSnap.source).toBe('coupang_ads');
+      expect(scrapeSnap.matchStatus).toBe('unmatched');
     });
 
     it('cross-tenant isolation — company B externalOptionId does not leak into company A map', async () => {

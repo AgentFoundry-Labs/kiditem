@@ -13,6 +13,7 @@ import { AdSyncService } from './services/ad-sync.service';
 import { AdActionService } from './services/ad-action.service';
 import { AdExecutionService } from './services/ad-execution.service';
 import { AdConfigService } from './services/ad-config.service';
+import { ChannelScrapePersistenceService } from './services/channel-scrape-persistence.service';
 
 @Module({
   controllers: [AdvertisingController],
@@ -30,6 +31,7 @@ import { AdConfigService } from './services/ad-config.service';
     AdActionService,
     AdExecutionService,
     AdConfigService,
+    ChannelScrapePersistenceService,
   ],
 })
 export class AdvertisingModule {}

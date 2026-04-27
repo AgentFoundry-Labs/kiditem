@@ -5,6 +5,8 @@
 > **Plan A.5 완료 (2026-04-18)**: `syncSingleOrder` / `syncSingleReturn` 은 channel-agnostic `Order` / `OrderLineItem` / `OrderReturn` / `OrderReturnLineItem` 으로 재작성됨. 채널 구분은 `platform String` (현재 `'coupang'`), 채널-특수 raw 데이터는 `metadata Json`. `CoupangOrder` / `CoupangOrderItem` / `CoupangReturn` 는 drop. 신규 채널 추가 시 별도 channel-specific 테이블 만들지 말고 `platform` 값만 추가 ([apps/server/src/orders/CLAUDE.md](../orders/CLAUDE.md) 참고).
 >
 > **Wave C1 완료 (2026-04-27)**: `syncProducts` 를 `ChannelListing` / `ChannelListingOption` 기반으로 재작성. `syncInventory` 는 stub — 별도 wave 가 ADR-0014 단일 writer (`InventoryService`) 와의 경계를 정한 후 작성.
+>
+> **Wave C2 (2026-04-27) — `ChannelScrape*` writer 책임**: `ChannelScrapeRun` / `ChannelScrapeSnapshot` 은 channels namespace 의 모델이지만 **이 도메인에서 직접 write 하지 않는다**. extension scrape ingestion 의 dual-write 는 advertising 도메인의 `ChannelScrapePersistenceService` 가 담당 (`apps/server/src/advertising/CLAUDE.md` 의 "Wave C2" 섹션 참고). 이유: scrape ingestion 진입점이 `/api/ads/extension/sync` 한 곳이고, advertising 가 raw + normalized 를 함께 책임지는 게 trace 가 단순하기 때문. channels 쪽은 read-only consumer 로만 사용 (C3 daily snapshot upsert 가 시작될 때 다시 검토).
 
 ## Directory
 
