@@ -5,7 +5,7 @@
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 1392 nodes · 2163 edges · 28 communities detected
+- 1392 nodes · 2166 edges · 28 communities detected
 - Extraction: 100% EXTRACTED · 0% INFERRED · 0% AMBIGUOUS
 - Token cost: 0 input · 0 output
 
@@ -41,7 +41,7 @@
 
 ## God Nodes (most connected - your core abstractions)
 1. `Database ERD` - 232 edges
-2. `prisma — Shared Schema` - 131 edges
+2. `prisma — Shared Schema` - 134 edges
 3. `Company` - 123 edges
 4. `AgentDefinition` - 66 edges
 5. `ProductOption` - 66 edges
@@ -193,11 +193,11 @@ Nodes (12): MigrationCheckpoint.createdAt, MigrationCheckpoint.entityKey, Migrat
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `Database ERD` connect `Channels schema` to `Supply schema`, `Orders schema`, `Core schema`, `Agents schema`, `Inventory schema`, `Advertising schema`, `AI schema`, `Core schema`, `Orders schema`, `Channels schema`, `Agents schema`, `System schema`, `Agents schema`, `System schema`, `Orders schema`, `Channels schema`, `Finance schema`, `Channels schema`, `Inventory schema`, `Agents schema`, `Finance schema`, `System schema`, `Inventory schema`, `Orders schema`, `AI schema`, `Core schema`, `System schema`?**
-  _High betweenness centrality (0.475) - this node is a cross-community bridge._
-- **Why does `Company` connect `System schema` to `Supply schema`, `Orders schema`, `Channels schema`, `Core schema`, `Agents schema`, `Inventory schema`, `Advertising schema`, `AI schema`, `Core schema`, `Orders schema`, `Channels schema`, `Agents schema`, `Agents schema`, `System schema`, `Orders schema`, `Channels schema`, `Finance schema`, `Channels schema`, `Inventory schema`, `Finance schema`, `System schema`, `Inventory schema`, `Orders schema`, `AI schema`, `Core schema`?**
-  _High betweenness centrality (0.204) - this node is a cross-community bridge._
+  _High betweenness centrality (0.453) - this node is a cross-community bridge._
 - **Why does `prisma — Shared Schema` connect `Orders schema` to `Supply schema`, `Channels schema`, `Core schema`, `Agents schema`, `Inventory schema`, `Advertising schema`, `AI schema`, `Core schema`, `Orders schema`, `Channels schema`, `Agents schema`, `System schema`, `Agents schema`, `System schema`, `Orders schema`, `Channels schema`, `Finance schema`, `Channels schema`, `Inventory schema`, `Agents schema`, `Finance schema`, `System schema`, `Inventory schema`, `Orders schema`, `AI schema`, `Core schema`, `System schema`?**
-  _High betweenness centrality (0.201) - this node is a cross-community bridge._
+  _High betweenness centrality (0.225) - this node is a cross-community bridge._
+- **Why does `Company` connect `System schema` to `Supply schema`, `Orders schema`, `Channels schema`, `Core schema`, `Agents schema`, `Inventory schema`, `Advertising schema`, `AI schema`, `Core schema`, `Orders schema`, `Channels schema`, `Agents schema`, `Agents schema`, `System schema`, `Orders schema`, `Channels schema`, `Finance schema`, `Channels schema`, `Inventory schema`, `Finance schema`, `System schema`, `Inventory schema`, `Orders schema`, `AI schema`, `Core schema`?**
+  _High betweenness centrality (0.202) - this node is a cross-community bridge._
 - **What connects `AdAction.actionType`, `AdAction.targetLabel`, `AdAction.reason` to the rest of the system?**
   _930 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Supply schema` be split into smaller, more focused modules?**

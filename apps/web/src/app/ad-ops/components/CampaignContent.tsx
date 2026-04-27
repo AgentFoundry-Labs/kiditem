@@ -6,9 +6,10 @@ import { apiClient } from "@/lib/api-client";
 import { queryKeys } from "@/lib/query-keys";
 import { cn, formatKRW } from "@/lib/utils";
 import { roasColor } from "../lib/status-colors";
+import { toCampaignsResponse } from "../hooks/useAdOpsData";
 import { CampaignTable } from "./CampaignTable";
 import { ProductDrilldown } from "./ProductDrilldown";
-import type { CampaignsResponse } from "../hooks/useAdOpsData";
+import type { AdCampaignSnapshot } from "@kiditem/shared";
 
 export default function CampaignContent({ initialCampaign }: { initialCampaign: string | null }) {
   const [period, setPeriod] = useState("7d");
@@ -26,7 +27,10 @@ export default function CampaignContent({ initialCampaign }: { initialCampaign: 
 
   const { data, isLoading } = useQuery({
     queryKey: queryKeys.ads.campaigns(period),
-    queryFn: () => apiClient.get<CampaignsResponse>(`/api/ads/campaigns?period=${period}`),
+    queryFn: () =>
+      apiClient
+        .get<AdCampaignSnapshot[]>(`/api/ads/campaigns?period=${period}`)
+        .then(toCampaignsResponse),
   });
 
   const campaigns = data?.campaigns ?? [];
@@ -55,7 +59,7 @@ export default function CampaignContent({ initialCampaign }: { initialCampaign: 
       <div className="flex items-center justify-between">
         <h2 className="text-base font-bold" style={{ color: "var(--text-primary)" }}>캠페인 분석</h2>
         <div className="flex gap-1 rounded-lg p-0.5" style={{ background: "var(--surface-sunken)" }}>
-          {([["7d", "7일"], ["30d", "월간"]] as const).map(([key, label]) => (
+          {([["7d", "7일"], ["month", "월간"]] as const).map(([key, label]) => (
             <button
               key={key}
               onClick={() => setPeriod(key)}
@@ -74,7 +78,7 @@ export default function CampaignContent({ initialCampaign }: { initialCampaign: 
           { label: "총 광고비", value: `${formatKRW(kpi.adSpend ?? 0)}원` },
           { label: "광고 매출", value: `${formatKRW(kpi.adRevenue ?? 0)}원` },
           { label: "ROAS", value: `${kpi.roas ?? 0}%`, colorClass: roasColor(kpi.roas ?? 0, roasT) },
-          { label: "CTR", value: `${(kpi.ctr ?? 0).toFixed(1)}%` },
+          { label: "CTR", value: `${(kpi.ctr ?? 0).toFixed(2)}%` },
         ].map((k) => (
           <div key={k.label} className="rounded-2xl px-5 py-4" style={{ background: "var(--card-bg)", boxShadow: "var(--shadow-sm)", border: "1px solid var(--border-subtle)" }}>
             <div className="text-[11px] font-semibold uppercase tracking-wider mb-1" style={{ color: "var(--text-tertiary)" }}>{k.label}</div>

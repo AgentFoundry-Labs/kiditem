@@ -17418,6 +17418,17 @@
       "confidence_score": 1.0
     },
     {
+      "relation": "mentions_model",
+      "confidence": "EXTRACTED",
+      "source_file": "prisma/AGENTS.md",
+      "weight": 1.0,
+      "_src": "doc_prisma_agents_md",
+      "_tgt": "model_executiontask",
+      "source": "model_executiontask",
+      "target": "doc_prisma_agents_md",
+      "confidence_score": 1.0
+    },
+    {
       "relation": "primary_key_on",
       "confidence": "EXTRACTED",
       "source_file": "prisma/models/advertising.prisma",
@@ -17547,6 +17558,17 @@
       "_tgt": "model_executionlog",
       "source": "model_executionlog",
       "target": "doc_docs_erd_md",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "mentions_model",
+      "confidence": "EXTRACTED",
+      "source_file": "prisma/AGENTS.md",
+      "weight": 1.0,
+      "_src": "doc_prisma_agents_md",
+      "_tgt": "model_executionlog",
+      "source": "model_executionlog",
+      "target": "doc_prisma_agents_md",
       "confidence_score": 1.0
     },
     {
@@ -17723,6 +17745,17 @@
       "_tgt": "model_executionworker",
       "source": "model_executionworker",
       "target": "doc_docs_erd_md",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "mentions_model",
+      "confidence": "EXTRACTED",
+      "source_file": "prisma/AGENTS.md",
+      "weight": 1.0,
+      "_src": "doc_prisma_agents_md",
+      "_tgt": "model_executionworker",
+      "source": "model_executionworker",
+      "target": "doc_prisma_agents_md",
       "confidence_score": 1.0
     },
     {

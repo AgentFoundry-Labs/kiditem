@@ -23,7 +23,9 @@ export function CampaignTable({ campaigns, sortBy, onSortChange, selectedCampaig
   const roasT = adsConfig?.roas?.thresholds ?? { excellent: 300, warning: 200, poor: 100 };
 
   const sorted = [...campaigns].sort((a, b) =>
-    sortBy === 'revenue' ? b.adRevenue - a.adRevenue : (b.roas ?? 0) - (a.roas ?? 0),
+    sortBy === 'revenue'
+      ? b.metrics.revenue - a.metrics.revenue
+      : (b.metrics.roas ?? 0) - (a.metrics.roas ?? 0),
   );
 
   return (
@@ -65,21 +67,21 @@ export function CampaignTable({ campaigns, sortBy, onSortChange, selectedCampaig
             )}
             {sorted.map((c) => (
               <tr
-                key={c.campaignName}
+                key={`${c.campaignName ?? c.campaignId ?? c.listing.listingId}`}
                 onClick={() => onSelectCampaign(selectedCampaign === c.campaignName ? null : c.campaignName)}
                 className={cn('cursor-pointer transition-colors', selectedCampaign === c.campaignName ? 'bg-blue-50' : 'hover:bg-slate-50')}
               >
-                <td className="font-medium text-slate-900 max-w-[240px] truncate">{c.campaignName}</td>
-                <td className="text-right">{formatKRW(c.adSpend)}</td>
-                <td className="text-right">{formatKRW(c.adRevenue)}</td>
-                <td className={cn('text-right font-semibold', roasColor(c.roas ?? 0, roasT))}>
-                  {c.roas ?? 0}%
+                <td className="font-medium text-slate-900 max-w-[240px] truncate">{c.campaignName ?? c.listing.channelName ?? c.listing.masterProduct.name}</td>
+                <td className="text-right">{formatKRW(c.metrics.spend)}</td>
+                <td className="text-right">{formatKRW(c.metrics.revenue)}</td>
+                <td className={cn('text-right font-semibold', roasColor(c.metrics.roas ?? 0, roasT))}>
+                  {c.metrics.roas ?? 0}%
                 </td>
-                <td className="text-right">{formatNumber(c.impressions ?? 0)}</td>
-                <td className="text-right">{formatNumber(c.clicks ?? 0)}</td>
-                <td className="text-right">{(c.ctr ?? 0).toFixed(1)}%</td>
-                <td className="text-right">{c.conversions ?? 0}</td>
-                <td className="text-right">{(c.conversionRate ?? 0).toFixed(1)}%</td>
+                <td className="text-right">{formatNumber(c.metrics.impressions)}</td>
+                <td className="text-right">{formatNumber(c.metrics.clicks)}</td>
+                <td className="text-right">{(c.metrics.ctr ?? 0).toFixed(2)}%</td>
+                <td className="text-right">{c.metrics.conversions}</td>
+                <td className="text-right">{(c.metrics.cvr ?? 0).toFixed(2)}%</td>
               </tr>
             ))}
           </tbody>

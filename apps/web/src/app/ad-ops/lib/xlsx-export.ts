@@ -1,5 +1,24 @@
 import type { AdStrategyAction } from "@kiditem/shared";
 
+function productName(action: AdStrategyAction): string {
+  return action.listing.channelName ?? action.listing.masterProduct.name;
+}
+
+function priorityLabel(priority: AdStrategyAction["priority"]): string {
+  if (priority === "urgent") return "긴급";
+  if (priority === "high") return "높음";
+  if (priority === "medium") return "보통";
+  return "낮음";
+}
+
+function actionLabel(actionType: string): string {
+  if (actionType === "increase") return "확대";
+  if (actionType === "stop") return "중단";
+  if (actionType === "decrease") return "축소";
+  if (actionType === "maintain") return "유지";
+  return actionType;
+}
+
 export function exportCampaignXlsx(grade: string, actions: AdStrategyAction[], budget: number) {
   import("xlsx").then((XLSX) => {
     const gradeMap: Record<string, { campaignType: string; targetRoas: string; bidMain: string; bidSub: string; bidLongtail: string }> = {
@@ -15,54 +34,58 @@ export function exportCampaignXlsx(grade: string, actions: AdStrategyAction[], b
       const cfg = gradeMap[g] || gradeMap.A;
       const gradeActions = grade === "all" ? actions.filter((a) => a.grade === g) : actions;
       const gradeBudget = grade === "all" ? Math.round(budget * (g === "A" ? 0.65 : g === "B" ? 0.25 : 0.1)) : budget;
+      const productBudget = gradeActions.length > 0 ? Math.round(gradeBudget / gradeActions.length) : 0;
 
-      const rows = gradeActions.map((a, i) => {
-        const productBudget = gradeActions.length > 0 ? Math.round(gradeBudget / gradeActions.length) : 0;
-        const recBudget = a.recommendedDailyBudget > 0 ? a.recommendedDailyBudget : productBudget;
-        const campType = g === "A" ? (a.tier ? "매출최적화+수동" : "매출최적화") : g === "B" ? "수동 성과형" : (a.currentRoas < 100 ? "OFF" : "최소 테스트");
-        return {
-          "No": i + 1,
-          "캠페인명": `${g}등급_캠페인`,
-          "상품명": a.name,
-          "상품ID": a.productId,
-          "등급": g,
-          "현재 ROAS(%)": a.currentRoas || 0,
-          "추천 일예산(원)": recBudget,
-          "목표 ROAS(%)": a.targetRoas || cfg.targetRoas,
-          "최대 입찰가(원)": a.maxBidPrice || 0,
-          "캠페인 유형": campType,
-          "메인 키워드 입찰가": cfg.bidMain + "원",
-          "서브 키워드 입찰가": cfg.bidSub + "원",
-          "롱테일 키워드 입찰가": cfg.bidLongtail + "원",
-          "현재 CTR(%)": a.currentCtr || 0,
-          "현재 CVR(%)": a.currentCvr || 0,
-          "현재 ACoS(%)": a.currentAcos || 0,
-          "키워드": (a.keywords || []).join(", "),
-          "추천 액션": a.recommendedAction,
-          "우선순위": a.actionPriority === "urgent" ? "긴급" : a.actionPriority === "high" ? "높음" : a.actionPriority === "medium" ? "보통" : "낮음",
-          "사유": a.reason || "",
-        };
-      });
+      const rows: Array<Record<string, string | number>> = gradeActions.map((a, i) => ({
+        "No": i + 1,
+        "캠페인명": `${g}등급_캠페인`,
+        "상품명": productName(a),
+        "등록상품ID": a.listing.externalId,
+        "등급": g,
+        "현재값": a.currentValue ?? "",
+        "제안값": a.proposedValue ?? productBudget,
+        "추천 일예산(원)": a.proposedValue && a.proposedValue > 1000 ? a.proposedValue : productBudget,
+        "목표 ROAS(%)": cfg.targetRoas,
+        "캠페인 유형": cfg.campaignType,
+        "메인 키워드 입찰가": `${cfg.bidMain}원`,
+        "서브 키워드 입찰가": `${cfg.bidSub}원`,
+        "롱테일 키워드 입찰가": `${cfg.bidLongtail}원`,
+        "추천 액션": actionLabel(a.actionType),
+        "우선순위": priorityLabel(a.priority),
+        "사유": a.reason,
+        "채널상태일": a.channelState?.businessDate ?? "",
+        "아이템위너": a.channelState?.isOfferWinner == null ? "" : a.channelState.isOfferWinner ? "Y" : "N",
+      }));
 
       if (rows.length === 0) {
         rows.push({
-          "No": 1, "캠페인명": `${g}등급_캠페인`, "상품명": "(해당 상품 없음)", "상품ID": "",
-          "등급": g, "현재 ROAS(%)": 0, "추천 일예산(원)": 0, "목표 ROAS(%)": cfg.targetRoas,
-          "최대 입찰가(원)": 0, "캠페인 유형": cfg.campaignType,
-          "메인 키워드 입찰가": cfg.bidMain + "원", "서브 키워드 입찰가": cfg.bidSub + "원",
-          "롱테일 키워드 입찰가": cfg.bidLongtail + "원",
-          "현재 CTR(%)": 0, "현재 CVR(%)": 0, "현재 ACoS(%)": 0,
-          "키워드": "",
-          "추천 액션": "", "우선순위": "", "사유": "",
+          "No": 1,
+          "캠페인명": `${g}등급_캠페인`,
+          "상품명": "(해당 상품 없음)",
+          "등록상품ID": "",
+          "등급": g,
+          "현재값": "",
+          "제안값": "",
+          "추천 일예산(원)": 0,
+          "목표 ROAS(%)": cfg.targetRoas,
+          "캠페인 유형": cfg.campaignType,
+          "메인 키워드 입찰가": `${cfg.bidMain}원`,
+          "서브 키워드 입찰가": `${cfg.bidSub}원`,
+          "롱테일 키워드 입찰가": `${cfg.bidLongtail}원`,
+          "추천 액션": "",
+          "우선순위": "",
+          "사유": "",
+          "채널상태일": "",
+          "아이템위너": "",
         });
       }
 
       const ws = XLSX.utils.json_to_sheet(rows);
       ws["!cols"] = [
-        { wch: 4 }, { wch: 16 }, { wch: 35 }, { wch: 12 }, { wch: 5 },
-        { wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 16 },
-        { wch: 16 }, { wch: 16 }, { wch: 18 },
-        { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 40 }, { wch: 8 }, { wch: 40 },
+        { wch: 4 }, { wch: 16 }, { wch: 35 }, { wch: 14 }, { wch: 5 },
+        { wch: 10 }, { wch: 10 }, { wch: 14 }, { wch: 12 }, { wch: 18 },
+        { wch: 16 }, { wch: 16 }, { wch: 18 }, { wch: 10 }, { wch: 8 },
+        { wch: 48 }, { wch: 12 }, { wch: 10 },
       ];
       XLSX.utils.book_append_sheet(wb, ws, `${g}등급 캠페인`);
     }

@@ -7,6 +7,7 @@ import { queryKeys } from '@/lib/query-keys';
 import { cn, formatKRW, formatNumber } from '@/lib/utils';
 import { roasColor } from '../lib/status-colors';
 import type { CampaignProductData } from '../hooks/useAdOpsData';
+import type { AdCampaignSnapshot } from '@kiditem/shared';
 
 interface Props {
   campaignName: string;
@@ -28,9 +29,25 @@ export function ProductDrilldown({ campaignName, period }: Props) {
   const { data } = useQuery({
     queryKey: queryKeys.ads.campaignProducts(campaignName, period),
     queryFn: () =>
-      apiClient.get<{ products: CampaignProductData[] }>(
+      apiClient.get<AdCampaignSnapshot[]>(
         `/api/ads/campaigns?period=${period}&campaign=${encodeURIComponent(campaignName)}`,
-      ),
+      ).then((rows) => ({
+        products: rows.map((snapshot) => ({
+          vendorItemId: snapshot.listing.externalId,
+          productName: snapshot.listing.channelName ?? snapshot.listing.masterProduct.name,
+          keyword: snapshot.campaignName,
+          onOff: null,
+          imageUrl: null,
+          adSpend: snapshot.metrics.spend,
+          adRevenue: snapshot.metrics.revenue,
+          impressions: snapshot.metrics.impressions,
+          clicks: snapshot.metrics.clicks,
+          ctr: snapshot.metrics.ctr,
+          adConversions: snapshot.metrics.conversions,
+          conversionRate: snapshot.metrics.cvr,
+          roas: snapshot.metrics.roas,
+        } satisfies CampaignProductData)),
+      })),
   });
 
   const products = data?.products ?? [];
@@ -99,9 +116,9 @@ export function ProductDrilldown({ campaignName, period }: Props) {
                     <td className="text-right">{formatKRW(p.adRevenue)}</td>
                     <td className="text-right">{formatNumber(p.impressions ?? 0)}</td>
                     <td className="text-right">{formatNumber(p.clicks ?? 0)}</td>
-                    <td className="text-right">{(p.ctr ?? 0).toFixed(1)}%</td>
+                    <td className="text-right">{(p.ctr ?? 0).toFixed(2)}%</td>
                     <td className="text-right">{p.adConversions ?? 0}</td>
-                    <td className="text-right">{(p.conversionRate ?? 0).toFixed(1)}%</td>
+                    <td className="text-right">{(p.conversionRate ?? 0).toFixed(2)}%</td>
                     <td className={cn('text-right font-semibold', roasColor(p.roas ?? 0, roasT))}>
                       {p.roas ?? 0}%
                     </td>

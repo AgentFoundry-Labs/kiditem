@@ -6,7 +6,6 @@ import { queryKeys } from '@/lib/query-keys';
 import type {
   AdCampaignSnapshot,
   AdExtensionStatus,
-  AdProductSnapshot,
   AdRulesData,
   AdWeeklyPlan,
   AdsHubData,
@@ -16,10 +15,20 @@ import type {
   DashboardAdSummary,
 } from '@kiditem/shared';
 
-// Fields returned by /api/ads/campaigns that aren't in the base snapshot schema
-export type CampaignProductData = AdProductSnapshot & {
-  roas?: number;
+export type CampaignProductData = {
+  vendorItemId: string;
+  productName: string;
+  keyword: string | null;
+  onOff: string | null;
   imageUrl?: string | null;
+  adSpend: number;
+  adRevenue: number;
+  impressions: number;
+  clicks: number;
+  ctr: number | null;
+  adConversions: number;
+  conversionRate: number | null;
+  roas: number | null;
 };
 
 export type CampaignsResponse = {
@@ -72,16 +81,57 @@ export type RegisterCampaignPayload = {
   products: { productId: string; productName: string }[];
 };
 
+export function campaignTotals(campaigns: AdCampaignSnapshot[]): Record<string, number> {
+  const total = campaigns.reduce(
+    (acc, c) => ({
+      adSpend: acc.adSpend + c.metrics.spend,
+      adRevenue: acc.adRevenue + c.metrics.revenue,
+      impressions: acc.impressions + c.metrics.impressions,
+      clicks: acc.clicks + c.metrics.clicks,
+      conversions: acc.conversions + c.metrics.conversions,
+    }),
+    { adSpend: 0, adRevenue: 0, impressions: 0, clicks: 0, conversions: 0 },
+  );
+  return {
+    ...total,
+    roas: total.adSpend > 0 ? Math.round((total.adRevenue / total.adSpend) * 10000) / 100 : 0,
+    ctr: total.impressions > 0 ? Math.round((total.clicks / total.impressions) * 10000) / 100 : 0,
+    cvr: total.clicks > 0 ? Math.round((total.conversions / total.clicks) * 10000) / 100 : 0,
+  };
+}
+
+export function toCampaignsResponse(campaigns: AdCampaignSnapshot[]): CampaignsResponse {
+  return { campaigns, totalKpi: campaignTotals(campaigns) };
+}
+
+function toCampaignProduct(snapshot: AdCampaignSnapshot): CampaignProductData {
+  return {
+    vendorItemId: snapshot.listing.externalId,
+    productName: snapshot.listing.channelName ?? snapshot.listing.masterProduct.name,
+    keyword: snapshot.campaignName,
+    onOff: null,
+    adSpend: snapshot.metrics.spend,
+    adRevenue: snapshot.metrics.revenue,
+    impressions: snapshot.metrics.impressions,
+    clicks: snapshot.metrics.clicks,
+    ctr: snapshot.metrics.ctr,
+    adConversions: snapshot.metrics.conversions,
+    conversionRate: snapshot.metrics.cvr,
+    roas: snapshot.metrics.roas,
+  };
+}
+
 export function useAdOpsData(period: string, tab: string) {
   const days = period === 'month' ? new Date().getDate() : period === '14d' ? 14 : 7;
-  // DB에는 7d/30d 스냅샷만 존재 — 14d 선택 시 7d 스냅샷으로 폴백
-  const campPeriod = period === 'month' ? '30d' : period === '14d' ? '7d' : period;
+  const campPeriod = period;
   const trafficDays = days;
 
   const campaigns = useQuery({
     queryKey: queryKeys.ads.campaigns(campPeriod),
     queryFn: () =>
-      apiClient.get<CampaignsResponse>(`/api/ads/campaigns?period=${campPeriod}`),
+      apiClient
+        .get<AdCampaignSnapshot[]>(`/api/ads/campaigns?period=${campPeriod}`)
+        .then(toCampaignsResponse),
   });
 
   const rules = useQuery({
@@ -176,9 +226,9 @@ export function useAdOpsSelectedCampaign(
   return useQuery({
     queryKey: queryKeys.ads.campaignProducts(selectedCampaign ?? '', period),
     queryFn: () =>
-      apiClient.get<{ products: CampaignProductData[] }>(
+      apiClient.get<AdCampaignSnapshot[]>(
         `/api/ads/campaigns?campaign=${encodeURIComponent(selectedCampaign!)}&period=${period}`,
-      ),
+      ).then((rows) => ({ products: rows.map(toCampaignProduct) })),
     enabled: selectedCampaign !== null,
   });
 }
@@ -193,7 +243,10 @@ export function useRegisterCampaign() {
         grade: payload.grade,
         dailyBudget: payload.dailyBudget,
         operationMode: payload.operationMode,
-        products: payload.products,
+        listings: payload.products.map((product) => ({
+          listingId: product.productId,
+          label: product.productName,
+        })),
         smartTargetingBid: payload.smartTargetingBid,
         keywords: payload.keywords,
         nonSearchBid: payload.nonSearchBid,
@@ -201,17 +254,6 @@ export function useRegisterCampaign() {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.ads.campaigns() });
-    },
-  });
-}
-
-export function useAiRefreshPlan(period: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: () =>
-      apiClient.post<AdWeeklyPlan>(`/api/ads/strategy/ai-plan?period=${period}`, {}),
-    onSuccess: (data) => {
-      queryClient.setQueryData(queryKeys.ads.plan(period), data);
     },
   });
 }

@@ -10,10 +10,15 @@ import { cn, formatKRW, formatNumber, formatDateTime } from "@/lib/utils";
 import { apiClient } from "@/lib/api-client";
 import { queryKeys } from "@/lib/query-keys";
 import { roasColor } from "../lib/status-colors";
-import type { AdWeeklyPlan, AdTrendsData, AdCampaignSnapshot, AdExtensionStatus } from "@kiditem/shared";
 import AdSidePanel from "./AdSidePanel";
+import type { AdWeeklyPlan, AdTrendsData, AdCampaignSnapshot, AdExtensionStatus, AdStrategyAction } from "@kiditem/shared";
 
-type RuleItem = { name: string; grade: string | null; rule: string; action: string; priority: string; roas: number; spend: number };
+type ChartTooltipPayload = {
+  dataKey?: string | number | ((obj: unknown) => unknown);
+  value?: unknown;
+  color?: string;
+  name?: string | number;
+};
 
 function CampaignSummary({ campaigns, onSelect }: { campaigns: AdCampaignSnapshot[]; onSelect: (name?: string) => void }) {
   const { data: adsConfig } = useQuery({
@@ -42,20 +47,20 @@ function CampaignSummary({ campaigns, onSelect }: { campaigns: AdCampaignSnapsho
       <div className="divide-y" style={{ borderColor: "var(--border-subtle)" }}>
         {top.map((c) => (
           <button
-            key={c.campaignName}
-            onClick={() => onSelect(c.campaignName)}
+            key={`${c.campaignName ?? c.campaignId ?? c.listing.listingId}`}
+            onClick={() => onSelect(c.campaignName ?? undefined)}
             className="w-full flex items-center justify-between px-5 py-3 transition-colors text-left hover:bg-[var(--surface-sunken)]"
           >
             <div>
-              <div className="text-[13px] font-semibold" style={{ color: "var(--text-primary)" }}>{c.campaignName}</div>
+              <div className="text-[13px] font-semibold" style={{ color: "var(--text-primary)" }}>{c.campaignName ?? c.listing.masterProduct.name}</div>
               <div className="text-[11px] mt-0.5" style={{ color: "var(--text-tertiary)" }}>
-                클릭 {formatNumber(c.clicks)} · 전환 {c.conversions}
+                클릭 {formatNumber(c.metrics.clicks)} · 전환 {c.metrics.conversions}
               </div>
             </div>
             <div className="text-right">
-              <div className="text-[13px] font-semibold tabular-nums" style={{ color: "var(--text-primary)" }}>{formatKRW(c.adRevenue)}원</div>
-              <div className={cn("text-[11px] font-semibold tabular-nums", roasColor(c.roas ?? 0, roasT))}>
-                ROAS {c.roas ?? 0}%
+              <div className="text-[13px] font-semibold tabular-nums" style={{ color: "var(--text-primary)" }}>{formatKRW(c.metrics.revenue)}원</div>
+              <div className={cn("text-[11px] font-semibold tabular-nums", roasColor(c.metrics.roas ?? 0, roasT))}>
+                ROAS {c.metrics.roas ?? 0}%
               </div>
             </div>
           </button>
@@ -66,7 +71,7 @@ function CampaignSummary({ campaigns, onSelect }: { campaigns: AdCampaignSnapsho
 }
 
 interface StatusContentProps {
-  rules: RuleItem[];
+  rules: AdStrategyAction[];
   strategy: AdWeeklyPlan | null;
   trends: AdTrendsData | null;
   wingKpis: Record<string, string | { value: string; change?: string; numValue?: number }>;
@@ -106,8 +111,13 @@ export default function StatusContent({
           </div>
           <div className="flex-1 p-4" style={{ minHeight: 280 }}>
             {trends?.daily && trends.daily.length > 0 ? (() => {
-              const maxRoas = Math.max(...trends.daily.map((d) => d.roas || 0), 1);
-              const chartData = trends.daily.map((d) => ({ ...d }));
+              const maxRoas = Math.max(...trends.daily.map((d) => d.metrics.roas || 0), 1);
+              const chartData = trends.daily.map((d) => ({
+                label: d.date.slice(5),
+                spend: d.metrics.spend,
+                revenue: d.metrics.revenue,
+                roas: d.metrics.roas ?? 0,
+              }));
               return (
                 <ResponsiveContainer width="100%" height="100%">
                   <ComposedChart data={chartData} margin={{ top: 12, right: 8, left: 0, bottom: 0 }} barGap={2} barCategoryGap="35%">
@@ -128,25 +138,25 @@ export default function StatusContent({
                     <XAxis dataKey="label" tick={{ fontSize: 10, fill: "var(--text-quaternary)", fontWeight: 500 }} tickLine={false} axisLine={false} dy={8} />
                     <YAxis yAxisId="left" tick={{ fontSize: 10, fill: "var(--text-quaternary)" }} tickLine={false} axisLine={false} width={48} tickFormatter={(v: number) => v >= 10000 ? `${Math.round(v / 10000)}만` : v >= 1000 ? `${Math.round(v / 1000)}천` : String(v)} />
                     <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10, fill: "var(--text-quaternary)" }} tickLine={false} axisLine={false} width={42} domain={[0, Math.ceil(maxRoas / 100) * 100 + 100]} tickFormatter={(v: number) => `${v}%`} />
-                    {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-                    <Tooltip cursor={{ fill: "var(--primary-subtle)", radius: 8 }} content={({ active, payload, label }: any) => {
+                    <Tooltip cursor={{ fill: "var(--primary-subtle)", radius: 8 }} content={({ active, payload, label }: { active?: boolean; payload?: readonly ChartTooltipPayload[]; label?: string | number }) => {
                       if (!active || !payload?.length) return null;
-                      const roasEntry = payload.find((p: { dataKey: string }) => p.dataKey === "roas");
-                      const roasVal = roasEntry ? Math.round(roasEntry.value) : 0;
+                      const roasEntry = payload.find((p) => p.dataKey === "roas");
+                      const roasVal = Math.round(Number(roasEntry?.value ?? 0));
                       const isLow = roasVal < 300;
                       return (
                         <div style={{ background: "rgba(255,255,255,0.96)", backdropFilter: "blur(16px)", color: "var(--text-primary)", borderRadius: 16, padding: "14px 18px", fontSize: 12, fontWeight: 600, boxShadow: "0 8px 32px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.03)" }}>
                           <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginBottom: 10, fontWeight: 500 }}>{label}일</div>
-                          {payload.map((p: { dataKey: string; value: number; color: string; name?: string }) => {
+                          {payload.map((p) => {
                             if (p.name === "breakeven") return null;
-                            const isRoas = p.dataKey === "roas";
+                            const dataKey = String(p.dataKey ?? "");
+                            const isRoas = dataKey === "roas";
                             const nameMap: Record<string, string> = { spend: "광고비", revenue: "전환매출", roas: "ROAS" };
                             const colorMap: Record<string, string> = { spend: "#b0b8c1", revenue: "#3182f6", roas: isLow ? "#f04452" : "#00c471" };
                             return (
-                              <div key={p.dataKey} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
-                                <span style={{ width: 7, height: 7, borderRadius: isRoas ? "50%" : 2, background: colorMap[p.dataKey] || p.color, flexShrink: 0 }} />
-                                <span style={{ color: "var(--text-tertiary)", minWidth: 52, fontWeight: 500 }}>{nameMap[p.dataKey] || p.dataKey}</span>
-                                <span style={{ fontWeight: 700, fontVariantNumeric: "tabular-nums", color: isRoas && isLow ? "#f04452" : "var(--text-primary)" }}>{isRoas ? `${p.value}%` : `${formatKRW(Number(p.value))}원`}</span>
+                              <div key={dataKey} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+                                <span style={{ width: 7, height: 7, borderRadius: isRoas ? "50%" : 2, background: colorMap[dataKey] || p.color, flexShrink: 0 }} />
+                                <span style={{ color: "var(--text-tertiary)", minWidth: 52, fontWeight: 500 }}>{nameMap[dataKey] || dataKey}</span>
+                                <span style={{ fontWeight: 700, fontVariantNumeric: "tabular-nums", color: isRoas && isLow ? "#f04452" : "var(--text-primary)" }}>{isRoas ? `${p.value ?? 0}%` : `${formatKRW(Number(p.value ?? 0))}원`}</span>
                               </div>
                             );
                           })}
