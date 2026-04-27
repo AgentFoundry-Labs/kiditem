@@ -17,6 +17,9 @@ describe('AdSyncService', () => {
       channelListingOption: {
         findMany: vi.fn(),
       },
+      // Read-side legacy access remains here in this branch (getExtensionStatus
+      // still touches AdSnapshot/ItemWinner — H3 rewrites those reads). The
+      // ingestion path no longer calls these.
       adSnapshot: {
         findFirst: vi.fn(),
         findMany: vi.fn(),
@@ -24,14 +27,7 @@ describe('AdSyncService', () => {
         create: vi.fn(),
         update: vi.fn(),
       },
-      ad: {
-        create: vi.fn(),
-      },
-      trafficStats: {
-        upsert: vi.fn(),
-      },
       itemWinner: {
-        create: vi.fn(),
         groupBy: vi.fn(),
       },
       scrapeTarget: {
@@ -43,17 +39,21 @@ describe('AdSyncService', () => {
       $transaction: vi.fn((ops) => Promise.all(ops)),
     };
     eventEmitter = { emit: vi.fn() };
-    // Wave C2: AdSyncService now takes ChannelScrapePersistenceService as a
-    // 3rd arg. Mock it as a stub for unit tests; integration tests exercise
-    // the real persistence path with PG.
+    // H2: AdSyncService now writes only into the channel-generic persistence
+    // helper. Legacy `Ad`/`AdSnapshot`/`TrafficStats`/`ItemWinner` writes have
+    // been removed. Mocking the helper covers the contract: createRun /
+    // appendSnapshot / finalizeRun / upsertListingDaily / upsertOptionDaily /
+    // upsertAdTargetDaily / upsertAccountKpi.
     scrapePersistence = {
       createRun: vi.fn().mockResolvedValue({ id: 'run-1' }),
       appendSnapshot: vi.fn().mockResolvedValue({ id: 'snap-1' }),
       finalizeRun: vi.fn().mockResolvedValue(undefined),
-      // Wave C3: daily upsert helpers — unit tests stub them; the integration
-      // tier exercises the real Postgres path.
       upsertListingDaily: vi.fn().mockResolvedValue({ id: 'listing-daily-1' }),
       upsertOptionDaily: vi.fn().mockResolvedValue({ id: 'option-daily-1' }),
+      upsertAdTargetDaily: vi
+        .fn()
+        .mockResolvedValue({ id: 'target-daily-1' }),
+      upsertAccountKpi: vi.fn().mockResolvedValue({ id: 'kpi-1' }),
     };
     service = new AdSyncService(prisma, eventEmitter, scrapePersistence);
   });
@@ -225,7 +225,7 @@ describe('AdSyncService', () => {
     });
   });
 
-  describe('sync behavior', () => {
+  describe('sync behavior (H2 — daily-fact ingestion only)', () => {
     beforeEach(() => {
       prisma.channelListingOption.findMany.mockResolvedValue([
         {
@@ -239,12 +239,9 @@ describe('AdSyncService', () => {
       prisma.channelListing.findMany.mockResolvedValue([
         { id: 'L1', externalId: 'COUPANG-1' },
       ]);
-      prisma.adSnapshot.findFirst.mockResolvedValue(null);
-      prisma.adSnapshot.create.mockResolvedValue({ id: 'snap-new' });
-      prisma.ad.create.mockResolvedValue({ id: 'ad-new' });
     });
 
-    it('handleAdCampaign skips Ad.create when unmatched but still stores AdSnapshot + ChannelScrapeSnapshot', async () => {
+    it('handleAdCampaign: unmatched row creates a ChannelScrapeSnapshot but skips listing-day + target-day daily upserts when identity is missing', async () => {
       await service.sync(
         {
           type: 'ad_campaign',
@@ -257,6 +254,7 @@ describe('AdSyncService', () => {
               campaignName: 'MyCamp',
               productName: '상품-언매칭',
               vendorItemId: 'V-UNKNOWN',
+              externalId: 'E-UNKNOWN',
               spend: 1000,
               revenue: 2000,
               impressions: 500,
@@ -268,24 +266,26 @@ describe('AdSyncService', () => {
         'company-1',
       );
 
-      expect(prisma.ad.create).not.toHaveBeenCalled();
-      expect(prisma.adSnapshot.create).toHaveBeenCalled();
-      const snapshotCalls = prisma.adSnapshot.create.mock.calls;
-      const unmatchedSnapshot = snapshotCalls.find(
-        (c: any) => c[0].data.productName === '상품-언매칭',
-      );
-      expect(unmatchedSnapshot).toBeDefined();
-      expect(unmatchedSnapshot[0].data.listingId).toBeNull();
-
-      // Wave C2: dual-write — ChannelScrapeSnapshot was appended for the
-      // unmatched row with matchStatus='unmatched'.
-      expect(scrapePersistence.appendSnapshot).toHaveBeenCalled();
+      // Raw snapshot landed with matchStatus=unmatched.
       const scrapeSnap = scrapePersistence.appendSnapshot.mock.calls[0][0];
       expect(scrapeSnap.matchStatus).toBe('unmatched');
       expect(scrapeSnap.listingId).toBeNull();
+
+      // Listing-day daily skipped (no listing match).
+      expect(scrapePersistence.upsertListingDaily).not.toHaveBeenCalled();
+
+      // Target-day daily DOES still land — the row has campaign + product
+      // identity (externalId is non-null), so the key is buildable. matched
+      // listingId stays null on the row, which is intended for unmatched
+      // products (we only require provider identity, not internal mapping).
+      expect(scrapePersistence.upsertAdTargetDaily).toHaveBeenCalledTimes(1);
+      const targetCall = scrapePersistence.upsertAdTargetDaily.mock.calls[0][0];
+      expect(targetCall.listingId).toBeNull();
+      expect(targetCall.targetType).toBe('product');
+      expect(targetCall.targetKey).toBe('product:E-UNKNOWN:MyCamp');
     });
 
-    it('handleAdCampaign creates Ad + level=product AdSnapshot when vendorItemId hits', async () => {
+    it('handleAdCampaign: matched row writes ChannelListingDailySnapshot (ad metrics) + ChannelAdTargetDailySnapshot, no legacy Ad/AdSnapshot writes', async () => {
       await service.sync(
         {
           type: 'ad_campaign',
@@ -296,6 +296,7 @@ describe('AdSyncService', () => {
             {
               pageType: 'product',
               campaignName: 'MyCamp',
+              campaignId: 'CAMP-1',
               productName: '상품-매치',
               vendorItemId: 'V1',
               spend: 1000,
@@ -303,41 +304,96 @@ describe('AdSyncService', () => {
               impressions: 500,
               clicks: 10,
               conversions: 1,
+              orders: 1,
+              roas: 200,
+              ctr: 2,
+              dailyBudget: 10000,
             },
           ],
         },
         'company-1',
       );
 
-      expect(prisma.ad.create).toHaveBeenCalledTimes(1);
-      const adCall = prisma.ad.create.mock.calls[0][0];
-      expect(adCall.data.listingId).toBe('L1');
-      expect(adCall.data.optionId).toBe('O1');
-      expect(adCall.data.spend).toBe(1000);
-      expect(adCall.data.revenue).toBe(2000);
+      // No legacy writes happened.
+      expect(prisma.adSnapshot.create).not.toHaveBeenCalled();
+      expect(prisma.adSnapshot.update).not.toHaveBeenCalled();
 
-      // Wave C2: scrape run + matched snapshot.
+      // Listing-day metric upsert occurred for the matched row.
+      expect(scrapePersistence.upsertListingDaily).toHaveBeenCalledTimes(1);
+      const listingCall =
+        scrapePersistence.upsertListingDaily.mock.calls[0][0];
+      expect(listingCall.companyId).toBe('company-1');
+      expect(listingCall.listingId).toBe('L1');
+      expect(listingCall.metrics?.ad).toMatchObject({
+        adSpend: 1000,
+        adRevenue: 2000,
+        adImpressions: 500,
+        adClicks: 10,
+        adConversions: 1,
+        adOrders: 1,
+      });
+      // Provider ratios are not stored as additive numerator columns —
+      // they survive only inside metaJson for audit.
+      expect(listingCall.metrics?.ad).not.toHaveProperty('roas');
+      expect(listingCall.metaJson).toMatchObject({
+        providerRoas: 200,
+        providerCtr: 2,
+      });
+
+      // Target-day fact landed at product grain.
+      expect(scrapePersistence.upsertAdTargetDaily).toHaveBeenCalledTimes(1);
+      const targetCall = scrapePersistence.upsertAdTargetDaily.mock.calls[0][0];
+      expect(targetCall.targetType).toBe('product');
+      expect(targetCall.targetKey).toBe('product:COUPANG-1:CAMP-1');
+      expect(targetCall.spend).toBe(1000);
+      expect(targetCall.adSpend).toBe(1000);
+      expect(targetCall.adRevenue).toBe(2000);
+      // Provider ROAS stays in metaJson only.
+      expect(targetCall.metaJson).toMatchObject({ providerRoas: 200 });
+
+      // Run lifecycle.
       expect(scrapePersistence.createRun).toHaveBeenCalled();
-      const scrapeSnap = scrapePersistence.appendSnapshot.mock.calls[0][0];
-      expect(scrapeSnap.matchStatus).toBe('matched');
-      expect(scrapeSnap.listingId).toBe('L1');
-      expect(scrapeSnap.listingOptionId).toBe('LO1');
       expect(scrapePersistence.finalizeRun).toHaveBeenCalled();
+      const finalize = scrapePersistence.finalizeRun.mock.calls[0][0];
+      expect(finalize.status).toBe('complete');
     });
 
-    it('handleTraffic upserts TrafficStats for matched rows, skips unmatched, but appends ChannelScrapeSnapshot for both', async () => {
-      prisma.trafficStats.upsert.mockResolvedValue({});
+    it('handleAdCampaign: payload-level kpis land in ChannelAccountDailyKpiSnapshot, never in legacy AdSnapshot', async () => {
+      await service.sync(
+        {
+          type: 'ad_campaign',
+          campaignName: 'MyCamp',
+          period: '7d',
+          kpis: { '광고비': '5,000', '전환 매출': '15,000' },
+          normalizedRows: [],
+        },
+        'company-1',
+      );
 
+      expect(scrapePersistence.upsertAccountKpi).toHaveBeenCalledTimes(1);
+      const kpiCall = scrapePersistence.upsertAccountKpi.mock.calls[0][0];
+      expect(kpiCall.source).toBe('advertising');
+      expect(kpiCall.kpiType).toBe('advertising_campaign_kpis');
+      expect(kpiCall.normalizedJson).toMatchObject({
+        kpis: { '광고비': '5,000' },
+      });
+      expect(prisma.adSnapshot.create).not.toHaveBeenCalled();
+    });
+
+    it('handleTraffic: matched row upserts ChannelListingDailySnapshot traffic metrics (no TrafficStats write)', async () => {
       const result = await service.sync(
         {
           type: 'traffic',
           period: 14,
+          startDate: '2026-04-13T15:30:00Z',
           data: [
             {
               vendorItemId: 'V1',
               visitors: 100,
               views: 200,
+              cartAdds: 5,
               orders: 5,
+              salesQty: 5,
               revenue: 50000,
             },
             {
@@ -354,18 +410,46 @@ describe('AdSyncService', () => {
       expect(result).toMatchObject({
         success: true,
         type: 'traffic',
-        upserted: 1,
+        listingDailyCount: 1,
       });
-      expect(prisma.trafficStats.upsert).toHaveBeenCalledTimes(1);
-      const upsertCall = prisma.trafficStats.upsert.mock.calls[0][0];
-      expect(upsertCall.where.listingId_date_periodDays.listingId).toBe('L1');
-      expect(upsertCall.create.listingId).toBe('L1');
-
-      // Wave C2: both rows snapshot, matched + unmatched.
       expect(scrapePersistence.appendSnapshot).toHaveBeenCalledTimes(2);
+      expect(scrapePersistence.upsertListingDaily).toHaveBeenCalledTimes(1);
+      const listingCall =
+        scrapePersistence.upsertListingDaily.mock.calls[0][0];
+      expect(listingCall.listingId).toBe('L1');
+      expect(listingCall.metrics?.traffic).toMatchObject({
+        trafficVisitors: 100,
+        trafficViews: 200,
+        trafficCartAdds: 5,
+        trafficOrders: 5,
+        trafficSalesQty: 5,
+        trafficRevenue: 50000,
+      });
     });
 
-    it('handleCoupangAdsDaily upserts AdSnapshot(source=coupang_ads, pageType=dashboard_daily) and snapshots per row', async () => {
+    it('handleTraffic: dashboard kpis go to ChannelAccountDailyKpiSnapshot (kpiType=wing_dashboard)', async () => {
+      await service.sync(
+        {
+          type: 'traffic',
+          period: 7,
+          kpis: { 매출: '100,000' },
+          adSummary: { adSpend: 10000 },
+          data: [],
+        },
+        'company-1',
+      );
+
+      expect(scrapePersistence.upsertAccountKpi).toHaveBeenCalledTimes(1);
+      const kpiCall = scrapePersistence.upsertAccountKpi.mock.calls[0][0];
+      expect(kpiCall.source).toBe('wing');
+      expect(kpiCall.kpiType).toBe('wing_dashboard');
+      expect(kpiCall.normalizedJson).toMatchObject({
+        kpis: { 매출: '100,000' },
+        adSummary: { adSpend: 10000 },
+      });
+    });
+
+    it('handleCoupangAdsDaily: each daily row lands in ChannelAccountDailyKpiSnapshot (kpiType=coupang_ads_daily) — no legacy AdSnapshot', async () => {
       await service.sync(
         {
           type: 'coupang_ads_daily',
@@ -387,19 +471,16 @@ describe('AdSyncService', () => {
         'company-1',
       );
 
-      expect(prisma.adSnapshot.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            companyId: 'company-1',
-            source: 'coupang_ads',
-            pageType: 'dashboard_daily',
-            level: 'campaign',
-            period: '1d',
-            adSpend: 5000,
-            adRevenue: 15000,
-          }),
-        }),
-      );
+      expect(prisma.adSnapshot.create).not.toHaveBeenCalled();
+      expect(scrapePersistence.upsertAccountKpi).toHaveBeenCalledTimes(1);
+      const kpiCall = scrapePersistence.upsertAccountKpi.mock.calls[0][0];
+      expect(kpiCall.source).toBe('coupang_ads');
+      expect(kpiCall.kpiType).toBe('coupang_ads_daily');
+      expect(kpiCall.normalizedJson).toMatchObject({
+        adSpend: 5000,
+        adRevenue: 15000,
+        providerRoas: 300,
+      });
 
       // Wave C2: row snapshot landed with source='coupang_ads' and
       // matchStatus='unmatched' (KPI-only daily aggregate, no listing identity).

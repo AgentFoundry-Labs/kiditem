@@ -365,12 +365,18 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
     expect(matchedSnap?.businessDate?.toISOString().slice(0, 10)).toBe('2026-04-14');
     expect(matchedSnap?.listingId).toBe(matched.listing.id);
 
-    // Existing TrafficStats write must still happen for matched rows (regression).
-    const trafficStats = await prisma.trafficStats.findMany({
+    // H2 — traffic metrics now land on ChannelListingDailySnapshot, not TrafficStats.
+    const listingDaily = await prisma.channelListingDailySnapshot.findFirst({
       where: { companyId, listingId: matched.listing.id },
     });
-    expect(trafficStats).toHaveLength(1);
-    expect(trafficStats[0].date.toISOString().slice(0, 10)).toBe('2026-04-14');
+    expect(listingDaily).toBeDefined();
+    expect(listingDaily?.businessDate.toISOString().slice(0, 10)).toBe('2026-04-14');
+    expect(listingDaily?.trafficVisitors).toBe(100);
+    expect(listingDaily?.trafficViews).toBe(200);
+    expect(listingDaily?.trafficCartAdds).toBe(5);
+    expect(listingDaily?.trafficOrders).toBe(3);
+    expect(listingDaily?.trafficSalesQty).toBe(3);
+    expect(listingDaily?.trafficRevenue).toBe(30000);
   });
 
   it('coupang_ads_daily run records a snapshot per row with matchStatus=unmatched (no listing identity)', async () => {
@@ -421,20 +427,24 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
   });
 
   it('handler error path: ChannelScrapeRun is finalized as status="error" with errorJson — never stuck on "running"', async () => {
-    // Force `prisma.adSnapshot.create` to throw inside handleAdCampaign so we
-    // exercise the catch path. We do NOT seed a listing so the matched/total
-    // KPI snapshot create is the first one to fire.
-    const original = prisma.adSnapshot.create.bind(prisma.adSnapshot);
+    // H2 — force a daily-fact upsert (ChannelAccountDailyKpiSnapshot) to throw
+    // inside handleAdCampaign so we exercise the catch path. The raw
+    // ChannelScrapeSnapshot is appended BEFORE the failing upsert so it
+    // survives the abort, proving the raw-first contract.
+    const original = prisma.channelAccountDailyKpiSnapshot.upsert.bind(
+      prisma.channelAccountDailyKpiSnapshot,
+    );
     let firstCall = true;
-    (prisma.adSnapshot as { create: typeof original }).create = (async (
-      ...args: Parameters<typeof original>
-    ) => {
-      if (firstCall) {
-        firstCall = false;
-        throw new Error('boom — simulated PG failure');
-      }
-      return original(...args);
-    }) as typeof original;
+    (prisma.channelAccountDailyKpiSnapshot as { upsert: typeof original }).upsert =
+      (async (
+        ...args: Parameters<typeof original>
+      ) => {
+        if (firstCall) {
+          firstCall = false;
+          throw new Error('boom — simulated PG failure');
+        }
+        return original(...args);
+      }) as typeof original;
 
     try {
       await expect(
@@ -443,6 +453,7 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
             type: 'ad_campaign',
             campaignName: 'Camp-Boom',
             period: '7d',
+            kpis: { '광고비': '100' },
             normalizedRows: [
               {
                 pageType: 'product',
@@ -456,7 +467,9 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
         ),
       ).rejects.toThrow('boom — simulated PG failure');
     } finally {
-      (prisma.adSnapshot as { create: typeof original }).create = original;
+      (
+        prisma.channelAccountDailyKpiSnapshot as { upsert: typeof original }
+      ).upsert = original;
     }
 
     const errored = await prisma.channelScrapeRun.findFirst({
@@ -529,13 +542,16 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
       scrapeSnapshotCount: number;
       scrapeMatchedCount: number;
       scrapeUnmatchedCount: number;
-      snapshotCount: number;
+      listingDailyCount: number;
+      targetDailyCount: number;
     };
 
     expect(result.scrapeSnapshotCount).toBe(2);
     expect(result.scrapeMatchedCount).toBe(1);
     expect(result.scrapeUnmatchedCount).toBe(1);
-    expect(result.snapshotCount).toBe(1);
+    // Only the matched normalized row produces a listing-day metric upsert.
+    expect(result.listingDailyCount).toBe(1);
+    expect(result.targetDailyCount).toBe(1);
 
     const matchedSnap = await prisma.channelScrapeSnapshot.findFirst({
       where: { scrapeRunId: result.scrapeRunId, listingId: matched.listing.id },
@@ -574,11 +590,11 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
     expect(missingDateSnap).toBeDefined();
     expect(missingDateSnap?.matchReason).toContain('missing-date');
 
-    // Only the date-bearing row should produce an AdSnapshot row.
-    const adSnaps = await prisma.adSnapshot.count({
-      where: { companyId, source: 'coupang_ads' },
+    // H2 — only the date-bearing row produces a ChannelAccountDailyKpiSnapshot row.
+    const kpiSnaps = await prisma.channelAccountDailyKpiSnapshot.count({
+      where: { companyId, source: 'coupang_ads', kpiType: 'coupang_ads_daily' },
     });
-    expect(adSnaps).toBe(1);
+    expect(kpiSnaps).toBe(1);
   });
 
   it('toBusinessDate respects KST: timestamp 2026-04-13T15:30:00Z lands as 2026-04-14 (KST), not 2026-04-13', async () => {
@@ -616,7 +632,7 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
     expect(snap?.businessDate?.toISOString().slice(0, 10)).toBe('2026-04-14');
   });
 
-  it('raw_scrape (wing) creates a wing/itemwinner run + writes snapshot per row alongside ItemWinner', async () => {
+  it('raw_scrape (wing) creates a wing/itemwinner run + writes snapshot per row alongside ChannelListingDailySnapshot', async () => {
     const matched = await seedListingWithOption({
       externalId: 'EXT-IW',
       externalOptionId: 'VENDOR-IW',
@@ -658,10 +674,13 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
     expect(run?.source).toBe('wing');
     expect(run?.pageType).toBe('itemwinner');
 
-    const itemWinners = await prisma.itemWinner.count({
+    // H2 — winner state lands on ChannelListingDailySnapshot, not ItemWinner.
+    const listingDaily = await prisma.channelListingDailySnapshot.findFirst({
       where: { companyId, listingId: matched.listing.id },
     });
-    expect(itemWinners).toBe(1);
+    expect(listingDaily?.isOfferWinner).toBe(true);
+    expect(listingDaily?.myPrice).toBe(10000);
+    expect(listingDaily?.winnerPrice).toBe(9500);
   });
 
   // -----------------------------------------------------------------------
@@ -1018,7 +1037,7 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
         timestamp: '2026-04-14T02:00:00Z',
         data: [
           {
-            productName: 'X', // <3 chars → ItemWinner filter kicks in
+            productName: 'X', // <3 chars — historic legacy ItemWinner filter
             externalId: 'EXT-C3-SHORT',
             vendorItemId: 'VENDOR-C3-SHORT',
             isWinner: true,
@@ -1030,13 +1049,8 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
       companyId,
     );
 
-    // Legacy ItemWinner skipped.
-    const itemWinnerCount = await prisma.itemWinner.count({
-      where: { companyId, listingId: matched.listing.id },
-    });
-    expect(itemWinnerCount).toBe(0);
-
-    // Daily fact still landed — winner state is independent.
+    // H2 — daily fact landed regardless of the legacy short-product-name
+    // filter. Winner state is independent.
     const listingDaily = await prisma.channelListingDailySnapshot.findFirst({
       where: { companyId, listingId: matched.listing.id },
     });

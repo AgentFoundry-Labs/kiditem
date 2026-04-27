@@ -22,14 +22,31 @@ AdSyncService.sync
   ↳ matchListingFromRow returns ListingMatch { listingId, listingOptionId, optionId } 우선순위:
       1) Coupang vendorItemId → ChannelListingOption.externalOptionId → {listingId, listingOptionId, optionId|null}
       2) externalId → ChannelListing.externalId + platform='coupang' → {listingId, listingOptionId:null, optionId:null}
-      3) 매칭 실패 → matchStatus='unmatched' (snapshot 보존, AdSnapshot 만 저장 — Ad/TrafficStats skip)
-  ↓ ChannelScrapeRun + ChannelScrapeSnapshot dual-write (Wave C2 — channel-generic raw layer)
-  ↓ AdSnapshot / Ad / TrafficStats / ItemWinner upsert (legacy facts, listingId null 이면 Ad/TrafficStats skip)
+      3) 매칭 실패 → matchStatus='unmatched' (raw snapshot 보존, daily-fact upsert skip)
+  ↓ ChannelScrapeRun + ChannelScrapeSnapshot (raw audit/replay)
+  ↓ ChannelListingDailySnapshot upsert (listing-day state + ad/traffic 가산 metrics)
+  ↓ ChannelListingOptionDailySnapshot upsert (option-day state)
+  ↓ ChannelAdTargetDailySnapshot upsert (campaign/keyword/product/ad_product grain)
+  ↓ ChannelAccountDailyKpiSnapshot upsert (account/store-level KPI)
   ↓ ad-strategy.calcActions listing 단위 aggregate
   ↓ AdAction create (targetType: 'campaign' | 'keyword')
   ↓ execution-worker lease → markRunning → markDone/markFailed
   ↓ ExecutionLog 감사
 ```
+
+> Hard rewrite Phase H2 (2026-04-27) — legacy `Ad` / `AdSnapshot` / `TrafficStats` / `ItemWinner` writes are removed from ingestion. Read paths still touch the legacy models in this branch; H3 rewrites the reads, H4 deletes the models.
+
+## Hard rewrite Phase H2 — Daily-fact ingestion (영구 규칙)
+
+`/api/ads/extension/sync` 의 4 payload type (`ad_campaign` / `raw_scrape` / `traffic` / `coupang_ads_daily`) 은 모두 daily-fact 테이블만 쓴다. legacy `Ad` / `AdSnapshot` / `TrafficStats` / `ItemWinner` write 는 전부 제거됨.
+
+- **Raw row 우선** — 모든 row 가 `ChannelScrapeSnapshot` 을 먼저 append. 이후 daily-fact upsert 가 실패해도 raw 는 보존.
+- **Overwrite-on-replay metric semantics** — `adSpend`/`adRevenue`/`adImpressions` ... `trafficVisitors` 등 daily 가산 metric 컬럼은 provider 가 보내는 **daily total** 로 매번 덮어쓴다. `{ increment }` 금지 — 같은 payload 두 번 들어오면 같은 값이 유지돼야 idempotent. `sampleCount` 만 관측 횟수로 증가.
+- **Provider ratio 신뢰 금지** — ROAS/CTR/CVR 은 `metaJson` 에만 보존. 가산 numerator/denominator 컬럼이 source-of-truth. 기간 view 에서 ratio 는 `SUM(numerator) / SUM(denominator)` 로 recompute (H3).
+- **`buildAdTargetKey()` 단일 source** — `apps/server/src/advertising/util/ad-target-key.ts` 가 `ChannelAdTargetDailySnapshot.targetKey` 를 만든다. 패턴: `campaign:<id|name>` / `keyword:<id|name>:<adGroup>:<keyword>` / `product:<externalId|listingId>:<id|name>` / `ad_product:<...>:<...>`. usable identifier 가 없으면 throw — `unknown:unknown` row 금지.
+- **Account/store KPI** — listing 에 귀속되지 않는 dashboard KPI 는 `ChannelAccountDailyKpiSnapshot` 으로 land. `kpiType`: `wing_dashboard` (traffic), `wing_itemwinner_kpi` (raw_scrape wing kpi), `advertising_campaign_kpis` (ad_campaign top-level kpis), `coupang_ads_daily` (coupang ads daily aggregate).
+- **`rawSnapshotId` link** — 모든 daily-fact upsert 는 latest 관측 row 의 `ChannelScrapeSnapshot.id` 를 들고 있어 audit/replay 가능.
+- **Read path 미동기** — 이 branch 에서 `getExtensionStatus` 등 일부 read path 가 legacy 모델을 계속 read 한다. H3 가 rewrite, H4 가 모델 삭제.
 
 ## Wave C2 — Channel-generic raw scrape dual-write (영구 규칙)
 
