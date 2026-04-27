@@ -10,6 +10,7 @@ This ERD is a development-time navigation aid. The source of truth is still the 
 - `prisma/models/advertising.prisma`
 - `prisma/models/agents.prisma`
 - `prisma/models/ai.prisma`
+- `prisma/models/channels.prisma`
 - `prisma/models/core.prisma`
 - `prisma/models/finance.prisma`
 - `prisma/models/inventory.prisma`
@@ -43,6 +44,10 @@ This ERD is a development-time navigation aid. The source of truth is still the 
 | ThumbnailAnalysis | AI | `thumbnail_analyses` | 5차원 scores(heroShot·composition·branding·mobile·differentiation) + complianceGrade(PASS/WARN/FAIL) + imageSpec(사전검수). 스펙 FAIL 시 AI 호출 생략. |
 | ThumbnailGeneration | AI | `thumbnail_generations` | 상태: pending→generating→ready/failed→applied/skipped. method=edit 만 사용 (generate Imagen 방식 삭제됨). |
 | ThumbnailTracking | AI | `thumbnail_trackings` | - |
+| ChannelListingDailySnapshot | Channels | `channel_listing_daily_snapshots` | 채널 listing 의 일별 정규화 상태. 반복 scrape 는 businessDate row 를 upsert. |
+| ChannelListingOptionDailySnapshot | Channels | `channel_listing_option_daily_snapshots` | 채널 listing option/vendor item 의 일별 정규화 상태. |
+| ChannelScrapeRun | Channels | `channel_scrape_runs` | 채널별 상품/광고/트래픽 스크래핑 실행 단위. 원본 row 는 ChannelScrapeSnapshot 에 저장. |
+| ChannelScrapeSnapshot | Channels | `channel_scrape_snapshots` | 채널 스크래퍼/API 가 본 원본 row. 매칭 실패/파서 변경 대비 rawJson 을 보존. |
 | BundleComponent | Core | `bundle_components` | 세트 옵션의 구성품 관계. bundleOption(isBundle=true) ↔ componentOption. Cross-master 허용, cross-company 금지. |
 | CategoryMapping | Core | `category_mappings` | - |
 | ChannelListing | Core | `channel_listings` | 채널에 올라간 판매 등록상품. 쿠팡 등록상품ID, 네이버 상품번호 등. |
@@ -426,6 +431,34 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  ChannelListingDailySnapshot {
+    String id PK
+    String companyId FK
+    String listingId FK
+    String channel
+    String externalId
+    DateTime businessDate
+    String productName
+    String status
+    String exposureStatus
+    String saleStatus
+    Int channelPrice
+    Int reviewCount
+    Decimal avgRating
+    Boolean isOfferWinner
+    Int myPrice
+    Int winnerPrice
+    Int winnerGapPrice
+    Int productRank
+    Int categoryRank
+    Int sampleCount
+    DateTime firstObservedAt
+    DateTime lastObservedAt
+    String rawSnapshotId FK
+    Json metaJson
+    DateTime createdAt
+    DateTime updatedAt
+  }
   ChannelListingOption {
     String id PK
     String listingId FK
@@ -438,6 +471,78 @@ erDiagram
     Boolean isUnmatched
     DateTime createdAt
     DateTime updatedAt
+  }
+  ChannelListingOptionDailySnapshot {
+    String id PK
+    String companyId FK
+    String listingId FK
+    String listingOptionId FK
+    String optionId FK
+    String channel
+    String externalId
+    String externalOptionId
+    DateTime businessDate
+    String optionName
+    Int salePrice
+    Int stockQty
+    String saleStatus
+    Boolean isActive
+    Boolean isOfferWinner
+    Int myPrice
+    Int winnerPrice
+    Int winnerGapPrice
+    Int sampleCount
+    DateTime firstObservedAt
+    DateTime lastObservedAt
+    String rawSnapshotId FK
+    Json metaJson
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  ChannelScrapeRun {
+    String id PK
+    String companyId FK
+    String channel
+    String source
+    String pageType
+    DateTime businessDate
+    DateTime periodStart
+    DateTime periodEnd
+    String status
+    String targetUrl
+    String period
+    String parserVersion
+    Int rowCount
+    Int matchedCount
+    Int unmatchedCount
+    Int errorCount
+    DateTime startedAt
+    DateTime finishedAt
+    DateTime createdAt
+    DateTime updatedAt
+    Json metaJson
+    Json errorJson
+  }
+  ChannelScrapeSnapshot {
+    String id PK
+    String companyId FK
+    String scrapeRunId FK
+    String channel
+    String source
+    String pageType
+    DateTime businessDate
+    DateTime observedAt
+    String externalId
+    String externalOptionId
+    String listingId FK
+    String listingOptionId FK
+    String optionId FK
+    String matchStatus
+    String matchReason
+    String rowHash
+    Json rawJson
+    Json normalizedJson
+    DateTime createdAt
   }
   Company {
     String id PK
@@ -1247,7 +1352,10 @@ erDiagram
   ChannelListing ||--o{ Ad : "listing"
   ChannelListing o|--o{ AdAction : "listing"
   ChannelListing o|--o{ AdSnapshot : "listing"
+  ChannelListing ||--o{ ChannelListingDailySnapshot : "listing"
   ChannelListing ||--o{ ChannelListingOption : "listing"
+  ChannelListing ||--o{ ChannelListingOptionDailySnapshot : "listing"
+  ChannelListing o|--o{ ChannelScrapeSnapshot : "listing"
   ChannelListing o|--o{ CSRecord : "listing"
   ChannelListing ||--o{ ItemWinner : "listing"
   ChannelListing o|--o{ Order : "listing"
@@ -1258,7 +1366,12 @@ erDiagram
   ChannelListing ||--o{ ThumbnailTracking : "listing"
   ChannelListing ||--o{ TrafficStats : "listing"
   ChannelListing o|--o{ UnshippedItem : "listing"
+  ChannelListingOption ||--o{ ChannelListingOptionDailySnapshot : "listingOption"
+  ChannelListingOption o|--o{ ChannelScrapeSnapshot : "listingOption"
   ChannelListingOption o|--o{ OrderLineItem : "listingOption"
+  ChannelScrapeRun o|--o{ ChannelScrapeSnapshot : "scrapeRun"
+  ChannelScrapeSnapshot o|--o{ ChannelListingDailySnapshot : "rawSnapshot"
+  ChannelScrapeSnapshot o|--o{ ChannelListingOptionDailySnapshot : "rawSnapshot"
   Company ||--o{ ActionTask : "company"
   Company ||--o{ ActivityEvent : "company"
   Company ||--o{ Ad : "company"
@@ -1272,7 +1385,11 @@ erDiagram
   Company ||--o{ BusinessRule : "company"
   Company ||--o{ CategoryMapping : "company"
   Company ||--o{ ChannelListing : "company"
+  Company ||--o{ ChannelListingDailySnapshot : "company"
   Company ||--o{ ChannelListingOption : "company"
+  Company ||--o{ ChannelListingOptionDailySnapshot : "company"
+  Company ||--o{ ChannelScrapeRun : "company"
+  Company ||--o{ ChannelScrapeSnapshot : "company"
   Company ||--o{ ContentGeneration : "company"
   Company ||--o{ CSRecord : "company"
   Company ||--o{ ExecutionWorker : "company"
@@ -1336,6 +1453,8 @@ erDiagram
   ProductOption ||--o{ BundleComponent : "bundleOption"
   ProductOption ||--o{ BundleComponent : "componentOption"
   ProductOption o|--o{ ChannelListingOption : "option"
+  ProductOption o|--o{ ChannelListingOptionDailySnapshot : "option"
+  ProductOption o|--o{ ChannelScrapeSnapshot : "option"
   ProductOption ||--|| Inventory : "option"
   ProductOption o|--o{ OrderLineItem : "option"
   ProductOption o|--o{ OrderReturnLineItem : "option"

@@ -176,6 +176,7 @@ HeartbeatRun 추가 필드:
 
 ## RLS (Row Level Security)
 
-`chatbot_readonly` DB 유저에 `company_id` 기반 행 필터 적용 (11개 테이블).
-- NestJS 서버 (`kiditem` 유저): 테이블 오너 → RLS 미적용 (코드에서 필터)
+`chatbot_readonly` DB 유저에 `company_id` 기반 행 필터 적용. 정책은 [`prisma/3layer-setup.sql`](3layer-setup.sql) 의 RLS 섹션이 source of truth — 새 company-scoped 테이블 추가 시 해당 파일에 같은 패턴(`ENABLE ROW LEVEL SECURITY` + `CREATE POLICY ... USING (company_id = current_setting('app.company_id', true)::uuid)`) 으로 등록한다.
+- NestJS 서버 (`kiditem` 유저): 테이블 오너 → RLS 미적용 (코드에서 `where.companyId` 명시 필터, `apps/server/AGENTS.md` 참고)
 - 챗봇/에이전트 (`chatbot_readonly`): RLS 적용 → 세션변수 `app.company_id`로 자동 필터
+- 검증: `SELECT tablename FROM pg_policies WHERE schemaname='public' ORDER BY tablename;` 으로 정책 등록 테이블 확인 가능.

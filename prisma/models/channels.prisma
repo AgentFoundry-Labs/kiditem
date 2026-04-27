@@ -1,0 +1,202 @@
+// channels.prisma — Channel market-data foundation (Wave C0)
+//
+// Provides a channel-generic schema layer for raw scrape capture and daily
+// listing/option state snapshots. `channel = "coupang"` is row data, not a
+// table name — provider-specific column names live only in adapter DTOs and
+// `rawJson`/`metaJson`. See `.omx/plans/channel-market-data-daily-snapshots-plan.md`.
+//
+// C0 scope: schema foundation only. No service/runtime change in this PR.
+// Subsequent waves (C1 product identity sync, C2 raw scrape dual-write,
+// C3 daily upserts, C4 strategy reads) wire ingestion paths.
+
+/// @namespace Channels
+/// @describe 채널별 상품/광고/트래픽 스크래핑 실행 단위. 원본 row 는 ChannelScrapeSnapshot 에 저장.
+model ChannelScrapeRun {
+  id          String   @id @default(uuid()) @db.Uuid
+  companyId   String   @map("company_id") @db.Uuid
+
+  channel       String
+  source        String
+  pageType      String   @map("page_type")
+  businessDate  DateTime? @map("business_date") @db.Date
+  periodStart   DateTime? @map("period_start") @db.Date
+  periodEnd     DateTime? @map("period_end") @db.Date
+
+  status        String   @default("running")
+  targetUrl     String?  @map("target_url")
+  period        String?
+  parserVersion String?  @map("parser_version")
+
+  rowCount       Int @default(0) @map("row_count")
+  matchedCount   Int @default(0) @map("matched_count")
+  unmatchedCount Int @default(0) @map("unmatched_count")
+  errorCount     Int @default(0) @map("error_count")
+
+  startedAt  DateTime  @default(now()) @map("started_at") @db.Timestamptz
+  finishedAt DateTime? @map("finished_at") @db.Timestamptz
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  metaJson  Json? @map("meta_json")
+  errorJson Json? @map("error_json")
+
+  company   Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  snapshots ChannelScrapeSnapshot[]
+
+  @@index([companyId, channel, source, businessDate])
+  @@index([companyId, status, startedAt])
+  @@index([startedAt])
+  @@map("channel_scrape_runs")
+}
+
+/// @namespace Channels
+/// @describe 채널 스크래퍼/API 가 본 원본 row. 매칭 실패/파서 변경 대비 rawJson 을 보존.
+model ChannelScrapeSnapshot {
+  id          String  @id @default(uuid()) @db.Uuid
+  companyId   String  @map("company_id") @db.Uuid
+  scrapeRunId String? @map("scrape_run_id") @db.Uuid
+
+  channel      String
+  source       String
+  pageType     String   @map("page_type")
+  businessDate DateTime? @map("business_date") @db.Date
+  observedAt   DateTime  @default(now()) @map("observed_at") @db.Timestamptz
+
+  externalId       String? @map("external_id")
+  externalOptionId String? @map("external_option_id")
+  listingId        String? @map("listing_id") @db.Uuid
+  listingOptionId  String? @map("listing_option_id") @db.Uuid
+  optionId         String? @map("option_id") @db.Uuid
+
+  matchStatus String  @default("unmatched") @map("match_status")
+  matchReason String? @map("match_reason")
+  rowHash     String? @map("row_hash")
+
+  rawJson        Json  @map("raw_json")
+  normalizedJson Json? @map("normalized_json")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  company       Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  scrapeRun     ChannelScrapeRun?     @relation(fields: [scrapeRunId], references: [id], onDelete: SetNull)
+  listing       ChannelListing?       @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  listingOption ChannelListingOption? @relation(fields: [listingOptionId], references: [id], onDelete: SetNull)
+  option        ProductOption?        @relation(fields: [optionId], references: [id], onDelete: SetNull)
+
+  listingDailySnapshots ChannelListingDailySnapshot[]       @relation("ListingDailyRawSnapshot")
+  optionDailySnapshots  ChannelListingOptionDailySnapshot[] @relation("OptionDailyRawSnapshot")
+
+  @@index([companyId, channel, source, businessDate])
+  @@index([companyId, channel, pageType, businessDate])
+  @@index([scrapeRunId])
+  @@index([listingId, businessDate])
+  @@index([listingOptionId, businessDate])
+  @@index([optionId, businessDate])
+  @@index([companyId, channel, externalId])
+  @@index([companyId, channel, externalOptionId])
+  @@index([companyId, matchStatus])
+  @@index([observedAt])
+  @@map("channel_scrape_snapshots")
+}
+
+/// @namespace Channels
+/// @describe 채널 listing 의 일별 정규화 상태. 반복 scrape 는 businessDate row 를 upsert.
+model ChannelListingDailySnapshot {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  listingId String @map("listing_id") @db.Uuid
+
+  channel      String
+  externalId   String   @map("external_id")
+  businessDate DateTime @map("business_date") @db.Date
+
+  productName    String? @map("product_name")
+  status         String?
+  exposureStatus String? @map("exposure_status")
+  saleStatus     String? @map("sale_status")
+  channelPrice   Int?    @map("channel_price")
+
+  reviewCount Int?     @map("review_count")
+  avgRating   Decimal? @map("avg_rating") @db.Decimal(4, 2)
+
+  isOfferWinner  Boolean? @map("is_offer_winner")
+  myPrice        Int?     @map("my_price")
+  winnerPrice    Int?     @map("winner_price")
+  winnerGapPrice Int?     @map("winner_gap_price")
+
+  productRank  Int? @map("product_rank")
+  categoryRank Int? @map("category_rank")
+
+  sampleCount     Int      @default(1) @map("sample_count")
+  firstObservedAt DateTime @default(now()) @map("first_observed_at") @db.Timestamptz
+  lastObservedAt  DateTime @default(now()) @map("last_observed_at") @db.Timestamptz
+  rawSnapshotId   String?  @map("raw_snapshot_id") @db.Uuid
+
+  metaJson  Json?    @map("meta_json")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company     Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  listing     ChannelListing          @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  rawSnapshot ChannelScrapeSnapshot?  @relation("ListingDailyRawSnapshot", fields: [rawSnapshotId], references: [id], onDelete: SetNull)
+
+  @@unique([companyId, listingId, businessDate])
+  @@index([companyId, channel, externalId, businessDate])
+  @@index([rawSnapshotId])
+  @@index([companyId, businessDate])
+  @@index([listingId, businessDate])
+  @@index([companyId, channel, businessDate])
+  @@index([companyId, isOfferWinner])
+  @@map("channel_listing_daily_snapshots")
+}
+
+/// @namespace Channels
+/// @describe 채널 listing option/vendor item 의 일별 정규화 상태.
+model ChannelListingOptionDailySnapshot {
+  id              String  @id @default(uuid()) @db.Uuid
+  companyId       String  @map("company_id") @db.Uuid
+  listingId       String  @map("listing_id") @db.Uuid
+  listingOptionId String  @map("listing_option_id") @db.Uuid
+  optionId        String? @map("option_id") @db.Uuid
+
+  channel          String
+  externalId       String   @map("external_id")
+  externalOptionId String   @map("external_option_id")
+  businessDate     DateTime @map("business_date") @db.Date
+
+  optionName String?  @map("option_name")
+  salePrice  Int?     @map("sale_price")
+  stockQty   Int?     @map("stock_qty")
+  saleStatus String?  @map("sale_status")
+  isActive   Boolean? @map("is_active")
+
+  isOfferWinner  Boolean? @map("is_offer_winner")
+  myPrice        Int?     @map("my_price")
+  winnerPrice    Int?     @map("winner_price")
+  winnerGapPrice Int?     @map("winner_gap_price")
+
+  sampleCount     Int      @default(1) @map("sample_count")
+  firstObservedAt DateTime @default(now()) @map("first_observed_at") @db.Timestamptz
+  lastObservedAt  DateTime @default(now()) @map("last_observed_at") @db.Timestamptz
+  rawSnapshotId   String?  @map("raw_snapshot_id") @db.Uuid
+
+  metaJson  Json?    @map("meta_json")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company       Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  listing       ChannelListing         @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  listingOption ChannelListingOption   @relation(fields: [listingOptionId], references: [id], onDelete: Cascade)
+  option        ProductOption?         @relation(fields: [optionId], references: [id], onDelete: SetNull)
+  rawSnapshot   ChannelScrapeSnapshot? @relation("OptionDailyRawSnapshot", fields: [rawSnapshotId], references: [id], onDelete: SetNull)
+
+  @@unique([companyId, listingOptionId, businessDate])
+  @@index([companyId, channel, externalId, externalOptionId, businessDate])
+  @@index([rawSnapshotId])
+  @@index([companyId, businessDate])
+  @@index([listingId, businessDate])
+  @@index([listingOptionId, businessDate])
+  @@index([optionId, businessDate])
+  @@index([companyId, externalOptionId])
+  @@map("channel_listing_option_daily_snapshots")
+}

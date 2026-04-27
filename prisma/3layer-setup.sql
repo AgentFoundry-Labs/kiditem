@@ -127,4 +127,36 @@ CREATE POLICY product_memos_chatbot_filter ON product_memos
   FOR SELECT TO chatbot_readonly
   USING (company_id = current_setting('app.company_id', true)::uuid);
 
+-- 7. Channels — market-data snapshots (Wave C0)
+-- 4 new company-scoped tables: channel_scrape_runs, channel_scrape_snapshots,
+-- channel_listing_daily_snapshots, channel_listing_option_daily_snapshots.
+-- Same pattern as section 6: chatbot_readonly only sees rows whose company_id
+-- matches the session var `app.company_id`. NestJS server stays table-owner
+-- and bypasses RLS (its writes/reads use kiditem role with explicit
+-- companyId WHERE clauses per apps/server/AGENTS.md).
+
+ALTER TABLE channel_scrape_runs ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS channel_scrape_runs_chatbot_filter ON channel_scrape_runs;
+CREATE POLICY channel_scrape_runs_chatbot_filter ON channel_scrape_runs
+  FOR SELECT TO chatbot_readonly
+  USING (company_id = current_setting('app.company_id', true)::uuid);
+
+ALTER TABLE channel_scrape_snapshots ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS channel_scrape_snapshots_chatbot_filter ON channel_scrape_snapshots;
+CREATE POLICY channel_scrape_snapshots_chatbot_filter ON channel_scrape_snapshots
+  FOR SELECT TO chatbot_readonly
+  USING (company_id = current_setting('app.company_id', true)::uuid);
+
+ALTER TABLE channel_listing_daily_snapshots ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS channel_listing_daily_snapshots_chatbot_filter ON channel_listing_daily_snapshots;
+CREATE POLICY channel_listing_daily_snapshots_chatbot_filter ON channel_listing_daily_snapshots
+  FOR SELECT TO chatbot_readonly
+  USING (company_id = current_setting('app.company_id', true)::uuid);
+
+ALTER TABLE channel_listing_option_daily_snapshots ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS channel_listing_option_daily_snapshots_chatbot_filter ON channel_listing_option_daily_snapshots;
+CREATE POLICY channel_listing_option_daily_snapshots_chatbot_filter ON channel_listing_option_daily_snapshots
+  FOR SELECT TO chatbot_readonly
+  USING (company_id = current_setting('app.company_id', true)::uuid);
+
 -- migration_checkpoints — no RLS (internal tooling)
