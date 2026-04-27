@@ -60,7 +60,7 @@ export function InspectionDrawer({ open, onClose, onAnalyzed }: InspectionDrawer
                 등록 전 이미지 검수
               </div>
               <div className="text-[12px]" style={{ color: 'var(--thumb-text-tertiary, #94a3b8)' }}>
-                쿠팡 가이드라인 기준 Gemini Vision 분석
+                쿠팡 가이드라인 기준 썸네일 분석
               </div>
             </div>
           </div>

@@ -120,7 +120,7 @@ export function GenerationQueue({
       {allQueueItems.length === 0 ? (
         <div className="bg-white rounded-xl border border-slate-200 p-12 text-center text-slate-400">AI 편집 대기 중인 상품이 없습니다</div>
       ) : (
-        <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
+        <div className="grid grid-cols-4 md:grid-cols-6 xl:grid-cols-8 gap-3">
           {paged.map((item) =>
             item.type === 'gen' ? (
               <ProductCard

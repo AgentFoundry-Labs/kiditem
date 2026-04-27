@@ -61,12 +61,7 @@ const menuSections: MenuSection[] = [
     items: [
       { href: '/', label: '대시보드', icon: LayoutDashboard },
       { href: '/ad-ops', label: '광고전략 AI', icon: Zap },
-      {
-        href: '/thumbnails',
-        label: '썸네일 AI',
-        icon: ImageIcon,
-        gatedReason: 'AI 썸네일 backend contract 준비 중',
-      },
+      { href: '/thumbnails', label: '썸네일 AI', icon: ImageIcon },
       { href: '/action-board', label: '액션 보드', icon: ClipboardList },
     ],
   },

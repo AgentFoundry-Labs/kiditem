@@ -236,8 +236,54 @@ export type {
 } from './reviews.js';
 
 // Thumbnails
-export { ThumbnailListItemSchema, ThumbnailSummarySchema, ThumbnailScoresSchema, ComplianceScoresSchema, ThumbnailAnalysisResultSchema, ThumbnailAnalysisSummarySchema, ThumbnailGenerationItemSchema, EditAnalysisResultSchema } from './thumbnails.js';
-export type { ThumbnailListItem, ThumbnailSummary, ThumbnailScores, ComplianceScores, ThumbnailAnalysisResult, ThumbnailAnalysisSummary, ThumbnailGenerationItem, EditAnalysisResult } from './thumbnails.js';
+export {
+  ThumbnailListItemSchema,
+  ThumbnailSummarySchema,
+  ThumbnailScoresSchema,
+  ComplianceScoresSchema,
+  ImageSpecSchema,
+  ImageSpecIssueSchema,
+  ThumbnailAnalysisResultSchema,
+  ThumbnailAnalysisSummarySchema,
+  ThumbnailAnalysisListResponseSchema,
+  ThumbnailGenerationItemSchema,
+  ThumbnailGenerationListResponseSchema,
+  ThumbnailTrackingRecordSchema,
+  ThumbnailTrackingListResponseSchema,
+  UpdateThumbnailTrackingMetricsSchema,
+  EditAnalysisResultSchema,
+  RecomposeVariantOptionSchema,
+  RecomposeVariantClassificationSchema,
+  RECOMPOSE_VARIANT_KEYS,
+  RECOMPOSE_KINDS,
+  THUMBNAIL_PHASES,
+  THUMBNAIL_REGISTRATION_STATUSES,
+  THUMBNAIL_TRACKING_STATUSES,
+} from './thumbnails.js';
+export type {
+  ThumbnailListItem,
+  ThumbnailSummary,
+  ThumbnailScores,
+  ComplianceScores,
+  ImageSpec,
+  ImageSpecIssue,
+  ThumbnailAnalysisResult,
+  ThumbnailAnalysisSummary,
+  ThumbnailAnalysisListResponse,
+  ThumbnailGenerationItem,
+  ThumbnailGenerationListResponse,
+  ThumbnailTrackingRecord,
+  ThumbnailTrackingListResponse,
+  UpdateThumbnailTrackingMetricsInput,
+  EditAnalysisResult,
+  RecomposeVariantOption,
+  RecomposeVariantClassification,
+  RecomposeVariantKey,
+  RecomposeKind,
+  ThumbnailPhase,
+  ThumbnailRegistrationStatus,
+  ThumbnailTrackingStatus,
+} from './thumbnails.js';
 
 // Ads (Plan B2b — listingId-primary)
 export {

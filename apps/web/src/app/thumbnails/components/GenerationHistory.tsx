@@ -41,7 +41,7 @@ export function GenerationHistory({
         onChange={onPageChange}
         onPageSizeChange={onPageSizeChange}
       />
-      <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
+      <div className="grid grid-cols-4 md:grid-cols-6 xl:grid-cols-8 gap-3">
         {paged.map((gen) => (
           <ProductCard
             key={gen.id}

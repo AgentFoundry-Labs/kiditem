@@ -18,6 +18,8 @@ export const ComplianceScoresSchema = z.object({
     excessive_editing: z.boolean(),
   }),
   confidence: z.record(z.string(), z.number()),
+  reasons: z.record(z.string(), z.string()).optional(),
+  editSuggestions: z.record(z.string(), z.string()).optional(),
   quality: z.object({
     estimatedFillPercent: z.number(),
     centerOffsetPercent: z.number(),
@@ -40,11 +42,13 @@ export const ThumbnailListItemSchema = z.object({
   status: z.string(),
   strategy: z.string(),
   grade: z.string(),
-  issues: z.array(z.object({
-    type: z.string(),
-    severity: z.string(),
-    message: z.string(),
-  })),
+  issues: z.array(
+    z.object({
+      type: z.string(),
+      severity: z.string(),
+      message: z.string(),
+    }),
+  ),
   suggestions: z.array(z.string()),
 });
 
@@ -83,6 +87,45 @@ export const ImageSpecSchema = z.object({
 export type ImageSpec = z.infer<typeof ImageSpecSchema>;
 export type ImageSpecIssue = z.infer<typeof ImageSpecIssueSchema>;
 
+// ─── Recompose Scenarios ──────────────────────────────────────────────
+// AI 분석 시점에 추정되는 시나리오 + variant 옵션. 현재 main DB 에는 컬럼이 없어
+// `ThumbnailAnalysisResult.recompose` 는 항상 null 로 직렬화된다.
+
+export const RECOMPOSE_VARIANT_KEYS = ['auto', 'with-box', 'no-box'] as const;
+export type RecomposeVariantKey = (typeof RECOMPOSE_VARIANT_KEYS)[number];
+
+export const RECOMPOSE_KINDS = [
+  'single-product',
+  'single-with-accessories',
+  'multi-pack-loose',
+  'multi-variant-loose',
+  'box-with-loose-same',
+  'box-with-loose-diff',
+  'box-only-window',
+  'box-only-opaque',
+  'lifestyle-context',
+  'text-heavy',
+] as const;
+export type RecomposeKind = (typeof RECOMPOSE_KINDS)[number];
+
+export const RecomposeVariantOptionSchema = z.object({
+  key: z.enum(RECOMPOSE_VARIANT_KEYS),
+  label: z.string(),
+  description: z.string(),
+  recommended: z.boolean().optional(),
+});
+
+export const RecomposeVariantClassificationSchema = z.object({
+  kind: z.enum(RECOMPOSE_KINDS),
+  requiresChoice: z.boolean(),
+  options: z.array(RecomposeVariantOptionSchema),
+  recommended: z.enum(RECOMPOSE_VARIANT_KEYS).nullable(),
+  reasoning: z.string().nullable(),
+});
+
+export type RecomposeVariantOption = z.infer<typeof RecomposeVariantOptionSchema>;
+export type RecomposeVariantClassification = z.infer<typeof RecomposeVariantClassificationSchema>;
+
 // ─── AI 분석 스키마 ──────────────────────────────────────────────
 
 export const ThumbnailScoresSchema = z.object({
@@ -110,6 +153,8 @@ export const ThumbnailAnalysisResultSchema = z.object({
   complianceGrade: z.string().nullable(),
   complianceScores: ComplianceScoresSchema.nullable(),
   imageSpec: ImageSpecSchema.nullable().optional(),
+  // 현재 main DB 미지원 — 항상 null. 브랜치 UI 호환을 위해 optional/nullable 로 노출.
+  recompose: RecomposeVariantClassificationSchema.nullable().optional(),
   createdAt: z.string().optional(),
   ctr: z.number().nullable().optional(),
 });
@@ -119,8 +164,19 @@ export const ThumbnailAnalysisSummarySchema = z.object({
   analyzed: z.number(),
   partialCount: z.number(),
   unclassifiedCount: z.number(),
-  gradeDistribution: z.object({ S: z.number(), A: z.number(), B: z.number(), C: z.number(), F: z.number() }),
+  gradeDistribution: z.object({
+    S: z.number(),
+    A: z.number(),
+    B: z.number(),
+    C: z.number(),
+    F: z.number(),
+  }),
   complianceDistribution: z.object({ PASS: z.number(), WARN: z.number(), FAIL: z.number() }),
+});
+
+export const ThumbnailAnalysisListResponseSchema = ThumbnailAnalysisSummarySchema.extend({
+  allResults: z.array(ThumbnailAnalysisResultSchema),
+  unclassified: z.array(ThumbnailAnalysisResultSchema),
 });
 
 export const EditAnalysisResultSchema = z.object({
@@ -132,7 +188,10 @@ export const EditAnalysisResultSchema = z.object({
 
 // ─── ADR-0011 Phase 3: Canonical status + phase ─────────────────────────
 export const THUMBNAIL_PHASES = ['ready', 'applied'] as const;
-export type ThumbnailPhase = typeof THUMBNAIL_PHASES[number];
+export type ThumbnailPhase = (typeof THUMBNAIL_PHASES)[number];
+
+export const THUMBNAIL_REGISTRATION_STATUSES = ['uploaded', 'registered', 'failed'] as const;
+export type ThumbnailRegistrationStatus = (typeof THUMBNAIL_REGISTRATION_STATUSES)[number];
 
 export const ThumbnailGenerationItemSchema = z.object({
   id: z.string(),
@@ -147,6 +206,10 @@ export const ThumbnailGenerationItemSchema = z.object({
   method: z.string().default('generate'),
   editAnalysis: EditAnalysisResultSchema.nullable().default(null),
   triggeredByUserId: z.string().uuid().nullable().optional(),
+  // 현재 main DB 미지원. 항상 null 직렬화.
+  registrationStatus: z.enum(THUMBNAIL_REGISTRATION_STATUSES).nullable().optional(),
+  registrationCheckedAt: z.string().nullable().optional(),
+  registrationError: z.string().nullable().optional(),
   createdAt: z.string(),
   product: z.object({
     id: z.string(),
@@ -154,12 +217,67 @@ export const ThumbnailGenerationItemSchema = z.object({
     imageUrl: z.string().nullable(),
     coupangProductId: z.string().nullable(),
     category: z.string().nullable(),
+    hasBoxImage: z.boolean().optional(),
+    hasColorVariantImages: z.boolean().optional(),
   }),
 });
+
+export const ThumbnailGenerationListResponseSchema = z.object({
+  items: z.array(ThumbnailGenerationItemSchema),
+  total: z.number(),
+});
+
+// ─── 트래킹 ──────────────────────────────────────────────
+
+export const THUMBNAIL_TRACKING_STATUSES = ['tracking', 'measured', 'inconclusive'] as const;
+export type ThumbnailTrackingStatus = (typeof THUMBNAIL_TRACKING_STATUSES)[number];
+
+export const ThumbnailTrackingRecordSchema = z.object({
+  id: z.string(),
+  productId: z.string(),
+  productName: z.string(),
+  generationId: z.string(),
+  originalGrade: z.string(),
+  originalScore: z.number(),
+  appliedAt: z.string(),
+  daysElapsed: z.number(),
+  status: z.enum(THUMBNAIL_TRACKING_STATUSES),
+  ctrBefore: z.number().nullable(),
+  ctrAfter: z.number().nullable(),
+  ctrChange: z.number().nullable(),
+  reviewsBefore: z.number().nullable(),
+  reviewsAfter: z.number().nullable(),
+  salesBefore: z.number().nullable(),
+  salesAfter: z.number().nullable(),
+});
+
+export const ThumbnailTrackingListResponseSchema = z.object({
+  items: z.array(ThumbnailTrackingRecordSchema),
+  total: z.number(),
+  page: z.number(),
+  limit: z.number(),
+});
+
+export const UpdateThumbnailTrackingMetricsSchema = z
+  .object({
+    ctrBefore: z.number().optional(),
+    ctrAfter: z.number().optional(),
+    reviewsBefore: z.number().optional(),
+    reviewsAfter: z.number().optional(),
+    salesBefore: z.number().optional(),
+    salesAfter: z.number().optional(),
+    status: z.enum(THUMBNAIL_TRACKING_STATUSES).optional(),
+  })
+  .strict();
 
 export type ThumbnailScores = z.infer<typeof ThumbnailScoresSchema>;
 export type EditAnalysisResult = z.infer<typeof EditAnalysisResultSchema>;
 export type ComplianceScores = z.infer<typeof ComplianceScoresSchema>;
 export type ThumbnailAnalysisResult = z.infer<typeof ThumbnailAnalysisResultSchema>;
 export type ThumbnailAnalysisSummary = z.infer<typeof ThumbnailAnalysisSummarySchema>;
+export type ThumbnailAnalysisListResponse = z.infer<typeof ThumbnailAnalysisListResponseSchema>;
 export type ThumbnailGenerationItem = z.infer<typeof ThumbnailGenerationItemSchema>;
+export type ThumbnailGenerationListResponse = z.infer<typeof ThumbnailGenerationListResponseSchema>;
+export type ThumbnailTrackingRecord = z.infer<typeof ThumbnailTrackingRecordSchema>;
+export type ThumbnailTrackingListResponse = z.infer<typeof ThumbnailTrackingListResponseSchema>;
+export type UpdateThumbnailTrackingMetricsInput = z.infer<typeof UpdateThumbnailTrackingMetricsSchema>;

@@ -9,6 +9,7 @@ import {
   Lightbulb,
 } from 'lucide-react';
 import { cn, formatNumber } from '@/lib/utils';
+import { resolveImageUrl } from '@/lib/resolve-url';
 import type { ThumbnailListItem } from '@kiditem/shared';
 
 const BADGE_COLORS: Record<string, string> = {
@@ -26,6 +27,7 @@ interface Props {
 }
 
 export function ThumbnailCard({ item, isExpanded, onToggle }: Props) {
+  const resolvedImageUrl = resolveImageUrl(item.imageUrl);
   return (
     <div className="table-card">
       <button
@@ -33,8 +35,8 @@ export function ThumbnailCard({ item, isExpanded, onToggle }: Props) {
         className="w-full flex items-center gap-3 p-3 text-left hover:bg-slate-50/50 transition-colors"
       >
         <div className="w-14 h-14 rounded-lg bg-slate-50 flex-shrink-0 flex items-center justify-center overflow-hidden">
-          {item.imageUrl && item.imageUrl.startsWith('http') ? (
-            <img src={item.imageUrl} alt="" className="w-full h-full object-cover" />
+          {resolvedImageUrl ? (
+            <img src={resolvedImageUrl} alt="" className="w-full h-full object-cover" />
           ) : (
             <ImageIcon size={20} className="text-slate-200" />
           )}

@@ -7,11 +7,23 @@ import {
   Loader2, ChevronLeft, ChevronRight, Maximize2,
 } from 'lucide-react';
 import { ScoreBreakdown } from '@/app/thumbnails/components/ScoreBreakdown';
-import type { ThumbnailAnalysisResult, ThumbnailGenerationItem, ImageSpec } from '@kiditem/shared';
+import type {
+  ImageSpec,
+  RecomposeVariantKey,
+  ThumbnailAnalysisResult,
+  ThumbnailGenerationItem,
+} from '@kiditem/shared';
 import { cn } from '@/lib/utils';
+import { RecomposeVariantPicker } from './RecomposeVariantPicker';
 import { COMPLIANCE_GRADE_BG, COMPLIANCE_GRADE_LABELS, VIOLATION_LABELS } from '@/app/thumbnails/lib/grade-constants';
+import {
+  getEffectiveComplianceGrade,
+  getViolationEvidence,
+} from '@/app/thumbnails/lib/thumbnail-classification';
 import { resolveImageUrl } from '@/lib/resolve-url';
 import { isApplied } from '@/lib/thumbnail-status';
+import { CoupangSearchCardPreview } from '@/components/coupang/CoupangPreview';
+import { buildEditHref } from '@/app/thumbnail-editor/edit/lib/build-edit-href';
 
 const GRADE_CONFIG: Record<string, { bg: string; text: string }> = {
   S: { bg: '#10b981', text: '#fff' },
@@ -29,11 +41,16 @@ interface DetailModalProps {
   isAiAnalyzing: boolean;
   imageSpec?: ImageSpec | null;
   generatedProductIds: Set<string>;
+  hideEdit?: boolean;
   onClose: () => void;
   onAiAnalyze: () => void;
-  onComplianceCheck: () => void;
-  onEditCompliance: () => void;
-  onEditQuality: () => void;
+  /**
+   * 컴플라이언스 편집 시작.
+   * variantKey 가 지정되면 사용자가 picker 에서 명시적으로 고른 레이아웃,
+   * 없으면 서버 기본값(auto)으로 진행.
+   */
+  onEditCompliance: (variantKey?: RecomposeVariantKey) => void;
+  onEditQuality: (variantKey?: RecomposeVariantKey) => void;
   onSelectCandidate: (url: string) => void;
   onApply: () => void;
   onSkip: () => void;
@@ -48,9 +65,10 @@ export function DetailModal({
   aiResult,
   isAiAnalyzing,
   imageSpec,
+  hideEdit = false,
   onClose,
   onAiAnalyze,
-  onComplianceCheck,
+  onEditCompliance,
   onSelectCandidate,
   onApply,
   onSkip,
@@ -61,12 +79,25 @@ export function DetailModal({
   const [slideIndex, setSlideIndex] = useState(0);
 
   const display = aiResult || product;
+  const analysisMethodLabel =
+    display?.method === 'ai' ? 'Gemini' : display?.method === 'rule' ? '룰 기반' : 'AI';
   const candidates = gen?.candidates || [];
   const productName = gen?.product.name || product?.productName || '';
   const originalImage = resolveImageUrl(gen?.originalUrl || gen?.product.imageUrl || product?.imageUrl || null);
   const hasCandidates = candidates.length > 0;
+  const hasAnalysis = !!(display?.scores || display?.complianceScores);
+  // 이미지 생성 + 분석 데이터가 둘 다 있으면 combined 뷰: 위 Before/After, 아래 분석.
+  const isCombined = hasCandidates && hasAnalysis;
+  const isUnclassified = !hasCandidates && !display?.scores && !display?.complianceScores;
+  const editHref = buildEditHref({
+    productId: product?.productId ?? gen?.productId ?? '',
+    imageUrl: product?.imageUrl ?? gen?.product.imageUrl ?? null,
+  });
   const grade = display?.grade;
   const gradeConf = grade ? GRADE_CONFIG[grade] : null;
+  const violationEvidence = getViolationEvidence(display?.complianceScores);
+  const effectiveComplianceGrade = display ? getEffectiveComplianceGrade(display) : null;
+  const effectiveViolationKeys = new Set(violationEvidence.map((item) => item.key));
 
   // gen이 바뀌면 슬라이드를 기존 selectedUrl 위치로 초기화
   useEffect(() => {
@@ -100,9 +131,18 @@ export function DetailModal({
       )}
 
       {/* 백드롭 */}
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/55 backdrop-blur-sm" onClick={onClose}>
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/40" onClick={onClose}>
         <div
-          className="bg-white rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden"
+          className={cn(
+            'bg-white rounded-2xl w-full max-h-[90vh] flex flex-col overflow-hidden',
+            isCombined
+              ? 'max-w-4xl'
+              : hasCandidates
+                ? 'max-w-3xl'
+                : isUnclassified
+                  ? 'max-w-md'
+                  : 'max-w-4xl',
+          )}
           style={{ boxShadow: '0 24px 64px rgba(0,0,0,0.22)' }}
           onClick={(e) => e.stopPropagation()}
         >
@@ -134,17 +174,280 @@ export function DetailModal({
           {/* ── 바디 ── */}
           <div className="flex-1 overflow-y-auto">
 
-            {hasCandidates ? (
+            {isCombined ? (
+              /* ── Combined: 위 Before/After, 아래 분석 ── */
+              <div className="flex flex-col">
+                {/* Before / After (분석이 있는 경우에도 이미지 비교 먼저) */}
+                <div className="grid grid-cols-2 gap-4 mt-4 px-4 pb-2">
+                  {/* Before */}
+                  <div className="flex flex-col">
+                    <div className="pb-1.5">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Before</span>
+                    </div>
+                    <div
+                      className="aspect-square relative cursor-zoom-in overflow-hidden bg-slate-50 rounded-xl border border-slate-100"
+                      onClick={() => originalImage && setZoomImage(originalImage)}
+                    >
+                      {originalImage ? (
+                        <img src={originalImage} alt="현재" className="w-full h-full object-contain" referrerPolicy="no-referrer" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <ImageIcon size={32} className="text-slate-300" />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* After */}
+                  <div className="flex flex-col">
+                    <div className="pb-1.5 flex items-center justify-between">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">After</span>
+                      {candidates.length > 1 && (
+                        <span className="text-[10px] text-slate-400 font-medium">
+                          {slideIndex + 1} / {candidates.length}
+                        </span>
+                      )}
+                    </div>
+                    <div className="aspect-square relative overflow-hidden bg-slate-50 rounded-xl border border-slate-100">
+                      {currentImgUrl ? (
+                        <img
+                          key={currentImgUrl}
+                          src={currentImgUrl}
+                          alt={`편집 결과 ${slideIndex + 1}`}
+                          className="w-full h-full object-contain transition-opacity duration-200"
+                          loading="lazy"
+                          referrerPolicy="no-referrer"
+                          onClick={() => setZoomImage(currentImgUrl)}
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <ImageIcon size={32} className="text-slate-300" />
+                        </div>
+                      )}
+                      {isCurrentSelected && (
+                        <div className="absolute top-3 right-3 flex items-center gap-1.5 bg-indigo-600 text-white text-[11px] font-bold px-2.5 py-1 rounded-full shadow-lg">
+                          <CheckCircle size={12} /> 선택됨
+                        </div>
+                      )}
+                      {candidates.length > 1 && (
+                        <>
+                          <button
+                            disabled={slideIndex === 0}
+                            onClick={() => setSlideIndex((i) => i - 1)}
+                            className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-white/90 shadow-md flex items-center justify-center disabled:opacity-30 hover:bg-white transition-colors"
+                          >
+                            <ChevronLeft size={16} className="text-slate-700" />
+                          </button>
+                          <button
+                            disabled={slideIndex === candidates.length - 1}
+                            onClick={() => setSlideIndex((i) => i + 1)}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-white/90 shadow-md flex items-center justify-center disabled:opacity-30 hover:bg-white transition-colors"
+                          >
+                            <ChevronRight size={16} className="text-slate-700" />
+                          </button>
+                          <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5">
+                            {candidates.map((_, i) => (
+                              <button
+                                key={i}
+                                onClick={() => setSlideIndex(i)}
+                                className={cn(
+                                  'w-1.5 h-1.5 rounded-full transition-all',
+                                  i === slideIndex ? 'bg-indigo-500 w-3' : 'bg-slate-300 hover:bg-slate-400',
+                                )}
+                              />
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                    <div className="pt-3">
+                      <button
+                        onClick={() => onSelectCandidate(isCurrentSelected ? '' : currentRawUrl)}
+                        className={cn(
+                          'w-full py-2 rounded-xl text-sm font-semibold flex items-center justify-center gap-1.5 transition-all duration-200 border-2',
+                          isCurrentSelected
+                            ? 'bg-indigo-600 border-indigo-600 text-white'
+                            : 'bg-white border-slate-200 text-slate-500 hover:border-indigo-400 hover:text-indigo-600',
+                        )}
+                      >
+                        {isCurrentSelected ? <><CheckCircle size={14} /> 선택됨</> : '이 이미지 선택'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 구분선 */}
+                <div className="px-4 pt-2">
+                  <div className="border-t border-slate-100" />
+                </div>
+
+                {/* 분석 섹션 */}
+                <div className="px-4 pt-4 pb-4 space-y-5">
+                  {/* 분석 헤더 + 액션 */}
+                  <div className="flex items-center gap-2">
+                    <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">분석 결과</p>
+                    {aiResult && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] text-purple-500 bg-purple-50 rounded-md font-medium">
+                        <Zap size={10} /> {analysisMethodLabel}
+                      </span>
+                    )}
+                    <button
+                      onClick={onAiAnalyze}
+                      disabled={isAiAnalyzing}
+                      className="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded-lg text-xs font-semibold hover:bg-indigo-100 disabled:opacity-50 transition-colors"
+                    >
+                      {isAiAnalyzing ? <Loader2 size={12} className="animate-spin" /> : <Eye size={12} />}
+                      재분석
+                    </button>
+                  </div>
+
+                  {/* 점수 */}
+                  {display?.scores && (
+                    <div>
+                      <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2.5">점수 분석</p>
+                      <ScoreBreakdown scores={display.scores} />
+                    </div>
+                  )}
+
+                  {/* 이슈 */}
+                  {display && display.issues.length > 0 && (
+                    <div>
+                      <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2.5">
+                        이슈 · <span className="text-red-400">{display.issues.filter((i) => i.severity === 'critical').length} critical</span>{' '}
+                        <span className="text-amber-400">{display.issues.filter((i) => i.severity === 'warning').length} warning</span>
+                      </p>
+                      <div className="space-y-1.5">
+                        {display.issues.map((issue, idx) => (
+                          <div key={idx} className={cn(
+                            'flex items-start gap-2.5 px-3.5 py-2.5 rounded-xl text-sm',
+                            issue.severity === 'critical' ? 'bg-red-50 text-red-800' :
+                            issue.severity === 'warning' ? 'bg-amber-50 text-amber-800' : 'bg-blue-50 text-blue-800',
+                          )}>
+                            {issue.severity === 'critical' ? <XCircle size={14} className="shrink-0 mt-0.5 text-red-400" /> :
+                             issue.severity === 'warning' ? <AlertTriangle size={14} className="shrink-0 mt-0.5 text-amber-400" /> :
+                             <CheckCircle size={14} className="shrink-0 mt-0.5 text-blue-400" />}
+                            <span>{issue.message}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 썸네일 분류 + 변형 옵션 (분석 시점에 산출됨) */}
+                  {display?.recompose && (
+                    <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-3">
+                      <RecomposeVariantPicker
+                        classification={display.recompose}
+                        loading={false}
+                        onSelect={(variantKey) => onEditCompliance(variantKey)}
+                        layout="detail"
+                      />
+                    </div>
+                  )}
+
+                  {/* 가이드라인 */}
+                  {display?.complianceScores && (
+                    <div>
+                      <div className="flex items-center gap-2 mb-2.5">
+                        <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">가이드라인 준수</p>
+                        {effectiveComplianceGrade && (
+                          <span className={cn('inline-flex items-center px-2 py-0.5 rounded-lg text-[11px] font-bold text-white', COMPLIANCE_GRADE_BG[effectiveComplianceGrade] || 'bg-slate-400')}>
+                            {COMPLIANCE_GRADE_LABELS[effectiveComplianceGrade] || effectiveComplianceGrade}
+                            <span className="ml-1 opacity-80">({violationEvidence.length}건)</span>
+                          </span>
+                        )}
+                      </div>
+                      {effectiveComplianceGrade === 'FAIL' && (
+                        <div className="mb-2.5 space-y-1.5">
+                          {violationEvidence.length > 0 ? (
+                            violationEvidence.map((item) => {
+                              const suggestion = display?.complianceScores?.editSuggestions?.[item.key];
+                              return (
+                                <div
+                                  key={item.key}
+                                  className="rounded-xl border border-red-100 bg-red-50 px-3.5 py-2.5 text-sm text-red-800"
+                                >
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="font-semibold">{item.label}</span>
+                                    {item.confidence != null && (
+                                      <span className="text-[11px] font-mono text-red-400">
+                                        {item.confidence}%
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p className="mt-1 text-xs leading-relaxed text-red-700/85">
+                                    {item.reason ?? 'AI가 이 항목을 위반으로 표시했지만 근거 문장을 반환하지 않았습니다. 재분석이 필요합니다.'}
+                                  </p>
+                                  {suggestion && (
+                                    <div className="mt-2 rounded-lg bg-white/80 border border-indigo-100 px-3 py-2">
+                                      <div className="flex items-center gap-1.5">
+                                        <Wand2 size={11} className="text-indigo-500 shrink-0" />
+                                        <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-600">
+                                          개선 방향
+                                        </span>
+                                      </div>
+                                      <p className="mt-1 text-[11px] leading-relaxed text-slate-700">
+                                        {suggestion}
+                                      </p>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })
+                          ) : (
+                            <div className="rounded-xl border border-amber-100 bg-amber-50 px-3.5 py-2.5 text-sm text-amber-800">
+                              위반 근거가 없는 FAIL 결과입니다. 재분석이 필요합니다.
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      {display.complianceGrade === 'FAIL' && effectiveComplianceGrade === 'WARN' && (
+                        <div className="mb-2.5 rounded-xl border border-amber-100 bg-amber-50 px-3.5 py-2.5 text-sm text-amber-800">
+                          기존 분석은 위반으로 저장되어 있지만, 현재 근거가 부족합니다. 재분석하면 최신 배경 판정 로직으로 다시 확인됩니다.
+                        </div>
+                      )}
+                      {/* 통과 항목만 회색 체크 리스트로 — 위반 카드와 중복 제거 */}
+                      {(() => {
+                        const passedEntries = Object.entries(display.complianceScores.violations)
+                          .filter(([key, violated]) => !(violated && effectiveViolationKeys.has(key)));
+                        if (passedEntries.length === 0) return null;
+                        return (
+                          <>
+                            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">통과 항목</p>
+                            <div className="grid grid-cols-2 gap-1.5">
+                              {passedEntries.map(([key]) => (
+                                <div
+                                  key={key}
+                                  className="px-3 py-2 rounded-xl text-xs bg-slate-50 text-slate-500"
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <CheckCircle size={12} className="shrink-0 text-emerald-400" />
+                                    <span className="flex-1 truncate font-medium">{VIOLATION_LABELS[key] || key}</span>
+                                    {display.complianceScores!.confidence[key] !== undefined && (
+                                      <span className="text-[10px] font-mono shrink-0 text-slate-400">{display.complianceScores!.confidence[key]}%</span>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </>
+                        );
+                      })()}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : hasCandidates ? (
               /* ── Before / After 뷰 ── */
-              <div className="flex h-full min-h-0">
+              <div className="grid grid-cols-2 gap-4 max-w-3xl mx-auto mt-4 px-4 pb-4">
 
                 {/* ── Before ── */}
-                <div className="flex-1 min-w-0 flex flex-col border-r border-slate-100">
-                  <div className="px-4 pt-3 pb-1.5 flex-shrink-0">
+                <div className="flex flex-col">
+                  <div className="pb-1.5 flex-shrink-0">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Before</span>
                   </div>
                   <div
-                    className="flex-1 relative cursor-zoom-in overflow-hidden bg-slate-50"
+                    className="aspect-square relative cursor-zoom-in overflow-hidden bg-slate-50 rounded-xl border border-slate-100"
                     onClick={() => originalImage && setZoomImage(originalImage)}
                   >
                     {originalImage ? (
@@ -164,8 +467,8 @@ export function DetailModal({
                 </div>
 
                 {/* ── After ── */}
-                <div className="flex-1 min-w-0 flex flex-col">
-                  <div className="px-4 pt-3 pb-1.5 flex-shrink-0 flex items-center justify-between">
+                <div className="flex flex-col">
+                  <div className="pb-1.5 flex-shrink-0 flex items-center justify-between">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">After</span>
                     {candidates.length > 1 && (
                       <span className="text-[10px] text-slate-400 font-medium">
@@ -175,7 +478,7 @@ export function DetailModal({
                   </div>
 
                   {/* 슬라이드 이미지 */}
-                  <div className="flex-1 relative overflow-hidden bg-slate-50">
+                  <div className="aspect-square relative overflow-hidden bg-slate-50 rounded-xl border border-slate-100">
                     {currentImgUrl ? (
                       <img
                         key={currentImgUrl}
@@ -242,7 +545,7 @@ export function DetailModal({
                   </div>
 
                   {/* 선택 버튼 */}
-                  <div className="px-4 py-3 flex-shrink-0 border-t border-slate-100">
+                  <div className="pt-3 flex-shrink-0">
                     <button
                       onClick={() => onSelectCandidate(isCurrentSelected ? '' : currentRawUrl)}
                       className={cn(
@@ -257,37 +560,34 @@ export function DetailModal({
                   </div>
                 </div>
               </div>
+            ) : isUnclassified ? (
+              /* ── 미분류: 세로 스택 + AI 분석만 ── */
+              <div className="flex flex-col px-5 py-5 gap-5">
+                <div onClick={() => originalImage && setZoomImage(originalImage)} className="cursor-zoom-in">
+                  <CoupangSearchCardPreview imageUrl={originalImage ?? ''} productName={productName} />
+                </div>
+                <button
+                  onClick={onAiAnalyze}
+                  disabled={isAiAnalyzing}
+                  className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 bg-indigo-600 text-white rounded-xl text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+                >
+                  {isAiAnalyzing ? <Loader2 size={14} className="animate-spin" /> : <Eye size={14} />}
+                  AI 분석
+                </button>
+              </div>
             ) : (
-              /* ── 분석 뷰 ── */
-              <div className="flex gap-0 min-h-0">
-                {/* 좌: 이미지 */}
-                <div className="w-56 flex-shrink-0 bg-slate-50 border-r border-slate-100">
-                  <div
-                    className="relative cursor-zoom-in"
-                    style={{ aspectRatio: '1' }}
-                    onClick={() => originalImage && setZoomImage(originalImage)}
-                  >
-                    {originalImage ? (
-                      <img src={originalImage} alt={productName} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                    ) : (
-                      <div className="w-full h-full flex flex-col items-center justify-center gap-2 p-6">
-                        <ImageIcon size={36} className="text-slate-300" />
-                        <span className="text-xs text-slate-400">이미지 없음</span>
-                      </div>
-                    )}
-                    {imageSpec && (
-                      <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/60 to-transparent px-3 py-3">
-                        <p className="text-[10px] text-white/75 font-mono">{imageSpec.width}×{imageSpec.height} · {imageSpec.fileSizeKB}KB</p>
-                        {imageSpec.issues[0] && <p className="text-[10px] text-red-300 mt-0.5 line-clamp-1">{imageSpec.issues[0].message}</p>}
-                      </div>
-                    )}
+              /* ── 분류됨: 왼쪽 이미지 + 오른쪽 분석 ── */
+              <div className="grid grid-cols-[minmax(0,420px)_1fr] gap-5 p-5">
+                {/* 좌: 쿠팡 미리보기 + 과거 이력 */}
+                <div className="flex flex-col gap-3">
+                  <div onClick={() => originalImage && setZoomImage(originalImage)} className="cursor-zoom-in">
+                    <CoupangSearchCardPreview imageUrl={originalImage ?? ''} productName={productName} />
                   </div>
-                  {/* 과거 이력 */}
                   {productGenerations.length > 1 && (() => {
                     const past = productGenerations.filter((g) => g.id !== gen?.id).slice(0, 3);
                     if (!past.length) return null;
                     return (
-                      <div className="p-3">
+                      <div>
                         <p className="text-[10px] text-slate-400 uppercase font-semibold tracking-wide mb-2">과거 이력</p>
                         <div className="flex gap-2">
                           {past.map((pg) => {
@@ -316,10 +616,10 @@ export function DetailModal({
                 </div>
 
                 {/* 우: 분석 */}
-                <div className="flex-1 overflow-y-auto p-5 space-y-5">
+                <div className="min-w-0 space-y-5">
 
                   {/* 액션 버튼 */}
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap gap-3">
                     <button
                       onClick={onAiAnalyze}
                       disabled={isAiAnalyzing}
@@ -328,22 +628,9 @@ export function DetailModal({
                       {isAiAnalyzing ? <Loader2 size={14} className="animate-spin" /> : <Eye size={14} />}
                       AI 분석
                     </button>
-                    <button
-                      onClick={onComplianceCheck}
-                      disabled={isAiAnalyzing}
-                      className="inline-flex items-center gap-2 px-4 py-2.5 bg-amber-500 text-white rounded-xl text-sm font-semibold hover:bg-amber-600 disabled:opacity-50 transition-colors"
-                    >
-                      <AlertTriangle size={14} /> 가이드라인
-                    </button>
-                    <Link
-                      href={`/thumbnail-editor?productId=${product?.productId ?? gen?.productId ?? ''}`}
-                      className="inline-flex items-center gap-2 px-4 py-2.5 bg-slate-900 text-white rounded-xl text-sm font-semibold hover:bg-slate-700 transition-colors"
-                    >
-                      <Wand2 size={14} /> 편집하기
-                    </Link>
                     {aiResult && (
                       <span className="inline-flex items-center gap-1 px-2.5 py-2.5 text-xs text-purple-500 bg-purple-50 rounded-xl font-medium">
-                        <Zap size={12} /> Gemini 분석됨
+                        <Zap size={12} /> {analysisMethodLabel} 분석됨
                       </span>
                     )}
                   </div>
@@ -380,37 +667,106 @@ export function DetailModal({
                     </div>
                   )}
 
-                  {/* 가이드라인 */}
-                  {display && (
+                  {/* 썸네일 분류 + 변형 옵션 (분석 시점에 산출됨) */}
+                  {display?.recompose && (
+                    <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-3">
+                      <RecomposeVariantPicker
+                        classification={display.recompose}
+                        loading={false}
+                        onSelect={(variantKey) => onEditCompliance(variantKey)}
+                        layout="detail"
+                      />
+                    </div>
+                  )}
+
+                  {/* 가이드라인 — 분석 결과 있을 때만 */}
+                  {display?.complianceScores && (
                     <div>
                       <div className="flex items-center gap-2 mb-2.5">
                         <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">가이드라인 준수</p>
-                        {display.complianceGrade ? (
-                          <span className={cn('inline-flex items-center px-2 py-0.5 rounded-lg text-[11px] font-bold text-white', COMPLIANCE_GRADE_BG[display.complianceGrade] || 'bg-slate-400')}>
-                            {COMPLIANCE_GRADE_LABELS[display.complianceGrade] || display.complianceGrade}
-                            {display.complianceScores && <span className="ml-1 opacity-80">({display.complianceScores.violationCount}건)</span>}
+                        {effectiveComplianceGrade && (
+                          <span className={cn('inline-flex items-center px-2 py-0.5 rounded-lg text-[11px] font-bold text-white', COMPLIANCE_GRADE_BG[effectiveComplianceGrade] || 'bg-slate-400')}>
+                            {COMPLIANCE_GRADE_LABELS[effectiveComplianceGrade] || effectiveComplianceGrade}
+                            <span className="ml-1 opacity-80">({violationEvidence.length}건)</span>
                           </span>
-                        ) : (
-                          <span className="text-[11px] px-2 py-0.5 rounded-lg bg-slate-100 text-slate-400">미분석</span>
                         )}
                       </div>
-                      {display.complianceScores ? (
-                        <div className="grid grid-cols-2 gap-1.5">
-                          {Object.entries(display.complianceScores.violations).map(([key, violated]) => (
-                            <div key={key} className={cn('flex items-center gap-2 px-3 py-2 rounded-xl text-xs', violated ? 'bg-red-50 text-red-700' : 'bg-slate-50 text-slate-500')}>
-                              {violated ? <XCircle size={12} className="shrink-0 text-red-400" /> : <CheckCircle size={12} className="shrink-0 text-emerald-400" />}
-                              <span className="flex-1 truncate">{VIOLATION_LABELS[key] || key}</span>
-                              {display.complianceScores!.confidence[key] !== undefined && (
-                                <span className="text-[10px] font-mono shrink-0 text-slate-300">{display.complianceScores!.confidence[key]}%</span>
-                              )}
+                      {effectiveComplianceGrade === 'FAIL' && (
+                        <div className="mb-2.5 space-y-1.5">
+                          {violationEvidence.length > 0 ? (
+                            violationEvidence.map((item) => {
+                              const suggestion = display?.complianceScores?.editSuggestions?.[item.key];
+                              return (
+                                <div
+                                  key={item.key}
+                                  className="rounded-xl border border-red-100 bg-red-50 px-3.5 py-2.5 text-sm text-red-800"
+                                >
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="font-semibold">{item.label}</span>
+                                    {item.confidence != null && (
+                                      <span className="text-[11px] font-mono text-red-400">
+                                        {item.confidence}%
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p className="mt-1 text-xs leading-relaxed text-red-700/85">
+                                    {item.reason ?? 'AI가 이 항목을 위반으로 표시했지만 근거 문장을 반환하지 않았습니다. 재분석이 필요합니다.'}
+                                  </p>
+                                  {suggestion && (
+                                    <div className="mt-2 rounded-lg bg-white/80 border border-indigo-100 px-3 py-2">
+                                      <div className="flex items-center gap-1.5">
+                                        <Wand2 size={11} className="text-indigo-500 shrink-0" />
+                                        <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-600">
+                                          개선 방향
+                                        </span>
+                                      </div>
+                                      <p className="mt-1 text-[11px] leading-relaxed text-slate-700">
+                                        {suggestion}
+                                      </p>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })
+                          ) : (
+                            <div className="rounded-xl border border-amber-100 bg-amber-50 px-3.5 py-2.5 text-sm text-amber-800">
+                              위반 근거가 없는 FAIL 결과입니다. 재분석이 필요합니다.
                             </div>
-                          ))}
+                          )}
                         </div>
-                      ) : (
-                        <p className="text-sm text-slate-400 px-3 py-2.5 rounded-xl bg-slate-50">
-                          가이드라인 체크 시 12가지 규칙을 검사합니다.
-                        </p>
                       )}
+                      {display.complianceGrade === 'FAIL' && effectiveComplianceGrade === 'WARN' && (
+                        <div className="mb-2.5 rounded-xl border border-amber-100 bg-amber-50 px-3.5 py-2.5 text-sm text-amber-800">
+                          기존 분석은 위반으로 저장되어 있지만, 현재 근거가 부족합니다. 재분석하면 최신 배경 판정 로직으로 다시 확인됩니다.
+                        </div>
+                      )}
+                      {/* 통과 항목만 회색 체크 리스트로 — 위반 카드와 중복 제거 */}
+                      {(() => {
+                        const passedEntries = Object.entries(display.complianceScores.violations)
+                          .filter(([key, violated]) => !(violated && effectiveViolationKeys.has(key)));
+                        if (passedEntries.length === 0) return null;
+                        return (
+                          <>
+                            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">통과 항목</p>
+                            <div className="grid grid-cols-2 gap-1.5">
+                              {passedEntries.map(([key]) => (
+                                <div
+                                  key={key}
+                                  className="px-3 py-2 rounded-xl text-xs bg-slate-50 text-slate-500"
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <CheckCircle size={12} className="shrink-0 text-emerald-400" />
+                                    <span className="flex-1 truncate font-medium">{VIOLATION_LABELS[key] || key}</span>
+                                    {display.complianceScores!.confidence[key] !== undefined && (
+                                      <span className="text-[10px] font-mono shrink-0 text-slate-400">{display.complianceScores!.confidence[key]}%</span>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </>
+                        );
+                      })()}
                     </div>
                   )}
                 </div>
@@ -418,7 +774,8 @@ export function DetailModal({
             )}
           </div>
 
-          {/* ── 푸터 ── */}
+          {/* ── 푸터 (미분류는 없음) ── */}
+          {!isUnclassified && (
           <div className="flex items-center justify-between px-6 py-4 border-t border-slate-100 bg-slate-50/60 flex-shrink-0">
             <div className="flex items-center gap-2">
               {hasCandidates && (
@@ -426,6 +783,14 @@ export function DetailModal({
                   <button onClick={onDelete} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm text-red-400 hover:bg-red-50 transition-colors font-medium">
                     <XCircle size={14} /> 삭제
                   </button>
+                  {!hideEdit && (
+                    <Link
+                      href={editHref}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm text-slate-500 hover:bg-slate-200 transition-colors font-medium"
+                    >
+                      <Wand2 size={14} /> 편집 페이지
+                    </Link>
+                  )}
                   {gen?.selectedUrl && (
                     <button
                       onClick={async () => {
@@ -445,9 +810,9 @@ export function DetailModal({
                   )}
                 </>
               )}
-              {!hasCandidates && (
+              {!hasCandidates && !hideEdit && (
                 <Link
-                  href={`/thumbnail-editor?productId=${product?.productId ?? gen?.productId ?? ''}`}
+                  href={editHref}
                   className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm text-slate-500 hover:bg-slate-200 transition-colors font-medium"
                 >
                   <Wand2 size={14} /> 편집 페이지
@@ -464,15 +829,16 @@ export function DetailModal({
                 <ExternalLink size={14} />
                 {gen?.selectedUrl ? '쿠팡에 적용하기' : '이미지를 선택하세요'}
               </button>
-            ) : (
+            ) : !hideEdit ? (
               <Link
-                href={`/thumbnail-editor?productId=${product?.productId ?? gen?.productId ?? ''}`}
+                href={editHref}
                 className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 transition-colors"
               >
                 <Wand2 size={14} /> AI 편집 시작
               </Link>
-            )}
+            ) : null}
           </div>
+          )}
 
         </div>
       </div>
