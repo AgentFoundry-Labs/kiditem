@@ -44,7 +44,10 @@ export function useTrackingList(params: { page?: number; limit?: number; status?
   if (status) search.set('status', status);
   return useQuery({
     queryKey: [...queryKeys.thumbnailAnalysis.tracking(), page, limit, status ?? 'all'],
-    queryFn: () => apiClient.get<ThumbnailTrackingListResponse>(`/api/thumbnail-tracking?${search.toString()}`),
+    queryFn: () =>
+      apiClient
+        .get<ThumbnailTrackingListResponse>(`/api/thumbnail-tracking?${search.toString()}`)
+        .catch(() => ({ items: [], total: 0, page, limit })),
   });
 }
 

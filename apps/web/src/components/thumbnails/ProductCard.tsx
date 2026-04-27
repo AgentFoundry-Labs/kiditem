@@ -1,8 +1,8 @@
 'use client';
 import { useState } from 'react';
-import { ImageIcon, Zap, Loader2, CheckCircle, Wand2, Sparkles } from 'lucide-react';
+import { ImageIcon, Zap, Loader2, CheckCircle, Wand2, Sparkles, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { QUALITY_GRADE_BG, QUALITY_GRADE_TEXT, QUALITY_GRADE_LABELS, COMPLIANCE_GRADE_COLORS } from '@/app/thumbnails/lib/grade-constants';
+import { QUALITY_GRADE_BG, COMPLIANCE_GRADE_COLORS } from '@/app/thumbnails/lib/grade-constants';
 import { resolveImageUrl } from '@/lib/resolve-url';
 
 interface ProductCardProps {
@@ -19,6 +19,8 @@ interface ProductCardProps {
   ctr?: number | null;
   onGenerate?: () => void;
   onClick?: () => void;
+  onDelete?: () => void;
+  deleteLabel?: string;
 }
 
 export function ProductCard({
@@ -35,6 +37,8 @@ export function ProductCard({
   ctr,
   onGenerate,
   onClick,
+  onDelete,
+  deleteLabel = '삭제',
 }: ProductCardProps) {
   const [imgError, setImgError] = useState(false);
   const resolvedImageUrl = resolveImageUrl(imageUrl);
@@ -43,12 +47,8 @@ export function ProductCard({
   return (
     <div
       className={cn(
-        'bg-white rounded-xl overflow-hidden group cursor-pointer transition-all hover:shadow-md hover:-translate-y-0.5',
-        overlay === 'selected'
-          ? 'border-2 border-amber-400 ring-2 ring-amber-200 shadow-md shadow-amber-100'
-          : overlay === 'needs-fix'
-          ? 'border-2 border-amber-400'
-          : 'border border-slate-200',
+        'bg-white overflow-hidden group cursor-pointer transition-all hover:shadow-md hover:-translate-y-0.5',
+        overlay === 'selected' && 'shadow-sm',
       )}
       onClick={onClick}
     >
@@ -63,40 +63,23 @@ export function ProductCard({
             onError={() => setImgError(true)}
           />
         ) : (
-          <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100">
+          <div className="w-full h-full flex flex-col items-center justify-center bg-slate-50">
             <ImageIcon size={32} className="text-slate-300" />
           </div>
         )}
 
-        {grade && (
-          <div className="absolute top-2 left-2 flex items-center gap-1">
-            <span className={cn('inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-sm font-black text-white', QUALITY_GRADE_BG[grade] || 'bg-slate-500')}>
-              {grade}
-              {score !== undefined && <span className="font-mono font-medium text-[12px] opacity-80">{score}</span>}
-            </span>
-            {aiAnalyzed && (
-              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[11px] font-bold bg-purple-600 text-white">
-                <Zap size={10} /> AI
-              </span>
-            )}
-          </div>
-        )}
-
-        {complianceGrade && (
-          <div className="absolute top-2 right-2">
-            <span
-              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[10px] font-bold text-white"
-              style={{ backgroundColor: COMPLIANCE_GRADE_COLORS[complianceGrade] || '#64748b' }}
-            >
-              {complianceGrade === 'FAIL' ? '위반' : complianceGrade === 'WARN' ? '주의' : '적합'}
+        {aiAnalyzed && (
+          <div className="absolute top-1.5 right-1.5">
+            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-purple-600 text-white shadow-sm">
+              <Zap size={10} /> AI
             </span>
           </div>
         )}
 
         {candidateCount !== undefined && candidateCount > 0 && (
-          <div className="absolute top-2 right-2">
-            <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-md text-[12px] font-medium bg-blue-500 text-white">
-              <Sparkles size={12} /> {candidateCount}장
+          <div className="absolute top-1.5 left-1.5">
+            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[11px] font-medium bg-blue-500 text-white shadow-sm">
+              <Sparkles size={11} /> {candidateCount}장
             </span>
           </div>
         )}
@@ -106,25 +89,6 @@ export function ProductCard({
             <div className="text-center">
               <Loader2 size={28} className="text-white animate-spin mx-auto" />
               <div className="text-white text-xs font-medium mt-2">Gemini 생성 중...</div>
-            </div>
-          </div>
-        )}
-        {overlay === 'needs-fix' && (
-          <div className="absolute bottom-0 inset-x-0 bg-amber-500 py-1.5 flex items-center justify-center">
-            <span className="text-white text-[12px] font-semibold">개선 필요</span>
-          </div>
-        )}
-
-        {overlay === 'selected' && (
-          <div className="absolute inset-0">
-            {/* 우상단 체크 */}
-            <div className="absolute top-2 right-2 w-8 h-8 rounded-full bg-amber-500 flex items-center justify-center shadow-lg border-2 border-white">
-              <CheckCircle size={18} className="text-white" />
-            </div>
-            {/* 하단 배너 */}
-            <div className="absolute bottom-0 inset-x-0 bg-amber-500 py-1.5 flex items-center justify-center gap-1">
-              <CheckCircle size={12} className="text-white" />
-              <span className="text-white text-[12px] font-semibold">개선 필요</span>
             </div>
           </div>
         )}
@@ -156,24 +120,57 @@ export function ProductCard({
             <Loader2 size={28} className="text-white animate-spin" />
           </div>
         )}
+
+        {onDelete && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete();
+            }}
+            aria-label={deleteLabel}
+            title={deleteLabel}
+            className="absolute top-1.5 right-1.5 z-20 w-6 h-6 rounded-full bg-black/60 hover:bg-red-600 text-white opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center shadow-md"
+          >
+            <X size={13} />
+          </button>
+        )}
       </div>
 
       <div className="p-3">
-        <div className="text-[14px] font-medium text-slate-900 line-clamp-2 leading-5 min-h-[40px]">{name}</div>
-        <div className="mt-1.5 flex items-center justify-between gap-1">
-          <span>
-            {badge || (grade && (
-              <span className={cn('text-[12px] font-mono', QUALITY_GRADE_TEXT[grade] || 'text-slate-400')}>
-                {QUALITY_GRADE_LABELS[grade] || grade}
-              </span>
-            ))}
-          </span>
-          {ctr != null && (
+        {/* Meta row — grade + compliance side by side (등급 먼저, 적합/위반 뒤) */}
+        <div className="min-h-[22px] flex items-center gap-1.5 mb-1.5">
+          {grade && (
+            <span className={cn('inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[10px] font-black text-white', QUALITY_GRADE_BG[grade] || 'bg-slate-500')}>
+              {grade}
+              {score !== undefined && (
+                <span className="font-mono font-medium text-[10px] opacity-80">{score}</span>
+              )}
+            </span>
+          )}
+          {complianceGrade && (
+            <span
+              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[10px] font-bold text-white"
+              style={{ backgroundColor: COMPLIANCE_GRADE_COLORS[complianceGrade] || '#64748b' }}
+            >
+              {complianceGrade === 'FAIL' ? '위반' : complianceGrade === 'WARN' ? '주의' : '적합'}
+            </span>
+          )}
+          {badge}
+        </div>
+
+        {/* Name row */}
+        <div className="text-[13px] font-medium text-slate-900 line-clamp-2 leading-5 min-h-[40px]">
+          {name}
+        </div>
+
+        {ctr != null && (
+          <div className="mt-1 flex justify-end">
             <span className="text-[11px] font-mono font-semibold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">
               CTR {ctr.toFixed(2)}%
             </span>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     </div>
   );

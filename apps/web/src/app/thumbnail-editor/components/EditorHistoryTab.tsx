@@ -114,7 +114,6 @@ export function EditorHistoryTab() {
           generatedProductIds={new Set(generations.map((g) => g.productId))}
           onClose={() => setSelectedGen(null)}
           onAiAnalyze={() => {}}
-          onComplianceCheck={() => {}}
           onEditCompliance={() => {}}
           onEditQuality={() => {}}
           onSelectCandidate={handleSelectCandidate}

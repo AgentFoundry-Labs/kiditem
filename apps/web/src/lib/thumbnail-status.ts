@@ -22,5 +22,4 @@ export const isApplied = (g: StatusPhase): boolean =>
 export const isActive = (g: StatusPhase): boolean =>
   g.status === 'pending' || g.status === 'running';
 
-export const isCompleted = (g: StatusPhase): boolean =>
-  g.status === 'succeeded';
+export const isCompleted = (g: StatusPhase): boolean => g.status === 'succeeded';
