@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AdBenchmarkService } from '../ad-benchmark.service';
 import { AdvertisingService } from '../advertising.service';
+import { periodToDays } from '../ad-campaigns.service';
 
 /**
  * H3a quality-review fix — period cutoffs in advertising read services must
@@ -90,5 +91,41 @@ describe('Advertising read services — KST cutoff', () => {
         prisma.channelListingDailySnapshot.groupBy.mock.calls[0][0];
       expect(groupByCall.where.businessDate.gte).toEqual(expectedKstCutoff);
     });
+  });
+});
+
+/**
+ * H3a residual fix — `periodToDays('month')` must derive day-of-month from
+ * the KST view of `now`, not the server-local view. Pin a UTC moment that
+ * sits on the *previous* UTC day vs. KST: 2026-04-30T16:00:00Z is
+ * 2026-05-01T01:00:00 KST. UTC day-of-month = 30, KST day-of-month = 1.
+ * Pre-fix: returns 30 (would request a 30-day month-to-date window crossing
+ * into April). Post-fix: returns 1.
+ */
+describe('AdCampaignsService.periodToDays — KST month cutoff', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("'month' returns KST day-of-month (= 1), not UTC day-of-month (= 30)", () => {
+    // 2026-04-30 16:00 UTC = 2026-05-01 01:00 KST
+    vi.setSystemTime(new Date('2026-04-30T16:00:00.000Z'));
+    expect(periodToDays('month')).toBe(1);
+  });
+
+  it("'month' on a same-day-in-both-zones moment still returns the KST day", () => {
+    // 2026-04-15 03:00 UTC = 2026-04-15 12:00 KST → both day-of-month = 15
+    vi.setSystemTime(new Date('2026-04-15T03:00:00.000Z'));
+    expect(periodToDays('month')).toBe(15);
+  });
+
+  it("'7d' / '14d' branches are unchanged by the KST shift", () => {
+    vi.setSystemTime(new Date('2026-04-30T16:00:00.000Z'));
+    expect(periodToDays('7d')).toBe(7);
+    expect(periodToDays('14d')).toBe(14);
   });
 });

@@ -38,11 +38,12 @@ function buildMetrics(sums: {
   };
 }
 
-function periodToDays(period: CampaignsPeriod, fallback = 14): number {
+export function periodToDays(period: CampaignsPeriod, fallback = 14): number {
   if (period === '7d') return 7;
   if (period === 'month') {
-    const now = new Date();
-    return Math.max(now.getDate(), 1);
+    // KST day-of-month — server may be UTC (Docker prod runs UTC-default TZ)
+    const kstDay = new Date(Date.now() + 9 * 60 * 60 * 1000).getUTCDate();
+    return Math.max(kstDay, 1);
   }
   return fallback;
 }
