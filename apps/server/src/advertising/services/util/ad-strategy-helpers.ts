@@ -43,7 +43,8 @@ function formatLocalDate(d: Date): string {
  * Prisma relation 명은 `master` 이지만 결과는 `masterProduct` 로 remap (shared AdListingSummary 와 정합).
  * companyId scope 강제 (ADR-0006).
  *
- * primaryOption 은 ad-grade-rules 가 margin / adBudgetLimit 계산에 쓰는 active option 의 첫 번째.
+ * primaryOption 은 ad-grade-rules 가 margin / adBudgetLimit 계산에 쓰는 active option 의
+ * deterministic 첫 번째(오래된 매핑 우선, tie-breaker 로 externalOptionId/id).
  * isActive 인 옵션이 없으면 null.
  */
 export async function hydrateListings(
@@ -63,7 +64,16 @@ export async function hydrateListings(
       },
       options: {
         where: { isActive: true },
+        orderBy: [
+          { createdAt: 'asc' },
+          { externalOptionId: 'asc' },
+          { id: 'asc' },
+        ],
         select: {
+          // Wave C4: also surface the active ChannelListingOption.id so the
+          // strategy reader can fetch option daily snapshots for the same
+          // deterministic primary option that hydrate picked.
+          id: true,
           option: {
             select: {
               id: true,
@@ -79,7 +89,8 @@ export async function hydrateListings(
     },
   });
   return rows.map((r) => {
-    const firstOpt = r.options.map((clo) => clo.option).find((o): o is NonNullable<typeof o> => o != null) ?? null;
+    const firstClo =
+      r.options.find((clo): clo is typeof clo & { option: NonNullable<typeof clo.option> } => clo.option != null) ?? null;
     return {
       id: r.id,
       externalId: r.externalId,
@@ -92,14 +103,15 @@ export async function hydrateListings(
         adTier: r.master.adTier,
         healthScore: r.master.healthScore,
       },
-      primaryOption: firstOpt
+      primaryOption: firstClo
         ? {
-            id: firstOpt.id,
-            availableStock: firstOpt.availableStock,
-            costPrice: firstOpt.costPrice,
-            sellPrice: firstOpt.sellPrice,
-            commissionRate: firstOpt.commissionRate,
-            shippingCost: firstOpt.shippingCost,
+            id: firstClo.option.id,
+            listingOptionId: firstClo.id,
+            availableStock: firstClo.option.availableStock,
+            costPrice: firstClo.option.costPrice,
+            sellPrice: firstClo.option.sellPrice,
+            commissionRate: firstClo.option.commissionRate,
+            shippingCost: firstClo.option.shippingCost,
           }
         : null,
     };

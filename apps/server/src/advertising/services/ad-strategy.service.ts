@@ -3,7 +3,7 @@ import {
   NotFoundException,
   ConflictException,
 } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AgentRegistryService } from '../../agent-registry/agent-registry.service';
 import { buildPerListingMetrics } from '../../common/per-listing-profit';
@@ -32,6 +32,7 @@ import type {
   AdStrategyAction,
   AdStrategyRecommendation,
   AdWeeklyPlan,
+  ChannelStateSignal,
   ExposureAnalysisData,
   ExposureProductScore,
 } from '@kiditem/shared';
@@ -101,6 +102,7 @@ export class AdStrategyService {
         listings: ctx.listings,
         gradeMap: ctx.gradeMap,
         profitRateByListing: ctx.profitRateByListing,
+        channelStateByListing: ctx.channelStateByListing,
       }),
       issues: this.adGradeRules.calcAdIssues({
         adGroups: ctx.adIssuesAdGroups,
@@ -380,6 +382,7 @@ export class AdStrategyService {
       listings: ctx.listings,
       gradeMap: ctx.gradeMap,
       profitRateByListing: ctx.profitRateByListing,
+      channelStateByListing: ctx.channelStateByListing,
     });
   }
 
@@ -415,13 +418,18 @@ export class AdStrategyService {
     const listingIdSet = new Set(listingIds);
     const { from, to } = this.resolveMonthWindow(year, month);
 
-    const [listings, liveMetrics] = await Promise.all([
-      hydrateListings(this.prisma, companyId, listingIds),
+    // Hydrate listings first so we can hand the channel-state loader an exact
+    // primary-option list (avoids attaching the wrong option's daily snapshot
+    // — see Wave C4 review feedback). Live profit metrics + channel state run
+    // in parallel after hydrate.
+    const listings = await hydrateListings(this.prisma, companyId, listingIds);
+    const [liveMetrics, channelStateByListing] = await Promise.all([
       listingIds.length === 0
         ? Promise.resolve([])
         : buildPerListingMetrics(this.prisma, companyId, from, to).then((rows) =>
             rows.filter((row) => listingIdSet.has(row.listingId)),
           ),
+      this.loadChannelStateByListing(companyId, listings),
     ]);
 
     const profitRateByListing = new Map<string, number>(
@@ -433,9 +441,185 @@ export class AdStrategyService {
       adIssuesAdGroups: toAdAggregateRows(adAgg14d),
       listings,
       profitRateByListing,
+      channelStateByListing,
       gradeMap: buildGradeMap(listings),
       config: config satisfies AdsConfig,
     };
+  }
+
+  /**
+   * Wave C4 — read the latest `ChannelListingDailySnapshot` per listing and
+   * the latest `ChannelListingOptionDailySnapshot` for each listing's
+   * deterministic hydrated primary option, hydrated into a
+   * `ChannelStateSignal` map keyed by listingId. The map omits listings
+   * without any daily snapshot, so the rule engine sees a real `null` (not
+   * stale state) and skips evidence enrichment.
+   *
+   * Cross-domain note: `ChannelListing*DailySnapshot` are channels-namespace
+   * Prisma models, but advertising owns the dual-write helper today
+   * (`apps/server/src/advertising/CLAUDE.md` Wave C2/C3). Reading them here
+   * via `PrismaService` keeps that boundary intact — no `ChannelSyncService`
+   * inject.
+   */
+  private async loadChannelStateByListing(
+    companyId: string,
+    listings: HydratedListing[],
+  ): Promise<Map<string, ChannelStateSignal>> {
+    const map = new Map<string, ChannelStateSignal>();
+    if (listings.length === 0) return map;
+
+    const listingIds = listings.map((l) => l.id);
+    // Strategy currently surfaces ONE option per listing — the same primary
+    // option that hydrate picked. The option-daily query is filtered to those
+    // ids so a noisy or stale "lowest listingOptionId" can't shadow the
+    // primary option's daily evidence.
+    const primaryListingOptionByListing = new Map<string, string>();
+    for (const l of listings) {
+      if (l.primaryOption) {
+        primaryListingOptionByListing.set(l.id, l.primaryOption.listingOptionId);
+      }
+    }
+    const primaryListingOptionIds = Array.from(
+      primaryListingOptionByListing.values(),
+    );
+
+    type ListingDailyRow = {
+      listingId: string;
+      channel: string;
+      externalId: string;
+      businessDate: Date;
+      lastObservedAt: Date;
+      sampleCount: number;
+      productName: string | null;
+      status: string | null;
+      exposureStatus: string | null;
+      saleStatus: string | null;
+      channelPrice: number | null;
+      isOfferWinner: boolean | null;
+      myPrice: number | null;
+      winnerPrice: number | null;
+      winnerGapPrice: number | null;
+      productRank: number | null;
+      categoryRank: number | null;
+    };
+    type OptionDailyRow = {
+      listingId: string;
+      listingOptionId: string;
+      externalOptionId: string;
+      businessDate: Date;
+      optionName: string | null;
+      saleStatus: string | null;
+      isActive: boolean | null;
+      salePrice: number | null;
+      stockQty: number | null;
+      isOfferWinner: boolean | null;
+      myPrice: number | null;
+      winnerPrice: number | null;
+      winnerGapPrice: number | null;
+    };
+
+    // `DISTINCT ON` returns exactly one row per (listing_id) /
+    // (listing_option_id) — the row with the newest `business_date` thanks to
+    // the matching ORDER BY. This bounds the query to N rows for N listings
+    // regardless of how much daily history has accumulated, and lets the
+    // database do the dedup work instead of streaming everything to JS.
+    const [listingDailies, optionDailies] = await Promise.all([
+      this.prisma.$queryRaw<ListingDailyRow[]>(Prisma.sql`
+        SELECT DISTINCT ON (listing_id)
+          listing_id          AS "listingId",
+          channel,
+          external_id         AS "externalId",
+          business_date       AS "businessDate",
+          last_observed_at    AS "lastObservedAt",
+          sample_count        AS "sampleCount",
+          product_name        AS "productName",
+          status,
+          exposure_status     AS "exposureStatus",
+          sale_status         AS "saleStatus",
+          channel_price       AS "channelPrice",
+          is_offer_winner     AS "isOfferWinner",
+          my_price            AS "myPrice",
+          winner_price        AS "winnerPrice",
+          winner_gap_price    AS "winnerGapPrice",
+          product_rank        AS "productRank",
+          category_rank       AS "categoryRank"
+        FROM channel_listing_daily_snapshots
+        WHERE company_id = ${companyId}::uuid
+          AND listing_id = ANY(${listingIds}::uuid[])
+        ORDER BY listing_id, business_date DESC
+      `),
+      primaryListingOptionIds.length === 0
+        ? Promise.resolve([] as OptionDailyRow[])
+        : this.prisma.$queryRaw<OptionDailyRow[]>(Prisma.sql`
+            SELECT DISTINCT ON (listing_option_id)
+              listing_id           AS "listingId",
+              listing_option_id    AS "listingOptionId",
+              external_option_id   AS "externalOptionId",
+              business_date        AS "businessDate",
+              option_name          AS "optionName",
+              sale_status          AS "saleStatus",
+              is_active            AS "isActive",
+              sale_price           AS "salePrice",
+              stock_qty            AS "stockQty",
+              is_offer_winner      AS "isOfferWinner",
+              my_price             AS "myPrice",
+              winner_price         AS "winnerPrice",
+              winner_gap_price     AS "winnerGapPrice"
+            FROM channel_listing_option_daily_snapshots
+            WHERE company_id = ${companyId}::uuid
+              AND listing_option_id = ANY(${primaryListingOptionIds}::uuid[])
+            ORDER BY listing_option_id, business_date DESC
+          `),
+    ]);
+
+    const optionByListing = new Map<string, OptionDailyRow>();
+    for (const row of optionDailies) {
+      // Each row already represents the latest day for a primary listingOption,
+      // and we filtered the query by primary ids — so first wins per listing.
+      if (!optionByListing.has(row.listingId)) {
+        optionByListing.set(row.listingId, row);
+      }
+    }
+
+    for (const ld of listingDailies) {
+      const od = optionByListing.get(ld.listingId);
+      const signal: ChannelStateSignal = {
+        channel: ld.channel,
+        externalId: ld.externalId,
+        businessDate: ld.businessDate.toISOString().slice(0, 10),
+        lastObservedAt: ld.lastObservedAt.toISOString(),
+        sampleCount: ld.sampleCount,
+        productName: ld.productName,
+        status: ld.status,
+        exposureStatus: ld.exposureStatus,
+        saleStatus: ld.saleStatus,
+        channelPrice: ld.channelPrice,
+        isOfferWinner: ld.isOfferWinner,
+        myPrice: ld.myPrice,
+        winnerPrice: ld.winnerPrice,
+        winnerGapPrice: ld.winnerGapPrice,
+        productRank: ld.productRank,
+        categoryRank: ld.categoryRank,
+        primaryOption: od
+          ? {
+              listingOptionId: od.listingOptionId,
+              externalOptionId: od.externalOptionId,
+              optionName: od.optionName,
+              saleStatus: od.saleStatus,
+              isActive: od.isActive,
+              salePrice: od.salePrice,
+              stockQty: od.stockQty,
+              isOfferWinner: od.isOfferWinner,
+              myPrice: od.myPrice,
+              winnerPrice: od.winnerPrice,
+              winnerGapPrice: od.winnerGapPrice,
+            }
+          : null,
+      };
+      map.set(ld.listingId, signal);
+    }
+
+    return map;
   }
 
   /** getExposureAnalysis 전용 — listing 당 최소 leadTimeDays. */

@@ -666,4 +666,274 @@ describe('AdStrategy flow (PG integration)', () => {
       expect(exposure.scores[0].listing.listingId).toBe(own.listing.id);
     });
   });
+
+  // ─────────────────────────────────────────────────────────────
+  // Wave C4 — channel daily snapshot evidence on strategy actions
+  // ─────────────────────────────────────────────────────────────
+
+  describe('Wave C4 — channel state signals on getRules / getWeeklyPlan', () => {
+    async function seedListingDaily(params: {
+      companyId: string;
+      listingId: string;
+      channel?: string;
+      externalId: string;
+      businessDate: string;
+      isOfferWinner?: boolean | null;
+      myPrice?: number | null;
+      winnerPrice?: number | null;
+      winnerGapPrice?: number | null;
+      exposureStatus?: string | null;
+      saleStatus?: string | null;
+    }) {
+      return prisma.channelListingDailySnapshot.create({
+        data: {
+          companyId: params.companyId,
+          listingId: params.listingId,
+          channel: params.channel ?? 'coupang',
+          externalId: params.externalId,
+          businessDate: new Date(`${params.businessDate}T00:00:00Z`),
+          sampleCount: 1,
+          isOfferWinner: params.isOfferWinner ?? null,
+          myPrice: params.myPrice ?? null,
+          winnerPrice: params.winnerPrice ?? null,
+          winnerGapPrice: params.winnerGapPrice ?? null,
+          exposureStatus: params.exposureStatus ?? null,
+          saleStatus: params.saleStatus ?? null,
+        },
+      });
+    }
+
+    async function seedOptionDaily(params: {
+      companyId: string;
+      listingId: string;
+      listingOptionId: string;
+      externalId: string;
+      externalOptionId: string;
+      businessDate: string;
+      stockQty?: number | null;
+    }) {
+      return prisma.channelListingOptionDailySnapshot.create({
+        data: {
+          companyId: params.companyId,
+          listingId: params.listingId,
+          listingOptionId: params.listingOptionId,
+          channel: 'coupang',
+          externalId: params.externalId,
+          externalOptionId: params.externalOptionId,
+          businessDate: new Date(`${params.businessDate}T00:00:00Z`),
+          sampleCount: 1,
+          stockQty: params.stockQty ?? null,
+        },
+      });
+    }
+
+    it('attaches latest listing+option daily snapshot to action.channelState (C4-#1)', async () => {
+      const a = await seedGradedListing({
+        companyId: TEST_COMPANY_ID,
+        abcGrade: 'A',
+        adTier: '1차',
+        suffix: 'C4-EV',
+      });
+      await seedAd({
+        companyId: TEST_COMPANY_ID,
+        listingId: a.listing.id,
+        optionId: a.option.id,
+        spend: 10000,
+        revenue: 60000,
+        clicks: 100,
+        impressions: 10000,
+        conversions: 10,
+      });
+      // Two days of listing daily — pick the latest businessDate.
+      await seedListingDaily({
+        companyId: TEST_COMPANY_ID,
+        listingId: a.listing.id,
+        externalId: a.listing.externalId,
+        businessDate: '2026-04-13',
+        isOfferWinner: true,
+        myPrice: 12000,
+      });
+      await seedListingDaily({
+        companyId: TEST_COMPANY_ID,
+        listingId: a.listing.id,
+        externalId: a.listing.externalId,
+        businessDate: '2026-04-14',
+        isOfferWinner: false,
+        myPrice: 12000,
+        winnerPrice: 11500,
+        winnerGapPrice: -500,
+      });
+      await seedOptionDaily({
+        companyId: TEST_COMPANY_ID,
+        listingId: a.listing.id,
+        listingOptionId: a.listingOption.id,
+        externalId: a.listing.externalId,
+        externalOptionId: 'VI-C4-EV',
+        businessDate: '2026-04-14',
+        stockQty: 0,
+      });
+
+      const rules = await service.getRules('14d', TEST_COMPANY_ID);
+      const action = rules.recommendations.find(
+        (r) => r.listing.listingId === a.listing.id,
+      );
+      expect(action).toBeDefined();
+      expect(action?.channelState).not.toBeNull();
+      expect(action?.channelState?.businessDate).toBe('2026-04-14');
+      expect(action?.channelState?.isOfferWinner).toBe(false);
+      expect(action?.channelState?.winnerGapPrice).toBe(-500);
+      expect(action?.channelState?.primaryOption?.stockQty).toBe(0);
+      expect(action?.reason).toContain('아이템위너 아님');
+      expect(action?.reason).toContain('옵션 재고 0');
+      expect(action?.reason).toContain('2026-04-14 관측');
+    });
+
+    it('uses the deterministic hydrated primary option, not an arbitrary option daily row (C4-#1b)', async () => {
+      const a = await seedGradedListing({
+        companyId: TEST_COMPANY_ID,
+        abcGrade: 'A',
+        adTier: '1차',
+        suffix: 'C4-MULTI',
+      });
+      const earlierOption = await prisma.productOption.create({
+        data: {
+          companyId: TEST_COMPANY_ID,
+          masterId: a.master.id,
+          sku: 'SKU-C4-MULTI-EARLY',
+          optionName: 'Option C4-MULTI EARLY',
+          availableStock: 100,
+          costPrice: 5000,
+          sellPrice: 20000,
+          commissionRate: 0.1,
+          shippingCost: 2500,
+        },
+      });
+      const earlierListingOption = await prisma.channelListingOption.create({
+        data: {
+          companyId: TEST_COMPANY_ID,
+          listingId: a.listing.id,
+          optionId: earlierOption.id,
+          externalOptionId: 'VI-C4-MULTI-EARLY',
+          isActive: true,
+          createdAt: new Date('2026-04-01T00:00:00.000Z'),
+        },
+      });
+      await seedAd({
+        companyId: TEST_COMPANY_ID,
+        listingId: a.listing.id,
+        optionId: a.option.id,
+        spend: 10000,
+        revenue: 60000,
+        clicks: 100,
+        impressions: 10000,
+        conversions: 10,
+      });
+      await seedListingDaily({
+        companyId: TEST_COMPANY_ID,
+        listingId: a.listing.id,
+        externalId: a.listing.externalId,
+        businessDate: '2026-04-14',
+        isOfferWinner: true,
+      });
+      await seedOptionDaily({
+        companyId: TEST_COMPANY_ID,
+        listingId: a.listing.id,
+        listingOptionId: a.listingOption.id,
+        externalId: a.listing.externalId,
+        externalOptionId: a.listingOption.externalOptionId,
+        businessDate: '2026-04-14',
+        stockQty: 0,
+      });
+      await seedOptionDaily({
+        companyId: TEST_COMPANY_ID,
+        listingId: a.listing.id,
+        listingOptionId: earlierListingOption.id,
+        externalId: a.listing.externalId,
+        externalOptionId: earlierListingOption.externalOptionId,
+        businessDate: '2026-04-14',
+        stockQty: 7,
+      });
+
+      const rules = await service.getRules('14d', TEST_COMPANY_ID);
+      const action = rules.recommendations.find(
+        (r) => r.listing.listingId === a.listing.id,
+      );
+      expect(action).toBeDefined();
+      expect(action?.channelState?.primaryOption?.listingOptionId).toBe(
+        earlierListingOption.id,
+      );
+      expect(action?.channelState?.primaryOption?.stockQty).toBe(7);
+      expect(action?.reason).not.toContain('옵션 재고 0');
+    });
+
+    it('snapshot absent → channelState=null + reason untouched (C4-#2 fallback)', async () => {
+      const a = await seedGradedListing({
+        companyId: TEST_COMPANY_ID,
+        abcGrade: 'A',
+        adTier: '1차',
+        suffix: 'C4-NOSNAP',
+      });
+      await seedAd({
+        companyId: TEST_COMPANY_ID,
+        listingId: a.listing.id,
+        optionId: a.option.id,
+        spend: 10000,
+        revenue: 60000,
+        clicks: 100,
+        impressions: 10000,
+        conversions: 10,
+      });
+
+      const rules = await service.getRules('14d', TEST_COMPANY_ID);
+      const action = rules.recommendations.find(
+        (r) => r.listing.listingId === a.listing.id,
+      );
+      expect(action).toBeDefined();
+      expect(action?.channelState ?? null).toBeNull();
+      // No '관측' suffix, no winner-loss appendix.
+      expect(action?.reason).not.toContain('관측');
+      expect(action?.reason).not.toContain('아이템위너');
+    });
+
+    it('cross-tenant — OTHER_COMPANY daily snapshot does not bleed into TEST_COMPANY action (C4-#3)', async () => {
+      const ours = await seedGradedListing({
+        companyId: TEST_COMPANY_ID,
+        abcGrade: 'A',
+        adTier: '1차',
+        suffix: 'C4-OURS',
+      });
+      const theirs = await seedGradedListing({
+        companyId: OTHER_COMPANY_ID,
+        abcGrade: 'A',
+        adTier: '1차',
+        suffix: 'C4-THEIRS',
+      });
+      await seedAd({
+        companyId: TEST_COMPANY_ID,
+        listingId: ours.listing.id,
+        optionId: ours.option.id,
+        spend: 10000,
+        revenue: 60000,
+        clicks: 100,
+        impressions: 10000,
+        conversions: 10,
+      });
+      // Seed a noisy daily snapshot in the OTHER company — must not leak.
+      await seedListingDaily({
+        companyId: OTHER_COMPANY_ID,
+        listingId: theirs.listing.id,
+        externalId: theirs.listing.externalId,
+        businessDate: '2026-04-14',
+        isOfferWinner: false,
+        winnerGapPrice: -9999,
+      });
+
+      const rules = await service.getRules('14d', TEST_COMPANY_ID);
+      const action = rules.recommendations.find(
+        (r) => r.listing.listingId === ours.listing.id,
+      );
+      expect(action).toBeDefined();
+      expect(action?.channelState ?? null).toBeNull();
+    });
+  });
 });

@@ -13,6 +13,7 @@ const listingBase = (
   overrides: Partial<HydratedListing['masterProduct']> = {},
   option: HydratedListing['primaryOption'] = {
     id: 'O1',
+    listingOptionId: 'LO1',
     availableStock: 100,
     costPrice: 5000,
     sellPrice: 20000,
@@ -142,6 +143,7 @@ describe('AdGradeRulesService.calcActions', () => {
         [
           listingBase({}, {
             id: 'O1',
+            listingOptionId: 'LO1',
             availableStock: 0,
             costPrice: 5000,
             sellPrice: 20000,
@@ -162,6 +164,7 @@ describe('AdGradeRulesService.calcActions', () => {
         [
           listingBase({ adTier: null }, {
             id: 'O1',
+            listingOptionId: 'LO1',
             availableStock: 0,
             costPrice: 5000,
             sellPrice: 20000,
@@ -221,12 +224,135 @@ describe('AdGradeRulesService.calcActions', () => {
     });
   });
 
+  describe('Wave C4 — channel-state evidence', () => {
+    const baseChannelState = {
+      channel: 'coupang',
+      externalId: 'EXT-1',
+      businessDate: '2026-04-14',
+      lastObservedAt: '2026-04-14T05:00:00.000Z',
+      sampleCount: 1,
+      productName: '테스트 상품',
+      status: null,
+      exposureStatus: null,
+      saleStatus: null,
+      channelPrice: null,
+      isOfferWinner: null,
+      myPrice: null,
+      winnerPrice: null,
+      winnerGapPrice: null,
+      productRank: null,
+      categoryRank: null,
+      primaryOption: null,
+    };
+
+    it('attaches channelState to action when snapshot exists; reason unchanged when state is benign', () => {
+      const input = buildInput([adGroup({ spend: 10000, revenue: 50000 })]);
+      input.channelStateByListing = new Map([
+        [
+          'L1',
+          { ...baseChannelState, isOfferWinner: true, myPrice: 10000 },
+        ],
+      ]);
+      const baseline = service.calcActions({
+        ...input,
+        channelStateByListing: undefined,
+      });
+      const result = service.calcActions(input);
+      expect(result).toHaveLength(1);
+      expect(result[0].channelState).not.toBeNull();
+      expect(result[0].channelState?.isOfferWinner).toBe(true);
+      expect(result[0].channelState?.myPrice).toBe(10000);
+      // Benign state → reason text identical to pre-C4 baseline.
+      expect(result[0].reason).toBe(baseline[0].reason);
+    });
+
+    it('appends offer-winner-lost evidence with winner price + gap when isOfferWinner=false', () => {
+      const input = buildInput([adGroup({ spend: 10000, revenue: 50000 })]);
+      input.channelStateByListing = new Map([
+        [
+          'L1',
+          {
+            ...baseChannelState,
+            isOfferWinner: false,
+            myPrice: 12000,
+            winnerPrice: 11500,
+            winnerGapPrice: -500,
+          },
+        ],
+      ]);
+      const result = service.calcActions(input);
+      expect(result[0].reason).toContain('아이템위너 아님');
+      expect(result[0].reason).toContain('winner 11,500원');
+      expect(result[0].reason).toContain('차이 -500원');
+      expect(result[0].reason).toContain('2026-04-14 관측');
+    });
+
+    it('appends adverse exposure/sale status when channel reports non-active', () => {
+      const input = buildInput([adGroup({ spend: 10000, revenue: 50000 })]);
+      input.channelStateByListing = new Map([
+        [
+          'L1',
+          {
+            ...baseChannelState,
+            exposureStatus: 'suspended',
+            saleStatus: 'paused',
+          },
+        ],
+      ]);
+      const result = service.calcActions(input);
+      expect(result[0].reason).toContain('노출 suspended');
+      expect(result[0].reason).toContain('판매 paused');
+    });
+
+    it('appends "옵션 재고 0" when primaryOption.stockQty=0', () => {
+      const input = buildInput([adGroup({ spend: 10000, revenue: 50000 })]);
+      input.channelStateByListing = new Map([
+        [
+          'L1',
+          {
+            ...baseChannelState,
+            primaryOption: {
+              listingOptionId: 'LO1',
+              externalOptionId: 'V1',
+              optionName: '옵션 A',
+              saleStatus: null,
+              isActive: true,
+              salePrice: null,
+              stockQty: 0,
+              isOfferWinner: null,
+              myPrice: null,
+              winnerPrice: null,
+              winnerGapPrice: null,
+            },
+          },
+        ],
+      ]);
+      const result = service.calcActions(input);
+      expect(result[0].reason).toContain('옵션 재고 0');
+      expect(result[0].channelState?.primaryOption?.stockQty).toBe(0);
+    });
+
+    it('snapshot absent → channelState=null, reason identical to pre-C4 baseline', () => {
+      const input = buildInput([adGroup({ spend: 10000, revenue: 50000 })]);
+      // No channelStateByListing entry for L1.
+      input.channelStateByListing = new Map();
+      const baseline = service.calcActions({
+        ...input,
+        channelStateByListing: undefined,
+      });
+      const result = service.calcActions(input);
+      expect(result[0].channelState).toBeNull();
+      expect(result[0].reason).toBe(baseline[0].reason);
+    });
+  });
+
   describe('priority 정렬', () => {
     it('urgent → high → medium → low 순 정렬', () => {
       // A urgent (재고0) + B high (roas 480) + B low (roas 300)
       const listings = [
         listingBase({}, {
           id: 'Oa',
+          listingOptionId: 'LOa',
           availableStock: 0,
           costPrice: 5000,
           sellPrice: 20000,
@@ -235,6 +361,7 @@ describe('AdGradeRulesService.calcActions', () => {
         }),
         { ...listingBase({}, {
           id: 'Ob',
+          listingOptionId: 'LOb',
           availableStock: 100,
           costPrice: 5000,
           sellPrice: 20000,
@@ -243,6 +370,7 @@ describe('AdGradeRulesService.calcActions', () => {
         }), id: 'L2' },
         { ...listingBase({}, {
           id: 'Oc',
+          listingOptionId: 'LOc',
           availableStock: 100,
           costPrice: 5000,
           sellPrice: 20000,

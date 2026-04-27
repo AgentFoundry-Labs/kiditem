@@ -1,5 +1,9 @@
 import type { Prisma } from '@prisma/client';
-import type { AdMetrics, AdStrategyAction } from '@kiditem/shared';
+import type {
+  AdMetrics,
+  AdStrategyAction,
+  ChannelStateSignal,
+} from '@kiditem/shared';
 
 // AdAction targetType 값 union (services/types.ts 전용 export, AdActionCommandDto 는 dto/).
 export const AD_ACTION_TARGET_TYPES = ['campaign', 'keyword'] as const;
@@ -115,6 +119,13 @@ export interface HydratedListing {
    */
   primaryOption: {
     id: string;
+    /**
+     * Wave C4: ChannelListingOption.id corresponding to the primary option.
+     * Strategy uses this to fetch the option's latest daily snapshot directly
+     * (instead of falling back to "lowest listingOptionId for this listing",
+     * which can attach the wrong option's stock evidence).
+     */
+    listingOptionId: string;
     availableStock: number | null;
     costPrice: number | null;
     sellPrice: number | null;
@@ -149,6 +160,15 @@ export interface GradeRulesInput {
   gradeMap: Map<string, 'A' | 'B' | 'C' | null>;
   /** listingId -> live monthly profitRate percentage (for example 20, -5.4, 0). */
   profitRateByListing: Map<string, number>;
+  /**
+   * Wave C4 — optional latest `ChannelListingDailySnapshot` (+ primary option
+   * daily) per listing. When present, the rule engine attaches it to each
+   * `AdStrategyAction.channelState` and enriches the `reason` text with
+   * product-state evidence. When omitted (or no snapshot exists for a
+   * listing), behavior is identical to pre-C4 — `channelState` is null and
+   * the original reason text stands.
+   */
+  channelStateByListing?: Map<string, ChannelStateSignal>;
 }
 
 export interface AdIssuesInput {

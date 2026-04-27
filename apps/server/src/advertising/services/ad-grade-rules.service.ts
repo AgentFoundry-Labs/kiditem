@@ -1,5 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import type { AdStrategyAction, AdIssues } from '@kiditem/shared';
+import type {
+  AdStrategyAction,
+  AdIssues,
+  ChannelStateSignal,
+} from '@kiditem/shared';
 import type { GradeRulesInput, AdIssuesInput, HydratedListing } from './types';
 import { toListingSummary } from './util/ad-strategy-helpers';
 
@@ -36,7 +40,13 @@ export class AdGradeRulesService {
    * spend === 0 인 listing 도 skip (B2b 원본 line 719).
    */
   calcActions(input: GradeRulesInput): AdStrategyAction[] {
-    const { adGroups, listings, gradeMap, profitRateByListing } = input;
+    const {
+      adGroups,
+      listings,
+      gradeMap,
+      profitRateByListing,
+      channelStateByListing,
+    } = input;
     const listingMap = new Map(listings.map((l) => [l.id, l]));
     const adMap = new Map(adGroups.map((a) => [a.listingId, a]));
 
@@ -181,14 +191,25 @@ export class AdGradeRulesService {
       const currentValue = roas;
       const proposedValue = profitRate > 0 ? Math.round(profitRate) : null;
 
+      // Wave C4 — attach channel-state evidence (latest daily snapshot) when
+      // available. Reason text is enriched only when the snapshot reveals a
+      // meaningful adverse condition (offer-winner lost / option out of stock /
+      // exposure suspended); otherwise the reason stays exactly as before so
+      // pre-C4 callers see no diff.
+      const channelState = channelStateByListing?.get(listing.id) ?? null;
+      const reason = channelState
+        ? appendChannelEvidence(main.reason, channelState)
+        : main.reason;
+
       actions.push({
         listing: summary,
         grade,
         actionType,
         priority: main.priority,
-        reason: main.reason,
+        reason,
         currentValue,
         proposedValue,
+        channelState,
       } satisfies AdStrategyAction);
       // name 은 reason/alert 생성 시 사용되며 현재 AdStrategyAction 에 노출되진 않음 (B2b alert 제거분).
       void name;
@@ -308,4 +329,43 @@ function calcOptionMargin(option: HydratedListing['primaryOption']): number {
   const sell = option.sellPrice ?? 0;
   if (sell <= 0 || cost <= 0) return 0;
   return sell - cost;
+}
+
+/**
+ * Wave C4 — append channel daily-snapshot evidence to the reason text.
+ *
+ * Rules (only adverse signals — positive states stay implicit):
+ * - offer-winner lost → `· 아이템위너 아님` (+ winner price/gap when known)
+ * - exposure/sale status not 'active' → `· 채널 상태 <status>`
+ * - primary option stockQty === 0 → `· 옵션 재고 0`
+ *
+ * Always suffix the businessDate so reviewers know the evidence freshness.
+ */
+function appendChannelEvidence(reason: string, state: ChannelStateSignal): string {
+  const fragments: string[] = [];
+
+  if (state.isOfferWinner === false) {
+    if (state.winnerPrice != null && state.winnerGapPrice != null) {
+      fragments.push(
+        `아이템위너 아님 (winner ${state.winnerPrice.toLocaleString()}원, 차이 ${state.winnerGapPrice.toLocaleString()}원)`,
+      );
+    } else {
+      fragments.push('아이템위너 아님');
+    }
+  }
+
+  const adverseStatus = (value: string | null): boolean =>
+    value != null && value.length > 0 && value.toLowerCase() !== 'active';
+  if (adverseStatus(state.exposureStatus)) {
+    fragments.push(`노출 ${state.exposureStatus}`);
+  }
+  if (adverseStatus(state.saleStatus)) {
+    fragments.push(`판매 ${state.saleStatus}`);
+  }
+
+  const optStock = state.primaryOption?.stockQty;
+  if (optStock === 0) fragments.push('옵션 재고 0');
+
+  if (fragments.length === 0) return reason;
+  return `${reason} · ${fragments.join(' · ')} (${state.businessDate} 관측)`;
 }

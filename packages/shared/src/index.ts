@@ -327,6 +327,8 @@ export {
   ExposureProductScoreSchema,
   ExposureUrgentActionSchema,
   ExposureAnalysisDataSchema,
+  ChannelStateSignalSchema,
+  ChannelOptionStateSignalSchema,
 } from './schemas/ads.js';
 export type {
   AdListingSummary,
@@ -352,6 +354,8 @@ export type {
   ExposureProductScore,
   ExposureUrgentAction,
   ExposureAnalysisData,
+  ChannelStateSignal,
+  ChannelOptionStateSignal,
 } from './schemas/ads.js';
 
 // Alerts
