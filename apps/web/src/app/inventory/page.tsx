@@ -7,24 +7,27 @@ import { z } from 'zod';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
 import { apiClient } from '@/lib/api-client';
-import { SyncInfoSchema } from '@kiditem/shared';
-import type { SyncInfo } from '@kiditem/shared';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { InventoryToolbar } from './components/InventoryToolbar';
 import { InventorySummaryCards } from './components/InventorySummaryCards';
 import { InventoryFilterTabs } from './components/InventoryFilterTabs';
 import { InventoryTable } from './components/InventoryTable';
 import { StockOperationDialog } from './components/StockOperationDialog';
-import type { StockOperationMode } from './components/StockOperationDialog';
 import { printBarcodeWindow } from './lib/barcode-print';
 import { useInventoryList } from './hooks/useInventory';
 import { fetchAllInventoryForExport, toInventoryExportRows } from './lib/inventory-export';
+import type { StockOperationMode } from './components/StockOperationDialog';
+import type { SyncInfo } from '@kiditem/shared';
 import type { InventoryFilterKey } from './lib/inventory-api';
 import type { InventoryListItem, InventorySummary } from '@kiditem/shared';
 
 const DEFAULT_SUMMARY: InventorySummary = { total: 0, healthy: 0, low: 0, out: 0 };
 
 const SyncResponseSchema = z.object({ synced: z.number().int().optional() });
+const CoupangDashboardSyncSchema = z.object({
+  lastSyncedAt: z.string().nullable().optional(),
+  lastModifiedAt: z.string().nullable().optional(),
+}).passthrough();
 
 export default function InventoryPage() {
   const queryClient = useQueryClient();
@@ -62,7 +65,11 @@ export default function InventoryPage() {
     queryKey: queryKeys.syncInfo(),
     queryFn: async () => {
       try {
-        return await apiClient.getParsed('/api/coupang-dashboard', SyncInfoSchema);
+        const raw = await apiClient.get<unknown>('/api/coupang-dashboard');
+        const data = CoupangDashboardSyncSchema.parse(raw);
+        return {
+          lastSyncedAt: data.lastSyncedAt ?? data.lastModifiedAt ?? null,
+        } satisfies SyncInfo;
       } catch {
         return { lastSyncedAt: null } satisfies SyncInfo;
       }

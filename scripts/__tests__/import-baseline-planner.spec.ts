@@ -150,6 +150,23 @@ describe('planKiditemImport — option barcode is never the source EAN', () => {
     const optionKeys = Object.keys(plan.options[0]);
     expect(optionKeys).not.toContain('barcode');
   });
+
+  it('does not use 모델명/EAN as a fallback option display name', () => {
+    const rows: WorkbookRow[] = [
+      row({
+        상품코드: 'OPT-1',
+        자사상품코드: '8806384808919',
+        상품명: 'Toy D',
+        옵션명: '',
+        모델명: '8806384808919',
+      }),
+    ];
+
+    const plan = planKiditemImport(rows);
+
+    expect(plan.masters[0].sourceBarcode).toBe('8806384808919');
+    expect(plan.options[0].optionDisplayName).toBeNull();
+  });
 });
 
 describe('planKiditemImport — blank-barcode rows do not collapse', () => {

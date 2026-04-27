@@ -131,7 +131,10 @@ function rowName(row: WorkbookRow, fallback: string): string {
 }
 
 function rowOptionName(row: WorkbookRow): string | null {
-  return clean(row['옵션명']) ?? clean(row['모델명']);
+  // `모델명` in the KidItem baseline workbook is frequently an EAN/barcode-like
+  // identifier, not a human option label. Do not fall back to it for display:
+  // no-option products must remain `null` so inventory/product UIs render "-".
+  return clean(row['옵션명']);
 }
 
 /**
