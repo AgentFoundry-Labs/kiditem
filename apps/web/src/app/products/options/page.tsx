@@ -4,7 +4,6 @@ import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Layers, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
-import type { ProductOption } from '@kiditem/shared';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
 import {
@@ -21,6 +20,7 @@ import ProductOptionFilters, {
 } from './components/ProductOptionFilters';
 import ProductOptionTable from './components/ProductOptionTable';
 import ProductOptionEditModal from './components/ProductOptionEditModal';
+import type { ProductOption } from '@kiditem/shared';
 
 const PAGE_LIMIT = 100;
 
@@ -132,7 +132,7 @@ export default function ProductOptionsPage() {
               상품 옵션 관리
             </h1>
             <p className="text-xs text-slate-500 mt-0.5">
-              ProductOption 단위 — SKU / 옵션명 / 옵션 바코드 / 활성·삭제 관리
+              ProductOption 단위 — SKU / 옵션명 / 판매자 상품코드 / 활성·삭제 관리
             </p>
           </div>
         </div>

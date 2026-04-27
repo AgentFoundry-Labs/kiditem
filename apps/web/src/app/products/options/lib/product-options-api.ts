@@ -56,15 +56,13 @@ export async function fetchProductOptionList(
 }
 
 /**
- * UpdateOptionDto editable fields. Mirrors the server DTO; barcode is
- * intentionally constrained to the same EAN-13 13-digit pattern that
- * `CreateOptionDto.@Matches(/^\\d{13}$/)` enforces — submitting a non-13-digit
- * value would bounce with HTTP 400 and the user would see no detail.
+ * Option-management editable fields. Barcode data is intentionally excluded
+ * from this page boundary because external/source barcodes and legacy seller
+ * option codes are managed independently.
  */
 export interface ProductOptionEditableFields {
   optionName?: string | null;
   legacyCode?: string | null;
-  barcode?: string | null;
   costPrice?: number | null;
   sellPrice?: number | null;
   isActive?: boolean;

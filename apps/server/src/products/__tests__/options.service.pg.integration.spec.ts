@@ -96,6 +96,21 @@ describe('OptionsService integration', () => {
     expect(items.map((item) => item.id)).toEqual([match.id]);
   });
 
+  it('does not search option-management rows by barcode data', async () => {
+    const master = await mastersSvc.create(TEST_COMPANY_ID, { name: 'Barcode Boundary Master' } as any);
+    const barcode = '8801234567890';
+    await svc.create(TEST_COMPANY_ID, {
+      masterId: master.id,
+      optionName: 'Blue / S',
+      legacyCode: '10349-1',
+      barcode,
+    } as any);
+
+    const { items } = await svc.list(TEST_COMPANY_ID, { search: barcode, limit: 10 } as any);
+
+    expect(items).toEqual([]);
+  });
+
   it('prevents isBundle flip true → false when BundleComponent rows exist', async () => {
     const m = await mastersSvc.create(TEST_COMPANY_ID, { name: 'M6' } as any);
     const bundle = await svc.create(TEST_COMPANY_ID, {

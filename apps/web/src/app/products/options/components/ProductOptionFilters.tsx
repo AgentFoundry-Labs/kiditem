@@ -43,7 +43,7 @@ export default function ProductOptionFilters({
           type="text"
           value={draftSearch}
           onChange={(e) => onSearchInputChange(e.target.value)}
-          placeholder="SKU · 옵션명 · 판매자 상품코드 · 옵션 바코드 검색"
+          placeholder="SKU · 옵션명 · 판매자 상품코드 검색"
           className="w-full h-10 pl-9 pr-3 text-sm rounded-lg border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-purple-500"
         />
       </form>
