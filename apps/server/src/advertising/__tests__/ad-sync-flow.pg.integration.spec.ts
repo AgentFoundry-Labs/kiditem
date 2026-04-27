@@ -104,11 +104,13 @@ describe('AdSync flow (PG integration)', () => {
       // Wave C2: externalOptionIdMap entries now carry listingOptionId so C3
       // can land option daily snapshots even when the internal optionId is
       // null. Existing matched-option case still resolves to the same internal
-      // optionId / listingId.
+      // optionId / listingId. Wave C3 additionally carries listing.externalId
+      // for denormalized daily snapshot rows without a second DB lookup.
       expect(map.externalOptionIdMap.get('VENDOR-A')).toEqual({
         listingId: a.listing.id,
         listingOptionId: a.listingOption.id,
         optionId: a.option.id,
+        externalId: 'EXT-A',
       });
       expect(map.externalIdMap.get('EXT-A')).toEqual({ listingId: a.listing.id });
       expect(map.externalOptionIdMap.has('VENDOR-OTHER')).toBe(false);

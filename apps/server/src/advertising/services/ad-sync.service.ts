@@ -317,6 +317,16 @@ export class AdSyncService {
     );
   }
 
+  private resolveBusinessDate(
+    ...candidates: Array<string | undefined | null>
+  ): Date {
+    for (const candidate of candidates) {
+      const parsed = this.toBusinessDate(candidate);
+      if (parsed) return parsed;
+    }
+    return this.currentBusinessDate();
+  }
+
   /**
    * Wave C2 — finalize a scrape run with `status='error'` after a thrown
    * exception. Keeps the run row from being stuck on `status='running'`
@@ -370,7 +380,11 @@ export class AdSyncService {
   ) {
     const campaignName = payload.campaignName || '_전체';
     const period = String(payload.period || '7d');
-    const today = this.toBusinessDate(payload.timestamp) ?? this.currentBusinessDate();
+    const today = this.resolveBusinessDate(
+      payload.timestamp,
+      payload.dateFrom,
+      payload.dateTo,
+    );
     const kpis = payload.kpis || {};
     const normalizedRows = payload.normalizedRows ?? [];
     const scrapeRows = this.pairScrapeRows(payload.data, normalizedRows);
@@ -734,8 +748,14 @@ export class AdSyncService {
     let upserted = 0;
 
     // Wave C2 — pageType: wing → 'itemwinner', advertising rows are
-    // per-row pageType. businessDate from payload.timestamp (KST date).
-    const businessDate = this.toBusinessDate(payload.timestamp ?? null);
+    // per-row pageType. businessDate comes from timestamp/date-range fields
+    // through the shared KST resolver.
+    const businessDate = this.resolveBusinessDate(
+      payload.timestamp,
+      payload.startDate,
+      payload.dateFrom,
+      payload.dateTo,
+    );
     const scrapeRun = await this.scrapePersistence.createRun({
       companyId,
       channel: 'coupang',
@@ -1055,8 +1075,13 @@ export class AdSyncService {
     map: ListingMap,
   ) {
     const period = Number(payload.period) || 14;
-    const today = this.toBusinessDate(payload.startDate ?? payload.timestamp)
-      ?? this.currentBusinessDate();
+    const today = this.resolveBusinessDate(
+      payload.startDate,
+      payload.dateFrom,
+      payload.timestamp,
+      payload.endDate,
+      payload.dateTo,
+    );
     const data = payload.data ?? [];
     let upserted = 0;
     let skipped = 0;
@@ -1273,7 +1298,13 @@ export class AdSyncService {
       channel: 'coupang',
       source: 'coupang_ads',
       pageType: 'dashboard_daily',
-      businessDate: this.toBusinessDate(payload.startDate),
+      businessDate: this.resolveBusinessDate(
+        payload.startDate,
+        payload.dateFrom,
+        payload.timestamp,
+        payload.endDate,
+        payload.dateTo,
+      ),
       periodStart: this.toBusinessDate(payload.dateFrom ?? payload.startDate),
       periodEnd: this.toBusinessDate(payload.dateTo ?? payload.endDate),
       targetUrl: payload.url ?? null,

@@ -403,6 +403,7 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
     expect(run?.pageType).toBe('dashboard_daily');
     expect(run?.status).toBe('complete');
     expect(run?.finishedAt).not.toBeNull();
+    expect(run?.businessDate?.toISOString().slice(0, 10)).toBe('2026-04-12');
     expect(run?.periodStart?.toISOString().slice(0, 10)).toBe('2026-04-12');
     expect(run?.periodEnd?.toISOString().slice(0, 10)).toBe('2026-04-14');
     expect(run?.matchedCount).toBe(0);
