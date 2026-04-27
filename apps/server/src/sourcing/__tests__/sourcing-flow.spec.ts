@@ -1,3 +1,4 @@
+import { NotImplementedException } from '@nestjs/common';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SourcingService } from '../sourcing.service';
 
@@ -19,7 +20,7 @@ function makeAgentRegistry() {
   };
 }
 
-describe('SourcingService — extension data → product creation', () => {
+describe('SourcingService — extension data ingestion', () => {
   let service: SourcingService;
   let prisma: ReturnType<typeof makePrisma>;
   let agentRegistry: ReturnType<typeof makeAgentRegistry>;
@@ -30,11 +31,10 @@ describe('SourcingService — extension data → product creation', () => {
     service = new SourcingService(prisma as any, agentRegistry as any);
   });
 
-  it('receiveExtensionData with new source_url → creates new product', async () => {
+  it('receiveExtensionData with new source_url → rejects create path until MasterCodeService integration', async () => {
     prisma.masterProduct.findFirst.mockResolvedValue(null);
-    prisma.masterProduct.create.mockResolvedValue({ id: 'prod-1' });
 
-    const result = await service.receiveExtensionData(
+    await expect(service.receiveExtensionData(
       {
         page_type: 'detail',
         title: '아동용 스니커즈',
@@ -44,24 +44,13 @@ describe('SourcingService — extension data → product creation', () => {
         images: ['https://img1.jpg'],
       },
       'company-1',
-    );
+    )).rejects.toThrow(NotImplementedException);
 
     expect(prisma.masterProduct.findFirst).toHaveBeenCalledWith({
       where: { sourceUrl: 'https://1688.com/item/12345', companyId: 'company-1' },
     });
-    expect(prisma.masterProduct.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          name: '아동용 스니커즈',
-          companyId: 'company-1',
-          sourceUrl: 'https://1688.com/item/12345',
-          sourcePlatform: 'ALIBABA_1688',
-          costCny: 15.5,
-        }),
-      }),
-    );
-    expect(result.ok).toBe(true);
-    expect(result.product_count).toBe(1);
+    expect(prisma.masterProduct.create).not.toHaveBeenCalled();
+    expect(prisma.masterProduct.update).not.toHaveBeenCalled();
   });
 
   it('receiveExtensionData with existing source_url → updates existing product', async () => {
@@ -94,8 +83,8 @@ describe('SourcingService — extension data → product creation', () => {
   });
 
   it('price parsing: priceRange "¥12.5-¥25.0" format → extracts minimum cost', async () => {
-    prisma.masterProduct.findFirst.mockResolvedValue(null);
-    prisma.masterProduct.create.mockResolvedValue({ id: 'prod-2' });
+    prisma.masterProduct.findFirst.mockResolvedValue({ id: 'prod-existing' });
+    prisma.masterProduct.update.mockResolvedValue({ id: 'prod-existing' });
 
     await service.receiveExtensionData(
       {
@@ -108,8 +97,9 @@ describe('SourcingService — extension data → product creation', () => {
       'company-1',
     );
 
-    expect(prisma.masterProduct.create).toHaveBeenCalledWith(
+    expect(prisma.masterProduct.update).toHaveBeenCalledWith(
       expect.objectContaining({
+        where: { id: 'prod-existing' },
         data: expect.objectContaining({
           costCny: 12.5,
         }),
@@ -117,9 +107,9 @@ describe('SourcingService — extension data → product creation', () => {
     );
   });
 
-  it('companyId is resolved and stored on new product', async () => {
-    prisma.masterProduct.findFirst.mockResolvedValue(null);
-    prisma.masterProduct.create.mockResolvedValue({ id: 'prod-3' });
+  it('companyId scopes source_url lookup before updating a matched product', async () => {
+    prisma.masterProduct.findFirst.mockResolvedValue({ id: 'prod-3' });
+    prisma.masterProduct.update.mockResolvedValue({ id: 'prod-3' });
 
     await service.receiveExtensionData(
       {
@@ -132,14 +122,19 @@ describe('SourcingService — extension data → product creation', () => {
       'company-A',
     );
 
-    expect(prisma.masterProduct.create).toHaveBeenCalledWith(
+    expect(prisma.masterProduct.findFirst).toHaveBeenCalledWith({
+      where: { sourceUrl: 'https://alibaba.com/product/abc', companyId: 'company-A' },
+    });
+    expect(prisma.masterProduct.update).toHaveBeenCalledWith(
       expect.objectContaining({
+        where: { id: 'prod-3' },
         data: expect.objectContaining({
-          companyId: 'company-A',
-          sourcePlatform: 'ALIBABA',
+          name: '유아 모자',
+          costCny: 8.0,
         }),
       }),
     );
+    expect(prisma.masterProduct.create).not.toHaveBeenCalled();
   });
 
   it('search page type → returns product_count from total_found, does not create product', async () => {
