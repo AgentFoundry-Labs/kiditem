@@ -12,8 +12,8 @@ const deletedLegacyTables = [
   ' ads ',
 ];
 
-function runCoupangData(args: string[]) {
-  return execFileSync(join(repoRoot, 'node_modules/.bin/tsx'), ['scripts/coupang-dev-data.ts', ...args], {
+function runDevData(args: string[]) {
+  return execFileSync(join(repoRoot, 'node_modules/.bin/tsx'), ['scripts/dev-data.ts', ...args], {
     cwd: repoRoot,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -29,18 +29,16 @@ describe('legacy market-data migration entrypoints', () => {
     expect(packageJson.scripts).not.toHaveProperty('migrate:dashboard');
     expect(packageJson.scripts).not.toHaveProperty('seed:channel-market-data');
     expect(existsSync(join(repoRoot, 'scripts/seed-channel-market-data.ts'))).toBe(false);
+    expect(existsSync(join(repoRoot, 'scripts/coupang-dev-data.ts'))).toBe(false);
     expect(packageJson.scripts).toMatchObject({
-      'data:coupang:export': 'tsx scripts/coupang-dev-data.ts export',
-      'data:coupang:replay': 'tsx scripts/coupang-dev-data.ts replay',
-      'data:coupang:sanitize': 'tsx scripts/coupang-dev-data.ts sanitize',
       'data:dev:pull': 'tsx scripts/dev-data.ts pull',
       'data:dev:pack': 'tsx scripts/dev-data.ts pack',
       'data:dev:publish': 'tsx scripts/dev-data.ts publish',
+      'data:dev:export': 'tsx scripts/dev-data.ts export',
+      'data:dev:sanitize': 'tsx scripts/dev-data.ts sanitize',
+      'data:dev:replay': 'tsx scripts/dev-data.ts replay',
     });
-    expect(packageJson.scripts).not.toHaveProperty('data:coupang:status');
-    expect(packageJson.scripts).not.toHaveProperty('data:coupang:pull');
-    expect(packageJson.scripts).not.toHaveProperty('data:coupang:pack');
-    expect(packageJson.scripts).not.toHaveProperty('data:coupang:publish');
+    expect(Object.keys(packageJson.scripts ?? {}).filter((name) => name.startsWith('data:coupang:'))).toEqual([]);
 
     for (const relativePath of [
       'scripts/migrate-dashboard-data.ts',
@@ -56,7 +54,7 @@ describe('legacy market-data migration entrypoints', () => {
   });
 });
 
-describe('coupang dev data adapter', () => {
+describe('dev data coupang domain adapter', () => {
   it('exports scraper payloads and replays them in dry-run mode', () => {
     const tempRoot = mkdtempSync(join(tmpdir(), 'kiditem-coupang-adapter-'));
     const payloadDir = join(tempRoot, 'payloads');
@@ -71,8 +69,9 @@ describe('coupang dev data adapter', () => {
       data: [{ businessDate: '2026-04-28', visitors: 7 }],
     }));
 
-    const exportOutput = JSON.parse(runCoupangData([
+    const exportOutput = JSON.parse(runDevData([
       'export',
+      '--domain', 'coupang',
       '--dataset', datasetId,
       '--lane', 'real',
       '--payload', payloadFile,
@@ -83,8 +82,9 @@ describe('coupang dev data adapter', () => {
 
     expect(exportOutput).toMatchObject({ exported: datasetId, payloadCount: 1 });
 
-    const dryRun = JSON.parse(runCoupangData([
+    const dryRun = JSON.parse(runDevData([
       'replay',
+      '--domain', 'coupang',
       '--dataset', datasetId,
       '--data-root', dataRoot,
       '--dry-run',

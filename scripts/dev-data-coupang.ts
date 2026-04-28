@@ -65,8 +65,7 @@ type ReplayResult = {
   error?: string;
 };
 
-function parseArgs(): Args {
-  const raw = process.argv.slice(2);
+function parseArgs(raw = process.argv.slice(2)): Args {
   const command = (raw.shift() ?? 'replay') as Command;
   if (!['replay', 'sanitize', 'export'].includes(command)) {
     throw new Error(`Unknown command: ${command}`);
@@ -397,7 +396,7 @@ async function postToServer(
   return json;
 }
 
-async function commandReplay(args: Args): Promise<void> {
+async function commandReplay(args: Args): Promise<unknown> {
   const datasetId = await resolveDatasetId(args);
   const bundleDir = localBundleDir(args, datasetId);
   const manifest = await loadManifest(bundleDir);
@@ -420,8 +419,7 @@ async function commandReplay(args: Args): Promise<void> {
   }
 
   if (bool(args, 'dry-run')) {
-    console.log(JSON.stringify({ datasetId, mode, payloads: bodies.length, sources: [...sources] }, null, 2));
-    return;
+    return { datasetId, mode, payloads: bodies.length, sources: [...sources] };
   }
 
   let cleanup: unknown = null;
@@ -466,8 +464,8 @@ async function commandReplay(args: Args): Promise<void> {
   };
   const reportPath = path.join(localDataRoot(args), `replay-report-${datasetId}.json`);
   await writeJson(reportPath, report);
-  console.log(JSON.stringify({ reportPath, ...report }, null, 2));
   if (results.some((result) => !result.ok)) process.exitCode = 1;
+  return { reportPath, ...report };
 }
 
 function sanitizeValue(key: string, valueToSanitize: unknown): unknown {
@@ -490,7 +488,7 @@ function sanitizeValue(key: string, valueToSanitize: unknown): unknown {
   return valueToSanitize;
 }
 
-async function commandSanitize(args: Args): Promise<void> {
+async function commandSanitize(args: Args): Promise<unknown> {
   const datasetId = await resolveDatasetId(args);
   const sourceDir = localBundleDir(args, datasetId);
   const sourceManifest = await loadManifest(sourceDir);
@@ -524,10 +522,10 @@ async function commandSanitize(args: Args): Promise<void> {
     checksums,
   };
   await writeJson(path.join(targetDir, 'manifest.json'), manifest);
-  console.log(JSON.stringify({ sanitized: datasetId, targetDataset, targetDir }, null, 2));
+  return { sanitized: datasetId, targetDataset, targetDir };
 }
 
-async function commandExport(args: Args): Promise<void> {
+async function commandExport(args: Args): Promise<unknown> {
   const datasetId = value(args, 'dataset');
   if (!datasetId) throw new Error('export requires --dataset');
   assertSafeDatasetId(datasetId);
@@ -589,25 +587,18 @@ async function commandExport(args: Args): Promise<void> {
     checksums,
   };
   await writeJson(path.join(targetDir, 'manifest.json'), manifest);
-  console.log(JSON.stringify({ exported: datasetId, targetDir, payloadCount: payloads.length }, null, 2));
+  return { exported: datasetId, targetDir, payloadCount: payloads.length };
 }
 
-async function main(): Promise<void> {
-  const args = parseArgs();
+export async function runCoupangDevData(rawArgs: string[]): Promise<unknown> {
+  const args = parseArgs(rawArgs);
   switch (args.command) {
     case 'replay':
-      await commandReplay(args);
-      break;
+      return commandReplay(args);
     case 'sanitize':
-      await commandSanitize(args);
-      break;
+      return commandSanitize(args);
     case 'export':
-      await commandExport(args);
-      break;
+      return commandExport(args);
   }
+  throw new Error(`Unsupported Coupang dev data command: ${args.command}`);
 }
-
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : error);
-  process.exitCode = 1;
-});

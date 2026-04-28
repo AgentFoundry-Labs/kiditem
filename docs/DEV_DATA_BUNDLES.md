@@ -141,18 +141,19 @@ Drive 의 `{domain}-{lane}/latest.json` 이 해당 도메인/lane 의 현재 기
 
 ## Producer 플로우
 
-스크래핑을 수행한 사람이 payload JSON 을 bundle 로 만들고 Drive 동기화 폴더에 publish 한다. 쿠팡은 기존 extension sync payload 를 만들기 위해 `data:coupang:export` 를 사용하고, 공유 artifact publish 는 generic `data:dev:publish` 를 사용한다.
+스크래핑을 수행한 사람이 payload JSON 을 bundle 로 만들고 Drive 동기화 폴더에 publish 한다. 쿠팡도 공개 워크플로우는 `data:dev:* --domain coupang` 으로 통일한다.
 
 ```bash
 export KIDITEM_DEV_DATA_DRIVE_DIR="$HOME/Library/CloudStorage/GoogleDrive-.../My Drive/KidItem Dev Data"
 
-npm run data:coupang:export -- \
+npm run data:dev:export -- \
+  --domain coupang \
   --dataset 2026-04-28-real-v1 \
   --lane real \
   --payload-dir ./scraper-output/coupang \
   --from 2026-04-01 \
   --to 2026-04-28 \
-  --data-root .data/dev/coupang
+  --data-root .data/dev
 
 npm run data:dev:pack -- --domain coupang --dataset 2026-04-28-real-v1
 npm run data:dev:publish -- --domain coupang --dataset 2026-04-28-real-v1
@@ -193,7 +194,7 @@ npm run dev:server
 
 ```bash
 npm run data:dev:pull -- --domain coupang --lane real
-npm run data:coupang:replay -- --data-root .data/dev/coupang --mode scoped-replace --yes
+npm run data:dev:replay -- --domain coupang --mode scoped-replace --yes
 ```
 
 ## 모드
@@ -208,6 +209,7 @@ npm run data:coupang:replay -- --data-root .data/dev/coupang --mode scoped-repla
 ## 기존 방식과의 차이
 
 - `scripts/seed-channel-market-data.ts` 는 제거됐다. synthetic daily fact seed 는 실제 scrape replay 를 가려서 표준 경로로 쓰지 않는다.
+- `data:coupang:*` npm script 와 직접 실행용 `scripts/coupang-dev-data.ts` 는 제거됐다. 쿠팡도 `data:dev:* --domain coupang` 만 사용한다.
 - `prisma/init.sql.gz` 는 개발 데이터 공유 수단이 아니다. Fresh Docker volume snapshot 이 꼭 필요할 때만 예외적으로 쓴다.
 - `prisma/backfill-*.sql` 은 스키마/데이터 마이그레이션용이다. 팀원이 같은 화면 데이터를 보게 만드는 용도로 쓰지 않는다.
 - 실제 서비스/개발 화면은 Google Drive 를 직접 읽지 않는다. Drive bundle 은 로컬 DB/MinIO/S3 에 주입되는 입력 데이터일 뿐이다.

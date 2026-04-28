@@ -15,6 +15,7 @@ import {
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
+import { runCoupangDevData } from './dev-data-coupang';
 
 const PACKAGE_SCHEMA_VERSION = 'kiditem.dev-data.package.v1';
 const PROFILE_SCHEMA_VERSION = 'kiditem.dev-data.profile.v1';
@@ -27,7 +28,8 @@ const CANONICAL_DRIVE_FOLDER_URL =
 
 const execFileAsync = promisify(execFile);
 
-type Command = 'status' | 'pull' | 'sync' | 'pack' | 'publish';
+type Command = 'status' | 'pull' | 'sync' | 'pack' | 'publish' | 'export' | 'sanitize' | 'replay';
+type AdapterCommand = 'export' | 'sanitize' | 'replay';
 type Lane = 'real' | 'demo';
 type ReplayMode = 'upsert' | 'scoped-replace' | 'full-reset' | 'replace' | 'pull-only';
 
@@ -99,7 +101,7 @@ type PullResult = {
 function parseArgs(): Args {
   const raw = process.argv.slice(2);
   const command = (raw.shift() ?? 'status') as Command;
-  if (!['status', 'pull', 'sync', 'pack', 'publish'].includes(command)) {
+  if (!['status', 'pull', 'sync', 'pack', 'publish', 'export', 'sanitize', 'replay'].includes(command)) {
     throw new Error(`Unknown command: ${command}`);
   }
 
@@ -131,6 +133,10 @@ function pushValue(values: Map<string, string[]>, key: string, item: string): vo
 
 function value(args: Args, key: string): string | undefined {
   return args.values.get(key)?.at(-1);
+}
+
+function values(args: Args, key: string): string[] {
+  return args.values.get(key) ?? [];
 }
 
 function bool(args: Args, key: string): boolean {
@@ -451,6 +457,39 @@ async function loadProfile(args: Args): Promise<DevDataProfile> {
   return profile;
 }
 
+function requireCoupangDomain(args: Args, command: AdapterCommand): void {
+  const domain = safeDomain(requiredValue(args, 'domain'));
+  if (domain !== 'coupang') {
+    throw new Error(`data:dev:${command} currently supports --domain coupang only.`);
+  }
+}
+
+function appendOption(target: string[], args: Args, key: string): void {
+  const item = value(args, key);
+  if (item) target.push(`--${key}`, item);
+}
+
+function appendValues(target: string[], args: Args, key: string): void {
+  for (const item of values(args, key)) target.push(`--${key}`, item);
+}
+
+function appendFlag(target: string[], args: Args, key: string): void {
+  if (bool(args, key)) target.push(`--${key}`);
+}
+
+async function runCoupangAdapter(
+  args: Args,
+  commandName: AdapterCommand,
+  forwardedArgs: string[],
+): Promise<unknown> {
+  return runCoupangDevData([
+    commandName,
+    '--data-root',
+    localDomainRoot(args, 'coupang'),
+    ...forwardedArgs,
+  ]);
+}
+
 async function runCoupangReplay(
   args: Args,
   datasetId: string,
@@ -459,37 +498,11 @@ async function runCoupangReplay(
   if (mode === 'replace' || mode === 'pull-only') {
     return { skipped: true, reason: `Coupang replay mode ${mode} does not call the ingest adapter.` };
   }
-  const command = path.join(process.cwd(), 'node_modules/.bin/tsx');
-  const replayArgs = [
-    'scripts/coupang-dev-data.ts',
-    'replay',
-    '--data-root',
-    localDomainRoot(args, 'coupang'),
-    '--dataset',
-    datasetId,
-    '--mode',
-    mode,
-  ];
-  if (bool(args, 'dry-run')) replayArgs.push('--dry-run');
-  if (bool(args, 'yes')) replayArgs.push('--yes');
-  for (const option of ['company-id', 'dev-user-id', 'api-url']) {
-    const item = value(args, option);
-    if (item) replayArgs.push(`--${option}`, item);
-  }
-
-  try {
-    const { stdout } = await execFileAsync(command, replayArgs, {
-      cwd: process.cwd(),
-      maxBuffer: 1024 * 1024 * 10,
-    });
-    return JSON.parse(stdout);
-  } catch (error) {
-    if (error && typeof error === 'object' && 'stderr' in error) {
-      const stderr = String((error as { stderr?: unknown }).stderr ?? '').trim();
-      if (stderr) throw new Error(stderr);
-    }
-    throw error;
-  }
+  const replayArgs = ['--dataset', datasetId, '--mode', mode];
+  appendFlag(replayArgs, args, 'dry-run');
+  appendFlag(replayArgs, args, 'yes');
+  for (const option of ['company-id', 'dev-user-id', 'api-url']) appendOption(replayArgs, args, option);
+  return runCoupangAdapter(args, 'replay', replayArgs);
 }
 
 async function replayStep(
@@ -638,6 +651,34 @@ async function commandSync(args: Args): Promise<void> {
   console.log(JSON.stringify(report, null, 2));
 }
 
+async function commandExport(args: Args): Promise<void> {
+  requireCoupangDomain(args, 'export');
+  const forwardedArgs: string[] = [];
+  for (const option of ['dataset', 'lane', 'payload-dir', 'type', 'from', 'to']) {
+    appendOption(forwardedArgs, args, option);
+  }
+  appendValues(forwardedArgs, args, 'payload');
+  console.log(JSON.stringify(await runCoupangAdapter(args, 'export', forwardedArgs), null, 2));
+}
+
+async function commandSanitize(args: Args): Promise<void> {
+  requireCoupangDomain(args, 'sanitize');
+  const forwardedArgs: string[] = [];
+  for (const option of ['dataset', 'target-dataset']) appendOption(forwardedArgs, args, option);
+  console.log(JSON.stringify(await runCoupangAdapter(args, 'sanitize', forwardedArgs), null, 2));
+}
+
+async function commandReplay(args: Args): Promise<void> {
+  requireCoupangDomain(args, 'replay');
+  const forwardedArgs: string[] = [];
+  for (const option of ['dataset', 'mode', 'company-id', 'dev-user-id', 'api-url']) {
+    appendOption(forwardedArgs, args, option);
+  }
+  appendFlag(forwardedArgs, args, 'dry-run');
+  appendFlag(forwardedArgs, args, 'yes');
+  console.log(JSON.stringify(await runCoupangAdapter(args, 'replay', forwardedArgs), null, 2));
+}
+
 async function main(): Promise<void> {
   const args = parseArgs();
   switch (args.command) {
@@ -655,6 +696,15 @@ async function main(): Promise<void> {
       break;
     case 'publish':
       await commandPublish(args);
+      break;
+    case 'export':
+      await commandExport(args);
+      break;
+    case 'sanitize':
+      await commandSanitize(args);
+      break;
+    case 'replay':
+      await commandReplay(args);
       break;
   }
 }
