@@ -12,23 +12,20 @@
 
 ## Current Baseline
 
-- Branch baseline: `origin/main` and local `main` both point at `35405b2` (`[codex] Review local main thumbnail AI commits (#72)`).
-- Local working tree has two unrelated untracked Excel files:
-  - `kiditem_list (1) 2.xlsx`
-  - `wing-inventory-matched 2.xlsx`
-  Leave these untouched in reconstruction branches.
-- PR #71 and PR #72 are merged; current work must start from latest `origin/main`.
-- `npm run check:idor` does not currently run on this machine because `scripts/check-queryraw-tenancy.sh` uses `mapfile`, which is unavailable in macOS Bash 3.2. The safety-gate PR must make the scanner portable before using it as completion evidence.
-- Ontology server domain (`apps/server/src/ontology/**`) was hard-deleted from the server surface on 2026-04-28. It had no UI consumer and was the canonical IDOR example reading `master_products` without `companyId`; rather than tenant-patching dead code, it was removed entirely. Do not reintroduce without a product contract + tenant isolation test.
-- Phase 1 platform-safety PR (`codex/codebase-reconstruction-plan` branch, 2026-04-28) bundles three boundary changes in one PR: (A) ontology hard delete; (B) `scripts/check-queryraw-tenancy.sh` portability — `mapfile`/`readarray` replaced with bash 3.2 `while IFS= read -r` loops; (C) production unsafe raw SQL removal — `agent-registry.service.ts` cost-analytics rewritten to tenant-scoped `$queryRaw + Prisma.sql` (binds `heartbeat_runs.company_id`, agent filter and join carry tenant predicate), `rules.service.ts` healthScore update rewritten to `prisma.$transaction(masterProduct.updateMany({ where: { id, companyId } }))`. Verified by `npm run check:idor` PASS, `apps/server` build, `vitest` (10 files / 93 tests) green, and `npm run dev:server` Nest boot on :4000.
-- Post-Phase-1 unsafe raw SQL grep over `apps/server/src` (excluding tests/test-helpers) returns zero call sites; the only remaining hit is a doc comment in `agent-registry/trace/agent-trace.service.ts` describing the ban itself.
-- Large rewrite surfaces confirmed by line count:
-  - `apps/server/src/advertising/services/ad-sync.service.ts` — 1711 lines.
-  - `apps/server/src/ai/services/thumbnail-vision-ai.service.ts` — 1027 lines.
-  - `apps/web/src/app/sourcing/[id]/editor/components/DetailPageEditor.tsx` — 1748 lines.
-  - `apps/server/src/ai/services/thumbnail-generation.service.ts` — 910 lines.
-  - `packages/shared/src/index.ts` — 452 lines.
-  - `packages/shared/src/schemas/index.ts` — 369 lines.
+- Branch baseline: `origin/main` is at `3692977` (PR #76 merged on 2026-04-28). New reconstruction branches start from this commit.
+- Phase 0 (constitution) and Phase 1 (platform safety) are landed in `main`. Subsequent platform-safety follow-ups also merged in the same wave:
+  - **Phase 1 (PR #73)** — ontology hard delete (`apps/server/src/ontology/**` removed); `scripts/check-queryraw-tenancy.sh` portability fix (`mapfile`/`readarray` replaced with bash 3.2 `while IFS= read -r` loops); production unsafe raw SQL removal in `agent-registry.service.ts` (cost-analytics rewritten to tenant-scoped `$queryRaw + Prisma.sql`) and `rules.service.ts` (healthScore update rewritten to `prisma.$transaction(masterProduct.updateMany({ where: { id, companyId } }))`).
+  - **Tenant-scope and dead-code follow-ups (PR #74–#76)** — `warehouses`, `categories`, `suppliers` controllers receive `@CurrentCompany()` and pass `companyId` into services as an explicit argument; single-resource reads use `findFirst({ id, companyId })`. The `ProductMemo` Prisma model and the web UI surfaces that depended on it were hard-deleted (no UI consumer remained).
+- `npm run check:idor` is **PASS** at `3692977`. The portable scanner is the canonical raw-SQL tenancy gate. If the scanner ever breaks again, repair the scanner before treating its silence as evidence.
+- Post-Phase-1 unsafe raw SQL grep over `apps/server/src` (excluding tests/test-helpers) returns zero production call sites; the only remaining hit is a doc comment in `agent-registry/trace/agent-trace.service.ts` describing the ban itself.
+- Local working trees may contain unrelated untracked Excel files (`kiditem_list (1) 2.xlsx`, `wing-inventory-matched 2.xlsx`). Leave these untouched in reconstruction branches.
+- Large rewrite surfaces confirmed by line count (subject to drift after future PRs; re-measure before relying on the numbers):
+  - `apps/server/src/advertising/services/ad-sync.service.ts` — ~1700 lines.
+  - `apps/server/src/ai/services/thumbnail-vision-ai.service.ts` — ~1000 lines.
+  - `apps/web/src/app/sourcing/[id]/editor/components/DetailPageEditor.tsx` — ~1700 lines.
+  - `apps/server/src/ai/services/thumbnail-generation.service.ts` — ~900 lines.
+  - `packages/shared/src/index.ts` — ~450 lines.
+  - `packages/shared/src/schemas/index.ts` — ~370 lines.
 
 ## Operating Constitution
 
@@ -399,15 +396,56 @@ rg -n "from '@kiditem/shared'" apps/server/src apps/web/src packages/shared/src 
 - [ ] Run source grep for frontend Prisma usage before removing web Prisma deps.
 - [ ] Remove dependencies in small commits with build evidence.
 
-## Verification Matrix
+## Verification Gates
+
+Each phase has a fixed set of gates that must pass before merge. The phase table below is the canonical pre-merge checklist for any reconstruction PR; the change-type matrix later in this section is supplementary, for work that crosses phase boundaries.
+
+### Per-Phase Merge Gates
+
+| Phase | Required pre-merge gates | Notes |
+|---|---|---|
+| Phase 0 — Constitution / instruction-only | `git diff --check`; scoped diff review | No code/runtime gate. Confirm no production code behavior changed. |
+| Phase 1 — Platform safety | `npm run check:idor` (and `npm run check:tenant-scope` if it has been added); `npm run build --workspace=apps/server`; `npm run dev:server` | Plus `rg -n '\$queryRawUnsafe\|\$executeRawUnsafe' apps/server/src --type ts --glob '!**/__tests__/**'` returns no production hit. |
+| Phase 2 — `packages/shared` rebuild | `cd packages/shared && npm run build`; `npm run build --workspace=apps/server`; `npm run build --workspace=apps/web` | When migrating consumers, run a root-import grep before/after to confirm the migration direction. |
+| Phase 3 — Backend domain rewrite | Domain-specific Vitest spec(s) under `apps/server/src/{domain}/__tests__/`; `npm run build --workspace=apps/server`; `npm run dev:server` | Re-run `npm run check:idor` if the domain touches raw SQL or tenant scope; integration tests when DB invariants are at stake. |
+| Phase 4 — Frontend rebuild | `npm run build --workspace=apps/web`; focused Vitest under the touched route's `__tests__/` (or shared frontend tests it depends on) | Add browser QA when a route's visual or interactive behavior changes. |
+| Phase 5 — Dead code / dependency purge | `knip` (after `knip.json` exists and is stable); `cd packages/shared && npm run build`; `npm run build --workspace=apps/server`; `npm run build --workspace=apps/web` | Source grep and workspace builds before any dependency removal. |
+
+`npm run check:tenant-scope` is not yet a script in `package.json`. If a future reconstruction PR adds it (for example an AST-based companyId scope linter), reference it here at the same time it lands.
+
+### Schema Change Trigger
+
+Most reconstruction PRs do **not** touch `prisma/models/**`. The schema-side gates run **only when a PR modifies `prisma/models/**`, `prisma/schema.prisma`, or generated Prisma artifacts**:
+
+| Schema change in PR | Required additional gates |
+|---|---|
+| No schema change | None — skip `db:push`, `prisma generate`, `db:3layer-setup`. |
+| Schema change present | `npm run db:push`; `npx prisma generate`; `cd packages/shared && npm run build`; rerun the affected phase gates above. |
+| Schema change touches the 3-layer products contract (`MasterProduct` / `ProductOption` / `Bundle*`) | Add `npm run db:3layer-setup` to refresh the SQL views/indices the 3-layer ledger depends on. |
+
+`db:3layer-setup` runs `prisma/3layer-setup.sql` against the local Docker Postgres. It is only needed when the SQL it executes is affected by the change. A pure tenancy or service-shape PR with no model edits does not need it.
+
+### `init.sql.gz` (fresh-volume snapshot) handling
+
+`prisma/init.sql.gz` is **not** the default dev-data path. Default local dev data flows through Drive bundles:
+
+```bash
+npm run data:dev:sync -- --profile workspace-demo --yes
+```
+
+`init.sql.gz` is reserved for the rare fresh-volume Postgres bootstrap path used by `docker-compose` first-boot or for explicit fresh-snapshot regeneration. A normal reconstruction PR — including Phase 1–5 work — does **not** modify `init.sql.gz` and does **not** need a fresh-volume gate. The PR-template checkbox under `prisma/init.sql.gz` should stay unchecked unless the PR is explicitly producing a new fresh-volume snapshot.
+
+### Change-type Evidence (supplementary)
+
+The phase-level gates above are mandatory. The table below is a supplementary view of which evidence applies when work crosses phase boundaries (e.g. a Phase 3 backend domain PR that also adjusts a shared subpath export).
 
 | Change type | Required evidence |
 |---|---|
 | Instruction-only Phase 0 | `git diff --check` + scoped diff review |
 | Backend safety or service code | `npm run check:idor` + unsafe raw grep + `npm run dev:server` |
 | Shared schema/export work | `cd packages/shared && npm run build` + server/web builds |
-| Prisma schema work | `npm run db:push` + `npx prisma generate` + `npm run db:3layer-setup` + shared build |
-| Frontend route/component work | `npm run build --workspace=apps/web`; add browser QA for visual behavior |
+| Prisma schema work | `npm run db:push` + `npx prisma generate` + `npm run db:3layer-setup` (when applicable) + shared build |
+| Frontend route/component work | `npm run build --workspace=apps/web`; focused Vitest; browser QA for visual behavior |
 | Dependency purge | `knip` after config + all affected workspace builds |
 
 ## Non-Goals
@@ -421,6 +459,6 @@ rg -n "from '@kiditem/shared'" apps/server/src apps/web/src packages/shared/src 
 ## Remaining Risks
 
 - The existing scanner is a shell heuristic. It should block obvious raw SQL regressions, but it does not replace integration tests for tenant isolation.
-- Some current plans under `docs/superpowers/plans/` predate the reconstruction constitution and may mention older ADR paths or unsafe examples. Treat this master plan plus current `AGENTS.md` as higher priority for new work.
+- Some plans under `docs/superpowers/plans/` and specs under `docs/superpowers/specs/` predate the reconstruction constitution and may describe surfaces that have since been removed. **`ProductMemo` (Prisma model + web UI surfaces, hard-deleted in the PR #74–#76 wave on 2026-04-28) and `apps/server/src/ontology/**` (hard-deleted in PR #73 / Phase 1) are superseded** — historical plans and specs that mention them as active surfaces are kept for archive only and must not be used to re-introduce those surfaces. Treat this master plan plus the current `AGENTS.md` files (root and per-scope) as higher priority for new work.
 - `packages/shared` subpath migration can create noisy diffs. Keep compatibility exports until each domain build proves migration.
 - Removing frontend Prisma dependencies may expose hidden tooling usage in scripts or tests. Source grep and workspace builds must precede package removal.
