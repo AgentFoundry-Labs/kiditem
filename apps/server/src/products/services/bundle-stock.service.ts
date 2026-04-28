@@ -1,5 +1,5 @@
 // apps/server/src/products/services/bundle-stock.service.ts
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 
@@ -27,12 +27,14 @@ export class BundleStockService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
+   * @param companyId      - tenant that owns the bundle option.
    * @param bundleOptionId - bundle option row whose `availableStock` to materialize.
    * @param outerTx        - optional outer transaction (Plan B2 compose). Caller is
    *                         responsible for supplying `{ timeout: >= 15000 }` on the
    *                         outer `$transaction` so cold-cache writes don't time out.
    */
   async recompute(
+    companyId: string,
     bundleOptionId: string,
     outerTx?: Prisma.TransactionClient,
   ): Promise<number> {
@@ -40,9 +42,20 @@ export class BundleStockService {
       // Row-level lock — serializes concurrent recompute on the same bundle.
       // Must run inside a transaction; otherwise auto-commit releases the lock
       // before the subsequent findMany/update and we lose the serialization.
-      await tx.$queryRaw`SELECT id FROM product_options WHERE id = ${bundleOptionId}::uuid FOR UPDATE`;
+      await tx.$queryRaw`
+        SELECT id FROM product_options
+        WHERE id = ${bundleOptionId}::uuid
+          AND company_id = ${companyId}::uuid
+        FOR UPDATE
+      `;
+      const bundle = await tx.productOption.findFirst({
+        where: { id: bundleOptionId, companyId, isDeleted: false },
+        select: { id: true },
+      });
+      if (!bundle) throw new NotFoundException('bundle option not found');
       const components = await tx.bundleComponent.findMany({
         where: {
+          companyId,
           bundleOptionId,
           componentOption: { isDeleted: false },
         },
@@ -56,10 +69,11 @@ export class BundleStockService {
               return Math.floor(stock / c.qty);
             }),
           );
-      await tx.productOption.update({
-        where: { id: bundleOptionId },
+      const { count } = await tx.productOption.updateMany({
+        where: { id: bundleOptionId, companyId },
         data: { availableStock: capacity },
       });
+      if (count === 0) throw new NotFoundException('bundle option not found');
       return capacity;
     };
     return outerTx
@@ -69,7 +83,7 @@ export class BundleStockService {
 
   /**
    * 이 option 을 component 로 쓰는 모든 활성 bundle option 에 대해
-   * recompute(bundleOptionId, tx) 를 호출. 반환값은 갱신된 bundle option id 리스트.
+   * recompute(companyId, bundleOptionId, tx) 를 호출. 반환값은 갱신된 bundle option id 리스트.
    *
    * - BundleComponent 는 hard-delete (isDeleted 필드 없음)
    * - componentOption soft-delete 는 fan-out 에서 제외
@@ -78,18 +92,20 @@ export class BundleStockService {
    * ADR-0014: InventoryService 전용. 다른 모듈은 호출 금지.
    */
   async recomputeForComponent(
+    companyId: string,
     componentOptionId: string,
     tx: Prisma.TransactionClient,
   ): Promise<string[]> {
     const components = await tx.bundleComponent.findMany({
       where: {
+        companyId,
         componentOptionId,
         componentOption: { isDeleted: false },
       },
       select: { bundleOptionId: true },
     });
     for (const { bundleOptionId } of components) {
-      await this.recompute(bundleOptionId, tx);
+      await this.recompute(companyId, bundleOptionId, tx);
     }
     return components.map((c) => c.bundleOptionId);
   }

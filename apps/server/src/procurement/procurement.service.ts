@@ -1,4 +1,5 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 const VALID_TRANSITIONS: Record<string, string> = {
@@ -12,17 +13,22 @@ const VALID_TRANSITIONS: Record<string, string> = {
 export class ProcurementService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll(query: { page: number; limit: number; status?: string }): Promise<{
+  async findAll(companyId: string, query: { page?: number; limit?: number; status?: string }): Promise<{
     items: unknown[];
     total: number;
     page: number;
     limit: number;
     counts: { all: number; draft: number; pending: number; ordered: number; shipped: number; received: number; cancelled: number };
   }> {
-    const { page, limit, status } = query;
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 50;
+    const { status } = query;
     const skip = (page - 1) * limit;
 
-    const where = status ? { status } : {};
+    const where: Prisma.PurchaseOrderWhereInput = {
+      companyId,
+      ...(status ? { status } : {}),
+    };
 
     const [items, total, grouped] = await Promise.all([
       this.prisma.purchaseOrder.findMany({
@@ -38,6 +44,7 @@ export class ProcurementService {
       this.prisma.purchaseOrder.count({ where }),
       this.prisma.purchaseOrder.groupBy({
         by: ['status'],
+        where,
         _count: { id: true },
       }),
     ]);
@@ -62,8 +69,7 @@ export class ProcurementService {
     return { items, total, page, limit, counts };
   }
 
-  async create(data: {
-    companyId: string;
+  async create(companyId: string, data: {
     supplierName: string;
     supplierId?: string;
     items: {
@@ -81,7 +87,7 @@ export class ProcurementService {
 
     return this.prisma.purchaseOrder.create({
       data: {
-        companyId: data.companyId,
+        companyId,
         supplierName: data.supplierName,
         supplierId: data.supplierId || null,
         totalAmountCny,
@@ -103,9 +109,9 @@ export class ProcurementService {
     });
   }
 
-  async updateStatus(id: string, newStatus: string) {
-    const order = await this.prisma.purchaseOrder.findUnique({
-      where: { id },
+  async updateStatus(companyId: string, id: string, newStatus: string) {
+    const order = await this.prisma.purchaseOrder.findFirst({
+      where: { id, companyId },
     });
 
     if (!order) {
@@ -119,21 +125,32 @@ export class ProcurementService {
       );
     }
 
-    const updateData: Record<string, unknown> = { status: newStatus };
+    const updateData: Prisma.PurchaseOrderUpdateManyMutationInput = { status: newStatus };
     if (newStatus === 'received') {
       updateData.receivedAt = new Date();
     }
 
-    return this.prisma.purchaseOrder.update({
-      where: { id },
+    const { count } = await this.prisma.purchaseOrder.updateMany({
+      where: { id, companyId },
       data: updateData,
+    });
+    if (count === 0) {
+      throw new BadRequestException('발주를 찾을 수 없습니다');
+    }
+
+    const updated = await this.prisma.purchaseOrder.findFirst({
+      where: { id, companyId },
       include: { items: true, supplier: true },
     });
+    if (!updated) {
+      throw new BadRequestException('발주를 찾을 수 없습니다');
+    }
+    return updated;
   }
 
-  async delete(id: string) {
-    const order = await this.prisma.purchaseOrder.findUnique({
-      where: { id },
+  async delete(companyId: string, id: string) {
+    const order = await this.prisma.purchaseOrder.findFirst({
+      where: { id, companyId },
     });
 
     if (!order) {
@@ -146,8 +163,12 @@ export class ProcurementService {
       );
     }
 
-    return this.prisma.purchaseOrder.delete({
-      where: { id },
+    const { count } = await this.prisma.purchaseOrder.deleteMany({
+      where: { id, companyId },
     });
+    if (count === 0) {
+      throw new BadRequestException('발주를 찾을 수 없습니다');
+    }
+    return order;
   }
 }

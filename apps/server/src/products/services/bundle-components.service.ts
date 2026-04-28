@@ -52,20 +52,20 @@ export class BundleComponentsService {
       throw new ConflictException('self-reference');
     }
     const db = outerTx ?? this.prisma;
-    // `findUnique` (not `findFirst` + `companyId`) — we need the raw row to
-    // derive the 3-way invariant (`BundleComponent.companyId = bundleOpt.companyId`).
-    // Cross-tenant access is still gated below via the explicit `companyId`
-    // equality checks on both sides, so id-only lookup is safe here.
     const [bundleOpt, compOpt] = await Promise.all([
-      db.productOption.findUnique({ where: { id: dto.bundleOptionId } }),
-      db.productOption.findUnique({ where: { id: dto.componentOptionId } }),
+      db.productOption.findFirst({
+        where: { id: dto.bundleOptionId, companyId, isDeleted: false },
+      }),
+      db.productOption.findFirst({
+        where: { id: dto.componentOptionId, companyId, isDeleted: false },
+      }),
     ]);
     // Soft-deleted rows are tombstones — treat as not-found to match
     // OptionsService.findById default semantics (T3 spec-reviewer feedback).
-    if (!bundleOpt || bundleOpt.isDeleted) {
+    if (!bundleOpt) {
       throw new NotFoundException('bundle option not found');
     }
-    if (!compOpt || compOpt.isDeleted) {
+    if (!compOpt) {
       throw new NotFoundException('component option not found');
     }
     if (!bundleOpt.isBundle) {
@@ -84,7 +84,12 @@ export class BundleComponentsService {
     const exec = async (tx: Prisma.TransactionClient): Promise<BundleComponent> => {
       // Row-level lock on the bundle option: serializes concurrent recompute
       // + create/update/delete on the same bundle.
-      await tx.$queryRaw`SELECT id FROM product_options WHERE id = ${dto.bundleOptionId}::uuid FOR UPDATE`;
+      await tx.$queryRaw`
+        SELECT id FROM product_options
+        WHERE id = ${dto.bundleOptionId}::uuid
+          AND company_id = ${companyId}::uuid
+        FOR UPDATE
+      `;
       try {
         const bc = await tx.bundleComponent.create({
           data: {
@@ -95,7 +100,7 @@ export class BundleComponentsService {
             companyId: bundleOpt.companyId,
           },
         });
-        await this.bundleStock.recompute(dto.bundleOptionId, tx);
+        await this.bundleStock.recompute(companyId, dto.bundleOptionId, tx);
         return bc;
       } catch (e) {
         // mapPrismaError returns `never` — TS narrows the try-block happy path.
@@ -141,13 +146,18 @@ export class BundleComponentsService {
     const exec = async (tx: Prisma.TransactionClient): Promise<BundleComponent> => {
       const row = await tx.bundleComponent.findFirst({ where: { id, companyId } });
       if (!row) throw new NotFoundException('bundle-component not found');
-      await tx.$queryRaw`SELECT id FROM product_options WHERE id = ${row.bundleOptionId}::uuid FOR UPDATE`;
+      await tx.$queryRaw`
+        SELECT id FROM product_options
+        WHERE id = ${row.bundleOptionId}::uuid
+          AND company_id = ${companyId}::uuid
+        FOR UPDATE
+      `;
       try {
         const updated = await tx.bundleComponent.update({
           where: { id },
           data: { qty: dto.qty },
         });
-        await this.bundleStock.recompute(row.bundleOptionId, tx);
+        await this.bundleStock.recompute(companyId, row.bundleOptionId, tx);
         return updated;
       } catch (e) {
         // mapPrismaError returns `never`.
@@ -171,11 +181,16 @@ export class BundleComponentsService {
     const exec = async (tx: Prisma.TransactionClient) => {
       const row = await tx.bundleComponent.findFirst({ where: { id, companyId } });
       if (!row) throw new NotFoundException('bundle-component not found');
-      await tx.$queryRaw`SELECT id FROM product_options WHERE id = ${row.bundleOptionId}::uuid FOR UPDATE`;
+      await tx.$queryRaw`
+        SELECT id FROM product_options
+        WHERE id = ${row.bundleOptionId}::uuid
+          AND company_id = ${companyId}::uuid
+        FOR UPDATE
+      `;
       try {
         await tx.bundleComponent.delete({ where: { id } });
       } catch (e) { mapPrismaError(e, 'bundle-component delete'); }
-      await this.bundleStock.recompute(row.bundleOptionId, tx);
+      await this.bundleStock.recompute(companyId, row.bundleOptionId, tx);
     };
     await (outerTx
       ? exec(outerTx)
