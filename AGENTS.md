@@ -101,7 +101,7 @@ E-commerce operations automation for kids' products. Sourcing → AI processing 
 - **No native PG enums** — `String` + app-level validation. Production cast error experience.
 - **No `$queryRawUnsafe`** — Prisma raw SQL 은 항상 tagged template (`$queryRaw\`...\``). 동적 식별자가 필요하면 whitelist + tagged interpolation.
 - **Multi-tenant scope** — 모든 mutating service 는 `@CurrentCompany()` 로 받은 `companyId` 를 WHERE/INSERT 에 포함. 단일 리소스 GET/PATCH/DELETE 는 `findFirst({ where: { id, companyId } })`. `findUnique({ where: { id } })` 금지 (IDOR).
-- **DB 동기화** — `git pull` 은 DB 를 자동 갱신하지 않는다. 스키마는 `db:push`, 공유 개발 데이터는 Google Drive dev data bundle replay 로 맞춘다: [prisma/AGENTS.md — DB 동기화](prisma/AGENTS.md#db-동기화--schema-vs-data-중요), [docs/DEV_DATA_BUNDLES.md](docs/DEV_DATA_BUNDLES.md).
+- **DB 동기화** — `git pull` 은 DB 를 자동 갱신하지 않는다. 스키마는 `db:push`, 공유 개발 데이터는 Google Drive dev data profile sync 로 맞춘다: [prisma/AGENTS.md — DB 동기화](prisma/AGENTS.md#db-동기화--schema-vs-data-중요), [docs/DEV_DATA_BUNDLES.md](docs/DEV_DATA_BUNDLES.md).
 - **신규 영구 규칙** — incident-driven 또는 cross-domain 새 규칙은 해당 scope 의 `AGENTS.md` 또는 `CLAUDE.md` 본문에 직접 등록. 별도 결정 이력 폴더는 두지 않는다 (ADR 체계 폐지, 2026-04-26).
 
 ## Structure

@@ -5,23 +5,24 @@
 - [ ] `prisma/schema.prisma` 변경 없음
 - [ ] `prisma/schema.prisma` 변경 있음
 - [ ] backfill SQL 있음 → 파일: `prisma/_____.sql`
-- [ ] 개발 데이터 bundle 변경 없음
-- [ ] 개발 데이터 bundle 변경 있음
+- [ ] 개발 데이터 profile/bundle 변경 없음
+- [ ] 개발 데이터 profile/bundle 변경 있음
+  - Profile ID:
+  - Domain:
   - Dataset ID:
-  - 공유 zip 파일명: `kiditem-coupang-____-____.zip`
-  - Google Drive 경로: `coupang-____/bundles/____.zip`
+  - 공유 zip 파일명: `kiditem-____-____-____.zip`
+  - Google Drive 경로: `____-____/bundles/____.zip`
   - `latest.json` 갱신 여부:
-  - Replay 명령:
-  - Import mode: `upsert` / `scoped-replace` / `full-reset`
+  - Sync/Replay 명령:
+  - Import mode: `upsert` / `scoped-replace` / `pull-only` / `full-reset`
   - 영향 scope(company/channel/date):
 - [ ] `prisma/init.sql.gz` 변경 있음 (예외적인 fresh-volume snapshot 용도만)
 
 > 개발 데이터 표준 경로:
 > ```bash
-> npm run data:coupang:pull -- --lane real
-> npm run data:coupang:replay -- --mode scoped-replace --yes
+> npm run data:dev:sync -- --profile workspace-demo --yes
 > ```
-> 공유 파일명 표준: `kiditem-coupang-{lane}-{datasetId}.zip`
+> 공유 파일명 표준: `kiditem-{domain}-{lane}-{datasetId}.zip`
 
 ## 테스트
 - [ ] `npx vitest run` 통과

@@ -50,25 +50,24 @@ npm run db:studio     # DB browser (localhost:5555)
 | 계층 | 전달 수단 | 특성 |
 |---|---|---|
 | **스키마 (DDL)** | `schema.prisma` + `db:push` | 매 pull 후 실행. 안전 |
-| **공유 개발 데이터** | Google Drive dev data bundle + replay (`npm run data:coupang:*`) | 팀원이 같은 화면 상태를 재현하는 표준 경로 |
+| **공유 개발 데이터** | Google Drive dev data profile + bundle replay (`npm run data:dev:*`) | 팀원이 같은 화면 상태를 재현하는 표준 경로 |
 | **운영 중 데이터 이전** | 명시적 SQL/seed 스크립트 (`prisma/backfill-*.sql`, 필요한 `scripts/*`) | 스키마 변경/마이그레이션 보조. 화면 데이터 공유 용도 아님 |
 | **초기 스냅샷 예외** | `prisma/init.sql.gz` (`--data-only` pg_dump) | Fresh volume 전용 예외. 기본 개발 데이터 경로 아님 |
 
-### Google Drive dev data bundle
+### Google Drive dev data profile
 
-팀원 간 같은 로컬 화면 데이터를 맞출 때는 `init.sql.gz` 나 synthetic seed 를 쓰지 않는다. Google Drive 의 `kiditem-coupang-{lane}-{datasetId}.zip` bundle 을 `.data/coupang/<datasetId>/` 로 pull 한 뒤 replay 한다.
+팀원 간 같은 로컬 화면 데이터를 맞출 때는 `init.sql.gz` 나 synthetic seed 를 쓰지 않는다. Google Drive 의 profile 이 `kiditem-{domain}-{lane}-{datasetId}.zip` bundle 목록과 순서를 정하고, 각 bundle 을 `.data/dev/<domain>/<datasetId>/` 로 pull 한 뒤 replay 한다.
 
 ```bash
 export KIDITEM_DEV_DATA_DRIVE_DIR="$HOME/.../KidItem Dev Data"
 export DEV_DEFAULT_USER_ID="<local dev user uuid>"
-npm run data:coupang:pull -- --lane real
-npm run data:coupang:replay -- --mode scoped-replace --yes
+npm run data:dev:sync -- --profile workspace-demo --yes
 ```
 
 규칙:
 
-- Bundle 원본은 Google Drive 의 `coupang-{lane}/bundles/` zip archive, 로컬 사본은 `.data/` 아래에 둔다. 둘 다 Git 커밋 금지.
-- Drive 의 `latest.json` 이 현재 기준 dataset 과 archive checksum 을 가리킨다. 같은 날 다시 만들면 기존 zip 을 덮어쓰지 말고 `datasetId` 의 `vN` 을 올린다.
+- Bundle 원본은 Google Drive 의 `{domain}-{lane}/bundles/` zip archive, 로컬 사본은 `.data/` 아래에 둔다. 둘 다 Git 커밋 금지.
+- Drive 의 `profiles/*.json` 이 화면 기준 상태를, `{domain}-{lane}/latest.json` 이 현재 기준 dataset 과 archive checksum 을 가리킨다. 같은 날 다시 만들면 기존 zip 을 덮어쓰지 말고 `datasetId` 의 `vN` 을 올린다.
 - 표준 replay 모드는 `scoped-replace` 다. manifest 의 company/channel/date range scope 만 교체한다.
 - Coupang bundle 은 `POST /api/ads/extension/sync` 경로로 replay 한다. 앱이 실제 ingest 하는 코드와 다른 DB writer 를 만들지 않는다.
 - `scripts/seed-channel-market-data.ts` 같은 synthetic market-data seed 는 금지. 실제 scrape payload replay 로 대체한다.
@@ -78,7 +77,7 @@ npm run data:coupang:replay -- --mode scoped-replace --yes
 
 - Postgres 도커 이미지의 `docker-entrypoint-initdb.d/` 패턴. **빈 볼륨 초기화 시에만** 자동 로드.
 - 기존 볼륨이 있으면 **스킵** → `git pull` 로 새 `init.sql.gz` 받아도 아무 일도 안 일어남.
-- 팀원 간 개발 데이터 공유 수단이 아니다. 공유 데이터는 Google Drive bundle replay 가 책임진다.
+- 팀원 간 개발 데이터 공유 수단이 아니다. 공유 데이터는 Google Drive profile sync 가 책임진다.
 - 적용하려면 `docker compose down -v` 로 볼륨 삭제 후 재기동. **기존 로컬 데이터 손실 주의**.
 
 ### 스키마 변경 PR 받는 사람 플로우
