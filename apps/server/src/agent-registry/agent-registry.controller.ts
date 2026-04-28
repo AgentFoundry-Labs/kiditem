@@ -96,7 +96,7 @@ export class AgentRegistryController {
     @CurrentCompany() companyId: string,
     @Body() body: UpdateAgentBodyDto,
   ) {
-    return this.service.update(id, companyId, body as any);
+    return this.service.update(id, companyId, body);
   }
 
   @Delete(':id')
@@ -186,9 +186,12 @@ export class AgentRegistryController {
 
   @Roles('admin')
   @Get(':id/denials')
-  getDenials(@Param('id', new ParseUUIDPipe()) id: string) {
+  getDenials(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentCompany() companyId: string,
+  ) {
     if (!this.denialTracker) return [];
-    return this.denialTracker.listDenials(id);
+    return this.denialTracker.listDenials(id, companyId);
   }
 
   // ── Business Safety: Snapshots + Rollback ──

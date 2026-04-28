@@ -6,8 +6,14 @@ import type { AgentListItem, DailyCost, AgentCostSummary, CostAnalytics } from '
 import { validateAllowedTools } from './safety/dangerous-patterns';
 import type { OrgNode } from './types';
 import { scrubSecrets } from '@kiditem/shared';
+import type { UpdateAgentBodyDto } from './dto';
 
 export type { OrgNode } from './types';
+
+type AgentDefinitionUpdateData = Omit<UpdateAgentBodyDto, 'schedule'> & {
+  schedule?: string | null;
+  trustLevel?: number;
+};
 
 /**
  * Tenant-scope contract for AgentDefinition:
@@ -140,7 +146,7 @@ export class AgentRegistryService implements OnModuleInit {
     return created;
   }
 
-  async update(id: string, companyId: string, data: Record<string, unknown>) {
+  async update(id: string, companyId: string, data: AgentDefinitionUpdateData) {
     // #13 Dangerous Pattern Detection — validate on update
     if (typeof data.allowedTools === 'string') {
       const toolCheck = validateAllowedTools(data.allowedTools);
