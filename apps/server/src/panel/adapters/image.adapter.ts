@@ -49,8 +49,9 @@ export const imagePanelAdapter: PanelRunAdapter<ImageAdapterInput> = {
       actorUserId: generation.triggeredByUserId ?? null,
       visibility: imagePanelAdapter.defaultVisibility(input),
       createdAt: generation.createdAt.toISOString(),
-      // ThumbnailGeneration has no error/errorMessage column in schema — intentionally omitted.
-      // Failure is surfaced via status='failed' alone; detailed error detail is Task 19/future scope.
+      // Keep the panel item compact; detailed thumbnail error metadata stays on
+      // ThumbnailGeneration.errorMessage / registration attempts and is loaded
+      // by thumbnail-specific detail endpoints.
     };
   },
   defaultVisibility(input) {

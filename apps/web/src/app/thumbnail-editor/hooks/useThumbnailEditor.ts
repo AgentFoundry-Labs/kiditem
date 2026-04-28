@@ -8,6 +8,8 @@ interface GenerateRequest {
   packagingImage?: string;
   supplementaryLabel?: string;
   colorImages?: string[];
+  bundleImages?: string[];
+  bundleLabels?: string[];
   pieceCount?: number;
   colorCount?: number;
   backgroundReference?: string;
@@ -17,6 +19,7 @@ interface GenerateRequest {
   sceneType?: string;
   styleType?: string;
   productDescription?: string;
+  layout?: 'auto' | 'fan' | 'arch' | 'grid' | 'stack' | 'radial';
 }
 
 interface GenerateResponse {

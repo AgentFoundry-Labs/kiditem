@@ -29,42 +29,29 @@ export function ImageUploader({ label, description, value, onChange }: ImageUplo
   return (
     <div className="space-y-1.5">
       {label && (
-        <div className="text-sm font-semibold text-gray-700">{label}</div>
+        <div className="text-sm font-semibold text-[var(--text-secondary)]">{label}</div>
       )}
       {description && (
-        <div className="text-xs text-gray-400">{description}</div>
+        <div className="text-xs text-[var(--text-muted)]">{description}</div>
       )}
       {value ? (
-        <div
-          className="relative w-full aspect-square rounded-xl overflow-hidden"
-          style={{ border: '1px solid #e2e8f0', background: '#f8fafc' }}
-        >
+        <div className="relative w-full aspect-square rounded-xl overflow-hidden border border-[var(--border)] bg-[var(--surface-sunken)]">
           <img src={value} alt={label} className="w-full h-full object-cover" />
           <button
             onClick={() => onChange(null)}
-            className="absolute top-2 right-2 p-1 rounded-full transition-colors"
-            style={{ background: 'rgba(255,255,255,0.9)' }}
+            className="absolute top-2 right-2 p-1 rounded-full transition-colors bg-[var(--surface)]/90 hover:bg-[var(--surface)]"
           >
-            <X size={14} className="text-slate-500" />
+            <X size={14} className="text-[var(--text-tertiary)]" />
           </button>
         </div>
       ) : (
         <label
           onDragOver={(e) => e.preventDefault()}
           onDrop={handleDrop}
-          className="flex flex-col items-center justify-center w-full aspect-square rounded-xl border-2 border-dashed cursor-pointer transition-colors"
-          style={{ borderColor: '#cbd5e1', background: '#f8fafc' }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.borderColor = '#a78bfa';
-            e.currentTarget.style.background = 'rgba(167,139,250,0.05)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.borderColor = '#cbd5e1';
-            e.currentTarget.style.background = '#f8fafc';
-          }}
+          className="flex flex-col items-center justify-center w-full aspect-square rounded-xl border-2 border-dashed cursor-pointer transition-colors border-[var(--border-strong)] bg-[var(--surface-sunken)] hover:border-[var(--primary)] hover:bg-[var(--primary-soft)]"
         >
-          <ImageIcon size={28} className="mb-2 text-slate-300" />
-          <span className="text-xs text-slate-400">
+          <ImageIcon size={28} className="mb-2 text-[var(--text-muted)]" />
+          <span className="text-xs text-[var(--text-muted)]">
             클릭 또는 드래그앤드롭
           </span>
           <input

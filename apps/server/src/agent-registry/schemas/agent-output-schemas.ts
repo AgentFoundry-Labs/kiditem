@@ -103,6 +103,27 @@ export const RulesSuggestOutputSchema = z.object({
   })),
 });
 
+// 썸네일 분석 에이전트 결과
+export const ThumbnailAnalystOutputSchema = z.object({
+  ...AgentBaseOutputFields,
+  analysis: z.array(z.object({
+    productId: z.string(),
+    name: z.string(),
+    ctr: z.number(),
+    avgCtr: z.number(),
+    impressions: z.number(),
+    clicks: z.number(),
+    verdict: z.enum(['good', 'needs_improvement', 'critical']),
+    suggestion: z.string(),
+  })),
+  summary: z.object({
+    total: z.number(),
+    good: z.number(),
+    needsImprovement: z.number(),
+    critical: z.number(),
+  }),
+});
+
 // 매니저 에이전트 결과
 export const ManagerOutputSchema = z.object({
   ...AgentBaseOutputFields,
@@ -116,5 +137,6 @@ export const AGENT_OUTPUT_SCHEMAS: Record<string, z.ZodType> = {
   ad_strategy: AdStrategyOutputSchema,
   rules_evaluation: RulesEvaluationOutputSchema,
   rules_suggest: RulesSuggestOutputSchema,
+  thumbnail_analyst: ThumbnailAnalystOutputSchema,
   manager: ManagerOutputSchema,
 };

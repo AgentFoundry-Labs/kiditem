@@ -32,7 +32,7 @@ export function EditorResult({ originalImage, candidates }: EditorResultProps) {
               <div className="flex-shrink-0">
                 <div className="text-[10px] font-mono text-slate-400 uppercase mb-1">Before</div>
                 <div
-                  className="w-48 aspect-square rounded-xl overflow-hidden border border-slate-200 bg-slate-50 cursor-zoom-in"
+                  className="w-48 aspect-square overflow-hidden border border-slate-200 bg-slate-50 cursor-zoom-in"
                   onClick={() => setZoomImage(originalImage)}
                 >
                   <img src={originalImage} alt="원본" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
@@ -51,7 +51,7 @@ export function EditorResult({ originalImage, candidates }: EditorResultProps) {
                 return (
                   <div key={i} className="space-y-1">
                     <div
-                      className="aspect-square rounded-xl overflow-hidden border border-slate-200 bg-slate-50 cursor-zoom-in hover:border-purple-400 transition-colors"
+                      className="aspect-square overflow-hidden border border-slate-200 bg-slate-50 cursor-zoom-in hover:border-purple-400 transition-colors"
                       onClick={() => setZoomImage(url)}
                     >
                       {url ? (

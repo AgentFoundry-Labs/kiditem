@@ -1,4 +1,14 @@
-import { IsIn, IsInt, IsString, IsUrl, Min, ValidateIf } from 'class-validator';
+import {
+  IsBoolean,
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUrl,
+  IsUUID,
+  Min,
+  ValidateIf,
+} from 'class-validator';
 import { MasterImageRoleSchema, type MasterImageRole } from '@kiditem/shared';
 
 /**
@@ -9,8 +19,17 @@ import { MasterImageRoleSchema, type MasterImageRole } from '@kiditem/shared';
 export const MASTER_IMAGE_ROLES = MasterImageRoleSchema.options;
 
 export class MasterImageItemDto {
+  @IsOptional()
+  @IsUUID()
+  id?: string;
+
   @IsUrl()
   url!: string;
+
+  @IsOptional()
+  @ValidateIf((_obj, value) => value !== null)
+  @IsString()
+  storageKey?: string | null;
 
   @IsIn([...MASTER_IMAGE_ROLES])
   role!: MasterImageRole;
@@ -25,4 +44,35 @@ export class MasterImageItemDto {
   @IsInt()
   @Min(0)
   sortOrder!: number;
+
+  @IsOptional()
+  @IsString()
+  source?: string;
+
+  @IsOptional()
+  @ValidateIf((_obj, value) => value !== null)
+  @IsString()
+  mimeType?: string | null;
+
+  @IsOptional()
+  @ValidateIf((_obj, value) => value !== null)
+  @IsInt()
+  @Min(1)
+  width?: number | null;
+
+  @IsOptional()
+  @ValidateIf((_obj, value) => value !== null)
+  @IsInt()
+  @Min(1)
+  height?: number | null;
+
+  @IsOptional()
+  @ValidateIf((_obj, value) => value !== null)
+  @IsInt()
+  @Min(0)
+  fileSize?: number | null;
+
+  @IsOptional()
+  @IsBoolean()
+  isPrimary?: boolean;
 }

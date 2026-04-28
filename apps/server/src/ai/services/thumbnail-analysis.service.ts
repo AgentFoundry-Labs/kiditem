@@ -25,14 +25,27 @@ type MasterRow = {
   name: string;
   imageUrl: string | null;
   thumbnailUrl: string | null;
-  images: Prisma.JsonValue;
+  images: Array<{ url: string; role: string; sortOrder: number; isPrimary: boolean }>;
   createdAt: Date;
 };
 
 type AnalysisRow = Awaited<
   ReturnType<typeof PrismaService.prototype.thumbnailAnalysis.findMany>
 >[number] & {
-  master: { id: string; name: string; imageUrl: string | null; thumbnailUrl: string | null; images: Prisma.JsonValue } | null;
+  recompose: Prisma.JsonValue;
+  master: {
+    id: string;
+    name: string;
+    imageUrl: string | null;
+    thumbnailUrl: string | null;
+    images: Array<{ url: string; role: string; sortOrder: number; isPrimary: boolean }>;
+  } | null;
+};
+
+const MASTER_IMAGE_SELECT: Prisma.MasterProduct$imagesArgs = {
+  where: { isDeleted: false },
+  select: { url: true, role: true, sortOrder: true, isPrimary: true },
+  orderBy: [{ isPrimary: 'desc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
 };
 
 const isDisplayable = (u: string | null | undefined): u is string =>
@@ -44,16 +57,14 @@ const isDisplayable = (u: string | null | undefined): u is string =>
 function resolveMasterImage(m: {
   imageUrl: string | null;
   thumbnailUrl: string | null;
-  images: Prisma.JsonValue;
+  images: Array<{ url: string; role: string; sortOrder: number; isPrimary: boolean }>;
 }): string | null {
   if (isDisplayable(m.imageUrl)) return m.imageUrl;
+  const primary = m.images.find((img) => img.isPrimary && isDisplayable(img.url));
+  if (primary) return primary.url;
+  const first = m.images.find((img) => isDisplayable(img.url));
+  if (first) return first.url;
   if (isDisplayable(m.thumbnailUrl)) return m.thumbnailUrl;
-  if (Array.isArray(m.images)) {
-    const first = (m.images as unknown[]).find(
-      (v): v is string => typeof v === 'string' && isDisplayable(v),
-    );
-    if (first) return first;
-  }
   return null;
 }
 
@@ -72,7 +83,7 @@ export class ThumbnailAnalysisService {
           name: true,
           imageUrl: true,
           thumbnailUrl: true,
-          images: true,
+          images: MASTER_IMAGE_SELECT,
           createdAt: true,
         },
         orderBy: { createdAt: 'desc' },
@@ -82,7 +93,13 @@ export class ThumbnailAnalysisService {
         orderBy: { updatedAt: 'desc' },
         include: {
           master: {
-            select: { id: true, name: true, imageUrl: true, thumbnailUrl: true, images: true },
+            select: {
+              id: true,
+              name: true,
+              imageUrl: true,
+              thumbnailUrl: true,
+              images: MASTER_IMAGE_SELECT,
+            },
           },
         },
       }),
@@ -193,7 +210,7 @@ export class ThumbnailAnalysisService {
         name: true,
         imageUrl: true,
         thumbnailUrl: true,
-        images: true,
+        images: MASTER_IMAGE_SELECT,
         createdAt: true,
       },
     });
@@ -228,7 +245,13 @@ export class ThumbnailAnalysisService {
       },
       include: {
         master: {
-          select: { id: true, name: true, imageUrl: true, thumbnailUrl: true, images: true },
+          select: {
+            id: true,
+            name: true,
+            imageUrl: true,
+            thumbnailUrl: true,
+            images: MASTER_IMAGE_SELECT,
+          },
         },
       },
     });
@@ -306,7 +329,7 @@ export class ThumbnailAnalysisService {
     if (productIds?.length) where.id = { in: productIds };
     const masters = await this.prisma.masterProduct.findMany({
       where,
-      select: { id: true, imageUrl: true, thumbnailUrl: true, images: true },
+      select: { id: true, imageUrl: true, thumbnailUrl: true, images: MASTER_IMAGE_SELECT },
     });
     let processed = 0;
     let failed = 0;
@@ -341,7 +364,7 @@ export class ThumbnailAnalysisService {
       complianceGrade: a.complianceGrade ?? null,
       complianceScores: (a.complianceScores as ComplianceScores | null) ?? null,
       imageSpec: (a.imageSpec as ImageSpec | null) ?? null,
-      recompose: null,
+      recompose: (a.recompose as ThumbnailAnalysisResult['recompose']) ?? null,
       createdAt: a.createdAt.toISOString(),
     } satisfies ThumbnailAnalysisResult;
   }

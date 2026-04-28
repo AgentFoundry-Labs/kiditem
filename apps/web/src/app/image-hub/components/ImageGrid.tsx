@@ -2,11 +2,11 @@
 
 import { useRef } from 'react';
 import { Plus, X } from 'lucide-react';
-import type { ProductImageItem } from '@kiditem/shared';
+import type { MasterImageItem } from '@kiditem/shared';
 import { HUB_ROLE_CONFIG, type HubRoleConfig } from '@/lib/hub-roles';
 
 interface Props {
-  images: ProductImageItem[];
+  images: MasterImageItem[];
   onAdd: (role: string, file: File) => void;
   onRemove: (index: number) => void;
   onLabelChange: (index: number, label: string) => void;
@@ -21,7 +21,7 @@ function RoleSection({
   startIndex,
 }: {
   config: HubRoleConfig;
-  images: ProductImageItem[];
+  images: MasterImageItem[];
   onAdd: (role: string, file: File) => void;
   onRemove: (index: number) => void;
   onLabelChange: (index: number, label: string) => void;

@@ -16,7 +16,7 @@ const EMPTY_PRODUCT_IMAGES: MasterImageItem[] = [];
  * W1 rewrite (ADR-0020 successor):
  * - Fetches via `GET /api/products/masters/:id/images` (not the master detail
  *   route's embedded `.images` field).
- * - Uploads to `POST /api/products/masters/:id/images/upload` and expects the
+ * - Uploads to `POST /api/products/masters/:id/images` and expects the
  *   canonical `{ image: MasterImageItem }` envelope.
  * - Saves the full list via `PATCH /api/products/masters/:id/images` with
  *   `{ items: MasterImageItem[] }`; the server response becomes the new truth.
@@ -45,7 +45,7 @@ export function useProductImages(masterId: string | null) {
       const formData = new FormData();
       formData.append('file', file);
       const res = await apiClient.uploadParsed(
-        `/api/products/masters/${masterId}/images/upload`,
+        `/api/products/masters/${masterId}/images`,
         UploadMasterImageResponseSchema,
         formData,
       );
@@ -61,7 +61,7 @@ export function useProductImages(masterId: string | null) {
       const formData = new FormData();
       formData.append('file', blob, 'thumbnail.png');
       const parsed = await apiClient.uploadParsed(
-        `/api/products/masters/${masterId}/images/upload`,
+        `/api/products/masters/${masterId}/images`,
         UploadMasterImageResponseSchema,
         formData,
       );
@@ -89,10 +89,9 @@ export function useProductImages(masterId: string | null) {
     onSuccess: (images) => {
       if (!masterId) return;
       queryClient.setQueryData(queryKeys.products.images(masterId), images);
-      // MasterProduct.images is embedded in the detail + catalog read models,
-      // so any cached copy of those must be marked stale after save. External
-      // review MEDIUM — without this the products list / detail view can
-      // surface images that were overwritten here.
+      // MasterProductImage rows are projected into detail + catalog read models,
+      // so any cached copy of those must be marked stale after save. Without
+      // this, products list/detail can surface an old image-table projection.
       queryClient.invalidateQueries({ queryKey: queryKeys.products.detail(masterId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.products.catalog.all });
     },

@@ -104,7 +104,7 @@ export class MastersController {
     return { images };
   }
 
-  @Post(':id/images/upload')
+  @Post(':id/images')
   @UseInterceptors(
     FileInterceptor('file', {
       limits: { fileSize: MAX_IMAGE_UPLOAD_SIZE_BYTES },
@@ -121,6 +121,14 @@ export class MastersController {
     @CurrentCompany() companyId: string,
     @Param('id') id: string,
     @UploadedFile() file: MulterFile,
+  ): Promise<{ image: MasterImageItem }> {
+    return this.uploadImageResponse(companyId, id, file);
+  }
+
+  private async uploadImageResponse(
+    companyId: string,
+    id: string,
+    file: MulterFile,
   ): Promise<{ image: MasterImageItem }> {
     const image = await this.svc.uploadImage(companyId, id, file);
     return { image: MasterImageItemSchema.parse(image) };

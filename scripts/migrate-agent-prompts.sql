@@ -7,6 +7,7 @@ UPDATE agent_definitions SET prompt_template = 'agent-config/prompts/agents/rule
 UPDATE agent_definitions SET prompt_template = 'agent-config/prompts/agents/rules-suggest.md' WHERE type = 'rules_suggest';
 UPDATE agent_definitions SET prompt_template = 'agent-config/prompts/agents/manager.md' WHERE type = 'manager';
 UPDATE agent_definitions SET prompt_template = 'agent-config/prompts/agents/chat.md' WHERE type = 'chat';
+UPDATE agent_definitions SET prompt_template = 'agent-config/prompts/agents/thumbnail-analyst.md' WHERE type = 'thumbnail_analyst';
 
 -- allowedTools 표준화: Bash(curl:*) 제거
 UPDATE agent_definitions SET allowed_tools = 'Bash(psql:*) Read Grep' WHERE allowed_tools LIKE '%Bash(curl:*)%';

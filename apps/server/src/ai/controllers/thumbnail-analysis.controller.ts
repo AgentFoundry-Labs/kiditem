@@ -7,6 +7,7 @@ import {
   Param,
   Post,
   Put,
+  Query,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
@@ -48,8 +49,16 @@ export class ThumbnailAnalysisController {
   }
 
   @Get('generations')
-  listGenerations(@CurrentCompany() companyId: string) {
-    return this.generationService.findAll(companyId);
+  listGenerations(
+    @CurrentCompany() companyId: string,
+    @Query('productId') productId?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const parsedLimit = limit ? Number.parseInt(limit, 10) : undefined;
+    return this.generationService.findAll(companyId, {
+      productId: productId || null,
+      limit: Number.isFinite(parsedLimit) ? parsedLimit : undefined,
+    });
   }
 
   /**
