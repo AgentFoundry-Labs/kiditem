@@ -29,11 +29,20 @@ export class DelegationService {
     payload?: Record<string, unknown>;
     reason?: string;
   }) {
-    const parent = await this.prisma.agentDefinition.findUnique({
-      where: { id: input.parentAgentId },
+    // Tenant scope: parent agent must be owned by the caller's company OR be a
+    // global definition (companyId = null). Child is a system-wide catalog
+    // entry resolved by `type`, which is unique across the table.
+    const parent = await this.prisma.agentDefinition.findFirst({
+      where: {
+        id: input.parentAgentId,
+        OR: [{ companyId: input.companyId }, { companyId: null }],
+      },
     });
-    const child = await this.prisma.agentDefinition.findUnique({
-      where: { type: input.childAgentType },
+    const child = await this.prisma.agentDefinition.findFirst({
+      where: {
+        type: input.childAgentType,
+        OR: [{ companyId: input.companyId }, { companyId: null }],
+      },
     });
     if (!parent || !child) {
       throw new NotFoundException('agent_not_found');

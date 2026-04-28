@@ -57,10 +57,13 @@ export class RulesController {
   }
 
   @Patch('schedule')
-  async updateSchedule(@Body() body: UpdateScheduleBodyDto) {
+  async updateSchedule(
+    @CurrentCompany() companyId: string,
+    @Body() body: UpdateScheduleBodyDto,
+  ) {
     const agent = await this.agentRegistry.findByType('rules_evaluation');
     const schedule = body.schedule === 'disabled' ? null : body.schedule;
-    await this.agentRegistry.update(agent.id, { schedule });
+    await this.agentRegistry.update(agent.id, companyId, { schedule });
     await this.heartbeat.syncTimers();
     return { ok: true, schedule: body.schedule };
   }

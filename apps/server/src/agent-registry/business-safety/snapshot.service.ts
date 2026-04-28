@@ -18,8 +18,10 @@ export class SnapshotService {
     for (const action of context.actions) {
       if (!action.product_id) continue;
 
-      const product = await this.prisma.masterProduct.findUnique({
-        where: { id: action.product_id },
+      // Scope master_products lookup to the run's company so a forged
+      // product_id from a different tenant cannot leak fields into a snapshot.
+      const product = await this.prisma.masterProduct.findFirst({
+        where: { id: action.product_id, companyId: context.companyId },
         select: { id: true, adBudgetLimit: true, adTier: true, healthScore: true },
       });
       if (!product) continue;
@@ -49,21 +51,39 @@ export class SnapshotService {
     return snapshots.length;
   }
 
-  async rollback(runId: string): Promise<{ restored: number }> {
+  /**
+   * Roll back action snapshots created by a run. Caller must supply the
+   * verified companyId from @CurrentCompany() so cross-tenant rollbacks are
+   * impossible even when an attacker forges a runId.
+   */
+  async rollback(runId: string, companyId: string): Promise<{ restored: number }> {
     const snapshots = await this.prisma.agentEvent.findMany({
-      where: { runId, eventType: 'action_snapshot', restoredAt: null },
+      where: {
+        runId,
+        companyId,
+        eventType: 'action_snapshot',
+        restoredAt: null,
+      },
       orderBy: { createdAt: 'desc' },
     });
 
     let restored = 0;
     for (const snap of snapshots) {
       try {
-        await this.prisma.masterProduct.update({
-          where: { id: snap.recordId as string },
+        // Tenant-scoped writes: the snapshot row's companyId is trusted because
+        // we just filtered by `companyId` above, but we still bind it on each
+        // mutation as defense-in-depth so a malformed snap row cannot touch
+        // another tenant's master_products / agent_events.
+        const updated = await this.prisma.masterProduct.updateMany({
+          where: { id: snap.recordId as string, companyId: snap.companyId },
           data: { [snap.fieldName as string]: snap.valueBefore },
         });
-        await this.prisma.agentEvent.update({
-          where: { id: snap.id },
+        if (updated.count === 0) {
+          this.logger.warn(`Rollback: master_products row ${snap.recordId} not found for company ${snap.companyId}`);
+          continue;
+        }
+        await this.prisma.agentEvent.updateMany({
+          where: { id: snap.id, companyId: snap.companyId },
           data: { restoredAt: new Date() },
         });
         restored++;
@@ -75,9 +95,9 @@ export class SnapshotService {
     return { restored };
   }
 
-  async getSnapshots(runId: string) {
+  async getSnapshots(runId: string, companyId: string) {
     return this.prisma.agentEvent.findMany({
-      where: { runId, eventType: 'action_snapshot' },
+      where: { runId, companyId, eventType: 'action_snapshot' },
       orderBy: { createdAt: 'asc' },
     });
   }

@@ -91,13 +91,17 @@ export class AgentRegistryController {
   }
 
   @Patch(':id')
-  update(@Param('id', new ParseUUIDPipe()) id: string, @Body() body: UpdateAgentBodyDto) {
-    return this.service.update(id, body as any);
+  update(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentCompany() companyId: string,
+    @Body() body: UpdateAgentBodyDto,
+  ) {
+    return this.service.update(id, companyId, body);
   }
 
   @Delete(':id')
-  delete(@Param('id', new ParseUUIDPipe()) id: string) {
-    return this.service.delete(id);
+  delete(@Param('id', new ParseUUIDPipe()) id: string, @CurrentCompany() companyId: string) {
+    return this.service.delete(id, companyId);
   }
 
   // ── 실행 ──
@@ -124,28 +128,39 @@ export class AgentRegistryController {
   }
 
   @Post(':id/pause')
-  pause(@Param('id', new ParseUUIDPipe()) id: string, @Body() body: PauseAgentBodyDto) {
-    return this.service.pauseAgent(id, body.reason);
+  pause(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentCompany() companyId: string,
+    @Body() body: PauseAgentBodyDto,
+  ) {
+    return this.service.pauseAgent(id, companyId, body.reason);
   }
 
   @Post(':id/resume')
-  resume(@Param('id', new ParseUUIDPipe()) id: string) {
-    return this.service.resumeAgent(id);
+  resume(@Param('id', new ParseUUIDPipe()) id: string, @CurrentCompany() companyId: string) {
+    return this.service.resumeAgent(id, companyId);
   }
 
   @Post(':id/reset-session')
-  resetSession(@Param('id', new ParseUUIDPipe()) id: string) {
-    return this.service.resetSession(id);
+  resetSession(@Param('id', new ParseUUIDPipe()) id: string, @CurrentCompany() companyId: string) {
+    return this.service.resetSession(id, companyId);
   }
 
   @Get(':id/runs')
-  getRunHistory(@Param('id', new ParseUUIDPipe()) id: string, @Query() query: RunHistoryQueryDto) {
-    return this.service.getRunHistory(id, query.limit);
+  getRunHistory(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentCompany() companyId: string,
+    @Query() query: RunHistoryQueryDto,
+  ) {
+    return this.service.getRunHistory(id, companyId, query.limit);
   }
 
   @Get(':id/runtime-state')
-  getRuntimeState(@Param('id', new ParseUUIDPipe()) id: string) {
-    return this.service.getRuntimeState(id);
+  getRuntimeState(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentCompany() companyId: string,
+  ) {
+    return this.service.getRuntimeState(id, companyId);
   }
 
   // ── Delegation (#14) ──
@@ -171,24 +186,33 @@ export class AgentRegistryController {
 
   @Roles('admin')
   @Get(':id/denials')
-  getDenials(@Param('id', new ParseUUIDPipe()) id: string) {
+  getDenials(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentCompany() companyId: string,
+  ) {
     if (!this.denialTracker) return [];
-    return this.denialTracker.listDenials(id);
+    return this.denialTracker.listDenials(id, companyId);
   }
 
   // ── Business Safety: Snapshots + Rollback ──
 
   @Roles('admin')
   @Get('runs/:runId/snapshots')
-  getSnapshots(@Param('runId', new ParseUUIDPipe()) runId: string) {
+  getSnapshots(
+    @Param('runId', new ParseUUIDPipe()) runId: string,
+    @CurrentCompany() companyId: string,
+  ) {
     if (!this.snapshotService) return [];
-    return this.snapshotService.getSnapshots(runId);
+    return this.snapshotService.getSnapshots(runId, companyId);
   }
 
   @Roles('admin')
   @Get('runs/:runId/reasoning')
-  async getReasoning(@Param('runId', new ParseUUIDPipe()) runId: string) {
-    const run = await this.service.getRunById(runId);
+  async getReasoning(
+    @Param('runId', new ParseUUIDPipe()) runId: string,
+    @CurrentCompany() companyId: string,
+  ) {
+    const run = await this.service.getRunById(runId, companyId);
     if (!run?.resultJson) return { actions: [] };
     const result = run.resultJson as any;
     const actions = (result.actions || []).map((a: any) => ({
@@ -202,13 +226,20 @@ export class AgentRegistryController {
 
   @Roles('admin')
   @Post('runs/:runId/rollback')
-  rollback(@Param('runId', new ParseUUIDPipe()) runId: string) {
+  rollback(
+    @Param('runId', new ParseUUIDPipe()) runId: string,
+    @CurrentCompany() companyId: string,
+  ) {
     if (!this.snapshotService) return { restored: 0 };
-    return this.snapshotService.rollback(runId);
+    return this.snapshotService.rollback(runId, companyId);
   }
 
   @Patch(':id/trust-level')
-  async updateTrustLevel(@Param('id', new ParseUUIDPipe()) id: string, @Body() body: UpdateTrustLevelDto) {
-    return this.service.update(id, { trustLevel: body.trustLevel });
+  async updateTrustLevel(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentCompany() companyId: string,
+    @Body() body: UpdateTrustLevelDto,
+  ) {
+    return this.service.update(id, companyId, { trustLevel: body.trustLevel });
   }
 }

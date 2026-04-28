@@ -38,10 +38,10 @@ describe('DenialTrackerService', () => {
     const prisma = makePrisma();
     const service = new DenialTrackerService(prisma);
 
-    await service.listDenials('agent-1');
+    await service.listDenials('agent-1', 'co-1');
 
     expect(prisma.agentEvent.findMany).toHaveBeenCalledWith({
-      where: { agentId: 'agent-1', eventType: 'permission_denied' },
+      where: { agentId: 'agent-1', companyId: 'co-1', eventType: 'permission_denied' },
       orderBy: { createdAt: 'desc' },
       take: 50,
     });
@@ -51,7 +51,7 @@ describe('DenialTrackerService', () => {
     const prisma = makePrisma();
     const service = new DenialTrackerService(prisma);
 
-    await service.listDenials('agent-1', { limit: 10 });
+    await service.listDenials('agent-1', 'co-1', { limit: 10 });
 
     expect(prisma.agentEvent.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ take: 10 }),

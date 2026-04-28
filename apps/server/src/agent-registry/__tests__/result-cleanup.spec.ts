@@ -9,6 +9,7 @@ function makePrisma() {
     heartbeatRun: {
       findMany: vi.fn(),
       update: vi.fn().mockResolvedValue({}),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
     agentDefinition: {
       findMany: vi.fn().mockResolvedValue([]),
@@ -79,13 +80,14 @@ describe('ResultCleanupService.cleanupAgent', () => {
     const count = await service.cleanupAgent(AGENT_ID, RETENTION_DAYS);
 
     expect(count).toBe(0);
-    expect(prisma.heartbeatRun.update).not.toHaveBeenCalled();
+    expect(prisma.heartbeatRun.updateMany).not.toHaveBeenCalled();
   });
 
   it('old run → summarized + excerpts cleared', async () => {
     const { service, prisma } = makeService();
     const oldRun = {
       id: 'run-old-1',
+      companyId: 'co-1',
       resultJson: { actions: [{ action: 'bid_adjust' }] },
       errorCode: null,
     };
@@ -94,8 +96,8 @@ describe('ResultCleanupService.cleanupAgent', () => {
     const count = await service.cleanupAgent(AGENT_ID, RETENTION_DAYS);
 
     expect(count).toBe(1);
-    expect(prisma.heartbeatRun.update).toHaveBeenCalledWith({
-      where: { id: 'run-old-1' },
+    expect(prisma.heartbeatRun.updateMany).toHaveBeenCalledWith({
+      where: { id: 'run-old-1', companyId: 'co-1' },
       data: {
         isSummarized: true,
         summary: '1개 액션 실행: bid_adjust',
@@ -142,8 +144,8 @@ describe('ResultCleanupService.cleanupAll', () => {
     // agent-1 has 2 old runs, agent-2 has none
     prisma.heartbeatRun.findMany
       .mockResolvedValueOnce([
-        { id: 'run-1', resultJson: null, errorCode: null },
-        { id: 'run-2', resultJson: null, errorCode: 'timeout' },
+        { id: 'run-1', companyId: 'co-1', resultJson: null, errorCode: null },
+        { id: 'run-2', companyId: 'co-1', resultJson: null, errorCode: 'timeout' },
       ])
       .mockResolvedValueOnce([]);
 
