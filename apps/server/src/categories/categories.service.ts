@@ -26,8 +26,10 @@ export class CategoriesService {
     });
   }
 
-  async update(id: string, dto: UpdateCategoryDto) {
-    const existing = await this.prisma.categoryMapping.findUnique({ where: { id } });
+  async update(id: string, companyId: string, dto: UpdateCategoryDto) {
+    const existing = await this.prisma.categoryMapping.findFirst({
+      where: { id, companyId },
+    });
     if (!existing) {
       throw new BadRequestException('카테고리 매핑을 찾을 수 없습니다');
     }
@@ -38,8 +40,10 @@ export class CategoriesService {
     });
   }
 
-  async delete(id: string) {
-    const existing = await this.prisma.categoryMapping.findUnique({ where: { id } });
+  async delete(id: string, companyId: string) {
+    const existing = await this.prisma.categoryMapping.findFirst({
+      where: { id, companyId },
+    });
     if (!existing) {
       throw new BadRequestException('카테고리 매핑을 찾을 수 없습니다');
     }

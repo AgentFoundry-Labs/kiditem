@@ -44,8 +44,10 @@ export class SuppliersService {
     });
   }
 
-  async update(id: string, dto: UpdateSupplierDto) {
-    const existing = await this.prisma.supplier.findUnique({ where: { id } });
+  async update(id: string, companyId: string, dto: UpdateSupplierDto) {
+    const existing = await this.prisma.supplier.findFirst({
+      where: { id, companyId },
+    });
     if (!existing) {
       throw new BadRequestException('거래처를 찾을 수 없습니다');
     }
@@ -66,8 +68,10 @@ export class SuppliersService {
     });
   }
 
-  async delete(id: string) {
-    const existing = await this.prisma.supplier.findUnique({ where: { id } });
+  async delete(id: string, companyId: string) {
+    const existing = await this.prisma.supplier.findFirst({
+      where: { id, companyId },
+    });
     if (!existing) {
       throw new BadRequestException('거래처를 찾을 수 없습니다');
     }
