@@ -15,6 +15,7 @@
     "check:web-db-boundary": "./scripts/check-frontend-db-boundary.sh",
     "check:idor": "./scripts/check-queryraw-tenancy.sh",
     "check:tenant-scope": "./scripts/check-tenant-scope.sh",
+    "knip:report": "knip --no-exit-code --no-progress --reporter compact",
     "db:3layer-setup": "docker exec -i kiditem-postgres psql -U kiditem kiditem < prisma/3layer-setup.sql",
     "db:erd": "node scripts/generate-prisma-erd.mjs",
     "graphify:schema": "npm run db:erd && uv run --with graphifyy --python 3.11 python scripts/generate-schema-graphify.py",
@@ -41,6 +42,7 @@
     "@types/pg": "^8.20.0",
     "better-sqlite3": "^12.8.0",
     "concurrently": "^9.2.1",
+    "knip": "^6.7.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5"
   },
