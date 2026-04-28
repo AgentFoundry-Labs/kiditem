@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -30,9 +29,18 @@ describe('legacy market-data migration entrypoints', () => {
     expect(packageJson.scripts).not.toHaveProperty('migrate:dashboard');
     expect(packageJson.scripts).not.toHaveProperty('seed:channel-market-data');
     expect(existsSync(join(repoRoot, 'scripts/seed-channel-market-data.ts'))).toBe(false);
-    expect(packageJson.scripts).toHaveProperty('data:coupang:replay');
-    expect(packageJson.scripts).toHaveProperty('data:coupang:pack');
-    expect(packageJson.scripts).toHaveProperty('data:coupang:publish');
+    expect(packageJson.scripts).toMatchObject({
+      'data:coupang:export': 'tsx scripts/coupang-dev-data.ts export',
+      'data:coupang:replay': 'tsx scripts/coupang-dev-data.ts replay',
+      'data:coupang:sanitize': 'tsx scripts/coupang-dev-data.ts sanitize',
+      'data:dev:pull': 'tsx scripts/dev-data.ts pull',
+      'data:dev:pack': 'tsx scripts/dev-data.ts pack',
+      'data:dev:publish': 'tsx scripts/dev-data.ts publish',
+    });
+    expect(packageJson.scripts).not.toHaveProperty('data:coupang:status');
+    expect(packageJson.scripts).not.toHaveProperty('data:coupang:pull');
+    expect(packageJson.scripts).not.toHaveProperty('data:coupang:pack');
+    expect(packageJson.scripts).not.toHaveProperty('data:coupang:publish');
 
     for (const relativePath of [
       'scripts/migrate-dashboard-data.ts',
@@ -48,16 +56,13 @@ describe('legacy market-data migration entrypoints', () => {
   });
 });
 
-describe('coupang dev data bundle packaging', () => {
-  it('publishes a standard zip filename and latest manifest that pull can replay', async () => {
-    const tempRoot = mkdtempSync(join(tmpdir(), 'kiditem-dev-data-'));
+describe('coupang dev data adapter', () => {
+  it('exports scraper payloads and replays them in dry-run mode', () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), 'kiditem-coupang-adapter-'));
     const payloadDir = join(tempRoot, 'payloads');
-    const producerRoot = join(tempRoot, 'producer');
-    const consumerRoot = join(tempRoot, 'consumer');
-    const driveRoot = join(tempRoot, 'drive');
+    const dataRoot = join(tempRoot, 'data');
     const payloadFile = join(payloadDir, 'wing-traffic.json');
     const datasetId = '2026-04-28-real-v1';
-    const archiveFileName = 'kiditem-coupang-real-2026-04-28-real-v1.zip';
 
     mkdirSync(payloadDir, { recursive: true });
     writeFileSync(payloadFile, JSON.stringify({
@@ -66,62 +71,22 @@ describe('coupang dev data bundle packaging', () => {
       data: [{ businessDate: '2026-04-28', visitors: 7 }],
     }));
 
-    runCoupangData([
+    const exportOutput = JSON.parse(runCoupangData([
       'export',
       '--dataset', datasetId,
       '--lane', 'real',
       '--payload', payloadFile,
       '--from', '2026-04-28',
       '--to', '2026-04-28',
-      '--data-root', producerRoot,
-    ]);
+      '--data-root', dataRoot,
+    ])) as { exported: string; payloadCount: number };
 
-    const packOutput = JSON.parse(runCoupangData([
-      'pack',
-      '--dataset', datasetId,
-      '--data-root', producerRoot,
-    ])) as { archiveFileName: string; archivePath: string; sha256: string };
-
-    expect(packOutput.archiveFileName).toBe(archiveFileName);
-    expect(existsSync(packOutput.archivePath)).toBe(true);
-    expect(packOutput.sha256).toMatch(/^[a-f0-9]{64}$/);
-
-    runCoupangData([
-      'publish',
-      '--dataset', datasetId,
-      '--data-root', producerRoot,
-      '--drive-root', driveRoot,
-    ]);
-
-    const latestJsonPath = join(driveRoot, 'coupang-real', 'latest.json');
-    const latestJson = JSON.parse(await readFile(latestJsonPath, 'utf8')) as {
-      datasetId: string;
-      archiveFileName: string;
-      archivePath: string;
-      sha256: string;
-    };
-
-    expect(latestJson).toMatchObject({
-      datasetId,
-      archiveFileName,
-      archivePath: `bundles/${archiveFileName}`,
-      sha256: packOutput.sha256,
-    });
-    expect(readFileSync(join(driveRoot, 'coupang-real', 'latest.txt'), 'utf8').trim()).toBe(datasetId);
-    expect(existsSync(join(driveRoot, 'coupang-real', 'bundles', archiveFileName))).toBe(true);
-    expect(readFileSync(join(driveRoot, 'coupang-real', 'bundles', `${archiveFileName}.sha256`), 'utf8'))
-      .toContain(packOutput.sha256);
-
-    runCoupangData([
-      'pull',
-      '--lane', 'real',
-      '--drive-root', driveRoot,
-      '--data-root', consumerRoot,
-    ]);
+    expect(exportOutput).toMatchObject({ exported: datasetId, payloadCount: 1 });
 
     const dryRun = JSON.parse(runCoupangData([
       'replay',
-      '--data-root', consumerRoot,
+      '--dataset', datasetId,
+      '--data-root', dataRoot,
       '--dry-run',
     ])) as { datasetId: string; mode: string; payloads: number; sources: string[] };
 
@@ -131,5 +96,5 @@ describe('coupang dev data bundle packaging', () => {
       payloads: 1,
     });
     expect(dryRun.sources).toContain('wing');
-  }, 30000);
+  });
 });
