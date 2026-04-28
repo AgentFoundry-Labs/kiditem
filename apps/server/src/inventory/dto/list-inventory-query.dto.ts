@@ -1,6 +1,6 @@
 import { IsOptional, IsInt, Min, Max, IsIn, IsUUID } from 'class-validator';
 import { Type } from 'class-transformer';
-import type { InventoryStatus } from '@kiditem/shared';
+import type { InventoryStatus } from '@kiditem/shared/inventory';
 
 export class ListInventoryQueryDto {
   @IsOptional()

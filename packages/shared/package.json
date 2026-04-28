@@ -15,6 +15,31 @@
       "import": "./dist/schemas/index.js",
       "require": "./dist/schemas/index.cjs"
     },
+    "./product": {
+      "types": "./dist/product.d.ts",
+      "import": "./dist/product.js",
+      "require": "./dist/product.cjs"
+    },
+    "./order": {
+      "types": "./dist/order.d.ts",
+      "import": "./dist/order.js",
+      "require": "./dist/order.cjs"
+    },
+    "./inventory": {
+      "types": "./dist/inventory.d.ts",
+      "import": "./dist/inventory.js",
+      "require": "./dist/inventory.cjs"
+    },
+    "./ai": {
+      "types": "./dist/ai.d.ts",
+      "import": "./dist/ai.js",
+      "require": "./dist/ai.cjs"
+    },
+    "./advertising": {
+      "types": "./dist/advertising.d.ts",
+      "import": "./dist/advertising.js",
+      "require": "./dist/advertising.cjs"
+    },
     "./errors": {
       "types": "./dist/errors/index.d.ts",
       "import": "./dist/errors/index.js",
@@ -28,6 +53,18 @@
     "./internal/*": null
   },
   "types": "./dist/index.d.ts",
+  "typesVersions": {
+    "*": {
+      "schemas": ["dist/schemas/index.d.ts"],
+      "product": ["dist/product.d.ts"],
+      "order": ["dist/order.d.ts"],
+      "inventory": ["dist/inventory.d.ts"],
+      "ai": ["dist/ai.d.ts"],
+      "advertising": ["dist/advertising.d.ts"],
+      "errors": ["dist/errors/index.d.ts"],
+      "security": ["dist/security/index.d.ts"]
+    }
+  },
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "files": ["dist"],
