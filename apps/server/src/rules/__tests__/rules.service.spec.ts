@@ -11,10 +11,10 @@ function makePrisma() {
     agentTask: { findUnique: vi.fn(), update: vi.fn() },
     activityEvent: { create: vi.fn(), createMany: vi.fn() },
     alert: { createManyAndReturn: vi.fn() },
-    masterProduct: { count: vi.fn(), findFirst: vi.fn(), findMany: vi.fn() },
+    masterProduct: { count: vi.fn(), findFirst: vi.fn(), findMany: vi.fn(), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
     businessRule: { findMany: vi.fn(), update: vi.fn(), count: vi.fn() },
     company: { findFirst: vi.fn() },
-    $executeRawUnsafe: vi.fn(),
+    $transaction: vi.fn().mockResolvedValue([]),
   };
 }
 
@@ -62,7 +62,7 @@ describe('RulesService', () => {
   describe('onResultReady', () => {
     it('updates healthScores, creates events, and creates critical alerts', async () => {
       const { service, prisma, eventEmitter } = makeService();
-      prisma.$executeRawUnsafe.mockResolvedValue(undefined);
+      prisma.$transaction.mockResolvedValue([]);
       prisma.activityEvent.createMany.mockResolvedValue({ count: 2 });
       const insertedAlerts = [{
         id: '11111111-1111-1111-1111-111111111111',
@@ -121,10 +121,16 @@ describe('RulesService', () => {
 
       await service.onResultReady(event);
 
-      // healthScore bulk update
-      expect(prisma.$executeRawUnsafe).toHaveBeenCalledWith(
-        expect.stringContaining("WHEN id = 'p1'::uuid THEN 85"),
-      );
+      // healthScore bulk update — Prisma updateMany scoped by (id, companyId), wrapped in $transaction.
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(prisma.masterProduct.updateMany).toHaveBeenCalledWith({
+        where: { id: 'p1', companyId: COMPANY_ID },
+        data: expect.objectContaining({ healthScore: 85 }),
+      });
+      expect(prisma.masterProduct.updateMany).toHaveBeenCalledWith({
+        where: { id: PRODUCT_ID, companyId: COMPANY_ID },
+        data: expect.objectContaining({ healthScore: 25 }),
+      });
 
       // activity events
       expect(prisma.activityEvent.createMany).toHaveBeenCalledWith({
@@ -169,7 +175,7 @@ describe('RulesService', () => {
 
       await service.onResultReady(event);
 
-      expect(prisma.$executeRawUnsafe).not.toHaveBeenCalled();
+      expect(prisma.$transaction).not.toHaveBeenCalled();
       expect(prisma.activityEvent.createMany).not.toHaveBeenCalled();
       expect(prisma.alert.createManyAndReturn).not.toHaveBeenCalled();
       expect(eventEmitter.emit).not.toHaveBeenCalled();
@@ -184,12 +190,12 @@ describe('RulesService', () => {
 
       await service.onResultReady(event);
 
-      expect(prisma.$executeRawUnsafe).not.toHaveBeenCalled();
+      expect(prisma.$transaction).not.toHaveBeenCalled();
     });
 
     it('does not throw when post-processing fails', async () => {
       const { service, prisma } = makeService();
-      prisma.$executeRawUnsafe.mockRejectedValue(new Error('SQL error'));
+      prisma.$transaction.mockRejectedValue(new Error('SQL error'));
 
       const event = new AgentResultReadyEvent(
         'rules_evaluation', 'agent-rules', 'run-4',
@@ -209,7 +215,7 @@ describe('RulesService', () => {
 
     it('batch cap: 51+ alerts emit single summary item instead of individual emits', async () => {
       const { service, prisma, eventEmitter } = makeService();
-      prisma.$executeRawUnsafe.mockResolvedValue(undefined);
+      prisma.$transaction.mockResolvedValue([]);
       prisma.activityEvent.createMany.mockResolvedValue({ count: 51 });
 
       // Build 51 critical violations
@@ -262,7 +268,7 @@ describe('RulesService', () => {
 
     it('error isolation: emit throw does not break alert creation', async () => {
       const { service, prisma, eventEmitter } = makeService();
-      prisma.$executeRawUnsafe.mockResolvedValue(undefined);
+      prisma.$transaction.mockResolvedValue([]);
       prisma.activityEvent.createMany.mockResolvedValue({ count: 1 });
       const insertedAlert = {
         id: '11111111-1111-1111-1111-111111111111',

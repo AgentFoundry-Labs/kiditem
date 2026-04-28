@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnModuleInit, NotFoundException, BadRequestException, ForbiddenException, Inject, forwardRef } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { HeartbeatService } from './heartbeat/heartbeat.service';
 import type { AgentListItem, DailyCost, AgentCostSummary, CostAnalytics } from '@kiditem/shared';
@@ -301,18 +301,13 @@ export class AgentRegistryService implements OnModuleInit {
 
   // ── Cost Analytics ──
 
-  // TODO(Phase 0.3 후속): companyId 로 서비스 내부 where 절 정렬 — 현재는 admin 한정 관측이라 전사 집계 유지
-  async getCostAnalytics(_companyId: string, query: { from?: string; to?: string; agentId?: string }) {
+  async getCostAnalytics(companyId: string, query: { from?: string; to?: string; agentId?: string }) {
     const from = query.from ? new Date(query.from) : new Date('2020-01-01');
     const to = query.to ? new Date(query.to) : new Date();
 
-    // daily 집계
-    const dailyParams: unknown[] = [from, to];
-    let dailyAgentFilter = '';
-    if (query.agentId) {
-      dailyParams.push(query.agentId);
-      dailyAgentFilter = `AND agent_id = $${dailyParams.length}`;
-    }
+    const dailyAgentFilter = query.agentId
+      ? Prisma.sql`AND agent_id = ${query.agentId}::uuid`
+      : Prisma.empty;
 
     const daily: Array<{
       date: Date | string;
@@ -320,28 +315,24 @@ export class AgentRegistryService implements OnModuleInit {
       total_input_tokens: bigint | number;
       total_output_tokens: bigint | number;
       run_count: bigint | number;
-    }> = await this.prisma.$queryRawUnsafe(
-      `SELECT DATE(started_at) as date,
+    }> = await this.prisma.$queryRaw`
+      SELECT DATE(started_at) as date,
         COALESCE(SUM((usage_json->>'costCents')::int), 0) as total_cost_cents,
         COALESCE(SUM((usage_json->>'inputTokens')::int), 0) as total_input_tokens,
         COALESCE(SUM((usage_json->>'outputTokens')::int), 0) as total_output_tokens,
         COUNT(*)::int as run_count
       FROM heartbeat_runs
-      WHERE started_at >= $1 AND started_at <= $2
+      WHERE company_id = ${companyId}::uuid
+        AND started_at >= ${from} AND started_at <= ${to}
         AND status IN ('succeeded', 'failed')
         AND usage_json IS NOT NULL
         ${dailyAgentFilter}
-      GROUP BY DATE(started_at) ORDER BY date ASC`,
-      ...dailyParams,
-    );
+      GROUP BY DATE(started_at) ORDER BY date ASC
+    `;
 
-    // byAgent 집계
-    const agentParams: unknown[] = [from, to];
-    let agentFilter = '';
-    if (query.agentId) {
-      agentParams.push(query.agentId);
-      agentFilter = `AND h.agent_id = $${agentParams.length}`;
-    }
+    const agentFilter = query.agentId
+      ? Prisma.sql`AND h.agent_id = ${query.agentId}::uuid`
+      : Prisma.empty;
 
     const byAgent: Array<{
       agent_id: string;
@@ -350,21 +341,23 @@ export class AgentRegistryService implements OnModuleInit {
       total_input_tokens: bigint | number;
       total_output_tokens: bigint | number;
       run_count: bigint | number;
-    }> = await this.prisma.$queryRawUnsafe(
-      `SELECT h.agent_id, d.name as agent_name,
+    }> = await this.prisma.$queryRaw`
+      SELECT h.agent_id, d.name as agent_name,
         COALESCE(SUM((h.usage_json->>'costCents')::int), 0) as total_cost_cents,
         COALESCE(SUM((h.usage_json->>'inputTokens')::int), 0) as total_input_tokens,
         COALESCE(SUM((h.usage_json->>'outputTokens')::int), 0) as total_output_tokens,
         COUNT(*)::int as run_count
       FROM heartbeat_runs h
-      LEFT JOIN agent_definitions d ON h.agent_id = d.id
-      WHERE h.started_at >= $1 AND h.started_at <= $2
+      LEFT JOIN agent_definitions d
+        ON h.agent_id = d.id
+        AND (d.company_id IS NULL OR d.company_id = h.company_id)
+      WHERE h.company_id = ${companyId}::uuid
+        AND h.started_at >= ${from} AND h.started_at <= ${to}
         AND h.status IN ('succeeded', 'failed')
         AND h.usage_json IS NOT NULL
         ${agentFilter}
-      GROUP BY h.agent_id, d.name ORDER BY total_cost_cents DESC`,
-      ...agentParams,
-    );
+      GROUP BY h.agent_id, d.name ORDER BY total_cost_cents DESC
+    `;
 
     // 결과 변환 (BigInt → Number, Date → string)
     const dailyResult = daily.map((row) => ({

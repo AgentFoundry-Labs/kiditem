@@ -104,6 +104,19 @@ E-commerce operations automation for kids' products. Sourcing → AI processing 
 - **DB 동기화** — `git pull` 은 DB 를 자동 갱신하지 않는다. 스키마는 `db:push`, 공유 개발 데이터는 Google Drive dev data profile sync 로 맞춘다: [prisma/AGENTS.md — DB 동기화](prisma/AGENTS.md#db-동기화--schema-vs-data-중요), [docs/DEV_DATA_BUNDLES.md](docs/DEV_DATA_BUNDLES.md).
 - **신규 영구 규칙** — incident-driven 또는 cross-domain 새 규칙은 해당 scope 의 `AGENTS.md` 또는 `CLAUDE.md` 본문에 직접 등록. 별도 결정 이력 폴더는 두지 않는다 (ADR 체계 폐지, 2026-04-26).
 
+## Codebase Reconstruction Rules
+
+Reconstruction work starts from [`docs/superpowers/plans/2026-04-28-codebase-reconstruction.md`](docs/superpowers/plans/2026-04-28-codebase-reconstruction.md). This is a platform-boundary cleanup track, not permission to mix unrelated business rewrites.
+
+- **Rules before deletion** — record contract, scanner, or regression-test gates before deleting legacy implementation.
+- **Boundary exception is narrow** — tenant guards, raw SQL policy, scanner scripts, shared export topology, and dependency tooling may cross domains. Business logic rewrites still use one owner domain per PR.
+- **Tenant service contract** — tenant-owned services receive `companyId` as an explicit argument from `@CurrentCompany()`. Client-provided `companyId` is not trusted.
+- **Raw SQL contract** — production raw SQL uses Prisma tagged templates only. Unsafe raw SQL APIs remain banned even when inputs appear sanitized.
+- **Shared contract** — do not expand the `@kiditem/shared` root barrel for new domains. Add or use domain subpath exports instead.
+- **Large-file contract** — do not add substantial behavior to 700+ line services/components. Write a split/replacement plan first.
+- **Frontend DB boundary** — frontend packages must not depend on Prisma, `pg`, or direct database access. Data flows through NestJS APIs.
+- **Verification contract** — every reconstruction PR reports the exact gate it made green. If a gate itself is broken, fix the gate before using it as evidence.
+
 ## Structure
 
 ```

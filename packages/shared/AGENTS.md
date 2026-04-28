@@ -20,12 +20,21 @@ import { ErrorCodes } from '@kiditem/shared/errors';         // error codes
 
 `@kiditem/shared/internal/*` → null (내부 모듈 직접 import 차단)
 
+## Reconstruction Export Policy
+
+- Treat `src/index.ts` and `src/schemas/index.ts` as compatibility surfaces, not the place for new domain growth.
+- New or rebuilt domain contracts should add subpath exports first, for example `@kiditem/shared/product`, `@kiditem/shared/order`, `@kiditem/shared/inventory`, `@kiditem/shared/ai`, `@kiditem/shared/advertising`, `@kiditem/shared/errors`, and `@kiditem/shared/security`.
+- Keep root exports temporarily while migrating existing consumers, then remove them only after server and web builds prove no direct consumer remains.
+- Backend-only concepts must not leak into frontend-facing root exports. Nest-specific errors or exception classes belong behind backend-only imports or server-local code.
+- Do not add legacy aliases during migration. Move consumers to the canonical schema/type name.
+
 ## Adding a Schema
 
 1. `src/schemas/{domain}.ts`에 Zod 스키마 정의
 2. `src/schemas/index.ts`에서 export
-3. `src/index.ts`에서 re-export (타입)
-4. `npm run build`
+3. 새 도메인이라면 domain subpath export 를 먼저 추가
+4. 기존 root consumer 호환이 필요한 경우에만 `src/index.ts`에서 임시 re-export
+5. `npm run build`
 
 ## Rules
 
