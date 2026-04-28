@@ -190,10 +190,6 @@ export const queryKeys = {
     all: ['returnTransfers'] as const,
     list: (params?: Record<string, string>) => [...queryKeys.returnTransfers.all, 'list', params] as const,
   },
-  productMemos: {
-    all: ['productMemos'] as const,
-    list: (productId: string) => [...queryKeys.productMemos.all, 'list', productId] as const,
-  },
   actionTasks: {
     all: ['actionTasks'] as const,
     list: (scope?: string) => [...queryKeys.actionTasks.all, 'list', scope ?? 'all'] as const,
