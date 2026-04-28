@@ -67,6 +67,9 @@ COUPANG_SECRET_KEY=
 COUPANG_VENDOR_ID=
 GEMINI_API_KEY=             # Text AI (workflow analysis)
 AI_TEXT_MODEL=gemini-2.5-flash
+AI_IMAGE_ANALYSIS_MODEL=gemini-3.1-flash-lite-preview
+AI_IMAGE_ANALYSIS_VERIFY_MODEL=gemini-3.1-flash-lite-preview
+AI_IMAGE_MODEL=gemini-3.1-flash-image-preview
 CHATBOT_DATABASE_URL=postgresql://chatbot_readonly:chatbot_readonly@localhost:5433/kiditem?options=-c%20app.company_id%3D{company_uuid}
 ```
 
@@ -86,6 +89,7 @@ FAL_KEY=...
 # AI models
 AI_TEXT_MODEL=gemini-2.5-flash                    # Copy generation
 AI_IMAGE_ANALYSIS_MODEL=gemini-3.1-flash-lite-preview  # Product image analysis
+AI_IMAGE_ANALYSIS_VERIFY_MODEL=gemini-3.1-flash-lite-preview  # Thumbnail compliance verification
 AI_IMAGE_MODEL=gemini-3.1-flash-image-preview     # Hero/banner image generation
 AI_IMAGE_EDIT_MODEL=fal-ai/flux-2-pro/edit        # Image editing (fal)
 AI_IMAGE_DETAIL_MODEL=fal-ai/flux-pro/kontext/max # Detail image editing (fal)

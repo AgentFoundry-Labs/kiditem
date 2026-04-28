@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type {
+  ComplianceScores,
   EditAnalysisResult,
   RecomposeKind,
   RecomposeVariantKey,
@@ -22,8 +23,22 @@ import {
   type ThumbnailEditorInputImage,
   type ThumbnailInputRole,
 } from './thumbnail-editor-ai.service';
+import {
+  THUMBNAIL_MASTER_IMAGE_SELECT,
+  resolveMasterThumbnailImage,
+} from './thumbnail-master-image-resolver';
 import { getRecomposePromptOverride } from './thumbnail-recompose-prompts';
 import { ThumbnailTrackingService } from './thumbnail-tracking.service';
+
+type ThumbnailAnalysisContext = {
+  recompose: Prisma.JsonValue | null;
+  complianceGrade: string | null;
+  complianceScores: Prisma.JsonValue | null;
+  overallScore: number;
+  grade: string;
+  qualityAnalyzedAt: Date | null;
+  complianceAnalyzedAt: Date | null;
+};
 
 type Candidate = ThumbnailEditorCandidate;
 type InputImage = ThumbnailEditorInputImage;
@@ -112,6 +127,7 @@ export class ThumbnailGenerationService {
     inputImages?: InputImage[];
     method: string;
     inputMeta?: Prisma.InputJsonValue | null;
+    editAnalysis?: EditAnalysisResult | null;
     triggeredByUserId?: string | null;
   }): Promise<string> {
     const generation = await this.prisma.thumbnailGeneration.create({
@@ -123,6 +139,9 @@ export class ThumbnailGenerationService {
         status: 'succeeded',
         phase: 'ready',
         inputMeta: input.inputMeta ?? undefined,
+        editAnalysis: input.editAnalysis
+          ? (input.editAnalysis as unknown as Prisma.InputJsonValue)
+          : Prisma.JsonNull,
         triggeredByUserId: input.triggeredByUserId ?? null,
         candidates: {
           create: input.candidates.map((c, index) => ({
@@ -347,7 +366,27 @@ export class ThumbnailGenerationService {
     if (productIds.length === 0) return [];
     const products = await this.prisma.masterProduct.findMany({
       where: { id: { in: productIds }, companyId, isDeleted: false },
-      select: { id: true, name: true, imageUrl: true, thumbnailUrl: true, category: true },
+      select: {
+        id: true,
+        name: true,
+        imageUrl: true,
+        thumbnailUrl: true,
+        category: true,
+        images: THUMBNAIL_MASTER_IMAGE_SELECT,
+        thumbnailAnalyses: {
+          orderBy: { updatedAt: 'desc' },
+          take: 1,
+          select: {
+            recompose: true,
+            complianceGrade: true,
+            complianceScores: true,
+            overallScore: true,
+            grade: true,
+            qualityAnalyzedAt: true,
+            complianceAnalyzedAt: true,
+          },
+        },
+      },
     });
     const byId = new Map(products.map((p) => [p.id, p]));
     const items: ThumbnailGenerationItem[] = [];
@@ -355,8 +394,12 @@ export class ThumbnailGenerationService {
     for (const productId of productIds) {
       const product = byId.get(productId);
       if (!product) throw new NotFoundException(`MasterProduct ${productId} not found`);
-      const sourceUrl = product.imageUrl ?? product.thumbnailUrl;
+      const sourceUrl = resolveMasterThumbnailImage(product);
       if (!sourceUrl) throw new BadRequestException('상품 원본 이미지가 필요합니다');
+
+      const analysis: ThumbnailAnalysisContext | null = product.thumbnailAnalyses[0] ?? null;
+      const recomposeKind = this.extractRecomposeKind(analysis?.recompose ?? null);
+      const editSuggestions = this.extractEditSuggestions(analysis?.complianceScores ?? null);
 
       const inputImage = await this.editorAiService.resolveInputImage(sourceUrl, companyId, {
         label: 'Product photo',
@@ -364,7 +407,11 @@ export class ThumbnailGenerationService {
         sortOrder: 0,
         source: 'master_image',
       });
-      const promptOverride = getRecomposePromptOverride(null, variantKey, product.category);
+      const promptOverride = getRecomposePromptOverride(
+        recomposeKind,
+        variantKey,
+        product.category,
+      );
       const candidates = await this.editorAiService.generateEdit([inputImage], companyId, {
         purpose,
         editCase: 'single',
@@ -373,6 +420,7 @@ export class ThumbnailGenerationService {
         productName: product.name,
         category: product.category,
         promptOverride,
+        editSuggestions,
       });
       const generationId = await this.saveEditorResult({
         productId: product.id,
@@ -388,7 +436,10 @@ export class ThumbnailGenerationService {
           variantKey: variantKey ?? 'auto',
           automated: method === 'auto',
           inputCount: 1,
+          recompose: (analysis?.recompose ?? null) as Prisma.InputJsonValue,
+          analysisContext: this.toAnalysisContextJson(analysis, editSuggestions),
         },
+        editAnalysis: this.toEditAnalysis(analysis),
       });
       items.push(await this.findOne(generationId, companyId));
     }
@@ -406,15 +457,38 @@ export class ThumbnailGenerationService {
       include: {
         inputImages: { orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] },
         candidates: { orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] },
-        master: { select: { id: true, name: true, imageUrl: true, thumbnailUrl: true, category: true } },
+        master: {
+          select: {
+            id: true,
+            name: true,
+            imageUrl: true,
+            thumbnailUrl: true,
+            category: true,
+            images: THUMBNAIL_MASTER_IMAGE_SELECT,
+            thumbnailAnalyses: {
+              orderBy: { updatedAt: 'desc' },
+              take: 1,
+              select: {
+                recompose: true,
+                complianceGrade: true,
+                complianceScores: true,
+                overallScore: true,
+                grade: true,
+                qualityAnalyzedAt: true,
+                complianceAnalyzedAt: true,
+              },
+            },
+          },
+        },
       },
     });
     if (!existing) throw new NotFoundException(`ThumbnailGeneration ${id} not found`);
 
+    const masterFallback = resolveMasterThumbnailImage(existing.master);
     const seedRows = existing.inputImages.length > 0
       ? existing.inputImages
       : [{
-          url: existing.selectedUrl ?? existing.originalUrl ?? existing.master.imageUrl ?? existing.master.thumbnailUrl,
+          url: existing.selectedUrl ?? existing.originalUrl ?? masterFallback,
           role: 'product',
           label: 'Product photo',
           sortOrder: 0,
@@ -437,7 +511,15 @@ export class ThumbnailGenerationService {
       );
     }
     const editCase = this.inferEditCaseFromInputs(inputImages);
-    const recomposeKind = this.extractRecomposeKind(existing.inputMeta, existing.editAnalysis);
+    const analysis: ThumbnailAnalysisContext | null = existing.master.thumbnailAnalyses[0] ?? null;
+    // Prefer recompose carried by the prior generation's inputMeta — re-edits
+    // should respect what was decided last time. Fall back to the latest
+    // analysis row.
+    const recomposeKind =
+      this.findRecomposeKindIn(existing.inputMeta) ??
+      this.findRecomposeKindIn(existing.editAnalysis) ??
+      this.extractRecomposeKind(analysis?.recompose ?? null);
+    const editSuggestions = this.extractEditSuggestions(analysis?.complianceScores ?? null);
     const promptOverride = getRecomposePromptOverride(
       recomposeKind,
       variantKey,
@@ -451,11 +533,12 @@ export class ThumbnailGenerationService {
       productName: existing.master.name,
       category: existing.master.category,
       promptOverride,
+      editSuggestions,
     });
     const newGenerationId = await this.saveEditorResult({
       productId: existing.masterId,
       companyId,
-      originalUrl: existing.originalUrl ?? existing.master.imageUrl ?? inputImages[0]?.url ?? null,
+      originalUrl: existing.originalUrl ?? masterFallback ?? inputImages[0]?.url ?? null,
       candidates,
       inputImages,
       method: 're-edit',
@@ -466,7 +549,10 @@ export class ThumbnailGenerationService {
         variantKey: variantKey ?? 'auto',
         sourceGenerationId: existing.id,
         inputCount: inputImages.length,
+        recompose: (analysis?.recompose ?? existing.inputMeta) as Prisma.InputJsonValue,
+        analysisContext: this.toAnalysisContextJson(analysis, editSuggestions),
       },
+      editAnalysis: this.toEditAnalysis(analysis),
     });
     return this.findOne(newGenerationId, companyId);
   }
@@ -544,15 +630,11 @@ export class ThumbnailGenerationService {
     return undefined;
   }
 
-  private extractRecomposeKind(...values: Prisma.JsonValue[]): RecomposeKind | null {
-    for (const value of values) {
-      const kind = this.findRecomposeKind(value);
-      if (kind) return kind;
-    }
-    return null;
+  private extractRecomposeKind(value: Prisma.JsonValue | null): RecomposeKind | null {
+    return this.findRecomposeKindIn(value);
   }
 
-  private findRecomposeKind(value: Prisma.JsonValue): RecomposeKind | null {
+  private findRecomposeKindIn(value: Prisma.JsonValue | null | undefined): RecomposeKind | null {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
     const object = value as Record<string, unknown>;
     const nested = object.recompose;
@@ -566,6 +648,53 @@ export class ThumbnailGenerationService {
 
   private isRecomposeKind(value: unknown): value is RecomposeKind {
     return typeof value === 'string' && (RECOMPOSE_KINDS as readonly string[]).includes(value);
+  }
+
+  private extractEditSuggestions(
+    complianceScores: Prisma.JsonValue | null | undefined,
+  ): Record<string, string> | null {
+    if (!complianceScores || typeof complianceScores !== 'object' || Array.isArray(complianceScores)) {
+      return null;
+    }
+    const obj = complianceScores as Record<string, unknown>;
+    const raw = obj.editSuggestions;
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    const out: Record<string, string> = {};
+    for (const [key, value] of Object.entries(raw)) {
+      if (typeof value === 'string' && value.trim()) {
+        out[key] = value.trim();
+      }
+    }
+    return Object.keys(out).length ? out : null;
+  }
+
+  /**
+   * Build the public `editAnalysis` payload to satisfy
+   * `EditAnalysisResultSchema` (non-null grade/score). Returns null when no
+   * usable analysis exists.
+   */
+  private toEditAnalysis(analysis: ThumbnailAnalysisContext | null): EditAnalysisResult | null {
+    if (!analysis) return null;
+    return {
+      complianceGrade: analysis.complianceGrade ?? 'UNKNOWN',
+      complianceScores:
+        (analysis.complianceScores as Record<string, unknown> | null) ?? null,
+      overallScore: analysis.overallScore,
+      grade: analysis.grade,
+    };
+  }
+
+  private toAnalysisContextJson(
+    analysis: ThumbnailAnalysisContext | null,
+    editSuggestions: Record<string, string> | null,
+  ): Prisma.InputJsonValue {
+    return {
+      complianceGrade: analysis?.complianceGrade ?? null,
+      complianceScores: ((analysis?.complianceScores ?? null) as unknown) as Prisma.InputJsonValue,
+      overallScore: analysis?.overallScore ?? null,
+      grade: analysis?.grade ?? null,
+      editSuggestions: editSuggestions ?? null,
+    };
   }
 
   private toInputRole(role: string): ThumbnailInputRole {

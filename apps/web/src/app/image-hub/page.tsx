@@ -150,7 +150,7 @@ export default function ImageHubPage() {
         {selectedProduct && draft.length > 0 && (
           <div className="flex items-center gap-2">
             <Link
-              href={`/thumbnail-editor?productId=${selectedProduct.id}`}
+              href={`/thumbnail-editor/edit?productId=${selectedProduct.id}`}
               className="flex items-center gap-2 px-4 py-2.5 bg-purple-600 text-white rounded-xl text-sm font-medium hover:bg-purple-700 transition-colors"
             >
               <Wand2 size={14} /> 썸네일 편집

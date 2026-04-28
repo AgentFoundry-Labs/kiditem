@@ -26,6 +26,7 @@ import {
 } from '../dto/thumbnail-edit.dto';
 import { ThumbnailAnalysisService } from '../services/thumbnail-analysis.service';
 import { ThumbnailGenerationService } from '../services/thumbnail-generation.service';
+import { ThumbnailRecomposeService } from '../services/thumbnail-recompose.service';
 
 const WING_UNAVAILABLE = 'wing_registration_not_connected';
 
@@ -34,6 +35,7 @@ export class ThumbnailAnalysisController {
   constructor(
     private readonly analysisService: ThumbnailAnalysisService,
     private readonly generationService: ThumbnailGenerationService,
+    private readonly recomposeService: ThumbnailRecomposeService,
   ) {}
 
   // ─── 목록 / 요약 ───────────────────────────────────────────────
@@ -83,9 +85,22 @@ export class ThumbnailAnalysisController {
       return this.analysisService.analyzeProduct(body.productId, companyId, body.scope ?? 'all');
     }
     if (body.imageUrl) {
-      return this.analysisService.analyzeDirectImage(body.imageUrl, body.productName);
+      return this.analysisService.analyzeDirectImage(
+        body.imageUrl,
+        body.productName,
+        body.scope ?? 'all',
+      );
     }
     throw new BadRequestException('productId 또는 imageUrl 이 필요합니다');
+  }
+
+  @Post('edit/variants')
+  classifyRecomposeVariants(
+    @Body() body: { productId: string },
+    @CurrentCompany() companyId: string,
+  ) {
+    if (!body?.productId) throw new BadRequestException('productId 가 필요합니다');
+    return this.recomposeService.classify(body.productId, companyId);
   }
 
   @Post('image-spec')

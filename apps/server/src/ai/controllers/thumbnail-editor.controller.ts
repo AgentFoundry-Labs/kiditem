@@ -42,6 +42,7 @@ export class ThumbnailEditorController {
           userPrompt: body.userPrompt,
           productName: product?.name ?? null,
           category: product?.category ?? null,
+          hasStyleReference: Boolean(body.backgroundReference),
         })
       : await this.editorAi.generateEdit(inputs, companyId, {
           purpose: body.purpose,

@@ -133,6 +133,12 @@ describe('thumbnail classification helpers', () => {
     expect(needsThumbnailFix(product({ grade: 'F' }))).toBe(true);
   });
 
+  it('does not treat a structural F grade as needs-fix before quality analysis', () => {
+    expect(
+      needsThumbnailFix(product({ grade: 'F', analyzed: false, qualityAnalyzed: false })),
+    ).toBe(false);
+  });
+
   it('surfaces missing reason as evidence with null reason', () => {
     const scores = complianceScores({
       violations: { ...emptyViolations, has_text: true },
