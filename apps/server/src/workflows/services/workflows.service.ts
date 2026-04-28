@@ -132,13 +132,14 @@ export class WorkflowsService {
   }
 
   async batchRun(templateIds: string[], companyId: string, options: TriggerOptions = {}) {
+    const uniqueTemplateIds = [...new Set(templateIds)];
     const templates = await this.prisma.workflowTemplate.findMany({
-      where: { id: { in: templateIds }, companyId },
+      where: { id: { in: uniqueTemplateIds }, companyId },
       select: { id: true, companyId: true },
     });
-    if (templates.length !== templateIds.length) {
+    if (templates.length !== uniqueTemplateIds.length) {
       const owned = new Set(templates.map((t) => t.id));
-      const missing = templateIds.filter((id) => !owned.has(id));
+      const missing = uniqueTemplateIds.filter((id) => !owned.has(id));
       throw new NotFoundException(`워크플로우 템플릿을 찾을 수 없습니다: ${missing.join(', ')}`);
     }
     const companyIdByTemplateId = new Map(templates.map((t) => [t.id, t.companyId]));

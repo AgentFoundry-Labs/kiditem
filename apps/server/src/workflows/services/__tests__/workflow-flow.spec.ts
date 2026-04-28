@@ -222,6 +222,25 @@ describe('WorkflowsService', () => {
   });
 
   describe('batchRun', () => {
+    it('allows duplicate owned templateIds while preserving requested run count', async () => {
+      prisma.workflowTemplate.findMany.mockResolvedValue([
+        { id: 'tmpl-1', companyId: 'company-1' },
+      ]);
+      prisma.workflowRun.create.mockImplementation(({ data }: any) =>
+        Promise.resolve(makeRun({ id: `run-${data.templateId}-${prisma.workflowRun.create.mock.calls.length}`, ...data })),
+      );
+      runner.runBatch.mockResolvedValue(undefined);
+
+      const result = await service.batchRun(['tmpl-1', 'tmpl-1'], 'company-1', { triggeredBy: 'manual' });
+
+      expect(prisma.workflowTemplate.findMany).toHaveBeenCalledWith({
+        where: { id: { in: ['tmpl-1'] }, companyId: 'company-1' },
+        select: { id: true, companyId: true },
+      });
+      expect(prisma.workflowRun.create).toHaveBeenCalledTimes(2);
+      expect(result).toHaveLength(2);
+    });
+
     it('throws NotFoundException when any templateId is owned by a different company', async () => {
       // Only one of the two requested templates is found under company-1
       prisma.workflowTemplate.findMany.mockResolvedValue([
