@@ -21,7 +21,11 @@ export class SupplierPaymentsController {
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() dto: UpdateSupplierPaymentDto) {
-    return this.supplierPaymentsService.update(id, dto);
+  update(
+    @Param('id') id: string,
+    @Body() dto: UpdateSupplierPaymentDto,
+    @CurrentCompany() companyId: string,
+  ) {
+    return this.supplierPaymentsService.update(id, dto, companyId);
   }
 }

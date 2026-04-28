@@ -21,7 +21,7 @@ export class ManualLedgerController {
   }
 
   @Delete(':id')
-  delete(@Param('id') id: string) {
-    return this.manualLedgerService.delete(id);
+  delete(@Param('id') id: string, @CurrentCompany() companyId: string) {
+    return this.manualLedgerService.delete(id, companyId);
   }
 }

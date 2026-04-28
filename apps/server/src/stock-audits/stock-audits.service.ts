@@ -26,8 +26,8 @@ export class StockAuditsService {
     });
   }
 
-  async update(id: string, dto: UpdateStockAuditDto) {
-    const existing = await this.prisma.stockAudit.findUnique({ where: { id } });
+  async update(id: string, dto: UpdateStockAuditDto, companyId: string) {
+    const existing = await this.prisma.stockAudit.findFirst({ where: { id, companyId } });
     if (!existing) throw new BadRequestException('재고 실사를 찾을 수 없습니다');
 
     return this.prisma.stockAudit.update({

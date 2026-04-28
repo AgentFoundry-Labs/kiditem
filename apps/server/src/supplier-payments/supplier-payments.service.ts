@@ -33,8 +33,8 @@ export class SupplierPaymentsService {
     });
   }
 
-  async update(id: string, dto: UpdateSupplierPaymentDto) {
-    const existing = await this.prisma.supplierPayment.findUnique({ where: { id } });
+  async update(id: string, dto: UpdateSupplierPaymentDto, companyId: string) {
+    const existing = await this.prisma.supplierPayment.findFirst({ where: { id, companyId } });
     if (!existing) {
       throw new BadRequestException('거래처 결제를 찾을 수 없습니다');
     }

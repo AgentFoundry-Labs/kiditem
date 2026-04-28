@@ -26,7 +26,11 @@ export class ProcessingCostsController {
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() dto: UpdateProcessingCostDto) {
-    return this.processingCostsService.update(id, dto);
+  update(
+    @Param('id') id: string,
+    @Body() dto: UpdateProcessingCostDto,
+    @CurrentCompany() companyId: string,
+  ) {
+    return this.processingCostsService.update(id, dto, companyId);
   }
 }
