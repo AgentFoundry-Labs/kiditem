@@ -208,7 +208,12 @@ export class InventoryService {
     companyId: string,
   ): Promise<StockOperationResult> {
     return this.prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT id FROM inventory WHERE id = ${id}::uuid FOR UPDATE`;
+      await tx.$queryRaw`
+        SELECT id FROM inventory
+        WHERE id = ${id}::uuid
+          AND company_id = ${companyId}::uuid
+        FOR UPDATE
+      `;
 
       const inv = await tx.inventory.findFirst({ where: { id, companyId } });
       if (!inv) throw new NotFoundException('Inventory not found');
@@ -228,8 +233,8 @@ export class InventoryService {
         },
       });
 
-      const option = await tx.productOption.findUnique({
-        where: { id: updated.optionId },
+      const option = await tx.productOption.findFirst({
+        where: { id: updated.optionId, companyId },
         select: { optionName: true },
       });
 
@@ -256,6 +261,7 @@ export class InventoryService {
       });
 
       const recomputedBundleOptionIds = await this.bundleStock.recomputeForComponent(
+        companyId,
         updated.optionId,
         tx,
       );

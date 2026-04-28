@@ -71,6 +71,25 @@ describe('MastersService integration', () => {
     expect(updated.healthUpdatedAt).not.toBe(before);
   });
 
+  it('update returns 404 for another company master id', async () => {
+    const other = await svc.create(OTHER_COMPANY_ID, { name: 'Other company master' } as any);
+
+    await expect(
+      svc.update(TEST_COMPANY_ID, other.id, { name: 'Leaked update' } as any),
+    ).rejects.toMatchObject({ status: 404 });
+
+    const unchanged = await svc.findById(OTHER_COMPANY_ID, other.id, {});
+    expect(unchanged.name).toBe('Other company master');
+  });
+
+  it('updateImages returns 404 for another company master id', async () => {
+    const other = await svc.create(OTHER_COMPANY_ID, { name: 'Other image master' } as any);
+
+    await expect(
+      svc.updateImages(TEST_COMPANY_ID, other.id, [{ url: 'https://cdn.example.test/x.jpg' }]),
+    ).rejects.toMatchObject({ status: 404 });
+  });
+
   it('rejects supplierId from another company (cross-tenant)', async () => {
     const otherSupplier = await prisma.supplier.create({
       data: { companyId: OTHER_COMPANY_ID, name: 'Other co supplier' },

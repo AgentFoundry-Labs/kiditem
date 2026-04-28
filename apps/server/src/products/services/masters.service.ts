@@ -236,10 +236,12 @@ export class MastersService {
             dto.images ?? (dto.imageUrl ? [{ url: dto.imageUrl, role: 'product', label: null, sortOrder: 0 }] : []),
           );
         }
-        return tx.masterProduct.findUniqueOrThrow({
-          where: { id },
+        const updated = await tx.masterProduct.findFirst({
+          where: { id, companyId, isDeleted: false },
           include: MASTER_WITH_IMAGES,
         });
+        if (!updated) throw new NotFoundException('master not found or deleted');
+        return updated;
       };
       const row = outerTx ? await updateInTx(outerTx) : await this.prisma.$transaction(updateInTx);
       return withImageRows(row);
@@ -275,7 +277,12 @@ export class MastersService {
       });
       if (count === 0) throw new NotFoundException('master not found or deleted');
       await this.replaceImagesTx(tx, companyId, id, images);
-      return tx.masterProduct.findUniqueOrThrow({ where: { id }, include: MASTER_WITH_IMAGES });
+      const updated = await tx.masterProduct.findFirst({
+        where: { id, companyId, isDeleted: false },
+        include: MASTER_WITH_IMAGES,
+      });
+      if (!updated) throw new NotFoundException('master not found or deleted');
+      return updated;
     });
     return withImageRows(row);
   }
