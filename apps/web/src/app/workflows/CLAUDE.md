@@ -10,7 +10,7 @@ workflows/
 ├── components/
 │   └── MyWorkflowsSection.tsx  # 단일 섹션 (page 가 거의 thin)
 ├── hooks/
-│   └── useWorkflows.ts         # 7 hook export
+│   └── useWorkflows.ts         # list/toggle/delete hook exports
 └── lib/
     ├── workflow-api.ts         # apiClient 래퍼 (getCompanyId baked in)
     └── workflow-types.ts       # WorkflowRunWithSteps
@@ -21,10 +21,6 @@ workflows/
 | Hook | queryKey | endpoint |
 |---|---|---|
 | `useWorkflows()` | `workflows.list()` | GET /api/workflows |
-| `useWorkflow(id)` | `workflows.detail(id)` | GET /api/workflows/:id |
-| `useWorkflowRuns(id)` | `workflows.runs(id)` | GET /api/workflows/:id/runs |
-| `useWorkflowRunDetail(runId)` | `workflows.runDetail(runId)` | GET /api/workflow-runs/:id |
-| `useTriggerWorkflow()` | (mutation) | POST /api/workflows/:id/trigger |
 | `useToggleWorkflow()` | (mutation) | PATCH /api/workflows/:id/toggle |
 | `useDeleteWorkflow()` | (mutation) | DELETE /api/workflows/:id |
 
@@ -32,7 +28,7 @@ workflows/
 
 ### 1. Wildcard Invalidation
 
-모든 mutation 은 `queryKeys.workflows.all` 키로 invalidate (useWorkflows.ts:50, 59, 68). 세분화된 invalidation 안 함. 
+모든 mutation 은 `queryKeys.workflows.all` 키로 invalidate. 세분화된 invalidation 안 함.
 
 **의도**: workflow 변경은 list/detail/runs 모두 영향 → 전체 새로고침이 일관성 보장.
 
@@ -64,7 +60,7 @@ page.tsx:
 - Polling 없음 (`refetchInterval` 사용 안 함, static list)
 - Hook 레이어에서 error 처리 안 함 — page.tsx 가 `isApiError` 분기
 - Filter state (useState) 는 **UI only**, API 호출에 반영 안 함
-- Activation/Delete/Trigger 모두 동일 invalidation 전략
+- Activation/Delete 모두 동일 invalidation 전략
 
 ## Prohibits
 

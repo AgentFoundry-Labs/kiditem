@@ -22,7 +22,7 @@ interface ProductListResponse {
   total: number;
 }
 
-export interface ProductDetailResponse {
+interface ProductDetailResponse {
   id: string;
   name: string;
   status: ProductStatus;

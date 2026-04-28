@@ -2,7 +2,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
 import {
   adjustStock,
-  fetchInventoryDetail,
   fetchInventoryList,
   inventoryListKeyParams,
   issueStock,
@@ -21,14 +20,6 @@ export function useInventoryList(params: InventoryListParams) {
   return useQuery({
     queryKey: queryKeys.inventory.list(inventoryListKeyParams(params)),
     queryFn: () => fetchInventoryList(params),
-  });
-}
-
-export function useInventoryDetail(id: string | null) {
-  return useQuery({
-    queryKey: id ? queryKeys.inventory.detail(id) : [...queryKeys.inventory.all, 'detail', 'none'],
-    queryFn: () => fetchInventoryDetail(id as string),
-    enabled: Boolean(id),
   });
 }
 

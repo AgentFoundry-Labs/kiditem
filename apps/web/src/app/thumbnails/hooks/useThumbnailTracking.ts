@@ -7,7 +7,7 @@ import type {
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 
-export type { ThumbnailTrackingListResponse, ThumbnailTrackingRecord };
+export type { ThumbnailTrackingRecord };
 export type UpdateMetricsInput = UpdateThumbnailTrackingMetricsInput;
 type TrackingStatus = ThumbnailTrackingRecord['status'];
 

@@ -1,4 +1,3 @@
-import { z } from 'zod';
 import { apiClient } from '@/lib/api-client';
 import {
   AdjustStockInputSchema,
@@ -8,7 +7,6 @@ import {
   ReceiveStockInputSchema,
   StockOperationResultSchema,
   TransactionListResponseSchema,
-  TransactionSummarySchema,
   UpdateInventoryMetadataInputSchema,
 } from '@kiditem/shared';
 import type {
@@ -21,7 +19,6 @@ import type {
   StockOperationResult,
   TransactionListItem,
   TransactionListResponse,
-  TransactionSummary,
   UpdateInventoryMetadataInput,
 } from '@kiditem/shared';
 
@@ -35,7 +32,7 @@ export interface InventoryListParams {
   masterId?: string;
 }
 
-export interface TransactionListParams {
+interface TransactionListParams {
   page?: number;
   limit?: number;
   optionId?: string;
@@ -78,10 +75,6 @@ export async function fetchInventoryList(params: InventoryListParams): Promise<I
   return apiClient.getParsed(`/api/inventory${searchParams(params)}`, InventoryListResponseSchema);
 }
 
-export async function fetchInventoryDetail(id: string): Promise<Inventory> {
-  return apiClient.getParsed(`/api/inventory/${id}`, InventorySchema);
-}
-
 export async function updateInventoryMetadata(
   id: string,
   input: UpdateInventoryMetadataInput,
@@ -109,7 +102,7 @@ export async function adjustStock(id: string, input: AdjustStockInput): Promise<
   return StockOperationResultSchema.parse(raw);
 }
 
-export async function fetchTransactions(params: TransactionListParams): Promise<TransactionListResponse> {
+async function fetchTransactions(params: TransactionListParams): Promise<TransactionListResponse> {
   return apiClient.getParsed(
     `/api/inventory/transactions${searchParams(params)}`,
     TransactionListResponseSchema,
@@ -157,12 +150,4 @@ export async function fetchAllTransactionsInWindow(
     rest.push(...data.items);
   }
   return [...first.items, ...rest];
-}
-
-export async function fetchTransactionSummary(days: number): Promise<TransactionSummary> {
-  const safeDays = z.number().int().min(1).max(365).parse(days);
-  return apiClient.getParsed(
-    `/api/inventory/transactions/summary?days=${safeDays}`,
-    TransactionSummarySchema,
-  );
 }

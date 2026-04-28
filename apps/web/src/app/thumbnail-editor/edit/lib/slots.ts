@@ -27,7 +27,7 @@ const KIND_DEFAULTS: Record<SlotKind, { role: MasterImageRole; labelFn: (index?:
   reference: { role: 'detail', labelFn: () => 'Style reference' },
 };
 
-export interface MakeSlotOpts {
+interface MakeSlotOpts {
   value?: string | null;
   source?: SlotSource | null;
   index?: number;
@@ -35,7 +35,7 @@ export interface MakeSlotOpts {
   label?: string;
 }
 
-export function makeSlot(kind: SlotKind, opts: MakeSlotOpts = {}): Slot {
+function makeSlot(kind: SlotKind, opts: MakeSlotOpts = {}): Slot {
   const def = KIND_DEFAULTS[kind];
   return {
     id: genSlotId(kind),
@@ -48,10 +48,10 @@ export function makeSlot(kind: SlotKind, opts: MakeSlotOpts = {}): Slot {
   };
 }
 
-export type EditorModeLite = 'edit' | 'creative';
-export type EditCaseLite = 'compose' | 'color-variants' | 'single' | 'bundle' | null;
+type EditorModeLite = 'edit' | 'creative';
+type EditCaseLite = 'compose' | 'color-variants' | 'single' | 'bundle' | null;
 
-export interface BuildInitialSlotsCtx {
+interface BuildInitialSlotsCtx {
   initialProductImage?: string | null;
   sceneType?: string;
   /**
@@ -118,22 +118,22 @@ export function buildInitialSlots(
 export function selectProductValue(slots: Slot[]): string | null {
   return slots.find((s) => s.kind === 'product')?.value ?? null;
 }
-export function selectPackagingValue(slots: Slot[]): string | null {
+function selectPackagingValue(slots: Slot[]): string | null {
   return slots.find((s) => s.kind === 'packaging')?.value ?? null;
 }
-export function selectColorValues(slots: Slot[]): string[] {
+function selectColorValues(slots: Slot[]): string[] {
   return slots.filter((s) => s.kind === 'color_variant' && s.value).map((s) => s.value as string);
 }
-export function selectReferenceValue(slots: Slot[]): string | null {
+function selectReferenceValue(slots: Slot[]): string | null {
   return slots.find((s) => s.kind === 'reference')?.value ?? null;
 }
-export function selectBundleImages(slots: Slot[]): string[] {
+function selectBundleImages(slots: Slot[]): string[] {
   return slots.filter((s) => s.kind === 'bundle_item' && s.value).map((s) => s.value as string);
 }
-export function selectBundleLabels(slots: Slot[]): string[] {
+function selectBundleLabels(slots: Slot[]): string[] {
   return slots.filter((s) => s.kind === 'bundle_item' && s.value).map((s) => s.label);
 }
-export function selectBundleOwnerProductId(slots: Slot[]): string | undefined {
+function selectBundleOwnerProductId(slots: Slot[]): string | undefined {
   return slots.find((s) => s.kind === 'bundle_item' && s.value)?.sourceProductId;
 }
 
@@ -156,12 +156,6 @@ export function setFirstSlotValueByKind(
   return next;
 }
 
-export function replaceSlotsByKind(slots: Slot[], kind: SlotKind, values: string[]): Slot[] {
-  const others = slots.filter((s) => s.kind !== kind);
-  const fresh = values.map((v, i) => makeSlot(kind, { value: v, source: 'upload', index: i }));
-  return [...others, ...fresh];
-}
-
 function relabelGroup(slots: Slot[], kind: SlotKind): Slot[] {
   const def = KIND_DEFAULTS[kind];
   let i = 0;
@@ -173,7 +167,7 @@ function relabelGroup(slots: Slot[], kind: SlotKind): Slot[] {
   });
 }
 
-export function setSlotValueById(
+function setSlotValueById(
   slots: Slot[],
   id: string,
   value: string | null,
@@ -186,19 +180,6 @@ export function setSlotValueById(
   return next;
 }
 
-export function setSlotFromOtherProduct(
-  slots: Slot[],
-  id: string,
-  value: string,
-  sourceProductId: string,
-): Slot[] {
-  const idx = slots.findIndex((s) => s.id === id);
-  if (idx === -1) return slots;
-  const next = slots.slice();
-  next[idx] = { ...next[idx], value, source: 'other-product', sourceProductId };
-  return next;
-}
-
 export function removeSlotById(slots: Slot[], id: string): Slot[] {
   const removed = slots.find((s) => s.id === id);
   const filtered = slots.filter((s) => s.id !== id);
@@ -208,19 +189,6 @@ export function removeSlotById(slots: Slot[], id: string): Slot[] {
 
 export function clearSlotValueById(slots: Slot[], id: string): Slot[] {
   return setSlotValueById(slots, id, null);
-}
-
-export function addToGroup(
-  slots: Slot[],
-  kind: SlotKind,
-  values: string[] = [],
-  source: SlotSource = 'upload',
-): Slot[] {
-  const next =
-    values.length > 0
-      ? [...slots, ...values.map((v) => makeSlot(kind, { value: v, source }))]
-      : [...slots, makeSlot(kind)];
-  return relabelGroup(next, kind);
 }
 
 export interface SlotPick {
@@ -275,7 +243,7 @@ export function pickCaseFromSlots(slots: Slot[]): 'compose' | 'color-variants' |
 
 export type LayoutKindLite = 'auto' | 'fan' | 'arch' | 'grid' | 'stack' | 'radial';
 
-export interface SlotsDtoExtras {
+interface SlotsDtoExtras {
   productId?: string | null;
   supplementaryLabel?: string;
   pieceCount?: number | null;
@@ -290,7 +258,7 @@ export interface SlotsDtoExtras {
   layout?: LayoutKindLite | null;
 }
 
-export interface GenerateDto {
+interface GenerateDto {
   productId?: string;
   productImage?: string;
   packagingImage?: string;
