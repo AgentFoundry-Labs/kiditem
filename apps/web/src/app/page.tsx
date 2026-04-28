@@ -29,7 +29,7 @@ import {
   DashboardInventorySummarySchema,
   DashboardTrendItemSchema,
   ActionTaskListSchema,
-  ActionTaskExecuteResponseSchema,
+  ActionTaskSchema,
   type DashboardSalesSummary,
   type DashboardAdSummary,
   type DashboardInventorySummary,
@@ -832,7 +832,7 @@ function DashboardChart({
   const { mutate: executeAction, variables: executingId } = useMutation({
     mutationFn: async (id: string) => {
       const raw = await apiClient.post<unknown>(`/api/action-tasks/${id}/execute`, {});
-      return ActionTaskExecuteResponseSchema.parse(raw);
+      return ActionTaskSchema.parse(raw);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.actionTasks.list() });
