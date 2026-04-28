@@ -38,8 +38,10 @@ export class WarehousesService {
     });
   }
 
-  async update(id: string, dto: UpdateWarehouseDto) {
-    const existing = await this.prisma.warehouse.findUnique({ where: { id } });
+  async update(id: string, companyId: string, dto: UpdateWarehouseDto) {
+    const existing = await this.prisma.warehouse.findFirst({
+      where: { id, companyId },
+    });
     if (!existing) {
       throw new BadRequestException('창고를 찾을 수 없습니다');
     }
@@ -50,8 +52,10 @@ export class WarehousesService {
     });
   }
 
-  async delete(id: string) {
-    const existing = await this.prisma.warehouse.findUnique({ where: { id } });
+  async delete(id: string, companyId: string) {
+    const existing = await this.prisma.warehouse.findFirst({
+      where: { id, companyId },
+    });
     if (!existing) {
       throw new BadRequestException('창고를 찾을 수 없습니다');
     }

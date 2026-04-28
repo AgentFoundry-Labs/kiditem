@@ -18,12 +18,16 @@ export class WarehousesController {
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() dto: UpdateWarehouseDto) {
-    return this.warehousesService.update(id, dto);
+  update(
+    @Param('id') id: string,
+    @Body() dto: UpdateWarehouseDto,
+    @CurrentCompany() companyId: string,
+  ) {
+    return this.warehousesService.update(id, companyId, dto);
   }
 
   @Delete(':id')
-  delete(@Param('id') id: string) {
-    return this.warehousesService.delete(id);
+  delete(@Param('id') id: string, @CurrentCompany() companyId: string) {
+    return this.warehousesService.delete(id, companyId);
   }
 }

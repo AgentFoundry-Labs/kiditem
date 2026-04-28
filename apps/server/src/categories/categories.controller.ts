@@ -18,12 +18,16 @@ export class CategoriesController {
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() dto: UpdateCategoryDto) {
-    return this.categoriesService.update(id, dto);
+  update(
+    @Param('id') id: string,
+    @Body() dto: UpdateCategoryDto,
+    @CurrentCompany() companyId: string,
+  ) {
+    return this.categoriesService.update(id, companyId, dto);
   }
 
   @Delete(':id')
-  delete(@Param('id') id: string) {
-    return this.categoriesService.delete(id);
+  delete(@Param('id') id: string, @CurrentCompany() companyId: string) {
+    return this.categoriesService.delete(id, companyId);
   }
 }

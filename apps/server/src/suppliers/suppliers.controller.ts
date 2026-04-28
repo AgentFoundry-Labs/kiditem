@@ -18,12 +18,16 @@ export class SuppliersController {
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() dto: UpdateSupplierDto) {
-    return this.suppliersService.update(id, dto);
+  update(
+    @Param('id') id: string,
+    @Body() dto: UpdateSupplierDto,
+    @CurrentCompany() companyId: string,
+  ) {
+    return this.suppliersService.update(id, companyId, dto);
   }
 
   @Delete(':id')
-  delete(@Param('id') id: string) {
-    return this.suppliersService.delete(id);
+  delete(@Param('id') id: string, @CurrentCompany() companyId: string) {
+    return this.suppliersService.delete(id, companyId);
   }
 }
