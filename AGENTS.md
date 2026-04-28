@@ -106,7 +106,7 @@ E-commerce operations automation for kids' products. Sourcing → AI processing 
 
 ## Codebase Reconstruction Rules
 
-Reconstruction work starts from [`docs/superpowers/plans/2026-04-28-codebase-reconstruction.md`](docs/superpowers/plans/2026-04-28-codebase-reconstruction.md). This is a platform-boundary cleanup track, not permission to mix unrelated business rewrites.
+Reconstruction work starts from [`docs/superpowers/plans/2026-04-28-codebase-reconstruction.md`](docs/superpowers/plans/2026-04-28-codebase-reconstruction.md). This is a platform-boundary cleanup track, not permission to mix unrelated business rewrites. Per-phase merge gates (Phase 0–5), the schema-change trigger rule, and the `init.sql.gz` handling rule live in that plan's [**Verification Gates** section](docs/superpowers/plans/2026-04-28-codebase-reconstruction.md#verification-gates).
 
 - **Rules before deletion** — record contract, scanner, or regression-test gates before deleting legacy implementation.
 - **Boundary exception is narrow** — tenant guards, raw SQL policy, scanner scripts, shared export topology, and dependency tooling may cross domains. Business logic rewrites still use one owner domain per PR.
