@@ -8,7 +8,9 @@
 - [ ] 개발 데이터 bundle 변경 없음
 - [ ] 개발 데이터 bundle 변경 있음
   - Dataset ID:
-  - Google Drive URL/경로:
+  - 공유 zip 파일명: `kiditem-coupang-____-____.zip`
+  - Google Drive 경로: `coupang-____/bundles/____.zip`
+  - `latest.json` 갱신 여부:
   - Replay 명령:
   - Import mode: `upsert` / `scoped-replace` / `full-reset`
   - 영향 scope(company/channel/date):
@@ -19,6 +21,7 @@
 > npm run data:coupang:pull -- --lane real
 > npm run data:coupang:replay -- --mode scoped-replace --yes
 > ```
+> 공유 파일명 표준: `kiditem-coupang-{lane}-{datasetId}.zip`
 
 ## 테스트
 - [ ] `npx vitest run` 통과

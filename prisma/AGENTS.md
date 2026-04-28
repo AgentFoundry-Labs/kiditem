@@ -56,7 +56,7 @@ npm run db:studio     # DB browser (localhost:5555)
 
 ### Google Drive dev data bundle
 
-팀원 간 같은 로컬 화면 데이터를 맞출 때는 `init.sql.gz` 나 synthetic seed 를 쓰지 않는다. Google Drive 의 bundle 을 `.data/coupang/<datasetId>/` 로 pull 한 뒤 replay 한다.
+팀원 간 같은 로컬 화면 데이터를 맞출 때는 `init.sql.gz` 나 synthetic seed 를 쓰지 않는다. Google Drive 의 `kiditem-coupang-{lane}-{datasetId}.zip` bundle 을 `.data/coupang/<datasetId>/` 로 pull 한 뒤 replay 한다.
 
 ```bash
 export KIDITEM_DEV_DATA_DRIVE_DIR="$HOME/.../KidItem Dev Data"
@@ -67,7 +67,8 @@ npm run data:coupang:replay -- --mode scoped-replace --yes
 
 규칙:
 
-- Bundle 원본은 Google Drive, 로컬 사본은 `.data/` 아래에 둔다. 둘 다 Git 커밋 금지.
+- Bundle 원본은 Google Drive 의 `coupang-{lane}/bundles/` zip archive, 로컬 사본은 `.data/` 아래에 둔다. 둘 다 Git 커밋 금지.
+- Drive 의 `latest.json` 이 현재 기준 dataset 과 archive checksum 을 가리킨다. 같은 날 다시 만들면 기존 zip 을 덮어쓰지 말고 `datasetId` 의 `vN` 을 올린다.
 - 표준 replay 모드는 `scoped-replace` 다. manifest 의 company/channel/date range scope 만 교체한다.
 - Coupang bundle 은 `POST /api/ads/extension/sync` 경로로 replay 한다. 앱이 실제 ingest 하는 코드와 다른 DB writer 를 만들지 않는다.
 - `scripts/seed-channel-market-data.ts` 같은 synthetic market-data seed 는 금지. 실제 scrape payload replay 로 대체한다.

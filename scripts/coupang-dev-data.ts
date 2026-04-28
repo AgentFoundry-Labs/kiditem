@@ -2,6 +2,7 @@ import 'dotenv/config';
 
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
+import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import {
@@ -15,14 +16,20 @@ import {
 } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { promisify } from 'node:util';
 
 const SCHEMA_VERSION = 'kiditem.dev-data.coupang.v1';
+const PACKAGE_SCHEMA_VERSION = 'kiditem.dev-data.coupang.package.v1';
 const LOCAL_DATA_ROOT = path.join('.data', 'coupang');
+const LOCAL_PACKAGE_DIR = 'packages';
+const DRIVE_PACKAGE_DIR = 'bundles';
 const LEGACY_MARKET_DATA_SEED = 'scripts/seed-channel-market-data';
 const CANONICAL_DRIVE_FOLDER_URL =
   'https://drive.google.com/drive/folders/1sIuAiZAX6wAFOoEmmJGe6p0b5xwey1AO?usp=drive_link';
 
-type Command = 'status' | 'pull' | 'replay' | 'sanitize' | 'export';
+const execFileAsync = promisify(execFile);
+
+type Command = 'status' | 'pull' | 'replay' | 'sanitize' | 'export' | 'pack' | 'publish';
 type Lane = 'real' | 'demo';
 type ImportMode = 'upsert' | 'scoped-replace' | 'full-reset';
 
@@ -59,6 +66,20 @@ type BundleManifest = {
   checksums?: Record<string, string>;
 };
 
+type BundlePackageIndex = {
+  schemaVersion: string;
+  datasetId: string;
+  lane: Lane;
+  archiveFileName: string;
+  archivePath: string;
+  sha256: string;
+  bytes: number;
+  manifestSha256: string;
+  createdAt: string;
+  publishedAt?: string;
+  canonicalDriveFolderUrl?: string;
+};
+
 type ReplayResult = {
   payload: string;
   type: string;
@@ -70,7 +91,7 @@ type ReplayResult = {
 function parseArgs(): Args {
   const raw = process.argv.slice(2);
   const command = (raw.shift() ?? 'status') as Command;
-  if (!['status', 'pull', 'replay', 'sanitize', 'export'].includes(command)) {
+  if (!['status', 'pull', 'replay', 'sanitize', 'export', 'pack', 'publish'].includes(command)) {
     throw new Error(`Unknown command: ${command}`);
   }
 
@@ -155,10 +176,16 @@ async function readTextIfExists(file: string): Promise<string | null> {
 
 async function resolveDatasetId(args: Args, required = true): Promise<string> {
   const explicit = value(args, 'dataset');
-  if (explicit) return explicit;
+  if (explicit) {
+    assertSafeDatasetId(explicit);
+    return explicit;
+  }
 
   const localLatest = await readTextIfExists(path.join(localDataRoot(args), 'latest.txt'));
-  if (localLatest) return localLatest;
+  if (localLatest) {
+    assertSafeDatasetId(localLatest);
+    return localLatest;
+  }
 
   if (!required) return '';
   throw new Error('Dataset is required. Pass --dataset or pull a latest bundle first.');
@@ -168,8 +195,31 @@ function driveBundleDir(root: string, laneValue: Lane, datasetId: string): strin
   return path.join(root, `coupang-${laneValue}`, datasetId);
 }
 
+function driveLaneDir(root: string, laneValue: Lane): string {
+  return path.join(root, `coupang-${laneValue}`);
+}
+
 function localBundleDir(args: Args, datasetId: string): string {
   return path.join(localDataRoot(args), datasetId);
+}
+
+function localPackageDir(args: Args): string {
+  return path.join(localDataRoot(args), LOCAL_PACKAGE_DIR);
+}
+
+function assertSafeDatasetId(datasetId: string): void {
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(datasetId)) {
+    throw new Error(`Unsafe dataset id: ${datasetId}`);
+  }
+}
+
+function archiveFileName(laneValue: Lane, datasetId: string): string {
+  assertSafeDatasetId(datasetId);
+  return `kiditem-coupang-${laneValue}-${datasetId}.zip`;
+}
+
+function archiveShaFileName(fileName: string): string {
+  return `${fileName}.sha256`;
 }
 
 async function readJson<T>(file: string): Promise<T> {
@@ -183,6 +233,10 @@ async function writeJson(file: string, data: unknown): Promise<void> {
 
 async function sha256(file: string): Promise<string> {
   return createHash('sha256').update(await readFile(file)).digest('hex');
+}
+
+async function fileSize(file: string): Promise<number> {
+  return (await stat(file)).size;
 }
 
 function assertSafeRelativePath(relativePath: string): void {
@@ -199,10 +253,63 @@ async function loadManifest(bundleDir: string): Promise<BundleManifest> {
     );
   }
   if (!manifest.datasetId) throw new Error('manifest.datasetId is required');
+  assertSafeDatasetId(manifest.datasetId);
+  if (manifest.lane !== 'real' && manifest.lane !== 'demo') {
+    throw new Error(`Invalid manifest.lane: ${manifest.lane}`);
+  }
   if (!Array.isArray(manifest.payloads) || manifest.payloads.length === 0) {
     throw new Error('manifest.payloads must contain at least one payload');
   }
   return manifest;
+}
+
+async function readLatestPackageIndex(laneDir: string): Promise<BundlePackageIndex | null> {
+  const latestPath = path.join(laneDir, 'latest.json');
+  if (!existsSync(latestPath)) return null;
+  const latest = await readJson<BundlePackageIndex>(latestPath);
+  if (latest.schemaVersion !== PACKAGE_SCHEMA_VERSION) {
+    throw new Error(
+      `Unsupported latest.json schemaVersion ${latest.schemaVersion}. Expected ${PACKAGE_SCHEMA_VERSION}.`,
+    );
+  }
+  assertSafeDatasetId(latest.datasetId);
+  assertSafeRelativePath(latest.archivePath);
+  return latest;
+}
+
+async function createZipArchive(sourceDir: string, archivePath: string): Promise<void> {
+  await mkdir(path.dirname(archivePath), { recursive: true });
+  await rm(archivePath, { force: true });
+  try {
+    await execFileAsync('zip', [
+      '-X',
+      '-q',
+      '-r',
+      archivePath,
+      '.',
+      '-x',
+      '*.DS_Store',
+      '__MACOSX/*',
+    ], { cwd: sourceDir });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to create zip archive. Ensure the zip command is installed. ${message}`);
+  }
+}
+
+async function extractZipArchive(archivePath: string, targetDir: string): Promise<void> {
+  await rm(targetDir, { recursive: true, force: true });
+  await mkdir(targetDir, { recursive: true });
+  try {
+    await execFileAsync('unzip', ['-q', archivePath, '-d', targetDir]);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to extract zip archive. Ensure the unzip command is installed. ${message}`);
+  }
+}
+
+async function writeShaFile(shaFilePath: string, digest: string, fileName: string): Promise<void> {
+  await writeFile(shaFilePath, `${digest}  ${fileName}\n`, 'utf8');
 }
 
 async function verifyBundle(bundleDir: string, manifest: BundleManifest): Promise<void> {
@@ -398,6 +505,95 @@ async function postToServer(
   return json;
 }
 
+async function packBundle(args: Args): Promise<BundlePackageIndex & { archivePath: string; shaFilePath: string }> {
+  const datasetId = await resolveDatasetId(args);
+  assertSafeDatasetId(datasetId);
+
+  const bundleDir = localBundleDir(args, datasetId);
+  const manifest = await loadManifest(bundleDir);
+  await verifyBundle(bundleDir, manifest);
+
+  const laneValue = manifest.lane;
+  const fileName = archiveFileName(laneValue, datasetId);
+  const packageDir = localPackageDir(args);
+  const archivePath = path.join(packageDir, fileName);
+  const shaFilePath = path.join(packageDir, archiveShaFileName(fileName));
+
+  await createZipArchive(bundleDir, archivePath);
+  const digest = await sha256(archivePath);
+  await writeShaFile(shaFilePath, digest, fileName);
+
+  const index: BundlePackageIndex & { archivePath: string; shaFilePath: string } = {
+    schemaVersion: PACKAGE_SCHEMA_VERSION,
+    datasetId,
+    lane: laneValue,
+    archiveFileName: fileName,
+    archivePath,
+    shaFilePath,
+    sha256: digest,
+    bytes: await fileSize(archivePath),
+    manifestSha256: await sha256(path.join(bundleDir, 'manifest.json')),
+    createdAt: new Date().toISOString(),
+  };
+  await writeJson(path.join(packageDir, `${fileName}.json`), index);
+  return index;
+}
+
+async function commandPack(args: Args): Promise<void> {
+  const index = await packBundle(args);
+  console.log(JSON.stringify({
+    packed: index.datasetId,
+    lane: index.lane,
+    archiveFileName: index.archiveFileName,
+    archivePath: index.archivePath,
+    shaFilePath: index.shaFilePath,
+    sha256: index.sha256,
+    bytes: index.bytes,
+  }, null, 2));
+}
+
+async function commandPublish(args: Args): Promise<void> {
+  const index = await packBundle(args);
+  const root = driveRoot(args);
+  const laneDir = driveLaneDir(root, index.lane);
+  const drivePackageDir = path.join(laneDir, DRIVE_PACKAGE_DIR);
+  await mkdir(drivePackageDir, { recursive: true });
+
+  const archiveTarget = path.join(drivePackageDir, index.archiveFileName);
+  const shaTarget = path.join(drivePackageDir, archiveShaFileName(index.archiveFileName));
+  await cp(index.archivePath, archiveTarget);
+  await cp(index.shaFilePath, shaTarget);
+
+  const latest: BundlePackageIndex = {
+    schemaVersion: PACKAGE_SCHEMA_VERSION,
+    datasetId: index.datasetId,
+    lane: index.lane,
+    archiveFileName: index.archiveFileName,
+    archivePath: path.posix.join(DRIVE_PACKAGE_DIR, index.archiveFileName),
+    sha256: index.sha256,
+    bytes: index.bytes,
+    manifestSha256: index.manifestSha256,
+    createdAt: index.createdAt,
+    publishedAt: new Date().toISOString(),
+    canonicalDriveFolderUrl: CANONICAL_DRIVE_FOLDER_URL,
+  };
+
+  await writeJson(path.join(laneDir, 'latest.json'), latest);
+  await writeJson(path.join(drivePackageDir, `${index.archiveFileName}.json`), latest);
+  await writeFile(path.join(laneDir, 'latest.txt'), `${index.datasetId}\n`, 'utf8');
+
+  console.log(JSON.stringify({
+    published: index.datasetId,
+    lane: index.lane,
+    archiveFileName: index.archiveFileName,
+    archivePath: archiveTarget,
+    shaFilePath: shaTarget,
+    latestJsonPath: path.join(laneDir, 'latest.json'),
+    sha256: index.sha256,
+    bytes: index.bytes,
+  }, null, 2));
+}
+
 async function commandStatus(args: Args): Promise<void> {
   const root = localDataRoot(args);
   await mkdir(root, { recursive: true });
@@ -407,11 +603,18 @@ async function commandStatus(args: Args): Promise<void> {
   const dirs = (await readdir(root, { withFileTypes: true }))
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
+    .filter((name) => name !== LOCAL_PACKAGE_DIR)
     .sort();
+  const packages = existsSync(localPackageDir(args))
+    ? (await readdir(localPackageDir(args)))
+      .filter((entry) => entry.endsWith('.zip'))
+      .sort()
+    : [];
   console.log(JSON.stringify({
     root,
     latest,
     datasets: dirs,
+    packages,
     canonicalDriveFolderUrl: CANONICAL_DRIVE_FOLDER_URL,
     configuredDriveRoot,
   }, null, 2));
@@ -420,24 +623,50 @@ async function commandStatus(args: Args): Promise<void> {
 async function commandPull(args: Args): Promise<void> {
   const laneValue = lane(args);
   const root = driveRoot(args);
+  const laneDir = driveLaneDir(root, laneValue);
+  const latestPackage = await readLatestPackageIndex(laneDir);
+  if (latestPackage && latestPackage.lane !== laneValue) {
+    throw new Error(`latest.json lane mismatch: ${latestPackage.lane} != ${laneValue}`);
+  }
   const datasetId =
     value(args, 'dataset') ??
-    (await readTextIfExists(path.join(root, `coupang-${laneValue}`, 'latest.txt')));
+    latestPackage?.datasetId ??
+    (await readTextIfExists(path.join(laneDir, 'latest.txt')));
   if (!datasetId) {
     throw new Error(`No dataset provided and no latest.txt in coupang-${laneValue}`);
   }
+  assertSafeDatasetId(datasetId);
 
-  const source = driveBundleDir(root, laneValue, datasetId);
   const target = localBundleDir(args, datasetId);
-  if (!existsSync(source)) throw new Error(`Drive bundle not found: ${source}`);
-  await rm(target, { recursive: true, force: true });
-  await mkdir(path.dirname(target), { recursive: true });
-  await cp(source, target, { recursive: true });
+  const packageArchive =
+    latestPackage?.datasetId === datasetId
+      ? path.join(laneDir, latestPackage.archivePath)
+      : path.join(laneDir, DRIVE_PACKAGE_DIR, archiveFileName(laneValue, datasetId));
+
+  let source = packageArchive;
+  let format: 'archive' | 'directory' = 'archive';
+  if (existsSync(packageArchive)) {
+    const expectedSha = latestPackage?.datasetId === datasetId ? latestPackage.sha256 : null;
+    if (expectedSha) {
+      const actualSha = await sha256(packageArchive);
+      if (actualSha !== expectedSha) {
+        throw new Error(`Archive checksum mismatch for ${packageArchive}: ${actualSha} != ${expectedSha}`);
+      }
+    }
+    await extractZipArchive(packageArchive, target);
+  } else {
+    source = driveBundleDir(root, laneValue, datasetId);
+    format = 'directory';
+    if (!existsSync(source)) throw new Error(`Drive bundle not found: ${source}`);
+    await rm(target, { recursive: true, force: true });
+    await mkdir(path.dirname(target), { recursive: true });
+    await cp(source, target, { recursive: true });
+  }
 
   const manifest = await loadManifest(target);
   await verifyBundle(target, manifest);
   await writeFile(path.join(localDataRoot(args), 'latest.txt'), `${datasetId}\n`, 'utf8');
-  console.log(JSON.stringify({ pulled: datasetId, lane: laneValue, from: source, to: target }, null, 2));
+  console.log(JSON.stringify({ pulled: datasetId, lane: laneValue, format, from: source, to: target }, null, 2));
 }
 
 async function commandReplay(args: Args): Promise<void> {
@@ -540,6 +769,7 @@ async function commandSanitize(args: Args): Promise<void> {
   await verifyBundle(sourceDir, sourceManifest);
 
   const targetDataset = value(args, 'target-dataset') ?? `${datasetId}-demo`;
+  assertSafeDatasetId(targetDataset);
   const targetDir = localBundleDir(args, targetDataset);
   await rm(targetDir, { recursive: true, force: true });
   await mkdir(targetDir, { recursive: true });
@@ -572,6 +802,7 @@ async function commandSanitize(args: Args): Promise<void> {
 async function commandExport(args: Args): Promise<void> {
   const datasetId = value(args, 'dataset');
   if (!datasetId) throw new Error('export requires --dataset');
+  assertSafeDatasetId(datasetId);
   const laneValue = lane(args);
   const payloadFiles = [...values(args, 'payload')];
   const payloadDir = value(args, 'payload-dir');
@@ -650,6 +881,12 @@ async function main(): Promise<void> {
       break;
     case 'export':
       await commandExport(args);
+      break;
+    case 'pack':
+      await commandPack(args);
+      break;
+    case 'publish':
+      await commandPublish(args);
       break;
   }
 }

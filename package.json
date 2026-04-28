@@ -26,6 +26,8 @@
     "data:coupang:replay": "tsx scripts/coupang-dev-data.ts replay",
     "data:coupang:sanitize": "tsx scripts/coupang-dev-data.ts sanitize",
     "data:coupang:export": "tsx scripts/coupang-dev-data.ts export",
+    "data:coupang:pack": "tsx scripts/coupang-dev-data.ts pack",
+    "data:coupang:publish": "tsx scripts/coupang-dev-data.ts publish",
     "db:test:up": "docker compose -f docker-compose.test.yml up -d --wait",
     "db:test:down": "docker compose -f docker-compose.test.yml down -v",
     "db:test:prepare": "bash prisma/test-db-setup.sh",

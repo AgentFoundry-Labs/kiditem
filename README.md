@@ -32,6 +32,7 @@ npm run dev:all                                # Next.js + NestJS + Python Agent
 # 공유 개발 데이터 (선택, 서버 실행 후 다른 터미널에서 쿠팡 화면 상태 맞추기)
 # Canonical Drive: https://drive.google.com/drive/folders/1sIuAiZAX6wAFOoEmmJGe6p0b5xwey1AO?usp=drive_link
 export KIDITEM_DEV_DATA_DRIVE_DIR="$HOME/.../KidItem Dev Data" # Google Drive Desktop 로컬 동기화 경로
+# 기준 파일: coupang-real/latest.json -> bundles/kiditem-coupang-real-YYYY-MM-DD-real-vN.zip
 npm run data:coupang:pull -- --lane real
 npm run data:coupang:replay -- --mode scoped-replace --yes
 ```

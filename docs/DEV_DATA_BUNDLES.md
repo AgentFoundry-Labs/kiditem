@@ -8,41 +8,57 @@ Canonical Google Drive folder:
 
 ## 목적
 
-- 한 사람이 쿠팡 Wing/광고센터에서 수집한 payload 를 Google Drive 에 올린다.
+- 한 사람이 쿠팡 Wing/광고센터에서 수집한 payload 를 표준 zip bundle 로 만든다.
+- Google Drive 에는 zip archive 와 `latest.json` 만 기준 artifact 로 올린다.
 - 각 개발자는 같은 bundle 을 내려받아 로컬 DB 에 replay 한다.
 - 앱은 계속 로컬 PostgreSQL + MinIO/S3 를 기준으로 동작한다.
 - Google Drive 는 런타임 저장소가 아니라 개발 데이터 입력 artifact 저장소다.
+
+## 파일명 규칙
+
+공유 zip 파일명은 고정 포맷을 사용한다.
+
+```text
+kiditem-coupang-{lane}-{datasetId}.zip
+```
+
+예:
+
+```text
+kiditem-coupang-real-2026-04-28-real-v1.zip
+kiditem-coupang-demo-2026-04-28-demo-v1.zip
+```
+
+권장 `datasetId` 는 `YYYY-MM-DD-{lane}-vN` 이다. 같은 날 payload 를 다시 만들면 `v2`, `v3` 로 올리고, 기존 파일을 덮어쓰지 않는다.
 
 ## Google Drive 구조
 
 ```text
 KidItem Dev Data/
 ├── coupang-real/
+│   ├── latest.json
 │   ├── latest.txt
-│   └── 2026-04-real-v1/
-│       ├── manifest.json
-│       └── payloads/
-│           ├── wing-traffic.json
-│           ├── wing-itemwinner.json
-│           ├── ads-campaign.json
-│           └── ads-daily.json
+│   └── bundles/
+│       ├── kiditem-coupang-real-2026-04-28-real-v1.zip
+│       ├── kiditem-coupang-real-2026-04-28-real-v1.zip.sha256
+│       └── kiditem-coupang-real-2026-04-28-real-v1.zip.json
 └── coupang-demo/
+    ├── latest.json
     ├── latest.txt
-    └── 2026-04-demo-v1/
-        ├── manifest.json
-        └── payloads/
+    └── bundles/
+        └── kiditem-coupang-demo-2026-04-28-demo-v1.zip
 ```
 
-로컬에는 `.data/coupang/<datasetId>/` 로 복사된다. `.data/` 는 Git 에 커밋하지 않는다.
+로컬에는 `.data/coupang/<datasetId>/` 로 압축이 풀리고, pack 결과물은 `.data/coupang/packages/` 아래에 생긴다. `.data/` 는 Git 에 커밋하지 않는다.
 
 ## Manifest
 
-`manifest.json` 은 replay scope 를 반드시 포함한다. `scoped-replace` 가 이 범위만 지우고 다시 주입한다.
+zip 내부의 `manifest.json` 은 replay scope 를 반드시 포함한다. `scoped-replace` 가 이 범위만 지우고 다시 주입한다.
 
 ```json
 {
   "schemaVersion": "kiditem.dev-data.coupang.v1",
-  "datasetId": "2026-04-real-v1",
+  "datasetId": "2026-04-28-real-v1",
   "lane": "real",
   "createdAt": "2026-04-28T00:00:00.000Z",
   "defaultImportMode": "scoped-replace",
@@ -68,9 +84,59 @@ KidItem Dev Data/
 
 Payload 파일은 기존 `POST /api/ads/extension/sync` body 와 같은 JSON object 를 권장한다. JSON array 만 있으면 manifest 의 `type`/`source` 로 `{ type, source, data }` 형태를 만들어 replay 한다.
 
-## 사용법
+## Latest JSON
 
-위 Drive folder 를 Google Drive for Desktop 으로 로컬에 동기화하고, 각자 머신의 동기화 경로를 env 로 지정한다. CLI 는 Drive URL 을 직접 다운로드하지 않고 로컬 동기화 폴더를 읽는다.
+Drive 의 `coupang-real/latest.json` 또는 `coupang-demo/latest.json` 이 팀의 현재 기준 bundle 을 가리킨다.
+
+```json
+{
+  "schemaVersion": "kiditem.dev-data.coupang.package.v1",
+  "datasetId": "2026-04-28-real-v1",
+  "lane": "real",
+  "archiveFileName": "kiditem-coupang-real-2026-04-28-real-v1.zip",
+  "archivePath": "bundles/kiditem-coupang-real-2026-04-28-real-v1.zip",
+  "sha256": "...",
+  "bytes": 123456,
+  "manifestSha256": "...",
+  "createdAt": "2026-04-28T00:00:00.000Z",
+  "publishedAt": "2026-04-28T00:00:00.000Z"
+}
+```
+
+`pull` 은 `latest.json` 의 checksum 을 확인한 뒤 zip 을 `.data/coupang/<datasetId>/` 로 푼다. `latest.txt` 는 사람이 빠르게 확인하기 위한 호환 파일이다.
+
+## Producer 플로우
+
+스크래핑을 수행한 사람이 payload JSON 을 bundle 로 만들고 Drive 동기화 폴더에 publish 한다.
+
+```bash
+export KIDITEM_DEV_DATA_DRIVE_DIR="$HOME/Library/CloudStorage/GoogleDrive-.../My Drive/KidItem Dev Data"
+
+npm run data:coupang:export -- \
+  --dataset 2026-04-28-real-v1 \
+  --lane real \
+  --payload-dir ./scraper-output/coupang \
+  --from 2026-04-01 \
+  --to 2026-04-28
+
+npm run data:coupang:pack -- --dataset 2026-04-28-real-v1
+npm run data:coupang:publish -- --dataset 2026-04-28-real-v1
+```
+
+`publish` 는 다음 파일을 Google Drive 동기화 폴더에 쓴다.
+
+```text
+coupang-real/latest.json
+coupang-real/latest.txt
+coupang-real/bundles/kiditem-coupang-real-2026-04-28-real-v1.zip
+coupang-real/bundles/kiditem-coupang-real-2026-04-28-real-v1.zip.sha256
+```
+
+`zip`/`unzip` CLI 가 로컬에 필요하다. macOS 기본 환경에는 포함되어 있다.
+
+## Consumer 플로우
+
+위 Drive folder 를 Google Drive for Desktop 으로 로컬에 동기화하고, 각자 머신의 동기화 경로를 env 로 지정한다. CLI 는 Drive URL 을 직접 다운로드하지 않고 로컬 동기화 폴더의 `latest.json` 과 zip archive 를 읽는다.
 
 ```bash
 export KIDITEM_DEV_DATA_DRIVE_DIR="$HOME/Library/CloudStorage/GoogleDrive-.../My Drive/KidItem Dev Data"
