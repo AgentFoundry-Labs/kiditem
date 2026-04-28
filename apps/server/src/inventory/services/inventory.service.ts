@@ -17,7 +17,7 @@ import type {
   TransactionListItem,
   TransactionListResponse,
   TransactionSummary,
-} from '@kiditem/shared';
+} from '@kiditem/shared/inventory';
 import type { Prisma } from '@prisma/client';
 import type {
   ListInventoryQueryDto,
