@@ -18,7 +18,11 @@ export class StockAuditsController {
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() dto: UpdateStockAuditDto) {
-    return this.stockAuditsService.update(id, dto);
+  update(
+    @Param('id') id: string,
+    @Body() dto: UpdateStockAuditDto,
+    @CurrentCompany() companyId: string,
+  ) {
+    return this.stockAuditsService.update(id, companyId, dto);
   }
 }

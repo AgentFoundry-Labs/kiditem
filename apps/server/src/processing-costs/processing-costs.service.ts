@@ -38,8 +38,10 @@ export class ProcessingCostsService {
     });
   }
 
-  async update(id: string, dto: UpdateProcessingCostDto) {
-    const existing = await this.prisma.processingCost.findUnique({ where: { id } });
+  async update(id: string, companyId: string, dto: UpdateProcessingCostDto) {
+    const existing = await this.prisma.processingCost.findFirst({
+      where: { id, companyId },
+    });
     if (!existing) {
       throw new BadRequestException('가공비를 찾을 수 없습니다');
     }

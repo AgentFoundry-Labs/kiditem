@@ -42,8 +42,10 @@ export class ManualLedgerService {
     });
   }
 
-  async delete(id: string) {
-    const existing = await this.prisma.manualLedger.findUnique({ where: { id } });
+  async delete(id: string, companyId: string) {
+    const existing = await this.prisma.manualLedger.findFirst({
+      where: { id, companyId },
+    });
     if (!existing) {
       throw new BadRequestException('수기 장부 항목을 찾을 수 없습니다');
     }
