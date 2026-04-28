@@ -32,7 +32,9 @@
         "**/.turbo/**",
         "**/.cache/**",
         "prisma/init.sql.gz"
-      ]
+      ],
+      // External Python uv CLI; npm "uv" is unrelated.
+      "ignoreBinaries": ["uv"]
     },
     "apps/server": {
       "entry": [
