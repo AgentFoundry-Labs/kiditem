@@ -8,6 +8,8 @@ function makePrisma() {
     actionTask: {
       findFirst: vi.fn(),
       update: vi.fn(),
+      updateMany: vi.fn(),
+      findFirstOrThrow: vi.fn(),
     },
   };
 }
@@ -30,6 +32,7 @@ describe('ActionTaskService — task 상태 전이', () => {
   let prisma: ReturnType<typeof makePrisma>;
 
   beforeEach(() => {
+    vi.restoreAllMocks();
     prisma = makePrisma();
     service = new ActionTaskService(prisma as any);
   });
@@ -141,6 +144,74 @@ describe('ActionTaskService — task 상태 전이', () => {
   });
 
   describe('executeTask', () => {
+    it('successful apiCall update is scoped to companyId in the write path', async () => {
+      const task = {
+        ...baseTask(),
+        apiCall: { url: '/api/products/calculate-grades', method: 'POST', body: {} },
+      };
+      prisma.actionTask.findFirst.mockResolvedValue(task);
+      prisma.actionTask.update.mockResolvedValue({ ...task, status: 'done' });
+      prisma.actionTask.updateMany.mockResolvedValue({ count: 1 });
+      prisma.actionTask.findFirstOrThrow.mockResolvedValue({ ...task, status: 'done' });
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        json: async () => ({ ok: true }),
+      } as Response);
+
+      await service.executeTask('task-1', 'c-1');
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://localhost:4000/api/products/calculate-grades',
+        expect.objectContaining({ method: 'POST' }),
+      );
+      expect(prisma.actionTask.updateMany).toHaveBeenCalledWith({
+        where: { id: 'task-1', companyId: 'c-1' },
+        data: expect.objectContaining({
+          status: 'done',
+          result: { ok: true },
+        }),
+      });
+    });
+
+    it('failed apiCall update is scoped to companyId in the write path', async () => {
+      const task = {
+        ...baseTask(),
+        apiCall: { url: '/api/products/calculate-grades', method: 'POST', body: {} },
+      };
+      prisma.actionTask.findFirst.mockResolvedValue(task);
+      prisma.actionTask.update.mockResolvedValue({ ...task, status: 'done' });
+      prisma.actionTask.updateMany.mockResolvedValue({ count: 1 });
+      prisma.actionTask.findFirstOrThrow.mockResolvedValue({ ...task, status: 'done' });
+      vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('network failed'));
+
+      await service.executeTask('task-1', 'c-1');
+
+      expect(prisma.actionTask.updateMany).toHaveBeenCalledWith({
+        where: { id: 'task-1', companyId: 'c-1' },
+        data: expect.objectContaining({
+          status: 'done',
+          result: { error: 'network failed' },
+        }),
+      });
+    });
+
+    it('successful apiCall throws NotFound when scoped update is a no-op', async () => {
+      const task = {
+        ...baseTask(),
+        apiCall: { url: '/api/products/calculate-grades', method: 'POST', body: {} },
+      };
+      prisma.actionTask.findFirst.mockResolvedValue(task);
+      prisma.actionTask.updateMany.mockResolvedValue({ count: 0 });
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        json: async () => ({ ok: true }),
+      } as Response);
+
+      await expect(service.executeTask('task-1', 'c-1')).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+    });
+
     it('apiCall 없으면 NotFoundException', async () => {
       prisma.actionTask.findFirst.mockResolvedValue({ ...baseTask(), apiCall: null });
 
