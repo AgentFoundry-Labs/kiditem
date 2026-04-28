@@ -26,13 +26,8 @@ export class SalesPlansService {
   }
 
   async create(companyId: string, dto: CreateSalesPlanDto) {
-    const existing = await this.prisma.salesPlan.findUnique({
-      where: {
-        companyId_period: {
-          companyId,
-          period: dto.period,
-        },
-      },
+    const existing = await this.prisma.salesPlan.findFirst({
+      where: { companyId, period: dto.period },
     });
 
     if (existing) {

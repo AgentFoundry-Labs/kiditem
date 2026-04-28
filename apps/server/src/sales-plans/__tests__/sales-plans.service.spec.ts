@@ -57,19 +57,19 @@ describe('SalesPlansService', () => {
 
   describe('create', () => {
     it('throws BadRequest when duplicate period exists for company', async () => {
-      prisma.salesPlan.findUnique.mockResolvedValue({ id: 'p1' });
+      prisma.salesPlan.findFirst.mockResolvedValue({ id: 'p1' });
 
       await expect(
         service.create('company-1', { period: '2026-04' } as any),
       ).rejects.toBeInstanceOf(BadRequestException);
 
-      expect(prisma.salesPlan.findUnique).toHaveBeenCalledWith({
-        where: { companyId_period: { companyId: 'company-1', period: '2026-04' } },
+      expect(prisma.salesPlan.findFirst).toHaveBeenCalledWith({
+        where: { companyId: 'company-1', period: '2026-04' },
       });
     });
 
     it('creates plan with defaults when duplicate not found', async () => {
-      prisma.salesPlan.findUnique.mockResolvedValue(null);
+      prisma.salesPlan.findFirst.mockResolvedValue(null);
       prisma.salesPlan.create.mockResolvedValue({ id: 'new' });
 
       await service.create('company-1', {

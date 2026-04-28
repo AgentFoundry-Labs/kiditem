@@ -141,6 +141,26 @@ describe('Sales-plans flow (PG integration)', () => {
       expect(reread?.id).toBe(plan.id);
     });
 
+    it('#4a create: duplicate-period guard is companyId-scoped (same period in two companies coexist)', async () => {
+      await prisma.salesPlan.create({
+        data: {
+          companyId: TEST_COMPANY_ID,
+          period: '2026-04',
+          targetRevenue: 1_000_000,
+        },
+      });
+
+      // OTHER_COMPANY can still create the same period — guard scoped to companyId.
+      const other = await service.create(OTHER_COMPANY_ID, {
+        period: '2026-04',
+        targetRevenue: 500_000,
+      } as any);
+
+      expect(other.companyId).toBe(OTHER_COMPANY_ID);
+      expect(other.period).toBe('2026-04');
+      expect(other.targetRevenue).toBe(500_000);
+    });
+
     it('#4 same-company mutations succeed (baseline sanity)', async () => {
       const plan = await prisma.salesPlan.create({
         data: {
