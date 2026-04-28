@@ -12,9 +12,8 @@
 
 ```
 channels/
-├── adapters/coupang/    # 4 files — 외부 API 격리 (HMAC auth, fetch client, products/orders endpoints)
+├── adapters/coupang/    # 3 files — 외부 API 격리 (HMAC auth, fetch client, products/orders endpoints)
 │   ├── coupang-client.ts
-│   ├── constants.ts
 │   ├── products.ts
 │   └── orders.ts
 ├── controllers/         # 2 files — channel-sync, channel-dashboard
@@ -37,9 +36,8 @@ channels/
 - 응답 검증: `response.ok` + content-type JSON 체크 (line 84-95)
 - **재시도 로직 없음** — 단일 시도. caller 가 책임.
 
-`constants.ts`:
-- `ORDER_STATUSES`: ACCEPT, INSTRUCT, DEPARTURE, DELIVERING, FINAL_DELIVERY, CANCELED
-- `RETURN_STATUSES`: UC, RC
+상태 매핑은 별도 constants 모듈을 두지 않고 `services/channel-sync.service.ts` 의
+`normalizeCoupangProductStatus` / `normalizeCoupangOrderStatus` 가 소유한다.
 
 `products.ts` / `orders.ts`:
 - API 메서드 wrappers (`getSellerProducts`, `confirmOrderSheets`, `uploadInvoice` 등)
