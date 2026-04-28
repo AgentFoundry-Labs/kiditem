@@ -10,18 +10,18 @@ export class AlertsController {
   constructor(private readonly alertsService: AlertsService) {}
 
   @Get()
-  findAll(@Query() query: ListAlertsQueryDto) {
-    return this.alertsService.findAll(query.limit);
+  findAll(@Query() query: ListAlertsQueryDto, @CurrentCompany() companyId: string) {
+    return this.alertsService.findAll(companyId, query.limit);
   }
 
   @Patch('read-all')
-  markAllAsRead() {
-    return this.alertsService.markAllAsRead();
+  markAllAsRead(@CurrentCompany() companyId: string) {
+    return this.alertsService.markAllAsRead(companyId);
   }
 
   @Patch(':id/read')
-  markAsRead(@Param('id') id: string) {
-    return this.alertsService.markAsRead(id);
+  markAsRead(@Param('id') id: string, @CurrentCompany() companyId: string) {
+    return this.alertsService.markAsRead(id, companyId);
   }
 
   @Post(':id/promote')
