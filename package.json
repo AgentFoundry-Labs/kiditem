@@ -13,6 +13,7 @@
     "dev:all": "concurrently -n web,server,agents -c blue,green,yellow \"npm run dev\" \"npm run dev:server\" \"npm run dev:agents\"",
     "build": "npm run build --workspace=apps/web && npm run build --workspace=apps/server",
     "check:idor": "./scripts/check-queryraw-tenancy.sh",
+    "check:tenant-scope": "./scripts/check-tenant-scope.sh",
     "db:3layer-setup": "docker exec -i kiditem-postgres psql -U kiditem kiditem < prisma/3layer-setup.sql",
     "db:erd": "node scripts/generate-prisma-erd.mjs",
     "graphify:schema": "npm run db:erd && uv run --with graphifyy --python 3.11 python scripts/generate-schema-graphify.py",

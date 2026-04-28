@@ -18,6 +18,8 @@
   - **Tenant-scope and dead-code follow-ups (PR #74–#76)** — `warehouses`, `categories`, `suppliers` controllers receive `@CurrentCompany()` and pass `companyId` into services as an explicit argument; single-resource reads use `findFirst({ id, companyId })`. The `ProductMemo` Prisma model and the web UI surfaces that depended on it were hard-deleted (no UI consumer remained).
 - `npm run check:idor` is **PASS** at `3692977`. The portable scanner is the canonical raw-SQL tenancy gate. If the scanner ever breaks again, repair the scanner before treating its silence as evidence.
 - Post-Phase-1 unsafe raw SQL grep over `apps/server/src` (excluding tests/test-helpers) returns zero production call sites; the only remaining hit is a doc comment in `agent-registry/trace/agent-trace.service.ts` describing the ban itself.
+- A second tenant-scope scanner — `scripts/check-tenant-scope.sh` (run via `npm run check:tenant-scope`) — now covers ORM-level risks that complement the raw-SQL `check:idor` gate: bare-id `findUnique`/`findUniqueOrThrow`, bare-id Prisma `update`/`delete` without nearby tenant scope, controller `@Body`/`@Query`/`@Param('companyId')`, and DTO `companyId` fields. The scanner is Bash 3.2 compatible and allowlist-driven via `scripts/.tenant-scope-allowlist.txt`.
+- `npm run check:tenant-scope` is a **baseline-reporting gate** until the remaining tenant-scope cleanup lanes make it green. It may fail on existing findings; that failure is expected evidence for the next cleanup PRs, not permission to add new bare-id tenant access. Once a cleanup PR makes it pass, it becomes a required green gate for tenant-owned service/controller changes.
 - Local working trees may contain unrelated untracked Excel files (`kiditem_list (1) 2.xlsx`, `wing-inventory-matched 2.xlsx`). Leave these untouched in reconstruction branches.
 - Large rewrite surfaces confirmed by line count (subject to drift after future PRs; re-measure before relying on the numbers):
   - `apps/server/src/advertising/services/ad-sync.service.ts` — ~1700 lines.
@@ -273,7 +275,7 @@ git rev-parse HEAD origin/main
 git log -1 --oneline --decorate
 ```
 
-Observed on this machine: `HEAD` and `origin/main` both resolve to `35405b223d240e5f66e872302ada7ac8cd7971db`.
+Initial plan snapshot observed `HEAD` and `origin/main` at `35405b223d240e5f66e872302ada7ac8cd7971db`; current reconstruction baseline is recorded in the Current Baseline section above and should be re-fetched before each child PR.
 
 - [x] Read root and scope instruction files:
 
@@ -405,13 +407,13 @@ Each phase has a fixed set of gates that must pass before merge. The phase table
 | Phase | Required pre-merge gates | Notes |
 |---|---|---|
 | Phase 0 — Constitution / instruction-only | `git diff --check`; scoped diff review | No code/runtime gate. Confirm no production code behavior changed. |
-| Phase 1 — Platform safety | `npm run check:idor` (and `npm run check:tenant-scope` if it has been added); `npm run build --workspace=apps/server`; `npm run dev:server` | Plus `rg -n '\$queryRawUnsafe\|\$executeRawUnsafe' apps/server/src --type ts --glob '!**/__tests__/**'` returns no production hit. |
+| Phase 1 — Platform safety | `npm run check:idor`; `npm run check:tenant-scope`; `npm run build --workspace=apps/server`; `npm run dev:server` | Plus `rg -n '\$queryRawUnsafe\|\$executeRawUnsafe' apps/server/src --type ts --glob '!**/__tests__/**'` returns no production hit. `check:tenant-scope` is baseline-reporting until the remaining tenant-scope cleanup lanes make it green. |
 | Phase 2 — `packages/shared` rebuild | `cd packages/shared && npm run build`; `npm run build --workspace=apps/server`; `npm run build --workspace=apps/web` | When migrating consumers, run a root-import grep before/after to confirm the migration direction. |
 | Phase 3 — Backend domain rewrite | Domain-specific Vitest spec(s) under `apps/server/src/{domain}/__tests__/`; `npm run build --workspace=apps/server`; `npm run dev:server` | Re-run `npm run check:idor` if the domain touches raw SQL or tenant scope; integration tests when DB invariants are at stake. |
 | Phase 4 — Frontend rebuild | `npm run build --workspace=apps/web`; focused Vitest under the touched route's `__tests__/` (or shared frontend tests it depends on) | Add browser QA when a route's visual or interactive behavior changes. |
 | Phase 5 — Dead code / dependency purge | `knip` (after `knip.json` exists and is stable); `cd packages/shared && npm run build`; `npm run build --workspace=apps/server`; `npm run build --workspace=apps/web` | Source grep and workspace builds before any dependency removal. |
 
-`npm run check:tenant-scope` is not yet a script in `package.json`. If a future reconstruction PR adds it (for example an AST-based companyId scope linter), reference it here at the same time it lands.
+`npm run check:tenant-scope` is intentionally allowed to fail while it reports known baseline findings. Do not use that baseline failure to merge new tenant-scope regressions; cleanup PRs must trend the report toward zero and record the exact scanner evidence they changed.
 
 ### Schema Change Trigger
 
@@ -442,7 +444,7 @@ The phase-level gates above are mandatory. The table below is a supplementary vi
 | Change type | Required evidence |
 |---|---|
 | Instruction-only Phase 0 | `git diff --check` + scoped diff review |
-| Backend safety or service code | `npm run check:idor` + unsafe raw grep + `npm run dev:server` |
+| Backend safety or service code | `npm run check:idor` + `npm run check:tenant-scope` + unsafe raw grep + `npm run dev:server` |
 | Shared schema/export work | `cd packages/shared && npm run build` + server/web builds |
 | Prisma schema work | `npm run db:push` + `npx prisma generate` + `npm run db:3layer-setup` (when applicable) + shared build |
 | Frontend route/component work | `npm run build --workspace=apps/web`; focused Vitest; browser QA for visual behavior |

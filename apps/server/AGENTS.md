@@ -80,7 +80,10 @@ Adding a new domain: create module + controller + service + dto/ → register in
 - **No default company lookup** — never recover missing context with `company.findFirst({ isActive: true })`, env defaults, or first-row fallbacks.
 - **DTO boundary** — controllers do not use `as any`; service parameters match DTOs or service-internal interfaces. Avoid `Record<string, unknown>` as a DTO substitute.
 - **Large service policy** — do not add substantial behavior to 700+ line services. Split by domain capability or write a replacement plan before changing behavior.
-- **Scanner evidence** — `npm run check:idor` is the raw SQL tenancy gate. If it fails because the scanner is broken, repair the scanner before claiming a safety fix.
+- **Scanner evidence** — two complementary tenant-scope gates:
+  - `npm run check:idor` — raw SQL tenancy (`$queryRaw` tagged templates must bind `company_id`).
+  - `npm run check:tenant-scope` — ORM-level tenant scope (no bare-id `findUnique`, no bare-id `update`/`delete` without a preceding tenant-scoped read in the same function, no controller `@Body`/`@Query`/`@Param('companyId')`, no DTO `companyId` field).
+  Both are valid completion evidence for reconstruction PRs that touch tenant-owned services or controllers. `check:tenant-scope` is baseline-reporting until the remaining cleanup lanes make it green; do not add new findings, and record any expected baseline failure in the PR. If a gate fails because the scanner is broken, repair the scanner before claiming a safety fix. Narrow false positives go in `scripts/.tenant-scope-allowlist.txt` with a per-pattern entry and a recorded reason — never broad globs.
 
 ## Data Access — Service-level Prisma (+ 선택적 Repository 추출)
 
