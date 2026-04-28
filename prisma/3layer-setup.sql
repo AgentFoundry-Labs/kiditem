@@ -62,13 +62,6 @@ ALTER TABLE action_tasks
   ADD CONSTRAINT action_task_target_type
     CHECK (target_type IS NULL OR target_type IN ('master','option','listing','bundle'));
 
--- 4. ProductMemo target_type CHECK
-ALTER TABLE product_memos
-  DROP CONSTRAINT IF EXISTS product_memo_target_type;
-ALTER TABLE product_memos
-  ADD CONSTRAINT product_memo_target_type
-    CHECK (target_type IN ('master','option','listing'));
-
 -- 5. Alert target_type CHECK (nullable)
 ALTER TABLE alerts
   DROP CONSTRAINT IF EXISTS alert_target_type;
@@ -117,13 +110,6 @@ CREATE POLICY bundle_components_chatbot_filter ON bundle_components
 ALTER TABLE inventory ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS inventory_chatbot_filter ON inventory;
 CREATE POLICY inventory_chatbot_filter ON inventory
-  FOR SELECT TO chatbot_readonly
-  USING (company_id = current_setting('app.company_id', true)::uuid);
-
--- product_memos
-ALTER TABLE product_memos ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS product_memos_chatbot_filter ON product_memos;
-CREATE POLICY product_memos_chatbot_filter ON product_memos
   FOR SELECT TO chatbot_readonly
   USING (company_id = current_setting('app.company_id', true)::uuid);
 

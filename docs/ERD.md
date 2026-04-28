@@ -94,7 +94,6 @@ This ERD is a development-time navigation aid. The source of truth is still the 
 | FeatureGate | System | `feature_gates` | 피처 플래그. allowedCompanies: string[] 로 회사별 enable. |
 | Marketplace | System | `marketplace` | type 으로 agent/workflow 카탈로그 통합. |
 | MigrationCheckpoint | System | `migration_checkpoints` | 이관 스크립트 체크포인트 (Plan C 용). 이관 완료 후 drop 가능. |
-| ProductMemo | System | `product_memos` | 상품 관련 메모 (polymorphic). Master / Option / Listing 어디든 붙음. |
 | SystemSetting | System | `system_settings` | - |
 
 ## Mermaid ER Diagram
@@ -917,18 +916,6 @@ erDiagram
     String notes
     DateTime createdAt
   }
-  ProductMemo {
-    String id PK
-    String companyId FK
-    String targetType
-    String targetId
-    String content
-    String author
-    String memoType
-    Boolean isResolved
-    DateTime createdAt
-    DateTime updatedAt
-  }
   ProductOption {
     String id PK
     String masterId FK
@@ -1443,7 +1430,6 @@ erDiagram
   Company ||--o{ OrderReturnLineItem : "company"
   Company ||--o{ PickingList : "company"
   Company ||--o{ ProcessingCost : "company"
-  Company ||--o{ ProductMemo : "company"
   Company ||--o{ ProductOption : "company"
   Company ||--o{ ProfitLoss : "company"
   Company ||--o{ PurchaseOrder : "company"
