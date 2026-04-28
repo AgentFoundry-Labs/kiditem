@@ -191,28 +191,6 @@ model SystemSetting {
 }
 
 /// @namespace System
-/// @describe 상품 관련 메모 (polymorphic). Master / Option / Listing 어디든 붙음.
-model ProductMemo {
-  id         String  @id @default(uuid()) @db.Uuid
-  companyId  String  @map("company_id") @db.Uuid
-  targetType String  @map("target_type")   // 'master' | 'option' | 'listing'
-  targetId   String  @map("target_id") @db.Uuid
-  content    String
-  author     String?
-  memoType   String  @default("general") @map("memo_type")
-  isResolved Boolean @default(false) @map("is_resolved")
-
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  @@index([companyId])
-  @@index([companyId, targetType, targetId])
-  @@map("product_memos")
-}
-
-/// @namespace System
 /// @describe 이관 스크립트 체크포인트 (Plan C 용). 이관 완료 후 drop 가능.
 model MigrationCheckpoint {
   id         String   @id @default(uuid()) @db.Uuid

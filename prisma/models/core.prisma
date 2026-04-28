@@ -111,7 +111,6 @@ model Company {
 
   // Additional back-relations for FK rename additions
   gradeHistory            GradeHistory[]            // Task 8 Step 2 adds companyId to GradeHistory
-  productMemos            ProductMemo[]             // Task 9 Step 3 polymorphic ProductMemo
 
   @@map("companies")
 }
