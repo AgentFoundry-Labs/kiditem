@@ -6,7 +6,7 @@ import type { MulterFile } from '../common/types';
 import { resolvePricing } from '../common/option-pricing-resolver';
 import { kstDayStart } from '../common/kst';
 
-export interface DayRevenue {
+interface DayRevenue {
   date: string;
   revenue: number;
   orders: number;

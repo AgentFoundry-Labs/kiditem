@@ -14,9 +14,9 @@ import { MasterImageRoleSchema, type MasterImageRole } from '@kiditem/shared';
 /**
  * Role enum values derive from the shared `MasterImageRoleSchema` so the
  * server DTO cannot drift from the Zod contract when a role is added or
- * removed. Exported as a readonly array for class-validator's `@IsIn`.
+ * removed.
  */
-export const MASTER_IMAGE_ROLES = MasterImageRoleSchema.options;
+const MASTER_IMAGE_ROLES = MasterImageRoleSchema.options;
 
 export class MasterImageItemDto {
   @IsOptional()

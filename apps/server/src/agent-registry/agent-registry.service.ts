@@ -8,8 +8,6 @@ import type { OrgNode } from './types';
 import { scrubSecrets } from '@kiditem/shared';
 import type { UpdateAgentBodyDto } from './dto';
 
-export type { OrgNode } from './types';
-
 type AgentDefinitionUpdateData = Omit<UpdateAgentBodyDto, 'schedule'> & {
   schedule?: string | null;
   trustLevel?: number;

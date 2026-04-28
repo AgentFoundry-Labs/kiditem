@@ -1,6 +1,6 @@
 import { kstDayStart } from '../../common/kst';
 
-export interface DateRangeContext {
+interface DateRangeContext {
   start: Date;
   end: Date;
   prevStart: Date;

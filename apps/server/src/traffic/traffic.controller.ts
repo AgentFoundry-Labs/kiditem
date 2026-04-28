@@ -20,6 +20,27 @@ interface MulterFile {
   buffer: Buffer;
 }
 
+interface MonthlyTrafficResponse {
+  year: number;
+  month: number;
+  days: Array<{
+    date: string;
+    revenue: number;
+    orders: number;
+    salesQty: number;
+    visitors: number;
+    netProfit?: number;
+    profitRate?: number;
+  }>;
+  total: {
+    revenue: number;
+    orders: number;
+    salesQty: number;
+    visitors: number;
+    netProfit: number;
+  };
+}
+
 const MAX_UPLOAD_SIZE = 10 * 1024 * 1024; // 10MB
 const ALLOWED_MIME_TYPES = new Set([
   'text/csv',
@@ -47,7 +68,7 @@ export class TrafficController {
     @Query('year') year: string | undefined,
     @Query('month') month: string | undefined,
     @CurrentCompany() companyId: string,
-  ) {
+  ): Promise<MonthlyTrafficResponse> {
     const now = new Date();
     const y = year ? parseInt(year, 10) : now.getFullYear();
     const m = month ? parseInt(month, 10) : now.getMonth() + 1;

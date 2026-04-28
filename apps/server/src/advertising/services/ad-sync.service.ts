@@ -40,7 +40,7 @@ export interface ListingMap {
   externalIdMap: Map<string, { listingId: string }>;
 }
 
-export interface ListingMatch {
+interface ListingMatch {
   listingId: string | null;
   listingOptionId: string | null;
   optionId: string | null;

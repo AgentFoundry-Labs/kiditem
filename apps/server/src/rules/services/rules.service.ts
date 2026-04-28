@@ -9,8 +9,6 @@ import { alertPanelAdapter } from '../../panel/adapters/alert.adapter';
 import type { RuleItem } from '@kiditem/shared';
 import type { EvaluationResult, ProductEvalResult } from './types';
 
-export type { EvaluationResult } from './types';
-
 @Injectable()
 export class RulesService implements OnModuleInit {
   private readonly logger = new Logger(RulesService.name);

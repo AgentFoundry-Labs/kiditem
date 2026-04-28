@@ -25,8 +25,8 @@ import {
   requireGeminiVisionModel,
 } from './thumbnail-gemini-config';
 
-export type ThumbnailGrade = 'S' | 'A' | 'B' | 'C' | 'F';
-export type ComplianceGrade = 'PASS' | 'WARN' | 'FAIL';
+type ThumbnailGrade = 'S' | 'A' | 'B' | 'C' | 'F';
+type ComplianceGrade = 'PASS' | 'WARN' | 'FAIL';
 
 export interface ThumbnailAiItem {
   productId: string;
@@ -35,13 +35,13 @@ export interface ThumbnailAiItem {
   category?: string | null;
 }
 
-export interface AiAnalysisIssue {
+interface AiAnalysisIssue {
   type: string;
   severity: string;
   message: string;
 }
 
-export interface AiAnalysisResult {
+interface AiAnalysisResult {
   overallScore: number;
   grade: ThumbnailGrade;
   scores: ThumbnailScores | null;

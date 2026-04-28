@@ -68,14 +68,14 @@ export type ScrapeMatchStatus = 'matched' | 'matched_listing_only' | 'unmatched'
  * `data` is `Record<string, unknown>` because it eventually serializes to
  * Postgres jsonb; helpers cast to `Prisma.InputJsonValue` at write time.
  */
-export interface NamespacedMetaJson {
+interface NamespacedMetaJson {
   source: string;
   data: Record<string, unknown>;
 }
 
-export type MetaJsonInput = NamespacedMetaJson | null | undefined;
+type MetaJsonInput = NamespacedMetaJson | null | undefined;
 
-export interface ScrapeRunInput {
+interface ScrapeRunInput {
   companyId: string;
   channel: string;
   source: string;
@@ -89,7 +89,7 @@ export interface ScrapeRunInput {
   metaJson?: Prisma.InputJsonValue | null;
 }
 
-export interface ScrapeSnapshotInput {
+interface ScrapeSnapshotInput {
   scrapeRunId: string;
   companyId: string;
   channel: string;
@@ -108,7 +108,7 @@ export interface ScrapeSnapshotInput {
   normalizedJson?: Prisma.InputJsonValue | null;
 }
 
-export interface ScrapeRunFinalize {
+interface ScrapeRunFinalize {
   scrapeRunId: string;
   companyId: string;
   status: 'complete' | 'error' | 'partial';
@@ -146,7 +146,7 @@ export interface ListingDailyState {
  * per `(listing, businessDate)`; helpers overwrite the column to that total
  * on replay (no `{ increment }`).
  */
-export interface ListingDailyAdMetrics {
+interface ListingDailyAdMetrics {
   adSpend?: number | null;
   adRevenue?: number | null;
   adImpressions?: number | null;
@@ -179,12 +179,12 @@ export interface ListingDailyTrafficMetrics {
   trafficRevenue?: number | null;
 }
 
-export interface ListingDailyMetrics {
+interface ListingDailyMetrics {
   ad?: ListingDailyAdMetrics;
   traffic?: ListingDailyTrafficMetrics;
 }
 
-export interface ListingDailyUpsertInput extends ListingDailyState {
+interface ListingDailyUpsertInput extends ListingDailyState {
   companyId: string;
   listingId: string;
   channel: string;
@@ -208,7 +208,7 @@ export interface ListingOptionDailyState {
   winnerGapPrice?: number | null;
 }
 
-export interface ListingOptionDailyUpsertInput extends ListingOptionDailyState {
+interface ListingOptionDailyUpsertInput extends ListingOptionDailyState {
   companyId: string;
   listingId: string;
   listingOptionId: string;
@@ -223,7 +223,7 @@ export interface ListingOptionDailyUpsertInput extends ListingOptionDailyState {
 }
 
 /** See `ChannelAdTargetDailySnapshot`. */
-export type AdTargetType = 'campaign' | 'keyword' | 'product';
+type AdTargetType = 'campaign' | 'keyword' | 'product';
 
 export interface AdTargetDailyMetrics {
   spend?: number | null;
@@ -236,7 +236,7 @@ export interface AdTargetDailyMetrics {
   adRevenue?: number | null;
 }
 
-export interface UpsertAdTargetDailyInput extends AdTargetDailyMetrics {
+interface UpsertAdTargetDailyInput extends AdTargetDailyMetrics {
   companyId: string;
   channel: string;
   businessDate: Date;
@@ -264,7 +264,7 @@ export interface UpsertAdTargetDailyInput extends AdTargetDailyMetrics {
   metaJson?: MetaJsonInput;
 }
 
-export interface UpsertAccountKpiInput {
+interface UpsertAccountKpiInput {
   companyId: string;
   channel: string;
   source: string;
