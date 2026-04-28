@@ -5,20 +5,23 @@ function makePrisma() {
   return {
     masterProduct: {
       findUnique: vi.fn(),
+      findFirst: vi.fn(),
       update: vi.fn().mockResolvedValue({}),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
     agentEvent: {
       createMany: vi.fn().mockResolvedValue({ count: 2 }),
       findMany: vi.fn().mockResolvedValue([]),
       update: vi.fn().mockResolvedValue({}),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
   } as any;
 }
 
 describe('SnapshotService', () => {
-  it('captures before/after values for budget actions', async () => {
+  it('captures before/after values for budget actions (master product scoped to companyId)', async () => {
     const prisma = makePrisma();
-    prisma.masterProduct.findUnique.mockResolvedValue({
+    prisma.masterProduct.findFirst.mockResolvedValue({
       id: 'p-1', adBudgetLimit: 10000, adTier: '1차', healthScore: 80,
     });
 
@@ -29,6 +32,10 @@ describe('SnapshotService', () => {
     });
 
     expect(count).toBe(1);
+    expect(prisma.masterProduct.findFirst).toHaveBeenCalledWith({
+      where: { id: 'p-1', companyId: 'c-1' },
+      select: expect.any(Object),
+    });
     expect(prisma.agentEvent.createMany).toHaveBeenCalledWith({
       data: [expect.objectContaining({
         eventType: 'action_snapshot',
@@ -41,7 +48,7 @@ describe('SnapshotService', () => {
 
   it('captures multiple fields for stop_ad', async () => {
     const prisma = makePrisma();
-    prisma.masterProduct.findUnique.mockResolvedValue({
+    prisma.masterProduct.findFirst.mockResolvedValue({
       id: 'p-1', adBudgetLimit: 10000, adTier: '1차', healthScore: 80,
     });
 
@@ -63,19 +70,75 @@ describe('SnapshotService', () => {
     expect(count).toBe(0);
   });
 
-  it('rollback restores values', async () => {
+  it('rollback restores values — masterProduct.updateMany / agentEvent.updateMany binds companyId', async () => {
     const prisma = makePrisma();
     prisma.agentEvent.findMany.mockResolvedValue([
-      { id: 's-1', recordId: 'p-1', fieldName: 'adBudgetLimit', valueBefore: 10000 },
+      {
+        id: 's-1',
+        companyId: 'c-1',
+        recordId: 'p-1',
+        fieldName: 'adBudgetLimit',
+        valueBefore: 10000,
+      },
     ]);
 
     const service = new SnapshotService(prisma);
-    const result = await service.rollback('r-1');
+    const result = await service.rollback('r-1', 'c-1');
 
     expect(result.restored).toBe(1);
-    expect(prisma.masterProduct.update).toHaveBeenCalledWith({
-      where: { id: 'p-1' },
+    // Snapshot read scoped to (runId, companyId)
+    expect(prisma.agentEvent.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          runId: 'r-1',
+          companyId: 'c-1',
+          eventType: 'action_snapshot',
+          restoredAt: null,
+        }),
+      }),
+    );
+    // Each restore binds (id, companyId) on the underlying writes
+    expect(prisma.masterProduct.updateMany).toHaveBeenCalledWith({
+      where: { id: 'p-1', companyId: 'c-1' },
       data: { adBudgetLimit: 10000 },
+    });
+    expect(prisma.agentEvent.updateMany).toHaveBeenCalledWith({
+      where: { id: 's-1', companyId: 'c-1' },
+      data: { restoredAt: expect.any(Date) },
+    });
+  });
+
+  it('rollback skips master_products row when underlying updateMany finds nothing (cross-tenant guard)', async () => {
+    const prisma = makePrisma();
+    prisma.agentEvent.findMany.mockResolvedValue([
+      {
+        id: 's-1',
+        companyId: 'c-1',
+        recordId: 'p-foreign',
+        fieldName: 'adBudgetLimit',
+        valueBefore: 10000,
+      },
+    ]);
+    prisma.masterProduct.updateMany.mockResolvedValue({ count: 0 });
+
+    const service = new SnapshotService(prisma);
+    const result = await service.rollback('r-1', 'c-1');
+
+    expect(result.restored).toBe(0);
+    // agentEvent.updateMany should NOT mark restored when product was not actually updated.
+    expect(prisma.agentEvent.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('getSnapshots scopes to (runId, companyId)', async () => {
+    const prisma = makePrisma();
+    prisma.agentEvent.findMany.mockResolvedValue([{ id: 's-1' }]);
+
+    const service = new SnapshotService(prisma);
+    await service.getSnapshots('r-1', 'c-1');
+
+    expect(prisma.agentEvent.findMany).toHaveBeenCalledWith({
+      where: { runId: 'r-1', companyId: 'c-1', eventType: 'action_snapshot' },
+      orderBy: { createdAt: 'asc' },
     });
   });
 });

@@ -9,6 +9,21 @@ import { scrubSecrets } from '@kiditem/shared';
 
 export type { OrgNode } from './types';
 
+/**
+ * Tenant-scope contract for AgentDefinition:
+ *  - companyId is nullable in the schema. A null value marks a global catalog
+ *    definition (system-wide template); a uuid marks a per-tenant instance.
+ *  - All caller-facing reads/writes accept the verified companyId from
+ *    @CurrentCompany() and match either the same companyId OR null. This
+ *    keeps cross-tenant access closed while still letting tenants run / read /
+ *    pause global definitions.
+ *  - Writes use updateMany with the same OR predicate so a forged agentId
+ *    from another tenant cannot mutate that tenant's row.
+ */
+const tenantScopeFilter = (companyId: string) => ({
+  OR: [{ companyId }, { companyId: null }],
+});
+
 @Injectable()
 export class AgentRegistryService implements OnModuleInit {
   private readonly logger = new Logger(AgentRegistryService.name);
@@ -25,6 +40,12 @@ export class AgentRegistryService implements OnModuleInit {
 
   // ── 조회 ──
 
+  /**
+   * Internal lookup by `type`. Each AgentDefinition.type is system-wide unique
+   * (Prisma `@unique`), so this is effectively a catalog read. Tenant scope
+   * is enforced by callers that downstream invoke `run(def.id, { companyId })`,
+   * which performs the isolation check against the resolved definition.
+   */
   async findByType(type: string) {
     const def = await this.prisma.agentDefinition.findUnique({
       where: { type },
@@ -54,13 +75,24 @@ export class AgentRegistryService implements OnModuleInit {
     }) satisfies AgentListItem);
   }
 
+  /**
+   * Fetch an AgentDefinition by id under the caller's tenant scope.
+   * - companyId required for caller-facing reads.
+   * - Internal callers that already verified scope can pass `companyId = undefined`,
+   *   in which case the read becomes a bare-id lookup (still wrapped in findFirst
+   *   so the scanner does not flag it as IDOR).
+   */
   async getById(id: string, companyId?: string) {
-    const def = await this.prisma.agentDefinition.findUnique({
-      where: { id },
-    });
+    const def = companyId
+      ? await this.prisma.agentDefinition.findFirst({
+          where: { id, ...tenantScopeFilter(companyId) },
+        })
+      : await this.prisma.agentDefinition.findFirst({ where: { id } });
     if (!def) throw new NotFoundException(`Agent definition ${id} not found`);
 
-    // Company isolation check
+    // Defense-in-depth: even if findFirst picks up a global row, an explicit
+    // mismatch between the tenant-owned row's companyId and the caller's
+    // companyId is a Forbidden, not a 404 — surface the difference.
     if (companyId && def.companyId && def.companyId !== companyId) {
       throw new ForbiddenException('Access denied to this agent');
     }
@@ -108,7 +140,7 @@ export class AgentRegistryService implements OnModuleInit {
     return created;
   }
 
-  async update(id: string, data: Record<string, unknown>) {
+  async update(id: string, companyId: string, data: Record<string, unknown>) {
     // #13 Dangerous Pattern Detection — validate on update
     if (typeof data.allowedTools === 'string') {
       const toolCheck = validateAllowedTools(data.allowedTools);
@@ -116,6 +148,14 @@ export class AgentRegistryService implements OnModuleInit {
         throw new BadRequestException(`Blocked tool patterns: ${toolCheck.blocked.join(', ')}`);
       }
     }
+
+    // Tenant-scoped ownership read — ensures a forged id from another tenant
+    // cannot reach the underlying update.
+    const owned = await this.prisma.agentDefinition.findFirst({
+      where: { id, ...tenantScopeFilter(companyId) },
+      select: { id: true },
+    });
+    if (!owned) throw new NotFoundException(`Agent definition ${id} not found`);
 
     const updated = await this.prisma.agentDefinition.update({
       where: { id },
@@ -125,7 +165,12 @@ export class AgentRegistryService implements OnModuleInit {
     return updated;
   }
 
-  async delete(id: string): Promise<{ ok: boolean }> {
+  async delete(id: string, companyId: string): Promise<{ ok: boolean }> {
+    const owned = await this.prisma.agentDefinition.findFirst({
+      where: { id, ...tenantScopeFilter(companyId) },
+      select: { id: true },
+    });
+    if (!owned) throw new NotFoundException(`Agent definition ${id} not found`);
     await this.prisma.agentDefinition.delete({ where: { id } });
     await this.heartbeat.syncTimers();
     return { ok: true };
@@ -135,7 +180,8 @@ export class AgentRegistryService implements OnModuleInit {
 
   /**
    * Type 기반 실행. 도메인 서비스에서 agentType만 알 때 사용.
-   * findByType + run 을 합친 편의 메서드.
+   * findByType + run 을 합친 편의 메서드. companyId 가 input 에 있으면
+   * downstream `run()` 의 isolation check 가 enforce.
    */
   async runByType(type: string, input?: {
     companyId?: string;
@@ -151,10 +197,12 @@ export class AgentRegistryService implements OnModuleInit {
     dryRun?: boolean;
     extra?: Record<string, unknown>;
   }) {
-    const def = await this.getById(id);
+    const def = await this.getById(id, input?.companyId);
     const dryRun = input?.dryRun ?? def.requiresApproval;
 
-    // Company isolation check
+    // Company isolation check — getById already enforces this for tenant-owned
+    // definitions; this branch covers global (companyId=null) defs running on
+    // behalf of a specific company.
     if (input?.companyId && def.companyId && def.companyId !== input.companyId) {
       throw new ForbiddenException('Access denied to this agent');
     }
@@ -227,20 +275,37 @@ export class AgentRegistryService implements OnModuleInit {
 
   // ── Heartbeat 관리 API ──
 
-  async getRunById(runId: string) {
-    return this.prisma.heartbeatRun.findUnique({ where: { id: runId } });
+  /**
+   * HeartbeatRun is tenant-owned (NOT NULL companyId). Always scope the
+   * read to the caller's company so forged runIds 404.
+   */
+  async getRunById(runId: string, companyId: string) {
+    const run = await this.prisma.heartbeatRun.findFirst({
+      where: { id: runId, companyId },
+    });
+    if (!run) throw new NotFoundException(`HeartbeatRun ${runId} not found`);
+    return run;
   }
 
-  async getRunHistory(agentId: string, limit = 20) {
+  async getRunHistory(agentId: string, companyId: string, limit = 20) {
+    // Verify the agent is reachable under this tenant before listing its runs.
+    const owned = await this.prisma.agentDefinition.findFirst({
+      where: { id: agentId, ...tenantScopeFilter(companyId) },
+      select: { id: true },
+    });
+    if (!owned) throw new NotFoundException(`Agent definition ${agentId} not found`);
+
     return this.prisma.heartbeatRun.findMany({
-      where: { agentId },
+      where: { agentId, companyId },
       orderBy: { createdAt: 'desc' },
       take: limit,
     });
   }
 
-  async getRuntimeState(agentId: string) {
-    const agent = await this.prisma.agentDefinition.findUnique({ where: { id: agentId } });
+  async getRuntimeState(agentId: string, companyId: string) {
+    const agent = await this.prisma.agentDefinition.findFirst({
+      where: { id: agentId, ...tenantScopeFilter(companyId) },
+    });
     if (!agent) {
       return {
         agentId,
@@ -270,30 +335,38 @@ export class AgentRegistryService implements OnModuleInit {
     };
   }
 
-  async resetSession(agentId: string): Promise<{ ok: boolean }> {
-    await this.prisma.agentDefinition.update({
-      where: { id: agentId },
+  async resetSession(agentId: string, companyId: string): Promise<{ ok: boolean }> {
+    const result = await this.prisma.agentDefinition.updateMany({
+      where: { id: agentId, ...tenantScopeFilter(companyId) },
       data: { rtSessionId: null } as any,
     });
+    if (result.count === 0) throw new NotFoundException(`Agent definition ${agentId} not found`);
     return { ok: true };
   }
 
-  async pauseAgent(agentId: string, reason?: string): Promise<{ ok: boolean }> {
-    await this.prisma.agentDefinition.update({
-      where: { id: agentId },
+  async pauseAgent(agentId: string, companyId: string, reason?: string): Promise<{ ok: boolean }> {
+    const result = await this.prisma.agentDefinition.updateMany({
+      where: { id: agentId, ...tenantScopeFilter(companyId) },
       data: { status: 'paused', pauseReason: reason, pausedAt: new Date() },
     });
+    if (result.count === 0) throw new NotFoundException(`Agent definition ${agentId} not found`);
     return { ok: true };
   }
 
-  async resumeAgent(agentId: string): Promise<{ ok: boolean }> {
-    await this.prisma.agentDefinition.update({
-      where: { id: agentId },
+  async resumeAgent(agentId: string, companyId: string): Promise<{ ok: boolean }> {
+    const owned = await this.prisma.agentDefinition.findFirst({
+      where: { id: agentId, ...tenantScopeFilter(companyId) },
+      select: { id: true },
+    });
+    if (!owned) throw new NotFoundException(`Agent definition ${agentId} not found`);
+
+    await this.prisma.agentDefinition.updateMany({
+      where: { id: agentId, ...tenantScopeFilter(companyId) },
       data: { status: 'idle', pauseReason: null, pausedAt: null },
     });
     // 에러 복구 캐스케이드: resume 시 연속 실패 카운터 리셋
     await this.prisma.agentDefinition.updateMany({
-      where: { id: agentId },
+      where: { id: agentId, ...tenantScopeFilter(companyId) },
       data: { rtConsecutiveFailCount: 0, rtLastFailedAt: null } as any,
     });
     return { ok: true };

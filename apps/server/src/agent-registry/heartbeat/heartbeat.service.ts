@@ -404,9 +404,12 @@ export class HeartbeatService {
       });
     }
 
-    // #17 Async Transcript — Step 1: Blocking save (critical fields only)
-    const terminalRun = await this.prisma.heartbeatRun.update({
-      where: { id: run.id },
+    // #17 Async Transcript — Step 1: Blocking save (critical fields only).
+    // updateMany binds (id, companyId) so a forged runId from another tenant
+    // cannot mark a foreign HeartbeatRun terminal. We then re-read the row
+    // to populate `terminalRun` for the panel emit below.
+    await this.prisma.heartbeatRun.updateMany({
+      where: { id: run.id, companyId },
       data: {
         status,
         failureType,
@@ -419,6 +422,13 @@ export class HeartbeatService {
         nextSchedule: nextSchedule ?? null,
       },
     });
+    const terminalRun = await this.prisma.heartbeatRun.findFirst({
+      where: { id: run.id, companyId },
+    });
+    if (!terminalRun) {
+      this.logger.error(`HeartbeatRun ${run.id} missing after terminal update for company ${companyId}`);
+      return;
+    }
 
     // Panel Live Ops: emit on terminal transition (running → succeeded | failed)
     try {
@@ -460,16 +470,18 @@ export class HeartbeatService {
           new AgentResultReadyEvent(agent.type, agent.id, run.id, resultJson, companyId),
         );
 
-        // TrustLevel 조정
+        // TrustLevel 조정 — companyId 는 wakeup row 에서 가져온 신뢰값
         if (this.dryRunGate) {
-          await this.dryRunGate.adjustTrust(agent.id, true);
+          await this.dryRunGate.adjustTrust(agent.id, companyId, true);
         }
       }
     }
 
-    // #17 Async Transcript — Step 2: Fire-and-forget (non-critical fields)
+    // #17 Async Transcript — Step 2: Fire-and-forget (non-critical fields).
+    // companyId is forwarded so the async listener can scope its updateMany.
     this.eventEmitter.emit(TRANSCRIPT_EVENT, {
       runId: run.id,
+      companyId,
       stdoutExcerpt: scrubSecrets(result.stdout.slice(0, 5000)),
       stderrExcerpt: scrubSecrets(result.stderr.slice(0, 2000)),
       usageJson: result.usage ?? null,
@@ -505,8 +517,10 @@ export class HeartbeatService {
       this.logger.error(
         `Agent ${agent.name} auto-paused: ${(updatedAgent as any).rtConsecutiveFailCount} consecutive failures`,
       );
-      await this.prisma.agentDefinition.update({
-        where: { id: agentId },
+      // updateMany scopes to the agent's tenant (or global definition); a stale
+      // agentId from another tenant cannot toggle the foreign agent's status.
+      await this.prisma.agentDefinition.updateMany({
+        where: { id: agentId, OR: [{ companyId }, { companyId: null }] },
         data: {
           status: 'paused',
           pauseReason: `consecutive_failures(${(updatedAgent as any).rtConsecutiveFailCount})`,
@@ -542,8 +556,13 @@ export class HeartbeatService {
       );
     }
 
-    // Wakeup 완료
-    await this.wakeupService.finish(wakeup.id, run.id, errorCode ? scrubSecrets(result.stderr.slice(0, 500)) : undefined);
+    // Wakeup 완료 — wakeup row 의 companyId 는 wakeup 생성 시점에 검증된 값
+    await this.wakeupService.finish(
+      wakeup.id,
+      companyId,
+      run.id,
+      errorCode ? scrubSecrets(result.stderr.slice(0, 500)) : undefined,
+    );
 
     // Legacy AgentTask 동기화 — run() 경유로 생성된 task가 있으면 업데이트
     const payload = wakeup.payload as Record<string, unknown> | null;

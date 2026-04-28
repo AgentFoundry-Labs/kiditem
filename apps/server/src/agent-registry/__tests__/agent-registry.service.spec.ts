@@ -8,6 +8,7 @@ function makePrisma() {
   return {
     agentDefinition: {
       findUnique: vi.fn(),
+      findFirst: vi.fn(),
       findMany: vi.fn().mockResolvedValue([]),
       create: vi.fn(),
       update: vi.fn(),
@@ -20,7 +21,10 @@ function makePrisma() {
       update: vi.fn(),
     },
     activityEvent: { create: vi.fn() },
-    heartbeatRun: { findMany: vi.fn().mockResolvedValue([]) },
+    heartbeatRun: {
+      findFirst: vi.fn(),
+      findMany: vi.fn().mockResolvedValue([]),
+    },
   };
 }
 
@@ -84,10 +88,35 @@ describe('AgentRegistryService', () => {
     });
   });
 
+  describe('getById tenant scope', () => {
+    it('throws NotFoundException when agent belongs to a different company (IDOR guard)', async () => {
+      const { service, prisma } = makeService();
+      prisma.agentDefinition.findFirst.mockResolvedValue(null);
+
+      await expect(service.getById('def-1', 'company-OTHER')).rejects.toThrow(NotFoundException);
+      expect(prisma.agentDefinition.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            id: 'def-1',
+            OR: [{ companyId: 'company-OTHER' }, { companyId: null }],
+          }),
+        }),
+      );
+    });
+
+    it('returns agent when global (companyId=null) under any tenant', async () => {
+      const { service, prisma } = makeService();
+      prisma.agentDefinition.findFirst.mockResolvedValue({ ...MOCK_DEF, companyId: null });
+
+      const result = await service.getById('def-1', 'company-1');
+      expect(result.companyId).toBeNull();
+    });
+  });
+
   describe('run', () => {
     it('creates AgentTask and delegates to heartbeat wakeAgent', async () => {
       const { service, prisma, heartbeat } = makeService();
-      prisma.agentDefinition.findUnique.mockResolvedValue(MOCK_DEF);
+      prisma.agentDefinition.findFirst.mockResolvedValue(MOCK_DEF);
       prisma.agentTask.create.mockResolvedValue({ id: 'task-1' });
 
       const result = await service.run('def-1', {
@@ -116,7 +145,7 @@ describe('AgentRegistryService', () => {
 
     it('throws BadRequestException when monthly budget exceeded', async () => {
       const { service, prisma, heartbeat } = makeService();
-      prisma.agentDefinition.findUnique.mockResolvedValue({
+      prisma.agentDefinition.findFirst.mockResolvedValue({
         ...MOCK_DEF,
         monthlyTokenBudget: 1000,
         tokensUsed: 1500,
@@ -127,33 +156,87 @@ describe('AgentRegistryService', () => {
     });
   });
 
-  describe('pauseAgent / resumeAgent', () => {
-    it('pauses agent with reason', async () => {
+  describe('pauseAgent / resumeAgent — tenant-scoped writes', () => {
+    it('pauses agent with reason via updateMany binding companyId', async () => {
       const { service, prisma } = makeService();
-      prisma.agentDefinition.update.mockResolvedValue({});
 
-      await service.pauseAgent('def-1', 'Budget review');
+      await service.pauseAgent('def-1', 'company-1', 'Budget review');
 
-      expect(prisma.agentDefinition.update).toHaveBeenCalledWith({
-        where: { id: 'def-1' },
+      expect(prisma.agentDefinition.updateMany).toHaveBeenCalledWith({
+        where: { id: 'def-1', OR: [{ companyId: 'company-1' }, { companyId: null }] },
         data: expect.objectContaining({ status: 'paused', pauseReason: 'Budget review' }),
       });
     });
 
-    it('resumes agent and resets consecutive fail count', async () => {
+    it('throws NotFoundException when pause target belongs to a different company', async () => {
       const { service, prisma } = makeService();
-      prisma.agentDefinition.update.mockResolvedValue({});
+      prisma.agentDefinition.updateMany.mockResolvedValue({ count: 0 });
 
-      await service.resumeAgent('def-1');
+      await expect(service.pauseAgent('def-1', 'company-OTHER')).rejects.toThrow(NotFoundException);
+    });
 
-      expect(prisma.agentDefinition.update).toHaveBeenCalledWith({
-        where: { id: 'def-1' },
+    it('resumes agent — both updates scope to (id, OR companyId)', async () => {
+      const { service, prisma } = makeService();
+      prisma.agentDefinition.findFirst.mockResolvedValue({ id: 'def-1' });
+
+      await service.resumeAgent('def-1', 'company-1');
+
+      // status reset
+      expect(prisma.agentDefinition.updateMany).toHaveBeenCalledWith({
+        where: { id: 'def-1', OR: [{ companyId: 'company-1' }, { companyId: null }] },
         data: expect.objectContaining({ status: 'idle', pauseReason: null }),
       });
+      // failure counter reset
       expect(prisma.agentDefinition.updateMany).toHaveBeenCalledWith({
-        where: { id: 'def-1' },
+        where: { id: 'def-1', OR: [{ companyId: 'company-1' }, { companyId: null }] },
         data: expect.objectContaining({ rtConsecutiveFailCount: 0, rtLastFailedAt: null }),
       });
+    });
+
+    it('resumeAgent throws NotFoundException when target is in a different company', async () => {
+      const { service, prisma } = makeService();
+      prisma.agentDefinition.findFirst.mockResolvedValue(null);
+
+      await expect(service.resumeAgent('def-1', 'company-OTHER')).rejects.toThrow(NotFoundException);
+      // No write should happen if ownership read fails
+      expect(prisma.agentDefinition.updateMany).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('getRunById', () => {
+    it('throws NotFoundException when run belongs to a different company', async () => {
+      const { service, prisma } = makeService();
+      prisma.heartbeatRun.findFirst.mockResolvedValue(null);
+
+      await expect(service.getRunById('run-1', 'company-OTHER')).rejects.toThrow(NotFoundException);
+      expect(prisma.heartbeatRun.findFirst).toHaveBeenCalledWith({
+        where: { id: 'run-1', companyId: 'company-OTHER' },
+      });
+    });
+  });
+
+  describe('getRunHistory / getRuntimeState — agent ownership precondition', () => {
+    it('getRunHistory throws when agent is not reachable under tenant', async () => {
+      const { service, prisma } = makeService();
+      prisma.agentDefinition.findFirst.mockResolvedValue(null);
+
+      await expect(service.getRunHistory('agent-1', 'company-OTHER')).rejects.toThrow(NotFoundException);
+      expect(prisma.heartbeatRun.findMany).not.toHaveBeenCalled();
+    });
+
+    it('getRunHistory lists runs scoped to (agentId, companyId)', async () => {
+      const { service, prisma } = makeService();
+      prisma.agentDefinition.findFirst.mockResolvedValue({ id: 'agent-1' });
+      prisma.heartbeatRun.findMany.mockResolvedValue([{ id: 'run-1' }]);
+
+      const result = await service.getRunHistory('agent-1', 'company-1', 5);
+
+      expect(prisma.heartbeatRun.findMany).toHaveBeenCalledWith({
+        where: { agentId: 'agent-1', companyId: 'company-1' },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+      });
+      expect(result).toHaveLength(1);
     });
   });
 });

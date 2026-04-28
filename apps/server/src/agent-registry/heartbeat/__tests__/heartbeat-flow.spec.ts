@@ -25,12 +25,16 @@ function makePrisma() {
   return {
     agentDefinition: {
       findUnique: vi.fn(),
+      findFirst: vi.fn(),
       findMany: vi.fn().mockResolvedValue([]),
       update: vi.fn(),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
     heartbeatRun: {
       create: vi.fn(),
+      findFirst: vi.fn(),
       update: vi.fn(),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
     agentTask: {
       update: vi.fn(),
@@ -242,6 +246,10 @@ describe('HeartbeatService — full execution lifecycle', () => {
         rtConsecutiveFailCount: 0,
       });
       prisma.heartbeatRun.create.mockResolvedValue(MOCK_RUN);
+      // After the tenant-scoped updateMany terminal-write, the service re-reads
+      // the row via heartbeatRun.findFirst → return the run shape so panel emit
+      // and subsequent flow have access to the row.
+      prisma.heartbeatRun.findFirst.mockResolvedValue({ ...MOCK_RUN, status: 'succeeded' });
       prisma.heartbeatRun.update.mockResolvedValue({});
       wakeup.requestWakeup.mockResolvedValue({ id: 'w-1' });
       wakeup.claimNext.mockResolvedValue(MOCK_WAKEUP);
@@ -281,8 +289,9 @@ describe('HeartbeatService — full execution lifecycle', () => {
       await service.wakeAgent({ agentId: 'agent-1', source: 'on_demand' });
       await new Promise((r) => setImmediate(r));
 
-      expect(prisma.heartbeatRun.update).toHaveBeenCalledWith(
+      expect(prisma.heartbeatRun.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
+          where: expect.objectContaining({ id: 'run-1', companyId: 'c-1' }),
           data: expect.objectContaining({ status: 'succeeded' }),
         }),
       );
@@ -327,6 +336,7 @@ describe('HeartbeatService — full execution lifecycle', () => {
         rtConsecutiveFailCount: 2,
       });
       prisma.heartbeatRun.create.mockResolvedValue(MOCK_RUN);
+      prisma.heartbeatRun.findFirst.mockResolvedValue({ ...MOCK_RUN, status: 'failed' });
       prisma.heartbeatRun.update.mockResolvedValue({});
       wakeup.requestWakeup.mockResolvedValue({ id: 'w-1' });
       wakeup.claimNext.mockResolvedValue(MOCK_WAKEUP);
@@ -336,8 +346,9 @@ describe('HeartbeatService — full execution lifecycle', () => {
       await service.wakeAgent({ agentId: 'agent-1', source: 'on_demand' });
       await new Promise((r) => setImmediate(r));
 
-      expect(prisma.heartbeatRun.update).toHaveBeenCalledWith(
+      expect(prisma.heartbeatRun.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
+          where: expect.objectContaining({ id: 'run-1', companyId: 'c-1' }),
           data: expect.objectContaining({ status: 'failed' }),
         }),
       );
@@ -360,6 +371,7 @@ describe('HeartbeatService — full execution lifecycle', () => {
         .mockResolvedValueOnce({ ...MOCK_AGENT, status: 'running' }) // status: running update
         .mockResolvedValueOnce({ ...MOCK_AGENT, rtConsecutiveFailCount: 3 }); // runtime state → >= 3
       prisma.heartbeatRun.create.mockResolvedValue(MOCK_RUN);
+      prisma.heartbeatRun.findFirst.mockResolvedValue({ ...MOCK_RUN, status: 'failed' });
       prisma.heartbeatRun.update.mockResolvedValue({});
       wakeup.requestWakeup.mockResolvedValue({ id: 'w-1' });
       wakeup.claimNext.mockResolvedValue(MOCK_WAKEUP);
@@ -369,9 +381,13 @@ describe('HeartbeatService — full execution lifecycle', () => {
       await service.wakeAgent({ agentId: 'agent-1', source: 'on_demand' });
       await new Promise((r) => setImmediate(r));
 
-      // Should have paused agent
-      expect(prisma.agentDefinition.update).toHaveBeenCalledWith(
+      // Should have paused agent — auto-pause now uses tenant-scoped updateMany
+      expect(prisma.agentDefinition.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
+          where: expect.objectContaining({
+            id: 'agent-1',
+            OR: [{ companyId: 'c-1' }, { companyId: null }],
+          }),
           data: expect.objectContaining({
             status: 'paused',
             pauseReason: expect.stringContaining('consecutive_failures'),
@@ -391,7 +407,7 @@ describe('HeartbeatService — full execution lifecycle', () => {
       await service.wakeAgent({ agentId: 'agent-1', source: 'on_demand' });
       await new Promise((r) => setImmediate(r));
 
-      expect(wakeup.finish).toHaveBeenCalledWith('w-1', 'run-1', undefined);
+      expect(wakeup.finish).toHaveBeenCalledWith('w-1', 'c-1', 'run-1', undefined);
     });
   });
 });

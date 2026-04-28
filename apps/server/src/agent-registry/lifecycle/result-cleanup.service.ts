@@ -28,7 +28,10 @@ export class ResultCleanupService {
   }
 
   /**
-   * Cleanup old results for a single agent.
+   * Cleanup old results for a single agent. Daily background sweep — runs are
+   * filtered to the agent's runs only, and each per-run update binds the
+   * `companyId` we just read so cross-tenant rows cannot be summarized even
+   * if a stale agentId leaks through.
    * Returns number of runs summarized.
    */
   async cleanupAgent(agentId: string, retentionDays: number): Promise<number> {
@@ -44,6 +47,7 @@ export class ResultCleanupService {
       },
       select: {
         id: true,
+        companyId: true,
         resultJson: true,
         errorCode: true,
       },
@@ -51,14 +55,15 @@ export class ResultCleanupService {
 
     if (oldRuns.length === 0) return 0;
 
+    let summarized = 0;
     for (const run of oldRuns) {
       const summary = this.generateSummary(
         run.resultJson as Record<string, unknown> | null,
         run.errorCode,
       );
 
-      await this.prisma.heartbeatRun.update({
-        where: { id: run.id },
+      const updated = await this.prisma.heartbeatRun.updateMany({
+        where: { id: run.id, companyId: run.companyId },
         data: {
           isSummarized: true,
           summary,
@@ -67,9 +72,10 @@ export class ResultCleanupService {
           resultJson: Prisma.JsonNull, // Clear full JSON, summary preserved
         },
       });
+      summarized += updated.count;
     }
 
-    return oldRuns.length;
+    return summarized;
   }
 
   /**

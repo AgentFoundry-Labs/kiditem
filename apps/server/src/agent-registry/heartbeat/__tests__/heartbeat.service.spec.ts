@@ -15,12 +15,16 @@ function makePrisma() {
   return {
     agentDefinition: {
       findUnique: vi.fn(),
+      findFirst: vi.fn(),
       findMany: vi.fn().mockResolvedValue([]),
       update: vi.fn(),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
     heartbeatRun: {
       create: vi.fn(),
+      findFirst: vi.fn(),
       update: vi.fn(),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
   };
 }
@@ -226,6 +230,8 @@ describe('HeartbeatService', () => {
       });
 
       prisma.heartbeatRun.create.mockResolvedValue({ id: 'run-1' });
+      // Terminal write now uses updateMany; service re-reads via findFirst.
+      prisma.heartbeatRun.findFirst.mockResolvedValue({ id: 'run-1', status: 'failed' });
 
       // adapter returns failing exit with secret-laden stderr
       nextAdapterResult = {
@@ -247,10 +253,10 @@ describe('HeartbeatService', () => {
 
       await (service as any).executeHeartbeat('agent-1');
 
-      // heartbeat_runs.update — the persistence call that stores `error` + `stderrExcerpt`.
+      // heartbeat_runs terminal write — now updateMany binding (id, companyId).
       // stderrExcerpt is written by TranscriptService (event handler, sync in this test),
       // so we only verify the critical-path write (error field).
-      const updateCalls = prisma.heartbeatRun.update.mock.calls;
+      const updateCalls = prisma.heartbeatRun.updateMany.mock.calls;
       const criticalCall = updateCalls.find(
         (c: any[]) => c[0]?.data?.error !== undefined && c[0]?.where?.id === 'run-1',
       );

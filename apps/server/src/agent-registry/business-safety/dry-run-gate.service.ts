@@ -14,8 +14,26 @@ export class DryRunGateService {
     return { forced: false };
   }
 
-  async adjustTrust(agentId: string, success: boolean): Promise<{ oldLevel: number; newLevel: number } | null> {
-    const agent = await this.prisma.agentDefinition.findUnique({ where: { id: agentId } });
+  /**
+   * Adjust trust level after a heartbeat run.
+   * Caller must pass the verified companyId from the run context (HeartbeatRun.companyId
+   * or wakeup.companyId). The mutation is scoped via updateMany so a stale or
+   * cross-tenant agentId cannot escalate trust on another company's agent.
+   */
+  async adjustTrust(
+    agentId: string,
+    companyId: string,
+    success: boolean,
+  ): Promise<{ oldLevel: number; newLevel: number } | null> {
+    // Tenant-scoped read: AgentDefinition can be tenant-owned (companyId=<uuid>)
+    // or a global catalog entry (companyId=null). Both are legitimate adjust
+    // targets for a run executed under `companyId`.
+    const agent = await this.prisma.agentDefinition.findFirst({
+      where: {
+        id: agentId,
+        OR: [{ companyId }, { companyId: null }],
+      },
+    });
     if (!agent) return null;
 
     const trustLevel = (agent as any).trustLevel ?? 0;
@@ -30,8 +48,11 @@ export class DryRunGateService {
       if (trustLevel === 0 && newCount >= 5) newLevel = 1;
       if (trustLevel === 1 && newCount >= 20) newLevel = 2;
 
-      await this.prisma.agentDefinition.update({
-        where: { id: agentId },
+      await this.prisma.agentDefinition.updateMany({
+        where: {
+          id: agentId,
+          OR: [{ companyId }, { companyId: null }],
+        },
         data: { rtStateJson: { ...stateJson, successCount: newCount } } as any,
       });
     } else {
@@ -41,8 +62,11 @@ export class DryRunGateService {
     }
 
     if (newLevel !== trustLevel) {
-      await this.prisma.agentDefinition.update({
-        where: { id: agentId },
+      await this.prisma.agentDefinition.updateMany({
+        where: {
+          id: agentId,
+          OR: [{ companyId }, { companyId: null }],
+        },
         data: { trustLevel: newLevel } as any,
       });
       this.logger.log(`TrustLevel: ${agent.name} ${trustLevel} → ${newLevel}`);
