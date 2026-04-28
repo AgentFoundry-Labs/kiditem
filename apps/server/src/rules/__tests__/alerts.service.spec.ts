@@ -308,6 +308,38 @@ describe('AlertsService.promote', () => {
   });
 });
 
+describe('AlertsService.markAsRead', () => {
+  it('updates and re-reads the alert in tenant scope', async () => {
+    const { service, prisma } = makeService();
+    prisma.alert.updateMany.mockResolvedValue({ count: 1 });
+    prisma.alert.findFirst.mockResolvedValue({ ...BASE_ALERT, isRead: true });
+
+    const result = await service.markAsRead(ALERT_ID, COMPANY_ID);
+
+    expect(prisma.alert.updateMany).toHaveBeenCalledWith({
+      where: { id: ALERT_ID, companyId: COMPANY_ID },
+      data: { isRead: true },
+    });
+    expect(prisma.alert.findFirst).toHaveBeenCalledWith({
+      where: { id: ALERT_ID, companyId: COMPANY_ID },
+    });
+    expect(result).toEqual({ ...BASE_ALERT, isRead: true });
+  });
+
+  it('rejects a cross-company alert id without a bare update', async () => {
+    const { service, prisma } = makeService();
+    prisma.alert.findUnique.mockResolvedValue({ ...BASE_ALERT, companyId: 'other-company' });
+    prisma.alert.updateMany.mockResolvedValue({ count: 0 });
+
+    await expect(service.markAsRead(ALERT_ID, COMPANY_ID)).rejects.toThrow(NotFoundException);
+    expect(prisma.alert.updateMany).toHaveBeenCalledWith({
+      where: { id: ALERT_ID, companyId: COMPANY_ID },
+      data: { isRead: true },
+    });
+    expect(prisma.alert.update).not.toHaveBeenCalled();
+  });
+});
+
 describe('AlertsService.dismiss', () => {
   describe('happy path', () => {
     it('calls updateMany with isRead=true and emits DISMISS event', async () => {
