@@ -12,10 +12,10 @@ function makePrisma() {
     agentTask: { findUnique: vi.fn(), update: vi.fn() },
     activityEvent: { create: vi.fn(), createMany: vi.fn() },
     alert: { createManyAndReturn: vi.fn().mockResolvedValue([]) },
-    masterProduct: { count: vi.fn(), findFirst: vi.fn(), findMany: vi.fn() },
+    masterProduct: { count: vi.fn(), findFirst: vi.fn(), findMany: vi.fn(), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
     businessRule: { findMany: vi.fn(), update: vi.fn(), count: vi.fn() },
     company: { findFirst: vi.fn() },
-    $executeRawUnsafe: vi.fn(),
+    $transaction: vi.fn().mockResolvedValue([]),
   };
 }
 
@@ -74,7 +74,7 @@ describe('RulesService — full evaluation flow', () => {
   describe('onResultReady — full evaluation result processing', () => {
     it('updates healthScores via bulk SQL for products with violations', async () => {
       const { service, prisma } = makeService();
-      prisma.$executeRawUnsafe.mockResolvedValue(undefined);
+      prisma.$transaction.mockResolvedValue([]);
       prisma.activityEvent.createMany.mockResolvedValue({ count: 1 });
       prisma.alert.createManyAndReturn.mockResolvedValue([]);
 
@@ -105,14 +105,18 @@ describe('RulesService — full evaluation flow', () => {
 
       await service.onResultReady(event);
 
-      expect(prisma.$executeRawUnsafe).toHaveBeenCalledWith(
-        expect.stringContaining("WHEN id = 'p1'::uuid THEN 75"),
-      );
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      const txArg = prisma.$transaction.mock.calls[0][0];
+      expect(Array.isArray(txArg)).toBe(true);
+      expect(prisma.masterProduct.updateMany).toHaveBeenCalledWith({
+        where: { id: 'p1', companyId: 'c-1' },
+        data: expect.objectContaining({ healthScore: 75 }),
+      });
     });
 
     it('creates activity events for each violation', async () => {
       const { service, prisma } = makeService();
-      prisma.$executeRawUnsafe.mockResolvedValue(undefined);
+      prisma.$transaction.mockResolvedValue([]);
       prisma.activityEvent.createMany.mockResolvedValue({ count: 2 });
       prisma.alert.createManyAndReturn.mockResolvedValue([]);
 
@@ -168,7 +172,7 @@ describe('RulesService — full evaluation flow', () => {
 
     it('creates critical alerts only for critical severity violations', async () => {
       const { service, prisma } = makeService();
-      prisma.$executeRawUnsafe.mockResolvedValue(undefined);
+      prisma.$transaction.mockResolvedValue([]);
       prisma.activityEvent.createMany.mockResolvedValue({ count: 2 });
       prisma.alert.createManyAndReturn.mockResolvedValue([{
         id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
@@ -241,7 +245,7 @@ describe('RulesService — full evaluation flow', () => {
 
     it('does not create alerts when no critical violations exist', async () => {
       const { service, prisma } = makeService();
-      prisma.$executeRawUnsafe.mockResolvedValue(undefined);
+      prisma.$transaction.mockResolvedValue([]);
       prisma.activityEvent.createMany.mockResolvedValue({ count: 1 });
 
       const event = new AgentResultReadyEvent(
@@ -285,7 +289,7 @@ describe('RulesService — full evaluation flow', () => {
 
       await service.onResultReady(event);
 
-      expect(prisma.$executeRawUnsafe).not.toHaveBeenCalled();
+      expect(prisma.$transaction).not.toHaveBeenCalled();
       expect(prisma.activityEvent.createMany).not.toHaveBeenCalled();
       expect(prisma.alert.createManyAndReturn).not.toHaveBeenCalled();
     });
@@ -299,14 +303,14 @@ describe('RulesService — full evaluation flow', () => {
 
       await service.onResultReady(event);
 
-      expect(prisma.$executeRawUnsafe).not.toHaveBeenCalled();
+      expect(prisma.$transaction).not.toHaveBeenCalled();
       expect(prisma.activityEvent.createMany).not.toHaveBeenCalled();
       expect(prisma.alert.createManyAndReturn).not.toHaveBeenCalled();
     });
 
     it('does not throw when DB operations fail (error recovery)', async () => {
       const { service, prisma } = makeService();
-      prisma.$executeRawUnsafe.mockRejectedValue(new Error('SQL execution failed'));
+      prisma.$transaction.mockRejectedValue(new Error('SQL execution failed'));
 
       const event = new AgentResultReadyEvent(
         'rules_evaluation', 'agent-rules', 'run-7',
@@ -338,7 +342,7 @@ describe('RulesService — full evaluation flow', () => {
 
     it('includes actionType in activity event data when present', async () => {
       const { service, prisma } = makeService();
-      prisma.$executeRawUnsafe.mockResolvedValue(undefined);
+      prisma.$transaction.mockResolvedValue([]);
       prisma.activityEvent.createMany.mockResolvedValue({ count: 1 });
 
       const event = new AgentResultReadyEvent(
