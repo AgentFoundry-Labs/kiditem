@@ -5,7 +5,6 @@ import {
   AlertOctagon,
   Ban,
   ArrowLeftRight,
-  StickyNote,
   RotateCcw,
   Clock,
   BarChart3,
@@ -18,7 +17,6 @@ import OutOfStock from './components/OutOfStock';
 import PendingDelivery from './components/PendingDelivery';
 import StockRetention from './components/StockRetention';
 import StockTransfers from './components/StockTransfers';
-import ProductMemos from './components/ProductMemos';
 import ReturnTransfers from './components/ReturnTransfers';
 
 export default function StockOpsPage() {
@@ -62,12 +60,6 @@ export default function StockOpsPage() {
           label: '창고 이관',
           icon: ArrowLeftRight,
           content: <StockTransfers />,
-        },
-        {
-          id: 'memo',
-          label: '상품 메모',
-          icon: StickyNote,
-          content: <ProductMemos />,
         },
         {
           id: 'rt',
