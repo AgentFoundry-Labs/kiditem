@@ -124,7 +124,7 @@ export class WorkflowsService {
     });
     await this.emitPanelUpsert(run.id);
 
-    this.runner.runWorkflow(run.id, templateId).catch((err) => {
+    this.runner.runWorkflow(run.id, templateId, companyId).catch((err) => {
       this.logger.error(`Workflow run ${run.id} failed: ${err.message}`);
     });
 
@@ -163,7 +163,7 @@ export class WorkflowsService {
 
     this.runner
       .runBatch(
-        runs.map((r) => ({ runId: r.id, templateId: r.templateId })),
+        runs.map((r) => ({ runId: r.id, templateId: r.templateId, companyId })),
       )
       .catch((err: Error) => {
         this.logger.error(`Batch run failed: ${err.message}`);
