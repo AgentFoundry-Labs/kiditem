@@ -40,8 +40,6 @@ export class ThumbnailEditorController {
           styleType: body.styleType,
           productDescription: body.productDescription,
           userPrompt: body.userPrompt,
-          productName: product?.name ?? null,
-          category: product?.category ?? null,
           hasStyleReference: Boolean(body.backgroundReference),
         })
       : await this.editorAi.generateEdit(inputs, companyId, {
@@ -116,6 +114,7 @@ export class ThumbnailEditorController {
     }
 
     if (body.colorImages?.length) {
+      await add(body.productImage, 'Main product', 'product');
       for (let i = 0; i < body.colorImages.length; i++) {
         await add(body.colorImages[i], `Color variant ${i + 1}`, 'color_variant');
       }

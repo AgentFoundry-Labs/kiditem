@@ -86,6 +86,12 @@ interface GenerateEditOptions {
   category?: string | null;
   promptOverride?: string | null;
   /**
+   * Legacy parity:
+   * - editor/generate path (`generateFromInputs`) always included generation references.
+   * - async edit-image path included references only for compliance edits.
+   */
+  referenceMode?: 'generate' | 'edit-image';
+  /**
    * Per-violation edit instructions extracted from
    * `ComplianceScores.editSuggestions`. When present and non-empty, prepended
    * to the prompt under `COMPLIANCE_SUGGESTIONS_HEADER` so AI fixes the
@@ -186,7 +192,16 @@ export class ThumbnailEditorAiService {
     companyId: string,
     options: GenerateEditOptions,
   ): Promise<ThumbnailEditorCandidate[]> {
-    return this.generateAndStore(inputs, companyId, this.buildEditPrompt(inputs, options), 'edit');
+    const includeReferences = options.referenceMode === 'edit-image'
+      ? options.purpose === 'compliance'
+      : true;
+    return this.generateAndStore(
+      inputs,
+      companyId,
+      this.buildEditPrompt(inputs, options),
+      'edit',
+      includeReferences,
+    );
   }
 
   async generateCreative(
@@ -199,6 +214,7 @@ export class ThumbnailEditorAiService {
       companyId,
       this.buildCreativePrompt(inputs, options),
       'creative',
+      false,
     );
   }
 
@@ -207,13 +223,17 @@ export class ThumbnailEditorAiService {
     companyId: string,
     prompt: string,
     method: ThumbnailEditorMode,
+    includeReferences: boolean,
   ): Promise<ThumbnailEditorCandidate[]> {
     if (inputs.length === 0) throw new BadRequestException('상품 사진이 필요합니다');
 
-    // Reference images steer composition for both edit and creative paths.
     // The asset directory may be missing; in that case `referenceParts` is an
-    // empty array and the request is unchanged.
-    const referenceParts = this.references.generationParts(GENERATE_REFERENCE_HEADER);
+    // empty array and the request is unchanged. Creative mode intentionally
+    // skips these references to preserve the auth-integrated free-background
+    // behavior.
+    const referenceParts = includeReferences
+      ? this.references.generationParts(GENERATE_REFERENCE_HEADER)
+      : [];
 
     const response = await this.getClient().models.generateContent({
       model: requireGeminiImageModel(),

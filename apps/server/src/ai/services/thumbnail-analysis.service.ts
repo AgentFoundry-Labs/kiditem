@@ -245,13 +245,18 @@ export class ThumbnailAnalysisService {
 
     const wantsQuality = scope === 'all' || scope === 'quality';
     const wantsCompliance = scope === 'all' || scope === 'compliance';
+    let recompose: RecomposeVariantClassification | undefined;
 
     if (wantsQuality) {
-      const qmap = await this.vision.analyzeQuality([visionItem], signal);
+      const [qmap, recomposeResult] = await Promise.all([
+        this.vision.analyzeQuality([visionItem], signal),
+        this.recomposeService.classifyByImage(imageUrl),
+      ]);
       const q = qmap.get(master.id);
       if (!q) {
         throw new ServiceUnavailableException('thumbnail_ai_quality_result_missing');
       }
+      recompose = recomposeResult;
       update.overallScore = q.overallScore;
       update.grade = q.grade;
       update.scores = (q.scores ?? Prisma.JsonNull) as Prisma.InputJsonValue;
@@ -269,10 +274,9 @@ export class ThumbnailAnalysisService {
     }
 
     if (wantsCompliance) {
-      const [imageSpec, cmap, recompose] = await Promise.all([
+      const [imageSpec, cmap] = await Promise.all([
         this.vision.checkImageSpec(imageUrl),
         this.vision.checkCompliance([visionItem], signal),
-        this.recomposeService.classifyByImage(imageUrl),
       ]);
       const c = cmap.get(master.id);
       if (!c) {
@@ -288,10 +292,11 @@ export class ThumbnailAnalysisService {
         update.imageSpec = imageSpec as unknown as Prisma.InputJsonValue;
         create.imageSpec = imageSpec as unknown as Prisma.InputJsonValue;
       }
-      if (recompose) {
-        update.recompose = recompose as unknown as Prisma.InputJsonValue;
-        create.recompose = recompose as unknown as Prisma.InputJsonValue;
-      }
+    }
+
+    if (recompose !== undefined) {
+      update.recompose = recompose as unknown as Prisma.InputJsonValue;
+      create.recompose = recompose as unknown as Prisma.InputJsonValue;
     }
 
     const upserted = await this.prisma.thumbnailAnalysis.upsert({
@@ -344,7 +349,10 @@ export class ThumbnailAnalysisService {
     let complianceAnalyzed = false;
 
     if (scope === 'all' || scope === 'quality') {
-      const qmap = await this.vision.analyzeQuality([visionItem]);
+      const [qmap, recomposeVal] = await Promise.all([
+        this.vision.analyzeQuality([visionItem]),
+        this.recomposeService.classifyByImage(imageUrl),
+      ]);
       const q = qmap.get('direct');
       if (!q) {
         throw new ServiceUnavailableException('thumbnail_ai_quality_result_missing');
@@ -356,13 +364,13 @@ export class ThumbnailAnalysisService {
       suggestions = q.suggestions;
       method = q.method;
       qualityAnalyzed = true;
+      recompose = recomposeVal;
     }
 
     if (scope === 'all' || scope === 'compliance') {
-      const [spec, cmap, recomposeVal] = await Promise.all([
+      const [spec, cmap] = await Promise.all([
         this.vision.checkImageSpec(imageUrl),
         this.vision.checkCompliance([visionItem]),
-        this.recomposeService.classifyByImage(imageUrl),
       ]);
       imageSpec = spec;
       const c = cmap.get('direct');
@@ -372,7 +380,6 @@ export class ThumbnailAnalysisService {
       complianceGrade = c.complianceGrade;
       complianceScores = c.complianceScores;
       complianceAnalyzed = true;
-      recompose = recomposeVal;
     }
 
     return {

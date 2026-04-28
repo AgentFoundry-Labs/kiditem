@@ -9,6 +9,7 @@ import { ThumbnailAutoController } from './controllers/thumbnail-auto.controller
 import { ThumbnailEditorController } from './controllers/thumbnail-editor.controller';
 import { ThumbnailTrackingController } from './controllers/thumbnail-tracking.controller';
 import { ThumbnailAnalysisService } from './services/thumbnail-analysis.service';
+import { ThumbnailAutoService } from './services/thumbnail-auto.service';
 import { ThumbnailEditorAiService } from './services/thumbnail-editor-ai.service';
 import { ThumbnailGenerationService } from './services/thumbnail-generation.service';
 import { ThumbnailImageFetcherService } from './services/thumbnail-image-fetcher.service';
@@ -16,6 +17,7 @@ import { ThumbnailRecomposeService } from './services/thumbnail-recompose.servic
 import { ThumbnailReferenceImagesService } from './services/thumbnail-reference-images.service';
 import { ThumbnailTrackingService } from './services/thumbnail-tracking.service';
 import { ThumbnailVisionAiService } from './services/thumbnail-vision-ai.service';
+import { ThumbnailWingService } from './services/thumbnail-wing.service';
 
 @Module({
   controllers: [
@@ -31,6 +33,7 @@ import { ThumbnailVisionAiService } from './services/thumbnail-vision-ai.service
     TextAiService,
     ImageAiService,
     ThumbnailAnalysisService,
+    ThumbnailAutoService,
     ThumbnailEditorAiService,
     ThumbnailGenerationService,
     ThumbnailImageFetcherService,
@@ -38,6 +41,7 @@ import { ThumbnailVisionAiService } from './services/thumbnail-vision-ai.service
     ThumbnailReferenceImagesService,
     ThumbnailTrackingService,
     ThumbnailVisionAiService,
+    ThumbnailWingService,
   ],
 })
 export class AiModule {}

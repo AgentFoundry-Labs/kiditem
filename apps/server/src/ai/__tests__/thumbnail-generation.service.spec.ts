@@ -169,14 +169,18 @@ describe('ThumbnailGenerationService normalized persistence', () => {
     });
   });
 
-  it('createEditJobs feeds stored recompose kind and edit suggestions into prompt', async () => {
+  it('createEditJobs creates pending jobs without blocking on Gemini', async () => {
     const prisma = {
       masterProduct: {
         findMany: vi.fn(async () => [makeProductRow()]),
       },
       thumbnailGeneration: {
-        create: vi.fn(async () => ({ id: GENERATION_ID })),
-        findFirst: vi.fn(async () => makeFullGenerationRow()),
+        findFirst: vi.fn(async () => null),
+        create: vi.fn(async () => makeFullGenerationRow({
+          status: 'pending',
+          phase: null,
+          candidates: [],
+        })),
       },
     };
     const editorAi = {
@@ -190,12 +194,79 @@ describe('ThumbnailGenerationService normalized persistence', () => {
       editorAi as never,
       { create: vi.fn() } as never,
     );
-    await service.createEditJobs([PRODUCT_ID], COMPANY_ID, 'compliance', 'auto', 'generate');
+    const schedule = vi
+      .spyOn(service as unknown as { scheduleEditJob: () => void }, 'scheduleEditJob')
+      .mockImplementation(() => {});
+    const [created] = await service.createEditJobs([PRODUCT_ID], COMPANY_ID, 'compliance', 'auto', 'generate');
+
+    expect(created.status).toBe('pending');
+    expect(editorAi.generateEdit).not.toHaveBeenCalled();
+    expect(prisma.thumbnailGeneration.create.mock.calls[0][0].data).toMatchObject({
+      method: 'generate',
+      status: 'pending',
+      phase: null,
+    });
+    expect(schedule).toHaveBeenCalledWith(GENERATION_ID, COMPANY_ID, 'compliance', 'auto');
+  });
+
+  it('processEditJob feeds stored recompose kind and edit suggestions into prompt', async () => {
+    const tx = {
+      thumbnailGeneration: {
+        findFirst: vi.fn(async () => ({ id: GENERATION_ID })),
+        updateMany: vi.fn(async () => ({ count: 1 })),
+      },
+      thumbnailGenerationCandidate: {
+        deleteMany: vi.fn(async () => ({ count: 0 })),
+        createMany: vi.fn(async () => ({ count: 1 })),
+      },
+      thumbnailGenerationInputImage: {
+        deleteMany: vi.fn(async () => ({ count: 0 })),
+        createMany: vi.fn(async () => ({ count: 1 })),
+      },
+    };
+    const prisma = {
+      thumbnailGeneration: {
+        updateMany: vi.fn(async () => ({ count: 1 })),
+        findFirst: vi.fn(async () => makeFullGenerationRow({
+          status: 'running',
+          phase: null,
+          candidates: [],
+          inputImages: [],
+        })),
+      },
+      $transaction: vi.fn(async (cb: (txArg: typeof tx) => Promise<void>) => cb(tx)),
+    };
+    const editorAi = {
+      resolveInputImage: vi.fn(async () => makeInputImage()),
+      generateEdit: vi.fn(async () => [
+        { url: 'u', storageKey: 'k', filename: 'a.png', mimeType: 'image/png', fileSize: 50 },
+      ]),
+    };
+    const service = new ThumbnailGenerationService(
+      prisma as never,
+      editorAi as never,
+      { create: vi.fn() } as never,
+    );
+
+    await (service as unknown as {
+      processEditJob: (
+        id: string,
+        companyId: string,
+        purpose: 'compliance',
+        variantKey: 'auto',
+      ) => Promise<void>;
+    }).processEditJob(GENERATION_ID, COMPANY_ID, 'compliance', 'auto');
+
     const editArgs = editorAi.generateEdit.mock.calls[0][2];
-    // Recompose kind multi-pack-loose maps to RECOMPOSE_MULTI_PACK_PROMPT.
     expect(typeof editArgs.promptOverride).toBe('string');
     expect(editArgs.editSuggestions).toEqual({
       background_not_white: '배경을 순백으로 교체',
+    });
+    expect(editArgs.referenceMode).toBe('edit-image');
+    expect(tx.thumbnailGenerationCandidate.createMany).toHaveBeenCalled();
+    expect(tx.thumbnailGeneration.updateMany.mock.calls[0][0].data).toMatchObject({
+      status: 'succeeded',
+      phase: 'ready',
     });
   });
 
@@ -206,7 +277,12 @@ describe('ThumbnailGenerationService normalized persistence', () => {
       },
       thumbnailGeneration: {
         findFirst: vi.fn(async () => null),
-        create: vi.fn(async () => ({ id: GENERATION_ID })),
+        create: vi.fn(async () => makeFullGenerationRow({
+          status: 'pending',
+          phase: null,
+          method: 'auto',
+          candidates: [],
+        })),
       },
     };
     const masterFindMany = vi.fn(async () => [makeProductRow()]);
@@ -217,7 +293,7 @@ describe('ThumbnailGenerationService normalized persistence', () => {
     (prisma.thumbnailGeneration.findFirst as unknown) = vi
       .fn()
       .mockResolvedValueOnce(null) // cooldown check
-      .mockResolvedValueOnce(makeFullGenerationRow({ method: 'auto' })); // findOne after save
+      .mockResolvedValueOnce(null); // active job check
     const editorAi = {
       resolveInputImage: vi.fn(async () => makeInputImage()),
       generateEdit: vi.fn(async () => [
@@ -229,6 +305,9 @@ describe('ThumbnailGenerationService normalized persistence', () => {
       editorAi as never,
       { create: vi.fn() } as never,
     );
+    vi
+      .spyOn(service as unknown as { scheduleEditJob: () => void }, 'scheduleEditJob')
+      .mockImplementation(() => {});
     const result = await service.createAutoBatch(COMPANY_ID, 1);
     expect(result.attempted).toBe(1);
     const createData = (prisma.thumbnailGeneration.create as ReturnType<typeof vi.fn>).mock

@@ -192,7 +192,7 @@ describe('ThumbnailAnalysisService AI flow', () => {
     );
   });
 
-  it('quality scope updates only quality-related fields', async () => {
+  it('quality scope updates quality fields and recompose classification', async () => {
     const prisma = makePrismaMock(makeMaster());
     const vision = makeVisionMock({ quality: { overallScore: 85, grade: 'A' } });
     const recompose = makeRecomposeMock();
@@ -203,11 +203,12 @@ describe('ThumbnailAnalysisService AI flow', () => {
     );
     await service.analyzeProduct(PRODUCT_ID, COMPANY_ID, 'quality');
     expect(vision.checkCompliance).not.toHaveBeenCalled();
-    expect(recompose.classifyByImage).not.toHaveBeenCalled();
+    expect(recompose.classifyByImage).toHaveBeenCalledTimes(1);
     const upsertArgs = prisma.thumbnailAnalysis.upsert.mock.calls[0][0];
     expect(upsertArgs.update.complianceGrade).toBeUndefined();
     expect(upsertArgs.update.complianceScores).toBeUndefined();
     expect(upsertArgs.update.qualityAnalyzedAt).toBeInstanceOf(Date);
+    expect(upsertArgs.update.recompose).toMatchObject({ kind: 'single-product' });
   });
 
   it('compliance scope updates only compliance-related fields', async () => {
@@ -221,10 +222,12 @@ describe('ThumbnailAnalysisService AI flow', () => {
     );
     await service.analyzeProduct(PRODUCT_ID, COMPANY_ID, 'compliance');
     expect(vision.analyzeQuality).not.toHaveBeenCalled();
+    expect(recompose.classifyByImage).not.toHaveBeenCalled();
     const upsertArgs = prisma.thumbnailAnalysis.upsert.mock.calls[0][0];
     expect(upsertArgs.update.qualityAnalyzedAt).toBeUndefined();
     expect(upsertArgs.update.grade).toBeUndefined();
     expect(upsertArgs.update.complianceAnalyzedAt).toBeInstanceOf(Date);
+    expect(upsertArgs.update.recompose).toBeUndefined();
   });
 
   it('throws NotFoundException for another company product id', async () => {

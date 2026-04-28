@@ -397,51 +397,50 @@ export class ThumbnailGenerationService {
       const sourceUrl = resolveMasterThumbnailImage(product);
       if (!sourceUrl) throw new BadRequestException('상품 원본 이미지가 필요합니다');
 
-      const analysis: ThumbnailAnalysisContext | null = product.thumbnailAnalyses[0] ?? null;
-      const recomposeKind = this.extractRecomposeKind(analysis?.recompose ?? null);
-      const editSuggestions = this.extractEditSuggestions(analysis?.complianceScores ?? null);
-
-      const inputImage = await this.editorAiService.resolveInputImage(sourceUrl, companyId, {
-        label: 'Product photo',
-        role: 'product',
-        sortOrder: 0,
-        source: 'master_image',
-      });
-      const promptOverride = getRecomposePromptOverride(
-        recomposeKind,
-        variantKey,
-        product.category,
-      );
-      const candidates = await this.editorAiService.generateEdit([inputImage], companyId, {
-        purpose,
-        editCase: 'single',
-        userPrompt: promptOverride ? undefined : this.variantInstruction(variantKey),
-        productDescription: [product.name, product.category].filter(Boolean).join(' / '),
-        productName: product.name,
-        category: product.category,
-        promptOverride,
-        editSuggestions,
-      });
-      const generationId = await this.saveEditorResult({
-        productId: product.id,
-        companyId,
-        originalUrl: sourceUrl,
-        candidates,
-        inputImages: [inputImage],
-        method,
-        inputMeta: {
-          mode: 'edit',
-          purpose,
-          editCase: 'single',
-          variantKey: variantKey ?? 'auto',
-          automated: method === 'auto',
-          inputCount: 1,
-          recompose: (analysis?.recompose ?? null) as Prisma.InputJsonValue,
-          analysisContext: this.toAnalysisContextJson(analysis, editSuggestions),
+      const active = await this.prisma.thumbnailGeneration.findFirst({
+        where: {
+          masterId: product.id,
+          companyId,
+          method,
+          status: { in: ['pending', 'running'] },
         },
-        editAnalysis: this.toEditAnalysis(analysis),
+        include: GENERATION_INCLUDE,
       });
-      items.push(await this.findOne(generationId, companyId));
+      if (active) {
+        items.push(this.toItem(active as unknown as GenerationRow));
+        continue;
+      }
+
+      const analysis: ThumbnailAnalysisContext | null = product.thumbnailAnalyses[0] ?? null;
+      const editSuggestions = this.extractEditSuggestions(analysis?.complianceScores ?? null);
+      const editAnalysis = this.toEditAnalysis(analysis);
+
+      const generation = await this.prisma.thumbnailGeneration.create({
+        data: {
+          companyId,
+          masterId: product.id,
+          originalUrl: sourceUrl,
+          method,
+          status: 'pending',
+          phase: null,
+          inputMeta: {
+            mode: 'edit',
+            purpose,
+            editCase: 'single',
+            variantKey: variantKey ?? 'auto',
+            automated: method === 'auto',
+            inputCount: 1,
+            recompose: (analysis?.recompose ?? null) as Prisma.InputJsonValue,
+            analysisContext: this.toAnalysisContextJson(analysis, editSuggestions),
+          },
+          editAnalysis: editAnalysis
+            ? (editAnalysis as unknown as Prisma.InputJsonValue)
+            : Prisma.JsonNull,
+        },
+        include: GENERATION_INCLUDE,
+      });
+      this.scheduleEditJob(generation.id, companyId, purpose, variantKey);
+      items.push(this.toItem(generation as unknown as GenerationRow));
     }
     return items;
   }
@@ -451,110 +450,254 @@ export class ThumbnailGenerationService {
     companyId: string,
     purpose: 'compliance' | 'quality',
     variantKey: 'auto' | 'with-box' | 'no-box' | null,
-  ): Promise<ThumbnailGenerationItem> {
+  ): Promise<{ ok: true }> {
     const existing = await this.prisma.thumbnailGeneration.findFirst({
       where: { id, companyId },
-      include: {
-        inputImages: { orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] },
-        candidates: { orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] },
-        master: {
-          select: {
-            id: true,
-            name: true,
-            imageUrl: true,
-            thumbnailUrl: true,
-            category: true,
-            images: THUMBNAIL_MASTER_IMAGE_SELECT,
-            thumbnailAnalyses: {
-              orderBy: { updatedAt: 'desc' },
-              take: 1,
-              select: {
-                recompose: true,
-                complianceGrade: true,
-                complianceScores: true,
-                overallScore: true,
-                grade: true,
-                qualityAnalyzedAt: true,
-                complianceAnalyzedAt: true,
+      select: { id: true },
+    });
+    if (!existing) throw new NotFoundException(`ThumbnailGeneration ${id} not found`);
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.thumbnailGenerationCandidate.deleteMany({
+        where: { generationId: id, companyId },
+      });
+      await tx.thumbnailGeneration.updateMany({
+        where: { id, companyId },
+        data: {
+          status: 'pending',
+          phase: null,
+          selectedUrl: null,
+          errorMessage: null,
+          inputMeta: {
+            sourceGenerationId: id,
+            purpose,
+            variantKey: variantKey ?? 'auto',
+          },
+        },
+      });
+    });
+    this.scheduleEditJob(id, companyId, purpose, variantKey);
+    return { ok: true };
+  }
+
+  private scheduleEditJob(
+    generationId: string,
+    companyId: string,
+    purpose: 'compliance' | 'quality',
+    variantKey: 'auto' | 'with-box' | 'no-box' | null,
+  ): void {
+    setImmediate(() => {
+      this.processEditJob(generationId, companyId, purpose, variantKey).catch((err) => {
+        this.logger.error(
+          `편집 job 백그라운드 처리 실패 (${generationId}): ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      });
+    });
+  }
+
+  private async processEditJob(
+    id: string,
+    companyId: string,
+    purpose: 'compliance' | 'quality',
+    variantKey: 'auto' | 'with-box' | 'no-box' | null,
+  ): Promise<void> {
+    const locked = await this.prisma.thumbnailGeneration.updateMany({
+      where: { id, companyId, status: { in: ['pending', 'running'] } },
+      data: {
+        status: 'running',
+        phase: null,
+        errorMessage: null,
+        attemptCount: { increment: 1 },
+      },
+    });
+    if (locked.count === 0) return;
+
+    try {
+      const existing = await this.prisma.thumbnailGeneration.findFirst({
+        where: { id, companyId },
+        include: {
+          inputImages: { orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] },
+          master: {
+            select: {
+              id: true,
+              name: true,
+              imageUrl: true,
+              thumbnailUrl: true,
+              category: true,
+              images: THUMBNAIL_MASTER_IMAGE_SELECT,
+              thumbnailAnalyses: {
+                orderBy: { updatedAt: 'desc' },
+                take: 1,
+                select: {
+                  recompose: true,
+                  complianceGrade: true,
+                  complianceScores: true,
+                  overallScore: true,
+                  grade: true,
+                  qualityAnalyzedAt: true,
+                  complianceAnalyzedAt: true,
+                },
               },
             },
           },
         },
-      },
-    });
-    if (!existing) throw new NotFoundException(`ThumbnailGeneration ${id} not found`);
+      });
+      if (!existing) return;
+      if (!existing.master) {
+        throw new BadRequestException('상품 정보를 찾을 수 없습니다');
+      }
 
-    const masterFallback = resolveMasterThumbnailImage(existing.master);
-    const seedRows = existing.inputImages.length > 0
-      ? existing.inputImages
-      : [{
-          url: existing.selectedUrl ?? existing.originalUrl ?? masterFallback,
-          role: 'product',
-          label: 'Product photo',
-          sortOrder: 0,
-          source: 're-edit',
-        }];
-    const validSeedRows = seedRows.filter((row) => row.url);
-    if (validSeedRows.length === 0) {
-      throw new BadRequestException('재편집할 원본 이미지가 없습니다');
-    }
+      const masterFallback = resolveMasterThumbnailImage(existing.master);
+      const seedRows =
+        existing.inputImages.length > 0
+          ? existing.inputImages
+          : [
+              {
+                url: existing.selectedUrl ?? existing.originalUrl ?? masterFallback,
+                role: 'product',
+                label: 'Product photo',
+                sortOrder: 0,
+                source: 'master_image',
+              },
+            ];
+      const validSeedRows = seedRows.filter((row) => row.url);
+      if (validSeedRows.length === 0) {
+        throw new BadRequestException('재편집할 원본 이미지가 없습니다');
+      }
 
-    const inputImages: ThumbnailEditorInputImage[] = [];
-    for (const row of validSeedRows) {
-      inputImages.push(
-        await this.editorAiService.resolveInputImage(row.url as string, companyId, {
-          label: row.label ?? 'Product photo',
-          role: this.toInputRole(row.role),
-          sortOrder: row.sortOrder,
-          source: row.source ?? 're-edit',
-        }),
+      const inputImages: ThumbnailEditorInputImage[] = [];
+      for (const row of validSeedRows) {
+        inputImages.push(
+          await this.editorAiService.resolveInputImage(row.url as string, companyId, {
+            label: row.label ?? 'Product photo',
+            role: this.toInputRole(row.role),
+            sortOrder: row.sortOrder,
+            source: row.source ?? 're-edit',
+          }),
+        );
+      }
+      const editCase = this.inferEditCaseFromInputs(inputImages);
+      const analysis: ThumbnailAnalysisContext | null = existing.master.thumbnailAnalyses[0] ?? null;
+      const recomposeKind =
+        this.findRecomposeKindIn(existing.inputMeta) ??
+        this.findRecomposeKindIn(existing.editAnalysis) ??
+        this.extractRecomposeKind(analysis?.recompose ?? null);
+      const editSuggestions = this.extractEditSuggestions(analysis?.complianceScores ?? null);
+      const promptOverride = getRecomposePromptOverride(
+        recomposeKind,
+        variantKey,
+        existing.master.category,
       );
-    }
-    const editCase = this.inferEditCaseFromInputs(inputImages);
-    const analysis: ThumbnailAnalysisContext | null = existing.master.thumbnailAnalyses[0] ?? null;
-    // Prefer recompose carried by the prior generation's inputMeta — re-edits
-    // should respect what was decided last time. Fall back to the latest
-    // analysis row.
-    const recomposeKind =
-      this.findRecomposeKindIn(existing.inputMeta) ??
-      this.findRecomposeKindIn(existing.editAnalysis) ??
-      this.extractRecomposeKind(analysis?.recompose ?? null);
-    const editSuggestions = this.extractEditSuggestions(analysis?.complianceScores ?? null);
-    const promptOverride = getRecomposePromptOverride(
-      recomposeKind,
-      variantKey,
-      existing.master.category,
-    );
-    const candidates = await this.editorAiService.generateEdit(inputImages, companyId, {
-      purpose,
-      editCase,
-      userPrompt: promptOverride ? undefined : this.variantInstruction(variantKey),
-      productDescription: [existing.master.name, existing.master.category].filter(Boolean).join(' / '),
-      productName: existing.master.name,
-      category: existing.master.category,
-      promptOverride,
-      editSuggestions,
-    });
-    const newGenerationId = await this.saveEditorResult({
-      productId: existing.masterId,
-      companyId,
-      originalUrl: existing.originalUrl ?? masterFallback ?? inputImages[0]?.url ?? null,
-      candidates,
-      inputImages,
-      method: 're-edit',
-      inputMeta: {
+      const candidates = await this.editorAiService.generateEdit(inputImages, companyId, {
+        purpose,
+        editCase,
+        userPrompt: promptOverride ? undefined : this.variantInstruction(variantKey),
+        productDescription: [existing.master.name, existing.master.category]
+          .filter(Boolean)
+          .join(' / '),
+        productName: existing.master.name,
+        category: existing.master.category,
+        promptOverride,
+        editSuggestions,
+        referenceMode: 'edit-image',
+      });
+
+      const inputMeta: Prisma.InputJsonValue = {
         mode: 'edit',
         purpose,
         editCase,
         variantKey: variantKey ?? 'auto',
-        sourceGenerationId: existing.id,
+        automated: existing.method === 'auto',
         inputCount: inputImages.length,
-        recompose: (analysis?.recompose ?? existing.inputMeta) as Prisma.InputJsonValue,
+        recompose: (analysis?.recompose ?? null) as Prisma.InputJsonValue,
         analysisContext: this.toAnalysisContextJson(analysis, editSuggestions),
-      },
-      editAnalysis: this.toEditAnalysis(analysis),
+      };
+      await this.replaceGenerationResult(
+        id,
+        companyId,
+        candidates,
+        inputImages,
+        inputMeta,
+        this.toEditAnalysis(analysis),
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.error(`편집 처리 실패 (${id}): ${message}`);
+      await this.prisma.thumbnailGeneration
+        .updateMany({
+          where: { id, companyId, status: 'running' },
+          data: { status: 'failed', phase: null, errorMessage: message },
+        })
+        .catch(() => {});
+    }
+  }
+
+  private async replaceGenerationResult(
+    generationId: string,
+    companyId: string,
+    candidates: ThumbnailEditorCandidate[],
+    inputImages: ThumbnailEditorInputImage[],
+    inputMeta: Prisma.InputJsonValue,
+    editAnalysis: EditAnalysisResult | null,
+  ): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      const current = await tx.thumbnailGeneration.findFirst({
+        where: { id: generationId, companyId, status: 'running' },
+        select: { id: true },
+      });
+      if (!current) return;
+      await tx.thumbnailGenerationCandidate.deleteMany({ where: { generationId, companyId } });
+      await tx.thumbnailGenerationInputImage.deleteMany({ where: { generationId, companyId } });
+      if (candidates.length > 0) {
+        await tx.thumbnailGenerationCandidate.createMany({
+          data: candidates.map((candidate, index) => ({
+            companyId,
+            generationId,
+            url: candidate.url,
+            storageKey: candidate.storageKey ?? null,
+            filename: candidate.filename ?? candidate.storageKey?.split('/').pop() ?? null,
+            sortOrder: index,
+            mimeType: candidate.mimeType ?? null,
+            width: null,
+            height: null,
+            fileSize: candidate.fileSize ?? null,
+          })),
+        });
+      }
+      if (inputImages.length > 0) {
+        await tx.thumbnailGenerationInputImage.createMany({
+          data: inputImages.map((img) => ({
+            companyId,
+            generationId,
+            url: img.url,
+            storageKey: img.storageKey,
+            role: img.role,
+            label: img.label,
+            sortOrder: img.sortOrder,
+            source: img.source,
+            mimeType: img.mimeType,
+            width: null,
+            height: null,
+            fileSize: img.fileSize,
+          })),
+        });
+      }
+      await tx.thumbnailGeneration.updateMany({
+        where: { id: generationId, companyId, status: 'running' },
+        data: {
+          status: 'succeeded',
+          phase: 'ready',
+          selectedUrl: null,
+          errorMessage: null,
+          inputMeta,
+          editAnalysis: editAnalysis
+            ? (editAnalysis as unknown as Prisma.InputJsonValue)
+            : Prisma.JsonNull,
+        },
+      });
     });
-    return this.findOne(newGenerationId, companyId);
   }
 
   async createAutoBatch(
