@@ -20,6 +20,7 @@ function makeService() {
     thumbnailRegistrationAttempt: {
       create: vi.fn(async () => ({ id: 'attempt-1' })),
       update: vi.fn(async () => ({})),
+      updateMany: vi.fn(async () => ({ count: 1 })),
       deleteMany: vi.fn(async () => ({ count: 1 })),
     },
   };
@@ -60,8 +61,8 @@ describe('ThumbnailWingService', () => {
       }),
       select: { id: true },
     });
-    expect(prisma.thumbnailRegistrationAttempt.update).toHaveBeenCalledWith({
-      where: { id: 'attempt-1' },
+    expect(prisma.thumbnailRegistrationAttempt.updateMany).toHaveBeenCalledWith({
+      where: { id: 'attempt-1', companyId: COMPANY_ID },
       data: expect.objectContaining({
         status: 'uploaded',
         errorMessage: null,
@@ -88,12 +89,37 @@ describe('ThumbnailWingService', () => {
       'image fetch failed',
     );
 
-    expect(prisma.thumbnailRegistrationAttempt.update).toHaveBeenCalledWith({
-      where: { id: 'attempt-1' },
+    expect(prisma.thumbnailRegistrationAttempt.updateMany).toHaveBeenCalledWith({
+      where: { id: 'attempt-1', companyId: COMPANY_ID },
       data: expect.objectContaining({
         status: 'failed',
         errorMessage: 'image fetch failed',
       }),
     });
+  });
+
+  it('successful registration update is scoped to companyId in the write path', async () => {
+    const { service, prisma } = makeService();
+
+    await service.registerToWing(GENERATION_ID, COMPANY_ID);
+
+    expect(prisma.thumbnailRegistrationAttempt.updateMany).toHaveBeenCalledWith({
+      where: { id: 'attempt-1', companyId: COMPANY_ID },
+      data: expect.objectContaining({
+        status: 'uploaded',
+        errorMessage: null,
+        screenshotUrl: `/tmp/wing-upload-${GENERATION_ID}.png`,
+      }),
+    });
+  });
+
+  it('failed registration throws NotFound when the scoped attempt update is a no-op', async () => {
+    const { service, prisma, imageFetcher } = makeService();
+    imageFetcher.fetchTrustedStorageImage.mockRejectedValueOnce(new Error('image fetch failed'));
+    prisma.thumbnailRegistrationAttempt.updateMany.mockResolvedValueOnce({ count: 0 });
+
+    await expect(service.registerToWing(GENERATION_ID, COMPANY_ID)).rejects.toThrow(
+      'ThumbnailRegistrationAttempt attempt-1 not found',
+    );
   });
 });

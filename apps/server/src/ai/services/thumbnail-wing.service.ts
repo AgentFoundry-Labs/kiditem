@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -60,7 +61,7 @@ export class ThumbnailWingService {
     const productName = coupangName || gen.master?.name || '';
     if (!productName) {
       const message = '쿠팡 등록 상품명을 찾을 수 없습니다';
-      await this.markAttemptFailed(attempt.id, message);
+      await this.markAttemptFailed(attempt.id, companyId, message);
       throw new BadRequestException(message);
     }
 
@@ -70,14 +71,11 @@ export class ThumbnailWingService {
 
       this.logger.log(`Wing 자동화 시작: ${productName}`);
       const result = await this.runAutomation(productName, imagePath, screenshotPath);
-      await this.prisma.thumbnailRegistrationAttempt.update({
-        where: { id: attempt.id },
-        data: {
-          status: result.success ? 'uploaded' : 'failed',
-          errorMessage: result.success ? null : result.error ?? 'Unknown error',
-          screenshotUrl: result.success ? screenshotPath : null,
-          finishedAt: new Date(),
-        },
+      await this.updateRegistrationAttemptOrThrow(attempt.id, companyId, {
+        status: result.success ? 'uploaded' : 'failed',
+        errorMessage: result.success ? null : result.error ?? 'Unknown error',
+        screenshotUrl: result.success ? screenshotPath : null,
+        finishedAt: new Date(),
       });
 
       return {
@@ -86,7 +84,7 @@ export class ThumbnailWingService {
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      await this.markAttemptFailed(attempt.id, message);
+      await this.markAttemptFailed(attempt.id, companyId, message);
       throw err;
     }
   }
@@ -144,9 +142,8 @@ export class ThumbnailWingService {
 
     const latest = gen.registrationAttempts[0] ?? null;
     if (latest) {
-      await this.prisma.thumbnailRegistrationAttempt.update({
-        where: { id: latest.id },
-        data: { finishedAt: new Date() },
+      await this.updateRegistrationAttemptOrThrow(latest.id, companyId, {
+        finishedAt: new Date(),
       });
     }
 
@@ -203,11 +200,30 @@ export class ThumbnailWingService {
     return destPath;
   }
 
-  private async markAttemptFailed(attemptId: string, message: string): Promise<void> {
-    await this.prisma.thumbnailRegistrationAttempt.update({
-      where: { id: attemptId },
-      data: { status: 'failed', errorMessage: message, finishedAt: new Date() },
+  private async markAttemptFailed(
+    attemptId: string,
+    companyId: string,
+    message: string,
+  ): Promise<void> {
+    await this.updateRegistrationAttemptOrThrow(attemptId, companyId, {
+      status: 'failed',
+      errorMessage: message,
+      finishedAt: new Date(),
     });
+  }
+
+  private async updateRegistrationAttemptOrThrow(
+    id: string,
+    companyId: string,
+    data: Prisma.ThumbnailRegistrationAttemptUpdateManyMutationInput,
+  ): Promise<void> {
+    const result = await this.prisma.thumbnailRegistrationAttempt.updateMany({
+      where: { id, companyId },
+      data,
+    });
+    if (result.count === 0) {
+      throw new NotFoundException(`ThumbnailRegistrationAttempt ${id} not found`);
+    }
   }
 
   private buildScript(productName: string, imagePath: string, screenshotPath: string): string {
