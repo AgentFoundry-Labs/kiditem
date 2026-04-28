@@ -1,0 +1,123 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema-jsonc.json",
+  "workspaces": {
+    ".": {
+      "entry": [
+        "package.json",
+        "prisma.config.ts",
+        "vitest.config.ts",
+        "scripts/**/*.{ts,js,mjs,cjs,sh}",
+        "prisma/**/*.{ts,js,mjs,cjs,sh}",
+        "extensions/**/*.{js,mjs,cjs}"
+      ],
+      "project": [
+        "*.{ts,js,mjs,cjs}",
+        "scripts/**/*.{ts,js,mjs,cjs,sh}",
+        "prisma/**/*.{ts,js,mjs,cjs,sh}",
+        "extensions/**/*.{js,mjs,cjs}"
+      ],
+      "ignore": [
+        "**/node_modules/**",
+        "**/dist/**",
+        "**/.next/**",
+        "**/coverage/**",
+        "graphify-out/**",
+        "**/generated/**",
+        "**/*.generated.*",
+        ".claude/worktrees/**",
+        ".codex/worktrees/**",
+        ".worktrees/**",
+        "worktrees/**",
+        "tmp/**",
+        "**/.turbo/**",
+        "**/.cache/**",
+        "prisma/init.sql.gz"
+      ]
+    },
+    "apps/server": {
+      "entry": [
+        "package.json",
+        "src/main.ts",
+        "src/app.module.ts",
+        "src/**/*.module.ts",
+        "src/**/__tests__/**/*.spec.ts",
+        "e2e/**/*.ts",
+        "vitest.config*.ts",
+        "nest-cli.json"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "e2e/**/*.ts",
+        "*.config.ts",
+        "nest-cli.json"
+      ],
+      "ignore": [
+        "dist/**",
+        "coverage/**"
+      ]
+    },
+    "apps/web": {
+      "entry": [
+        "package.json",
+        "next.config.mjs",
+        "src/app/**/{layout,page,template,loading,error,not-found,route}.{ts,tsx}",
+        "src/app/**/*.spec.{ts,tsx}",
+        "src/app/**/__tests__/**/*.{ts,tsx}",
+        "src/components/**/*.{ts,tsx}",
+        "src/hooks/**/*.{ts,tsx}",
+        "src/lib/**/*.{ts,tsx}",
+        "src/store/**/*.{ts,tsx}",
+        "test/**/*.{ts,tsx}",
+        "vitest.config.ts",
+        "tailwind.config.ts",
+        "postcss.config.mjs"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx}",
+        "test/**/*.{ts,tsx}",
+        "*.{ts,tsx,js,mjs,cjs}"
+      ],
+      "ignore": [
+        ".next/**",
+        "coverage/**"
+      ]
+    },
+    "packages/shared": {
+      "entry": [
+        "package.json",
+        "src/index.ts",
+        "src/schemas/index.ts",
+        "src/{product,order,inventory,ai,advertising}.ts",
+        "src/errors/index.ts",
+        "src/security/index.ts",
+        "src/**/*.spec.ts",
+        "vitest.config.ts",
+        "tsup.config.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "*.config.ts"
+      ],
+      "ignore": [
+        "dist/**",
+        "coverage/**"
+      ]
+    },
+    "packages/templates": {
+      "entry": [
+        "package.json",
+        "src/index.ts",
+        "src/scripts/generate-json-schema.ts",
+        "tsup.config.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "*.config.ts"
+      ],
+      "ignore": [
+        "dist/**",
+        "coverage/**"
+      ]
+    }
+  }
+}
