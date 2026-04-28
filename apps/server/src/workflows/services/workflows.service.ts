@@ -23,9 +23,9 @@ export class WorkflowsService {
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
-  private async emitPanelUpsert(runId: string): Promise<void> {
+  private async emitPanelUpsert(runId: string, companyId: string): Promise<void> {
     try {
-      const result = await buildWorkflowPanelItem(this.prisma, runId);
+      const result = await buildWorkflowPanelItem(this.prisma, runId, companyId);
       if (!result) return;
       this.eventEmitter.emit(PANEL_EVENTS.UPSERT, result);
     } catch (err) {
@@ -122,9 +122,9 @@ export class WorkflowsService {
         contextData: options.context ?? undefined,
       },
     });
-    await this.emitPanelUpsert(run.id);
+    await this.emitPanelUpsert(run.id, companyId);
 
-    this.runner.runWorkflow(run.id, templateId).catch((err) => {
+    this.runner.runWorkflow(run.id, templateId, companyId).catch((err) => {
       this.logger.error(`Workflow run ${run.id} failed: ${err.message}`);
     });
 
@@ -159,11 +159,11 @@ export class WorkflowsService {
         }),
       ),
     );
-    await Promise.all(runs.map((r) => this.emitPanelUpsert(r.id)));
+    await Promise.all(runs.map((r) => this.emitPanelUpsert(r.id, companyId)));
 
     this.runner
       .runBatch(
-        runs.map((r) => ({ runId: r.id, templateId: r.templateId })),
+        runs.map((r) => ({ runId: r.id, templateId: r.templateId, companyId })),
       )
       .catch((err: Error) => {
         this.logger.error(`Batch run failed: ${err.message}`);
