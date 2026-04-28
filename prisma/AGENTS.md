@@ -45,20 +45,40 @@ npm run db:studio     # DB browser (localhost:5555)
 
 `git pull` 은 **코드만** 받는다. DB 는 로컬 볼륨에 남아있으므로 pull 후 스키마/데이터 동기화는 각자 수동으로 해야 한다.
 
-### 3-tier 모델
+### 표준 동기화 모델
 
 | 계층 | 전달 수단 | 특성 |
 |---|---|---|
 | **스키마 (DDL)** | `schema.prisma` + `db:push` | 매 pull 후 실행. 안전 |
-| **초기 시드 데이터 (스냅샷)** | `prisma/init.sql.gz` (`--data-only` pg_dump) | **fresh volume 에서만** 로드 |
-| **운영 중 데이터 이전** | 명시적 SQL/seed 스크립트 (예: `scripts/migrate-dashboard-data.ts`) | 기존 DB 에 incremental 적용 |
+| **공유 개발 데이터** | Google Drive dev data bundle + replay (`npm run data:coupang:*`) | 팀원이 같은 화면 상태를 재현하는 표준 경로 |
+| **운영 중 데이터 이전** | 명시적 SQL/seed 스크립트 (`prisma/backfill-*.sql`, 필요한 `scripts/*`) | 스키마 변경/마이그레이션 보조. 화면 데이터 공유 용도 아님 |
+| **초기 스냅샷 예외** | `prisma/init.sql.gz` (`--data-only` pg_dump) | Fresh volume 전용 예외. 기본 개발 데이터 경로 아님 |
+
+### Google Drive dev data bundle
+
+팀원 간 같은 로컬 화면 데이터를 맞출 때는 `init.sql.gz` 나 synthetic seed 를 쓰지 않는다. Google Drive 의 bundle 을 `.data/coupang/<datasetId>/` 로 pull 한 뒤 replay 한다.
+
+```bash
+export KIDITEM_DEV_DATA_DRIVE_DIR="$HOME/.../KidItem Dev Data"
+export DEV_DEFAULT_USER_ID="<local dev user uuid>"
+npm run data:coupang:pull -- --lane real
+npm run data:coupang:replay -- --mode scoped-replace --yes
+```
+
+규칙:
+
+- Bundle 원본은 Google Drive, 로컬 사본은 `.data/` 아래에 둔다. 둘 다 Git 커밋 금지.
+- 표준 replay 모드는 `scoped-replace` 다. manifest 의 company/channel/date range scope 만 교체한다.
+- Coupang bundle 은 `POST /api/ads/extension/sync` 경로로 replay 한다. 앱이 실제 ingest 하는 코드와 다른 DB writer 를 만들지 않는다.
+- `scripts/seed-channel-market-data.ts` 같은 synthetic market-data seed 는 금지. 실제 scrape payload replay 로 대체한다.
+- 자세한 포맷/운영 절차는 [`docs/DEV_DATA_BUNDLES.md`](../docs/DEV_DATA_BUNDLES.md) 를 따른다.
 
 ### init.sql.gz 의 정확한 의미
 
 - Postgres 도커 이미지의 `docker-entrypoint-initdb.d/` 패턴. **빈 볼륨 초기화 시에만** 자동 로드.
 - 기존 볼륨이 있으면 **스킵** → `git pull` 로 새 `init.sql.gz` 받아도 아무 일도 안 일어남.
+- 팀원 간 개발 데이터 공유 수단이 아니다. 공유 데이터는 Google Drive bundle replay 가 책임진다.
 - 적용하려면 `docker compose down -v` 로 볼륨 삭제 후 재기동. **기존 로컬 데이터 손실 주의**.
-- 즉 "팀원 간 실시간 데이터 동기화" 수단이 **아님** — "새 환경 셋업용 스냅샷"이다.
 
 ### 스키마 변경 PR 받는 사람 플로우
 
@@ -78,10 +98,10 @@ npm run graphify:schema                 # graphify-out/schema/** + schema-consum
 
 ### init.sql.gz 재생성 시점
 
-다음 중 하나 발생하면 재생성:
-1. 스키마 변경으로 기존 `init.sql.gz` 의 INSERT 가 fresh setup 에서 깨짐 (예: drop 된 테이블에 대한 INSERT)
-2. 신규 팀원 온보딩을 위한 기본 데모 데이터 갱신 필요
-3. PR 템플릿의 `init.sql.gz 갱신` 체크 항목에 해당
+기본적으로 재생성하지 않는다. 다음 예외에만 사용한다:
+1. Fresh Docker volume bootstrap snapshot 이 명시적으로 필요한 경우
+2. 스키마 변경으로 기존 `init.sql.gz` 의 INSERT 가 fresh setup 에서 깨지는 경우
+3. PR 템플릿에서 `init.sql.gz 변경 있음` 을 의도적으로 체크한 경우
 
 ```bash
 docker exec kiditem-postgres pg_dump -U kiditem --data-only --column-inserts \
@@ -92,11 +112,11 @@ docker exec kiditem-postgres pg_dump -U kiditem --data-only --column-inserts \
 
 ### 팀원 간 incremental 데이터 공유
 
-기존 로컬 데이터를 **유지하면서** 새 데이터(예: 신규 상품, 테스트 캠페인)를 추가해야 하면 `init.sql.gz` 쓰지 말 것. 대신:
+기존 로컬 데이터를 **유지하면서** 새 공유 화면 데이터(예: 쿠팡 스크래퍼 결과)를 추가해야 하면 Google Drive bundle 의 `upsert` replay 를 사용한다. 스키마/운영 데이터 이전이 필요한 경우에만:
 
 - `prisma/backfill-*.sql` — idempotent SQL 스크립트 (ON CONFLICT, IF NOT EXISTS 활용)
-- `scripts/seed-*.ts` — TypeScript seed
-- PR 에 "post-pull 수동 실행" 명령 명시
+- `scripts/*` — 명시적 마이그레이션/운영 보조 스크립트
+- PR 에 post-pull 수동 실행 명령과 되돌림/재실행 안전성을 명시
 
 ## Prisma v7 Config
 

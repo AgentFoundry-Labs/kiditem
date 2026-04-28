@@ -28,6 +28,12 @@ npm run db:push                                # 스키마 적용
 
 # 전체 실행 (한번에)
 npm run dev:all                                # Next.js + NestJS + Python Agents 동시 실행
+
+# 공유 개발 데이터 (선택, 서버 실행 후 다른 터미널에서 쿠팡 화면 상태 맞추기)
+# Canonical Drive: https://drive.google.com/drive/folders/1sIuAiZAX6wAFOoEmmJGe6p0b5xwey1AO?usp=drive_link
+export KIDITEM_DEV_DATA_DRIVE_DIR="$HOME/.../KidItem Dev Data" # Google Drive Desktop 로컬 동기화 경로
+npm run data:coupang:pull -- --lane real
+npm run data:coupang:replay -- --mode scoped-replace --yes
 ```
 
 ### 개별 실행

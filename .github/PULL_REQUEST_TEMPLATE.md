@@ -1,15 +1,23 @@
 ## 변경 요약
 
 
-## DB 변경
+## DB / 개발 데이터
 - [ ] `prisma/schema.prisma` 변경 없음
 - [ ] `prisma/schema.prisma` 변경 있음
 - [ ] backfill SQL 있음 → 파일: `prisma/_____.sql`
-- [ ] `prisma/init.sql.gz` 갱신함 (DB 데이터 변경 시 덤프 필수)
+- [ ] 개발 데이터 bundle 변경 없음
+- [ ] 개발 데이터 bundle 변경 있음
+  - Dataset ID:
+  - Google Drive URL/경로:
+  - Replay 명령:
+  - Import mode: `upsert` / `scoped-replace` / `full-reset`
+  - 영향 scope(company/channel/date):
+- [ ] `prisma/init.sql.gz` 변경 있음 (예외적인 fresh-volume snapshot 용도만)
 
-> init.sql.gz 갱신 방법:
+> 개발 데이터 표준 경로:
 > ```bash
-> docker exec kiditem-postgres pg_dump -U kiditem --data-only --column-inserts --no-owner --no-privileges kiditem | gzip > prisma/init.sql.gz
+> npm run data:coupang:pull -- --lane real
+> npm run data:coupang:replay -- --mode scoped-replace --yes
 > ```
 
 ## 테스트

@@ -11,12 +11,15 @@ const deletedLegacyTables = [
 ];
 
 describe('legacy market-data migration entrypoints', () => {
-  it('does not expose migration commands/scripts that write deleted legacy market-data tables', () => {
+  it('does not expose migration or seed commands/scripts for deleted market-data tables', () => {
     const packageJson = JSON.parse(
       readFileSync(join(repoRoot, 'package.json'), 'utf8'),
     ) as { scripts?: Record<string, string> };
 
     expect(packageJson.scripts).not.toHaveProperty('migrate:dashboard');
+    expect(packageJson.scripts).not.toHaveProperty('seed:channel-market-data');
+    expect(existsSync(join(repoRoot, 'scripts/seed-channel-market-data.ts'))).toBe(false);
+    expect(packageJson.scripts).toHaveProperty('data:coupang:replay');
 
     for (const relativePath of [
       'scripts/migrate-dashboard-data.ts',
