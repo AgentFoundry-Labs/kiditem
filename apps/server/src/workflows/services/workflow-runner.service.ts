@@ -44,9 +44,9 @@ export class WorkflowRunnerService {
     this.executorServices = { agentRegistry: this.agentRegistry };
   }
 
-  private async emitPanelUpsert(runId: string): Promise<void> {
+  private async emitPanelUpsert(runId: string, companyId: string): Promise<void> {
     try {
-      const result = await buildWorkflowPanelItem(this.prisma, runId);
+      const result = await buildWorkflowPanelItem(this.prisma, runId, companyId);
       if (!result) return;
       this.eventEmitter.emit(PANEL_EVENTS.UPSERT, result);
     } catch (err) {
@@ -63,13 +63,17 @@ export class WorkflowRunnerService {
         where: { id: runId, companyId },
         data: { status: 'failed', error: 'Template not found' },
       });
-      await this.emitPanelUpsert(runId);
+      await this.emitPanelUpsert(runId, companyId);
       return;
     }
 
     const run = await this.prisma.workflowRun.findFirst({
       where: { id: runId, companyId },
     });
+    if (!run) {
+      this.logger.warn(`Workflow run ${runId} not found for company ${companyId}`);
+      return;
+    }
     const runContext: WorkflowRunContext = (run?.contextData as WorkflowRunContext) ?? {};
 
     const dag = new DAG(
@@ -82,7 +86,7 @@ export class WorkflowRunnerService {
       where: { id: runId, companyId },
       data: { status: 'running', startedAt: new Date() },
     });
-    await this.emitPanelUpsert(runId);
+    await this.emitPanelUpsert(runId, companyId);
 
     const stack = dag.getStartNodes();
     const visited = new Set<string>();
@@ -157,7 +161,7 @@ export class WorkflowRunnerService {
       where: { id: runId, companyId },
       data: { status: 'succeeded', completedAt: new Date() },
     });
-    await this.emitPanelUpsert(runId);
+    await this.emitPanelUpsert(runId, companyId);
   }
 
   async runBatch(
@@ -210,7 +214,7 @@ export class WorkflowRunnerService {
       where: { id: runId, companyId },
       data: { steps: steps as any },
     });
-    await this.emitPanelUpsert(runId);
+    await this.emitPanelUpsert(runId, companyId);
 
     try {
       const resolvedConfig = context.resolveConfig({
@@ -229,7 +233,7 @@ export class WorkflowRunnerService {
         where: { id: runId, companyId },
         data: { steps: steps as any },
       });
-      await this.emitPanelUpsert(runId);
+      await this.emitPanelUpsert(runId, companyId);
 
       const branch = nodeDef.type.startsWith('condition.')
         ? (output.branch as string) ?? null
@@ -248,7 +252,7 @@ export class WorkflowRunnerService {
         where: { id: runId, companyId },
         data: { steps: steps as any },
       });
-      await this.emitPanelUpsert(runId);
+      await this.emitPanelUpsert(runId, companyId);
 
       throw err;
     }
@@ -278,7 +282,7 @@ export class WorkflowRunnerService {
       where: { id: runId, companyId },
       data: { steps: steps as any },
     });
-    await this.emitPanelUpsert(runId);
+    await this.emitPanelUpsert(runId, companyId);
   }
 
   private async recordRunError(runId: string, error: string, companyId: string) {
@@ -286,7 +290,7 @@ export class WorkflowRunnerService {
       where: { id: runId, companyId },
       data: { status: 'failed', error, completedAt: new Date() },
     });
-    await this.emitPanelUpsert(runId);
+    await this.emitPanelUpsert(runId, companyId);
   }
 
 }

@@ -20,9 +20,8 @@ function makePrisma() {
       findFirst: vi.fn(),
       findMany: vi.fn(),
       updateMany: vi.fn(),
-      // The panel adapter (buildWorkflowPanelItem) does its own non-tenant
-      // findUnique outside the runner's scope; stub it as a no-op so the
-      // emitPanelUpsert try/catch stays quiet under tests.
+      // Legacy panel adapter calls used findUnique; keep a no-op stub so older
+      // assertions stay quiet if a test imports the adapter directly.
       findUnique: vi.fn().mockResolvedValue(null),
     },
     alert: {
@@ -467,6 +466,32 @@ describe('WorkflowRunnerService', () => {
         where: { id: 'run-cross', companyId: 'company-OTHER' },
         data: { status: 'failed', error: 'Template not found' },
       });
+    });
+
+    it('run owned by a different company → does not execute nodes or write by bare runId', async () => {
+      let executed = false;
+      registerNode('test.must_not_run', async () => {
+        executed = true;
+        return { ok: true };
+      });
+
+      const template = makeTemplate({
+        nodesJson: [
+          { id: 'n1', data: { nodeType: 'test.must_not_run', label: '실행 금지', config: {} }, position: { x: 0, y: 0 } },
+        ],
+        edgesJson: [],
+      });
+      prisma.workflowTemplate.findFirst.mockResolvedValue(template);
+      prisma.workflowRun.findFirst.mockResolvedValue(null);
+      prisma.workflowRun.updateMany.mockResolvedValue({ count: 0 });
+
+      await runner.runWorkflow('foreign-run', 'tmpl-1', 'company-1');
+
+      expect(prisma.workflowRun.findFirst).toHaveBeenCalledWith({
+        where: { id: 'foreign-run', companyId: 'company-1' },
+      });
+      expect(executed).toBe(false);
+      expect(prisma.workflowRun.updateMany).not.toHaveBeenCalled();
     });
 
     it('unknown node type → throws and records error in steps', async () => {
