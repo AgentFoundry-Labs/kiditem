@@ -17,6 +17,20 @@ interface WorkflowTemplateRef {
 /** User-provided context data passed when triggering a workflow run */
 type WorkflowRunContext = Record<string, unknown>;
 
+/**
+ * Internal workflow execution engine. Trusted-internal boundary:
+ * methods on this service must NOT be exposed through any controller and the
+ * (runId, templateId) pairs they receive are treated as already-authorized.
+ *
+ * `WorkflowsService` is the sole caller and is responsible for verifying
+ * tenant ownership (companyId scope on both WorkflowTemplate and WorkflowRun)
+ * before invoking `runWorkflow` / `runBatch`. The runner does not re-check
+ * companyId; it loads the template by id only because the caller has already
+ * validated ownership in the same request.
+ *
+ * Do NOT call the runner from a controller, MQ consumer, or cron handler
+ * without first re-verifying tenant scope of the run + template.
+ */
 @Injectable()
 export class WorkflowRunnerService {
   private readonly logger = new Logger(WorkflowRunnerService.name);
