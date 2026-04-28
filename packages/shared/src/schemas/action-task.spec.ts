@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  ActionTaskExecuteResponseSchema,
   ActionTaskListSchema,
   ActionTaskSchema,
 } from './action-task.js';
@@ -43,7 +42,7 @@ describe('action-task shared schemas', () => {
     expect(result[1]?.id).toBe('task-2');
   });
 
-  it('parses ActionTaskExecuteResponseSchema as the updated task shape', () => {
+  it('parses ActionTaskSchema as the execute response shape', () => {
     const updated = {
       ...baseTask,
       status: 'done',
@@ -56,7 +55,7 @@ describe('action-task shared schemas', () => {
         },
       ],
     };
-    expect(() => ActionTaskExecuteResponseSchema.parse(updated)).not.toThrow();
+    expect(() => ActionTaskSchema.parse(updated)).not.toThrow();
   });
 
   it('parses sourceAlert: null', () => {

@@ -76,5 +76,3 @@ function walk(value: unknown, seen: WeakSet<object>): unknown {
   // leave untouched — scrubbing opaque structures risks corrupting behaviour.
   return value;
 }
-
-export { SECRET_PATTERNS, SENSITIVE_FIELD_KEYS } from './patterns.js';

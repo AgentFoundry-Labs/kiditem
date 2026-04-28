@@ -171,7 +171,7 @@ export type {
 } from './agent-trace.js';
 
 // Marketplace
-export { ConfigurableParamSchema, MarketplaceCatalogItemSchema, WorkflowCatalogItemSchema, AgentCatalogItemSchema } from './marketplace.js';
+export { ConfigurableParamSchema, MarketplaceCatalogItemSchema } from './marketplace.js';
 export type { ConfigurableParam, MarketplaceCatalogItem, WorkflowCatalogItem, AgentCatalogItem } from './marketplace.js';
 
 // Dashboard
@@ -354,7 +354,6 @@ export {
   ActionTaskRelatedProductSchema,
   ActionTaskSourceAlertSchema,
   ActionTaskListSchema,
-  ActionTaskExecuteResponseSchema,
 } from './action-task.js';
 export type {
   ActionTask,

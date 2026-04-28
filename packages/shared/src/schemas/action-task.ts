@@ -57,5 +57,4 @@ export type ActionTaskSourceAlert = z.infer<typeof ActionTaskSourceAlertSchema>;
 export const ActionTaskListSchema = z.array(ActionTaskSchema);
 export type ActionTaskList = z.infer<typeof ActionTaskListSchema>;
 
-export const ActionTaskExecuteResponseSchema = ActionTaskSchema;
-export type ActionTaskExecuteResponse = z.infer<typeof ActionTaskExecuteResponseSchema>;
+export type ActionTaskExecuteResponse = ActionTask;

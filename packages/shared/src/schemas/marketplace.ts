@@ -50,10 +50,6 @@ export const MarketplaceCatalogItemSchema = z.object({
   updatedAt: zIsoDate,
 });
 
-// 하위 호환 타입 별칭
-export const WorkflowCatalogItemSchema = MarketplaceCatalogItemSchema;
-export const AgentCatalogItemSchema = MarketplaceCatalogItemSchema;
-
 // 타입 export
 export type ConfigurableParam = z.infer<typeof ConfigurableParamSchema>;
 export type MarketplaceCatalogItem = z.infer<typeof MarketplaceCatalogItemSchema>;

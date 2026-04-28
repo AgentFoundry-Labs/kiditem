@@ -1,8 +1,7 @@
 import { z } from 'zod';
 import { zIsoDate } from './common.js';
 
-export const HEARTBEAT_FAILURE_TYPES = ['timeout'] as const;
-export type HeartbeatFailureType = typeof HEARTBEAT_FAILURE_TYPES[number];
+const HEARTBEAT_FAILURE_TYPES = ['timeout'] as const;
 
 // AgentRuntimeState — 에이전트 누적 상태
 // 출처: agent-registry.service.ts — Prisma AgentRuntimeState 직접 반환
