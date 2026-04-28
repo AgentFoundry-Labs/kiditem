@@ -119,29 +119,57 @@ EXCLUDE_GLOBS=(
 
 FAIL_PATTERNS=0
 
+# Loaded per file by scan_file_lines. Bash 3.2 compatible replacement for mapfile.
+FILE_LINES=()
+
+load_file_lines() {
+  local file="$1"
+  FILE_LINES=()
+  while IFS= read -r line || [ -n "$line" ]; do
+    FILE_LINES+=("$line")
+  done < "$file"
+}
+
+window_from_index() {
+  # $1 = zero-based start index, $2 = zero-based end index
+  local start="$1" end="$2" i
+  [ "$start" -lt 0 ] && start=0
+  [ "$end" -ge "${#FILE_LINES[@]}" ] && end=$((${#FILE_LINES[@]} - 1))
+  for ((i = start; i <= end; i++)); do
+    printf '%s\n' "${FILE_LINES[$i]}"
+  done
+}
+
 # ── Pattern 1: findUnique({ where: { id ... } }) without companyId ─────────
 echo "🔍 [1/4] findUnique({ where: { id ... } }) without companyId scope..."
 P1_HITS=()
-while IFS= read -r match; do
-  [ -z "$match" ] && continue
-  file="${match%%:*}"
-  rest="${match#*:}"
-  lineno="${rest%%:*}"
-  content="${rest#*:}"
+while IFS= read -r file; do
+  [ -z "$file" ] && continue
   rel="$(relpath "$file")"
-
-  is_comment_line "$content" && continue
   is_allowlisted "findUnique" "$rel" && continue
+  load_file_lines "$file"
 
-  # Multi-line where clause: scan the matched line + next 3 lines for companyId.
-  end=$((lineno + 3))
-  window=$(sed -n "${lineno},${end}p" "$file" 2>/dev/null || true)
-  if echo "$window" | rg -q 'companyId'; then
-    continue
-  fi
+  for i in "${!FILE_LINES[@]}"; do
+    content="${FILE_LINES[$i]}"
+    is_comment_line "$content" && continue
+    case "$content" in
+      *".findUnique"*"("*) ;;
+      *) continue ;;
+    esac
 
-  P1_HITS+=("$rel:$lineno: $content")
-done < <(rg -n '\.findUnique\s*\(\s*\{\s*where:\s*\{\s*id\b' "$SERVER_SRC" "${EXCLUDE_GLOBS[@]}" 2>/dev/null || true)
+    # Prisma calls in this repo normally close within a few lines. Keep the
+    # window wide enough for formatted multi-line `where` objects without
+    # attempting to parse TypeScript in shell.
+    window=$(window_from_index "$i" "$((i + 10))")
+    [[ "$window" =~ where[[:space:]]*: ]] || continue
+    [[ "$window" =~ (^|[^[:alnum:]_])id[[:space:]]*[:},] ]] || continue
+    if [[ "$window" == *companyId* ]]; then
+      continue
+    fi
+
+    P1_HITS+=("$rel:$((i + 1)): $content")
+  done
+done < <(rg --files "$SERVER_SRC" "${EXCLUDE_GLOBS[@]}" 2>/dev/null || true)
 
 if [ ${#P1_HITS[@]} -gt 0 ]; then
   echo "❌ FAIL [1/4]: ${#P1_HITS[@]} site(s) using findUnique by bare id (IDOR risk):"
@@ -154,39 +182,35 @@ fi
 # ── Pattern 2: update/delete({ where: { id ... } }) with no preceding scope ─
 echo "🔍 [2/4] update/delete({ where: { id ... } }) without preceding tenant-scoped read..."
 P2_HITS=()
-while IFS= read -r match; do
-  [ -z "$match" ] && continue
-  file="${match%%:*}"
-  rest="${match#*:}"
-  lineno="${rest%%:*}"
-  content="${rest#*:}"
+while IFS= read -r file; do
+  [ -z "$file" ] && continue
   rel="$(relpath "$file")"
-
-  is_comment_line "$content" && continue
   is_allowlisted "idMutation" "$rel" && continue
+  load_file_lines "$file"
 
-  # Multi-line where clause: scan matched line + next 3 lines for companyId.
-  end_after=$((lineno + 3))
-  win_after=$(sed -n "${lineno},${end_after}p" "$file" 2>/dev/null || true)
-  if echo "$win_after" | rg -q 'companyId'; then
-    continue
-  fi
+  for i in "${!FILE_LINES[@]}"; do
+    content="${FILE_LINES[$i]}"
+    is_comment_line "$content" && continue
+    [[ "$content" =~ (this\.prisma|prisma|tx|db)\.[A-Za-z0-9_]+\.(update|delete)[[:space:]]*\( ]] || continue
 
-  # Preceding ~25 lines: any tenant-scoped read (findFirst with companyId,
-  # or any explicit companyId reference) is treated as "scoped" — the
-  # canonical read-then-write pattern.
-  start_before=$((lineno - 25))
-  [ "$start_before" -lt 1 ] && start_before=1
-  end_before=$((lineno - 1))
-  if [ "$end_before" -ge "$start_before" ]; then
-    win_before=$(sed -n "${start_before},${end_before}p" "$file" 2>/dev/null || true)
-    if echo "$win_before" | rg -q 'companyId'; then
+    win_after=$(window_from_index "$i" "$((i + 10))")
+    [[ "$win_after" =~ where[[:space:]]*: ]] || continue
+    [[ "$win_after" =~ (^|[^[:alnum:]_])id[[:space:]]*[:},] ]] || continue
+    if [[ "$win_after" == *companyId* ]]; then
       continue
     fi
-  fi
 
-  P2_HITS+=("$rel:$lineno: $content")
-done < <(rg -n '\.(update|delete)\s*\(\s*\{\s*where:\s*\{\s*id\s*[},]' "$SERVER_SRC" "${EXCLUDE_GLOBS[@]}" 2>/dev/null || true)
+    # Preceding ~25 lines: any tenant-scoped read (findFirst with companyId,
+    # or any explicit companyId reference) is treated as "scoped" — the
+    # canonical read-then-write pattern.
+    win_before=$(window_from_index "$((i - 25))" "$((i - 1))")
+    if [[ "$win_before" == *companyId* ]]; then
+      continue
+    fi
+
+    P2_HITS+=("$rel:$((i + 1)): $content")
+  done
+done < <(rg --files "$SERVER_SRC" "${EXCLUDE_GLOBS[@]}" 2>/dev/null || true)
 
 if [ ${#P2_HITS[@]} -gt 0 ]; then
   echo "❌ FAIL [2/4]: ${#P2_HITS[@]} site(s) using update/delete by bare id without preceding tenant scope:"
