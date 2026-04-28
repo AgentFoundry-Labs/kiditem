@@ -1,0 +1,14 @@
+# Tenant-scope scanner allowlist (scripts/check-tenant-scope.sh)
+#
+# Each non-comment line: <relative-path-from-repo-root> <pattern-id>
+#   pattern-id ∈ { findUnique | idMutation | controllerParam | dtoField | all }
+#   When omitted, defaults to "all" (exempt from every pattern).
+#
+# Allowlist entries should be narrow: one path + one pattern + a recorded reason.
+# Adding "all" or broad globs defeats the gate. Re-justify when allowlisting.
+
+# Marketplace is a globally-shared catalog (Marketplace model has no companyId
+# column — workflow/agent template rows are not tenant-owned). findUnique by
+# bare id on this table is intentional. Tenant scope is enforced separately on
+# the per-company install records (WorkflowTemplate / AgentDefinition).
+apps/server/src/marketplace/marketplace.service.ts findUnique
