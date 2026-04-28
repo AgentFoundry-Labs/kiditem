@@ -15,23 +15,20 @@ export const MasterImageRoleSchema = z.enum([
 export type MasterImageRole = z.infer<typeof MasterImageRoleSchema>;
 
 export const MasterImageItemSchema = z.object({
+  id: z.string().uuid().optional(),
   url: z.string().url(),
+  storageKey: z.string().nullable().optional(),
   role: MasterImageRoleSchema,
   label: z.string().nullable(),
   sortOrder: z.number().int().nonnegative(),
+  source: z.string().optional(),
+  mimeType: z.string().nullable().optional(),
+  width: z.number().int().positive().nullable().optional(),
+  height: z.number().int().positive().nullable().optional(),
+  fileSize: z.number().int().nonnegative().nullable().optional(),
+  isPrimary: z.boolean().optional(),
 });
 export type MasterImageItem = z.infer<typeof MasterImageItemSchema>;
-
-/**
- * @deprecated Temporary alias for legacy call sites in apps/web/src/app/image-hub
- * and apps/web/src/app/thumbnail-editor. Remove once those domains migrate to
- * `MasterImageItem` through their own plans — tracked in TODOS.md "ProductImageItem
- * deprecated alias 제거". Keeps apps/web build green during the product-contract slice.
- */
-export const ProductImageItemSchema = MasterImageItemSchema;
-export type ProductImageItem = MasterImageItem;
-export const ProductImageRoleSchema = MasterImageRoleSchema;
-export type ProductImageRole = MasterImageRole;
 
 // ===== Image endpoint envelopes (ADR-0020 successor, W1) =====
 export const GetMasterImagesResponseSchema = z.object({

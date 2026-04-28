@@ -40,6 +40,9 @@ This ERD is a development-time navigation aid. The source of truth is still the 
 | Thumbnail | AI | `thumbnails` | CTR 기반 썸네일 트래킹 (ThumbnailAnalysis 와 별도 시스템). |
 | ThumbnailAnalysis | AI | `thumbnail_analyses` | 5차원 scores(heroShot·composition·branding·mobile·differentiation) + complianceGrade(PASS/WARN/FAIL) + imageSpec(사전검수). 스펙 FAIL 시 AI 호출 생략. |
 | ThumbnailGeneration | AI | `thumbnail_generations` | 상태: pending→generating→ready/failed→applied/skipped. method=edit 만 사용 (generate Imagen 방식 삭제됨). |
+| ThumbnailGenerationCandidate | AI | `thumbnail_generation_candidates` | 썸네일 생성 후보 이미지. 바이너리는 object storage 에 저장하고 DB 는 URL/key 메타데이터만 보관한다. |
+| ThumbnailGenerationInputImage | AI | `thumbnail_generation_input_images` | 썸네일 편집/생성 입력 이미지. base64 원문 대신 object storage 참조와 역할 메타데이터만 저장한다. |
+| ThumbnailRegistrationAttempt | AI | `thumbnail_registration_attempts` | Wing 등 외부 채널 등록 시도 이력. 마지막 상태만 덮어쓰지 않고 재시도/실패 원인을 보존한다. |
 | ThumbnailTracking | AI | `thumbnail_trackings` | - |
 | ChannelAccountDailyKpiSnapshot | Channels | `channel_account_daily_kpi_snapshots` | 채널 계정/스토어 단위 KPI 일별 정규화 fact (listing 에 귀속되지 않는 dashboard KPI 용). |
 | ChannelAdTargetDailySnapshot | Channels | `channel_ad_target_daily_snapshots` | 채널 광고 타겟(캠페인/키워드/상품)의 일별 정규화 fact. 기간 view 는 SUM 으로 derive. |
@@ -53,6 +56,7 @@ This ERD is a development-time navigation aid. The source of truth is still the 
 | ChannelListingOption | Core | `channel_listing_options` | 채널 listing 내 옵션 externalOptionId 와 내부 ProductOption 매핑. |
 | Company | Core | `companies` | - |
 | MasterProduct | Core | `master_products` | 기획상품 family. 같은 컨셉의 옵션들을 묶는 entity. 운영/광고/전략 단위. |
+| MasterProductImage | Core | `master_product_images` | MasterProduct 이미지 갤러리. Source of truth 이며 MasterProduct.imageUrl 은 대표 이미지 캐시로만 동기화된다. |
 | ProductOption | Core | `product_options` | 물리 SKU. 바코드 1:1. 재고/매입/창고 단위. isBundle 이면 구성품 기반 계산. |
 | User | Core | `users` | human(직원) / agent(AI, agentDefinitionId 연결) / system(챗봇, companyId=null) 통합 관리. |
 | GradeHistory | Finance | `grade_histories` | ABC 등급 변경 추적. |
@@ -729,7 +733,6 @@ erDiagram
     Json tags
     Int optionCounter
     String thumbnailUrl
-    Json images
     String imageUrl
     String abcGrade
     String profitTag
@@ -753,6 +756,26 @@ erDiagram
     Boolean isTemporary
     String temporaryReason
     String memo
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  MasterProductImage {
+    String id PK
+    String companyId FK
+    String masterId FK
+    String url
+    String storageKey
+    String role
+    String label
+    Int sortOrder
+    String source
+    String mimeType
+    Int width
+    Int height
+    Int fileSize
+    Boolean isPrimary
+    Boolean isDeleted
+    DateTime deletedAt
     DateTime createdAt
     DateTime updatedAt
   }
@@ -1189,6 +1212,7 @@ erDiagram
     String complianceGrade
     Json complianceScores
     Json imageSpec
+    Json recompose
     DateTime qualityAnalyzedAt
     DateTime complianceAnalyzedAt
     DateTime createdAt
@@ -1199,7 +1223,6 @@ erDiagram
     String companyId FK
     String masterId FK
     String originalUrl
-    Json candidates
     String selectedUrl
     String status
     String phase
@@ -1208,7 +1231,56 @@ erDiagram
     String prompt
     String method
     Json editAnalysis
+    Json inputMeta
+    Int inputMetaVersion
+    String errorMessage
+    Int attemptCount
     String triggeredByUserId FK
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  ThumbnailGenerationCandidate {
+    String id PK
+    String companyId FK
+    String generationId FK
+    String url
+    String storageKey
+    String filename
+    Int sortOrder
+    String mimeType
+    Int width
+    Int height
+    Int fileSize
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  ThumbnailGenerationInputImage {
+    String id PK
+    String companyId FK
+    String generationId FK
+    String url
+    String storageKey
+    String role
+    String label
+    Int sortOrder
+    String source
+    String mimeType
+    Int width
+    Int height
+    Int fileSize
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  ThumbnailRegistrationAttempt {
+    String id PK
+    String companyId FK
+    String generationId FK
+    String status
+    String errorMessage
+    String screenshotUrl
+    String externalId
+    DateTime startedAt
+    DateTime finishedAt
     DateTime createdAt
     DateTime updatedAt
   }
@@ -1364,6 +1436,7 @@ erDiagram
   Company ||--o{ Inventory : "company"
   Company ||--o{ ManualLedger : "company"
   Company ||--o{ MasterProduct : "company"
+  Company ||--o{ MasterProductImage : "company"
   Company ||--o{ Order : "company"
   Company ||--o{ OrderLineItem : "company"
   Company ||--o{ OrderReturn : "company"
@@ -1389,6 +1462,9 @@ erDiagram
   Company ||--o{ Thumbnail : "company"
   Company ||--o{ ThumbnailAnalysis : "company"
   Company ||--o{ ThumbnailGeneration : "company"
+  Company ||--o{ ThumbnailGenerationCandidate : "company"
+  Company ||--o{ ThumbnailGenerationInputImage : "company"
+  Company ||--o{ ThumbnailRegistrationAttempt : "company"
   Company ||--o{ ThumbnailTracking : "company"
   Company ||--o{ UnshippedItem : "company"
   Company o|--o{ User : "company"
@@ -1401,6 +1477,7 @@ erDiagram
   MasterProduct ||--o{ ChannelListing : "master"
   MasterProduct ||--o{ ContentGeneration : "master"
   MasterProduct ||--o{ GradeHistory : "master"
+  MasterProduct ||--o{ MasterProductImage : "master"
   MasterProduct ||--o{ MasterSupplierProduct : "master"
   MasterProduct ||--o{ ProcessingCost : "master"
   MasterProduct ||--o{ ProductOption : "master"
@@ -1436,6 +1513,9 @@ erDiagram
   Supplier o|--o{ PurchaseOrder : "supplier"
   Supplier ||--o{ SupplierPayment : "supplier"
   Supplier ||--o{ SupplierProduct : "supplier"
+  ThumbnailGeneration ||--o{ ThumbnailGenerationCandidate : "generation"
+  ThumbnailGeneration ||--o{ ThumbnailGenerationInputImage : "generation"
+  ThumbnailGeneration ||--o{ ThumbnailRegistrationAttempt : "generation"
   ThumbnailGeneration ||--o{ ThumbnailTracking : "generation"
   User o|--o{ ActionTask : "assigneeUser"
   User o|--o{ HeartbeatRun : "triggeredByUser"

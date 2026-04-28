@@ -30,6 +30,12 @@ VALUES
 - 최적 임계값 자동 제안
 - 기존 규칙 대비 개선 효과 예측', 'specialist', 'analytics', 'claude_local', 'agent-config/prompts/agents/rules-suggest.md', ARRAY['db-query'], true),
 
+  (gen_random_uuid(), 'agent', '썸네일 분석 에이전트', '상품 썸네일 CTR 분석 및 개선 추천.
+
+- 상품별 CTR/노출/클릭 분석
+- 카테고리 평균 대비 성과 비교
+- 저성과 썸네일 개선 우선순위 추천', 'specialist', 'product', 'claude_local', 'agent-config/prompts/agents/thumbnail-analyst.md', ARRAY['db-query'], true),
+
   (gen_random_uuid(), 'agent', '챗봇 에이전트', '비즈니스 데이터 조회 전용 챗봇.
 
 - 읽기 전용 데이터 조회

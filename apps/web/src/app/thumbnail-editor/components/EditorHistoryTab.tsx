@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { History } from 'lucide-react';
+import { toast } from 'sonner';
 import type { ThumbnailGenerationItem } from '@kiditem/shared';
 import {
   useGenerationList,
@@ -12,6 +13,7 @@ import {
 import { ProductCard } from '@/components/thumbnails/ProductCard';
 import { DetailModal } from '@/components/thumbnails/DetailModal';
 import { ThumbnailStatusBadge } from '@/components/thumbnails/ThumbnailStatusBadge';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { isReady, isApplied } from '@/lib/thumbnail-status';
 import { openCoupangWingInventory } from '@/lib/coupang-wing';
 
@@ -23,6 +25,7 @@ export function EditorHistoryTab() {
   const deleteGenerationMutation = useDeleteGeneration();
 
   const [selectedGen, setSelectedGen] = useState<ThumbnailGenerationItem | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<ThumbnailGenerationItem | null>(null);
 
   // 편집기에서 생성된 것만 (method: 'generate')
   const generations = allGenerations.filter((g) => g.method === 'generate');
@@ -64,6 +67,17 @@ export function EditorHistoryTab() {
     setSelectedGen(null);
   };
 
+  const handleInlineDelete = (gen: ThumbnailGenerationItem) => setDeleteTarget(gen);
+  const confirmInlineDelete = () => {
+    if (!deleteTarget) return;
+    const id = deleteTarget.id;
+    setDeleteTarget(null);
+    deleteGenerationMutation.mutate(id, {
+      onSuccess: () => toast.success('삭제되었습니다'),
+      onError: () => toast.error('삭제 실패'),
+    });
+  };
+
   if (generations.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center">
@@ -101,9 +115,30 @@ export function EditorHistoryTab() {
                 : undefined
             }
             onClick={() => setSelectedGen(gen)}
+            onDelete={() => handleInlineDelete(gen)}
           />
         ))}
       </div>
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={(v) => !v && setDeleteTarget(null)}
+        tone="danger"
+        title="편집 결과를 삭제할까요?"
+        description={
+          deleteTarget ? (
+            <>
+              <span className="font-semibold text-[var(--text-primary,#0f172a)]">
+                {deleteTarget.product.name}
+              </span>
+              의 편집 이력이 영구 삭제됩니다. 복구할 수 없습니다.
+            </>
+          ) : null
+        }
+        confirmText="삭제"
+        cancelText="취소"
+        onConfirm={confirmInlineDelete}
+      />
 
       {selectedGen && (
         <DetailModal

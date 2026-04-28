@@ -2,10 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { normalizeMasterImages } from '../product-image-normalizer';
 
 describe('normalizeMasterImages', () => {
-  it('normalizes legacy string arrays to default role=product, label=null', () => {
-    expect(normalizeMasterImages(['https://cdn.example.com/a.png'])).toEqual([
-      { url: 'https://cdn.example.com/a.png', role: 'product', label: null, sortOrder: 0 },
-    ]);
+  it('drops string image arrays because writes must use structured image-table rows', () => {
+    expect(normalizeMasterImages(['https://cdn.example.com/a.png'])).toEqual([]);
   });
 
   it('keeps structured image items and normalizes missing optional text', () => {

@@ -6,8 +6,6 @@ export type { PaginatedResponse, ApiErrorResponse, SyncInfo } from './schemas/co
 export {
   MasterImageRoleSchema,
   MasterImageItemSchema,
-  ProductImageRoleSchema, // @deprecated alias — see schemas/product.ts
-  ProductImageItemSchema, // @deprecated alias — see schemas/product.ts
   GetMasterImagesResponseSchema,
   UpdateMasterImagesRequestSchema,
   UploadMasterImageResponseSchema,
@@ -25,8 +23,6 @@ export {
 export type {
   MasterImageRole,
   MasterImageItem,
-  ProductImageRole, // @deprecated alias — see schemas/product.ts
-  ProductImageItem, // @deprecated alias — see schemas/product.ts
   GetMasterImagesResponse,
   UpdateMasterImagesRequest,
   UploadMasterImageResponse,

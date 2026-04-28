@@ -2,30 +2,30 @@
 
 import { useRef } from 'react';
 import { Plus, X } from 'lucide-react';
-import type { ProductImageItem } from '@kiditem/shared';
+import type { MasterImageItem } from '@kiditem/shared';
 import { HUB_ROLE_CONFIG, type HubRoleConfig } from '@/lib/hub-roles';
 
 interface Props {
-  images: ProductImageItem[];
+  images: MasterImageItem[];
   onAdd: (role: string, file: File) => void;
   onRemove: (index: number) => void;
   onLabelChange: (index: number, label: string) => void;
 }
 
+type IndexedImage = { image: MasterImageItem; originalIndex: number };
+
 function RoleSection({
   config,
-  images,
+  items,
   onAdd,
   onRemove,
   onLabelChange,
-  startIndex,
 }: {
   config: HubRoleConfig;
-  images: ProductImageItem[];
+  items: IndexedImage[];
   onAdd: (role: string, file: File) => void;
   onRemove: (index: number) => void;
   onLabelChange: (index: number, label: string) => void;
-  startIndex: number;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -42,27 +42,27 @@ function RoleSection({
           <div className="text-sm font-semibold text-slate-700">{config.label}</div>
           <div className="text-xs text-slate-400">{config.description}</div>
         </div>
-        <span className="text-xs text-slate-400">{images.length}장</span>
+        <span className="text-xs text-slate-400">{items.length}장</span>
       </div>
       <div
         className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3"
         onDragOver={(e) => e.preventDefault()}
         onDrop={handleDrop}
       >
-        {images.map((img, i) => {
-          const globalIndex = startIndex + i;
+        {items.map((item) => {
+          const { image, originalIndex } = item;
           return (
-            <div key={`${img.url}-${i}`} className="group relative space-y-1">
+            <div key={`${image.url}-${originalIndex}`} className="group relative space-y-1">
               <div className="relative aspect-square rounded-xl overflow-hidden border border-slate-200 bg-slate-50">
                 <img
-                  src={img.url}
-                  alt={img.label || ''}
+                  src={image.url}
+                  alt={image.label || ''}
                   className="w-full h-full object-cover"
                   loading="lazy"
                   referrerPolicy="no-referrer"
                 />
                 <button
-                  onClick={() => onRemove(globalIndex)}
+                  onClick={() => onRemove(originalIndex)}
                   className="absolute top-1 right-1 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
                 >
                   <X size={12} />
@@ -70,8 +70,8 @@ function RoleSection({
               </div>
               <input
                 type="text"
-                value={img.label || ''}
-                onChange={(e) => onLabelChange(globalIndex, e.target.value)}
+                value={image.label || ''}
+                onChange={(e) => onLabelChange(originalIndex, e.target.value)}
                 className="w-full px-2 py-1 rounded-lg border border-slate-200 text-xs focus:outline-none focus:ring-1 focus:ring-purple-200"
                 placeholder="라벨 (예: 빨강)"
               />
@@ -103,25 +103,25 @@ function RoleSection({
 }
 
 export function ImageGrid({ images, onAdd, onRemove, onLabelChange }: Props) {
-  let offset = 0;
+  // Pair every image with its index in the *full* draft array. Filtering
+  // role-by-role then yields stable `originalIndex` values that don't shift
+  // when other roles are present, which is what the parent's onRemove /
+  // onLabelChange callbacks expect.
+  const indexed: IndexedImage[] = images.map((image, originalIndex) => ({ image, originalIndex }));
   return (
     <div className="space-y-6">
       {HUB_ROLE_CONFIG.map((config) => {
-        const roleImages = images.filter((img) => img.role === config.role);
-        const startIndex = images.findIndex((img) => img.role === config.role);
-        const section = (
+        const roleItems = indexed.filter((item) => item.image.role === config.role);
+        return (
           <RoleSection
             key={config.role}
             config={config}
-            images={roleImages}
+            items={roleItems}
             onAdd={onAdd}
             onRemove={onRemove}
             onLabelChange={onLabelChange}
-            startIndex={startIndex >= 0 ? startIndex : offset}
           />
         );
-        offset += roleImages.length;
-        return section;
       })}
     </div>
   );

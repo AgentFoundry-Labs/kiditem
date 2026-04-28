@@ -7,7 +7,7 @@ import {
   Param,
   Post,
   Put,
-  ServiceUnavailableException,
+  Query,
 } from '@nestjs/common';
 import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
 import {
@@ -25,14 +25,16 @@ import {
 } from '../dto/thumbnail-edit.dto';
 import { ThumbnailAnalysisService } from '../services/thumbnail-analysis.service';
 import { ThumbnailGenerationService } from '../services/thumbnail-generation.service';
-
-const WING_UNAVAILABLE = 'wing_registration_not_connected';
+import { ThumbnailRecomposeService } from '../services/thumbnail-recompose.service';
+import { ThumbnailWingService } from '../services/thumbnail-wing.service';
 
 @Controller('thumbnail-analysis')
 export class ThumbnailAnalysisController {
   constructor(
     private readonly analysisService: ThumbnailAnalysisService,
     private readonly generationService: ThumbnailGenerationService,
+    private readonly recomposeService: ThumbnailRecomposeService,
+    private readonly wingService: ThumbnailWingService,
   ) {}
 
   // ─── 목록 / 요약 ───────────────────────────────────────────────
@@ -48,17 +50,21 @@ export class ThumbnailAnalysisController {
   }
 
   @Get('generations')
-  listGenerations(@CurrentCompany() companyId: string) {
-    return this.generationService.findAll(companyId);
+  listGenerations(
+    @CurrentCompany() companyId: string,
+    @Query('productId') productId?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const parsedLimit = limit ? Number.parseInt(limit, 10) : undefined;
+    return this.generationService.findAll(companyId, {
+      productId: productId || null,
+      limit: Number.isFinite(parsedLimit) ? parsedLimit : undefined,
+    });
   }
 
-  /**
-   * 현재 main 에 playwriter / Wing 자동화 어댑터가 연결되어 있지 않다.
-   * 가짜 connected:true 로 위장하지 말고 truthful 한 status 응답.
-   */
   @Get('playwriter-status')
   checkPlaywriterStatus(@CurrentCompany() _companyId: string) {
-    return { connected: false, error: WING_UNAVAILABLE };
+    return this.wingService.checkPlaywriterStatus();
   }
 
   @Get('generations/:id')
@@ -74,9 +80,22 @@ export class ThumbnailAnalysisController {
       return this.analysisService.analyzeProduct(body.productId, companyId, body.scope ?? 'all');
     }
     if (body.imageUrl) {
-      return this.analysisService.analyzeDirectImage(body.imageUrl, body.productName);
+      return this.analysisService.analyzeDirectImage(
+        body.imageUrl,
+        body.productName,
+        body.scope ?? 'all',
+      );
     }
     throw new BadRequestException('productId 또는 imageUrl 이 필요합니다');
+  }
+
+  @Post('edit/variants')
+  classifyRecomposeVariants(
+    @Body() body: { productId: string },
+    @CurrentCompany() companyId: string,
+  ) {
+    if (!body?.productId) throw new BadRequestException('productId 가 필요합니다');
+    return this.recomposeService.classify(body.productId, companyId);
   }
 
   @Post('image-spec')
@@ -160,28 +179,28 @@ export class ThumbnailAnalysisController {
     return this.generationService.removeCandidate(id, companyId, body.url);
   }
 
-  // ─── Wing 등록 — 현재 main 미연결 (truthful unavailable) ──────
+  // ─── Wing 등록 ────────────────────────────────────────────────
 
   @Post('generations/:id/wing-register')
-  wingRegister(@Param('id') _id: string, @CurrentCompany() _companyId: string) {
-    throw new ServiceUnavailableException(WING_UNAVAILABLE);
+  wingRegister(@Param('id') id: string, @CurrentCompany() companyId: string) {
+    return this.wingService.registerToWing(id, companyId);
   }
 
   @Post('generations/wing-register/batch')
   wingRegisterBatch(
-    @Body() _body: WingRegisterBatchDto,
-    @CurrentCompany() _companyId: string,
+    @Body() body: WingRegisterBatchDto,
+    @CurrentCompany() companyId: string,
   ) {
-    throw new ServiceUnavailableException(WING_UNAVAILABLE);
+    return this.wingService.batchRegister(body.generationIds, companyId);
   }
 
   @Delete('generations/:id/registration-error')
-  clearRegistrationError(@Param('id') _id: string, @CurrentCompany() _companyId: string) {
-    throw new ServiceUnavailableException(WING_UNAVAILABLE);
+  clearRegistrationError(@Param('id') id: string, @CurrentCompany() companyId: string) {
+    return this.wingService.clearRegistrationError(id, companyId);
   }
 
   @Post('generations/:id/verify-registration')
-  verifyRegistration(@Param('id') _id: string, @CurrentCompany() _companyId: string) {
-    throw new ServiceUnavailableException(WING_UNAVAILABLE);
+  verifyRegistration(@Param('id') id: string, @CurrentCompany() companyId: string) {
+    return this.wingService.verifyRegistration(id, companyId);
   }
 }

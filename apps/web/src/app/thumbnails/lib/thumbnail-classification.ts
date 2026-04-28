@@ -58,7 +58,7 @@ export function hasConfirmedComplianceFailure(product: ThumbnailAnalysisResult):
 export function needsThumbnailFix(product: ThumbnailAnalysisResult): boolean {
   if (!product.imageUrl) return false;
   if (hasConfirmedComplianceFailure(product)) return true;
-  return product.grade === 'C' || product.grade === 'F';
+  return product.qualityAnalyzed && (product.grade === 'C' || product.grade === 'F');
 }
 
 /**

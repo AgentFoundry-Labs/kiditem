@@ -45,6 +45,7 @@ model ThumbnailAnalysis {
   complianceGrade  String? @map("compliance_grade")   // PASS | WARN | FAIL
   complianceScores Json?   @map("compliance_scores")  // { violations, confidence, quality, violationCount }
   imageSpec        Json?   @map("image_spec")          // { width, height, aspectRatio, fileSizeKB, format, issues }
+  recompose        Json?   // { kind, requiresChoice, options, recommended, reasoning }
 
   qualityAnalyzedAt    DateTime? @map("quality_analyzed_at") @db.Timestamptz
   complianceAnalyzedAt DateTime? @map("compliance_analyzed_at") @db.Timestamptz
@@ -69,7 +70,9 @@ model ThumbnailGeneration {
   masterId  String @map("master_id") @db.Uuid
 
   originalUrl String? @map("original_url")
-  candidates  Json    @default("[]")
+  candidates  ThumbnailGenerationCandidate[]
+  inputImages ThumbnailGenerationInputImage[]
+  registrationAttempts ThumbnailRegistrationAttempt[]
   selectedUrl String? @map("selected_url")
   status      String  @default("pending")
   phase       String? @map("phase")
@@ -78,6 +81,10 @@ model ThumbnailGeneration {
   prompt       String?
   method       String  @default("generate") @map("method")
   editAnalysis Json?   @map("edit_analysis")
+  inputMeta    Json?   @map("input_meta")
+  inputMetaVersion Int @default(1) @map("input_meta_version")
+  errorMessage String? @map("error_message")
+  attemptCount Int     @default(0) @map("attempt_count")
 
   triggeredByUserId String? @map("triggered_by_user_id") @db.Uuid
 
@@ -95,6 +102,95 @@ model ThumbnailGeneration {
   @@index([method])
   @@index([companyId, triggeredByUserId])
   @@map("thumbnail_generations")
+}
+
+/// @namespace AI
+/// @describe 썸네일 생성 후보 이미지. 바이너리는 object storage 에 저장하고 DB 는 URL/key 메타데이터만 보관한다.
+model ThumbnailGenerationCandidate {
+  id           String @id @default(uuid()) @db.Uuid
+  companyId    String @map("company_id") @db.Uuid
+  generationId String @map("generation_id") @db.Uuid
+
+  url        String
+  storageKey String? @map("storage_key")
+  filename   String?
+  sortOrder  Int     @default(0) @map("sort_order")
+
+  mimeType String? @map("mime_type")
+  width    Int?
+  height   Int?
+  fileSize Int?    @map("file_size")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company    Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  generation ThumbnailGeneration @relation(fields: [generationId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([generationId])
+  @@index([companyId, generationId])
+  @@index([generationId, sortOrder])
+  @@map("thumbnail_generation_candidates")
+}
+
+/// @namespace AI
+/// @describe 썸네일 편집/생성 입력 이미지. base64 원문 대신 object storage 참조와 역할 메타데이터만 저장한다.
+model ThumbnailGenerationInputImage {
+  id           String @id @default(uuid()) @db.Uuid
+  companyId    String @map("company_id") @db.Uuid
+  generationId String @map("generation_id") @db.Uuid
+
+  url        String
+  storageKey String? @map("storage_key")
+  role       String  @default("product")
+  label      String?
+  sortOrder  Int     @default(0) @map("sort_order")
+  source     String  @default("upload")
+
+  mimeType String? @map("mime_type")
+  width    Int?
+  height   Int?
+  fileSize Int?    @map("file_size")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company    Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  generation ThumbnailGeneration @relation(fields: [generationId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([generationId])
+  @@index([companyId, generationId])
+  @@index([generationId, role, sortOrder])
+  @@map("thumbnail_generation_input_images")
+}
+
+/// @namespace AI
+/// @describe Wing 등 외부 채널 등록 시도 이력. 마지막 상태만 덮어쓰지 않고 재시도/실패 원인을 보존한다.
+model ThumbnailRegistrationAttempt {
+  id           String @id @default(uuid()) @db.Uuid
+  companyId    String @map("company_id") @db.Uuid
+  generationId String @map("generation_id") @db.Uuid
+
+  status       String  @default("uploaded")
+  errorMessage String? @map("error_message")
+  screenshotUrl String? @map("screenshot_url")
+  externalId   String? @map("external_id")
+
+  startedAt  DateTime? @map("started_at") @db.Timestamptz
+  finishedAt DateTime? @map("finished_at") @db.Timestamptz
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company    Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  generation ThumbnailGeneration @relation(fields: [generationId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([generationId])
+  @@index([companyId, generationId])
+  @@index([status])
+  @@map("thumbnail_registration_attempts")
 }
 
 /// @namespace AI
@@ -157,4 +253,3 @@ model ContentGeneration {
   @@index([status])
   @@map("content_generations")
 }
-

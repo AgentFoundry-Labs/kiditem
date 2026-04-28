@@ -21,9 +21,4 @@ export const HUB_ROLE_CONFIG: ReadonlyArray<{
   { role: 'detail', label: '📄 상세 이미지', description: '상세 설명 이미지' },
 ] as const;
 
-/**
- * @deprecated legacy name. Use `MasterImageRole` from `@kiditem/shared` or re-exported here.
- */
-export type ProductImageRole = MasterImageRole;
-
 export type HubRoleConfig = (typeof HUB_ROLE_CONFIG)[number];

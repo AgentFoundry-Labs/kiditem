@@ -88,8 +88,8 @@ export type ImageSpec = z.infer<typeof ImageSpecSchema>;
 export type ImageSpecIssue = z.infer<typeof ImageSpecIssueSchema>;
 
 // ─── Recompose Scenarios ──────────────────────────────────────────────
-// AI 분석 시점에 추정되는 시나리오 + variant 옵션. 현재 main DB 에는 컬럼이 없어
-// `ThumbnailAnalysisResult.recompose` 는 항상 null 로 직렬화된다.
+// AI 분석 시점에 추정되는 시나리오 + variant 옵션. DB 에는
+// ThumbnailAnalysis.recompose Json 으로 저장하되, 앱 레벨 schema 로 shape 를 고정한다.
 
 export const RECOMPOSE_VARIANT_KEYS = ['auto', 'with-box', 'no-box'] as const;
 export type RecomposeVariantKey = (typeof RECOMPOSE_VARIANT_KEYS)[number];
@@ -153,7 +153,6 @@ export const ThumbnailAnalysisResultSchema = z.object({
   complianceGrade: z.string().nullable(),
   complianceScores: ComplianceScoresSchema.nullable(),
   imageSpec: ImageSpecSchema.nullable().optional(),
-  // 현재 main DB 미지원 — 항상 null. 브랜치 UI 호환을 위해 optional/nullable 로 노출.
   recompose: RecomposeVariantClassificationSchema.nullable().optional(),
   createdAt: z.string().optional(),
   ctr: z.number().nullable().optional(),
@@ -197,7 +196,13 @@ export const ThumbnailGenerationItemSchema = z.object({
   id: z.string(),
   productId: z.string(),
   originalUrl: z.string().nullable(),
-  candidates: z.array(z.object({ url: z.string(), filename: z.string() })),
+  candidates: z.array(z.object({
+    id: z.string().uuid().optional(),
+    url: z.string(),
+    storageKey: z.string().nullable().optional(),
+    filename: z.string(),
+    sortOrder: z.number().int().nonnegative().optional(),
+  })),
   selectedUrl: z.string().nullable(),
   status: z.enum(['pending', 'running', 'succeeded', 'failed', 'cancelled']),
   phase: z.enum(THUMBNAIL_PHASES).nullable().optional(),
@@ -205,8 +210,10 @@ export const ThumbnailGenerationItemSchema = z.object({
   score: z.number(),
   method: z.string().default('generate'),
   editAnalysis: EditAnalysisResultSchema.nullable().default(null),
+  inputMeta: z.record(z.string(), z.unknown()).nullable().optional(),
+  errorMessage: z.string().nullable().optional(),
+  attemptCount: z.number().int().nonnegative().optional(),
   triggeredByUserId: z.string().uuid().nullable().optional(),
-  // 현재 main DB 미지원. 항상 null 직렬화.
   registrationStatus: z.enum(THUMBNAIL_REGISTRATION_STATUSES).nullable().optional(),
   registrationCheckedAt: z.string().nullable().optional(),
   registrationError: z.string().nullable().optional(),

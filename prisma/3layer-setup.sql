@@ -178,3 +178,31 @@ CREATE POLICY channel_account_daily_kpi_snapshots_chatbot_filter ON channel_acco
   USING (company_id = current_setting('app.company_id', true)::uuid);
 
 -- migration_checkpoints — no RLS (internal tooling)
+
+-- 9. Product/AI image tables — company-scoped gallery + thumbnail generation
+-- artifacts. DB stores only object-storage references and metadata; NestJS
+-- still applies explicit companyId filters while chatbot_readonly relies on RLS.
+
+ALTER TABLE master_product_images ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS master_product_images_chatbot_filter ON master_product_images;
+CREATE POLICY master_product_images_chatbot_filter ON master_product_images
+  FOR SELECT TO chatbot_readonly
+  USING (company_id = current_setting('app.company_id', true)::uuid);
+
+ALTER TABLE thumbnail_generation_candidates ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS thumbnail_generation_candidates_chatbot_filter ON thumbnail_generation_candidates;
+CREATE POLICY thumbnail_generation_candidates_chatbot_filter ON thumbnail_generation_candidates
+  FOR SELECT TO chatbot_readonly
+  USING (company_id = current_setting('app.company_id', true)::uuid);
+
+ALTER TABLE thumbnail_generation_input_images ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS thumbnail_generation_input_images_chatbot_filter ON thumbnail_generation_input_images;
+CREATE POLICY thumbnail_generation_input_images_chatbot_filter ON thumbnail_generation_input_images
+  FOR SELECT TO chatbot_readonly
+  USING (company_id = current_setting('app.company_id', true)::uuid);
+
+ALTER TABLE thumbnail_registration_attempts ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS thumbnail_registration_attempts_chatbot_filter ON thumbnail_registration_attempts;
+CREATE POLICY thumbnail_registration_attempts_chatbot_filter ON thumbnail_registration_attempts
+  FOR SELECT TO chatbot_readonly
+  USING (company_id = current_setting('app.company_id', true)::uuid);

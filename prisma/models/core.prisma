@@ -18,6 +18,9 @@ model Company {
   thumbnails            Thumbnail[]
   thumbnailAnalyses     ThumbnailAnalysis[]
   thumbnailGenerations  ThumbnailGeneration[]
+  thumbnailGenerationCandidates ThumbnailGenerationCandidate[]
+  thumbnailGenerationInputImages ThumbnailGenerationInputImage[]
+  thumbnailRegistrationAttempts  ThumbnailRegistrationAttempt[]
   thumbnailTrackings    ThumbnailTracking[]
   reviews               Review[]
   alerts         Alert[]
@@ -89,6 +92,7 @@ model Company {
 
   // 3-layer product schema (new)
   masterProducts          MasterProduct[]
+  masterProductImages     MasterProductImage[]
   productOptions          ProductOption[]
   channelListings         ChannelListing[]
   channelListingOptions   ChannelListingOption[]
@@ -178,7 +182,7 @@ model MasterProduct {
   optionCounter Int    @default(0) @map("option_counter")
 
   thumbnailUrl String?  @map("thumbnail_url")
-  images       Json?    @default("[]")
+  images       MasterProductImage[]
   imageUrl     String?  @map("image_url")
 
   abcGrade       String?  @map("abc_grade")
@@ -233,6 +237,44 @@ model MasterProduct {
   @@index([category])
   @@index([brand])
   @@map("master_products")
+}
+
+/// @namespace Core
+/// @describe MasterProduct 이미지 갤러리. Source of truth 이며 MasterProduct.imageUrl 은 대표 이미지 캐시로만 동기화된다.
+model MasterProductImage {
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  masterId  String @map("master_id") @db.Uuid
+
+  url        String
+  storageKey String? @map("storage_key")
+  role       String  @default("product")
+  label      String?
+  sortOrder  Int     @default(0) @map("sort_order")
+  source     String  @default("upload")
+
+  mimeType String? @map("mime_type")
+  width    Int?
+  height   Int?
+  fileSize Int?    @map("file_size")
+
+  isPrimary Boolean   @default(false) @map("is_primary")
+  isDeleted Boolean   @default(false) @map("is_deleted")
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  company Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  master  MasterProduct @relation(fields: [masterId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([masterId])
+  @@index([companyId, masterId])
+  @@index([companyId, role])
+  @@index([masterId, role, sortOrder])
+  @@index([masterId, isPrimary])
+  @@map("master_product_images")
 }
 
 /// @namespace Core

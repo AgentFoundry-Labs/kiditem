@@ -91,7 +91,7 @@ describe('useProductImages', () => {
 
     expect(uploaded).toEqual(sampleImage);
     expect(mockUploadParsed).toHaveBeenCalledWith(
-      '/api/products/masters/prod-1/images/upload',
+      '/api/products/masters/prod-1/images',
       expect.anything(),
       expect.any(FormData),
     );
@@ -115,7 +115,7 @@ describe('useProductImages', () => {
 
     expect(uploaded).toEqual(sampleImage);
     expect(mockUploadParsed).toHaveBeenCalledWith(
-      '/api/products/masters/prod-1/images/upload',
+      '/api/products/masters/prod-1/images',
       expect.anything(),
       expect.any(FormData),
     );
@@ -142,7 +142,7 @@ describe('useProductImages', () => {
     await waitFor(() => expect(result.current.images).toEqual(saved));
   });
 
-  it('saveImages 후 detail + catalog 캐시가 invalidate 됨 (MasterProduct.images embed drift 방지)', async () => {
+  it('saveImages 후 detail + catalog 캐시가 invalidate 됨 (image-table projection drift 방지)', async () => {
     const saved = [sampleImage];
     mockPatchParsed.mockResolvedValue({ images: saved });
 

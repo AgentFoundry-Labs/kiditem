@@ -4,7 +4,7 @@ import { isIP } from 'node:net';
 import {
   BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException,
 } from '@nestjs/common';
-import { MasterProduct, Prisma } from '@prisma/client';
+import { MasterProduct, MasterProductImage, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StorageService } from '../../common/storage/storage.service';
 import type { MulterFile } from '../../common/types';
@@ -15,13 +15,43 @@ import { UpdateMasterDto } from '../dto/update-master.dto';
 import { ListMastersQuery } from '../dto/list-masters.query';
 import { mapPrismaError } from '../util/prisma-error';
 import { decodeCursor, encodeCursor } from '../util/cursor';
-import { normalizeMasterImages, withNormalizedMasterImages } from './product-image-normalizer';
+import { normalizeMasterImages } from './product-image-normalizer';
 
 const SYSTEM_FIELDS = [
   'id', 'code', 'companyId', 'optionCounter', 'isDeleted', 'deletedAt',
   'healthUpdatedAt', 'rawData', 'processedData', 'draftContent',
-  'createdAt', 'updatedAt',
+  'createdAt', 'updatedAt', 'images', 'imageUrl',
 ] as const;
+
+const MASTER_WITH_IMAGES: Prisma.MasterProductInclude = {
+  images: {
+    where: { isDeleted: false },
+    orderBy: [{ isPrimary: 'desc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
+  },
+};
+
+type MasterWithImageRows = MasterProduct & { images: MasterProductImage[] };
+
+function toMasterImageItem(row: MasterProductImage): MasterImageItem {
+  return {
+    id: row.id,
+    url: row.url,
+    storageKey: row.storageKey,
+    role: row.role as MasterImageItem['role'],
+    label: row.label,
+    sortOrder: row.sortOrder,
+    source: row.source,
+    mimeType: row.mimeType,
+    width: row.width,
+    height: row.height,
+    fileSize: row.fileSize,
+    isPrimary: row.isPrimary,
+  };
+}
+
+function withImageRows(row: MasterWithImageRows): MasterProduct {
+  return { ...row, images: row.images.map(toMasterImageItem) } as unknown as MasterProduct;
+}
 
 @Injectable()
 export class MastersService {
@@ -55,15 +85,27 @@ export class MastersService {
     const code = await this.codeSvc.generate();
     const stripped = this.strip(dto);
     try {
-      const row = await db.masterProduct.create({
-        data: {
-          ...stripped,
-          companyId,
-          code,
-          healthUpdatedAt: dto.healthScore !== undefined ? new Date() : null,
-        } as Prisma.MasterProductUncheckedCreateInput,
-      });
-      return withNormalizedMasterImages(row) as MasterProduct;
+      const normalizedImages = this.normalizeImagesForWrite(
+        dto.images ?? (dto.imageUrl ? [{ url: dto.imageUrl, role: 'product', label: null, sortOrder: 0 }] : []),
+      );
+      const createInTx = async (tx: Prisma.TransactionClient) => {
+        const row = await tx.masterProduct.create({
+          data: {
+            ...stripped,
+            companyId,
+            code,
+            imageUrl: this.representativeImageUrl(normalizedImages),
+            healthUpdatedAt: dto.healthScore !== undefined ? new Date() : null,
+          } as Prisma.MasterProductUncheckedCreateInput,
+        });
+        await this.createImageRowsTx(tx, companyId, row.id, normalizedImages);
+        return tx.masterProduct.findUniqueOrThrow({
+          where: { id: row.id },
+          include: MASTER_WITH_IMAGES,
+        });
+      };
+      const row = outerTx ? await createInTx(outerTx) : await this.prisma.$transaction(createInTx);
+      return withImageRows(row);
     } catch (e) { mapPrismaError(e, 'master create'); }
   }
 
@@ -107,10 +149,11 @@ export class MastersService {
 
     const rows = await this.prisma.masterProduct.findMany({
       where,
+      include: MASTER_WITH_IMAGES,
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: limit + 1,
     });
-    const items = rows.slice(0, limit).map((r) => withNormalizedMasterImages(r) as MasterProduct);
+    const items = rows.slice(0, limit).map((r) => withImageRows(r));
     const nextCursor = rows.length > limit
       ? encodeCursor({
           createdAt: items[items.length - 1].createdAt.toISOString(),
@@ -130,25 +173,28 @@ export class MastersService {
         id, companyId,
         ...(opts.includeDeleted ? {} : { isDeleted: false }),
       },
+      include: MASTER_WITH_IMAGES,
     });
     if (!row) throw new NotFoundException('master not found');
-    return withNormalizedMasterImages(row) as MasterProduct;
+    return withImageRows(row);
   }
 
   async findByCode(companyId: string, code: string): Promise<MasterProduct> {
     const row = await this.prisma.masterProduct.findFirst({
       where: { code, companyId, isDeleted: false },
+      include: MASTER_WITH_IMAGES,
     });
     if (!row) throw new NotFoundException('master not found');
-    return withNormalizedMasterImages(row) as MasterProduct;
+    return withImageRows(row);
   }
 
   async findByLegacy(companyId: string, legacyCode: string): Promise<MasterProduct> {
     const row = await this.prisma.masterProduct.findFirst({
       where: { companyId, legacyCode, isDeleted: false },
+      include: MASTER_WITH_IMAGES,
     });
     if (!row) throw new NotFoundException('master not found');
-    return withNormalizedMasterImages(row) as MasterProduct;
+    return withImageRows(row);
   }
 
   /**
@@ -176,13 +222,27 @@ export class MastersService {
     if (dto.healthScore !== undefined) data.healthUpdatedAt = new Date();
     if (dto.isTemporary === false) data.temporaryReason = null;
     try {
-      const { count } = await db.masterProduct.updateMany({
-        where: { id, companyId, isDeleted: false },
-        data,
-      });
-      if (count === 0) throw new NotFoundException('master not found or deleted');
-      const row = await db.masterProduct.findUniqueOrThrow({ where: { id } });
-      return withNormalizedMasterImages(row) as MasterProduct;
+      const updateInTx = async (tx: Prisma.TransactionClient) => {
+        const { count } = await tx.masterProduct.updateMany({
+          where: { id, companyId, isDeleted: false },
+          data,
+        });
+        if (count === 0) throw new NotFoundException('master not found or deleted');
+        if (dto.images !== undefined || dto.imageUrl !== undefined) {
+          await this.replaceImagesTx(
+            tx,
+            companyId,
+            id,
+            dto.images ?? (dto.imageUrl ? [{ url: dto.imageUrl, role: 'product', label: null, sortOrder: 0 }] : []),
+          );
+        }
+        return tx.masterProduct.findUniqueOrThrow({
+          where: { id },
+          include: MASTER_WITH_IMAGES,
+        });
+      };
+      const row = outerTx ? await updateInTx(outerTx) : await this.prisma.$transaction(updateInTx);
+      return withImageRows(row);
     } catch (e) { mapPrismaError(e, 'master update'); }
   }
 
@@ -195,8 +255,12 @@ export class MastersService {
     companyId: string,
     id: string,
   ): Promise<MasterImageItem[]> {
-    const row = await this.findById(companyId, id, {});
-    return normalizeMasterImages((row as unknown as { images: unknown }).images);
+    const rows = await this.prisma.masterProductImage.findMany({
+      where: { companyId, masterId: id, isDeleted: false },
+      orderBy: [{ isPrimary: 'desc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
+    });
+    if (rows.length === 0) await this.findById(companyId, id, {});
+    return rows.map(toMasterImageItem);
   }
 
   async updateImages(
@@ -204,22 +268,23 @@ export class MastersService {
     id: string,
     images: unknown,
   ): Promise<MasterProduct> {
-    const normalized = normalizeMasterImages(images);
-    const { count } = await this.prisma.masterProduct.updateMany({
-      where: { id, companyId, isDeleted: false },
-      data: { images: normalized as Prisma.InputJsonValue },
+    const row = await this.prisma.$transaction(async (tx) => {
+      const { count } = await tx.masterProduct.updateMany({
+        where: { id, companyId, isDeleted: false },
+        data: { imageUrl: this.representativeImageUrl(this.normalizeImagesForWrite(images)) },
+      });
+      if (count === 0) throw new NotFoundException('master not found or deleted');
+      await this.replaceImagesTx(tx, companyId, id, images);
+      return tx.masterProduct.findUniqueOrThrow({ where: { id }, include: MASTER_WITH_IMAGES });
     });
-    if (count === 0) throw new NotFoundException('master not found or deleted');
-    const row = await this.prisma.masterProduct.findUniqueOrThrow({ where: { id } });
-    return withNormalizedMasterImages(row) as MasterProduct;
+    return withImageRows(row);
   }
 
   /**
    * Persist `file` to object storage under the master-scoped prefix and
-   * synthesize a canonical `MasterImageItem` shell (role='product',
-   * label=null, sortOrder=0) for the caller to stage in local state. The
-   * row is NOT appended to `MasterProduct.images` here — the client
-   * commits the full dirty list via PATCH `:id/images`.
+   * persist a MasterProductImage metadata row. The binary lives in object
+   * storage; DB stores URL/key metadata only. If this is the first image,
+   * MasterProduct.imageUrl is updated in the same transaction as the cache.
    */
   async uploadImage(
     companyId: string,
@@ -243,7 +308,34 @@ export class MastersService {
     await this.findById(companyId, id, {});
     const key = `product-images/${id}/${randomUUID()}.${ext}`;
     const url = await this.storage.save(key, file.buffer, file.mimetype);
-    return { url, role: 'product', label: null, sortOrder: 0 };
+    const row = await this.prisma.$transaction(async (tx) => {
+      const existingCount = await tx.masterProductImage.count({
+        where: { companyId, masterId: id, isDeleted: false },
+      });
+      const image = await tx.masterProductImage.create({
+        data: {
+          companyId,
+          masterId: id,
+          url,
+          storageKey: key,
+          role: 'product',
+          label: null,
+          sortOrder: existingCount,
+          source: 'upload',
+          mimeType: file.mimetype,
+          fileSize: file.size,
+          isPrimary: existingCount === 0,
+        },
+      });
+      if (existingCount === 0) {
+        await tx.masterProduct.updateMany({
+          where: { id, companyId, isDeleted: false },
+          data: { imageUrl: url },
+        });
+      }
+      return image;
+    });
+    return toMasterImageItem(row);
   }
 
   async originalImageBase64(
@@ -252,7 +344,7 @@ export class MastersService {
   ): Promise<{ dataUrl: string }> {
     const row = await this.findById(companyId, id, {});
     const images = normalizeMasterImages((row as unknown as { images: unknown }).images);
-    const url = row.imageUrl ?? row.thumbnailUrl ?? images[0]?.url ?? null;
+    const url = row.imageUrl ?? images[0]?.url ?? row.thumbnailUrl ?? null;
     if (!url) throw new NotFoundException('image not found');
     // Minimum SSRF defense: only http(s), block internal hosts. Full domain allowlist
     // is a follow-up (see TODOS.md "originalImageBase64 SSRF allowlist").
@@ -351,6 +443,62 @@ export class MastersService {
       /^0\./.test(ip) ||
       /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(ip)
     );
+  }
+
+  private normalizeImagesForWrite(images: unknown): MasterImageItem[] {
+    return normalizeMasterImages(images).sort((a, b) => a.sortOrder - b.sortOrder);
+  }
+
+  private representativeImageUrl(images: MasterImageItem[]): string | null {
+    return images.find((img) => img.isPrimary)?.url ?? images[0]?.url ?? null;
+  }
+
+  private primaryImageIndex(images: MasterImageItem[]): number {
+    if (images.length === 0) return -1;
+    const explicit = images.findIndex((img) => img.isPrimary === true);
+    return explicit >= 0 ? explicit : 0;
+  }
+
+  private async createImageRowsTx(
+    tx: Prisma.TransactionClient,
+    companyId: string,
+    masterId: string,
+    images: MasterImageItem[],
+  ): Promise<void> {
+    if (images.length === 0) return;
+    const primaryIndex = this.primaryImageIndex(images);
+    await tx.masterProductImage.createMany({
+      data: images.map((img, index) => ({
+        companyId,
+        masterId,
+        url: img.url,
+        storageKey: img.storageKey ?? null,
+        role: img.role,
+        label: img.label,
+        sortOrder: img.sortOrder,
+        source: img.source ?? 'api',
+        mimeType: img.mimeType ?? null,
+        width: img.width ?? null,
+        height: img.height ?? null,
+        fileSize: img.fileSize ?? null,
+        isPrimary: index === primaryIndex,
+      })),
+    });
+  }
+
+  private async replaceImagesTx(
+    tx: Prisma.TransactionClient,
+    companyId: string,
+    masterId: string,
+    images: unknown,
+  ): Promise<void> {
+    const normalized = this.normalizeImagesForWrite(images);
+    await tx.masterProduct.updateMany({
+      where: { id: masterId, companyId, isDeleted: false },
+      data: { imageUrl: this.representativeImageUrl(normalized) },
+    });
+    await tx.masterProductImage.deleteMany({ where: { companyId, masterId } });
+    await this.createImageRowsTx(tx, companyId, masterId, normalized);
   }
 
   /**

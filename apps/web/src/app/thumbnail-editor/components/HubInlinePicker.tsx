@@ -5,16 +5,16 @@ import { Loader2, ArrowRight } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import { HUB_ROLE_CONFIG, type ProductImageRole } from '@/lib/hub-roles';
-import type { ProductImageItem } from '@kiditem/shared';
+import { HUB_ROLE_CONFIG, type MasterImageRole } from '@/lib/hub-roles';
+import type { MasterImageItem } from '@kiditem/shared';
 
 type SelectMode = 'single' | 'multi';
 
 interface Props {
-  images: ProductImageItem[];  // 부모가 useProductImages 로 fetch 한 전체 목록
+  images: MasterImageItem[];  // 부모가 useProductImages 로 fetch 한 전체 목록
   loading: boolean;            // 부모의 loading 상태
   productId: string;           // "이미지 허브로 이동" 링크용
-  role: ProductImageRole;
+  role: MasterImageRole;
   mode: SelectMode;
   selectedUrls: string[];
   onSelect: (url: string) => void;
@@ -22,7 +22,7 @@ interface Props {
 }
 
 export function HubInlinePicker({
-  images,
+  images = [],
   loading,
   productId,
   role,
