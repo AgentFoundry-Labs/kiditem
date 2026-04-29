@@ -20,6 +20,8 @@ import { ThumbnailVisionAiService } from './services/thumbnail-vision-ai.service
 import { ThumbnailWingService } from './services/thumbnail-wing.service';
 import { ThumbnailWingPersistence } from './persistence/thumbnail-wing.persistence';
 import { WingAutomationRunner } from './adapters/wing-automation-runner';
+import { GeminiThumbnailVisionAdapter } from './adapters/gemini-thumbnail-vision.adapter';
+import { ThumbnailComplianceVerifierService } from './services/thumbnail-compliance-verifier.service';
 
 @Module({
   controllers: [
@@ -46,6 +48,8 @@ import { WingAutomationRunner } from './adapters/wing-automation-runner';
     ThumbnailWingService,
     ThumbnailWingPersistence,
     WingAutomationRunner,
+    GeminiThumbnailVisionAdapter,
+    ThumbnailComplianceVerifierService,
   ],
 })
 export class AiModule {}

@@ -4,6 +4,14 @@ import { ServiceUnavailableException } from '@nestjs/common';
 const sharp: typeof import('sharp') = require('sharp');
 import type { ComplianceScores } from '@kiditem/shared/ai';
 import { ThumbnailVisionAiService } from '../services/thumbnail-vision-ai.service';
+import { GeminiThumbnailVisionAdapter } from '../adapters/gemini-thumbnail-vision.adapter';
+import { ThumbnailComplianceVerifierService } from '../services/thumbnail-compliance-verifier.service';
+import {
+  hasDigitalOverlayEvidence,
+  normalizeTextRelatedViolations,
+  parseComplianceResponse,
+} from '../domain/thumbnail-compliance-normalizer';
+import { analyzeWhiteBackgroundByPixels } from '../domain/thumbnail-image-spec';
 
 type RawCompliance = {
   violations?: Partial<ComplianceScores['violations']>;
@@ -42,12 +50,6 @@ async function makePngBase64(background: { r: number; g: number; b: number }) {
   return { data: buffer.toString('base64'), mimeType: 'image/png' };
 }
 
-function makeService(): ThumbnailVisionAiService {
-  // The compliance helpers under test do not touch the injected services, so
-  // null casts are sufficient for unit-level coverage.
-  return new ThumbnailVisionAiService(null as never, null as never);
-}
-
 afterEach(() => {
   vi.restoreAllMocks();
   delete process.env.GEMINI_API_KEY;
@@ -55,29 +57,10 @@ afterEach(() => {
   delete process.env.AI_IMAGE_ANALYSIS_VERIFY_MODEL;
 });
 
-describe('ThumbnailVisionAiService compliance helpers', () => {
-  it('keeps confirmed colored backgrounds non-compliant via pixel mask', async () => {
-    const service = makeService();
-    // Background (242, 247, 252): bright enough to be a bg candidate
-    // (minc>=230, maxc-minc<12) so flood-fill expands across the frame, but
-    // the blueish tint and channel spread keep it out of the strict
-    // white verdict (requires minChannelMean>=248 and maxChannelDiff<3).
-    const verdict = await (service as any).analyzeWhiteBackgroundByPixels(
-      await makePngBase64({ r: 242, g: 247, b: 252 }),
-    );
-    expect(verdict.verdict).toBe('not-white');
-  });
+// ─── Pure helpers — exercised directly via the domain modules ──────────────
 
-  it('marks pure-white backgrounds as compliant via pixel mask', async () => {
-    const service = makeService();
-    const verdict = await (service as any).analyzeWhiteBackgroundByPixels(
-      await makePngBase64({ r: 255, g: 255, b: 255 }),
-    );
-    expect(verdict.verdict).toBe('white');
-  });
-
+describe('thumbnail compliance normalizer', () => {
   it('treats package surface text as physical, flipping has_text to false', () => {
-    const service = makeService();
     const raw: RawCompliance = {
       violations: { has_text: true, has_discount_text: true },
       confidence: { has_text: 91, has_discount_text: 88 },
@@ -86,7 +69,7 @@ describe('ThumbnailVisionAiService compliance helpers', () => {
         has_discount_text: '패키지에 1+1 증정 문구가 인쇄됨',
       },
     };
-    (service as any).normalizeTextRelatedViolations(raw);
+    normalizeTextRelatedViolations(raw);
     expect(raw.violations?.has_text).toBe(false);
     expect(raw.violations?.has_discount_text).toBe(false);
     expect(raw.reasons?.has_text).toBeUndefined();
@@ -94,7 +77,6 @@ describe('ThumbnailVisionAiService compliance helpers', () => {
   });
 
   it('keeps explicit digital overlay evidence as a violation', () => {
-    const service = makeService();
     const raw: RawCompliance = {
       violations: { has_discount_text: true },
       confidence: { has_discount_text: 82 },
@@ -102,30 +84,28 @@ describe('ThumbnailVisionAiService compliance helpers', () => {
         has_discount_text: "우상단 여백에 포토샵 오버레이 '30% 할인' 배지",
       },
     };
-    (service as any).normalizeTextRelatedViolations(raw);
+    normalizeTextRelatedViolations(raw);
     expect(raw.violations?.has_discount_text).toBe(true);
     expect(raw.reasons?.has_discount_text).toContain('오버레이');
   });
 
   it('rejects vague digital claims when reason cites package surface', () => {
-    const service = makeService();
     expect(
-      (service as any).hasDigitalOverlayEvidence('패키지 전면 라벨 표면의 30% 할인 인쇄 문구'),
+      hasDigitalOverlayEvidence('패키지 전면 라벨 표면의 30% 할인 인쇄 문구'),
     ).toBe(false);
     expect(
-      (service as any).hasDigitalOverlayEvidence("우상단 여백에 포토샵 오버레이 '30% 할인' 배지"),
+      hasDigitalOverlayEvidence("우상단 여백에 포토샵 오버레이 '30% 할인' 배지"),
     ).toBe(true);
     expect(
-      (service as any).hasDigitalOverlayEvidence('상품 표면과 분리되어 떠 있는 디지털 오버레이'),
+      hasDigitalOverlayEvidence('상품 표면과 분리되어 떠 있는 디지털 오버레이'),
     ).toBe(true);
   });
 
   it('normalizes Gemini string booleans and clamps confidence values before grading', () => {
-    const service = makeService();
-    const result = (service as any).parseComplianceResponse({
+    const result = parseComplianceResponse({
       violations: {
-        background_not_white: 'false',
-        has_overlay_effects: 'true',
+        background_not_white: 'false' as never,
+        has_overlay_effects: 'true' as never,
       },
       confidence: {
         has_overlay_effects: '140',
@@ -136,9 +116,9 @@ describe('ThumbnailVisionAiService compliance helpers', () => {
         background_not_white: '문자열 false reason 은 제거되어야 함',
       },
       quality: {
-        estimatedFillPercent: '101',
-        centerOffsetPercent: '-2',
-        aspectRatioValid: 'true',
+        estimatedFillPercent: '101' as never,
+        centerOffsetPercent: '-2' as never,
+        aspectRatioValid: 'true' as never,
       },
     });
     expect(result.complianceGrade).toBe('FAIL');
@@ -153,8 +133,7 @@ describe('ThumbnailVisionAiService compliance helpers', () => {
   });
 
   it('does not fail compliance when Gemini omits violation keys', () => {
-    const service = makeService();
-    const result = (service as any).parseComplianceResponse({
+    const result = parseComplianceResponse({
       quality: { estimatedFillPercent: 90, centerOffsetPercent: 2, aspectRatioValid: true },
     });
     expect(result.complianceGrade).toBe('PASS');
@@ -162,12 +141,50 @@ describe('ThumbnailVisionAiService compliance helpers', () => {
   });
 });
 
+describe('thumbnail image spec — pixel mask', () => {
+  it('keeps confirmed colored backgrounds non-compliant via pixel mask', async () => {
+    // Background (242, 247, 252): bright enough to be a bg candidate
+    // (minc>=230, maxc-minc<12) so flood-fill expands across the frame, but
+    // the blueish tint and channel spread keep it out of the strict
+    // white verdict (requires minChannelMean>=248 and maxChannelDiff<3).
+    const verdict = await analyzeWhiteBackgroundByPixels(
+      await makePngBase64({ r: 242, g: 247, b: 252 }),
+    );
+    expect(verdict.verdict).toBe('not-white');
+  });
+
+  it('marks pure-white backgrounds as compliant via pixel mask', async () => {
+    const verdict = await analyzeWhiteBackgroundByPixels(
+      await makePngBase64({ r: 255, g: 255, b: 255 }),
+    );
+    expect(verdict.verdict).toBe('white');
+  });
+});
+
+// ─── Facade — composed adapter + service behavior ──────────────────────────
+
+interface BuildOptions {
+  imageFetcher?: { fetchTrustedStorageImage: ReturnType<typeof vi.fn> };
+  references?: { complianceParts: ReturnType<typeof vi.fn> };
+  clientStub?: { models: { generateContent: ReturnType<typeof vi.fn> } };
+}
+
+function buildService(opts: BuildOptions = {}) {
+  const imageFetcher =
+    opts.imageFetcher ?? { fetchTrustedStorageImage: vi.fn() };
+  const references = opts.references ?? { complianceParts: vi.fn(() => []) };
+  const adapter = new GeminiThumbnailVisionAdapter(imageFetcher as never);
+  if (opts.clientStub) {
+    (adapter as unknown as { client: unknown }).client = opts.clientStub;
+  }
+  const verifier = new ThumbnailComplianceVerifierService(adapter);
+  const service = new ThumbnailVisionAiService(adapter, references as never, verifier);
+  return { service, adapter, verifier, imageFetcher, references };
+}
+
 describe('ThumbnailVisionAiService failure and fetch behavior', () => {
   it('propagates Gemini configuration failures instead of returning an empty quality map', async () => {
-    const service = new ThumbnailVisionAiService(
-      { fetchTrustedStorageImage: vi.fn() } as never,
-      { complianceParts: vi.fn(() => []) } as never,
-    );
+    const { service } = buildService();
 
     await expect(
       service.analyzeQuality([
@@ -182,11 +199,7 @@ describe('ThumbnailVisionAiService failure and fetch behavior', () => {
   });
 
   it('propagates pre-aborted quality analysis instead of returning an empty map', async () => {
-    const imageFetcher = { fetchTrustedStorageImage: vi.fn() };
-    const service = new ThumbnailVisionAiService(
-      imageFetcher as never,
-      { complianceParts: vi.fn(() => []) } as never,
-    );
+    const { service, imageFetcher } = buildService();
     const controller = new AbortController();
     controller.abort();
 
@@ -208,31 +221,33 @@ describe('ThumbnailVisionAiService failure and fetch behavior', () => {
 
   it('propagates second-pass Gemini model configuration failures in compliance checks', async () => {
     process.env.AI_IMAGE_ANALYSIS_MODEL = 'gemini-test';
-    const imageFetcher = {
-      fetchTrustedStorageImage: vi.fn(async () => ({
-        buffer: Buffer.from('image-bytes'),
-        mimeType: 'image/jpeg',
-      })),
-    };
-    const service = new ThumbnailVisionAiService(
-      imageFetcher as never,
-      { complianceParts: vi.fn(() => []) } as never,
-    );
-    (service as any).client = {
-      models: {
-        generateContent: vi.fn(async () => ({
-          text: JSON.stringify([
-            {
-              index: 0,
-              violations: { has_text: true },
-              confidence: { has_text: 95 },
-              reasons: { has_text: '우상단 여백에 디지털 오버레이 텍스트' },
-              quality: { estimatedFillPercent: 90, centerOffsetPercent: 1, aspectRatioValid: true },
-            },
-          ]),
+    const { service } = buildService({
+      imageFetcher: {
+        fetchTrustedStorageImage: vi.fn(async () => ({
+          buffer: Buffer.from('image-bytes'),
+          mimeType: 'image/jpeg',
         })),
       },
-    };
+      clientStub: {
+        models: {
+          generateContent: vi.fn(async () => ({
+            text: JSON.stringify([
+              {
+                index: 0,
+                violations: { has_text: true },
+                confidence: { has_text: 95 },
+                reasons: { has_text: '우상단 여백에 디지털 오버레이 텍스트' },
+                quality: {
+                  estimatedFillPercent: 90,
+                  centerOffsetPercent: 1,
+                  aspectRatioValid: true,
+                },
+              },
+            ]),
+          })),
+        },
+      },
+    });
 
     await expect(
       service.checkCompliance([
@@ -264,10 +279,7 @@ describe('ThumbnailVisionAiService failure and fetch behavior', () => {
         storageKey: 'thumbnail-inputs/p.jpg',
       })),
     };
-    const service = new ThumbnailVisionAiService(
-      imageFetcher as never,
-      { complianceParts: vi.fn(() => []) } as never,
-    );
+    const { service } = buildService({ imageFetcher });
 
     await service.checkImageSpec('http://localhost:9000/kiditem/thumbnail-inputs/p.jpg');
 
