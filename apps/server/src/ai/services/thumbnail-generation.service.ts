@@ -5,128 +5,64 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import type { ComplianceScores, EditAnalysisResult, RecomposeKind, RecomposeVariantKey, ThumbnailGenerationItem, ThumbnailGenerationListResponse, ThumbnailPhase } from '@kiditem/shared/ai';
-import { RECOMPOSE_KINDS } from '@kiditem/shared/ai';
+import type {
+  ThumbnailGenerationItem,
+  ThumbnailGenerationListResponse,
+} from '@kiditem/shared/ai';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   ThumbnailEditorAiService,
   type ThumbnailEditorCandidate,
-  type ThumbnailEditorEditCase,
   type ThumbnailEditorInputImage,
-  type ThumbnailInputRole,
 } from './thumbnail-editor-ai.service';
-import {
-  resolveMasterThumbnailImage,
-  thumbnailMasterImageSelect,
-} from './thumbnail-master-image-resolver';
+import { resolveMasterThumbnailImage } from './thumbnail-master-image-resolver';
 import { getRecomposePromptOverride } from './thumbnail-recompose-prompts';
 import { ThumbnailTrackingService } from './thumbnail-tracking.service';
-
-type ThumbnailAnalysisContext = {
-  recompose: Prisma.JsonValue | null;
-  complianceGrade: string | null;
-  complianceScores: Prisma.JsonValue | null;
-  overallScore: number;
-  grade: string;
-  qualityAnalyzedAt: Date | null;
-  complianceAnalyzedAt: Date | null;
-};
-
-type Candidate = ThumbnailEditorCandidate;
-type InputImage = ThumbnailEditorInputImage;
-
-type GenerationRow = {
-  id: string;
-  createdAt: Date;
-  status: string;
-  phase: string | null;
-  grade: string;
-  score: number;
-  masterId: string;
-  method: string;
-  originalUrl: string | null;
-  selectedUrl: string | null;
-  prompt: string | null;
-  editAnalysis: Prisma.JsonValue;
-  inputMeta: Prisma.JsonValue;
-  errorMessage: string | null;
-  attemptCount: number;
-  triggeredByUserId: string | null;
-  candidates: Array<{
-    id: string;
-    url: string;
-    storageKey: string | null;
-    filename: string | null;
-    sortOrder: number;
-    mimeType: string | null;
-    width: number | null;
-    height: number | null;
-    fileSize: number | null;
-  }>;
-  registrationAttempts: Array<{
-    status: string;
-    errorMessage: string | null;
-    finishedAt: Date | null;
-    updatedAt: Date;
-    createdAt: Date;
-  }>;
-  master?: GenerationMasterSummary | null;
-};
-
-type GenerationMasterSummary = {
-  id: string;
-  name: string;
-  imageUrl: string | null;
-  category: string | null;
-};
-
-const ALLOWED_STATUSES = ['pending', 'running', 'succeeded', 'failed', 'cancelled'] as const;
-const ALLOWED_PHASES: ThumbnailPhase[] = ['ready', 'applied'];
-
-function generationInclude(companyId: string): Prisma.ThumbnailGenerationInclude {
-  return {
-    candidates: {
-      where: { companyId },
-      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
-    },
-    registrationAttempts: {
-      where: { companyId },
-      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
-      take: 1,
-    },
-  };
-}
-
-const INPUT_IMAGES_INCLUDE = (companyId: string): Prisma.ThumbnailGeneration$inputImagesArgs => ({
-  where: { companyId },
-  orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
-});
-
-const CANDIDATES_INCLUDE = (companyId: string): Prisma.ThumbnailGeneration$candidatesArgs => ({
-  where: { companyId },
-  orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
-});
-
-const THUMBNAIL_ANALYSIS_SELECT = {
-  recompose: true,
-  complianceGrade: true,
-  complianceScores: true,
-  overallScore: true,
-  grade: true,
-  qualityAnalyzedAt: true,
-  complianceAnalyzedAt: true,
-} satisfies Prisma.ThumbnailAnalysisSelect;
-
-function thumbnailAnalysesInclude(
-  companyId: string,
-): Prisma.MasterProduct$thumbnailAnalysesArgs {
-  return {
-    where: { companyId },
-    orderBy: { updatedAt: 'desc' },
-    take: 1,
-    select: THUMBNAIL_ANALYSIS_SELECT,
-  };
-}
+import {
+  type ThumbnailAnalysisContext,
+  extractEditSuggestions,
+  extractRecomposeKind,
+  findRecomposeKindIn,
+  inferEditCaseFromInputs,
+  toAnalysisContextJson,
+  toEditAnalysis,
+  toInputRole,
+  variantInstruction,
+} from '../domain/thumbnail-generation-inputs';
+import {
+  toThumbnailGenerationItem,
+  type GenerationRow,
+} from '../mappers/thumbnail-generation.mapper';
+import {
+  findActiveJobForProduct,
+  findAutoBatchCandidates,
+  findGenerationMaster,
+  findGenerationMasters,
+  findGenerationOrThrow,
+  findGenerationRows,
+  findGenerationWithCandidatesOrThrow,
+  findGenerationWithInputImages,
+  findJobMaster,
+  findJobMastersByIds,
+  findProductForEditor,
+  findRecentAutoJob,
+  findThumbnailAnalysisGrade,
+  type EditorProductRow,
+} from '../read-models/thumbnail-generation-read-model';
+import {
+  applyGenerationToMaster,
+  createPendingEditJob,
+  deleteGeneration,
+  lockGenerationForProcessing,
+  markGenerationCancelled,
+  markGenerationFailed,
+  removeCandidate as removeCandidatePersistence,
+  replaceGenerationResult,
+  resetGenerationForReEdit,
+  saveEditorResult as saveEditorResultPersistence,
+  setSelectedCandidate,
+  type SaveEditorResultInput,
+} from '../persistence/thumbnail-generation.persistence';
 
 @Injectable()
 export class ThumbnailGenerationService {
@@ -141,110 +77,29 @@ export class ThumbnailGenerationService {
   async findProductForEditor(
     productId: string,
     companyId: string,
-  ): Promise<{
-    id: string;
-    name: string;
-    imageUrl: string | null;
-    category: string | null;
-    companyId: string;
-  } | null> {
-    return this.prisma.masterProduct.findFirst({
-      where: { id: productId, companyId, isDeleted: false },
-      select: { id: true, name: true, imageUrl: true, category: true, companyId: true },
-    });
+  ): Promise<EditorProductRow | null> {
+    return findProductForEditor(this.prisma, productId, companyId);
   }
 
-  async saveEditorResult(input: {
-    productId: string;
-    companyId: string;
-    originalUrl: string | null;
-    candidates: Candidate[];
-    inputImages?: InputImage[];
-    method: string;
-    inputMeta?: Prisma.InputJsonValue | null;
-    editAnalysis?: EditAnalysisResult | null;
-    triggeredByUserId?: string | null;
-  }): Promise<string> {
+  async saveEditorResult(input: SaveEditorResultInput): Promise<string> {
     await this.assertProductOwned(input.productId, input.companyId);
-
-    const generation = await this.prisma.thumbnailGeneration.create({
-      data: {
-        companyId: input.companyId,
-        masterId: input.productId,
-        originalUrl: input.originalUrl,
-        method: input.method,
-        status: 'succeeded',
-        phase: 'ready',
-        inputMeta: input.inputMeta ?? undefined,
-        editAnalysis: input.editAnalysis
-          ? (input.editAnalysis as unknown as Prisma.InputJsonValue)
-          : Prisma.JsonNull,
-        triggeredByUserId: input.triggeredByUserId ?? null,
-        candidates: {
-          create: input.candidates.map((c, index) => ({
-            companyId: input.companyId,
-            url: c.url,
-            storageKey: c.storageKey ?? null,
-            filename: c.filename ?? c.storageKey?.split('/').pop() ?? null,
-            sortOrder: index,
-            mimeType: c.mimeType ?? null,
-            width: null,
-            height: null,
-            fileSize: c.fileSize ?? null,
-          })),
-        },
-        inputImages: input.inputImages?.length
-          ? {
-              create: input.inputImages.map((img) => ({
-                companyId: input.companyId,
-                url: img.url,
-                storageKey: img.storageKey,
-                role: img.role,
-                label: img.label,
-                sortOrder: img.sortOrder,
-                source: img.source,
-                mimeType: img.mimeType,
-                width: null,
-                height: null,
-                fileSize: img.fileSize,
-              })),
-            }
-          : undefined,
-      },
-      select: { id: true },
-    });
-    return generation.id;
+    return saveEditorResultPersistence(this.prisma, input);
   }
 
   async findAll(
     companyId: string,
     opts: { productId?: string | null; limit?: number | null } = {},
   ): Promise<ThumbnailGenerationListResponse> {
-    const limit = opts.limit ? Math.min(Math.max(opts.limit, 1), 100) : undefined;
-    const rows = await this.prisma.thumbnailGeneration.findMany({
-      where: {
-        companyId,
-        ...(opts.productId ? { masterId: opts.productId } : {}),
-      },
-      orderBy: { createdAt: 'desc' },
-      ...(limit ? { take: limit } : {}),
-      include: generationInclude(companyId),
-    });
-    const masters = await this.findGenerationMasters(rows, companyId);
-    const items = rows.map((r) =>
-      this.toItem(r as unknown as GenerationRow, masters.get(r.masterId)),
-    );
+    const rows = await findGenerationRows(this.prisma, companyId, opts);
+    const masters = await findGenerationMasters(this.prisma, rows, companyId);
+    const items = rows.map((r) => toThumbnailGenerationItem(r, masters.get(r.masterId)));
     return { items, total: items.length } satisfies ThumbnailGenerationListResponse;
   }
 
   async findOne(id: string, companyId: string): Promise<ThumbnailGenerationItem> {
-    const row = await this.prisma.thumbnailGeneration.findFirst({
-      where: { id, companyId },
-      include: generationInclude(companyId),
-    });
-    if (!row) throw new NotFoundException(`ThumbnailGeneration ${id} not found`);
-    const master = await this.findGenerationMaster(row.masterId, companyId);
-    return this.toItem(row as unknown as GenerationRow, master);
+    const row = await findGenerationOrThrow(this.prisma, id, companyId);
+    const master = await findGenerationMaster(this.prisma, row.masterId, companyId);
+    return toThumbnailGenerationItem(row, master);
   }
 
   async selectCandidate(
@@ -252,80 +107,42 @@ export class ThumbnailGenerationService {
     companyId: string,
     selectedUrl: string,
   ): Promise<ThumbnailGenerationItem> {
-    const existing = await this.prisma.thumbnailGeneration.findFirst({
-      where: { id, companyId },
-      include: { candidates: CANDIDATES_INCLUDE(companyId) },
-    });
-    if (!existing) throw new NotFoundException(`ThumbnailGeneration ${id} not found`);
+    const existing = await findGenerationWithCandidatesOrThrow(this.prisma, id, companyId);
     const isDeselect = !selectedUrl;
     if (!isDeselect && !existing.candidates.some((c) => c.url === selectedUrl)) {
       throw new BadRequestException('selectedUrl 은 해당 generation 의 candidates 중 하나여야 합니다');
     }
-    await this.prisma.$transaction(async (tx) => {
-      await tx.thumbnailGeneration.updateMany({
-        where: { id, companyId },
-        data: {
-          selectedUrl: isDeselect ? null : selectedUrl,
-          ...(isDeselect ? {} : { status: 'succeeded', phase: 'ready' }),
-        },
-      });
-    });
+    await setSelectedCandidate(this.prisma, id, companyId, isDeselect ? null : selectedUrl);
     return this.findOne(id, companyId);
   }
 
   async applyGeneration(id: string, companyId: string): Promise<ThumbnailGenerationItem> {
-    const existing = await this.prisma.thumbnailGeneration.findFirst({
-      where: { id, companyId },
-      include: { candidates: CANDIDATES_INCLUDE(companyId) },
-    });
-    if (!existing) throw new NotFoundException(`ThumbnailGeneration ${id} not found`);
-    const master = await this.findGenerationMaster(existing.masterId, companyId);
+    const existing = await findGenerationWithCandidatesOrThrow(this.prisma, id, companyId);
+    const master = await findGenerationMaster(this.prisma, existing.masterId, companyId);
     if (!master) throw new NotFoundException(`MasterProduct ${existing.masterId} not found`);
 
-    const selected =
-      existing.candidates.find((c) => c.url === existing.selectedUrl) ??
-      (existing.selectedUrl
-        ? { url: existing.selectedUrl, storageKey: null, filename: null }
-        : null);
+    const matchedCandidate = existing.candidates.find((c) => c.url === existing.selectedUrl);
+    const selected = matchedCandidate
+      ? {
+          url: matchedCandidate.url,
+          storageKey: matchedCandidate.storageKey,
+          mimeType: matchedCandidate.mimeType ?? null,
+          width: matchedCandidate.width ?? null,
+          height: matchedCandidate.height ?? null,
+          fileSize: matchedCandidate.fileSize ?? null,
+        }
+      : existing.selectedUrl
+        ? { url: existing.selectedUrl, storageKey: null }
+        : null;
 
-    await this.prisma.$transaction(async (tx) => {
-      if (selected) {
-        await tx.masterProduct.updateMany({
-          where: { id: existing.masterId, companyId, isDeleted: false },
-          data: { imageUrl: selected.url },
-        });
-        await tx.masterProductImage.updateMany({
-          where: { companyId, masterId: existing.masterId, isDeleted: false },
-          data: { isPrimary: false },
-        });
-        await tx.masterProductImage.create({
-          data: {
-            companyId,
-            masterId: existing.masterId,
-            url: selected.url,
-            storageKey: selected.storageKey,
-            role: 'product',
-            label: 'AI thumbnail',
-            sortOrder: 0,
-            source: 'thumbnail_generation',
-            mimeType: 'mimeType' in selected ? selected.mimeType : null,
-            width: 'width' in selected ? selected.width : null,
-            height: 'height' in selected ? selected.height : null,
-            fileSize: 'fileSize' in selected ? selected.fileSize : null,
-            isPrimary: true,
-          },
-        });
-      }
-      await tx.thumbnailGeneration.updateMany({
-        where: { id, companyId },
-        data: { status: 'succeeded', phase: 'applied', selectedUrl: selected?.url ?? null },
-      });
+    await applyGenerationToMaster(this.prisma, {
+      id,
+      companyId,
+      masterId: existing.masterId,
+      selected,
     });
 
-    const analysis = await this.prisma.thumbnailAnalysis.findFirst({
-      where: { masterId: existing.masterId, companyId },
-      select: { grade: true, overallScore: true },
-    });
+    const analysis = await findThumbnailAnalysisGrade(this.prisma, existing.masterId, companyId);
     void this.trackingService
       .create({
         companyId,
@@ -346,25 +163,14 @@ export class ThumbnailGenerationService {
   }
 
   async skipGeneration(id: string, companyId: string): Promise<ThumbnailGenerationItem> {
-    const existing = await this.prisma.thumbnailGeneration.findFirst({
-      where: { id, companyId },
-      select: { id: true },
-    });
-    if (!existing) throw new NotFoundException(`ThumbnailGeneration ${id} not found`);
-    await this.prisma.thumbnailGeneration.updateMany({
-      where: { id, companyId },
-      data: { status: 'cancelled', phase: null },
-    });
+    await this.assertGenerationOwned(id, companyId);
+    await markGenerationCancelled(this.prisma, id, companyId);
     return this.findOne(id, companyId);
   }
 
   async deleteGeneration(id: string, companyId: string): Promise<{ ok: true }> {
-    const existing = await this.prisma.thumbnailGeneration.findFirst({
-      where: { id, companyId },
-      select: { id: true },
-    });
-    if (!existing) throw new NotFoundException(`ThumbnailGeneration ${id} not found`);
-    await this.prisma.thumbnailGeneration.deleteMany({ where: { id, companyId } });
+    await this.assertGenerationOwned(id, companyId);
+    await deleteGeneration(this.prisma, id, companyId);
     return { ok: true };
   }
 
@@ -373,28 +179,19 @@ export class ThumbnailGenerationService {
     companyId: string,
     candidateUrl: string,
   ): Promise<{ ok: true; generationDeleted: boolean; remaining: number }> {
-    const existing = await this.prisma.thumbnailGeneration.findFirst({
-      where: { id, companyId },
-      include: { candidates: CANDIDATES_INCLUDE(companyId) },
-    });
-    if (!existing) throw new NotFoundException(`ThumbnailGeneration ${id} not found`);
+    const existing = await findGenerationWithCandidatesOrThrow(this.prisma, id, companyId);
     const target = existing.candidates.find((c) => c.url === candidateUrl);
     if (!target) {
       throw new NotFoundException('해당 candidate URL 을 찾을 수 없습니다');
     }
     const remaining = existing.candidates.length - 1;
-    await this.prisma.$transaction(async (tx) => {
-      await tx.thumbnailGenerationCandidate.deleteMany({ where: { id: target.id, companyId } });
-      if (remaining === 0) {
-        await tx.thumbnailGeneration.deleteMany({ where: { id, companyId } });
-        return;
-      }
-      if (existing.selectedUrl === candidateUrl) {
-        await tx.thumbnailGeneration.updateMany({
-          where: { id, companyId },
-          data: { selectedUrl: null },
-        });
-      }
+    await removeCandidatePersistence(this.prisma, {
+      id,
+      companyId,
+      candidateId: target.id,
+      candidateUrl,
+      selectedUrl: existing.selectedUrl,
+      remainingAfterDelete: remaining,
     });
     return { ok: true, generationDeleted: remaining === 0, remaining };
   }
@@ -407,19 +204,7 @@ export class ThumbnailGenerationService {
     method = 'generate',
   ): Promise<ThumbnailGenerationItem[]> {
     if (productIds.length === 0) return [];
-    const products = await this.prisma.masterProduct.findMany({
-      where: { id: { in: productIds }, companyId, isDeleted: false },
-      select: {
-        id: true,
-        name: true,
-        imageUrl: true,
-        thumbnailUrl: true,
-        category: true,
-        images: thumbnailMasterImageSelect(companyId),
-        thumbnailAnalyses: thumbnailAnalysesInclude(companyId),
-      },
-    });
-    const byId = new Map(products.map((p) => [p.id, p]));
+    const byId = await findJobMastersByIds(this.prisma, productIds, companyId);
     const items: ThumbnailGenerationItem[] = [];
 
     for (const productId of productIds) {
@@ -428,50 +213,35 @@ export class ThumbnailGenerationService {
       const sourceUrl = resolveMasterThumbnailImage(product);
       if (!sourceUrl) throw new BadRequestException('상품 원본 이미지가 필요합니다');
 
-      const active = await this.prisma.thumbnailGeneration.findFirst({
-        where: {
-          masterId: product.id,
-          companyId,
-          method,
-          status: { in: ['pending', 'running'] },
-        },
-        include: generationInclude(companyId),
-      });
+      const active = await findActiveJobForProduct(this.prisma, product.id, companyId, method);
       if (active) {
-        items.push(this.toItem(active as unknown as GenerationRow, product));
+        items.push(toThumbnailGenerationItem(active, product));
         continue;
       }
 
       const analysis: ThumbnailAnalysisContext | null = product.thumbnailAnalyses[0] ?? null;
-      const editSuggestions = this.extractEditSuggestions(analysis?.complianceScores ?? null);
-      const editAnalysis = this.toEditAnalysis(analysis);
+      const editSuggestions = extractEditSuggestions(analysis?.complianceScores ?? null);
+      const editAnalysis = toEditAnalysis(analysis);
 
-      const generation = await this.prisma.thumbnailGeneration.create({
-        data: {
-          companyId,
-          masterId: product.id,
-          originalUrl: sourceUrl,
-          method,
-          status: 'pending',
-          phase: null,
-          inputMeta: {
-            mode: 'edit',
-            purpose,
-            editCase: 'single',
-            variantKey: variantKey ?? 'auto',
-            automated: method === 'auto',
-            inputCount: 1,
-            recompose: (analysis?.recompose ?? null) as Prisma.InputJsonValue,
-            analysisContext: this.toAnalysisContextJson(analysis, editSuggestions),
-          },
-          editAnalysis: editAnalysis
-            ? (editAnalysis as unknown as Prisma.InputJsonValue)
-            : Prisma.JsonNull,
+      const generation = await createPendingEditJob(this.prisma, {
+        companyId,
+        masterId: product.id,
+        originalUrl: sourceUrl,
+        method,
+        inputMeta: {
+          mode: 'edit',
+          purpose,
+          editCase: 'single',
+          variantKey: variantKey ?? 'auto',
+          automated: method === 'auto',
+          inputCount: 1,
+          recompose: (analysis?.recompose ?? null) as Prisma.InputJsonValue,
+          analysisContext: toAnalysisContextJson(analysis, editSuggestions),
         },
-        include: generationInclude(companyId),
+        editAnalysis,
       });
       this.scheduleEditJob(generation.id, companyId, purpose, variantKey);
-      items.push(this.toItem(generation as unknown as GenerationRow, product));
+      items.push(toThumbnailGenerationItem(generation, product));
     }
     return items;
   }
@@ -482,31 +252,8 @@ export class ThumbnailGenerationService {
     purpose: 'compliance' | 'quality',
     variantKey: 'auto' | 'with-box' | 'no-box' | null,
   ): Promise<{ ok: true }> {
-    const existing = await this.prisma.thumbnailGeneration.findFirst({
-      where: { id, companyId },
-      select: { id: true },
-    });
-    if (!existing) throw new NotFoundException(`ThumbnailGeneration ${id} not found`);
-
-    await this.prisma.$transaction(async (tx) => {
-      await tx.thumbnailGenerationCandidate.deleteMany({
-        where: { generationId: id, companyId },
-      });
-      await tx.thumbnailGeneration.updateMany({
-        where: { id, companyId },
-        data: {
-          status: 'pending',
-          phase: null,
-          selectedUrl: null,
-          errorMessage: null,
-          inputMeta: {
-            sourceGenerationId: id,
-            purpose,
-            variantKey: variantKey ?? 'auto',
-          },
-        },
-      });
-    });
+    await this.assertGenerationOwned(id, companyId);
+    await resetGenerationForReEdit(this.prisma, { id, companyId, purpose, variantKey });
     this.scheduleEditJob(id, companyId, purpose, variantKey);
     return { ok: true };
   }
@@ -534,37 +281,13 @@ export class ThumbnailGenerationService {
     purpose: 'compliance' | 'quality',
     variantKey: 'auto' | 'with-box' | 'no-box' | null,
   ): Promise<void> {
-    const locked = await this.prisma.thumbnailGeneration.updateMany({
-      where: { id, companyId, status: { in: ['pending', 'running'] } },
-      data: {
-        status: 'running',
-        phase: null,
-        errorMessage: null,
-        attemptCount: { increment: 1 },
-      },
-    });
-    if (locked.count === 0) return;
+    const locked = await lockGenerationForProcessing(this.prisma, id, companyId);
+    if (!locked) return;
 
     try {
-      const existing = await this.prisma.thumbnailGeneration.findFirst({
-        where: { id, companyId },
-        include: {
-          inputImages: INPUT_IMAGES_INCLUDE(companyId),
-        },
-      });
+      const existing = await findGenerationWithInputImages(this.prisma, id, companyId);
       if (!existing) return;
-      const master = await this.prisma.masterProduct.findFirst({
-        where: { id: existing.masterId, companyId, isDeleted: false },
-        select: {
-          id: true,
-          name: true,
-          imageUrl: true,
-          thumbnailUrl: true,
-          category: true,
-          images: thumbnailMasterImageSelect(companyId),
-          thumbnailAnalyses: thumbnailAnalysesInclude(companyId),
-        },
-      });
+      const master = await findJobMaster(this.prisma, existing.masterId, companyId);
       if (!master) {
         throw new BadRequestException('상품 정보를 찾을 수 없습니다');
       }
@@ -592,37 +315,41 @@ export class ThumbnailGenerationService {
         inputImages.push(
           await this.editorAiService.resolveInputImage(row.url as string, companyId, {
             label: row.label ?? 'Product photo',
-            role: this.toInputRole(row.role),
+            role: toInputRole(row.role),
             sortOrder: row.sortOrder,
             source: row.source ?? 're-edit',
           }),
         );
       }
-      const editCase = this.inferEditCaseFromInputs(inputImages);
+      const editCase = inferEditCaseFromInputs(inputImages);
       const analysis: ThumbnailAnalysisContext | null = master.thumbnailAnalyses[0] ?? null;
       const recomposeKind =
-        this.findRecomposeKindIn(existing.inputMeta) ??
-        this.findRecomposeKindIn(existing.editAnalysis) ??
-        this.extractRecomposeKind(analysis?.recompose ?? null);
-      const editSuggestions = this.extractEditSuggestions(analysis?.complianceScores ?? null);
+        findRecomposeKindIn(existing.inputMeta) ??
+        findRecomposeKindIn(existing.editAnalysis) ??
+        extractRecomposeKind(analysis?.recompose ?? null);
+      const editSuggestions = extractEditSuggestions(analysis?.complianceScores ?? null);
       const promptOverride = getRecomposePromptOverride(
         recomposeKind,
         variantKey,
         master.category,
       );
-      const candidates = await this.editorAiService.generateEdit(inputImages, companyId, {
-        purpose,
-        editCase,
-        userPrompt: promptOverride ? undefined : this.variantInstruction(variantKey),
-        productDescription: [master.name, master.category]
-          .filter(Boolean)
-          .join(' / '),
-        productName: master.name,
-        category: master.category,
-        promptOverride,
-        editSuggestions,
-        referenceMode: 'edit-image',
-      });
+      const candidates: ThumbnailEditorCandidate[] = await this.editorAiService.generateEdit(
+        inputImages,
+        companyId,
+        {
+          purpose,
+          editCase,
+          userPrompt: promptOverride ? undefined : variantInstruction(variantKey),
+          productDescription: [master.name, master.category]
+            .filter(Boolean)
+            .join(' / '),
+          productName: master.name,
+          category: master.category,
+          promptOverride,
+          editSuggestions,
+          referenceMode: 'edit-image',
+        },
+      );
 
       const inputMeta: Prisma.InputJsonValue = {
         mode: 'edit',
@@ -632,92 +359,21 @@ export class ThumbnailGenerationService {
         automated: existing.method === 'auto',
         inputCount: inputImages.length,
         recompose: (analysis?.recompose ?? null) as Prisma.InputJsonValue,
-        analysisContext: this.toAnalysisContextJson(analysis, editSuggestions),
+        analysisContext: toAnalysisContextJson(analysis, editSuggestions),
       };
-      await this.replaceGenerationResult(
-        id,
+      await replaceGenerationResult(this.prisma, {
+        generationId: id,
         companyId,
         candidates,
         inputImages,
         inputMeta,
-        this.toEditAnalysis(analysis),
-      );
+        editAnalysis: toEditAnalysis(analysis),
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.logger.error(`편집 처리 실패 (${id}): ${message}`);
-      await this.prisma.thumbnailGeneration
-        .updateMany({
-          where: { id, companyId, status: 'running' },
-          data: { status: 'failed', phase: null, errorMessage: message },
-        })
-        .catch(() => {});
+      await markGenerationFailed(this.prisma, id, companyId, message);
     }
-  }
-
-  private async replaceGenerationResult(
-    generationId: string,
-    companyId: string,
-    candidates: ThumbnailEditorCandidate[],
-    inputImages: ThumbnailEditorInputImage[],
-    inputMeta: Prisma.InputJsonValue,
-    editAnalysis: EditAnalysisResult | null,
-  ): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
-      const current = await tx.thumbnailGeneration.findFirst({
-        where: { id: generationId, companyId, status: 'running' },
-        select: { id: true },
-      });
-      if (!current) return;
-      await tx.thumbnailGenerationCandidate.deleteMany({ where: { generationId, companyId } });
-      await tx.thumbnailGenerationInputImage.deleteMany({ where: { generationId, companyId } });
-      if (candidates.length > 0) {
-        await tx.thumbnailGenerationCandidate.createMany({
-          data: candidates.map((candidate, index) => ({
-            companyId,
-            generationId,
-            url: candidate.url,
-            storageKey: candidate.storageKey ?? null,
-            filename: candidate.filename ?? candidate.storageKey?.split('/').pop() ?? null,
-            sortOrder: index,
-            mimeType: candidate.mimeType ?? null,
-            width: null,
-            height: null,
-            fileSize: candidate.fileSize ?? null,
-          })),
-        });
-      }
-      if (inputImages.length > 0) {
-        await tx.thumbnailGenerationInputImage.createMany({
-          data: inputImages.map((img) => ({
-            companyId,
-            generationId,
-            url: img.url,
-            storageKey: img.storageKey,
-            role: img.role,
-            label: img.label,
-            sortOrder: img.sortOrder,
-            source: img.source,
-            mimeType: img.mimeType,
-            width: null,
-            height: null,
-            fileSize: img.fileSize,
-          })),
-        });
-      }
-      await tx.thumbnailGeneration.updateMany({
-        where: { id: generationId, companyId, status: 'running' },
-        data: {
-          status: 'succeeded',
-          phase: 'ready',
-          selectedUrl: null,
-          errorMessage: null,
-          inputMeta,
-          editAnalysis: editAnalysis
-            ? (editAnalysis as unknown as Prisma.InputJsonValue)
-            : Prisma.JsonNull,
-        },
-      });
-    });
   }
 
   async createAutoBatch(
@@ -732,31 +388,13 @@ export class ThumbnailGenerationService {
   }> {
     const take = Math.min(Math.max(limit, 1), 30);
     const cooldown = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    const products = await this.prisma.masterProduct.findMany({
-      where: {
-        companyId,
-        abcGrade: 'A',
-        isDeleted: false,
-        OR: [{ imageUrl: { not: null } }, { thumbnailUrl: { not: null } }],
-      },
-      select: { id: true },
-      orderBy: { updatedAt: 'desc' },
-      take: take * 3,
-    });
+    const products = await findAutoBatchCandidates(this.prisma, companyId, take * 3);
 
     const runs: Array<{ ok: boolean; productId: string; generationId?: string | null; error?: string }> = [];
     let skipped = 0;
     for (const product of products) {
       if (runs.length >= take) break;
-      const recent = await this.prisma.thumbnailGeneration.findFirst({
-        where: {
-          companyId,
-          masterId: product.id,
-          method: 'auto',
-          createdAt: { gte: cooldown },
-        },
-        select: { id: true },
-      });
+      const recent = await findRecentAutoJob(this.prisma, product.id, companyId, cooldown);
       if (recent) {
         skipped++;
         continue;
@@ -784,176 +422,19 @@ export class ThumbnailGenerationService {
   // ─── helpers ────────────────────────────────────────────────────────
 
   private async assertProductOwned(productId: string, companyId: string): Promise<void> {
-    const product = await this.findProductForEditor(productId, companyId);
+    const product = await findProductForEditor(this.prisma, productId, companyId);
     if (!product) throw new NotFoundException(`MasterProduct ${productId} not found`);
   }
 
-  private async findGenerationMaster(
-    masterId: string,
-    companyId: string,
-  ): Promise<GenerationMasterSummary | null> {
-    const masters = await this.findGenerationMasters([{ masterId }], companyId);
-    return masters.get(masterId) ?? null;
-  }
-
-  private async findGenerationMasters(
-    rows: Array<{ masterId: string }>,
-    companyId: string,
-  ): Promise<Map<string, GenerationMasterSummary>> {
-    const ids = [...new Set(rows.map((row) => row.masterId).filter(Boolean))];
-    if (ids.length === 0) return new Map();
-    const masters = await this.prisma.masterProduct.findMany({
-      where: { id: { in: ids }, companyId, isDeleted: false },
-      select: { id: true, name: true, imageUrl: true, category: true },
+  private async assertGenerationOwned(id: string, companyId: string): Promise<void> {
+    const existing = await this.prisma.thumbnailGeneration.findFirst({
+      where: { id, companyId },
+      select: { id: true },
     });
-    return new Map(masters.map((master) => [master.id, master]));
-  }
-
-  private variantInstruction(variantKey: RecomposeVariantKey | null): string | undefined {
-    if (variantKey === 'with-box') {
-      return 'Use packaging/box visual context only if it is present in the input; never invent text or claims.';
-    }
-    if (variantKey === 'no-box') {
-      return 'Create a clean product-only hero image without package boxes or extra props.';
-    }
-    return undefined;
-  }
-
-  private extractRecomposeKind(value: Prisma.JsonValue | null): RecomposeKind | null {
-    return this.findRecomposeKindIn(value);
-  }
-
-  private findRecomposeKindIn(value: Prisma.JsonValue | null | undefined): RecomposeKind | null {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-    const object = value as Record<string, unknown>;
-    const nested = object.recompose;
-    if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
-      const nestedKind = (nested as Record<string, unknown>).kind;
-      if (this.isRecomposeKind(nestedKind)) return nestedKind;
-    }
-    const directKind = object.kind;
-    return this.isRecomposeKind(directKind) ? directKind : null;
-  }
-
-  private isRecomposeKind(value: unknown): value is RecomposeKind {
-    return typeof value === 'string' && (RECOMPOSE_KINDS as readonly string[]).includes(value);
-  }
-
-  private extractEditSuggestions(
-    complianceScores: Prisma.JsonValue | null | undefined,
-  ): Record<string, string> | null {
-    if (!complianceScores || typeof complianceScores !== 'object' || Array.isArray(complianceScores)) {
-      return null;
-    }
-    const obj = complianceScores as Record<string, unknown>;
-    const raw = obj.editSuggestions;
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
-    const out: Record<string, string> = {};
-    for (const [key, value] of Object.entries(raw)) {
-      if (typeof value === 'string' && value.trim()) {
-        out[key] = value.trim();
-      }
-    }
-    return Object.keys(out).length ? out : null;
-  }
-
-  /**
-   * Build the public `editAnalysis` payload to satisfy
-   * `EditAnalysisResultSchema` (non-null grade/score). Returns null when no
-   * usable analysis exists.
-   */
-  private toEditAnalysis(analysis: ThumbnailAnalysisContext | null): EditAnalysisResult | null {
-    if (!analysis) return null;
-    return {
-      complianceGrade: analysis.complianceGrade ?? 'UNKNOWN',
-      complianceScores:
-        (analysis.complianceScores as Record<string, unknown> | null) ?? null,
-      overallScore: analysis.overallScore,
-      grade: analysis.grade,
-    };
-  }
-
-  private toAnalysisContextJson(
-    analysis: ThumbnailAnalysisContext | null,
-    editSuggestions: Record<string, string> | null,
-  ): Prisma.InputJsonValue {
-    return {
-      complianceGrade: analysis?.complianceGrade ?? null,
-      complianceScores: ((analysis?.complianceScores ?? null) as unknown) as Prisma.InputJsonValue,
-      overallScore: analysis?.overallScore ?? null,
-      grade: analysis?.grade ?? null,
-      editSuggestions: editSuggestions ?? null,
-    };
-  }
-
-  private toInputRole(role: string): ThumbnailInputRole {
-    if (role === 'box') return 'box';
-    if (role === 'color_variant') return 'color_variant';
-    if (role === 'detail' || role === 'size_chart') return 'detail';
-    return 'product';
-  }
-
-  private inferEditCaseFromInputs(inputs: ThumbnailEditorInputImage[]): ThumbnailEditorEditCase {
-    if (inputs.some((img) => img.role === 'color_variant')) return 'color-variants';
-    if (inputs.some((img) => img.role === 'box')) return 'compose';
-    return inputs.length > 1 ? 'bundle' : 'single';
-  }
-
-  private toItem(
-    g: GenerationRow,
-    master: GenerationMasterSummary | null | undefined = g.master,
-  ): ThumbnailGenerationItem {
-    const status = (ALLOWED_STATUSES as readonly string[]).includes(g.status)
-      ? (g.status as ThumbnailGenerationItem['status'])
-      : 'failed';
-    const phase = g.phase && (ALLOWED_PHASES as readonly string[]).includes(g.phase)
-      ? (g.phase as ThumbnailPhase)
-      : null;
-    return {
-      id: g.id,
-      createdAt: g.createdAt.toISOString(),
-      status,
-      phase,
-      grade: g.grade,
-      score: g.score,
-      productId: g.masterId,
-      method: g.method,
-      originalUrl: g.originalUrl,
-      selectedUrl: g.selectedUrl,
-      candidates: g.candidates.map((c) => ({
-        id: c.id,
-        url: c.url,
-        storageKey: c.storageKey,
-        filename: c.filename ?? c.storageKey?.split('/').pop() ?? c.url.split('/').pop() ?? 'thumbnail',
-        sortOrder: c.sortOrder,
-      })),
-      editAnalysis: (g.editAnalysis as EditAnalysisResult | null) ?? null,
-      inputMeta: (g.inputMeta as Record<string, unknown> | null) ?? null,
-      errorMessage: g.errorMessage,
-      attemptCount: g.attemptCount,
-      triggeredByUserId: g.triggeredByUserId ?? null,
-      registrationStatus: this.toRegistrationStatus(g.registrationAttempts[0]?.status),
-      registrationCheckedAt: this.registrationCheckedAt(g.registrationAttempts[0]),
-      registrationError: g.registrationAttempts[0]?.errorMessage ?? null,
-      product: {
-        id: master?.id ?? g.masterId,
-        name: master?.name ?? '',
-        imageUrl: master?.imageUrl ?? null,
-        coupangProductId: null,
-        category: master?.category ?? null,
-      },
-    } satisfies ThumbnailGenerationItem;
-  }
-
-  private toRegistrationStatus(status: string | undefined): ThumbnailGenerationItem['registrationStatus'] {
-    if (status === 'uploaded' || status === 'registered' || status === 'failed') return status;
-    return null;
-  }
-
-  private registrationCheckedAt(
-    attempt: GenerationRow['registrationAttempts'][number] | undefined,
-  ): string | null {
-    if (!attempt) return null;
-    return (attempt.finishedAt ?? attempt.updatedAt ?? attempt.createdAt).toISOString();
+    if (!existing) throw new NotFoundException(`ThumbnailGeneration ${id} not found`);
   }
 }
+
+// Re-export for backwards-compat with existing GenerationRow consumers (none
+// expected — kept narrow for test compatibility).
+export type { GenerationRow };
