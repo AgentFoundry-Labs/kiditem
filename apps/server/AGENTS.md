@@ -67,6 +67,11 @@ what data it owns, what mutations it authorizes, which transaction boundary it
 controls, and which invariants would be weakened if it lived elsewhere. Do not
 create table-shaped or frontend-page-shaped top-level folders by default.
 
+`/api/categories` is a products/catalog compatibility route. The implementation
+lives under `src/products/categories/`; it is not a standalone top-level owner
+domain. Keep the route shape stable unless a product-catalog migration plan
+explicitly retires the compatibility surface.
+
 ## Global Infrastructure (main.ts)
 
 - `app.setGlobalPrefix('api')` → `@Controller('products')` = `GET /api/products`
@@ -166,7 +171,7 @@ domain instead of growing as standalone bounded contexts:
 
 | Target owner | Current folders likely to converge |
 |---|---|
-| `products` / `catalog` | `products`, `categories` |
+| `products` / `catalog` | `products` (includes `products/categories` compatibility capability for former top-level `categories`) |
 | `sourcing` / `procurement` | `sourcing`, `suppliers`, `procurement` |
 | `inventory` | `inventory`, `warehouses`, `stock-transfers`, `stock-audits`, `picking` |
 | `orders` | `orders`, `return-transfers`, CS/review/order-adjacent surfaces |
@@ -233,7 +238,7 @@ async getProduct(id: string, companyId: string) {
 | [`src/automation/adapter/out/panel-event/CLAUDE.md`](src/automation/adapter/out/panel-event/CLAUDE.md) | ~80줄 | Live Ops SSE projection adapter — `/api/panel/*` HTTP adapter + EventEmitter2 ring buffer + 4-source read-only projection |
 | [`src/automation/adapter/out/agent-runtime/CLAUDE.md`](src/automation/adapter/out/agent-runtime/CLAUDE.md) | ~35줄 | Agent OS runtime adapter — Claude CLI / Python HTTP execution adapters, immutable ExecutionContext, observable adapter fallback |
 | [`src/automation/adapter/out/workflow-runner/CLAUDE.md`](src/automation/adapter/out/workflow-runner/CLAUDE.md) | ~45줄 | Workflow runner outgoing adapter — slim-core executor registry, trusted tenant injection, no generic DB/HTTP/LLM executors |
-| [`src/products/CLAUDE.md`](src/products/CLAUDE.md) | 37줄 | 3-layer Master/Option/Bundle — `MasterProduct` family (code via `master_code_seq`), `ProductOption` SKU (race-free sku via `optionCounter` increment), `BundleComponent` (cross-master 허용, 3-way invariant, nested 금지 B1), `availableStock` = `BundleStockService.recompute` sole writer + `SELECT FOR UPDATE` row-lock |
+| [`src/products/CLAUDE.md`](src/products/CLAUDE.md) | ~60줄 | 3-layer Master/Option/Bundle + categories compatibility capability — `MasterProduct` family (code via `master_code_seq`), `ProductOption` SKU (race-free sku via `optionCounter` increment), `BundleComponent` (cross-master 허용, 3-way invariant, nested 금지 B1), `availableStock` = `BundleStockService.recompute` sole writer + `SELECT FOR UPDATE` row-lock. `src/products/categories/` owns `/api/categories` route compatibility under products/catalog |
 | [`src/rules/CLAUDE.md`](src/rules/CLAUDE.md) | 83줄 | Event-Driven — 룰 평가는 agent 비동기 spawn → `@OnEvent` 콜백. CRUD 패턴 아님 |
 | [`src/workflows/CLAUDE.md`](src/workflows/CLAUDE.md) | ~170줄 | Workflow HTTP compatibility surface — `/api/workflows/*` + `/api/workflow-runs/*` routes, DTOs; implementation lives in automation |
 

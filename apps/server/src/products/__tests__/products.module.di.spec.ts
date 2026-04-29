@@ -6,6 +6,7 @@
 // 확인" 을 요구하는데, 이 스펙은 그 중 DI 그래프 부분을 테스트 차원에서 재현한다.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Global, Module } from '@nestjs/common';
+import { PATH_METADATA } from '@nestjs/common/constants';
 import { Test, TestingModule } from '@nestjs/testing';
 import { ProductsModule } from '../products.module';
 import { MastersController } from '../adapter/in/http/masters.controller';
@@ -16,6 +17,8 @@ import { OptionsService } from '../application/service/options.service';
 import { BundleComponentsService } from '../application/service/bundle-components.service';
 import { MasterCodeService } from '../adapter/out/prisma/master-code.service';
 import { BundleStockService } from '../application/service/bundle-stock.service';
+import { CategoriesController } from '../categories/categories.controller';
+import { CategoriesService } from '../categories/categories.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StorageService } from '../../common/storage/storage.service';
 
@@ -55,6 +58,7 @@ describe('ProductsModule DI', () => {
     expect(moduleRef.get(MastersController)).toBeDefined();
     expect(moduleRef.get(OptionsController)).toBeDefined();
     expect(moduleRef.get(BundleComponentsController)).toBeDefined();
+    expect(moduleRef.get(CategoriesController)).toBeDefined();
   });
 
   it('resolves all five services', () => {
@@ -63,5 +67,10 @@ describe('ProductsModule DI', () => {
     expect(moduleRef.get(BundleComponentsService)).toBeDefined();
     expect(moduleRef.get(MasterCodeService)).toBeDefined();
     expect(moduleRef.get(BundleStockService)).toBeDefined();
+    expect(moduleRef.get(CategoriesService)).toBeDefined();
+  });
+
+  it('keeps categories on the legacy /categories route segment', () => {
+    expect(Reflect.getMetadata(PATH_METADATA, CategoriesController)).toBe('categories');
   });
 });

@@ -13,6 +13,11 @@ Backend Architecture Contract([`docs/superpowers/plans/2026-04-29-backend-archit
 ```
 products/
 ├── products.module.ts
+├── categories/                            ← products-owned compatibility capability (`/api/categories`)
+│   ├── categories.module.ts
+│   ├── categories.controller.ts
+│   ├── categories.service.ts
+│   └── dto/
 ├── adapter/
 │   ├── in/http/                          ← controllers (HTTP DTO binding only)
 │   └── out/prisma/                       ← Prisma persistence + raw SQL + queries
@@ -48,7 +53,7 @@ products/
 
 `__tests__/` 는 source 와 sibling 위치를 유지한다. Top-level `products/__tests__/` 는 multi-module integration / DI 테스트, `application/service/__tests__/` 는 service-internal 단위 테스트.
 
-`categories/` 는 별도 top-level 모듈. 장기적으로 products owner domain 으로 fold 예정 (backend-architecture-contract.md §"Backend Domain Topology" 참조). 본 PR 범위 외.
+`categories/` 는 products/catalog owner domain 하위 compatibility capability 다. public route 는 기존과 같이 `@Controller('categories')` → `/api/categories` 를 유지한다. 이 capability 는 현재 flat legacy CRUD 형태를 유지하며, 제품 카탈로그 재구성 계획 없이 route path / DTO shape / response shape / tenant behavior 를 바꾸지 않는다.
 
 ## 핵심 규칙
 
@@ -64,6 +69,7 @@ products/
 
 - Controller (`adapter/in/http/`) 는 `@UseGuards` / `@UsePipes` **사용 금지**. 전역 `CompanyScopeGuard` (APP_GUARD) + 전역 `ValidationPipe` 에 의존.
 - Controller 는 `@CurrentCompany()` 로 companyId 주입.
+- Categories compatibility controller 도 `@CurrentCompany()` 로 받은 companyId 만 service 에 전달한다. DTO 에 `companyId` 를 추가하거나 client-provided companyId 를 신뢰하지 않는다.
 - Application service (`application/service/`) 는 raw Prisma row 반환. Controller 가 `toSerializable()` + Zod parse.
 - Domain 코드 (`domain/policy`, `domain/service`) 는 Prisma / Nest 의존 금지. 위반 시 reconstruction contract 위반.
 
