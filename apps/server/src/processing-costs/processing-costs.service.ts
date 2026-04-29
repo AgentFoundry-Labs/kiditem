@@ -21,6 +21,14 @@ export class ProcessingCostsService {
   }
 
   async create(companyId: string, dto: CreateProcessingCostDto) {
+    const master = await this.prisma.masterProduct.findFirst({
+      where: { id: dto.masterId, companyId, isDeleted: false },
+      select: { id: true },
+    });
+    if (!master) {
+      throw new BadRequestException('상품을 찾을 수 없습니다');
+    }
+
     const totalCost = dto.unitCost * dto.quantity;
 
     return this.prisma.processingCost.create({

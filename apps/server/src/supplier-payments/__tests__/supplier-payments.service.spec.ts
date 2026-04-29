@@ -7,7 +7,8 @@ import { SupplierPaymentsService } from '../supplier-payments.service';
  *
  * Coverage:
  *   findAll  — companyId in WHERE with supplier include; status filter composes
- *   create   — companyId in INSERT; supplier FK supplied from DTO
+ *   create   — supplier/purchaseOrder FK pre-checks are company-scoped;
+ *              companyId in INSERT; supplier FK supplied from DTO
  *   update   — scoped updateMany (id + companyId);
  *              count === 0 → BadRequestException (cross-company denial);
  *              re-read uses scoped findFirstOrThrow (id + companyId)
@@ -22,6 +23,7 @@ const COMPANY_A = '00000000-0000-4000-8000-00000000000a';
 const COMPANY_B = '00000000-0000-4000-8000-00000000000b';
 const ROW_ID = '44444444-4444-4444-8444-444444444444';
 const SUPPLIER_ID = '55555555-5555-4555-8555-555555555555';
+const PURCHASE_ORDER_ID = '66666666-6666-4666-8666-666666666666';
 
 function makePrisma() {
   return {
@@ -30,6 +32,12 @@ function makePrisma() {
       findFirstOrThrow: vi.fn(),
       create: vi.fn(),
       updateMany: vi.fn(),
+    },
+    supplier: {
+      findFirst: vi.fn(),
+    },
+    purchaseOrder: {
+      findFirst: vi.fn(),
     },
   };
 }
@@ -67,17 +75,78 @@ describe('SupplierPaymentsService', () => {
 
   describe('create', () => {
     it('writes companyId from argument; supplierId comes from DTO', async () => {
+      prisma.supplier.findFirst.mockResolvedValue({ id: SUPPLIER_ID });
       prisma.supplierPayment.create.mockResolvedValue({ id: ROW_ID });
       await service.create(COMPANY_A, {
         supplierId: SUPPLIER_ID,
         amount: 250_000,
         dueDate: '2026-05-30',
       });
+      expect(prisma.supplier.findFirst).toHaveBeenCalledWith({
+        where: { id: SUPPLIER_ID, companyId: COMPANY_A },
+        select: { id: true },
+      });
+      expect(prisma.purchaseOrder.findFirst).not.toHaveBeenCalled();
       const callArg = prisma.supplierPayment.create.mock.calls[0][0];
       expect(callArg.data.companyId).toBe(COMPANY_A);
       expect(callArg.data.supplierId).toBe(SUPPLIER_ID);
       expect(callArg.data.amount).toBe(250_000);
       expect(callArg.include).toEqual({ supplier: true });
+    });
+
+    it('scopes purchaseOrderId before inserting the payment', async () => {
+      prisma.supplier.findFirst.mockResolvedValue({ id: SUPPLIER_ID });
+      prisma.purchaseOrder.findFirst.mockResolvedValue({ id: PURCHASE_ORDER_ID });
+      prisma.supplierPayment.create.mockResolvedValue({ id: ROW_ID });
+
+      await service.create(COMPANY_A, {
+        supplierId: SUPPLIER_ID,
+        purchaseOrderId: PURCHASE_ORDER_ID,
+        amount: 250_000,
+      });
+
+      expect(prisma.purchaseOrder.findFirst).toHaveBeenCalledWith({
+        where: { id: PURCHASE_ORDER_ID, companyId: COMPANY_A },
+        select: { id: true },
+      });
+      expect(prisma.supplierPayment.create).toHaveBeenCalled();
+    });
+
+    it('cross-company denial: rejects when supplierId is not owned by caller company', async () => {
+      prisma.supplier.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.create(COMPANY_B, {
+          supplierId: SUPPLIER_ID,
+          amount: 250_000,
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      expect(prisma.supplier.findFirst).toHaveBeenCalledWith({
+        where: { id: SUPPLIER_ID, companyId: COMPANY_B },
+        select: { id: true },
+      });
+      expect(prisma.purchaseOrder.findFirst).not.toHaveBeenCalled();
+      expect(prisma.supplierPayment.create).not.toHaveBeenCalled();
+    });
+
+    it('cross-company denial: rejects when purchaseOrderId is not owned by caller company', async () => {
+      prisma.supplier.findFirst.mockResolvedValue({ id: SUPPLIER_ID });
+      prisma.purchaseOrder.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.create(COMPANY_B, {
+          supplierId: SUPPLIER_ID,
+          purchaseOrderId: PURCHASE_ORDER_ID,
+          amount: 250_000,
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      expect(prisma.purchaseOrder.findFirst).toHaveBeenCalledWith({
+        where: { id: PURCHASE_ORDER_ID, companyId: COMPANY_B },
+        select: { id: true },
+      });
+      expect(prisma.supplierPayment.create).not.toHaveBeenCalled();
     });
   });
 

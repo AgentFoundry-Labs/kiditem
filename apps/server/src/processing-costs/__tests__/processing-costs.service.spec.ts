@@ -7,7 +7,8 @@ import { ProcessingCostsService } from '../processing-costs.service';
  *
  * Coverage:
  *   findAll  — companyId in WHERE; status filter composes
- *   create   — companyId + masterId in INSERT; totalCost = unitCost * quantity
+ *   create   — master FK pre-check is company-scoped; companyId + masterId in
+ *              INSERT; totalCost = unitCost * quantity
  *   update   — scoped updateMany (id + companyId);
  *              count === 0 → BadRequestException (cross-company denial);
  *              re-read uses scoped findFirstOrThrow (id + companyId)
@@ -31,6 +32,9 @@ function makePrisma() {
       findFirstOrThrow: vi.fn(),
       create: vi.fn(),
       updateMany: vi.fn(),
+    },
+    masterProduct: {
+      findFirst: vi.fn(),
     },
   };
 }
@@ -68,6 +72,7 @@ describe('ProcessingCostsService', () => {
 
   describe('create', () => {
     it('writes companyId from argument and computes totalCost', async () => {
+      prisma.masterProduct.findFirst.mockResolvedValue({ id: MASTER_ID });
       prisma.processingCost.create.mockResolvedValue({ id: ROW_ID });
       await service.create(COMPANY_A, {
         masterId: MASTER_ID,
@@ -75,11 +80,34 @@ describe('ProcessingCostsService', () => {
         unitCost: 1500,
         quantity: 10,
       });
+      expect(prisma.masterProduct.findFirst).toHaveBeenCalledWith({
+        where: { id: MASTER_ID, companyId: COMPANY_A, isDeleted: false },
+        select: { id: true },
+      });
       const callArg = prisma.processingCost.create.mock.calls[0][0];
       expect(callArg.data.companyId).toBe(COMPANY_A);
       expect(callArg.data.masterId).toBe(MASTER_ID);
       expect(callArg.data.totalCost).toBe(15_000);
       expect(callArg.include).toEqual({ master: true });
+    });
+
+    it('cross-company denial: rejects when masterId is not owned by caller company', async () => {
+      prisma.masterProduct.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.create(COMPANY_B, {
+          masterId: MASTER_ID,
+          processType: 'packaging',
+          unitCost: 1500,
+          quantity: 10,
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      expect(prisma.masterProduct.findFirst).toHaveBeenCalledWith({
+        where: { id: MASTER_ID, companyId: COMPANY_B, isDeleted: false },
+        select: { id: true },
+      });
+      expect(prisma.processingCost.create).not.toHaveBeenCalled();
     });
   });
 

@@ -21,6 +21,24 @@ export class SupplierPaymentsService {
   }
 
   async create(companyId: string, dto: CreateSupplierPaymentDto) {
+    const supplier = await this.prisma.supplier.findFirst({
+      where: { id: dto.supplierId, companyId },
+      select: { id: true },
+    });
+    if (!supplier) {
+      throw new BadRequestException('거래처를 찾을 수 없습니다');
+    }
+
+    if (dto.purchaseOrderId) {
+      const purchaseOrder = await this.prisma.purchaseOrder.findFirst({
+        where: { id: dto.purchaseOrderId, companyId },
+        select: { id: true },
+      });
+      if (!purchaseOrder) {
+        throw new BadRequestException('발주를 찾을 수 없습니다');
+      }
+    }
+
     return this.prisma.supplierPayment.create({
       data: {
         companyId,
