@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { scrubSecrets } from '@kiditem/shared/security';
-import type { ActionTask, ActionTaskRelatedProduct } from '@kiditem/shared';
+import type { ActionTask, ActionTaskRelatedProduct } from '@kiditem/shared/action-task';
 import {
   buildPerListingMetrics,
   type PerListingMetrics,

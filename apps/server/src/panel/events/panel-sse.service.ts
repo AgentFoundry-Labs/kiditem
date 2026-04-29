@@ -2,7 +2,7 @@ import { Injectable, MessageEvent, OnModuleDestroy } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { Subject, Observable } from 'rxjs';
 import { filter, map } from 'rxjs/operators';
-import type { PanelEvent, PanelItem } from '@kiditem/shared';
+import type { PanelEvent, PanelItem } from '@kiditem/shared/panel';
 import {
   PANEL_EVENTS,
   PanelUpsertInternal,

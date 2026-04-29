@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { PanelAlertItem } from '@kiditem/shared';
+import { PanelAlertItem } from '@kiditem/shared/panel';
 import { alertPanelAdapter } from '../alert.adapter';
 import type { Alert } from '@prisma/client';
 

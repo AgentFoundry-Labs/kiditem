@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import type { SupplierSalesRow, SupplierProductSalesRow } from '@kiditem/shared';
+import type { SupplierSalesRow, SupplierProductSalesRow } from '@kiditem/shared/supplier-stats';
 import { PrismaService } from '../prisma/prisma.service';
 
 /**

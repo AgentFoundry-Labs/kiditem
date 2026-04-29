@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { Marketplace } from '@prisma/client';
-import type { MarketplaceCatalogItem, ConfigurableParam } from '@kiditem/shared';
+import type { MarketplaceCatalogItem, ConfigurableParam } from '@kiditem/shared/marketplace';
 import { PrismaService } from '../prisma/prisma.service';
 
 function toCatalogItem(item: Marketplace, installed: boolean): MarketplaceCatalogItem {

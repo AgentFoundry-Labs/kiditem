@@ -1,4 +1,4 @@
-import type { PanelRunItem, PanelRunSource } from '@kiditem/shared';
+import type { PanelRunItem, PanelRunSource } from '@kiditem/shared/panel';
 
 export interface PanelRunAdapter<TInput = unknown> {
   source: PanelRunSource;

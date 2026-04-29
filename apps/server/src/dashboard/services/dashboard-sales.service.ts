@@ -7,7 +7,7 @@ import type {
   MonthlyTrendItem,
   TrafficKpi,
   DailyRevenueItem,
-} from '@kiditem/shared';
+} from '@kiditem/shared/dashboard';
 import type { DashboardContext } from './context';
 import { calculateProfitForRange, type RangeProfitMetrics } from '../helpers/profit-calculator';
 import { fetchWingAdSummary, type WingAdSummaryResult } from '../helpers/wing-ad-summary';

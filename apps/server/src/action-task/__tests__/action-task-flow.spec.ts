@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ActionTaskService } from '../action-task.service';
 import { NotFoundException } from '@nestjs/common';
-import { ActionTaskSchema } from '@kiditem/shared';
+import { ActionTaskSchema } from '@kiditem/shared/action-task';
 
 function makePrisma() {
   return {

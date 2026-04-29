@@ -6,7 +6,7 @@ import { AgentRegistryService } from '../../agent-registry/agent-registry.servic
 import { AGENT_EVENTS, AgentResultReadyEvent } from '../../agent-registry/events/agent-events';
 import { PANEL_EVENTS } from '../../panel/events/panel-events';
 import { alertPanelAdapter } from '../../panel/adapters/alert.adapter';
-import type { RuleItem } from '@kiditem/shared';
+import type { RuleItem } from '@kiditem/shared/rules';
 import type { EvaluationResult, ProductEvalResult } from './types';
 
 @Injectable()

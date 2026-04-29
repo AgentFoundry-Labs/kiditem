@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import type { PLData } from '@kiditem/shared';
+import type { PLData } from '@kiditem/shared/finance';
 import { PrismaService } from '../../prisma/prisma.service';
 import { kstMonthStart } from '../../common/kst';
 import { buildPerListingMetrics } from '../../common/per-listing-profit';

@@ -1,5 +1,5 @@
-import { PanelRunItem } from '@kiditem/shared';
-import type { PanelRunItem as PanelRunItemType } from '@kiditem/shared';
+import { PanelRunItem } from '@kiditem/shared/panel';
+import type { PanelRunItem as PanelRunItemType } from '@kiditem/shared/panel';
 import type { PanelRunAdapter } from './types';
 
 /**

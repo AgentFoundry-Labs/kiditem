@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { PanelRunItem } from '@kiditem/shared';
+import { PanelRunItem } from '@kiditem/shared/panel';
 import { imagePanelAdapter, ImageAdapterInput } from '../image.adapter';
 import type { ThumbnailGeneration } from '@prisma/client';
 
