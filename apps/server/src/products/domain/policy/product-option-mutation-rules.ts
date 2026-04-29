@@ -1,7 +1,3 @@
-import type { Prisma } from '@prisma/client';
-import type { CreateOptionDto } from '../../dto/create-option.dto';
-import type { UpdateOptionDto } from '../../dto/update-option.dto';
-
 /**
  * System-managed `ProductOption` fields a client cannot set or change via DTO.
  *
@@ -17,18 +13,17 @@ export const PRODUCT_OPTION_SYSTEM_FIELDS = [
 export type ProductOptionSystemField = typeof PRODUCT_OPTION_SYSTEM_FIELDS[number];
 
 /**
- * Remove `PRODUCT_OPTION_SYSTEM_FIELDS` from a DTO before forwarding to Prisma.
+ * Remove `PRODUCT_OPTION_SYSTEM_FIELDS` from an input payload before forwarding
+ * to persistence.
  *
  * Return type preserves the caller's input type minus the stripped keys so the
  * call site does not need a loose `Record<string, unknown>` intermediate cast
- * (apps/server/AGENTS.md DTO boundary). The remaining cast to
- * `Prisma.ProductOptionUnchecked{Create,Update}Input` at the call site is
- * inherent to the DTO ↔ Prisma-input shape gap and unavoidable.
+ * (apps/server/AGENTS.md DTO boundary).
  */
 export function stripProductOptionSystemFields<
-  T extends Partial<CreateOptionDto> | Partial<UpdateOptionDto>,
+  T extends object,
 >(dto: T): Omit<T, ProductOptionSystemField> {
-  const out: Record<string, unknown> = { ...dto };
+  const out = { ...dto } as Record<string, unknown>;
   for (const f of PRODUCT_OPTION_SYSTEM_FIELDS) delete out[f as string];
   return out as Omit<T, ProductOptionSystemField>;
 }
@@ -60,14 +55,14 @@ export function classifyBundleFlip(
 }
 
 /**
- * Apply the "isTemporary=false clears temporaryReason" rule to a Prisma update
+ * Apply the "isTemporary=false clears temporaryReason" rule to an update
  * payload. Pure transform — no DB access. Mirrors the existing service-level
  * behavior so MASTER and OPTION update paths share identical semantics.
  */
-export function applyTemporaryReasonClearing(
-  data: Prisma.ProductOptionUncheckedUpdateInput,
-  dto: Pick<UpdateOptionDto, 'isTemporary'>,
-): Prisma.ProductOptionUncheckedUpdateInput {
+export function applyTemporaryReasonClearing<T extends object>(
+  data: T,
+  dto: { isTemporary?: boolean },
+): T & { temporaryReason?: null } {
   if (dto.isTemporary === false) {
     return { ...data, temporaryReason: null };
   }

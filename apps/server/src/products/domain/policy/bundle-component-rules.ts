@@ -1,10 +1,22 @@
-// apps/server/src/products/domain/bundle-component-rules.ts
-import {
-  BadRequestException,
-  ConflictException,
-  ForbiddenException,
-  NotFoundException,
-} from '@nestjs/common';
+// apps/server/src/products/domain/policy/bundle-component-rules.ts
+
+export type BundleComponentRuleCode =
+  | 'self-reference'
+  | 'bundle-option-not-found'
+  | 'component-option-not-found'
+  | 'option-is-not-bundle'
+  | 'nested-bundle-not-supported'
+  | 'cross-company';
+
+export class BundleComponentRuleError extends Error {
+  constructor(
+    readonly code: BundleComponentRuleCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'BundleComponentRuleError';
+  }
+}
 
 /**
  * Pure validation helpers for `BundleComponent` writes.
@@ -24,7 +36,7 @@ export function ensureNotSelfReference(
   componentOptionId: string,
 ): void {
   if (bundleOptionId === componentOptionId) {
-    throw new ConflictException('self-reference');
+    throw new BundleComponentRuleError('self-reference', 'self-reference');
   }
 }
 
@@ -46,18 +58,34 @@ export function ensureBundleAndComponentInvariants(
   compOpt: BundleOptionForRules | null,
   authCompanyId: string,
 ): asserts bundleOpt is BundleOptionForRules {
-  if (!bundleOpt) throw new NotFoundException('bundle option not found');
-  if (!compOpt) throw new NotFoundException('component option not found');
+  if (!bundleOpt) {
+    throw new BundleComponentRuleError(
+      'bundle-option-not-found',
+      'bundle option not found',
+    );
+  }
+  if (!compOpt) {
+    throw new BundleComponentRuleError(
+      'component-option-not-found',
+      'component option not found',
+    );
+  }
   if (!bundleOpt.isBundle) {
-    throw new BadRequestException('option is not a bundle');
+    throw new BundleComponentRuleError(
+      'option-is-not-bundle',
+      'option is not a bundle',
+    );
   }
   if (compOpt.isBundle) {
-    throw new BadRequestException('nested bundle not supported in Plan B1');
+    throw new BundleComponentRuleError(
+      'nested-bundle-not-supported',
+      'nested bundle not supported in Plan B1',
+    );
   }
   if (bundleOpt.companyId !== authCompanyId) {
-    throw new ForbiddenException('cross-company not allowed');
+    throw new BundleComponentRuleError('cross-company', 'cross-company not allowed');
   }
   if (compOpt.companyId !== bundleOpt.companyId) {
-    throw new ForbiddenException('cross-company not allowed');
+    throw new BundleComponentRuleError('cross-company', 'cross-company not allowed');
   }
 }

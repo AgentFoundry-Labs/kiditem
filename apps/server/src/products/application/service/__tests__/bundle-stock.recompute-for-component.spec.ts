@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Test } from '@nestjs/testing';
 import { BundleStockService } from '../bundle-stock.service';
-import { PrismaService } from '../../../prisma/prisma.service';
+import { PrismaService } from '../../../../prisma/prisma.service';
 
 describe('BundleStockService.recomputeForComponent', () => {
   let service: BundleStockService;

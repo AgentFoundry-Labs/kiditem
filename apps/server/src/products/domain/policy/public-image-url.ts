@@ -1,18 +1,24 @@
 // apps/server/src/products/domain/public-image-url.ts
 //
 // SSRF defense for the master image proxy / base64 read path. Throws
-// BadRequestException for any URL that is not http(s) or that resolves to a
+// `PublicImageUrlError` for any URL that is not http(s) or that resolves to a
 // loopback / private / link-local / ULA / unspecified / CGNAT / cloud
 // metadata address — including IPv4-mapped and IPv4-compat IPv6 forms after
 // WHATWG URL normalization. Pure module — no Prisma, no Nest provider.
-import { BadRequestException } from '@nestjs/common';
 import { isIP } from 'node:net';
+
+export class PublicImageUrlError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PublicImageUrlError';
+  }
+}
 
 export function assertPublicHttpUrl(raw: string): void {
   let parsed: URL;
-  try { parsed = new URL(raw); } catch { throw new BadRequestException('invalid image url'); }
+  try { parsed = new URL(raw); } catch { throw new PublicImageUrlError('invalid image url'); }
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new BadRequestException('image url protocol must be http(s)');
+    throw new PublicImageUrlError('image url protocol must be http(s)');
   }
   // `new URL('http://[::1]/').hostname` returns `[::1]` with brackets; strip them
   // before IP classification. IPv6 zone-id (fe80::1%eth0) is also stripped.
@@ -24,7 +30,7 @@ export function assertPublicHttpUrl(raw: string): void {
 
   // Hostname blocklist (non-IP).
   if (host === 'localhost' || host === '') {
-    throw new BadRequestException('image url host not allowed');
+    throw new PublicImageUrlError('image url host not allowed');
   }
 
   const ipKind = isIP(host);
@@ -34,7 +40,7 @@ export function assertPublicHttpUrl(raw: string): void {
   if (ipKind === 0) return;
 
   if (ipKind === 4) {
-    if (isPrivateIPv4(host)) throw new BadRequestException('image url host not allowed');
+    if (isPrivateIPv4(host)) throw new PublicImageUrlError('image url host not allowed');
     return;
   }
 
@@ -47,7 +53,7 @@ export function assertPublicHttpUrl(raw: string): void {
     // loopback + metadata blocks.
     const embeddedV4 = extractEmbeddedIPv4(host);
     if (embeddedV4) {
-      if (isPrivateIPv4(embeddedV4)) throw new BadRequestException('image url host not allowed');
+      if (isPrivateIPv4(embeddedV4)) throw new PublicImageUrlError('image url host not allowed');
       return;
     }
 
@@ -58,7 +64,7 @@ export function assertPublicHttpUrl(raw: string): void {
       /^fe[89ab][0-9a-f]?:/.test(host) || // fe80::/10 link-local (and fe8X:/fe9X:/feAX:/feBX:)
       /^fc[0-9a-f]{2}:/.test(host) ||     // fc00::/7 ULA
       /^fd[0-9a-f]{2}:/.test(host);       // fd00::/8 ULA
-    if (blocked6) throw new BadRequestException('image url host not allowed');
+    if (blocked6) throw new PublicImageUrlError('image url host not allowed');
     return;
   }
 }

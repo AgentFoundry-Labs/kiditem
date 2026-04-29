@@ -1,5 +1,11 @@
 // apps/server/src/products/application/service/bundle-components.service.ts
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { BundleComponent, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { BundleStockService } from './bundle-stock.service';
@@ -8,6 +14,8 @@ import { UpdateBundleComponentDto } from '../../dto/update-bundle-component.dto'
 import { ListBundleComponentsQuery } from '../../dto/list-bundle-components.query';
 import { mapPrismaError } from '../../util/prisma-error';
 import {
+  BundleComponentRuleError,
+  type BundleOptionForRules,
   ensureBundleAndComponentInvariants,
   ensureNotSelfReference,
 } from '../../domain/policy/bundle-component-rules';
@@ -19,6 +27,45 @@ import {
   updateBundleComponentQty,
 } from '../../adapter/out/prisma/bundle-component.persistence';
 import { listBundleComponentsForTenant } from '../../adapter/out/prisma/bundle-component.query';
+
+function mapBundleComponentRuleError(error: unknown): never {
+  if (!(error instanceof BundleComponentRuleError)) throw error;
+  switch (error.code) {
+    case 'self-reference':
+      throw new ConflictException(error.message);
+    case 'bundle-option-not-found':
+    case 'component-option-not-found':
+      throw new NotFoundException(error.message);
+    case 'option-is-not-bundle':
+    case 'nested-bundle-not-supported':
+      throw new BadRequestException(error.message);
+    case 'cross-company':
+      throw new ForbiddenException(error.message);
+  }
+}
+
+function ensureNotSelfReferenceForHttp(
+  bundleOptionId: string,
+  componentOptionId: string,
+): void {
+  try {
+    ensureNotSelfReference(bundleOptionId, componentOptionId);
+  } catch (error) {
+    mapBundleComponentRuleError(error);
+  }
+}
+
+function ensureBundleAndComponentInvariantsForHttp(
+  bundleOpt: BundleOptionForRules | null,
+  compOpt: BundleOptionForRules | null,
+  authCompanyId: string,
+): asserts bundleOpt is BundleOptionForRules {
+  try {
+    ensureBundleAndComponentInvariants(bundleOpt, compOpt, authCompanyId);
+  } catch (error) {
+    mapBundleComponentRuleError(error);
+  }
+}
 
 /**
  * Bundle composition CRUD orchestration.
@@ -46,7 +93,7 @@ export class BundleComponentsService {
     dto: CreateBundleComponentDto,
     outerTx?: Prisma.TransactionClient,
   ): Promise<BundleComponent> {
-    ensureNotSelfReference(dto.bundleOptionId, dto.componentOptionId);
+    ensureNotSelfReferenceForHttp(dto.bundleOptionId, dto.componentOptionId);
 
     const db = outerTx ?? this.prisma;
     const [bundleOpt, compOpt] = await Promise.all([
@@ -57,7 +104,7 @@ export class BundleComponentsService {
         where: { id: dto.componentOptionId, companyId, isDeleted: false },
       }),
     ]);
-    ensureBundleAndComponentInvariants(bundleOpt, compOpt, companyId);
+    ensureBundleAndComponentInvariantsForHttp(bundleOpt, compOpt, companyId);
 
     const exec = async (
       tx: Prisma.TransactionClient,

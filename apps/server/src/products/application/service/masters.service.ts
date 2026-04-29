@@ -29,13 +29,27 @@ import {
   primaryImageIndex,
   representativeImageUrl,
 } from '../../domain/service/master-image-normalizer';
-import { assertPublicHttpUrl } from '../../domain/policy/public-image-url';
+import {
+  PublicImageUrlError,
+  assertPublicHttpUrl,
+} from '../../domain/policy/public-image-url';
 
 const SYSTEM_FIELDS = [
   'id', 'code', 'companyId', 'optionCounter', 'isDeleted', 'deletedAt',
   'healthUpdatedAt', 'rawData', 'processedData', 'draftContent',
   'createdAt', 'updatedAt', 'images', 'imageUrl',
 ] as const;
+
+function assertPublicHttpUrlForHttp(url: string): void {
+  try {
+    assertPublicHttpUrl(url);
+  } catch (error) {
+    if (error instanceof PublicImageUrlError) {
+      throw new BadRequestException(error.message);
+    }
+    throw error;
+  }
+}
 
 @Injectable()
 export class MastersService {
@@ -272,7 +286,7 @@ export class MastersService {
     if (!url) throw new NotFoundException('image not found');
     // Minimum SSRF defense: only http(s), block internal hosts. Full domain allowlist
     // is a follow-up (see TODOS.md "originalImageBase64 SSRF allowlist").
-    assertPublicHttpUrl(url);
+    assertPublicHttpUrlForHttp(url);
     const res = await fetch(url);
     if (!res.ok) throw new NotFoundException('image not found');
     const contentType = res.headers.get('content-type') ?? 'image/jpeg';
