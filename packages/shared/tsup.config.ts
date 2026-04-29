@@ -10,6 +10,7 @@ export default defineConfig({
     'src/ai.ts',
     'src/advertising.ts',
     'src/errors/index.ts',
+    'src/server-errors.ts',
     'src/security/index.ts',
   ],
   format: ['esm', 'cjs'],
