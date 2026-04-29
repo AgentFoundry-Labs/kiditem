@@ -45,9 +45,6 @@
         // `import:product-baseline`). Knip cannot link these to the script bins.
         "concurrently",
         "tsx"
-        // NOTE: @types/better-sqlite3, better-sqlite3, and react remain unignored
-        // because no script or source file consumes them. They are tracked as
-        // removal candidates by the Phase 5 dependency purge plan.
       ]
     },
     "apps/server": {
@@ -121,9 +118,6 @@
         "@testing-library/dom",
         // Provides eslint binary used by the lint script.
         "eslint"
-        // NOTE: tsx is intentionally NOT ignored here — apps/web has no script that
-        // invokes tsx, so it is a legitimate removal candidate tracked by the
-        // Phase 5 dependency purge plan.
       ]
     },
     "packages/shared": {

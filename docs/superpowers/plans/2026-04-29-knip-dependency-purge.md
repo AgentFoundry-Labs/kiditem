@@ -63,6 +63,28 @@ apps/server/src/workflows/executors/types.ts: StandardOrder, StandardProduct, St
 
 Every remaining line is either a documented `defer-contract` symbol (export risk map) or a verified removal candidate (`react` in the root devDependencies — see [Removal Candidates](#removal-candidates)).
 
+**After PR-1 (`chore/knip-dependency-baseline`)** — both purges and accumulated dead-export drift folded together — the report is dependency-clean and the export surface is the new defer baseline:
+
+```
+Unused exports (16)
+apps/server/src/advertising/...     # see Deferred Items
+apps/server/src/ai/...              # see Deferred Items
+apps/server/src/auth/decorators/skip-auth.decorator.ts: SkipAuth   # defer-contract
+apps/server/src/products/...        # see Deferred Items
+apps/server/src/workflows/executors/index.ts: getNodeDefinition, listNodeTypes, listNodeDefinitions   # defer-contract
+Unused exported types (33)
+apps/server/src/advertising/...     # see Deferred Items
+apps/server/src/agent-registry/agent-registry.service.ts: AgentRunInput       # see Deferred Items
+apps/server/src/ai/...              # see Deferred Items
+apps/server/src/products/...        # see Deferred Items
+apps/server/src/workflows/executors/types.ts: Standard*            # defer-contract
+apps/web/src/types/index.ts: NodeType                              # see Deferred Items
+Duplicate exports (2)
+apps/server/src/advertising/mappers/ad-listing.mapper.ts: ...       # see Deferred Items
+```
+
+The `Unused devDependencies` line is gone. The remaining export/type/duplicate-export findings are domain-owner decisions and are tracked in [Deferred Items (post-PR-1)](#deferred-items-post-pr-1).
+
 ## False-Positive Classification
 
 Every false positive falls into one of two patterns. Both are direct consequences of how knip 6 sees an npm-workspaces monorepo, and neither is a code defect.
@@ -116,17 +138,19 @@ The following entries remain real removal candidates after the false-positive sw
 
 ### Root `package.json`
 
-| Candidate | Type | Evidence to verify before removal |
-| --- | --- | --- |
-| `react` | `devDependencies` | Knip reports it as unused at root; no `scripts/**` or `prisma/**` source file imports `react`. Confirm via `rg -n "from ['\"]react['\"]" scripts prisma extensions` returning no hit. The `apps/web` and `packages/templates` workspaces declare their own React. |
-| `@types/better-sqlite3` | `devDependencies` | No `import` of `better-sqlite3` anywhere in `apps/`, `packages/`, `scripts/`, or `agents/`. Knip currently treats it as resolved through the installed `node_modules/`, but the package.json declaration is unused. |
-| `better-sqlite3` | `devDependencies` | Same evidence trail as `@types/better-sqlite3`. Removing the runtime package and the type package together avoids type-only orphan declarations. |
+All three were removed by PR-1 (`chore/knip-dependency-baseline`). Evidence retained for audit.
+
+| Candidate | Type | Status | Evidence verified before removal |
+| --- | --- | --- | --- |
+| `react` | `devDependencies` | Removed | `rg -n "from ['\"]react['\"]" scripts prisma extensions` → no hit. Whole-tree `rg` excluding `apps/web` and `packages/templates` → no hit. Both consuming workspaces declare their own React. |
+| `@types/better-sqlite3` | `devDependencies` | Removed | `rg -n "better-sqlite3"` (excluding `node_modules/`, `dist/`, `.next/`, `package-lock.json`) → no hit. |
+| `better-sqlite3` | `devDependencies` | Removed | Same evidence as above. Removed together with `@types/better-sqlite3` to avoid type-only orphan declarations. |
 
 ### `apps/web/package.json`
 
-| Candidate | Type | Evidence to verify before removal |
-| --- | --- | --- |
-| `tsx` | `devDependencies` | `apps/web/package.json` declares `tsx` but no `apps/web` script invokes it. Root `tsx` covers the `data:dev:*` and `import:product-baseline` scripts. Confirm with `rg -n "tsx " apps/web/package.json` showing only the dependency line. The package can be removed once the `apps/web` build is re-confirmed without it. |
+| Candidate | Type | Status | Evidence verified before removal |
+| --- | --- | --- | --- |
+| `tsx` | `devDependencies` | Removed | `rg -n "tsx " apps/web/package.json apps/web/next.config.mjs apps/web/scripts apps/web/src apps/web/*.config.*` → no script or config invokes `tsx`. Root `tsx` (kept) covers `data:dev:*` and `import:product-baseline`. The `.tsx` matches in apps/web docs are file extensions, not the binary. |
 
 ### Frontend Prisma footprint
 
@@ -165,17 +189,115 @@ rg -n "PrismaClient|@prisma/client" apps/web/.next 2>/dev/null | head
 
 Steps 1–2 must return no hits; step 4 should return only generator/tooling artifacts, never an actual `PrismaClient` constructor call.
 
+## Deferred Items (post-PR-1)
+
+These findings appeared in the knip report after PR-0 landed, mostly because of unrelated domain work merged between PR #98 and this lane. PR-1 intentionally does **not** delete them. Each owner-domain sweep is its own child PR with a runtime-consumer check before any deletion.
+
+### Why deferred
+
+- Phase 5 dependency PRs are scoped to package-manifest hygiene (root `devDependencies`, workspace `devDependencies`). Touching domain source files here would mix two lanes and violate the "one business domain per session" rule.
+- Several entries below are exported from files that also expose used symbols (mapper files, persistence files). A blind `knip --fix` would yank symbols that an owner expects to keep as part of the module's public shape.
+- Two of the file groups (`workflows/executors`, `auth/decorators`) are already classified as `defer-contract` in [`2026-04-29-knip-export-risk-map.md`](2026-04-29-knip-export-risk-map.md) and are repeated here only for completeness.
+
+### advertising domain
+
+Owner: advertising domain plan.
+
+- Values (`Unused exports`):
+  - `apps/server/src/advertising/domain/business-date.ts`: `currentBusinessDate`
+  - `apps/server/src/advertising/domain/scrape-row-normalizers.ts`: `asScrapeRow`, `toBooleanOrNull`
+  - `apps/server/src/advertising/ingest/listing-ad-metric-accumulator.ts`: `buildListingAdMetaData`
+  - `apps/server/src/advertising/mappers/ad-listing.mapper.ts`: `toAdListingSummary`
+  - `apps/server/src/advertising/persistence/ad-execution.persistence.ts`: `MAX_LEASE_SCAN`
+  - `apps/server/src/advertising/persistence/channel-scrape-run.persistence.ts`: `serializeScrapeRunError`
+  - `apps/server/src/advertising/read-models/ad-strategy-context-read-model.ts`: `loadChannelStateByListing`
+- Types (`Unused exported types`):
+  - `apps/server/src/advertising/domain/scrape-row-normalizers.ts`: `ScrapeRowPair`
+  - `apps/server/src/advertising/ingest/*-ingest.handler.ts`: `AdCampaignIngestDeps`, `CoupangAdsDailyIngestDeps`, `RawScrapeIngestDeps`, `TrafficIngestDeps`
+  - `apps/server/src/advertising/ingest/listing-ad-metric-accumulator.ts`: `AddListingAdMetricsInput`
+  - `apps/server/src/advertising/mappers/ad-campaign.mapper.ts`: `GradeBudgetTotals`, `AdTrendsMapperInput`
+  - `apps/server/src/advertising/mappers/ad-listing.mapper.ts`: `AdListingSummary`
+  - `apps/server/src/advertising/persistence/ad-execution.persistence.ts`: `LeasedExecutionTask`, `ScopedExecutionTask`
+  - `apps/server/src/advertising/persistence/channel-daily-fact.persistence.ts`: `AdTargetDailyMetrics`
+  - `apps/server/src/advertising/read-models/ad-benchmark-read-model.ts`: `BenchmarkPerListingRow`, `BenchmarkAggregates`
+  - `apps/server/src/advertising/read-models/ad-campaign-read-model.ts`: `AdTrendDailyRow`
+  - `apps/server/src/advertising/read-models/ad-strategy-context-read-model.ts`: `StrategyContext`
+  - `apps/server/src/advertising/services/channel-scrape-persistence.service.ts`: `ScrapeMatchStatus`, `ListingDailyState`, `ListingDailyTrafficMetrics`, `ListingOptionDailyState`, `AdTargetDailyMetrics`
+- Duplicate exports:
+  - `apps/server/src/advertising/mappers/ad-listing.mapper.ts`: `scopedListingToSummary` aliases `toAdListingSummary`; `hydratedListingToSummary` aliases `toListingSummary`. Pick one canonical name during the advertising sweep.
+
+### ai domain
+
+Owner: ai domain plan.
+
+- Values (`Unused exports`):
+  - `apps/server/src/ai/domain/thumbnail-compliance-normalizer.ts`: `VIOLATION_KEYS`, `clampNumber`, `normalizeConfidence`
+  - `apps/server/src/ai/domain/thumbnail-image-source.ts`: `ALLOWED_THUMBNAIL_MIME_TO_EXT`
+  - `apps/server/src/ai/read-models/thumbnail-generation-read-model.ts`: `THUMBNAIL_ANALYSIS_SELECT`, `inputImagesInclude`, `candidatesInclude`, `thumbnailAnalysesInclude`, `jobMasterSelect`
+  - `apps/server/src/ai/services/thumbnail-master-image-resolver.ts`: `THUMBNAIL_MASTER_IMAGE_SELECT`
+- Types (`Unused exported types`):
+  - `apps/server/src/ai/adapters/wing-automation-runner.ts`: `WingUploadInput`, `WingUploadResult`, `PlaywriterStatus`
+  - `apps/server/src/ai/domain/thumbnail-compliance-normalizer.ts`: `ThumbnailGrade`, `AiQualityIssue`
+  - `apps/server/src/ai/domain/thumbnail-image-source.ts`: `ParsedDataImageUrl`
+  - `apps/server/src/ai/domain/thumbnail-image-spec.ts`: `PixelBackgroundVerdict`
+  - `apps/server/src/ai/mappers/thumbnail-analysis.mapper.ts`: `AnalysisRowMaster`
+  - `apps/server/src/ai/mappers/thumbnail-generation.mapper.ts`: `GenerationCandidateRow`, `GenerationRegistrationAttemptRow`
+  - `apps/server/src/ai/mappers/thumbnail-wing.mapper.ts`: `MasterForWingNaming`, `GenerationForWingSelection`, `RegistrationAttemptForVerification`
+  - `apps/server/src/ai/persistence/thumbnail-generation.persistence.ts`: `ApplyGenerationSelected`
+  - `apps/server/src/ai/read-models/thumbnail-analysis-read-model.ts`: `AnalysisSummaryRow`
+  - `apps/server/src/ai/read-models/thumbnail-generation-read-model.ts`: `JobMasterRow`
+  - `apps/server/src/ai/services/thumbnail-generation.service.ts`: `GenerationRow`
+
+### products domain
+
+Owner: products domain plan.
+
+- Values (`Unused exports`):
+  - `apps/server/src/products/domain/product-option-mutation-rules.ts`: `PRODUCT_OPTION_SYSTEM_FIELDS`
+  - `apps/server/src/products/mappers/product-catalog.mapper.ts`: `range`, `optionStock`, `activeOptions`
+  - `apps/server/src/products/read-models/product-catalog-read-model.ts`: `normalizePipelineStep`, `buildCatalogWhere`, `buildCatalogMasterSelect`
+- Types (`Unused exported types`):
+  - `apps/server/src/products/domain/bundle-component-rules.ts`: `BundleOptionForRules`
+  - `apps/server/src/products/domain/bundle-stock-capacity.ts`: `BundleComponentForCapacity`
+  - `apps/server/src/products/domain/product-option-mutation-rules.ts`: `ProductOptionSystemField`, `BundleFlipDirection`
+  - `apps/server/src/products/persistence/bundle-stock.persistence.ts`: `ActiveBundleComponentRow`
+  - `apps/server/src/products/persistence/product-option.persistence.ts`: `OptionTxClient`
+
+### agent-registry contract
+
+Owner: Agent OS / agent-registry boundary plan.
+
+- `apps/server/src/agent-registry/agent-registry.service.ts`: `AgentRunInput` —
+  typed execution hand-off for `run` / `runByType`. PR #130 added this as part
+  of the AgentTask trace contract (`companyId`, `workflowRunId`,
+  `workflowNodeId`, `sourceDataId`, `extra`). Treat as a boundary-contract
+  decision, not a generic dependency cleanup deletion.
+
+### web (frontend) defer
+
+Owner: apps/web reconstruction plan.
+
+- `apps/web/src/types/index.ts`: `NodeType` — likely tied to the workflow node-type contract; gated on the workflows defer-contract decision (PR-2).
+
+### workflows / auth contract symbols (from export risk map)
+
+These are the same `defer-contract` symbols documented in [`2026-04-29-knip-export-risk-map.md`](2026-04-29-knip-export-risk-map.md). Re-listed for completeness; do not touch in this lane.
+
+- `apps/server/src/auth/decorators/skip-auth.decorator.ts`: `SkipAuth`
+- `apps/server/src/workflows/executors/index.ts`: `getNodeDefinition`, `listNodeTypes`, `listNodeDefinitions`
+- `apps/server/src/workflows/executors/types.ts`: `StandardOrder`, `StandardProduct`, `StandardInventory`, `StandardAd`, `StandardProfitLoss`, `StandardReview`, `StandardThumbnail`
+
 ## Suggested Purge PR Order
 
-The foundation PR (this one) is PR-0. Subsequent purge PRs should land in this order, each with the gates listed below.
+The foundation PR is PR-0. Subsequent purge PRs land in this order, each with the gates listed below.
 
-1. **PR-0 (this PR) — `refactor/knip-dependency-foundation`** — write this plan, configure `knip.jsonc` with the false-positive ignore lists, verify builds. No package removal, no source code change outside `knip.jsonc` and this plan.
-2. **PR-1 — Root devDependency purge.** Remove `react` from root `devDependencies`. Optionally remove `@types/better-sqlite3` + `better-sqlite3` together if step-by-step verification (below) confirms no consumer. Run all three workspace builds plus `npm run knip:report`.
-3. **PR-2 — `apps/web` `tsx` removal.** Drop `tsx` from `apps/web/package.json` `devDependencies`. Re-run `npm run build --workspace=apps/web` and `apps/web` Vitest.
-4. **PR-3 — Workflow executor contract decision (out of this Phase 5 lane).** Decide whether `getNodeDefinition`, `listNodeTypes`, `listNodeDefinitions`, and `Standard*` types remain part of the workflow public surface or move to internal. Owned by the workflows domain plan, not by Phase 5.
-5. **PR-4 — Auth `SkipAuth` decision (out of this Phase 5 lane).** Either keep `SkipAuth` as the documented route decorator and update call sites, or replace docs and the test usage with the narrower metadata helper. Owned by the auth domain plan.
+1. **PR-0 — `refactor/knip-dependency-foundation` (DONE).** Configured `knip.jsonc` with the false-positive ignore lists and added the foundation plan. No package removal, no source code change outside `knip.jsonc` and this plan.
+2. **PR-1 — `chore/knip-dependency-baseline` (this PR).** Removes the verified safe-purge candidates in one batch: `react`, `@types/better-sqlite3`, `better-sqlite3` from root `devDependencies` and `tsx` from `apps/web` `devDependencies`. Cleans up the now-stale `// NOTE: removal candidates` comments in `knip.jsonc`. Reruns the workspace builds plus `npm run knip:report` and the boundary scanners (`check:web-db-boundary`, `check:shared-root-imports`). PR-1 supersedes the earlier "PR-1 + PR-2 in parallel" split because all four candidates were independently verified by `rg` and the post-purge knip report shows zero new findings beyond the documented defer-contract surface.
+3. **PR-2 — Workflow executor contract decision (out of this Phase 5 lane).** Decide whether `getNodeDefinition`, `listNodeTypes`, `listNodeDefinitions`, and `Standard*` types remain part of the workflow public surface or move to internal. Owned by the workflows domain plan, not by Phase 5.
+4. **PR-3 — Auth `SkipAuth` decision (out of this Phase 5 lane).** Either keep `SkipAuth` as the documented route decorator and update call sites, or replace docs and the test usage with the narrower metadata helper. Owned by the auth domain plan.
+5. **PR-4..N — Per-domain dead-export sweeps (advertising / ai / products / agent-registry).** New unused exports + types accumulated since PR #98 and PR #130 (see [Deferred Items](#deferred-items-post-pr-1)). Each domain owner sweeps their slice with a same-domain PR and a runtime-consumer check before deletion. Phase 5 does not delete these.
 
-PR-1 and PR-2 can run in parallel. PR-3 and PR-4 must come from their respective domain owners with their own child plans; this Phase 5 lane does not touch them.
+PR-2..N must come from their respective domain owners with their own child plans; this Phase 5 lane does not touch them.
 
 ## Master Task List
 
