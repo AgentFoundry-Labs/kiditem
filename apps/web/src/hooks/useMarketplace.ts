@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { marketplaceApi } from '@/app/marketplace/lib/marketplace-api';
 import { queryKeys } from '@/lib/query-keys';
 import type { UseQueryOptions } from '@tanstack/react-query';
-import type { WorkflowCatalogItem, AgentCatalogItem } from '@kiditem/shared';
+import type { WorkflowCatalogItem, AgentCatalogItem } from '@kiditem/shared/marketplace';
 
 export function useMarketplaceWorkflows(
   query?: { module?: string; category?: string },

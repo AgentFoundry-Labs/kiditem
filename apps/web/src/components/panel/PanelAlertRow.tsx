@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Info, AlertTriangle, AlertCircle, XCircle, Bell } from 'lucide-react';
 import { cn, timeAgo } from '@/lib/utils';
 import { PromoteToTaskModal } from './PromoteToTaskModal';
-import type { PanelAlertItem } from '@kiditem/shared';
+import type { PanelAlertItem } from '@kiditem/shared/panel';
 
 function severityIcon(severity: string) {
   switch (severity) {

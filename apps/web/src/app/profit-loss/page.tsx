@@ -5,7 +5,7 @@ import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { Download } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { z } from 'zod';
-import { PLDataSchema } from '@kiditem/shared';
+import { PLDataSchema } from '@kiditem/shared/finance';
 import { usePeriodSelector } from '@/hooks/usePeriodSelector';
 import PeriodSelector from '@/components/ui/PeriodSelector';
 import { cn, timeAgo } from "@/lib/utils";

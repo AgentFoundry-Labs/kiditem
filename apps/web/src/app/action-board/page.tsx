@@ -16,7 +16,7 @@ import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
 import { cn } from '@/lib/utils';
 import { parseActionResult, type ActionResult } from './lib/actions';
-import type { ActionTask } from '@kiditem/shared';
+import type { ActionTask } from '@kiditem/shared/action-task';
 
 type ViewMode = 'status' | 'role' | 'priority';
 type Scope = 'me' | 'team' | 'all';

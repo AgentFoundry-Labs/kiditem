@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { usePanelStore } from '../lib/panel-store';
 import { PanelSheet } from '../PanelSheet';
-import type { PanelItem } from '@kiditem/shared';
+import type { PanelItem } from '@kiditem/shared/panel';
 
 // next/navigation mock
 vi.mock('next/navigation', () => ({

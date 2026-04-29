@@ -28,14 +28,16 @@ import {
   DashboardAdSummarySchema,
   DashboardInventorySummarySchema,
   DashboardTrendItemSchema,
-  ActionTaskListSchema,
-  ActionTaskSchema,
   type DashboardSalesSummary,
   type DashboardAdSummary,
   type DashboardInventorySummary,
   type DashboardTrendItem,
+} from '@kiditem/shared/dashboard';
+import {
+  ActionTaskListSchema,
+  ActionTaskSchema,
   type ActionTask,
-} from '@kiditem/shared';
+} from '@kiditem/shared/action-task';
 import { z } from 'zod';
 import { friendlyError } from '@/lib/api-error';
 

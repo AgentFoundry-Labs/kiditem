@@ -2,7 +2,7 @@
 
 import { getCompanyId } from '@/lib/api';
 import { apiClient } from '@/lib/api-client';
-import type { WorkflowCatalogItem, AgentCatalogItem } from '@kiditem/shared';
+import type { WorkflowCatalogItem, AgentCatalogItem } from '@kiditem/shared/marketplace';
 
 export const marketplaceApi = {
   // Workflows

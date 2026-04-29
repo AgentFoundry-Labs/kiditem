@@ -5,7 +5,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { Bell, X } from 'lucide-react';
 import { usePanelStore } from './lib/panel-store';
 import { PanelItemRow } from './PanelItemRow';
-import type { PanelItem } from '@kiditem/shared';
+import type { PanelItem } from '@kiditem/shared/panel';
 
 export function PanelSheet() {
   const isOpen = usePanelStore((s) => s.isOpen);
