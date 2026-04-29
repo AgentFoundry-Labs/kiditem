@@ -1,7 +1,38 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { Marketplace } from '@prisma/client';
 import type { MarketplaceCatalogItem, ConfigurableParam } from '@kiditem/shared/marketplace';
 import { PrismaService } from '../prisma/prisma.service';
+
+// Allowed workflow node types — must match the slim-core executor surface in
+// `apps/server/src/workflows/executors/builtin.ts`. Catalog entries that
+// reference any other node type are removed from listings and rejected at
+// install time. Generic DB/HTTP/transform executors are intentionally absent;
+// AI/LLM work is delegated through `agent_task.create` only. Domain-specific
+// executors (e.g. coupang.orders.fetch) must be registered in builtin.ts
+// before being added here.
+const ALLOWED_WORKFLOW_NODE_TYPES: ReadonlySet<string> = new Set([
+  'trigger.manual',
+  'trigger.schedule',
+  'condition.evaluate',
+  'notification.alert',
+  'agent_task.create',
+]);
+
+function collectInvalidNodeTypes(nodesJson: unknown): string[] {
+  if (!Array.isArray(nodesJson)) return ['<missing nodesJson>'];
+  const invalid: string[] = [];
+  for (const node of nodesJson) {
+    const type = (node as { type?: unknown })?.type;
+    if (typeof type !== 'string' || !ALLOWED_WORKFLOW_NODE_TYPES.has(type)) {
+      invalid.push(typeof type === 'string' ? type : '<missing type>');
+    }
+  }
+  return [...new Set(invalid)];
+}
+
+function isWorkflowCatalogSlimCoreCompatible(item: Marketplace): boolean {
+  return collectInvalidNodeTypes(item.nodesJson).length === 0;
+}
 
 function toCatalogItem(item: Marketplace, installed: boolean): MarketplaceCatalogItem {
   return {
@@ -57,11 +88,36 @@ export class MarketplaceService {
     });
     const installedSet = new Set(installed.map((i) => i.marketplaceId));
 
-    return items.map((item) => toCatalogItem(item, installedSet.has(item.id)));
+    // Hide catalog entries that reference unregistered node types so they
+    // never reach the install path. The seed is expected to stay slim-core
+    // compatible; if a stale row appears in production we surface it via
+    // logs instead of rendering an installable card that would fail.
+    const visible: Marketplace[] = [];
+    for (const item of items) {
+      const invalid = collectInvalidNodeTypes(item.nodesJson);
+      if (invalid.length === 0) {
+        visible.push(item);
+        continue;
+      }
+      this.logger.warn(
+        `Skipping marketplace workflow "${item.name}" (${item.id}) — unsupported node types: ${invalid.join(', ')}`,
+      );
+    }
+
+    return visible.map((item) => toCatalogItem(item, installedSet.has(item.id)));
   }
 
   async getWorkflow(id: string) {
-    return this.prisma.marketplace.findUnique({ where: { id, type: 'workflow' } });
+    const item = await this.prisma.marketplace.findUnique({ where: { id, type: 'workflow' } });
+    if (!item) return null;
+    if (!isWorkflowCatalogSlimCoreCompatible(item)) {
+      const invalid = collectInvalidNodeTypes(item.nodesJson);
+      this.logger.warn(
+        `Hiding marketplace workflow "${item.name}" (${item.id}) — unsupported node types: ${invalid.join(', ')}`,
+      );
+      return null;
+    }
+    return item;
   }
 
   async installWorkflow(
@@ -73,6 +129,13 @@ export class MarketplaceService {
       where: { id: marketplaceId },
     });
     if (!catalog || catalog.type !== 'workflow') throw new NotFoundException('Workflow catalog item not found');
+
+    const invalidNodeTypes = collectInvalidNodeTypes(catalog.nodesJson);
+    if (invalidNodeTypes.length > 0) {
+      throw new BadRequestException(
+        `Workflow catalog "${catalog.name}" uses unsupported node types: ${invalidNodeTypes.join(', ')}`,
+      );
+    }
 
     let nodesJson = catalog.nodesJson as any[];
     if (params && Array.isArray(catalog.configurableParams)) {
