@@ -1,3 +1,13 @@
+// @kiditem/shared root barrel — compatibility surface only.
+//
+// All consumers under apps/server/src and apps/web/src use subpath imports
+// (e.g. `@kiditem/shared/product`, `@kiditem/shared/errors`,
+// `@kiditem/shared/security`, `@kiditem/shared/panel`). The root barrel is
+// frozen by `scripts/check-shared-root-imports.sh` and is being shrunk in
+// batches per `docs/superpowers/plans/2026-04-29-shared-root-barrel-shrink.md`.
+// Do NOT add new exports here — register a new subpath in
+// `packages/shared/package.json` instead.
+
 // Common
 export { PaginatedResponseSchema, ApiErrorResponseSchema, SyncInfoSchema } from './schemas/common.js';
 export type { PaginatedResponse, ApiErrorResponse, SyncInfo } from './schemas/common.js';
@@ -110,58 +120,6 @@ export type {
   UpdateInventoryMetadataInput,
 } from './schemas/inventory.js';
 
-// Profit & Loss (Plan B2c.orders — listingId-primary)
-export { PLDataSchema } from './schemas/profit-loss.js';
-export type { PLData } from './schemas/profit-loss.js';
-
-// Statistics (Plan B2c.orders — listing/master hydrated)
-export {
-  StatisticsOverviewSchema,
-  StatisticsProductRowSchema,
-  StatisticsCategoryRowSchema,
-  StatisticsGradeRowSchema,
-  StatisticsParetoItemSchema,
-  StatisticsParetoResponseSchema,
-  StatisticsRepurchaseProductSchema,
-  StatisticsRepurchaseCustomerSchema,
-  StatisticsRepurchaseResponseSchema,
-  StatisticsDeliveryDailySchema,
-  StatisticsDeliveryResponseSchema,
-} from './schemas/statistics.js';
-export type {
-  StatisticsOverview,
-  StatisticsProductRow,
-  StatisticsCategoryRow,
-  StatisticsGradeRow,
-  StatisticsParetoItem,
-  StatisticsParetoResponse,
-  StatisticsRepurchaseProduct,
-  StatisticsRepurchaseCustomer,
-  StatisticsRepurchaseResponse,
-  StatisticsDeliveryDaily,
-  StatisticsDeliveryResponse,
-} from './schemas/statistics.js';
-
-// Settlements (Plan B2c.orders — reconcile response)
-export {
-  SettlementReconcileDetailSchema,
-  SettlementReconcileResponseSchema,
-} from './schemas/settlements.js';
-export type {
-  SettlementReconcileDetail,
-  SettlementReconcileResponse,
-} from './schemas/settlements.js';
-
-// Supplier Stats (Plan B2c.orders — optionId aggregation)
-export {
-  SupplierSalesRowSchema,
-  SupplierProductSalesRowSchema,
-} from './schemas/supplier-stats.js';
-export type {
-  SupplierSalesRow,
-  SupplierProductSalesRow,
-} from './schemas/supplier-stats.js';
-
 // Workflow
 export { WorkflowTemplateSchema, WorkflowRunSchema, WorkflowStepRunSchema } from './schemas/workflow.js';
 export type { WorkflowTemplate, WorkflowRun, WorkflowStepRun } from './schemas/workflow.js';
@@ -256,30 +214,6 @@ export type {
   Warnings,
   WingAdSummary,
 } from './schemas/dashboard.js';
-
-// Channel Dashboard — Return (ADR-0017, Plan D.2)
-export { ReturnSummarySchema } from './schemas/return-summary.js';
-export type { ReturnSummary } from './schemas/return-summary.js';
-
-// Channel Dashboard (Plan E.1 T1 — drift guard for channel-dashboard.service.ts)
-export {
-  ChannelDashboardSummarySchema,
-  RevenueTrendPointSchema,
-  ProductRankingRowSchema,
-  ReturnReasonRowSchema,
-  ReturnFaultSplitSchema,
-} from './schemas/channel-dashboard.js';
-export type {
-  ChannelDashboardSummary,
-  RevenueTrendPoint,
-  ProductRankingRow,
-  ReturnReasonRow,
-  ReturnFaultSplit,
-} from './schemas/channel-dashboard.js';
-
-// Sales Analysis (Plan D.3, ADR-0017)
-export { SalesAnalysisDataSchema, ChannelAnalysisSchema } from './schemas/sales-analysis.js';
-export type { SalesAnalysisData, ChannelAnalysis } from './schemas/sales-analysis.js';
 
 // Reviews
 export {
@@ -404,14 +338,6 @@ export type {
   AdCollectStatus,
 } from './schemas/ads.js';
 
-// Alerts
-export { AlertItemSchema } from './schemas/alerts.js';
-export type { AlertItem } from './schemas/alerts.js';
-
-// Rules
-export { RuleItemSchema } from './schemas/rules.js';
-export type { RuleItem } from './schemas/rules.js';
-
 // Action Task
 export {
   ActionTaskSchema,
@@ -426,25 +352,3 @@ export type {
   ActionTaskList,
   ActionTaskExecuteResponse,
 } from './schemas/action-task.js';
-
-// Inspection
-export { InspectionItemSchema, InspectionResultSchema } from './schemas/inspection.js';
-export type { InspectionItem, InspectionResult } from './schemas/inspection.js';
-
-
-// Feature Gate
-export { FeatureGateSchema } from './schemas/feature-gate.js';
-export type { FeatureGate } from './schemas/feature-gate.js';
-
-// Agent Workflow
-export { WorkflowStepSchema, AgentWorkflowSchema, WorkflowYieldSchema } from './schemas/agent-workflow.js';
-export type { WorkflowStep, AgentWorkflow, WorkflowYield } from './schemas/agent-workflow.js';
-
-// Errors
-export { ErrorCodes } from './errors/codes.js';
-
-// Security
-export { scrubSecrets, scrubDeep, REDACTED_PLACEHOLDER, SECRET_PATTERNS, SENSITIVE_FIELD_KEYS } from './security/index.js';
-
-// Panel
-export * from './panel/index.js';
