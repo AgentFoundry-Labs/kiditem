@@ -1,31 +1,31 @@
-import { describe, expect, it, vi } from 'vitest';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { describe, expect, it, vi } from 'vitest';
+import {
+  MarketplaceInstallStorePort,
+  WorkflowCatalogInstallSource,
+} from '../../port/out/marketplace-install-store.port';
 import { MarketplaceInstallService } from '../marketplace-install.service';
 
-function makePrisma() {
+function makeStore(): MarketplaceInstallStorePort {
   return {
-    marketplace: {
-      findFirst: vi.fn(),
-      update: vi.fn().mockResolvedValue({ ok: true }),
-    },
-    workflowTemplate: {
-      create: vi.fn(),
-      findFirst: vi.fn(),
-      delete: vi.fn(),
-    },
-    agentDefinition: {
-      create: vi.fn(),
-      findFirst: vi.fn(),
-      delete: vi.fn(),
-      update: vi.fn(),
-    },
+    findWorkflowCatalog: vi.fn(),
+    findAgentCatalog: vi.fn(),
+    createWorkflowInstallation: vi.fn(),
+    createAgentInstallation: vi.fn(),
+    findTenantManager: vi.fn(),
+    assignAgentReportsTo: vi.fn(),
+    findInstalledWorkflow: vi.fn(),
+    deleteInstalledWorkflow: vi.fn(),
+    findInstalledAgent: vi.fn(),
+    deleteInstalledAgent: vi.fn(),
+    decrementInstallCountIfPositive: vi.fn(),
   };
 }
 
 function makeService() {
-  const prisma = makePrisma();
-  const service = new MarketplaceInstallService(prisma as never);
-  return { service, prisma };
+  const store = makeStore();
+  const service = new MarketplaceInstallService(store);
+  return { service, store };
 }
 
 const SLIM_CORE_NODES = [
@@ -33,174 +33,152 @@ const SLIM_CORE_NODES = [
   { id: 'n2', type: 'agent_task.create', config: { agent_type: 'rules_evaluation' } },
 ];
 
+function workflowCatalog(
+  overrides: Partial<WorkflowCatalogInstallSource> = {},
+): WorkflowCatalogInstallSource {
+  return {
+    id: 'm-1',
+    type: 'workflow',
+    name: 'rules sweep',
+    description: 'desc',
+    module: 'analytics',
+    nodesJson: SLIM_CORE_NODES,
+    edgesJson: [{ source: 'n1', target: 'n2' }],
+    configurableParams: [],
+    ...overrides,
+  };
+}
+
 describe('MarketplaceInstallService', () => {
   describe('installWorkflow', () => {
     it('throws NotFoundException when catalog row does not exist', async () => {
-      const { service, prisma } = makeService();
-      prisma.marketplace.findFirst.mockResolvedValue(null);
+      const { service, store } = makeService();
+      vi.mocked(store.findWorkflowCatalog).mockResolvedValue(null);
 
       await expect(
         service.installWorkflow('m-1', 'company-1'),
       ).rejects.toBeInstanceOf(NotFoundException);
     });
 
-    it('throws NotFoundException when catalog row is not a workflow', async () => {
-      const { service, prisma } = makeService();
-      prisma.marketplace.findFirst.mockResolvedValue({
-        id: 'm-1',
-        type: 'agent',
-        nodesJson: SLIM_CORE_NODES,
-      });
-
-      await expect(
-        service.installWorkflow('m-1', 'company-1'),
-      ).rejects.toBeInstanceOf(NotFoundException);
-    });
-
-    it('throws BadRequestException when nodesJson contains an unsupported node type (defense-in-depth)', async () => {
-      const { service, prisma } = makeService();
-      prisma.marketplace.findFirst.mockResolvedValue({
-        id: 'm-1',
-        type: 'workflow',
-        name: 'legacy',
-        nodesJson: [{ id: 'n1', type: 'internal.db_query', config: {} }],
-        edgesJson: [],
-        configurableParams: [],
-      });
+    it('throws BadRequestException when nodesJson contains an unsupported node type', async () => {
+      const { service, store } = makeService();
+      vi.mocked(store.findWorkflowCatalog).mockResolvedValue(
+        workflowCatalog({
+          name: 'legacy',
+          nodesJson: [{ id: 'n1', type: 'internal.db_query', config: {} }],
+        }),
+      );
 
       await expect(
         service.installWorkflow('m-1', 'company-1'),
       ).rejects.toBeInstanceOf(BadRequestException);
 
-      expect(prisma.workflowTemplate.create).not.toHaveBeenCalled();
-      expect(prisma.marketplace.update).not.toHaveBeenCalled();
+      expect(store.createWorkflowInstallation).not.toHaveBeenCalled();
     });
 
-    it('clones the catalog into WorkflowTemplate, increments installCount, and sets manual triggerType by default', async () => {
-      const { service, prisma } = makeService();
-      prisma.marketplace.findFirst.mockResolvedValue({
-        id: 'm-1',
-        type: 'workflow',
-        name: 'rules sweep',
-        description: 'desc',
-        module: 'analytics',
-        nodesJson: SLIM_CORE_NODES,
-        edgesJson: [{ source: 'n1', target: 'n2' }],
-        configurableParams: [],
-      });
-      prisma.workflowTemplate.create.mockResolvedValue({ id: 'tpl-1' });
+    it('creates a tenant workflow installation with manual triggerType by default', async () => {
+      const { service, store } = makeService();
+      vi.mocked(store.findWorkflowCatalog).mockResolvedValue(workflowCatalog());
+      vi.mocked(store.createWorkflowInstallation).mockResolvedValue({ id: 'tpl-1' });
 
       const result = await service.installWorkflow('m-1', 'company-1');
 
-      expect(prisma.workflowTemplate.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          companyId: 'company-1',
-          name: 'rules sweep',
-          module: 'analytics',
-          triggerType: 'manual',
-          schedule: null,
-          marketplaceId: 'm-1',
-          nodesJson: SLIM_CORE_NODES,
-        }),
-      });
-      expect(prisma.marketplace.update).toHaveBeenCalledWith({
-        where: { id: 'm-1' },
-        data: { installCount: { increment: 1 } },
+      expect(store.createWorkflowInstallation).toHaveBeenCalledWith({
+        companyId: 'company-1',
+        name: 'rules sweep',
+        description: 'desc',
+        module: 'analytics',
+        isActive: true,
+        triggerType: 'manual',
+        schedule: null,
+        nodesJson: SLIM_CORE_NODES,
+        edgesJson: [{ source: 'n1', target: 'n2' }],
+        marketplaceId: 'm-1',
       });
       expect(result).toEqual({ id: 'tpl-1' });
     });
 
     it('falls back to module="order" when the catalog has no module', async () => {
-      const { service, prisma } = makeService();
-      prisma.marketplace.findFirst.mockResolvedValue({
-        id: 'm-1',
-        type: 'workflow',
-        name: 'rules sweep',
-        nodesJson: SLIM_CORE_NODES,
-        edgesJson: [],
-        configurableParams: [],
-        module: null,
-      });
-      prisma.workflowTemplate.create.mockResolvedValue({ id: 'tpl-1' });
+      const { service, store } = makeService();
+      vi.mocked(store.findWorkflowCatalog).mockResolvedValue(
+        workflowCatalog({ module: null }),
+      );
+      vi.mocked(store.createWorkflowInstallation).mockResolvedValue({ id: 'tpl-1' });
 
       await service.installWorkflow('m-1', 'company-1');
 
-      expect(prisma.workflowTemplate.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({ module: 'order' }),
-      });
+      expect(store.createWorkflowInstallation).toHaveBeenCalledWith(
+        expect.objectContaining({ module: 'order' }),
+      );
     });
 
-    it('promotes triggerType to "scheduled" and stores the cron when params.schedule is provided', async () => {
-      const { service, prisma } = makeService();
-      prisma.marketplace.findFirst.mockResolvedValue({
-        id: 'm-1',
-        type: 'workflow',
-        name: 'rules sweep',
-        nodesJson: SLIM_CORE_NODES,
-        edgesJson: [],
-        configurableParams: [],
+    it('promotes triggerType to "scheduled" and stores cron when params.schedule is a string', async () => {
+      const { service, store } = makeService();
+      vi.mocked(store.findWorkflowCatalog).mockResolvedValue(workflowCatalog());
+      vi.mocked(store.createWorkflowInstallation).mockResolvedValue({ id: 'tpl-1' });
+
+      await service.installWorkflow('m-1', 'company-1', {
+        schedule: '0 9 * * *',
       });
-      prisma.workflowTemplate.create.mockResolvedValue({ id: 'tpl-1' });
 
-      await service.installWorkflow('m-1', 'company-1', { schedule: '0 9 * * *' });
-
-      expect(prisma.workflowTemplate.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
+      expect(store.createWorkflowInstallation).toHaveBeenCalledWith(
+        expect.objectContaining({
           triggerType: 'scheduled',
           schedule: '0 9 * * *',
         }),
-      });
+      );
     });
 
-    it('applies configurableParams to the matching node config and ignores keys with no nodeId mapping', async () => {
-      const { service, prisma } = makeService();
-      prisma.marketplace.findFirst.mockResolvedValue({
-        id: 'm-1',
-        type: 'workflow',
-        name: 'rules sweep',
-        nodesJson: [
-          { id: 'n1', type: 'trigger.manual', config: {} },
-          { id: 'n2', type: 'agent_task.create', config: { agent_type: 'rules_evaluation' } },
-        ],
-        edgesJson: [],
-        configurableParams: [
-          { key: 'agent_type', nodeId: 'n2' },
-          { key: 'orphan_param' /* no nodeId — ignored */ },
-        ],
-      });
-      prisma.workflowTemplate.create.mockResolvedValue({ id: 'tpl-1' });
+    it('applies configurableParams to matching node config and ignores unmapped keys', async () => {
+      const { service, store } = makeService();
+      vi.mocked(store.findWorkflowCatalog).mockResolvedValue(
+        workflowCatalog({
+          nodesJson: [
+            { id: 'n1', type: 'trigger.manual', config: {} },
+            {
+              id: 'n2',
+              type: 'agent_task.create',
+              config: { agent_type: 'rules_evaluation' },
+            },
+          ],
+          configurableParams: [
+            { key: 'agent_type', nodeId: 'n2' },
+            { key: 'orphan_param' },
+          ],
+        }),
+      );
+      vi.mocked(store.createWorkflowInstallation).mockResolvedValue({ id: 'tpl-1' });
 
       await service.installWorkflow('m-1', 'company-1', {
         agent_type: 'custom_agent',
         orphan_param: 'x',
       });
 
-      const createArgs = prisma.workflowTemplate.create.mock.calls[0][0];
-      expect(createArgs.data.nodesJson[1]).toMatchObject({
-        id: 'n2',
-        config: { agent_type: 'custom_agent' },
-      });
-      expect(createArgs.data.nodesJson[0]).toMatchObject({ id: 'n1', config: {} });
+      const createArgs = vi.mocked(store.createWorkflowInstallation).mock.calls[0][0];
+      expect(createArgs.nodesJson).toEqual([
+        { id: 'n1', type: 'trigger.manual', config: {} },
+        {
+          id: 'n2',
+          type: 'agent_task.create',
+          config: { agent_type: 'custom_agent' },
+        },
+      ]);
     });
   });
 
   describe('installAgent', () => {
-    it('throws NotFoundException when catalog row is not an agent', async () => {
-      const { service, prisma } = makeService();
-      prisma.marketplace.findFirst.mockResolvedValue({
-        id: 'm-1',
-        type: 'workflow',
-        nodesJson: SLIM_CORE_NODES,
-      });
+    it('throws NotFoundException when catalog row does not exist', async () => {
+      const { service, store } = makeService();
+      vi.mocked(store.findAgentCatalog).mockResolvedValue(null);
 
-      await expect(
-        service.installAgent('m-1', 'company-1'),
-      ).rejects.toBeInstanceOf(NotFoundException);
+      await expect(service.installAgent('m-1', 'company-1')).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
     });
 
-    it('clones the catalog into AgentDefinition, increments installCount, and auto-wires reportsTo for specialists', async () => {
-      const { service, prisma } = makeService();
-      prisma.marketplace.findFirst.mockResolvedValue({
+    it('creates a tenant agent installation and auto-wires specialists to the tenant manager', async () => {
+      const { service, store } = makeService();
+      vi.mocked(store.findAgentCatalog).mockResolvedValue({
         id: 'm-1',
         type: 'agent',
         name: 'Rules Bot',
@@ -210,84 +188,97 @@ describe('MarketplaceInstallService', () => {
         skills: ['db'],
         permissions: { agentType: {} },
         promptTemplate: 'agent-config/prompts/rules.md',
-        icon: '🧠',
+        icon: 'brain',
       });
-      prisma.agentDefinition.create.mockResolvedValue({
+      vi.mocked(store.createAgentInstallation).mockResolvedValue({
         id: 'agent-1',
         role: 'specialist',
       });
-      prisma.agentDefinition.findFirst.mockResolvedValue({ id: 'manager-1' });
+      vi.mocked(store.findTenantManager).mockResolvedValue({ id: 'manager-1' });
 
       await service.installAgent('m-1', 'company-1');
 
-      expect(prisma.agentDefinition.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
+      expect(store.createAgentInstallation).toHaveBeenCalledWith(
+        expect.objectContaining({
           companyId: 'company-1',
           name: 'Rules Bot',
           marketplaceId: 'm-1',
           role: 'specialist',
         }),
-      });
-      expect(prisma.agentDefinition.findFirst).toHaveBeenCalledWith({
-        where: { companyId: 'company-1', role: 'manager' },
-      });
-      expect(prisma.agentDefinition.update).toHaveBeenCalledWith({
-        where: { id: 'agent-1' },
-        data: { reportsTo: 'manager-1' },
-      });
-      expect(prisma.marketplace.update).toHaveBeenCalledWith({
-        where: { id: 'm-1' },
-        data: { installCount: { increment: 1 } },
-      });
+      );
+      expect(store.findTenantManager).toHaveBeenCalledWith('company-1');
+      expect(store.assignAgentReportsTo).toHaveBeenCalledWith(
+        'agent-1',
+        'company-1',
+        'manager-1',
+      );
     });
 
     it('skips reportsTo wiring when no manager exists in the tenant', async () => {
-      const { service, prisma } = makeService();
-      prisma.marketplace.findFirst.mockResolvedValue({
+      const { service, store } = makeService();
+      vi.mocked(store.findAgentCatalog).mockResolvedValue({
         id: 'm-1',
         type: 'agent',
         name: 'Rules Bot',
+        description: null,
+        adapterType: null,
         role: 'specialist',
+        skills: [],
+        permissions: null,
+        promptTemplate: null,
+        icon: null,
       });
-      prisma.agentDefinition.create.mockResolvedValue({
+      vi.mocked(store.createAgentInstallation).mockResolvedValue({
         id: 'agent-1',
         role: 'specialist',
       });
-      prisma.agentDefinition.findFirst.mockResolvedValue(null);
+      vi.mocked(store.findTenantManager).mockResolvedValue(null);
 
       await service.installAgent('m-1', 'company-1');
 
-      expect(prisma.agentDefinition.update).not.toHaveBeenCalled();
+      expect(store.assignAgentReportsTo).not.toHaveBeenCalled();
     });
 
     it('does not auto-wire reportsTo for non-specialist roles', async () => {
-      const { service, prisma } = makeService();
-      prisma.marketplace.findFirst.mockResolvedValue({
+      const { service, store } = makeService();
+      vi.mocked(store.findAgentCatalog).mockResolvedValue({
         id: 'm-1',
         type: 'agent',
         name: 'Boss Bot',
+        description: null,
+        adapterType: null,
         role: 'manager',
+        skills: [],
+        permissions: null,
+        promptTemplate: null,
+        icon: null,
       });
-      prisma.agentDefinition.create.mockResolvedValue({
+      vi.mocked(store.createAgentInstallation).mockResolvedValue({
         id: 'agent-2',
         role: 'manager',
       });
 
       await service.installAgent('m-1', 'company-1');
 
-      expect(prisma.agentDefinition.findFirst).not.toHaveBeenCalled();
-      expect(prisma.agentDefinition.update).not.toHaveBeenCalled();
+      expect(store.findTenantManager).not.toHaveBeenCalled();
+      expect(store.assignAgentReportsTo).not.toHaveBeenCalled();
     });
 
-    it('applies whitelisted params (schedule / monthlyTokenBudget / requiresApproval / timeoutSeconds) when provided', async () => {
-      const { service, prisma } = makeService();
-      prisma.marketplace.findFirst.mockResolvedValue({
+    it('applies typed params and ignores wrongly typed values', async () => {
+      const { service, store } = makeService();
+      vi.mocked(store.findAgentCatalog).mockResolvedValue({
         id: 'm-1',
         type: 'agent',
         name: 'Rules Bot',
+        description: null,
+        adapterType: null,
         role: 'manager',
+        skills: [],
+        permissions: null,
+        promptTemplate: null,
+        icon: null,
       });
-      prisma.agentDefinition.create.mockResolvedValue({
+      vi.mocked(store.createAgentInstallation).mockResolvedValue({
         id: 'agent-1',
         role: 'manager',
       });
@@ -296,105 +287,84 @@ describe('MarketplaceInstallService', () => {
         schedule: '0 9 * * *',
         monthlyTokenBudget: 100000,
         requiresApproval: true,
-        timeoutSeconds: 600,
+        timeoutSeconds: 'not-a-number',
       });
 
-      expect(prisma.agentDefinition.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
+      expect(store.createAgentInstallation).toHaveBeenCalledWith(
+        expect.objectContaining({
           schedule: '0 9 * * *',
           monthlyTokenBudget: 100000,
           requiresApproval: true,
-          timeoutSeconds: 600,
         }),
-      });
+      );
+      expect(store.createAgentInstallation).toHaveBeenCalledWith(
+        expect.not.objectContaining({ timeoutSeconds: expect.anything() }),
+      );
     });
   });
 
   describe('uninstallWorkflow', () => {
-    it('throws NotFoundException when no installed template exists for the tenant (cross-tenant id rejection)', async () => {
-      const { service, prisma } = makeService();
-      prisma.workflowTemplate.findFirst.mockResolvedValue(null);
+    it('throws NotFoundException when no installed template exists for the tenant', async () => {
+      const { service, store } = makeService();
+      vi.mocked(store.findInstalledWorkflow).mockResolvedValue(null);
 
       await expect(
         service.uninstallWorkflow('m-1', 'company-1'),
       ).rejects.toBeInstanceOf(NotFoundException);
 
-      expect(prisma.workflowTemplate.delete).not.toHaveBeenCalled();
-      expect(prisma.marketplace.update).not.toHaveBeenCalled();
+      expect(store.deleteInstalledWorkflow).not.toHaveBeenCalled();
+      expect(store.decrementInstallCountIfPositive).not.toHaveBeenCalled();
     });
 
     it('removes the tenant-scoped template and decrements installCount', async () => {
-      const { service, prisma } = makeService();
-      prisma.workflowTemplate.findFirst.mockResolvedValue({ id: 'tpl-1' });
-      prisma.marketplace.findFirst.mockResolvedValue({
-        id: 'm-1',
-        installCount: 5,
-      });
+      const { service, store } = makeService();
+      vi.mocked(store.findInstalledWorkflow).mockResolvedValue({ id: 'tpl-1' });
+      vi.mocked(store.deleteInstalledWorkflow).mockResolvedValue(true);
 
       await expect(
         service.uninstallWorkflow('m-1', 'company-1'),
       ).resolves.toEqual({ ok: true });
 
-      expect(prisma.workflowTemplate.findFirst).toHaveBeenCalledWith({
-        where: { marketplaceId: 'm-1', companyId: 'company-1' },
-      });
-      expect(prisma.workflowTemplate.delete).toHaveBeenCalledWith({
-        where: { id: 'tpl-1' },
-      });
-      expect(prisma.marketplace.update).toHaveBeenCalledWith({
-        where: { id: 'm-1' },
-        data: { installCount: { decrement: 1 } },
-      });
-    });
-
-    it('does not decrement installCount below zero', async () => {
-      const { service, prisma } = makeService();
-      prisma.workflowTemplate.findFirst.mockResolvedValue({ id: 'tpl-1' });
-      prisma.marketplace.findFirst.mockResolvedValue({
-        id: 'm-1',
-        installCount: 0,
-      });
-
-      await service.uninstallWorkflow('m-1', 'company-1');
-
-      expect(prisma.marketplace.update).not.toHaveBeenCalled();
+      expect(store.findInstalledWorkflow).toHaveBeenCalledWith('m-1', 'company-1');
+      expect(store.deleteInstalledWorkflow).toHaveBeenCalledWith(
+        'tpl-1',
+        'company-1',
+      );
+      expect(store.decrementInstallCountIfPositive).toHaveBeenCalledWith('m-1');
     });
   });
 
   describe('uninstallAgent', () => {
     it('throws NotFoundException when no installed agent exists for the tenant', async () => {
-      const { service, prisma } = makeService();
-      prisma.agentDefinition.findFirst.mockResolvedValue(null);
+      const { service, store } = makeService();
+      vi.mocked(store.findInstalledAgent).mockResolvedValue(null);
 
-      await expect(
-        service.uninstallAgent('m-1', 'company-1'),
-      ).rejects.toBeInstanceOf(NotFoundException);
+      await expect(service.uninstallAgent('m-1', 'company-1')).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
 
-      expect(prisma.agentDefinition.delete).not.toHaveBeenCalled();
+      expect(store.deleteInstalledAgent).not.toHaveBeenCalled();
+      expect(store.decrementInstallCountIfPositive).not.toHaveBeenCalled();
     });
 
     it('removes the tenant-scoped agent and decrements installCount', async () => {
-      const { service, prisma } = makeService();
-      prisma.agentDefinition.findFirst.mockResolvedValue({ id: 'agent-1' });
-      prisma.marketplace.findFirst.mockResolvedValue({
-        id: 'm-1',
-        installCount: 3,
+      const { service, store } = makeService();
+      vi.mocked(store.findInstalledAgent).mockResolvedValue({
+        id: 'agent-1',
+        role: 'specialist',
+      });
+      vi.mocked(store.deleteInstalledAgent).mockResolvedValue(true);
+
+      await expect(service.uninstallAgent('m-1', 'company-1')).resolves.toEqual({
+        ok: true,
       });
 
-      await expect(
-        service.uninstallAgent('m-1', 'company-1'),
-      ).resolves.toEqual({ ok: true });
-
-      expect(prisma.agentDefinition.findFirst).toHaveBeenCalledWith({
-        where: { marketplaceId: 'm-1', companyId: 'company-1' },
-      });
-      expect(prisma.agentDefinition.delete).toHaveBeenCalledWith({
-        where: { id: 'agent-1' },
-      });
-      expect(prisma.marketplace.update).toHaveBeenCalledWith({
-        where: { id: 'm-1' },
-        data: { installCount: { decrement: 1 } },
-      });
+      expect(store.findInstalledAgent).toHaveBeenCalledWith('m-1', 'company-1');
+      expect(store.deleteInstalledAgent).toHaveBeenCalledWith(
+        'agent-1',
+        'company-1',
+      );
+      expect(store.decrementInstallCountIfPositive).toHaveBeenCalledWith('m-1');
     });
   });
 });

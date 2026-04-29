@@ -4,6 +4,8 @@ import { AgentRuntimeScheduleControlAdapter } from './adapter/out/agent-runtime/
 import { MarketplaceInstallService } from './application/service/marketplace-install.service';
 import { MarketplaceController } from './adapter/in/http/marketplace.controller';
 import { MarketplaceModule } from '../marketplace/marketplace.module';
+import { PrismaMarketplaceInstallStoreAdapter } from './adapter/out/prisma/marketplace-install-store.adapter';
+import { MARKETPLACE_INSTALL_STORE_PORT } from './application/port/out/marketplace-install-store.port';
 
 /**
  * `automation/` is the owner-domain home of the Agent OS / Automation
@@ -16,10 +18,11 @@ import { MarketplaceModule } from '../marketplace/marketplace.module';
  * Registered surfaces (in chronological landing order):
  * - Phase 3C-2: `AgentScheduleControlPort` + `AgentRuntimeScheduleControlAdapter`
  *   — used by `RulesController` for `rules_evaluation` schedule control.
- * - Phase 3C-3: `MarketplaceInstallService` (install/uninstall side
- *   effects) + `MarketplaceController` HTTP adapter. Catalog read still
- *   lives behind `MarketplaceService` (imported via `MarketplaceModule`)
- *   to keep simple read paths out of the application boundary.
+ * - Phase 3C-3: `MarketplaceInstallService` (install/uninstall
+ *   orchestration) + `PrismaMarketplaceInstallStoreAdapter` (tenant-scoped
+ *   persistence) + `MarketplaceController` HTTP adapter. Catalog read still
+ *   lives behind `MarketplaceService` (imported via `MarketplaceModule`) to
+ *   keep simple read paths out of the application boundary.
  */
 @Module({
   imports: [MarketplaceModule],
@@ -28,6 +31,10 @@ import { MarketplaceModule } from '../marketplace/marketplace.module';
     {
       provide: AGENT_SCHEDULE_CONTROL_PORT,
       useClass: AgentRuntimeScheduleControlAdapter,
+    },
+    {
+      provide: MARKETPLACE_INSTALL_STORE_PORT,
+      useClass: PrismaMarketplaceInstallStoreAdapter,
     },
     MarketplaceInstallService,
   ],

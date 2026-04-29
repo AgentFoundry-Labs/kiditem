@@ -32,12 +32,16 @@ HTTP                       Controller                    Application / Catalog
 GET    /api/marketplace/*  automation/adapter/in/http/   marketplace/marketplace.service.ts
 POST   /install            marketplace.controller.ts     automation/application/service/
 POST   /uninstall                                        marketplace-install.service.ts
+                                                        automation/adapter/out/prisma/
+                                                        marketplace-install-store.adapter.ts
 ```
 
 - Catalog read (`MarketplaceService.listWorkflows` / `getWorkflow` /
   `listAgents` / `getAgent`) 는 marketplace/ 안에 그대로 둔다 — runtime
   side effect 가 없으므로 application boundary 로 따로 빼지 않는다.
-- Install / Uninstall 은 application service 가 단독으로 소유한다 —
+- Install / Uninstall 은 application service 가 orchestration 을 소유하고,
+  Prisma write 는 `automation/adapter/out/prisma/marketplace-install-store.adapter.ts`
+  가 소유한다 —
   workflow_template / agent_definition 의 tenant-scoped clone, slim-core
   defense-in-depth, install_count 증감, 사용자 specialist 의 reportsTo
   자동 wiring 등이 그 안으로 모두 들어간다.
@@ -59,9 +63,14 @@ automation/
 ├── adapter/in/http/
 │   ├── marketplace.controller.ts          # MarketplaceModule + AutomationModule 바인딩
 │   └── dto/                               # list/install DTO (HTTP boundary)
-└── application/service/
-    ├── marketplace-install.service.ts
-    └── __tests__/marketplace-install.service.spec.ts
+├── adapter/out/prisma/
+│   └── marketplace-install-store.adapter.ts # tenant-scoped persistence
+└── application/
+    ├── port/out/
+    │   └── marketplace-install-store.port.ts # Prisma out-port contract
+    └── service/
+        ├── marketplace-install.service.ts    # use-case orchestration
+        └── __tests__/marketplace-install.service.spec.ts
 ```
 
 ## Routes
