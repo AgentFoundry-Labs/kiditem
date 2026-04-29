@@ -2,6 +2,27 @@
 
 13 파일. 비즈니스 규칙 평가는 **agent 비동기 spawn → @OnEvent 콜백** 으로 처리. CRUD 패턴이 아니라 event-driven.
 
+## Owner domain — Automation / Agent OS
+
+이 폴더는 backend architecture contract 의 `automation` / `agent-os` owner
+domain 에 속한다. 분류 + hard-delete 기준은
+[`docs/superpowers/plans/2026-04-29-automation-agent-os-hard-delete.md`](../../../../docs/superpowers/plans/2026-04-29-automation-agent-os-hard-delete.md)
+참조.
+
+전환 단계 (transitional) surface:
+
+- `RulesController` 가 `AgentRegistryService` + `HeartbeatService` 를 직접
+  주입해 `rules_evaluation` agent 의 schedule 을 PATCH 한다. 이는 Phase 3C-2
+  에서 `AgentScheduleControlPort` (interface in `automation/application/port/in/`,
+  adapter in `automation/adapter/out/agent-runtime/`) 로 교체된다.
+- 그 외 evaluation pattern (agent spawn + `@OnEvent(AGENT_EVENTS.RESULT_READY)`
+  callback + `prisma.$transaction(masterProduct.updateMany)` bulk health-score
+  + alert 생성 + panel emit) 은 keep — 동기 rules 평가나 service 내 hardcode
+  는 여전히 hard-banned.
+
+Promote / dismiss path (`AlertsService`) 의 `$transaction` race guard 와 panel
+emit ordering 은 incident regression 으로 보호되는 contract — 약화 금지.
+
 ## Directory
 
 ```

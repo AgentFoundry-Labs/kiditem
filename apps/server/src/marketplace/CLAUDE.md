@@ -2,6 +2,23 @@
 
 6 파일. **read-only 카탈로그 + per-company 설치 추적 + configurable param override**.
 
+## Owner domain — Automation / Agent OS
+
+이 폴더는 backend architecture contract 의 `automation` / `agent-os` owner
+domain 에 속한다 (`apps/server/AGENTS.md` Domain Topology Target). 분류 +
+hard-delete 기준은
+[`docs/superpowers/plans/2026-04-29-automation-agent-os-hard-delete.md`](../../../../docs/superpowers/plans/2026-04-29-automation-agent-os-hard-delete.md)
+참조.
+
+핵심 contract:
+
+- `ALLOWED_WORKFLOW_NODE_TYPES` 는 `workflows/executors/builtin.ts` 등록 목록
+  과 lockstep. Slim-core executor 변경 PR 은 항상 두 파일을 같이 수정한다.
+- 카탈로그는 read-only — admin tool 이외에서 `marketplace` 테이블 update 금지.
+- Install 은 `workflowTemplate` / `agentDefinition` 으로 clone 하는 형태이며,
+  Phase 3C-3 에서 `automation/application/service/marketplace-install.service.ts`
+  뒤로 이동한다. 공개 route 는 그대로 유지.
+
 ## Directory
 
 ```
