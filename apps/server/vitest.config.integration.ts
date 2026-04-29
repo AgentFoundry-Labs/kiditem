@@ -18,9 +18,16 @@ import path from 'path';
  */
 export default defineConfig({
   resolve: {
-    alias: {
-      '@kiditem/shared': path.resolve(__dirname, '../../packages/shared/src/index.ts'),
-    },
+    alias: [
+      {
+        find: /^@kiditem\/shared\/ai$/,
+        replacement: path.resolve(__dirname, '../../packages/shared/src/ai.ts'),
+      },
+      {
+        find: /^@kiditem\/shared$/,
+        replacement: path.resolve(__dirname, '../../packages/shared/src/index.ts'),
+      },
+    ],
   },
   test: {
     root: '.',

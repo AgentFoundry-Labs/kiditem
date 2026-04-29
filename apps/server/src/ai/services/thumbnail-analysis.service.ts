@@ -10,9 +10,9 @@ import type { ComplianceScores, ImageSpec, ThumbnailAnalysisListResponse, Thumbn
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AnalysisScope } from '../dto/thumbnail-analyze.dto';
 import {
-  THUMBNAIL_MASTER_IMAGE_SELECT,
   isDisplayableThumbnailUrl,
   resolveMasterThumbnailImage,
+  thumbnailMasterImageSelect,
   type ThumbnailMasterImageRow,
 } from './thumbnail-master-image-resolver';
 import {
@@ -43,7 +43,7 @@ type AnalysisRow = Awaited<
     imageUrl: string | null;
     thumbnailUrl: string | null;
     images: ThumbnailMasterImageRow[];
-  } | null;
+  } | null | undefined;
 };
 
 @Injectable()
@@ -68,7 +68,7 @@ export class ThumbnailAnalysisService {
           name: true,
           imageUrl: true,
           thumbnailUrl: true,
-          images: THUMBNAIL_MASTER_IMAGE_SELECT,
+          images: thumbnailMasterImageSelect(companyId),
           createdAt: true,
         },
         orderBy: { createdAt: 'desc' },
@@ -76,29 +76,20 @@ export class ThumbnailAnalysisService {
       this.prisma.thumbnailAnalysis.findMany({
         where: { companyId },
         orderBy: { updatedAt: 'desc' },
-        include: {
-          master: {
-            select: {
-              id: true,
-              name: true,
-              imageUrl: true,
-              thumbnailUrl: true,
-              images: THUMBNAIL_MASTER_IMAGE_SELECT,
-            },
-          },
-        },
       }),
     ]);
 
+    const masterById = new Map((masters as MasterRow[]).map((m) => [m.id, m]));
     const analysisRows = analyses as AnalysisRow[];
-    const analysisByMasterId = new Map(analysisRows.map((a) => [a.masterId, a]));
+    const ownedAnalysisRows = analysisRows.filter((a) => masterById.has(a.masterId));
+    const analysisByMasterId = new Map(ownedAnalysisRows.map((a) => [a.masterId, a]));
     const qualityAnalyzedMasterIds = new Set(
-      analysisRows.filter((a) => a.qualityAnalyzedAt !== null).map((a) => a.masterId),
+      ownedAnalysisRows.filter((a) => a.qualityAnalyzedAt !== null).map((a) => a.masterId),
     );
 
-    const allResults: ThumbnailAnalysisResult[] = analysisRows
+    const allResults: ThumbnailAnalysisResult[] = ownedAnalysisRows
       .filter((a) => this.hasActualAnalysis(a))
-      .map((a) => this.toResult(a, a.master));
+      .map((a) => this.toResult(a, masterById.get(a.masterId) ?? null));
 
     const unclassified: ThumbnailAnalysisResult[] = (masters as MasterRow[])
       .filter((m) => !qualityAnalyzedMasterIds.has(m.id))
@@ -112,7 +103,7 @@ export class ThumbnailAnalysisService {
     };
     let partialCount = 0;
     let qualityAnalyzedCount = 0;
-    for (const a of analyses) {
+    for (const a of ownedAnalysisRows) {
       const hasQuality = a.qualityAnalyzedAt !== null;
       const hasCompliance = a.complianceAnalyzedAt !== null;
       if (hasQuality) {
@@ -140,20 +131,22 @@ export class ThumbnailAnalysisService {
   }
 
   async getSummary(companyId: string): Promise<ThumbnailAnalysisSummary> {
-    const [masterCount, analyses] = await Promise.all([
-      this.prisma.masterProduct.count({
-        where: { companyId, isDeleted: false, pipelineStep: null },
-      }),
-      this.prisma.thumbnailAnalysis.findMany({
-        where: { companyId },
-        select: {
-          grade: true,
-          complianceGrade: true,
-          qualityAnalyzedAt: true,
-          complianceAnalyzedAt: true,
-        },
-      }),
-    ]);
+    const masters = await this.prisma.masterProduct.findMany({
+      where: { companyId, isDeleted: false, pipelineStep: null },
+      select: { id: true },
+    });
+    const analyses = masters.length
+      ? await this.prisma.thumbnailAnalysis.findMany({
+          where: { companyId, masterId: { in: masters.map((m) => m.id) } },
+          select: {
+            grade: true,
+            complianceGrade: true,
+            qualityAnalyzedAt: true,
+            complianceAnalyzedAt: true,
+          },
+        })
+      : [];
+    const masterCount = masters.length;
 
     const gradeDistribution = { ...EMPTY_GRADE_DIST };
     const complianceDistribution = { ...EMPTY_COMPLIANCE_DIST };
@@ -205,7 +198,7 @@ export class ThumbnailAnalysisService {
         imageUrl: true,
         thumbnailUrl: true,
         category: true,
-        images: THUMBNAIL_MASTER_IMAGE_SELECT,
+        images: thumbnailMasterImageSelect(companyId),
         createdAt: true,
       },
     });
@@ -295,20 +288,9 @@ export class ThumbnailAnalysisService {
       where: { masterId: master.id },
       create,
       update,
-      include: {
-        master: {
-          select: {
-            id: true,
-            name: true,
-            imageUrl: true,
-            thumbnailUrl: true,
-            images: THUMBNAIL_MASTER_IMAGE_SELECT,
-          },
-        },
-      },
     });
 
-    return this.toResult(upserted as AnalysisRow, upserted.master);
+    return this.toResult(upserted as AnalysisRow, master);
   }
 
   /**
@@ -468,7 +450,7 @@ export class ThumbnailAnalysisService {
         id: true,
         imageUrl: true,
         thumbnailUrl: true,
-        images: THUMBNAIL_MASTER_IMAGE_SELECT,
+        images: thumbnailMasterImageSelect(companyId),
       },
     });
     let processed = 0;

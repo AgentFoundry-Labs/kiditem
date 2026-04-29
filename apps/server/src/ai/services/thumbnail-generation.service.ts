@@ -16,8 +16,8 @@ import {
   type ThumbnailInputRole,
 } from './thumbnail-editor-ai.service';
 import {
-  THUMBNAIL_MASTER_IMAGE_SELECT,
   resolveMasterThumbnailImage,
+  thumbnailMasterImageSelect,
 } from './thumbnail-master-image-resolver';
 import { getRecomposePromptOverride } from './thumbnail-recompose-prompts';
 import { ThumbnailTrackingService } from './thumbnail-tracking.service';
@@ -70,20 +70,63 @@ type GenerationRow = {
     updatedAt: Date;
     createdAt: Date;
   }>;
-  master: { id: string; name: string; imageUrl: string | null; category: string | null } | null;
+  master?: GenerationMasterSummary | null;
+};
+
+type GenerationMasterSummary = {
+  id: string;
+  name: string;
+  imageUrl: string | null;
+  category: string | null;
 };
 
 const ALLOWED_STATUSES = ['pending', 'running', 'succeeded', 'failed', 'cancelled'] as const;
 const ALLOWED_PHASES: ThumbnailPhase[] = ['ready', 'applied'];
 
-const GENERATION_INCLUDE: Prisma.ThumbnailGenerationInclude = {
-  candidates: { orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] },
-  registrationAttempts: {
-    orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+function generationInclude(companyId: string): Prisma.ThumbnailGenerationInclude {
+  return {
+    candidates: {
+      where: { companyId },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+    },
+    registrationAttempts: {
+      where: { companyId },
+      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+      take: 1,
+    },
+  };
+}
+
+const INPUT_IMAGES_INCLUDE = (companyId: string): Prisma.ThumbnailGeneration$inputImagesArgs => ({
+  where: { companyId },
+  orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+});
+
+const CANDIDATES_INCLUDE = (companyId: string): Prisma.ThumbnailGeneration$candidatesArgs => ({
+  where: { companyId },
+  orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+});
+
+const THUMBNAIL_ANALYSIS_SELECT = {
+  recompose: true,
+  complianceGrade: true,
+  complianceScores: true,
+  overallScore: true,
+  grade: true,
+  qualityAnalyzedAt: true,
+  complianceAnalyzedAt: true,
+} satisfies Prisma.ThumbnailAnalysisSelect;
+
+function thumbnailAnalysesInclude(
+  companyId: string,
+): Prisma.MasterProduct$thumbnailAnalysesArgs {
+  return {
+    where: { companyId },
+    orderBy: { updatedAt: 'desc' },
     take: 1,
-  },
-  master: { select: { id: true, name: true, imageUrl: true, category: true } },
-};
+    select: THUMBNAIL_ANALYSIS_SELECT,
+  };
+}
 
 @Injectable()
 export class ThumbnailGenerationService {
@@ -122,6 +165,8 @@ export class ThumbnailGenerationService {
     editAnalysis?: EditAnalysisResult | null;
     triggeredByUserId?: string | null;
   }): Promise<string> {
+    await this.assertProductOwned(input.productId, input.companyId);
+
     const generation = await this.prisma.thumbnailGeneration.create({
       data: {
         companyId: input.companyId,
@@ -183,19 +228,23 @@ export class ThumbnailGenerationService {
       },
       orderBy: { createdAt: 'desc' },
       ...(limit ? { take: limit } : {}),
-      include: GENERATION_INCLUDE,
+      include: generationInclude(companyId),
     });
-    const items = rows.map((r) => this.toItem(r as unknown as GenerationRow));
+    const masters = await this.findGenerationMasters(rows, companyId);
+    const items = rows.map((r) =>
+      this.toItem(r as unknown as GenerationRow, masters.get(r.masterId)),
+    );
     return { items, total: items.length } satisfies ThumbnailGenerationListResponse;
   }
 
   async findOne(id: string, companyId: string): Promise<ThumbnailGenerationItem> {
     const row = await this.prisma.thumbnailGeneration.findFirst({
       where: { id, companyId },
-      include: GENERATION_INCLUDE,
+      include: generationInclude(companyId),
     });
     if (!row) throw new NotFoundException(`ThumbnailGeneration ${id} not found`);
-    return this.toItem(row as unknown as GenerationRow);
+    const master = await this.findGenerationMaster(row.masterId, companyId);
+    return this.toItem(row as unknown as GenerationRow, master);
   }
 
   async selectCandidate(
@@ -205,7 +254,7 @@ export class ThumbnailGenerationService {
   ): Promise<ThumbnailGenerationItem> {
     const existing = await this.prisma.thumbnailGeneration.findFirst({
       where: { id, companyId },
-      include: { candidates: true },
+      include: { candidates: CANDIDATES_INCLUDE(companyId) },
     });
     if (!existing) throw new NotFoundException(`ThumbnailGeneration ${id} not found`);
     const isDeselect = !selectedUrl;
@@ -227,9 +276,11 @@ export class ThumbnailGenerationService {
   async applyGeneration(id: string, companyId: string): Promise<ThumbnailGenerationItem> {
     const existing = await this.prisma.thumbnailGeneration.findFirst({
       where: { id, companyId },
-      include: { candidates: { orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] } },
+      include: { candidates: CANDIDATES_INCLUDE(companyId) },
     });
     if (!existing) throw new NotFoundException(`ThumbnailGeneration ${id} not found`);
+    const master = await this.findGenerationMaster(existing.masterId, companyId);
+    if (!master) throw new NotFoundException(`MasterProduct ${existing.masterId} not found`);
 
     const selected =
       existing.candidates.find((c) => c.url === existing.selectedUrl) ??
@@ -324,7 +375,7 @@ export class ThumbnailGenerationService {
   ): Promise<{ ok: true; generationDeleted: boolean; remaining: number }> {
     const existing = await this.prisma.thumbnailGeneration.findFirst({
       where: { id, companyId },
-      include: { candidates: true },
+      include: { candidates: CANDIDATES_INCLUDE(companyId) },
     });
     if (!existing) throw new NotFoundException(`ThumbnailGeneration ${id} not found`);
     const target = existing.candidates.find((c) => c.url === candidateUrl);
@@ -364,20 +415,8 @@ export class ThumbnailGenerationService {
         imageUrl: true,
         thumbnailUrl: true,
         category: true,
-        images: THUMBNAIL_MASTER_IMAGE_SELECT,
-        thumbnailAnalyses: {
-          orderBy: { updatedAt: 'desc' },
-          take: 1,
-          select: {
-            recompose: true,
-            complianceGrade: true,
-            complianceScores: true,
-            overallScore: true,
-            grade: true,
-            qualityAnalyzedAt: true,
-            complianceAnalyzedAt: true,
-          },
-        },
+        images: thumbnailMasterImageSelect(companyId),
+        thumbnailAnalyses: thumbnailAnalysesInclude(companyId),
       },
     });
     const byId = new Map(products.map((p) => [p.id, p]));
@@ -396,10 +435,10 @@ export class ThumbnailGenerationService {
           method,
           status: { in: ['pending', 'running'] },
         },
-        include: GENERATION_INCLUDE,
+        include: generationInclude(companyId),
       });
       if (active) {
-        items.push(this.toItem(active as unknown as GenerationRow));
+        items.push(this.toItem(active as unknown as GenerationRow, product));
         continue;
       }
 
@@ -429,10 +468,10 @@ export class ThumbnailGenerationService {
             ? (editAnalysis as unknown as Prisma.InputJsonValue)
             : Prisma.JsonNull,
         },
-        include: GENERATION_INCLUDE,
+        include: generationInclude(companyId),
       });
       this.scheduleEditJob(generation.id, companyId, purpose, variantKey);
-      items.push(this.toItem(generation as unknown as GenerationRow));
+      items.push(this.toItem(generation as unknown as GenerationRow, product));
     }
     return items;
   }
@@ -510,38 +549,27 @@ export class ThumbnailGenerationService {
       const existing = await this.prisma.thumbnailGeneration.findFirst({
         where: { id, companyId },
         include: {
-          inputImages: { orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] },
-          master: {
-            select: {
-              id: true,
-              name: true,
-              imageUrl: true,
-              thumbnailUrl: true,
-              category: true,
-              images: THUMBNAIL_MASTER_IMAGE_SELECT,
-              thumbnailAnalyses: {
-                orderBy: { updatedAt: 'desc' },
-                take: 1,
-                select: {
-                  recompose: true,
-                  complianceGrade: true,
-                  complianceScores: true,
-                  overallScore: true,
-                  grade: true,
-                  qualityAnalyzedAt: true,
-                  complianceAnalyzedAt: true,
-                },
-              },
-            },
-          },
+          inputImages: INPUT_IMAGES_INCLUDE(companyId),
         },
       });
       if (!existing) return;
-      if (!existing.master) {
+      const master = await this.prisma.masterProduct.findFirst({
+        where: { id: existing.masterId, companyId, isDeleted: false },
+        select: {
+          id: true,
+          name: true,
+          imageUrl: true,
+          thumbnailUrl: true,
+          category: true,
+          images: thumbnailMasterImageSelect(companyId),
+          thumbnailAnalyses: thumbnailAnalysesInclude(companyId),
+        },
+      });
+      if (!master) {
         throw new BadRequestException('상품 정보를 찾을 수 없습니다');
       }
 
-      const masterFallback = resolveMasterThumbnailImage(existing.master);
+      const masterFallback = resolveMasterThumbnailImage(master);
       const seedRows =
         existing.inputImages.length > 0
           ? existing.inputImages
@@ -571,7 +599,7 @@ export class ThumbnailGenerationService {
         );
       }
       const editCase = this.inferEditCaseFromInputs(inputImages);
-      const analysis: ThumbnailAnalysisContext | null = existing.master.thumbnailAnalyses[0] ?? null;
+      const analysis: ThumbnailAnalysisContext | null = master.thumbnailAnalyses[0] ?? null;
       const recomposeKind =
         this.findRecomposeKindIn(existing.inputMeta) ??
         this.findRecomposeKindIn(existing.editAnalysis) ??
@@ -580,17 +608,17 @@ export class ThumbnailGenerationService {
       const promptOverride = getRecomposePromptOverride(
         recomposeKind,
         variantKey,
-        existing.master.category,
+        master.category,
       );
       const candidates = await this.editorAiService.generateEdit(inputImages, companyId, {
         purpose,
         editCase,
         userPrompt: promptOverride ? undefined : this.variantInstruction(variantKey),
-        productDescription: [existing.master.name, existing.master.category]
+        productDescription: [master.name, master.category]
           .filter(Boolean)
           .join(' / '),
-        productName: existing.master.name,
-        category: existing.master.category,
+        productName: master.name,
+        category: master.category,
         promptOverride,
         editSuggestions,
         referenceMode: 'edit-image',
@@ -755,6 +783,32 @@ export class ThumbnailGenerationService {
 
   // ─── helpers ────────────────────────────────────────────────────────
 
+  private async assertProductOwned(productId: string, companyId: string): Promise<void> {
+    const product = await this.findProductForEditor(productId, companyId);
+    if (!product) throw new NotFoundException(`MasterProduct ${productId} not found`);
+  }
+
+  private async findGenerationMaster(
+    masterId: string,
+    companyId: string,
+  ): Promise<GenerationMasterSummary | null> {
+    const masters = await this.findGenerationMasters([{ masterId }], companyId);
+    return masters.get(masterId) ?? null;
+  }
+
+  private async findGenerationMasters(
+    rows: Array<{ masterId: string }>,
+    companyId: string,
+  ): Promise<Map<string, GenerationMasterSummary>> {
+    const ids = [...new Set(rows.map((row) => row.masterId).filter(Boolean))];
+    if (ids.length === 0) return new Map();
+    const masters = await this.prisma.masterProduct.findMany({
+      where: { id: { in: ids }, companyId, isDeleted: false },
+      select: { id: true, name: true, imageUrl: true, category: true },
+    });
+    return new Map(masters.map((master) => [master.id, master]));
+  }
+
   private variantInstruction(variantKey: RecomposeVariantKey | null): string | undefined {
     if (variantKey === 'with-box') {
       return 'Use packaging/box visual context only if it is present in the input; never invent text or claims.';
@@ -845,7 +899,10 @@ export class ThumbnailGenerationService {
     return inputs.length > 1 ? 'bundle' : 'single';
   }
 
-  private toItem(g: GenerationRow): ThumbnailGenerationItem {
+  private toItem(
+    g: GenerationRow,
+    master: GenerationMasterSummary | null | undefined = g.master,
+  ): ThumbnailGenerationItem {
     const status = (ALLOWED_STATUSES as readonly string[]).includes(g.status)
       ? (g.status as ThumbnailGenerationItem['status'])
       : 'failed';
@@ -879,11 +936,11 @@ export class ThumbnailGenerationService {
       registrationCheckedAt: this.registrationCheckedAt(g.registrationAttempts[0]),
       registrationError: g.registrationAttempts[0]?.errorMessage ?? null,
       product: {
-        id: g.master?.id ?? g.masterId,
-        name: g.master?.name ?? '',
-        imageUrl: g.master?.imageUrl ?? null,
+        id: master?.id ?? g.masterId,
+        name: master?.name ?? '',
+        imageUrl: master?.imageUrl ?? null,
         coupangProductId: null,
-        category: g.master?.category ?? null,
+        category: master?.category ?? null,
       },
     } satisfies ThumbnailGenerationItem;
   }

@@ -3,11 +3,18 @@ import path from 'path';
 
 export default defineConfig({
   resolve: {
-    alias: {
+    alias: [
       // Resolve @kiditem/shared from the worktree's local source (not root node_modules)
       // Required for git-worktree setups where node_modules symlink points to main branch
-      '@kiditem/shared': path.resolve(__dirname, '../../packages/shared/src/index.ts'),
-    },
+      {
+        find: /^@kiditem\/shared\/ai$/,
+        replacement: path.resolve(__dirname, '../../packages/shared/src/ai.ts'),
+      },
+      {
+        find: /^@kiditem\/shared$/,
+        replacement: path.resolve(__dirname, '../../packages/shared/src/index.ts'),
+      },
+    ],
   },
   test: {
     root: '.',

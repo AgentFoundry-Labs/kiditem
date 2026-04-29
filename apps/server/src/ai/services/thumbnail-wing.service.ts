@@ -24,17 +24,9 @@ export class ThumbnailWingService {
     const gen = await this.prisma.thumbnailGeneration.findFirst({
       where: { id: generationId, companyId },
       include: {
-        candidates: { orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] },
-        master: {
-          select: {
-            name: true,
-            listings: {
-              where: { channel: 'coupang', isDeleted: false },
-              select: { channelName: true, createdAt: true },
-              orderBy: { createdAt: 'asc' },
-              take: 1,
-            },
-          },
+        candidates: {
+          where: { companyId },
+          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
         },
       },
     });
@@ -47,6 +39,26 @@ export class ThumbnailWingService {
       throw new NotFoundException('Generation not found or no selected image');
     }
 
+    const master = await this.prisma.masterProduct.findFirst({
+      where: { id: gen.masterId, companyId, isDeleted: false },
+      select: {
+        name: true,
+        listings: {
+          where: { companyId, channel: 'coupang', isDeleted: false },
+          select: { channelName: true, createdAt: true },
+          orderBy: { createdAt: 'asc' },
+          take: 1,
+        },
+      },
+    });
+    if (!master) throw new NotFoundException(`MasterProduct ${gen.masterId} not found`);
+
+    const coupangName = master.listings?.[0]?.channelName?.trim();
+    const productName = coupangName || master.name || '';
+    if (!productName) {
+      throw new BadRequestException('쿠팡 등록 상품명을 찾을 수 없습니다');
+    }
+
     const attempt = await this.prisma.thumbnailRegistrationAttempt.create({
       data: {
         companyId,
@@ -56,14 +68,6 @@ export class ThumbnailWingService {
       },
       select: { id: true },
     });
-
-    const coupangName = gen.master?.listings?.[0]?.channelName?.trim();
-    const productName = coupangName || gen.master?.name || '';
-    if (!productName) {
-      const message = '쿠팡 등록 상품명을 찾을 수 없습니다';
-      await this.markAttemptFailed(attempt.id, companyId, message);
-      throw new BadRequestException(message);
-    }
 
     try {
       const imagePath = await this.materializeImage(selectedUrl, generationId);
@@ -133,6 +137,7 @@ export class ThumbnailWingService {
       where: { id, companyId },
       include: {
         registrationAttempts: {
+          where: { companyId },
           orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
           take: 1,
         },
