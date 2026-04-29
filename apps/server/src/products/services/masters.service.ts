@@ -526,6 +526,11 @@ export class MastersService {
   }
 
   /**
+   * Atomic restore for a soft-deleted master — single tenant-scoped `updateMany`
+   * removes the read-then-write window and keeps the bare-id write off the SQL
+   * path entirely. P2002 (e.g. legacyCode partial unique re-collision on
+   * restore) still propagates through `mapPrismaError`.
+   *
    * @param outerTx - Optional outer transaction (Plan B2 compose). Caller must pass
    *                  `{ timeout: >= 15000 }` on the outer `$transaction`.
    */
@@ -535,15 +540,12 @@ export class MastersService {
     outerTx?: Prisma.TransactionClient,
   ): Promise<void> {
     const db = outerTx ?? this.prisma;
-    const row = await db.masterProduct.findFirst({
-      where: { id, companyId, isDeleted: true },
-    });
-    if (!row) throw new NotFoundException('master not found or not deleted');
     try {
-      await db.masterProduct.update({
-        where: { id },
+      const { count } = await db.masterProduct.updateMany({
+        where: { id, companyId, isDeleted: true },
         data: { isDeleted: false, deletedAt: null },
       });
+      if (count === 0) throw new NotFoundException('master not found or not deleted');
     } catch (e) { mapPrismaError(e, 'master restore'); }
   }
 

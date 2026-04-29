@@ -3,6 +3,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { MasterCodeService } from '../services/master-code.service';
 import { MastersService } from '../services/masters.service';
+import { StorageService } from '../../common/storage/storage.service';
 import {
   makeTestPrisma, resetDb, seedBaseFixture,
   TEST_COMPANY_ID, OTHER_COMPANY_ID,
@@ -13,11 +14,15 @@ describe('MastersService integration', () => {
   let codeSvc: MasterCodeService;
   let svc: MastersService;
 
+  // No upload paths exercised in this spec; a typed null stub keeps the
+  // constructor signature satisfied without booting MinIO/S3.
+  const storageStub = null as unknown as StorageService;
+
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
     codeSvc = new MasterCodeService(prisma as any);
-    svc = new MastersService(prisma as any, codeSvc);
+    svc = new MastersService(prisma as any, codeSvc, storageStub);
   });
 
   beforeEach(async () => {

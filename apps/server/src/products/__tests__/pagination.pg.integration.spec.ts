@@ -12,6 +12,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { MasterCodeService } from '../services/master-code.service';
 import { MastersService } from '../services/masters.service';
+import { StorageService } from '../../common/storage/storage.service';
 import {
   makeTestPrisma, resetDb, seedBaseFixture, TEST_COMPANY_ID,
 } from '../../test-helpers/real-prisma';
@@ -20,11 +21,15 @@ describe('Pagination stability', () => {
   let prisma: PrismaClient;
   let svc: MastersService;
 
+  // No upload paths exercised in this spec; a typed null stub keeps the
+  // MastersService constructor signature satisfied without booting MinIO/S3.
+  const storageStub = null as unknown as StorageService;
+
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
     const codeSvc = new MasterCodeService(prisma as any);
-    svc = new MastersService(prisma as any, codeSvc);
+    svc = new MastersService(prisma as any, codeSvc, storageStub);
   });
   afterAll(async () => { await prisma.$disconnect(); });
 

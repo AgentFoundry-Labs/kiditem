@@ -143,14 +143,17 @@ export class OptionsService {
   }
 
   /**
-   * sku is globally unique (no partial index), but a soft-deleted row could
-   * still own a sku. Filter `isDeleted:false` explicitly + cross-tenant check.
+   * sku is unique table-wide, but the row may belong to another tenant or to
+   * a soft-deleted entry. Use a tenant-scoped `findFirst` so cross-tenant rows
+   * never reach the service layer — eliminates the previous IDOR-pattern
+   * (`findUnique({ sku }) + post-filter`) and aligns with root AGENTS.md
+   * "Multi-tenant scope" hard rule.
    */
   async findBySku(companyId: string, sku: string): Promise<ProductOption> {
-    const row = await this.prisma.productOption.findUnique({ where: { sku } });
-    if (!row || row.companyId !== companyId || row.isDeleted) {
-      throw new NotFoundException('option not found');
-    }
+    const row = await this.prisma.productOption.findFirst({
+      where: { sku, companyId, isDeleted: false },
+    });
+    if (!row) throw new NotFoundException('option not found');
     return row;
   }
 
@@ -268,6 +271,10 @@ export class OptionsService {
   }
 
   /**
+   * Atomic restore for a soft-deleted option — single tenant-scoped `updateMany`
+   * removes the read-then-write window and keeps the bare-id write off the SQL
+   * path entirely. P2002 still propagates through `mapPrismaError`.
+   *
    * @param outerTx - Optional outer transaction (Plan B2 compose). Caller must pass
    *                  `{ timeout: >= 15000 }` on the outer `$transaction`.
    */
@@ -277,15 +284,12 @@ export class OptionsService {
     outerTx?: Prisma.TransactionClient,
   ): Promise<void> {
     const db = outerTx ?? this.prisma;
-    const row = await db.productOption.findFirst({
-      where: { id, companyId, isDeleted: true },
-    });
-    if (!row) throw new NotFoundException('option not found or not deleted');
     try {
-      await db.productOption.update({
-        where: { id },
+      const { count } = await db.productOption.updateMany({
+        where: { id, companyId, isDeleted: true },
         data: { isDeleted: false, deletedAt: null },
       });
+      if (count === 0) throw new NotFoundException('option not found or not deleted');
     } catch (e) { mapPrismaError(e, 'option restore'); }
   }
 
