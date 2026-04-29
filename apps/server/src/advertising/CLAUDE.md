@@ -1,7 +1,11 @@
 # advertising — Ad Operations
 
-광고 관리 도메인. ADR-0013 3-layer schema (MasterProduct / ProductOption / ChannelListing) 기반.
-ADR-0006 준수 — 모든 service 가 companyId 말미 파라미터 + `@CurrentCompany()` decorator 를 통해 전파.
+광고 관리 도메인. products 3-layer schema (MasterProduct / ProductOption / ChannelListing) 기반.
+Multi-tenant scope rule 준수 — 모든 service 가 companyId 말미 파라미터 + `@CurrentCompany()` decorator 를 통해 전파.
+
+## Reconstruction note
+
+현재 `services/`, `ingest`, `read-models`, `persistence` 류 이름은 hard rewrite 이후의 런타임 계약을 설명하는 transitional structure 이다. Phase 3B 이후 목표 구조는 `apps/server/AGENTS.md` 와 `docs/superpowers/plans/2026-04-29-backend-architecture-contract.md` 의 `adapter/application/domain` 계약을 따른다. Advertising 의 현 구조를 다른 도메인의 표준으로 복사하지 않는다.
 
 ## Hard rewrite (2026-04-27) — post-rewrite contract
 
@@ -32,7 +36,7 @@ Channel market-data pipeline was rewritten in 4 phases (H1 schema → H2 ingest 
 - **`buildAdTargetKey()` single source** — `apps/server/src/advertising/util/ad-target-key.ts` builds `ChannelAdTargetDailySnapshot.targetKey`. Patterns: `campaign:<id|name>` / `keyword:<id|name>:<adGroup>:<keyword>` / `product:<externalId|listingId>:<id|name>`. Throws when no usable identifier — no `unknown:unknown` rows.
 - **Account/store KPI rules** — listing 에 귀속되지 않는 dashboard KPI 는 `ChannelAccountDailyKpiSnapshot` 으로 land. `kpiType`: `wing_dashboard` (traffic/dashboard payload), `wing_itemwinner_kpi` (raw_scrape wing kpi), `advertising_campaign_kpis` (ad_campaign top-level kpis), `coupang_ads_daily` (coupang ads daily aggregate).
 - **`AdAction.adTargetDailyId`** — `AdAction` 의 source row 는 `ChannelAdTargetDailySnapshot.id`. 이전 `snapshotId`/`AdSnapshot` 컬럼은 H4 에서 제거됨.
-- **Multi-tenant**: 모든 read 는 `companyId` 를 WHERE 에 포함 (ADR-0006). Single-resource GET/PATCH/DELETE 는 `findFirst({ where: { id, companyId } })`.
+- **Multi-tenant**: 모든 read 는 `companyId` 를 WHERE 에 포함. Single-resource GET/PATCH/DELETE 는 `findFirst({ where: { id, companyId } })`.
 
 ### Cross-domain coupling exception
 
@@ -146,7 +150,7 @@ Threshold (5000 / 100/200/480 / 0.85 / 1.2 / 0.5 / 3000) 는 현재 하드코딩
 
 `services/types.ts` 의 `AD_ACTION_TARGET_TYPES = ['campaign', 'keyword'] as const` 사용.
 
-## ADR-0006 준수
+## Multi-tenant scope rule 준수
 
 - 모든 service 메서드는 `companyId: string` 을 **마지막 파라미터** 로 받음
 - `getDefaultCompanyId()` / `prisma.company.findFirst({isActive:true})` 금지
