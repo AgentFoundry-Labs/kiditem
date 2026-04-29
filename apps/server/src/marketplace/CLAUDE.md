@@ -54,12 +54,38 @@ marketplace/
 - Module default `'order'` if not in catalog
 - Trigger type 은 `params.schedule` 유무로 결정
 - 회사 스코프 필수 (`@CurrentCompany()`)
+- **Workflow catalog 는 slim-core executor 만 참조** — 허용 노드 타입은
+  `marketplace.service.ts` 의 `ALLOWED_WORKFLOW_NODE_TYPES` 와 동일하며,
+  `apps/server/src/workflows/executors/builtin.ts` 의 등록 목록과 일치한다
+  (`trigger.manual`, `trigger.schedule`, `condition.evaluate`,
+  `notification.alert`, `agent_task.create`).
+  - `listWorkflows` 는 허용 외 노드 타입을 가진 catalog 를 응답에서 숨기고
+    warn 로그를 남긴다. `getWorkflow` 도 같은 정책으로 404 처리.
+  - `installWorkflow` 는 catalog `nodesJson` 을 다시 검사하여 허용 외
+    타입이 있으면 `BadRequestException` 으로 거부한다 (defense in depth).
+  - 새 도메인 executor 가 등록된 후에만 그 타입을 catalog 에 추가한다.
+    catalog 가 먼저 등장하면 install 이 거부되거나 list 에서 사라진다.
+- **AI/LLM 진입점은 `agent_task.create` 한 가지뿐** — workflow catalog 가
+  AI/LLM 작업을 표현할 때는 `agent_type` 으로 `AgentRegistry` 에 위임한다.
+  generic `ai_process` / `data_transform` / `internal.db_query` / `api_call`
+  같은 노드는 catalog 에 두지 않는다.
+- **Client 가 보낸 `companyId` 신뢰 금지** — install/uninstall 모두
+  `@CurrentCompany()` 가 주입한 값만 사용한다. DTO 에 `companyId` 필드를
+  넣지 말 것 (ADR-0006). Workflow runner 도 template 의 ownership companyId
+  로 노드 config 를 덮어쓰므로 catalog node config 의 `company_id` 는
+  의미 없는 값이다.
 
 ## Prohibits
 
 - ❌ Marketplace 테이블 직접 update (admin tool 따로)
 - ❌ 사용자가 trigger type 직접 지정
 - ❌ Install 시 nodesJson 전체 override (configurableParams 만 허용)
+- ❌ Generic DB/HTTP/transform executor 노드를 catalog 에 추가
+  (`internal.db_query`, `api_call`, `data.filter`, `data_transform`,
+  `ai_process`)
+- ❌ 미등록 도메인 executor 를 catalog 에 미리 추가 — `builtin.ts` 등록이
+  먼저, catalog 추가가 그 다음
+- ❌ DTO 또는 install body 에 `companyId` 수신
 
 ## Cross-domain deps
 

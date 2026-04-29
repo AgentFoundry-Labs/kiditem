@@ -1,5 +1,14 @@
 -- Seed marketplace catalog (agents + workflows)
 -- Run: npx prisma db execute --stdin < scripts/seed-marketplace.sql
+--
+-- Workflow catalog 는 slim-core executor 만 참조한다
+-- (apps/server/src/workflows/CLAUDE.md 의 "살아남은 executor" 참고).
+--   허용: trigger.manual, trigger.schedule, condition.evaluate,
+--         notification.alert, agent_task.create
+-- generic DB/HTTP/transform 노드 (internal.db_query, api_call, data.filter,
+-- data_transform, ai_process) 와 legacy alias (trigger, trigger.event,
+-- condition, notification) 는 catalog 에 두지 않는다. AI/LLM 진입점은
+-- agent_task.create 한 가지뿐이다.
 
 -- ─── Agent Catalog ────────────────────────────────────────────────────────────
 
@@ -44,62 +53,50 @@ VALUES
 
 ON CONFLICT DO NOTHING;
 
--- ─── Workflow Catalog ─────────────────────────────────────────────────────────
+-- ─── Workflow Catalog (slim-core only) ───────────────────────────────────────
+--
+-- 각 workflow 는 다음 패턴을 따른다:
+--   trigger.* → agent_task.create → notification.alert
+-- AI/도메인 분석은 모두 agent_task.create 로 위임한다. 도메인 데이터 fetch
+-- 노드 (예: coupang.orders.fetch) 는 아직 등록되지 않았으므로 catalog 에
+-- 두지 않는다. 등록되면 그 시점에 별도 PR 로 catalog 를 확장한다.
 
 INSERT INTO marketplace (id, type, name, description, category, module, nodes_json, edges_json, is_published, configurable_params)
 VALUES
-  (gen_random_uuid(), 'workflow', '주문 자동 처리', '신규 주문 수집 → 확인 → 송장 등록 자동화.
+  (gen_random_uuid(), 'workflow', '광고 성과 분석', '매일 광고 데이터를 점검하고 광고 전략 에이전트가 액션을 제안합니다.
 
-- 쿠팡 신규 주문 자동 수집
-- 주문 상태 자동 확인
-- 운송장 번호 자동 등록', 'automation', 'order',
-    '[{"id":"1","type":"trigger.manual"},{"id":"2","type":"coupang.orders.fetch"},{"id":"3","type":"coupang.orders.confirm"},{"id":"4","type":"notification.alert","config":{"title":"주문 처리 완료"}}]'::jsonb,
-    '[{"source":"1","target":"2"},{"source":"2","target":"3"},{"source":"3","target":"4"}]'::jsonb,
+- 매일 정해진 시간에 자동 실행
+- 광고 전략 에이전트에게 분석 위임
+- 분석 완료 시 알림', 'analytics', 'analytics',
+    '[{"id":"1","type":"trigger.schedule","config":{"cron":"0 9 * * *"}},{"id":"2","type":"agent_task.create","config":{"agent_type":"ad_strategy"}},{"id":"3","type":"notification.alert","config":{"title":"광고 성과 분석 완료","severity":"info"}}]'::jsonb,
+    '[{"source":"1","target":"2"},{"source":"2","target":"3"}]'::jsonb,
     true, '[]'::jsonb),
 
-  (gen_random_uuid(), 'workflow', '광고 성과 분석', '광고 데이터 수집 → 효율 분석 → 전략 추천.
+  (gen_random_uuid(), 'workflow', '상품 건강도 점검', '비즈니스 규칙 기반 상품 건강도를 평가하고 위험 상품을 알립니다.
 
-- 쿠팡 광고 데이터 자동 수집
-- ROAS/CTR 효율 분석
-- AI 광고 전략 추천', 'analytics', 'analytics',
-    '[{"id":"1","type":"trigger.schedule","config":{"cron":"0 9 * * *"}},{"id":"2","type":"coupang.ads.fetch"},{"id":"3","type":"calculate.ad_efficiency"},{"id":"4","type":"agent_task.create","config":{"agentType":"ad_strategy"}}]'::jsonb,
-    '[{"source":"1","target":"2"},{"source":"2","target":"3"},{"source":"3","target":"4"}]'::jsonb,
+- 수동 트리거로 즉시 실행
+- 건강도 평가 에이전트에게 위임
+- 평가 완료 시 알림', 'analytics', 'product',
+    '[{"id":"1","type":"trigger.manual"},{"id":"2","type":"agent_task.create","config":{"agent_type":"rules_evaluation"}},{"id":"3","type":"notification.alert","config":{"title":"건강도 점검 완료","severity":"info"}}]'::jsonb,
+    '[{"source":"1","target":"2"},{"source":"2","target":"3"}]'::jsonb,
     true, '[]'::jsonb),
 
-  (gen_random_uuid(), 'workflow', '상품 건강도 점검', '전 상품 건강도 평가 → 위험 상품 알림.
+  (gen_random_uuid(), 'workflow', '썸네일 분석', '상품 썸네일 CTR 데이터를 점검하고 개선 우선순위를 받습니다.
 
-- 비즈니스 규칙 기반 자동 평가
-- ABC 등급 분류
-- 위험 상품 즉시 알림', 'analytics', 'product',
-    '[{"id":"1","type":"trigger.manual"},{"id":"2","type":"internal.db_query","config":{"model":"Product","where":{"isDeleted":false}}},{"id":"3","type":"condition.abc_classify"},{"id":"4","type":"agent_task.create","config":{"agentType":"rules_evaluation"}},{"id":"5","type":"notification.alert","config":{"title":"건강도 점검 완료"}}]'::jsonb,
-    '[{"source":"1","target":"2"},{"source":"2","target":"3"},{"source":"3","target":"4"},{"source":"4","target":"5"}]'::jsonb,
+- 수동 트리거로 즉시 실행
+- 썸네일 분석 에이전트에게 위임
+- 분석 완료 시 알림', 'analytics', 'product',
+    '[{"id":"1","type":"trigger.manual"},{"id":"2","type":"agent_task.create","config":{"agent_type":"thumbnail_analyst"}},{"id":"3","type":"notification.alert","config":{"title":"썸네일 분석 완료","severity":"info"}}]'::jsonb,
+    '[{"source":"1","target":"2"},{"source":"2","target":"3"}]'::jsonb,
     true, '[]'::jsonb),
 
-  (gen_random_uuid(), 'workflow', '리뷰 수집 및 분석', '쿠팡 리뷰 자동 수집 → 감성 분석 → 알림.
+  (gen_random_uuid(), 'workflow', '매니저 일일 점검', '매니저 에이전트가 회사 전체 데이터를 점검하고 종합 리포트를 보고합니다.
 
-- 신규 리뷰 자동 수집
-- 부정 리뷰 감지 및 알림
-- 리뷰 트렌드 분석', 'automation', 'product',
-    '[{"id":"1","type":"trigger.schedule","config":{"cron":"0 10 * * *"}},{"id":"2","type":"coupang.reviews.fetch"},{"id":"3","type":"data.filter","config":{"field":"rating","operator":"lte","value":3}},{"id":"4","type":"notification.alert","config":{"title":"부정 리뷰 감지","severity":"warning"}}]'::jsonb,
-    '[{"source":"1","target":"2"},{"source":"2","target":"3"},{"source":"3","target":"4"}]'::jsonb,
-    true, '[]'::jsonb),
-
-  (gen_random_uuid(), 'workflow', '재고 자동 발주', '재고 부족 감지 → 발주 필요량 계산 → PO 생성.
-
-- 안전재고 기준 자동 체크
-- 최적 발주량 계산
-- 발주서 자동 생성', 'automation', 'order',
-    '[{"id":"1","type":"trigger.schedule","config":{"cron":"0 8 * * 1"}},{"id":"2","type":"calculate.reorder_check"},{"id":"3","type":"internal.create_purchase_order"},{"id":"4","type":"notification.alert","config":{"title":"자동 발주 완료"}}]'::jsonb,
-    '[{"source":"1","target":"2"},{"source":"2","target":"3"},{"source":"3","target":"4"}]'::jsonb,
-    true, '[]'::jsonb),
-
-  (gen_random_uuid(), 'workflow', '월간 리포트 생성', '월별 매출/비용/수익 종합 리포트 자동 생성.
-
-- 매출, 광고비, 물류비 자동 집계
-- 손익 분석 리포트 생성
-- 엑셀 내보내기', 'analytics', 'analytics',
-    '[{"id":"1","type":"trigger.schedule","config":{"cron":"0 9 1 * *"}},{"id":"2","type":"calculate.profit_loss"},{"id":"3","type":"export.report"},{"id":"4","type":"notification.alert","config":{"title":"월간 리포트 생성 완료"}}]'::jsonb,
-    '[{"source":"1","target":"2"},{"source":"2","target":"3"},{"source":"3","target":"4"}]'::jsonb,
+- 매일 정해진 시간에 자동 실행
+- 매니저 에이전트에게 위임 (필요 시 전문가 에이전트 추가 호출)
+- 점검 완료 시 알림', 'automation', 'operations',
+    '[{"id":"1","type":"trigger.schedule","config":{"cron":"0 8 * * *"}},{"id":"2","type":"agent_task.create","config":{"agent_type":"manager"}},{"id":"3","type":"notification.alert","config":{"title":"매니저 일일 점검 완료","severity":"info"}}]'::jsonb,
+    '[{"source":"1","target":"2"},{"source":"2","target":"3"}]'::jsonb,
     true, '[]'::jsonb)
 
 ON CONFLICT DO NOTHING;
