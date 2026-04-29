@@ -115,9 +115,23 @@ export class AgentCrudService {
       }
     }
 
+    const updateData: Prisma.AgentDefinitionUpdateManyMutationInput = {
+      ...(data.name !== undefined && { name: data.name }),
+      ...(data.type !== undefined && { type: data.type }),
+      ...(data.description !== undefined && { description: data.description }),
+      ...(data.promptTemplate !== undefined && { promptTemplate: data.promptTemplate }),
+      ...(data.allowedTools !== undefined && { allowedTools: data.allowedTools }),
+      ...(data.permissionMode !== undefined && { permissionMode: data.permissionMode }),
+      ...(data.monthlyTokenBudget !== undefined && { monthlyTokenBudget: data.monthlyTokenBudget }),
+      ...(data.schedule !== undefined && { schedule: data.schedule }),
+      ...(data.timeoutSeconds !== undefined && { timeoutSeconds: data.timeoutSeconds }),
+      ...(data.requiresApproval !== undefined && { requiresApproval: data.requiresApproval }),
+      ...(data.trustLevel !== undefined && { trustLevel: data.trustLevel }),
+    };
+
     const result = await this.prisma.agentDefinition.updateMany({
       where: { id, ...tenantOwnedFilter(companyId) },
-      data: data as any,
+      data: updateData,
     });
     if (result.count === 0) throw new NotFoundException(`Agent definition ${id} not found`);
 

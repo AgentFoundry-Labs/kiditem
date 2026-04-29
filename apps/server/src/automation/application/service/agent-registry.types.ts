@@ -1,9 +1,16 @@
-import type { UpdateAgentBodyDto } from '../../../agent-registry/dto';
-
-export type AgentDefinitionUpdateData = Omit<UpdateAgentBodyDto, 'schedule'> & {
+export interface AgentDefinitionUpdateData {
+  name?: string;
+  type?: string;
+  description?: string;
+  promptTemplate?: string;
+  allowedTools?: string;
+  permissionMode?: string;
+  monthlyTokenBudget?: number;
   schedule?: string | null;
+  timeoutSeconds?: number;
+  requiresApproval?: boolean;
   trustLevel?: number;
-};
+}
 
 /**
  * Input contract for Agent OS execution. `companyId` is the trusted tenant
