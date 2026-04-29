@@ -217,8 +217,15 @@ export class WorkflowRunnerService {
     await this.emitPanelUpsert(runId, companyId);
 
     try {
+      // Tenant scope is owned by the runner, not the template author.
+      // Strip any caller- or template-supplied `company_id`/`_context` from
+      // the node config before injecting the runner-trusted values, so
+      // side-effect executors (e.g. notification.alert) cannot be coerced
+      // into writing under a foreign tenant by editing the template JSON.
+      const { company_id: _ignoredCompanyId, _context: _ignoredCtx, ...safeNodeConfig } =
+        nodeDef.config ?? {};
       const resolvedConfig = context.resolveConfig({
-        ...nodeDef.config,
+        ...safeNodeConfig,
         company_id: template.companyId,
         _context: runContext,
       });

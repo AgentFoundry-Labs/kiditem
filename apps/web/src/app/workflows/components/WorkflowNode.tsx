@@ -1,24 +1,37 @@
 'use client';
 
-import { memo, useCallback } from 'react';
+import { memo, useCallback, type ComponentType } from 'react';
 import { Handle, Position, NodeProps } from 'reactflow';
 import {
-  Clock, Zap, GitBranch, Timer, Repeat, Globe,
-  ArrowRightLeft, Bell, Brain, CheckCircle, XCircle, Loader2,
+  Clock,
+  Calendar,
+  GitBranch,
+  Bell,
+  Bot,
+  Zap,
+  CheckCircle,
+  XCircle,
+  Loader2,
 } from 'lucide-react';
 import { cn, getModuleColor } from '@/lib/utils';
-import type { NodeType } from '@/types';
 
-const nodeTypeIcons: Record<NodeType, any> = {
-  trigger: Clock,
-  action: Zap,
-  condition: GitBranch,
-  delay: Timer,
-  loop: Repeat,
-  api_call: Globe,
-  data_transform: ArrowRightLeft,
-  notification: Bell,
-  ai_process: Brain,
+// Slim-core executor surface (matches server `executors/builtin.ts`).
+// Unknown / legacy node types still render — they fall back to the generic
+// Zap icon so old templates remain visible until they fail at run time.
+const nodeTypeIcons: Record<string, ComponentType<{ className?: string; style?: React.CSSProperties }>> = {
+  'trigger.manual': Clock,
+  'trigger.schedule': Calendar,
+  'condition.evaluate': GitBranch,
+  'notification.alert': Bell,
+  'agent_task.create': Bot,
+};
+
+const nodeTypeLabels: Record<string, string> = {
+  'trigger.manual': 'TRIGGER',
+  'trigger.schedule': 'SCHEDULE',
+  'condition.evaluate': 'CONDITION',
+  'notification.alert': 'ALERT',
+  'agent_task.create': 'AGENT',
 };
 
 const statusConfig = {
@@ -31,7 +44,8 @@ const statusConfig = {
 
 function WorkflowNode({ data, id }: NodeProps) {
   const { label, nodeType, module, status, config, onNodeClick } = data;
-  const Icon = nodeTypeIcons[nodeType as NodeType] || Zap;
+  const Icon = nodeTypeIcons[nodeType as string] ?? Zap;
+  const typeLabel = nodeTypeLabels[nodeType as string] ?? (nodeType as string)?.replace(/[._]/g, ' ');
   const moduleColor = getModuleColor(module);
   const statusCfg = statusConfig[status as keyof typeof statusConfig] || statusConfig.idle;
   const StatusIcon = statusCfg.icon;
@@ -69,7 +83,7 @@ function WorkflowNode({ data, id }: NodeProps) {
             <Icon className="w-3 h-3" style={{ color: moduleColor }} />
           </div>
           <span className="text-[10px] text-slate-600 uppercase tracking-wider font-medium">
-            {nodeType === 'ai_process' ? 'AI' : nodeType?.replace('_', ' ')}
+            {typeLabel}
           </span>
           {StatusIcon && (
             <StatusIcon
@@ -87,11 +101,11 @@ function WorkflowNode({ data, id }: NodeProps) {
         <p className="text-xs font-medium text-slate-800 leading-relaxed">{label}</p>
 
         {/* Config hint */}
-        {config?.api && (
-          <p className="text-[9px] text-slate-600 mt-1 truncate">API: {config.api}</p>
-        )}
         {config?.cron && (
           <p className="text-[9px] text-slate-600 mt-1 truncate">cron: {config.cron}</p>
+        )}
+        {config?.agent_type && (
+          <p className="text-[9px] text-slate-600 mt-1 truncate">agent: {config.agent_type}</p>
         )}
       </div>
 

@@ -3,16 +3,18 @@
 // ============================================
 
 // --- Workflow Engine Types ---
+//
+// Mirrors the slim server-side executor surface in
+// `apps/server/src/workflows/executors/builtin.ts`. The workflow engine is a
+// DAG runner + run/panel recorder + Agent delegation shell. AI/LLM work goes
+// through `agent_task.create` only — there is no generic `ai_process`,
+// `api_call`, `data_transform`, etc. anymore.
 export type NodeType =
-  | 'trigger'
-  | 'action'
-  | 'condition'
-  | 'delay'
-  | 'loop'
-  | 'api_call'
-  | 'data_transform'
-  | 'notification'
-  | 'ai_process';
+  | 'trigger.manual'
+  | 'trigger.schedule'
+  | 'condition.evaluate'
+  | 'notification.alert'
+  | 'agent_task.create';
 
 type ModuleCategory =
   | 'order'       // 주문관리
@@ -55,4 +57,3 @@ export interface Workflow {
   createdAt: string;
   updatedAt: string;
 }
-
