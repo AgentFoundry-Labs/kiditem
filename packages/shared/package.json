@@ -95,6 +95,61 @@
       "import": "./dist/channel-dashboard.js",
       "require": "./dist/channel-dashboard.cjs"
     },
+    "./agent": {
+      "types": "./dist/agent.d.ts",
+      "import": "./dist/agent.js",
+      "require": "./dist/agent.cjs"
+    },
+    "./agent-trace": {
+      "types": "./dist/agent-trace.d.ts",
+      "import": "./dist/agent-trace.js",
+      "require": "./dist/agent-trace.cjs"
+    },
+    "./workflow": {
+      "types": "./dist/workflow.d.ts",
+      "import": "./dist/workflow.js",
+      "require": "./dist/workflow.cjs"
+    },
+    "./common": {
+      "types": "./dist/common.d.ts",
+      "import": "./dist/common.js",
+      "require": "./dist/common.cjs"
+    },
+    "./reviews": {
+      "types": "./dist/reviews.d.ts",
+      "import": "./dist/reviews.js",
+      "require": "./dist/reviews.cjs"
+    },
+    "./statistics": {
+      "types": "./dist/statistics.d.ts",
+      "import": "./dist/statistics.js",
+      "require": "./dist/statistics.cjs"
+    },
+    "./settlements": {
+      "types": "./dist/settlements.d.ts",
+      "import": "./dist/settlements.js",
+      "require": "./dist/settlements.cjs"
+    },
+    "./alerts": {
+      "types": "./dist/alerts.d.ts",
+      "import": "./dist/alerts.js",
+      "require": "./dist/alerts.cjs"
+    },
+    "./return-summary": {
+      "types": "./dist/return-summary.d.ts",
+      "import": "./dist/return-summary.js",
+      "require": "./dist/return-summary.cjs"
+    },
+    "./feature-gate": {
+      "types": "./dist/feature-gate.d.ts",
+      "import": "./dist/feature-gate.js",
+      "require": "./dist/feature-gate.cjs"
+    },
+    "./inspection": {
+      "types": "./dist/inspection.d.ts",
+      "import": "./dist/inspection.js",
+      "require": "./dist/inspection.cjs"
+    },
     "./internal/*": null
   },
   "types": "./dist/index.d.ts",
@@ -116,7 +171,18 @@
       "rules": ["dist/rules.d.ts"],
       "action-task": ["dist/action-task.d.ts"],
       "supplier-stats": ["dist/supplier-stats.d.ts"],
-      "channel-dashboard": ["dist/channel-dashboard.d.ts"]
+      "channel-dashboard": ["dist/channel-dashboard.d.ts"],
+      "agent": ["dist/agent.d.ts"],
+      "agent-trace": ["dist/agent-trace.d.ts"],
+      "workflow": ["dist/workflow.d.ts"],
+      "common": ["dist/common.d.ts"],
+      "reviews": ["dist/reviews.d.ts"],
+      "statistics": ["dist/statistics.d.ts"],
+      "settlements": ["dist/settlements.d.ts"],
+      "alerts": ["dist/alerts.d.ts"],
+      "return-summary": ["dist/return-summary.d.ts"],
+      "feature-gate": ["dist/feature-gate.d.ts"],
+      "inspection": ["dist/inspection.d.ts"]
     }
   },
   "main": "./dist/index.cjs",
