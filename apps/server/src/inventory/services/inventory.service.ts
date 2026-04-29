@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { BundleStockService } from '../../products/services/bundle-stock.service';
+import { BundleStockService } from '../../products/application/service/bundle-stock.service';
 import { toSerializable } from '../../products/util/serialize';
 import type {
   Inventory,

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Test } from '@nestjs/testing';
 import type { PrismaClient } from '@prisma/client';
 import { InventoryService } from '../services/inventory.service';
-import { BundleStockService } from '../../products/services/bundle-stock.service';
+import { BundleStockService } from '../../products/application/service/bundle-stock.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   makeTestPrisma,

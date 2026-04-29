@@ -3,7 +3,7 @@ import { Test } from '@nestjs/testing';
 import { BadRequestException } from '@nestjs/common';
 import { InventoryService } from '../inventory.service';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { BundleStockService } from '../../../products/services/bundle-stock.service';
+import { BundleStockService } from '../../../products/application/service/bundle-stock.service';
 
 describe('InventoryService.adjust', () => {
   let service: InventoryService;

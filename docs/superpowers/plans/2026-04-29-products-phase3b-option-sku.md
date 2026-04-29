@@ -4,6 +4,20 @@
 > `apps/server/src/products`. Sits alongside the masters / bundle-components
 > services as Lane B of the Phase 3B products track.
 
+## Status
+
+**Transitional split landed; topology converged via [`refactor/products-contract-topology`](2026-04-29-products-contract-topology-convergence.md).** The `services/`, `persistence/`, `read-models/`, and `domain/` waypoints described below were superseded when the products domain folded into the Backend Architecture Contract target shape. Specifically:
+
+| Waypoint (this plan) | Final location after convergence PR |
+|---|---|
+| `services/options.service.ts` | `application/service/options.service.ts` |
+| `persistence/product-option.persistence.ts` | `adapter/out/prisma/product-option.persistence.ts` |
+| `read-models/product-option-read-model.ts` | `adapter/out/prisma/product-option.query.ts` |
+| `domain/product-option-sku.ts` | `domain/service/product-option-sku.ts` |
+| `domain/product-option-mutation-rules.ts` | `domain/policy/product-option-mutation-rules.ts` |
+
+SKU race + tenant scope + bundle-flip + soft-delete recompute invariants were preserved verbatim by the convergence PR — only file paths changed.
+
 ## Goal
 
 Pull SKU generation, tenant-scoped reads, mutation invariants, soft-delete

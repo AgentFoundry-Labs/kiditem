@@ -1,7 +1,7 @@
 // apps/server/src/products/__tests__/bundle-stock.service.spec.ts
 import { describe, it, expect, vi } from 'vitest';
 import { NotFoundException } from '@nestjs/common';
-import { BundleStockService } from '../services/bundle-stock.service';
+import { BundleStockService } from '../application/service/bundle-stock.service';
 
 /**
  * Mock shape mirrors what bundle-stock.service.ts touches:

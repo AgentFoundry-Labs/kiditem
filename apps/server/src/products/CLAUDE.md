@@ -6,30 +6,75 @@
 - **ProductOption** (물리 SKU, 바코드 단위) — 재고/매입/창고 단위. `sku = {master.code}-{optionCounter.padStart(2)}`.
 - **BundleComponent** — 세트 구성 관계 (cross-master 허용, cross-company 금지, Plan B1 에선 nested bundle 금지).
 
+## Topology (Phase 3B contract-aligned)
+
+Backend Architecture Contract([`docs/superpowers/plans/2026-04-29-backend-architecture-contract.md`](../../../../docs/superpowers/plans/2026-04-29-backend-architecture-contract.md))의 target shape 으로 수렴된 상태. transitional `services/`, `persistence/`, `read-models/`, `mappers/` labels 는 더 이상 사용하지 않는다.
+
+```
+products/
+├── products.module.ts
+├── adapter/
+│   ├── in/http/                          ← controllers (HTTP DTO binding only)
+│   └── out/prisma/                       ← Prisma persistence + raw SQL + queries
+│       ├── master-code.service.ts        (nextval('master_code_seq'))
+│       ├── master-product.query.ts       (MASTER_WITH_IMAGES, find/list)
+│       ├── product-option.query.ts       (cursor-paginated tenant reads)
+│       ├── product-option.persistence.ts (counter+sku, applyOptionPatch, soft-delete)
+│       ├── bundle-component.query.ts     (forward/reverse listing)
+│       ├── bundle-component.persistence.ts (CRUD scoped writes; re-exports lock)
+│       └── bundle-stock.persistence.ts   (canonical SELECT … FOR UPDATE, ADR-0014)
+├── application/service/                  ← orchestration only (transaction owners)
+│   ├── masters.service.ts
+│   ├── options.service.ts
+│   ├── bundle-components.service.ts
+│   ├── bundle-stock.service.ts           (sole `availableStock` writer)
+│   └── product-catalog.service.ts
+├── domain/                               ← pure rules / pure services (no Prisma, no Nest)
+│   ├── policy/                           ← throws-on-violation rules
+│   │   ├── bundle-component-rules.ts     (3-way invariant, nested-bundle ban)
+│   │   ├── product-option-mutation-rules.ts (system fields, isBundle flip, temp reason)
+│   │   └── public-image-url.ts           (SSRF guard)
+│   └── service/                          ← pure computations
+│       ├── bundle-stock-capacity.ts      (min(floor(stock/qty)))
+│       ├── master-image-normalizer.ts    (write-side normalize + primary index)
+│       ├── product-image-normalizer.ts   (read-path lenience)
+│       └── product-option-sku.ts         (`{masterCode}-NN` formatter)
+├── mapper/                               ← Prisma row ↔ shared contract
+│   ├── master-product.mapper.ts
+│   └── product-catalog.mapper.ts
+├── dto/                                  ← class-validator HTTP DTOs (unchanged)
+└── util/                                 ← module-internal helpers (cursor, serialize, prisma-error)
+```
+
+`__tests__/` 는 source 와 sibling 위치를 유지한다. Top-level `products/__tests__/` 는 multi-module integration / DI 테스트, `application/service/__tests__/` 는 service-internal 단위 테스트.
+
+`categories/` 는 별도 top-level 모듈. 장기적으로 products owner domain 으로 fold 예정 (backend-architecture-contract.md §"Backend Domain Topology" 참조). 본 PR 범위 외.
+
 ## 핵심 규칙
 
-- **code 생성**: `MasterCodeService.generate()` — `nextval('master_code_seq')`. race-free + gap-tolerant.
-- **sku 생성**: `OptionsService.create` 의 `$transaction` 안에서 `masterProduct.updateMany + findUniqueOrThrow` 2-step. WHERE 에 `isDeleted:false` 포함 (TOCTOU 차단).
-- **availableStock materialize**: `BundleStockService.recompute` **만** write. `OptionsService.update` 는 payload 에서 명시적 strip.
-- **BundleComponent.companyId**: auth companyId 아닌 `bundleOption.companyId` 에서 파생 (3-way invariant).
-- **Bundle recompute**: component CRUD 시 inline `$transaction` + `SELECT ... FOR UPDATE` row-level lock. Option soft-delete 시에도 파생 recompute.
+- **code 생성**: `MasterCodeService.generate()` — `nextval('master_code_seq')`. race-free + gap-tolerant. `adapter/out/prisma/master-code.service.ts` 에 위치 (Prisma raw SQL adapter).
+- **sku 생성**: `OptionsService.create` 의 `$transaction` 안에서 `incrementMasterOptionCounter` (`masterProduct.updateMany + findFirst` 2-step). WHERE 에 `isDeleted:false` 포함 (TOCTOU 차단). 모든 raw write 는 `adapter/out/prisma/product-option.persistence.ts` 가 보유.
+- **availableStock materialize**: `BundleStockService.recompute` **만** write. `OptionsService.update` 는 payload 에서 명시적 strip (`stripProductOptionSystemFields` in `domain/policy/product-option-mutation-rules.ts`).
+- **BundleComponent.companyId**: auth companyId 아닌 `bundleOption.companyId` 에서 파생 (3-way invariant — `domain/policy/bundle-component-rules.ts`).
+- **Bundle recompute**: component CRUD 시 inline `$transaction` + `SELECT ... FOR UPDATE` row-level lock. row-lock SQL 의 canonical owner 는 `adapter/out/prisma/bundle-stock.persistence.ts` (ADR-0014). Option soft-delete 시에도 파생 recompute.
 - **Soft-delete**: Master / Option 만. cascade 없음. Restore 도 cascade 없음.
 - **Hard delete**: BundleComponent 만.
 
 ## Controller / Service 관행
 
-- Controller 는 `@UseGuards` / `@UsePipes` **사용 금지**. 전역 `CompanyScopeGuard` (APP_GUARD) + 전역 `ValidationPipe` 에 의존.
+- Controller (`adapter/in/http/`) 는 `@UseGuards` / `@UsePipes` **사용 금지**. 전역 `CompanyScopeGuard` (APP_GUARD) + 전역 `ValidationPipe` 에 의존.
 - Controller 는 `@CurrentCompany()` 로 companyId 주입.
-- Service 는 raw Prisma row 반환. Controller 가 `toSerializable()` + Zod parse.
+- Application service (`application/service/`) 는 raw Prisma row 반환. Controller 가 `toSerializable()` + Zod parse.
+- Domain 코드 (`domain/policy`, `domain/service`) 는 Prisma / Nest 의존 금지. 위반 시 reconstruction contract 위반.
 
 ## Transaction composition
 
-모든 mutating method 는 optional `tx?: Prisma.TransactionClient` 마지막 파라미터. Plan B2 의 outer transaction (sourcing, supplier sync) 와 compose 가능.
+모든 mutating application service 는 optional `tx?: Prisma.TransactionClient` 마지막 파라미터. Plan B2 의 outer transaction (sourcing, supplier sync) 와 compose 가능. Persistence helper 는 caller 의 `tx` 만 받고, 자체 `$transaction` 을 열지 않는다.
 
 ## 외부 서비스 접근
 
-- Export: `MastersService`, `OptionsService`, `BundleComponentsService`.
-- **Non-export**: `MasterCodeService`.
+- Export: `MastersService`, `OptionsService`, `BundleComponentsService`, `ProductCatalogService` (`application/service/`에서 import).
+- **Non-export**: `MasterCodeService` (`adapter/out/prisma/`). 외부 모듈은 직접 호출 금지.
 - **Export (restricted)**: `BundleStockService` — InventoryService 가 `recomputeForComponent` 호출 전용 (ADR-0014 단일-writer invariant). 다른 모듈은 직접 호출 금지.
 
 ## RLS

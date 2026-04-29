@@ -3,6 +3,24 @@
 > Lane A of the Phase 3B `products` refactor.
 > Parent plan: [`2026-04-28-codebase-reconstruction.md`](./2026-04-28-codebase-reconstruction.md) §Phase 3B.
 
+## Status
+
+**Transitional split landed; topology converged via [`refactor/products-contract-topology`](2026-04-29-products-contract-topology-convergence.md).** The `read-models/`, `mappers/`, and `domain/` waypoints described below were superseded when the products domain folded into the Backend Architecture Contract target shape (`adapter/in/http`, `adapter/out/prisma`, `application/service`, `domain/policy`, `domain/service`, `mapper`). Specifically:
+
+| Waypoint (this plan) | Final location after convergence PR |
+|---|---|
+| `services/masters.service.ts` | `application/service/masters.service.ts` |
+| `services/product-catalog.service.ts` | `application/service/product-catalog.service.ts` |
+| `read-models/master-product-read-model.ts` | `adapter/out/prisma/master-product.query.ts` |
+| `read-models/product-catalog-read-model.ts` | `adapter/out/prisma/product-catalog.query.ts` |
+| `mappers/master-product.mapper.ts` | `mapper/master-product.mapper.ts` |
+| `mappers/product-catalog.mapper.ts` | `mapper/product-catalog.mapper.ts` |
+| `domain/master-image-normalizer.ts` | `domain/service/master-image-normalizer.ts` |
+| `domain/public-image-url.ts` | `domain/policy/public-image-url.ts` |
+| `services/product-image-normalizer.ts` | `domain/service/product-image-normalizer.ts` |
+
+The responsibility moves and invariants below were preserved verbatim by the convergence PR — only file paths changed.
+
 ## Goal
 
 Reduce `MastersService` and `ProductCatalogService` to orchestration by moving

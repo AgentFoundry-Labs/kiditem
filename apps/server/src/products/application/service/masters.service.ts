@@ -1,0 +1,395 @@
+// apps/server/src/products/application/service/masters.service.ts
+import { randomUUID } from 'node:crypto';
+import {
+  BadRequestException, Injectable, NotFoundException,
+} from '@nestjs/common';
+import { MasterProduct, Prisma } from '@prisma/client';
+import { PrismaService } from '../../../prisma/prisma.service';
+import { StorageService } from '../../../common/storage/storage.service';
+import type { MulterFile } from '../../../common/types';
+import type { MasterImageItem } from '@kiditem/shared/product';
+import { MasterCodeService } from '../../adapter/out/prisma/master-code.service';
+import { CreateMasterDto } from '../../dto/create-master.dto';
+import { UpdateMasterDto } from '../../dto/update-master.dto';
+import { ListMastersQuery } from '../../dto/list-masters.query';
+import { mapPrismaError } from '../../util/prisma-error';
+import { normalizeMasterImages } from '../../domain/service/product-image-normalizer';
+import {
+  MASTER_WITH_IMAGES,
+  type MasterWithImageRows,
+  findMasterById,
+  findMasterByCode,
+  findMasterByLegacy,
+  findMasterImageRows,
+  findMasterListPage,
+} from '../../adapter/out/prisma/master-product.query';
+import { toMasterImageItem, withImageRows } from '../../mapper/master-product.mapper';
+import {
+  normalizeImagesForWrite,
+  primaryImageIndex,
+  representativeImageUrl,
+} from '../../domain/service/master-image-normalizer';
+import {
+  PublicImageUrlError,
+  assertPublicHttpUrl,
+} from '../../domain/policy/public-image-url';
+
+const SYSTEM_FIELDS = [
+  'id', 'code', 'companyId', 'optionCounter', 'isDeleted', 'deletedAt',
+  'healthUpdatedAt', 'rawData', 'processedData', 'draftContent',
+  'createdAt', 'updatedAt', 'images', 'imageUrl',
+] as const;
+
+function assertPublicHttpUrlForHttp(url: string): void {
+  try {
+    assertPublicHttpUrl(url);
+  } catch (error) {
+    if (error instanceof PublicImageUrlError) {
+      throw new BadRequestException(error.message);
+    }
+    throw error;
+  }
+}
+
+@Injectable()
+export class MastersService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly codeSvc: MasterCodeService,
+    private readonly storage: StorageService,
+  ) {}
+
+  /**
+   * @param outerTx - Optional outer transaction (Plan B2 sourcing/supplier-sync compose).
+   *                  Caller must pass `{ timeout: >= 15000 }` on the outer `$transaction`
+   *                  so cold-cache writes don't trip Prisma's 5 s default.
+   */
+  async create(
+    companyId: string,
+    dto: CreateMasterDto,
+    outerTx?: Prisma.TransactionClient,
+  ): Promise<MasterProduct> {
+    const db = outerTx ?? this.prisma;
+    if (dto.supplierId) {
+      const supplier = await db.supplier.findFirst({
+        where: { id: dto.supplierId, companyId },
+        select: { id: true },
+      });
+      if (!supplier) throw new NotFoundException('supplier not found');
+    }
+    const code = await this.codeSvc.generate();
+    const stripped = this.strip(dto);
+    try {
+      const normalizedImages = normalizeImagesForWrite(
+        dto.images ?? (dto.imageUrl ? [{ url: dto.imageUrl, role: 'product', label: null, sortOrder: 0 }] : []),
+      );
+      const createInTx = async (tx: Prisma.TransactionClient) => {
+        const row = await tx.masterProduct.create({
+          data: {
+            ...stripped,
+            companyId,
+            code,
+            imageUrl: representativeImageUrl(normalizedImages),
+            healthUpdatedAt: dto.healthScore !== undefined ? new Date() : null,
+          } as Prisma.MasterProductUncheckedCreateInput,
+        });
+        await this.createImageRowsTx(tx, companyId, row.id, normalizedImages);
+        const created = await tx.masterProduct.findFirst({
+          where: { id: row.id, companyId },
+          include: MASTER_WITH_IMAGES,
+        }) as MasterWithImageRows | null;
+        if (!created) throw new NotFoundException('master not found');
+        return created;
+      };
+      const row = outerTx ? await createInTx(outerTx) : await this.prisma.$transaction(createInTx);
+      return withImageRows(row);
+    } catch (e) { mapPrismaError(e, 'master create'); }
+  }
+
+  async list(companyId: string, q: ListMastersQuery) {
+    const { items, nextCursor } = await findMasterListPage(this.prisma, companyId, q);
+    return { items: items.map(withImageRows), nextCursor };
+  }
+
+  async findById(
+    companyId: string,
+    id: string,
+    opts: { includeDeleted?: boolean },
+  ): Promise<MasterProduct> {
+    const row = await findMasterById(this.prisma, companyId, id, opts);
+    if (!row) throw new NotFoundException('master not found');
+    return withImageRows(row);
+  }
+
+  async findByCode(companyId: string, code: string): Promise<MasterProduct> {
+    const row = await findMasterByCode(this.prisma, companyId, code);
+    if (!row) throw new NotFoundException('master not found');
+    return withImageRows(row);
+  }
+
+  async findByLegacy(companyId: string, legacyCode: string): Promise<MasterProduct> {
+    const row = await findMasterByLegacy(this.prisma, companyId, legacyCode);
+    if (!row) throw new NotFoundException('master not found');
+    return withImageRows(row);
+  }
+
+  /**
+   * @param outerTx - Optional outer transaction (Plan B2 compose). Caller must pass
+   *                  `{ timeout: >= 15000 }` on the outer `$transaction`.
+   */
+  async update(
+    companyId: string,
+    id: string,
+    dto: UpdateMasterDto,
+    outerTx?: Prisma.TransactionClient,
+  ): Promise<MasterProduct> {
+    const db = outerTx ?? this.prisma;
+    if (dto.supplierId !== undefined && dto.supplierId !== null) {
+      const supplier = await db.supplier.findFirst({
+        where: { id: dto.supplierId, companyId },
+        select: { id: true },
+      });
+      if (!supplier) throw new NotFoundException('supplier not found');
+    }
+    const stripped = this.strip(dto);
+    const data = { ...stripped } as Prisma.MasterProductUncheckedUpdateInput;
+    if (dto.healthScore !== undefined) data.healthUpdatedAt = new Date();
+    if (dto.isTemporary === false) data.temporaryReason = null;
+    try {
+      const updateInTx = async (tx: Prisma.TransactionClient) => {
+        const { count } = await tx.masterProduct.updateMany({
+          where: { id, companyId, isDeleted: false },
+          data,
+        });
+        if (count === 0) throw new NotFoundException('master not found or deleted');
+        if (dto.images !== undefined || dto.imageUrl !== undefined) {
+          await this.replaceImagesTx(
+            tx,
+            companyId,
+            id,
+            dto.images ?? (dto.imageUrl ? [{ url: dto.imageUrl, role: 'product', label: null, sortOrder: 0 }] : []),
+          );
+        }
+        const updated = await tx.masterProduct.findFirst({
+          where: { id, companyId, isDeleted: false },
+          include: MASTER_WITH_IMAGES,
+        }) as MasterWithImageRows | null;
+        if (!updated) throw new NotFoundException('master not found or deleted');
+        return updated;
+      };
+      const row = outerTx ? await updateInTx(outerTx) : await this.prisma.$transaction(updateInTx);
+      return withImageRows(row);
+    } catch (e) { mapPrismaError(e, 'master update'); }
+  }
+
+  /**
+   * Read the normalized image list for a master. Wraps the read-model image
+   * query + a master-existence fallback so controllers can emit `{ images }`
+   * envelopes without duplicating the read-path lenience logic.
+   */
+  async getImages(
+    companyId: string,
+    id: string,
+  ): Promise<MasterImageItem[]> {
+    const rows = await findMasterImageRows(this.prisma, companyId, id);
+    if (rows.length === 0) await this.findById(companyId, id, {});
+    return rows.map(toMasterImageItem);
+  }
+
+  async updateImages(
+    companyId: string,
+    id: string,
+    images: unknown,
+  ): Promise<MasterProduct> {
+    const row = await this.prisma.$transaction(async (tx) => {
+      const { count } = await tx.masterProduct.updateMany({
+        where: { id, companyId, isDeleted: false },
+        data: { imageUrl: representativeImageUrl(normalizeImagesForWrite(images)) },
+      });
+      if (count === 0) throw new NotFoundException('master not found or deleted');
+      await this.replaceImagesTx(tx, companyId, id, images);
+      const updated = await tx.masterProduct.findFirst({
+        where: { id, companyId, isDeleted: false },
+        include: MASTER_WITH_IMAGES,
+      }) as MasterWithImageRows | null;
+      if (!updated) throw new NotFoundException('master not found or deleted');
+      return updated;
+    });
+    return withImageRows(row);
+  }
+
+  /**
+   * Persist `file` to object storage under the master-scoped prefix and
+   * persist a MasterProductImage metadata row. The binary lives in object
+   * storage; DB stores URL/key metadata only. If this is the first image,
+   * MasterProduct.imageUrl is updated in the same transaction as the cache.
+   */
+  async uploadImage(
+    companyId: string,
+    id: string,
+    file: MulterFile,
+  ): Promise<MasterImageItem> {
+    if (!file) throw new BadRequestException('file is required');
+    // Defense in depth: even though MastersController's FileInterceptor
+    // rejects non-image MIMEs, the service re-checks against a canonical
+    // mime→ext map so we never trust `file.mimetype` blindly to derive the
+    // storage key extension (external review HIGH).
+    const mimeToExt: Record<string, string> = {
+      'image/jpeg': 'jpg',
+      'image/png': 'png',
+      'image/webp': 'webp',
+    };
+    const ext = mimeToExt[file.mimetype];
+    if (!ext) {
+      throw new BadRequestException(`unsupported mime type: ${file.mimetype}`);
+    }
+    await this.findById(companyId, id, {});
+    const key = `product-images/${id}/${randomUUID()}.${ext}`;
+    const url = await this.storage.save(key, file.buffer, file.mimetype);
+    const row = await this.prisma.$transaction(async (tx) => {
+      const existingCount = await tx.masterProductImage.count({
+        where: { companyId, masterId: id, isDeleted: false },
+      });
+      const image = await tx.masterProductImage.create({
+        data: {
+          companyId,
+          masterId: id,
+          url,
+          storageKey: key,
+          role: 'product',
+          label: null,
+          sortOrder: existingCount,
+          source: 'upload',
+          mimeType: file.mimetype,
+          fileSize: file.size,
+          isPrimary: existingCount === 0,
+        },
+      });
+      if (existingCount === 0) {
+        await tx.masterProduct.updateMany({
+          where: { id, companyId, isDeleted: false },
+          data: { imageUrl: url },
+        });
+      }
+      return image;
+    });
+    return toMasterImageItem(row);
+  }
+
+  async originalImageBase64(
+    companyId: string,
+    id: string,
+  ): Promise<{ dataUrl: string }> {
+    const row = await this.findById(companyId, id, {});
+    const images = normalizeMasterImages((row as unknown as { images: unknown }).images);
+    const url = row.imageUrl ?? images[0]?.url ?? row.thumbnailUrl ?? null;
+    if (!url) throw new NotFoundException('image not found');
+    // Minimum SSRF defense: only http(s), block internal hosts. Full domain allowlist
+    // is a follow-up (see TODOS.md "originalImageBase64 SSRF allowlist").
+    assertPublicHttpUrlForHttp(url);
+    const res = await fetch(url);
+    if (!res.ok) throw new NotFoundException('image not found');
+    const contentType = res.headers.get('content-type') ?? 'image/jpeg';
+    const buffer = Buffer.from(await res.arrayBuffer());
+    return { dataUrl: `data:${contentType};base64,${buffer.toString('base64')}` };
+  }
+
+  private async createImageRowsTx(
+    tx: Prisma.TransactionClient,
+    companyId: string,
+    masterId: string,
+    images: MasterImageItem[],
+  ): Promise<void> {
+    if (images.length === 0) return;
+    const primary = primaryImageIndex(images);
+    await tx.masterProductImage.createMany({
+      data: images.map((img, index) => ({
+        companyId,
+        masterId,
+        url: img.url,
+        storageKey: img.storageKey ?? null,
+        role: img.role,
+        label: img.label,
+        sortOrder: img.sortOrder,
+        source: img.source ?? 'api',
+        mimeType: img.mimeType ?? null,
+        width: img.width ?? null,
+        height: img.height ?? null,
+        fileSize: img.fileSize ?? null,
+        isPrimary: index === primary,
+      })),
+    });
+  }
+
+  private async replaceImagesTx(
+    tx: Prisma.TransactionClient,
+    companyId: string,
+    masterId: string,
+    images: unknown,
+  ): Promise<void> {
+    const normalized = normalizeImagesForWrite(images);
+    await tx.masterProduct.updateMany({
+      where: { id: masterId, companyId, isDeleted: false },
+      data: { imageUrl: representativeImageUrl(normalized) },
+    });
+    await tx.masterProductImage.deleteMany({ where: { companyId, masterId } });
+    await this.createImageRowsTx(tx, companyId, masterId, normalized);
+  }
+
+  /**
+   * @param outerTx - Optional outer transaction (Plan B2 compose). Caller must pass
+   *                  `{ timeout: >= 15000 }` on the outer `$transaction`.
+   */
+  async softDelete(
+    companyId: string,
+    id: string,
+    outerTx?: Prisma.TransactionClient,
+  ): Promise<void> {
+    const db = outerTx ?? this.prisma;
+    const { count } = await db.masterProduct.updateMany({
+      where: { id, companyId, isDeleted: false },
+      data: { isDeleted: true, deletedAt: new Date() },
+    });
+    if (count === 0) throw new NotFoundException('master not found');
+  }
+
+  /**
+   * Atomic restore for a soft-deleted master — single tenant-scoped `updateMany`
+   * removes the read-then-write window and keeps the bare-id write off the SQL
+   * path entirely. P2002 (e.g. legacyCode partial unique re-collision on
+   * restore) still propagates through `mapPrismaError`.
+   *
+   * @param outerTx - Optional outer transaction (Plan B2 compose). Caller must pass
+   *                  `{ timeout: >= 15000 }` on the outer `$transaction`.
+   */
+  async restore(
+    companyId: string,
+    id: string,
+    outerTx?: Prisma.TransactionClient,
+  ): Promise<void> {
+    const db = outerTx ?? this.prisma;
+    try {
+      const { count } = await db.masterProduct.updateMany({
+        where: { id, companyId, isDeleted: true },
+        data: { isDeleted: false, deletedAt: null },
+      });
+      if (count === 0) throw new NotFoundException('master not found or not deleted');
+    } catch (e) { mapPrismaError(e, 'master restore'); }
+  }
+
+  /**
+   * Remove SYSTEM_FIELDS from a DTO before forwarding to Prisma. The return
+   * type preserves the caller's input type minus the stripped keys so call
+   * sites don't need a loose `Record<string, unknown>` intermediate cast
+   * (apps/server/CLAUDE.md:60 forbids that pattern). The remaining cast to
+   * `Prisma.MasterProductUnchecked{Create,Update}Input` at the call site is
+   * inherent to the DTO↔Prisma-input shape gap and unavoidable.
+   */
+  private strip<T extends Partial<CreateMasterDto> | Partial<UpdateMasterDto>>(
+    dto: T,
+  ): Omit<T, typeof SYSTEM_FIELDS[number]> {
+    const out: Record<string, unknown> = { ...dto };
+    for (const f of SYSTEM_FIELDS) delete out[f as string];
+    return out as Omit<T, typeof SYSTEM_FIELDS[number]>;
+  }
+}
