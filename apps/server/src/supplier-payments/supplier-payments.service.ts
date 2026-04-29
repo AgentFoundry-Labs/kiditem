@@ -1,4 +1,5 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateSupplierPaymentDto, UpdateSupplierPaymentDto } from './dto';
 
@@ -7,7 +8,7 @@ export class SupplierPaymentsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async findAll(companyId: string, status?: string) {
-    const where: Record<string, unknown> = { companyId };
+    const where: Prisma.SupplierPaymentWhereInput = { companyId };
     if (status) {
       where.status = status;
     }
@@ -34,21 +35,20 @@ export class SupplierPaymentsService {
   }
 
   async update(id: string, companyId: string, dto: UpdateSupplierPaymentDto) {
-    const existing = await this.prisma.supplierPayment.findFirst({
+    const result = await this.prisma.supplierPayment.updateMany({
       where: { id, companyId },
-    });
-    if (!existing) {
-      throw new BadRequestException('거래처 결제를 찾을 수 없습니다');
-    }
-
-    return this.prisma.supplierPayment.update({
-      where: { id },
       data: {
         ...(dto.paidAmount !== undefined && { paidAmount: dto.paidAmount }),
         ...(dto.paidDate !== undefined && { paidDate: new Date(dto.paidDate) }),
         ...(dto.status !== undefined && { status: dto.status }),
         ...(dto.notes !== undefined && { notes: dto.notes }),
       },
+    });
+    if (result.count === 0) {
+      throw new BadRequestException('거래처 결제를 찾을 수 없습니다');
+    }
+    return this.prisma.supplierPayment.findFirstOrThrow({
+      where: { id, companyId },
       include: { supplier: true },
     });
   }

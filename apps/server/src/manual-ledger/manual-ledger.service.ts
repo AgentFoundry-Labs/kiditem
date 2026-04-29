@@ -1,4 +1,5 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateManualLedgerDto } from './dto';
 
@@ -7,7 +8,7 @@ export class ManualLedgerService {
   constructor(private readonly prisma: PrismaService) {}
 
   async findAll(companyId: string, type?: string, period?: string) {
-    const where: Record<string, unknown> = { companyId };
+    const where: Prisma.ManualLedgerWhereInput = { companyId };
 
     if (type) {
       where.type = type;
@@ -43,14 +44,12 @@ export class ManualLedgerService {
   }
 
   async delete(id: string, companyId: string) {
-    const existing = await this.prisma.manualLedger.findFirst({
+    const result = await this.prisma.manualLedger.deleteMany({
       where: { id, companyId },
     });
-    if (!existing) {
+    if (result.count === 0) {
       throw new BadRequestException('수기 장부 항목을 찾을 수 없습니다');
     }
-
-    await this.prisma.manualLedger.delete({ where: { id } });
     return { ok: true };
   }
 }
