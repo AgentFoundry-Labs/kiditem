@@ -465,7 +465,8 @@ rg -n "from '@kiditem/shared'" apps/server/src apps/web/src packages/shared/src 
 **Files:** one plan per owner domain under `docs/superpowers/plans/`.
 
 - [ ] `ontology` is **hard-deleted from the server surface** (2026-04-28). No rewrite plan is owed; future reintroduction requires a product contract + tenant isolation test.
-- [ ] Write the advertising architecture refactor child plan first. It must name the fat service targets, expected new files under `services/`, `read-models` or `queries`, `mappers`, and `domain`, and the compatibility gates.
+- [x] Write the advertising architecture refactor child plan first:
+  [`2026-04-29-advertising-phase3b-architecture-refactor.md`](2026-04-29-advertising-phase3b-architecture-refactor.md). It names the fat service targets, expected new files under `services/`, `read-models`, `persistence`, `ingest`, `mappers`, and `domain`, plus compatibility gates.
 - [ ] Write separate child plans for AI thumbnails, products, workflows, and dashboard/statistics read models.
 - [ ] Do not write Phase 3B child plans for small CRUD domains unless a concrete fat-service or repeated-invariant problem is identified.
 - [ ] Each child plan must primarily move/simplify production code. Tests and docs are required evidence, not the main deliverable.

@@ -14,6 +14,7 @@ computer or a fresh Codex/Claude session.
 - Web rules: [`apps/web/AGENTS.md`](../../../apps/web/AGENTS.md)
 - Knip/dependency risk map: [`2026-04-29-knip-export-risk-map.md`](2026-04-29-knip-export-risk-map.md)
 - Shared root barrel shrink plan: [`2026-04-29-shared-root-barrel-shrink.md`](2026-04-29-shared-root-barrel-shrink.md)
+- Advertising Phase 3B child plan: [`2026-04-29-advertising-phase3b-architecture-refactor.md`](2026-04-29-advertising-phase3b-architecture-refactor.md)
 
 ## Current Main
 
@@ -107,7 +108,9 @@ specifier elsewhere in the repo are:
 
 ## Next Work
 
-Start Phase 3B: **large domain architecture refactor**.
+Start Phase 3B: **large domain architecture refactor**. The first child plan is
+now the advertising refactor plan linked above; use it for advertising PR
+delegation and merge review.
 
 This is pragmatic DDD, not a global repository mandate. The existing top-level
 domain folders already act as bounded-context boundaries. Small CRUD domains
