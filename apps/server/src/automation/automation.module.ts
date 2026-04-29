@@ -2,11 +2,13 @@ import { Module } from '@nestjs/common';
 import { AGENT_SCHEDULE_CONTROL_PORT } from './application/port/in/agent-schedule-control.port';
 import { AgentRuntimeScheduleControlAdapter } from './adapter/out/agent-runtime/agent-schedule-control.adapter';
 import { MarketplaceInstallService } from './application/service/marketplace-install.service';
+import { ActionTaskController } from './adapter/in/http/action-task.controller';
 import { MarketplaceController } from './adapter/in/http/marketplace.controller';
 import { PanelController } from './adapter/in/http/panel.controller';
 import { MarketplaceModule } from '../marketplace/marketplace.module';
 import { PrismaMarketplaceInstallStoreAdapter } from './adapter/out/prisma/marketplace-install-store.adapter';
 import { MARKETPLACE_INSTALL_STORE_PORT } from './application/port/out/marketplace-install-store.port';
+import { ActionBoardService } from './application/service/action-board.service';
 import { PanelService } from './adapter/out/panel-event/panel.service';
 import { PanelSseService } from './adapter/out/panel-event/panel-sse.service';
 import { WorkflowOrchestrationService } from './application/service/workflow-orchestration.service';
@@ -40,10 +42,14 @@ import { WorkflowRunnerService } from './application/service/workflow-runner.ser
  *   adapters live under `adapter/out/agent-runtime/`. They are registered by
  *   `AgentRegistryModule` to preserve the public `AgentRegistryService`
  *   injection token during migration.
+ * - Phase 3C-7: `ActionTaskController` HTTP adapter + `ActionBoardService`
+ *   own `/api/action-tasks/*`. Daily action seed thresholds live in pure
+ *   `domain/policy/action-seeds.ts`; the legacy `action-task/` top-level
+ *   module is deleted.
  */
 @Module({
   imports: [MarketplaceModule],
-  controllers: [MarketplaceController, PanelController],
+  controllers: [MarketplaceController, PanelController, ActionTaskController],
   providers: [
     {
       provide: AGENT_SCHEDULE_CONTROL_PORT,
@@ -53,12 +59,18 @@ import { WorkflowRunnerService } from './application/service/workflow-runner.ser
       provide: MARKETPLACE_INSTALL_STORE_PORT,
       useClass: PrismaMarketplaceInstallStoreAdapter,
     },
+    ActionBoardService,
     MarketplaceInstallService,
     PanelService,
     PanelSseService,
     WorkflowOrchestrationService,
     WorkflowRunnerService,
   ],
-  exports: [AGENT_SCHEDULE_CONTROL_PORT, PanelSseService, WorkflowOrchestrationService],
+  exports: [
+    AGENT_SCHEDULE_CONTROL_PORT,
+    ActionBoardService,
+    PanelSseService,
+    WorkflowOrchestrationService,
+  ],
 })
 export class AutomationModule {}

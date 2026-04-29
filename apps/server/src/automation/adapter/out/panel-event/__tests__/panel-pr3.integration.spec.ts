@@ -2,7 +2,7 @@
  * PR3 integration test — Panel SSE pipeline for promote/dismiss/list (Task 35)
  *
  * Tests with real EventEmitter2 bus + real service instances (AlertsService,
- * ActionTaskService, PanelSseService) wired via NestJS Test module.
+ * ActionBoardService, PanelSseService) wired via NestJS Test module.
  * Prisma is mocked (for fast feedback on SSE wire shape + filter branches).
  *
  * Scenarios covered here (SSE/filter focus, mock Prisma is sufficient):
@@ -13,12 +13,12 @@
  *   + Cross-company stream isolation (companyId filter)
  *
  * Race / IDOR scenarios moved out: 실제 동시 트랜잭션은 sibling spec
- * `panel-pr3.pg.integration.spec.ts` + `action-task-claim.pg.integration.spec.ts`
+ * `panel-pr3.pg.integration.spec.ts` + `action-board-claim.pg.integration.spec.ts`
  * (real Postgres via docker-compose.test.yml) 가 커버. 구버전의 Scenario
  * 2/2b/4/4b (mock count=0 시뮬레이션) 는 대체됐으므로 제거.
  *
  * Mock boundary: PrismaService only.
- * Real: EventEmitter2 (global bus), PanelSseService, AlertsService, ActionTaskService.
+ * Real: EventEmitter2 (global bus), PanelSseService, AlertsService, ActionBoardService.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -31,7 +31,7 @@ import { take, toArray } from 'rxjs/operators';
 import { PanelSseService } from '../panel-sse.service';
 import { PANEL_EVENTS } from '../panel-events';
 import { AlertsService } from '../../../../../rules/services/alerts.service';
-import { ActionTaskService } from '../../../../../action-task/action-task.service';
+import { ActionBoardService } from '../../../../application/service/action-board.service';
 import { PrismaService } from '../../../../../prisma/prisma.service';
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -115,7 +115,7 @@ async function buildModule(prismaOverride?: ReturnType<typeof makePrisma>): Prom
   moduleRef: TestingModule;
   sseService: PanelSseService;
   alertsService: AlertsService;
-  actionTaskService: ActionTaskService;
+  actionBoardService: ActionBoardService;
   emitter: EventEmitter2;
   prisma: ReturnType<typeof makePrisma>;
 }> {
@@ -126,7 +126,7 @@ async function buildModule(prismaOverride?: ReturnType<typeof makePrisma>): Prom
     providers: [
       PanelSseService,
       AlertsService,
-      ActionTaskService,
+      ActionBoardService,
       { provide: PrismaService, useValue: prisma },
     ],
   }).compile();
@@ -137,7 +137,7 @@ async function buildModule(prismaOverride?: ReturnType<typeof makePrisma>): Prom
     moduleRef,
     sseService: moduleRef.get(PanelSseService),
     alertsService: moduleRef.get(AlertsService),
-    actionTaskService: moduleRef.get(ActionTaskService),
+    actionBoardService: moduleRef.get(ActionBoardService),
     emitter: moduleRef.get(EventEmitter2),
     prisma,
   };
@@ -230,19 +230,19 @@ describe('Panel PR3 integration — promote/dismiss/claim/list (Task 35)', () =>
   });
 
   // Scenarios 4 / 4b (claim race + IDOR mock) 는 real Postgres spec
-  // (`action-task-claim.pg.integration.spec.ts` — "두 유저 동시 claim" /
+  // (`action-board-claim.pg.integration.spec.ts` — "두 유저 동시 claim" /
   //  "다른 회사의 task claim → ConflictException") 이 대체하므로 제거.
 
   // ── Scenario 5: list(me|team|all) filter branches + sourceAlert join ─────
 
   it('Scenario 5a: list(me) — where.assigneeUserId === currentUserId', async () => {
-    const { actionTaskService, prisma } = ctx;
+    const { actionBoardService, prisma } = ctx;
 
     prisma.actionTask.findMany.mockResolvedValue([]);
     // alert.findMany not called when tasks empty
     prisma.alert.findMany.mockResolvedValue([]);
 
-    await actionTaskService.list(CO, USER_A, { assignedTo: 'me' });
+    await actionBoardService.list(CO, USER_A, { assignedTo: 'me' });
 
     const whereArg = prisma.actionTask.findMany.mock.calls[0][0].where;
     expect(whereArg.companyId).toBe(CO);
@@ -250,12 +250,12 @@ describe('Panel PR3 integration — promote/dismiss/claim/list (Task 35)', () =>
   });
 
   it('Scenario 5b: list(team) — excludes current user, requires non-null assignee', async () => {
-    const { actionTaskService, prisma } = ctx;
+    const { actionBoardService, prisma } = ctx;
 
     prisma.actionTask.findMany.mockResolvedValue([]);
     prisma.alert.findMany.mockResolvedValue([]);
 
-    await actionTaskService.list(CO, USER_A, { assignedTo: 'team' });
+    await actionBoardService.list(CO, USER_A, { assignedTo: 'team' });
 
     const whereArg = prisma.actionTask.findMany.mock.calls[0][0].where;
     expect(whereArg.companyId).toBe(CO);
@@ -268,12 +268,12 @@ describe('Panel PR3 integration — promote/dismiss/claim/list (Task 35)', () =>
   });
 
   it('Scenario 5c: list(all) — no assigneeUserId filter applied', async () => {
-    const { actionTaskService, prisma } = ctx;
+    const { actionBoardService, prisma } = ctx;
 
     prisma.actionTask.findMany.mockResolvedValue([]);
     prisma.alert.findMany.mockResolvedValue([]);
 
-    await actionTaskService.list(CO, USER_A); // default = 'all'
+    await actionBoardService.list(CO, USER_A); // default = 'all'
 
     const whereArg = prisma.actionTask.findMany.mock.calls[0][0].where;
     expect(whereArg.companyId).toBe(CO);
@@ -282,7 +282,7 @@ describe('Panel PR3 integration — promote/dismiss/claim/list (Task 35)', () =>
   });
 
   it('Scenario 5d: sourceAlert joined correctly — alertByTaskId map populates sourceAlert', async () => {
-    const { actionTaskService, prisma } = ctx;
+    const { actionBoardService, prisma } = ctx;
 
     const task1 = taskFixture({ id: 'task-x1' });
     const task2 = taskFixture({ id: 'task-x2' });
@@ -297,7 +297,7 @@ describe('Panel PR3 integration — promote/dismiss/claim/list (Task 35)', () =>
     };
     prisma.alert.findMany.mockResolvedValue([sourceAlert]);
 
-    const results = await actionTaskService.list(CO, USER_A);
+    const results = await actionBoardService.list(CO, USER_A);
 
     expect(results).toHaveLength(2);
     const withAlert = results.find((t) => t.id === 'task-x1');
@@ -310,7 +310,7 @@ describe('Panel PR3 integration — promote/dismiss/claim/list (Task 35)', () =>
   // ── Scenario 6: No N+1 ───────────────────────────────────────────────────
 
   it('Scenario 6: list() calls prisma.alert.findMany exactly once regardless of task count', async () => {
-    const { actionTaskService, prisma } = ctx;
+    const { actionBoardService, prisma } = ctx;
 
     // 5 tasks
     const tasks = Array.from({ length: 5 }, (_, i) => taskFixture({ id: `task-n${i}` }));
@@ -319,7 +319,7 @@ describe('Panel PR3 integration — promote/dismiss/claim/list (Task 35)', () =>
 
     const alertFindManySpy = vi.spyOn(prisma.alert, 'findMany');
 
-    await actionTaskService.list(CO, USER_A);
+    await actionBoardService.list(CO, USER_A);
 
     // Exactly 1 batch-load call — no per-task individual queries
     expect(alertFindManySpy).toHaveBeenCalledTimes(1);
@@ -331,13 +331,13 @@ describe('Panel PR3 integration — promote/dismiss/claim/list (Task 35)', () =>
   });
 
   it('Scenario 6b: list() with empty task result skips alert.findMany entirely', async () => {
-    const { actionTaskService, prisma } = ctx;
+    const { actionBoardService, prisma } = ctx;
 
     prisma.actionTask.findMany.mockResolvedValue([]);
 
     const alertFindManySpy = vi.spyOn(prisma.alert, 'findMany');
 
-    await actionTaskService.list(CO, USER_A);
+    await actionBoardService.list(CO, USER_A);
 
     expect(alertFindManySpy).not.toHaveBeenCalled();
   });

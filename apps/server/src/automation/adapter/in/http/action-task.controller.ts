@@ -1,13 +1,13 @@
 import { Controller, Get, Patch, Post, Param, Body, Query } from '@nestjs/common';
-import { ActionTaskService } from './action-task.service';
+import { ActionBoardService } from '../../../application/service/action-board.service';
 import { UpdateTaskDto, AddNoteDto, ListActionTasksDto } from './dto';
-import { CurrentCompany } from '../auth/decorators/current-company.decorator';
-import { CurrentUser } from '../auth/decorators/current-user.decorator';
-import type { AuthUser } from '../auth/auth.types';
+import { CurrentCompany } from '../../../../auth/decorators/current-company.decorator';
+import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
+import type { AuthUser } from '../../../../auth/auth.types';
 
 @Controller('action-tasks')
 export class ActionTaskController {
-  constructor(private readonly actionTaskService: ActionTaskService) {}
+  constructor(private readonly actionBoardService: ActionBoardService) {}
 
   @Get()
   getTasks(
@@ -16,9 +16,9 @@ export class ActionTaskController {
     @Query() query: ListActionTasksDto,
   ) {
     if (query.assignedTo !== undefined) {
-      return this.actionTaskService.list(companyId, user.id, { assignedTo: query.assignedTo });
+      return this.actionBoardService.list(companyId, user.id, { assignedTo: query.assignedTo });
     }
-    return this.actionTaskService.getTasks(companyId);
+    return this.actionBoardService.getTasks(companyId);
   }
 
   @Patch(':id/claim')
@@ -27,7 +27,7 @@ export class ActionTaskController {
     @CurrentCompany() companyId: string,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.actionTaskService.claim(id, companyId, user.id);
+    return this.actionBoardService.claim(id, companyId, user.id);
   }
 
   @Patch(':id/unclaim')
@@ -36,7 +36,7 @@ export class ActionTaskController {
     @CurrentCompany() companyId: string,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.actionTaskService.unclaim(id, companyId, user.id);
+    return this.actionBoardService.unclaim(id, companyId, user.id);
   }
 
   @Patch(':id')
@@ -45,7 +45,7 @@ export class ActionTaskController {
     @CurrentCompany() companyId: string,
     @Body() dto: UpdateTaskDto,
   ) {
-    return this.actionTaskService.updateTask(id, companyId, dto);
+    return this.actionBoardService.updateTask(id, companyId, dto);
   }
 
   @Post(':id/notes')
@@ -54,11 +54,11 @@ export class ActionTaskController {
     @CurrentCompany() companyId: string,
     @Body() dto: AddNoteDto,
   ) {
-    return this.actionTaskService.addNote(id, companyId, dto.text);
+    return this.actionBoardService.addNote(id, companyId, dto.text);
   }
 
   @Post(':id/execute')
   executeTask(@Param('id') id: string, @CurrentCompany() companyId: string) {
-    return this.actionTaskService.executeTask(id, companyId);
+    return this.actionBoardService.executeTask(id, companyId);
   }
 }

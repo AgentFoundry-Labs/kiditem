@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ActionTaskService } from '../action-task.service';
+import { ActionBoardService } from '../action-board.service';
 import { NotFoundException } from '@nestjs/common';
 import { ActionTaskSchema } from '@kiditem/shared/action-task';
 
@@ -27,14 +27,14 @@ function baseTask() {
   };
 }
 
-describe('ActionTaskService — task 상태 전이', () => {
-  let service: ActionTaskService;
+describe('ActionBoardService — task 상태 전이', () => {
+  let service: ActionBoardService;
   let prisma: ReturnType<typeof makePrisma>;
 
   beforeEach(() => {
     vi.restoreAllMocks();
     prisma = makePrisma();
-    service = new ActionTaskService(prisma as any);
+    service = new ActionBoardService(prisma as any);
   });
 
   describe('updateTask', () => {

@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { buildPerListingMetrics } from '../../common/per-listing-profit';
-import { ActionTaskService } from '../action-task.service';
+import { buildPerListingMetrics } from '../../../../common/per-listing-profit';
+import { ActionBoardService } from '../action-board.service';
 
-vi.mock('../../common/per-listing-profit', () => ({
+vi.mock('../../../../common/per-listing-profit', () => ({
   buildPerListingMetrics: vi.fn(),
 }));
 
@@ -49,13 +49,13 @@ function makeTask(taskKey: string, priority: 'urgent' | 'high' | 'medium') {
   };
 }
 
-describe('ActionTaskService.getTasks', () => {
-  let service: ActionTaskService;
+describe('ActionBoardService.getTasks', () => {
+  let service: ActionBoardService;
   let prisma: ReturnType<typeof makePrisma>;
 
   beforeEach(() => {
     prisma = makePrisma();
-    service = new ActionTaskService(prisma as any);
+    service = new ActionBoardService(prisma as any);
     mockedBuildPerListingMetrics.mockReset();
   });
 

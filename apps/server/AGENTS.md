@@ -256,7 +256,12 @@ Observable<MessageEvent> 내보냄. Automation workflow application services 가
 부모 NestJS 패턴(이 문서)으로 거의 커버되지만, 아래 도메인은 한 가지 특이점이 있다. 별도 문서화 비용이 효익 대비 작아 inline 정리.
 
 - **`src/sourcing/`** — 익스텐션이 product 데이터를 push (POST `/api/sourcing/extension/products`). AgentRegistry 와 cross-coupling: `sourcing.service.ts` 가 `agentRegistry.runByType('sourcing_*')` 호출. 외부 push + 비동기 trigger 패턴.
-- **`src/action-task/`** — `task.service.ts` 가 비즈 룰 임계값(low CTR / low profit / 고비용 광고 / 재주문) 으로 task seed 자동 생성. cron 으로 일일 실행. 룰 임계 변경은 hardcode (DB 아님).
+- **Action board (`src/automation/.../action-*`)** — Phase 3C-7 에서
+  top-level `src/action-task/` 는 제거됐다. `/api/action-tasks/*` HTTP
+  surface 는 `automation/adapter/in/http/action-task.controller.ts`, use-case
+  orchestration 은 `automation/application/service/action-board.service.ts`,
+  seed 임계값은 pure `automation/domain/policy/action-seeds.ts` 가 소유한다.
+  룰 임계 변경은 여전히 hardcode 정책 변경이며 DB 설정이 아니다.
 - **`src/procurement/`** — Purchase Order **state machine** (`draft → pending → ordered → shipped → received`). 상태 전이 검증 + status groupBy 카운트. `__tests__/procurement.spec.ts` 로 흐름 보호.
 - **`src/picking/`** — 확정 주문에서 PickingList 생성 + 아이템 단위 verification (`isPicked`, `isVerified`). 출고 단계와 연결 (orders → picking → shipment).
 - **`src/ontology/`** — **DELETED (2026-04-28)**. `master_products` 를 `companyId` 없이 읽던 IDOR 후보였고 UI 소비처도 없어 제품 표면에서 hard-delete 했다. Do not reintroduce without product contract + tenant isolation test.

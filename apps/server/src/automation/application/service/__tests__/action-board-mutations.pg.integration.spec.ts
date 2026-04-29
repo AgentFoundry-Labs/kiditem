@@ -2,14 +2,14 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import { NotFoundException } from '@nestjs/common';
 import type { Prisma, PrismaClient } from '@prisma/client';
 
-import { ActionTaskService } from '../action-task.service';
+import { ActionBoardService } from '../action-board.service';
 import {
   makeTestPrisma,
   OTHER_COMPANY_ID,
   resetDb,
   seedBaseFixture,
   TEST_COMPANY_ID,
-} from '../../test-helpers/real-prisma';
+} from '../../../../test-helpers/real-prisma';
 
 async function seedTask(
   prisma: PrismaClient,
@@ -32,9 +32,9 @@ async function seedTask(
   });
 }
 
-describe('ActionTask mutations — real Postgres tenant guard', () => {
+describe('ActionBoard mutations — real Postgres tenant guard', () => {
   let prisma: PrismaClient;
-  let service: ActionTaskService;
+  let service: ActionBoardService;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
@@ -49,7 +49,7 @@ describe('ActionTask mutations — real Postgres tenant guard', () => {
     vi.restoreAllMocks();
     await resetDb(prisma);
     await seedBaseFixture(prisma);
-    service = new ActionTaskService(prisma as any);
+    service = new ActionBoardService(prisma as any);
   });
 
   it('updateTask rejects a foreign-company id and leaves the row unchanged', async () => {

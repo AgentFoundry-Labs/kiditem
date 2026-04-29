@@ -41,7 +41,7 @@ export class ProductsLegacyController {
     return this.catalog.counts(companyId, q);
   }
 
-  // Both GET and POST supported for calculate-grades: action-task.service.ts:411
+  // Both GET and POST supported for calculate-grades: action-board.service.ts
   // currently POSTs it, while any manual invocation tends to GET. Spec §3.4 lists
   // POST explicitly; we expose both to match real callers. No grade write occurs —
   // it returns current catalog counts as a read-only stub until the agent/workflow
