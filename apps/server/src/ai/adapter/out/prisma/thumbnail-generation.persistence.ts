@@ -4,7 +4,7 @@ import type { EditAnalysisResult } from '@kiditem/shared/ai';
 import type {
   ThumbnailEditorCandidate,
   ThumbnailEditorInputImage,
-} from '../../../services/thumbnail-editor-ai.service';
+} from '../../../domain/model/thumbnail-editor';
 import { generationInclude } from './thumbnail-generation.query';
 import type { GenerationRow } from '../../../mapper/thumbnail-generation.mapper';
 

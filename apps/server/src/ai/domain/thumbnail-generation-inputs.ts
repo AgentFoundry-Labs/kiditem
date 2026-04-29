@@ -1,4 +1,3 @@
-import { Prisma } from '@prisma/client';
 import {
   RECOMPOSE_KINDS,
   type EditAnalysisResult,
@@ -9,7 +8,7 @@ import type {
   ThumbnailEditorEditCase,
   ThumbnailEditorInputImage,
   ThumbnailInputRole,
-} from '../services/thumbnail-editor-ai.service';
+} from './model/thumbnail-editor';
 
 /**
  * Pure helpers for `ThumbnailGenerationService`. No Prisma client access; only
@@ -20,14 +19,22 @@ import type {
  */
 
 export type ThumbnailAnalysisContext = {
-  recompose: Prisma.JsonValue | null;
+  recompose: ThumbnailJsonValue | null;
   complianceGrade: string | null;
-  complianceScores: Prisma.JsonValue | null;
+  complianceScores: ThumbnailJsonValue | null;
   overallScore: number;
   grade: string;
   qualityAnalyzedAt: Date | null;
   complianceAnalyzedAt: Date | null;
 };
+
+export type ThumbnailJsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: ThumbnailJsonValue | undefined }
+  | ThumbnailJsonValue[];
 
 function isRecomposeKind(value: unknown): value is RecomposeKind {
   return typeof value === 'string' && (RECOMPOSE_KINDS as readonly string[]).includes(value);
@@ -40,7 +47,7 @@ function isRecomposeKind(value: unknown): value is RecomposeKind {
  * `ThumbnailAnalysis.recompose` payloads when re-editing a job.
  */
 export function findRecomposeKindIn(
-  value: Prisma.JsonValue | null | undefined,
+  value: ThumbnailJsonValue | null | undefined,
 ): RecomposeKind | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const object = value as Record<string, unknown>;
@@ -53,7 +60,7 @@ export function findRecomposeKindIn(
   return isRecomposeKind(directKind) ? directKind : null;
 }
 
-export function extractRecomposeKind(value: Prisma.JsonValue | null): RecomposeKind | null {
+export function extractRecomposeKind(value: ThumbnailJsonValue | null): RecomposeKind | null {
   return findRecomposeKindIn(value);
 }
 
@@ -63,7 +70,7 @@ export function extractRecomposeKind(value: Prisma.JsonValue | null): RecomposeK
  * null when nothing usable survived so callers can branch cleanly on absence.
  */
 export function extractEditSuggestions(
-  complianceScores: Prisma.JsonValue | null | undefined,
+  complianceScores: ThumbnailJsonValue | null | undefined,
 ): Record<string, string> | null {
   if (
     !complianceScores ||
@@ -109,10 +116,10 @@ export function toEditAnalysis(
 export function toAnalysisContextJson(
   analysis: ThumbnailAnalysisContext | null,
   editSuggestions: Record<string, string> | null,
-): Prisma.InputJsonValue {
+): ThumbnailJsonValue {
   return {
     complianceGrade: analysis?.complianceGrade ?? null,
-    complianceScores: ((analysis?.complianceScores ?? null) as unknown) as Prisma.InputJsonValue,
+    complianceScores: analysis?.complianceScores ?? null,
     overallScore: analysis?.overallScore ?? null,
     grade: analysis?.grade ?? null,
     editSuggestions: editSuggestions ?? null,

@@ -1,4 +1,3 @@
-import { Logger } from '@nestjs/common';
 import {
   RECOMPOSE_KINDS,
   type RecomposeKind,
@@ -18,8 +17,6 @@ import {
  * vision call) and the parse contract is reusable from tests or future
  * batch-classification callers without spinning up Nest DI.
  */
-
-const logger = new Logger('RecomposeClassification');
 
 export const SINGLE_PRODUCT_FALLBACK: RecomposeVariantClassification = {
   kind: 'single-product',
@@ -44,8 +41,7 @@ export function parseRecomposeClassification(text: string | null): RecomposeVari
   let obj: { kind?: string; requiresChoice?: boolean; reasoning?: string };
   try {
     obj = JSON.parse(cleaned) as typeof obj;
-  } catch (err) {
-    logger.warn(`recompose JSON 파싱 실패: ${err instanceof Error ? err.message : err}`);
+  } catch {
     return SINGLE_PRODUCT_FALLBACK;
   }
 

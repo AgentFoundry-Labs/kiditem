@@ -7,10 +7,50 @@ import {
   FETCH_TIMEOUT_MS,
   MAX_FETCH_BYTES,
   MAX_REDIRECTS,
+  ThumbnailImageSourceError,
 } from '../domain/thumbnail-image-source';
 import { StorageService } from '../../common/storage/storage.service';
 
 export { MAX_FETCH_BYTES, MAX_REDIRECTS } from '../domain/thumbnail-image-source';
+
+function asBadRequest(error: unknown): never {
+  if (error instanceof ThumbnailImageSourceError) {
+    throw new BadRequestException(error.message);
+  }
+  throw error;
+}
+
+function assertHttpUrlForRequest(raw: string): void {
+  try {
+    assertHttpUrl(raw);
+  } catch (error) {
+    asBadRequest(error);
+  }
+}
+
+function assertPublicHttpUrlForRequest(raw: string): void {
+  try {
+    assertPublicHttpUrl(raw);
+  } catch (error) {
+    asBadRequest(error);
+  }
+}
+
+function assertSupportedMimeForRequest(mimeType: string): void {
+  try {
+    assertSupportedMimeImpl(mimeType);
+  } catch (error) {
+    asBadRequest(error);
+  }
+}
+
+function extForMimeForRequest(mimeType: string): string {
+  try {
+    return extForMimeImpl(mimeType);
+  } catch (error) {
+    asBadRequest(error);
+  }
+}
 
 interface FetchedThumbnailImage {
   buffer: Buffer;
@@ -51,9 +91,9 @@ export class ThumbnailImageFetcherService {
     for (let redirectCount = 0; redirectCount < MAX_REDIRECTS; redirectCount++) {
       const ownKey = this.storage.extractKey(url);
       if (opts.allowOwnStorage && ownKey) {
-        assertHttpUrl(url);
+        assertHttpUrlForRequest(url);
       } else {
-        assertPublicHttpUrl(url);
+        assertPublicHttpUrlForRequest(url);
       }
       const response = await fetch(url, {
         redirect: 'manual',
@@ -72,7 +112,7 @@ export class ThumbnailImageFetcherService {
         .split(';')[0]
         .trim()
         .toLowerCase();
-      assertSupportedMimeImpl(mimeType);
+      assertSupportedMimeForRequest(mimeType);
       const arrayBuffer = await response.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
       if (buffer.length > MAX_FETCH_BYTES) {
@@ -88,10 +128,10 @@ export class ThumbnailImageFetcherService {
   }
 
   assertSupportedMime(mimeType: string): void {
-    assertSupportedMimeImpl(mimeType);
+    assertSupportedMimeForRequest(mimeType);
   }
 
   extForMime(mimeType: string): string {
-    return extForMimeImpl(mimeType);
+    return extForMimeForRequest(mimeType);
   }
 }

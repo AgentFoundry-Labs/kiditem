@@ -12,9 +12,11 @@ import type {
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   ThumbnailEditorAiService,
-  type ThumbnailEditorCandidate,
-  type ThumbnailEditorInputImage,
 } from './thumbnail-editor-ai.service';
+import type {
+  ThumbnailEditorCandidate,
+  ThumbnailEditorInputImage,
+} from '../domain/model/thumbnail-editor';
 import { resolveMasterThumbnailImage } from './thumbnail-master-image-resolver';
 import { getRecomposePromptOverride } from './thumbnail-recompose-prompts';
 import { ThumbnailTrackingService } from './thumbnail-tracking.service';
