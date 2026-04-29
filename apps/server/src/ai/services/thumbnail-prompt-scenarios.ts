@@ -9,8 +9,8 @@
  * bucket 이 default 면 빈 문자열 → 기존 동작과 완전히 동일.
  */
 
-export type CategoryBucket = 'toy' | 'stationery' | 'living' | 'furniture' | 'default';
-export type EditCase = 'single' | 'compose' | 'color-variants' | 'bundle';
+type CategoryBucket = 'toy' | 'stationery' | 'living' | 'furniture' | 'default';
+type EditCase = 'single' | 'compose' | 'color-variants' | 'bundle';
 
 /**
  * Coupang 계층 경로 (예: `완구/취미/악기/음향기기/교재용악기/리코더/...`) 의
@@ -54,7 +54,7 @@ const EMPTY_CASES: Record<EditCase, string> = {
   bundle: '',
 };
 
-export const GENERATE_SCENARIO_BLOCKS: Record<CategoryBucket, Record<EditCase, string>> = {
+const GENERATE_SCENARIO_BLOCKS: Record<CategoryBucket, Record<EditCase, string>> = {
   toy: {
     single: `## Category direction — Toy (single piece)
 Emphasize playful silhouette and color saturation. If character faces or printed artwork are on the product, keep them sharp and legible at 200px. Preserve any safety / age-grade mark physically printed on the product.`,
@@ -98,7 +98,7 @@ Arrange as if styled on a shelf or tabletop, maintaining negative space between 
   default: EMPTY_CASES,
 };
 
-export const CREATIVE_SCENARIO_BLOCKS: Record<CategoryBucket, string> = {
+const CREATIVE_SCENARIO_BLOCKS: Record<CategoryBucket, string> = {
   toy: `## Category direction — Toy / Hobby
 Children are the end user; adults (parents) are the buyer. Emphasize playful character of the product: rounded silhouettes, color saturation that reads as joyful (not garish), and a hint of scale-to-hand or scale-to-child so the viewer intuits size. If a safety or age-grade mark is physically on the product, keep it fully visible. For musical instruments, preserve wood grain, key layout, and brand engraving sharply — these are trust signals for parents.`,
   stationery: `## Category direction — Stationery / Office

@@ -6,7 +6,7 @@ const AgentBaseOutputFields = {
 };
 
 // 광고 전략 에이전트 결과
-export const AdStrategyOutputSchema = z.object({
+const AdStrategyOutputSchema = z.object({
   ...AgentBaseOutputFields,
   task_id: z.string().optional(),
   dry_run: z.boolean().optional(),
@@ -66,7 +66,7 @@ export const AdStrategyOutputSchema = z.object({
 });
 
 // 건강도 평가 에이전트 결과
-export const RulesEvaluationOutputSchema = z.object({
+const RulesEvaluationOutputSchema = z.object({
   ...AgentBaseOutputFields,
   products: z.array(z.object({
     productId: z.string(),
@@ -91,7 +91,7 @@ export const RulesEvaluationOutputSchema = z.object({
 });
 
 // 규칙 임계값 추천 에이전트 결과
-export const RulesSuggestOutputSchema = z.object({
+const RulesSuggestOutputSchema = z.object({
   ...AgentBaseOutputFields,
   distributions: z.record(z.unknown()),
   suggestions: z.array(z.object({
@@ -104,7 +104,7 @@ export const RulesSuggestOutputSchema = z.object({
 });
 
 // 썸네일 분석 에이전트 결과
-export const ThumbnailAnalystOutputSchema = z.object({
+const ThumbnailAnalystOutputSchema = z.object({
   ...AgentBaseOutputFields,
   analysis: z.array(z.object({
     productId: z.string(),
@@ -125,7 +125,7 @@ export const ThumbnailAnalystOutputSchema = z.object({
 });
 
 // 매니저 에이전트 결과
-export const ManagerOutputSchema = z.object({
+const ManagerOutputSchema = z.object({
   ...AgentBaseOutputFields,
   analysis: z.string(),
   recommended_agents: z.array(z.string()),

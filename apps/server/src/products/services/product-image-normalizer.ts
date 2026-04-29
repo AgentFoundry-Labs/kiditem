@@ -74,7 +74,3 @@ export function normalizeMasterImages(raw: unknown): MasterImageItem[] {
     }];
   });
 }
-
-export function withNormalizedMasterImages<T extends { images: unknown }>(row: T): Omit<T, 'images'> & { images: MasterImageItem[] } {
-  return { ...row, images: normalizeMasterImages(row.images) };
-}

@@ -31,7 +31,7 @@ export function formatDurationMs(ms: number | null): string {
 }
 
 // 진행 중으로 간주되는 task.status 집합 — refetchInterval 활성 조건에 사용
-export const RUNNING_STATUSES = new Set(['running', 'queued', 'scheduled', 'pending']);
+const RUNNING_STATUSES = new Set(['running', 'queued', 'scheduled', 'pending']);
 
 export function isRunningStatus(status: string | null | undefined): boolean {
   return !!status && RUNNING_STATUSES.has(status);

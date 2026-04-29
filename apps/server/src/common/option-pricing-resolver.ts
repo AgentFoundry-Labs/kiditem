@@ -7,7 +7,7 @@ const CNY_TO_KRW_RATE = 190;
  * shippingCost, otherCost } }` 형태로 전달한다. flat legacy shape 은 제거됐으며
  * (A-10) missed caller 는 compile-time error 로 차단된다 (R-10 silent-zero 방지).
  */
-export interface ResolvePricingInput {
+interface ResolvePricingInput {
   option: {
     costPrice?: number | null;
     costCny?: unknown; // Decimal or number
@@ -18,7 +18,7 @@ export interface ResolvePricingInput {
   };
 }
 
-export interface ResolvedPricing {
+interface ResolvedPricing {
   costPrice: number;
   sellPrice: number;
   commissionRate: number;

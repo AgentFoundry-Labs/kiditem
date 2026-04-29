@@ -9,9 +9,7 @@
  * / `radial`) 는 UI disable + 빈 블록으로 두고, 첫 데이터를 본 뒤 Phase 2 에서 튜닝한다.
  */
 
-export type LayoutKind = 'auto' | 'fan' | 'arch' | 'grid' | 'stack' | 'radial';
-
-export const LAYOUT_KINDS: LayoutKind[] = ['auto', 'fan', 'arch', 'grid', 'stack', 'radial'];
+type LayoutKind = 'auto' | 'fan' | 'arch' | 'grid' | 'stack' | 'radial';
 
 const PRESETS: Record<LayoutKind, string> = {
   auto: '',
@@ -44,8 +42,4 @@ export function buildLayoutBlock(layout: LayoutKind | string | null | undefined)
   if (!layout) return '';
   const key = layout as LayoutKind;
   return PRESETS[key] ?? '';
-}
-
-export function isKnownLayout(value: string | null | undefined): value is LayoutKind {
-  return !!value && (LAYOUT_KINDS as string[]).includes(value);
 }

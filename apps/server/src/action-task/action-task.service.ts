@@ -10,8 +10,6 @@ import { kstDayStart, kstMonthStart } from '../common/kst';
 import { PrismaService } from '../prisma/prisma.service';
 import type { TaskSeed, RelatedProduct } from './types';
 
-export type { RelatedProduct } from './types';
-
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
 
 @Injectable()

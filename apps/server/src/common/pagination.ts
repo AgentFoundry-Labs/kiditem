@@ -1,5 +1,3 @@
-export type { PaginatedResponse } from '@kiditem/shared';
-
 export function paginationParams(query: {
   page?: string | number;
   limit?: string | number;

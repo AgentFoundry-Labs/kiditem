@@ -1,7 +1,7 @@
 import { IsArray, IsNumber, IsOptional, IsString, IsUUID, Min, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 
-export class RegisterCampaignListingDto {
+class RegisterCampaignListingDto {
   @IsUUID()
   listingId: string;
 
@@ -10,7 +10,7 @@ export class RegisterCampaignListingDto {
   label?: string;
 }
 
-export class RegisterCampaignKeywordDto {
+class RegisterCampaignKeywordDto {
   @IsString()
   keyword: string;
 

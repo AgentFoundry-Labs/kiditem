@@ -1,9 +1,9 @@
-export interface ProductInfoItem {
+interface ProductInfoItem {
   key: string;
   value: string;
 }
 
-export interface FeatureItem {
+interface FeatureItem {
   title: string;
   description: string;
 }

@@ -34,7 +34,7 @@ export interface ExecutionContext {
   readonly resolvedPermissions?: ResolvedPermissions;
 }
 
-export interface UsageSummary {
+interface UsageSummary {
   inputTokens?: number;
   outputTokens?: number;
   costCents?: number;

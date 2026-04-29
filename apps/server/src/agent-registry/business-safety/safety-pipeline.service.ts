@@ -4,7 +4,7 @@ import { DryRunGateService } from './dry-run-gate.service';
 import { SnapshotService } from './snapshot.service';
 import { PostVerificationService } from './post-verification.service';
 
-export interface SafetyResult {
+interface SafetyResult {
   allowed: boolean;
   dryRunForced: boolean;
   blockedActions: BlockedAction[];

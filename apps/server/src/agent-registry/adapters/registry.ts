@@ -19,10 +19,6 @@ export function getAdapter(type: string): AdapterModule {
   return adapter;
 }
 
-export function listAdapters(): AdapterModule[] {
-  return [...adaptersByType.values()];
-}
-
 export function getFallbackChain(agentType: string, fallbackChain?: string[]): string[] {
   if (fallbackChain?.length) return fallbackChain;
   return ['claude_local']; // Default: single adapter, no fallback

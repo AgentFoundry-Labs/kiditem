@@ -2,7 +2,7 @@
 import { Transform } from 'class-transformer';
 import { IsIn, IsInt, IsOptional, Max, Min } from 'class-validator';
 
-export const REVIEW_FILTERS = ['all', 'new', 'needs-response'] as const;
+const REVIEW_FILTERS = ['all', 'new', 'needs-response'] as const;
 export type ReviewFilter = (typeof REVIEW_FILTERS)[number];
 
 export class ListReviewsQueryDto {

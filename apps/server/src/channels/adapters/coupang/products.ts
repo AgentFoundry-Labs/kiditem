@@ -29,27 +29,3 @@ export async function getSellerProduct(sellerProductId: string) {
     path: `/v2/providers/seller_api/apis/api/v1/marketplace/seller-products/${sellerProductId}`,
   });
 }
-
-export async function updateProductPrice(
-  vendorItemId: string,
-  price: number,
-) {
-  return coupangRequest({
-    method: 'PUT',
-    path: `/v2/providers/seller_api/apis/api/v1/marketplace/vendor-items/${vendorItemId}/prices/${price}`,
-  });
-}
-
-export async function stopSellingProduct(vendorItemId: string) {
-  return coupangRequest({
-    method: 'PUT',
-    path: `/v2/providers/seller_api/apis/api/v1/marketplace/vendor-items/${vendorItemId}/sales/stop`,
-  });
-}
-
-export async function resumeSellingProduct(vendorItemId: string) {
-  return coupangRequest({
-    method: 'PUT',
-    path: `/v2/providers/seller_api/apis/api/v1/marketplace/vendor-items/${vendorItemId}/sales/resume`,
-  });
-}

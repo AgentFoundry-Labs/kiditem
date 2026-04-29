@@ -8,7 +8,8 @@
 thumbnail-editor/
 ├── page.tsx                       # 상태 기계 (mode + editCase) + 케이스별 payload 조립
 ├── components/
-│   ├── UseCaseSelection.tsx       # 편집 탭 진입 카드 3개 (compose/color-variants/single)
+│   ├── ModeShowcase.tsx           # 허브 진입 카드 (edit/creative)
+│   ├── ModeCaseModal.tsx          # edit workspace 모드/케이스 선택
 │   ├── EditorInputPanel.tsx       # editCase 분기 렌더 (2슬롯 / multi-drop / 1슬롯 / creative)
 │   ├── EditorResultPanel.tsx
 │   ├── SlotCard.tsx               # 슬롯별 이미지 source drawer 진입점
@@ -24,7 +25,7 @@ thumbnail-editor/
 
 ### 1. 용도 카드 분기 (편집 탭 진입 시)
 
-`page.tsx` — 편집 탭 진입 시 `editCase === null` 이면 `UseCaseSelection` 전체 화면 렌더 (3카드: `compose` / `color-variants` / `single`). 카드 클릭 → 슬롯 기반 입력 패널로 전환. 용도 변경은 page state reset 경로에서 처리한다.
+`page.tsx` — 허브는 `ModeShowcase` 에서 edit/creative 업로드 진입을 고르고, `edit/page.tsx` 는 `ModeCaseModal` 로 모드/케이스를 바꾼다. `editCase` 는 처음엔 `single` 로 시작하고, 슬롯에 packaging/color/bundle 이미지를 추가하면 슬롯 구성 기준으로 자동 승격된다.
 
 **AI 연출 탭은 용도 분기 없음** — 바로 3패널.
 
@@ -107,7 +108,7 @@ Generation 후 `queryClient.invalidateQueries(queryKeys.thumbnailAnalysis.genera
 
 | 수정 시 | 같이 봐야 할 파일 |
 |---|---|
-| editCase 타입 / 용도 추가 | `UseCaseSelection.tsx` (카드 + `EditUseCase` export) + `page.tsx` resetEditCase + `EditorInputPanel.tsx` 분기 + `EditorControlPanel.tsx` 분기 |
+| editCase 타입 / 용도 추가 | `UseCaseSelection.tsx` (`EditUseCase` type boundary) + `ModeCaseModal.tsx` + `edit/page.tsx` mode/case 전환 + `EditorInputPanel.tsx` 분기 + `EditorControlPanel.tsx` 분기 |
 | supplementaryLabel 옵션 변경 | `EditorInputPanel.tsx` `SUPPLEMENTARY_LABELS` 상수 (export) + `page.tsx` 기본값 |
 | 씬 프리셋 추가/변경 | `EditorControlPanel.tsx` `SCENE_PRESETS` + 백엔드 `CREATIVE_PROMPT` scene 블록 (쌍으로) |
 | Payload 필드 추가 | `hooks/useThumbnailEditor.ts` `GenerateRequest` + 백엔드 `thumbnail-editor.dto.ts` (DTO whitelisted) + `page.tsx` `handleGenerate` |

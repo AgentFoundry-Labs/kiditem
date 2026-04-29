@@ -31,23 +31,6 @@ export class AgentAutoPausedEvent {
   ) {}
 }
 
-export class AgentPermissionDeniedEvent {
-  constructor(
-    public readonly agentId: string,
-    public readonly agentName: string,
-    public readonly category: string,
-    public readonly detail: string,
-  ) {}
-}
-
-export class AgentDelegationEvent {
-  constructor(
-    public readonly parentAgentId: string,
-    public readonly childAgentId: string,
-    public readonly reason: string,
-  ) {}
-}
-
 export class AgentResultReadyEvent {
   constructor(
     public readonly agentType: string,

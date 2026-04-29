@@ -7,7 +7,7 @@ import { ArrowRight, Pencil, Scissors, Sparkles, Wand2, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { EditUseCase } from './UseCaseSelection';
 
-export type CreativeScene = 'white-studio' | 'lifestyle' | 'outdoor' | 'concept';
+type CreativeScene = 'white-studio' | 'lifestyle' | 'outdoor' | 'concept';
 
 export type FeatureSelection =
   | { mode: 'edit'; editCase: EditUseCase }

@@ -56,25 +56,6 @@ export async function uploadInvoice(
 
 // ===== 반품 =====
 
-export async function getReturnRequests(params: {
-  createdAtFrom: string;
-  createdAtTo: string;
-  status?: string;
-}) {
-  const vendorId = getVendorId();
-  const query: Record<string, string> = {
-    createdAtFrom: params.createdAtFrom,
-    createdAtTo: params.createdAtTo,
-  };
-  if (params.status) query.status = params.status;
-
-  return coupangRequest({
-    method: 'GET',
-    path: `/v2/providers/openapi/apis/api/v4/vendors/${vendorId}/returnRequests`,
-    query,
-  });
-}
-
 export async function approveReturn(receiptId: number) {
   const vendorId = getVendorId();
   return coupangRequest({
@@ -84,25 +65,6 @@ export async function approveReturn(receiptId: number) {
 }
 
 // ===== 교환 =====
-
-export async function getExchangeRequests(params: {
-  createdAtFrom: string;
-  createdAtTo: string;
-  status?: string;
-}) {
-  const vendorId = getVendorId();
-  const query: Record<string, string> = {
-    createdAtFrom: params.createdAtFrom,
-    createdAtTo: params.createdAtTo,
-  };
-  if (params.status) query.status = params.status;
-
-  return coupangRequest({
-    method: 'GET',
-    path: `/v2/providers/openapi/apis/api/v4/vendors/${vendorId}/exchangeRequests`,
-    query,
-  });
-}
 
 // ===== 택배사 코드 =====
 
