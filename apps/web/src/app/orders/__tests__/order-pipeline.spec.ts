@@ -5,7 +5,7 @@ import {
   getNumericShipmentBoxIds,
   makeDateHourKey,
 } from '../lib/order-pipeline';
-import type { OrderListItem } from '@kiditem/shared';
+import type { OrderListItem } from '@kiditem/shared/order';
 
 function order(overrides: Partial<OrderListItem> = {}): OrderListItem {
   return {

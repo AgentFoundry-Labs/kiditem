@@ -8,7 +8,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ExtensionSyncDto } from '../dto';
-import type { AdExtensionStatus } from '@kiditem/shared';
+import type { AdExtensionStatus } from '@kiditem/shared/advertising';
 import {
   buildAdTargetKey,
   type AdTargetType,
@@ -40,7 +40,7 @@ export interface ListingMap {
   externalIdMap: Map<string, { listingId: string }>;
 }
 
-export interface ListingMatch {
+interface ListingMatch {
   listingId: string | null;
   listingOptionId: string | null;
   optionId: string | null;

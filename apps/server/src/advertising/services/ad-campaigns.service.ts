@@ -9,14 +9,9 @@ import {
   recomputeCtr,
   recomputeCvr,
 } from '../util/ratio-recompute';
-import type {
-  AdCampaignSnapshot,
-  AdListingSummary,
-  AdMetrics,
-  AdTrendsData,
-} from '@kiditem/shared';
+import type { AdCampaignSnapshot, AdListingSummary, AdMetrics, AdTrendsData } from '@kiditem/shared/advertising';
 
-export type CampaignsPeriod = '7d' | '14d' | 'month';
+type CampaignsPeriod = '7d' | '14d' | 'month';
 
 function buildMetrics(sums: {
   spend: number;

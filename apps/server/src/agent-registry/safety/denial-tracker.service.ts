@@ -26,9 +26,9 @@ export class DenialTrackerService {
     });
   }
 
-  async listDenials(agentId: string, options?: { limit?: number }) {
+  async listDenials(agentId: string, companyId: string, options?: { limit?: number }) {
     return this.prisma.agentEvent.findMany({
-      where: { agentId, eventType: 'permission_denied' },
+      where: { agentId, companyId, eventType: 'permission_denied' },
       orderBy: { createdAt: 'desc' },
       take: options?.limit ?? 50,
     });

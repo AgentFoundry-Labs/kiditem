@@ -1,4 +1,4 @@
-import type { AdStrategyAction } from "@kiditem/shared";
+import type { AdStrategyAction } from "@kiditem/shared/advertising";
 
 function productName(action: AdStrategyAction): string {
   return action.listing.channelName ?? action.listing.masterProduct.name;

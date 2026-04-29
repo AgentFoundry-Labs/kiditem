@@ -15,19 +15,176 @@
       "import": "./dist/schemas/index.js",
       "require": "./dist/schemas/index.cjs"
     },
+    "./product": {
+      "types": "./dist/product.d.ts",
+      "import": "./dist/product.js",
+      "require": "./dist/product.cjs"
+    },
+    "./order": {
+      "types": "./dist/order.d.ts",
+      "import": "./dist/order.js",
+      "require": "./dist/order.cjs"
+    },
+    "./inventory": {
+      "types": "./dist/inventory.d.ts",
+      "import": "./dist/inventory.js",
+      "require": "./dist/inventory.cjs"
+    },
+    "./ai": {
+      "types": "./dist/ai.d.ts",
+      "import": "./dist/ai.js",
+      "require": "./dist/ai.cjs"
+    },
+    "./advertising": {
+      "types": "./dist/advertising.d.ts",
+      "import": "./dist/advertising.js",
+      "require": "./dist/advertising.cjs"
+    },
     "./errors": {
       "types": "./dist/errors/index.d.ts",
       "import": "./dist/errors/index.js",
       "require": "./dist/errors/index.cjs"
+    },
+    "./server-errors": {
+      "types": "./dist/server-errors.d.ts",
+      "import": "./dist/server-errors.js",
+      "require": "./dist/server-errors.cjs"
     },
     "./security": {
       "types": "./dist/security/index.d.ts",
       "import": "./dist/security/index.js",
       "require": "./dist/security/index.cjs"
     },
+    "./panel": {
+      "types": "./dist/panel/index.d.ts",
+      "import": "./dist/panel/index.js",
+      "require": "./dist/panel/index.cjs"
+    },
+    "./dashboard": {
+      "types": "./dist/dashboard.d.ts",
+      "import": "./dist/dashboard.js",
+      "require": "./dist/dashboard.cjs"
+    },
+    "./finance": {
+      "types": "./dist/finance.d.ts",
+      "import": "./dist/finance.js",
+      "require": "./dist/finance.cjs"
+    },
+    "./marketplace": {
+      "types": "./dist/marketplace.d.ts",
+      "import": "./dist/marketplace.js",
+      "require": "./dist/marketplace.cjs"
+    },
+    "./rules": {
+      "types": "./dist/rules.d.ts",
+      "import": "./dist/rules.js",
+      "require": "./dist/rules.cjs"
+    },
+    "./action-task": {
+      "types": "./dist/action-task.d.ts",
+      "import": "./dist/action-task.js",
+      "require": "./dist/action-task.cjs"
+    },
+    "./supplier-stats": {
+      "types": "./dist/supplier-stats.d.ts",
+      "import": "./dist/supplier-stats.js",
+      "require": "./dist/supplier-stats.cjs"
+    },
+    "./channel-dashboard": {
+      "types": "./dist/channel-dashboard.d.ts",
+      "import": "./dist/channel-dashboard.js",
+      "require": "./dist/channel-dashboard.cjs"
+    },
+    "./agent": {
+      "types": "./dist/agent.d.ts",
+      "import": "./dist/agent.js",
+      "require": "./dist/agent.cjs"
+    },
+    "./agent-trace": {
+      "types": "./dist/agent-trace.d.ts",
+      "import": "./dist/agent-trace.js",
+      "require": "./dist/agent-trace.cjs"
+    },
+    "./workflow": {
+      "types": "./dist/workflow.d.ts",
+      "import": "./dist/workflow.js",
+      "require": "./dist/workflow.cjs"
+    },
+    "./common": {
+      "types": "./dist/common.d.ts",
+      "import": "./dist/common.js",
+      "require": "./dist/common.cjs"
+    },
+    "./reviews": {
+      "types": "./dist/reviews.d.ts",
+      "import": "./dist/reviews.js",
+      "require": "./dist/reviews.cjs"
+    },
+    "./statistics": {
+      "types": "./dist/statistics.d.ts",
+      "import": "./dist/statistics.js",
+      "require": "./dist/statistics.cjs"
+    },
+    "./settlements": {
+      "types": "./dist/settlements.d.ts",
+      "import": "./dist/settlements.js",
+      "require": "./dist/settlements.cjs"
+    },
+    "./alerts": {
+      "types": "./dist/alerts.d.ts",
+      "import": "./dist/alerts.js",
+      "require": "./dist/alerts.cjs"
+    },
+    "./return-summary": {
+      "types": "./dist/return-summary.d.ts",
+      "import": "./dist/return-summary.js",
+      "require": "./dist/return-summary.cjs"
+    },
+    "./feature-gate": {
+      "types": "./dist/feature-gate.d.ts",
+      "import": "./dist/feature-gate.js",
+      "require": "./dist/feature-gate.cjs"
+    },
+    "./inspection": {
+      "types": "./dist/inspection.d.ts",
+      "import": "./dist/inspection.js",
+      "require": "./dist/inspection.cjs"
+    },
     "./internal/*": null
   },
   "types": "./dist/index.d.ts",
+  "typesVersions": {
+    "*": {
+      "schemas": ["dist/schemas/index.d.ts"],
+      "product": ["dist/product.d.ts"],
+      "order": ["dist/order.d.ts"],
+      "inventory": ["dist/inventory.d.ts"],
+      "ai": ["dist/ai.d.ts"],
+      "advertising": ["dist/advertising.d.ts"],
+      "errors": ["dist/errors/index.d.ts"],
+      "server-errors": ["dist/server-errors.d.ts"],
+      "security": ["dist/security/index.d.ts"],
+      "panel": ["dist/panel/index.d.ts"],
+      "dashboard": ["dist/dashboard.d.ts"],
+      "finance": ["dist/finance.d.ts"],
+      "marketplace": ["dist/marketplace.d.ts"],
+      "rules": ["dist/rules.d.ts"],
+      "action-task": ["dist/action-task.d.ts"],
+      "supplier-stats": ["dist/supplier-stats.d.ts"],
+      "channel-dashboard": ["dist/channel-dashboard.d.ts"],
+      "agent": ["dist/agent.d.ts"],
+      "agent-trace": ["dist/agent-trace.d.ts"],
+      "workflow": ["dist/workflow.d.ts"],
+      "common": ["dist/common.d.ts"],
+      "reviews": ["dist/reviews.d.ts"],
+      "statistics": ["dist/statistics.d.ts"],
+      "settlements": ["dist/settlements.d.ts"],
+      "alerts": ["dist/alerts.d.ts"],
+      "return-summary": ["dist/return-summary.d.ts"],
+      "feature-gate": ["dist/feature-gate.d.ts"],
+      "inspection": ["dist/inspection.d.ts"]
+    }
+  },
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "files": ["dist"],
@@ -51,6 +208,7 @@
   "devDependencies": {
     "@nestjs/common": "^11.0.0",
     "tsup": "^8.5.1",
-    "typescript": "~5.8.3"
+    "typescript": "~5.8.3",
+    "vitest": "^4.1.2"
   }
 }

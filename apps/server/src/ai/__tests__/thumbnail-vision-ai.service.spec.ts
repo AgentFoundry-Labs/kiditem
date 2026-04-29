@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ServiceUnavailableException } from '@nestjs/common';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const sharp: typeof import('sharp') = require('sharp');
-import type { ComplianceScores } from '@kiditem/shared';
+import type { ComplianceScores } from '@kiditem/shared/ai';
 import { ThumbnailVisionAiService } from '../services/thumbnail-vision-ai.service';
 
 type RawCompliance = {

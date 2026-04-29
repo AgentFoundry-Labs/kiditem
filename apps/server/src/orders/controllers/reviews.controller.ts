@@ -4,7 +4,7 @@ import { CurrentCompany } from '../../auth/decorators/current-company.decorator'
 import {
   ReviewListResponseSchema,
   type ReviewListResponse,
-} from '@kiditem/shared';
+} from '@kiditem/shared/reviews';
 import { ReviewsService } from '../services/reviews.service';
 import { ListReviewsQueryDto } from '../dto/list-reviews.dto';
 

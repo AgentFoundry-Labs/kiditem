@@ -6,7 +6,8 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
-import { AppException, ErrorCodes } from '@kiditem/shared';
+import { ErrorCodes } from '@kiditem/shared/errors';
+import { AppException } from '@kiditem/shared/server-errors';
 
 @Catch()
 export class GlobalExceptionFilter implements ExceptionFilter {

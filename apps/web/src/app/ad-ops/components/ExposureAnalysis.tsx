@@ -11,7 +11,7 @@ import {
   ChevronDown,
   ChevronUp,
 } from 'lucide-react';
-import type { ExposureAnalysisData, ExposureFactorScore, ExposureProductScore } from '@kiditem/shared';
+import type { ExposureAnalysisData, ExposureFactorScore, ExposureProductScore } from '@kiditem/shared/advertising';
 
 const FACTOR_META: Record<string, { label: string; icon: typeof TrendingUp; color: string }> = {
   sales: { label: '판매 실적', icon: TrendingUp, color: '#2563eb' },

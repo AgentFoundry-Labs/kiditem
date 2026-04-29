@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { scrubSecrets } from '@kiditem/shared';
-import type { ActionTask, ActionTaskRelatedProduct } from '@kiditem/shared';
+import { scrubSecrets } from '@kiditem/shared/security';
+import type { ActionTask, ActionTaskRelatedProduct } from '@kiditem/shared/action-task';
 import {
   buildPerListingMetrics,
   type PerListingMetrics,
@@ -9,8 +9,6 @@ import {
 import { kstDayStart, kstMonthStart } from '../common/kst';
 import { PrismaService } from '../prisma/prisma.service';
 import type { TaskSeed, RelatedProduct } from './types';
-
-export type { RelatedProduct } from './types';
 
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
 
@@ -223,15 +221,14 @@ export class ActionTaskService {
         success: res.ok,
       });
 
-      return this.prisma.actionTask.update({
-        where: { id },
-        data: {
-          result: result as Prisma.InputJsonValue,
-          status: 'done',
-          activityLog: log as unknown as Prisma.InputJsonValue,
-        },
+      return this.updateActionTaskOrThrow(id, companyId, {
+        result: result as Prisma.InputJsonValue,
+        status: 'done',
+        activityLog: log as unknown as Prisma.InputJsonValue,
       });
     } catch (err) {
+      if (err instanceof NotFoundException) throw err;
+
       const log = (task.activityLog as Array<Record<string, unknown>>) || [];
       log.push({
         action: 'executed',
@@ -240,13 +237,10 @@ export class ActionTaskService {
         detail: err instanceof Error ? err.message : 'Unknown error',
       });
 
-      return this.prisma.actionTask.update({
-        where: { id },
-        data: {
-          result: { error: scrubSecrets(err instanceof Error ? err.message : String(err)) } as Prisma.InputJsonValue,
-          status: 'done',
-          activityLog: log as unknown as Prisma.InputJsonValue,
-        },
+      return this.updateActionTaskOrThrow(id, companyId, {
+        result: { error: scrubSecrets(err instanceof Error ? err.message : String(err)) } as Prisma.InputJsonValue,
+        status: 'done',
+        activityLog: log as unknown as Prisma.InputJsonValue,
       });
     }
   }
@@ -311,6 +305,19 @@ export class ActionTaskService {
       ...t,
       sourceAlert: alertByTaskId.get(t.id) ?? null,
     }));
+  }
+
+  private async updateActionTaskOrThrow(
+    id: string,
+    companyId: string,
+    data: Prisma.ActionTaskUpdateManyMutationInput,
+  ) {
+    const { count } = await this.prisma.actionTask.updateMany({
+      where: { id, companyId },
+      data,
+    });
+    if (count === 0) throw new NotFoundException('Task not found');
+    return this.prisma.actionTask.findFirstOrThrow({ where: { id, companyId } });
   }
 
   // ── Private helpers ──

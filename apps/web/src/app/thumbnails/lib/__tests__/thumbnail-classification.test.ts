@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ComplianceScores, ThumbnailAnalysisResult } from '@kiditem/shared';
+import type { ComplianceScores, ThumbnailAnalysisResult } from '@kiditem/shared/ai';
 import {
   getPrimaryViolationSummary,
   getViolationEvidence,

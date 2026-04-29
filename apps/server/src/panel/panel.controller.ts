@@ -6,7 +6,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { CurrentCompany } from '../auth/decorators/current-company.decorator';
 import { PanelSseService } from './events/panel-sse.service';
 import { PanelService } from './panel.service';
-import type { PanelEvent, PanelItem } from '@kiditem/shared';
+import type { PanelEvent, PanelItem } from '@kiditem/shared/panel';
 
 @Controller('panel')
 export class PanelController {

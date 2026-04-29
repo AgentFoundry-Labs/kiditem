@@ -7,6 +7,7 @@ function makePrisma() {
       findFirst: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
   };
 }
@@ -31,6 +32,15 @@ describe('WakeupService', () => {
       });
 
       expect(result.id).toBe('w-1');
+      expect(prisma.agentWakeupRequest.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            agentId: 'agent-1',
+            companyId: 'c-1',
+            status: 'queued',
+          }),
+        }),
+      );
       expect(prisma.agentWakeupRequest.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
           agent: { connect: { id: 'agent-1' } },
@@ -41,15 +51,15 @@ describe('WakeupService', () => {
       });
     });
 
-    it('coalesces when existing queued request', async () => {
+    it('coalesces when existing queued request — updateMany binds companyId', async () => {
       const { service, prisma } = makeService();
       prisma.agentWakeupRequest.findFirst.mockResolvedValue({
         id: 'w-existing',
+        companyId: 'c-1',
         coalescedCount: 2,
         reason: 'Old',
         payload: null,
       });
-      prisma.agentWakeupRequest.update.mockResolvedValue({});
 
       const result = await service.requestWakeup({
         agentId: 'agent-1',
@@ -60,8 +70,8 @@ describe('WakeupService', () => {
 
       expect(result.id).toBe('w-existing');
       expect(prisma.agentWakeupRequest.create).not.toHaveBeenCalled();
-      expect(prisma.agentWakeupRequest.update).toHaveBeenCalledWith({
-        where: { id: 'w-existing' },
+      expect(prisma.agentWakeupRequest.updateMany).toHaveBeenCalledWith({
+        where: { id: 'w-existing', companyId: 'c-1' },
         data: expect.objectContaining({
           coalescedCount: { increment: 1 },
           reason: 'New reason',
@@ -71,16 +81,19 @@ describe('WakeupService', () => {
   });
 
   describe('claimNext', () => {
-    it('claims oldest queued request', async () => {
+    it('claims oldest queued request — updateMany binds the row\'s own companyId', async () => {
       const { service, prisma } = makeService();
-      prisma.agentWakeupRequest.findFirst.mockResolvedValue({ id: 'w-1', source: 'on_demand' });
-      prisma.agentWakeupRequest.update.mockResolvedValue({});
+      prisma.agentWakeupRequest.findFirst.mockResolvedValue({
+        id: 'w-1',
+        companyId: 'c-1',
+        source: 'on_demand',
+      });
 
       const result = await service.claimNext('agent-1');
 
       expect(result?.id).toBe('w-1');
-      expect(prisma.agentWakeupRequest.update).toHaveBeenCalledWith({
-        where: { id: 'w-1' },
+      expect(prisma.agentWakeupRequest.updateMany).toHaveBeenCalledWith({
+        where: { id: 'w-1', companyId: 'c-1' },
         data: expect.objectContaining({ status: 'claimed' }),
       });
     });
@@ -96,26 +109,24 @@ describe('WakeupService', () => {
   });
 
   describe('finish', () => {
-    it('marks request as finished', async () => {
+    it('marks request as finished — updateMany binds companyId', async () => {
       const { service, prisma } = makeService();
-      prisma.agentWakeupRequest.update.mockResolvedValue({});
 
-      await service.finish('w-1', 'run-1');
+      await service.finish('w-1', 'c-1', 'run-1');
 
-      expect(prisma.agentWakeupRequest.update).toHaveBeenCalledWith({
-        where: { id: 'w-1' },
+      expect(prisma.agentWakeupRequest.updateMany).toHaveBeenCalledWith({
+        where: { id: 'w-1', companyId: 'c-1' },
         data: expect.objectContaining({ status: 'finished', runId: 'run-1' }),
       });
     });
 
     it('marks request as failed with error', async () => {
       const { service, prisma } = makeService();
-      prisma.agentWakeupRequest.update.mockResolvedValue({});
 
-      await service.finish('w-1', 'run-1', 'timeout error');
+      await service.finish('w-1', 'c-1', 'run-1', 'timeout error');
 
-      expect(prisma.agentWakeupRequest.update).toHaveBeenCalledWith({
-        where: { id: 'w-1' },
+      expect(prisma.agentWakeupRequest.updateMany).toHaveBeenCalledWith({
+        where: { id: 'w-1', companyId: 'c-1' },
         data: expect.objectContaining({ status: 'failed', error: 'timeout error' }),
       });
     });

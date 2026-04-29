@@ -20,7 +20,7 @@ type ActionCandidate = {
   payload: Record<string, unknown>;
 };
 
-export interface AdActionQuery {
+interface AdActionQuery {
   approvalStatus?: string;
   executeStatus?: string;
   listingId?: string;

@@ -1,13 +1,6 @@
 import { Controller, Get, Param, Query } from '@nestjs/common';
 import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
-import {
-  ProductCatalogCountsSchema,
-  ProductCatalogDetailSchema,
-  ProductCatalogListResponseSchema,
-  type ProductCatalogCounts,
-  type ProductCatalogDetail,
-  type ProductCatalogListResponse,
-} from '@kiditem/shared';
+import { ProductCatalogCountsSchema, ProductCatalogDetailSchema, ProductCatalogListResponseSchema, type ProductCatalogCounts, type ProductCatalogDetail, type ProductCatalogListResponse } from '@kiditem/shared/product';
 import { ProductCatalogService } from '../services/product-catalog.service';
 import { ListProductCatalogQuery } from '../dto/list-product-catalog.query';
 

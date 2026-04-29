@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import type { SalesAnalysisData, ChannelAnalysis } from '@kiditem/shared';
+import type { SalesAnalysisData, ChannelAnalysis } from '@kiditem/shared/finance';
 import { PrismaService } from '../../prisma/prisma.service';
 import { kstMonthStart } from '../../common/kst';
 import { resolvePricing } from '../../common/option-pricing-resolver';

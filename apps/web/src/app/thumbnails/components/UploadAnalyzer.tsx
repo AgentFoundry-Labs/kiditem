@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import { apiClient } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 import { ScoreBreakdown } from './ScoreBreakdown';
-import type { ThumbnailAnalysisResult } from '@kiditem/shared';
+import type { ThumbnailAnalysisResult } from '@kiditem/shared/ai';
 
 const GRADE_BG: Record<string, string> = {
   S: 'bg-emerald-500',

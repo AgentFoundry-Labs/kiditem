@@ -12,8 +12,8 @@ import type {
   AdBenchmarkData,
   AdTrendsData,
   ExposureAnalysisData,
-  DashboardAdSummary,
-} from '@kiditem/shared';
+} from '@kiditem/shared/advertising';
+import type { DashboardAdSummary } from '@kiditem/shared/dashboard';
 
 export type CampaignProductData = {
   vendorItemId: string;
@@ -31,7 +31,7 @@ export type CampaignProductData = {
   roas: number | null;
 };
 
-export type CampaignsResponse = {
+type CampaignsResponse = {
   campaigns: AdCampaignSnapshot[];
   totalKpi: Record<string, number>;
 };
@@ -46,9 +46,9 @@ export type CampaignsResponse = {
 // `latestScrapePageType` stays on the wire (could feed a debug panel) but is
 // not user-facing — the raw page slug ('itemwinner', 'campaign', ...) carries
 // no operator value beyond what `latestScrapeAt` already conveys.
-export type ExtensionStatusResponse = AdExtensionStatus;
+type ExtensionStatusResponse = AdExtensionStatus;
 
-export type TrafficSummaryResponse = {
+type TrafficSummaryResponse = {
   days: number;
   revenue: number;
   orders: number;
@@ -62,7 +62,7 @@ export type TrafficSummaryResponse = {
   ordersChange: number;
 };
 
-export type RecommendResponse = {
+type RecommendResponse = {
   cards: Record<string, unknown>[];
   keyMetrics: Record<string, unknown> | null;
 };
@@ -81,7 +81,7 @@ export type RegisterCampaignPayload = {
   products: { productId: string; productName: string }[];
 };
 
-export function campaignTotals(campaigns: AdCampaignSnapshot[]): Record<string, number> {
+function campaignTotals(campaigns: AdCampaignSnapshot[]): Record<string, number> {
   const total = campaigns.reduce(
     (acc, c) => ({
       adSpend: acc.adSpend + c.metrics.spend,
@@ -102,23 +102,6 @@ export function campaignTotals(campaigns: AdCampaignSnapshot[]): Record<string, 
 
 export function toCampaignsResponse(campaigns: AdCampaignSnapshot[]): CampaignsResponse {
   return { campaigns, totalKpi: campaignTotals(campaigns) };
-}
-
-function toCampaignProduct(snapshot: AdCampaignSnapshot): CampaignProductData {
-  return {
-    vendorItemId: snapshot.listing.externalId,
-    productName: snapshot.listing.channelName ?? snapshot.listing.masterProduct.name,
-    keyword: snapshot.campaignName,
-    onOff: null,
-    adSpend: snapshot.metrics.spend,
-    adRevenue: snapshot.metrics.revenue,
-    impressions: snapshot.metrics.impressions,
-    clicks: snapshot.metrics.clicks,
-    ctr: snapshot.metrics.ctr,
-    adConversions: snapshot.metrics.conversions,
-    conversionRate: snapshot.metrics.cvr,
-    roas: snapshot.metrics.roas,
-  };
 }
 
 export function useAdOpsData(period: string, tab: string) {
@@ -217,20 +200,6 @@ export function useAdOpsData(period: string, tab: string) {
     trafficSummary,
     isLoading,
   };
-}
-
-export function useAdOpsSelectedCampaign(
-  selectedCampaign: string | null,
-  period: string,
-) {
-  return useQuery({
-    queryKey: queryKeys.ads.campaignProducts(selectedCampaign ?? '', period),
-    queryFn: () =>
-      apiClient.get<AdCampaignSnapshot[]>(
-        `/api/ads/campaigns?campaign=${encodeURIComponent(selectedCampaign!)}&period=${period}`,
-      ).then((rows) => ({ products: rows.map(toCampaignProduct) })),
-    enabled: selectedCampaign !== null,
-  });
 }
 
 export function useRegisterCampaign() {

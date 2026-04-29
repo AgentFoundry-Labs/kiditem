@@ -23,7 +23,7 @@
 
 export type AdTargetType = 'campaign' | 'keyword' | 'product';
 
-export interface BuildAdTargetKeyInput {
+interface BuildAdTargetKeyInput {
   targetType: AdTargetType;
   campaignId?: string | null;
   campaignName?: string | null;

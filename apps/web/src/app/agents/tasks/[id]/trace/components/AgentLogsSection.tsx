@@ -1,5 +1,5 @@
 import { cn, formatDateTime } from '@/lib/utils';
-import type { AgentLog } from '@kiditem/shared';
+import type { AgentLog } from '@kiditem/shared/agent-trace';
 
 interface AgentLogsSectionProps {
   logs: AgentLog[];

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import type { ThumbnailAnalysisResult } from '@kiditem/shared';
+import type { ThumbnailAnalysisResult } from '@kiditem/shared/ai';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import type { AnalysisScope } from './useThumbnailAnalysis';

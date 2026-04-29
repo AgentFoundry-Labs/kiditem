@@ -27,15 +27,14 @@ import { buildLayoutBlock } from './thumbnail-layout-presets';
 import {
   ThumbnailImageFetcherService,
   MAX_FETCH_BYTES,
-  ALLOWED_MIME_TO_EXT,
 } from './thumbnail-image-fetcher.service';
 import { ThumbnailReferenceImagesService } from './thumbnail-reference-images.service';
 import { requireGeminiImageModel } from './thumbnail-gemini-config';
 
-export type ThumbnailEditorPurpose = 'compliance' | 'quality';
-export type ThumbnailEditorMode = 'edit' | 'creative';
+type ThumbnailEditorPurpose = 'compliance' | 'quality';
+type ThumbnailEditorMode = 'edit' | 'creative';
 export type ThumbnailEditorEditCase = 'single' | 'compose' | 'color-variants' | 'bundle';
-export type ThumbnailEditorLayout = 'auto' | 'fan' | 'arch' | 'grid' | 'stack' | 'radial';
+type ThumbnailEditorLayout = 'auto' | 'fan' | 'arch' | 'grid' | 'stack' | 'radial';
 export type ThumbnailInputRole = 'product' | 'box' | 'color_variant' | 'detail';
 
 export interface ThumbnailEditorInputImage {
@@ -69,11 +68,6 @@ interface ResolveInputOptions {
   sortOrder: number;
   source?: string;
 }
-
-// Re-export the shared constants so existing callers that imported them from
-// this service continue to work. The numeric/MIME limits live in the fetcher
-// module now.
-export { MAX_FETCH_BYTES, ALLOWED_MIME_TO_EXT };
 
 interface GenerateEditOptions {
   purpose: ThumbnailEditorPurpose;

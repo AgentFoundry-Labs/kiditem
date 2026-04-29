@@ -28,14 +28,16 @@ import {
   DashboardAdSummarySchema,
   DashboardInventorySummarySchema,
   DashboardTrendItemSchema,
-  ActionTaskListSchema,
-  ActionTaskExecuteResponseSchema,
   type DashboardSalesSummary,
   type DashboardAdSummary,
   type DashboardInventorySummary,
   type DashboardTrendItem,
+} from '@kiditem/shared/dashboard';
+import {
+  ActionTaskListSchema,
+  ActionTaskSchema,
   type ActionTask,
-} from '@kiditem/shared';
+} from '@kiditem/shared/action-task';
 import { z } from 'zod';
 import { friendlyError } from '@/lib/api-error';
 
@@ -832,7 +834,7 @@ function DashboardChart({
   const { mutate: executeAction, variables: executingId } = useMutation({
     mutationFn: async (id: string) => {
       const raw = await apiClient.post<unknown>(`/api/action-tasks/${id}/execute`, {});
-      return ActionTaskExecuteResponseSchema.parse(raw);
+      return ActionTaskSchema.parse(raw);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.actionTasks.list() });

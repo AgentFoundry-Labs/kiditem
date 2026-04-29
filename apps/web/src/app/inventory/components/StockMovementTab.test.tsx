@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { TransactionListItem } from '@kiditem/shared';
+import type { TransactionListItem } from '@kiditem/shared/inventory';
 
 vi.mock('../lib/inventory-api', async () => {
   const actual = await vi.importActual<typeof import('../lib/inventory-api')>('../lib/inventory-api');

@@ -6,6 +6,7 @@ function makePrisma() {
   return {
     agentDefinition: {
       findUnique: vi.fn(),
+      findFirst: vi.fn(),
     },
   } as any;
 }
@@ -29,7 +30,7 @@ describe('DelegationService', () => {
     const denial = makeDenialTracker();
     const service = new DelegationService(prisma, wakeup, denial);
 
-    prisma.agentDefinition.findUnique
+    prisma.agentDefinition.findFirst
       .mockResolvedValueOnce({ id: 'mgr-1', name: 'Manager', role: 'manager', companyId: 'co-1' })
       .mockResolvedValueOnce({ id: 'spec-1', name: 'Specialist', type: 'ad_strategy', reportsTo: 'mgr-1' });
 
@@ -53,7 +54,7 @@ describe('DelegationService', () => {
     const denial = makeDenialTracker();
     const service = new DelegationService(prisma, wakeup, denial);
 
-    prisma.agentDefinition.findUnique
+    prisma.agentDefinition.findFirst
       .mockResolvedValueOnce({ id: 'mgr-1', name: 'Manager', role: 'manager', companyId: 'co-1' })
       .mockResolvedValueOnce({ id: 'spec-2', name: 'Other', type: 'other', reportsTo: 'other-mgr' });
 
@@ -74,7 +75,7 @@ describe('DelegationService', () => {
     const denial = makeDenialTracker();
     const service = new DelegationService(prisma, wakeup, denial);
 
-    prisma.agentDefinition.findUnique.mockResolvedValue(null);
+    prisma.agentDefinition.findFirst.mockResolvedValue(null);
 
     await expect(
       service.delegate({

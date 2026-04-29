@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { OrdersService } from '../orders.service';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
-import { OrderListResponseSchema, OrderActionResponseSchema, OrderStatsResponseSchema } from '@kiditem/shared';
+import { OrderListResponseSchema, OrderActionResponseSchema, OrderStatsResponseSchema } from '@kiditem/shared/order';
 
 // Mock the coupang adapter module
 vi.mock('../../../channels/adapters/coupang/orders', () => ({

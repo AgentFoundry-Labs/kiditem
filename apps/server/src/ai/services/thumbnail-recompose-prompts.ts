@@ -1,4 +1,4 @@
-import type { RecomposeKind, RecomposeVariantKey } from '@kiditem/shared';
+import type { RecomposeKind, RecomposeVariantKey } from '@kiditem/shared/ai';
 import {
   RECOMPOSE_BOX_ONLY_OPAQUE_PROMPT,
   RECOMPOSE_BOX_ONLY_WINDOW_PROMPT,

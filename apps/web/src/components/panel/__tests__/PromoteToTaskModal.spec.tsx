@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { PromoteToTaskModal } from '../PromoteToTaskModal';
-import type { PanelAlertItem } from '@kiditem/shared';
+import type { PanelAlertItem } from '@kiditem/shared/panel';
 
 // Mock apiClient
 vi.mock('@/lib/api-client', () => ({

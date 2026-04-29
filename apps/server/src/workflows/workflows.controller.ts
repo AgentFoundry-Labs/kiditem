@@ -21,42 +21,63 @@ export class WorkflowsController {
 
   @Post()
   create(@Body() body: CreateWorkflowBodyDto, @CurrentCompany() companyId: string) {
-    return this.workflowsService.create({ ...body, companyId } as any);
+    return this.workflowsService.create(body, companyId);
   }
 
   @Get()
   findAll(@CurrentCompany() companyId: string, @Query() query: ListWorkflowsQueryDto) {
-    return this.workflowsService.findAll({ ...query, companyId });
+    return this.workflowsService.findAll(companyId, query);
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.workflowsService.findOne(id);
+  findOne(@Param('id') id: string, @CurrentCompany() companyId: string) {
+    return this.workflowsService.findOne(id, companyId);
   }
 
   @Put(':id')
-  update(@Param('id') id: string, @Body() body: UpdateWorkflowBodyDto) {
-    return this.workflowsService.update(id, body);
+  update(
+    @Param('id') id: string,
+    @CurrentCompany() companyId: string,
+    @Body() body: UpdateWorkflowBodyDto,
+  ) {
+    return this.workflowsService.update(id, companyId, body);
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.workflowsService.remove(id);
+  remove(@Param('id') id: string, @CurrentCompany() companyId: string) {
+    return this.workflowsService.remove(id, companyId);
   }
 
   @Post('batch-run')
-  batchRun(@Body() body: BatchRunWorkflowBodyDto, @CurrentUser() user: AuthUser) {
-    return this.workflowsService.batchRun(body.workflowIds, body.triggeredBy, body.context, resolveTriggeredByUserId(body.triggeredBy, user));
+  batchRun(
+    @Body() body: BatchRunWorkflowBodyDto,
+    @CurrentCompany() companyId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.workflowsService.batchRun(body.workflowIds, companyId, {
+      triggeredBy: body.triggeredBy,
+      context: body.context,
+      triggeredByUserId: resolveTriggeredByUserId(body.triggeredBy, user),
+    });
   }
 
   @Post(':id/run')
-  triggerRun(@Param('id') id: string, @Body() body: RunWorkflowBodyDto, @CurrentUser() user: AuthUser) {
-    return this.workflowsService.triggerRun(id, body.triggeredBy, body.context, resolveTriggeredByUserId(body.triggeredBy, user));
+  triggerRun(
+    @Param('id') id: string,
+    @CurrentCompany() companyId: string,
+    @Body() body: RunWorkflowBodyDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.workflowsService.triggerRun(id, companyId, {
+      triggeredBy: body.triggeredBy,
+      context: body.context,
+      triggeredByUserId: resolveTriggeredByUserId(body.triggeredBy, user),
+    });
   }
 
   @Get(':id/runs')
-  findRuns(@Param('id') id: string) {
-    return this.workflowsService.findRuns(id);
+  findRuns(@Param('id') id: string, @CurrentCompany() companyId: string) {
+    return this.workflowsService.findRuns(id, companyId);
   }
 }
 
@@ -65,7 +86,7 @@ export class WorkflowRunsController {
   constructor(private readonly workflowsService: WorkflowsService) {}
 
   @Get(':runId')
-  findRunDetail(@Param('runId') runId: string) {
-    return this.workflowsService.findRunDetail(runId);
+  findRunDetail(@Param('runId') runId: string, @CurrentCompany() companyId: string) {
+    return this.workflowsService.findRunDetail(runId, companyId);
   }
 }

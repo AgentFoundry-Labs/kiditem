@@ -3,7 +3,7 @@ import {
   Body, Controller, Delete, Get, Param, Patch, Post, Query,
 } from '@nestjs/common';
 import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
-import { BundleComponentSchema, type BundleComponent } from '@kiditem/shared';
+import { BundleComponentSchema, type BundleComponent } from '@kiditem/shared/product';
 import { toSerializable } from '../util/serialize';
 import { BundleComponentsService } from '../services/bundle-components.service';
 import { CreateBundleComponentDto } from '../dto/create-bundle-component.dto';

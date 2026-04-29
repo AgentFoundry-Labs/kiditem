@@ -2,8 +2,6 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AdsConfig } from './types';
 
-export type { AdsConfig } from './types';
-
 const DEFAULTS: Record<string, unknown> = {
   'ads.roas.thresholds': { excellent: 300, warning: 200, poor: 100 },
   'ads.adRate.thresholds': { warning: 15, critical: 20 },

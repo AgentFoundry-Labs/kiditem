@@ -12,7 +12,7 @@ import ActivityHistory from "./components/ActivityHistory";
 import ProductSidebar from "./components/ProductSidebar";
 import ProductInfoCards, { type InventoryData } from "./components/ProductInfoCards";
 import { useProductActions } from "./hooks/useProductActions";
-import { ProductCatalogDetailSchema, type ProductCatalogDetail as Product } from "@kiditem/shared";
+import { ProductCatalogDetailSchema, type ProductCatalogDetail as Product } from "@kiditem/shared/product";
 
 // Re-export types consumed by co-located components
 export type { ActivityEvent, Workflow } from "./hooks/useProductActions";

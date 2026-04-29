@@ -5,16 +5,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import type {
-  ComplianceScores,
-  EditAnalysisResult,
-  RecomposeKind,
-  RecomposeVariantKey,
-  ThumbnailGenerationItem,
-  ThumbnailGenerationListResponse,
-  ThumbnailPhase,
-} from '@kiditem/shared';
-import { RECOMPOSE_KINDS } from '@kiditem/shared';
+import type { ComplianceScores, EditAnalysisResult, RecomposeKind, RecomposeVariantKey, ThumbnailGenerationItem, ThumbnailGenerationListResponse, ThumbnailPhase } from '@kiditem/shared/ai';
+import { RECOMPOSE_KINDS } from '@kiditem/shared/ai';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   ThumbnailEditorAiService,

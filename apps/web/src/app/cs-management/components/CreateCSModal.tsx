@@ -14,7 +14,7 @@ export const CS_TYPE_LABELS: Record<string, string> = {
   etc: "기타",
 };
 
-export const CS_TYPES = Object.keys(CS_TYPE_LABELS);
+const CS_TYPES = Object.keys(CS_TYPE_LABELS);
 
 interface CreateCSModalProps {
   onClose: () => void;

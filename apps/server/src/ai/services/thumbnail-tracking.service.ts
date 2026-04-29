@@ -1,12 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import {
-  THUMBNAIL_TRACKING_STATUSES,
-  type ThumbnailTrackingListResponse,
-  type ThumbnailTrackingRecord,
-  type ThumbnailTrackingStatus,
-  type UpdateThumbnailTrackingMetricsInput,
-} from '@kiditem/shared';
+import { THUMBNAIL_TRACKING_STATUSES, type ThumbnailTrackingListResponse, type ThumbnailTrackingRecord, type ThumbnailTrackingStatus, type UpdateThumbnailTrackingMetricsInput } from '@kiditem/shared/ai';
 import { PrismaService } from '../../prisma/prisma.service';
 
 type TrackingRow = {

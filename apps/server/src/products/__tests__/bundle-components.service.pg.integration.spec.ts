@@ -92,7 +92,17 @@ describe('BundleComponentsService integration', () => {
       svc.create(TEST_COMPANY_ID, {
         bundleOptionId: bundle.id, componentOptionId: other.comp.id, qty: 1,
       }),
-    ).rejects.toMatchObject({ status: 403 });
+    ).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('rejects cross-company bundle option as not found', async () => {
+    const { comp } = await setup(TEST_COMPANY_ID);
+    const other = await setup(OTHER_COMPANY_ID);
+    await expect(
+      svc.create(TEST_COMPANY_ID, {
+        bundleOptionId: other.bundle.id, componentOptionId: comp.id, qty: 1,
+      }),
+    ).rejects.toMatchObject({ status: 404 });
   });
 
   it('rejects self reference', async () => {

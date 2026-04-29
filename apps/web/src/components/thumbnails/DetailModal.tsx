@@ -12,7 +12,7 @@ import type {
   RecomposeVariantKey,
   ThumbnailAnalysisResult,
   ThumbnailGenerationItem,
-} from '@kiditem/shared';
+} from '@kiditem/shared/ai';
 import { cn } from '@/lib/utils';
 import { RecomposeVariantPicker } from './RecomposeVariantPicker';
 import { COMPLIANCE_GRADE_BG, COMPLIANCE_GRADE_LABELS, VIOLATION_LABELS } from '@/app/thumbnails/lib/grade-constants';

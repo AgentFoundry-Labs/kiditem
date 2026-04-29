@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { OrderListResponseSchema, type OrderPipelineStatus } from '@kiditem/shared';
+import { OrderListResponseSchema, type OrderPipelineStatus } from '@kiditem/shared/order';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import { buildPipelineFromResponses, ORDER_ALL_NODES } from '../lib/order-pipeline';

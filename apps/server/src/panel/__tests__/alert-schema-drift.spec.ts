@@ -9,7 +9,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import type { Alert } from '@prisma/client';
-import { PanelAlertItem } from '@kiditem/shared';
+import { PanelAlertItem } from '@kiditem/shared/panel';
 
 // Compile-time drift guard — if Alert model loses one of these fields, tsc fails.
 // actorUserId is NOT in Alert (no actor column) — intentionally excluded.

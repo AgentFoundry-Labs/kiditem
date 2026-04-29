@@ -2,7 +2,7 @@
 
 import { ClipboardCheck, Barcode, AlertTriangle, RefreshCw, Download } from 'lucide-react';
 import { cn, timeAgo } from '@/lib/utils';
-import type { SyncInfo } from '@kiditem/shared';
+import type { SyncInfo } from '@kiditem/shared/common';
 
 interface InventoryToolbarProps {
   syncing: boolean;

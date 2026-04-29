@@ -1,20 +1,11 @@
-import type { ComplianceScores, ThumbnailAnalysisResult } from '@kiditem/shared';
+import type { ComplianceScores, ThumbnailAnalysisResult } from '@kiditem/shared/ai';
 import { VIOLATION_LABELS } from './grade-constants';
 
-export interface ViolationEvidence {
+interface ViolationEvidence {
   key: string;
   label: string;
   reason: string | null;
   confidence: number | null;
-}
-
-/**
- * 배경 위반은 reason 길이 / 표현과 무관하게 항상 confirmed 로 본다.
- * Gemini 가 lazy 하게 "배경이 흰색이 아님" 정도로만 적어도 정책상 무조건 재생성 대상.
- * (예전엔 weak-only regex 로 다운그레이드 했으나, 배경색 누수 → needs-fix 누락의 주 원인이라 제거.)
- */
-export function isWeakBackgroundOnlyReason(_key: string, _reason: string | null): boolean {
-  return false;
 }
 
 export function getViolationEvidence(

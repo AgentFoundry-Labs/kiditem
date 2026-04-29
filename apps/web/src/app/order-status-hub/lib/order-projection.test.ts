@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { OrderListItem } from '@kiditem/shared';
+import type { OrderListItem } from '@kiditem/shared/order';
 import {
   aggregateOrdersByDay,
   filterOrderListItems,

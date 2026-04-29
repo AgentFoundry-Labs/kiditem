@@ -7,7 +7,7 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { cn, timeAgo } from '@/lib/utils';
-import type { ProductCatalogDetail as Product } from '@kiditem/shared';
+import type { ProductCatalogDetail as Product } from '@kiditem/shared/product';
 import type { ActivityEvent } from '../page';
 
 interface HealthDiagnosisProps {

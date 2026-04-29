@@ -1,7 +1,7 @@
 import { formatNumber } from '@/lib/utils';
-import type { InventoryListItem } from '@kiditem/shared';
+import type { InventoryListItem } from '@kiditem/shared/inventory';
 
-export type BarcodePrintResult = 'opened' | 'popup-blocked' | 'empty';
+type BarcodePrintResult = 'opened' | 'popup-blocked' | 'empty';
 
 export function escapeHtml(value: string): string {
   return value

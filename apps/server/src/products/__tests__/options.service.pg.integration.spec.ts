@@ -6,7 +6,7 @@ import { MastersService } from '../services/masters.service';
 import { BundleStockService } from '../services/bundle-stock.service';
 import { OptionsService } from '../services/options.service';
 import {
-  makeTestPrisma, resetDb, seedBaseFixture, TEST_COMPANY_ID,
+  makeTestPrisma, resetDb, seedBaseFixture, TEST_COMPANY_ID, OTHER_COMPANY_ID,
 } from '../../test-helpers/real-prisma';
 
 describe('OptionsService integration', () => {
@@ -138,6 +138,21 @@ describe('OptionsService integration', () => {
     expect(updated.masterId).toBe(m1.id); // NOT reassigned
   });
 
+  it('update returns 404 for another company option id', async () => {
+    const otherMaster = await mastersSvc.create(OTHER_COMPANY_ID, { name: 'Other master' } as any);
+    const otherOpt = await svc.create(OTHER_COMPANY_ID, {
+      masterId: otherMaster.id,
+      optionName: 'Other option',
+    } as any);
+
+    await expect(
+      svc.update(TEST_COMPANY_ID, otherOpt.id, { optionName: 'Leaked update' } as any),
+    ).rejects.toMatchObject({ status: 404 });
+
+    const unchanged = await svc.findById(OTHER_COMPANY_ID, otherOpt.id, {});
+    expect(unchanged.optionName).toBe('Other option');
+  });
+
   it('triggers recompute on bundles when component option is soft-deleted', async () => {
     const m = await mastersSvc.create(TEST_COMPANY_ID, { name: 'M7' } as any);
     const bundle = await svc.create(TEST_COMPANY_ID, {
@@ -155,7 +170,7 @@ describe('OptionsService integration', () => {
         qty: 2,
       },
     });
-    await bundleStockSvc.recompute(bundle.id);
+    await bundleStockSvc.recompute(TEST_COMPANY_ID, bundle.id);
     const before = await prisma.productOption.findUniqueOrThrow({ where: { id: bundle.id } });
     expect(before.availableStock).toBe(5);
 

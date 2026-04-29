@@ -1,13 +1,13 @@
 /**
  * 상품 이미지 허브의 role 정의.
- * `/image-hub` 페이지와 `HubInlinePicker` 에서 공유하여 drift 방지.
+ * `/image-hub` 페이지와 thumbnail editor image source drawer 에서 공유하여 drift 방지.
  *
  * Role enum 자체는 `@kiditem/shared`의 `MasterImageRoleSchema`가 source of truth.
  * 이 파일은 UI용 라벨/설명만 유지.
  */
 
-import type { MasterImageRole } from '@kiditem/shared';
-export type { MasterImageRole } from '@kiditem/shared';
+import type { MasterImageRole } from '@kiditem/shared/product';
+export type { MasterImageRole } from '@kiditem/shared/product';
 
 export const HUB_ROLE_CONFIG: ReadonlyArray<{
   role: MasterImageRole;

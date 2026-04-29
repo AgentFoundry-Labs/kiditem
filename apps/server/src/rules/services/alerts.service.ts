@@ -12,7 +12,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { kstDayStart } from '../../common/kst';
 import { alertPanelAdapter } from '../../panel/adapters/alert.adapter';
 import { PANEL_EVENTS } from '../../panel/events/panel-events';
-import type { AlertItem } from '@kiditem/shared';
+import type { AlertItem } from '@kiditem/shared/alerts';
 import type { PromoteAlertDto } from '../dto';
 
 // ── severity → ActionTask.priority mapping ──────────────────────────────────
@@ -50,10 +50,10 @@ export class AlertsService {
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
-  async findAll(limit?: number) {
+  async findAll(companyId: string, limit?: number) {
     try {
       const rows = await this.prisma.alert.findMany({
-        where: { isRead: false },
+        where: { companyId, isRead: false },
         orderBy: { createdAt: 'desc' },
         ...(limit ? { take: limit } : {}),
         select: {
@@ -78,18 +78,21 @@ export class AlertsService {
     }
   }
 
-  async markAsRead(id: string) {
-    const alert = await this.prisma.alert.findUnique({ where: { id } });
-    if (!alert) throw new NotFoundException('알림을 찾을 수 없습니다.');
-    return this.prisma.alert.update({
-      where: { id },
+  async markAsRead(id: string, companyId: string) {
+    const result = await this.prisma.alert.updateMany({
+      where: { id, companyId },
       data: { isRead: true },
     });
+    if (result.count === 0) throw new NotFoundException('알림을 찾을 수 없습니다.');
+
+    const alert = await this.prisma.alert.findFirst({ where: { id, companyId } });
+    if (!alert) throw new NotFoundException('알림을 찾을 수 없습니다.');
+    return alert;
   }
 
-  async markAllAsRead(): Promise<{ updated: number }> {
+  async markAllAsRead(companyId: string): Promise<{ updated: number }> {
     const result = await this.prisma.alert.updateMany({
-      where: { isRead: false },
+      where: { companyId, isRead: false },
       data: { isRead: true },
     });
     return { updated: result.count };

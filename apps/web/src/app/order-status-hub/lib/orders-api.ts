@@ -5,7 +5,7 @@ import {
   type OrderListResponse,
   type OrderStatus,
   type OrderStatsResponse,
-} from '@kiditem/shared';
+} from '@kiditem/shared/order';
 import { apiClient } from '@/lib/api-client';
 
 const ORDER_LIST_STATUSES: OrderStatus[] = [
@@ -17,7 +17,7 @@ const ORDER_LIST_STATUSES: OrderStatus[] = [
   'CANCELED',
 ];
 
-export interface OrderListParams {
+interface OrderListParams {
   from?: string;
   to?: string;
   status?: string;
@@ -32,7 +32,7 @@ function searchParams(params: OrderListParams): string {
   return qs ? `?${qs}` : '';
 }
 
-export function orderListKeyParams(params: OrderListParams): Record<string, string> {
+function orderListKeyParams(params: OrderListParams): Record<string, string> {
   const result: Record<string, string> = {};
   if (params.from) result.from = params.from;
   if (params.to) result.to = params.to;
@@ -49,7 +49,7 @@ export function allOrderStatusesKeyParams(
   };
 }
 
-export async function fetchOrderList(params: OrderListParams): Promise<OrderListResponse> {
+async function fetchOrderList(params: OrderListParams): Promise<OrderListResponse> {
   return apiClient.getParsed(`/api/orders${searchParams(params)}`, OrderListResponseSchema);
 }
 

@@ -1,6 +1,6 @@
 'use client';
 
-export type { Agent, HeartbeatRun, AgentRuntimeState, DailyCost, CostAnalytics } from '@kiditem/shared';
+export type { Agent, HeartbeatRun, AgentRuntimeState, DailyCost } from '@kiditem/shared/agent';
 
 export const ROLE_LABELS: Record<string, string> = {
   specialist: 'Specialist',

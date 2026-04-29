@@ -21,10 +21,14 @@ describe('BundleStockService.recomputeForComponent', () => {
 
   it('no bundles using this component → empty array', async () => {
     mockTx.bundleComponent.findMany.mockResolvedValue([]);
-    const result = await service.recomputeForComponent('opt-1', mockTx);
+    const result = await service.recomputeForComponent('company-1', 'opt-1', mockTx);
     expect(result).toEqual([]);
     expect(mockTx.bundleComponent.findMany).toHaveBeenCalledWith({
-      where: { componentOptionId: 'opt-1', componentOption: { isDeleted: false } },
+      where: {
+        companyId: 'company-1',
+        componentOptionId: 'opt-1',
+        componentOption: { isDeleted: false },
+      },
       select: { bundleOptionId: true },
     });
   });
@@ -36,17 +40,17 @@ describe('BundleStockService.recomputeForComponent', () => {
     ]);
     const spy = vi.spyOn(service, 'recompute').mockResolvedValue(undefined as any);
 
-    const result = await service.recomputeForComponent('opt-1', mockTx);
+    const result = await service.recomputeForComponent('company-1', 'opt-1', mockTx);
 
     expect(spy).toHaveBeenCalledTimes(2);
-    expect(spy).toHaveBeenCalledWith('bundle-A', mockTx);
-    expect(spy).toHaveBeenCalledWith('bundle-B', mockTx);
+    expect(spy).toHaveBeenCalledWith('company-1', 'bundle-A', mockTx);
+    expect(spy).toHaveBeenCalledWith('company-1', 'bundle-B', mockTx);
     expect(result).toEqual(['bundle-A', 'bundle-B']);
   });
 
   it('soft-deleted componentOption excluded by where clause', async () => {
     mockTx.bundleComponent.findMany.mockResolvedValue([]);
-    await service.recomputeForComponent('opt-deleted', mockTx);
+    await service.recomputeForComponent('company-1', 'opt-deleted', mockTx);
     const call = mockTx.bundleComponent.findMany.mock.calls[0][0];
     expect(call.where.componentOption.isDeleted).toBe(false);
   });

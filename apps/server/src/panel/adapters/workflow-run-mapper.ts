@@ -1,5 +1,5 @@
 import type { PrismaService } from '../../prisma/prisma.service';
-import type { PanelItem } from '@kiditem/shared';
+import type { PanelItem } from '@kiditem/shared/panel';
 import { workflowPanelAdapter } from './workflow.adapter';
 
 /**
@@ -10,9 +10,10 @@ import { workflowPanelAdapter } from './workflow.adapter';
 export async function buildWorkflowPanelItem(
   prisma: PrismaService,
   runId: string,
+  companyId?: string,
 ): Promise<{ item: Omit<PanelItem, 'seq' | 'updatedAt'>; companyId: string } | null> {
-  const run = await prisma.workflowRun.findUnique({
-    where: { id: runId },
+  const run = await prisma.workflowRun.findFirst({
+    where: companyId ? { id: runId, companyId } : { id: runId },
     include: { template: { select: { name: true } } },
   });
   if (!run || !run.companyId) return null;

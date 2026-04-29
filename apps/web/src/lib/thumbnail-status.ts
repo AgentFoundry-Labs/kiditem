@@ -1,4 +1,4 @@
-import type { ThumbnailGenerationItem } from '@kiditem/shared';
+import type { ThumbnailGenerationItem } from '@kiditem/shared/ai';
 
 /**
  * ADR-0011 Phase 3 frontend helpers. Compose canonical (status, phase) into

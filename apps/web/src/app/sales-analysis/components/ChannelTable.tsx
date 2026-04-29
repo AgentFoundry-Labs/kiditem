@@ -2,7 +2,7 @@
 
 import { cn, formatKRW, formatNumber, formatPercent } from '@/lib/utils';
 import SortableHeader from '@/components/ui/SortableHeader';
-import type { ChannelAnalysis } from '@kiditem/shared';
+import type { ChannelAnalysis } from '@kiditem/shared/finance';
 
 type SortField = 'totalOrders' | 'totalRevenue' | 'totalCost' | 'totalProfit' | 'avgOrderValue';
 type SortDir = 'asc' | 'desc' | null;

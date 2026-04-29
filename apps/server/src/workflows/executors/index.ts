@@ -6,7 +6,7 @@ export interface ExecutorServices {
   agentRegistry?: import('../../agent-registry/agent-registry.service').AgentRegistryService;
 }
 
-export type NodeExecutorFn = (
+type NodeExecutorFn = (
   prisma: PrismaService,
   config: Record<string, any>,
   context: WorkflowContext,

@@ -11,15 +11,18 @@ function makePrisma() {
     workflowTemplate: {
       create: vi.fn(),
       findMany: vi.fn(),
-      findUnique: vi.fn(),
+      findFirst: vi.fn(),
       update: vi.fn(),
       delete: vi.fn(),
     },
     workflowRun: {
       create: vi.fn(),
-      findUnique: vi.fn(),
+      findFirst: vi.fn(),
       findMany: vi.fn(),
-      update: vi.fn(),
+      updateMany: vi.fn(),
+      // Legacy panel adapter calls used findUnique; keep a no-op stub so older
+      // assertions stay quiet if a test imports the adapter directly.
+      findUnique: vi.fn().mockResolvedValue(null),
     },
     alert: {
       create: vi.fn(),
@@ -87,12 +90,15 @@ describe('WorkflowsService', () => {
   describe('triggerRun', () => {
     it('creates WorkflowRun with status="pending" and fires runner async', async () => {
       const run = makeRun();
-      prisma.workflowTemplate.findUnique.mockResolvedValue(makeTemplate());
+      prisma.workflowTemplate.findFirst.mockResolvedValue(makeTemplate());
       prisma.workflowRun.create.mockResolvedValue(run);
       runner.runWorkflow.mockResolvedValue(undefined);
 
-      const result = await service.triggerRun('tmpl-1', 'manual');
+      const result = await service.triggerRun('tmpl-1', 'company-1', { triggeredBy: 'manual' });
 
+      expect(prisma.workflowTemplate.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'tmpl-1', companyId: 'company-1' } }),
+      );
       expect(prisma.workflowRun.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
           templateId: 'tmpl-1',
@@ -106,16 +112,16 @@ describe('WorkflowsService', () => {
       // runner.runWorkflow is called asynchronously (fire-and-forget),
       // so we allow a tick for the micro-task to schedule
       await Promise.resolve();
-      expect(runner.runWorkflow).toHaveBeenCalledWith('run-1', 'tmpl-1');
+      expect(runner.runWorkflow).toHaveBeenCalledWith('run-1', 'tmpl-1', 'company-1');
     });
 
     it('stores companyId from template and triggeredByUserId for manual trigger', async () => {
       const run = makeRun({ companyId: 'company-1', triggeredByUserId: 'user-x' });
-      prisma.workflowTemplate.findUnique.mockResolvedValue(makeTemplate({ companyId: 'company-1' }));
+      prisma.workflowTemplate.findFirst.mockResolvedValue(makeTemplate({ companyId: 'company-1' }));
       prisma.workflowRun.create.mockResolvedValue(run);
       runner.runWorkflow.mockResolvedValue(undefined);
 
-      await service.triggerRun('tmpl-1', 'manual', undefined, 'user-x');
+      await service.triggerRun('tmpl-1', 'company-1', { triggeredBy: 'manual', triggeredByUserId: 'user-x' });
 
       expect(prisma.workflowRun.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
@@ -126,18 +132,33 @@ describe('WorkflowsService', () => {
     });
 
     it('throws NotFoundException when template does not exist', async () => {
-      prisma.workflowTemplate.findUnique.mockResolvedValue(null);
+      prisma.workflowTemplate.findFirst.mockResolvedValue(null);
 
-      await expect(service.triggerRun('nonexistent', 'manual')).rejects.toThrow('nonexistent');
+      await expect(service.triggerRun('nonexistent', 'company-1', { triggeredBy: 'manual' })).rejects.toThrow('nonexistent');
+    });
+
+    it('throws NotFoundException when template belongs to a different company (IDOR guard)', async () => {
+      // findFirst with mismatched companyId returns null → 404
+      prisma.workflowTemplate.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.triggerRun('tmpl-1', 'company-OTHER', { triggeredBy: 'manual' }),
+      ).rejects.toThrow('tmpl-1');
+
+      expect(prisma.workflowTemplate.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'tmpl-1', companyId: 'company-OTHER' } }),
+      );
+      expect(prisma.workflowRun.create).not.toHaveBeenCalled();
+      expect(runner.runWorkflow).not.toHaveBeenCalled();
     });
 
     it('passes context data when provided', async () => {
       const run = makeRun({ contextData: { productId: 'prod-1' } });
-      prisma.workflowTemplate.findUnique.mockResolvedValue(makeTemplate());
+      prisma.workflowTemplate.findFirst.mockResolvedValue(makeTemplate());
       prisma.workflowRun.create.mockResolvedValue(run);
       runner.runWorkflow.mockResolvedValue(undefined);
 
-      await service.triggerRun('tmpl-1', 'manual', { productId: 'prod-1' });
+      await service.triggerRun('tmpl-1', 'company-1', { triggeredBy: 'manual', context: { productId: 'prod-1' } });
 
       expect(prisma.workflowRun.create).toHaveBeenCalledWith({
         data: expect.objectContaining({ contextData: { productId: 'prod-1' } }),
@@ -146,20 +167,114 @@ describe('WorkflowsService', () => {
   });
 
   describe('findRunDetail', () => {
-    it('returns run detail with steps', async () => {
+    it('returns run detail with steps when companyId matches', async () => {
       const run = makeRun({
         status: 'succeeded',
         steps: [
           { nodeId: 'n1', nodeType: 'trigger.manual', status: 'succeeded', outputData: { triggeredAt: '2026-01-01' } },
         ],
       });
-      prisma.workflowRun.findUnique.mockResolvedValue(run);
+      prisma.workflowRun.findFirst.mockResolvedValue(run);
 
-      const result = await service.findRunDetail('run-1');
+      const result = await service.findRunDetail('run-1', 'company-1');
 
-      expect(prisma.workflowRun.findUnique).toHaveBeenCalledWith({ where: { id: 'run-1' } });
-      expect(result?.status).toBe('succeeded');
-      expect(result?.steps).toHaveLength(1);
+      expect(prisma.workflowRun.findFirst).toHaveBeenCalledWith({ where: { id: 'run-1', companyId: 'company-1' } });
+      expect(result.status).toBe('succeeded');
+      expect(result.steps).toHaveLength(1);
+    });
+
+    it('throws NotFoundException when run belongs to a different company (IDOR guard)', async () => {
+      prisma.workflowRun.findFirst.mockResolvedValue(null);
+
+      await expect(service.findRunDetail('run-1', 'company-OTHER')).rejects.toThrow('run-1');
+      expect(prisma.workflowRun.findFirst).toHaveBeenCalledWith({ where: { id: 'run-1', companyId: 'company-OTHER' } });
+    });
+  });
+
+  describe('findOne', () => {
+    it('throws NotFoundException when template belongs to a different company (IDOR guard)', async () => {
+      prisma.workflowTemplate.findFirst.mockResolvedValue(null);
+
+      await expect(service.findOne('tmpl-1', 'company-OTHER')).rejects.toThrow('tmpl-1');
+      expect(prisma.workflowTemplate.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'tmpl-1', companyId: 'company-OTHER' } }),
+      );
+    });
+  });
+
+  describe('update', () => {
+    it('throws NotFoundException without writing when template belongs to a different company', async () => {
+      prisma.workflowTemplate.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.update('tmpl-1', 'company-OTHER', { name: 'hacked' } as any),
+      ).rejects.toThrow('tmpl-1');
+      expect(prisma.workflowTemplate.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('remove', () => {
+    it('throws NotFoundException without deleting when template belongs to a different company', async () => {
+      prisma.workflowTemplate.findFirst.mockResolvedValue(null);
+
+      await expect(service.remove('tmpl-1', 'company-OTHER')).rejects.toThrow('tmpl-1');
+      expect(prisma.workflowTemplate.delete).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('batchRun', () => {
+    it('allows duplicate owned templateIds while preserving requested run count', async () => {
+      prisma.workflowTemplate.findMany.mockResolvedValue([
+        { id: 'tmpl-1', companyId: 'company-1' },
+      ]);
+      prisma.workflowRun.create.mockImplementation(({ data }: any) =>
+        Promise.resolve(makeRun({ id: `run-${data.templateId}-${prisma.workflowRun.create.mock.calls.length}`, ...data })),
+      );
+      runner.runBatch.mockResolvedValue(undefined);
+
+      const result = await service.batchRun(['tmpl-1', 'tmpl-1'], 'company-1', { triggeredBy: 'manual' });
+
+      expect(prisma.workflowTemplate.findMany).toHaveBeenCalledWith({
+        where: { id: { in: ['tmpl-1'] }, companyId: 'company-1' },
+        select: { id: true, companyId: true },
+      });
+      expect(prisma.workflowRun.create).toHaveBeenCalledTimes(2);
+      expect(result).toHaveLength(2);
+    });
+
+    it('throws NotFoundException when any templateId is owned by a different company', async () => {
+      // Only one of the two requested templates is found under company-1
+      prisma.workflowTemplate.findMany.mockResolvedValue([
+        { id: 'tmpl-1', companyId: 'company-1' },
+      ]);
+
+      await expect(
+        service.batchRun(['tmpl-1', 'tmpl-foreign'], 'company-1', { triggeredBy: 'manual' }),
+      ).rejects.toThrow('tmpl-foreign');
+      expect(prisma.workflowRun.create).not.toHaveBeenCalled();
+      expect(runner.runBatch).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('findRuns', () => {
+    it('throws NotFoundException when template belongs to a different company without listing runs', async () => {
+      prisma.workflowTemplate.findFirst.mockResolvedValue(null);
+
+      await expect(service.findRuns('tmpl-1', 'company-OTHER')).rejects.toThrow('tmpl-1');
+      expect(prisma.workflowRun.findMany).not.toHaveBeenCalled();
+    });
+
+    it('lists runs scoped to (templateId, companyId) when ownership verified', async () => {
+      prisma.workflowTemplate.findFirst.mockResolvedValue({ id: 'tmpl-1' });
+      prisma.workflowRun.findMany.mockResolvedValue([makeRun()]);
+
+      const result = await service.findRuns('tmpl-1', 'company-1');
+
+      expect(prisma.workflowRun.findMany).toHaveBeenCalledWith({
+        where: { templateId: 'tmpl-1', companyId: 'company-1' },
+        orderBy: { createdAt: 'desc' },
+      });
+      expect(result).toHaveLength(1);
     });
   });
 });
@@ -177,26 +292,37 @@ describe('WorkflowRunnerService', () => {
   });
 
   // Helper to build a run DB fixture (with step tracking state)
-  function setupRunTracking(runId: string, contextData: Record<string, any> = {}) {
-    const runRecord = makeRun({ id: runId, contextData, steps: [] });
+  function setupRunTracking(
+    runId: string,
+    contextData: Record<string, any> = {},
+    companyId: string = 'company-1',
+  ) {
+    const runRecord = makeRun({ id: runId, contextData, companyId, steps: [] });
 
-    // findUnique for run context and for step tracking — always return current state
-    prisma.workflowRun.findUnique.mockImplementation(({ where }: any) => {
-      if (where.id === runId) return Promise.resolve({ ...runRecord, steps: [] });
+    // findFirst for run context and for step tracking — only matches when both
+    // id AND companyId are provided (the runner now scopes every read).
+    prisma.workflowRun.findFirst.mockImplementation(({ where }: any) => {
+      if (where?.id === runId && where?.companyId === companyId) {
+        return Promise.resolve({ ...runRecord, steps: [] });
+      }
       return Promise.resolve(null);
     });
 
-    // Track step mutations
+    // Track step mutations. updateMany returns Prisma's `{ count }` shape; we
+    // also fold the new steps into the in-flight findFirst result so subsequent
+    // reads in the same run see the latest array.
     let steps: any[] = [];
-    prisma.workflowRun.update.mockImplementation(({ where, data }: any) => {
-      if (where.id === runId && data.steps !== undefined) {
+    prisma.workflowRun.updateMany.mockImplementation(({ where, data }: any) => {
+      if (where?.id === runId && where?.companyId === companyId && data.steps !== undefined) {
         steps = data.steps;
-        // update in-flight findUnique to reflect latest steps
-        prisma.workflowRun.findUnique.mockImplementation(() =>
-          Promise.resolve({ ...runRecord, steps }),
-        );
+        prisma.workflowRun.findFirst.mockImplementation(({ where: w }: any) => {
+          if (w?.id === runId && w?.companyId === companyId) {
+            return Promise.resolve({ ...runRecord, steps });
+          }
+          return Promise.resolve(null);
+        });
       }
-      return Promise.resolve({ ...runRecord, ...data, steps });
+      return Promise.resolve({ count: 1 });
     });
   }
 
@@ -221,15 +347,15 @@ describe('WorkflowRunnerService', () => {
       const edgesJson = [{ id: 'e1', source: 'n1', target: 'n2' }];
 
       const template = makeTemplate({ nodesJson, edgesJson });
-      prisma.workflowTemplate.findUnique.mockResolvedValue(template);
+      prisma.workflowTemplate.findFirst.mockResolvedValue(template);
       setupRunTracking('run-1');
 
-      await runner.runWorkflow('run-1', 'tmpl-1');
+      await runner.runWorkflow('run-1', 'tmpl-1', 'company-1');
 
       expect(executionOrder).toEqual(['first', 'second']);
 
       // Final update should be 'succeeded'
-      const completedCall = prisma.workflowRun.update.mock.calls.find(
+      const completedCall = prisma.workflowRun.updateMany.mock.calls.find(
         ([args]: any[]) => args.data?.status === 'succeeded',
       );
       expect(completedCall).toBeDefined();
@@ -254,10 +380,10 @@ describe('WorkflowRunnerService', () => {
       const edgesJson = [{ id: 'e1', source: 'n1', target: 'n2' }];
 
       const template = makeTemplate({ nodesJson, edgesJson });
-      prisma.workflowTemplate.findUnique.mockResolvedValue(template);
+      prisma.workflowTemplate.findFirst.mockResolvedValue(template);
       setupRunTracking('run-2');
 
-      await runner.runWorkflow('run-2', 'tmpl-1');
+      await runner.runWorkflow('run-2', 'tmpl-1', 'company-1');
 
       expect(capturedContextOutput).toBeDefined();
       expect((capturedContextOutput as any).count).toBe(1);
@@ -271,12 +397,12 @@ describe('WorkflowRunnerService', () => {
       ];
 
       const template = makeTemplate({ nodesJson, edgesJson: [] });
-      prisma.workflowTemplate.findUnique.mockResolvedValue(template);
+      prisma.workflowTemplate.findFirst.mockResolvedValue(template);
       setupRunTracking('run-3');
 
-      await runner.runWorkflow('run-3', 'tmpl-1');
+      await runner.runWorkflow('run-3', 'tmpl-1', 'company-1');
 
-      const statusUpdates = prisma.workflowRun.update.mock.calls.map(
+      const statusUpdates = prisma.workflowRun.updateMany.mock.calls.map(
         ([args]: any[]) => args.data?.status,
       ).filter(Boolean);
 
@@ -294,12 +420,12 @@ describe('WorkflowRunnerService', () => {
       ];
 
       const template = makeTemplate({ nodesJson, edgesJson: [] });
-      prisma.workflowTemplate.findUnique.mockResolvedValue(template);
+      prisma.workflowTemplate.findFirst.mockResolvedValue(template);
       setupRunTracking('run-4');
 
-      await runner.runWorkflow('run-4', 'tmpl-1');
+      await runner.runWorkflow('run-4', 'tmpl-1', 'company-1');
 
-      const failedCall = prisma.workflowRun.update.mock.calls.find(
+      const failedCall = prisma.workflowRun.updateMany.mock.calls.find(
         ([args]: any[]) => args.data?.status === 'failed',
       );
       expect(failedCall).toBeDefined();
@@ -307,19 +433,65 @@ describe('WorkflowRunnerService', () => {
       expect(failedData.error).toContain('executor 오류 발생');
     });
 
-    it('template not found → run marked as failed immediately', async () => {
-      prisma.workflowTemplate.findUnique.mockResolvedValue(null);
+    it('template not found → run marked as failed immediately, scoped by companyId', async () => {
+      prisma.workflowTemplate.findFirst.mockResolvedValue(null);
+      prisma.workflowRun.findFirst.mockResolvedValue(makeRun({ id: 'run-5' }));
+      prisma.workflowRun.updateMany.mockResolvedValue({ count: 1 });
 
-      // Minimal run stub (runner accesses workflowRun.findUnique and update)
-      prisma.workflowRun.findUnique.mockResolvedValue(makeRun({ id: 'run-5' }));
-      prisma.workflowRun.update.mockResolvedValue({});
+      await runner.runWorkflow('run-5', 'tmpl-nonexistent', 'company-1');
 
-      await runner.runWorkflow('run-5', 'tmpl-nonexistent');
-
-      expect(prisma.workflowRun.update).toHaveBeenCalledWith({
-        where: { id: 'run-5' },
+      expect(prisma.workflowTemplate.findFirst).toHaveBeenCalledWith({
+        where: { id: 'tmpl-nonexistent', companyId: 'company-1' },
+      });
+      expect(prisma.workflowRun.updateMany).toHaveBeenCalledWith({
+        where: { id: 'run-5', companyId: 'company-1' },
         data: { status: 'failed', error: 'Template not found' },
       });
+    });
+
+    it('template owned by a different company → run marked failed scoped by caller companyId (IDOR guard)', async () => {
+      // Even though tmpl-1 exists in DB, the runner is invoked with the caller's
+      // companyId. findFirst({ id, companyId }) returns null → run is marked
+      // failed via updateMany({ id, companyId }), so a request from
+      // company-OTHER cannot affect tmpl-1's owning tenant's data.
+      prisma.workflowTemplate.findFirst.mockResolvedValue(null);
+      prisma.workflowRun.updateMany.mockResolvedValue({ count: 0 });
+
+      await runner.runWorkflow('run-cross', 'tmpl-1', 'company-OTHER');
+
+      expect(prisma.workflowTemplate.findFirst).toHaveBeenCalledWith({
+        where: { id: 'tmpl-1', companyId: 'company-OTHER' },
+      });
+      expect(prisma.workflowRun.updateMany).toHaveBeenCalledWith({
+        where: { id: 'run-cross', companyId: 'company-OTHER' },
+        data: { status: 'failed', error: 'Template not found' },
+      });
+    });
+
+    it('run owned by a different company → does not execute nodes or write by bare runId', async () => {
+      let executed = false;
+      registerNode('test.must_not_run', async () => {
+        executed = true;
+        return { ok: true };
+      });
+
+      const template = makeTemplate({
+        nodesJson: [
+          { id: 'n1', data: { nodeType: 'test.must_not_run', label: '실행 금지', config: {} }, position: { x: 0, y: 0 } },
+        ],
+        edgesJson: [],
+      });
+      prisma.workflowTemplate.findFirst.mockResolvedValue(template);
+      prisma.workflowRun.findFirst.mockResolvedValue(null);
+      prisma.workflowRun.updateMany.mockResolvedValue({ count: 0 });
+
+      await runner.runWorkflow('foreign-run', 'tmpl-1', 'company-1');
+
+      expect(prisma.workflowRun.findFirst).toHaveBeenCalledWith({
+        where: { id: 'foreign-run', companyId: 'company-1' },
+      });
+      expect(executed).toBe(false);
+      expect(prisma.workflowRun.updateMany).not.toHaveBeenCalled();
     });
 
     it('unknown node type → throws and records error in steps', async () => {
@@ -328,13 +500,13 @@ describe('WorkflowRunnerService', () => {
       ];
 
       const template = makeTemplate({ nodesJson, edgesJson: [] });
-      prisma.workflowTemplate.findUnique.mockResolvedValue(template);
+      prisma.workflowTemplate.findFirst.mockResolvedValue(template);
       setupRunTracking('run-6');
 
-      await runner.runWorkflow('run-6', 'tmpl-1');
+      await runner.runWorkflow('run-6', 'tmpl-1', 'company-1');
 
       // Should have failed run record
-      const failedCall = prisma.workflowRun.update.mock.calls.find(
+      const failedCall = prisma.workflowRun.updateMany.mock.calls.find(
         ([args]: any[]) => args.data?.status === 'failed',
       );
       expect(failedCall).toBeDefined();
@@ -361,10 +533,10 @@ describe('WorkflowRunnerService', () => {
       ];
 
       const template = makeTemplate({ nodesJson, edgesJson: [] });
-      prisma.workflowTemplate.findUnique.mockResolvedValue(template);
+      prisma.workflowTemplate.findFirst.mockResolvedValue(template);
       setupRunTracking('run-7');
 
-      await runner.runWorkflow('run-7', 'tmpl-1');
+      await runner.runWorkflow('run-7', 'tmpl-1', 'company-1');
 
       expect(capturedConfig).toBeDefined();
       expect(capturedConfig.company_id).toBe('company-1'); // auto-injected from template
@@ -386,31 +558,85 @@ describe('WorkflowRunnerService', () => {
       ];
       const template = makeTemplate({ nodesJson, edgesJson: [] });
 
-      prisma.workflowTemplate.findUnique.mockResolvedValue(template);
+      prisma.workflowTemplate.findFirst.mockResolvedValue(template);
 
       // Setup tracking for two runs
       let run7Steps: any[] = [];
       let run8Steps: any[] = [];
 
-      prisma.workflowRun.findUnique.mockImplementation(({ where }: any) => {
-        if (where.id === 'run-batch-1') return Promise.resolve(makeRun({ id: 'run-batch-1', steps: run7Steps }));
-        if (where.id === 'run-batch-2') return Promise.resolve(makeRun({ id: 'run-batch-2', steps: run8Steps }));
+      prisma.workflowRun.findFirst.mockImplementation(({ where }: any) => {
+        if (where?.companyId !== 'company-1') return Promise.resolve(null);
+        if (where?.id === 'run-batch-1') return Promise.resolve(makeRun({ id: 'run-batch-1', steps: run7Steps }));
+        if (where?.id === 'run-batch-2') return Promise.resolve(makeRun({ id: 'run-batch-2', steps: run8Steps }));
         return Promise.resolve(null);
       });
 
-      prisma.workflowRun.update.mockImplementation(({ where, data }: any) => {
+      prisma.workflowRun.updateMany.mockImplementation(({ where, data }: any) => {
         const steps = data.steps;
-        if (where.id === 'run-batch-1' && steps) run7Steps = steps;
-        if (where.id === 'run-batch-2' && steps) run8Steps = steps;
-        return Promise.resolve({ id: where.id, ...data });
+        if (where?.companyId !== 'company-1') return Promise.resolve({ count: 0 });
+        if (where?.id === 'run-batch-1' && steps) run7Steps = steps;
+        if (where?.id === 'run-batch-2' && steps) run8Steps = steps;
+        return Promise.resolve({ count: 1 });
       });
 
       await runner.runBatch([
-        { runId: 'run-batch-1', templateId: 'tmpl-1' },
-        { runId: 'run-batch-2', templateId: 'tmpl-1' },
+        { runId: 'run-batch-1', templateId: 'tmpl-1', companyId: 'company-1' },
+        { runId: 'run-batch-2', templateId: 'tmpl-1', companyId: 'company-1' },
       ]);
 
       expect(calls).toHaveLength(2);
+    });
+
+    it('threads per-item companyId through every Prisma read and write (defense-in-depth)', async () => {
+      registerNode('test.batch_scope', async () => ({ ok: true }));
+
+      const nodesJson = [
+        { id: 'n1', data: { nodeType: 'test.batch_scope', label: '스코프', config: {} }, position: { x: 0, y: 0 } },
+      ];
+      const templateA = makeTemplate({ id: 'tmpl-A', companyId: 'company-A', nodesJson, edgesJson: [] });
+      const templateB = makeTemplate({ id: 'tmpl-B', companyId: 'company-B', nodesJson, edgesJson: [] });
+
+      prisma.workflowTemplate.findFirst.mockImplementation(({ where }: any) => {
+        if (where?.id === 'tmpl-A' && where?.companyId === 'company-A') return Promise.resolve(templateA);
+        if (where?.id === 'tmpl-B' && where?.companyId === 'company-B') return Promise.resolve(templateB);
+        return Promise.resolve(null);
+      });
+
+      const stepsByRun: Record<string, any[]> = { 'run-A': [], 'run-B': [] };
+      prisma.workflowRun.findFirst.mockImplementation(({ where }: any) => {
+        if (where?.id === 'run-A' && where?.companyId === 'company-A') {
+          return Promise.resolve(makeRun({ id: 'run-A', companyId: 'company-A', steps: stepsByRun['run-A'] }));
+        }
+        if (where?.id === 'run-B' && where?.companyId === 'company-B') {
+          return Promise.resolve(makeRun({ id: 'run-B', companyId: 'company-B', steps: stepsByRun['run-B'] }));
+        }
+        return Promise.resolve(null);
+      });
+      prisma.workflowRun.updateMany.mockImplementation(({ where, data }: any) => {
+        const id = where?.id as string;
+        const cid = where?.companyId as string;
+        if (id === 'run-A' && cid !== 'company-A') return Promise.resolve({ count: 0 });
+        if (id === 'run-B' && cid !== 'company-B') return Promise.resolve({ count: 0 });
+        if (data?.steps !== undefined && stepsByRun[id]) stepsByRun[id] = data.steps;
+        return Promise.resolve({ count: 1 });
+      });
+
+      await runner.runBatch([
+        { runId: 'run-A', templateId: 'tmpl-A', companyId: 'company-A' },
+        { runId: 'run-B', templateId: 'tmpl-B', companyId: 'company-B' },
+      ]);
+
+      // Every updateMany invocation must carry a companyId in its where clause.
+      const updateCalls = prisma.workflowRun.updateMany.mock.calls.map(([args]: any[]) => args.where);
+      expect(updateCalls.length).toBeGreaterThan(0);
+      for (const where of updateCalls) {
+        expect(where.companyId).toBeDefined();
+      }
+      // Each run's writes only target its own tenant.
+      const runACalls = updateCalls.filter((w: any) => w.id === 'run-A');
+      const runBCalls = updateCalls.filter((w: any) => w.id === 'run-B');
+      expect(runACalls.every((w: any) => w.companyId === 'company-A')).toBe(true);
+      expect(runBCalls.every((w: any) => w.companyId === 'company-B')).toBe(true);
     });
   });
 });

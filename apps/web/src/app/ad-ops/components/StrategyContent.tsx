@@ -23,7 +23,7 @@ import type {
   AdStrategyAction,
   AdWeeklyPlan,
   ChannelStateSignal,
-} from "@kiditem/shared";
+} from "@kiditem/shared/advertising";
 import type { RegisterCampaignPayload } from "../hooks/useAdOpsData";
 
 interface GradeProduct {

@@ -2,7 +2,7 @@
 
 import { X } from 'lucide-react';
 import { formatDateTime } from '@/lib/utils';
-import type { AgentEvent } from '@kiditem/shared';
+import type { AgentEvent } from '@kiditem/shared/agent-trace';
 
 interface EventDetailModalProps {
   event: AgentEvent | null;

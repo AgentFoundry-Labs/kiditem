@@ -99,7 +99,7 @@ export interface StandardThumbnail {
   status: string;
 }
 
-export type ConfigFieldType =
+type ConfigFieldType =
   | 'text'
   | 'number'
   | 'select'
@@ -109,7 +109,7 @@ export type ConfigFieldType =
   | 'template'
   | 'json';
 
-export interface ConfigField {
+interface ConfigField {
   key: string;
   label: string;
   type: ConfigFieldType;
@@ -119,7 +119,7 @@ export interface ConfigField {
   options?: { value: string; label: string }[];
 }
 
-export interface OutputField {
+interface OutputField {
   key: string;
   type: string;
   description: string;

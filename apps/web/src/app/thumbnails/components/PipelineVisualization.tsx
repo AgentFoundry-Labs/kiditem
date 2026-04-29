@@ -7,7 +7,7 @@ import {
   Zap,
   type LucideIcon,
 } from 'lucide-react';
-import type { ThumbnailAnalysisResult, ThumbnailGenerationItem } from '@kiditem/shared';
+import type { ThumbnailAnalysisResult, ThumbnailGenerationItem } from '@kiditem/shared/ai';
 import { isReady } from '@/lib/thumbnail-status';
 
 export type PipelineTab = 'unclassified' | 'all' | 'needsfix' | 'ai-edit' | 'history';

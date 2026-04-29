@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { PanelItem, PanelEvent } from '@kiditem/shared';
+import type { PanelItem, PanelEvent } from '@kiditem/shared/panel';
 
 const PANEL_OPEN_LS_KEY = 'kiditem.panel.open';
 

@@ -71,6 +71,20 @@ Adding a new domain: create module + controller + service + dto/ → register in
 - Agent prompts: stored in `agent-config/prompts/`, NOT in DB. DB `prompt_template` field holds file path.
 - No data injection in prompts — agents fetch what they need via db-query skill.
 
+## Reconstruction Guardrails
+
+- **No unsafe raw SQL** — production code must not use `$queryRawUnsafe` or `$executeRawUnsafe`. Use Prisma tagged templates with bound values; dynamic identifiers require an allowlist plus `Prisma.sql`.
+- **Raw SQL tenant predicate** — `$queryRaw` over tenant-owned tables must bind `company_id = ${companyId}::uuid` or an equivalent tenant predicate in the SQL window.
+- **Service companyId signature** — tenant-owned service methods take `companyId: string` explicitly. Controllers supply it from `@CurrentCompany()`, not from body/query DTOs.
+- **Mutation scope** — create/update/delete paths must include company scope in the actual DB write path. For single-resource update/delete, read by `{ id, companyId }` before writing or use an equivalent scoped write.
+- **No default company lookup** — never recover missing context with `company.findFirst({ isActive: true })`, env defaults, or first-row fallbacks.
+- **DTO boundary** — controllers do not use `as any`; service parameters match DTOs or service-internal interfaces. Avoid `Record<string, unknown>` as a DTO substitute.
+- **Large service policy** — do not add substantial behavior to 700+ line services. Split by domain capability or write a replacement plan before changing behavior.
+- **Scanner evidence** — two complementary tenant-scope gates:
+  - `npm run check:idor` — raw SQL tenancy (`$queryRaw` tagged templates must bind `company_id`).
+  - `npm run check:tenant-scope` — ORM-level tenant scope (no bare-id `findUnique`, no bare-id `update`/`delete` without a preceding tenant-scoped read in the same function, no controller `@Body`/`@Query`/`@Param('companyId')`, no DTO `companyId` field).
+  Both are valid completion evidence for reconstruction PRs that touch tenant-owned services or controllers. `check:tenant-scope` is baseline-reporting until the remaining cleanup lanes make it green; do not add new findings, and record any expected baseline failure in the PR. If a gate fails because the scanner is broken, repair the scanner before claiming a safety fix. Narrow false positives go in `scripts/.tenant-scope-allowlist.txt` with a per-pattern entry and a recorded reason — never broad globs.
+
 ## Data Access — Service-level Prisma (+ 선택적 Repository 추출)
 
 Prisma 공식 best-practice 에 따라 **기본은 Service 에서 `PrismaService` 를 직접 주입받아 CRUD**. Repository/DAL 레이어를 모든 도메인에 전면 도입하지 않는다 (Prisma 자체가 type-safe repository 역할).
@@ -182,7 +196,7 @@ async getProduct(id: string, companyId: string) {
 - **`src/action-task/`** — `task.service.ts` 가 비즈 룰 임계값(low CTR / low profit / 고비용 광고 / 재주문) 으로 task seed 자동 생성. cron 으로 일일 실행. 룰 임계 변경은 hardcode (DB 아님).
 - **`src/procurement/`** — Purchase Order **state machine** (`draft → pending → ordered → shipped → received`). 상태 전이 검증 + status groupBy 카운트. `__tests__/procurement.spec.ts` 로 흐름 보호.
 - **`src/picking/`** — 확정 주문에서 PickingList 생성 + 아이템 단위 verification (`isPicked`, `isVerified`). 출고 단계와 연결 (orders → picking → shipment).
-- **`src/ontology/`** — `$queryRaw` 로 카테고리/브랜드 그래프 구축 (node/edge 변환). 분석/검색 보조용. Prisma 표준 query 로 안 되는 graph traversal 만 raw SQL.
+- **`src/ontology/`** — **DELETED (2026-04-28)**. `master_products` 를 `companyId` 없이 읽던 IDOR 후보였고 UI 소비처도 없어 제품 표면에서 hard-delete 했다. Do not reintroduce without product contract + tenant isolation test.
 - **`src/feature-gate/`** — Feature flag 도메인. `allowedCompanies: string[]` array 로 회사별 enable. 멀티-레벨 enable 로직 (global / per-company). agent-registry 의 FeatureGateService 와 별개 (이건 endpoint, 그건 runtime 평가).
 
 각 도메인 작업 시 위 특이점만 의식하면 부모 NestJS 패턴으로 충분.

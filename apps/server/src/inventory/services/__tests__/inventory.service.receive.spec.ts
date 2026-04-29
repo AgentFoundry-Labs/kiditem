@@ -15,7 +15,7 @@ describe('InventoryService.receive', () => {
     tx = {
       $queryRaw: vi.fn(),
       inventory: { findFirst: vi.fn(), update: vi.fn() },
-      productOption: { findUnique: vi.fn() },
+      productOption: { findFirst: vi.fn(), findUnique: vi.fn() },
       stockTransaction: { create: vi.fn() },
     };
     prisma = {
@@ -45,7 +45,7 @@ describe('InventoryService.receive', () => {
       dailySalesAvg: 0, warehouseLocation: null, lastRestockedAt: new Date(),
       createdAt: new Date(), updatedAt: new Date(),
     });
-    tx.productOption.findUnique.mockResolvedValue({ optionName: 'Red' });
+    tx.productOption.findFirst.mockResolvedValue({ optionName: 'Red' });
     tx.stockTransaction.create.mockResolvedValue({
       id: 'tx1', optionId: 'o1', type: 'RECEIVE', quantity: 5, unitCost: 100,
       createdAt: new Date(),
@@ -56,6 +56,10 @@ describe('InventoryService.receive', () => {
 
     expect(tx.$queryRaw).toHaveBeenCalled();
     expect(tx.inventory.findFirst).toHaveBeenCalledWith({ where: { id: 'i1', companyId: 'c1' } });
+    expect(tx.productOption.findFirst).toHaveBeenCalledWith({
+      where: { id: 'o1', companyId: 'c1' },
+      select: { optionName: true },
+    });
     expect(tx.inventory.update.mock.calls[0][0].data.currentStock).toEqual({ increment: 5 });
     expect(tx.stockTransaction.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -64,7 +68,7 @@ describe('InventoryService.receive', () => {
         optionName: 'Red', createdBy: 'user-1',
       }),
     });
-    expect(bundleStock.recomputeForComponent).toHaveBeenCalledWith('o1', tx);
+    expect(bundleStock.recomputeForComponent).toHaveBeenCalledWith('c1', 'o1', tx);
     expect(result.inventory.currentStock).toBe(15);
     expect(result.transaction.type).toBe('RECEIVE');
     expect(result.recomputedBundleOptionIds).toEqual(['bundle-A']);
@@ -81,12 +85,35 @@ describe('InventoryService.receive', () => {
   it('unitCost defaults to 0', async () => {
     tx.inventory.findFirst.mockResolvedValue({ id: 'i1', companyId: 'c1', optionId: 'o1', currentStock: 10, reservedStock: 0, lastRestockedAt: null });
     tx.inventory.update.mockResolvedValue({ id: 'i1', optionId: 'o1', companyId: 'c1', currentStock: 15, reservedStock: 0, safetyStock: 0, reorderPoint: 0, reorderQuantity: 0, leadTimeDays: null, dailySalesAvg: 0, warehouseLocation: null, lastRestockedAt: new Date(), createdAt: new Date(), updatedAt: new Date() });
-    tx.productOption.findUnique.mockResolvedValue({ optionName: null });
+    tx.productOption.findFirst.mockResolvedValue({ optionName: null });
     tx.stockTransaction.create.mockResolvedValue({ id: 'tx1', optionId: 'o1', type: 'RECEIVE', quantity: 5, unitCost: 0, createdAt: new Date() });
 
     await service.receive('i1', { quantity: 5 }, 'c1', 'user-1');
     const txCall = tx.stockTransaction.create.mock.calls[0][0];
     expect(txCall.data.unitCost).toBe(0);
     expect(txCall.data.totalCost).toBe(0);
+  });
+
+  it('does not copy optionName from another company when ledgering', async () => {
+    tx.inventory.findFirst.mockResolvedValue({
+      id: 'i1', companyId: 'c1', optionId: 'o1', currentStock: 10, reservedStock: 0,
+      lastRestockedAt: null,
+    });
+    tx.inventory.update.mockResolvedValue({
+      id: 'i1', optionId: 'o1', companyId: 'c1', currentStock: 15, reservedStock: 0,
+      safetyStock: 0, reorderPoint: 0, reorderQuantity: 0, leadTimeDays: null,
+      dailySalesAvg: 0, warehouseLocation: null, lastRestockedAt: new Date(),
+      createdAt: new Date(), updatedAt: new Date(),
+    });
+    tx.productOption.findFirst.mockResolvedValue(null);
+    tx.productOption.findUnique.mockResolvedValue({ optionName: 'Other tenant option' });
+    tx.stockTransaction.create.mockResolvedValue({
+      id: 'tx1', optionId: 'o1', type: 'RECEIVE', quantity: 5, unitCost: 0,
+      createdAt: new Date(),
+    });
+
+    await service.receive('i1', { quantity: 5 }, 'c1', 'user-1');
+
+    expect(tx.stockTransaction.create.mock.calls[0][0].data.optionName).toBeNull();
   });
 });

@@ -11,7 +11,7 @@ import type {
   DashboardAdSummary,
   DashboardInventorySummary,
   DashboardTrendItem,
-} from '@kiditem/shared';
+} from '@kiditem/shared/dashboard';
 
 @Controller('dashboard')
 export class DashboardController {

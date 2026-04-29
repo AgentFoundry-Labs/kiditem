@@ -6,12 +6,7 @@ import { GoogleGenAI } from '@google/genai';
 // require 로 받으면 어떤 module 설정에서도 callable 인 본체를 그대로 받음.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const sharp: typeof import('sharp') = require('sharp');
-import type {
-  ComplianceScores,
-  ImageSpec,
-  ImageSpecIssue,
-  ThumbnailScores,
-} from '@kiditem/shared';
+import type { ComplianceScores, ImageSpec, ImageSpecIssue, ThumbnailScores } from '@kiditem/shared/ai';
 import {
   COMPLIANCE_PROMPT,
   COMPLIANCE_REFERENCE_HEADER,
@@ -25,8 +20,8 @@ import {
   requireGeminiVisionModel,
 } from './thumbnail-gemini-config';
 
-export type ThumbnailGrade = 'S' | 'A' | 'B' | 'C' | 'F';
-export type ComplianceGrade = 'PASS' | 'WARN' | 'FAIL';
+type ThumbnailGrade = 'S' | 'A' | 'B' | 'C' | 'F';
+type ComplianceGrade = 'PASS' | 'WARN' | 'FAIL';
 
 export interface ThumbnailAiItem {
   productId: string;
@@ -35,13 +30,13 @@ export interface ThumbnailAiItem {
   category?: string | null;
 }
 
-export interface AiAnalysisIssue {
+interface AiAnalysisIssue {
   type: string;
   severity: string;
   message: string;
 }
 
-export interface AiAnalysisResult {
+interface AiAnalysisResult {
   overallScore: number;
   grade: ThumbnailGrade;
   scores: ThumbnailScores | null;

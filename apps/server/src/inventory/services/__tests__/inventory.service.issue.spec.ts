@@ -15,7 +15,7 @@ describe('InventoryService.issue', () => {
     tx = {
       $queryRaw: vi.fn(),
       inventory: { findFirst: vi.fn(), update: vi.fn() },
-      productOption: { findUnique: vi.fn().mockResolvedValue({ optionName: null }) },
+      productOption: { findFirst: vi.fn().mockResolvedValue({ optionName: null }) },
       stockTransaction: { create: vi.fn().mockResolvedValue({
         id: 't1', optionId: 'o1', type: 'ISSUE', quantity: 3, unitCost: 0, createdAt: new Date(),
       })},

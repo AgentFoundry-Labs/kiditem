@@ -222,7 +222,11 @@ export class OptionsService {
           data,
         });
         if (count === 0) throw new NotFoundException('option not found');
-        return await tx.productOption.findUniqueOrThrow({ where: { id } });
+        const updated = await tx.productOption.findFirst({
+          where: { id, companyId, isDeleted: false },
+        });
+        if (!updated) throw new NotFoundException('option not found');
+        return updated;
       } catch (e) { mapPrismaError(e, 'option update'); }
     };
     return outerTx
@@ -251,11 +255,11 @@ export class OptionsService {
       });
       if (count === 0) throw new NotFoundException('option not found');
       const affected = await tx.bundleComponent.findMany({
-        where: { componentOptionId: id },
+        where: { companyId, componentOptionId: id },
         select: { bundleOptionId: true },
       });
       for (const row of affected) {
-        await this.bundleStock.recompute(row.bundleOptionId, tx);
+        await this.bundleStock.recompute(companyId, row.bundleOptionId, tx);
       }
     };
     await (outerTx

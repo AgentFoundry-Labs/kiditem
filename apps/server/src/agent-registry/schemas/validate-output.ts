@@ -3,7 +3,7 @@ import { AGENT_OUTPUT_SCHEMAS } from './agent-output-schemas';
 
 const logger = new Logger('AgentOutputValidator');
 
-export interface ValidationResult {
+interface ValidationResult {
   valid: boolean;
   errors?: string[];
   data?: unknown;

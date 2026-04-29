@@ -23,6 +23,7 @@ Env: `.env.local` → `NEXT_PUBLIC_API_URL=http://localhost:4000`
 - Use **`apiClient.get/post/patch/delete`** from `@/lib/api-client` (no raw fetch)
 - For blob responses: `apiClient.fetchRaw()`
 - Direct `API_BASE` usage only for non-fetch purposes (e.g., image URL resolution)
+- Frontend code must not import Prisma, `pg`, server-only DB adapters, or direct database clients. All data comes from NestJS APIs.
 
 ### Data Fetching
 - Use **`useQuery` / `useMutation`** from `@tanstack/react-query` (no useState+useEffect+fetch)
@@ -33,7 +34,7 @@ Env: `.env.local` → `NEXT_PUBLIC_API_URL=http://localhost:4000`
 - After mutation: `queryClient.invalidateQueries({ queryKey: queryKeys.xxx.all })`
 
 ### Types
-- API response types: import from `@kiditem/shared` (`import type { ProductListItem } from '@kiditem/shared'`)
+- API response types: prefer domain subpaths from `@kiditem/shared/*` when available. Existing root imports from `@kiditem/shared` are allowed during migration, but new domains must not expand the root barrel.
 - Single-page types: inline allowed (Novu pattern)
 - Props: inline in component file (don't export)
 - Shared across 2-3 components: export from parent → import in children
@@ -89,6 +90,13 @@ Shared directories (`src/components/`, `src/hooks/`, `src/lib/`) contain ONLY cr
 - `src/components/marketplace/` — InstallModal, MarketplaceCard (agents + workflows)
 - `src/hooks/` — useMarketplace.ts (agents + workflows)
 - `src/lib/` — api-client, api-error, query-keys, utils (universal infra)
+
+### Large Component Policy
+
+- Do not add substantial behavior to 700+ line components.
+- Before editing a large component, write a route-scoped split plan that identifies pure helpers, presentational components, hooks, and state orchestration boundaries.
+- Keep API behavior stable while splitting. First extract tested helpers/presentational pieces; then replace stateful orchestration.
+- New reusable UI belongs in `src/components` only when at least two routes actually share it.
 
 ### File Naming
 - Components: **PascalCase.tsx** (`ProductCard.tsx`)

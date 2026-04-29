@@ -1,4 +1,4 @@
-import type { InventoryListItem, InventoryStatus } from '@kiditem/shared';
+import type { InventoryListItem, InventoryStatus } from '@kiditem/shared/inventory';
 
 export type OrderInventoryFilter = 'all' | InventoryStatus;
 

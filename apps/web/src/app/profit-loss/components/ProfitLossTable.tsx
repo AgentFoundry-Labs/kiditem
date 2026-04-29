@@ -1,7 +1,7 @@
 'use client';
 
 import { cn, formatKRW, formatPercent, getGradeColor, getProfitColor } from '@/lib/utils';
-import type { PLData } from '@kiditem/shared';
+import type { PLData } from '@kiditem/shared/finance';
 import SortableHeader from '@/components/ui/SortableHeader';
 
 // Plan D.1 T7 note: `orderCount` is intentionally NOT sortable — the plan narrows

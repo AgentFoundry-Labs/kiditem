@@ -2,7 +2,7 @@
 
 import { Plus, ChevronDown, Eraser, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { MasterImageItem } from '@kiditem/shared';
+import type { MasterImageItem } from '@kiditem/shared/product';
 import type { Slot, SlotPick, SlotSource } from '../edit/lib/slots';
 import { ImageSourceDrawer, type DrawerTabKey } from './ImageSourceDrawer';
 import { ImgWithSkeleton } from './ImgWithSkeleton';

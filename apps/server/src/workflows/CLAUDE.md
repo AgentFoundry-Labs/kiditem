@@ -77,13 +77,13 @@ types.ts (check/add standard types)
         → sync frontend nodeRegistry
 ```
 
-## Action Catalog
+## Action Execution
 
-`actions/catalog.ts` defines all user-executable actions.
+별도 `actions/` catalog 모듈은 없다. 현재 실행 표면은 `executors/builtin.ts`
+의 `action` executor 와 workflow API/controller 가 소유한다.
 
-- `ai.analyze` executor dynamically injects action catalog into LLM prompt
-- LLM returns structured JSON using only catalog `type` values
-- Adding actions: define in `actions/catalog.ts` → LLM auto-recognizes → add execution logic in frontend `handleAction`
+- 새 user-executable action 을 추가할 때는 executor output contract 와 frontend handler/API 호출자를 함께 고정한다.
+- catalog 기반 LLM action 선택을 되살릴 경우, 먼저 consumer contract/test 를 만든 뒤 catalog 파일을 복원한다.
 
 ## Data Flow
 

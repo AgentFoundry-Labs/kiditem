@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import * as XLSX from 'xlsx';
@@ -6,7 +6,7 @@ import type { MulterFile } from '../common/types';
 import { resolvePricing } from '../common/option-pricing-resolver';
 import { kstDayStart } from '../common/kst';
 
-export interface DayRevenue {
+interface DayRevenue {
   date: string;
   revenue: number;
   orders: number;
@@ -398,32 +398,26 @@ export class TrafficService {
           }
         });
       } catch (err) {
-        await this.prisma.channelScrapeRun.update({
-          where: { id: run.id },
-          data: {
-            status: 'error',
-            matchedCount: matchedRows,
-            unmatchedCount: unmatchedRows,
-            errorCount: 1,
-            errorJson: {
-              message: err instanceof Error ? err.message : String(err),
-              name: err instanceof Error ? err.name : 'Error',
-            } as Prisma.InputJsonValue,
-            finishedAt: new Date(),
-          },
+        await this.updateScrapeRunOrThrow(run.id, companyId, {
+          status: 'error',
+          matchedCount: matchedRows,
+          unmatchedCount: unmatchedRows,
+          errorCount: 1,
+          errorJson: {
+            message: err instanceof Error ? err.message : String(err),
+            name: err instanceof Error ? err.name : 'Error',
+          } as Prisma.InputJsonValue,
+          finishedAt: new Date(),
         });
         throw err;
       }
 
       upserted = dataArr.length;
-      await this.prisma.channelScrapeRun.update({
-        where: { id: run.id },
-        data: {
-          status: 'complete',
-          matchedCount: matchedRows,
-          unmatchedCount: unmatchedRows,
-          finishedAt: new Date(),
-        },
+      await this.updateScrapeRunOrThrow(run.id, companyId, {
+        status: 'complete',
+        matchedCount: matchedRows,
+        unmatchedCount: unmatchedRows,
+        finishedAt: new Date(),
       });
     }
 
@@ -442,6 +436,20 @@ export class TrafficService {
         date: colDate,
       },
     };
+  }
+
+  private async updateScrapeRunOrThrow(
+    id: string,
+    companyId: string,
+    data: Prisma.ChannelScrapeRunUpdateManyMutationInput,
+  ) {
+    const result = await this.prisma.channelScrapeRun.updateMany({
+      where: { id, companyId },
+      data,
+    });
+    if (result.count === 0) {
+      throw new NotFoundException('Scrape run not found');
+    }
   }
 
   /**

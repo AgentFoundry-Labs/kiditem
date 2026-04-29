@@ -4,7 +4,7 @@ import {
   GetMasterImagesResponseSchema,
   UploadMasterImageResponseSchema,
   type MasterImageItem,
-} from '@kiditem/shared';
+} from '@kiditem/shared/product';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 

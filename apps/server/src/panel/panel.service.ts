@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import type { PanelItem } from '@kiditem/shared';
+import type { PanelItem } from '@kiditem/shared/panel';
 import { workflowPanelAdapter } from './adapters/workflow.adapter';
 import { agentPanelAdapter } from './adapters/agent.adapter';
 import { imagePanelAdapter } from './adapters/image.adapter';

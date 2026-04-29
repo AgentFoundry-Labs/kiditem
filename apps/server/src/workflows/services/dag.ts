@@ -1,4 +1,4 @@
-export interface WorkflowNodeDef {
+interface WorkflowNodeDef {
   id: string;
   type: string;
   label: string;
@@ -6,16 +6,11 @@ export interface WorkflowNodeDef {
   position: { x: number; y: number };
 }
 
-export interface WorkflowEdgeDef {
+interface WorkflowEdgeDef {
   id: string;
   source: string;
   target: string;
   label?: string;
-}
-
-export interface ExecuteData {
-  nodeId: string;
-  inputData: Record<string, any>;
 }
 
 export class DAG {

@@ -37,6 +37,8 @@ function makePrisma() {
     heartbeatRun: {
       create: vi.fn(),
       update: vi.fn(),
+      updateMany: vi.fn(),
+      findFirst: vi.fn(),
     },
   };
 }
@@ -204,7 +206,8 @@ function setupHarness(adapterResult: any) {
 
   const terminalStatus = adapterResult.exitCode === 0 ? 'succeeded' : 'failed';
   const terminalRun = makeTerminalRun(terminalStatus);
-  prisma.heartbeatRun.update.mockResolvedValue(terminalRun);
+  prisma.heartbeatRun.updateMany.mockResolvedValue({ count: 1 });
+  prisma.heartbeatRun.findFirst.mockResolvedValue(terminalRun);
 
   wakeup.finish.mockResolvedValue(undefined);
 

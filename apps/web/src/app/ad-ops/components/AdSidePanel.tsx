@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from "react";
 import { Sparkles, AlertTriangle } from "lucide-react";
-import type { AdStrategyAction, AdWeeklyPlan } from "@kiditem/shared";
+import type { AdStrategyAction, AdWeeklyPlan } from "@kiditem/shared/advertising";
 
 interface AdSidePanelProps {
   rules: AdStrategyAction[];

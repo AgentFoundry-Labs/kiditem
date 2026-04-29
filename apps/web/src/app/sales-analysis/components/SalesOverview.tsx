@@ -4,7 +4,7 @@ import { useState, useMemo } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { BarChart3 } from 'lucide-react';
-import { SalesAnalysisDataSchema } from '@kiditem/shared';
+import { SalesAnalysisDataSchema } from '@kiditem/shared/finance';
 import { usePeriodSelector } from '@/hooks/usePeriodSelector';
 import PeriodSelector from '@/components/ui/PeriodSelector';
 import { apiClient } from '@/lib/api-client';

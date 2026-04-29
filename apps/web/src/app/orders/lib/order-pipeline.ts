@@ -1,5 +1,5 @@
 import { CheckCircle, Clock, MapPin, Package, Truck, type LucideIcon } from 'lucide-react';
-import type { OrderListItem, OrderListResponse, OrderPipelineStatus } from '@kiditem/shared';
+import type { OrderListItem, OrderListResponse, OrderPipelineStatus } from '@kiditem/shared/order';
 
 export interface OrderPipelineNode {
   key: OrderPipelineStatus;
@@ -32,9 +32,9 @@ export const ORDER_PIPELINE_EDGES: OrderPipelineEdge[] = [
   { from: 2, to: 3 },
 ];
 
-export const SYNC_HOURS = [9, 12, 15, 18] as const;
+const SYNC_HOURS = [9, 12, 15, 18] as const;
 
-export interface OrderPipelineResult {
+interface OrderPipelineResult {
   pipeline: Record<OrderPipelineStatus, OrderListItem[]>;
   counts: Record<OrderPipelineStatus, number>;
 }

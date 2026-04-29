@@ -6,10 +6,8 @@ import { AgentRegistryService } from '../../agent-registry/agent-registry.servic
 import { AGENT_EVENTS, AgentResultReadyEvent } from '../../agent-registry/events/agent-events';
 import { PANEL_EVENTS } from '../../panel/events/panel-events';
 import { alertPanelAdapter } from '../../panel/adapters/alert.adapter';
-import type { RuleItem } from '@kiditem/shared';
+import type { RuleItem } from '@kiditem/shared/rules';
 import type { EvaluationResult, ProductEvalResult } from './types';
-
-export type { EvaluationResult } from './types';
 
 @Injectable()
 export class RulesService implements OnModuleInit {
@@ -47,19 +45,18 @@ export class RulesService implements OnModuleInit {
     const products = (event.resultJson.products as ProductEvalResult[]) || [];
 
     try {
-      // 2-1. healthScore 일괄 업데이트
+      // 2-1. healthScore 일괄 업데이트 — Prisma updateMany + $transaction.
+      // event.companyId 가 신뢰 경계. 각 update 는 (id, companyId) 로 스코프 → 다른 회사 master 가 섞일 수 없음.
       if (products.length > 0) {
-        const cases = products
-          .map((r) => `WHEN id = '${r.masterId}'::uuid THEN ${r.healthScore}`)
-          .join(' ');
-        const ids = products.map((r) => `'${r.masterId}'::uuid`).join(',');
-
-        await this.prisma.$executeRawUnsafe(`
-          UPDATE master_products
-          SET health_score = CASE ${cases} END,
-              health_updated_at = NOW()
-          WHERE id IN (${ids})
-        `);
+        const now = new Date();
+        await this.prisma.$transaction(
+          products.map((r) =>
+            this.prisma.masterProduct.updateMany({
+              where: { id: r.masterId, companyId },
+              data: { healthScore: r.healthScore, healthUpdatedAt: now },
+            }),
+          ),
+        );
       }
 
       // 2-2. activity_events 기록

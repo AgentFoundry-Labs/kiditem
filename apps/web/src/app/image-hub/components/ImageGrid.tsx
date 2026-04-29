@@ -2,7 +2,7 @@
 
 import { useRef } from 'react';
 import { Plus, X } from 'lucide-react';
-import type { MasterImageItem } from '@kiditem/shared';
+import type { MasterImageItem } from '@kiditem/shared/product';
 import { HUB_ROLE_CONFIG, type HubRoleConfig } from '@/lib/hub-roles';
 
 interface Props {

@@ -4,8 +4,8 @@ import { useRouter } from 'next/navigation';
 import * as Icons from 'lucide-react';
 import type { LucideProps } from 'lucide-react';
 import type { ForwardRefExoticComponent, RefAttributes } from 'react';
-import { PANEL_RUN_SOURCES } from '@kiditem/shared';
-import type { PanelItem, PanelRunItem } from '@kiditem/shared';
+import { PANEL_RUN_SOURCES } from '@kiditem/shared/panel';
+import type { PanelItem, PanelRunItem } from '@kiditem/shared/panel';
 import { cn } from '@/lib/utils';
 import { PanelAlertRow } from './PanelAlertRow';
 

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { PanelAlertRow } from '../PanelAlertRow';
-import type { PanelAlertItem } from '@kiditem/shared';
+import type { PanelAlertItem } from '@kiditem/shared/panel';
 
 vi.mock('../PromoteToTaskModal', () => ({
   PromoteToTaskModal: ({ open, onClose }: { open: boolean; onClose: () => void }) =>

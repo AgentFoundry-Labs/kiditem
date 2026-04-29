@@ -1,5 +1,5 @@
 import type { PrismaService } from '../../prisma/prisma.service';
-import type { WingAdSummary } from '@kiditem/shared';
+import type { WingAdSummary } from '@kiditem/shared/dashboard';
 import { pct2 } from './percent';
 
 export interface WingAdSummaryResult extends WingAdSummary {

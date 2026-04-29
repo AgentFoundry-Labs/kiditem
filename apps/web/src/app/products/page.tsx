@@ -17,7 +17,7 @@ import {
   ProductCatalogListResponseSchema,
   type ProductCatalogCounts,
   type ProductCatalogListItem as Product,
-} from "@kiditem/shared";
+} from "@kiditem/shared/product";
 import PageSkeleton from "@/components/ui/PageSkeleton";
 import AddProductModal from "./components/AddProductModal";
 import ExcelUploadModal from "./components/ExcelUploadModal";

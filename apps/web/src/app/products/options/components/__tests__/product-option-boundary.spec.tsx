@@ -3,7 +3,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import ProductOptionTable from '../ProductOptionTable';
 import ProductOptionEditModal from '../ProductOptionEditModal';
 import ProductOptionFilters, { type ProductOptionFilterState } from '../ProductOptionFilters';
-import type { ProductOption } from '@kiditem/shared';
+import type { ProductOption } from '@kiditem/shared/product';
 
 const option: ProductOption = {
   id: '11111111-1111-4111-8111-111111111111',

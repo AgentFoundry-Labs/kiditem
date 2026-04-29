@@ -27,15 +27,7 @@ import {
   getWeekRange,
   hydrateListings,
 } from './util/ad-strategy-helpers';
-import type {
-  AdRulesData,
-  AdStrategyAction,
-  AdStrategyRecommendation,
-  AdWeeklyPlan,
-  ChannelStateSignal,
-  ExposureAnalysisData,
-  ExposureProductScore,
-} from '@kiditem/shared';
+import type { AdRulesData, AdStrategyAction, AdStrategyRecommendation, AdWeeklyPlan, ChannelStateSignal, ExposureAnalysisData, ExposureProductScore } from '@kiditem/shared/advertising';
 
 type Priority = 'urgent' | 'high' | 'medium' | 'low';
 

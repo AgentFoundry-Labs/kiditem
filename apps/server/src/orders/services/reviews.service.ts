@@ -4,7 +4,7 @@ import type {
   ReviewListItem,
   ReviewListResponse,
   ReviewSummary,
-} from '@kiditem/shared';
+} from '@kiditem/shared/reviews';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ListReviewsQueryDto, type ReviewFilter } from '../dto/list-reviews.dto';
 
@@ -14,8 +14,8 @@ const RECENT_WINDOW_MS = RECENT_DAYS * 24 * 60 * 60 * 1000;
 // Listing-level "needs attention" thresholds — kept in sync with the legacy
 // Reviews UI (`apps/web/src/app/reviews/page.tsx` filter tabs +
 // `ReviewTable.getReviewStatus`).
-export const NEEDS_ATTENTION_RATING_THRESHOLD = 3.5;
-export const NEEDS_ATTENTION_MIN_REVIEWS = 5;
+const NEEDS_ATTENTION_RATING_THRESHOLD = 3.5;
+const NEEDS_ATTENTION_MIN_REVIEWS = 5;
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 50;

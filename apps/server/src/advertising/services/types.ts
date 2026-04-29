@@ -1,9 +1,5 @@
 import type { Prisma } from '@prisma/client';
-import type {
-  AdMetrics,
-  AdStrategyAction,
-  ChannelStateSignal,
-} from '@kiditem/shared';
+import type { AdMetrics, AdStrategyAction, ChannelStateSignal } from '@kiditem/shared/advertising';
 
 // AdAction targetType 값 union (services/types.ts 전용 export, AdActionCommandDto 는 dto/).
 export const AD_ACTION_TARGET_TYPES = ['campaign', 'keyword'] as const;
@@ -41,55 +37,12 @@ export interface AdsConfig {
   >;
 }
 
-// Benchmark 비교 한 건.
-export interface BenchmarkComparison {
-  metric: string;
-  label: string;
-  myValue: number;
-  industryAvg: number;
-  industryGood: number;
-  industryExcellent: number;
-  industryPoor: number;
-  status: 'excellent' | 'good' | 'average' | 'below' | 'poor';
-  gap: number;
-  gapPercent: number;
-  strategy: string;
-  actions: string[];
-}
-
-// 익스텐션 raw payload 에서 정규화된 캠페인 KPI.
-export interface NormalizedCampaignKpi {
-  adSpend: number;
-  adRevenue: number;
-  totalRevenue: number;
-  impressions: number;
-  clicks: number;
-  ctr: number;
-  conversions: number;
-  orders: number;
-  roas: number;
-  conversionRate: number;
-}
-
 // Grade 별 예산 할당 (strategy 내부).
 export interface GradeBudgetAllocation {
   grade: 'A' | 'B' | 'C';
   currentBudget: number;
   suggestedBudget: number;
   delta: number;
-}
-
-// Score 입력 (strategy calculate* 메서드용).
-export interface ScoreInput {
-  listingId: string;
-  spend: number;
-  revenue: number;
-  orders: number;
-  clicks: number;
-  impressions: number;
-  conversions: number;
-  stock: number | null;
-  grade: 'A' | 'B' | 'C' | null;
 }
 
 // listingId → 요약 lookup (sync / strategy 공통).

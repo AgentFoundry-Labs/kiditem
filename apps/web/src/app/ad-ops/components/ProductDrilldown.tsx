@@ -7,7 +7,7 @@ import { queryKeys } from '@/lib/query-keys';
 import { cn, formatKRW, formatNumber } from '@/lib/utils';
 import { roasColor } from '../lib/status-colors';
 import type { CampaignProductData } from '../hooks/useAdOpsData';
-import type { AdCampaignSnapshot } from '@kiditem/shared';
+import type { AdCampaignSnapshot } from '@kiditem/shared/advertising';
 
 interface Props {
   campaignName: string;

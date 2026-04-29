@@ -30,7 +30,12 @@ echo "🔍 Scanning apps/server/src for \$queryRaw sites..."
 # - test-helpers/: integration-test infrastructure (DB teardown etc.), not prod.
 # - __tests__/ + *.spec.ts + *.integration.spec.ts: tests.
 # - .md files: documentation (--type ts handles this).
-mapfile -t FILES < <(rg -l '\$queryRaw' "$REPO_ROOT/apps/server/src" \
+# Bash 3.2 (macOS default) lacks `mapfile`/`readarray`; collect with a portable loop.
+FILES=()
+while IFS= read -r _line; do
+  [ -z "$_line" ] && continue
+  FILES+=("$_line")
+done < <(rg -l '\$queryRaw' "$REPO_ROOT/apps/server/src" \
   --type ts \
   --glob '!**/__tests__/**' \
   --glob '!**/*.spec.ts' \
@@ -52,9 +57,12 @@ for file in "${FILES[@]}"; do
   # Collect line numbers of every $queryRaw method-call site (not comment, not Unsafe).
   # Matches: `.\$queryRaw<T>` (generic) and `.\$queryRaw\`` (bare tagged template).
   # Excludes: `.\$queryRawUnsafe(` (separately banned by ADR-0009).
-  mapfile -t linenos < <(
-    rg -n '\.\$queryRaw[<\`]' "$file" 2>/dev/null | cut -d: -f1
-  )
+  # Bash 3.2-compatible array assignment (no mapfile/readarray).
+  linenos=()
+  while IFS= read -r _ln; do
+    [ -z "$_ln" ] && continue
+    linenos+=("$_ln")
+  done < <(rg -n '\.\$queryRaw[<\`]' "$file" 2>/dev/null | cut -d: -f1)
 
   if [ ${#linenos[@]} -eq 0 ]; then
     # No method-call hits (comment-only file, or $queryRawUnsafe only). Skip.
