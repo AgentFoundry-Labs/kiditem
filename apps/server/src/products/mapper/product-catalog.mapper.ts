@@ -1,4 +1,4 @@
-// apps/server/src/products/mappers/product-catalog.mapper.ts
+// apps/server/src/products/mapper/product-catalog.mapper.ts
 //
 // CatalogMasterRow / CatalogCountsRow → shared contract shape (list item,
 // detail, counts). Pure — depends on `@kiditem/shared/product` types,
@@ -11,12 +11,12 @@ import type {
   ProductCatalogListItem,
 } from '@kiditem/shared/product';
 import { toSerializable } from '../util/serialize';
-import { normalizeMasterImages } from '../services/product-image-normalizer';
+import { normalizeMasterImages } from '../domain/service/product-image-normalizer';
 import type {
   CatalogCountsRow,
   CatalogMasterRow,
   CatalogOptionRow,
-} from '../read-models/product-catalog-read-model';
+} from '../adapter/out/prisma/product-catalog.query';
 
 export function range(values: Array<number | null | undefined>): MoneyRange | null {
   const nums = values.filter((v): v is number => typeof v === 'number');

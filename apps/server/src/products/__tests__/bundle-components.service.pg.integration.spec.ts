@@ -1,11 +1,11 @@
 // apps/server/src/products/__tests__/bundle-components.service.pg.integration.spec.ts
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import { PrismaClient } from '@prisma/client';
-import { MasterCodeService } from '../services/master-code.service';
-import { MastersService } from '../services/masters.service';
-import { OptionsService } from '../services/options.service';
-import { BundleStockService } from '../services/bundle-stock.service';
-import { BundleComponentsService } from '../services/bundle-components.service';
+import { MasterCodeService } from '../adapter/out/prisma/master-code.service';
+import { MastersService } from '../application/service/masters.service';
+import { OptionsService } from '../application/service/options.service';
+import { BundleStockService } from '../application/service/bundle-stock.service';
+import { BundleComponentsService } from '../application/service/bundle-components.service';
 import { StorageService } from '../../common/storage/storage.service';
 import {
   makeTestPrisma, resetDb, seedBaseFixture,

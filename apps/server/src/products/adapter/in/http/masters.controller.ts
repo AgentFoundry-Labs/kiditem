@@ -1,4 +1,4 @@
-// apps/server/src/products/controllers/masters.controller.ts
+// apps/server/src/products/adapter/in/http/masters.controller.ts
 import {
   BadRequestException,
   Body, Controller, Delete, Get, Param, Patch, Post, Query,
@@ -18,17 +18,17 @@ import { FileInterceptor } from '@nestjs/platform-express';
  */
 const MAX_IMAGE_UPLOAD_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
 const ALLOWED_IMAGE_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
-import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
+import { CurrentCompany } from '../../../../auth/decorators/current-company.decorator';
 import { MasterImageItemSchema, MasterSchema, MasterWithOptionsSchema, type Master, type MasterImageItem, type MasterWithOptions } from '@kiditem/shared/product';
-import type { MulterFile } from '../../common/types';
-import { toSerializable } from '../util/serialize';
-import { MastersService } from '../services/masters.service';
-import { OptionsService } from '../services/options.service';
-import { CreateMasterDto } from '../dto/create-master.dto';
-import { UpdateMasterDto } from '../dto/update-master.dto';
-import { UpdateMasterImagesDto } from '../dto/update-master-images.dto';
-import { ListMastersQuery } from '../dto/list-masters.query';
-import { ListOptionsQuery } from '../dto/list-options.query';
+import type { MulterFile } from '../../../../common/types';
+import { toSerializable } from '../../../util/serialize';
+import { MastersService } from '../../../application/service/masters.service';
+import { OptionsService } from '../../../application/service/options.service';
+import { CreateMasterDto } from '../../../dto/create-master.dto';
+import { UpdateMasterDto } from '../../../dto/update-master.dto';
+import { UpdateMasterImagesDto } from '../../../dto/update-master-images.dto';
+import { ListMastersQuery } from '../../../dto/list-masters.query';
+import { ListOptionsQuery } from '../../../dto/list-options.query';
 
 // Controllers MUST NOT touch Prisma directly (apps/server/CLAUDE.md:96-103 —
 // controller/service boundary). For child options we delegate to

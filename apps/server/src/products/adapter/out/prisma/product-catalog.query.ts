@@ -1,4 +1,4 @@
-// apps/server/src/products/read-models/product-catalog-read-model.ts
+// apps/server/src/products/adapter/out/prisma/product-catalog.query.ts
 //
 // Catalog hydrated read shape used by `GET /api/products/catalog`,
 // `GET /api/products/catalog/:id`, and `GET /api/products/catalog/counts`.
@@ -7,8 +7,8 @@
 // rawData / processedData / draftContent JSON blobs, and the nested option
 // tenant scope (`{ companyId, isDeleted: false, isActive: true }`).
 import type { Prisma } from '@prisma/client';
-import type { PrismaService } from '../../prisma/prisma.service';
-import type { ListProductCatalogQuery } from '../dto/list-product-catalog.query';
+import type { PrismaService } from '../../../../prisma/prisma.service';
+import type { ListProductCatalogQuery } from '../../../dto/list-product-catalog.query';
 
 export type CatalogOptionRow = {
   id: string;

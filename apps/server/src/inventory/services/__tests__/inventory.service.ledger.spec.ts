@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Test } from '@nestjs/testing';
 import { InventoryService } from '../inventory.service';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { BundleStockService } from '../../../products/services/bundle-stock.service';
+import { BundleStockService } from '../../../products/application/service/bundle-stock.service';
 
 describe('InventoryService — ledger reads', () => {
   let service: InventoryService;

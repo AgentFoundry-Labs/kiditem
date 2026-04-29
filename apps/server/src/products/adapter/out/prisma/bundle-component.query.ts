@@ -1,8 +1,8 @@
-// apps/server/src/products/read-models/bundle-component-read-model.ts
+// apps/server/src/products/adapter/out/prisma/bundle-component.query.ts
 import { BadRequestException } from '@nestjs/common';
 import { BundleComponent } from '@prisma/client';
-import { PrismaService } from '../../prisma/prisma.service';
-import { ListBundleComponentsQuery } from '../dto/list-bundle-components.query';
+import { PrismaService } from '../../../../prisma/prisma.service';
+import { ListBundleComponentsQuery } from '../../../dto/list-bundle-components.query';
 
 /**
  * Read model for forward (by bundle) and reverse (by component) listing.

@@ -4,18 +4,18 @@ import type {
   ProductCatalogDetail,
   ProductCatalogListResponse,
 } from '@kiditem/shared/product';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService } from '../../../prisma/prisma.service';
 import {
   findCatalogCountsRows,
   findCatalogDetail,
   findCatalogPage,
-} from '../read-models/product-catalog-read-model';
+} from '../../adapter/out/prisma/product-catalog.query';
 import {
   mapCatalogCounts,
   mapCatalogDetail,
   mapCatalogListItem,
-} from '../mappers/product-catalog.mapper';
-import { ListProductCatalogQuery } from '../dto/list-product-catalog.query';
+} from '../../mapper/product-catalog.mapper';
+import { ListProductCatalogQuery } from '../../dto/list-product-catalog.query';
 
 @Injectable()
 export class ProductCatalogService {

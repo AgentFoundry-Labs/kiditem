@@ -1,7 +1,7 @@
 // apps/server/src/products/__tests__/master-code.service.spec.ts
 import { describe, it, expect, vi } from 'vitest';
 import { InternalServerErrorException } from '@nestjs/common';
-import { MasterCodeService } from '../services/master-code.service';
+import { MasterCodeService } from '../adapter/out/prisma/master-code.service';
 
 function makePrismaMock(seqReturn: bigint) {
   return {

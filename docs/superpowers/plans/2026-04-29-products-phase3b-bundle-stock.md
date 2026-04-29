@@ -3,6 +3,22 @@
 > Phase 3B child plan, products domain, Lane C. Sibling lanes (Master/Option
 > rewrite, image normalization, etc.) stay out of scope.
 
+## Status
+
+**Transitional split landed; topology converged via [`refactor/products-contract-topology`](2026-04-29-products-contract-topology-convergence.md).** The `services/`, `persistence/`, `read-models/`, and `domain/` waypoints described below were superseded when the products domain folded into the Backend Architecture Contract target shape. Specifically:
+
+| Waypoint (this plan) | Final location after convergence PR |
+|---|---|
+| `services/bundle-components.service.ts` | `application/service/bundle-components.service.ts` |
+| `services/bundle-stock.service.ts` | `application/service/bundle-stock.service.ts` |
+| `domain/bundle-component-rules.ts` | `domain/policy/bundle-component-rules.ts` |
+| `domain/bundle-stock-capacity.ts` | `domain/service/bundle-stock-capacity.ts` |
+| `persistence/bundle-component.persistence.ts` | `adapter/out/prisma/bundle-component.persistence.ts` |
+| `persistence/bundle-stock.persistence.ts` | `adapter/out/prisma/bundle-stock.persistence.ts` |
+| `read-models/bundle-component-read-model.ts` | `adapter/out/prisma/bundle-component.query.ts` |
+
+The ADR-0014 single-writer invariant for `availableStock`, the row-lock SQL ownership in `bundle-stock.persistence.ts`, the 3-way invariant validation, and the `recompute` outer-tx semantics were preserved verbatim by the convergence PR — only file paths changed.
+
 **Goal:** Split `BundleComponentsService` and `BundleStockService` so the
 production code separates pure invariants, row-lock + scoped persistence, and
 read-model from the orchestration layer. The public surfaces and ADR-0014

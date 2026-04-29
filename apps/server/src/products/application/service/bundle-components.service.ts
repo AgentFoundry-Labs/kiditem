@@ -1,24 +1,24 @@
-// apps/server/src/products/services/bundle-components.service.ts
+// apps/server/src/products/application/service/bundle-components.service.ts
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { BundleComponent, Prisma } from '@prisma/client';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService } from '../../../prisma/prisma.service';
 import { BundleStockService } from './bundle-stock.service';
-import { CreateBundleComponentDto } from '../dto/create-bundle-component.dto';
-import { UpdateBundleComponentDto } from '../dto/update-bundle-component.dto';
-import { ListBundleComponentsQuery } from '../dto/list-bundle-components.query';
-import { mapPrismaError } from '../util/prisma-error';
+import { CreateBundleComponentDto } from '../../dto/create-bundle-component.dto';
+import { UpdateBundleComponentDto } from '../../dto/update-bundle-component.dto';
+import { ListBundleComponentsQuery } from '../../dto/list-bundle-components.query';
+import { mapPrismaError } from '../../util/prisma-error';
 import {
   ensureBundleAndComponentInvariants,
   ensureNotSelfReference,
-} from '../domain/bundle-component-rules';
+} from '../../domain/policy/bundle-component-rules';
 import {
   createBundleComponent,
   deleteBundleComponentScoped,
   findBundleComponentForTenant,
   lockBundleOptionRow,
   updateBundleComponentQty,
-} from '../persistence/bundle-component.persistence';
-import { listBundleComponentsForTenant } from '../read-models/bundle-component-read-model';
+} from '../../adapter/out/prisma/bundle-component.persistence';
+import { listBundleComponentsForTenant } from '../../adapter/out/prisma/bundle-component.query';
 
 /**
  * Bundle composition CRUD orchestration.

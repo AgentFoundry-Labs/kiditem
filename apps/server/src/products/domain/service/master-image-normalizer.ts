@@ -1,10 +1,10 @@
-// apps/server/src/products/domain/master-image-normalizer.ts
+// apps/server/src/products/domain/service/master-image-normalizer.ts
 //
 // Pure write-side helpers for MasterProduct image arrays. No Prisma, no Nest.
-// Read-path lenience (`normalizeMasterImages`) lives in
-// `services/product-image-normalizer.ts` and is reused here for the write path.
+// Read-path lenience (`normalizeMasterImages`) lives in the sibling
+// `product-image-normalizer.ts` and is reused here for the write path.
 import type { MasterImageItem } from '@kiditem/shared/product';
-import { normalizeMasterImages } from '../services/product-image-normalizer';
+import { normalizeMasterImages } from './product-image-normalizer';
 
 /**
  * Canonicalize a write-side image payload: same lenient parse as the read

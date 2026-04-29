@@ -1,8 +1,8 @@
 // apps/server/src/products/__tests__/masters.service.pg.integration.spec.ts
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import { PrismaClient } from '@prisma/client';
-import { MasterCodeService } from '../services/master-code.service';
-import { MastersService } from '../services/masters.service';
+import { MasterCodeService } from '../adapter/out/prisma/master-code.service';
+import { MastersService } from '../application/service/masters.service';
 import { StorageService } from '../../common/storage/storage.service';
 import {
   makeTestPrisma, resetDb, seedBaseFixture,

@@ -1,16 +1,16 @@
 // apps/server/src/products/products.module.ts
 import { Module } from '@nestjs/common';
-import { MasterCodeService } from './services/master-code.service';
-import { MastersService } from './services/masters.service';
-import { OptionsService } from './services/options.service';
-import { BundleStockService } from './services/bundle-stock.service';
-import { BundleComponentsService } from './services/bundle-components.service';
-import { ProductCatalogService } from './services/product-catalog.service';
-import { MastersController } from './controllers/masters.controller';
-import { OptionsController } from './controllers/options.controller';
-import { BundleComponentsController } from './controllers/bundle-components.controller';
-import { ProductCatalogController } from './controllers/product-catalog.controller';
-import { ProductsLegacyController } from './controllers/products-legacy.controller';
+import { MasterCodeService } from './adapter/out/prisma/master-code.service';
+import { MastersService } from './application/service/masters.service';
+import { OptionsService } from './application/service/options.service';
+import { BundleStockService } from './application/service/bundle-stock.service';
+import { BundleComponentsService } from './application/service/bundle-components.service';
+import { ProductCatalogService } from './application/service/product-catalog.service';
+import { MastersController } from './adapter/in/http/masters.controller';
+import { OptionsController } from './adapter/in/http/options.controller';
+import { BundleComponentsController } from './adapter/in/http/bundle-components.controller';
+import { ProductCatalogController } from './adapter/in/http/product-catalog.controller';
+import { ProductsLegacyController } from './adapter/in/http/products-legacy.controller';
 
 @Module({
   controllers: [

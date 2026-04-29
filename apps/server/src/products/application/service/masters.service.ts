@@ -1,19 +1,19 @@
-// apps/server/src/products/services/masters.service.ts
+// apps/server/src/products/application/service/masters.service.ts
 import { randomUUID } from 'node:crypto';
 import {
   BadRequestException, Injectable, NotFoundException,
 } from '@nestjs/common';
 import { MasterProduct, Prisma } from '@prisma/client';
-import { PrismaService } from '../../prisma/prisma.service';
-import { StorageService } from '../../common/storage/storage.service';
-import type { MulterFile } from '../../common/types';
+import { PrismaService } from '../../../prisma/prisma.service';
+import { StorageService } from '../../../common/storage/storage.service';
+import type { MulterFile } from '../../../common/types';
 import type { MasterImageItem } from '@kiditem/shared/product';
-import { MasterCodeService } from './master-code.service';
-import { CreateMasterDto } from '../dto/create-master.dto';
-import { UpdateMasterDto } from '../dto/update-master.dto';
-import { ListMastersQuery } from '../dto/list-masters.query';
-import { mapPrismaError } from '../util/prisma-error';
-import { normalizeMasterImages } from './product-image-normalizer';
+import { MasterCodeService } from '../../adapter/out/prisma/master-code.service';
+import { CreateMasterDto } from '../../dto/create-master.dto';
+import { UpdateMasterDto } from '../../dto/update-master.dto';
+import { ListMastersQuery } from '../../dto/list-masters.query';
+import { mapPrismaError } from '../../util/prisma-error';
+import { normalizeMasterImages } from '../../domain/service/product-image-normalizer';
 import {
   MASTER_WITH_IMAGES,
   type MasterWithImageRows,
@@ -22,14 +22,14 @@ import {
   findMasterByLegacy,
   findMasterImageRows,
   findMasterListPage,
-} from '../read-models/master-product-read-model';
-import { toMasterImageItem, withImageRows } from '../mappers/master-product.mapper';
+} from '../../adapter/out/prisma/master-product.query';
+import { toMasterImageItem, withImageRows } from '../../mapper/master-product.mapper';
 import {
   normalizeImagesForWrite,
   primaryImageIndex,
   representativeImageUrl,
-} from '../domain/master-image-normalizer';
-import { assertPublicHttpUrl } from '../domain/public-image-url';
+} from '../../domain/service/master-image-normalizer';
+import { assertPublicHttpUrl } from '../../domain/policy/public-image-url';
 
 const SYSTEM_FIELDS = [
   'id', 'code', 'companyId', 'optionCounter', 'isDeleted', 'deletedAt',

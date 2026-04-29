@@ -1,17 +1,17 @@
-// apps/server/src/products/services/options.service.ts
+// apps/server/src/products/application/service/options.service.ts
 import { Injectable } from '@nestjs/common';
 import { Prisma, ProductOption } from '@prisma/client';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService } from '../../../prisma/prisma.service';
 import { BundleStockService } from './bundle-stock.service';
-import { CreateOptionDto } from '../dto/create-option.dto';
-import { UpdateOptionDto } from '../dto/update-option.dto';
-import { ListOptionsQuery } from '../dto/list-options.query';
-import { buildOptionSku } from '../domain/product-option-sku';
+import { CreateOptionDto } from '../../dto/create-option.dto';
+import { UpdateOptionDto } from '../../dto/update-option.dto';
+import { ListOptionsQuery } from '../../dto/list-options.query';
+import { buildOptionSku } from '../../domain/service/product-option-sku';
 import {
   applyTemporaryReasonClearing,
   classifyBundleFlip,
   stripProductOptionSystemFields,
-} from '../domain/product-option-mutation-rules';
+} from '../../domain/policy/product-option-mutation-rules';
 import {
   applyOptionPatch,
   assertNoBundleComponents,
@@ -22,14 +22,14 @@ import {
   incrementMasterOptionCounter,
   restoreOptionRow,
   softDeleteOptionRow,
-} from '../persistence/product-option.persistence';
+} from '../../adapter/out/prisma/product-option.persistence';
 import {
   findOptionByBarcode,
   findOptionById,
   findOptionBySku,
   listOptions,
   type OptionsListPage,
-} from '../read-models/product-option-read-model';
+} from '../../adapter/out/prisma/product-option.query';
 
 /**
  * Application orchestration for `ProductOption` lifecycle.

@@ -1,4 +1,4 @@
-// apps/server/src/products/persistence/bundle-stock.persistence.ts
+// apps/server/src/products/adapter/out/prisma/bundle-stock.persistence.ts
 import { Prisma } from '@prisma/client';
 
 /**

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ProductCatalogService } from '../services/product-catalog.service';
+import { ProductCatalogService } from '../application/service/product-catalog.service';
 
 function makeService(rows: any[]) {
   const prisma = {

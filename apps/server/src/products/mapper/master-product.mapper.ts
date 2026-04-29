@@ -1,10 +1,10 @@
-// apps/server/src/products/mappers/master-product.mapper.ts
+// apps/server/src/products/mapper/master-product.mapper.ts
 //
 // Prisma row → shared contract shape for MasterProduct + nested image rows.
 // Pure module — depends on `@kiditem/shared/product` types only.
 import type { MasterProduct, MasterProductImage } from '@prisma/client';
 import type { MasterImageItem } from '@kiditem/shared/product';
-import type { MasterWithImageRows } from '../read-models/master-product-read-model';
+import type { MasterWithImageRows } from '../adapter/out/prisma/master-product.query';
 
 export function toMasterImageItem(row: MasterProductImage): MasterImageItem {
   return {

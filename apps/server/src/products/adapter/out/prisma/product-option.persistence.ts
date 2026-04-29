@@ -2,8 +2,8 @@ import {
   ConflictException, NotFoundException,
 } from '@nestjs/common';
 import { Prisma, type ProductOption } from '@prisma/client';
-import type { PrismaService } from '../../prisma/prisma.service';
-import { mapPrismaError } from '../util/prisma-error';
+import type { PrismaService } from '../../../../prisma/prisma.service';
+import { mapPrismaError } from '../../../util/prisma-error';
 
 /**
  * Tenant-scoped Prisma writers + intra-transaction reads for `ProductOption`.

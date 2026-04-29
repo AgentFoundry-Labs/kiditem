@@ -1,4 +1,4 @@
-// apps/server/src/products/read-models/master-product-read-model.ts
+// apps/server/src/products/adapter/out/prisma/master-product.query.ts
 //
 // MasterProduct hydrated read shape — owns the canonical `include` for the
 // nested image rows, the row type the mapper consumes, and tenant-scoped
@@ -6,9 +6,9 @@
 // applied unless an explicit `includeDeleted` opt opens it for restore /
 // audit paths.
 import type { MasterProduct, MasterProductImage, Prisma } from '@prisma/client';
-import type { PrismaService } from '../../prisma/prisma.service';
-import type { ListMastersQuery } from '../dto/list-masters.query';
-import { decodeCursor, encodeCursor } from '../util/cursor';
+import type { PrismaService } from '../../../../prisma/prisma.service';
+import type { ListMastersQuery } from '../../../dto/list-masters.query';
+import { decodeCursor, encodeCursor } from '../../../util/cursor';
 
 export const MASTER_WITH_IMAGES: Prisma.MasterProductInclude = {
   images: {

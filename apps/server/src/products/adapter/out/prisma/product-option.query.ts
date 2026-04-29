@@ -1,8 +1,8 @@
 import { NotFoundException } from '@nestjs/common';
 import { Prisma, type ProductOption } from '@prisma/client';
-import type { PrismaService } from '../../prisma/prisma.service';
-import type { ListOptionsQuery } from '../dto/list-options.query';
-import { decodeCursor, encodeCursor } from '../util/cursor';
+import type { PrismaService } from '../../../../prisma/prisma.service';
+import type { ListOptionsQuery } from '../../../dto/list-options.query';
+import { decodeCursor, encodeCursor } from '../../../util/cursor';
 
 /**
  * Tenant-scoped read shapes for `ProductOption`.

@@ -1,15 +1,15 @@
-// apps/server/src/products/controllers/options.controller.ts
+// apps/server/src/products/adapter/in/http/options.controller.ts
 import {
   Body, Controller, Delete, Get, Param, Patch, Post, Query,
 } from '@nestjs/common';
-import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
+import { CurrentCompany } from '../../../../auth/decorators/current-company.decorator';
 import { BundleComponentSchema, OptionWithComponentsSchema, ProductOptionSchema, type BundleComponent, type OptionWithComponents, type ProductOption } from '@kiditem/shared/product';
-import { toSerializable } from '../util/serialize';
-import { OptionsService } from '../services/options.service';
-import { BundleComponentsService } from '../services/bundle-components.service';
-import { CreateOptionDto } from '../dto/create-option.dto';
-import { UpdateOptionDto } from '../dto/update-option.dto';
-import { ListOptionsQuery } from '../dto/list-options.query';
+import { toSerializable } from '../../../util/serialize';
+import { OptionsService } from '../../../application/service/options.service';
+import { BundleComponentsService } from '../../../application/service/bundle-components.service';
+import { CreateOptionDto } from '../../../dto/create-option.dto';
+import { UpdateOptionDto } from '../../../dto/update-option.dto';
+import { ListOptionsQuery } from '../../../dto/list-options.query';
 
 // NOTE (auth/CLAUDE.md Hard bans): no `@UseGuards` / `@UsePipes` here — rely on
 // global APP_GUARD (CompanyScopeGuard + RolesGuard) and global ValidationPipe

@@ -2,9 +2,9 @@ import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 import { Test } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import request from 'supertest';
-import { ProductsLegacyController } from '../controllers/products-legacy.controller';
-import { ProductCatalogService } from '../services/product-catalog.service';
-import { MastersService } from '../services/masters.service';
+import { ProductsLegacyController } from '../adapter/in/http/products-legacy.controller';
+import { ProductCatalogService } from '../application/service/product-catalog.service';
+import { MastersService } from '../application/service/masters.service';
 
 describe('ProductsLegacyController (GET-only alias, e2e)', () => {
   let app: INestApplication;

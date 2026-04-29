@@ -1,15 +1,15 @@
-// apps/server/src/products/services/bundle-stock.service.ts
+// apps/server/src/products/application/service/bundle-stock.service.ts
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { PrismaService } from '../../prisma/prisma.service';
-import { computeBundleCapacity } from '../domain/bundle-stock-capacity';
+import { PrismaService } from '../../../prisma/prisma.service';
+import { computeBundleCapacity } from '../../domain/service/bundle-stock-capacity';
 import {
   findBundleOptionId,
   listActiveBundleComponentsWithStock,
   listBundlesUsingComponent,
   lockBundleOptionRow,
   writeBundleAvailableStock,
-} from '../persistence/bundle-stock.persistence';
+} from '../../adapter/out/prisma/bundle-stock.persistence';
 
 /**
  * Recompute the materialized `availableStock` for a bundle option.

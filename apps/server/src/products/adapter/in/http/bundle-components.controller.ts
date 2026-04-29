@@ -1,14 +1,14 @@
-// apps/server/src/products/controllers/bundle-components.controller.ts
+// apps/server/src/products/adapter/in/http/bundle-components.controller.ts
 import {
   Body, Controller, Delete, Get, Param, Patch, Post, Query,
 } from '@nestjs/common';
-import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
+import { CurrentCompany } from '../../../../auth/decorators/current-company.decorator';
 import { BundleComponentSchema, type BundleComponent } from '@kiditem/shared/product';
-import { toSerializable } from '../util/serialize';
-import { BundleComponentsService } from '../services/bundle-components.service';
-import { CreateBundleComponentDto } from '../dto/create-bundle-component.dto';
-import { UpdateBundleComponentDto } from '../dto/update-bundle-component.dto';
-import { ListBundleComponentsQuery } from '../dto/list-bundle-components.query';
+import { toSerializable } from '../../../util/serialize';
+import { BundleComponentsService } from '../../../application/service/bundle-components.service';
+import { CreateBundleComponentDto } from '../../../dto/create-bundle-component.dto';
+import { UpdateBundleComponentDto } from '../../../dto/update-bundle-component.dto';
+import { ListBundleComponentsQuery } from '../../../dto/list-bundle-components.query';
 
 // NOTE (auth/CLAUDE.md Hard bans): no `@UseGuards` / `@UsePipes` — rely on the
 // global APP_GUARD (CompanyScopeGuard + RolesGuard) and the global

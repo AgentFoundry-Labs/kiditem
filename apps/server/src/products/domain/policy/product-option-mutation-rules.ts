@@ -1,6 +1,6 @@
 import type { Prisma } from '@prisma/client';
-import type { CreateOptionDto } from '../dto/create-option.dto';
-import type { UpdateOptionDto } from '../dto/update-option.dto';
+import type { CreateOptionDto } from '../../dto/create-option.dto';
+import type { UpdateOptionDto } from '../../dto/update-option.dto';
 
 /**
  * System-managed `ProductOption` fields a client cannot set or change via DTO.

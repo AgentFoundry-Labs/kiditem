@@ -1,8 +1,8 @@
 import { Controller, Get, Header, HttpCode, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
-import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
-import { ProductCatalogService } from '../services/product-catalog.service';
-import { MastersService } from '../services/masters.service';
-import { ListProductCatalogQuery } from '../dto/list-product-catalog.query';
+import { CurrentCompany } from '../../../../auth/decorators/current-company.decorator';
+import { ProductCatalogService } from '../../../application/service/product-catalog.service';
+import { MastersService } from '../../../application/service/masters.service';
+import { ListProductCatalogQuery } from '../../../dto/list-product-catalog.query';
 
 const DEPRECATION_HEADER = 'true';
 const SUNSET_HEADER = 'Mon, 15 Jun 2026 00:00:00 GMT';

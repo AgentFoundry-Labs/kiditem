@@ -3,7 +3,7 @@ import { Test } from '@nestjs/testing';
 import { NotFoundException } from '@nestjs/common';
 import { InventoryService } from '../inventory.service';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { BundleStockService } from '../../../products/services/bundle-stock.service';
+import { BundleStockService } from '../../../products/application/service/bundle-stock.service';
 
 describe('InventoryService.receive', () => {
   let service: InventoryService;
