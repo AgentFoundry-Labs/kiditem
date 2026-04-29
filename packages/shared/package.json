@@ -55,6 +55,46 @@
       "import": "./dist/security/index.js",
       "require": "./dist/security/index.cjs"
     },
+    "./panel": {
+      "types": "./dist/panel/index.d.ts",
+      "import": "./dist/panel/index.js",
+      "require": "./dist/panel/index.cjs"
+    },
+    "./dashboard": {
+      "types": "./dist/dashboard.d.ts",
+      "import": "./dist/dashboard.js",
+      "require": "./dist/dashboard.cjs"
+    },
+    "./finance": {
+      "types": "./dist/finance.d.ts",
+      "import": "./dist/finance.js",
+      "require": "./dist/finance.cjs"
+    },
+    "./marketplace": {
+      "types": "./dist/marketplace.d.ts",
+      "import": "./dist/marketplace.js",
+      "require": "./dist/marketplace.cjs"
+    },
+    "./rules": {
+      "types": "./dist/rules.d.ts",
+      "import": "./dist/rules.js",
+      "require": "./dist/rules.cjs"
+    },
+    "./action-task": {
+      "types": "./dist/action-task.d.ts",
+      "import": "./dist/action-task.js",
+      "require": "./dist/action-task.cjs"
+    },
+    "./supplier-stats": {
+      "types": "./dist/supplier-stats.d.ts",
+      "import": "./dist/supplier-stats.js",
+      "require": "./dist/supplier-stats.cjs"
+    },
+    "./channel-dashboard": {
+      "types": "./dist/channel-dashboard.d.ts",
+      "import": "./dist/channel-dashboard.js",
+      "require": "./dist/channel-dashboard.cjs"
+    },
     "./internal/*": null
   },
   "types": "./dist/index.d.ts",
@@ -68,7 +108,15 @@
       "advertising": ["dist/advertising.d.ts"],
       "errors": ["dist/errors/index.d.ts"],
       "server-errors": ["dist/server-errors.d.ts"],
-      "security": ["dist/security/index.d.ts"]
+      "security": ["dist/security/index.d.ts"],
+      "panel": ["dist/panel/index.d.ts"],
+      "dashboard": ["dist/dashboard.d.ts"],
+      "finance": ["dist/finance.d.ts"],
+      "marketplace": ["dist/marketplace.d.ts"],
+      "rules": ["dist/rules.d.ts"],
+      "action-task": ["dist/action-task.d.ts"],
+      "supplier-stats": ["dist/supplier-stats.d.ts"],
+      "channel-dashboard": ["dist/channel-dashboard.d.ts"]
     }
   },
   "main": "./dist/index.cjs",
