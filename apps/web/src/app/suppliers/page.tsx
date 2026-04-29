@@ -35,7 +35,7 @@ export default function SuppliersPage() {
   const createMutation = useMutation({
     mutationFn: (body: typeof form) => apiClient.post('/api/suppliers', body),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['suppliers'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.suppliers.all });
       setShowForm(false);
       setForm({ name: '', contactName: '', phone: '', email: '', address: '', leadTimeDays: 7, paymentTerms: '', notes: '' });
     },
@@ -43,7 +43,7 @@ export default function SuppliersPage() {
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => apiClient.delete(`/api/suppliers/${id}`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['suppliers'] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.suppliers.all }),
   });
 
   return (
