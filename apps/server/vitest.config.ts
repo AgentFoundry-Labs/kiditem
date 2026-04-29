@@ -1,19 +1,17 @@
 import { defineConfig } from 'vitest/config';
 import path from 'path';
 
+const sharedSrc = path.resolve(__dirname, '../../packages/shared/src');
+
 export default defineConfig({
   resolve: {
     alias: [
       // Resolve @kiditem/shared from the worktree's local source (not root node_modules)
       // Required for git-worktree setups where node_modules symlink points to main branch
-      {
-        find: /^@kiditem\/shared\/ai$/,
-        replacement: path.resolve(__dirname, '../../packages/shared/src/ai.ts'),
-      },
-      {
-        find: /^@kiditem\/shared$/,
-        replacement: path.resolve(__dirname, '../../packages/shared/src/index.ts'),
-      },
+      { find: /^@kiditem\/shared$/, replacement: path.resolve(sharedSrc, 'index.ts') },
+      { find: /^@kiditem\/shared\/security$/, replacement: path.resolve(sharedSrc, 'security/index.ts') },
+      { find: /^@kiditem\/shared\/panel$/, replacement: path.resolve(sharedSrc, 'panel/index.ts') },
+      { find: /^@kiditem\/shared\/([^/]+)$/, replacement: path.resolve(sharedSrc, '$1.ts') },
     ],
   },
   test: {
