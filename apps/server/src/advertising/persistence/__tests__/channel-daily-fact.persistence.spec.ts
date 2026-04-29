@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ChannelScrapePersistenceService } from '../channel-scrape-persistence.service';
+import { upsertChannelListingDaily } from '../channel-daily-fact.persistence';
 
-describe('ChannelScrapePersistenceService', () => {
-  it('upsertListingDaily merges namespaced metaJson with an atomic jsonb update instead of read-spread-write', async () => {
+describe('upsertChannelListingDaily — namespaced metaJson merge', () => {
+  it('merges namespaced metaJson with an atomic jsonb update instead of read-spread-write', async () => {
     const tx: any = {
       channelListingDailySnapshot: {
         findUnique: vi.fn().mockResolvedValue({
@@ -15,9 +15,8 @@ describe('ChannelScrapePersistenceService', () => {
     const prisma: any = {
       $transaction: vi.fn((callback) => callback(tx)),
     };
-    const service = new ChannelScrapePersistenceService(prisma);
 
-    await service.upsertListingDaily({
+    await upsertChannelListingDaily(prisma, {
       companyId: 'company-1',
       listingId: 'listing-1',
       channel: 'coupang',
@@ -29,6 +28,12 @@ describe('ChannelScrapePersistenceService', () => {
       },
     });
 
+    // Atomic jsonb merge contract:
+    //   - upsert lands the create/update row exactly once
+    //   - findUnique is NOT called (no read-spread-write race window)
+    //   - $executeRaw fires the `meta_json = COALESCE(meta_json,'{}') || patch`
+    //     update so concurrent payloads with different `source` keys
+    //     preserve each other's audit data.
     expect(tx.channelListingDailySnapshot.upsert).toHaveBeenCalledTimes(1);
     expect(tx.channelListingDailySnapshot.findUnique).not.toHaveBeenCalled();
     expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
