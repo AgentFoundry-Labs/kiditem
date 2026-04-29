@@ -116,6 +116,11 @@ Reconstruction work starts from [`docs/superpowers/plans/2026-04-28-codebase-rec
 - **Large-file contract** — do not add substantial behavior to 700+ line services/components. Write a split/replacement plan first.
 - **Frontend DB boundary** — frontend packages must not depend on Prisma, `pg`, or direct database access. Data flows through NestJS APIs.
 - **Verification contract** — every reconstruction PR reports the exact gate it made green. If a gate itself is broken, fix the gate before using it as evidence.
+- **Backend architecture contract** — backend reconstruction follows [`docs/superpowers/plans/2026-04-29-backend-architecture-contract.md`](docs/superpowers/plans/2026-04-29-backend-architecture-contract.md): Domain-first modular architecture with Application orchestration and selective Hexagonal Ports.
+- **Owner domain boundary** — backend top-level folders represent owner domains/platforms, not DB tables or frontend pages. Boundaries are chosen by data ownership, mutation authority, transaction boundary, and invariants.
+- **Pure domain rule** — reconstructed `domain/` code must not depend on NestJS, Prisma, HTTP/provider SDKs, workflow runtime, AgentRegistry, filesystem, or panel/event infrastructure.
+- **Legacy module rule** — flat `Controller -> Service -> PrismaService` modules are tolerated only as transitional legacy CRUD. New or materially rewritten domains should move behavior behind `adapter/application/domain` structure.
+- **Backend folder rule** — adding a new `apps/server/src/{top-level}` folder requires owner-domain justification in the scoped plan or instruction file. Small table-shaped modules should be folded into their owner domain during reconstruction.
 
 ## Structure
 

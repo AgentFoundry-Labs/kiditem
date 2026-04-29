@@ -6,6 +6,8 @@
 
 **Architecture:** Treat this as a staged reconstruction. Phase 0 defines the constitution and gates; Phase 1 makes platform safety green; later phases delete and reimplement one domain surface at a time behind contract tests. Cross-business-domain edits are allowed only for explicitly named platform-boundary work such as tenant guards, raw SQL policy, scanner gates, and shared export contracts.
 
+**Backend architecture contract:** Phase 3B and later backend reconstruction are governed by [`2026-04-29-backend-architecture-contract.md`](2026-04-29-backend-architecture-contract.md): Domain-first modular architecture with Application orchestration and selective Hexagonal Ports. Existing flat services and `services`/`persistence`/`read-models`/`ingest` labels are transitional, not the target naming standard.
+
 **Tech Stack:** npm workspaces, NestJS 11, Prisma 7, PostgreSQL, Next.js 16, React Query, Zod, `@kiditem/shared`, Vitest, shell safety scanners, `knip`.
 
 ---
@@ -219,26 +221,42 @@ tenant safety is in place. This phase should reduce fat services, separate
 query/persistence/mapping/business-rule responsibilities, and make future
 changes smaller. It is not successful if it only adds tests or documentation.
 
-**DDD posture:** The top-level folders under `apps/server/src/{domain}` are the
-bounded-context boundary. Do not introduce a global repository layer. Keep small
-CRUD domains as `Service -> PrismaService`. For large domains, introduce
-internal layers only where they remove real complexity:
+**Architecture posture:** Phase 3B follows
+[`2026-04-29-backend-architecture-contract.md`](2026-04-29-backend-architecture-contract.md).
+The target is Domain-first modular architecture with Application orchestration
+and selective Hexagonal Ports, not full Clean Architecture everywhere and not a
+global repository layer. Top-level backend folders represent owner domains or
+platforms, not DB tables or frontend pages.
 
-- `services/` — application use-case orchestration.
-- `persistence/` or `repositories/` — tenant-scoped writes, entity access,
-  row-lock/transaction helpers, and repeated invariant enforcement. These must
-  not become 1:1 Prisma wrappers.
-- `read-models/` or `queries/` — report/read-contract queries, raw SQL builders,
-  2-hop/3-hop tenant predicates, and hydration.
-- `mappers/` — Prisma row or query row to API/shared contract shape.
-- `domain/` — pure business rules, calculators, thresholds, and state
-  transitions with no Prisma dependency.
+Target reconstructed domains converge toward:
+
+- `adapter/in/*` — HTTP, workflow, cron, or agent entrypoints.
+- `adapter/out/prisma/*` — Prisma persistence/query adapters, raw SQL builders,
+  tenant predicates, row locks, transactions, and hydration.
+- `adapter/out/{provider}/*` — external APIs, LLM/model providers, filesystem,
+  panel events, and other runtime infrastructure.
+- `application/service/*` — use-case orchestration, transactions, tenant
+  context, and calls to out ports.
+- `application/port/in|out/*` — ports only where they remove boundary coupling:
+  Agent OS/runtime, workflow/cron/agent entrypoints, external providers, panel
+  events, raw SQL/complex persistence, core aggregate mutations, or
+  cross-entrypoint use cases.
+- `domain/*` — pure business rules, calculators, policies, thresholds, state
+  transitions, and domain models with no NestJS/Prisma/runtime dependency.
+- `mapper/*` — Prisma row/query row/API DTO/domain mapping.
+
+Existing `services/`, `persistence`, `read-models`, `queries`, and `ingest`
+files may be used as migration waypoints. Do not copy those names as the new
+standard when creating or materially rewriting a domain. Repository naming is
+reserved for true domain collection abstractions; do not create 1:1 Prisma
+wrappers.
 
 **Priority order:**
 
 1. `advertising` — decompose fat services such as `ad-sync.service.ts`;
-   continue the read-model extraction started in PR #116; isolate mappers and
-   pure ad-rule/domain helpers.
+   converge the transitional `services`/`ingest`/`read-models`/`persistence`
+   shape toward `adapter/application/domain`; isolate mappers and pure
+   ad-rule/domain helpers.
 2. `ai` / thumbnails — split generation, analysis, recomposition, Wing
    registration, image resolution, and AI adapter orchestration.
 3. `products` — selectively extract tenant-safe product persistence and shared
@@ -466,7 +484,7 @@ rg -n "from '@kiditem/shared'" apps/server/src apps/web/src packages/shared/src 
 
 - [ ] `ontology` is **hard-deleted from the server surface** (2026-04-28). No rewrite plan is owed; future reintroduction requires a product contract + tenant isolation test.
 - [x] Write the advertising architecture refactor child plan first:
-  [`2026-04-29-advertising-phase3b-architecture-refactor.md`](2026-04-29-advertising-phase3b-architecture-refactor.md). It names the fat service targets, expected new files under `services/`, `read-models`, `persistence`, `ingest`, `mappers`, and `domain`, plus compatibility gates.
+  [`2026-04-29-advertising-phase3b-architecture-refactor.md`](2026-04-29-advertising-phase3b-architecture-refactor.md). Before execution, align its file layout with [`2026-04-29-backend-architecture-contract.md`](2026-04-29-backend-architecture-contract.md): `services`/`read-models`/`persistence`/`ingest` are transitional labels, while the target is `adapter/application/domain`.
 - [ ] Write separate child plans for AI thumbnails, products, workflows, and dashboard/statistics read models.
 - [ ] Do not write Phase 3B child plans for small CRUD domains unless a concrete fat-service or repeated-invariant problem is identified.
 - [ ] Each child plan must primarily move/simplify production code. Tests and docs are required evidence, not the main deliverable.
