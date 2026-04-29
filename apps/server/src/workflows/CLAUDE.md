@@ -43,7 +43,7 @@ Agent delegation shell** 이다. 범용 자동화/데이터 처리 엔진이 아
 옛 template 이 위 타입을 가지고 실행되면 `getExecutor` 가 `undefined` 를
 반환하고 runner 는 `Error("No executor for node type: <type>")` 를 throw —
 `WorkflowRun.status = 'failed'`, `error` 에 메시지가 남고
-`workflow_step_runs.error` 에도 동일 메시지가 기록된다. 이것이 의도한 실패
+`WorkflowRun.steps[].error` 에도 동일 메시지가 기록된다. 이것이 의도한 실패
 경로다.
 
 ## 새 executor 추가 규칙
@@ -67,17 +67,26 @@ output 에 노출 금지.
 ## Tenant boundary (runner-injected only)
 
 Runner 가 모든 노드 호출 직전에 `nodeDef.config.company_id` 와
-`nodeDef.config._context` 를 **떼어내고**, 검증된 `template.companyId` 와
-실행 시점의 `runContext` 로 덮어쓴다.
+`nodeDef.config._context`, `nodeDef.config._workflow_run_id`,
+`nodeDef.config._workflow_node_id` 를 **떼어내고**, 검증된
+`template.companyId`, 실행 시점의 `runContext`, 실제 `runId/nodeId` 로
+덮어쓴다.
 
 ```ts
 // workflow-runner.service.ts
-const { company_id: _ignoredCompanyId, _context: _ignoredCtx, ...safeNodeConfig } =
-  nodeDef.config ?? {};
+const {
+  company_id: _ignoredCompanyId,
+  _context: _ignoredCtx,
+  _workflow_run_id: _ignoredWorkflowRunId,
+  _workflow_node_id: _ignoredWorkflowNodeId,
+  ...safeNodeConfig
+} = nodeDef.config ?? {};
 const resolvedConfig = context.resolveConfig({
   ...safeNodeConfig,
   company_id: template.companyId, // runner 가 주입한 trusted 값
   _context: runContext,
+  _workflow_run_id: runId,
+  _workflow_node_id: nodeId,
 });
 ```
 
@@ -98,11 +107,14 @@ WorkflowRun 자체의 read/write 도 항상 `{ id: runId, companyId }` /
    소유권 검증 → `WorkflowRun(pending)` 생성 → fire-and-forget 으로
    `runner.runWorkflow(runId, templateId, template.companyId)` 호출
 3. Runner — DAG 순회, 각 노드 executor 실행 → `WorkflowRun.steps` 누적
-4. 실행 종료 → 후속 `runAnalysisAndRecord` 가 `agent_task.create` 형태로
-   AI 분석 1회 실행, ActivityEvent 기록
+4. 실행 종료 → `WorkflowRun.status` 를 `succeeded` 또는 `failed` 로 기록하고
+   panel upsert emit
 
-Batch: `POST /api/workflows/batch-run` → 각 워크플로우는
-`skipAnalysis: true` 로 실행되고 끝에 한 번 통합 AI 분석.
+AI/LLM 분석이 필요한 template 은 DAG 내부에서 명시적으로
+`agent_task.create` 노드를 둔다. Runner 가 완료 후 자동 AI 분석을 실행하는
+후처리 훅은 없다.
+
+Batch: `POST /api/workflows/batch-run` → 각 workflow run 을 순차 실행한다.
 
 ## Output Shape
 
@@ -117,7 +129,7 @@ Output key 이름은 `catalog.ts` 의 `outputSchema` 와 일치해야 한다.
 
 ## Error Handling
 
-- executor 안에서 `throw` → 엔진이 catch, `workflow_step_runs.error` 에
+- executor 안에서 `throw` → 엔진이 catch, `WorkflowRun.steps[].error` 에
   기록, 워크플로우 중단.
 - 에러 메시지는 한국어 (end user 가 읽음).
 - executor 안에서 silent swallow 금지. retry 로직 금지.

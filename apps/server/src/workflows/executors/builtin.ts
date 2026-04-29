@@ -79,7 +79,15 @@ registerNode('agent_task.create', async (_prisma, config, _context, services) =>
   if (!services?.agentRegistry) {
     throw new Error('AgentRegistryService is required for agent_task.create');
   }
+  const companyId = config.company_id as string | undefined;
+  if (!companyId) {
+    throw new Error('agent_task.create requires runner-injected company_id');
+  }
   const result = await services.agentRegistry.runByType(config.agent_type as string, {
+    companyId,
+    workflowRunId: config._workflow_run_id as string | undefined,
+    workflowNodeId: config._workflow_node_id as string | undefined,
+    sourceDataId: config.source_data_id as string | undefined,
     extra: {
       ...(config.input as any) ?? {},
       _workflow_run_id: config._workflow_run_id,
