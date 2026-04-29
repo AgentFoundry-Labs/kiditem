@@ -1,5 +1,5 @@
 import type { AdListingSummary } from '@kiditem/shared/advertising';
-import type { HydratedListing } from '../services/types';
+import type { HydratedListing } from '../domain/model/strategy-types';
 import type {
   ScopedAdListingReadModel,
   ScopedAdListingSummary,

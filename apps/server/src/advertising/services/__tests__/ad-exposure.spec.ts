@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { AdExposureService } from '../ad-exposure.service';
-import type { ExposureScoreInput, HydratedListing, InventoryRow } from '../types';
+import type { ExposureScoreInput, HydratedListing, InventoryRow } from '../../domain/model/strategy-types';
 import type { ExposureProductScore } from '@kiditem/shared/advertising';
 
 // ─────────────────────────────────────────────

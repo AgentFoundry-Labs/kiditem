@@ -11,7 +11,7 @@ import {
   toGradeMapStrict,
   uniqueIds,
 } from '../strategy-context';
-import type { HydratedListing, InventoryRow } from '../../services/types';
+import type { HydratedListing, InventoryRow } from '../model/strategy-types';
 
 describe('domain/strategy-context — date helpers', () => {
   it('getCurrentPeriod returns year + 1-indexed month from injected Date', () => {

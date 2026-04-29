@@ -1,6 +1,6 @@
 import { IsArray, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
 import { Type } from 'class-transformer';
-import { AD_ACTION_TARGET_TYPES } from '../services/types';
+import { AD_ACTION_TARGET_TYPES } from '../domain/model/strategy-types';
 
 export class AdActionQueryDto {
   @IsOptional()

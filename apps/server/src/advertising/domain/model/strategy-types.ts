@@ -1,7 +1,8 @@
-import type { Prisma } from '@prisma/client';
 import type { AdMetrics, AdStrategyAction, ChannelStateSignal } from '@kiditem/shared/advertising';
 
-// AdAction targetType 값 union (services/types.ts 전용 export, AdActionCommandDto 는 dto/).
+export type DecimalLike = number | { toString(): string };
+
+// AdAction targetType 값 union (AdActionCommandDto 는 dto/).
 export const AD_ACTION_TARGET_TYPES = ['campaign', 'keyword'] as const;
 export type AdActionTargetType = typeof AD_ACTION_TARGET_TYPES[number];
 
@@ -72,7 +73,7 @@ export interface HydratedListing {
     availableStock: number | null;
     costPrice: number | null;
     sellPrice: number | null;
-    commissionRate: Prisma.Decimal | number | null;
+    commissionRate: DecimalLike | null;
     shippingCost: number | null;
   } | null;
 }
@@ -83,7 +84,7 @@ export interface InventoryRow {
   availableStock: number;
   costPrice: number | null;
   sellPrice: number | null;
-  commissionRate: Prisma.Decimal | null;
+  commissionRate: DecimalLike | null;
 }
 
 export interface AdAggregateRow {

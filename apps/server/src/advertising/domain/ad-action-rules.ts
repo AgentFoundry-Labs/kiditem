@@ -1,5 +1,5 @@
 import { recomputeRoas } from '../util/ratio-recompute';
-import type { AdActionTargetType } from '../services/types';
+import type { AdActionTargetType } from './model/strategy-types';
 import type { LatestTargetRow } from '../adapter/out/prisma/ad-action.query';
 
 /**

@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import type { ExposureAnalysisData, ExposureFactorScore, ExposureProductScore, ExposureUrgentAction } from '@kiditem/shared/advertising';
-import type { ExposureScoreInput, TopIssueInput } from './types';
+import type { ExposureScoreInput, TopIssueInput } from '../domain/model/strategy-types';
 import { toListingSummary } from '../mapper/ad-listing.mapper';
 
 /**

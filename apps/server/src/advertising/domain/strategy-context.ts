@@ -3,7 +3,7 @@ import type {
   HydratedListing,
   InventoryRow,
   ListingMetricsRow,
-} from '../services/types';
+} from './model/strategy-types';
 
 /**
  * Pure helpers used to assemble strategy context. No Prisma, no NestJS DI.

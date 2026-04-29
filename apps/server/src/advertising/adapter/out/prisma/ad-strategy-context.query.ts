@@ -8,7 +8,7 @@ import type {
   AdsConfig,
   HydratedListing,
   InventoryRow,
-} from '../../../services/types';
+} from '../../../domain/model/strategy-types';
 import {
   buildGradeMap,
   toAdAggregateRows,

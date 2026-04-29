@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import type { AdStrategyAction, AdIssues, ChannelStateSignal } from '@kiditem/shared/advertising';
-import type { GradeRulesInput, AdIssuesInput, HydratedListing } from './types';
+import type { GradeRulesInput, AdIssuesInput, HydratedListing } from '../domain/model/strategy-types';
 import { toListingSummary } from '../mapper/ad-listing.mapper';
 
 type Priority = 'urgent' | 'high' | 'medium' | 'low';

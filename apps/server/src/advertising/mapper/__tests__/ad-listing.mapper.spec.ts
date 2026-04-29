@@ -4,7 +4,7 @@ import {
   scopedListingToSummary,
   toListingSummary,
 } from '../ad-listing.mapper';
-import type { HydratedListing } from '../../services/types';
+import type { HydratedListing } from '../../domain/model/strategy-types';
 import type { ScopedAdListingReadModel } from '../../adapter/out/prisma/ad-listing.query';
 
 describe('mappers/ad-listing — HydratedListing → AdListingSummary', () => {

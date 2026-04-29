@@ -8,7 +8,7 @@ import type {
   Top20Input,
   ListingMetricsRow,
   GradeBudgetAllocation,
-} from './types';
+} from '../domain/model/strategy-types';
 import { toListingSummary } from '../mapper/ad-listing.mapper';
 
 /**
