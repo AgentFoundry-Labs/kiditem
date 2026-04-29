@@ -175,9 +175,11 @@ while IFS= read -r entry; do
 done < "$CURRENT_TMP"
 
 TOTAL_BASELINE=0
-for c in "${BASELINE_COUNTS[@]}"; do
-  TOTAL_BASELINE=$((TOTAL_BASELINE + c))
-done
+if [ "${#BASELINE_COUNTS[@]}" -gt 0 ]; then
+  for c in "${BASELINE_COUNTS[@]}"; do
+    TOTAL_BASELINE=$((TOTAL_BASELINE + c))
+  done
+fi
 
 echo "  baseline: $TOTAL_BASELINE root import line(s) across ${#BASELINE_PATHS[@]} file(s)"
 echo "  current : $TOTAL_CURRENT root import line(s) across $TOTAL_CURRENT_FILES file(s)"
