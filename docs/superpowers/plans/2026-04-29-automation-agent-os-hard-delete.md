@@ -428,8 +428,8 @@ Web consumers: `/api/panel/stream` SSE consumed by the panel UI store.
 | `workflows/services/workflows.service.ts` (template CRUD + run trigger) | **Keep, rewrite-target** | Move to `automation/application/service/` once `automation/` lands. Keep the public route shape. |
 | `workflows/services/context.ts`, `dag.ts` | **Keep** | Pure helpers. Domain-pure → `automation/domain/service/` after move. |
 | `workflows/executors/builtin.ts` (5 executors) | **Keep** | Slim-core surface. Any new executor is **domain-specific only** (no generic). |
-| `workflows/executors/types.ts` `Standard*` interfaces | **Delete-candidate** | Zero production consumer. Hard-delete only when (a) no domain executor lands using them by Phase 4 frontend rebuild, OR (b) executor-rewrite PR restates the normalization contract elsewhere. Until then, classified, not deleted. |
-| `workflows/executors/index.ts` `getNodeDefinition` / `listNodeTypes` / `listNodeDefinitions` | **Delete-candidate** | Empty `DEFINITION_REGISTRY` because all `registerNode` calls pass `definition = undefined`. No external consumer. Hard-delete unblocked when the workflow executor PR explicitly chooses not to repopulate node-palette metadata. |
+| `workflows/executors/types.ts` `Standard*` interfaces | **Deleted (Phase 3C-1)** | Zero production consumer. Removed in `refactor/workflow-executor-hard-delete`. Per-domain executor output types now live next to the executor that produces them; no project-wide normalization layer. |
+| `workflows/executors/index.ts` `getNodeDefinition` / `listNodeTypes` / `listNodeDefinitions` | **Deleted (Phase 3C-1)** | `DEFINITION_REGISTRY` was permanently empty (every `registerNode` call passed `definition = undefined`) and zero external consumers existed. Removed in `refactor/workflow-executor-hard-delete`; `registerNode` signature simplified to `(nodeType, fn, isConcurrencySafe?)`. |
 | `workflows/executors/builtin.ts` legacy aliases (`internal.db_query`, `api_call`, `action`, `data.filter`, `data_transform`, `ai_process`, `trigger`, `trigger.event`, `condition`, `notification`) | **Already deleted** | Restated here as a "do not reintroduce" gate. Templates referencing them MUST fail with `"No executor for node type: …"` and the failure MUST land in `WorkflowRun.error`. |
 | `workflows/executors/builtin.ts` direct LLM/provider import | **Hard-banned** | Not present today. Any future regression is hard-deleted on sight. |
 | `agent-registry/agent-registry.service.ts` (570 LOC) | **Keep, refactor candidate** | Survival core #4. Above the 700-line ceiling cushion — when a new behavior is added, the architecture refactor PR must split CRUD vs run vs lifecycle vs cost-analytics. |
@@ -487,6 +487,18 @@ Each follow-up PR is one owner-domain PR. Do not bundle two of these.
    - Replace `executeTask` self-fetch in `action-task` with an explicit
      internal-call port if the executor surface needs it.
    - No folder moves yet.
+   - **Resolution (PR `refactor/workflow-executor-hard-delete`):**
+     `executors/types.ts` deleted (all 7 `Standard*` interfaces +
+     `NodeDefinition` + `ConfigField`/`OutputField` had zero production
+     consumers). `executors/index.ts` registry-introspection helpers
+     deleted (`getNodeDefinition`, `listNodeTypes`, `listNodeDefinitions`,
+     `DEFINITION_REGISTRY`, and the `definition` parameter of
+     `registerNode` — all unreachable because every `registerNode` call in
+     `builtin.ts` passed `definition = undefined`). `executeTask` internal-call
+     port deferred — none of the surviving 5 executors currently invoke the
+     `action-task` self-fetch surface, so introducing a port now would have
+     no consumer. Revisit when a future domain-specific executor needs
+     internal-call routing.
 
 2. **Phase 3C-2 — Rules schedule control port**
    - Replace `RulesController` direct injection of `AgentRegistryService` +

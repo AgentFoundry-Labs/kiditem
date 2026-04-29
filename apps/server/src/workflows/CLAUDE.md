@@ -71,16 +71,16 @@ rewrite / defer 분류는
 이상 추가하지 않는다.
 
 ```
-types.ts (standard 타입 추가)
-  → catalog.ts (NodeDefinition 등록)
-    → executors/{category}.ts 또는 builtin.ts 에 구현
-      → registerNode() 호출
-        → 프론트 nodeRegistry 동기화
+executors/{category}.ts 또는 builtin.ts 에 구현
+  → registerNode(nodeType, fn, isConcurrencySafe?) 호출
+    → 노드별 input/output 계약은 그 파일 안에서 정의 (외부 export 없음)
 ```
 
-External API 응답은 반드시 `executors/types.ts` 의 standard entity 로
-정규화 (`StandardOrder`, `StandardProduct`, …). 외부 raw key 를 그대로
-output 에 노출 금지.
+External API 응답을 노드 output 으로 노출할 땐 raw key 를 그대로 흘리지
+말 것. 도메인별 정규화 타입이 필요하면 그 노드를 도입하는 PR 에서
+같은 파일에 정의한다. 프로젝트-와이드 `Standard*` 단일 정규화 계층은
+두지 않는다 — 소비처 zero 였고 도메인-pure 경계 contract 와 충돌해
+2026-04-29 에 hard-delete 됐다 (`Phase 3C-1`).
 
 ## Tenant boundary (runner-injected only)
 
@@ -139,11 +139,12 @@ Batch: `POST /api/workflows/batch-run` → 각 workflow run 을 순차 실행한
 | Pattern | Shape |
 |---|---|
 | Array data | `{ rows: T[], count: number }` |
-| Platform data | `{ orders: StandardOrder[], count: number }` |
+| Platform data | `{ orders: T[], count: number }` (T 는 노드 파일 안에서 정의된 도메인 타입) |
 | Single action | `{ success: boolean, ... }` |
 | Classification | `{ items: T[], overThreshold: T[], underThreshold: T[] }` |
 
-Output key 이름은 `catalog.ts` 의 `outputSchema` 와 일치해야 한다.
+Output key 이름과 모양은 그 노드를 등록하는 executor 파일이 단독으로
+계약한다 (전역 catalog 는 더 이상 두지 않는다).
 
 ## Error Handling
 

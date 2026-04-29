@@ -1,6 +1,5 @@
 import { PrismaService } from '../../prisma/prisma.service';
 import { WorkflowContext } from '../services/context';
-import type { NodeDefinition } from './types';
 
 export interface ExecutorServices {
   agentRegistry?: import('../../agent-registry/agent-registry.service').AgentRegistryService;
@@ -14,23 +13,15 @@ type NodeExecutorFn = (
 ) => Promise<Record<string, any>>;
 
 const EXECUTOR_REGISTRY: Map<string, NodeExecutorFn> = new Map();
-const DEFINITION_REGISTRY: Map<string, NodeDefinition> = new Map();
 const CONCURRENCY_SAFE_REGISTRY: Map<string, boolean> = new Map();
 
 export function registerNode(
   nodeType: string,
   fn: NodeExecutorFn,
-  definition?: NodeDefinition,
   isConcurrencySafe?: boolean,
 ): void {
   EXECUTOR_REGISTRY.set(nodeType, fn);
-  if (definition) {
-    DEFINITION_REGISTRY.set(nodeType, definition);
-  }
-  CONCURRENCY_SAFE_REGISTRY.set(
-    nodeType,
-    isConcurrencySafe ?? definition?.isConcurrencySafe ?? false,
-  );
+  CONCURRENCY_SAFE_REGISTRY.set(nodeType, isConcurrencySafe ?? false);
 }
 
 export function getExecutor(nodeType: string): NodeExecutorFn | undefined {
@@ -39,18 +30,6 @@ export function getExecutor(nodeType: string): NodeExecutorFn | undefined {
 
 export function isConcurrencySafe(nodeType: string): boolean {
   return CONCURRENCY_SAFE_REGISTRY.get(nodeType) ?? false;
-}
-
-export function getNodeDefinition(nodeType: string): NodeDefinition | undefined {
-  return DEFINITION_REGISTRY.get(nodeType);
-}
-
-export function listNodeTypes(): string[] {
-  return [...EXECUTOR_REGISTRY.keys()];
-}
-
-export function listNodeDefinitions(): NodeDefinition[] {
-  return [...DEFINITION_REGISTRY.values()];
 }
 
 export async function recordActivity(
