@@ -102,7 +102,7 @@ export class ProductCatalogService {
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         skip: (page - 1) * limit,
         take: limit,
-        select: this.masterSelect(),
+        select: this.masterSelect(companyId),
       }),
       this.prisma.masterProduct.count({ where }),
     ]);
@@ -117,7 +117,7 @@ export class ProductCatalogService {
   async detail(companyId: string, id: string): Promise<ProductCatalogDetail> {
     const row = await this.prisma.masterProduct.findFirst({
       where: { id, companyId, isDeleted: false },
-      select: this.masterSelect(),
+      select: this.masterSelect(companyId),
     });
     if (!row) throw new NotFoundException('master not found');
     const typed = row as unknown as CatalogMasterRow;
@@ -197,7 +197,7 @@ export class ProductCatalogService {
    * JSON blobs for catalog list/detail. Zod strips unknown keys on response but the
    * DB + network cost would still be paid without this.
    */
-  private masterSelect() {
+  private masterSelect(companyId: string) {
     return {
       id: true,
       companyId: true,
@@ -235,7 +235,7 @@ export class ProductCatalogService {
       createdAt: true,
       updatedAt: true,
       options: {
-        where: { isDeleted: false, isActive: true },
+        where: { companyId, isDeleted: false, isActive: true },
         orderBy: [{ sortOrder: 'asc' as const }, { createdAt: 'asc' as const }],
         include: { inventory: { select: { currentStock: true } } },
       },

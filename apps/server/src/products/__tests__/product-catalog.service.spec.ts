@@ -61,4 +61,53 @@ describe('ProductCatalogService', () => {
     expect(result.items[0].costRange).toEqual({ min: 1000, max: 3000 });
     expect(result.items[0].totalAvailableStock).toBe(6);
   });
+
+  it('scopes nested option reads by company in catalog detail', async () => {
+    const { service, prisma } = makeService([{
+      id: 'm1',
+      companyId: 'c1',
+      code: 'M-1',
+      legacyCode: null,
+      name: 'Toy',
+      description: '',
+      category: null,
+      brand: null,
+      tags: [],
+      optionCounter: 0,
+      thumbnailUrl: null,
+      imageUrl: null,
+      images: [],
+      abcGrade: null,
+      profitTag: null,
+      adTier: null,
+      adBudgetLimit: null,
+      healthScore: null,
+      healthUpdatedAt: null,
+      sourceUrl: null,
+      sourcePlatform: null,
+      costCny: null,
+      marginRate: null,
+      pipelineStep: null,
+      detailPageUrl: null,
+      thumbnailStrategy: 'standard',
+      supplierId: null,
+      isDeleted: false,
+      deletedAt: null,
+      isTemporary: false,
+      temporaryReason: null,
+      memo: null,
+      createdAt: new Date('2026-04-24T00:00:00.000Z'),
+      updatedAt: new Date('2026-04-24T00:00:00.000Z'),
+      options: [],
+    }]);
+
+    await service.detail('c1', 'm1');
+
+    const select = prisma.masterProduct.findFirst.mock.calls[0][0].select;
+    expect(select.options.where).toEqual({
+      companyId: 'c1',
+      isDeleted: false,
+      isActive: true,
+    });
+  });
 });

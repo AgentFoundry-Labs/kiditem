@@ -31,7 +31,7 @@ export class OptionsService {
    * Transaction body:
    *   1. `updateMany` MasterProduct with filter `{id, companyId, isDeleted:false}` —
    *      combines TOCTOU guard + atomic counter increment in a single row lock.
-   *   2. Re-read master.{code, optionCounter} via `findUniqueOrThrow` (post-increment).
+   *   2. Re-read master.{code, optionCounter} via tenant-scoped `findFirst` (post-increment).
    *   3. Compose sku = `${code}-${String(counter).padStart(2,'0')}`.
    *   4. Create ProductOption with `availableStock: null` (bundle stock is derived).
    *
@@ -53,10 +53,11 @@ export class OptionsService {
         data: { optionCounter: { increment: 1 } },
       });
       if (count === 0) throw new NotFoundException('master not found or deleted');
-      const master = await tx.masterProduct.findUniqueOrThrow({
-        where: { id: dto.masterId },
+      const master = await tx.masterProduct.findFirst({
+        where: { id: dto.masterId, companyId, isDeleted: false },
         select: { code: true, optionCounter: true },
       });
+      if (!master) throw new NotFoundException('master not found or deleted');
       const sku = `${master.code}-${String(master.optionCounter).padStart(2, '0')}`;
       const stripped = this.strip(dto);
       try {
@@ -201,14 +202,14 @@ export class OptionsService {
       if (dto.isBundle !== undefined && dto.isBundle !== current.isBundle) {
         if (dto.isBundle === false) {
           const count = await tx.bundleComponent.count({
-            where: { bundleOptionId: id },
+            where: { bundleOptionId: id, companyId },
           });
           if (count > 0) {
             throw new ConflictException('bundle has components; cannot set isBundle=false');
           }
         } else {
           const count = await tx.bundleComponent.count({
-            where: { componentOptionId: id },
+            where: { componentOptionId: id, companyId },
           });
           if (count > 0) {
             throw new ConflictException('option is used as component; cannot set isBundle=true');

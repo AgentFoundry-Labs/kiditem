@@ -153,10 +153,13 @@ export class BundleComponentsService {
         FOR UPDATE
       `;
       try {
-        const updated = await tx.bundleComponent.update({
-          where: { id },
+        const { count } = await tx.bundleComponent.updateMany({
+          where: { id, companyId },
           data: { qty: dto.qty },
         });
+        if (count === 0) throw new NotFoundException('bundle-component not found');
+        const updated = await tx.bundleComponent.findFirst({ where: { id, companyId } });
+        if (!updated) throw new NotFoundException('bundle-component not found');
         await this.bundleStock.recompute(companyId, row.bundleOptionId, tx);
         return updated;
       } catch (e) {
@@ -188,7 +191,8 @@ export class BundleComponentsService {
         FOR UPDATE
       `;
       try {
-        await tx.bundleComponent.delete({ where: { id } });
+        const { count } = await tx.bundleComponent.deleteMany({ where: { id, companyId } });
+        if (count === 0) throw new NotFoundException('bundle-component not found');
       } catch (e) { mapPrismaError(e, 'bundle-component delete'); }
       await this.bundleStock.recompute(companyId, row.bundleOptionId, tx);
     };

@@ -2,7 +2,7 @@
 import { randomUUID } from 'node:crypto';
 import { isIP } from 'node:net';
 import {
-  BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException,
+  BadRequestException, Injectable, NotFoundException,
 } from '@nestjs/common';
 import { MasterProduct, MasterProductImage, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -73,14 +73,11 @@ export class MastersService {
   ): Promise<MasterProduct> {
     const db = outerTx ?? this.prisma;
     if (dto.supplierId) {
-      const supplier = await db.supplier.findUnique({
-        where: { id: dto.supplierId },
-        select: { companyId: true },
+      const supplier = await db.supplier.findFirst({
+        where: { id: dto.supplierId, companyId },
+        select: { id: true },
       });
       if (!supplier) throw new NotFoundException('supplier not found');
-      if (supplier.companyId !== companyId) {
-        throw new ForbiddenException('supplier belongs to another company');
-      }
     }
     const code = await this.codeSvc.generate();
     const stripped = this.strip(dto);
@@ -99,10 +96,12 @@ export class MastersService {
           } as Prisma.MasterProductUncheckedCreateInput,
         });
         await this.createImageRowsTx(tx, companyId, row.id, normalizedImages);
-        return tx.masterProduct.findUniqueOrThrow({
-          where: { id: row.id },
+        const created = await tx.masterProduct.findFirst({
+          where: { id: row.id, companyId },
           include: MASTER_WITH_IMAGES,
         });
+        if (!created) throw new NotFoundException('master not found');
+        return created;
       };
       const row = outerTx ? await createInTx(outerTx) : await this.prisma.$transaction(createInTx);
       return withImageRows(row);
@@ -209,13 +208,11 @@ export class MastersService {
   ): Promise<MasterProduct> {
     const db = outerTx ?? this.prisma;
     if (dto.supplierId !== undefined && dto.supplierId !== null) {
-      const supplier = await db.supplier.findUnique({
-        where: { id: dto.supplierId },
-        select: { companyId: true },
+      const supplier = await db.supplier.findFirst({
+        where: { id: dto.supplierId, companyId },
+        select: { id: true },
       });
-      if (!supplier || supplier.companyId !== companyId) {
-        throw new ForbiddenException('supplier not in same company');
-      }
+      if (!supplier) throw new NotFoundException('supplier not found');
     }
     const stripped = this.strip(dto);
     const data = { ...stripped } as Prisma.MasterProductUncheckedUpdateInput;
