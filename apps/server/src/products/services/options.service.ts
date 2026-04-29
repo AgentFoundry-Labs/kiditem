@@ -1,23 +1,63 @@
 // apps/server/src/products/services/options.service.ts
-import {
-  ConflictException, Injectable, NotFoundException,
-} from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { Prisma, ProductOption } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BundleStockService } from './bundle-stock.service';
 import { CreateOptionDto } from '../dto/create-option.dto';
 import { UpdateOptionDto } from '../dto/update-option.dto';
 import { ListOptionsQuery } from '../dto/list-options.query';
-import { mapPrismaError } from '../util/prisma-error';
-import { decodeCursor, encodeCursor } from '../util/cursor';
+import { buildOptionSku } from '../domain/product-option-sku';
+import {
+  applyTemporaryReasonClearing,
+  classifyBundleFlip,
+  stripProductOptionSystemFields,
+} from '../domain/product-option-mutation-rules';
+import {
+  applyOptionPatch,
+  assertNoBundleComponents,
+  assertNotUsedAsComponent,
+  createOptionWithSku,
+  findBundleIdsUsingComponent,
+  findCurrentOption,
+  incrementMasterOptionCounter,
+  restoreOptionRow,
+  softDeleteOptionRow,
+} from '../persistence/product-option.persistence';
+import {
+  findOptionByBarcode,
+  findOptionById,
+  findOptionBySku,
+  listOptions,
+  type OptionsListPage,
+} from '../read-models/product-option-read-model';
 
-// System-managed fields clients cannot set/change via DTO.
-// `masterId` is included → prevents IDOR re-parent via PATCH.
-const SYSTEM_FIELDS = [
-  'id', 'sku', 'companyId', 'masterId', 'availableStock',
-  'isDeleted', 'deletedAt', 'createdAt', 'updatedAt',
-] as const;
-
+/**
+ * Application orchestration for `ProductOption` lifecycle.
+ *
+ * Invariants (all preserved across the Phase 3B split):
+ *   - SKU generation runs inside a `$transaction` with the 2-step shape
+ *     `masterProduct.updateMany({id, companyId, isDeleted:false})` →
+ *     tenant-scoped `findFirst` reread → `productOption.create`. The race
+ *     guard + TOCTOU + counter increment all live in
+ *     `incrementMasterOptionCounter` so they cannot drift apart.
+ *   - `availableStock` is materialized only by `BundleStockService.recompute`
+ *     (ADR-0014). Update payloads strip `availableStock` via the system-
+ *     fields rule; create writes `availableStock: null` unconditionally.
+ *   - `update` always routes through `productOption.updateMany` so a bare-id
+ *     write never touches `product_options`. Bundle-flip relation guards run
+ *     in the same transaction as the patch.
+ *   - `softDelete` triggers `BundleStockService.recompute` for every bundle
+ *     that references the deleted option as a component, in the same
+ *     transaction as the soft-delete write.
+ *   - `findBySku` and `findByBarcode` use tenant-scoped `findFirst`; cross-
+ *     tenant rows never enter the SQL path.
+ *
+ * Compose-able: every mutating method accepts an optional outer
+ * `Prisma.TransactionClient` so Plan B2 sourcing/supplier-sync flows can
+ * wrap CRUD + adjacent writes in one transaction. Caller must pass
+ * `{ timeout: >= 15000 }` on the outer `$transaction` so cold-cache writes
+ * and recompute fan-out have headroom beyond Prisma's 5 s default.
+ */
 @Injectable()
 export class OptionsService {
   constructor(
@@ -25,168 +65,42 @@ export class OptionsService {
     private readonly bundleStock: BundleStockService,
   ) {}
 
-  /**
-   * Create a ProductOption under a master with race-free sku generation.
-   *
-   * Transaction body:
-   *   1. `updateMany` MasterProduct with filter `{id, companyId, isDeleted:false}` —
-   *      combines TOCTOU guard + atomic counter increment in a single row lock.
-   *   2. Re-read master.{code, optionCounter} via tenant-scoped `findFirst` (post-increment).
-   *   3. Compose sku = `${code}-${String(counter).padStart(2,'0')}`.
-   *   4. Create ProductOption with `availableStock: null` (bundle stock is derived).
-   *
-   * Gaps are allowed (counter increments even on downstream failure); Plan B1 spec
-   * explicitly accepts gap-tolerant numbering.
-   *
-   * @param outerTx - Optional outer transaction (Plan B2 sourcing/supplier-sync compose).
-   *                  Caller must pass `{ timeout: >= 15000 }` on the outer `$transaction`
-   *                  so cold-cache writes don't trip Prisma's 5 s default.
-   */
   async create(
     companyId: string,
     dto: CreateOptionDto,
     outerTx?: Prisma.TransactionClient,
   ): Promise<ProductOption> {
     const exec = async (tx: Prisma.TransactionClient) => {
-      const { count } = await tx.masterProduct.updateMany({
-        where: { id: dto.masterId, companyId, isDeleted: false },
-        data: { optionCounter: { increment: 1 } },
-      });
-      if (count === 0) throw new NotFoundException('master not found or deleted');
-      const master = await tx.masterProduct.findFirst({
-        where: { id: dto.masterId, companyId, isDeleted: false },
-        select: { code: true, optionCounter: true },
-      });
-      if (!master) throw new NotFoundException('master not found or deleted');
-      const sku = `${master.code}-${String(master.optionCounter).padStart(2, '0')}`;
-      const stripped = this.strip(dto);
-      try {
-        return await tx.productOption.create({
-          data: {
-            ...stripped,
-            companyId,
-            masterId: dto.masterId,
-            sku,
-            availableStock: null,
-          } as Prisma.ProductOptionUncheckedCreateInput,
-        });
-      } catch (e) { mapPrismaError(e, 'option create'); }
+      const master = await incrementMasterOptionCounter(tx, companyId, dto.masterId);
+      const sku = buildOptionSku(master.code, master.optionCounter);
+      const stripped = stripProductOptionSystemFields(dto);
+      return createOptionWithSku(tx, companyId, dto.masterId, sku, stripped);
     };
     return outerTx
       ? exec(outerTx)
       : this.prisma.$transaction(exec, { timeout: 15000 });
   }
 
-  /**
-   * Cursor-paginated list.
-   *
-   * search + cursor are wrapped in an `AND` array to avoid OR-collision
-   * between them (same fix applied in MastersService Task 3).
-   */
-  async list(companyId: string, q: ListOptionsQuery) {
-    const limit = q.limit ?? 50;
-
-    const ands: Prisma.ProductOptionWhereInput[] = [];
-    if (q.search) {
-      ands.push({
-        OR: [
-          { sku: { contains: q.search, mode: 'insensitive' } },
-          { legacyCode: { contains: q.search } },
-          { optionName: { contains: q.search, mode: 'insensitive' } },
-        ],
-      });
-    }
-    if (q.cursor) {
-      const c = decodeCursor(q.cursor);
-      ands.push({
-        OR: [
-          { createdAt: { lt: new Date(c.createdAt) } },
-          { createdAt: new Date(c.createdAt), id: { lt: c.id } },
-        ],
-      });
-    }
-
-    const where: Prisma.ProductOptionWhereInput = {
-      companyId,
-      ...(q.includeDeleted ? {} : { isDeleted: false }),
-      ...(q.masterId ? { masterId: q.masterId } : {}),
-      ...(q.isBundle !== undefined ? { isBundle: q.isBundle } : {}),
-      ...(q.isDeleted !== undefined ? { isDeleted: q.isDeleted } : {}),
-      ...(q.isTemporary !== undefined ? { isTemporary: q.isTemporary } : {}),
-      ...(q.isActive !== undefined ? { isActive: q.isActive } : {}),
-      ...(ands.length > 0 ? { AND: ands } : {}),
-    };
-
-    const rows = await this.prisma.productOption.findMany({
-      where,
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      take: limit + 1,
-    });
-    const items = rows.slice(0, limit);
-    const nextCursor = rows.length > limit
-      ? encodeCursor({
-          createdAt: items[items.length - 1].createdAt.toISOString(),
-          id: items[items.length - 1].id,
-        })
-      : null;
-    return { items, nextCursor };
+  async list(companyId: string, q: ListOptionsQuery): Promise<OptionsListPage> {
+    return listOptions(this.prisma, companyId, q);
   }
 
   async findById(
-    companyId: string, id: string,
+    companyId: string,
+    id: string,
     opts: { includeDeleted?: boolean },
   ): Promise<ProductOption> {
-    const row = await this.prisma.productOption.findFirst({
-      where: { id, companyId, ...(opts.includeDeleted ? {} : { isDeleted: false }) },
-    });
-    if (!row) throw new NotFoundException('option not found');
-    return row;
+    return findOptionById(this.prisma, companyId, id, opts);
   }
 
-  /**
-   * sku is unique table-wide, but the row may belong to another tenant or to
-   * a soft-deleted entry. Use a tenant-scoped `findFirst` so cross-tenant rows
-   * never reach the service layer — eliminates the previous IDOR-pattern
-   * (`findUnique({ sku }) + post-filter`) and aligns with root AGENTS.md
-   * "Multi-tenant scope" hard rule.
-   */
   async findBySku(companyId: string, sku: string): Promise<ProductOption> {
-    const row = await this.prisma.productOption.findFirst({
-      where: { sku, companyId, isDeleted: false },
-    });
-    if (!row) throw new NotFoundException('option not found');
-    return row;
+    return findOptionBySku(this.prisma, companyId, sku);
   }
 
-  /**
-   * Barcode uniqueness is enforced by partial index
-   * (`product_options_company_barcode_active`) — only active rows are unique.
-   * Use `findFirst` (NOT `findUnique`) so we stay aligned with the partial-index
-   * semantics (soft-deleted rows must not be returned, and the compound PG
-   * unique constraint was dropped in pre-T4 migration).
-   */
   async findByBarcode(companyId: string, barcode: string): Promise<ProductOption> {
-    const row = await this.prisma.productOption.findFirst({
-      where: { companyId, barcode, isDeleted: false },
-    });
-    if (!row) throw new NotFoundException('option not found');
-    return row;
+    return findOptionByBarcode(this.prisma, companyId, barcode);
   }
 
-  /**
-   * PATCH — updates non-system fields only (SYSTEM_FIELDS stripped).
-   *
-   * isBundle flip rules (409):
-   *   - true → false: reject if this option owns BundleComponent rows
-   *     (i.e. is referenced as `bundleOptionId`).
-   *   - false → true: reject if this option is already referenced as
-   *     a component elsewhere (i.e. `componentOptionId`).
-   *
-   * `isTemporary=false` clears `temporaryReason` automatically.
-   *
-   * @param outerTx - Optional outer transaction (Plan B2 compose). Caller must pass
-   *                  `{ timeout: >= 15000 }` on the outer `$transaction`.
-   */
   async update(
     companyId: string,
     id: string,
@@ -194,76 +108,36 @@ export class OptionsService {
     outerTx?: Prisma.TransactionClient,
   ): Promise<ProductOption> {
     const exec = async (tx: Prisma.TransactionClient) => {
-      const current = await tx.productOption.findFirst({
-        where: { id, companyId, isDeleted: false },
-      });
-      if (!current) throw new NotFoundException('option not found');
-
-      if (dto.isBundle !== undefined && dto.isBundle !== current.isBundle) {
-        if (dto.isBundle === false) {
-          const count = await tx.bundleComponent.count({
-            where: { bundleOptionId: id, companyId },
-          });
-          if (count > 0) {
-            throw new ConflictException('bundle has components; cannot set isBundle=false');
-          }
-        } else {
-          const count = await tx.bundleComponent.count({
-            where: { componentOptionId: id, companyId },
-          });
-          if (count > 0) {
-            throw new ConflictException('option is used as component; cannot set isBundle=true');
-          }
-        }
+      const current = await findCurrentOption(tx, companyId, id);
+      const flip = classifyBundleFlip(current.isBundle, dto.isBundle);
+      if (flip === 'enable-to-disable') {
+        await assertNoBundleComponents(tx, companyId, id);
+      } else if (flip === 'disable-to-enable') {
+        await assertNotUsedAsComponent(tx, companyId, id);
       }
 
-      const stripped = this.strip(dto);
-      const data: Prisma.ProductOptionUncheckedUpdateInput = { ...stripped };
-      if (dto.isTemporary === false) data.temporaryReason = null;
-      try {
-        const { count } = await tx.productOption.updateMany({
-          where: { id, companyId, isDeleted: false },
-          data,
-        });
-        if (count === 0) throw new NotFoundException('option not found');
-        const updated = await tx.productOption.findFirst({
-          where: { id, companyId, isDeleted: false },
-        });
-        if (!updated) throw new NotFoundException('option not found');
-        return updated;
-      } catch (e) { mapPrismaError(e, 'option update'); }
+      const stripped = stripProductOptionSystemFields(dto);
+      const data = applyTemporaryReasonClearing(
+        { ...stripped } as Prisma.ProductOptionUncheckedUpdateInput,
+        dto,
+      );
+      return applyOptionPatch(tx, companyId, id, data);
     };
     return outerTx
       ? exec(outerTx)
       : this.prisma.$transaction(exec, { timeout: 15000 });
   }
 
-  /**
-   * Soft-delete cascade: when a component option is soft-deleted, every bundle
-   * that references it must recompute its availableStock (treating the deleted
-   * component as unavailable via `componentOption.isDeleted:false` filter).
-   *
-   * @param outerTx - Optional outer transaction (Plan B2 compose). Caller must pass
-   *                  `{ timeout: >= 15000 }` on the outer `$transaction` — recompute
-   *                  fan-out across many bundles can exceed the default 5 s.
-   */
   async softDelete(
     companyId: string,
     id: string,
     outerTx?: Prisma.TransactionClient,
   ): Promise<void> {
     const exec = async (tx: Prisma.TransactionClient) => {
-      const { count } = await tx.productOption.updateMany({
-        where: { id, companyId, isDeleted: false },
-        data: { isDeleted: true, deletedAt: new Date() },
-      });
-      if (count === 0) throw new NotFoundException('option not found');
-      const affected = await tx.bundleComponent.findMany({
-        where: { companyId, componentOptionId: id },
-        select: { bundleOptionId: true },
-      });
-      for (const row of affected) {
-        await this.bundleStock.recompute(companyId, row.bundleOptionId, tx);
+      await softDeleteOptionRow(tx, companyId, id);
+      const bundleIds = await findBundleIdsUsingComponent(tx, companyId, id);
+      for (const bundleId of bundleIds) {
+        await this.bundleStock.recompute(companyId, bundleId, tx);
       }
     };
     await (outerTx
@@ -271,42 +145,11 @@ export class OptionsService {
       : this.prisma.$transaction(exec, { timeout: 15000 }));
   }
 
-  /**
-   * Atomic restore for a soft-deleted option — single tenant-scoped `updateMany`
-   * removes the read-then-write window and keeps the bare-id write off the SQL
-   * path entirely. P2002 still propagates through `mapPrismaError`.
-   *
-   * @param outerTx - Optional outer transaction (Plan B2 compose). Caller must pass
-   *                  `{ timeout: >= 15000 }` on the outer `$transaction`.
-   */
   async restore(
     companyId: string,
     id: string,
     outerTx?: Prisma.TransactionClient,
   ): Promise<void> {
-    const db = outerTx ?? this.prisma;
-    try {
-      const { count } = await db.productOption.updateMany({
-        where: { id, companyId, isDeleted: true },
-        data: { isDeleted: false, deletedAt: null },
-      });
-      if (count === 0) throw new NotFoundException('option not found or not deleted');
-    } catch (e) { mapPrismaError(e, 'option restore'); }
-  }
-
-  /**
-   * Remove SYSTEM_FIELDS from a DTO before forwarding to Prisma. The return
-   * type preserves the caller's input type minus the stripped keys so call
-   * sites don't need a loose `Record<string, unknown>` intermediate cast
-   * (apps/server/CLAUDE.md:60 forbids that pattern). The remaining cast to
-   * `Prisma.ProductOptionUnchecked{Create,Update}Input` at the call site is
-   * inherent to the DTO↔Prisma-input shape gap and unavoidable.
-   */
-  private strip<T extends Partial<CreateOptionDto> | Partial<UpdateOptionDto>>(
-    dto: T,
-  ): Omit<T, typeof SYSTEM_FIELDS[number]> {
-    const out: Record<string, unknown> = { ...dto };
-    for (const f of SYSTEM_FIELDS) delete out[f as string];
-    return out as Omit<T, typeof SYSTEM_FIELDS[number]>;
+    await restoreOptionRow(outerTx ?? this.prisma, companyId, id);
   }
 }
