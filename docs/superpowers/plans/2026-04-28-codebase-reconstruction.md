@@ -12,7 +12,8 @@
 
 ## Current Baseline
 
-- Branch baseline: `origin/main` is at `1069909` (PR #98 merged on 2026-04-29). New reconstruction branches start from current `origin/main`.
+- Current reconstruction main is `e4df2f0` (PR #116 merged on 2026-04-29). New reconstruction branches start from current `origin/main`.
+- Phase 2 shared-root migration/root-barrel closeout and the Phase 3A tenant-boundary hardening wave are landed through PR #116. The next backend phase is Phase 3B: large-domain architecture refactoring, not another document/test-only audit wave.
 - Phase 0 (constitution) and Phase 1 (platform safety) are landed in `main`. Subsequent platform-safety follow-ups also merged in the same wave:
   - **Phase 1 (PR #73)** — ontology hard delete (`apps/server/src/ontology/**` removed); `scripts/check-queryraw-tenancy.sh` portability fix (`mapfile`/`readarray` replaced with bash 3.2 `while IFS= read -r` loops); production unsafe raw SQL removal in `agent-registry.service.ts` (cost-analytics rewritten to tenant-scoped `$queryRaw + Prisma.sql`) and `rules.service.ts` (healthScore update rewritten to `prisma.$transaction(masterProduct.updateMany({ where: { id, companyId } }))`).
   - **Tenant-scope and dead-code follow-ups (PR #74–#76)** — `warehouses`, `categories`, `suppliers` controllers receive `@CurrentCompany()` and pass `companyId` into services as an explicit argument; single-resource reads use `findFirst({ id, companyId })`. The `ProductMemo` Prisma model and the web UI surfaces that depended on it were hard-deleted (no UI consumer remained).
@@ -182,44 +183,114 @@ npm run build --workspace=apps/server
 npm run build --workspace=apps/web
 ```
 
-### Phase 3: Backend Domain Rewrite
+### Phase 3A: Backend Tenant-Boundary Rewrite
 
-**Purpose:** Replace service/query surfaces domain by domain after safety gates exist.
+**Purpose:** Make backend domain boundaries tenant-safe after the platform gates exist.
 
-**Domain order:**
+**Status:** Complete for the planned reconstruction wave through PR #116:
 
-1. ~~`ontology` tenant safety~~ — superseded: ontology was hard-deleted from the server surface on 2026-04-28 instead of tenant-patched. Skip this slot.
-2. `suppliers`, `warehouses`, `categories`.
-3. `manual-ledger`, `processing-costs`, `supplier-payments`.
-4. `products` / `masterProduct` query boundary.
-5. `channels` / `channelListing`.
-6. `advertising`.
-7. `ai` / thumbnails.
-8. `workflows` / agent task boundary.
+1. ~~`ontology` tenant safety~~ — superseded: ontology was hard-deleted from the server surface on 2026-04-28 instead of tenant-patched.
+2. `suppliers`, `warehouses`, `categories` — controllers/services scoped in the Phase 1 follow-up wave.
+3. `manual-ledger`, `processing-costs`, `supplier-payments` — finance tenant-boundary PR #108.
+4. `products` / `masterProduct` query boundary — PR #110 and follow-up PR #113.
+5. `channels` / `channelListing` — PR #112.
+6. `advertising` — PR #116.
+7. `ai` / thumbnails — PR #114.
+8. `workflows` / agent task boundary — PR #115.
 
-**Current tenant-scope candidates to lock with tests first:**
+**Tenant-boundary rule for future backend PRs:**
 
-- `apps/server/src/suppliers/suppliers.service.ts`
-- `apps/server/src/warehouses/warehouses.service.ts`
-- `apps/server/src/categories/categories.service.ts`
-- `apps/server/src/manual-ledger/manual-ledger.service.ts`
-- `apps/server/src/processing-costs/processing-costs.service.ts`
-- `apps/server/src/supplier-payments/supplier-payments.service.ts`
-- `apps/server/src/workflows/services/workflows.service.ts`
-
-**Rewrite rule:**
-
-- Before deleting implementation, add a regression test or integration test that demonstrates the existing expected behavior and the target tenant failure mode.
+- Before changing behavior, add a regression test or integration test that demonstrates the existing expected behavior and the target tenant failure mode.
 - Replace `findUnique({ where: { id } })` with company-scoped reads, then update mutations.
 - Keep one business owner domain per PR unless the child plan records a platform-boundary exception.
 
-**Completion gate per backend domain PR:**
+**Completion gate per backend tenant-boundary PR:**
 
 ```bash
 npm run dev:server
 ```
 
 Add domain-specific Vitest or integration commands in each child plan.
+
+### Phase 3B: Large Domain Architecture Refactor
+
+**Purpose:** Improve the actual code structure of large bounded contexts after
+tenant safety is in place. This phase should reduce fat services, separate
+query/persistence/mapping/business-rule responsibilities, and make future
+changes smaller. It is not successful if it only adds tests or documentation.
+
+**DDD posture:** The top-level folders under `apps/server/src/{domain}` are the
+bounded-context boundary. Do not introduce a global repository layer. Keep small
+CRUD domains as `Service -> PrismaService`. For large domains, introduce
+internal layers only where they remove real complexity:
+
+- `services/` — application use-case orchestration.
+- `persistence/` or `repositories/` — tenant-scoped writes, entity access,
+  row-lock/transaction helpers, and repeated invariant enforcement. These must
+  not become 1:1 Prisma wrappers.
+- `read-models/` or `queries/` — report/read-contract queries, raw SQL builders,
+  2-hop/3-hop tenant predicates, and hydration.
+- `mappers/` — Prisma row or query row to API/shared contract shape.
+- `domain/` — pure business rules, calculators, thresholds, and state
+  transitions with no Prisma dependency.
+
+**Priority order:**
+
+1. `advertising` — decompose fat services such as `ad-sync.service.ts`;
+   continue the read-model extraction started in PR #116; isolate mappers and
+   pure ad-rule/domain helpers.
+2. `ai` / thumbnails — split generation, analysis, recomposition, Wing
+   registration, image resolution, and AI adapter orchestration.
+3. `products` — selectively extract tenant-safe product persistence and shared
+   hydrated read shapes where product/master/option access repeats. Do not wrap
+   Prisma CRUD 1:1.
+4. `workflows` — clarify application service / runner / executor /
+   agent-task boundary while keeping the existing executor public contract
+   stable unless a separate contract PR changes it.
+5. `dashboard` / `statistics` read models — isolate raw SQL and reporting query
+   builders from controller-facing application services.
+
+**Refactor rules:**
+
+- One bounded context per PR. Do not mix unrelated business domains.
+- Each child plan must name the target fat service(s), new internal files, and
+  which responsibility moves where.
+- Prefer moving production code into focused modules over creating generic
+  wrappers. A repository/persistence module is justified only when it enforces
+  tenant scope, row-lock/transaction semantics, soft-delete, standard includes,
+  or repeated hydrated shapes.
+- Preserve controller routes and shared API contracts unless the child plan
+  explicitly includes a contract migration.
+- Keep tests risk-based and sparse. Add tests for operating-critical behavior:
+  tenant isolation / IDOR, raw SQL predicates, transaction or row-lock semantics,
+  external side effects, money/inventory/ad-budget calculations, public API
+  contract compatibility, and pure business rules extracted into `domain/`.
+  Do not add implementation-detail mock tests just because code moved between
+  files; rely on existing tests when they already protect the behavior. Follow
+  [`docs/TESTING.md`](../TESTING.md) for the repo-wide admission criteria and
+  mock/test-double policy.
+- Include a test cleanup pass in each large-domain child plan. Existing tests
+  may be deleted, collapsed, or rewritten when they are implementation-detail
+  mock tests, duplicate a higher-value integration/public-behavior test, or are
+  now better covered by build/scanner gates. Do not remove tenant, money,
+  inventory, ad-budget, transaction, row-lock, public contract, or incident
+  regression tests unless a stronger replacement is in the same PR.
+- The primary output must be structural production-code improvement: lower
+  service LOC, extracted read-model/query modules, extracted mappers, or pure
+  domain helper coverage.
+
+**Completion gate per Phase 3B PR:**
+
+```bash
+npm run check:idor
+npm run check:tenant-scope
+npm run build --workspace=apps/server
+npm run dev:server
+```
+
+Add focused unit/integration commands for the touched bounded context. If raw
+SQL or transaction/row-lock behavior moves, include the relevant real-Postgres
+integration test.
 
 ### Phase 4: Frontend Rebuild
 
@@ -389,14 +460,19 @@ rg -n "from '@kiditem/shared'" apps/server/src apps/web/src packages/shared/src 
 - [ ] Keep root exports compatible until every consumer has moved.
 - [ ] Include shared/server/web build gates.
 
-### T5: Create Per-Domain Rewrite Child Plans
+### T5: Create Phase 3B Architecture Refactor Child Plans
 
 **Files:** one plan per owner domain under `docs/superpowers/plans/`.
 
 - [ ] `ontology` is **hard-deleted from the server surface** (2026-04-28). No rewrite plan is owed; future reintroduction requires a product contract + tenant isolation test.
-- [ ] Write a child plan for `suppliers`, `warehouses`, and `categories` only if they are treated as one admin-reference-data boundary; otherwise split them.
-- [ ] Write separate finance child plans for `manual-ledger`, `processing-costs`, and `supplier-payments`.
-- [ ] Write separate child plans for products, channels, advertising, ai, and workflows.
+- [ ] Write the advertising architecture refactor child plan first. It must name the fat service targets, expected new files under `services/`, `read-models` or `queries`, `mappers`, and `domain`, and the compatibility gates.
+- [ ] Write separate child plans for AI thumbnails, products, workflows, and dashboard/statistics read models.
+- [ ] Do not write Phase 3B child plans for small CRUD domains unless a concrete fat-service or repeated-invariant problem is identified.
+- [ ] Each child plan must primarily move/simplify production code. Tests and docs are required evidence, not the main deliverable.
+- [ ] Each child plan must state the minimal test policy for the slice: which existing tests remain sufficient, which operating-critical behavior needs a new test, and which implementation-detail tests should not be added.
+- [ ] Each child plan must include a test cleanup inventory: redundant mock specs
+  to delete/collapse, protected tests that must stay, and the command proving the
+  remaining suite still covers the operating risk.
 
 ### T6: Create Frontend Rewrite Child Plans
 
@@ -426,13 +502,16 @@ Each phase has a fixed set of gates that must pass before merge. The phase table
 | Phase | Required pre-merge gates | Notes |
 |---|---|---|
 | Phase 0 — Constitution / instruction-only | `git diff --check`; scoped diff review | No code/runtime gate. Confirm no production code behavior changed. |
-| Phase 1 — Platform safety | `npm run check:idor`; `npm run check:tenant-scope`; `npm run build --workspace=apps/server`; `npm run dev:server` | Plus `rg -n '\$queryRawUnsafe\|\$executeRawUnsafe' apps/server/src --type ts --glob '!**/__tests__/**'` returns no production hit. `check:tenant-scope` is baseline-reporting until the remaining tenant-scope cleanup lanes make it green. |
+| Phase 1 — Platform safety | `npm run check:idor`; `npm run check:tenant-scope`; `npm run build --workspace=apps/server`; `npm run dev:server` | Plus `rg -n '\$queryRawUnsafe\|\$executeRawUnsafe' apps/server/src --type ts --glob '!**/__tests__/**'` returns no production hit. Both scanners are required green gates after the Phase 3A cleanup wave. |
 | Phase 2 — `packages/shared` rebuild | `npm run check:shared-root-imports`; `cd packages/shared && npm run build`; `npm run build --workspace=apps/server`; `npm run build --workspace=apps/web` | `check:shared-root-imports` is the per-file root-import non-regression gate (baseline at `scripts/.shared-root-imports-baseline.txt`). Removal-tolerant — migration PRs do not need to coordinate baseline edits. Regenerate the baseline only when ratcheting the ceiling down: `bash scripts/check-shared-root-imports.sh --regenerate`. |
-| Phase 3 — Backend domain rewrite | Domain-specific Vitest spec(s) under `apps/server/src/{domain}/__tests__/`; `npm run build --workspace=apps/server`; `npm run dev:server` | Re-run `npm run check:idor` if the domain touches raw SQL or tenant scope; integration tests when DB invariants are at stake. |
+| Phase 3A — Backend tenant-boundary rewrite | `npm run check:idor`; `npm run check:tenant-scope`; domain-specific Vitest/integration specs; `npm run build --workspace=apps/server`; `npm run dev:server` | Landed through PR #116 for the planned wave. Future tenant-boundary PRs must keep both scanners green. |
+| Phase 3B — Large domain architecture refactor | `npm run check:idor`; `npm run check:tenant-scope`; focused domain-specific Vitest/integration specs only where risk justifies them; `npm run build --workspace=apps/server`; `npm run dev:server` | PR evidence must show structural production-code improvement, not only added tests/docs. Include test cleanup rationale when deleting/collapsing redundant specs. Do not add implementation-detail mock tests for file moves. Include real-Postgres integration when raw SQL, row locks, transactions, or DB invariants move. |
 | Phase 4 — Frontend rebuild | `npm run build --workspace=apps/web`; focused Vitest under the touched route's `__tests__/` (or shared frontend tests it depends on) | Add browser QA when a route's visual or interactive behavior changes. |
 | Phase 5 — Dead code / dependency purge | `knip` (after `knip.json` exists and is stable); `cd packages/shared && npm run build`; `npm run build --workspace=apps/server`; `npm run build --workspace=apps/web` | Source grep and workspace builds before any dependency removal. |
 
-`npm run check:tenant-scope` is intentionally allowed to fail while it reports known baseline findings. Do not use that baseline failure to merge new tenant-scope regressions; cleanup PRs must trend the report toward zero and record the exact scanner evidence they changed.
+`npm run check:tenant-scope` is now a required green gate. Do not merge a
+tenant-scope regression behind a broad allowlist; narrow scanner false positives
+must be justified in `scripts/.tenant-scope-allowlist.txt`.
 
 ### Schema Change Trigger
 
@@ -471,7 +550,9 @@ The phase-level gates above are mandatory. The table below is a supplementary vi
 
 ## Non-Goals
 
-- No direct rewrite of advertising, AI, sourcing editor, or shared root barrel before Phase 0 and Phase 1 gates are established.
+- No direct large-domain rewrite without a Phase 3B child plan that names the
+  target files, internal layer layout, compatibility boundary, and verification
+  commands.
 - No schema changes in the constitution PR.
 - No Drive bundle or dev data profile changes in the constitution PR.
 - No broad import churn without a child plan and build gate.

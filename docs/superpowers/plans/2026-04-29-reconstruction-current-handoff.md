@@ -1,8 +1,9 @@
 # Reconstruction Current Handoff - 2026-04-29
 
 This handoff records the Codebase Reconstruction state after the Phase 2
-shared root import migration completed. Use it as the first context file
-when continuing from another computer or a fresh Codex/Claude session.
+shared root import migration and Phase 3A backend tenant-boundary hardening
+wave completed. Use it as the first context file when continuing from another
+computer or a fresh Codex/Claude session.
 
 ## Source Documents
 
@@ -18,28 +19,44 @@ when continuing from another computer or a fresh Codex/Claude session.
 
 Latest merged reconstruction PRs:
 
-- #104 - `refactor: migrate apps/web @kiditem/shared imports to existing subpaths`
-- #105 - `refactor: complete shared subpath topology for remaining domains`
-- #106 - `refactor(server): migrate @kiditem/shared root imports to existing subpaths`
-
-A subsequent local-only consolidation merge `b94317b` completed the migration
-sweep (commit `9361d38 refactor: complete shared root import migration`),
-ratcheting `scripts/.shared-root-imports-baseline.txt` down to zero.
+- #107 - `refactor: phase 2 closeout, shrink shared root barrel`
+- #108 - `refactor: harden finance tenant boundaries`
+- #109 - `Phase 4 foundation: frontend API client convention plan + first slice`
+- #110 - `refactor: products masterProduct boundary slice 1 (findBySku IDOR + restore atomicity)`
+- #111 - `build: stabilize knip baseline + plan Phase 5 dependency purge foundation`
+- #112 - `refactor: harden channels / channelListing boundary (Phase 3 slot 5)`
+- #113 - `refactor: harden products follow-up tenant boundary`
+- #114 - `refactor: harden ai thumbnail tenant boundary`
+- #115 - `refactor: harden workflows agent-task boundary`
+- #116 - `refactor: harden advertising tenant boundary`
 
 Local main was fast-forwarded to:
 
 ```text
-b94317b Merge branch 'fix/shared-root-import-phase2'
+e4df2f0 Merge pull request #116 from AgentFoundry-Labs/refactor/phase3-advertising-boundary
 ```
 
-No schema changes or `init.sql.gz` changes were made in this import-topology
-batch.
+No schema changes or `init.sql.gz` changes were made in these reconstruction
+batches.
 
 ## Phase Status
 
-Phase 0 and Phase 1 are landed. Phase 2 root-import migration is complete:
-no file under `apps/server/src` or `apps/web/src` imports from the
-`@kiditem/shared` root barrel.
+Phase 0 and Phase 1 are landed. Phase 2 root-import migration and root-barrel
+shrink are complete: no file under `apps/server/src` or `apps/web/src` imports
+from the `@kiditem/shared` root barrel.
+
+Phase 3A backend tenant-boundary hardening is complete for the planned large
+boundary wave that landed through #116:
+
+- finance-related tenant boundaries
+- products `masterProduct` / follow-up tenant boundaries
+- channels `channelListing` boundary
+- advertising backend boundary
+- AI thumbnails tenant boundary
+- workflows / agent-task boundary
+
+The next backend work is not another document/test-heavy boundary audit. It is
+Phase 3B: direct code-structure refactoring inside large bounded contexts.
 
 Important landed pieces:
 
@@ -90,26 +107,50 @@ specifier elsewhere in the repo are:
 
 ## Next Work
 
-The next Phase 2 PR is the **root-barrel shrink** captured in
-[`2026-04-29-shared-root-barrel-shrink.md`](2026-04-29-shared-root-barrel-shrink.md).
-That plan classifies each root export as `safe-remove` (already done in
-the closeout PR) or `defer-contract` (kept for now, with a documented
-follow-up batch). The shrink does not regenerate the baseline because the
-baseline already sits at zero.
+Start Phase 3B: **large domain architecture refactor**.
 
-After the root-barrel shrink, move to Phase 3 backend domain rewrite in
-this order:
+This is pragmatic DDD, not a global repository mandate. The existing top-level
+domain folders already act as bounded-context boundaries. Small CRUD domains
+keep the current `Service -> PrismaService` shape. Large domains get internal
+layers only where they remove real complexity:
 
-1. `manual-ledger`
-2. `processing-costs`
-3. `supplier-payments`
-4. `products` / `masterProduct` query boundary
-5. `channels` / `channelListing`
-6. `advertising`
-7. `ai` / thumbnails
-8. `workflows` / agent-task boundary
+- `services/` — application use-case orchestration
+- `persistence/` or `repositories/` — tenant-scoped writes / entity access
+- `read-models/` or `queries/` — reporting, raw SQL, hydration, read contracts
+- `mappers/` — Prisma row / query row to shared contract shape
+- `domain/` — pure business rules, calculators, thresholds, state transitions
 
-Phase 4 starts after the backend boundary work is stable:
+Phase 3B priority order:
+
+1. `advertising` — decompose fat services such as `ad-sync.service.ts`; continue
+   the read-model extraction started in #116; isolate mappers and pure ad rules.
+2. `ai` / thumbnails — split generation, analysis, recomposition, Wing
+   registration, image resolution, and AI adapter orchestration.
+3. `products` — selectively extract tenant-safe product persistence and shared
+   hydrated read shapes; do not wrap Prisma 1:1.
+4. `workflows` — clarify application service / runner / executor / agent-task
+   boundary; keep public executor contract stable unless a separate contract PR
+   changes it.
+5. `dashboard` / `statistics` read models — isolate raw SQL and reporting query
+   builders from controller-facing application services.
+
+Phase 3B PRs should primarily move and simplify production code. Tests are a
+risk-based safety net, not the main deliverable and not a file-count goal. Add
+or keep tests for operating-critical behavior only: tenant isolation / IDOR,
+raw SQL predicates, transaction or row-lock semantics, external side effects,
+money/inventory/ad-budget calculations, and public API contract compatibility.
+Do not add implementation-detail mock tests just because a helper was moved; use
+existing coverage where it already protects the behavior. Phase 3B child plans
+should also include a test cleanup pass: remove or collapse existing
+implementation-detail tests when the same risk is already covered by a scanner,
+build, integration test, or higher-value public-behavior test. Each PR should
+identify the target fat service(s), the new internal layer layout, public API
+compatibility, test cleanup/deletion rationale, and the measurable structure
+improvement such as reduced service LOC, extracted query/read-model modules, or
+pure domain helper coverage.
+
+Phase 4 frontend rebuild continues in parallel only when it does not depend on
+unstable backend shapes:
 
 1. API client/fetch convention
 2. Thumbnail editor
