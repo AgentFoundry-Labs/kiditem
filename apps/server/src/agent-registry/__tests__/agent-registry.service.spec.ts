@@ -122,6 +122,9 @@ describe('AgentRegistryService', () => {
       const result = await service.run('def-1', {
         companyId: 'company-1',
         dryRun: true,
+        workflowRunId: '00000000-0000-0000-0000-000000000001',
+        workflowNodeId: 'agent-node',
+        sourceDataId: '00000000-0000-0000-0000-000000000002',
         extra: { daily_budget_limit: '500,000' },
       });
 
@@ -134,6 +137,7 @@ describe('AgentRegistryService', () => {
       expect(heartbeat.wakeAgent).toHaveBeenCalledWith(
         expect.objectContaining({
           agentId: 'def-1',
+          companyId: 'company-1',
           source: 'on_demand',
           payload: expect.objectContaining({
             dry_run: true,
@@ -141,6 +145,20 @@ describe('AgentRegistryService', () => {
           }),
         }),
       );
+      expect(prisma.agentTask.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          agentType: 'ad_strategy',
+          companyId: 'company-1',
+          workflowRunId: '00000000-0000-0000-0000-000000000001',
+          workflowNodeId: 'agent-node',
+          sourceDataId: '00000000-0000-0000-0000-000000000002',
+          status: 'running',
+          input: expect.objectContaining({
+            definitionId: 'def-1',
+            daily_budget_limit: '500,000',
+          }),
+        }),
+      });
     });
 
     it('throws BadRequestException when monthly budget exceeded', async () => {

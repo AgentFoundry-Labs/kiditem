@@ -217,10 +217,25 @@ export class WorkflowRunnerService {
     await this.emitPanelUpsert(runId, companyId);
 
     try {
+      // Tenant scope is owned by the runner, not the template author.
+      // Strip any caller- or template-supplied scope/runtime metadata from
+      // the node config before injecting the runner-trusted values, so
+      // side-effect executors and agent delegation cannot be coerced into a
+      // foreign tenant or forged workflow trace by editing template JSON.
+      const {
+        company_id: _ignoredCompanyId,
+        _context: _ignoredCtx,
+        _workflow_run_id: _ignoredWorkflowRunId,
+        _workflow_node_id: _ignoredWorkflowNodeId,
+        ...safeNodeConfig
+      } =
+        nodeDef.config ?? {};
       const resolvedConfig = context.resolveConfig({
-        ...nodeDef.config,
+        ...safeNodeConfig,
         company_id: template.companyId,
         _context: runContext,
+        _workflow_run_id: runId,
+        _workflow_node_id: nodeId,
       });
       const output = await executor(this.prisma, resolvedConfig, context, this.executorServices);
       context.setOutput(nodeId, output);

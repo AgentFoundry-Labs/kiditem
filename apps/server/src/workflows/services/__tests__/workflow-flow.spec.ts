@@ -584,6 +584,163 @@ describe('WorkflowRunnerService', () => {
       expect(failedCall).toBeDefined();
     });
 
+    it.each([
+      'internal.db_query',
+      'api_call',
+      'ai_process',
+      'action',
+      'data_transform',
+      'data.filter',
+      'trigger',
+      'trigger.event',
+      'condition',
+      'notification',
+    ])(
+      'removed legacy executor `%s` → run failed with "No executor for node type" error',
+      async (removedNodeType) => {
+        const nodesJson = [
+          {
+            id: 'n1',
+            data: { nodeType: removedNodeType, label: 'legacy', config: {} },
+            position: { x: 0, y: 0 },
+          },
+        ];
+        const template = makeTemplate({ nodesJson, edgesJson: [] });
+        prisma.workflowTemplate.findFirst.mockResolvedValue(template);
+        setupRunTracking(`run-removed-${removedNodeType}`);
+
+        await runner.runWorkflow(`run-removed-${removedNodeType}`, 'tmpl-1', 'company-1');
+
+        const failedCall = prisma.workflowRun.updateMany.mock.calls.find(
+          ([args]: any[]) =>
+            args.where?.id === `run-removed-${removedNodeType}` &&
+            args.data?.status === 'failed',
+        );
+        expect(failedCall).toBeDefined();
+        const failedData = (failedCall as any)[0].data;
+        expect(failedData.error).toContain('No executor for node type');
+        expect(failedData.error).toContain(removedNodeType);
+
+        // The failure must be recorded as a step entry, not silently swallowed.
+        const stepUpdates = prisma.workflowRun.updateMany.mock.calls.filter(
+          ([args]: any[]) =>
+            args.where?.id === `run-removed-${removedNodeType}` &&
+            Array.isArray(args.data?.steps),
+        );
+        const lastSteps = (stepUpdates.at(-1) as any)[0].data.steps;
+        expect(lastSteps[0]).toMatchObject({
+          nodeType: removedNodeType,
+          status: 'failed',
+        });
+        expect(lastSteps[0].error).toContain('No executor for node type');
+      },
+    );
+
+    it('node config scope metadata is overwritten before executor sees it', async () => {
+      let capturedConfig: any;
+
+      registerNode('test.tenant_injection', async (_prisma, config) => {
+        capturedConfig = config;
+        return { ok: true };
+      });
+
+      const nodesJson = [
+        {
+          id: 'n1',
+          data: {
+            nodeType: 'test.tenant_injection',
+            label: 'tenant',
+            // Attacker-controlled config trying to coerce a side-effect
+            // executor (e.g. notification.alert / agent_task.create) into
+            // another tenant or forged workflow trace.
+            config: {
+              company_id: 'attacker-company',
+              _context: { spoofed: true },
+              _workflow_run_id: 'spoofed-run',
+              _workflow_node_id: 'spoofed-node',
+            },
+          },
+          position: { x: 0, y: 0 },
+        },
+      ];
+
+      const template = makeTemplate({
+        nodesJson,
+        edgesJson: [],
+        companyId: 'company-owned',
+      });
+      prisma.workflowTemplate.findFirst.mockResolvedValue(template);
+      setupRunTracking('run-tenant', { realRunCtx: 'yes' }, 'company-owned');
+
+      await runner.runWorkflow('run-tenant', 'tmpl-1', 'company-owned');
+
+      expect(capturedConfig).toBeDefined();
+      // The runner-injected company_id wins; the attacker value is gone.
+      expect(capturedConfig.company_id).toBe('company-owned');
+      // _context comes from the run record, not the template author.
+      expect(capturedConfig._context).toEqual({ realRunCtx: 'yes' });
+      expect(capturedConfig._workflow_run_id).toBe('run-tenant');
+      expect(capturedConfig._workflow_node_id).toBe('n1');
+    });
+
+    it('agent_task.create delegates with runner-trusted company and workflow metadata', async () => {
+      const agentRegistry = {
+        runByType: vi.fn().mockResolvedValue({
+          ok: true,
+          taskId: 'task-1',
+          agentType: 'rules_evaluation',
+          dryRun: false,
+        }),
+      };
+      const runnerWithAgentRegistry = new WorkflowRunnerService(
+        prisma as any,
+        { emit: vi.fn() } as any,
+        agentRegistry as any,
+      );
+
+      const nodesJson = [
+        {
+          id: 'agent-node',
+          data: {
+            nodeType: 'agent_task.create',
+            label: 'agent',
+            config: {
+              agent_type: 'rules_evaluation',
+              input: { prompt: 'check this' },
+              company_id: 'attacker-company',
+              _workflow_run_id: 'spoofed-run',
+              _workflow_node_id: 'spoofed-node',
+              source_data_id: '00000000-0000-0000-0000-000000000001',
+            },
+          },
+          position: { x: 0, y: 0 },
+        },
+      ];
+
+      const template = makeTemplate({
+        nodesJson,
+        edgesJson: [],
+        companyId: 'company-owned',
+      });
+      prisma.workflowTemplate.findFirst.mockResolvedValue(template);
+      setupRunTracking('run-agent', {}, 'company-owned');
+
+      await runnerWithAgentRegistry.runWorkflow('run-agent', 'tmpl-1', 'company-owned');
+
+      expect(agentRegistry.runByType).toHaveBeenCalledWith('rules_evaluation', {
+        companyId: 'company-owned',
+        workflowRunId: 'run-agent',
+        workflowNodeId: 'agent-node',
+        sourceDataId: '00000000-0000-0000-0000-000000000001',
+        extra: {
+          prompt: 'check this',
+          _workflow_run_id: 'run-agent',
+          _workflow_node_id: 'agent-node',
+          source_data_id: '00000000-0000-0000-0000-000000000001',
+        },
+      });
+    });
+
     it('executor called with resolved config (company_id injected)', async () => {
       let capturedConfig: any;
 
@@ -716,12 +873,33 @@ describe('WorkflowRunnerService', () => {
 // ── Executor registry ────────────────────────────────────────────────────────
 
 describe('getExecutor (executor registry)', () => {
-  it('returns executor for registered node types', () => {
+  it('returns executor for the slim core surface', () => {
     expect(getExecutor('trigger.manual')).toBeDefined();
+    expect(getExecutor('trigger.schedule')).toBeDefined();
     expect(getExecutor('condition.evaluate')).toBeDefined();
-    expect(getExecutor('data.filter')).toBeDefined();
     expect(getExecutor('notification.alert')).toBeDefined();
     expect(getExecutor('agent_task.create')).toBeDefined();
+  });
+
+  it.each([
+    // Removed generic executors — the workflow engine is not a generic
+    // DB / HTTP / transform / LLM engine. AI work goes through
+    // `agent_task.create` only.
+    'internal.db_query',
+    'api_call',
+    'action',
+    'data_transform',
+    'data.filter',
+    'ai_process',
+    // Removed legacy aliases — surviving templates that still reference
+    // these names must fail with "No executor for node type ..." so the
+    // regression is visible in WorkflowRun.error.
+    'trigger',
+    'trigger.event',
+    'condition',
+    'notification',
+  ])('removed executor `%s` is no longer registered', (removed) => {
+    expect(getExecutor(removed)).toBeUndefined();
   });
 
   it('returns undefined for unknown node type', () => {

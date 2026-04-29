@@ -1,15 +1,14 @@
 'use client';
 
-import { getCompanyId } from '@/lib/api';
 import { apiClient } from '@/lib/api-client';
 import type { WorkflowTemplate, WorkflowRun } from '@kiditem/shared/workflow';
 import type { WorkflowRunWithSteps } from './workflow-types';
 
+// All endpoints are scoped on the backend via `@CurrentCompany()`. The
+// client must NOT send `companyId` in query/body — that path is untrusted
+// and the backend would ignore it anyway.
 export const workflowApi = {
-  list: async () => {
-    const companyId = await getCompanyId();
-    return apiClient.get<WorkflowTemplate[]>(`/api/workflows?companyId=${companyId}`);
-  },
+  list: () => apiClient.get<WorkflowTemplate[]>('/api/workflows'),
 
   get: (id: string) => apiClient.get<WorkflowTemplate>(`/api/workflows/${id}`),
 

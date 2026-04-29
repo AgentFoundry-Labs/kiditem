@@ -190,6 +190,9 @@ export class AgentRegistryService implements OnModuleInit {
   async runByType(type: string, input?: {
     companyId?: string;
     dryRun?: boolean;
+    workflowRunId?: string;
+    workflowNodeId?: string;
+    sourceDataId?: string;
     extra?: Record<string, unknown>;
   }) {
     const def = await this.findByType(type);
@@ -199,6 +202,9 @@ export class AgentRegistryService implements OnModuleInit {
   async run(id: string, input?: {
     companyId?: string;
     dryRun?: boolean;
+    workflowRunId?: string;
+    workflowNodeId?: string;
+    sourceDataId?: string;
     extra?: Record<string, unknown>;
   }) {
     const def = await this.getById(id, input?.companyId);
@@ -230,6 +236,9 @@ export class AgentRegistryService implements OnModuleInit {
       data: {
         agentType: def.type,
         companyId: input?.companyId ?? def.companyId,
+        workflowRunId: input?.workflowRunId ?? null,
+        workflowNodeId: input?.workflowNodeId ?? null,
+        sourceDataId: input?.sourceDataId ?? null,
         status: 'running',
         startedAt: new Date(),
         input: {
