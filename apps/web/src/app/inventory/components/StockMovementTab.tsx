@@ -12,7 +12,7 @@ import {
   fetchAllTransactionsInWindow,
   transactionKeyParams,
 } from '../lib/inventory-api';
-import type { TransactionListItem } from '@kiditem/shared';
+import type { TransactionListItem } from '@kiditem/shared/inventory';
 
 const GROUP_TABS = [
   { key: 'product', label: '상품별' },

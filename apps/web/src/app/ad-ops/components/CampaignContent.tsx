@@ -9,7 +9,7 @@ import { roasColor } from "../lib/status-colors";
 import { toCampaignsResponse } from "../hooks/useAdOpsData";
 import { CampaignTable } from "./CampaignTable";
 import { ProductDrilldown } from "./ProductDrilldown";
-import type { AdCampaignSnapshot } from "@kiditem/shared";
+import type { AdCampaignSnapshot } from "@kiditem/shared/advertising";
 
 export default function CampaignContent({ initialCampaign }: { initialCampaign: string | null }) {
   const [period, setPeriod] = useState("7d");

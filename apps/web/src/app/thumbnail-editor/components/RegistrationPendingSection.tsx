@@ -15,7 +15,7 @@ import {
 import { apiClient } from '@/lib/api-client';
 import { resolveImageUrl } from '@/lib/resolve-url';
 import { cn } from '@/lib/utils';
-import type { ThumbnailGenerationItem } from '@kiditem/shared';
+import type { ThumbnailGenerationItem } from '@kiditem/shared/ai';
 
 import { ImgWithSkeleton } from './ImgWithSkeleton';
 

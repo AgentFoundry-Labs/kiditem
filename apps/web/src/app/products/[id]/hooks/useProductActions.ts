@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { apiClient } from "@/lib/api-client";
 import { isApiError } from "@/lib/api-error";
 import { queryKeys } from "@/lib/query-keys";
-import type { ProductCatalogDetail as Product } from "@kiditem/shared";
+import type { ProductCatalogDetail as Product } from "@kiditem/shared/product";
 
 export interface ActivityEvent {
   id: string;

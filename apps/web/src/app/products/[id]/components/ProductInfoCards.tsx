@@ -3,7 +3,7 @@ import { Package, Box, ExternalLink } from "lucide-react";
 import { formatKRW } from "@/lib/utils";
 import { InfoCard, InfoRow } from "./ProductSidebar";
 import { categoryNames } from "./ProductMetrics";
-import type { ProductCatalogDetail as Product } from "@kiditem/shared";
+import type { ProductCatalogDetail as Product } from "@kiditem/shared/product";
 
 export interface InventoryData {
   currentStock: number;

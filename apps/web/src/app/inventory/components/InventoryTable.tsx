@@ -2,7 +2,7 @@
 
 import { Pagination } from '@/components/ui/Pagination';
 import { cn, formatNumber } from '@/lib/utils';
-import type { InventoryListItem } from '@kiditem/shared';
+import type { InventoryListItem } from '@kiditem/shared/inventory';
 import type { StockOperationMode } from './StockOperationDialog';
 
 function StatusBadge({ status }: { status: string }) {

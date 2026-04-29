@@ -1,5 +1,5 @@
 import { Loader2 } from 'lucide-react';
-import type { ThumbnailGenerationItem } from '@kiditem/shared';
+import type { ThumbnailGenerationItem } from '@kiditem/shared/ai';
 import type { ThumbnailTrackingRecord } from '../hooks/useThumbnailTracking';
 import { isApplied, isReady } from '@/lib/thumbnail-status';
 import { pickDisplayableImageUrl } from '@/lib/resolve-url';

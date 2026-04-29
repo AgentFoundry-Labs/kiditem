@@ -1,5 +1,5 @@
 import { formatNumber } from '@/lib/utils';
-import type { InventoryListItem } from '@kiditem/shared';
+import type { InventoryListItem } from '@kiditem/shared/inventory';
 
 type BarcodePrintResult = 'opened' | 'popup-blocked' | 'empty';
 

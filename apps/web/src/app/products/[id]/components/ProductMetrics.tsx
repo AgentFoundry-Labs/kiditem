@@ -9,7 +9,7 @@ import {
   getProfitColor,
   getProductStatusBadge,
 } from '@/lib/utils';
-import type { ProductCatalogDetail as Product } from '@kiditem/shared';
+import type { ProductCatalogDetail as Product } from '@kiditem/shared/product';
 
 const categoryNames: Record<string, string> = {
   '4944': '완구 > 퍼즐',

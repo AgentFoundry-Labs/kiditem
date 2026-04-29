@@ -9,7 +9,7 @@ import { useDeleteGeneration, useGenerationList } from '@/hooks/useThumbnailGene
 import { resolveImageUrl } from '@/lib/resolve-url';
 import { cn } from '@/lib/utils';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import type { ThumbnailGenerationItem } from '@kiditem/shared';
+import type { ThumbnailGenerationItem } from '@kiditem/shared/ai';
 
 import { ImgWithSkeleton } from './ImgWithSkeleton';
 

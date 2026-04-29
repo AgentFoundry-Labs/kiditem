@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { InventoryListItem } from '@kiditem/shared';
+import type { InventoryListItem } from '@kiditem/shared/inventory';
 import { stockOpsInventoryName } from './inventory-projection';
 
 const base: InventoryListItem = {

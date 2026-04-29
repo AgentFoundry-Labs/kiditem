@@ -11,7 +11,7 @@ import { apiClient } from "@/lib/api-client";
 import { queryKeys } from "@/lib/query-keys";
 import { roasColor } from "../lib/status-colors";
 import AdSidePanel from "./AdSidePanel";
-import type { AdWeeklyPlan, AdTrendsData, AdCampaignSnapshot, AdExtensionStatus, AdStrategyAction } from "@kiditem/shared";
+import type { AdWeeklyPlan, AdTrendsData, AdCampaignSnapshot, AdExtensionStatus, AdStrategyAction } from "@kiditem/shared/advertising";
 
 type ChartTooltipPayload = {
   dataKey?: string | number | ((obj: unknown) => unknown);

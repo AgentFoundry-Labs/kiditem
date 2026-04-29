@@ -18,7 +18,7 @@ import type {
   RecomposeVariantKey,
   ThumbnailAnalysisResult,
   ThumbnailGenerationItem,
-} from '@kiditem/shared';
+} from '@kiditem/shared/ai';
 import { cn } from '@/lib/utils';
 import { isActive, isApplied, isReady } from '@/lib/thumbnail-status';
 import { useDeleteGeneration, useReEditGeneration } from '@/hooks/useThumbnailGenerations';

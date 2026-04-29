@@ -16,7 +16,7 @@ import {
   monthPeriodWindow,
   transactionKeyParams,
 } from '@/app/inventory/lib/inventory-api';
-import type { TransactionListItem } from '@kiditem/shared';
+import type { TransactionListItem } from '@kiditem/shared/inventory';
 
 const typeLabels: Record<string, { text: string; color: string }> = {
   RECEIVE: { text: '입고', color: 'bg-green-100 text-green-700' },

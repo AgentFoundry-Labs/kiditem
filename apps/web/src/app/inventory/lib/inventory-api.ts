@@ -8,7 +8,7 @@ import {
   StockOperationResultSchema,
   TransactionListResponseSchema,
   UpdateInventoryMetadataInputSchema,
-} from '@kiditem/shared';
+} from '@kiditem/shared/inventory';
 import type {
   AdjustStockInput,
   Inventory,
@@ -20,7 +20,7 @@ import type {
   TransactionListItem,
   TransactionListResponse,
   UpdateInventoryMetadataInput,
-} from '@kiditem/shared';
+} from '@kiditem/shared/inventory';
 
 export type InventoryFilterKey = 'all' | InventoryStatus;
 

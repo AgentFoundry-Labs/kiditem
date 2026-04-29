@@ -11,8 +11,8 @@ import {
   ProductCatalogListResponseSchema,
   type ProductCatalogListItem,
   type MasterImageItem,
-  type ThumbnailGenerationItem,
-} from '@kiditem/shared';
+} from '@kiditem/shared/product';
+import type { ThumbnailGenerationItem } from '@kiditem/shared/ai';
 
 import { useRecentGenerations } from '@/hooks/useRecentGenerations';
 import { apiClient } from '@/lib/api-client';

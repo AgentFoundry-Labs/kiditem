@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { MasterSchema } from '@kiditem/shared';
+import { MasterSchema } from '@kiditem/shared/product';
 
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
@@ -13,7 +13,7 @@ import { useSelectCandidate, useWingRegister, useDeleteCandidate } from '@/hooks
 import { resolveImageUrl } from '@/lib/resolve-url';
 import { useProductImages } from '@/hooks/useProductImages';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import type { ThumbnailGenerationItem } from '@kiditem/shared';
+import type { ThumbnailGenerationItem } from '@kiditem/shared/ai';
 
 import { useGenerateThumbnail } from '../hooks/useThumbnailEditor';
 import { EditorInputPanel } from '../components/EditorInputPanel';

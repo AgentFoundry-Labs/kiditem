@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { OrderListItem, OrderListResponse } from '@kiditem/shared';
+import type { OrderListItem, OrderListResponse } from '@kiditem/shared/order';
 import { apiClient } from '@/lib/api-client';
 import {
   allOrderStatusesKeyParams,

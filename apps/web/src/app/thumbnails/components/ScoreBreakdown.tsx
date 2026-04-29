@@ -1,6 +1,6 @@
 'use client';
 import { cn } from '@/lib/utils';
-import type { ThumbnailScores } from '@kiditem/shared';
+import type { ThumbnailScores } from '@kiditem/shared/ai';
 
 interface ScoreBreakdownProps {
   scores: ThumbnailScores;

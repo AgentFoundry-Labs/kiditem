@@ -6,7 +6,7 @@ import type {
   RecomposeVariantKey,
   ThumbnailAnalysisResult,
   ThumbnailGenerationItem,
-} from '@kiditem/shared';
+} from '@kiditem/shared/ai';
 import { apiClient } from '@/lib/api-client';
 import { useAnalyze } from './useThumbnailAnalysis';
 import {

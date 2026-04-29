@@ -6,8 +6,8 @@
  * 이 파일은 UI용 라벨/설명만 유지.
  */
 
-import type { MasterImageRole } from '@kiditem/shared';
-export type { MasterImageRole } from '@kiditem/shared';
+import type { MasterImageRole } from '@kiditem/shared/product';
+export type { MasterImageRole } from '@kiditem/shared/product';
 
 export const HUB_ROLE_CONFIG: ReadonlyArray<{
   role: MasterImageRole;

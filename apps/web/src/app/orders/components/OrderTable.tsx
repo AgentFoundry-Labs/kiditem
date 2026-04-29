@@ -1,7 +1,7 @@
 'use client';
 import { Check, Printer, FileText } from "lucide-react";
 import { cn, formatKRW, formatDate, formatTime } from "@/lib/utils";
-import type { OrderListItem } from '@kiditem/shared';
+import type { OrderListItem } from '@kiditem/shared/order';
 import type { OrderPipelineNode } from '../lib/order-pipeline';
 
 interface OrderTableProps {

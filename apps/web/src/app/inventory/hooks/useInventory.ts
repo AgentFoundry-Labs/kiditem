@@ -13,7 +13,7 @@ import type {
   IssueStockInput,
   ReceiveStockInput,
   UpdateInventoryMetadataInput,
-} from '@kiditem/shared';
+} from '@kiditem/shared/inventory';
 import type { InventoryListParams } from '../lib/inventory-api';
 
 export function useInventoryList(params: InventoryListParams) {

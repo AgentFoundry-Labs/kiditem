@@ -12,8 +12,8 @@ import type {
   AdBenchmarkData,
   AdTrendsData,
   ExposureAnalysisData,
-  DashboardAdSummary,
-} from '@kiditem/shared';
+} from '@kiditem/shared/advertising';
+import type { DashboardAdSummary } from '@kiditem/shared';
 
 export type CampaignProductData = {
   vendorItemId: string;

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
-import type { ProductOption } from '@kiditem/shared';
+import type { ProductOption } from '@kiditem/shared/product';
 import type { ProductOptionEditableFields } from '../lib/product-options-api';
 
 interface Props {

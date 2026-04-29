@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildBarcodePrintHtml, escapeHtml, printBarcodeWindow } from './barcode-print';
-import type { InventoryListItem } from '@kiditem/shared';
+import type { InventoryListItem } from '@kiditem/shared/inventory';
 
 const item: InventoryListItem = {
   id: '00000000-0000-4000-8000-000000000001',

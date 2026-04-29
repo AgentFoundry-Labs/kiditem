@@ -3,7 +3,7 @@
 import { useEffect } from 'react';
 import { X, ScanSearch } from 'lucide-react';
 import { UploadAnalyzer } from './UploadAnalyzer';
-import type { ThumbnailAnalysisResult } from '@kiditem/shared';
+import type { ThumbnailAnalysisResult } from '@kiditem/shared/ai';
 
 interface InspectionDrawerProps {
   open: boolean;

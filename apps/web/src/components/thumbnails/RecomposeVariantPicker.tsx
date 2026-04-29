@@ -15,7 +15,7 @@ import type {
   RecomposeKind,
   RecomposeVariantClassification,
   RecomposeVariantKey,
-} from '@kiditem/shared';
+} from '@kiditem/shared/ai';
 import { cn } from '@/lib/utils';
 
 interface RecomposeVariantPickerProps {

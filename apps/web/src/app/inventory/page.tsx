@@ -19,7 +19,7 @@ import { fetchAllInventoryForExport, toInventoryExportRows } from './lib/invento
 import type { StockOperationMode } from './components/StockOperationDialog';
 import type { SyncInfo } from '@kiditem/shared';
 import type { InventoryFilterKey } from './lib/inventory-api';
-import type { InventoryListItem, InventorySummary } from '@kiditem/shared';
+import type { InventoryListItem, InventorySummary } from '@kiditem/shared/inventory';
 
 const DEFAULT_SUMMARY: InventorySummary = { total: 0, healthy: 0, low: 0, out: 0 };
 
