@@ -6,6 +6,7 @@ import { MastersService } from '../services/masters.service';
 import { OptionsService } from '../services/options.service';
 import { BundleStockService } from '../services/bundle-stock.service';
 import { BundleComponentsService } from '../services/bundle-components.service';
+import { StorageService } from '../../common/storage/storage.service';
 import {
   makeTestPrisma, resetDb, seedBaseFixture,
   TEST_COMPANY_ID, OTHER_COMPANY_ID,
@@ -18,11 +19,15 @@ describe('BundleComponentsService integration', () => {
   let bundleStockSvc: BundleStockService;
   let svc: BundleComponentsService;
 
+  // No upload paths exercised in this spec; a typed null stub keeps the
+  // MastersService constructor signature satisfied without booting MinIO/S3.
+  const storageStub = null as unknown as StorageService;
+
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
     const codeSvc = new MasterCodeService(prisma as any);
-    mastersSvc = new MastersService(prisma as any, codeSvc);
+    mastersSvc = new MastersService(prisma as any, codeSvc, storageStub);
     bundleStockSvc = new BundleStockService(prisma as any);
     optionsSvc = new OptionsService(prisma as any, bundleStockSvc);
     svc = new BundleComponentsService(prisma as any, bundleStockSvc);

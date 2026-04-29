@@ -5,6 +5,7 @@ import { MasterCodeService } from '../services/master-code.service';
 import { MastersService } from '../services/masters.service';
 import { BundleStockService } from '../services/bundle-stock.service';
 import { OptionsService } from '../services/options.service';
+import { StorageService } from '../../common/storage/storage.service';
 import {
   makeTestPrisma, resetDb, seedBaseFixture, TEST_COMPANY_ID, OTHER_COMPANY_ID,
 } from '../../test-helpers/real-prisma';
@@ -15,11 +16,15 @@ describe('OptionsService integration', () => {
   let bundleStockSvc: BundleStockService;
   let svc: OptionsService;
 
+  // No upload paths exercised in this spec; a typed null stub keeps the
+  // MastersService constructor signature satisfied without booting MinIO/S3.
+  const storageStub = null as unknown as StorageService;
+
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
     const codeSvc = new MasterCodeService(prisma as any);
-    mastersSvc = new MastersService(prisma as any, codeSvc);
+    mastersSvc = new MastersService(prisma as any, codeSvc, storageStub);
     bundleStockSvc = new BundleStockService(prisma as any);
     svc = new OptionsService(prisma as any, bundleStockSvc);
   });
@@ -151,6 +156,41 @@ describe('OptionsService integration', () => {
 
     const unchanged = await svc.findById(OTHER_COMPANY_ID, otherOpt.id, {});
     expect(unchanged.optionName).toBe('Other option');
+  });
+
+  it('findBySku returns 404 for a sku belonging to another company (IDOR)', async () => {
+    // Seed an option under OTHER_COMPANY_ID, then ensure TEST_COMPANY_ID cannot
+    // surface it via the by-sku lookup. The previous implementation used
+    // `findUnique({ where: { sku } })` and post-filtered companyId, which still
+    // returned 404 to the caller but loaded a cross-tenant row into memory.
+    // The refactored `findFirst({ sku, companyId, isDeleted: false })` keeps the
+    // row off the SQL path entirely.
+    const otherMaster = await mastersSvc.create(OTHER_COMPANY_ID, { name: 'Other master' } as any);
+    const otherOpt = await svc.create(OTHER_COMPANY_ID, {
+      masterId: otherMaster.id,
+      optionName: 'Other option',
+    } as any);
+
+    await expect(svc.findBySku(TEST_COMPANY_ID, otherOpt.sku)).rejects.toMatchObject({
+      status: 404,
+    });
+
+    // Sanity: owning tenant still sees its own option.
+    const own = await svc.findBySku(OTHER_COMPANY_ID, otherOpt.sku);
+    expect(own.id).toBe(otherOpt.id);
+  });
+
+  it('findBySku returns 404 when the sku belongs to a soft-deleted option', async () => {
+    const m = await mastersSvc.create(TEST_COMPANY_ID, { name: 'Sku soft-delete master' } as any);
+    const opt = await svc.create(TEST_COMPANY_ID, {
+      masterId: m.id,
+      optionName: 'Will be deleted',
+    } as any);
+    await svc.softDelete(TEST_COMPANY_ID, opt.id);
+
+    await expect(svc.findBySku(TEST_COMPANY_ID, opt.sku)).rejects.toMatchObject({
+      status: 404,
+    });
   });
 
   it('triggers recompute on bundles when component option is soft-deleted', async () => {
