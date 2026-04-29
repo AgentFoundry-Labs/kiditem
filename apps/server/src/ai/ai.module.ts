@@ -18,6 +18,8 @@ import { ThumbnailReferenceImagesService } from './services/thumbnail-reference-
 import { ThumbnailTrackingService } from './services/thumbnail-tracking.service';
 import { ThumbnailVisionAiService } from './services/thumbnail-vision-ai.service';
 import { ThumbnailWingService } from './services/thumbnail-wing.service';
+import { GeminiThumbnailVisionAdapter } from './adapters/gemini-thumbnail-vision.adapter';
+import { ThumbnailComplianceVerifierService } from './services/thumbnail-compliance-verifier.service';
 
 @Module({
   controllers: [
@@ -42,6 +44,8 @@ import { ThumbnailWingService } from './services/thumbnail-wing.service';
     ThumbnailTrackingService,
     ThumbnailVisionAiService,
     ThumbnailWingService,
+    GeminiThumbnailVisionAdapter,
+    ThumbnailComplianceVerifierService,
   ],
 })
 export class AiModule {}

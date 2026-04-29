@@ -6,45 +6,33 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import type { ComplianceScores, ImageSpec, ThumbnailAnalysisListResponse, ThumbnailAnalysisResult, ThumbnailAnalysisSummary, ThumbnailScores, RecomposeVariantClassification } from '@kiditem/shared/ai';
+import type {
+  ComplianceScores,
+  ImageSpec,
+  ThumbnailAnalysisListResponse,
+  ThumbnailAnalysisResult,
+  ThumbnailAnalysisSummary,
+  ThumbnailScores,
+  RecomposeVariantClassification,
+} from '@kiditem/shared/ai';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AnalysisScope } from '../dto/thumbnail-analyze.dto';
 import {
-  isDisplayableThumbnailUrl,
   resolveMasterThumbnailImage,
   thumbnailMasterImageSelect,
-  type ThumbnailMasterImageRow,
 } from './thumbnail-master-image-resolver';
 import {
   ThumbnailVisionAiService,
   type ThumbnailAiItem,
 } from './thumbnail-vision-ai.service';
 import { ThumbnailRecomposeService } from './thumbnail-recompose.service';
-
-const EMPTY_GRADE_DIST = { S: 0, A: 0, B: 0, C: 0, F: 0 } as const;
-const EMPTY_COMPLIANCE_DIST = { PASS: 0, WARN: 0, FAIL: 0 } as const;
-
-type MasterRow = {
-  id: string;
-  name: string;
-  imageUrl: string | null;
-  thumbnailUrl: string | null;
-  images: ThumbnailMasterImageRow[];
-  createdAt: Date;
-};
-
-type AnalysisRow = Awaited<
-  ReturnType<typeof PrismaService.prototype.thumbnailAnalysis.findMany>
->[number] & {
-  recompose: Prisma.JsonValue;
-  master: {
-    id: string;
-    name: string;
-    imageUrl: string | null;
-    thumbnailUrl: string | null;
-    images: ThumbnailMasterImageRow[];
-  } | null | undefined;
-};
+import {
+  type AnalysisRow,
+  type MasterRow,
+  buildAnalysisListResponse,
+  buildAnalysisSummary,
+} from '../read-models/thumbnail-analysis-read-model';
+import { toAnalysisResult } from '../mappers/thumbnail-analysis.mapper';
 
 @Injectable()
 export class ThumbnailAnalysisService {
@@ -79,55 +67,10 @@ export class ThumbnailAnalysisService {
       }),
     ]);
 
-    const masterById = new Map((masters as MasterRow[]).map((m) => [m.id, m]));
-    const analysisRows = analyses as AnalysisRow[];
-    const ownedAnalysisRows = analysisRows.filter((a) => masterById.has(a.masterId));
-    const analysisByMasterId = new Map(ownedAnalysisRows.map((a) => [a.masterId, a]));
-    const qualityAnalyzedMasterIds = new Set(
-      ownedAnalysisRows.filter((a) => a.qualityAnalyzedAt !== null).map((a) => a.masterId),
+    return buildAnalysisListResponse(
+      masters as MasterRow[],
+      analyses as AnalysisRow[],
     );
-
-    const allResults: ThumbnailAnalysisResult[] = ownedAnalysisRows
-      .filter((a) => this.hasActualAnalysis(a))
-      .map((a) => this.toResult(a, masterById.get(a.masterId) ?? null));
-
-    const unclassified: ThumbnailAnalysisResult[] = (masters as MasterRow[])
-      .filter((m) => !qualityAnalyzedMasterIds.has(m.id))
-      .map((m) => this.unclassifiedResult(m, analysisByMasterId.get(m.id)));
-
-    const gradeDistribution: Record<'S' | 'A' | 'B' | 'C' | 'F', number> = {
-      ...EMPTY_GRADE_DIST,
-    };
-    const complianceDistribution: Record<'PASS' | 'WARN' | 'FAIL', number> = {
-      ...EMPTY_COMPLIANCE_DIST,
-    };
-    let partialCount = 0;
-    let qualityAnalyzedCount = 0;
-    for (const a of ownedAnalysisRows) {
-      const hasQuality = a.qualityAnalyzedAt !== null;
-      const hasCompliance = a.complianceAnalyzedAt !== null;
-      if (hasQuality) {
-        qualityAnalyzedCount += 1;
-        if (a.grade in gradeDistribution) {
-          gradeDistribution[a.grade as keyof typeof gradeDistribution] += 1;
-        }
-      }
-      if (hasCompliance && a.complianceGrade && a.complianceGrade in complianceDistribution) {
-        complianceDistribution[a.complianceGrade as keyof typeof complianceDistribution] += 1;
-      }
-      if (hasQuality !== hasCompliance) partialCount += 1;
-    }
-
-    return {
-      total: masters.length,
-      analyzed: qualityAnalyzedCount,
-      partialCount,
-      unclassifiedCount: unclassified.length,
-      gradeDistribution,
-      complianceDistribution,
-      allResults,
-      unclassified,
-    } satisfies ThumbnailAnalysisListResponse;
   }
 
   async getSummary(companyId: string): Promise<ThumbnailAnalysisSummary> {
@@ -146,35 +89,8 @@ export class ThumbnailAnalysisService {
           },
         })
       : [];
-    const masterCount = masters.length;
 
-    const gradeDistribution = { ...EMPTY_GRADE_DIST };
-    const complianceDistribution = { ...EMPTY_COMPLIANCE_DIST };
-    let analyzed = 0;
-    let partialCount = 0;
-    for (const a of analyses) {
-      const hasQuality = a.qualityAnalyzedAt !== null;
-      const hasCompliance = a.complianceAnalyzedAt !== null;
-      if (hasQuality) {
-        analyzed += 1;
-        if (a.grade in gradeDistribution) {
-          gradeDistribution[a.grade as keyof typeof gradeDistribution] += 1;
-        }
-      }
-      if (hasCompliance && a.complianceGrade && a.complianceGrade in complianceDistribution) {
-        complianceDistribution[a.complianceGrade as keyof typeof complianceDistribution] += 1;
-      }
-      if (hasQuality !== hasCompliance) partialCount += 1;
-    }
-
-    return {
-      total: masterCount,
-      analyzed,
-      partialCount,
-      unclassifiedCount: Math.max(masterCount - analyzed, 0),
-      gradeDistribution,
-      complianceDistribution,
-    } satisfies ThumbnailAnalysisSummary;
+    return buildAnalysisSummary(masters.length, analyses);
   }
 
   // ─── 분석 / 사전검수 ─────────────────────────────────────────────
@@ -290,7 +206,7 @@ export class ThumbnailAnalysisService {
       update,
     });
 
-    return this.toResult(upserted as AnalysisRow, master);
+    return toAnalysisResult(upserted as AnalysisRow, master);
   }
 
   /**
@@ -496,62 +412,5 @@ export class ThumbnailAnalysisService {
 
   private isAbortError(err: unknown): boolean {
     return err instanceof Error && err.message === 'ABORTED';
-  }
-
-  private hasActualAnalysis(a: AnalysisRow): boolean {
-    return a.qualityAnalyzedAt !== null || a.complianceAnalyzedAt !== null;
-  }
-
-  private toResult(
-    a: AnalysisRow,
-    master: AnalysisRow['master'],
-  ): ThumbnailAnalysisResult {
-    const fallback = master ? resolveMasterThumbnailImage(master) : null;
-    return {
-      id: a.id,
-      productId: a.masterId,
-      productName: master?.name ?? '',
-      imageUrl: isDisplayableThumbnailUrl(a.imageUrl) ? a.imageUrl : fallback,
-      overallScore: a.overallScore,
-      grade: a.grade,
-      scores: (a.scores as ThumbnailScores | null) ?? null,
-      issues: (a.issues as ThumbnailAnalysisResult['issues']) ?? [],
-      suggestions: (a.suggestions as string[]) ?? [],
-      method: a.method ?? 'ai',
-      analyzed: !!a.qualityAnalyzedAt,
-      qualityAnalyzed: !!a.qualityAnalyzedAt,
-      complianceAnalyzed: !!a.complianceAnalyzedAt,
-      complianceGrade: a.complianceGrade ?? null,
-      complianceScores: (a.complianceScores as ComplianceScores | null) ?? null,
-      imageSpec: (a.imageSpec as ImageSpec | null) ?? null,
-      recompose: (a.recompose as ThumbnailAnalysisResult['recompose']) ?? null,
-      createdAt: a.createdAt.toISOString(),
-    } satisfies ThumbnailAnalysisResult;
-  }
-
-  private unclassifiedResult(
-    m: MasterRow,
-    existing?: AnalysisRow,
-  ): ThumbnailAnalysisResult {
-    return {
-      id: m.id,
-      productId: m.id,
-      productName: m.name,
-      imageUrl: resolveMasterThumbnailImage(m),
-      overallScore: 0,
-      grade: 'F',
-      scores: null,
-      issues: [],
-      suggestions: [],
-      method: 'pending',
-      analyzed: false,
-      qualityAnalyzed: false,
-      complianceAnalyzed: false,
-      complianceGrade: null,
-      complianceScores: null,
-      imageSpec: (existing?.imageSpec as ImageSpec | null) ?? null,
-      recompose: (existing?.recompose as ThumbnailAnalysisResult['recompose']) ?? null,
-      createdAt: m.createdAt.toISOString(),
-    } satisfies ThumbnailAnalysisResult;
   }
 }
