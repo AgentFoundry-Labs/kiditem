@@ -7,8 +7,8 @@ import type { PanelRunMapper } from './types';
  * Service layer가 ThumbnailGeneration + 최소 Product shape 조인 결과를 이 shape으로 넘김.
  *
  * service 호출 예 (panel.service.ts):
- *   const gen = await prisma.thumbnailGeneration.findUnique({
- *     where: { id }, include: { product: { select: { id: true, title: true } } }
+ *   const gen = await prisma.thumbnailGeneration.findFirst({
+ *     where: { id, companyId }, include: { product: { select: { id: true, title: true } } }
  *   });
  *   const input: ImageAdapterInput = { generation: gen, product: { id: gen.product.id, title: gen.product.title } };
  *   const item = imagePanelMapper.mapToItem(input, companyId);

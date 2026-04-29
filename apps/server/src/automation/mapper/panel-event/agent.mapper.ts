@@ -7,8 +7,8 @@ import type { PanelRunMapper } from './types';
  * Service layer가 HeartbeatRun + AgentDefinition 조인 결과를 이 shape으로 넘김.
  *
  * service 호출 예 (panel.service.ts):
- *   const run = await prisma.heartbeatRun.findUnique({
- *     where: { id }, include: { agent: { select: { id: true, name: true } } }
+ *   const run = await prisma.heartbeatRun.findFirst({
+ *     where: { id, companyId }, include: { agent: { select: { id: true, name: true } } }
  *   });
  *   const input: AgentAdapterInput = { run, agent: { id: run.agent.id, name: run.agent.name } };
  *   const item = agentPanelMapper.mapToItem(input, companyId);

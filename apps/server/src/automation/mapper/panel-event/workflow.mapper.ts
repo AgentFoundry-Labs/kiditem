@@ -7,8 +7,8 @@ import type { PanelRunMapper } from './types';
  * Prisma model 직접 사용 안 함 — steps JSON을 이미 해석한 뒤 전달.
  *
  * service 호출 예 (workflows.service.ts):
- *   const run = await prisma.workflowRun.findUnique({
- *     where: { id }, include: { template: { select: { name: true } } }
+ *   const run = await prisma.workflowRun.findFirst({
+ *     where: { id, companyId }, include: { template: { select: { name: true } } }
  *   });
  *   const steps = Array.isArray(run.steps) ? run.steps : [];
  *   const input: WorkflowRunInput = {
