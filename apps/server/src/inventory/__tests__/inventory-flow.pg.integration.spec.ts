@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Test } from '@nestjs/testing';
 import type { PrismaClient } from '@prisma/client';
-import { InventoryService } from '../services/inventory.service';
+import { InventoryApplicationService } from '../application/service/inventory-application.service';
+import { InventoryQuery } from '../adapter/out/prisma/inventory.query';
+import { InventoryPersistence } from '../adapter/out/prisma/inventory.persistence';
 import { BundleStockService } from '../../products/application/service/bundle-stock.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
@@ -14,7 +16,7 @@ import {
 
 describe('Inventory flow (PG integration)', () => {
   let prisma: PrismaClient;
-  let inventoryService: InventoryService;
+  let inventory: InventoryApplicationService;
   let masterId: string;
 
   const companyId = TEST_COMPANY_ID;
@@ -54,12 +56,14 @@ describe('Inventory flow (PG integration)', () => {
 
     const m = await Test.createTestingModule({
       providers: [
-        InventoryService,
+        InventoryApplicationService,
+        InventoryQuery,
+        InventoryPersistence,
         BundleStockService,
         { provide: PrismaService, useValue: prisma },
       ],
     }).compile();
-    inventoryService = m.get(InventoryService);
+    inventory = m.get(InventoryApplicationService);
   });
 
   afterAll(async () => { await prisma.$disconnect(); });
@@ -83,7 +87,7 @@ describe('Inventory flow (PG integration)', () => {
     const bundle = await seedOption(true, 0);
     await bindBundle(bundle.option.id, simple.option.id, 2);
 
-    const result = await inventoryService.receive(
+    const result = await inventory.receive(
       simple.inventory.id,
       { quantity: 10 },
       companyId,
@@ -102,11 +106,11 @@ describe('Inventory flow (PG integration)', () => {
     const bundle = await seedOption(true, 0);
     await bindBundle(bundle.option.id, simple.option.id, 2);
 
-    await inventoryService.receive(simple.inventory.id, { quantity: 10 }, companyId, userId);
+    await inventory.receive(simple.inventory.id, { quantity: 10 }, companyId, userId);
     const afterReceive = await prisma.productOption.findUnique({ where: { id: bundle.option.id } });
     expect(afterReceive?.availableStock).toBe(5);
 
-    await inventoryService.issue(simple.inventory.id, { quantity: 4 }, companyId, userId);
+    await inventory.issue(simple.inventory.id, { quantity: 4 }, companyId, userId);
 
     const inv = await prisma.inventory.findUnique({ where: { id: simple.inventory.id } });
     expect(inv?.currentStock).toBe(6);
@@ -117,7 +121,7 @@ describe('Inventory flow (PG integration)', () => {
   it('#3 Insufficient stock → BadRequest, rollback', async () => {
     const simple = await seedOption(false, 3);
     await expect(
-      inventoryService.issue(simple.inventory.id, { quantity: 5 }, companyId, userId),
+      inventory.issue(simple.inventory.id, { quantity: 5 }, companyId, userId),
     ).rejects.toThrow();
     const inv = await prisma.inventory.findUnique({ where: { id: simple.inventory.id } });
     expect(inv?.currentStock).toBe(3);
@@ -130,9 +134,9 @@ describe('Inventory flow (PG integration)', () => {
     const bundle = await seedOption(true, 0);
     await bindBundle(bundle.option.id, simple.option.id, 2);
 
-    await inventoryService.receive(simple.inventory.id, { quantity: 10 }, companyId, userId);
+    await inventory.receive(simple.inventory.id, { quantity: 10 }, companyId, userId);
 
-    await inventoryService.adjust(simple.inventory.id, { delta: -4, reason: 'shrinkage' }, companyId, userId);
+    await inventory.adjust(simple.inventory.id, { delta: -4, reason: 'shrinkage' }, companyId, userId);
 
     const inv = await prisma.inventory.findUnique({ where: { id: simple.inventory.id } });
     expect(inv?.currentStock).toBe(6);
@@ -149,8 +153,8 @@ describe('Inventory flow (PG integration)', () => {
     const simple = await seedOption(false, 0);
 
     await Promise.all([
-      inventoryService.receive(simple.inventory.id, { quantity: 10 }, companyId, userId),
-      inventoryService.receive(simple.inventory.id, { quantity: 10 }, companyId, userId),
+      inventory.receive(simple.inventory.id, { quantity: 10 }, companyId, userId),
+      inventory.receive(simple.inventory.id, { quantity: 10 }, companyId, userId),
     ]);
 
     const inv = await prisma.inventory.findUnique({ where: { id: simple.inventory.id } });
@@ -167,8 +171,8 @@ describe('Inventory flow (PG integration)', () => {
     await bindBundle(bundle.option.id, b.option.id, 1);
 
     await Promise.all([
-      inventoryService.receive(a.inventory.id, { quantity: 5 }, companyId, userId),
-      inventoryService.receive(b.inventory.id, { quantity: 3 }, companyId, userId),
+      inventory.receive(a.inventory.id, { quantity: 5 }, companyId, userId),
+      inventory.receive(b.inventory.id, { quantity: 3 }, companyId, userId),
     ]);
 
     const updatedBundle = await prisma.productOption.findUnique({ where: { id: bundle.option.id } });
@@ -189,7 +193,7 @@ describe('Inventory flow (PG integration)', () => {
       data: { availableStock: 10 },
     });
 
-    const result = await inventoryService.receive(a.inventory.id, { quantity: 5 }, companyId, userId);
+    const result = await inventory.receive(a.inventory.id, { quantity: 5 }, companyId, userId);
 
     expect(result.recomputedBundleOptionIds).toEqual([]);
     const updatedBundle = await prisma.productOption.findUnique({ where: { id: bundle.option.id } });
@@ -234,7 +238,7 @@ describe('Inventory flow (PG integration)', () => {
 
   it('#9 Metadata update → no StockTransaction created', async () => {
     const simple = await seedOption(false, 10);
-    await inventoryService.updateMetadata(simple.inventory.id, { safetyStock: 20 }, companyId);
+    await inventory.updateMetadata(simple.inventory.id, { safetyStock: 20 }, companyId);
     const ledger = await prisma.stockTransaction.findMany({ where: { optionId: simple.option.id } });
     expect(ledger).toHaveLength(0);
     const inv = await prisma.inventory.findUnique({ where: { id: simple.inventory.id } });
@@ -244,13 +248,13 @@ describe('Inventory flow (PG integration)', () => {
 
   it('#10 Ledger query + summary consistency', async () => {
     const simple = await seedOption(false, 0);
-    await inventoryService.receive(simple.inventory.id, { quantity: 10, unitCost: 100 }, companyId, userId);
-    await inventoryService.issue(simple.inventory.id, { quantity: 3 }, companyId, userId);
+    await inventory.receive(simple.inventory.id, { quantity: 10, unitCost: 100 }, companyId, userId);
+    await inventory.issue(simple.inventory.id, { quantity: 3 }, companyId, userId);
 
-    const list = await inventoryService.listTransactions({ optionId: simple.option.id }, companyId);
+    const list = await inventory.listTransactions({ optionId: simple.option.id }, companyId);
     expect(list.items).toHaveLength(2);
 
-    const summary = await inventoryService.getTransactionSummary({ days: 1 }, companyId);
+    const summary = await inventory.getTransactionSummary({ days: 1 }, companyId);
     expect(summary.inQty).toBe(10);
     expect(summary.outQty).toBe(3);
     expect(summary.inAmount).toBe(1000);
@@ -258,7 +262,7 @@ describe('Inventory flow (PG integration)', () => {
 
   it('#11 createdBy recorded in StockTransaction', async () => {
     const simple = await seedOption(false, 0);
-    await inventoryService.receive(simple.inventory.id, { quantity: 5 }, companyId, 'specific-user');
+    await inventory.receive(simple.inventory.id, { quantity: 5 }, companyId, 'specific-user');
     const tx = await prisma.stockTransaction.findFirst({ where: { optionId: simple.option.id } });
     expect(tx?.createdBy).toBe('specific-user');
   });
