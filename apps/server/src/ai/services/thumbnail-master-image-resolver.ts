@@ -20,6 +20,13 @@ export const THUMBNAIL_MASTER_IMAGE_SELECT: Prisma.MasterProduct$imagesArgs = {
   orderBy: [{ isPrimary: 'desc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
 };
 
+export function thumbnailMasterImageSelect(companyId: string): Prisma.MasterProduct$imagesArgs {
+  return {
+    ...THUMBNAIL_MASTER_IMAGE_SELECT,
+    where: { companyId, isDeleted: false },
+  };
+}
+
 export type ThumbnailMasterImageRow = {
   url: string;
   role: string;

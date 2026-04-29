@@ -9,12 +9,20 @@ function makeService() {
     thumbnailGeneration: {
       findFirst: vi.fn(async () => ({
         id: GENERATION_ID,
+        masterId: 'master-1',
         selectedUrl: 'http://storage.local/kiditem/thumbnail-generations/a.png',
         candidates: [],
         master: {
           name: 'Master product',
           listings: [{ channelName: '쿠팡 상품명' }],
         },
+      })),
+    },
+    masterProduct: {
+      findFirst: vi.fn(async () => ({
+        id: 'master-1',
+        name: 'Master product',
+        listings: [{ channelName: '쿠팡 상품명' }],
       })),
     },
     thumbnailRegistrationAttempt: {
@@ -121,5 +129,28 @@ describe('ThumbnailWingService', () => {
     await expect(service.registerToWing(GENERATION_ID, COMPANY_ID)).rejects.toThrow(
       'ThumbnailRegistrationAttempt attempt-1 not found',
     );
+  });
+
+  it('does not create a registration attempt until the generation master is confirmed in the caller company', async () => {
+    const { service, prisma } = makeService();
+    prisma.masterProduct.findFirst.mockResolvedValueOnce(null);
+
+    await expect(service.registerToWing(GENERATION_ID, COMPANY_ID)).rejects.toThrow(
+      'MasterProduct master-1 not found',
+    );
+
+    expect(prisma.masterProduct.findFirst).toHaveBeenCalledWith({
+      where: { id: 'master-1', companyId: COMPANY_ID, isDeleted: false },
+      select: {
+        name: true,
+        listings: {
+          where: { companyId: COMPANY_ID, channel: 'coupang', isDeleted: false },
+          select: { channelName: true, createdAt: true },
+          orderBy: { createdAt: 'asc' },
+          take: 1,
+        },
+      },
+    });
+    expect(prisma.thumbnailRegistrationAttempt.create).not.toHaveBeenCalled();
   });
 });

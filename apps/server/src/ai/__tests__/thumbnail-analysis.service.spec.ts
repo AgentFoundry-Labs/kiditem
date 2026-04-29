@@ -322,4 +322,28 @@ describe('ThumbnailAnalysisService AI flow', () => {
     expect(result.unclassified[0].qualityAnalyzed).toBe(false);
     expect(result.unclassified[0].imageSpec?.issues[0]?.type).toBe('low_resolution');
   });
+
+  it('does not render analysis rows whose master is not owned by the caller company', async () => {
+    const crossTenantAnalysis = makeAnalysisRow({
+      master: {
+        id: PRODUCT_ID,
+        name: 'Cross-tenant master',
+        imageUrl: 'https://example.com/other.jpg',
+        thumbnailUrl: null,
+        images: [],
+      },
+    });
+    const prisma = makePrismaListMock([], [crossTenantAnalysis]);
+    const service = new ThumbnailAnalysisService(
+      prisma as never,
+      makeVisionMock({}) as never,
+      makeRecomposeMock() as never,
+    );
+
+    const result = await service.findAllWithAnalysis(COMPANY_ID);
+
+    expect(result.total).toBe(0);
+    expect(result.allResults).toHaveLength(0);
+    expect(result.unclassified).toHaveLength(0);
+  });
 });

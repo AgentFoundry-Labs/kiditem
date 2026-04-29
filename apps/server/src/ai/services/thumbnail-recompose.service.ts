@@ -3,8 +3,8 @@ import { RECOMPOSE_KINDS, type RecomposeKind, type RecomposeVariantClassificatio
 import { PrismaService } from '../../prisma/prisma.service';
 import { RECOMPOSE_CLASSIFY_PROMPT } from './thumbnail-prompts';
 import {
-  THUMBNAIL_MASTER_IMAGE_SELECT,
   resolveMasterThumbnailImage,
+  thumbnailMasterImageSelect,
 } from './thumbnail-master-image-resolver';
 import { ThumbnailVisionAiService } from './thumbnail-vision-ai.service';
 
@@ -30,7 +30,7 @@ export class ThumbnailRecomposeService {
       select: {
         imageUrl: true,
         thumbnailUrl: true,
-        images: THUMBNAIL_MASTER_IMAGE_SELECT,
+        images: thumbnailMasterImageSelect(companyId),
       },
     });
     if (!master) throw new NotFoundException('Product not found');

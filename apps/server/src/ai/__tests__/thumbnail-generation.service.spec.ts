@@ -127,6 +127,15 @@ describe('ThumbnailGenerationService normalized persistence', () => {
   it('saveEditorResult writes candidates and inputImages as relation rows', async () => {
     const created: Record<string, unknown>[] = [];
     const prisma = {
+      masterProduct: {
+        findFirst: vi.fn(async () => ({
+          id: PRODUCT_ID,
+          name: 'Master',
+          imageUrl: 'https://example.com/p.jpg',
+          category: 'toys',
+          companyId: COMPANY_ID,
+        })),
+      },
       thumbnailGeneration: {
         create: vi.fn(async (args: { data: Record<string, unknown> }) => {
           created.push(args.data);
@@ -166,6 +175,85 @@ describe('ThumbnailGenerationService normalized persistence', () => {
           role: 'product',
         }),
       ],
+    });
+  });
+
+  it('saveEditorResult refuses to create a generation for a product outside the caller company', async () => {
+    const prisma = {
+      masterProduct: {
+        findFirst: vi.fn(async () => null),
+      },
+      thumbnailGeneration: {
+        create: vi.fn(async () => ({ id: GENERATION_ID })),
+      },
+    };
+    const service = new ThumbnailGenerationService(
+      prisma as never,
+      { resolveInputImage: vi.fn(), generateEdit: vi.fn() } as never,
+      { create: vi.fn() } as never,
+    );
+
+    await expect(
+      service.saveEditorResult({
+        productId: PRODUCT_ID,
+        companyId: COMPANY_ID,
+        originalUrl: 'https://example.com/p.jpg',
+        candidates: [
+          { url: 'u1', storageKey: 'k1', filename: 'a.png', mimeType: 'image/png', fileSize: 100 },
+        ],
+        method: 'generate',
+      }),
+    ).rejects.toThrow(`MasterProduct ${PRODUCT_ID} not found`);
+
+    expect(prisma.masterProduct.findFirst).toHaveBeenCalledWith({
+      where: { id: PRODUCT_ID, companyId: COMPANY_ID, isDeleted: false },
+      select: { id: true, name: true, imageUrl: true, category: true, companyId: true },
+    });
+    expect(prisma.thumbnailGeneration.create).not.toHaveBeenCalled();
+  });
+
+  it('findAll renders product data from a scoped master lookup instead of relation include data', async () => {
+    const prisma = {
+      masterProduct: {
+        findMany: vi.fn(async () => [
+          {
+            id: PRODUCT_ID,
+            name: 'Caller-owned master',
+            imageUrl: 'https://example.com/owned.jpg',
+            category: 'toys',
+          },
+        ]),
+      },
+      thumbnailGeneration: {
+        findMany: vi.fn(async () => [
+          makeFullGenerationRow({
+            master: {
+              id: PRODUCT_ID,
+              name: 'Cross-tenant relation master',
+              imageUrl: 'https://example.com/other.jpg',
+              category: 'other',
+            },
+          }),
+        ]),
+      },
+    };
+    const service = new ThumbnailGenerationService(
+      prisma as never,
+      { resolveInputImage: vi.fn(), generateEdit: vi.fn() } as never,
+      { create: vi.fn() } as never,
+    );
+
+    const result = await service.findAll(COMPANY_ID);
+
+    expect(prisma.masterProduct.findMany).toHaveBeenCalledWith({
+      where: { id: { in: [PRODUCT_ID] }, companyId: COMPANY_ID, isDeleted: false },
+      select: { id: true, name: true, imageUrl: true, category: true },
+    });
+    expect(result.items[0].product).toMatchObject({
+      id: PRODUCT_ID,
+      name: 'Caller-owned master',
+      imageUrl: 'https://example.com/owned.jpg',
+      category: 'toys',
     });
   });
 
@@ -225,6 +313,9 @@ describe('ThumbnailGenerationService normalized persistence', () => {
       },
     };
     const prisma = {
+      masterProduct: {
+        findFirst: vi.fn(async () => makeProductRow()),
+      },
       thumbnailGeneration: {
         updateMany: vi.fn(async () => ({ count: 1 })),
         findFirst: vi.fn(async () => makeFullGenerationRow({
