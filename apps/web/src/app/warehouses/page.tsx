@@ -50,7 +50,7 @@ export default function WarehousesPage() {
   const createMutation = useMutation({
     mutationFn: (body: typeof form) => apiClient.post('/api/warehouses', body),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['warehouses'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.warehouses.all });
       setShowForm(false);
       setForm({ name: '', code: '', address: '', manager: '', phone: '', isDefault: false });
     },
@@ -58,7 +58,7 @@ export default function WarehousesPage() {
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => apiClient.delete(`/api/warehouses/${id}`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['warehouses'] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.warehouses.all }),
   });
 
   return (
