@@ -436,7 +436,7 @@ Web consumers: `/api/panel/stream` SSE consumed by the panel UI store.
 | `agent-registry/{adapters,heartbeat,permissions,safety,business-safety,delegation,events,trace,wakeup,lifecycle,context-manager,schemas}` | **Keep** | Live Agent OS internals. Will move to `automation/adapter/out/agent-runtime/` and `automation/application/service/` post-rewrite, but no surface change in this PR. |
 | `agent-registry/skills/skills.service.ts` (filesystem symlink) | **Keep** | Pure filesystem adapter for skill mount. Will move to `automation/adapter/out/skills-fs/`. |
 | `agent-registry/domains/{ad-strategy,manager}/*` | **Keep** | Domain post-processing live behind their own controllers. Manager has the human-in-the-loop async-generator workflow. Will move under `automation/application/service/{manager,ad-strategy}` after rewrite. |
-| `rules/controllers/rules.controller.ts` direct injection of `AgentRegistryService` + `HeartbeatService` (schedule PATCH) | **Rewrite-target** | Schedule control becomes a dedicated port (`AgentScheduleControlPort`) on the `automation/` rewrite. Until then, current shape is correct, just transitional. |
+| `rules/controllers/rules.controller.ts` direct injection of `AgentRegistryService` + `HeartbeatService` (schedule PATCH) | **Rewritten (Phase 3C-2)** | Schedule control now flows through `AgentScheduleControlPort` (`automation/application/port/in/`) with `AgentRuntimeScheduleControlAdapter` (`automation/adapter/out/agent-runtime/`). `RulesController` injects only the port. Heartbeat timer reload + tenant-ownership rejection live inside the adapter. |
 | `rules/services/rules.service.ts` agent-spawn + `@OnEvent` | **Keep** | Sole correct evaluation pattern. Synchronous evaluation is hard-banned. |
 | `rules/services/alerts.service.ts` promote $transaction + dismiss panel emit | **Keep** | Race-guard contract. Move to `automation/application/service/alert-promotion` post-rewrite. |
 | `action-task/action-task.service.ts` daily seed generation (531 LOC) | **Keep, refactor candidate** | Above ~500 lines. Heavy hardcoded thresholds. Future split: `domain/policy/action-seeds.ts` (pure rules) + `application/service/action-board.service.ts` (orchestration). |
@@ -507,6 +507,19 @@ Each follow-up PR is one owner-domain PR. Do not bundle two of these.
      `automation/adapter/out/agent-runtime/`).
    - This is the first surface to physically land under
      `apps/server/src/automation/`.
+   - **Resolution (PR `refactor/rules-schedule-control-port`):** landed.
+     `apps/server/src/automation/` now exists with
+     `application/port/in/agent-schedule-control.port.ts` (defines
+     `AgentScheduleControlPort` + `TenantOwnedAgentRequiredError` + DI
+     token) and `adapter/out/agent-runtime/agent-schedule-control.adapter.ts`
+     (`AgentRuntimeScheduleControlAdapter` consumes
+     `AgentRegistryService.findByType` + `.update` and
+     `HeartbeatService.syncTimers`). `AutomationModule` provides the
+     port; `RulesModule` imports it. `RulesController` now injects the
+     port only — no direct `AgentRegistryService` / `HeartbeatService`
+     dependency. `/api/rules/schedule` GET/PATCH route shape, DTO, and
+     BadRequest message are preserved. Adapter unit tests cover global /
+     foreign-tenant rejection + tenant-owned write + disable path.
 
 3. **Phase 3C-3 — Marketplace install application service**
    - Move `installWorkflow` / `installAgent` / `uninstall*` behind

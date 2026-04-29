@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { RulesController } from '../controllers/rules.controller';
+import { TenantOwnedAgentRequiredError } from '../../automation/application/port/in/agent-schedule-control.port';
 
 function makeController() {
   const rulesService = {
@@ -11,70 +12,89 @@ function makeController() {
     suggestThresholds: vi.fn(),
     updateRule: vi.fn(),
   };
-  const agentRegistry = {
-    findByType: vi.fn(),
-    update: vi.fn(),
-  };
-  const heartbeat = {
-    syncTimers: vi.fn(),
+  const scheduleControl = {
+    getSchedule: vi.fn(),
+    setSchedule: vi.fn(),
   };
 
   return {
-    controller: new RulesController(rulesService as never, agentRegistry as never, heartbeat as never),
+    controller: new RulesController(rulesService as never, scheduleControl as never),
     rulesService,
-    agentRegistry,
-    heartbeat,
+    scheduleControl,
   };
 }
 
 describe('RulesController schedule tenant boundary', () => {
-  it('does not expose a global rules_evaluation schedule as tenant-owned config', async () => {
-    const { controller, agentRegistry } = makeController();
-    agentRegistry.findByType.mockResolvedValue({
-      id: 'agent-global',
-      type: 'rules_evaluation',
-      companyId: null,
-      schedule: '0 9 * * *',
-    });
+  it('passes through the schedule reported by the port (port owns tenant filtering)', async () => {
+    const { controller, scheduleControl } = makeController();
+    scheduleControl.getSchedule.mockResolvedValue({ schedule: 'disabled' });
 
     await expect(controller.getSchedule('company-1')).resolves.toMatchObject({
       schedule: 'disabled',
     });
+    expect(scheduleControl.getSchedule).toHaveBeenCalledWith(
+      'rules_evaluation',
+      'company-1',
+    );
   });
 
-  it('rejects schedule updates against the global rules_evaluation definition', async () => {
-    const { controller, agentRegistry, heartbeat } = makeController();
-    agentRegistry.findByType.mockResolvedValue({
-      id: 'agent-global',
-      type: 'rules_evaluation',
-      companyId: null,
-      schedule: null,
+  it('returns the cron expression reported by the port for tenant-owned schedules', async () => {
+    const { controller, scheduleControl } = makeController();
+    scheduleControl.getSchedule.mockResolvedValue({ schedule: '0 9 * * *' });
+
+    await expect(controller.getSchedule('company-1')).resolves.toMatchObject({
+      schedule: '0 9 * * *',
     });
+  });
+
+  it('translates BadRequest from TenantOwnedAgentRequiredError', async () => {
+    const { controller, scheduleControl } = makeController();
+    scheduleControl.setSchedule.mockRejectedValue(
+      new TenantOwnedAgentRequiredError('rules_evaluation'),
+    );
 
     await expect(
       controller.updateSchedule('company-1', { schedule: '0 9 * * *' }),
     ).rejects.toBeInstanceOf(BadRequestException);
-
-    expect(agentRegistry.update).not.toHaveBeenCalled();
-    expect(heartbeat.syncTimers).not.toHaveBeenCalled();
   });
 
-  it('updates only a tenant-owned rules_evaluation definition', async () => {
-    const { controller, agentRegistry, heartbeat } = makeController();
-    agentRegistry.findByType.mockResolvedValue({
-      id: 'agent-tenant',
-      type: 'rules_evaluation',
-      companyId: 'company-1',
-      schedule: null,
-    });
+  it('delegates schedule updates to the port and returns the body schedule', async () => {
+    const { controller, scheduleControl } = makeController();
+    scheduleControl.setSchedule.mockResolvedValue({ schedule: '0 9 * * *' });
 
     await expect(
       controller.updateSchedule('company-1', { schedule: '0 9 * * *' }),
     ).resolves.toEqual({ ok: true, schedule: '0 9 * * *' });
 
-    expect(agentRegistry.update).toHaveBeenCalledWith('agent-tenant', 'company-1', {
-      schedule: '0 9 * * *',
-    });
-    expect(heartbeat.syncTimers).toHaveBeenCalledOnce();
+    expect(scheduleControl.setSchedule).toHaveBeenCalledWith(
+      'rules_evaluation',
+      'company-1',
+      '0 9 * * *',
+    );
+  });
+
+  it('translates the "disabled" body sentinel to null at the port boundary', async () => {
+    const { controller, scheduleControl } = makeController();
+    scheduleControl.setSchedule.mockResolvedValue({ schedule: 'disabled' });
+
+    await expect(
+      controller.updateSchedule('company-1', { schedule: 'disabled' }),
+    ).resolves.toEqual({ ok: true, schedule: 'disabled' });
+
+    expect(scheduleControl.setSchedule).toHaveBeenCalledWith(
+      'rules_evaluation',
+      'company-1',
+      null,
+    );
+  });
+
+  it('lets non-tenant-boundary errors from the port propagate unchanged', async () => {
+    const { controller, scheduleControl } = makeController();
+    const surprise = new Error('runtime exploded');
+    scheduleControl.setSchedule.mockRejectedValue(surprise);
+
+    await expect(
+      controller.updateSchedule('company-1', { schedule: '0 9 * * *' }),
+    ).rejects.toBe(surprise);
   });
 });
