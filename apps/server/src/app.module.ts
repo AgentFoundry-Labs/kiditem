@@ -23,6 +23,7 @@ import { FinanceModule } from './finance/finance.module';
 import { RulesModule } from './rules/rules.module';
 import { AgentRegistryModule } from './agent-registry/agent-registry.module';
 import { MarketplaceModule } from './marketplace/marketplace.module';
+import { AutomationModule } from './automation/automation.module';
 import { AdvertisingModule } from './advertising/advertising.module';
 import { ProcurementModule } from './procurement/procurement.module';
 import { FeatureGateModule } from './feature-gate/feature-gate.module';
@@ -75,6 +76,7 @@ import { PanelModule } from './panel/panel.module';
     RulesModule,
     AgentRegistryModule,
     MarketplaceModule,
+    AutomationModule,
     AdvertisingModule,
     ProcurementModule,
     WarehousesModule,

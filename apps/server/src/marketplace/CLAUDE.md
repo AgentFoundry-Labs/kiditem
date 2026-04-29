@@ -1,6 +1,8 @@
-# marketplace — Workflow/Agent 카탈로그 + Parametrized Install
+# marketplace — Workflow/Agent 카탈로그 (read-side only)
 
-6 파일. **read-only 카탈로그 + per-company 설치 추적 + configurable param override**.
+3 production files + scoped doc. **read-only 카탈로그 + per-company 설치 추적 (cross-reference)**.
+설치 / 제거 같은 runtime side effect 는 automation 도메인 application
+boundary 가 소유한다 — 아래 "Install boundary" 참조.
 
 ## Owner domain — Automation / Agent OS
 
@@ -14,19 +16,61 @@ hard-delete 기준은
 
 - `ALLOWED_WORKFLOW_NODE_TYPES` 는 `workflows/executors/builtin.ts` 등록 목록
   과 lockstep. Slim-core executor 변경 PR 은 항상 두 파일을 같이 수정한다.
+  공유 모듈 `marketplace/workflow-slim-core.ts` 가 단일 진실 — 카탈로그
+  read 와 install service 둘 다 같은 헬퍼를 import 한다.
 - 카탈로그는 read-only — admin tool 이외에서 `marketplace` 테이블 update 금지.
-- Install 은 `workflowTemplate` / `agentDefinition` 으로 clone 하는 형태이며,
-  Phase 3C-3 에서 `automation/application/service/marketplace-install.service.ts`
-  뒤로 이동한다. 공개 route 는 그대로 유지.
+- Install / Uninstall 은 Phase 3C-3 (2026-04-29) 에서
+  `automation/application/service/marketplace-install.service.ts` 뒤로
+  이동했다. 공개 route 는 그대로 유지 (`/api/marketplace/*`); 컨트롤러도
+  `automation/adapter/in/http/marketplace.controller.ts` 로 옮겨졌다.
+
+## Install boundary (Phase 3C-3, 2026-04-29)
+
+```
+HTTP                       Controller                    Application / Catalog
+─────────────────────────  ────────────────────────────  ────────────────────────────
+GET    /api/marketplace/*  automation/adapter/in/http/   marketplace/marketplace.service.ts
+POST   /install            marketplace.controller.ts     automation/application/service/
+POST   /uninstall                                        marketplace-install.service.ts
+                                                        automation/adapter/out/prisma/
+                                                        marketplace-install-store.adapter.ts
+```
+
+- Catalog read (`MarketplaceService.listWorkflows` / `getWorkflow` /
+  `listAgents` / `getAgent`) 는 marketplace/ 안에 그대로 둔다 — runtime
+  side effect 가 없으므로 application boundary 로 따로 빼지 않는다.
+- Install / Uninstall 은 application service 가 orchestration 을 소유하고,
+  Prisma write 는 `automation/adapter/out/prisma/marketplace-install-store.adapter.ts`
+  가 소유한다 —
+  workflow_template / agent_definition 의 tenant-scoped clone, slim-core
+  defense-in-depth, install_count 증감, 사용자 specialist 의 reportsTo
+  자동 wiring 등이 그 안으로 모두 들어간다.
 
 ## Directory
 
 ```
 marketplace/
-├── marketplace.controller.ts
-├── marketplace.service.ts
-├── marketplace.module.ts
-└── dto/                     # list, install
+├── marketplace.service.ts        # catalog read/list 만
+├── marketplace.module.ts         # MarketplaceService 만 export
+├── workflow-slim-core.ts         # ALLOWED_WORKFLOW_NODE_TYPES (공유)
+└── CLAUDE.md
+```
+
+설치 측은:
+
+```
+automation/
+├── adapter/in/http/
+│   ├── marketplace.controller.ts          # MarketplaceModule + AutomationModule 바인딩
+│   └── dto/                               # list/install DTO (HTTP boundary)
+├── adapter/out/prisma/
+│   └── marketplace-install-store.adapter.ts # tenant-scoped persistence
+└── application/
+    ├── port/out/
+    │   └── marketplace-install-store.port.ts # Prisma out-port contract
+    └── service/
+        ├── marketplace-install.service.ts    # use-case orchestration
+        └── __tests__/marketplace-install.service.spec.ts
 ```
 
 ## Routes
@@ -50,13 +94,16 @@ marketplace/
 ### 2. Parametrized Install — Param Override
 
 `POST /install` 시 `params` dict 를 받음:
-- `configurableParams` 정의에 매칭되면 → `nodesJson` 의 해당 노드 config 업데이트 (marketplace.service.ts:78-89)
+- `configurableParams` 정의에 매칭되면 → `nodesJson` 의 해당 노드 config 업데이트
 - 매칭 안 되면 → 무시
 - 결과: 카탈로그 원본은 그대로, 회사별 설치본만 커스터마이즈
 
+구현 위치: `automation/application/service/marketplace-install.service.ts:installWorkflow`.
+
 ### 3. installCount 증감
 
-설치 시 `installCount++`, 제거 시 `--` (marketplace.service.ts:106-109). 텔레메트리 + 인기도 sort 용도.
+설치 시 `installCount++`, 제거 시 `--`. 텔레메트리 + 인기도 sort 용도.
+구현 위치: 동일 install service.
 
 ### 4. Trigger Type 자동 감지
 
@@ -72,14 +119,15 @@ marketplace/
 - Trigger type 은 `params.schedule` 유무로 결정
 - 회사 스코프 필수 (`@CurrentCompany()`)
 - **Workflow catalog 는 slim-core executor 만 참조** — 허용 노드 타입은
-  `marketplace.service.ts` 의 `ALLOWED_WORKFLOW_NODE_TYPES` 와 동일하며,
-  `apps/server/src/workflows/executors/builtin.ts` 의 등록 목록과 일치한다
-  (`trigger.manual`, `trigger.schedule`, `condition.evaluate`,
-  `notification.alert`, `agent_task.create`).
+  `marketplace/workflow-slim-core.ts` 의 `ALLOWED_WORKFLOW_NODE_TYPES`
+  로 단일화되어 있고, `apps/server/src/workflows/executors/builtin.ts`
+  의 등록 목록과 일치한다 (`trigger.manual`, `trigger.schedule`,
+  `condition.evaluate`, `notification.alert`, `agent_task.create`).
   - `listWorkflows` 는 허용 외 노드 타입을 가진 catalog 를 응답에서 숨기고
     warn 로그를 남긴다. `getWorkflow` 도 같은 정책으로 404 처리.
-  - `installWorkflow` 는 catalog `nodesJson` 을 다시 검사하여 허용 외
-    타입이 있으면 `BadRequestException` 으로 거부한다 (defense in depth).
+  - `installWorkflow` (automation install service) 는 catalog `nodesJson`
+    을 다시 검사하여 허용 외 타입이 있으면 `BadRequestException` 으로
+    거부한다 (defense in depth).
   - 새 도메인 executor 가 등록된 후에만 그 타입을 catalog 에 추가한다.
     catalog 가 먼저 등장하면 install 이 거부되거나 list 에서 사라진다.
 - **AI/LLM 진입점은 `agent_task.create` 한 가지뿐** — workflow catalog 가
@@ -112,7 +160,8 @@ marketplace/
 
 | 수정 시 | 같이 봐야 할 파일 |
 |---|---|
-| Configurable param 종류 추가 | `marketplace.service.ts:78-89` 매핑 로직 + catalog seed (marketplace 테이블) + 프론트 install modal |
-| Trigger type 추가 | `marketplace.service.ts` (감지 로직) + `workflowTemplate.triggerType` enum |
-| Install count metric 변경 | `marketplace.service.ts:106-109` + 정렬 로직 |
-| 새 catalog item type | `prisma/schema.prisma` (Marketplace.type enum) + 신규 install 메서드 |
+| Configurable param 종류 추가 | `automation/application/service/marketplace-install.service.ts:installWorkflow` 매핑 로직 + catalog seed (marketplace 테이블) + 프론트 install modal |
+| Trigger type 추가 | `automation/application/service/marketplace-install.service.ts` (감지 로직) + `workflowTemplate.triggerType` enum |
+| Install count metric 변경 | `automation/application/service/marketplace-install.service.ts` (install/uninstall 양쪽) + 정렬 로직 (`marketplace.service.ts`) |
+| 새 catalog item type | `prisma/schema.prisma` (Marketplace.type enum) + install service 의 신규 install 메서드 + 컨트롤러 라우트 |
+| Slim-core executor 변경 | `marketplace/workflow-slim-core.ts` + `workflows/executors/builtin.ts` (lockstep) |

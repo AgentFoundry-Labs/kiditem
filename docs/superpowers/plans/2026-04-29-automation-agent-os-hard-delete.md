@@ -442,7 +442,7 @@ Web consumers: `/api/panel/stream` SSE consumed by the panel UI store.
 | `action-task/action-task.service.ts` daily seed generation (531 LOC) | **Keep, refactor candidate** | Above ~500 lines. Heavy hardcoded thresholds. Future split: `domain/policy/action-seeds.ts` (pure rules) + `application/service/action-board.service.ts` (orchestration). |
 | `action-task/action-task.service.ts:executeTask` self-fetch via `API_SELF_URL` | **Defer** | Self-fetch back into the same NestJS process is a smell, but the targeted endpoints span `products`, `inventory`, `coupang-category`, etc. Replacement requires a stable internal-call port; defer to executor-rewrite PR. |
 | `marketplace/marketplace.service.ts` slim-core allowlist gate | **Keep** | Catalog defense-in-depth. Allowlist must mirror `executors/builtin.ts` registration; sync rule already in `marketplace/CLAUDE.md`. |
-| `marketplace/marketplace.service.ts` install/uninstall paths | **Keep, rewrite-target** | Will move to `automation/application/service/marketplace-install.service.ts`. Public route shape unchanged. |
+| `marketplace/marketplace.service.ts` install/uninstall paths | **Rewritten (Phase 3C-3)** | Moved to `automation/application/service/marketplace-install.service.ts` for orchestration and `automation/adapter/out/prisma/marketplace-install-store.adapter.ts` for tenant-scoped persistence. `MarketplaceController` moved to `automation/adapter/in/http/marketplace.controller.ts`; DTOs alongside. Catalog read methods (`listWorkflows` / `getWorkflow` / `listAgents` / `getAgent`) stay in `marketplace/marketplace.service.ts`. Slim-core allowlist extracted to `marketplace/workflow-slim-core.ts` (single source of truth shared with the install service). Public route shape unchanged. |
 | `panel/panel.service.ts` snapshot multi-source backfill | **Keep, rewrite-target** | Pure projection. Owner-domain rewrite turns `panel/` into `automation/adapter/out/panel-event/` — `panel.service` becomes the read-side projection adapter. |
 | `panel/events/panel-sse.service.ts` ring buffer + multiplex SSE | **Keep** | Live Ops backbone. Move to `automation/adapter/out/panel-event/sse-bus.ts` post-rewrite. |
 | `panel/adapters/*.adapter.ts` | **Keep** | Already the right pattern (mappers from domain rows to `PanelItem`). They become the canonical examples of `mapper/` placement after rewrite. |
@@ -525,6 +525,23 @@ Each follow-up PR is one owner-domain PR. Do not bundle two of these.
    - Move `installWorkflow` / `installAgent` / `uninstall*` behind
      `automation/application/service/marketplace-install.service.ts`. Keep
      `MarketplaceController` as `automation/adapter/in/http/marketplace.controller.ts`.
+   - **Resolution (PR `refactor/marketplace-install-application-service`):**
+     landed. `MarketplaceInstallService` owns install/uninstall
+     orchestration (slim-core defense-in-depth on workflow install,
+     schedule/param mapping, specialist `reportsTo` auto-wiring).
+     Tenant-scoped Prisma writes and `installCount` changes live behind
+     `MarketplaceInstallStorePort` with
+     `PrismaMarketplaceInstallStoreAdapter` in
+     `automation/adapter/out/prisma/`. `MarketplaceController` moved to
+     `automation/adapter/in/http/marketplace.controller.ts`; HTTP DTOs
+     moved alongside under `automation/adapter/in/http/dto/`. Catalog
+     read remains as `MarketplaceService` in `marketplace/` (no port
+     wrap — read-only catalog projection has no runtime side effect).
+     Slim-core node-type allowlist extracted to
+     `marketplace/workflow-slim-core.ts` so the lockstep with
+     `workflows/executors/builtin.ts` is single-source. Routes, DTOs,
+     and response shapes unchanged. New unit spec at
+     `automation/application/service/__tests__/marketplace-install.service.spec.ts`.
 
 4. **Phase 3C-4 — Panel as outgoing adapter**
    - Move `panel/` to `automation/adapter/out/panel-event/`. `panel.service.ts`
