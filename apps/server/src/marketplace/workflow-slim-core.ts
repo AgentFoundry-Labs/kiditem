@@ -2,9 +2,9 @@
  * Slim-core workflow node-type allowlist for the Marketplace catalog.
  *
  * MUST stay in lockstep with the executor registration list in
- * `apps/server/src/workflows/executors/builtin.ts`. Catalog entries that
- * reference any other node type are hidden from listings (read side) and
- * rejected at install time (write side).
+ * `apps/server/src/automation/adapter/out/workflow-runner/executors/builtin.ts`.
+ * Catalog entries that reference any other node type are hidden from listings
+ * (read side) and rejected at install time (write side).
  *
  * Generic DB/HTTP/transform executors are intentionally absent. AI/LLM
  * work is delegated through `agent_task.create` only. Domain-specific

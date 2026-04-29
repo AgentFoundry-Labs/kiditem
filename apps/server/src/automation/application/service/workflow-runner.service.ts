@@ -1,13 +1,17 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { PrismaService } from '../../prisma/prisma.service';
-import { AgentRegistryService } from '../../agent-registry/agent-registry.service';
-import { DAG } from './dag';
-import { WorkflowContext } from './context';
-import { getExecutor, isConcurrencySafe, type ExecutorServices } from '../executors/index';
-import '../executors/builtin';
-import { PANEL_EVENTS } from '../../automation/adapter/out/panel-event/panel-events';
-import { buildWorkflowPanelItem } from '../../automation/mapper/panel-event/workflow-run.mapper';
+import { PrismaService } from '../../../prisma/prisma.service';
+import { AgentRegistryService } from '../../../agent-registry/agent-registry.service';
+import { DAG } from '../../domain/service/workflow-dag';
+import { WorkflowContext } from '../../domain/service/workflow-context';
+import {
+  getExecutor,
+  isConcurrencySafe,
+  type ExecutorServices,
+} from '../../adapter/out/workflow-runner/executors';
+import '../../adapter/out/workflow-runner/executors/builtin';
+import { PANEL_EVENTS } from '../../adapter/out/panel-event/panel-events';
+import { buildWorkflowPanelItem } from '../../mapper/panel-event/workflow-run.mapper';
 
 /** Subset of WorkflowTemplate fields needed for node execution */
 interface WorkflowTemplateRef {
@@ -21,7 +25,7 @@ type WorkflowRunContext = Record<string, unknown>;
  * Internal workflow execution engine. Trusted-internal boundary:
  * methods on this service must NOT be exposed through any controller.
  *
- * `WorkflowsService` is the sole caller and is responsible for verifying
+ * `WorkflowOrchestrationService` is the sole caller and is responsible for verifying
  * tenant ownership (companyId scope on both WorkflowTemplate and WorkflowRun)
  * before invoking `runWorkflow` / `runBatch`. As a defense-in-depth measure
  * the runner re-binds `companyId` on every Prisma read and write, so a

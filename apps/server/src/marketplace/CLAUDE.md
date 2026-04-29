@@ -14,8 +14,9 @@ hard-delete 기준은
 
 핵심 contract:
 
-- `ALLOWED_WORKFLOW_NODE_TYPES` 는 `workflows/executors/builtin.ts` 등록 목록
-  과 lockstep. Slim-core executor 변경 PR 은 항상 두 파일을 같이 수정한다.
+- `ALLOWED_WORKFLOW_NODE_TYPES` 는
+  `automation/adapter/out/workflow-runner/executors/builtin.ts` 등록 목록과
+  lockstep. Slim-core executor 변경 PR 은 항상 두 파일을 같이 수정한다.
   공유 모듈 `marketplace/workflow-slim-core.ts` 가 단일 진실 — 카탈로그
   read 와 install service 둘 다 같은 헬퍼를 import 한다.
 - 카탈로그는 read-only — admin tool 이외에서 `marketplace` 테이블 update 금지.
@@ -120,7 +121,8 @@ automation/
 - 회사 스코프 필수 (`@CurrentCompany()`)
 - **Workflow catalog 는 slim-core executor 만 참조** — 허용 노드 타입은
   `marketplace/workflow-slim-core.ts` 의 `ALLOWED_WORKFLOW_NODE_TYPES`
-  로 단일화되어 있고, `apps/server/src/workflows/executors/builtin.ts`
+  로 단일화되어 있고,
+  `apps/server/src/automation/adapter/out/workflow-runner/executors/builtin.ts`
   의 등록 목록과 일치한다 (`trigger.manual`, `trigger.schedule`,
   `condition.evaluate`, `notification.alert`, `agent_task.create`).
   - `listWorkflows` 는 허용 외 노드 타입을 가진 catalog 를 응답에서 숨기고
@@ -164,4 +166,4 @@ automation/
 | Trigger type 추가 | `automation/application/service/marketplace-install.service.ts` (감지 로직) + `workflowTemplate.triggerType` enum |
 | Install count metric 변경 | `automation/application/service/marketplace-install.service.ts` (install/uninstall 양쪽) + 정렬 로직 (`marketplace.service.ts`) |
 | 새 catalog item type | `prisma/schema.prisma` (Marketplace.type enum) + install service 의 신규 install 메서드 + 컨트롤러 라우트 |
-| Slim-core executor 변경 | `marketplace/workflow-slim-core.ts` + `workflows/executors/builtin.ts` (lockstep) |
+| Slim-core executor 변경 | `marketplace/workflow-slim-core.ts` + `automation/adapter/out/workflow-runner/executors/builtin.ts` (lockstep) |
