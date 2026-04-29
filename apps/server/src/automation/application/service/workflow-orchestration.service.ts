@@ -1,11 +1,31 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import type { WorkflowTemplate } from '@kiditem/shared/workflow';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService } from '../../../prisma/prisma.service';
 import { WorkflowRunnerService } from './workflow-runner.service';
-import { PANEL_EVENTS } from '../../automation/adapter/out/panel-event/panel-events';
-import { buildWorkflowPanelItem } from '../../automation/mapper/panel-event/workflow-run.mapper';
-import type { CreateWorkflowBodyDto, UpdateWorkflowBodyDto } from '../dto';
+import { PANEL_EVENTS } from '../../adapter/out/panel-event/panel-events';
+import { buildWorkflowPanelItem } from '../../mapper/panel-event/workflow-run.mapper';
+
+interface CreateWorkflowInput {
+  name: string;
+  description?: string;
+  module?: string;
+  triggerType?: string;
+  schedule?: string | null;
+  nodesJson: unknown[];
+  edgesJson: unknown[];
+}
+
+interface UpdateWorkflowInput {
+  name?: string;
+  description?: string;
+  module?: string;
+  isActive?: boolean;
+  triggerType?: string;
+  schedule?: string | null;
+  nodesJson?: unknown[];
+  edgesJson?: unknown[];
+}
 
 interface TriggerOptions {
   triggeredBy?: string;
@@ -14,8 +34,8 @@ interface TriggerOptions {
 }
 
 @Injectable()
-export class WorkflowsService {
-  private readonly logger = new Logger(WorkflowsService.name);
+export class WorkflowOrchestrationService {
+  private readonly logger = new Logger(WorkflowOrchestrationService.name);
 
   constructor(
     private readonly prisma: PrismaService,
@@ -33,7 +53,7 @@ export class WorkflowsService {
     }
   }
 
-  async create(input: CreateWorkflowBodyDto, companyId: string) {
+  async create(input: CreateWorkflowInput, companyId: string) {
     return this.prisma.workflowTemplate.create({
       data: {
         name: input.name,
@@ -72,7 +92,7 @@ export class WorkflowsService {
     return template;
   }
 
-  async update(id: string, companyId: string, data: UpdateWorkflowBodyDto) {
+  async update(id: string, companyId: string, data: UpdateWorkflowInput) {
     const existing = await this.prisma.workflowTemplate.findFirst({
       where: { id, companyId },
       select: { id: true },
@@ -121,7 +141,7 @@ export class WorkflowsService {
         status: 'pending',
         triggeredBy,
         triggeredByUserId: options.triggeredByUserId ?? null,
-        companyId: template.companyId ?? null,
+        companyId: template.companyId,
         contextData: options.context ?? undefined,
       },
     });

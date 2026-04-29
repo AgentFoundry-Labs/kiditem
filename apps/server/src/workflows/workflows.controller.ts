@@ -1,5 +1,5 @@
 import { Controller, Get, Post, Put, Delete, Body, Query, Param } from '@nestjs/common';
-import { WorkflowsService } from './services/workflows.service';
+import { WorkflowOrchestrationService } from '../automation/application/service/workflow-orchestration.service';
 import {
   CreateWorkflowBodyDto,
   ListWorkflowsQueryDto,
@@ -17,7 +17,7 @@ function resolveTriggeredByUserId(triggeredBy: string | undefined, user: AuthUse
 
 @Controller('workflows')
 export class WorkflowsController {
-  constructor(private readonly workflowsService: WorkflowsService) {}
+  constructor(private readonly workflowsService: WorkflowOrchestrationService) {}
 
   @Post()
   create(@Body() body: CreateWorkflowBodyDto, @CurrentCompany() companyId: string) {
@@ -83,7 +83,7 @@ export class WorkflowsController {
 
 @Controller('workflow-runs')
 export class WorkflowRunsController {
-  constructor(private readonly workflowsService: WorkflowsService) {}
+  constructor(private readonly workflowsService: WorkflowOrchestrationService) {}
 
   @Get(':runId')
   findRunDetail(@Param('runId') runId: string, @CurrentCompany() companyId: string) {

@@ -48,9 +48,9 @@ automation/
 - HTTP — `@Sse('stream')`, `GET /api/panel/snapshot`, `GET /api/panel/backfill`.
   `@CurrentCompany()` + `@CurrentUser()` 항상 사용.
 - EventEmitter2 — `PANEL_EVENTS.UPSERT` / `PANEL_EVENTS.DISMISS` 를
-  `WorkflowsService`, `WorkflowRunnerService`, `HeartbeatService`,
-  `RulesService`, `AlertsService`, `ai/services/thumbnail-auto.service.ts`
-  체인이 emit. Panel 은 구독자.
+  `WorkflowOrchestrationService`, `WorkflowRunnerService`,
+  `HeartbeatService`, `RulesService`, `AlertsService`,
+  `ai/services/thumbnail-auto.service.ts` 체인이 emit. Panel 은 구독자.
 
 ## Outbound dependencies
 
@@ -75,7 +75,7 @@ automation/
 
 | 수정 시 | 같이 봐야 할 파일 |
 |---|---|
-| `panel-events.ts` 의 event payload shape | 모든 emitter (`WorkflowsService`, `WorkflowRunnerService`, `HeartbeatService`, `RulesService`, `AlertsService`, `thumbnail-auto.service`) + `panel-sse.service` + 클라이언트 store |
+| `panel-events.ts` 의 event payload shape | 모든 emitter (`WorkflowOrchestrationService`, `WorkflowRunnerService`, `HeartbeatService`, `RulesService`, `AlertsService`, `thumbnail-auto.service`) + `panel-sse.service` + 클라이언트 store |
 | `mapper/panel-event/*.mapper.ts` mapping | `@kiditem/shared/panel` 의 `PanelRunItem` / `PanelAlertItem` schema + 클라이언트 렌더링 |
 | Snapshot source 변경 | `panel.service.ts` 의 4-source 백필 + 새 source 가 owner-domain 규칙 위반 아닌지 확인 (위 Hard bans 참조) |
 | Visibility 필터 | `adapter/out/panel-event/panel.service.ts` 마지막 `items.filter(...)` + `adapter/in/http/panel.controller.ts` 의 `@CurrentUser()` 사용 |

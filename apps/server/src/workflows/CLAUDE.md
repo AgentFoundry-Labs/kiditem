@@ -1,4 +1,4 @@
-# workflows — Workflow Engine (slim core)
+# workflows — Workflow HTTP compatibility surface
 
 Workflow 엔진은 **DAG runner + WorkflowRun 기록 + panel event emitter +
 Agent delegation shell** 이다. 범용 자동화/데이터 처리 엔진이 아니다.
@@ -7,19 +7,23 @@ Agent delegation shell** 이다. 범용 자동화/데이터 처리 엔진이 아
 
 이 폴더는 backend architecture contract 의 `automation` / `agent-os` owner
 domain (`apps/server/AGENTS.md` Domain Topology Target 표 참조) 에 속한다.
+Phase 3C-5 이후 이 폴더는 **공개 route 호환성 표면** 만 유지한다:
+`workflows.controller.ts`, `workflows.module.ts`, `dto/`, 그리고 이 scoped
+doc. 실제 orchestration / runner / executor 구현은 `automation/` 이 소유한다.
 다음 4 가지 survival core 를 깨뜨리는 변경은 거부된다 — 자세한 keep / delete /
 rewrite / defer 분류는
 [`docs/superpowers/plans/2026-04-29-automation-agent-os-hard-delete.md`](../../../../docs/superpowers/plans/2026-04-29-automation-agent-os-hard-delete.md)
 참조.
 
-1. DAG runner (`WorkflowRunnerService.runWorkflow`)
+1. DAG runner (`automation/application/service/workflow-runner.service.ts`)
 2. WorkflowRun 감사 기록 (`(id, companyId)` 스코프 read/write)
 3. Panel event projection (`PANEL_EVENTS.UPSERT` via `automation/mapper/panel-event/workflow-run.mapper`)
 4. Agent delegation boundary (`agent_task.create` → `AgentRegistryService.runByType`)
 
-`automation/` 으로의 폴더 이동은 별도 PR (Phase 3C-5) 에서 일괄 처리한다. 이
-폴더에 새 generic executor 추가, LLM 직접 호출, panel/event 외 다른 출력
-경로 추가는 contract 위반이다.
+이 폴더에 새 generic executor 추가, LLM 직접 호출, panel/event 외 다른 출력
+경로 추가, 구현 서비스 재생성은 contract 위반이다. 새 workflow behavior 는
+`automation/application/service/` 또는
+`automation/adapter/out/workflow-runner/` 에서 다룬다.
 
 ## 무엇이 아닌가 (Hard bans)
 
@@ -39,7 +43,8 @@ rewrite / defer 분류는
 
 ## 살아남은 executor (slim core)
 
-`executors/builtin.ts` 의 등록 대상은 5개 뿐이다.
+`automation/adapter/out/workflow-runner/executors/builtin.ts` 의 등록 대상은
+5개 뿐이다.
 
 | Node type | 책임 |
 |---|---|
@@ -71,7 +76,7 @@ rewrite / defer 분류는
 이상 추가하지 않는다.
 
 ```
-executors/{category}.ts 또는 builtin.ts 에 구현
+automation/adapter/out/workflow-runner/executors/{category}.ts 또는 builtin.ts 에 구현
   → registerNode(nodeType, fn, isConcurrencySafe?) 호출
     → 노드별 input/output 계약은 그 파일 안에서 정의 (외부 export 없음)
 ```
@@ -91,7 +96,7 @@ Runner 가 모든 노드 호출 직전에 `nodeDef.config.company_id` 와
 덮어쓴다.
 
 ```ts
-// workflow-runner.service.ts
+// automation/application/service/workflow-runner.service.ts
 const {
   company_id: _ignoredCompanyId,
   _context: _ignoredCtx,
@@ -121,8 +126,9 @@ WorkflowRun 자체의 read/write 도 항상 `{ id: runId, companyId }` /
 
 1. `POST /api/workflows/:id/run` — `@CurrentCompany()` 가 trusted companyId
    주입 (DTO/query 의 companyId 신뢰 금지)
-2. `WorkflowsService.triggerRun` — `findFirst({ id, companyId })` 로 템플릿
-   소유권 검증 → `WorkflowRun(pending)` 생성 → fire-and-forget 으로
+2. `WorkflowOrchestrationService.triggerRun` —
+   `findFirst({ id, companyId })` 로 템플릿 소유권 검증 →
+   `WorkflowRun(pending)` 생성 → fire-and-forget 으로
    `runner.runWorkflow(runId, templateId, template.companyId)` 호출
 3. Runner — DAG 순회, 각 노드 executor 실행 → `WorkflowRun.steps` 누적
 4. 실행 종료 → `WorkflowRun.status` 를 `succeeded` 또는 `failed` 로 기록하고
@@ -162,4 +168,5 @@ Output key 이름과 모양은 그 노드를 등록하는 executor 파일이 단
 
 ## Data Flow
 
-`context.ts` 의 `{{nodes.X.output.Y}}` 템플릿으로 노드 간 출력 참조.
+`automation/domain/service/workflow-context.ts` 의 `{{nodes.X.output.Y}}`
+템플릿으로 노드 간 출력 참조.

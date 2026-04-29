@@ -97,8 +97,8 @@ records the criteria each must meet before a follow-up PR can hard-delete or
 rewrite them.
 
 1. **Workflow direct LLM/provider path** — already absent from production
-   (`workflows/executors/builtin.ts` does not import any LLM SDK; `rg` over
-   the slim core returns zero). The contract restates the ban so that "no
+   (`automation/adapter/out/workflow-runner/executors/builtin.ts` does not
+   import any LLM SDK; `rg` over the slim core returns zero). The contract restates the ban so that "no
    compatibility alias" stays enforced. Any reintroduced direct-LLM path in a
    future PR is a hard-delete target on sight.
 2. **`rules` directly injecting `AgentRegistry` runtime / running it
@@ -151,21 +151,24 @@ rewrite them.
 
 ## Current Surface Inventory
 
-### `apps/server/src/workflows/` — slim DAG runner
+### Workflow runner surface — slim DAG runner
 
-Files (file count: 14 production files + 1 test):
-- `workflows.module.ts`, `workflows.controller.ts` (controllers
+Files:
+- `workflows/workflows.module.ts`, `workflows/workflows.controller.ts` (controllers
   `WorkflowsController` for `/api/workflows/*`, `WorkflowRunsController` for
-  `/api/workflow-runs/*`).
-- `services/workflows.service.ts` (216 lines) — template CRUD + tenant-scoped
-  run trigger. Owns: `triggerRun`, `batchRun`, `findRunDetail`.
-- `services/workflow-runner.service.ts` (311 lines) — DAG walker,
+  `/api/workflow-runs/*`). DTOs remain in `workflows/dto/`.
+- `automation/application/service/workflow-orchestration.service.ts` — template
+  CRUD + tenant-scoped run trigger. Owns: `triggerRun`, `batchRun`,
+  `findRunDetail`.
+- `automation/application/service/workflow-runner.service.ts` — DAG walker,
   per-node executor invocation, tenant rebinding, panel emit.
-- `services/context.ts` — output map + `{{nodes.X.output.Y}}` template
-  resolver.
-- `services/dag.ts` — adjacency / branch label DAG.
-- `executors/index.ts` — registry + `recordActivity` helper.
-- `executors/builtin.ts` — the 5 slim-core executors:
+- `automation/domain/service/workflow-context.ts` — output map +
+  `{{nodes.X.output.Y}}` template resolver.
+- `automation/domain/service/workflow-dag.ts` — adjacency / branch label DAG.
+- `automation/adapter/out/workflow-runner/executors/index.ts` — registry +
+  `recordActivity` helper.
+- `automation/adapter/out/workflow-runner/executors/builtin.ts` — the 5
+  slim-core executors:
   `trigger.manual`, `trigger.schedule`, `condition.evaluate`,
   `notification.alert`, `agent_task.create`.
 - `executors/types.ts` — `Standard*` interfaces (delete-candidate above) +
@@ -257,7 +260,7 @@ Shared package use: `@kiditem/shared/agent`, `@kiditem/shared/agent-trace`,
 `@kiditem/shared/security`.
 
 Server consumers of `AgentRegistryService`:
-- `workflows/services/workflow-runner.service.ts` (Optional inject).
+- `automation/application/service/workflow-runner.service.ts` (Optional inject).
 - `companies/agent-tasks.service.ts`.
 - `ai/services/image-ai.service.ts`.
 - `advertising/services/ad-strategy.service.ts`.
@@ -400,7 +403,7 @@ Inbound entrypoints:
 - HTTP — `PanelController` SSE + snapshot + backfill. `@CurrentCompany()` +
   `@CurrentUser()` (visibility filter is per-user).
 - Workflow — receives `PANEL_EVENTS.UPSERT` from `WorkflowRunnerService` +
-  `WorkflowsService`.
+  `WorkflowOrchestrationService`.
 - Agent — receives `PANEL_EVENTS.UPSERT` from `HeartbeatService` (via
   `agent.mapper`).
 - AI thumbnail — receives `PANEL_EVENTS.UPSERT` via `image.mapper`
@@ -422,14 +425,14 @@ Web consumers: `/api/panel/stream` SSE consumed by the panel UI store.
 
 | Surface | Class | Notes / Hard-delete criteria |
 |---|---|---|
-| `workflows/services/workflow-runner.service.ts` (DAG runner) | **Keep** | Survival core #1. Runner-injected tenant scope contract is the safety boundary — preserve. |
-| `workflows/services/workflows.service.ts` (template CRUD + run trigger) | **Keep, rewrite-target** | Move to `automation/application/service/` once `automation/` lands. Keep the public route shape. |
-| `workflows/services/context.ts`, `dag.ts` | **Keep** | Pure helpers. Domain-pure → `automation/domain/service/` after move. |
-| `workflows/executors/builtin.ts` (5 executors) | **Keep** | Slim-core surface. Any new executor is **domain-specific only** (no generic). |
+| `automation/application/service/workflow-runner.service.ts` (DAG runner) | **Keep** | Survival core #1. Runner-injected tenant scope contract is the safety boundary — preserve. Moved in Phase 3C-5. |
+| `automation/application/service/workflow-orchestration.service.ts` (template CRUD + run trigger) | **Keep** | Public route shape remains under `workflows/`; use-case orchestration moved to Automation in Phase 3C-5. |
+| `automation/domain/service/workflow-context.ts`, `workflow-dag.ts` | **Keep** | Pure helpers. Domain-pure; no NestJS, Prisma, AgentRegistry, event bus, or provider SDK imports. |
+| `automation/adapter/out/workflow-runner/executors/builtin.ts` (5 executors) | **Keep** | Slim-core surface. Any new executor is **domain-specific only** (no generic). |
 | `workflows/executors/types.ts` `Standard*` interfaces | **Deleted (Phase 3C-1)** | Zero production consumer. Removed in `refactor/workflow-executor-hard-delete`. Per-domain executor output types now live next to the executor that produces them; no project-wide normalization layer. |
 | `workflows/executors/index.ts` `getNodeDefinition` / `listNodeTypes` / `listNodeDefinitions` | **Deleted (Phase 3C-1)** | `DEFINITION_REGISTRY` was permanently empty (every `registerNode` call passed `definition = undefined`) and zero external consumers existed. Removed in `refactor/workflow-executor-hard-delete`; `registerNode` signature simplified to `(nodeType, fn, isConcurrencySafe?)`. |
-| `workflows/executors/builtin.ts` legacy aliases (`internal.db_query`, `api_call`, `action`, `data.filter`, `data_transform`, `ai_process`, `trigger`, `trigger.event`, `condition`, `notification`) | **Already deleted** | Restated here as a "do not reintroduce" gate. Templates referencing them MUST fail with `"No executor for node type: …"` and the failure MUST land in `WorkflowRun.error`. |
-| `workflows/executors/builtin.ts` direct LLM/provider import | **Hard-banned** | Not present today. Any future regression is hard-deleted on sight. |
+| `automation/adapter/out/workflow-runner/executors/builtin.ts` legacy aliases (`internal.db_query`, `api_call`, `action`, `data.filter`, `data_transform`, `ai_process`, `trigger`, `trigger.event`, `condition`, `notification`) | **Already deleted** | Restated here as a "do not reintroduce" gate. Templates referencing them MUST fail with `"No executor for node type: …"` and the failure MUST land in `WorkflowRun.error`. |
+| `automation/adapter/out/workflow-runner/executors/builtin.ts` direct LLM/provider import | **Hard-banned** | Not present today. Any future regression is hard-deleted on sight. |
 | `agent-registry/agent-registry.service.ts` (570 LOC) | **Keep, refactor candidate** | Survival core #4. Above the 700-line ceiling cushion — when a new behavior is added, the architecture refactor PR must split CRUD vs run vs lifecycle vs cost-analytics. |
 | `agent-registry/{adapters,heartbeat,permissions,safety,business-safety,delegation,events,trace,wakeup,lifecycle,context-manager,schemas}` | **Keep** | Live Agent OS internals. Will move to `automation/adapter/out/agent-runtime/` and `automation/application/service/` post-rewrite, but no surface change in this PR. |
 | `agent-registry/skills/skills.service.ts` (filesystem symlink) | **Keep** | Pure filesystem adapter for skill mount. Will move to `automation/adapter/out/skills-fs/`. |
@@ -537,7 +540,7 @@ Each follow-up PR is one owner-domain PR. Do not bundle two of these.
      wrap — read-only catalog projection has no runtime side effect).
      Slim-core node-type allowlist extracted to
      `marketplace/workflow-slim-core.ts` so the lockstep with
-     `workflows/executors/builtin.ts` is single-source. Routes, DTOs,
+     `automation/adapter/out/workflow-runner/executors/builtin.ts` is single-source. Routes, DTOs,
      and response shapes unchanged. New unit spec at
      `automation/application/service/__tests__/marketplace-install.service.spec.ts`.
 
@@ -559,6 +562,17 @@ Each follow-up PR is one owner-domain PR. Do not bundle two of these.
    - Move `executors/` to `automation/adapter/out/workflow-runner/executors/`.
    - Domain-pure helpers (`context.ts`, `dag.ts`) go to
      `automation/domain/service/`.
+   - **Resolution (PR `refactor/workflow-runner-application-service`):**
+     implemented. `WorkflowOrchestrationService` and `WorkflowRunnerService`
+     now live under `automation/application/service/`; `workflows/` retains
+     only `/api/workflows/*` and `/api/workflow-runs/*` HTTP compatibility
+     routes plus DTOs. Slim-core executors moved to
+     `automation/adapter/out/workflow-runner/executors/`, while
+     `workflow-context.ts` and `workflow-dag.ts` moved to
+     `automation/domain/service/`. `AutomationModule` registers and exports
+     workflow orchestration; route shape, DTO shape, trusted runner-injected
+     company scope, panel events, and `agent_task.create` delegation are
+     preserved.
 
 6. **Phase 3C-6 — Agent OS internals split**
    - The 570-line `agent-registry.service.ts` splits into:

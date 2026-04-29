@@ -215,7 +215,7 @@ async getProduct(id: string, companyId: string) {
 
 **규칙**: `src/{domain}/` 하위 파일을 Edit 하기 전, 아래 표의 해당 행이 가리키는 scoped document 를 먼저 Read 한다. 현재 전용 도메인 문서는 `CLAUDE.md` 로 유지 중이다. Index 에 없으면 부모 NestJS 패턴(이 문서)으로 충분하다.
 
-### 전용 CLAUDE.md 가 있는 도메인 (14)
+### 전용 CLAUDE.md 가 있는 도메인 (15)
 
 | 경로 | 크기 | 핵심 포인트 |
 |---|---|---|
@@ -231,9 +231,10 @@ async getProduct(id: string, companyId: string) {
 | [`src/marketplace/CLAUDE.md`](src/marketplace/CLAUDE.md) | 75줄 | Workflow/Agent 카탈로그 — read-only 카탈로그 + per-company 설치 추적 + param override |
 | [`src/orders/CLAUDE.md`](src/orders/CLAUDE.md) | 60줄 | Order/Return/CS 통합 — multi-controller 모듈, 외부 채널 어댑터 위임, status 필터링 |
 | [`src/automation/adapter/out/panel-event/CLAUDE.md`](src/automation/adapter/out/panel-event/CLAUDE.md) | ~80줄 | Live Ops SSE projection adapter — `/api/panel/*` HTTP adapter + EventEmitter2 ring buffer + 4-source read-only projection |
+| [`src/automation/adapter/out/workflow-runner/CLAUDE.md`](src/automation/adapter/out/workflow-runner/CLAUDE.md) | ~45줄 | Workflow runner outgoing adapter — slim-core executor registry, trusted tenant injection, no generic DB/HTTP/LLM executors |
 | [`src/products/CLAUDE.md`](src/products/CLAUDE.md) | 37줄 | 3-layer Master/Option/Bundle — `MasterProduct` family (code via `master_code_seq`), `ProductOption` SKU (race-free sku via `optionCounter` increment), `BundleComponent` (cross-master 허용, 3-way invariant, nested 금지 B1), `availableStock` = `BundleStockService.recompute` sole writer + `SELECT FOR UPDATE` row-lock |
 | [`src/rules/CLAUDE.md`](src/rules/CLAUDE.md) | 83줄 | Event-Driven — 룰 평가는 agent 비동기 spawn → `@OnEvent` 콜백. CRUD 패턴 아님 |
-| [`src/workflows/CLAUDE.md`](src/workflows/CLAUDE.md) | 90줄 | Workflow Engine — executor naming / registration / standard entities / action catalog |
+| [`src/workflows/CLAUDE.md`](src/workflows/CLAUDE.md) | ~170줄 | Workflow HTTP compatibility surface — `/api/workflows/*` + `/api/workflow-runs/*` routes, DTOs; implementation lives in automation |
 
 ### Panel — Live Ops SSE
 
@@ -243,7 +244,7 @@ async getProduct(id: string, companyId: string) {
 `src/automation/mapper/panel-event/` 조합으로 관리한다. SSE multiplex 채널.
 `EventEmitter2` 버스로 도메인(workflow/agent/image/alert) 이벤트 받아 companyId
 필터 + strip + ring buffer + monotonic seq → `@Sse()` 로
-Observable<MessageEvent> 내보냄. Workflow 도메인 hook이 상태 전이 지점에서
+Observable<MessageEvent> 내보냄. Automation workflow application services 가 상태 전이 지점에서
 `PANEL_EVENTS.UPSERT` emit (`automation/mapper/panel-event/workflow-run.mapper.ts`
 경유). 단일 인스턴스 전제 (prod 멀티 인스턴스 시 pg LISTEN/Redis 도입 필요).
 

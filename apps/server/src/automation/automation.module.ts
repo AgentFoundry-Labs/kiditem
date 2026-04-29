@@ -9,6 +9,8 @@ import { PrismaMarketplaceInstallStoreAdapter } from './adapter/out/prisma/marke
 import { MARKETPLACE_INSTALL_STORE_PORT } from './application/port/out/marketplace-install-store.port';
 import { PanelService } from './adapter/out/panel-event/panel.service';
 import { PanelSseService } from './adapter/out/panel-event/panel-sse.service';
+import { WorkflowOrchestrationService } from './application/service/workflow-orchestration.service';
+import { WorkflowRunnerService } from './application/service/workflow-runner.service';
 
 /**
  * `automation/` is the owner-domain home of the Agent OS / Automation
@@ -29,6 +31,10 @@ import { PanelSseService } from './adapter/out/panel-event/panel-sse.service';
  * - Phase 3C-4: `PanelController` HTTP adapter + `PanelService` /
  *   `PanelSseService` outgoing panel-event adapter. Panel remains a
  *   read-only projection over workflow / agent / image / alert sources.
+ * - Phase 3C-5: `WorkflowOrchestrationService` + `WorkflowRunnerService`
+ *   own template CRUD, run creation, trusted tenant binding, DAG execution,
+ *   panel emission, and Agent OS delegation. `workflows/` keeps only the
+ *   compatibility HTTP route surface and DTOs.
  */
 @Module({
   imports: [MarketplaceModule],
@@ -45,7 +51,9 @@ import { PanelSseService } from './adapter/out/panel-event/panel-sse.service';
     MarketplaceInstallService,
     PanelService,
     PanelSseService,
+    WorkflowOrchestrationService,
+    WorkflowRunnerService,
   ],
-  exports: [AGENT_SCHEDULE_CONTROL_PORT, PanelSseService],
+  exports: [AGENT_SCHEDULE_CONTROL_PORT, PanelSseService, WorkflowOrchestrationService],
 })
 export class AutomationModule {}

@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { WorkflowsService } from '../workflows.service';
+import { WorkflowOrchestrationService } from '../workflow-orchestration.service';
 import { WorkflowRunnerService } from '../workflow-runner.service';
-import { registerNode, getExecutor } from '../../executors/index';
-import '../../executors/builtin';
+import { registerNode, getExecutor } from '../../../adapter/out/workflow-runner/executors';
+import '../../../adapter/out/workflow-runner/executors/builtin';
 
 // ── Prisma mock factory ──────────────────────────────────────────────────────
 
@@ -76,18 +76,18 @@ function makeRun(overrides: Record<string, any> = {}) {
   };
 }
 
-// ── WorkflowsService ─────────────────────────────────────────────────────────
+// ── WorkflowOrchestrationService ─────────────────────────────────────────────────────────
 
-describe('WorkflowsService', () => {
+describe('WorkflowOrchestrationService', () => {
   let prisma: ReturnType<typeof makePrisma>;
   let runner: { runWorkflow: ReturnType<typeof vi.fn>; runBatch: ReturnType<typeof vi.fn> };
-  let service: WorkflowsService;
+  let service: WorkflowOrchestrationService;
 
   beforeEach(() => {
     prisma = makePrisma();
     runner = { runWorkflow: vi.fn(), runBatch: vi.fn() };
     const eventEmitter = { emit: vi.fn() };
-    service = new WorkflowsService(prisma as any, runner as any, eventEmitter as any);
+    service = new WorkflowOrchestrationService(prisma as any, runner as any, eventEmitter as any);
   });
 
   describe('triggerRun', () => {

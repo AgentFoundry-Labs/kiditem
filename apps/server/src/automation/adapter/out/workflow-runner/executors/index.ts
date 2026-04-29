@@ -1,8 +1,8 @@
-import { PrismaService } from '../../prisma/prisma.service';
-import { WorkflowContext } from '../services/context';
+import { PrismaService } from '../../../../../prisma/prisma.service';
+import { WorkflowContext } from '../../../../domain/service/workflow-context';
 
 export interface ExecutorServices {
-  agentRegistry?: import('../../agent-registry/agent-registry.service').AgentRegistryService;
+  agentRegistry?: import('../../../../../agent-registry/agent-registry.service').AgentRegistryService;
 }
 
 type NodeExecutorFn = (
