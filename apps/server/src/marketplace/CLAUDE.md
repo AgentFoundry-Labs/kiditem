@@ -71,9 +71,9 @@ marketplace/
   같은 노드는 catalog 에 두지 않는다.
 - **Client 가 보낸 `companyId` 신뢰 금지** — install/uninstall 모두
   `@CurrentCompany()` 가 주입한 값만 사용한다. DTO 에 `companyId` 필드를
-  넣지 말 것 (ADR-0006). Workflow runner 도 template 의 ownership companyId
-  로 노드 config 를 덮어쓰므로 catalog node config 의 `company_id` 는
-  의미 없는 값이다.
+  넣지 말 것 (root `AGENTS.md` 의 Multi-tenant scope rule). Workflow runner
+  도 template 의 ownership companyId 로 노드 config 를 덮어쓰므로 catalog
+  node config 의 `company_id` 는 의미 없는 값이다.
 
 ## Prohibits
 
