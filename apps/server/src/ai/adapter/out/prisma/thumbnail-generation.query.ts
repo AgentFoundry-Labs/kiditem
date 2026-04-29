@@ -1,10 +1,10 @@
 import { Prisma } from '@prisma/client';
 import { NotFoundException } from '@nestjs/common';
-import type { PrismaService } from '../../prisma/prisma.service';
+import type { PrismaService } from '../../../../prisma/prisma.service';
 import {
   thumbnailMasterImageSelect,
-} from '../services/thumbnail-master-image-resolver';
-import type { GenerationMasterSummary, GenerationRow } from '../mappers/thumbnail-generation.mapper';
+} from '../../../services/thumbnail-master-image-resolver';
+import type { GenerationMasterSummary, GenerationRow } from '../../../mapper/thumbnail-generation.mapper';
 
 /**
  * Tenant-scoped read shapes for `ThumbnailGeneration` and the `MasterProduct`

@@ -12,9 +12,11 @@ import type {
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   ThumbnailEditorAiService,
-  type ThumbnailEditorCandidate,
-  type ThumbnailEditorInputImage,
 } from './thumbnail-editor-ai.service';
+import type {
+  ThumbnailEditorCandidate,
+  ThumbnailEditorInputImage,
+} from '../domain/model/thumbnail-editor';
 import { resolveMasterThumbnailImage } from './thumbnail-master-image-resolver';
 import { getRecomposePromptOverride } from './thumbnail-recompose-prompts';
 import { ThumbnailTrackingService } from './thumbnail-tracking.service';
@@ -32,7 +34,7 @@ import {
 import {
   toThumbnailGenerationItem,
   type GenerationRow,
-} from '../mappers/thumbnail-generation.mapper';
+} from '../mapper/thumbnail-generation.mapper';
 import {
   findActiveJobForProduct,
   findAutoBatchCandidates,
@@ -48,7 +50,7 @@ import {
   findRecentAutoJob,
   findThumbnailAnalysisGrade,
   type EditorProductRow,
-} from '../read-models/thumbnail-generation-read-model';
+} from '../adapter/out/prisma/thumbnail-generation.query';
 import {
   applyGenerationToMaster,
   createPendingEditJob,
@@ -62,7 +64,7 @@ import {
   saveEditorResult as saveEditorResultPersistence,
   setSelectedCandidate,
   type SaveEditorResultInput,
-} from '../persistence/thumbnail-generation.persistence';
+} from '../adapter/out/prisma/thumbnail-generation.persistence';
 
 @Injectable()
 export class ThumbnailGenerationService {

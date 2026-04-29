@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { ThumbnailWingPersistence } from '../persistence/thumbnail-wing.persistence';
-import { ThumbnailWingService } from '../services/thumbnail-wing.service';
+import { ThumbnailWingPersistence } from '../adapter/out/prisma/thumbnail-wing.persistence';
+import { ThumbnailWingService } from '../application/service/thumbnail-wing.service';
 
 const COMPANY_ID = 'company-1';
 const GENERATION_ID = '7d000000-0000-4000-8000-000000000010';

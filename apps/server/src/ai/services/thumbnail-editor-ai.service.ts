@@ -30,32 +30,16 @@ import {
 } from './thumbnail-image-fetcher.service';
 import { ThumbnailReferenceImagesService } from './thumbnail-reference-images.service';
 import { requireGeminiImageModel } from './thumbnail-gemini-config';
+import type {
+  ThumbnailEditorCandidate,
+  ThumbnailEditorEditCase,
+  ThumbnailEditorInputImage,
+  ThumbnailInputRole,
+} from '../domain/model/thumbnail-editor';
 
 type ThumbnailEditorPurpose = 'compliance' | 'quality';
 type ThumbnailEditorMode = 'edit' | 'creative';
-export type ThumbnailEditorEditCase = 'single' | 'compose' | 'color-variants' | 'bundle';
 type ThumbnailEditorLayout = 'auto' | 'fan' | 'arch' | 'grid' | 'stack' | 'radial';
-export type ThumbnailInputRole = 'product' | 'box' | 'color_variant' | 'detail';
-
-export interface ThumbnailEditorInputImage {
-  data: string;
-  mimeType: string;
-  label: string;
-  url: string;
-  storageKey: string | null;
-  role: ThumbnailInputRole;
-  sortOrder: number;
-  source: string;
-  fileSize: number | null;
-}
-
-export interface ThumbnailEditorCandidate {
-  url: string;
-  filename: string | null;
-  storageKey: string | null;
-  mimeType: string | null;
-  fileSize: number | null;
-}
 
 interface FetchedImage {
   buffer: Buffer;

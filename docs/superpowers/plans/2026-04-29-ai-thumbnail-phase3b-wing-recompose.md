@@ -2,6 +2,16 @@
 
 > Phase 3B follow-up to [`2026-04-28-codebase-reconstruction.md`](./2026-04-28-codebase-reconstruction.md) and [`2026-04-29-reconstruction-current-handoff.md`](./2026-04-29-reconstruction-current-handoff.md). Lane C focuses on the AI thumbnail bounded context.
 
+> **Status (2026-04-29):** transitional split landed; topology converged in `refactor/ai-thumbnail-contract-topology`. The Wing slice is now the most complete vertical alignment with [`2026-04-29-backend-architecture-contract.md`](./2026-04-29-backend-architecture-contract.md) — orchestration, Prisma adapter, provider adapter, and mapper all live in their target paths:
+>
+> - `apps/server/src/ai/services/thumbnail-wing.service.ts` → [`apps/server/src/ai/application/service/thumbnail-wing.service.ts`](../../../apps/server/src/ai/application/service/thumbnail-wing.service.ts)
+> - `apps/server/src/ai/persistence/thumbnail-wing.persistence.ts` → [`apps/server/src/ai/adapter/out/prisma/thumbnail-wing.persistence.ts`](../../../apps/server/src/ai/adapter/out/prisma/thumbnail-wing.persistence.ts)
+> - `apps/server/src/ai/adapters/wing-automation-runner.ts` → [`apps/server/src/ai/adapter/out/wing/wing-automation-runner.ts`](../../../apps/server/src/ai/adapter/out/wing/wing-automation-runner.ts)
+> - `apps/server/src/ai/mappers/thumbnail-wing.mapper.ts` → [`apps/server/src/ai/mapper/thumbnail-wing.mapper.ts`](../../../apps/server/src/ai/mapper/thumbnail-wing.mapper.ts)
+> - `apps/server/src/ai/domain/thumbnail-image-source.ts` and `apps/server/src/ai/domain/recompose-classification.ts` (unchanged)
+>
+> `thumbnail-recompose.service.ts` and `thumbnail-image-fetcher.service.ts` stay in `services/` for now (transitional) — they are still the public seams used by analysis/generation services. Sections below describe the historical layout; the contract topology is the active rule.
+
 ## Goal
 
 Decompose three fat-by-concern services in `apps/server/src/ai/services/` so tenant-scoped persistence, Wing browser automation, image fetch/source guards, and recompose classification each live in a focused module. Public controllers and shared response contracts stay stable.

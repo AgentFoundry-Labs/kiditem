@@ -31,8 +31,8 @@ import {
   type MasterRow,
   buildAnalysisListResponse,
   buildAnalysisSummary,
-} from '../read-models/thumbnail-analysis-read-model';
-import { toAnalysisResult } from '../mappers/thumbnail-analysis.mapper';
+} from '../adapter/out/prisma/thumbnail-analysis.query';
+import { toAnalysisResult } from '../mapper/thumbnail-analysis.mapper';
 
 @Injectable()
 export class ThumbnailAnalysisService {

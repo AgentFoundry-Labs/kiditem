@@ -1,12 +1,12 @@
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { GoogleGenAI } from '@google/genai';
-import { ThumbnailImageFetcherService } from '../services/thumbnail-image-fetcher.service';
+import { ThumbnailImageFetcherService } from '../../../services/thumbnail-image-fetcher.service';
 import {
   requireGeminiApiKey,
   requireGeminiVerifyModel,
   requireGeminiVisionModel,
-} from '../services/thumbnail-gemini-config';
-import type { ImageBytes } from '../domain/thumbnail-image-spec';
+} from '../../../services/thumbnail-gemini-config';
+import type { ImageBytes } from '../../../domain/thumbnail-image-spec';
 
 type Part = { text: string } | { inlineData: { data: string; mimeType: string } };
 

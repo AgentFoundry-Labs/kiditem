@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService } from '../../../../prisma/prisma.service';
 
 /**
  * Tenant-scoped persistence helpers for the Wing registration flow.

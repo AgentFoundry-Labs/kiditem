@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { ThumbnailGenerationService } from '../services/thumbnail-generation.service';
-import type { ThumbnailEditorInputImage } from '../services/thumbnail-editor-ai.service';
+import type { ThumbnailEditorInputImage } from '../domain/model/thumbnail-editor';
 
 const COMPANY_ID = 'company-1';
 const PRODUCT_ID = '7d000000-0000-4000-8000-000000000001';

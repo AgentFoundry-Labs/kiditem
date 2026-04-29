@@ -1,12 +1,12 @@
 import { Prisma } from '@prisma/client';
-import type { PrismaService } from '../../prisma/prisma.service';
+import type { PrismaService } from '../../../../prisma/prisma.service';
 import type { EditAnalysisResult } from '@kiditem/shared/ai';
 import type {
   ThumbnailEditorCandidate,
   ThumbnailEditorInputImage,
-} from '../services/thumbnail-editor-ai.service';
-import { generationInclude } from '../read-models/thumbnail-generation-read-model';
-import type { GenerationRow } from '../mappers/thumbnail-generation.mapper';
+} from '../../../domain/model/thumbnail-editor';
+import { generationInclude } from './thumbnail-generation.query';
+import type { GenerationRow } from '../../../mapper/thumbnail-generation.mapper';
 
 /**
  * Tenant-scoped writers for `ThumbnailGeneration` and its candidate / input-

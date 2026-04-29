@@ -4,7 +4,7 @@ import { ServiceUnavailableException } from '@nestjs/common';
 const sharp: typeof import('sharp') = require('sharp');
 import type { ComplianceScores } from '@kiditem/shared/ai';
 import { ThumbnailVisionAiService } from '../services/thumbnail-vision-ai.service';
-import { GeminiThumbnailVisionAdapter } from '../adapters/gemini-thumbnail-vision.adapter';
+import { GeminiThumbnailVisionAdapter } from '../adapter/out/gemini/gemini-thumbnail-vision.adapter';
 import { ThumbnailComplianceVerifierService } from '../services/thumbnail-compliance-verifier.service';
 import {
   hasDigitalOverlayEvidence,

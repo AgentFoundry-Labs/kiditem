@@ -1,5 +1,4 @@
 import { isIP } from 'node:net';
-import { BadRequestException } from '@nestjs/common';
 
 /**
  * Pure URL / MIME guards for thumbnail image fetching.
@@ -26,6 +25,13 @@ export interface ParsedDataImageUrl {
   base64: string;
 }
 
+export class ThumbnailImageSourceError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ThumbnailImageSourceError';
+  }
+}
+
 const DATA_URL_PATTERN = /^data:([^;]+);base64,(.+)$/;
 
 export function parseDataImageUrl(source: string): ParsedDataImageUrl | null {
@@ -36,13 +42,13 @@ export function parseDataImageUrl(source: string): ParsedDataImageUrl | null {
 
 export function assertSupportedMime(mimeType: string): void {
   if (!ALLOWED_THUMBNAIL_MIME_TO_EXT[mimeType]) {
-    throw new BadRequestException(`unsupported mime type: ${mimeType}`);
+    throw new ThumbnailImageSourceError(`unsupported mime type: ${mimeType}`);
   }
 }
 
 export function extForMime(mimeType: string): string {
   const ext = ALLOWED_THUMBNAIL_MIME_TO_EXT[mimeType];
-  if (!ext) throw new BadRequestException(`unsupported mime type: ${mimeType}`);
+  if (!ext) throw new ThumbnailImageSourceError(`unsupported mime type: ${mimeType}`);
   return ext;
 }
 
@@ -51,10 +57,10 @@ export function assertHttpUrl(raw: string): void {
   try {
     parsed = new URL(raw);
   } catch {
-    throw new BadRequestException('invalid image url');
+    throw new ThumbnailImageSourceError('invalid image url');
   }
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new BadRequestException('image url protocol must be http(s)');
+    throw new ThumbnailImageSourceError('image url protocol must be http(s)');
   }
 }
 
@@ -67,19 +73,19 @@ export function assertPublicHttpUrl(raw: string): void {
   const zoneIdx = host.indexOf('%');
   if (zoneIdx !== -1) host = host.slice(0, zoneIdx);
   if (host === 'localhost' || host === '') {
-    throw new BadRequestException('image url host not allowed');
+    throw new ThumbnailImageSourceError('image url host not allowed');
   }
 
   const ipKind = isIP(host);
   if (ipKind === 0) return;
   if (ipKind === 4) {
-    if (isPrivateIPv4(host)) throw new BadRequestException('image url host not allowed');
+    if (isPrivateIPv4(host)) throw new ThumbnailImageSourceError('image url host not allowed');
     return;
   }
   const embeddedV4 = extractEmbeddedIPv4(host);
   if (embeddedV4) {
     if (isPrivateIPv4(embeddedV4))
-      throw new BadRequestException('image url host not allowed');
+      throw new ThumbnailImageSourceError('image url host not allowed');
     return;
   }
   const blocked6 =
@@ -88,7 +94,7 @@ export function assertPublicHttpUrl(raw: string): void {
     /^fe[89ab][0-9a-f]?:/.test(host) ||
     /^fc[0-9a-f]{2}:/.test(host) ||
     /^fd[0-9a-f]{2}:/.test(host);
-  if (blocked6) throw new BadRequestException('image url host not allowed');
+  if (blocked6) throw new ThumbnailImageSourceError('image url host not allowed');
 }
 
 function extractEmbeddedIPv4(host: string): string | null {

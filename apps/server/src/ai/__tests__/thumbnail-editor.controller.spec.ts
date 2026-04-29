@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ThumbnailEditorController } from '../controllers/thumbnail-editor.controller';
 import type { ThumbnailEditorDto } from '../dto/thumbnail-editor.dto';
-import type { ThumbnailEditorInputImage } from '../services/thumbnail-editor-ai.service';
+import type { ThumbnailEditorInputImage } from '../domain/model/thumbnail-editor';
 
 const COMPANY_ID = 'company-1';
 const PRODUCT_ID = '7d000000-0000-4000-8000-000000000001';

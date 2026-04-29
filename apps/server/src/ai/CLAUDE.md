@@ -1,15 +1,37 @@
 # ai — Direct LLM (Gemini) + Agent 위임 Dual-Path
 
-10 파일. AI 호출 진입점 — **Image edit는 agent 비동기, Text transform 은 Gemini 직접 호출**.
+AI 호출 진입점 — **Image edit는 agent 비동기, Text transform 은 Gemini 직접 호출**.
 
 ## Directory
 
+이 도메인은 [`apps/server/AGENTS.md`](../../AGENTS.md) backend architecture contract target topology(`adapter/application/domain/mapper`)로 수렴 중이다. Wing 슬라이스(persistence + provider + service + mapper)와 thumbnail generation/analysis 의 read-model/persistence/Gemini adapter 가 target paths 로 이동했다. 나머지 thumbnail orchestration service 는 아직 transitional `services/` 에 남아 있다.
+
 ```
 ai/
-├── controllers/   # image-ai, text-ai, render-image
-├── services/      # image-ai, text-ai (render는 controller에서 직접)
-├── dto/           # 3 DTO
-└── ai.module.ts
+├── ai.module.ts
+├── adapter/
+│   ├── out/
+│   │   ├── prisma/    # thumbnail-wing.persistence, thumbnail-generation.persistence,
+│   │   │              # thumbnail-analysis.query, thumbnail-generation.query
+│   │   ├── gemini/    # gemini-thumbnail-vision.adapter
+│   │   └── wing/      # wing-automation-runner
+├── application/
+│   └── service/       # thumbnail-wing.service (vertical slice — Wing orchestration)
+├── controllers/       # image-ai, text-ai, render-image, thumbnail-* (transitional;
+│                      # adapter/in/http/ 로 이동 예정)
+├── domain/            # thumbnail-compliance-normalizer, thumbnail-image-spec,
+│                      # thumbnail-image-source, recompose-classification,
+│                      # thumbnail-generation-inputs (pure helpers)
+├── dto/               # HTTP DTOs (class-validator)
+├── mapper/            # thumbnail-wing.mapper, thumbnail-generation.mapper,
+│                      # thumbnail-analysis.mapper
+└── services/          # transitional — image-ai, text-ai, thumbnail-analysis,
+                       # thumbnail-generation, thumbnail-recompose, thumbnail-vision-ai,
+                       # thumbnail-editor-ai, thumbnail-auto, thumbnail-tracking,
+                       # thumbnail-image-fetcher, thumbnail-reference-images,
+                       # thumbnail-compliance-verifier, thumbnail-master-image-resolver,
+                       # thumbnail-gemini-config, thumbnail-prompts*, thumbnail-layout-presets
+                       # (point releases will move orchestration → application/service/)
 ```
 
 ## Routes

@@ -26,7 +26,7 @@ import {
 import { ThumbnailAnalysisService } from '../services/thumbnail-analysis.service';
 import { ThumbnailGenerationService } from '../services/thumbnail-generation.service';
 import { ThumbnailRecomposeService } from '../services/thumbnail-recompose.service';
-import { ThumbnailWingService } from '../services/thumbnail-wing.service';
+import { ThumbnailWingService } from '../application/service/thumbnail-wing.service';
 
 @Controller('thumbnail-analysis')
 export class ThumbnailAnalysisController {
