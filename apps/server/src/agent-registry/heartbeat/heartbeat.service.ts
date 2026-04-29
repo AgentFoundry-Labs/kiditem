@@ -37,7 +37,7 @@ import { ResultCleanupService } from '../lifecycle/result-cleanup.service';
 import { SafetyPipelineService } from '../business-safety/safety-pipeline.service';
 import { DryRunGateService } from '../business-safety/dry-run-gate.service';
 import type { PermissionLayer } from '../permissions/hierarchy.validator';
-import { scrubSecrets } from '@kiditem/shared';
+import { scrubSecrets } from '@kiditem/shared/security';
 import { PANEL_EVENTS } from '../../panel/events/panel-events';
 import { agentPanelAdapter } from '../../panel/adapters/agent.adapter';
 

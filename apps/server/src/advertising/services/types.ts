@@ -1,9 +1,5 @@
 import type { Prisma } from '@prisma/client';
-import type {
-  AdMetrics,
-  AdStrategyAction,
-  ChannelStateSignal,
-} from '@kiditem/shared';
+import type { AdMetrics, AdStrategyAction, ChannelStateSignal } from '@kiditem/shared/advertising';
 
 // AdAction targetType 값 union (services/types.ts 전용 export, AdActionCommandDto 는 dto/).
 export const AD_ACTION_TARGET_TYPES = ['campaign', 'keyword'] as const;

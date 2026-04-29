@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import type { AdMetrics, AdTierAnalysis, AdTop20Item } from '@kiditem/shared';
+import type { AdMetrics, AdTierAnalysis, AdTop20Item } from '@kiditem/shared/advertising';
 import type {
   KeyMetricsInput,
   KeyMetricsResult,

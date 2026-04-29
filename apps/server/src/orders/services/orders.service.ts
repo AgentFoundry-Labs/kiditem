@@ -5,13 +5,8 @@ import {
   uploadInvoice,
   DELIVERY_COMPANIES,
 } from '../../channels/adapters/coupang/orders';
-import { OrderStatusSchema } from '@kiditem/shared';
-import type {
-  OrderActionResponse,
-  OrderListItem,
-  OrderListResponse,
-  OrderStatsResponse,
-} from '@kiditem/shared';
+import { OrderStatusSchema } from '@kiditem/shared/order';
+import type { OrderActionResponse, OrderListItem, OrderListResponse, OrderStatsResponse } from '@kiditem/shared/order';
 
 @Injectable()
 export class OrdersService {

@@ -9,7 +9,7 @@ import {
   Min,
   ValidateIf,
 } from 'class-validator';
-import { MasterImageRoleSchema, type MasterImageRole } from '@kiditem/shared';
+import { MasterImageRoleSchema, type MasterImageRole } from '@kiditem/shared/product';
 
 /**
  * Role enum values derive from the shared `MasterImageRoleSchema` so the

@@ -1,5 +1,5 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { RECOMPOSE_KINDS, type RecomposeKind, type RecomposeVariantClassification } from '@kiditem/shared';
+import { RECOMPOSE_KINDS, type RecomposeKind, type RecomposeVariantClassification } from '@kiditem/shared/ai';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RECOMPOSE_CLASSIFY_PROMPT } from './thumbnail-prompts';
 import {

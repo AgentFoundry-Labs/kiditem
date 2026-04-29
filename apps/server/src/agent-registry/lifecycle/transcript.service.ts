@@ -1,7 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.service';
-import { scrubSecrets, scrubDeep } from '@kiditem/shared';
+import { scrubSecrets, scrubDeep } from '@kiditem/shared/security';
 
 interface TranscriptData {
   runId: string;

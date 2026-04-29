@@ -1,4 +1,4 @@
-import { MasterImageRoleSchema, type MasterImageItem, type MasterImageRole } from '@kiditem/shared';
+import { MasterImageRoleSchema, type MasterImageItem, type MasterImageRole } from '@kiditem/shared/product';
 
 // Derive from the shared enum so a new role added to MasterImageRoleSchema
 // propagates here automatically (external review LOW — drift prevention).
