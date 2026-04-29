@@ -1,12 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
+import type { ReturnSummary } from '@kiditem/shared';
 import type {
-  ReturnSummary,
   ChannelDashboardSummary,
   RevenueTrendPoint,
   ProductRankingRow,
   ReturnReasonRow,
   ReturnFaultSplit,
-} from '@kiditem/shared';
+} from '@kiditem/shared/channel-dashboard';
 import { PrismaService } from '../../prisma/prisma.service';
 import { kstDayStart } from '../../common/kst';
 

@@ -1,5 +1,5 @@
 import type { PrismaService } from '../../prisma/prisma.service';
-import type { PanelItem } from '@kiditem/shared';
+import type { PanelItem } from '@kiditem/shared/panel';
 import { workflowPanelAdapter } from './workflow.adapter';
 
 /**

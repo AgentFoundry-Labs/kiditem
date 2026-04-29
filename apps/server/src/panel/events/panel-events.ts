@@ -1,4 +1,4 @@
-import type { PanelItem } from '@kiditem/shared';
+import type { PanelItem } from '@kiditem/shared/panel';
 
 export const PANEL_EVENTS = {
   UPSERT: 'panel.item.upsert',

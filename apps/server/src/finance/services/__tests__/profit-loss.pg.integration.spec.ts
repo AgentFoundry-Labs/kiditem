@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Test } from '@nestjs/testing';
 import type { PrismaClient } from '@prisma/client';
-import { PLDataSchema } from '@kiditem/shared';
+import { PLDataSchema } from '@kiditem/shared/finance';
 import { ProfitLossService } from '../profit-loss.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import {

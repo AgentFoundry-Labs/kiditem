@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { PanelRunItem } from '@kiditem/shared';
+import { PanelRunItem } from '@kiditem/shared/panel';
 import { agentPanelAdapter, AgentAdapterInput } from '../agent.adapter';
 import type { HeartbeatRun } from '@prisma/client';
 

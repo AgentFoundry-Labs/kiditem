@@ -1,4 +1,4 @@
-import { PanelAlertItem } from '@kiditem/shared';
+import { PanelAlertItem } from '@kiditem/shared/panel';
 import type { Alert } from '@prisma/client';
 
 /**

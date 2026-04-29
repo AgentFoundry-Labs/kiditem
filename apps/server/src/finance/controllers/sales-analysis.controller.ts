@@ -1,6 +1,6 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
-import type { SalesAnalysisData } from '@kiditem/shared';
+import type { SalesAnalysisData } from '@kiditem/shared/finance';
 import { SalesAnalysisService } from '../services/sales-analysis.service';
 import { SalesAnalysisQueryDto } from '../dto/sales-analysis-query.dto';
 

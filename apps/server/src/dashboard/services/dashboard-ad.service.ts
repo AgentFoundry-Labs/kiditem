@@ -7,7 +7,7 @@ import type {
   IndustryBenchmark,
   DailyAdItem,
   WingAdSummary,
-} from '@kiditem/shared';
+} from '@kiditem/shared/dashboard';
 import type { DashboardContext } from './context';
 import { calculateProfitForRange, type RangeProfitMetrics } from '../helpers/profit-calculator';
 import { aggregateAdForRange, type RangeAdMetrics } from '../helpers/ad-aggregator';

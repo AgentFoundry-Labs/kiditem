@@ -6,7 +6,7 @@ import type {
   AlertItemDashboard,
   GradeChanges,
   DataFreshness,
-} from '@kiditem/shared';
+} from '@kiditem/shared/dashboard';
 import type { DashboardContext } from './context';
 import { buildPerListingMetrics } from '../../common/per-listing-profit';
 

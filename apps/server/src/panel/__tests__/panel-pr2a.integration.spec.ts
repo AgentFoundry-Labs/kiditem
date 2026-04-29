@@ -24,7 +24,7 @@ import { EventEmitter2, EventEmitterModule } from '@nestjs/event-emitter';
 import { lastValueFrom } from 'rxjs';
 import { take, toArray } from 'rxjs/operators';
 
-import type { PanelRunItem } from '@kiditem/shared';
+import type { PanelRunItem } from '@kiditem/shared/panel';
 import { PanelSseService } from '../events/panel-sse.service';
 import { PANEL_EVENTS, PanelUpsertInternal } from '../events/panel-events';
 import { PrismaService } from '../../prisma/prisma.service';
