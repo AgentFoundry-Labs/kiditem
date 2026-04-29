@@ -1,4 +1,5 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateProcessingCostDto, UpdateProcessingCostDto } from './dto';
 
@@ -7,7 +8,7 @@ export class ProcessingCostsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async findAll(companyId: string, status?: string) {
-    const where: Record<string, unknown> = { companyId };
+    const where: Prisma.ProcessingCostWhereInput = { companyId };
     if (status) {
       where.status = status;
     }
@@ -20,6 +21,14 @@ export class ProcessingCostsService {
   }
 
   async create(companyId: string, dto: CreateProcessingCostDto) {
+    const master = await this.prisma.masterProduct.findFirst({
+      where: { id: dto.masterId, companyId, isDeleted: false },
+      select: { id: true },
+    });
+    if (!master) {
+      throw new BadRequestException('상품을 찾을 수 없습니다');
+    }
+
     const totalCost = dto.unitCost * dto.quantity;
 
     return this.prisma.processingCost.create({
@@ -39,19 +48,19 @@ export class ProcessingCostsService {
   }
 
   async update(id: string, companyId: string, dto: UpdateProcessingCostDto) {
-    const existing = await this.prisma.processingCost.findFirst({
+    const result = await this.prisma.processingCost.updateMany({
       where: { id, companyId },
-    });
-    if (!existing) {
-      throw new BadRequestException('가공비를 찾을 수 없습니다');
-    }
-
-    return this.prisma.processingCost.update({
-      where: { id },
       data: {
         ...(dto.status !== undefined && { status: dto.status }),
         ...(dto.notes !== undefined && { notes: dto.notes }),
       },
+    });
+    if (result.count === 0) {
+      throw new BadRequestException('가공비를 찾을 수 없습니다');
+    }
+    return this.prisma.processingCost.findFirstOrThrow({
+      where: { id, companyId },
+      include: { master: true },
     });
   }
 
