@@ -7,20 +7,20 @@
 // upsert with an explicit `matchReason`.
 
 import { Prisma } from '@prisma/client';
-import type { PrismaService } from '../../prisma/prisma.service';
-import type { ExtensionSyncDto } from '../dto';
+import type { PrismaService } from '../../../prisma/prisma.service';
+import type { ExtensionSyncDto } from '../../dto';
 import {
   resolveBusinessDate,
   toBusinessDate,
-} from '../domain/business-date';
-import { toNumber } from '../domain/scrape-row-normalizers';
+} from '../../domain/business-date';
+import { toNumber } from '../../domain/scrape-row-normalizers';
 import {
   appendScrapeSnapshot,
   createScrapeRun,
   finalizeScrapeRun,
   finalizeScrapeRunOnError,
-} from '../persistence/channel-scrape-run.persistence';
-import { upsertChannelAccountKpi } from '../persistence/channel-account-kpi.persistence';
+} from '../../adapter/out/prisma/channel-scrape-run.persistence';
+import { upsertChannelAccountKpi } from '../../adapter/out/prisma/channel-account-kpi.persistence';
 
 export interface CoupangAdsDailyIngestDeps {
   prisma: PrismaService;

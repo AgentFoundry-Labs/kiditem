@@ -1,7 +1,7 @@
 import { Prisma, type AdAction } from '@prisma/client';
 import { NotFoundException } from '@nestjs/common';
-import type { PrismaService } from '../../prisma/prisma.service';
-import type { ActionCandidate } from '../domain/ad-action-rules';
+import type { PrismaService } from '../../../../prisma/prisma.service';
+import type { ActionCandidate } from '../../../domain/ad-action-rules';
 
 /**
  * Tenant-scoped lifecycle writers for `AdAction` and the dependent

@@ -4,7 +4,7 @@
 // cross-tenant id never leaks into the response.
 
 import { NotFoundException } from '@nestjs/common';
-import type { PrismaService } from '../../prisma/prisma.service';
+import type { PrismaService } from '../../../../prisma/prisma.service';
 
 export async function listScrapeTargets(
   prisma: PrismaService,

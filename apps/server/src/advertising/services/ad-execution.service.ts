@@ -11,7 +11,7 @@ import {
   upsertExecutionWorkerForLease,
   type ExecutionReportInput,
   type LeaseOptions,
-} from '../persistence/ad-execution.persistence';
+} from '../adapter/out/prisma/ad-execution.persistence';
 
 /**
  * Application orchestration for the worker execution loop. The service:

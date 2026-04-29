@@ -9,30 +9,30 @@
 
 import { Prisma } from '@prisma/client';
 import type { EventEmitter2 } from '@nestjs/event-emitter';
-import type { PrismaService } from '../../prisma/prisma.service';
-import type { ExtensionSyncDto } from '../dto';
+import type { PrismaService } from '../../../prisma/prisma.service';
+import type { ExtensionSyncDto } from '../../dto';
 import {
   resolveBusinessDate,
   toBusinessDate,
-} from '../domain/business-date';
+} from '../../domain/business-date';
 import {
   matchListingFromRow,
   matchStatusOf,
   pickStringField,
   type ListingMap,
-} from '../domain/listing-match';
-import { toNumber } from '../domain/scrape-row-normalizers';
+} from '../../domain/listing-match';
+import { toNumber } from '../../domain/scrape-row-normalizers';
 import {
   appendScrapeSnapshot,
   createScrapeRun,
   finalizeScrapeRun,
   finalizeScrapeRunOnError,
-} from '../persistence/channel-scrape-run.persistence';
+} from '../../adapter/out/prisma/channel-scrape-run.persistence';
 import {
   upsertChannelListingDaily,
   type ListingDailyTrafficMetrics,
-} from '../persistence/channel-daily-fact.persistence';
-import { upsertChannelAccountKpi } from '../persistence/channel-account-kpi.persistence';
+} from '../../adapter/out/prisma/channel-daily-fact.persistence';
+import { upsertChannelAccountKpi } from '../../adapter/out/prisma/channel-account-kpi.persistence';
 
 export interface TrafficIngestDeps {
   prisma: PrismaService;

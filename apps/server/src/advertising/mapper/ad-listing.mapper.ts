@@ -3,7 +3,7 @@ import type { HydratedListing } from '../services/types';
 import type {
   ScopedAdListingReadModel,
   ScopedAdListingSummary,
-} from '../read-models/ad-listing-read-model';
+} from '../adapter/out/prisma/ad-listing.query';
 
 /**
  * HydratedListing → AdListingSummary (Zod schema 정합).

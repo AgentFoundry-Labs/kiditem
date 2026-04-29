@@ -9,15 +9,15 @@ import {
   Query,
   BadRequestException,
 } from '@nestjs/common';
-import { AdvertisingService } from '../services/advertising.service';
-import { AdCampaignsService } from '../services/ad-campaigns.service';
-import { AdStrategyService } from '../services/ad-strategy.service';
-import { AdBenchmarkService } from '../services/ad-benchmark.service';
-import { AdCollectService } from '../services/ad-collect.service';
-import { AdSyncService } from '../services/ad-sync.service';
-import { AdActionService } from '../services/ad-action.service';
-import { AdExecutionService } from '../services/ad-execution.service';
-import { AdConfigService } from '../services/ad-config.service';
+import { AdvertisingService } from '../../../services/advertising.service';
+import { AdCampaignsService } from '../../../services/ad-campaigns.service';
+import { AdStrategyService } from '../../../services/ad-strategy.service';
+import { AdBenchmarkService } from '../../../services/ad-benchmark.service';
+import { AdCollectService } from '../../../services/ad-collect.service';
+import { AdSyncService } from '../../../services/ad-sync.service';
+import { AdActionService } from '../../../services/ad-action.service';
+import { AdExecutionService } from '../../../services/ad-execution.service';
+import { AdConfigService } from '../../../services/ad-config.service';
 import {
   ListAdsQueryDto,
   ChangeAdTierBodyDto,
@@ -35,8 +35,8 @@ import {
   ReportDto,
   UpdateAdConfigDto,
   RegisterCampaignDto,
-} from '../dto';
-import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
+} from '../../../dto';
+import { CurrentCompany } from '../../../../auth/decorators/current-company.decorator';
 
 @Controller('ads')
 export class AdvertisingController {

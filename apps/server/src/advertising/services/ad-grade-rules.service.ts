@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { AdStrategyAction, AdIssues, ChannelStateSignal } from '@kiditem/shared/advertising';
 import type { GradeRulesInput, AdIssuesInput, HydratedListing } from './types';
-import { toListingSummary } from '../mappers/ad-listing.mapper';
+import { toListingSummary } from '../mapper/ad-listing.mapper';
 
 type Priority = 'urgent' | 'high' | 'medium' | 'low';
 
@@ -22,7 +22,7 @@ const PRIORITY_ORDER: Record<Priority, number> = {
  * 변경:
  *  - prisma 호출 제거 (input 으로 이동; adGroups = `legacy ad groupBy(['listingId'])` 결과)
  *  - productId → listingId (B2b 도입분)
- *  - toListingSummary 는 mappers/ad-listing.mapper import
+ *  - toListingSummary 는 mapper/ad-listing.mapper import
  *
  * Threshold 보존: 5000 / 100 / 200 / 300 / 480 / 10000 / 50 / 20 / 0.35 / 3000 (B2b 원본).
  */

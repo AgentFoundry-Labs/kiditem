@@ -9,8 +9,8 @@
 
 import { Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import type { PrismaService } from '../../prisma/prisma.service';
-import type { ScrapeMatchStatus } from '../domain/listing-match';
+import type { PrismaService } from '../../../../prisma/prisma.service';
+import type { ScrapeMatchStatus } from '../../../domain/listing-match';
 
 const logger = new Logger('ChannelScrapeRunPersistence');
 

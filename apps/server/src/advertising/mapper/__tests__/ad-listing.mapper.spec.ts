@@ -5,7 +5,7 @@ import {
   toListingSummary,
 } from '../ad-listing.mapper';
 import type { HydratedListing } from '../../services/types';
-import type { ScopedAdListingReadModel } from '../../read-models/ad-listing-read-model';
+import type { ScopedAdListingReadModel } from '../../adapter/out/prisma/ad-listing.query';
 
 describe('mappers/ad-listing — HydratedListing → AdListingSummary', () => {
   it('strips ad/inventory fields, returns AdListingSummary shape with option:null', () => {

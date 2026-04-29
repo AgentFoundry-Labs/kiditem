@@ -6,7 +6,7 @@
 // to its own row).
 
 import { Prisma } from '@prisma/client';
-import type { PrismaService } from '../../prisma/prisma.service';
+import type { PrismaService } from '../../../../prisma/prisma.service';
 
 export interface UpsertAccountKpiInput {
   companyId: string;

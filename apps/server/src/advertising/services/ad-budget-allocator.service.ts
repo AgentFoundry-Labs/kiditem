@@ -9,7 +9,7 @@ import type {
   ListingMetricsRow,
   GradeBudgetAllocation,
 } from './types';
-import { toListingSummary } from '../mappers/ad-listing.mapper';
+import { toListingSummary } from '../mapper/ad-listing.mapper';
 
 /**
  * Pure calculator — Ad spend / budget / tier / Top 20 집계.
@@ -27,7 +27,7 @@ import { toListingSummary } from '../mappers/ad-listing.mapper';
  *  - productId → listingId.
  *  - calcTierAnalysis: 단일 legacy ad groupBy(['listingId']) 결과 + listing.masterProduct.adTier 로 in-memory roll-up.
  *  - calcTop20: 정렬은 ad spend desc → revenue desc tie-break (Plan v2 amendment).
- *  - toListingSummary 는 mappers/ad-listing.mapper import (DRY).
+ *  - toListingSummary 는 mapper/ad-listing.mapper import (DRY).
  */
 @Injectable()
 export class AdBudgetAllocatorService {

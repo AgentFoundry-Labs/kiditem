@@ -34,7 +34,7 @@
 //   `advertising.raw`, `wing.traffic`, `wing.dashboard`).
 
 import { Prisma } from '@prisma/client';
-import type { PrismaService } from '../../prisma/prisma.service';
+import type { PrismaService } from '../../../../prisma/prisma.service';
 
 /** See `ChannelAdTargetDailySnapshot`. */
 type AdTargetType = 'campaign' | 'keyword' | 'product';

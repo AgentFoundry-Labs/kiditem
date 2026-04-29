@@ -5,11 +5,11 @@ import type {
 } from '@kiditem/shared/advertising';
 import type { AdPeriod } from '../domain/ad-metrics';
 import { aggregateAdMetrics, buildAdMetrics } from '../domain/ad-metrics';
-import type { ScopedAdListingReadModel } from '../read-models/ad-listing-read-model';
+import type { ScopedAdListingReadModel } from '../adapter/out/prisma/ad-listing.query';
 import type {
   AdTrendDailyAggregate,
   CampaignRollup,
-} from '../read-models/ad-campaign-read-model';
+} from '../adapter/out/prisma/ad-campaign.query';
 import { scopedListingToSummary } from './ad-listing.mapper';
 
 /**

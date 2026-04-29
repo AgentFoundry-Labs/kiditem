@@ -1,7 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { NotFoundException } from '@nestjs/common';
-import type { PrismaService } from '../../prisma/prisma.service';
-import { scrubExecutionError } from '../domain/ad-execution-error-scrubber';
+import type { PrismaService } from '../../../../prisma/prisma.service';
+import { scrubExecutionError } from '../../../domain/ad-execution-error-scrubber';
 
 /**
  * Tenant-scoped writers for the `ExecutionWorker` / `ExecutionTask` /

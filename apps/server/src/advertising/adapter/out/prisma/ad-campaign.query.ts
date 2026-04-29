@@ -1,8 +1,8 @@
 import { Prisma } from '@prisma/client';
-import type { PrismaService } from '../../prisma/prisma.service';
-import { kstInclusiveDaysStart } from '../../common/kst';
-import type { AdMetricSums, AdPeriod } from '../domain/ad-metrics';
-import { periodCutoff } from '../domain/ad-metrics';
+import type { PrismaService } from '../../../../prisma/prisma.service';
+import { kstInclusiveDaysStart } from '../../../../common/kst';
+import type { AdMetricSums, AdPeriod } from '../../../domain/ad-metrics';
+import { periodCutoff } from '../../../domain/ad-metrics';
 
 export type CampaignRollup = {
   targetKey: string;
@@ -97,7 +97,7 @@ export async function findAdTrendDailyRows(
 /**
  * Fold daily rows into one entry per `YYYY-MM-DD`, summing additive metric
  * columns. Pure mapping helper kept here so the read-model owns the daily
- * grouping shape consumed by `mappers/ad-campaign.mapper.ts::toAdTrendsData`.
+ * grouping shape consumed by `mapper/ad-campaign.mapper.ts::toAdTrendsData`.
  */
 export function aggregateDailyAdRows(
   rows: AdTrendDailyRow[],

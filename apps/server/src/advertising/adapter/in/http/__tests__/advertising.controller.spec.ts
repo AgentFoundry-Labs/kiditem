@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { BadRequestException } from '@nestjs/common';
 
-vi.mock('../../services/ad-strategy.service', () => ({
+vi.mock('../../../../services/ad-strategy.service', () => ({
   AdStrategyService: class AdStrategyService {},
 }));
 

@@ -9,18 +9,18 @@
 
 import { Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import type { PrismaService } from '../../prisma/prisma.service';
-import type { ExtensionSyncDto } from '../dto';
+import type { PrismaService } from '../../../prisma/prisma.service';
+import type { ExtensionSyncDto } from '../../dto';
 import {
   resolveBusinessDate,
   toBusinessDate,
-} from '../domain/business-date';
+} from '../../domain/business-date';
 import {
   matchListingFromRow,
   matchStatusOf,
   pickStringField,
   type ListingMap,
-} from '../domain/listing-match';
+} from '../../domain/listing-match';
 import {
   cleanString,
   deriveAdTargetType,
@@ -29,20 +29,20 @@ import {
   pairScrapeRows,
   toNumber,
   toNumberOrNull,
-} from '../domain/scrape-row-normalizers';
-import { buildAdTargetKey } from '../util/ad-target-key';
+} from '../../domain/scrape-row-normalizers';
+import { buildAdTargetKey } from '../../util/ad-target-key';
 import {
   appendScrapeSnapshot,
   createScrapeRun,
   finalizeScrapeRun,
   finalizeScrapeRunOnError,
-} from '../persistence/channel-scrape-run.persistence';
+} from '../../adapter/out/prisma/channel-scrape-run.persistence';
 import {
   upsertChannelAdTargetDaily,
   upsertChannelListingDaily,
   upsertChannelOptionDaily,
-} from '../persistence/channel-daily-fact.persistence';
-import { upsertChannelAccountKpi } from '../persistence/channel-account-kpi.persistence';
+} from '../../adapter/out/prisma/channel-daily-fact.persistence';
+import { upsertChannelAccountKpi } from '../../adapter/out/prisma/channel-account-kpi.persistence';
 import {
   addListingAdMetrics,
   flushListingAdMetrics,

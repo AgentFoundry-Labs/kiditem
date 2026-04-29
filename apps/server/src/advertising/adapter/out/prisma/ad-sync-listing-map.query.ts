@@ -1,5 +1,5 @@
-import type { PrismaService } from '../../prisma/prisma.service';
-import type { ListingMap } from '../domain/listing-match';
+import type { PrismaService } from '../../../../prisma/prisma.service';
+import type { ListingMap } from '../../../domain/listing-match';
 
 export async function buildAdSyncListingMap(
   prisma: PrismaService,

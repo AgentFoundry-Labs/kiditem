@@ -1,4 +1,4 @@
-import type { PrismaService } from '../../prisma/prisma.service';
+import type { PrismaService } from '../../../../prisma/prisma.service';
 import type { AdListingSummary } from '@kiditem/shared/advertising';
 
 export interface ScopedAdListingReadModel {
