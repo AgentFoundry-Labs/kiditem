@@ -6,7 +6,7 @@ import type { Alert } from '@prisma/client';
  *
  * actorUserId: Alert에 actor 컬럼 없음 → 항상 null (PR2b 한정, 추후 ADR).
  */
-export const alertPanelAdapter = {
+export const alertPanelMapper = {
   mapToItem(alert: Alert): PanelAlertItem {
     return PanelAlertItem.parse({
       kind: 'alert',

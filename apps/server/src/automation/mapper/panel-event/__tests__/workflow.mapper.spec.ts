@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { workflowPanelAdapter, WorkflowRunInput } from '../workflow.adapter';
+import { workflowPanelMapper, WorkflowRunInput } from '../workflow.mapper';
 
 const input: WorkflowRunInput = {
   id: 'run-uuid',
@@ -11,9 +11,9 @@ const input: WorkflowRunInput = {
   createdAt: new Date('2026-04-15T00:00:00Z'),
 };
 
-describe('workflowPanelAdapter', () => {
+describe('workflowPanelMapper', () => {
   it('maps to PanelRunItem with derived progress', () => {
-    const item = workflowPanelAdapter.mapToItem(input, 'co-1');
+    const item = workflowPanelMapper.mapToItem(input, 'co-1');
     expect(item).toMatchObject({
       id: 'workflow:run-uuid',
       kind: 'run',
@@ -30,7 +30,7 @@ describe('workflowPanelAdapter', () => {
   });
 
   it('visibility=company when triggeredByUserId=null (scheduled)', () => {
-    const item = workflowPanelAdapter.mapToItem(
+    const item = workflowPanelMapper.mapToItem(
       { ...input, triggeredByUserId: null },
       'co-1',
     );
@@ -39,7 +39,7 @@ describe('workflowPanelAdapter', () => {
   });
 
   it('progress undefined when no steps', () => {
-    const item = workflowPanelAdapter.mapToItem(
+    const item = workflowPanelMapper.mapToItem(
       { ...input, steps: [] },
       'co-1',
     );
@@ -48,7 +48,7 @@ describe('workflowPanelAdapter', () => {
   });
 
   it('parentId set from parentRunId', () => {
-    const item = workflowPanelAdapter.mapToItem(
+    const item = workflowPanelMapper.mapToItem(
       { ...input, parentRunId: 'parent-uuid' },
       'co-1',
     );
@@ -56,7 +56,7 @@ describe('workflowPanelAdapter', () => {
   });
 
   it('falls back to "워크플로우" if templateName missing', () => {
-    const item = workflowPanelAdapter.mapToItem(
+    const item = workflowPanelMapper.mapToItem(
       { ...input, templateName: undefined as any },
       'co-1',
     );
@@ -64,7 +64,7 @@ describe('workflowPanelAdapter', () => {
   });
 
   it('coerces unknown status to pending', () => {
-    const item = workflowPanelAdapter.mapToItem(
+    const item = workflowPanelMapper.mapToItem(
       { ...input, status: 'timeout' },
       'co-1',
     );

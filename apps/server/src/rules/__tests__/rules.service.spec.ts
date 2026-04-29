@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { RulesService } from '../services/rules.service';
 import { AgentResultReadyEvent } from '../../agent-registry/events/agent-events';
-import { PANEL_EVENTS } from '../../panel/events/panel-events';
+import { PANEL_EVENTS } from '../../automation/adapter/out/panel-event/panel-events';
 
 const COMPANY_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const PRODUCT_ID = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';

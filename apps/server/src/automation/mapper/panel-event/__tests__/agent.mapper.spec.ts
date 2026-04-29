@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { PanelRunItem } from '@kiditem/shared/panel';
-import { agentPanelAdapter, AgentAdapterInput } from '../agent.adapter';
+import { agentPanelMapper, AgentAdapterInput } from '../agent.mapper';
 import type { HeartbeatRun } from '@prisma/client';
 
 const RUN_ID = '11111111-1111-1111-1111-111111111111';
@@ -45,17 +45,17 @@ const makeInput = (overrides: Partial<HeartbeatRun> = {}): AgentAdapterInput => 
   agent: baseAgent,
 });
 
-describe('agentPanelAdapter', () => {
+describe('agentPanelMapper', () => {
   it.each(['pending', 'running', 'succeeded', 'failed', 'cancelled'] as const)(
     'passes through canonical status "%s"',
     (status) => {
-      const item = agentPanelAdapter.mapToItem(makeInput({ status }), 'co-1');
+      const item = agentPanelMapper.mapToItem(makeInput({ status }), 'co-1');
       expect(item.status).toBe(status);
     },
   );
 
   it('surfaces failureType as-is when present', () => {
-    const item = agentPanelAdapter.mapToItem(
+    const item = agentPanelMapper.mapToItem(
       makeInput({ status: 'failed', failureType: 'timeout' }),
       'co-1',
     );
@@ -63,12 +63,12 @@ describe('agentPanelAdapter', () => {
   });
 
   it('surfaces failureType: null when absent', () => {
-    const item = agentPanelAdapter.mapToItem(makeInput({ failureType: null }), 'co-1');
+    const item = agentPanelMapper.mapToItem(makeInput({ failureType: null }), 'co-1');
     expect(item.failureType).toBeNull();
   });
 
   it('triggeredByUserId: null maps to actorUserId: null and visibility: company', () => {
-    const item = agentPanelAdapter.mapToItem(
+    const item = agentPanelMapper.mapToItem(
       makeInput({ triggeredByUserId: null }),
       'co-1',
     );
@@ -77,31 +77,31 @@ describe('agentPanelAdapter', () => {
   });
 
   it('triggeredByUserId uuid maps to actorUserId and visibility: user', () => {
-    const item = agentPanelAdapter.mapToItem(makeInput({ triggeredByUserId: USER_ID }), 'co-1');
+    const item = agentPanelMapper.mapToItem(makeInput({ triggeredByUserId: USER_ID }), 'co-1');
     expect(item.actorUserId).toBe(USER_ID);
     expect(item.visibility).toBe('user');
   });
 
   it('throws on invalid (non-canonical) status', () => {
     expect(() =>
-      agentPanelAdapter.mapToItem(makeInput({ status: 'queued' }), 'co-1'),
+      agentPanelMapper.mapToItem(makeInput({ status: 'queued' }), 'co-1'),
     ).toThrow(/unknown status "queued"/);
   });
 
   it('output passes PanelRunItemSchema validation', () => {
-    const item = agentPanelAdapter.mapToItem(makeInput({ status: 'succeeded' }), 'co-1');
+    const item = agentPanelMapper.mapToItem(makeInput({ status: 'succeeded' }), 'co-1');
     const result = PanelRunItem.omit({ seq: true, updatedAt: true }).safeParse(item);
     expect(result.success).toBe(true);
   });
 
   it('maps id with agent: prefix', () => {
-    const item = agentPanelAdapter.mapToItem(makeInput(), 'co-1');
+    const item = agentPanelMapper.mapToItem(makeInput(), 'co-1');
     expect(item.id).toBe(`agent:${RUN_ID}`);
     expect(item.sourceId).toBe(RUN_ID);
   });
 
   it('phase is null for agent source', () => {
-    const item = agentPanelAdapter.mapToItem(makeInput(), 'co-1');
+    const item = agentPanelMapper.mapToItem(makeInput(), 'co-1');
     expect(item.phase).toBeNull();
   });
 });

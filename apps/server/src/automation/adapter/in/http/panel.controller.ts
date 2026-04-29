@@ -1,11 +1,11 @@
 import { Controller, Get, Sse, Query, Headers, MessageEvent } from '@nestjs/common';
 import { Observable, from, concat } from 'rxjs';
 import { map } from 'rxjs/operators';
-import type { AuthUser } from '../auth/auth.types';
-import { CurrentUser } from '../auth/decorators/current-user.decorator';
-import { CurrentCompany } from '../auth/decorators/current-company.decorator';
-import { PanelSseService } from './events/panel-sse.service';
-import { PanelService } from './panel.service';
+import type { AuthUser } from '../../../../auth/auth.types';
+import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
+import { CurrentCompany } from '../../../../auth/decorators/current-company.decorator';
+import { PanelSseService } from '../../out/panel-event/panel-sse.service';
+import { PanelService } from '../../out/panel-event/panel.service';
 import type { PanelEvent, PanelItem } from '@kiditem/shared/panel';
 
 @Controller('panel')

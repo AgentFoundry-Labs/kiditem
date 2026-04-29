@@ -1,4 +1,4 @@
-# panel — Live Ops SSE projection
+# panel-event — Live Ops SSE projection adapter
 
 `EventEmitter2` 글로벌 버스를 구독해 workflow / agent / image / alert 도메인
 이벤트를 SSE 로 multiplex. **business owner 가 아니라 projection adapter** 다.
@@ -17,28 +17,30 @@
 ## Owner domain — Automation / Agent OS
 
 이 폴더는 backend architecture contract 의 `automation` / `agent-os` owner
-domain 의 outgoing adapter (`adapter/out/panel-event/`) 역할이다 (Phase 3C-4
-에서 위치 이동). 분류 + hard-delete 기준은
-[`docs/superpowers/plans/2026-04-29-automation-agent-os-hard-delete.md`](../../../../docs/superpowers/plans/2026-04-29-automation-agent-os-hard-delete.md)
+domain 의 outgoing adapter (`adapter/out/panel-event/`) 역할이다. Phase 3C-4
+에서 top-level `src/panel/` 표면은 제거됐고, HTTP entrypoint 는
+`automation/adapter/in/http/panel.controller.ts` 로 이동했다. 분류 +
+hard-delete 기준은
+[`docs/superpowers/plans/2026-04-29-automation-agent-os-hard-delete.md`](../../../../../../../docs/superpowers/plans/2026-04-29-automation-agent-os-hard-delete.md)
 참조.
 
 ## Directory
 
 ```
-panel/
-├── panel.controller.ts        # @Sse('stream') + GET /snapshot + GET /backfill
-├── panel.service.ts           # snapshot/backfill projection across 4 sources
-├── panel.module.ts
-├── adapters/
-│   ├── workflow.adapter.ts    # WorkflowRun → PanelRunItem
-│   ├── agent.adapter.ts       # HeartbeatRun + AgentDefinition → PanelRunItem
-│   ├── image.adapter.ts       # ThumbnailGeneration → PanelRunItem
-│   ├── alert.adapter.ts       # Alert → PanelAlertItem
-│   ├── workflow-run-mapper.ts # internal upsert payload builder
-│   └── types.ts
-└── events/
-    ├── panel-events.ts        # PANEL_EVENTS.{UPSERT,DISMISS} + payload types
-    └── panel-sse.service.ts   # ring buffer + monotonic seq + multiplex
+automation/
+├── adapter/in/http/
+│   └── panel.controller.ts         # @Sse('stream') + GET /snapshot + GET /backfill
+├── adapter/out/panel-event/
+│   ├── panel.service.ts            # snapshot/backfill projection across 4 sources
+│   ├── panel-events.ts             # PANEL_EVENTS.{UPSERT,DISMISS} + payload types
+│   └── panel-sse.service.ts        # ring buffer + monotonic seq + multiplex
+└── mapper/panel-event/
+    ├── workflow.mapper.ts          # WorkflowRun → PanelRunItem
+    ├── agent.mapper.ts             # HeartbeatRun + AgentDefinition → PanelRunItem
+    ├── image.mapper.ts             # ThumbnailGeneration → PanelRunItem
+    ├── alert.mapper.ts             # Alert → PanelAlertItem
+    ├── workflow-run.mapper.ts      # internal upsert payload builder
+    └── types.ts
 ```
 
 ## Inbound entrypoints
@@ -74,6 +76,6 @@ panel/
 | 수정 시 | 같이 봐야 할 파일 |
 |---|---|
 | `panel-events.ts` 의 event payload shape | 모든 emitter (`WorkflowsService`, `WorkflowRunnerService`, `HeartbeatService`, `RulesService`, `AlertsService`, `thumbnail-auto.service`) + `panel-sse.service` + 클라이언트 store |
-| `adapters/*.adapter.ts` mapping | `@kiditem/shared/panel` 의 `PanelRunItem` / `PanelAlertItem` schema + 클라이언트 렌더링 |
+| `mapper/panel-event/*.mapper.ts` mapping | `@kiditem/shared/panel` 의 `PanelRunItem` / `PanelAlertItem` schema + 클라이언트 렌더링 |
 | Snapshot source 변경 | `panel.service.ts` 의 4-source 백필 + 새 source 가 owner-domain 규칙 위반 아닌지 확인 (위 Hard bans 참조) |
-| Visibility 필터 | `panel.service.ts` 마지막 `items.filter(...)` + `panel.controller.ts` 의 `@CurrentUser()` 사용 |
+| Visibility 필터 | `adapter/out/panel-event/panel.service.ts` 마지막 `items.filter(...)` + `adapter/in/http/panel.controller.ts` 의 `@CurrentUser()` 사용 |

@@ -38,8 +38,8 @@ import { SafetyPipelineService } from '../business-safety/safety-pipeline.servic
 import { DryRunGateService } from '../business-safety/dry-run-gate.service';
 import type { PermissionLayer } from '../permissions/hierarchy.validator';
 import { scrubSecrets } from '@kiditem/shared/security';
-import { PANEL_EVENTS } from '../../panel/events/panel-events';
-import { agentPanelAdapter } from '../../panel/adapters/agent.adapter';
+import { PANEL_EVENTS } from '../../automation/adapter/out/panel-event/panel-events';
+import { agentPanelMapper } from '../../automation/mapper/panel-event/agent.mapper';
 
 /** Extract company-level permission layer from agent.permissions JSON. Future extension point. */
 function extractCompanyLayer(permissions: Record<string, unknown> | null | undefined): PermissionLayer | undefined {
@@ -252,7 +252,7 @@ export class HeartbeatService {
     // Panel Live Ops: emit on create (agent source visible immediately on start)
     try {
       this.eventEmitter.emit(PANEL_EVENTS.UPSERT, {
-        item: agentPanelAdapter.mapToItem({ run, agent: { id: agent.id, name: agent.name } }, companyId),
+        item: agentPanelMapper.mapToItem({ run, agent: { id: agent.id, name: agent.name } }, companyId),
         companyId,
       });
     } catch (err) {
@@ -433,7 +433,7 @@ export class HeartbeatService {
     // Panel Live Ops: emit on terminal transition (running → succeeded | failed)
     try {
       this.eventEmitter.emit(PANEL_EVENTS.UPSERT, {
-        item: agentPanelAdapter.mapToItem({ run: terminalRun, agent: { id: agent.id, name: agent.name } }, companyId),
+        item: agentPanelMapper.mapToItem({ run: terminalRun, agent: { id: agent.id, name: agent.name } }, companyId),
         companyId,
       });
     } catch (err) {

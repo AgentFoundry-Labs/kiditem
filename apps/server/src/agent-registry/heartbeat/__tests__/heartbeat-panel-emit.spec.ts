@@ -22,7 +22,7 @@ vi.mock('../../adapters/fallback-chain', () => ({
 }));
 
 import { HeartbeatService } from '../heartbeat.service';
-import { PANEL_EVENTS } from '../../../panel/events/panel-events';
+import { PANEL_EVENTS } from '../../../automation/adapter/out/panel-event/panel-events';
 import { AGENT_EVENTS } from '../../events/agent-events';
 
 // ── helpers ────────────────────────────────────────────────────────────────

@@ -1,22 +1,22 @@
-import type { PrismaService } from '../../prisma/prisma.service';
+import type { PrismaService } from '../../../prisma/prisma.service';
 import type { PanelItem } from '@kiditem/shared/panel';
-import { workflowPanelAdapter } from './workflow.adapter';
+import { workflowPanelMapper } from './workflow.mapper';
 
 /**
  * Query WorkflowRun + template, map to PanelRunItem.
  * ADR-0011: WorkflowRun.status 는 이제 canonical. 정규화 불필요.
- * Returns null if run missing or lacks companyId (legacy rows).
+ * Returns null if the run is missing for the current company.
  */
 export async function buildWorkflowPanelItem(
   prisma: PrismaService,
   runId: string,
-  companyId?: string,
+  companyId: string,
 ): Promise<{ item: Omit<PanelItem, 'seq' | 'updatedAt'>; companyId: string } | null> {
   const run = await prisma.workflowRun.findFirst({
-    where: companyId ? { id: runId, companyId } : { id: runId },
+    where: { id: runId, companyId },
     include: { template: { select: { name: true } } },
   });
-  if (!run || !run.companyId) return null;
+  if (!run) return null;
 
   const steps = Array.isArray(run.steps)
     ? (run.steps as Array<{ status?: string }>).map((s) => ({
@@ -24,7 +24,7 @@ export async function buildWorkflowPanelItem(
       }))
     : [];
 
-  const item = workflowPanelAdapter.mapToItem(
+  const item = workflowPanelMapper.mapToItem(
     {
       id: run.id,
       status: run.status,
@@ -34,8 +34,8 @@ export async function buildWorkflowPanelItem(
       triggeredByUserId: run.triggeredByUserId,
       createdAt: run.createdAt,
     },
-    run.companyId,
+    companyId,
   );
 
-  return { item, companyId: run.companyId };
+  return { item, companyId };
 }

@@ -1,10 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
+import { PrismaService } from '../../../../prisma/prisma.service';
 import type { PanelItem } from '@kiditem/shared/panel';
-import { workflowPanelAdapter } from './adapters/workflow.adapter';
-import { agentPanelAdapter } from './adapters/agent.adapter';
-import { imagePanelAdapter } from './adapters/image.adapter';
-import { alertPanelAdapter } from './adapters/alert.adapter';
+import { workflowPanelMapper } from '../../../mapper/panel-event/workflow.mapper';
+import { agentPanelMapper } from '../../../mapper/panel-event/agent.mapper';
+import { imagePanelMapper } from '../../../mapper/panel-event/image.mapper';
+import { alertPanelMapper } from '../../../mapper/panel-event/alert.mapper';
 
 @Injectable()
 export class PanelService {
@@ -44,7 +44,7 @@ export class PanelService {
         : [];
 
       items.push(
-        workflowPanelAdapter.mapToItem(
+        workflowPanelMapper.mapToItem(
           {
             id: run.id,
             status: run.status,
@@ -76,7 +76,7 @@ export class PanelService {
 
       for (const run of heartbeatRuns) {
         items.push(
-          agentPanelAdapter.mapToItem(
+          agentPanelMapper.mapToItem(
             { run, agent: { id: run.agent.id, name: run.agent.name } },
             companyId,
           ),
@@ -103,7 +103,7 @@ export class PanelService {
 
       for (const gen of thumbnailGens) {
         items.push(
-          imagePanelAdapter.mapToItem(
+          imagePanelMapper.mapToItem(
             { generation: gen, product: { id: gen.master.id, title: gen.master.name } },
             companyId,
           ),
@@ -125,7 +125,7 @@ export class PanelService {
       });
 
       for (const alert of alerts) {
-        items.push(alertPanelAdapter.mapToItem(alert));
+        items.push(alertPanelMapper.mapToItem(alert));
       }
     } catch (err) {
       this.logger.warn('Alert source backfill failed', err);

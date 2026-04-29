@@ -70,9 +70,9 @@ explicit replacement in the same PR is rejected.
    reads/writes via `findFirst` / `updateMany`.
 3. **Panel event projection** — `EventEmitter2` global bus + `PanelSseService`
    ring buffer + `PanelService.snapshot()` backfill across four sources
-   (workflow, agent, image, alert). `panel/adapters/*.adapter.ts` map domain
-   rows to `PanelItem` / `PanelAlertItem`. Per-user visibility filter on
-   `Run-User` ownership.
+   (workflow, agent, image, alert). `automation/mapper/panel-event/*.mapper.ts`
+   maps domain rows to `PanelItem` / `PanelAlertItem`. Per-user visibility
+   filter on `Run-User` ownership.
 4. **Agent delegation boundary** — `AgentRegistryService.runByType` /
    `AgentRegistryService.run` as the single entrypoint for AI/LLM work.
    `AgentTask` first-class trace columns (`companyId`, `workflowRunId`,
@@ -134,14 +134,13 @@ rewrite them.
    `automation/` rewrite PR will re-evaluate after migrating the 8
    marketplace endpoints + 6 action-task endpoints behind the `application/`
    layer.
-6. **`panel` as business-domain owner** — `panel.service.ts` reads from
-   `workflowRun`, `heartbeatRun`, `thumbnailGeneration`, `alert`. It does not
-   own those tables; it projects them. This is correct posture, but the
-   directory is currently top-level `apps/server/src/panel/` next to owner
-   domains. Reclassified contract: `panel` becomes
-   `automation/adapter/out/panel-event/` once the owner-domain folder lands.
-   Until then, no panel-internal mutation: the file order is `WorkflowsService
-   → emit → PanelSseService → SSE`, never `PanelService → mutate`.
+6. **`panel` as business-domain owner** — rewritten in Phase 3C-4. `panel`
+   no longer exists as a top-level owner domain. HTTP entrypoint lives at
+   `automation/adapter/in/http/panel.controller.ts`, projection / SSE bus lives
+   at `automation/adapter/out/panel-event/`, and row-to-panel mapping lives at
+   `automation/mapper/panel-event/`. No panel-internal mutation: the file order
+   is `owner service → emit → PanelSseService → SSE`, never
+   `PanelService → mutate`.
 7. **Root barrel / shared exports for legacy automation surface** — already
    migrated. All current automation imports use subpaths
    (`@kiditem/shared/{workflow,agent,agent-trace,panel,rules,marketplace,
@@ -190,7 +189,7 @@ Outbound dependencies:
 - Agent runtime — `AgentRegistryService` (Optional inject in
   `WorkflowRunnerService`).
 - Panel/event — `EventEmitter2` (`PANEL_EVENTS.UPSERT` via
-  `panel/adapters/workflow-run-mapper`).
+  `automation/mapper/panel-event/workflow-run.mapper`).
 - LLM/provider — none.
 - Filesystem — none.
 
@@ -251,7 +250,7 @@ Outbound dependencies:
   `agent-config/skills/`); prompt files loaded from
   `agent-config/prompts/`.
 - Panel/event — `EventEmitter2` for `agent.*` events + `PANEL_EVENTS.UPSERT`
-  via `agent.adapter`.
+  via `automation/mapper/panel-event/agent.mapper`.
 - HTTP fetch — `python-http` adapter only.
 
 Shared package use: `@kiditem/shared/agent`, `@kiditem/shared/agent-trace`,
@@ -305,7 +304,7 @@ Outbound dependencies:
 - Agent runtime — `AgentRegistryService.findByType` + `.run` for spawn,
   `HeartbeatService.syncTimers` for schedule reload.
 - Panel/event — `EventEmitter2` (`PANEL_EVENTS.UPSERT` and `DISMISS` via
-  `alert.adapter`).
+  `automation/mapper/panel-event/alert.mapper`).
 - LLM/provider — none directly. All AI evaluation goes through agent.
 
 Shared package use: `@kiditem/shared/rules`, `@kiditem/shared/alerts`.
@@ -382,21 +381,20 @@ Web consumers: `/api/marketplace/*` from
 `apps/web/src/app/marketplace/page.tsx` and
 `apps/web/src/app/agents/lib/marketplace-api.ts`.
 
-### `apps/server/src/panel/` — Live Ops SSE projection
+### `apps/server/src/automation/{adapter,mapper}/panel-event` — Live Ops SSE projection
 
-Files (~10 production files + 7 tests):
-- `panel.module.ts`, `panel.controller.ts` (3 routes: `Sse('stream')`,
-  `Get('snapshot')`, `Get('backfill')`).
-- `panel.service.ts` (157 lines) — snapshot reads from `workflowRun`,
-  `heartbeatRun`, `thumbnailGeneration`, `alert` and applies user-visibility
-  filter.
-- `events/panel-events.ts`, `events/panel-sse.service.ts` — multiplex SSE +
-  ring buffer + monotonic seq.
-- `adapters/{workflow,agent,image,alert}.adapter.ts` + `types.ts` +
-  `workflow-run-mapper.ts`.
-- No `CLAUDE.md` today. Inline guidance in `apps/server/AGENTS.md`
-  "Panel — Live Ops SSE" section. This PR adds a focused
-  `apps/server/src/panel/CLAUDE.md` so the contract is co-located.
+Files (Phase 3C-4 target):
+- `automation/adapter/in/http/panel.controller.ts` (3 routes:
+  `Sse('stream')`, `Get('snapshot')`, `Get('backfill')`).
+- `automation/adapter/out/panel-event/panel.service.ts` — snapshot reads from
+  `workflowRun`, `heartbeatRun`, `thumbnailGeneration`, `alert` and applies
+  user-visibility filter.
+- `automation/adapter/out/panel-event/panel-events.ts`,
+  `panel-sse.service.ts` — multiplex SSE + ring buffer + monotonic seq.
+- `automation/mapper/panel-event/{workflow,agent,image,alert}.mapper.ts` +
+  `types.ts` + `workflow-run.mapper.ts`.
+- Focused scoped guidance lives at
+  `automation/adapter/out/panel-event/CLAUDE.md`.
 
 Inbound entrypoints:
 - HTTP — `PanelController` SSE + snapshot + backfill. `@CurrentCompany()` +
@@ -404,11 +402,11 @@ Inbound entrypoints:
 - Workflow — receives `PANEL_EVENTS.UPSERT` from `WorkflowRunnerService` +
   `WorkflowsService`.
 - Agent — receives `PANEL_EVENTS.UPSERT` from `HeartbeatService` (via
-  `agent.adapter`).
-- AI thumbnail — receives `PANEL_EVENTS.UPSERT` via `image.adapter`
+  `agent.mapper`).
+- AI thumbnail — receives `PANEL_EVENTS.UPSERT` via `image.mapper`
   (emitted from `ai/services/thumbnail-auto.service.ts` chain).
 - Rules / alerts — receives `PANEL_EVENTS.UPSERT` and `PANEL_EVENTS.DISMISS`
-  from `RulesService` and `AlertsService` via `alert.adapter`.
+  from `RulesService` and `AlertsService` via `alert.mapper`.
 
 Outbound dependencies:
 - Prisma — read-only joins for snapshot/backfill.
@@ -443,9 +441,9 @@ Web consumers: `/api/panel/stream` SSE consumed by the panel UI store.
 | `action-task/action-task.service.ts:executeTask` self-fetch via `API_SELF_URL` | **Defer** | Self-fetch back into the same NestJS process is a smell, but the targeted endpoints span `products`, `inventory`, `coupang-category`, etc. Replacement requires a stable internal-call port; defer to executor-rewrite PR. |
 | `marketplace/marketplace.service.ts` slim-core allowlist gate | **Keep** | Catalog defense-in-depth. Allowlist must mirror `executors/builtin.ts` registration; sync rule already in `marketplace/CLAUDE.md`. |
 | `marketplace/marketplace.service.ts` install/uninstall paths | **Rewritten (Phase 3C-3)** | Moved to `automation/application/service/marketplace-install.service.ts` for orchestration and `automation/adapter/out/prisma/marketplace-install-store.adapter.ts` for tenant-scoped persistence. `MarketplaceController` moved to `automation/adapter/in/http/marketplace.controller.ts`; DTOs alongside. Catalog read methods (`listWorkflows` / `getWorkflow` / `listAgents` / `getAgent`) stay in `marketplace/marketplace.service.ts`. Slim-core allowlist extracted to `marketplace/workflow-slim-core.ts` (single source of truth shared with the install service). Public route shape unchanged. |
-| `panel/panel.service.ts` snapshot multi-source backfill | **Keep, rewrite-target** | Pure projection. Owner-domain rewrite turns `panel/` into `automation/adapter/out/panel-event/` — `panel.service` becomes the read-side projection adapter. |
-| `panel/events/panel-sse.service.ts` ring buffer + multiplex SSE | **Keep** | Live Ops backbone. Move to `automation/adapter/out/panel-event/sse-bus.ts` post-rewrite. |
-| `panel/adapters/*.adapter.ts` | **Keep** | Already the right pattern (mappers from domain rows to `PanelItem`). They become the canonical examples of `mapper/` placement after rewrite. |
+| `panel/panel.service.ts` snapshot multi-source backfill | **Rewritten (Phase 3C-4)** | Top-level `panel/` removed. Projection now lives at `automation/adapter/out/panel-event/panel.service.ts`. |
+| `panel/events/panel-sse.service.ts` ring buffer + multiplex SSE | **Rewritten (Phase 3C-4)** | Moved to `automation/adapter/out/panel-event/panel-sse.service.ts`; event constants moved alongside. |
+| `panel/adapters/*.adapter.ts` | **Rewritten (Phase 3C-4)** | Moved and renamed to `automation/mapper/panel-event/*.mapper.ts`, with `workflow-run.mapper.ts` as the internal upsert helper. |
 | Web `marketplaceFilter`, `agents/page.tsx` tab orchestration | **Defer** | Owned by frontend Phase 4. Out of scope for this owner domain. |
 | Shared subpaths `@kiditem/shared/{workflow,agent,agent-trace,panel,rules,marketplace,action-task,alerts}` | **Keep** | All have direct consumers per the inventory above. Do not add new automation subpaths in this PR or in the next two follow-up PRs. |
 
@@ -547,6 +545,13 @@ Each follow-up PR is one owner-domain PR. Do not bundle two of these.
    - Move `panel/` to `automation/adapter/out/panel-event/`. `panel.service.ts`
      becomes the read-side projection adapter. The four adapters become
      `mapper/` examples.
+   - **Resolution (PR `refactor/panel-outgoing-adapter`):** implemented.
+     `/api/panel/*` route shape is preserved via
+     `automation/adapter/in/http/panel.controller.ts`. The projection and SSE
+     bus live under `automation/adapter/out/panel-event/`; row-to-panel mapping
+     moved to `automation/mapper/panel-event/`. `PanelModule` and top-level
+     `apps/server/src/panel/` were removed; `AutomationModule` now registers
+     panel controller/providers.
 
 5. **Phase 3C-5 — Workflow runner under application service**
    - Move `WorkflowsService` to `automation/application/service/workflow-orchestration.service.ts`.

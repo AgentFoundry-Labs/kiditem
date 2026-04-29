@@ -1,17 +1,17 @@
 import { PanelRunItem } from '@kiditem/shared/panel';
 import type { PanelRunItem as PanelRunItemType } from '@kiditem/shared/panel';
 import type { HeartbeatRun } from '@prisma/client';
-import type { PanelRunAdapter } from './types';
+import type { PanelRunMapper } from './types';
 
 /**
  * Service layer가 HeartbeatRun + AgentDefinition 조인 결과를 이 shape으로 넘김.
  *
  * service 호출 예 (panel.service.ts):
- *   const run = await prisma.heartbeatRun.findUnique({
- *     where: { id }, include: { agent: { select: { id: true, name: true } } }
+ *   const run = await prisma.heartbeatRun.findFirst({
+ *     where: { id, companyId }, include: { agent: { select: { id: true, name: true } } }
  *   });
  *   const input: AgentAdapterInput = { run, agent: { id: run.agent.id, name: run.agent.name } };
- *   const item = agentPanelAdapter.mapToItem(input, companyId);
+ *   const item = agentPanelMapper.mapToItem(input, companyId);
  */
 export interface AgentAdapterInput {
   run: HeartbeatRun;
@@ -21,7 +21,7 @@ export interface AgentAdapterInput {
 // shared Zod enum에서 유효 상태 집합을 파생 — 드리프트 시 tsc가 감지
 const VALID_STATUS = new Set<PanelRunItemType['status']>(PanelRunItem.shape.status.options);
 
-export const agentPanelAdapter: PanelRunAdapter<AgentAdapterInput> = {
+export const agentPanelMapper: PanelRunMapper<AgentAdapterInput> = {
   source: 'agent',
   mapToItem(input, _companyId) {
     const { run, agent } = input;
@@ -30,7 +30,7 @@ export const agentPanelAdapter: PanelRunAdapter<AgentAdapterInput> = {
     // Drift guard: unknown status throws to catch writer regressions.
     if (!VALID_STATUS.has(run.status as PanelRunItemType['status'])) {
       throw new Error(
-        `agentPanelAdapter: unknown status "${run.status}" for HeartbeatRun ${run.id}. ` +
+        `agentPanelMapper: unknown status "${run.status}" for HeartbeatRun ${run.id}. ` +
           `Expected one of: ${[...VALID_STATUS].join(', ')}`,
       );
     }
@@ -46,7 +46,7 @@ export const agentPanelAdapter: PanelRunAdapter<AgentAdapterInput> = {
       title: agent.name,
       deepLink: `/agents/${agent.id}/runs/${run.id}`,
       actorUserId: run.triggeredByUserId ?? null,
-      visibility: agentPanelAdapter.defaultVisibility(input),
+      visibility: agentPanelMapper.defaultVisibility(input),
       createdAt: run.createdAt.toISOString(),
       ...(run.error != null ? { errorMessage: run.error } : {}),
     };

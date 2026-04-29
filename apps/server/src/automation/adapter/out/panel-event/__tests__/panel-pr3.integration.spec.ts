@@ -28,11 +28,11 @@ import { NotFoundException } from '@nestjs/common';
 import { lastValueFrom } from 'rxjs';
 import { take, toArray } from 'rxjs/operators';
 
-import { PanelSseService } from '../events/panel-sse.service';
-import { PANEL_EVENTS } from '../events/panel-events';
-import { AlertsService } from '../../rules/services/alerts.service';
-import { ActionTaskService } from '../../action-task/action-task.service';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PanelSseService } from '../panel-sse.service';
+import { PANEL_EVENTS } from '../panel-events';
+import { AlertsService } from '../../../../../rules/services/alerts.service';
+import { ActionTaskService } from '../../../../../action-task/action-task.service';
+import { PrismaService } from '../../../../../prisma/prisma.service';
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
