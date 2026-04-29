@@ -4,7 +4,7 @@ import type {
   ReviewListItem,
   ReviewListResponse,
   ReviewSummary,
-} from '@kiditem/shared';
+} from '@kiditem/shared/reviews';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ListReviewsQueryDto, type ReviewFilter } from '../dto/list-reviews.dto';
 

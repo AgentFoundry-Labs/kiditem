@@ -17,7 +17,7 @@ import { ErrorState } from "@/components/ui/EmptyState";
 import { Pagination } from "@/components/ui/Pagination";
 import ProfitLossSummaryCards from "./components/ProfitLossSummaryCards";
 import ProfitLossTable from "./components/ProfitLossTable";
-import type { SyncInfo } from '@kiditem/shared';
+import type { SyncInfo } from '@kiditem/shared/common';
 import type { SortField } from "./components/ProfitLossTable";
 
 export default function ProfitLossPage() {

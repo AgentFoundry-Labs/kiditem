@@ -2,7 +2,8 @@ import Link from 'next/link';
 import { GitBranch, Hash } from 'lucide-react';
 import VariantStatusBadge from '@/components/ui/StatusBadge';
 import { formatDateTime } from '@/lib/utils';
-import type { AgentTask, Traceability, WorkflowRun } from '@kiditem/shared';
+import type { AgentTask, Traceability } from '@kiditem/shared/agent-trace';
+import type { WorkflowRun } from '@kiditem/shared/workflow';
 import {
   computeDurationMs,
   formatDurationMs,

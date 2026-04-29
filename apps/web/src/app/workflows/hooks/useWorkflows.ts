@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
 import { workflowApi } from '../lib/workflow-api';
 import type { UseQueryOptions } from '@tanstack/react-query';
-import type { WorkflowTemplate } from '@kiditem/shared';
+import type { WorkflowTemplate } from '@kiditem/shared/workflow';
 
 export function useWorkflows(options?: Partial<UseQueryOptions<WorkflowTemplate[]>>) {
   return useQuery({

@@ -2,7 +2,7 @@ import { Injectable, Logger, OnModuleInit, NotFoundException, BadRequestExceptio
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { HeartbeatService } from './heartbeat/heartbeat.service';
-import type { AgentListItem, DailyCost, AgentCostSummary, CostAnalytics } from '@kiditem/shared';
+import type { AgentListItem, DailyCost, AgentCostSummary, CostAnalytics } from '@kiditem/shared/agent';
 import { validateAllowedTools } from './safety/dangerous-patterns';
 import type { OrgNode } from './types';
 import { scrubSecrets } from '@kiditem/shared/security';

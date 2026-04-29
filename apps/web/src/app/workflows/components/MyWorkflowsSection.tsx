@@ -2,7 +2,7 @@
 import { Filter } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import WorkflowList from './WorkflowList';
-import type { WorkflowTemplate } from '@kiditem/shared';
+import type { WorkflowTemplate } from '@kiditem/shared/workflow';
 
 const moduleFilters: { id: string; label: string }[] = [
   { id: 'all', label: '전체' },

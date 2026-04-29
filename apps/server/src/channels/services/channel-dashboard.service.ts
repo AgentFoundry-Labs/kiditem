@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import type { ReturnSummary } from '@kiditem/shared';
+import type { ReturnSummary } from '@kiditem/shared/return-summary';
 import type {
   ChannelDashboardSummary,
   RevenueTrendPoint,

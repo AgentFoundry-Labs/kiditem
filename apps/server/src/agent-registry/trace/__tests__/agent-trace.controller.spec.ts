@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { AgentTraceSchema, AgentTaskListResponseSchema } from '@kiditem/shared';
+import { AgentTraceSchema, AgentTaskListResponseSchema } from '@kiditem/shared/agent-trace';
 import { AgentTraceController } from '../agent-trace.controller';
 
 // ── Controller wiring only ──

@@ -12,7 +12,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { kstDayStart } from '../../common/kst';
 import { alertPanelAdapter } from '../../panel/adapters/alert.adapter';
 import { PANEL_EVENTS } from '../../panel/events/panel-events';
-import type { AlertItem } from '@kiditem/shared';
+import type { AlertItem } from '@kiditem/shared/alerts';
 import type { PromoteAlertDto } from '../dto';
 
 // ── severity → ActionTask.priority mapping ──────────────────────────────────

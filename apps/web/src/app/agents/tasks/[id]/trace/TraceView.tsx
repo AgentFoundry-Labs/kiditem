@@ -6,7 +6,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft } from 'lucide-react';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { queryKeys } from '@/lib/query-keys';
-import type { AgentEvent } from '@kiditem/shared';
+import type { AgentEvent } from '@kiditem/shared/agent-trace';
 import { fetchAgentTrace } from '../../../lib/agent-api';
 import { isRunningStatus } from '../../lib/trace-utils';
 import { TraceHeader } from './components/TraceHeader';

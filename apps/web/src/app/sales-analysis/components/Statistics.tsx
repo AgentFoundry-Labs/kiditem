@@ -21,7 +21,7 @@ import {
   StatisticsParetoResponseSchema,
   StatisticsProductRowSchema,
   StatisticsRepurchaseResponseSchema,
-} from '@kiditem/shared';
+} from '@kiditem/shared/statistics';
 import { EmptyState, ErrorState } from '@/components/ui/EmptyState';
 import { Pagination } from '@/components/ui/Pagination';
 import PeriodSelector from '@/components/ui/PeriodSelector';
@@ -39,7 +39,7 @@ import type {
   StatisticsParetoResponse,
   StatisticsProductRow,
   StatisticsRepurchaseResponse,
-} from '@kiditem/shared';
+} from '@kiditem/shared/statistics';
 
 const ProductRowsSchema = z.array(StatisticsProductRowSchema);
 const CategoryRowsSchema = z.array(StatisticsCategoryRowSchema);

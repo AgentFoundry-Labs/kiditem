@@ -1,6 +1,6 @@
 import { Controller, Get, Param, Query } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import type { AgentTaskListResponse, AgentTrace } from '@kiditem/shared';
+import type { AgentTaskListResponse, AgentTrace } from '@kiditem/shared/agent-trace';
 import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
 import { Roles } from '../../auth/decorators/roles.decorator';
 import { AgentTraceService } from './agent-trace.service';

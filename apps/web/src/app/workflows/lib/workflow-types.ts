@@ -2,8 +2,8 @@
 // Workflow API Types (backend DTO mapping)
 // ============================================
 
-export type { WorkflowTemplate, WorkflowRun } from '@kiditem/shared';
-import type { WorkflowRun, WorkflowStepRun } from '@kiditem/shared';
+export type { WorkflowTemplate, WorkflowRun } from '@kiditem/shared/workflow';
+import type { WorkflowRun, WorkflowStepRun } from '@kiditem/shared/workflow';
 
 export interface StepStatusInfo {
   status: 'idle' | 'running' | 'success' | 'error';

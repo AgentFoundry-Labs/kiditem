@@ -2,7 +2,7 @@ import { Injectable, BadRequestException } from '@nestjs/common';
 import type {
   SettlementReconcileDetail,
   SettlementReconcileResponse,
-} from '@kiditem/shared';
+} from '@kiditem/shared/settlements';
 import { PrismaService } from '../prisma/prisma.service';
 import { buildPerListingMetrics } from '../common/per-listing-profit';
 import { kstMonthStart } from '../common/kst';

@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
 import { agentApi } from '../lib/agent-api';
 import type { UseQueryOptions } from '@tanstack/react-query';
-import type { Agent, HeartbeatRun, AgentRuntimeState, CostAnalytics } from '@kiditem/shared';
+import type { Agent, HeartbeatRun, AgentRuntimeState, CostAnalytics } from '@kiditem/shared/agent';
 import type { OrgNode } from '../lib/agent-types';
 
 export function useAgents(options?: Partial<UseQueryOptions<Agent[]>>) {

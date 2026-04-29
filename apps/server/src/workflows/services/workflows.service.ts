@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import type { WorkflowTemplate } from '@kiditem/shared';
+import type { WorkflowTemplate } from '@kiditem/shared/workflow';
 import { PrismaService } from '../../prisma/prisma.service';
 import { WorkflowRunnerService } from './workflow-runner.service';
 import { PANEL_EVENTS } from '../../panel/events/panel-events';

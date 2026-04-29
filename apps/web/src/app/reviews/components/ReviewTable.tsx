@@ -2,7 +2,7 @@
 import { Star } from 'lucide-react';
 import { Pagination } from '@/components/ui/Pagination';
 import { cn, getGradeColor } from '@/lib/utils';
-import type { ReviewListItem as ReviewProduct } from '@kiditem/shared';
+import type { ReviewListItem as ReviewProduct } from '@kiditem/shared/reviews';
 
 export type FilterTab = 'all' | 'new' | 'needs-response';
 

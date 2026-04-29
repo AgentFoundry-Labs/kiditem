@@ -7,10 +7,13 @@ import type {
   HeartbeatRun,
   AgentRuntimeState,
   CostAnalytics,
-  AgentTrace,
-  AgentTaskListResponse,
-} from '@kiditem/shared';
-import { AgentTraceSchema, AgentTaskListResponseSchema } from '@kiditem/shared/schemas';
+} from '@kiditem/shared/agent';
+import {
+  AgentTraceSchema,
+  AgentTaskListResponseSchema,
+  type AgentTrace,
+  type AgentTaskListResponse,
+} from '@kiditem/shared/agent-trace';
 import type { OrgNode } from './agent-types';
 
 export const agentApi = {

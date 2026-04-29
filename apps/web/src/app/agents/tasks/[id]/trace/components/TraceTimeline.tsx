@@ -4,7 +4,8 @@ import { useMemo } from 'react';
 import { AlertCircle, CheckCircle2, Clock, PlayCircle, Radio } from 'lucide-react';
 import VariantStatusBadge from '@/components/ui/StatusBadge';
 import { cn, formatDateTime } from '@/lib/utils';
-import type { AgentEvent, AgentWakeupRequest, HeartbeatRun } from '@kiditem/shared';
+import type { HeartbeatRun } from '@kiditem/shared/agent';
+import type { AgentEvent, AgentWakeupRequest } from '@kiditem/shared/agent-trace';
 import {
   computeDurationMs,
   formatDurationMs,

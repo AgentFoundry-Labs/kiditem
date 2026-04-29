@@ -2,7 +2,7 @@
 
 import { getCompanyId } from '@/lib/api';
 import { apiClient } from '@/lib/api-client';
-import type { WorkflowTemplate, WorkflowRun } from '@kiditem/shared';
+import type { WorkflowTemplate, WorkflowRun } from '@kiditem/shared/workflow';
 import type { WorkflowRunWithSteps } from './workflow-types';
 
 export const workflowApi = {

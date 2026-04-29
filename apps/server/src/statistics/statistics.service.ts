@@ -8,7 +8,7 @@ import type {
   StatisticsParetoResponse,
   StatisticsRepurchaseResponse,
   StatisticsDeliveryResponse,
-} from '@kiditem/shared';
+} from '@kiditem/shared/statistics';
 import { PrismaService } from '../prisma/prisma.service';
 import { buildPerListingMetrics } from '../common/per-listing-profit';
 import { kstMonthStart } from '../common/kst';

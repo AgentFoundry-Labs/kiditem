@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { scrubDeep } from '@kiditem/shared/security';
-import type { AgentTrace, AgentTaskListResponse, AgentWakeupRequest } from '@kiditem/shared';
+import type { AgentTrace, AgentTaskListResponse, AgentWakeupRequest } from '@kiditem/shared/agent-trace';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { TraceQueryDto, TraceListQueryDto } from './dto';
 

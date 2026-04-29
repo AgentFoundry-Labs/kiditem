@@ -17,7 +17,7 @@ import { printBarcodeWindow } from './lib/barcode-print';
 import { useInventoryList } from './hooks/useInventory';
 import { fetchAllInventoryForExport, toInventoryExportRows } from './lib/inventory-export';
 import type { StockOperationMode } from './components/StockOperationDialog';
-import type { SyncInfo } from '@kiditem/shared';
+import type { SyncInfo } from '@kiditem/shared/common';
 import type { InventoryFilterKey } from './lib/inventory-api';
 import type { InventoryListItem, InventorySummary } from '@kiditem/shared/inventory';
 
