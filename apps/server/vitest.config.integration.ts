@@ -1,6 +1,8 @@
 import { defineConfig } from 'vitest/config';
 import path from 'path';
 
+const sharedSrc = path.resolve(__dirname, '../../packages/shared/src');
+
 /**
  * Integration test config — real Postgres 기반.
  *
@@ -18,9 +20,12 @@ import path from 'path';
  */
 export default defineConfig({
   resolve: {
-    alias: {
-      '@kiditem/shared': path.resolve(__dirname, '../../packages/shared/src/index.ts'),
-    },
+    alias: [
+      { find: /^@kiditem\/shared$/, replacement: path.resolve(sharedSrc, 'index.ts') },
+      { find: /^@kiditem\/shared\/security$/, replacement: path.resolve(sharedSrc, 'security/index.ts') },
+      { find: /^@kiditem\/shared\/panel$/, replacement: path.resolve(sharedSrc, 'panel/index.ts') },
+      { find: /^@kiditem\/shared\/([^/]+)$/, replacement: path.resolve(sharedSrc, '$1.ts') },
+    ],
   },
   test: {
     root: '.',

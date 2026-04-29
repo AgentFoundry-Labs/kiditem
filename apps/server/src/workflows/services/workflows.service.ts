@@ -79,8 +79,8 @@ export class WorkflowsService {
     });
     if (!existing) throw new NotFoundException(`워크플로우 템플릿(${id})을 찾을 수 없습니다`);
 
-    return this.prisma.workflowTemplate.update({
-      where: { id },
+    const { count } = await this.prisma.workflowTemplate.updateMany({
+      where: { id, companyId },
       data: {
         ...(data.name !== undefined && { name: data.name }),
         ...(data.description !== undefined && { description: data.description }),
@@ -93,15 +93,18 @@ export class WorkflowsService {
         version: { increment: 1 },
       },
     });
+    if (count === 0) throw new NotFoundException(`워크플로우 템플릿(${id})을 찾을 수 없습니다`);
+    return this.prisma.workflowTemplate.findFirstOrThrow({ where: { id, companyId } });
   }
 
   async remove(id: string, companyId: string) {
     const existing = await this.prisma.workflowTemplate.findFirst({
       where: { id, companyId },
-      select: { id: true },
     });
     if (!existing) throw new NotFoundException(`워크플로우 템플릿(${id})을 찾을 수 없습니다`);
-    return this.prisma.workflowTemplate.delete({ where: { id } });
+    const { count } = await this.prisma.workflowTemplate.deleteMany({ where: { id, companyId } });
+    if (count === 0) throw new NotFoundException(`워크플로우 템플릿(${id})을 찾을 수 없습니다`);
+    return existing;
   }
 
   async triggerRun(templateId: string, companyId: string, options: TriggerOptions = {}) {
@@ -122,9 +125,9 @@ export class WorkflowsService {
         contextData: options.context ?? undefined,
       },
     });
-    await this.emitPanelUpsert(run.id, companyId);
+    await this.emitPanelUpsert(run.id, template.companyId);
 
-    this.runner.runWorkflow(run.id, templateId, companyId).catch((err) => {
+    this.runner.runWorkflow(run.id, templateId, template.companyId).catch((err) => {
       this.logger.error(`Workflow run ${run.id} failed: ${err.message}`);
     });
 
@@ -146,24 +149,42 @@ export class WorkflowsService {
 
     const triggeredBy = options.triggeredBy ?? 'manual';
     const runs = await Promise.all(
-      templateIds.map((templateId) =>
-        this.prisma.workflowRun.create({
+      templateIds.map((templateId) => {
+        const templateCompanyId = companyIdByTemplateId.get(templateId);
+        if (!templateCompanyId) {
+          throw new NotFoundException(`워크플로우 템플릿을 찾을 수 없습니다: ${templateId}`);
+        }
+        return this.prisma.workflowRun.create({
           data: {
             templateId,
             status: 'pending',
             triggeredBy,
             triggeredByUserId: options.triggeredByUserId ?? null,
-            companyId: companyIdByTemplateId.get(templateId) ?? null,
+            companyId: templateCompanyId,
             contextData: options.context ?? undefined,
           },
-        }),
-      ),
+        });
+      }),
     );
-    await Promise.all(runs.map((r) => this.emitPanelUpsert(r.id, companyId)));
+    await Promise.all(
+      runs.map((r) => {
+        const templateCompanyId = companyIdByTemplateId.get(r.templateId);
+        if (!templateCompanyId) {
+          throw new NotFoundException(`워크플로우 템플릿을 찾을 수 없습니다: ${r.templateId}`);
+        }
+        return this.emitPanelUpsert(r.id, templateCompanyId);
+      }),
+    );
 
     this.runner
       .runBatch(
-        runs.map((r) => ({ runId: r.id, templateId: r.templateId, companyId })),
+        runs.map((r) => {
+          const templateCompanyId = companyIdByTemplateId.get(r.templateId);
+          if (!templateCompanyId) {
+            throw new NotFoundException(`워크플로우 템플릿을 찾을 수 없습니다: ${r.templateId}`);
+          }
+          return { runId: r.id, templateId: r.templateId, companyId: templateCompanyId };
+        }),
       )
       .catch((err: Error) => {
         this.logger.error(`Batch run failed: ${err.message}`);

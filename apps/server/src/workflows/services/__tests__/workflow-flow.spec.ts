@@ -12,8 +12,11 @@ function makePrisma() {
       create: vi.fn(),
       findMany: vi.fn(),
       findFirst: vi.fn(),
+      findFirstOrThrow: vi.fn(),
       update: vi.fn(),
+      updateMany: vi.fn(),
       delete: vi.fn(),
+      deleteMany: vi.fn(),
     },
     workflowRun: {
       create: vi.fn(),
@@ -131,6 +134,21 @@ describe('WorkflowsService', () => {
       });
     });
 
+    it('passes the verified template companyId to runner.runWorkflow', async () => {
+      const run = makeRun({ companyId: 'company-owned' });
+      prisma.workflowTemplate.findFirst.mockResolvedValue(makeTemplate({ companyId: 'company-owned' }));
+      prisma.workflowRun.create.mockResolvedValue(run);
+      runner.runWorkflow.mockResolvedValue(undefined);
+
+      await service.triggerRun('tmpl-1', 'company-request', { triggeredBy: 'manual' });
+
+      expect(prisma.workflowRun.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ companyId: 'company-owned' }),
+      });
+      await Promise.resolve();
+      expect(runner.runWorkflow).toHaveBeenCalledWith('run-1', 'tmpl-1', 'company-owned');
+    });
+
     it('throws NotFoundException when template does not exist', async () => {
       prisma.workflowTemplate.findFirst.mockResolvedValue(null);
 
@@ -203,6 +221,27 @@ describe('WorkflowsService', () => {
   });
 
   describe('update', () => {
+    it('writes through scoped updateMany and reloads by (id, companyId)', async () => {
+      prisma.workflowTemplate.findFirst.mockResolvedValue(makeTemplate());
+      prisma.workflowTemplate.updateMany.mockResolvedValue({ count: 1 });
+      prisma.workflowTemplate.findFirstOrThrow.mockResolvedValue(makeTemplate({ name: '수정됨', version: 2 }));
+
+      const result = await service.update('tmpl-1', 'company-1', { name: '수정됨' } as any);
+
+      expect(prisma.workflowTemplate.updateMany).toHaveBeenCalledWith({
+        where: { id: 'tmpl-1', companyId: 'company-1' },
+        data: expect.objectContaining({
+          name: '수정됨',
+          version: { increment: 1 },
+        }),
+      });
+      expect(prisma.workflowTemplate.findFirstOrThrow).toHaveBeenCalledWith({
+        where: { id: 'tmpl-1', companyId: 'company-1' },
+      });
+      expect(prisma.workflowTemplate.update).not.toHaveBeenCalled();
+      expect(result.name).toBe('수정됨');
+    });
+
     it('throws NotFoundException without writing when template belongs to a different company', async () => {
       prisma.workflowTemplate.findFirst.mockResolvedValue(null);
 
@@ -214,6 +253,20 @@ describe('WorkflowsService', () => {
   });
 
   describe('remove', () => {
+    it('deletes through scoped deleteMany and returns the owned template snapshot', async () => {
+      const template = makeTemplate();
+      prisma.workflowTemplate.findFirst.mockResolvedValue(template);
+      prisma.workflowTemplate.deleteMany.mockResolvedValue({ count: 1 });
+
+      const result = await service.remove('tmpl-1', 'company-1');
+
+      expect(prisma.workflowTemplate.deleteMany).toHaveBeenCalledWith({
+        where: { id: 'tmpl-1', companyId: 'company-1' },
+      });
+      expect(prisma.workflowTemplate.delete).not.toHaveBeenCalled();
+      expect(result).toBe(template);
+    });
+
     it('throws NotFoundException without deleting when template belongs to a different company', async () => {
       prisma.workflowTemplate.findFirst.mockResolvedValue(null);
 
@@ -240,6 +293,25 @@ describe('WorkflowsService', () => {
       });
       expect(prisma.workflowRun.create).toHaveBeenCalledTimes(2);
       expect(result).toHaveLength(2);
+    });
+
+    it('passes each verified template companyId to runner.runBatch items', async () => {
+      prisma.workflowTemplate.findMany.mockResolvedValue([
+        { id: 'tmpl-1', companyId: 'company-owned' },
+      ]);
+      prisma.workflowRun.create.mockImplementation(({ data }: any) =>
+        Promise.resolve(makeRun({ id: 'run-1', ...data })),
+      );
+      runner.runBatch.mockResolvedValue(undefined);
+
+      await service.batchRun(['tmpl-1'], 'company-request', { triggeredBy: 'manual' });
+
+      expect(prisma.workflowRun.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ companyId: 'company-owned' }),
+      });
+      expect(runner.runBatch).toHaveBeenCalledWith([
+        { runId: 'run-1', templateId: 'tmpl-1', companyId: 'company-owned' },
+      ]);
     });
 
     it('throws NotFoundException when any templateId is owned by a different company', async () => {
