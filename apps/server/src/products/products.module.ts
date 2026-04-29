@@ -11,8 +11,10 @@ import { OptionsController } from './adapter/in/http/options.controller';
 import { BundleComponentsController } from './adapter/in/http/bundle-components.controller';
 import { ProductCatalogController } from './adapter/in/http/product-catalog.controller';
 import { ProductsLegacyController } from './adapter/in/http/products-legacy.controller';
+import { CategoriesModule } from './categories/categories.module';
 
 @Module({
+  imports: [CategoriesModule],
   controllers: [
     MastersController,
     OptionsController,
