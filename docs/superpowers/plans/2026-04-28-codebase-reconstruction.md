@@ -156,9 +156,27 @@ Expected after Phase 1:
 - Then migrate one owner domain at a time from root imports to subpath imports.
 - Remove root exports only after all direct consumers are gone and builds prove it.
 
+**Non-regression gate:**
+
+`scripts/check-shared-root-imports.sh` (run via `npm run check:shared-root-imports`) freezes the per-file count of `from '@kiditem/shared'` ROOT imports under `apps/server/src` and `apps/web/src`. The current set is captured in `scripts/.shared-root-imports-baseline.txt` and treated as an upper bound:
+
+- New files adding root imports → FAIL.
+- Existing files growing their root import count → FAIL.
+- Existing files dropping root imports (or removed entirely) → PASS without baseline regeneration. Migration PRs that move imports to subpaths can land in parallel without coordinating baseline edits.
+- Subpath imports such as `from '@kiditem/shared/product'` are excluded from the count and are the migration target.
+
+After a legitimate ratchet (a migration PR that lowers per-file root import counts), regenerate to lock in the new lower ceiling:
+
+```bash
+bash scripts/check-shared-root-imports.sh --regenerate
+```
+
+Commit the updated baseline alongside the migration. The scanner is Bash 3.2 compatible and uses ripgrep.
+
 **Completion gates:**
 
 ```bash
+npm run check:shared-root-imports
 cd packages/shared && npm run build
 npm run build --workspace=apps/server
 npm run build --workspace=apps/web
@@ -409,7 +427,7 @@ Each phase has a fixed set of gates that must pass before merge. The phase table
 |---|---|---|
 | Phase 0 — Constitution / instruction-only | `git diff --check`; scoped diff review | No code/runtime gate. Confirm no production code behavior changed. |
 | Phase 1 — Platform safety | `npm run check:idor`; `npm run check:tenant-scope`; `npm run build --workspace=apps/server`; `npm run dev:server` | Plus `rg -n '\$queryRawUnsafe\|\$executeRawUnsafe' apps/server/src --type ts --glob '!**/__tests__/**'` returns no production hit. `check:tenant-scope` is baseline-reporting until the remaining tenant-scope cleanup lanes make it green. |
-| Phase 2 — `packages/shared` rebuild | `cd packages/shared && npm run build`; `npm run build --workspace=apps/server`; `npm run build --workspace=apps/web` | When migrating consumers, run a root-import grep before/after to confirm the migration direction. |
+| Phase 2 — `packages/shared` rebuild | `npm run check:shared-root-imports`; `cd packages/shared && npm run build`; `npm run build --workspace=apps/server`; `npm run build --workspace=apps/web` | `check:shared-root-imports` is the per-file root-import non-regression gate (baseline at `scripts/.shared-root-imports-baseline.txt`). Removal-tolerant — migration PRs do not need to coordinate baseline edits. Regenerate the baseline only when ratcheting the ceiling down: `bash scripts/check-shared-root-imports.sh --regenerate`. |
 | Phase 3 — Backend domain rewrite | Domain-specific Vitest spec(s) under `apps/server/src/{domain}/__tests__/`; `npm run build --workspace=apps/server`; `npm run dev:server` | Re-run `npm run check:idor` if the domain touches raw SQL or tenant scope; integration tests when DB invariants are at stake. |
 | Phase 4 — Frontend rebuild | `npm run build --workspace=apps/web`; focused Vitest under the touched route's `__tests__/` (or shared frontend tests it depends on) | Add browser QA when a route's visual or interactive behavior changes. |
 | Phase 5 — Dead code / dependency purge | `knip` (after `knip.json` exists and is stable); `cd packages/shared && npm run build`; `npm run build --workspace=apps/server`; `npm run build --workspace=apps/web` | Source grep and workspace builds before any dependency removal. |
@@ -446,7 +464,7 @@ The phase-level gates above are mandatory. The table below is a supplementary vi
 |---|---|
 | Instruction-only Phase 0 | `git diff --check` + scoped diff review |
 | Backend safety or service code | `npm run check:idor` + `npm run check:tenant-scope` + unsafe raw grep + `npm run dev:server` |
-| Shared schema/export work | `cd packages/shared && npm run build` + server/web builds |
+| Shared schema/export work | `npm run check:shared-root-imports` + `cd packages/shared && npm run build` + server/web builds |
 | Prisma schema work | `npm run db:push` + `npx prisma generate` + `npm run db:3layer-setup` (when applicable) + shared build |
 | Frontend route/component work | `npm run build --workspace=apps/web`; focused Vitest; browser QA for visual behavior |
 | Dependency purge | `knip` after config + all affected workspace builds |
