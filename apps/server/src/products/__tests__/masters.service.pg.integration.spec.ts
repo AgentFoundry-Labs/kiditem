@@ -95,13 +95,39 @@ describe('MastersService integration', () => {
     ).rejects.toMatchObject({ status: 404 });
   });
 
-  it('rejects supplierId from another company (cross-tenant)', async () => {
+  it('returns 404 when create references a supplier from another company', async () => {
     const otherSupplier = await prisma.supplier.create({
       data: { companyId: OTHER_COMPANY_ID, name: 'Other co supplier' },
     });
     await expect(
       svc.create(TEST_COMPANY_ID, { name: 'W', supplierId: otherSupplier.id } as any),
-    ).rejects.toMatchObject({ status: 403 });
+    ).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('returns 404 when update references a supplier from another company', async () => {
+    const master = await svc.create(TEST_COMPANY_ID, { name: 'Own master' } as any);
+    const otherSupplier = await prisma.supplier.create({
+      data: { companyId: OTHER_COMPANY_ID, name: 'Other co supplier' },
+    });
+
+    await expect(
+      svc.update(TEST_COMPANY_ID, master.id, { supplierId: otherSupplier.id } as any),
+    ).rejects.toMatchObject({ status: 404 });
+
+    const unchanged = await svc.findById(TEST_COMPANY_ID, master.id, {});
+    expect(unchanged.supplierId).toBeNull();
+  });
+
+  it('returns 404 when update references a missing supplier', async () => {
+    const master = await svc.create(TEST_COMPANY_ID, { name: 'Own master' } as any);
+
+    await expect(
+      svc.update(
+        TEST_COMPANY_ID,
+        master.id,
+        { supplierId: '00000000-0000-0000-0000-000000000404' } as any,
+      ),
+    ).rejects.toMatchObject({ status: 404 });
   });
 
   it('rejects restore when duplicate legacyCode is taken', async () => {
