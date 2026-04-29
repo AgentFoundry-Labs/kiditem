@@ -18,7 +18,7 @@ function makePrisma() {
       findMany: vi.fn().mockResolvedValue([]),
     },
     workflowRun: {
-      findUnique: vi.fn().mockResolvedValue(null),
+      findFirst: vi.fn().mockResolvedValue(null),
     },
     agentLog: {
       findMany: vi.fn().mockResolvedValue([]),
@@ -137,17 +137,37 @@ describe('AgentTraceService', () => {
       expect(res.events).toHaveLength(0);
     });
 
-    it('marks creationPath=workflow when task.workflowRunId is set', async () => {
+    it('marks creationPath=workflow when task.workflowRunId is set, scoping the WorkflowRun read by companyId', async () => {
       const { service, prisma } = makeService();
       prisma.agentTask.findFirst.mockResolvedValue({ ...MOCK_TASK, workflowRunId: 'wf-1' });
       prisma.$queryRaw.mockResolvedValue([makeWakeupRow({ run_id: 'run-1' })]);
-      prisma.workflowRun.findUnique.mockResolvedValue({ id: 'wf-1', status: 'completed' });
+      prisma.workflowRun.findFirst.mockResolvedValue({ id: 'wf-1', status: 'completed' });
 
       const res = await service.getTrace('task-1', 'company-1', {});
 
       expect(res.traceability.creationPath).toBe('workflow');
       expect(res.workflowRun).toEqual({ id: 'wf-1', status: 'completed' });
-      expect(prisma.workflowRun.findUnique).toHaveBeenCalledWith({ where: { id: 'wf-1' } });
+      // Tenant boundary: WorkflowRun must NEVER be fetched by bare id —
+      // a malicious / corrupt task.workflowRunId pointing at another
+      // tenant's run would otherwise leak into the trace response.
+      expect(prisma.workflowRun.findFirst).toHaveBeenCalledWith({
+        where: { id: 'wf-1', companyId: 'company-1' },
+      });
+    });
+
+    it('returns null workflowRun when the linked WorkflowRun belongs to another tenant', async () => {
+      const { service, prisma } = makeService();
+      prisma.agentTask.findFirst.mockResolvedValue({ ...MOCK_TASK, workflowRunId: 'wf-other' });
+      prisma.$queryRaw.mockResolvedValue([]);
+      // Cross-tenant findFirst returns null even though id exists in DB
+      prisma.workflowRun.findFirst.mockResolvedValue(null);
+
+      const res = await service.getTrace('task-1', 'company-1', {});
+
+      expect(res.workflowRun).toBeNull();
+      expect(prisma.workflowRun.findFirst).toHaveBeenCalledWith({
+        where: { id: 'wf-other', companyId: 'company-1' },
+      });
     });
 
     it('paginates runIds with PAGE_LIMIT=100', async () => {
