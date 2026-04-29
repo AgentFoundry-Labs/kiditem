@@ -10,8 +10,8 @@ import type { Alert, ActionTask } from '@prisma/client';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.service';
 import { kstDayStart } from '../../common/kst';
-import { alertPanelAdapter } from '../../panel/adapters/alert.adapter';
-import { PANEL_EVENTS } from '../../panel/events/panel-events';
+import { alertPanelMapper } from '../../automation/mapper/panel-event/alert.mapper';
+import { PANEL_EVENTS } from '../../automation/adapter/out/panel-event/panel-events';
 import type { AlertItem } from '@kiditem/shared/alerts';
 import type { PromoteAlertDto } from '../dto';
 
@@ -166,7 +166,7 @@ export class AlertsService {
 
     // Emit AFTER $transaction commit — SSE subscribers observe consistent state
     try {
-      const item = alertPanelAdapter.mapToItem(result.updatedAlert);
+      const item = alertPanelMapper.mapToItem(result.updatedAlert);
       this.eventEmitter.emit(PANEL_EVENTS.UPSERT, { item, companyId });
     } catch (err) {
       this.logger.warn('Panel emit failed after promote', err);

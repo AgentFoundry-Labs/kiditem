@@ -4,8 +4,8 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AgentRegistryService } from '../../agent-registry/agent-registry.service';
 import { AGENT_EVENTS, AgentResultReadyEvent } from '../../agent-registry/events/agent-events';
-import { PANEL_EVENTS } from '../../panel/events/panel-events';
-import { alertPanelAdapter } from '../../panel/adapters/alert.adapter';
+import { PANEL_EVENTS } from '../../automation/adapter/out/panel-event/panel-events';
+import { alertPanelMapper } from '../../automation/mapper/panel-event/alert.mapper';
 import type { RuleItem } from '@kiditem/shared/rules';
 import type { EvaluationResult, ProductEvalResult } from './types';
 
@@ -82,7 +82,7 @@ export class RulesService implements OnModuleInit {
       }
 
       // 2-3. critical alerts 생성
-      // Alert.targetType='master' 규약 (alert.adapter spec + drift spec 참조): rule_violation 은 MasterProduct 단위.
+      // Alert.targetType='master' 규약 (alert.mapper spec + drift spec 참조): rule_violation 은 MasterProduct 단위.
       const criticals = products.flatMap((r) =>
         r.violations
           .filter((v) => v.severity === 'critical')
@@ -104,7 +104,7 @@ export class RulesService implements OnModuleInit {
             // Single summary item instead of N individual emits
             const { v4: uuidv4 } = await import('uuid');
             this.eventEmitter.emit(PANEL_EVENTS.UPSERT, {
-              item: alertPanelAdapter.mapToItem({
+              item: alertPanelMapper.mapToItem({
                 id: uuidv4(),
                 companyId,
                 targetType: null,
@@ -122,7 +122,7 @@ export class RulesService implements OnModuleInit {
           } else {
             for (const alert of inserted) {
               this.eventEmitter.emit(PANEL_EVENTS.UPSERT, {
-                item: alertPanelAdapter.mapToItem(alert),
+                item: alertPanelMapper.mapToItem(alert),
                 companyId,
               });
             }

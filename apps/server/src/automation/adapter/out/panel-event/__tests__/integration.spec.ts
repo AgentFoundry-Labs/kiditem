@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Test, TestingModule } from '@nestjs/testing';
 import { EventEmitter2, EventEmitterModule } from '@nestjs/event-emitter';
-import { PanelController } from '../panel.controller';
+import { PanelController } from '../../../in/http/panel.controller';
 import { PanelService } from '../panel.service';
-import { PanelSseService } from '../events/panel-sse.service';
-import { PrismaService } from '../../prisma/prisma.service';
-import { PANEL_EVENTS } from '../events/panel-events';
+import { PanelSseService } from '../panel-sse.service';
+import { PrismaService } from '../../../../../prisma/prisma.service';
+import { PANEL_EVENTS } from '../panel-events';
 import { firstValueFrom, take } from 'rxjs';
 
 describe('Panel integration', () => {

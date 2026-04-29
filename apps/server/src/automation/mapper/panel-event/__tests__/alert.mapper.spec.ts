@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { PanelAlertItem } from '@kiditem/shared/panel';
-import { alertPanelAdapter } from '../alert.adapter';
+import { alertPanelMapper } from '../alert.mapper';
 import type { Alert } from '@prisma/client';
 
 const ALERT_ID = '11111111-1111-1111-1111-111111111111';
@@ -23,20 +23,20 @@ const baseAlert: Alert = {
   createdAt: new Date('2026-04-15T00:00:00Z'),
 };
 
-describe('alertPanelAdapter', () => {
+describe('alertPanelMapper', () => {
   it('maps a valid alert to PanelAlertItem, passing schema validation', () => {
-    const item = alertPanelAdapter.mapToItem(baseAlert);
+    const item = alertPanelMapper.mapToItem(baseAlert);
     const result = PanelAlertItem.safeParse(item);
     expect(result.success).toBe(true);
   });
 
   it('sets kind to "alert"', () => {
-    const item = alertPanelAdapter.mapToItem(baseAlert);
+    const item = alertPanelMapper.mapToItem(baseAlert);
     expect(item.kind).toBe('alert');
   });
 
   it('maps all fields correctly', () => {
-    const item = alertPanelAdapter.mapToItem(baseAlert);
+    const item = alertPanelMapper.mapToItem(baseAlert);
     expect(item.id).toBe(ALERT_ID);
     expect(item.severity).toBe('critical');
     expect(item.type).toBe('rule_violation');
@@ -49,12 +49,12 @@ describe('alertPanelAdapter', () => {
   });
 
   it('actorUserId is always null regardless of input', () => {
-    const item = alertPanelAdapter.mapToItem(baseAlert);
+    const item = alertPanelMapper.mapToItem(baseAlert);
     expect(item.actorUserId).toBeNull();
   });
 
   it('handles null targetType and targetId', () => {
-    const item = alertPanelAdapter.mapToItem({
+    const item = alertPanelMapper.mapToItem({
       ...baseAlert,
       targetType: null,
       targetId: null,
@@ -66,7 +66,7 @@ describe('alertPanelAdapter', () => {
   });
 
   it('passes through non-null targetType and targetId', () => {
-    const item = alertPanelAdapter.mapToItem({
+    const item = alertPanelMapper.mapToItem({
       ...baseAlert,
       targetType: 'product',
       targetId: TARGET_ID,
@@ -77,7 +77,7 @@ describe('alertPanelAdapter', () => {
   });
 
   it('handles null message', () => {
-    const item = alertPanelAdapter.mapToItem({ ...baseAlert, message: null });
+    const item = alertPanelMapper.mapToItem({ ...baseAlert, message: null });
     expect(item.message).toBeNull();
     const result = PanelAlertItem.safeParse(item);
     expect(result.success).toBe(true);
@@ -86,25 +86,25 @@ describe('alertPanelAdapter', () => {
   it.each(['critical', 'warning', 'info'] as const)(
     'accepts severity "%s"',
     (severity) => {
-      const item = alertPanelAdapter.mapToItem({ ...baseAlert, severity });
+      const item = alertPanelMapper.mapToItem({ ...baseAlert, severity });
       expect(item.severity).toBe(severity);
       expect(PanelAlertItem.safeParse(item).success).toBe(true);
     },
   );
 
   it('does not leak companyId to item output', () => {
-    const item = alertPanelAdapter.mapToItem(baseAlert);
+    const item = alertPanelMapper.mapToItem(baseAlert);
     expect((item as any).companyId).toBeUndefined();
   });
 
   it('actionTaskId null pass-through', () => {
-    const item = alertPanelAdapter.mapToItem({ ...baseAlert, actionTaskId: null });
+    const item = alertPanelMapper.mapToItem({ ...baseAlert, actionTaskId: null });
     expect(item.actionTaskId).toBeNull();
     expect(PanelAlertItem.safeParse(item).success).toBe(true);
   });
 
   it('actionTaskId uuid pass-through', () => {
-    const item = alertPanelAdapter.mapToItem({ ...baseAlert, actionTaskId: ACTION_TASK_ID });
+    const item = alertPanelMapper.mapToItem({ ...baseAlert, actionTaskId: ACTION_TASK_ID });
     expect(item.actionTaskId).toBe(ACTION_TASK_ID);
     expect(PanelAlertItem.safeParse(item).success).toBe(true);
   });

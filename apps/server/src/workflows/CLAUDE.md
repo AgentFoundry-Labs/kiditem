@@ -14,7 +14,7 @@ rewrite / defer 분류는
 
 1. DAG runner (`WorkflowRunnerService.runWorkflow`)
 2. WorkflowRun 감사 기록 (`(id, companyId)` 스코프 read/write)
-3. Panel event projection (`PANEL_EVENTS.UPSERT` via `workflow-run-mapper`)
+3. Panel event projection (`PANEL_EVENTS.UPSERT` via `automation/mapper/panel-event/workflow-run.mapper`)
 4. Agent delegation boundary (`agent_task.create` → `AgentRegistryService.runByType`)
 
 `automation/` 으로의 폴더 이동은 별도 PR (Phase 3C-5) 에서 일괄 처리한다. 이

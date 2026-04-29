@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NotFoundException, ConflictException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { AlertsService } from '../services/alerts.service';
-import { PANEL_EVENTS } from '../../panel/events/panel-events';
+import { PANEL_EVENTS } from '../../automation/adapter/out/panel-event/panel-events';
 
 const COMPANY_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const ALERT_ID = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';

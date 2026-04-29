@@ -6,8 +6,8 @@ import { DAG } from './dag';
 import { WorkflowContext } from './context';
 import { getExecutor, isConcurrencySafe, type ExecutorServices } from '../executors/index';
 import '../executors/builtin';
-import { PANEL_EVENTS } from '../../panel/events/panel-events';
-import { buildWorkflowPanelItem } from '../../panel/adapters/workflow-run-mapper';
+import { PANEL_EVENTS } from '../../automation/adapter/out/panel-event/panel-events';
+import { buildWorkflowPanelItem } from '../../automation/mapper/panel-event/workflow-run.mapper';
 
 /** Subset of WorkflowTemplate fields needed for node execution */
 interface WorkflowTemplateRef {

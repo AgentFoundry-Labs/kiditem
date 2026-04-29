@@ -230,15 +230,24 @@ async getProduct(id: string, companyId: string) {
 | [`src/inventory/CLAUDE.md`](src/inventory/CLAUDE.md) | ~75줄 | Inventory + StockTransaction — 단일 InventoryService (read + metadata + mutation + ledger). **단독 writer rule**. BundleStockService restricted export. Transfer = record-only |
 | [`src/marketplace/CLAUDE.md`](src/marketplace/CLAUDE.md) | 75줄 | Workflow/Agent 카탈로그 — read-only 카탈로그 + per-company 설치 추적 + param override |
 | [`src/orders/CLAUDE.md`](src/orders/CLAUDE.md) | 60줄 | Order/Return/CS 통합 — multi-controller 모듈, 외부 채널 어댑터 위임, status 필터링 |
+| [`src/automation/adapter/out/panel-event/CLAUDE.md`](src/automation/adapter/out/panel-event/CLAUDE.md) | ~80줄 | Live Ops SSE projection adapter — `/api/panel/*` HTTP adapter + EventEmitter2 ring buffer + 4-source read-only projection |
 | [`src/products/CLAUDE.md`](src/products/CLAUDE.md) | 37줄 | 3-layer Master/Option/Bundle — `MasterProduct` family (code via `master_code_seq`), `ProductOption` SKU (race-free sku via `optionCounter` increment), `BundleComponent` (cross-master 허용, 3-way invariant, nested 금지 B1), `availableStock` = `BundleStockService.recompute` sole writer + `SELECT FOR UPDATE` row-lock |
 | [`src/rules/CLAUDE.md`](src/rules/CLAUDE.md) | 83줄 | Event-Driven — 룰 평가는 agent 비동기 spawn → `@OnEvent` 콜백. CRUD 패턴 아님 |
 | [`src/workflows/CLAUDE.md`](src/workflows/CLAUDE.md) | 90줄 | Workflow Engine — executor naming / registration / standard entities / action catalog |
 
 ### Panel — Live Ops SSE
 
-`src/panel/` 은 별도 scoped 문서 없이 아래 inline 으로 관리. SSE multiplex 채널. `EventEmitter2` 버스로 도메인(workflow/agent/image/alert) 이벤트 받아 companyId 필터 + strip + ring buffer + monotonic seq → `@Sse()` 로 Observable<MessageEvent> 내보냄. Workflow 도메인 hook이 상태 전이 지점에서 `PANEL_EVENTS.UPSERT` emit ('completed' → 'succeeded' 정규화는 shared `panel/adapters/workflow-run-mapper.ts` 경유). 단일 인스턴스 전제 (prod 멀티 인스턴스 시 pg LISTEN/Redis 도입 필요).
+`src/panel/` top-level surface 는 Phase 3C-4 에서 제거됐다. Panel 은 이제
+`src/automation/adapter/in/http/panel.controller.ts` +
+`src/automation/adapter/out/panel-event/` +
+`src/automation/mapper/panel-event/` 조합으로 관리한다. SSE multiplex 채널.
+`EventEmitter2` 버스로 도메인(workflow/agent/image/alert) 이벤트 받아 companyId
+필터 + strip + ring buffer + monotonic seq → `@Sse()` 로
+Observable<MessageEvent> 내보냄. Workflow 도메인 hook이 상태 전이 지점에서
+`PANEL_EVENTS.UPSERT` emit (`automation/mapper/panel-event/workflow-run.mapper.ts`
+경유). 단일 인스턴스 전제 (prod 멀티 인스턴스 시 pg LISTEN/Redis 도입 필요).
 
-**가시성 모델**: Panel 은 요청 user 의 `User-WorkflowRun` 관계(ownership + 조회 권한)로 필터링된 이벤트만 스트림. 즉 동일 company 내에서도 사용자마다 보이는 WorkflowRun 이 다를 수 있음. `panel.service.ts` 의 snapshot backfill + ring buffer replay 가 이 관계를 경유한다.
+**가시성 모델**: Panel 은 요청 user 의 `User-WorkflowRun` 관계(ownership + 조회 권한)로 필터링된 이벤트만 스트림. 즉 동일 company 내에서도 사용자마다 보이는 WorkflowRun 이 다를 수 있음. `automation/adapter/out/panel-event/panel.service.ts` 의 snapshot backfill + ring buffer replay 가 이 관계를 경유한다.
 
 ### Notable Sub-Domains (LOW signal — 별도 scoped doc 없음)
 

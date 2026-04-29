@@ -45,7 +45,6 @@ import { ChatModule } from './chat/chat.module';
 import { UploadsModule } from './uploads/uploads.module';
 import { TrafficModule } from './traffic/traffic.module';
 import { ActionTaskModule } from './action-task/action-task.module';
-import { PanelModule } from './panel/panel.module';
 
 @Module({
   imports: [
@@ -97,7 +96,6 @@ import { PanelModule } from './panel/panel.module';
     UploadsModule,
     TrafficModule,
     ActionTaskModule,
-    PanelModule,
   ],
   providers: [
     // 가드 실행 순서 (providers 선언 순서 = 평가 순서):

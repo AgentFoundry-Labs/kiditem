@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { Test } from '@nestjs/testing';
 import { PanelService } from '../panel.service';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService } from '../../../../../prisma/prisma.service';
 
 describe('PanelService', () => {
   let service: PanelService;

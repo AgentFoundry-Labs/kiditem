@@ -25,9 +25,9 @@ import { lastValueFrom } from 'rxjs';
 import { take, toArray } from 'rxjs/operators';
 
 import type { PanelRunItem } from '@kiditem/shared/panel';
-import { PanelSseService } from '../events/panel-sse.service';
-import { PANEL_EVENTS, PanelUpsertInternal } from '../events/panel-events';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PanelSseService } from '../panel-sse.service';
+import { PANEL_EVENTS, PanelUpsertInternal } from '../panel-events';
+import { PrismaService } from '../../../../../prisma/prisma.service';
 
 // ── helpers ────────────────────────────────────────────────────────────────
 

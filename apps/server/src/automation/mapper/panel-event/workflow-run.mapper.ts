@@ -1,6 +1,6 @@
-import type { PrismaService } from '../../prisma/prisma.service';
+import type { PrismaService } from '../../../prisma/prisma.service';
 import type { PanelItem } from '@kiditem/shared/panel';
-import { workflowPanelAdapter } from './workflow.adapter';
+import { workflowPanelMapper } from './workflow.mapper';
 
 /**
  * Query WorkflowRun + template, map to PanelRunItem.
@@ -24,7 +24,7 @@ export async function buildWorkflowPanelItem(
       }))
     : [];
 
-  const item = workflowPanelAdapter.mapToItem(
+  const item = workflowPanelMapper.mapToItem(
     {
       id: run.id,
       status: run.status,

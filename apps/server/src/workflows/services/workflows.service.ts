@@ -3,8 +3,8 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import type { WorkflowTemplate } from '@kiditem/shared/workflow';
 import { PrismaService } from '../../prisma/prisma.service';
 import { WorkflowRunnerService } from './workflow-runner.service';
-import { PANEL_EVENTS } from '../../panel/events/panel-events';
-import { buildWorkflowPanelItem } from '../../panel/adapters/workflow-run-mapper';
+import { PANEL_EVENTS } from '../../automation/adapter/out/panel-event/panel-events';
+import { buildWorkflowPanelItem } from '../../automation/mapper/panel-event/workflow-run.mapper';
 import type { CreateWorkflowBodyDto, UpdateWorkflowBodyDto } from '../dto';
 
 interface TriggerOptions {

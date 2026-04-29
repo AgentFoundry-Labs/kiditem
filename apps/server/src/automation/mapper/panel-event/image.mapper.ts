@@ -1,7 +1,7 @@
 import { PanelRunItem } from '@kiditem/shared/panel';
 import type { PanelRunItem as PanelRunItemType } from '@kiditem/shared/panel';
 import type { ThumbnailGeneration } from '@prisma/client';
-import type { PanelRunAdapter } from './types';
+import type { PanelRunMapper } from './types';
 
 /**
  * Service layer가 ThumbnailGeneration + 최소 Product shape 조인 결과를 이 shape으로 넘김.
@@ -11,7 +11,7 @@ import type { PanelRunAdapter } from './types';
  *     where: { id }, include: { product: { select: { id: true, title: true } } }
  *   });
  *   const input: ImageAdapterInput = { generation: gen, product: { id: gen.product.id, title: gen.product.title } };
- *   const item = imagePanelAdapter.mapToItem(input, companyId);
+ *   const item = imagePanelMapper.mapToItem(input, companyId);
  */
 export interface ImageAdapterInput {
   generation: ThumbnailGeneration;
@@ -21,7 +21,7 @@ export interface ImageAdapterInput {
 // shared Zod enum에서 유효 상태 집합을 파생 — 드리프트 시 tsc가 감지
 const VALID_STATUS = new Set<PanelRunItemType['status']>(PanelRunItem.shape.status.options);
 
-export const imagePanelAdapter: PanelRunAdapter<ImageAdapterInput> = {
+export const imagePanelMapper: PanelRunMapper<ImageAdapterInput> = {
   source: 'image',
   mapToItem(input, _companyId) {
     const { generation, product } = input;
@@ -30,7 +30,7 @@ export const imagePanelAdapter: PanelRunAdapter<ImageAdapterInput> = {
     // Drift guard: unknown status throws to catch writer regressions.
     if (!VALID_STATUS.has(generation.status as PanelRunItemType['status'])) {
       throw new Error(
-        `imagePanelAdapter: unknown status "${generation.status}" for ThumbnailGeneration ${generation.id}. ` +
+        `imagePanelMapper: unknown status "${generation.status}" for ThumbnailGeneration ${generation.id}. ` +
           `Expected one of: ${[...VALID_STATUS].join(', ')}`,
       );
     }
@@ -47,7 +47,7 @@ export const imagePanelAdapter: PanelRunAdapter<ImageAdapterInput> = {
       title: product.title,
       deepLink: `/products/${product.id}/thumbnails/${generation.id}`,
       actorUserId: generation.triggeredByUserId ?? null,
-      visibility: imagePanelAdapter.defaultVisibility(input),
+      visibility: imagePanelMapper.defaultVisibility(input),
       createdAt: generation.createdAt.toISOString(),
       // Keep the panel item compact; detailed thumbnail error metadata stays on
       // ThumbnailGeneration.errorMessage / registration attempts and is loaded
