@@ -34,7 +34,21 @@
         "prisma/init.sql.gz"
       ],
       // External Python uv CLI; npm "uv" is unrelated.
-      "ignoreBinaries": ["uv"]
+      // Other entries are workspace-hoisted binaries invoked from root npm scripts:
+      //   prisma → root postinstall + db:* scripts
+      //   concurrently → dev:all
+      //   knip → knip:report
+      //   tsx → import:product-baseline + data:dev:* scripts
+      "ignoreBinaries": ["uv", "prisma", "concurrently", "knip", "tsx"],
+      "ignoreDependencies": [
+        // Provides script binaries used by root scripts (`dev:all`, `data:dev:*`,
+        // `import:product-baseline`). Knip cannot link these to the script bins.
+        "concurrently",
+        "tsx"
+        // NOTE: @types/better-sqlite3, better-sqlite3, and react remain unignored
+        // because no script or source file consumes them. They are tracked as
+        // removal candidates by the Phase 5 dependency purge plan.
+      ]
     },
     "apps/server": {
       "entry": [
@@ -56,6 +70,20 @@
       "ignore": [
         "dist/**",
         "coverage/**"
+      ],
+      // Script-bin false positives: these binaries are invoked by package.json scripts
+      // (build/start/lint/test) but knip does not link them across npm workspace hoisting.
+      "ignoreBinaries": ["nest", "eslint", "vitest"],
+      "ignoreDependencies": [
+        // Required peer dependency for @copilotkit/runtime (>=0.3.66, non-optional).
+        // Knip does not currently see this consumer because no source file imports
+        // from @langchain/core directly — the runtime adapter pulls it as a peer.
+        "@langchain/core",
+        // Provides script binaries: nest (build/start), eslint (lint), prisma (generate).
+        // Knip cannot link npm script binary invocations back to providing packages.
+        "@nestjs/cli",
+        "eslint",
+        "prisma"
       ]
     },
     "apps/web": {
@@ -82,6 +110,20 @@
       "ignore": [
         ".next/**",
         "coverage/**"
+      ],
+      // Script-bin false positives: dev/build/lint/test scripts.
+      "ignoreBinaries": ["next", "eslint", "vitest"],
+      "ignoreDependencies": [
+        // Required peer dependencies declared by upstream packages:
+        //   react-is → recharts non-optional peer dep
+        //   @testing-library/dom → @testing-library/react non-optional peer dep
+        "react-is",
+        "@testing-library/dom",
+        // Provides eslint binary used by the lint script.
+        "eslint"
+        // NOTE: tsx is intentionally NOT ignored here — apps/web has no script that
+        // invokes tsx, so it is a legitimate removal candidate tracked by the
+        // Phase 5 dependency purge plan.
       ]
     },
     "packages/shared": {
@@ -103,7 +145,9 @@
       "ignore": [
         "dist/**",
         "coverage/**"
-      ]
+      ],
+      // Build-tool binaries used by scripts (build/dev/type-check).
+      "ignoreBinaries": ["tsup", "tsc"]
     },
     "packages/templates": {
       "entry": [
@@ -119,6 +163,17 @@
       "ignore": [
         "dist/**",
         "coverage/**"
+      ],
+      // Script-bin false positives:
+      //   tsup, tsc → build/dev/type-check
+      //   tailwindcss → build:css (provided by @tailwindcss/cli)
+      //   tsx → generate:schema
+      "ignoreBinaries": ["tsup", "tsc", "tailwindcss", "tsx"],
+      "ignoreDependencies": [
+        // Provides the tailwindcss binary invoked by `build:css`.
+        "@tailwindcss/cli",
+        // Provides the tsx binary invoked by `generate:schema`.
+        "tsx"
       ]
     }
   }
