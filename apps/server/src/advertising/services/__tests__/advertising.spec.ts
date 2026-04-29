@@ -35,7 +35,8 @@ describe('AdvertisingService', () => {
         findFirst: vi.fn(),
       },
       masterProduct: {
-        update: vi.fn().mockResolvedValue({}),
+        findMany: vi.fn().mockResolvedValue([]),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
     };
     adConfig = { getConfig: vi.fn().mockResolvedValue(baseConfig) };
@@ -70,14 +71,18 @@ describe('AdvertisingService', () => {
         id: 'L1',
         externalId: 'COUPANG-1',
         channelName: '쿠팡',
-        master: { id: 'M1', code: 'M-00000001', name: 'A상품', abcGrade: 'A', adTier: '1차' },
+        masterId: 'M1',
       },
       {
         id: 'L2',
         externalId: 'COUPANG-2',
         channelName: '쿠팡',
-        master: { id: 'M2', code: 'M-00000002', name: 'C상품', abcGrade: 'C', adTier: null },
+        masterId: 'M2',
       },
+    ]);
+    prisma.masterProduct.findMany.mockResolvedValue([
+      { id: 'M1', code: 'M-00000001', name: 'A상품', abcGrade: 'A', adTier: '1차', healthScore: null },
+      { id: 'M2', code: 'M-00000002', name: 'C상품', abcGrade: 'C', adTier: null, healthScore: null },
     ]);
 
     const result = await service.getHubData('company-1');
@@ -110,7 +115,7 @@ describe('AdvertisingService', () => {
         where: expect.objectContaining({ id: 'listing-x', companyId: 'company-A' }),
       }),
     );
-    expect(prisma.masterProduct.update).not.toHaveBeenCalled();
+    expect(prisma.masterProduct.updateMany).not.toHaveBeenCalled();
   });
 
   it('changeTier OFF sets masterProduct.adTier to null', async () => {
@@ -119,8 +124,8 @@ describe('AdvertisingService', () => {
     const result = await service.changeTier('listing-1', 'OFF', 'company-1');
 
     expect(result).toEqual({ ok: true });
-    expect(prisma.masterProduct.update).toHaveBeenCalledWith({
-      where: { id: 'M1' },
+    expect(prisma.masterProduct.updateMany).toHaveBeenCalledWith({
+      where: { id: 'M1', companyId: 'company-1' },
       data: { adTier: null },
     });
   });
@@ -150,8 +155,11 @@ describe('AdvertisingService', () => {
         id: 'L1',
         externalId: 'COUPANG-1',
         channelName: '쿠팡',
-        master: { id: 'M1', code: 'M-00000001', name: '상품1', abcGrade: 'B', adTier: '2차' },
+        masterId: 'M1',
       },
+    ]);
+    prisma.masterProduct.findMany.mockResolvedValue([
+      { id: 'M1', code: 'M-00000001', name: '상품1', abcGrade: 'B', adTier: '2차', healthScore: null },
     ]);
 
     const result = await service.findAll({}, 'company-1');
@@ -205,8 +213,11 @@ describe('AdvertisingService', () => {
         id: 'L1',
         externalId: 'COUPANG-1',
         channelName: '쿠팡',
-        master: { id: 'M1', code: 'M-1', name: '상품1', abcGrade: 'A', adTier: '1차' },
+        masterId: 'M1',
       },
+    ]);
+    prisma.masterProduct.findMany.mockResolvedValue([
+      { id: 'M1', code: 'M-1', name: '상품1', abcGrade: 'A', adTier: '1차', healthScore: null },
     ]);
 
     const result = await service.getHubData('company-1');

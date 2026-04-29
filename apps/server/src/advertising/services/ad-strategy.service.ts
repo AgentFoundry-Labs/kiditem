@@ -681,11 +681,21 @@ export class AdStrategyService {
       where: { companyId, listingId: { in: listingIds }, isActive: true },
       select: {
         listingId: true,
-        option: { select: { inventory: { select: { leadTimeDays: true } } } },
+        optionId: true,
       },
     });
+    const optionIds = Array.from(
+      new Set(rows.map((row) => row.optionId).filter((id): id is string => id != null)),
+    );
+    const inventories = optionIds.length > 0
+      ? await this.prisma.inventory.findMany({
+          where: { optionId: { in: optionIds }, companyId },
+          select: { optionId: true, leadTimeDays: true },
+        })
+      : [];
+    const inventoryMap = new Map(inventories.map((inventory) => [inventory.optionId, inventory]));
     for (const r of rows) {
-      const lt = r.option?.inventory?.leadTimeDays ?? null;
+      const lt = r.optionId ? inventoryMap.get(r.optionId)?.leadTimeDays ?? null : null;
       const cur = map.get(r.listingId) ?? null;
       if (lt != null && (cur == null || lt < cur)) map.set(r.listingId, lt);
       else if (!map.has(r.listingId)) map.set(r.listingId, cur);

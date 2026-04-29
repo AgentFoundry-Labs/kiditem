@@ -326,20 +326,20 @@ describe('AdActionService', () => {
     });
 
     it('markRunning throws NotFoundException when id crosses tenant', async () => {
-      prisma.adAction.findFirst.mockResolvedValue(null);
+      prisma.adAction.updateMany.mockResolvedValue({ count: 0 });
 
       await expect(service.markRunning('other-tenant-id', undefined, companyA)).rejects.toThrow(NotFoundException);
       expect(prisma.adAction.update).not.toHaveBeenCalled();
     });
 
     it('markRunning updates executeStatus when id belongs to company', async () => {
-      prisma.adAction.findFirst.mockResolvedValue({ id: 'a1', companyId: companyA });
+      prisma.adAction.updateMany.mockResolvedValue({ count: 1 });
 
       await service.markRunning('a1', { snapshot: 'before' }, companyA);
 
-      expect(prisma.adAction.update).toHaveBeenCalledWith(
+      expect(prisma.adAction.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: 'a1' },
+          where: { id: 'a1', companyId: companyA },
           data: expect.objectContaining({
             executeStatus: 'running',
             beforeJson: { snapshot: 'before' },
@@ -350,25 +350,25 @@ describe('AdActionService', () => {
     });
 
     it('markDone updates executeStatus + executedAt + afterJson', async () => {
-      prisma.adAction.findFirst.mockResolvedValue({ id: 'a1', companyId: companyA });
+      prisma.adAction.updateMany.mockResolvedValue({ count: 1 });
 
       await service.markDone('a1', { result: 'ok' }, companyA);
 
-      expect(prisma.adAction.update).toHaveBeenCalledWith(
+      expect(prisma.adAction.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: 'a1' },
+          where: { id: 'a1', companyId: companyA },
           data: expect.objectContaining({
             executeStatus: 'done',
             afterJson: { result: 'ok' },
           }),
         }),
       );
-      const call = prisma.adAction.update.mock.calls[0][0];
+      const call = prisma.adAction.updateMany.mock.calls[0][0];
       expect(call.data.executedAt).toBeInstanceOf(Date);
     });
 
     it('markFailed throws NotFoundException for cross-tenant id', async () => {
-      prisma.adAction.findFirst.mockResolvedValue(null);
+      prisma.adAction.updateMany.mockResolvedValue({ count: 0 });
 
       await expect(service.markFailed('other-tenant-id', '에러', undefined, companyA)).rejects.toThrow(NotFoundException);
     });
@@ -419,10 +419,8 @@ describe('AdActionService', () => {
       expect(prisma.adAction.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { companyId: companyA },
-          include: expect.objectContaining({
-            listing: expect.any(Object),
-            adTargetDaily: expect.any(Object),
-          }),
+          orderBy: { createdAt: 'desc' },
+          take: 10,
         }),
       );
       expect(prisma.channelScrapeRun.findFirst).toHaveBeenCalledWith(

@@ -3,12 +3,15 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { kstInclusiveDaysStart } from '../../common/kst';
 import { AdConfigService } from './ad-config.service';
-import { LISTING_SUMMARY_SELECT } from './types';
 import {
   recomputeRoas,
   recomputeCtr,
   recomputeCvr,
 } from '../util/ratio-recompute';
+import {
+  findScopedAdListings,
+  toAdListingSummary,
+} from './read-models/ad-listing-read-model';
 import type { AdCampaignSnapshot, AdListingSummary, AdMetrics, AdTrendsData } from '@kiditem/shared/advertising';
 
 type CampaignsPeriod = '7d' | '14d' | 'month';
@@ -115,26 +118,16 @@ export class AdCampaignsService {
       new Set(rollupsWithListing.map((r) => r.listingId)),
     );
 
-    const listings = await this.prisma.channelListing.findMany({
-      where: { id: { in: listingIds }, companyId, isDeleted: false },
-      select: LISTING_SUMMARY_SELECT,
-    });
-    const listingMap = new Map(listings.map((l) => [l.id, l]));
+    const listingMap = await findScopedAdListings(
+      this.prisma,
+      companyId,
+      listingIds,
+    );
 
     return rollupsWithListing.flatMap((r) => {
       const listing = listingMap.get(r.listingId);
       if (!listing) return [];
-      const summary: AdListingSummary = {
-        listingId: listing.id,
-        externalId: listing.externalId,
-        channelName: listing.channelName,
-        masterProduct: {
-          id: listing.master.id,
-          code: listing.master.code,
-          name: listing.master.name,
-        },
-        option: null,
-      };
+      const summary: AdListingSummary = toAdListingSummary(listing);
       return [
         {
           listing: summary,
@@ -176,7 +169,7 @@ export class AdCampaignsService {
         adClicks: true,
         adImpressions: true,
         adConversions: true,
-        listing: { select: { master: { select: { abcGrade: true } } } },
+        listingId: true,
       },
       orderBy: { businessDate: 'asc' },
     });
@@ -218,8 +211,27 @@ export class AdCampaignsService {
     const secondHalf = this.aggregate(daily.slice(mid));
 
     const gradeBudget: Record<'A' | 'B' | 'C', number> = { A: 0, B: 0, C: 0 };
+    const trendListingIds = Array.from(
+      new Set(dailies.map((row) => row.listingId).filter((id): id is string => id != null)),
+    );
+    const trendListings = trendListingIds.length > 0
+      ? await this.prisma.channelListing.findMany({
+          where: { id: { in: trendListingIds }, companyId, isDeleted: false },
+          select: { id: true, masterId: true },
+        })
+      : [];
+    const trendMasterIds = Array.from(new Set(trendListings.map((l) => l.masterId)));
+    const trendMasters = trendMasterIds.length > 0
+      ? await this.prisma.masterProduct.findMany({
+          where: { id: { in: trendMasterIds }, companyId },
+          select: { id: true, abcGrade: true },
+        })
+      : [];
+    const trendListingMap = new Map(trendListings.map((l) => [l.id, l]));
+    const trendMasterMap = new Map(trendMasters.map((m) => [m.id, m]));
     for (const row of dailies) {
-      const grade = row.listing?.master?.abcGrade;
+      const listing = row.listingId ? trendListingMap.get(row.listingId) : null;
+      const grade = listing ? trendMasterMap.get(listing.masterId)?.abcGrade : null;
       if (grade === 'A' || grade === 'B' || grade === 'C') {
         gradeBudget[grade] += row.adSpend;
       }

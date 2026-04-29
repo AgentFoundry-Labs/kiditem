@@ -21,6 +21,7 @@ import {
   type AdTargetDailyMetrics,
   type ScrapeMatchStatus,
 } from './channel-scrape-persistence.service';
+import { buildAdSyncListingMap } from './read-models/ad-sync-listing-map';
 
 export interface ListingMap {
   // Option matches keep `listingOptionId` even when internal `optionId` is
@@ -249,49 +250,7 @@ export class AdSyncService {
   }
 
   async buildListingMap(companyId: string): Promise<ListingMap> {
-    const [options, listings] = await Promise.all([
-      this.prisma.channelListingOption.findMany({
-        where: {
-          companyId,
-          isActive: true,
-          listing: { channel: 'coupang', isDeleted: false },
-        },
-        select: {
-          id: true,
-          externalOptionId: true,
-          listingId: true,
-          optionId: true,
-          // Pull listing's externalId so daily-option-snapshot upsert
-          // can populate the denormalized column without extra round-trips.
-          listing: { select: { externalId: true } },
-        },
-      }),
-      this.prisma.channelListing.findMany({
-        where: { companyId, isDeleted: false, channel: 'coupang' },
-        select: { id: true, externalId: true },
-      }),
-    ]);
-
-    const externalOptionIdMap: ListingMap['externalOptionIdMap'] = new Map();
-    for (const opt of options) {
-      if (!opt.externalOptionId) continue;
-      // 내부 ProductOption 매칭이 아직 안 된 row 도 listingOption 자체는 보존한다.
-      // option daily snapshot 을 land 하려면 listingOptionId 가 필요하기 때문
-      // (internal optionId 가 null 이어도).
-      externalOptionIdMap.set(opt.externalOptionId, {
-        listingId: opt.listingId,
-        listingOptionId: opt.id,
-        optionId: opt.optionId ?? null,
-        externalId: opt.listing.externalId,
-      });
-    }
-
-    const externalIdMap = new Map<string, { listingId: string }>();
-    for (const l of listings) {
-      externalIdMap.set(l.externalId, { listingId: l.id });
-    }
-
-    return { externalOptionIdMap, externalIdMap };
+    return buildAdSyncListingMap(this.prisma, companyId);
   }
 
   matchListingFromRow(
@@ -1593,27 +1552,34 @@ export class AdSyncService {
   }
 
   async markScraped(id: string, companyId: string) {
-    const target = await this.prisma.scrapeTarget.findFirst({
+    const lastScrapedAt = new Date();
+    const updated = await this.prisma.scrapeTarget.updateMany({
       where: { id, companyId },
-      select: { id: true },
+      data: { lastScrapedAt },
     });
-    if (!target) throw new NotFoundException('Scrape target not found');
-    return this.prisma.scrapeTarget.update({
-      where: { id },
-      data: { lastScrapedAt: new Date() },
-    });
+    if (updated.count !== 1) {
+      throw new NotFoundException('Scrape target not found');
+    }
+    return this.getScrapeTargetOrThrow(id, companyId);
   }
 
   async deleteScrapeTarget(id: string, companyId: string) {
-    const target = await this.prisma.scrapeTarget.findFirst({
+    const updated = await this.prisma.scrapeTarget.updateMany({
       where: { id, companyId },
-      select: { id: true },
-    });
-    if (!target) throw new NotFoundException('Scrape target not found');
-    return this.prisma.scrapeTarget.update({
-      where: { id },
       data: { isActive: false },
     });
+    if (updated.count !== 1) {
+      throw new NotFoundException('Scrape target not found');
+    }
+    return this.getScrapeTargetOrThrow(id, companyId);
+  }
+
+  private async getScrapeTargetOrThrow(id: string, companyId: string) {
+    const target = await this.prisma.scrapeTarget.findFirst({
+      where: { id, companyId },
+    });
+    if (!target) throw new NotFoundException('Scrape target not found');
+    return target;
   }
 
   private pickStringField(

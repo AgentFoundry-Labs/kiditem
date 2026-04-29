@@ -59,9 +59,7 @@ export async function hydrateListings(
       id: true,
       externalId: true,
       channelName: true,
-      master: {
-        select: { id: true, code: true, name: true, abcGrade: true, adTier: true, healthScore: true },
-      },
+      masterId: true,
       options: {
         where: { isActive: true },
         orderBy: [
@@ -70,52 +68,74 @@ export async function hydrateListings(
           { id: 'asc' },
         ],
         select: {
-          // Also surface the active ChannelListingOption.id so the
-          // strategy reader can fetch option daily snapshots for the same
-          // deterministic primary option that hydrate picked.
           id: true,
-          option: {
-            select: {
-              id: true,
-              availableStock: true,
-              costPrice: true,
-              sellPrice: true,
-              commissionRate: true,
-              shippingCost: true,
-            },
-          },
+          optionId: true,
         },
       },
     },
   });
-  return rows.map((r) => {
+  const masterIds = Array.from(new Set(rows.map((r) => r.masterId)));
+  const optionIds = Array.from(
+    new Set(
+      rows
+        .flatMap((r) => r.options.map((option) => option.optionId))
+        .filter((id): id is string => id != null),
+    ),
+  );
+  const [masters, productOptions] = await Promise.all([
+    masterIds.length > 0
+      ? prisma.masterProduct.findMany({
+          where: { id: { in: masterIds }, companyId },
+          select: { id: true, code: true, name: true, abcGrade: true, adTier: true, healthScore: true },
+        })
+      : Promise.resolve([]),
+    optionIds.length > 0
+      ? prisma.productOption.findMany({
+          where: { id: { in: optionIds }, companyId },
+          select: {
+            id: true,
+            availableStock: true,
+            costPrice: true,
+            sellPrice: true,
+            commissionRate: true,
+            shippingCost: true,
+          },
+        })
+      : Promise.resolve([]),
+  ]);
+  const masterMap = new Map(masters.map((master) => [master.id, master]));
+  const optionMap = new Map(productOptions.map((option) => [option.id, option]));
+  return rows.map((r): HydratedListing | null => {
+    const master = masterMap.get(r.masterId);
+    if (!master) return null;
     const firstClo =
-      r.options.find((clo): clo is typeof clo & { option: NonNullable<typeof clo.option> } => clo.option != null) ?? null;
+      r.options.find((clo) => clo.optionId != null && optionMap.has(clo.optionId)) ?? null;
+    const firstOption = firstClo?.optionId ? optionMap.get(firstClo.optionId) ?? null : null;
     return {
       id: r.id,
       externalId: r.externalId,
       channelName: r.channelName,
       masterProduct: {
-        id: r.master.id,
-        code: r.master.code,
-        name: r.master.name,
-        abcGrade: r.master.abcGrade as 'A' | 'B' | 'C' | null,
-        adTier: r.master.adTier,
-        healthScore: r.master.healthScore,
+        id: master.id,
+        code: master.code,
+        name: master.name,
+        abcGrade: master.abcGrade as 'A' | 'B' | 'C' | null,
+        adTier: master.adTier,
+        healthScore: master.healthScore,
       },
-      primaryOption: firstClo
+      primaryOption: firstClo && firstOption
         ? {
-            id: firstClo.option.id,
+            id: firstOption.id,
             listingOptionId: firstClo.id,
-            availableStock: firstClo.option.availableStock,
-            costPrice: firstClo.option.costPrice,
-            sellPrice: firstClo.option.sellPrice,
-            commissionRate: firstClo.option.commissionRate,
-            shippingCost: firstClo.option.shippingCost,
+            availableStock: firstOption.availableStock,
+            costPrice: firstOption.costPrice,
+            sellPrice: firstOption.sellPrice,
+            commissionRate: firstOption.commissionRate,
+            shippingCost: firstOption.shippingCost,
           }
         : null,
     };
-  });
+  }).filter((listing): listing is HydratedListing => listing !== null);
 }
 
 /**
@@ -134,21 +154,29 @@ export async function getInventorySnapshot(
     select: {
       optionId: true,
       listingId: true,
-      option: {
-        select: { availableStock: true, costPrice: true, sellPrice: true, commissionRate: true },
-      },
     },
   });
+  const optionIds = Array.from(
+    new Set(options.map((option) => option.optionId).filter((id): id is string => id != null)),
+  );
+  const productOptions = optionIds.length > 0
+    ? await prisma.productOption.findMany({
+        where: { id: { in: optionIds }, companyId },
+        select: { id: true, availableStock: true, costPrice: true, sellPrice: true, commissionRate: true },
+      })
+    : [];
+  const optionMap = new Map(productOptions.map((option) => [option.id, option]));
   const map = new Map<string, InventoryRow>();
   for (const o of options) {
-    if (!o.optionId || !o.option) continue;
+    const option = o.optionId ? optionMap.get(o.optionId) : null;
+    if (!o.optionId || !option) continue;
     map.set(o.optionId, {
       optionId: o.optionId,
       listingId: o.listingId,
-      availableStock: o.option.availableStock ?? 0,
-      costPrice: o.option.costPrice,
-      sellPrice: o.option.sellPrice,
-      commissionRate: o.option.commissionRate,
+      availableStock: option.availableStock ?? 0,
+      costPrice: option.costPrice,
+      sellPrice: option.sellPrice,
+      commissionRate: option.commissionRate,
     });
   }
   return map;

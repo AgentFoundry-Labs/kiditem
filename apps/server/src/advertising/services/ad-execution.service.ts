@@ -5,10 +5,35 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { scrubSecrets } from '@kiditem/shared/security';
 
 const DEFAULT_LIMIT = 3;
 const MAX_SCAN = 50;
+const REDACTED_PLACEHOLDER = '[REDACTED]';
+const ERROR_SECRET_PATTERNS: ReadonlyArray<{ name: string; re: RegExp }> = [
+  { name: 'openai_api_key', re: /sk-[A-Za-z0-9_-]{20,}/g },
+  { name: 'bearer_token', re: /(?:^|\s)Bearer\s+[A-Za-z0-9_.-]+/gi },
+  { name: 'aws_access_key', re: /AKIA[0-9A-Z]{16}/g },
+  { name: 'gemini_api_key', re: /AIza[0-9A-Za-z_-]{35}/g },
+  { name: 'jwt', re: /eyJ[A-Za-z0-9_-]+?\.eyJ[A-Za-z0-9_-]+?\.[A-Za-z0-9_-]+/g },
+  { name: 'pem_block', re: /-----BEGIN [A-Z ]+-----[\s\S]+?-----END [A-Z ]+-----/g },
+  { name: 'wing_cookie', re: /WING[A-Z_]*SESSION[A-Za-z0-9_=-]*/gi },
+  { name: 'basic_auth', re: /Basic\s+[A-Za-z0-9+/=]{20,}/gi },
+];
+
+function scrubExecutionError(input: string): string {
+  if (!input) return input;
+  let out = input;
+  for (const { name, re } of ERROR_SECRET_PATTERNS) {
+    out = out.replace(re, (match) => {
+      if (name === 'bearer_token') {
+        const lead = match.match(/^\s/)?.[0] ?? '';
+        return `${lead}${REDACTED_PLACEHOLDER}`;
+      }
+      return REDACTED_PLACEHOLDER;
+    });
+  }
+  return out;
+}
 
 @Injectable()
 export class AdExecutionService {
@@ -170,12 +195,19 @@ export class AdExecutionService {
   ) {
     const task = await this.prisma.executionTask.findFirst({
       where: { id: body.taskId, action: { companyId } },
-      include: { action: true, worker: true },
+      include: { action: true },
     });
 
     if (!task) throw new NotFoundException('작업을 찾을 수 없습니다.');
 
-    if (task.worker?.workerKey && task.worker.workerKey !== body.workerKey) {
+    const worker = task.workerId
+      ? await this.prisma.executionWorker.findFirst({
+          where: { id: task.workerId, companyId },
+          select: { workerKey: true },
+        })
+      : null;
+
+    if (task.workerId && worker?.workerKey !== body.workerKey) {
       throw new ConflictException('다른 worker가 lease한 작업입니다.');
     }
 
@@ -259,13 +291,13 @@ export class AdExecutionService {
           beforeJson: json(body.before) ?? json(task.beforeJson),
           afterJson: json(body.after) ?? json(task.afterJson),
           screenshotPath: body.screenshotPath || task.screenshotPath,
-          errorMessage: scrubSecrets(body.errorMessage || '실행 실패'),
+          errorMessage: scrubExecutionError(body.errorMessage || '실행 실패'),
         });
         await updateActionOrThrow({
           executeStatus: 'failed',
           beforeJson: json(body.before) ?? json(task.action.beforeJson),
           afterJson: json(body.after) ?? json(task.action.afterJson),
-          errorMessage: scrubSecrets(body.errorMessage || '실행 실패'),
+          errorMessage: scrubExecutionError(body.errorMessage || '실행 실패'),
         });
       }
 
