@@ -7,36 +7,18 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AdConfigService } from './ad-config.service';
 import { paginationParams } from '../../common/pagination';
 import { kstInclusiveDaysStart } from '../../common/kst';
-import {
-  recomputeRoas,
-  recomputeCtr,
-  recomputeCvr,
-} from '../util/ratio-recompute';
-import { findScopedAdListings } from './read-models/ad-listing-read-model';
-import type { AdMetrics, AdsHubData, AdsHubSummary, AdsListItem, FindAllAdsResponse } from '@kiditem/shared/advertising';
+import { recomputeRoas } from '../util/ratio-recompute';
+import { buildAdMetrics } from '../domain/ad-metrics';
+import { findScopedAdListings } from '../read-models/ad-listing-read-model';
+import type {
+  AdsHubData,
+  AdsHubSummary,
+  AdsListItem,
+  FindAllAdsResponse,
+} from '@kiditem/shared/advertising';
 
 const VALID_TIERS = ['1차', '2차', '3차', 'OFF'] as const;
 type ValidTier = (typeof VALID_TIERS)[number];
-
-function buildMetrics(sums: {
-  spend: number;
-  impressions: number;
-  clicks: number;
-  conversions: number;
-  revenue: number;
-}): AdMetrics {
-  const { spend, impressions, clicks, conversions, revenue } = sums;
-  return {
-    spend,
-    impressions,
-    clicks,
-    conversions,
-    revenue,
-    ctr: recomputeCtr(clicks, impressions),
-    roas: recomputeRoas(revenue, spend),
-    cvr: recomputeCvr(conversions, clicks),
-  };
-}
 
 @Injectable()
 export class AdvertisingService {
@@ -101,11 +83,8 @@ export class AdvertisingService {
   }
 
   private async buildListingItems(companyId: string): Promise<AdsListItem[]> {
-    // Inclusive KST window: 30 businessDates = today + 29 prior dates.
     const thirtyDaysAgo = kstInclusiveDaysStart(30);
 
-    // Listing-level ad metrics aggregate from
-    // `ChannelListingDailySnapshot` over the last 30 businessDates.
     const perListing = await this.prisma.channelListingDailySnapshot.groupBy({
       by: ['listingId'],
       where: { companyId, businessDate: { gte: thirtyDaysAgo } },
@@ -120,16 +99,10 @@ export class AdvertisingService {
 
     if (perListing.length === 0) return [];
 
-    const listingIds = perListing
-      .map((r) => r.listingId)
-      .filter((id): id is string => id != null);
-
-    if (listingIds.length === 0) return [];
-
     const listingMap = await findScopedAdListings(
       this.prisma,
       companyId,
-      listingIds,
+      perListing.map((r) => r.listingId),
     );
 
     return perListing.flatMap((row) => {
@@ -138,7 +111,7 @@ export class AdvertisingService {
       if (!listing) return [];
       const master = listing.masterProduct;
 
-      const metrics = buildMetrics({
+      const metrics = buildAdMetrics({
         spend: row._sum.adSpend ?? 0,
         impressions: row._sum.adImpressions ?? 0,
         clicks: row._sum.adClicks ?? 0,
@@ -146,11 +119,7 @@ export class AdvertisingService {
         revenue: row._sum.adRevenue ?? 0,
       });
 
-      const grade = (master.abcGrade ?? null) as
-        | 'A'
-        | 'B'
-        | 'C'
-        | null;
+      const grade = (master.abcGrade ?? null) as 'A' | 'B' | 'C' | null;
 
       return [
         {

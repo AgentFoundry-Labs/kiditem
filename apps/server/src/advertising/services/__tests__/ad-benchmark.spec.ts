@@ -112,30 +112,8 @@ describe('AdBenchmarkService', () => {
     expect(cvrDiag.status).toBe('above');
   });
 
-  it('passes companyId through all reads (no default fallback)', async () => {
-    prisma.channelListingDailySnapshot.aggregate.mockResolvedValue({
-      _sum: {
-        adSpend: 0,
-        adImpressions: 0,
-        adClicks: 0,
-        adConversions: 0,
-        adRevenue: 0,
-      },
-    });
-    prisma.channelListingDailySnapshot.groupBy.mockResolvedValue([]);
-    prisma.channelListing.findMany.mockResolvedValue([]);
-
-    await service.getDiagnosis('company-xyz');
-
-    expect(prisma.channelListingDailySnapshot.aggregate).toHaveBeenCalledWith(
-      expect.objectContaining({ where: expect.objectContaining({ companyId: 'company-xyz' }) }),
-    );
-    expect(prisma.channelListingDailySnapshot.groupBy).toHaveBeenCalledWith(
-      expect.objectContaining({ where: expect.objectContaining({ companyId: 'company-xyz' }) }),
-    );
-    expect(adConfig.getConfig).toHaveBeenCalledWith('company-xyz');
-  });
-
+  // companyId propagation removed — covered by check:idor / check:tenant-scope
+  // and ad-benchmark-flow.pg.integration cross-tenant scenario #11.
   it('empty-state — no daily-fact rows returns null ratios (legacy Ad rows ignored)', async () => {
     prisma.channelListingDailySnapshot.aggregate.mockResolvedValue({
       _sum: {

@@ -1,43 +1,26 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { kstInclusiveDaysStart } from '../../common/kst';
 import { AdConfigService } from './ad-config.service';
-import {
-  recomputeRoas,
-  recomputeCtr,
-  recomputeCvr,
-} from '../util/ratio-recompute';
+import { buildAdMetrics } from '../domain/ad-metrics';
+import { findBenchmarkAggregates } from '../read-models/ad-benchmark-read-model';
+import { findScopedAdListings } from '../read-models/ad-listing-read-model';
+import { scopedListingToSummary } from '../mappers/ad-listing.mapper';
 import type { AdBenchmarkData, AdMetrics } from '@kiditem/shared/advertising';
-import {
-  findScopedAdListings,
-  toAdListingSummary,
-} from './read-models/ad-listing-read-model';
 
-function computeMetrics(sums: {
-  spend: number;
-  impressions: number;
-  clicks: number;
-  conversions: number;
-  revenue: number;
-}): AdMetrics {
-  const { spend, impressions, clicks, conversions, revenue } = sums;
-  return {
-    spend,
-    impressions,
-    clicks,
-    conversions,
-    revenue,
-    ctr: recomputeCtr(clicks, impressions),
-    roas: recomputeRoas(revenue, spend),
-    cvr: recomputeCvr(conversions, clicks),
-  };
-}
+type DiagnosisMetric = 'ctr' | 'roas' | 'cvr';
+
+type DiagnosisResult = {
+  metric: DiagnosisMetric;
+  status: 'above' | 'average' | 'below';
+  delta: number;
+  message: string;
+};
 
 function diagnoseMetric(
-  metric: 'ctr' | 'roas' | 'cvr',
+  metric: DiagnosisMetric,
   ownValue: number | null,
   industryValue: number,
-): { metric: 'ctr' | 'roas' | 'cvr'; status: 'above' | 'average' | 'below'; delta: number; message: string } {
+): DiagnosisResult {
   if (ownValue == null || industryValue <= 0) {
     return { metric, status: 'average', delta: 0, message: `${metric.toUpperCase()} 데이터 부족` };
   }
@@ -49,11 +32,12 @@ function diagnoseMetric(
   else status = 'average';
 
   const label = metric.toUpperCase();
-  const message = status === 'above'
-    ? `${label} 업계 평균 대비 ${Math.abs(deltaPercent)}% 우위`
-    : status === 'below'
-      ? `${label} 업계 평균 대비 ${Math.abs(deltaPercent)}% 미달`
-      : `${label} 업계 평균 수준`;
+  const message =
+    status === 'above'
+      ? `${label} 업계 평균 대비 ${Math.abs(deltaPercent)}% 우위`
+      : status === 'below'
+        ? `${label} 업계 평균 대비 ${Math.abs(deltaPercent)}% 미달`
+        : `${label} 업계 평균 수준`;
 
   return { metric, status, delta, message };
 }
@@ -67,45 +51,14 @@ export class AdBenchmarkService {
 
   /**
    * Benchmark aggregation from `ChannelListingDailySnapshot` over the last
-   * 30 businessDates. Ratios recompute from sums via util/ratio-recompute.
+   * 30 inclusive KST businessDates. Ratios recompute from sums (no provider
+   * per-row ratios). Industry averages come from `AdConfigService.getConfig`.
    */
   async getDiagnosis(companyId: string): Promise<AdBenchmarkData> {
     const config = await this.adConfigService.getConfig(companyId);
+    const aggregates = await findBenchmarkAggregates(this.prisma, companyId);
 
-    // Inclusive KST window: 30 businessDates = today + 29 prior dates.
-    const thirtyDaysAgo = kstInclusiveDaysStart(30);
-
-    const [totals, perListing] = await Promise.all([
-      this.prisma.channelListingDailySnapshot.aggregate({
-        where: { companyId, businessDate: { gte: thirtyDaysAgo } },
-        _sum: {
-          adSpend: true,
-          adImpressions: true,
-          adClicks: true,
-          adConversions: true,
-          adRevenue: true,
-        },
-      }),
-      this.prisma.channelListingDailySnapshot.groupBy({
-        by: ['listingId'],
-        where: { companyId, businessDate: { gte: thirtyDaysAgo } },
-        _sum: {
-          adSpend: true,
-          adImpressions: true,
-          adClicks: true,
-          adConversions: true,
-          adRevenue: true,
-        },
-      }),
-    ]);
-
-    const ownMetrics = computeMetrics({
-      spend: totals._sum.adSpend ?? 0,
-      impressions: totals._sum.adImpressions ?? 0,
-      clicks: totals._sum.adClicks ?? 0,
-      conversions: totals._sum.adConversions ?? 0,
-      revenue: totals._sum.adRevenue ?? 0,
-    });
+    const ownMetrics = buildAdMetrics(aggregates.totals);
 
     const industryAverage: AdMetrics = {
       spend: 0,
@@ -118,37 +71,27 @@ export class AdBenchmarkService {
       cvr: config.benchmark.cvr.avg,
     };
 
-    const diagnosis = [
+    const diagnosis: DiagnosisResult[] = [
       diagnoseMetric('ctr', ownMetrics.ctr, config.benchmark.ctr.avg),
       diagnoseMetric('roas', ownMetrics.roas, config.benchmark.roas.avg),
       diagnoseMetric('cvr', ownMetrics.cvr, config.benchmark.cvr.avg),
     ];
 
-    const listingIds = perListing
-      .map((r) => r.listingId)
-      .filter((id): id is string => id != null);
-
     const summaryMap = await findScopedAdListings(
       this.prisma,
       companyId,
-      listingIds,
+      aggregates.perListing.map((row) => row.listingId),
     );
 
-    const listings = perListing.flatMap((row) => {
-      if (!row.listingId) return [];
+    const listings = aggregates.perListing.flatMap((row) => {
       const summary = summaryMap.get(row.listingId);
       if (!summary) return [];
-      const metrics = computeMetrics({
-        spend: row._sum.adSpend ?? 0,
-        impressions: row._sum.adImpressions ?? 0,
-        clicks: row._sum.adClicks ?? 0,
-        conversions: row._sum.adConversions ?? 0,
-        revenue: row._sum.adRevenue ?? 0,
-      });
-      return [{
-        ...toAdListingSummary(summary),
-        metrics,
-      }];
+      return [
+        {
+          ...scopedListingToSummary(summary),
+          metrics: buildAdMetrics(row.sums),
+        },
+      ];
     });
 
     return {

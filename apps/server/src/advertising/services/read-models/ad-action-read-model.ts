@@ -1,7 +1,7 @@
 import { Prisma } from '@prisma/client';
 import type { PrismaService } from '../../../prisma/prisma.service';
 import type { AdActionTargetType } from '../types';
-import { findScopedAdListings } from './ad-listing-read-model';
+import { findScopedAdListings } from '../../read-models/ad-listing-read-model';
 
 export interface AdActionQuery {
   approvalStatus?: string;
