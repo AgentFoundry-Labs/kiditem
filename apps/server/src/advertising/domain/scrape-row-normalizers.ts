@@ -15,7 +15,7 @@ import type { AdTargetType } from '../util/ad-target-key';
 import type {
   ListingDailyState,
   ListingOptionDailyState,
-} from '../persistence/channel-daily-fact.persistence';
+} from '../adapter/out/prisma/channel-daily-fact.persistence';
 
 export type ScrapeRowPair = {
   rawRow: Record<string, any>;

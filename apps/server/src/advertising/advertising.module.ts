@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { AdvertisingController } from './controllers/advertising.controller';
+import { AdvertisingController } from './adapter/in/http/advertising.controller';
 import { AdvertisingService } from './services/advertising.service';
 import { AdCampaignsService } from './services/ad-campaigns.service';
 import { AdStrategyService } from './services/ad-strategy.service';

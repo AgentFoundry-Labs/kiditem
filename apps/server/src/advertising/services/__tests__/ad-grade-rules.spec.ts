@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { AdGradeRulesService } from '../ad-grade-rules.service';
-import type { GradeRulesInput, AdIssuesInput, HydratedListing } from '../types';
+import type { GradeRulesInput, AdIssuesInput, HydratedListing } from '../../domain/model/strategy-types';
 
 /**
  * Listing-level ABC rules 동작 검증.

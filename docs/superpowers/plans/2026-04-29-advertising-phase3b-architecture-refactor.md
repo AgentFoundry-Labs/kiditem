@@ -1,10 +1,31 @@
 # Advertising Phase 3B Architecture Refactor Implementation Plan
 
+> **Status (2026-04-29):** Transitional split landed (Lanes A/B/C produced
+> `services/`, `ingest/`, `read-models/`, `persistence/`, `mappers/`, plus the
+> `domain/` extraction). The follow-up PR `refactor/advertising-contract-topology`
+> converged that transitional layout to the
+> [backend architecture contract topology](2026-04-29-backend-architecture-contract.md):
+> `persistence/*` → `adapter/out/prisma/*.persistence.ts`,
+> `read-models/*-read-model.ts` → `adapter/out/prisma/*.query.ts`,
+> `mappers/` → `mapper/`, `ingest/*.handler.ts` →
+> `application/service/*.handler.ts`,
+> `controllers/advertising.controller.ts` →
+> `adapter/in/http/advertising.controller.ts`. Future advertising work targets
+> the contract paths; the lane checklists below are kept for
+> historical traceability of the responsibility split.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Refactor the advertising backend from fat services into focused application services, read-model/query modules, persistence helpers, mappers, and pure domain rules while preserving every `/api/ads/*` route and shared response contract.
 
-**Architecture:** `apps/server/src/advertising` is already the bounded context. This plan keeps that boundary and introduces internal layers only where they remove real complexity: source-specific ingest handlers, tenant-scoped persistence helpers, read models for raw SQL/reporting, mappers for response shape, and pure domain modules for rules/calculators. It is not a generic repository rollout, and it does not change Prisma schema, shared exports, frontend routes, or public API semantics.
+**Architecture:** `apps/server/src/advertising` is already the bounded context. This plan keeps that boundary and introduces internal layers only where they remove real complexity: source-specific ingest handlers, tenant-scoped persistence helpers, read models for raw SQL/reporting, mappers for response shape, and pure domain modules for rules/calculators. It is not a generic repository rollout, and it does not change Prisma schema, shared exports, frontend routes, or public API semantics. After the topology-converge PR the responsibility split lives at:
+
+- `apps/server/src/advertising/adapter/in/http/` — `advertising.controller.ts`
+- `apps/server/src/advertising/adapter/out/prisma/` — `*.persistence.ts` + `*.query.ts`
+- `apps/server/src/advertising/application/service/` — ingest handlers + listing-ad-metric accumulator
+- `apps/server/src/advertising/domain/` — pure rules and helpers
+- `apps/server/src/advertising/mapper/` — boundary mappers
+- `apps/server/src/advertising/services/` — transitional NestJS legacy providers + `channel-scrape-persistence` facade
 
 **Tech Stack:** NestJS 11, Prisma 7, PostgreSQL, Vitest, `@kiditem/shared/advertising`, RTK-prefixed shell commands.
 

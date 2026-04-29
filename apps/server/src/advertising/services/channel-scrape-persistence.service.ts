@@ -1,6 +1,6 @@
 // Thin facade over the focused channels-namespace persistence helpers.
 //
-// The actual logic lives in `apps/server/src/advertising/persistence/*.ts`
+// The actual logic lives in `apps/server/src/advertising/adapter/out/prisma/*.ts`
 // (one module per concern: scrape-run lifecycle, daily-fact upserts,
 // account KPI). Ingest handlers call those persistence functions directly.
 // This @Injectable wrapper exists for two reasons during the Lane A
@@ -24,7 +24,7 @@ import {
   type ScrapeRunFinalize,
   type ScrapeRunInput,
   type ScrapeSnapshotInput,
-} from '../persistence/channel-scrape-run.persistence';
+} from '../adapter/out/prisma/channel-scrape-run.persistence';
 import {
   upsertChannelAdTargetDaily,
   upsertChannelListingDaily,
@@ -32,21 +32,21 @@ import {
   type ListingDailyUpsertInput,
   type ListingOptionDailyUpsertInput,
   type UpsertAdTargetDailyInput,
-} from '../persistence/channel-daily-fact.persistence';
+} from '../adapter/out/prisma/channel-daily-fact.persistence';
 import {
   upsertChannelAccountKpi,
   type UpsertAccountKpiInput,
-} from '../persistence/channel-account-kpi.persistence';
+} from '../adapter/out/prisma/channel-account-kpi.persistence';
 
 // Re-export public types so existing imports against this module keep
-// resolving while consumers migrate to the persistence/* modules.
+// resolving while consumers migrate to the adapter/out/prisma/* modules.
 export type { ScrapeMatchStatus } from '../domain/listing-match';
 export type {
   ListingDailyState,
   ListingDailyTrafficMetrics,
   ListingOptionDailyState,
   AdTargetDailyMetrics,
-} from '../persistence/channel-daily-fact.persistence';
+} from '../adapter/out/prisma/channel-daily-fact.persistence';
 
 @Injectable()
 export class ChannelScrapePersistenceService {

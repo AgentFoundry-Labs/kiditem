@@ -29,11 +29,11 @@ import {
   hydrateListings,
   loadLeadTimeByListing,
   loadStrategyContext,
-} from '../read-models/ad-strategy-context-read-model';
+} from '../adapter/out/prisma/ad-strategy-context.query';
 import {
   toAdRulesData,
   toRecommendationCards,
-} from '../mappers/ad-strategy.mapper';
+} from '../mapper/ad-strategy.mapper';
 import type {
   AdRulesData,
   AdStrategyAction,
@@ -49,8 +49,8 @@ type Priority = 'urgent' | 'high' | 'medium' | 'low';
  * Endpoint orchestration for `/api/ads/strategy/*` and `/api/ads/campaigns/register`.
  *
  * Heavy lifting (raw SQL latest-state reads, multi-step hydration, pure rule
- * evaluation, mapping) lives in `domain/`, `read-models/`, `mappers/`, and
- * the four sub-service calculators (`AdGradeRulesService`,
+ * evaluation, mapping) lives in `domain/`, `adapter/out/prisma/`, `mapper/`,
+ * and the four sub-service calculators (`AdGradeRulesService`,
  * `AdBudgetAllocatorService`, `AdExposureService`, `AdRecommendService`).
  *
  * This service only:

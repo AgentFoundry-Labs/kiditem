@@ -6,7 +6,7 @@ import {
   findLatestAdActionTargetRows,
   findLatestListingOptionStockById,
   type AdActionQuery,
-} from '../read-models/ad-action-read-model';
+} from '../adapter/out/prisma/ad-action.query';
 import {
   createActionCandidate,
   type ActionCandidate,
@@ -17,7 +17,7 @@ import {
   rejectAdActions,
   resetFailedAdActions,
   updateActionOrThrow,
-} from '../persistence/ad-action.persistence';
+} from '../adapter/out/prisma/ad-action.persistence';
 
 const ACTION_DEDUP_HOURS = 24;
 

@@ -5,7 +5,16 @@ Multi-tenant scope rule 준수 — 모든 service 가 companyId 말미 파라미
 
 ## Reconstruction note
 
-현재 `services/`, `ingest`, `read-models`, `persistence` 류 이름은 hard rewrite 이후의 런타임 계약을 설명하는 transitional structure 이다. Phase 3B 이후 목표 구조는 `apps/server/AGENTS.md` 와 `docs/superpowers/plans/2026-04-29-backend-architecture-contract.md` 의 `adapter/application/domain` 계약을 따른다. Advertising 의 현 구조를 다른 도메인의 표준으로 복사하지 않는다.
+Advertising domain은 **backend architecture contract topology**를 따른다 (`apps/server/AGENTS.md` + `docs/superpowers/plans/2026-04-29-backend-architecture-contract.md`):
+
+- `adapter/in/http/` — HTTP entrypoints (controller)
+- `adapter/out/prisma/` — Prisma persistence adapters (`*.persistence.ts`) + query adapters (`*.query.ts`)
+- `application/service/` — use-case orchestration (ingest handlers, listing-ad-metric accumulator)
+- `domain/` — pure business rules (no NestJS/Prisma imports)
+- `dto/` — HTTP DTOs (class-validator)
+- `mapper/` — boundary row/DTO/domain mapping
+- `services/` — transitional legacy NestJS providers (advertising/ad-campaigns/ad-strategy/ad-benchmark/ad-collect/ad-sync/ad-action/ad-execution/ad-config + `channel-scrape-persistence` facade). 추가 PR에서 `application/service/`로 흡수할 후보. 신규 use case는 `application/service/`에 둔다.
+- `util/` — pure helpers (`ad-target-key.ts`, `ratio-recompute.ts`). Domain-level이지만 contract folder 가 아닌 transitional location. 새 도메인은 이 패턴을 답습하지 않는다.
 
 ## Hard rewrite (2026-04-27) — post-rewrite contract
 
@@ -44,15 +53,20 @@ Channel market-data pipeline was rewritten in 4 phases (H1 schema → H2 ingest 
 
 - scrape ingestion 진입점이 `/api/ads/extension/sync` 하나라 advertising 안에서 raw + normalized 를 같이 쓰는 게 trace 가 단순.
 - `ChannelSyncService` 인젝션은 금지 (`apps/server/AGENTS.md` service-to-service 규칙).
-- helper: `ChannelScrapePersistenceService` (`apps/server/src/advertising/services/channel-scrape-persistence.service.ts`). `PrismaService` 만 의존하며 channels namespace 모델을 직접 만진다.
+- helper: `ChannelScrapePersistenceService` (`apps/server/src/advertising/services/channel-scrape-persistence.service.ts`). 실제 로직은 `adapter/out/prisma/channel-scrape-run.persistence.ts` / `channel-daily-fact.persistence.ts` / `channel-account-kpi.persistence.ts` 에 분리되어 있고, 이 service 는 transitional facade이다. `PrismaService` 만 의존하며 channels namespace 모델을 직접 만진다.
 - run lifecycle: `createRun(status:'running')` → `appendSnapshot(...)` × N → `finalizeRun(status:'complete')`. 실패 시 `finalizeScrapeRunOnError(...)` 로 `status:'error'` + `errorJson` 저장.
 
 다른 도메인이 같은 패턴을 쓸 때까지는 advertising-local 로 유지.
 
 ## Structure
 
-- **Controller**: `advertising.controller.ts` — all `/api/ads/*` routes (14+ endpoints), `@CurrentCompany()` 주입
-- **Services**: advertising / ad-campaigns / ad-strategy / ad-benchmark / ad-collect / ad-sync / ad-action / ad-execution / ad-config (9 services)
+- **Controller**: `adapter/in/http/advertising.controller.ts` — all `/api/ads/*` routes (14+ endpoints), `@CurrentCompany()` 주입
+- **Persistence adapters**: `adapter/out/prisma/*.persistence.ts` — `ad-action` / `ad-execution` / `channel-scrape-run` / `channel-daily-fact` / `channel-account-kpi` / `scrape-target`
+- **Query adapters**: `adapter/out/prisma/*.query.ts` — `ad-action` / `ad-benchmark` / `ad-campaign` / `ad-listing` / `ad-strategy-context` / `ad-sync-listing-map`
+- **Application services (ingest)**: `application/service/*-ingest.handler.ts` (4 sources: ad-campaign / raw-scrape / traffic / coupang-ads-daily) + `listing-ad-metric-accumulator.ts`
+- **Domain**: `domain/` — pure ad rules + helpers (`ad-action-rules`, `ad-execution-error-scrubber`, `ad-metrics`, `business-date`, `listing-match`, `scrape-row-normalizers`, `strategy-context`)
+- **Mappers**: `mapper/` — `ad-campaign.mapper.ts`, `ad-listing.mapper.ts`, `ad-strategy.mapper.ts`
+- **Legacy NestJS services (transitional)**: `services/` — advertising / ad-campaigns / ad-strategy / ad-benchmark / ad-collect / ad-sync / ad-action / ad-execution / ad-config + `channel-scrape-persistence` facade
 - **Frontend**: `apps/web/src/app/ad-ops/` — 4 탭 (status / strategy / campaign / exposure)
 - **DB**: AdAction (listingId nullable, targetType ∈ {'campaign','keyword'}, `adTargetDailyId` → ChannelAdTargetDailySnapshot), ScrapeTarget, ExecutionTask, ExecutionLog, ExecutionWorker
 - **Shared**: `@kiditem/shared/schemas/ads` — listingId-primary, nested masterProduct{code,name} + option{sku,optionName}

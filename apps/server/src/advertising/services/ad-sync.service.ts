@@ -24,17 +24,17 @@ import {
   type ListingMap,
   type ListingMatch,
 } from '../domain/listing-match';
-import { buildAdSyncListingMap } from '../read-models/ad-sync-listing-map';
-import { ingestAdCampaign } from '../ingest/ad-campaign-ingest.handler';
-import { ingestRawScrape } from '../ingest/raw-scrape-ingest.handler';
-import { ingestTraffic } from '../ingest/traffic-ingest.handler';
-import { ingestCoupangAdsDaily } from '../ingest/coupang-ads-daily-ingest.handler';
+import { buildAdSyncListingMap } from '../adapter/out/prisma/ad-sync-listing-map.query';
+import { ingestAdCampaign } from '../application/service/ad-campaign-ingest.handler';
+import { ingestRawScrape } from '../application/service/raw-scrape-ingest.handler';
+import { ingestTraffic } from '../application/service/traffic-ingest.handler';
+import { ingestCoupangAdsDaily } from '../application/service/coupang-ads-daily-ingest.handler';
 import {
   createScrapeTarget,
   deleteScrapeTarget,
   listScrapeTargets,
   markScrapeTargetScraped,
-} from '../persistence/scrape-target.persistence';
+} from '../adapter/out/prisma/scrape-target.persistence';
 
 export type { ListingMap } from '../domain/listing-match';
 

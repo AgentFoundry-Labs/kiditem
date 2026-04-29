@@ -9,7 +9,7 @@ import { paginationParams } from '../../common/pagination';
 import { kstInclusiveDaysStart } from '../../common/kst';
 import { recomputeRoas } from '../util/ratio-recompute';
 import { buildAdMetrics } from '../domain/ad-metrics';
-import { findScopedAdListings } from '../read-models/ad-listing-read-model';
+import { findScopedAdListings } from '../adapter/out/prisma/ad-listing.query';
 import type {
   AdsHubData,
   AdsHubSummary,
