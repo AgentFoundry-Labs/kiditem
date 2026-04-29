@@ -1,8 +1,5 @@
 // apps/server/src/products/services/bundle-components.service.ts
-import {
-  BadRequestException, ConflictException, ForbiddenException,
-  Injectable, NotFoundException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { BundleComponent, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BundleStockService } from './bundle-stock.service';
@@ -10,25 +7,32 @@ import { CreateBundleComponentDto } from '../dto/create-bundle-component.dto';
 import { UpdateBundleComponentDto } from '../dto/update-bundle-component.dto';
 import { ListBundleComponentsQuery } from '../dto/list-bundle-components.query';
 import { mapPrismaError } from '../util/prisma-error';
+import {
+  ensureBundleAndComponentInvariants,
+  ensureNotSelfReference,
+} from '../domain/bundle-component-rules';
+import {
+  createBundleComponent,
+  deleteBundleComponentScoped,
+  findBundleComponentForTenant,
+  lockBundleOptionRow,
+  updateBundleComponentQty,
+} from '../persistence/bundle-component.persistence';
+import { listBundleComponentsForTenant } from '../read-models/bundle-component-read-model';
 
 /**
- * Bundle composition CRUD.
+ * Bundle composition CRUD orchestration.
  *
- * Ownership / isolation invariants (products/CLAUDE.md):
- *   - `BundleComponent.companyId` is **derived from `bundleOption.companyId`**,
- *     not the auth caller's companyId (3-way invariant). Callers still need to
- *     pass `@CurrentCompany()` so we can reject cross-tenant bundle access.
- *   - Self-reference (`bundleOptionId === componentOptionId`) is rejected 409.
- *   - Nested bundles (component.isBundle=true) are rejected 400 (Plan B1 scope).
- *   - Soft-deleted `bundleOption` or `componentOption` → 404 (T3 spec-reviewer
- *     feedback — we must not attach to tombstones that `OptionsService` already
- *     excludes from default reads).
+ * Ownership / isolation invariants (products/CLAUDE.md) are enforced by the
+ * pure helpers in `domain/bundle-component-rules.ts`. The row-lock + scoped
+ * write/delete + recompute chain runs through `persistence/`. This service
+ * stitches them together inside one transaction so the bundle option lock
+ * is held for the entire validate→mutate→recompute window.
  *
- * Transaction composition:
- *   Each mutating method accepts an optional `outerTx?` so Plan B2 sourcing /
- *   supplier sync flows can wrap CRUD + other writes in a single transaction.
- *   Inside, we acquire a row lock on `product_options` (the bundle row) so
- *   concurrent recompute stays deterministic.
+ * Each mutating method accepts an optional `outerTx?` so Plan B2 sourcing /
+ * supplier-sync flows can wrap CRUD + other writes in a single transaction.
+ * Callers must pass `{ timeout: >= 15000 }` on the outer `$transaction` so
+ * the lock + recompute chain has headroom beyond Prisma's 5 s default.
  */
 @Injectable()
 export class BundleComponentsService {
@@ -37,20 +41,13 @@ export class BundleComponentsService {
     private readonly bundleStock: BundleStockService,
   ) {}
 
-  /**
-   * @param outerTx - Optional outer transaction (Plan B2 sourcing/supplier-sync compose).
-   *                  Caller must pass `{ timeout: >= 15000 }` on the outer `$transaction`
-   *                  so the row-lock + recompute chain has headroom beyond Prisma's 5 s
-   *                  default.
-   */
   async create(
     companyId: string,
     dto: CreateBundleComponentDto,
     outerTx?: Prisma.TransactionClient,
   ): Promise<BundleComponent> {
-    if (dto.bundleOptionId === dto.componentOptionId) {
-      throw new ConflictException('self-reference');
-    }
+    ensureNotSelfReference(dto.bundleOptionId, dto.componentOptionId);
+
     const db = outerTx ?? this.prisma;
     const [bundleOpt, compOpt] = await Promise.all([
       db.productOption.findFirst({
@@ -60,45 +57,19 @@ export class BundleComponentsService {
         where: { id: dto.componentOptionId, companyId, isDeleted: false },
       }),
     ]);
-    // Soft-deleted rows are tombstones — treat as not-found to match
-    // OptionsService.findById default semantics (T3 spec-reviewer feedback).
-    if (!bundleOpt) {
-      throw new NotFoundException('bundle option not found');
-    }
-    if (!compOpt) {
-      throw new NotFoundException('component option not found');
-    }
-    if (!bundleOpt.isBundle) {
-      throw new BadRequestException('option is not a bundle');
-    }
-    if (compOpt.isBundle) {
-      throw new BadRequestException('nested bundle not supported in Plan B1');
-    }
-    if (bundleOpt.companyId !== companyId) {
-      throw new ForbiddenException('cross-company not allowed');
-    }
-    if (compOpt.companyId !== bundleOpt.companyId) {
-      throw new ForbiddenException('cross-company not allowed');
-    }
+    ensureBundleAndComponentInvariants(bundleOpt, compOpt, companyId);
 
-    const exec = async (tx: Prisma.TransactionClient): Promise<BundleComponent> => {
-      // Row-level lock on the bundle option: serializes concurrent recompute
-      // + create/update/delete on the same bundle.
-      await tx.$queryRaw`
-        SELECT id FROM product_options
-        WHERE id = ${dto.bundleOptionId}::uuid
-          AND company_id = ${companyId}::uuid
-        FOR UPDATE
-      `;
+    const exec = async (
+      tx: Prisma.TransactionClient,
+    ): Promise<BundleComponent> => {
+      await lockBundleOptionRow(tx, dto.bundleOptionId, companyId);
       try {
-        const bc = await tx.bundleComponent.create({
-          data: {
-            bundleOptionId: dto.bundleOptionId,
-            componentOptionId: dto.componentOptionId,
-            qty: dto.qty,
-            // 3-way invariant: derive from bundle, not auth companyId.
-            companyId: bundleOpt.companyId,
-          },
+        const bc = await createBundleComponent(tx, {
+          bundleOptionId: dto.bundleOptionId,
+          componentOptionId: dto.componentOptionId,
+          qty: dto.qty,
+          // 3-way invariant: derive from bundle, not auth companyId.
+          companyId: bundleOpt.companyId,
         });
         await this.bundleStock.recompute(companyId, dto.bundleOptionId, tx);
         return bc;
@@ -112,58 +83,37 @@ export class BundleComponentsService {
       : this.prisma.$transaction(exec, { timeout: 15000 });
   }
 
-  /**
-   * Forward (by bundle) or reverse (by component) listing.
-   * At least one filter is required so the result set is bounded.
-   */
   async list(
     companyId: string,
     q: ListBundleComponentsQuery,
   ): Promise<BundleComponent[]> {
-    if (!q.bundleOptionId && !q.componentOptionId) {
-      throw new BadRequestException('bundleOptionId or componentOptionId is required');
-    }
-    return this.prisma.bundleComponent.findMany({
-      where: {
-        companyId,
-        ...(q.bundleOptionId ? { bundleOptionId: q.bundleOptionId } : {}),
-        ...(q.componentOptionId ? { componentOptionId: q.componentOptionId } : {}),
-      },
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-    });
+    return listBundleComponentsForTenant(this.prisma, companyId, q);
   }
 
-  /**
-   * @param outerTx - Optional outer transaction (Plan B2 compose). Caller must pass
-   *                  `{ timeout: >= 15000 }` on the outer `$transaction`.
-   */
   async update(
     companyId: string,
     id: string,
     dto: UpdateBundleComponentDto,
     outerTx?: Prisma.TransactionClient,
   ): Promise<BundleComponent> {
-    const exec = async (tx: Prisma.TransactionClient): Promise<BundleComponent> => {
-      const row = await tx.bundleComponent.findFirst({ where: { id, companyId } });
+    const exec = async (
+      tx: Prisma.TransactionClient,
+    ): Promise<BundleComponent> => {
+      const row = await findBundleComponentForTenant(tx, id, companyId);
       if (!row) throw new NotFoundException('bundle-component not found');
-      await tx.$queryRaw`
-        SELECT id FROM product_options
-        WHERE id = ${row.bundleOptionId}::uuid
-          AND company_id = ${companyId}::uuid
-        FOR UPDATE
-      `;
+      await lockBundleOptionRow(tx, row.bundleOptionId, companyId);
       try {
-        const { count } = await tx.bundleComponent.updateMany({
-          where: { id, companyId },
-          data: { qty: dto.qty },
-        });
-        if (count === 0) throw new NotFoundException('bundle-component not found');
-        const updated = await tx.bundleComponent.findFirst({ where: { id, companyId } });
-        if (!updated) throw new NotFoundException('bundle-component not found');
+        const count = await updateBundleComponentQty(tx, id, companyId, dto.qty);
+        if (count === 0) {
+          throw new NotFoundException('bundle-component not found');
+        }
+        const updated = await findBundleComponentForTenant(tx, id, companyId);
+        if (!updated) {
+          throw new NotFoundException('bundle-component not found');
+        }
         await this.bundleStock.recompute(companyId, row.bundleOptionId, tx);
         return updated;
       } catch (e) {
-        // mapPrismaError returns `never`.
         mapPrismaError(e, 'bundle-component update');
       }
     };
@@ -172,28 +122,23 @@ export class BundleComponentsService {
       : this.prisma.$transaction(exec, { timeout: 15000 });
   }
 
-  /**
-   * @param outerTx - Optional outer transaction (Plan B2 compose). Caller must pass
-   *                  `{ timeout: >= 15000 }` on the outer `$transaction`.
-   */
   async delete(
     companyId: string,
     id: string,
     outerTx?: Prisma.TransactionClient,
   ): Promise<void> {
-    const exec = async (tx: Prisma.TransactionClient) => {
-      const row = await tx.bundleComponent.findFirst({ where: { id, companyId } });
+    const exec = async (tx: Prisma.TransactionClient): Promise<void> => {
+      const row = await findBundleComponentForTenant(tx, id, companyId);
       if (!row) throw new NotFoundException('bundle-component not found');
-      await tx.$queryRaw`
-        SELECT id FROM product_options
-        WHERE id = ${row.bundleOptionId}::uuid
-          AND company_id = ${companyId}::uuid
-        FOR UPDATE
-      `;
+      await lockBundleOptionRow(tx, row.bundleOptionId, companyId);
       try {
-        const { count } = await tx.bundleComponent.deleteMany({ where: { id, companyId } });
-        if (count === 0) throw new NotFoundException('bundle-component not found');
-      } catch (e) { mapPrismaError(e, 'bundle-component delete'); }
+        const count = await deleteBundleComponentScoped(tx, id, companyId);
+        if (count === 0) {
+          throw new NotFoundException('bundle-component not found');
+        }
+      } catch (e) {
+        mapPrismaError(e, 'bundle-component delete');
+      }
       await this.bundleStock.recompute(companyId, row.bundleOptionId, tx);
     };
     await (outerTx
