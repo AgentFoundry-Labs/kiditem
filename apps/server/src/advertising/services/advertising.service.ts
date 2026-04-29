@@ -7,12 +7,12 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AdConfigService } from './ad-config.service';
 import { paginationParams } from '../../common/pagination';
 import { kstInclusiveDaysStart } from '../../common/kst';
-import { LISTING_SUMMARY_SELECT } from './types';
 import {
   recomputeRoas,
   recomputeCtr,
   recomputeCvr,
 } from '../util/ratio-recompute';
+import { findScopedAdListings } from './read-models/ad-listing-read-model';
 import type { AdMetrics, AdsHubData, AdsHubSummary, AdsListItem, FindAllAdsResponse } from '@kiditem/shared/advertising';
 
 const VALID_TIERS = ['1차', '2차', '3차', 'OFF'] as const;
@@ -91,10 +91,11 @@ export class AdvertisingService {
     const nextTier: string | null =
       (adTier as ValidTier) === 'OFF' ? null : adTier;
 
-    await this.prisma.masterProduct.update({
-      where: { id: listing.masterId },
+    const updated = await this.prisma.masterProduct.updateMany({
+      where: { id: listing.masterId, companyId },
       data: { adTier: nextTier },
     });
+    if (updated.count !== 1) throw new NotFoundException('Ad not found');
 
     return { ok: true };
   }
@@ -125,28 +126,17 @@ export class AdvertisingService {
 
     if (listingIds.length === 0) return [];
 
-    const listings = await this.prisma.channelListing.findMany({
-      where: { id: { in: listingIds }, companyId, isDeleted: false },
-      select: {
-        ...LISTING_SUMMARY_SELECT,
-        master: {
-          select: {
-            id: true,
-            code: true,
-            name: true,
-            abcGrade: true,
-            adTier: true,
-          },
-        },
-      },
-    });
-
-    const listingMap = new Map(listings.map((l) => [l.id, l]));
+    const listingMap = await findScopedAdListings(
+      this.prisma,
+      companyId,
+      listingIds,
+    );
 
     return perListing.flatMap((row) => {
       if (!row.listingId) return [];
       const listing = listingMap.get(row.listingId);
       if (!listing) return [];
+      const master = listing.masterProduct;
 
       const metrics = buildMetrics({
         spend: row._sum.adSpend ?? 0,
@@ -156,7 +146,7 @@ export class AdvertisingService {
         revenue: row._sum.adRevenue ?? 0,
       });
 
-      const grade = (listing.master.abcGrade ?? null) as
+      const grade = (master.abcGrade ?? null) as
         | 'A'
         | 'B'
         | 'C'
@@ -168,15 +158,15 @@ export class AdvertisingService {
           externalId: listing.externalId,
           channelName: listing.channelName,
           masterProduct: {
-            id: listing.master.id,
-            code: listing.master.code,
-            name: listing.master.name,
+            id: master.id,
+            code: master.code,
+            name: master.name,
           },
           option: null,
           metrics,
           grade: grade === 'A' || grade === 'B' || grade === 'C' ? grade : null,
-          tier: listing.master.adTier ?? null,
-          adTier: listing.master.adTier ?? null,
+          tier: master.adTier ?? null,
+          adTier: master.adTier ?? null,
         } satisfies AdsListItem,
       ];
     });

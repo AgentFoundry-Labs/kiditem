@@ -8,7 +8,10 @@ import {
   recomputeCvr,
 } from '../util/ratio-recompute';
 import type { AdBenchmarkData, AdMetrics } from '@kiditem/shared/advertising';
-import { LISTING_SUMMARY_SELECT } from './types';
+import {
+  findScopedAdListings,
+  toAdListingSummary,
+} from './read-models/ad-listing-read-model';
 
 function computeMetrics(sums: {
   spend: number;
@@ -125,14 +128,11 @@ export class AdBenchmarkService {
       .map((r) => r.listingId)
       .filter((id): id is string => id != null);
 
-    const summaries = listingIds.length > 0
-      ? await this.prisma.channelListing.findMany({
-          where: { id: { in: listingIds }, companyId, isDeleted: false },
-          select: LISTING_SUMMARY_SELECT,
-        })
-      : [];
-
-    const summaryMap = new Map(summaries.map((s) => [s.id, s]));
+    const summaryMap = await findScopedAdListings(
+      this.prisma,
+      companyId,
+      listingIds,
+    );
 
     const listings = perListing.flatMap((row) => {
       if (!row.listingId) return [];
@@ -146,11 +146,7 @@ export class AdBenchmarkService {
         revenue: row._sum.adRevenue ?? 0,
       });
       return [{
-        listingId: summary.id,
-        externalId: summary.externalId,
-        channelName: summary.channelName,
-        masterProduct: summary.master,
-        option: null,
+        ...toAdListingSummary(summary),
         metrics,
       }];
     });

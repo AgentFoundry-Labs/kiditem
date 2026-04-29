@@ -34,6 +34,7 @@ describe('AdSyncService', () => {
         findMany: vi.fn(),
         create: vi.fn(),
         update: vi.fn(),
+        updateMany: vi.fn(),
       },
       $transaction: vi.fn((ops) => Promise.all(ops)),
     };
@@ -64,14 +65,12 @@ describe('AdSyncService', () => {
           externalOptionId: 'V1',
           listingId: 'L1',
           optionId: 'O1',
-          listing: { externalId: 'COUPANG-1' },
         },
         {
           id: 'LO2',
           externalOptionId: 'V2',
           listingId: 'L2',
           optionId: 'O2',
-          listing: { externalId: 'COUPANG-2' },
         },
       ]);
       prisma.channelListing.findMany.mockResolvedValue([
@@ -100,14 +99,13 @@ describe('AdSyncService', () => {
         where: {
           companyId: 'company-1',
           isActive: true,
-          listing: { channel: 'coupang', isDeleted: false },
+          listing: { companyId: 'company-1', channel: 'coupang', isDeleted: false },
         },
         select: {
           id: true,
           externalOptionId: true,
           listingId: true,
           optionId: true,
-          listing: { select: { externalId: true } },
         },
       });
       expect(prisma.channelListing.findMany).toHaveBeenCalledWith({
@@ -123,10 +121,11 @@ describe('AdSyncService', () => {
           externalOptionId: 'V1',
           listingId: 'L1',
           optionId: null,
-          listing: { externalId: 'COUPANG-NULL' },
         },
       ]);
-      prisma.channelListing.findMany.mockResolvedValue([]);
+      prisma.channelListing.findMany.mockResolvedValue([
+        { id: 'L1', externalId: 'COUPANG-NULL' },
+      ]);
 
       const map = await service.buildListingMap('company-1');
 
@@ -583,8 +582,31 @@ describe('AdSyncService', () => {
   });
 
   describe('scrapeTarget CRUD (IDOR guards)', () => {
+    it('markScraped writes with tenant scope and returns the updated target shape', async () => {
+      const target = {
+        id: 'target-1',
+        companyId: 'company-1',
+        lastScrapedAt: new Date('2026-04-29T00:00:00Z'),
+      };
+      prisma.scrapeTarget.updateMany.mockResolvedValue({ count: 1 });
+      prisma.scrapeTarget.findFirst.mockResolvedValue(target);
+
+      await expect(service.markScraped('target-1', 'company-1')).resolves.toBe(
+        target,
+      );
+
+      expect(prisma.scrapeTarget.updateMany).toHaveBeenCalledWith({
+        where: { id: 'target-1', companyId: 'company-1' },
+        data: { lastScrapedAt: expect.any(Date) },
+      });
+      expect(prisma.scrapeTarget.findFirst).toHaveBeenCalledWith({
+        where: { id: 'target-1', companyId: 'company-1' },
+      });
+      expect(prisma.scrapeTarget.update).not.toHaveBeenCalled();
+    });
+
     it('markScraped throws NotFoundException when id belongs to different tenant', async () => {
-      prisma.scrapeTarget.findFirst.mockResolvedValue(null);
+      prisma.scrapeTarget.updateMany.mockResolvedValue({ count: 0 });
 
       await expect(
         service.markScraped('target-other-tenant', 'company-1'),
@@ -592,8 +614,31 @@ describe('AdSyncService', () => {
       expect(prisma.scrapeTarget.update).not.toHaveBeenCalled();
     });
 
+    it('deleteScrapeTarget writes with tenant scope and returns the updated target shape', async () => {
+      const target = {
+        id: 'target-1',
+        companyId: 'company-1',
+        isActive: false,
+      };
+      prisma.scrapeTarget.updateMany.mockResolvedValue({ count: 1 });
+      prisma.scrapeTarget.findFirst.mockResolvedValue(target);
+
+      await expect(
+        service.deleteScrapeTarget('target-1', 'company-1'),
+      ).resolves.toBe(target);
+
+      expect(prisma.scrapeTarget.updateMany).toHaveBeenCalledWith({
+        where: { id: 'target-1', companyId: 'company-1' },
+        data: { isActive: false },
+      });
+      expect(prisma.scrapeTarget.findFirst).toHaveBeenCalledWith({
+        where: { id: 'target-1', companyId: 'company-1' },
+      });
+      expect(prisma.scrapeTarget.update).not.toHaveBeenCalled();
+    });
+
     it('deleteScrapeTarget throws NotFoundException when id belongs to different tenant', async () => {
-      prisma.scrapeTarget.findFirst.mockResolvedValue(null);
+      prisma.scrapeTarget.updateMany.mockResolvedValue({ count: 0 });
 
       await expect(
         service.deleteScrapeTarget('target-other-tenant', 'company-1'),

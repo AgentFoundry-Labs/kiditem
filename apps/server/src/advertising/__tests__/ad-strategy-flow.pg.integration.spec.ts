@@ -1,4 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
+
+vi.mock('../../agent-registry/agent-registry.service', () => ({
+  AgentRegistryService: class AgentRegistryService {},
+}));
+
 import { Test } from '@nestjs/testing';
 import { NotFoundException, ConflictException } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';

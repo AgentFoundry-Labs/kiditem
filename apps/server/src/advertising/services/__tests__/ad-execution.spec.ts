@@ -9,6 +9,7 @@ function makeTask(overrides: Record<string, unknown> = {}) {
   return {
     id: 'task-1',
     actionId: 'action-1',
+    workerId: 'worker-1',
     status: 'queued',
     startedAt: null,
     beforeJson: null,
@@ -50,7 +51,7 @@ function makePrisma() {
     tx,
     prisma: {
       executionWorker: {
-        findFirst: vi.fn(async () => ({ id: 'worker-1' })),
+        findFirst: vi.fn(async () => ({ id: 'worker-1', workerKey: 'worker-key' })),
         update: vi.fn(async () => ({ id: 'worker-1', workerKey: 'worker-key' })),
         updateMany: vi.fn(async () => ({ count: 1 })),
         create: vi.fn(async () => ({ id: 'worker-1', workerKey: 'worker-key' })),
@@ -125,6 +126,10 @@ describe('AdExecutionService tenant-scoped runtime writes', () => {
         errorMessage: null,
       }),
     });
+    expect(prisma.executionWorker.findFirst).toHaveBeenCalledWith({
+      where: { id: 'worker-1', companyId: COMPANY_ID },
+      select: { workerKey: true },
+    });
   });
 
   it('report fails instead of writing when a scoped task update becomes a no-op', async () => {
@@ -148,7 +153,10 @@ describe('AdExecutionService tenant-scoped runtime writes', () => {
   it('report rejects a task leased by another worker before any runtime write', async () => {
     const { prisma, tx } = makePrisma();
     prisma.executionTask.findFirst.mockResolvedValueOnce(
-      makeTask({ worker: { workerKey: 'other-worker' } }),
+      makeTask(),
+    );
+    prisma.executionWorker.findFirst.mockResolvedValueOnce(
+      { workerKey: 'other-worker' },
     );
     const service = new AdExecutionService(prisma as never);
 

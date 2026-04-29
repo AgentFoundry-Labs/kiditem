@@ -5,16 +5,6 @@ import type { AdMetrics, AdStrategyAction, ChannelStateSignal } from '@kiditem/s
 export const AD_ACTION_TARGET_TYPES = ['campaign', 'keyword'] as const;
 export type AdActionTargetType = typeof AD_ACTION_TARGET_TYPES[number];
 
-// ChannelListing hydrate 공통 select 프리셋.
-// 6 rewrite service 의 channelListing.findMany 는 이 프리셋을 재사용.
-// Prisma relation 은 `master` (MasterProduct) — hydrate 시 shared AdListingSummary.masterProduct 로 remap.
-export const LISTING_SUMMARY_SELECT = {
-  id: true,
-  externalId: true,
-  channelName: true,
-  master: { select: { id: true, code: true, name: true } },
-} as const satisfies Prisma.ChannelListingSelect;
-
 // Ads 설정 (DB SystemSetting `ads.*` key 로 저장).
 export interface AdsConfig {
   roas: { thresholds: { excellent: number; warning: number; poor: number } };

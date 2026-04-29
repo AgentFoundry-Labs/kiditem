@@ -1,4 +1,20 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+vi.mock(
+  '@kiditem/shared/security',
+  () => ({
+    scrubSecrets: (value: string) => value,
+    scrubDeep: <T>(value: T) => value,
+  }),
+  { virtual: true },
+);
+vi.mock('../../agent-registry/agent-registry.service', () => ({
+  AgentRegistryService: class AgentRegistryService {},
+}));
+vi.mock('../../../agent-registry/agent-registry.service', () => ({
+  AgentRegistryService: class AgentRegistryService {},
+}));
+
 import { buildPerListingMetrics } from '../../../common/per-listing-profit';
 import { AdStrategyService } from '../ad-strategy.service';
 

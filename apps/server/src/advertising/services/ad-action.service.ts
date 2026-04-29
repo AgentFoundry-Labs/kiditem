@@ -3,6 +3,13 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { recomputeRoas } from '../util/ratio-recompute';
 import type { AdActionTargetType } from './types';
+import {
+  findAdActionsForReview,
+  findLatestAdActionTargetRows,
+  findLatestListingOptionStockById,
+  type AdActionQuery,
+  type LatestTargetRow,
+} from './read-models/ad-action-read-model';
 
 const ACTION_DEDUP_HOURS = 24;
 
@@ -20,132 +27,12 @@ type ActionCandidate = {
   payload: Record<string, unknown>;
 };
 
-interface AdActionQuery {
-  approvalStatus?: string;
-  executeStatus?: string;
-  listingId?: string;
-  optionId?: string;
-  targetType?: string;
-  priority?: string;
-  limit?: number;
-}
-
-/**
- * Latest target-daily row per `targetKey` shape consumed by
- * `createActionCandidate`. Fields are sourced from
- * `ChannelAdTargetDailySnapshot` columns.
- */
-type LatestTargetRow = {
-  id: string;
-  targetType: string;
-  targetKey: string;
-  listingId: string | null;
-  listingOptionId: string | null;
-  externalId: string | null;
-  campaignId: string | null;
-  campaignName: string | null;
-  keyword: string | null;
-  status: string | null;
-  currentBid: number | null;
-  dailyBudget: number | null;
-  spend: number;
-  revenue: number;
-  impressions: number;
-  clicks: number;
-  conversions: number;
-  abcGrade: string | null;
-  optionAvailableStock: number | null;
-  optionCostPrice: number | null;
-  optionSellPrice: number | null;
-  optionCommissionRate: number | null;
-  productName: string | null;
-};
-
 @Injectable()
 export class AdActionService {
   constructor(private readonly prisma: PrismaService) {}
 
   async getActions(query: AdActionQuery, companyId: string) {
-    const limit = Math.min(query.limit || 50, 200);
-
-    const where: Prisma.AdActionWhereInput = { companyId };
-    if (query.approvalStatus && query.approvalStatus !== 'all') where.approvalStatus = query.approvalStatus;
-    if (query.executeStatus && query.executeStatus !== 'all') where.executeStatus = query.executeStatus;
-    if (query.listingId) where.listingId = query.listingId;
-    if (query.targetType && query.targetType !== 'all') where.targetType = query.targetType;
-    if (query.priority && query.priority !== 'all') where.priority = query.priority;
-
-    const [items, counts, latestRun] = await Promise.all([
-      this.prisma.adAction.findMany({
-        where,
-        include: {
-          listing: {
-            select: {
-              id: true,
-              externalId: true,
-              channelName: true,
-              master: { select: { id: true, code: true, name: true, abcGrade: true, adTier: true } },
-            },
-          },
-          adTargetDaily: {
-            select: {
-              targetType: true,
-              campaignName: true,
-              keyword: true,
-              businessDate: true,
-              lastObservedAt: true,
-            },
-          },
-        },
-        orderBy: { createdAt: 'desc' },
-        take: limit,
-      }),
-      Promise.all([
-        this.prisma.adAction.count({ where: { companyId, approvalStatus: 'pending_review' } }),
-        this.prisma.adAction.count({ where: { companyId, approvalStatus: 'approved', executeStatus: 'queued' } }),
-        this.prisma.adAction.count({ where: { companyId, executeStatus: 'running' } }),
-        this.prisma.adAction.count({ where: { companyId, executeStatus: 'done' } }),
-        this.prisma.adAction.count({ where: { companyId, executeStatus: 'failed' } }),
-      ]),
-      // Latest scrape metadata sourced from ChannelScrapeRun.
-      this.prisma.channelScrapeRun.findFirst({
-        where: { companyId },
-        orderBy: [
-          { finishedAt: 'desc' },
-          { startedAt: 'desc' },
-          { id: 'desc' },
-        ],
-        select: { finishedAt: true, startedAt: true, pageType: true },
-      }),
-    ]);
-
-    const priorityOrder = { urgent: 0, high: 1, medium: 2, low: 3 };
-    const sortedItems = [...items].sort((a, b) => {
-      const priDiff =
-        (priorityOrder[a.priority as keyof typeof priorityOrder] ?? 9) -
-        (priorityOrder[b.priority as keyof typeof priorityOrder] ?? 9);
-      if (priDiff !== 0) return priDiff;
-      return +new Date(b.createdAt) - +new Date(a.createdAt);
-    });
-
-    const latestSnapshotAt =
-      latestRun?.finishedAt ?? latestRun?.startedAt ?? null;
-
-    return {
-      items: sortedItems,
-      summary: {
-        pendingReview: counts[0],
-        approvedQueued: counts[1],
-        running: counts[2],
-        done: counts[3],
-        failed: counts[4],
-        // Latest channel scrape run timestamp. Field names preserved for
-        // client compat (originally `latestSnapshotAt` from the channel
-        // scrape run rather than a per-row snapshot).
-        latestSnapshotAt,
-        latestSnapshotPageType: latestRun?.pageType || null,
-      },
-    };
+    return findAdActionsForReview(this.prisma, query, companyId);
   }
 
   /**
@@ -164,88 +51,13 @@ export class AdActionService {
       Date.now() - ACTION_DEDUP_HOURS * 60 * 60 * 1000,
     );
 
-    // DISTINCT ON (target_key) returns one row per target — the row with the
-    // newest business_date. JS-side post-processing avoided so we don't
-    // stream every historical day to the app.
-    // We left-join the master product (via listing) to surface ABC grade and
-    // the primary product option to surface cost/sell/commission for the
-    // profit rate check (Rule 3 priority bump). The option is identified by
-    // the active ChannelListingOption.id with the lowest id (deterministic
-    // primary-option pick — same convention strategy hydrate uses).
-    const latestRows = await this.prisma.$queryRaw<LatestTargetRow[]>(
-      Prisma.sql`
-        WITH latest AS (
-          SELECT DISTINCT ON (cad.target_key)
-            cad.id,
-            cad.target_type,
-            cad.target_key,
-            cad.listing_id,
-            cad.listing_option_id,
-            cad.external_id,
-            cad.campaign_id,
-            cad.campaign_name,
-            cad.keyword,
-            cad.status,
-            cad.current_bid,
-            cad.daily_budget,
-            cad.spend,
-            cad.revenue,
-            cad.impressions,
-            cad.clicks,
-            cad.conversions
-          FROM channel_ad_target_daily_snapshots cad
-          WHERE cad.company_id = ${companyId}::uuid
-            AND cad.target_type IN ('campaign', 'keyword', 'product')
-          -- Deterministic latest: business_date DESC, last_observed_at DESC, updated_at DESC, id DESC
-          ORDER BY
-            cad.target_key,
-            cad.business_date DESC,
-            cad.last_observed_at DESC NULLS LAST,
-            cad.updated_at DESC NULLS LAST,
-            cad.id DESC
-        )
-        SELECT
-          latest.id,
-          latest.target_type           AS "targetType",
-          latest.target_key            AS "targetKey",
-          latest.listing_id            AS "listingId",
-          latest.listing_option_id     AS "listingOptionId",
-          latest.external_id           AS "externalId",
-          latest.campaign_id           AS "campaignId",
-          latest.campaign_name         AS "campaignName",
-          latest.keyword,
-          latest.status,
-          latest.current_bid           AS "currentBid",
-          latest.daily_budget          AS "dailyBudget",
-          latest.spend,
-          latest.revenue,
-          latest.impressions,
-          latest.clicks,
-          latest.conversions,
-          mp.abc_grade                 AS "abcGrade",
-          po.available_stock           AS "optionAvailableStock",
-          po.cost_price                AS "optionCostPrice",
-          po.sell_price                AS "optionSellPrice",
-          po.commission_rate           AS "optionCommissionRate",
-          mp.name                      AS "productName"
-        FROM latest
-        LEFT JOIN channel_listings cl
-               ON cl.id = latest.listing_id AND cl.is_deleted = false
-        LEFT JOIN master_products mp
-               ON mp.id = cl.master_id
-        LEFT JOIN channel_listing_options clo
-               ON clo.id = latest.listing_option_id AND clo.is_active = true
-        LEFT JOIN product_options po
-               ON po.id = clo.option_id
-      `,
-    );
+    const latestRows = await findLatestAdActionTargetRows(this.prisma, companyId);
 
     // Rule 1 stock-zero check: prefer the latest option daily snapshot's
     // stockQty when listingOptionId is set. Legacy used the live
     // `ProductOption.availableStock`; the daily-fact replacement gives the
     // observed channel stock at the same time the ad metric was captured.
     // Either signal === 0 fires the rule.
-    const optionDailyStockMap = new Map<string, number | null>();
     const listingOptionIds = Array.from(
       new Set(
         latestRows
@@ -253,28 +65,11 @@ export class AdActionService {
           .filter((id): id is string => id != null),
       ),
     );
-    if (listingOptionIds.length > 0) {
-      const optionDailies = await this.prisma.$queryRaw<
-        { listingOptionId: string; stockQty: number | null }[]
-      >(Prisma.sql`
-        SELECT DISTINCT ON (listing_option_id)
-          listing_option_id AS "listingOptionId",
-          stock_qty         AS "stockQty"
-        FROM channel_listing_option_daily_snapshots
-        WHERE company_id = ${companyId}::uuid
-          AND listing_option_id = ANY(${listingOptionIds}::uuid[])
-        -- Deterministic latest: business_date DESC, last_observed_at DESC, updated_at DESC, id DESC
-        ORDER BY
-          listing_option_id,
-          business_date DESC,
-          last_observed_at DESC NULLS LAST,
-          updated_at DESC NULLS LAST,
-          id DESC
-      `);
-      for (const row of optionDailies) {
-        optionDailyStockMap.set(row.listingOptionId, row.stockQty);
-      }
-    }
+    const optionDailyStockMap = await findLatestListingOptionStockById(
+      this.prisma,
+      companyId,
+      listingOptionIds,
+    );
 
     const existingActions = await this.prisma.adAction.findMany({
       where: {
@@ -423,31 +218,19 @@ export class AdActionService {
   }
 
   async markRunning(id: string, beforeJson: Record<string, unknown> | undefined, companyId: string) {
-    const action = await this.prisma.adAction.findFirst({ where: { id, companyId } });
-    if (!action) throw new NotFoundException('AdAction not found');
-
-    await this.prisma.adAction.update({
-      where: { id },
-      data: {
-        executeStatus: 'running',
-        beforeJson: beforeJson ? (beforeJson as Prisma.InputJsonValue) : undefined,
-        errorMessage: null,
-      },
+    await this.updateActionOrThrow(id, companyId, {
+      executeStatus: 'running',
+      beforeJson: beforeJson ? (beforeJson as Prisma.InputJsonValue) : undefined,
+      errorMessage: null,
     });
   }
 
   async markDone(id: string, afterJson: Record<string, unknown> | undefined, companyId: string) {
-    const action = await this.prisma.adAction.findFirst({ where: { id, companyId } });
-    if (!action) throw new NotFoundException('AdAction not found');
-
-    await this.prisma.adAction.update({
-      where: { id },
-      data: {
-        executeStatus: 'done',
-        executedAt: new Date(),
-        afterJson: afterJson ? (afterJson as Prisma.InputJsonValue) : undefined,
-        errorMessage: null,
-      },
+    await this.updateActionOrThrow(id, companyId, {
+      executeStatus: 'done',
+      executedAt: new Date(),
+      afterJson: afterJson ? (afterJson as Prisma.InputJsonValue) : undefined,
+      errorMessage: null,
     });
   }
 
@@ -457,16 +240,10 @@ export class AdActionService {
     afterJson: Record<string, unknown> | undefined,
     companyId: string,
   ) {
-    const action = await this.prisma.adAction.findFirst({ where: { id, companyId } });
-    if (!action) throw new NotFoundException('AdAction not found');
-
-    await this.prisma.adAction.update({
-      where: { id },
-      data: {
-        executeStatus: 'failed',
-        errorMessage: errorMessage || '실행 실패',
-        afterJson: afterJson ? (afterJson as Prisma.InputJsonValue) : undefined,
-      },
+    await this.updateActionOrThrow(id, companyId, {
+      executeStatus: 'failed',
+      errorMessage: errorMessage || '실행 실패',
+      afterJson: afterJson ? (afterJson as Prisma.InputJsonValue) : undefined,
     });
   }
 
@@ -489,6 +266,18 @@ export class AdActionService {
         data: ids.map((id) => ({ actionId: id, status: 'queued' })),
       });
     });
+  }
+
+  private async updateActionOrThrow(
+    id: string,
+    companyId: string,
+    data: Prisma.AdActionUpdateManyMutationInput,
+  ) {
+    const updated = await this.prisma.adAction.updateMany({
+      where: { id, companyId },
+      data,
+    });
+    if (updated.count !== 1) throw new NotFoundException('AdAction not found');
   }
 }
 

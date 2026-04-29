@@ -13,6 +13,9 @@ describe('AdCampaignsService', () => {
       channelListing: {
         findMany: vi.fn(),
       },
+      masterProduct: {
+        findMany: vi.fn().mockResolvedValue([]),
+      },
       channelListingDailySnapshot: {
         findMany: vi.fn(),
       },
@@ -40,8 +43,11 @@ describe('AdCampaignsService', () => {
         id: 'L1',
         externalId: 'COUPANG-1',
         channelName: '쿠팡',
-        master: { id: 'M1', code: 'M-00000001', name: '상품1' },
+        masterId: 'M1',
       },
+    ]);
+    prisma.masterProduct.findMany.mockResolvedValue([
+      { id: 'M1', code: 'M-00000001', name: '상품1', abcGrade: 'A', adTier: null, healthScore: null },
     ]);
 
     const result = await service.getCampaigns('7d', undefined, 'company-1');
@@ -66,7 +72,7 @@ describe('AdCampaignsService', () => {
         adClicks: 10,
         adImpressions: 500,
         adConversions: 1,
-        listing: { master: { abcGrade: 'A' } },
+        listingId: 'L1',
       },
       {
         businessDate: new Date('2026-04-11T00:00:00Z'),
@@ -75,7 +81,7 @@ describe('AdCampaignsService', () => {
         adClicks: 15,
         adImpressions: 600,
         adConversions: 2,
-        listing: { master: { abcGrade: 'A' } },
+        listingId: 'L1',
       },
       {
         businessDate: new Date('2026-04-12T00:00:00Z'),
@@ -84,7 +90,7 @@ describe('AdCampaignsService', () => {
         adClicks: 20,
         adImpressions: 700,
         adConversions: 3,
-        listing: { master: { abcGrade: 'A' } },
+        listingId: 'L1',
       },
       {
         businessDate: new Date('2026-04-13T00:00:00Z'),
@@ -93,8 +99,14 @@ describe('AdCampaignsService', () => {
         adClicks: 25,
         adImpressions: 800,
         adConversions: 4,
-        listing: { master: { abcGrade: 'A' } },
+        listingId: 'L1',
       },
+    ]);
+    prisma.channelListing.findMany.mockResolvedValue([
+      { id: 'L1', masterId: 'M1' },
+    ]);
+    prisma.masterProduct.findMany.mockResolvedValue([
+      { id: 'M1', abcGrade: 'A' },
     ]);
 
     const result = await service.getTrends('14d', undefined, 'company-1');
@@ -116,7 +128,7 @@ describe('AdCampaignsService', () => {
         adClicks: 10,
         adImpressions: 100,
         adConversions: 1,
-        listing: { master: { abcGrade: 'A' } },
+        listingId: 'L1',
       },
       {
         businessDate: new Date('2026-04-10T00:00:00Z'),
@@ -125,7 +137,7 @@ describe('AdCampaignsService', () => {
         adClicks: 5,
         adImpressions: 50,
         adConversions: 1,
-        listing: { master: { abcGrade: 'B' } },
+        listingId: 'L2',
       },
       {
         businessDate: new Date('2026-04-10T00:00:00Z'),
@@ -134,7 +146,7 @@ describe('AdCampaignsService', () => {
         adClicks: 2,
         adImpressions: 20,
         adConversions: 0,
-        listing: { master: { abcGrade: 'C' } },
+        listingId: 'L3',
       },
       {
         businessDate: new Date('2026-04-10T00:00:00Z'),
@@ -143,8 +155,20 @@ describe('AdCampaignsService', () => {
         adClicks: 3,
         adImpressions: 30,
         adConversions: 0,
-        listing: { master: { abcGrade: null } },
+        listingId: 'L4',
       },
+    ]);
+    prisma.channelListing.findMany.mockResolvedValue([
+      { id: 'L1', masterId: 'M1' },
+      { id: 'L2', masterId: 'M2' },
+      { id: 'L3', masterId: 'M3' },
+      { id: 'L4', masterId: 'M4' },
+    ]);
+    prisma.masterProduct.findMany.mockResolvedValue([
+      { id: 'M1', abcGrade: 'A' },
+      { id: 'M2', abcGrade: 'B' },
+      { id: 'M3', abcGrade: 'C' },
+      { id: 'M4', abcGrade: null },
     ]);
 
     const result = await service.getTrends('14d', undefined, 'company-1');

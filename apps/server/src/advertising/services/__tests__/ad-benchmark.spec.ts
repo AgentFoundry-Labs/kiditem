@@ -28,6 +28,9 @@ describe('AdBenchmarkService', () => {
       channelListing: {
         findMany: vi.fn(),
       },
+      masterProduct: {
+        findMany: vi.fn().mockResolvedValue([]),
+      },
     };
     adConfig = { getConfig: vi.fn().mockResolvedValue(baseConfig) };
     service = new AdBenchmarkService(prisma, adConfig);
@@ -66,8 +69,12 @@ describe('AdBenchmarkService', () => {
       },
     ]);
     prisma.channelListing.findMany.mockResolvedValue([
-      { id: 'L1', externalId: 'COUPANG-1', channelName: '쿠팡', master: { id: 'M1', code: 'M-00000001', name: '상품1' } },
-      { id: 'L2', externalId: 'COUPANG-2', channelName: '쿠팡', master: { id: 'M2', code: 'M-00000002', name: '상품2' } },
+      { id: 'L1', externalId: 'COUPANG-1', channelName: '쿠팡', masterId: 'M1' },
+      { id: 'L2', externalId: 'COUPANG-2', channelName: '쿠팡', masterId: 'M2' },
+    ]);
+    prisma.masterProduct.findMany.mockResolvedValue([
+      { id: 'M1', code: 'M-00000001', name: '상품1', abcGrade: 'A', adTier: null, healthScore: null },
+      { id: 'M2', code: 'M-00000002', name: '상품2', abcGrade: 'B', adTier: null, healthScore: null },
     ]);
 
     const result = await service.getDiagnosis('company-1');

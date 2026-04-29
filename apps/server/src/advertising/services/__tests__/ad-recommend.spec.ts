@@ -1,4 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+vi.mock('../../../agent-registry/agent-registry.service', () => ({
+  AgentRegistryService: class AgentRegistryService {},
+}));
+
 import { AdRecommendService } from '../ad-recommend.service';
 import type { AdStrategyAction, AdStrategyRecommendation } from '@kiditem/shared/advertising';
 
