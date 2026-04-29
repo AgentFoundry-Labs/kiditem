@@ -169,9 +169,9 @@ export class ActionTaskService {
       updates.priority = data.priority;
     }
 
-    return this.prisma.actionTask.update({
-      where: { id },
-      data: { ...updates, activityLog: log as unknown as Prisma.InputJsonValue },
+    return this.updateActionTaskOrThrow(id, companyId, {
+      ...updates,
+      activityLog: log as unknown as Prisma.InputJsonValue,
     });
   }
 
@@ -185,12 +185,9 @@ export class ActionTaskService {
     const log = (task.activityLog as Array<Record<string, unknown>>) || [];
     log.push({ action: 'note_added', timestamp: new Date().toISOString() });
 
-    return this.prisma.actionTask.update({
-      where: { id },
-      data: {
-        notes: notes as unknown as Prisma.InputJsonValue,
-        activityLog: log as unknown as Prisma.InputJsonValue,
-      },
+    return this.updateActionTaskOrThrow(id, companyId, {
+      notes: notes as unknown as Prisma.InputJsonValue,
+      activityLog: log as unknown as Prisma.InputJsonValue,
     });
   }
 

@@ -40,12 +40,13 @@ describe('ActionTaskService — task 상태 전이', () => {
   describe('updateTask', () => {
     it('status 변경 시 activityLog 에 status_changed 엔트리 기록', async () => {
       prisma.actionTask.findFirst.mockResolvedValue(baseTask());
-      prisma.actionTask.update.mockResolvedValue({ ...baseTask(), status: 'in_progress' });
+      prisma.actionTask.updateMany.mockResolvedValue({ count: 1 });
+      prisma.actionTask.findFirstOrThrow.mockResolvedValue({ ...baseTask(), status: 'in_progress' });
 
       await service.updateTask('task-1', 'c-1', { status: 'in_progress' });
 
-      const call = prisma.actionTask.update.mock.calls[0][0];
-      expect(call.where).toEqual({ id: 'task-1' });
+      const call = prisma.actionTask.updateMany.mock.calls[0][0];
+      expect(call.where).toEqual({ id: 'task-1', companyId: 'c-1' });
       expect(call.data.status).toBe('in_progress');
       expect(call.data.activityLog).toEqual(
         expect.arrayContaining([
@@ -56,15 +57,21 @@ describe('ActionTaskService — task 상태 전이', () => {
           }),
         ]),
       );
+      expect(prisma.actionTask.findFirstOrThrow).toHaveBeenCalledWith({
+        where: { id: 'task-1', companyId: 'c-1' },
+      });
+      expect(prisma.actionTask.update).not.toHaveBeenCalled();
     });
 
     it('priority 변경 시 priority_changed 엔트리 기록', async () => {
       prisma.actionTask.findFirst.mockResolvedValue(baseTask());
-      prisma.actionTask.update.mockResolvedValue({ ...baseTask(), priority: 'urgent' });
+      prisma.actionTask.updateMany.mockResolvedValue({ count: 1 });
+      prisma.actionTask.findFirstOrThrow.mockResolvedValue({ ...baseTask(), priority: 'urgent' });
 
       await service.updateTask('task-1', 'c-1', { priority: 'urgent' });
 
-      const call = prisma.actionTask.update.mock.calls[0][0];
+      const call = prisma.actionTask.updateMany.mock.calls[0][0];
+      expect(call.where).toEqual({ id: 'task-1', companyId: 'c-1' });
       expect(call.data.priority).toBe('urgent');
       expect(call.data.activityLog).toEqual(
         expect.arrayContaining([
@@ -75,14 +82,25 @@ describe('ActionTaskService — task 상태 전이', () => {
 
     it('변경 없는 값이면 activityLog 엔트리 추가되지 않음', async () => {
       prisma.actionTask.findFirst.mockResolvedValue(baseTask());
-      prisma.actionTask.update.mockResolvedValue(baseTask());
+      prisma.actionTask.updateMany.mockResolvedValue({ count: 1 });
+      prisma.actionTask.findFirstOrThrow.mockResolvedValue(baseTask());
 
       await service.updateTask('task-1', 'c-1', { status: 'pending', priority: 'high' });
 
-      const call = prisma.actionTask.update.mock.calls[0][0];
+      const call = prisma.actionTask.updateMany.mock.calls[0][0];
+      expect(call.where).toEqual({ id: 'task-1', companyId: 'c-1' });
       expect(call.data.activityLog).toEqual([]);
       expect(call.data.status).toBeUndefined();
       expect(call.data.priority).toBeUndefined();
+    });
+
+    it('scoped update no-op after the read is treated as NotFoundException', async () => {
+      prisma.actionTask.findFirst.mockResolvedValue(baseTask());
+      prisma.actionTask.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(
+        service.updateTask('task-1', 'c-1', { status: 'done' }),
+      ).rejects.toBeInstanceOf(NotFoundException);
     });
 
     it('task 존재하지 않으면 NotFoundException', async () => {
@@ -111,23 +129,33 @@ describe('ActionTaskService — task 상태 전이', () => {
   describe('addNote', () => {
     it('notes 배열에 { text, createdAt } 추가 + activityLog 에 note_added 기록', async () => {
       prisma.actionTask.findFirst.mockResolvedValue(baseTask());
-      prisma.actionTask.update.mockResolvedValue(baseTask());
+      prisma.actionTask.updateMany.mockResolvedValue({ count: 1 });
+      prisma.actionTask.findFirstOrThrow.mockResolvedValue(baseTask());
 
       await service.addNote('task-1', 'c-1', '발주 완료');
 
-      const call = prisma.actionTask.update.mock.calls[0][0];
+      const call = prisma.actionTask.updateMany.mock.calls[0][0];
+      expect(call.where).toEqual({ id: 'task-1', companyId: 'c-1' });
       expect(call.data.notes).toEqual([
         expect.objectContaining({ text: '발주 완료' }),
       ]);
       expect(call.data.activityLog).toEqual(
         expect.arrayContaining([expect.objectContaining({ action: 'note_added' })]),
       );
+      expect(prisma.actionTask.update).not.toHaveBeenCalled();
     });
 
     it('task 존재하지 않으면 NotFoundException', async () => {
       prisma.actionTask.findFirst.mockResolvedValue(null);
 
       await expect(service.addNote('missing', 'c-1', 'hi')).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('scoped addNote update no-op after the read is treated as NotFoundException', async () => {
+      prisma.actionTask.findFirst.mockResolvedValue(baseTask());
+      prisma.actionTask.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(service.addNote('task-1', 'c-1', 'hi')).rejects.toBeInstanceOf(NotFoundException);
     });
 
     it('다른 company 의 task 에 note 추가 시도는 NotFoundException (IDOR guard)', async () => {
