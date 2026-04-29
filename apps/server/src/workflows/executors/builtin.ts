@@ -13,11 +13,11 @@ import { registerNode, recordActivity } from './index';
 
 registerNode('trigger.manual', async () => {
   return { triggeredAt: new Date().toISOString() };
-}, undefined, true);
+}, true);
 
 registerNode('trigger.schedule', async () => {
   return { triggeredAt: new Date().toISOString() };
-}, undefined, true);
+}, true);
 
 registerNode('condition.evaluate', async (_prisma, config, context) => {
   const rawField = config.field as string;
@@ -40,7 +40,7 @@ registerNode('condition.evaluate', async (_prisma, config, context) => {
     : (config.false_label as string) ?? 'false';
 
   return { result, branch, actual, threshold };
-}, undefined, true);
+}, true);
 
 registerNode('notification.alert', async (prisma, config, context) => {
   const title = context.resolve((config.title as string) ?? '');
