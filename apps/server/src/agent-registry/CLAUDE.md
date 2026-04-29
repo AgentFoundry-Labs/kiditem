@@ -4,6 +4,63 @@ Agent orchestration platform. Claude CLI spawn-based.
 
 **Runtime state 모델**: 에이전트의 현재 상태는 **`AgentDefinition` (정의 + `rt_*` 내장 필드) + `HeartbeatRun` (safety pipeline 실행 이력) + `AgentEvent` (permission_denied / action_snapshot 이벤트)** 세 모델의 조합으로 표현. 별도 "AgentState" 테이블 없음. 상세 필드: [`prisma/models/agents.prisma`](../../../../prisma/models/agents.prisma).
 
+## Execution boundary
+
+`AgentRegistry` 는 Workflow 의 하위 executor 가 아니라 **독립 execution boundary** 다.
+
+- Workflow `agent_task.create` 노드는 `AgentRegistryService.runByType` 를 호출만 한다 — runner 가 결과를 기다리지 않고 fire-and-forget 으로 위임. `AgentRegistry` 는 task 를 만들고 자체 heartbeat / safety pipeline 으로 실행한다.
+- 따라서 workflow runner 가 죽어도 agent 는 계속 돌고, agent 가 실패해도 workflow 는 다음 노드로 넘어가지 않는다 (분리된 lifecycle).
+- 반대 방향: `AgentRegistry` 는 workflow 의 내부를 모른다. `AgentTask.workflowRunId` / `workflowNodeId` 는 trace 용 first-class column 이고, executor 흐름 제어에는 사용되지 않는다.
+
+## AgentDefinition tenant policy
+
+`AgentDefinition.companyId` 는 nullable 이다.
+
+| 값 | 의미 | Read/Run | Mutate (update / delete / pause / resume / resetSession) |
+|---|---|---|---|
+| `null` | 글로벌 catalog 템플릿 (시스템 시드) | 모든 tenant 허용 | **금지** — platform/seed 만 수정 |
+| `<companyId>` | tenant 가 보유한 인스턴스 (marketplace hire 결과) | 해당 tenant 만 | 해당 tenant 만 |
+
+구현: `agent-registry.service.ts`
+- 읽기/실행 (`tenantScopeFilter`): `OR: [{ companyId }, { companyId: null }]` — 글로벌 + 본인 tenant
+- 쓰기 (`tenantOwnedFilter`): `{ companyId }` — 본인 tenant 전용. `updateMany` / `deleteMany` 의 actual mutation 에 binding (pre-read 만 scope 하는 패턴 금지).
+
+글로벌 row 의 `rt_*` 필드는 모든 tenant 가 공유하기 때문에 `resetSession` / `pauseAgent` / `resumeAgent` 같은 lifecycle mutation 도 tenant-owned 만 허용한다. Marketplace 의 "hire" 흐름은 글로벌 정의를 tenant-owned row 로 clone 한다 — tenant 는 자기 clone 을 수정하지 upstream 을 건드리지 않는다.
+
+## AgentTask trace contract
+
+`run` / `runByType` 가 만드는 `AgentTask` 는 다음 first-class column 으로 trace 를 보존한다:
+
+| Column | 의미 | 출처 |
+|---|---|---|
+| `companyId` | 이 실행의 tenant scope | controller `@CurrentCompany()` (trusted). 내부 caller 가 생략하면 `def.companyId` fallback. 글로벌 정의 + caller 미지정 → `null` (시스템 실행) |
+| `workflowRunId` | Workflow 가 만든 task 면 그 run 의 id | runner 가 `agent_task.create` executor 에서 주입 |
+| `workflowNodeId` | 동일 run 안에서 어떤 노드가 만들었는지 | runner 가 주입 |
+| `sourceDataId` | 도메인 trigger 가 만든 task 면 origin row id | 도메인 service (예: `sourcing`, `rules`) 가 주입 |
+
+`input.extra` 는 backward-compat envelope 다. legacy caller 가 임의 payload 를 넘길 수 있도록 `AgentTask.input` JSON 과 wakeup `payload` 에 머지된다. 새 caller 는 위 first-class column 을 쓴다.
+
+`AgentTrace` 조회 (`agent-trace.service.ts`) 는 항상 tenant scope 로 묶인다:
+- `agentTask.findFirst({ id, companyId })` — task 자체 tenant 검증
+- `workflowRun.findFirst({ id: task.workflowRunId, companyId })` — task 의 workflowRunId 가 가리키는 run 도 동일 tenant 인지 이중 확인 (bare `findUnique` 금지)
+- `heartbeatRun.findMany({ id: { in }, companyId })` / `agentEvent.findMany({ runId: { in }, companyId })` — IN 쿼리에도 companyId binding
+
+## "No silent model fallback" vs "Adapter fallback chain"
+
+비슷해 보이지만 다른 두 규칙이다.
+
+**No silent model fallback** (root AGENTS.md Cross-Domain Rules)
+- LLM 모델 식별자에 한정된 규칙. 호출 시점에 모델이 미지정이면 silent default (`model = model or 'claude-haiku'` 같은 패턴) 를 만들지 말 것.
+- 모델은 명시적으로 정해지거나 실패해야 한다. 잘못된 모델로 조용히 빌링되는 것을 막는다.
+
+**Adapter fallback chain** (#6, `adapters/fallback-chain.ts`)
+- 어댑터 (= 실행 런타임: Claude CLI / Python HTTP / 다른 SDK 래퍼) 레벨의 레질리언스.
+- `AgentDefinition.fallbackChain: String[]` 에 명시된 어댑터들을 순서대로 시도. 첫 번째가 process exit / network error 로 실패 → 다음 어댑터.
+- 모델 선택과 무관하다. 같은 모델을 다른 런타임으로 부르는 것 (예: `claude_local` ↔ `python_http`).
+- 매 fallback 발생 시 `agent.fallback` 이벤트 emit — silent 가 아니라 observable 하다. operator 가 보고 트리거 처리 가능.
+
+요약: model 은 explicit, adapter 는 chain (단 chain 도 observable).
+
 ## Patterns
 
 ### 1. Strategy — AdapterModule

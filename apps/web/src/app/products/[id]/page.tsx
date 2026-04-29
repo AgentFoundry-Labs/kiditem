@@ -42,21 +42,21 @@ export default function ProductDetailPage() {
 
   const error = productError ? "데이터를 불러오지 못했습니다." : !loading && !product ? "상품을 찾을 수 없습니다." : null;
 
-  // Activities fetch
+  // Activities fetch — tenant scope is set by backend via @CurrentCompany();
+  // the company-level branch drops `objectId` so the controller takes the
+  // tenant-safe findByCompany path.
   const { data: activities = [] } = useQuery({
     queryKey: [...queryKeys.products.catalog.detail(productId), "activities"],
     queryFn: async () => {
-      const companyId = product?.companyId;
-      if (!companyId) return [];
       const [productEvents, companyEvents] = await Promise.all([
         apiClient.get<any[]>(`/api/activity-events?objectType=product&objectId=${productId}&eventType=workflow_analysis`).catch(() => []),
-        apiClient.get<any[]>(`/api/activity-events?objectType=company&objectId=${companyId}&eventType=workflow_analysis&limit=10`).catch(() => []),
+        apiClient.get<any[]>(`/api/activity-events?objectType=company&eventType=workflow_analysis&limit=10`).catch(() => []),
       ]);
       const all = [...(productEvents || []), ...(companyEvents || [])];
       all.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       return all;
     },
-    enabled: !!product?.companyId,
+    enabled: !!product,
   });
 
   // Violations fetch
@@ -69,14 +69,14 @@ export default function ProductDetailPage() {
     enabled: !!productId,
   });
 
-  // Workflows fetch
+  // Workflows fetch — backend scopes by @CurrentCompany().
   const { data: workflows = [] } = useQuery({
-    queryKey: [...queryKeys.workflows.list(), "active", product?.companyId],
+    queryKey: [...queryKeys.workflows.list(), "active"],
     queryFn: async () => {
-      const wfs = await apiClient.get<any[]>(`/api/workflows?isActive=true&companyId=${product!.companyId}`);
+      const wfs = await apiClient.get<any[]>(`/api/workflows?isActive=true`);
       return Array.isArray(wfs) ? wfs : [];
     },
-    enabled: !!product?.companyId,
+    enabled: !!product,
   });
 
   const { showWfMenu, setShowWfMenu, runWorkflow, runBatchWorkflows, handleAction } =

@@ -12,7 +12,7 @@ workflows/
 ├── hooks/
 │   └── useWorkflows.ts         # list/toggle/delete hook exports
 └── lib/
-    ├── workflow-api.ts         # apiClient 래퍼 (getCompanyId baked in)
+    ├── workflow-api.ts         # apiClient 래퍼 (tenant scope is backend-owned)
     └── workflow-types.ts       # WorkflowRunWithSteps
 ```
 
@@ -42,9 +42,9 @@ export function useWorkflows(options?: Partial<UseQueryOptions>) {
 
 caller가 `refetchInterval`, `enabled`, `staleTime` 등 override 가능. **합성성** 있음.
 
-### 3. Company ID 자동 주입
+### 3. Tenant Scope = Backend Only
 
-`lib/workflow-api.ts:1-28` — `getCompanyId()` 가 list fetcher 안에 baked. Hook 호출자는 companyId 모름.
+`lib/workflow-api.ts` 는 **`companyId` 를 보내지 않는다.** 모든 endpoint 는 backend 의 `@CurrentCompany()` 가 인증 컨텍스트에서 직접 주입한다 — client 가 보내는 `companyId` 는 untrusted 라 어차피 무시된다. Hook 호출자는 companyId 자체를 알 필요 없음.
 
 ### 4. Thin Page Composition
 
@@ -56,7 +56,7 @@ page.tsx:
 
 ## Rules
 
-- 모든 workflow 는 인증 회사 스코프 (getCompanyId 강제)
+- 모든 workflow 는 backend `@CurrentCompany()` 가 인증 컨텍스트로 회사 스코프. Client 가 `companyId` query/body 를 붙이지 않는다.
 - Polling 없음 (`refetchInterval` 사용 안 함, static list)
 - Hook 레이어에서 error 처리 안 함 — page.tsx 가 `isApiError` 분기
 - Filter state (useState) 는 **UI only**, API 호출에 반영 안 함
@@ -71,8 +71,7 @@ page.tsx:
 ## Cross-domain deps
 
 - `@kiditem/shared` — `WorkflowTemplate`, `WorkflowRun`
-- `apiClient` — `/api/workflows/*`, `/api/workflow-runs/*`
-- `getCompanyId` from `src/lib/api` (auth context)
+- `apiClient` — `/api/workflows/*`, `/api/workflow-runs/*` (tenant scope is server-side)
 
 ## 함께 수정할 파일 맵
 

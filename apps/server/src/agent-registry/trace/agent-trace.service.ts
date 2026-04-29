@@ -107,9 +107,14 @@ export class AgentTraceService {
         })
       : [];
 
-    // 6. workflowRun — task 에 연결된 것만
+    // 6. workflowRun — task 에 연결된 것만. companyId 이중 방어: AgentTask 소유권은
+    //    위에서 verify 했지만 task.workflowRunId 는 외부 trigger 가 박았을 수 있는
+    //    값이므로 WorkflowRun 자체도 같은 tenant scope 로 조회한다 (bare findUnique
+    //    은 cross-tenant data 를 끌어올 수 있어 금지).
     const workflowRun = task.workflowRunId
-      ? await this.prisma.workflowRun.findUnique({ where: { id: task.workflowRunId } })
+      ? await this.prisma.workflowRun.findFirst({
+          where: { id: task.workflowRunId, companyId },
+        })
       : null;
 
     // 7. logs — taskId 기준 (companyId 이중 조건 없음: AgentLog 는 taskId 전용 FK)

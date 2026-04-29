@@ -14,19 +14,47 @@ type AgentDefinitionUpdateData = Omit<UpdateAgentBodyDto, 'schedule'> & {
 };
 
 /**
- * Tenant-scope contract for AgentDefinition:
- *  - companyId is nullable in the schema. A null value marks a global catalog
- *    definition (system-wide template); a uuid marks a per-tenant instance.
- *  - All caller-facing reads/writes accept the verified companyId from
- *    @CurrentCompany() and match either the same companyId OR null. This
- *    keeps cross-tenant access closed while still letting tenants run / read /
- *    pause global definitions.
- *  - Writes use updateMany with the same OR predicate so a forged agentId
- *    from another tenant cannot mutate that tenant's row.
+ * Input contract for AgentRegistry execution. `companyId` is the trusted
+ * tenant scope (from `@CurrentCompany()` at the controller boundary, or an
+ * explicit internal hand-off). The trio `workflowRunId` / `workflowNodeId` /
+ * `sourceDataId` are first-class trace columns — see `AgentRegistryService.run`
+ * doc for full semantics. `extra` is a backward-compat envelope for legacy
+ * callers; new code should prefer the typed fields above.
+ */
+export interface AgentRunInput {
+  companyId?: string;
+  dryRun?: boolean;
+  workflowRunId?: string;
+  workflowNodeId?: string;
+  sourceDataId?: string;
+  extra?: Record<string, unknown>;
+}
+
+/**
+ * Tenant-scope contract for AgentDefinition.
+ *
+ *  companyId is nullable in the schema:
+ *   - `null`            → global catalog definition (system-wide template)
+ *   - `<uuid>`          → per-tenant instance owned by that company
+ *
+ * Reads + execute (`tenantScopeFilter`): a tenant may see and run BOTH its own
+ * rows AND global rows. This is intentional — global definitions are templates
+ * that any tenant can invoke, with the resulting `AgentTask`/`HeartbeatRun`
+ * stamped with the caller's verified `companyId` (NOT the definition's null).
+ *
+ * Mutations + lifecycle (`tenantOwnedFilter`): only tenant-owned rows
+ * (`companyId` exact match). Global definitions are platform/system-managed
+ * (seeded at deploy time). A tenant must NEVER be able to update, delete,
+ * pause, resume, or reset a global definition — those operations would leak
+ * across every other tenant that depends on the same template. Marketplace
+ * "hire" flows clone a global definition into a tenant-owned row; tenants
+ * mutate their own clone, never the upstream.
  */
 const tenantScopeFilter = (companyId: string) => ({
   OR: [{ companyId }, { companyId: null }],
 });
+
+const tenantOwnedFilter = (companyId: string) => ({ companyId });
 
 @Injectable()
 export class AgentRegistryService implements OnModuleInit {
@@ -153,29 +181,30 @@ export class AgentRegistryService implements OnModuleInit {
       }
     }
 
-    // Tenant-scoped ownership read — ensures a forged id from another tenant
-    // cannot reach the underlying update.
-    const owned = await this.prisma.agentDefinition.findFirst({
-      where: { id, ...tenantScopeFilter(companyId) },
-      select: { id: true },
-    });
-    if (!owned) throw new NotFoundException(`Agent definition ${id} not found`);
-
-    const updated = await this.prisma.agentDefinition.update({
-      where: { id },
+    // Tenant-owned write: bind companyId in the actual mutation. Global
+    // definitions (companyId=null) are platform-managed and not writable
+    // through this controller path — `count === 0` covers both "row does
+    // not exist" and "row is global / belongs to another tenant".
+    const result = await this.prisma.agentDefinition.updateMany({
+      where: { id, ...tenantOwnedFilter(companyId) },
       data: data as any,
+    });
+    if (result.count === 0) throw new NotFoundException(`Agent definition ${id} not found`);
+
+    const updated = await this.prisma.agentDefinition.findFirstOrThrow({
+      where: { id, ...tenantOwnedFilter(companyId) },
     });
     await this.heartbeat.syncTimers();
     return updated;
   }
 
   async delete(id: string, companyId: string): Promise<{ ok: boolean }> {
-    const owned = await this.prisma.agentDefinition.findFirst({
-      where: { id, ...tenantScopeFilter(companyId) },
-      select: { id: true },
+    // Tenant-owned delete: bind companyId in the actual mutation, not a
+    // pre-read. Global definitions cannot be removed via tenant API.
+    const result = await this.prisma.agentDefinition.deleteMany({
+      where: { id, ...tenantOwnedFilter(companyId) },
     });
-    if (!owned) throw new NotFoundException(`Agent definition ${id} not found`);
-    await this.prisma.agentDefinition.delete({ where: { id } });
+    if (result.count === 0) throw new NotFoundException(`Agent definition ${id} not found`);
     await this.heartbeat.syncTimers();
     return { ok: true };
   }
@@ -187,26 +216,40 @@ export class AgentRegistryService implements OnModuleInit {
    * findByType + run 을 합친 편의 메서드. companyId 가 input 에 있으면
    * downstream `run()` 의 isolation check 가 enforce.
    */
-  async runByType(type: string, input?: {
-    companyId?: string;
-    dryRun?: boolean;
-    workflowRunId?: string;
-    workflowNodeId?: string;
-    sourceDataId?: string;
-    extra?: Record<string, unknown>;
-  }) {
+  async runByType(type: string, input?: AgentRunInput) {
     const def = await this.findByType(type);
     return this.run(def.id, input);
   }
 
-  async run(id: string, input?: {
-    companyId?: string;
-    dryRun?: boolean;
-    workflowRunId?: string;
-    workflowNodeId?: string;
-    sourceDataId?: string;
-    extra?: Record<string, unknown>;
-  }) {
+  /**
+   * Execute contract for AgentRegistry — independent execution boundary.
+   *
+   * Persistence on AgentTask:
+   *   - `companyId`        — the trusted tenant scope of THIS execution.
+   *                          When the caller (controller) supplied a verified
+   *                          companyId from `@CurrentCompany()`, that value is
+   *                          stored. When the caller is internal and omitted
+   *                          companyId, we fall back to `def.companyId` so a
+   *                          tenant-owned definition still produces a tenant-
+   *                          stamped task. A global definition invoked without
+   *                          a caller-supplied companyId stores `null`
+   *                          (system-level execution).
+   *   - `workflowRunId` /
+   *     `workflowNodeId` /
+   *     `sourceDataId`     — first-class trace columns. The caller passes them
+   *                          when the task originates from a Workflow node or
+   *                          a domain trigger. They land in dedicated columns
+   *                          (NOT inside `input` JSON) so trace queries can
+   *                          index them.
+   *   - `input.extra`      — backward-compatibility envelope only. Any payload
+   *                          a legacy caller wants to forward to the agent
+   *                          process is merged into `AgentTask.input` and the
+   *                          downstream wakeup `payload`. New callers should
+   *                          prefer the first-class fields above.
+   *
+   * Tenant isolation is enforced by the preceding `getById` call.
+   */
+  async run(id: string, input?: AgentRunInput) {
     const def = await this.getById(id, input?.companyId);
     const dryRun = input?.dryRun ?? def.requiresApproval;
 
@@ -231,11 +274,16 @@ export class AgentRegistryService implements OnModuleInit {
       }
     }
 
-    // AgentTask 생성 (기존 도메인 콜백 호환)
+    // Trusted task companyId: prefer caller-supplied (verified by getById),
+    // fall back to def.companyId for internal callers without tenant context.
+    const taskCompanyId = input?.companyId ?? def.companyId ?? null;
+
+    // AgentTask 생성 — first-class workflow/source columns, backward-compat
+    // `extra` only kept inside `input` JSON.
     const task = await this.prisma.agentTask.create({
       data: {
         agentType: def.type,
-        companyId: input?.companyId ?? def.companyId,
+        companyId: taskCompanyId,
         workflowRunId: input?.workflowRunId ?? null,
         workflowNodeId: input?.workflowNodeId ?? null,
         sourceDataId: input?.sourceDataId ?? null,
@@ -349,8 +397,10 @@ export class AgentRegistryService implements OnModuleInit {
   }
 
   async resetSession(agentId: string, companyId: string): Promise<{ ok: boolean }> {
+    // Session reset writes to AgentDefinition.rt_session_id, which on a
+    // global row would be shared across every tenant — denied.
     const result = await this.prisma.agentDefinition.updateMany({
-      where: { id: agentId, ...tenantScopeFilter(companyId) },
+      where: { id: agentId, ...tenantOwnedFilter(companyId) },
       data: { rtSessionId: null } as any,
     });
     if (result.count === 0) throw new NotFoundException(`Agent definition ${agentId} not found`);
@@ -358,8 +408,11 @@ export class AgentRegistryService implements OnModuleInit {
   }
 
   async pauseAgent(agentId: string, companyId: string, reason?: string): Promise<{ ok: boolean }> {
+    // Pause/resume mutates `status` on the row itself. For global rows that
+    // status is shared across all tenants — denied. Only the owning tenant
+    // can pause its own clone.
     const result = await this.prisma.agentDefinition.updateMany({
-      where: { id: agentId, ...tenantScopeFilter(companyId) },
+      where: { id: agentId, ...tenantOwnedFilter(companyId) },
       data: { status: 'paused', pauseReason: reason, pausedAt: new Date() },
     });
     if (result.count === 0) throw new NotFoundException(`Agent definition ${agentId} not found`);
@@ -367,19 +420,15 @@ export class AgentRegistryService implements OnModuleInit {
   }
 
   async resumeAgent(agentId: string, companyId: string): Promise<{ ok: boolean }> {
-    const owned = await this.prisma.agentDefinition.findFirst({
-      where: { id: agentId, ...tenantScopeFilter(companyId) },
-      select: { id: true },
-    });
-    if (!owned) throw new NotFoundException(`Agent definition ${agentId} not found`);
-
-    await this.prisma.agentDefinition.updateMany({
-      where: { id: agentId, ...tenantScopeFilter(companyId) },
+    const result = await this.prisma.agentDefinition.updateMany({
+      where: { id: agentId, ...tenantOwnedFilter(companyId) },
       data: { status: 'idle', pauseReason: null, pausedAt: null },
     });
+    if (result.count === 0) throw new NotFoundException(`Agent definition ${agentId} not found`);
+
     // 에러 복구 캐스케이드: resume 시 연속 실패 카운터 리셋
     await this.prisma.agentDefinition.updateMany({
-      where: { id: agentId, ...tenantScopeFilter(companyId) },
+      where: { id: agentId, ...tenantOwnedFilter(companyId) },
       data: { rtConsecutiveFailCount: 0, rtLastFailedAt: null } as any,
     });
     return { ok: true };

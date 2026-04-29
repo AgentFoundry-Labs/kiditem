@@ -59,7 +59,10 @@ healthScore 일괄 갱신은 `prisma.$transaction(products.map(r => prisma.maste
 
 - 룰 평가는 **반드시 agent**. 서비스 내 직접 평가 금지
 - Critical 위반 → alert 자동 생성, 모든 위반 → activity_event 생성
-- 스케줄은 agent config (cron) 에 저장. rules 테이블 아님
+- 스케줄은 tenant-owned `rules_evaluation` agent config (cron) 에 저장. rules
+  테이블 아님. 글로벌 catalog `AgentDefinition(companyId=null)` 은 모든
+  tenant 가 공유하므로 schedule PATCH 로 수정하지 않는다. tenant-owned row
+  가 없으면 GET 은 `disabled`, PATCH 는 400 을 반환한다.
 - 회사 스코프: `@CurrentCompany()` 데코레이터 필수
 - Bulk update 는 Prisma updateMany + `{ id, companyId }` where 절로 묶고 `prisma.$transaction(...)` 으로 감싼다. raw SQL 이 정말 필요하면 tagged template + `company_id = ${companyId}::uuid` bind 만 허용. `$executeRawUnsafe` 는 절대 금지.
 

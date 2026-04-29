@@ -35,14 +35,35 @@ const sampleWorkflowCatalog = {
   ...sampleAgentCatalog,
   id: MARKETPLACE_WF_ID,
   type: 'workflow',
-  name: '주문 자동 처리',
-  description: '신규 주문 수집 → 확인',
-  category: 'automation',
-  module: 'order',
+  name: '광고 성과 분석',
+  description: '광고 전략 에이전트에게 분석 위임',
+  category: 'analytics',
+  module: 'analytics',
   role: null,
   adapterType: null,
-  nodesJson: [{ id: '1', type: 'trigger.manual' }],
-  edgesJson: [],
+  nodesJson: [
+    { id: '1', type: 'trigger.schedule', config: { cron: '0 9 * * *' } },
+    { id: '2', type: 'agent_task.create', config: { agent_type: 'ad_strategy' } },
+    { id: '3', type: 'notification.alert', config: { title: '분석 완료' } },
+  ],
+  edgesJson: [
+    { source: '1', target: '2' },
+    { source: '2', target: '3' },
+  ],
+};
+
+// Catalog row that still references removed slim-core executors. Used to
+// prove the marketplace hides + rejects them after the workflow surface
+// shrank to the registered node types.
+const legacyWorkflowCatalog = {
+  ...sampleWorkflowCatalog,
+  id: 'e5f6a7b8-c9d0-4e1f-2a3b-4c5d6e7f8091',
+  name: '레거시 DB 쿼리 워크플로우',
+  nodesJson: [
+    { id: '1', type: 'trigger.manual' },
+    { id: '2', type: 'internal.db_query', config: { model: 'Product' } },
+    { id: '3', type: 'data.filter' },
+  ],
 };
 
 beforeAll(async () => {
@@ -135,7 +156,7 @@ describe('Marketplace Workflow CRUD — /api/marketplace/workflows', () => {
       const res = await api().get('/api/marketplace/workflows');
 
       expect(res.status).toBe(200);
-      expect(res.body[0].name).toBe('주문 자동 처리');
+      expect(res.body[0].name).toBe('광고 성과 분석');
       expect(res.body[0].installed).toBe(false);
 
       // installed 판정에 사용되는 workflowTemplate 조회가 companyId 로 스코프되는지 확인 (multitenancy)
@@ -144,6 +165,31 @@ describe('Marketplace Workflow CRUD — /api/marketplace/workflows', () => {
           where: expect.objectContaining({ companyId: TEST_COMPANY_ID }),
         }),
       );
+    });
+
+    it('hides catalog rows that reference removed slim-core executors', async () => {
+      (prisma.marketplace.findMany as any).mockResolvedValue([
+        sampleWorkflowCatalog,
+        legacyWorkflowCatalog,
+      ]);
+
+      const res = await api().get('/api/marketplace/workflows');
+
+      expect(res.status).toBe(200);
+      // legacyWorkflowCatalog references internal.db_query and data.filter,
+      // so it must not surface in the install list at all.
+      expect(res.body).toHaveLength(1);
+      expect(res.body[0].id).toBe(MARKETPLACE_WF_ID);
+    });
+  });
+
+  describe('GET /api/marketplace/workflows/:id', () => {
+    it('returns 404 for catalog rows that reference removed executors', async () => {
+      (prisma.marketplace.findUnique as any).mockResolvedValue(legacyWorkflowCatalog);
+
+      const res = await api().get(`/api/marketplace/workflows/${legacyWorkflowCatalog.id}`);
+
+      expect(res.status).toBe(404);
     });
   });
 
@@ -163,6 +209,21 @@ describe('Marketplace Workflow CRUD — /api/marketplace/workflows', () => {
 
       expect(res.status).toBe(201);
       expect(prisma.workflowTemplate.create).toHaveBeenCalled();
+    });
+
+    it('rejects install for catalog rows that reference removed executors', async () => {
+      (prisma.marketplace.findUnique as any).mockResolvedValue(legacyWorkflowCatalog);
+      (prisma.workflowTemplate.create as any).mockClear();
+      (prisma.marketplace.update as any).mockClear();
+
+      const res = await api()
+        .post(`/api/marketplace/workflows/${legacyWorkflowCatalog.id}/install`)
+        .send({});
+
+      expect(res.status).toBe(400);
+      expect(res.body.message).toMatch(/unsupported node types/);
+      expect(prisma.workflowTemplate.create).not.toHaveBeenCalled();
+      expect(prisma.marketplace.update).not.toHaveBeenCalled();
     });
   });
 
