@@ -17,15 +17,23 @@ import { kstDayStart } from '../../common/kst';
  * Service invariants (must be preserved by future edits):
  * - revenue = SUM(oli.total_price), never SUM(o.total_price).
  * - companyId is threaded from `@CurrentCompany()` and required on every read.
+ *   Raw-SQL aggregations bind `${companyId}::uuid` as a 2-hop tenant predicate
+ *   on every joined tenant-owned table (`orders`, `order_line_items`,
+ *   `channel_listings`, `master_products`) — never rely on a single
+ *   `o.company_id` filter to gate downstream JOINs (defense-in-depth against
+ *   stray FK invariants between tenants). See
+ *   docs/superpowers/plans/2026-04-29-channels-channel-listing-boundary.md
+ *   risks R1/R2/R3.
  * - Time windows are half-open: `gte` / `lt` only, never `lte`.
  * - `ChannelListing.updatedAt` ("lastModifiedAt") is bumped on any edit, not
  *   only sync ops — do not present it as "last synced at".
  * - `_count: true` in Prisma returns a flat `number` (no wrapper object).
  * - `OrderReturn.faultBy` is `VarChar(20)` and is currently `CUSTOMER` /
  *   `VENDOR` only; unknown values must be dropped before persistence.
- * - returnRate has a known limitation: past-period orders' returns land in
- *   the current period numerator. The fix is to JOIN
- *   `OrderReturn.orderId → Order.orderedAt` (tracked but not implemented here).
+ * - `getReturnSummary` enforces a 2-hop INNER JOIN on `Order.orderedAt`
+ *   (`OrderReturn.companyId` must match `Order.companyId`) per Plan D.2 /
+ *   ADR-0017. Past-period orders' returns therefore stay outside the current
+ *   period numerator.
  */
 
 @Injectable()
@@ -71,6 +79,10 @@ export class ChannelDashboardService {
     to: Date,
   ): Promise<RevenueTrendPoint[]> {
     type Row = { day: Date; revenue: bigint | null; orderCount: bigint };
+    // 2-hop tenant predicate (R2): bind ${companyId}::uuid on both `orders`
+    // and `order_line_items` so a stray cross-tenant `OrderLineItem.companyId`
+    // cannot leak into the SUM. See plan
+    // docs/superpowers/plans/2026-04-29-channels-channel-listing-boundary.md.
     const rows = await this.prisma.$queryRaw<Row[]>`
       SELECT DATE_TRUNC('day', o.ordered_at AT TIME ZONE 'Asia/Seoul')::date AS day,
              SUM(oli.total_price)::bigint AS revenue,
@@ -78,6 +90,7 @@ export class ChannelDashboardService {
       FROM orders o
       JOIN order_line_items oli ON oli.order_id = o.id
       WHERE o.company_id = ${companyId}::uuid
+        AND oli.company_id = ${companyId}::uuid
         AND o.ordered_at >= ${from} AND o.ordered_at < ${to}
       GROUP BY 1
       ORDER BY 1
@@ -100,6 +113,12 @@ export class ChannelDashboardService {
       revenue: bigint | null;
       orderCount: bigint;
     };
+    // 2-hop tenant predicate (R1): bind ${companyId}::uuid on every joined
+    // tenant-owned table (orders, order_line_items, channel_listings,
+    // master_products) — without this, a stray Order.listing_id pointing at
+    // another tenant's ChannelListing (or that listing's MasterProduct) would
+    // surface foreign sellerProductId / sellerProductName. See plan
+    // docs/superpowers/plans/2026-04-29-channels-channel-listing-boundary.md.
     const rows = await this.prisma.$queryRaw<Row[]>`
       SELECT cl.external_id AS "sellerProductId",
              mp.name AS "sellerProductName",
@@ -110,6 +129,9 @@ export class ChannelDashboardService {
       JOIN channel_listings cl ON cl.id = o.listing_id
       JOIN master_products mp ON mp.id = cl.master_id
       WHERE o.company_id = ${companyId}::uuid
+        AND oli.company_id = ${companyId}::uuid
+        AND cl.company_id = ${companyId}::uuid
+        AND mp.company_id = ${companyId}::uuid
         AND o.ordered_at >= ${from} AND o.ordered_at < ${to}
         AND o.listing_id IS NOT NULL
       GROUP BY cl.external_id, mp.name
