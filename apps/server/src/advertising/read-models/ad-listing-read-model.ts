@@ -1,4 +1,4 @@
-import type { PrismaService } from '../../../prisma/prisma.service';
+import type { PrismaService } from '../../prisma/prisma.service';
 import type { AdListingSummary } from '@kiditem/shared/advertising';
 
 export interface ScopedAdListingReadModel {
@@ -23,6 +23,14 @@ export interface ScopedAdListingSummary extends AdListingSummary {
   };
 }
 
+/**
+ * Listing-id list → tenant-scoped {listing + master meta} map.
+ * `companyId` is bound on every read; soft-deleted listings are excluded.
+ *
+ * Sole owner of the `ChannelListing` + `MasterProduct` join shape used by
+ * hub / campaign / benchmark / action read models. Mappers (`mappers/`) build
+ * `AdListingSummary`-shaped values from these rows.
+ */
 export async function findScopedAdListings(
   prisma: PrismaService,
   companyId: string,
@@ -65,16 +73,4 @@ export async function findScopedAdListings(
     });
   }
   return out;
-}
-
-export function toAdListingSummary(
-  listing: ScopedAdListingReadModel,
-): ScopedAdListingSummary {
-  return {
-    listingId: listing.id,
-    externalId: listing.externalId,
-    channelName: listing.channelName,
-    masterProduct: listing.masterProduct,
-    option: null,
-  };
 }

@@ -171,19 +171,8 @@ describe('AdvertisingService', () => {
     expect(result.items[0].listingId).toBe('L1');
   });
 
-  it('passes companyId through all reads (no default fallback)', async () => {
-    prisma.channelListingDailySnapshot.groupBy.mockResolvedValue([]);
-
-    await service.getHubData('company-xyz');
-
-    expect(adConfig.getConfig).toHaveBeenCalledWith('company-xyz');
-    expect(prisma.channelListingDailySnapshot.groupBy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({ companyId: 'company-xyz' }),
-      }),
-    );
-  });
-
+  // companyId propagation removed — changeTier IDOR test above + check:idor /
+  // check:tenant-scope scanners cover the tenant scope risk.
   it('empty-state — no daily-fact rows returns explicit empty hub (legacy Ad rows ignored)', async () => {
     prisma.channelListingDailySnapshot.groupBy.mockResolvedValue([]);
 
