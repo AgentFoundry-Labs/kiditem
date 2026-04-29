@@ -174,7 +174,7 @@ domain instead of growing as standalone bounded contexts:
 | `advertising` | advertising operations and ad-action execution surfaces |
 | `channels` | channel listings, channel sync, external marketplace spine |
 | `ai` / `media-ai` | thumbnail/image AI, generation, provider adapters |
-| `automation` / `agent-os` | `agent-registry`, `workflows`, `rules`, `action-task`, `marketplace`, `panel` |
+| `automation` / `agent-os` | `agent-registry`, `workflows`, `rules`, `action-task`, `marketplace`, `panel` — keep/delete/rewrite contract: [`docs/superpowers/plans/2026-04-29-automation-agent-os-hard-delete.md`](../../docs/superpowers/plans/2026-04-29-automation-agent-os-hard-delete.md) |
 | `analytics` | `dashboard`, `statistics`, `traffic`, `supplier-stats` |
 | `platform` | `auth`, `companies`, `feature-gate`, `common`, `prisma`, uploads/platform infra |
 

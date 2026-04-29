@@ -3,6 +3,24 @@
 Workflow 엔진은 **DAG runner + WorkflowRun 기록 + panel event emitter +
 Agent delegation shell** 이다. 범용 자동화/데이터 처리 엔진이 아니다.
 
+## Owner domain — Automation / Agent OS
+
+이 폴더는 backend architecture contract 의 `automation` / `agent-os` owner
+domain (`apps/server/AGENTS.md` Domain Topology Target 표 참조) 에 속한다.
+다음 4 가지 survival core 를 깨뜨리는 변경은 거부된다 — 자세한 keep / delete /
+rewrite / defer 분류는
+[`docs/superpowers/plans/2026-04-29-automation-agent-os-hard-delete.md`](../../../../docs/superpowers/plans/2026-04-29-automation-agent-os-hard-delete.md)
+참조.
+
+1. DAG runner (`WorkflowRunnerService.runWorkflow`)
+2. WorkflowRun 감사 기록 (`(id, companyId)` 스코프 read/write)
+3. Panel event projection (`PANEL_EVENTS.UPSERT` via `workflow-run-mapper`)
+4. Agent delegation boundary (`agent_task.create` → `AgentRegistryService.runByType`)
+
+`automation/` 으로의 폴더 이동은 별도 PR (Phase 3C-5) 에서 일괄 처리한다. 이
+폴더에 새 generic executor 추가, LLM 직접 호출, panel/event 외 다른 출력
+경로 추가는 contract 위반이다.
+
 ## 무엇이 아닌가 (Hard bans)
 
 - ❌ **Workflow 는 generic DB engine 이 아니다** — `prisma.<model>.findMany`

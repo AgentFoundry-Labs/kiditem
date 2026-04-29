@@ -2,6 +2,32 @@
 
 Agent orchestration platform. Claude CLI spawn-based.
 
+## Owner domain — Automation / Agent OS
+
+이 폴더는 backend architecture contract 의 `automation` / `agent-os` owner
+domain 의 핵심 런타임이다 (`apps/server/AGENTS.md` Domain Topology Target +
+[`docs/superpowers/plans/2026-04-29-backend-architecture-contract.md`](../../../../docs/superpowers/plans/2026-04-29-backend-architecture-contract.md)).
+keep / delete / rewrite / defer 분류와 hard-delete 기준은
+[`docs/superpowers/plans/2026-04-29-automation-agent-os-hard-delete.md`](../../../../docs/superpowers/plans/2026-04-29-automation-agent-os-hard-delete.md)
+참조.
+
+핵심 contract:
+
+- `agent-registry.service.ts` 는 **570 LOC** 으로 700-line ceiling 에 근접해 있다.
+  새 동작을 이 파일에 직접 추가 금지 — Phase 3C-6 split 전에는 adapter / 별도
+  application service 로 분리한다.
+- `AgentRegistryService.runByType` / `.run` 이 **유일한** AI/LLM 위임 경계.
+  workflow 의 `agent_task.create` executor, rules 의 `evaluateAll`, sourcing /
+  advertising / AI thumbnail / companies/agent-tasks 가 모두 이 boundary 만 사용한다.
+- `AgentTask` 의 first-class trace columns (`companyId`, `workflowRunId`,
+  `workflowNodeId`, `sourceDataId`) 는 production rewrite 까지 호환 보존.
+- `domains/{ad-strategy,manager}/` 는 owner-domain rewrite 후 `automation/application/service/`
+  로 이동 예정. 그 전엔 현 위치 유지.
+
+`adapters/`, `business-safety/`, `context-manager/`, `delegation/`, `events/`,
+`heartbeat/`, `lifecycle/`, `permissions/`, `safety/`, `schemas/`, `skills/`,
+`trace/`, `wakeup/` 은 모두 Agent OS 내부 런타임. 해당 hard-delete 후보 없음.
+
 **Runtime state 모델**: 에이전트의 현재 상태는 **`AgentDefinition` (정의 + `rt_*` 내장 필드) + `HeartbeatRun` (safety pipeline 실행 이력) + `AgentEvent` (permission_denied / action_snapshot 이벤트)** 세 모델의 조합으로 표현. 별도 "AgentState" 테이블 없음. 상세 필드: [`prisma/models/agents.prisma`](../../../../prisma/models/agents.prisma).
 
 ## Execution boundary
