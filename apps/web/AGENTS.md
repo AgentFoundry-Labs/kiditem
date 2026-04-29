@@ -24,6 +24,7 @@ Env: `.env.local` → `NEXT_PUBLIC_API_URL=http://localhost:4000`
 - For blob responses: `apiClient.fetchRaw()`
 - Direct `API_BASE` usage only for non-fetch purposes (e.g., image URL resolution)
 - Frontend code must not import Prisma, `pg`, server-only DB adapters, or direct database clients. All data comes from NestJS APIs.
+- **Tenant scope is server-owned.** Never send `companyId` in a query string or request body. Backend resolves the tenant from the authenticated session via `@CurrentCompany()`; any client-supplied `companyId` is untrusted and silently dropped by the controller DTO whitelist. Query params carry **business filters only** (status, dateRange, module, etc.). Helpers like `getCompanyId()` for client-side tenant resolution are forbidden — if you find yourself reaching for one, the backend contract is wrong.
 
 ### Data Fetching
 - Use **`useQuery` / `useMutation`** from `@tanstack/react-query` (no useState+useEffect+fetch)
