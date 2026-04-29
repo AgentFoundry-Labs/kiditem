@@ -1,7 +1,20 @@
-import { BadRequestException, Controller, Get, Post, Patch, Param, Query, Body } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Inject,
+  Param,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { RulesService } from '../services/rules.service';
-import { AgentRegistryService } from '../../agent-registry/agent-registry.service';
-import { HeartbeatService } from '../../agent-registry/heartbeat/heartbeat.service';
+import {
+  AGENT_SCHEDULE_CONTROL_PORT,
+  AgentScheduleControlPort,
+  TenantOwnedAgentRequiredError,
+} from '../../automation/application/port/in/agent-schedule-control.port';
 import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
 import {
   ListRulesQueryDto,
@@ -9,12 +22,14 @@ import {
   UpdateScheduleBodyDto,
 } from '../dto';
 
+const RULES_EVALUATION_AGENT_TYPE = 'rules_evaluation';
+
 @Controller('rules')
 export class RulesController {
   constructor(
     private readonly rulesService: RulesService,
-    private readonly agentRegistry: AgentRegistryService,
-    private readonly heartbeat: HeartbeatService,
+    @Inject(AGENT_SCHEDULE_CONTROL_PORT)
+    private readonly scheduleControl: AgentScheduleControlPort,
   ) {}
 
   @Post('evaluate')
@@ -39,9 +54,12 @@ export class RulesController {
 
   @Get('schedule')
   async getSchedule(@CurrentCompany() companyId: string) {
-    const agent = await this.agentRegistry.findByType('rules_evaluation');
+    const { schedule } = await this.scheduleControl.getSchedule(
+      RULES_EVALUATION_AGENT_TYPE,
+      companyId,
+    );
     return {
-      schedule: agent.companyId === companyId ? agent.schedule ?? 'disabled' : 'disabled',
+      schedule,
       options: [
         { key: '0 9 * * *', label: '1회/일 (오전 9시)' },
         { key: '0 9,18 * * *', label: '2회/일 (오전 9시, 오후 6시)' },
@@ -61,15 +79,21 @@ export class RulesController {
     @CurrentCompany() companyId: string,
     @Body() body: UpdateScheduleBodyDto,
   ) {
-    const agent = await this.agentRegistry.findByType('rules_evaluation');
-    if (agent.companyId !== companyId) {
-      throw new BadRequestException(
-        '룰 평가 스케줄은 tenant-owned rules_evaluation 에이전트에서만 변경할 수 있습니다.',
+    const next = body.schedule === 'disabled' ? null : body.schedule;
+    try {
+      await this.scheduleControl.setSchedule(
+        RULES_EVALUATION_AGENT_TYPE,
+        companyId,
+        next,
       );
+    } catch (err) {
+      if (err instanceof TenantOwnedAgentRequiredError) {
+        throw new BadRequestException(
+          '룰 평가 스케줄은 tenant-owned rules_evaluation 에이전트에서만 변경할 수 있습니다.',
+        );
+      }
+      throw err;
     }
-    const schedule = body.schedule === 'disabled' ? null : body.schedule;
-    await this.agentRegistry.update(agent.id, companyId, { schedule });
-    await this.heartbeat.syncTimers();
     return { ok: true, schedule: body.schedule };
   }
 

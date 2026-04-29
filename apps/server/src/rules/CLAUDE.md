@@ -9,16 +9,18 @@ domain 에 속한다. 분류 + hard-delete 기준은
 [`docs/superpowers/plans/2026-04-29-automation-agent-os-hard-delete.md`](../../../../docs/superpowers/plans/2026-04-29-automation-agent-os-hard-delete.md)
 참조.
 
-전환 단계 (transitional) surface:
-
-- `RulesController` 가 `AgentRegistryService` + `HeartbeatService` 를 직접
-  주입해 `rules_evaluation` agent 의 schedule 을 PATCH 한다. 이는 Phase 3C-2
-  에서 `AgentScheduleControlPort` (interface in `automation/application/port/in/`,
-  adapter in `automation/adapter/out/agent-runtime/`) 로 교체된다.
-- 그 외 evaluation pattern (agent spawn + `@OnEvent(AGENT_EVENTS.RESULT_READY)`
+- `RulesController` 의 schedule GET/PATCH 는 `AgentScheduleControlPort`
+  (`apps/server/src/automation/application/port/in/agent-schedule-control.port.ts`)
+  로 위임. AgentRegistry / Heartbeat 직접 주입은 Phase 3C-2 (2026-04-29) 에
+  제거됐다. `rules_evaluation` agent 의 schedule 변경 + heartbeat timer
+  reload 는 `automation/adapter/out/agent-runtime/agent-schedule-control.adapter.ts`
+  안에서 한 곳에 묶여 있다 — 새 스케줄 cron 변경 코드는 거기 한 군데만 수정.
+- evaluation pattern (agent spawn + `@OnEvent(AGENT_EVENTS.RESULT_READY)`
   callback + `prisma.$transaction(masterProduct.updateMany)` bulk health-score
   + alert 생성 + panel emit) 은 keep — 동기 rules 평가나 service 내 hardcode
-  는 여전히 hard-banned.
+  는 여전히 hard-banned. evaluation 흐름은 `RulesService` 가 여전히
+  `AgentRegistryService.findByType` / `.run` 을 직접 호출 (agent delegation
+  boundary 의 정상 경계 — 포트화 대상 아님).
 
 Promote / dismiss path (`AlertsService`) 의 `$transaction` race guard 와 panel
 emit ordering 은 incident regression 으로 보호되는 contract — 약화 금지.
@@ -105,4 +107,4 @@ healthScore 일괄 갱신은 `prisma.$transaction(products.map(r => prisma.maste
 | Agent result 형식 변경 | `agent-config/prompts/agents/rules-evaluation.md` + `services/rules.service.ts:36-105` (handler) + `__tests__/rules-flow.spec.ts` |
 | 새 룰 카테고리 | DB seed (`onModuleInit`) + `rules.service.ts:list filter` + 프론트 카테고리 enum |
 | Bulk update 변경 | `services/rules.service.ts` healthScore $transaction 블록 — `(id, companyId)` 스코프 유지 + unsafe raw SQL 금지 + `__tests__/rules-flow.spec.ts` & `rules.service.spec.ts` 의 $transaction/updateMany 모킹 동기화 |
-| 스케줄 cron 변경 | `controllers/rules.controller.ts:schedule` + `agent-registry/heartbeat/heartbeat.service.ts:replaceAgentTimer` |
+| 스케줄 cron 변경 | `automation/adapter/out/agent-runtime/agent-schedule-control.adapter.ts` (포트 단일 진입점) — controller 는 wire-up 만, heartbeat `replaceAgentTimer` 는 어댑터 내부 호출 |
