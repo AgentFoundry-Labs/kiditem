@@ -19,8 +19,6 @@ import type {
   CoupangSyncReturnPayload,
 } from './types';
 
-export type { SyncResult, HealthResult } from './types';
-
 /**
  * Coupang raw status → 내부 canonical status 정규화. 현재 `NONE_TRACKING` (송장없는 배송)
  * 만 매핑 (DEPARTURE = 출고완료 와 동일 의미). UI pipeline 5-stage bucket 과 정합 유지.
@@ -35,7 +33,7 @@ export function normalizeCoupangOrderStatus(raw: string | null | undefined): str
  * 새 raw status 는 lowercase fallback 으로 통과시키되, 매핑된 값은 product UI / strategy
  * 에서 안정적으로 쿼리할 수 있는 canonical 값으로 정규화한다. C1 — Wave C.
  */
-export function normalizeCoupangProductStatus(
+function normalizeCoupangProductStatus(
   raw: string | null | undefined,
 ): string | undefined {
   if (!raw) return undefined;

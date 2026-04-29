@@ -1,5 +1,5 @@
 // apps/server/src/products/util/cursor.ts
-export interface CursorPayload {
+interface CursorPayload {
   createdAt: string;
   id: string;
 }

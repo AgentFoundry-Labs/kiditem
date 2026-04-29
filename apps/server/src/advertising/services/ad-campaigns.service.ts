@@ -16,7 +16,7 @@ import type {
   AdTrendsData,
 } from '@kiditem/shared';
 
-export type CampaignsPeriod = '7d' | '14d' | 'month';
+type CampaignsPeriod = '7d' | '14d' | 'month';
 
 function buildMetrics(sums: {
   spend: number;

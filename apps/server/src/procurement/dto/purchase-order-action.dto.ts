@@ -1,7 +1,7 @@
 import { IsString, IsOptional, IsNumber, IsUUID, IsInt, IsPositive, IsIn, IsArray, ArrayMinSize, ValidateIf, ValidateNested, MinLength } from 'class-validator';
 import { Type } from 'class-transformer';
 
-export class PurchaseOrderItemDto {
+class PurchaseOrderItemDto {
   @IsString() @MinLength(1) productName: string;
   @IsString() @IsOptional() productId?: string;
   @IsInt() @IsPositive() quantity: number;

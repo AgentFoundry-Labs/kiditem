@@ -3,7 +3,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.service';
 import { scrubSecrets, scrubDeep } from '@kiditem/shared';
 
-export interface TranscriptData {
+interface TranscriptData {
   runId: string;
   /**
    * companyId of the HeartbeatRun being amended. Required so the asynchronous

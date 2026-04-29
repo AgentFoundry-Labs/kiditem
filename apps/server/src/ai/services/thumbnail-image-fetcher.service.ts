@@ -4,15 +4,15 @@ import { StorageService } from '../../common/storage/storage.service';
 
 export const MAX_FETCH_BYTES = 10 * 1024 * 1024;
 export const MAX_REDIRECTS = 4;
-export const FETCH_TIMEOUT_MS = 15_000;
+const FETCH_TIMEOUT_MS = 15_000;
 
-export const ALLOWED_MIME_TO_EXT: Record<string, string> = {
+const ALLOWED_MIME_TO_EXT: Record<string, string> = {
   'image/jpeg': 'jpg',
   'image/png': 'png',
   'image/webp': 'webp',
 };
 
-export interface FetchedThumbnailImage {
+interface FetchedThumbnailImage {
   buffer: Buffer;
   mimeType: string;
   storageKey: string | null;
