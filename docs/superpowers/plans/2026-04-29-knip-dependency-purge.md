@@ -72,8 +72,9 @@ apps/server/src/ai/...              # see Deferred Items
 apps/server/src/auth/decorators/skip-auth.decorator.ts: SkipAuth   # defer-contract
 apps/server/src/products/...        # see Deferred Items
 apps/server/src/workflows/executors/index.ts: getNodeDefinition, listNodeTypes, listNodeDefinitions   # defer-contract
-Unused exported types (32)
+Unused exported types (33)
 apps/server/src/advertising/...     # see Deferred Items
+apps/server/src/agent-registry/agent-registry.service.ts: AgentRunInput       # see Deferred Items
 apps/server/src/ai/...              # see Deferred Items
 apps/server/src/products/...        # see Deferred Items
 apps/server/src/workflows/executors/types.ts: Standard*            # defer-contract
@@ -262,6 +263,16 @@ Owner: products domain plan.
   - `apps/server/src/products/persistence/bundle-stock.persistence.ts`: `ActiveBundleComponentRow`
   - `apps/server/src/products/persistence/product-option.persistence.ts`: `OptionTxClient`
 
+### agent-registry contract
+
+Owner: Agent OS / agent-registry boundary plan.
+
+- `apps/server/src/agent-registry/agent-registry.service.ts`: `AgentRunInput` —
+  typed execution hand-off for `run` / `runByType`. PR #130 added this as part
+  of the AgentTask trace contract (`companyId`, `workflowRunId`,
+  `workflowNodeId`, `sourceDataId`, `extra`). Treat as a boundary-contract
+  decision, not a generic dependency cleanup deletion.
+
 ### web (frontend) defer
 
 Owner: apps/web reconstruction plan.
@@ -284,7 +295,7 @@ The foundation PR is PR-0. Subsequent purge PRs land in this order, each with th
 2. **PR-1 — `chore/knip-dependency-baseline` (this PR).** Removes the verified safe-purge candidates in one batch: `react`, `@types/better-sqlite3`, `better-sqlite3` from root `devDependencies` and `tsx` from `apps/web` `devDependencies`. Cleans up the now-stale `// NOTE: removal candidates` comments in `knip.jsonc`. Reruns the workspace builds plus `npm run knip:report` and the boundary scanners (`check:web-db-boundary`, `check:shared-root-imports`). PR-1 supersedes the earlier "PR-1 + PR-2 in parallel" split because all four candidates were independently verified by `rg` and the post-purge knip report shows zero new findings beyond the documented defer-contract surface.
 3. **PR-2 — Workflow executor contract decision (out of this Phase 5 lane).** Decide whether `getNodeDefinition`, `listNodeTypes`, `listNodeDefinitions`, and `Standard*` types remain part of the workflow public surface or move to internal. Owned by the workflows domain plan, not by Phase 5.
 4. **PR-3 — Auth `SkipAuth` decision (out of this Phase 5 lane).** Either keep `SkipAuth` as the documented route decorator and update call sites, or replace docs and the test usage with the narrower metadata helper. Owned by the auth domain plan.
-5. **PR-4..N — Per-domain dead-export sweeps (advertising / ai / products).** New unused exports + types accumulated since PR #98 (see [Deferred Items](#deferred-items-post-pr-1)). Each domain owner sweeps their slice with a same-domain PR and a runtime-consumer check before deletion. Phase 5 does not delete these.
+5. **PR-4..N — Per-domain dead-export sweeps (advertising / ai / products / agent-registry).** New unused exports + types accumulated since PR #98 and PR #130 (see [Deferred Items](#deferred-items-post-pr-1)). Each domain owner sweeps their slice with a same-domain PR and a runtime-consumer check before deletion. Phase 5 does not delete these.
 
 PR-2..N must come from their respective domain owners with their own child plans; this Phase 5 lane does not touch them.
 
