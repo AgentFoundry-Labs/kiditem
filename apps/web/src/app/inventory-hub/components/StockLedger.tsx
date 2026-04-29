@@ -21,7 +21,7 @@ import {
   monthPeriodWindow,
   transactionKeyParams,
 } from '@/app/inventory/lib/inventory-api';
-import type { TransactionListItem } from '@kiditem/shared';
+import type { TransactionListItem } from '@kiditem/shared/inventory';
 
 const IN_TYPES = new Set<string>(['RECEIVE']);
 const OUT_TYPES = new Set<string>(['ISSUE']);

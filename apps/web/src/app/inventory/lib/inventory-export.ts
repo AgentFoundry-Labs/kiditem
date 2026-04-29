@@ -1,5 +1,5 @@
 import { fetchInventoryList } from './inventory-api';
-import type { InventoryListItem, InventoryStatus } from '@kiditem/shared';
+import type { InventoryListItem, InventoryStatus } from '@kiditem/shared/inventory';
 
 const EXPORT_PAGE_SIZE = 200;
 

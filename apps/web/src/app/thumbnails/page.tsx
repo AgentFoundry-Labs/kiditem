@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import type { ThumbnailAnalysisResult, ThumbnailGenerationItem } from '@kiditem/shared';
+import type { ThumbnailAnalysisResult, ThumbnailGenerationItem } from '@kiditem/shared/ai';
 
 import { ErrorState, EmptyState } from '@/components/ui/EmptyState';
 import PageSkeleton from '@/components/ui/PageSkeleton';

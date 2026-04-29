@@ -20,7 +20,7 @@ import ProductOptionFilters, {
 } from './components/ProductOptionFilters';
 import ProductOptionTable from './components/ProductOptionTable';
 import ProductOptionEditModal from './components/ProductOptionEditModal';
-import type { ProductOption } from '@kiditem/shared';
+import type { ProductOption } from '@kiditem/shared/product';
 
 const PAGE_LIMIT = 100;
 

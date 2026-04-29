@@ -8,8 +8,8 @@ import {
   IssueStockInputSchema,
   ReceiveStockInputSchema,
   UpdateInventoryMetadataInputSchema,
-} from '@kiditem/shared';
-import type { InventoryListItem } from '@kiditem/shared';
+} from '@kiditem/shared/inventory';
+import type { InventoryListItem } from '@kiditem/shared/inventory';
 import { isApiError } from '@/lib/api-error';
 import { cn } from '@/lib/utils';
 import {

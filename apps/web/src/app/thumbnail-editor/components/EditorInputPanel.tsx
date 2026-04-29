@@ -1,7 +1,7 @@
 'use client';
 import { Download, Scissors, Sparkles, Package, Palette, Layers, Plus, Trash2 } from 'lucide-react';
 import type { EditUseCase } from './UseCaseSelection';
-import type { MasterImageItem } from '@kiditem/shared';
+import type { MasterImageItem } from '@kiditem/shared/product';
 import type { EditorMode, HistoryCandidate } from '../edit/page';
 import { timeAgo } from '@/lib/utils';
 import {

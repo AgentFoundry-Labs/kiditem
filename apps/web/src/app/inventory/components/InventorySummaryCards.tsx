@@ -1,7 +1,7 @@
 'use client';
 
 import { Package, AlertTriangle, CheckCircle2 } from 'lucide-react';
-import type { InventorySummary } from '@kiditem/shared';
+import type { InventorySummary } from '@kiditem/shared/inventory';
 
 export function InventorySummaryCards({ summary }: { summary: InventorySummary }) {
   return (

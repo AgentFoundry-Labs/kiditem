@@ -8,7 +8,7 @@ import {
   getGradeColor,
   getProductStatusBadge,
 } from '@/lib/utils';
-import type { ProductCatalogDetail as Product } from '@kiditem/shared';
+import type { ProductCatalogDetail as Product } from '@kiditem/shared/product';
 
 interface ProductSidebarProps {
   product: Product;

@@ -10,7 +10,7 @@ import { Pagination } from '@/components/ui/Pagination';
 import { useGenerationList } from '@/hooks/useThumbnailGenerations';
 import { resolveImageUrl } from '@/lib/resolve-url';
 import { cn } from '@/lib/utils';
-import type { ThumbnailAnalysisResult } from '@kiditem/shared';
+import type { ThumbnailAnalysisResult } from '@kiditem/shared/ai';
 
 import { FeatureSelectionModal, type FeatureSelection } from './FeatureSelectionModal';
 import { ImgWithSkeleton } from './ImgWithSkeleton';

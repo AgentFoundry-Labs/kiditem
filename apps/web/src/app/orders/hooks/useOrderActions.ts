@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { OrderActionResponseSchema, type OrderListItem } from '@kiditem/shared';
+import { OrderActionResponseSchema, type OrderListItem } from '@kiditem/shared/order';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import { getNumericShipmentBoxIds } from '../lib/order-pipeline';

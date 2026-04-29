@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import type { ThumbnailGenerationItem } from '@kiditem/shared';
+import type { ThumbnailGenerationItem } from '@kiditem/shared/ai';
 
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';

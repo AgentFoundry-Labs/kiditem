@@ -1,4 +1,4 @@
-import type { ComplianceScores, ThumbnailAnalysisResult } from '@kiditem/shared';
+import type { ComplianceScores, ThumbnailAnalysisResult } from '@kiditem/shared/ai';
 import { VIOLATION_LABELS } from './grade-constants';
 
 interface ViolationEvidence {

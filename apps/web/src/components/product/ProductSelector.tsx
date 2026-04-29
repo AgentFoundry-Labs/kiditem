@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { Search } from 'lucide-react';
-import { ProductCatalogListResponseSchema, type ProductCatalogListItem } from '@kiditem/shared';
+import { ProductCatalogListResponseSchema, type ProductCatalogListItem } from '@kiditem/shared/product';
 import { apiClient } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 

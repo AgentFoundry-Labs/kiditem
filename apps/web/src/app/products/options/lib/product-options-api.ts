@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ProductOptionSchema, type ProductOption } from '@kiditem/shared';
+import { ProductOptionSchema, type ProductOption } from '@kiditem/shared/product';
 import { apiClient } from '@/lib/api-client';
 
 export interface ProductOptionListParams {

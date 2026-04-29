@@ -2,7 +2,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import type { ThumbnailAnalysisResult } from '@kiditem/shared';
+import type { ThumbnailAnalysisResult } from '@kiditem/shared/ai';
 
 export type AnalysisScope = 'all' | 'quality' | 'compliance';
 

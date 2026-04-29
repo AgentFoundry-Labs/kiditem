@@ -1,7 +1,7 @@
 'use client';
 
 import { cn, formatNumber } from '@/lib/utils';
-import type { InventorySummary } from '@kiditem/shared';
+import type { InventorySummary } from '@kiditem/shared/inventory';
 import type { InventoryFilterKey } from '../lib/inventory-api';
 
 interface InventoryFilterTabsProps {

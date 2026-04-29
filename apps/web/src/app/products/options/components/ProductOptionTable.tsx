@@ -2,7 +2,7 @@
 
 import { Pencil, RotateCcw, Trash2 } from 'lucide-react';
 import { cn, formatKRW } from '@/lib/utils';
-import type { ProductOption } from '@kiditem/shared';
+import type { ProductOption } from '@kiditem/shared/product';
 
 interface Props {
   items: ProductOption[];

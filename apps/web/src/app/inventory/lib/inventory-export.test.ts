@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { InventoryListItem, InventoryListResponse } from '@kiditem/shared';
+import type { InventoryListItem, InventoryListResponse } from '@kiditem/shared/inventory';
 
 vi.mock('./inventory-api', () => ({
   fetchInventoryList: vi.fn(),

@@ -5,7 +5,7 @@ import {
   type OrderListResponse,
   type OrderStatus,
   type OrderStatsResponse,
-} from '@kiditem/shared';
+} from '@kiditem/shared/order';
 import { apiClient } from '@/lib/api-client';
 
 const ORDER_LIST_STATUSES: OrderStatus[] = [

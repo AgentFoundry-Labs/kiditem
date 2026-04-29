@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ImageIcon, Loader2, Search, X } from 'lucide-react';
-import { ProductCatalogListResponseSchema, type ProductCatalogListItem } from '@kiditem/shared';
+import { ProductCatalogListResponseSchema, type ProductCatalogListItem } from '@kiditem/shared/product';
 
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { TransactionListItem, TransactionListResponse } from '@kiditem/shared';
+import type { TransactionListItem, TransactionListResponse } from '@kiditem/shared/inventory';
 import { apiClient } from '@/lib/api-client';
 import { fetchAllTransactionsInWindow } from './inventory-api';
 

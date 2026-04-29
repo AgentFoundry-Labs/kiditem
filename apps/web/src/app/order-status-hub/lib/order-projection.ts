@@ -1,4 +1,4 @@
-import type { OrderListItem, OrderStatus } from '@kiditem/shared';
+import type { OrderListItem, OrderStatus } from '@kiditem/shared/order';
 
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
 

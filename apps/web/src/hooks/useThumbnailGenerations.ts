@@ -5,7 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type {
   RecomposeVariantKey,
   ThumbnailGenerationItem,
-} from '@kiditem/shared';
+} from '@kiditem/shared/ai';
 import { isActive } from '@/lib/thumbnail-status';
 
 export function useGenerationList() {

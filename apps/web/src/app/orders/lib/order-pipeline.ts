@@ -1,5 +1,5 @@
 import { CheckCircle, Clock, MapPin, Package, Truck, type LucideIcon } from 'lucide-react';
-import type { OrderListItem, OrderListResponse, OrderPipelineStatus } from '@kiditem/shared';
+import type { OrderListItem, OrderListResponse, OrderPipelineStatus } from '@kiditem/shared/order';
 
 export interface OrderPipelineNode {
   key: OrderPipelineStatus;

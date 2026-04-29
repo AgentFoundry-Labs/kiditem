@@ -14,7 +14,7 @@ import {
   MasterSchema,
   type MasterImageItem,
   type MasterImageRole,
-} from '@kiditem/shared';
+} from '@kiditem/shared/product';
 
 interface SelectedProduct {
   id: string;
