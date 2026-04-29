@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import ActionBoardPage from '../page';
-import type { ActionTask } from '@kiditem/shared';
+import type { ActionTask } from '@kiditem/shared/action-task';
 
 // ── next/navigation mock ──────────────────────────────────────────────────────
 const mockPush = vi.fn();

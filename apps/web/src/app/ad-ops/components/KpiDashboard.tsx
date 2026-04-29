@@ -4,7 +4,7 @@ import {
   TrendingUp, Megaphone, BarChart3, Zap,
 } from "lucide-react";
 import { formatKRW } from "@/lib/utils";
-import type { WingAdSummary } from "@kiditem/shared";
+import type { WingAdSummary } from "@kiditem/shared/dashboard";
 
 interface DailyPoint {
   spend: number;

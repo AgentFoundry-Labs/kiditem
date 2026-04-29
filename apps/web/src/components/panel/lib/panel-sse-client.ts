@@ -5,7 +5,7 @@
  * Raw fetch() is otherwise prohibited in apps/web (see apps/web/CLAUDE.md).
  */
 import { fetchEventSource } from '@microsoft/fetch-event-source';
-import { PanelEvent } from '@kiditem/shared';
+import { PanelEvent } from '@kiditem/shared/panel';
 import { API_BASE } from '@/lib/api';
 
 export interface PanelSseClientOptions {

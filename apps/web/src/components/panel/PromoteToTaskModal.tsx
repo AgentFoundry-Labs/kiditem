@@ -9,7 +9,7 @@ import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
 import { cn } from '@/lib/utils';
-import type { PanelAlertItem } from '@kiditem/shared';
+import type { PanelAlertItem } from '@kiditem/shared/panel';
 
 interface PromoteToTaskModalProps {
   alert: PanelAlertItem;

@@ -13,7 +13,7 @@ import type {
   AdTrendsData,
   ExposureAnalysisData,
 } from '@kiditem/shared/advertising';
-import type { DashboardAdSummary } from '@kiditem/shared';
+import type { DashboardAdSummary } from '@kiditem/shared/dashboard';
 
 export type CampaignProductData = {
   vendorItemId: string;
