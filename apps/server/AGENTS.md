@@ -33,22 +33,23 @@ src/{owner-domain}/
 ├── adapter/
 │   ├── in/
 │   │   ├── http/             # controllers, HTTP DTO binding
+│   │   │   └── dto/          # class-validator HTTP DTOs
 │   │   ├── workflow/         # workflow runner entrypoints, when used
 │   │   ├── cron/             # scheduled entrypoints, when used
 │   │   └── agent/            # Agent OS entrypoints, when used
 │   └── out/
-│       ├── prisma/           # Prisma persistence/query adapters
+│       ├── prisma/           # Prisma DAO/query adapters
 │       └── {provider}/       # external APIs, LLMs, storage, panel/event bus
 ├── application/
 │   ├── port/
 │   │   ├── in/               # use-case interfaces, when useful
-│   │   └── out/              # external/persistence ports
+│   │   └── out/              # DAO, cross-domain, provider, runtime ports
 │   └── service/              # use-case orchestration, transactions, tenant context
 ├── domain/
 │   ├── model/                # pure domain types/entities/value objects
 │   ├── policy/               # rules, thresholds, decisions
+│   ├── repository/           # aggregate collection abstraction, only when real
 │   └── service/              # pure domain services; no IO
-├── dto/                      # HTTP DTOs only; class-validator decorators
 └── mapper/                   # boundary row/DTO/domain mapping
 ```
 
@@ -101,10 +102,10 @@ explicitly retires the compatibility surface.
 - Self-contained owner domains — no casual direct imports of other domain Services. Cross-domain orchestration goes through an application service, explicit port, or existing platform/runtime boundary.
 - Global infrastructure: `PrismaModule` is `@Global()`, but reconstructed code injects `PrismaService` only in outgoing Prisma adapters or transitional legacy CRUD services. Agent runtime access belongs behind application ports/adapters, not pure domain code.
 - New endpoints → class-validator DTO required (no manual if + BadRequestException)
-- DTO → Service: 컨트롤러에서 `as any` 캐스트 금지. 서비스 시그니처를 DTO 모양에 맞춰(필요 시 `string | number` union 허용). 서비스 파라미터 타입으로 `Record<string, unknown>` 쓰지 말 것.
+- DTO → Application: 컨트롤러에서 `as any` 캐스트 금지. Application service 시그니처를 DTO 모양 또는 application command type 에 맞춘다. 서비스 파라미터 타입으로 `Record<string, unknown>` 쓰지 말 것.
 - Errors → throw HttpException (no `ok: false` in 200 responses)
 - Types → import from `@kiditem/shared`, use `satisfies` pattern in services
-- Service-internal types → `services/types.ts` (interface, not class). API DTOs(`dto/`)와 분리. `@kiditem/shared`에 넣지 않음.
+- Application-internal command/result types → 해당 `application/service/*` 또는 `application/port/*` 근처에 둔다 (interface/type, not class). API DTOs(`adapter/in/http/dto/`)와 분리. `@kiditem/shared`에 넣지 않음.
 - Agent trigger: `AgentRegistryService.runByType()` → HeartbeatService → adapter execution (Claude CLI or Python HTTP)
 - Agent data access: `AGENT_DATABASE_URL` (read-only PostgreSQL). Agents query DB directly via psql.
 - Agent prompts: stored in `agent-config/prompts/`, NOT in DB. DB `prompt_template` field holds file path.
@@ -133,13 +134,18 @@ Do not use it as the target architecture for reconstructed domains.
 
 - Application services own use-case orchestration, transaction boundaries,
   tenant context, and calls to out ports.
+- Application services in reconstructed domains depend on `application/port/out/*`
+  contracts for DAO, cross-domain, provider, Agent OS, workflow, filesystem,
+  and panel/event boundaries. Nest modules bind those ports to concrete
+  adapters. Do not import concrete `adapter/out/**` implementations or another
+  owner domain's service from `application/service/**`.
 - Domain code is pure: no NestJS decorators/classes, no Prisma types/client,
   no AgentRegistry/workflow/panel runtime, no filesystem, no HTTP/provider SDKs,
   and no environment lookups.
 - Incoming adapters translate HTTP/workflow/cron/agent input into application
   use cases. Controllers do not contain business rules.
-- Outgoing adapters implement persistence, provider, LLM, filesystem, event, and
-  panel ports. Prisma belongs in `adapter/out/prisma/`.
+- Outgoing adapters implement DAO, provider, LLM, filesystem, event, and panel
+  ports. Prisma belongs in `adapter/out/prisma/*dao.ts`.
 - Mappers sit at boundaries. Keep Prisma rows, HTTP DTOs, and domain objects
   from bleeding into each other.
 
@@ -155,13 +161,26 @@ Do not use it as the target architecture for reconstructed domains.
 Ports are optional/deferred for tiny legacy CRUD and low-risk read-only endpoints
 that are not being reconstructed in the current PR.
 
-### Repository vs Prisma adapter
+### DAO vs Repository vs Prisma adapter
+
+Use `DAO` for Prisma/DB access, tenant predicates, raw SQL, row locks, storage
+mapping, and table/projection reads. Reconstructed Prisma adapters are named
+`adapter/out/prisma/*dao.ts` (for example `inventory.dao.ts`,
+`inventory-query.dao.ts`, `warehouses.dao.ts`).
 
 Use a `Repository` name only when it represents a domain collection abstraction
-that prepares aggregates or enforces repeated invariants. Do not create 1:1
-Prisma wrappers. Most data access should be named by the role it plays:
-`adapter/out/prisma/*query.ts`, `*persistence.ts`, `*store.ts`, or
-`*gateway.ts`.
+that prepares aggregates, enforces repeated invariants, or hides collection-level
+complexity from application services. Repositories live under
+`domain/repository/` or are expressed as an application out port when an adapter
+implementation is required. Do not create 1:1 Prisma wrappers and call them
+repositories.
+
+Use `Gateway` or `Client` for external APIs, provider SDKs, filesystems, Agent OS
+runtime, workflow runner, panel/event bus, and other non-DB infrastructure.
+
+`persistence` is not the target naming convention for new or materially
+rewritten backend code. Existing files with that name are migration waypoints
+until their owner domain is reconstructed.
 
 ### Domain topology target
 
