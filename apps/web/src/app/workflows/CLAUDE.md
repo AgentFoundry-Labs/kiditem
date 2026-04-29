@@ -12,7 +12,7 @@ workflows/
 ├── hooks/
 │   └── useWorkflows.ts         # list/toggle/delete hook exports
 └── lib/
-    ├── workflow-api.ts         # apiClient 래퍼 (getCompanyId baked in)
+    ├── workflow-api.ts         # apiClient 래퍼 (tenant scope is backend-owned)
     └── workflow-types.ts       # WorkflowRunWithSteps
 ```
 
