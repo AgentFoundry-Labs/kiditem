@@ -1,3 +1,12 @@
+// @kiditem/shared/schemas barrel — compatibility surface only.
+//
+// All consumers under apps/server/src and apps/web/src use domain subpath
+// imports (e.g. `@kiditem/shared/product`, `@kiditem/shared/order`,
+// `@kiditem/shared/inventory`). This `schemas` barrel exists to keep
+// pre-Phase 2 archived recipes resolvable. Do NOT add new exports here —
+// register a new subpath in `packages/shared/package.json` instead. See
+// `docs/superpowers/plans/2026-04-29-shared-root-barrel-shrink.md`.
+
 // Common
 export { PaginatedResponseSchema, ApiErrorResponseSchema, SyncInfoSchema, zIsoDate } from './common.js';
 export type { PaginatedResponse, ApiErrorResponse, SyncInfo } from './common.js';
@@ -110,21 +119,9 @@ export type {
   UpdateInventoryMetadataInput,
 } from './inventory.js';
 
-// Profit & Loss
-export { PLDataSchema } from './profit-loss.js';
-export type { PLData } from './profit-loss.js';
-
 // Workflow
 export { WorkflowTemplateSchema, WorkflowRunSchema, WorkflowStepRunSchema } from './workflow.js';
 export type { WorkflowTemplate, WorkflowRun, WorkflowStepRun } from './workflow.js';
-
-// Agent Workflow
-export { WorkflowStepSchema, AgentWorkflowSchema, WorkflowYieldSchema } from './agent-workflow.js';
-export type { WorkflowStep, AgentWorkflow, WorkflowYield } from './agent-workflow.js';
-
-// Feature Gate
-export { FeatureGateSchema } from './feature-gate.js';
-export type { FeatureGate } from './feature-gate.js';
 
 // Agent
 export {
@@ -340,14 +337,6 @@ export type {
   AdCollectStatus,
 } from './ads.js';
 
-// Alerts
-export { AlertItemSchema } from './alerts.js';
-export type { AlertItem } from './alerts.js';
-
-// Rules
-export { RuleItemSchema } from './rules.js';
-export type { RuleItem } from './rules.js';
-
 // Action Task
 export {
   ActionTaskSchema,
@@ -362,7 +351,3 @@ export type {
   ActionTaskList,
   ActionTaskExecuteResponse,
 } from './action-task.js';
-
-// Inspection
-export { InspectionItemSchema, InspectionResultSchema } from './inspection.js';
-export type { InspectionItem, InspectionResult } from './inspection.js';
