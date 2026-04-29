@@ -35,6 +35,11 @@ import { WorkflowRunnerService } from './application/service/workflow-runner.ser
  *   own template CRUD, run creation, trusted tenant binding, DAG execution,
  *   panel emission, and Agent OS delegation. `workflows/` keeps only the
  *   compatibility HTTP route surface and DTOs.
+ * - Phase 3C-6: AgentRegistry implementation split lives under
+ *   `application/service/agent-*.service.ts`; Claude/Python execution
+ *   adapters live under `adapter/out/agent-runtime/`. They are registered by
+ *   `AgentRegistryModule` to preserve the public `AgentRegistryService`
+ *   injection token during migration.
  */
 @Module({
   imports: [MarketplaceModule],

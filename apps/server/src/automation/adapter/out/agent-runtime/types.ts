@@ -10,7 +10,7 @@
  * collectResult()로 기존처럼 Promise<ExecutionResult>로 사용 가능.
  */
 
-import type { ResolvedPermissions } from '../permissions/hierarchy.validator';
+import type { ResolvedPermissions } from '../../../../agent-registry/permissions/hierarchy.validator';
 
 export interface ExecutionContext {
   readonly runId: string;

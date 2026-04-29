@@ -15,7 +15,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // Mock adapter so executeHeartbeat runs deterministically.
 // Must be declared before HeartbeatService import (vi.mock is hoisted).
 let nextAdapterResult: any = null;
-vi.mock('../../adapters/fallback-chain', () => ({
+vi.mock('../../../automation/adapter/out/agent-runtime/fallback-chain', () => ({
   executeFallbackChain: async function* () {
     return nextAdapterResult;
   },

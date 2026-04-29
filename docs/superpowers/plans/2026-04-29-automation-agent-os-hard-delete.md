@@ -84,8 +84,8 @@ load-bearing for the four above:
 
 - **`AgentTask` lifecycle** — pending → running → succeeded/failed, with the
   trace columns and the wakeup payload contract used by `agent_task.create`.
-- **Adapter runtime boundary** — `adapters/{claude-local,python-http}/execute`,
-  `adapters/registry`, `adapters/fallback-chain`, `permissions/*`,
+- **Adapter runtime boundary** — `automation/adapter/out/agent-runtime/{claude-local,python-http}/execute`,
+  `automation/adapter/out/agent-runtime/{registry,fallback-chain}`, `permissions/*`,
   `safety/*`, `business-safety/*`, `lifecycle/*`, `context-manager/*`,
   `delegation/*`, `wakeup/*`, `events/*`, `trace/*`, `schemas/*`. These are
   the live Agent OS internals that back the survival core.
@@ -209,10 +209,12 @@ through marketplace install path.
 ### `apps/server/src/agent-registry/` — Agent OS
 
 Files (~50 production files across these subfolders):
-- Top level: `agent-registry.module.ts`, `agent-registry.controller.ts`
-  (570 lines of `agent-registry.service.ts`), `types.ts`.
-- `adapters/` — `claude-local/`, `python-http/`, `registry.ts`,
-  `fallback-chain.ts`, `types.ts`.
+- Top level: `agent-registry.module.ts`, `agent-registry.controller.ts`,
+  compatibility facade `agent-registry.service.ts`, `types.ts`.
+- `automation/application/service/agent-{crud,run,lifecycle,cost-analytics}.service.ts`
+  — Phase 3C-6 split of the old 570-line service implementation.
+- `automation/adapter/out/agent-runtime/` — `claude-local/`, `python-http/`,
+  `registry.ts`, `fallback-chain.ts`, `types.ts`.
 - `business-safety/` — `safety-pipeline.service.ts`,
   `action-cap.service.ts`, `dry-run-gate.service.ts`,
   `post-verification.service.ts`, `snapshot.service.ts`.
@@ -433,8 +435,10 @@ Web consumers: `/api/panel/stream` SSE consumed by the panel UI store.
 | `workflows/executors/index.ts` `getNodeDefinition` / `listNodeTypes` / `listNodeDefinitions` | **Deleted (Phase 3C-1)** | `DEFINITION_REGISTRY` was permanently empty (every `registerNode` call passed `definition = undefined`) and zero external consumers existed. Removed in `refactor/workflow-executor-hard-delete`; `registerNode` signature simplified to `(nodeType, fn, isConcurrencySafe?)`. |
 | `automation/adapter/out/workflow-runner/executors/builtin.ts` legacy aliases (`internal.db_query`, `api_call`, `action`, `data.filter`, `data_transform`, `ai_process`, `trigger`, `trigger.event`, `condition`, `notification`) | **Already deleted** | Restated here as a "do not reintroduce" gate. Templates referencing them MUST fail with `"No executor for node type: …"` and the failure MUST land in `WorkflowRun.error`. |
 | `automation/adapter/out/workflow-runner/executors/builtin.ts` direct LLM/provider import | **Hard-banned** | Not present today. Any future regression is hard-deleted on sight. |
-| `agent-registry/agent-registry.service.ts` (570 LOC) | **Keep, refactor candidate** | Survival core #4. Above the 700-line ceiling cushion — when a new behavior is added, the architecture refactor PR must split CRUD vs run vs lifecycle vs cost-analytics. |
-| `agent-registry/{adapters,heartbeat,permissions,safety,business-safety,delegation,events,trace,wakeup,lifecycle,context-manager,schemas}` | **Keep** | Live Agent OS internals. Will move to `automation/adapter/out/agent-runtime/` and `automation/application/service/` post-rewrite, but no surface change in this PR. |
+| `agent-registry/agent-registry.service.ts` compatibility facade | **Keep** | Survival core #4 public injection token. Implementation moved in Phase 3C-6; future behavior belongs in Automation application services. |
+| `automation/application/service/agent-{crud,run,lifecycle,cost-analytics}.service.ts` | **Keep** | Phase 3C-6 implementation split: tenant-scoped CRUD, AgentTask/wakeup run boundary, lifecycle/runtime state, and cost analytics. |
+| `automation/adapter/out/agent-runtime/{claude-local,python-http,registry,fallback-chain,types}.ts` | **Keep** | Phase 3C-6 runtime adapter home. No silent model fallback; adapter fallback remains observable. |
+| `agent-registry/{heartbeat,permissions,safety,business-safety,delegation,events,trace,wakeup,lifecycle,context-manager,schemas}` | **Keep** | Live Agent OS internals. Remaining folders stay under compatibility module until a narrower follow-up moves each role. |
 | `agent-registry/skills/skills.service.ts` (filesystem symlink) | **Keep** | Pure filesystem adapter for skill mount. Will move to `automation/adapter/out/skills-fs/`. |
 | `agent-registry/domains/{ad-strategy,manager}/*` | **Keep** | Domain post-processing live behind their own controllers. Manager has the human-in-the-loop async-generator workflow. Will move under `automation/application/service/{manager,ad-strategy}` after rewrite. |
 | `rules/controllers/rules.controller.ts` direct injection of `AgentRegistryService` + `HeartbeatService` (schedule PATCH) | **Rewritten (Phase 3C-2)** | Schedule control now flows through `AgentScheduleControlPort` (`automation/application/port/in/`) with `AgentRuntimeScheduleControlAdapter` (`automation/adapter/out/agent-runtime/`). `RulesController` injects only the port. Heartbeat timer reload + tenant-ownership rejection live inside the adapter. |
@@ -580,6 +584,17 @@ Each follow-up PR is one owner-domain PR. Do not bundle two of these.
    - `adapters/` → `automation/adapter/out/agent-runtime/`.
    - `heartbeat/`, `lifecycle/`, `context-manager/` → application services
      and adapters per their actual role.
+   - **Resolution (PR `refactor/agent-os-application-split`):**
+     implemented for the load-bearing AgentRegistry facade and runtime adapter
+     boundary. `AgentRegistryService` remains as the public compatibility token
+     for controllers and existing domain callers, while CRUD, run delegation,
+     lifecycle/runtime-state, and cost analytics moved to Automation
+     application services. Claude/Python adapter execution, registry,
+     fallback-chain, and immutable execution context moved to
+     `automation/adapter/out/agent-runtime/`. Heartbeat, lifecycle cleanup,
+     context-manager, permissions, safety, delegation, trace, wakeup, and
+     schemas remain in `agent-registry/` as live runtime internals until each
+     narrower role can move without changing behavior.
 
 7. **Phase 3C-7 — Action-task split**
    - Move daily seed thresholds to
@@ -635,9 +650,10 @@ If a PR moves Prisma usage but no schema changes, schema gates do not run
 
 ## Remaining risks
 
-- `agent-registry.service.ts` is 570 LOC — close to the 700-line ceiling.
-  Adding any new behavior before Phase 3C-6 is a regression risk; reviewers
-  must reject growth and steer additions to a smaller adapter file.
+- `agent-registry.service.ts` is now a compatibility facade. Adding new behavior
+  there is a regression risk; reviewers must steer additions to
+  `automation/application/service/agent-*.service.ts` or
+  `automation/adapter/out/agent-runtime/`.
 - `panel.service.ts` reads four sources directly via Prisma. After the
   `automation/adapter/out/panel-event/` move (Phase 3C-4) the source list
   must remain `workflowRun + heartbeatRun + thumbnailGeneration + alert`.

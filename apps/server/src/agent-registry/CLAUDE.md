@@ -13,9 +13,10 @@ keep / delete / rewrite / defer 분류와 hard-delete 기준은
 
 핵심 contract:
 
-- `agent-registry.service.ts` 는 **570 LOC** 으로 700-line ceiling 에 근접해 있다.
-  새 동작을 이 파일에 직접 추가 금지 — Phase 3C-6 split 전에는 adapter / 별도
-  application service 로 분리한다.
+- `agent-registry.service.ts` 는 Phase 3C-6 이후 compatibility facade 다.
+  새 동작을 이 파일에 직접 추가하지 않는다. 실제 구현은
+  `automation/application/service/agent-{crud,run,lifecycle,cost-analytics}.service.ts`
+  로 들어간다.
 - `AgentRegistryService.runByType` / `.run` 이 **유일한** AI/LLM 위임 경계.
   workflow 의 `agent_task.create` executor, rules 의 `evaluateAll`, sourcing /
   advertising / AI thumbnail / companies/agent-tasks 가 모두 이 boundary 만 사용한다.
@@ -24,9 +25,10 @@ keep / delete / rewrite / defer 분류와 hard-delete 기준은
 - `domains/{ad-strategy,manager}/` 는 owner-domain rewrite 후 `automation/application/service/`
   로 이동 예정. 그 전엔 현 위치 유지.
 
-`adapters/`, `business-safety/`, `context-manager/`, `delegation/`, `events/`,
-`heartbeat/`, `lifecycle/`, `permissions/`, `safety/`, `schemas/`, `skills/`,
-`trace/`, `wakeup/` 은 모두 Agent OS 내부 런타임. 해당 hard-delete 후보 없음.
+`business-safety/`, `context-manager/`, `delegation/`, `events/`, `heartbeat/`,
+`lifecycle/`, `permissions/`, `safety/`, `schemas/`, `skills/`, `trace/`,
+`wakeup/` 은 모두 Agent OS 내부 런타임. 실행 adapter 는
+`automation/adapter/out/agent-runtime/` 으로 이동했다. 해당 hard-delete 후보 없음.
 
 **Runtime state 모델**: 에이전트의 현재 상태는 **`AgentDefinition` (정의 + `rt_*` 내장 필드) + `HeartbeatRun` (safety pipeline 실행 이력) + `AgentEvent` (permission_denied / action_snapshot 이벤트)** 세 모델의 조합으로 표현. 별도 "AgentState" 테이블 없음. 상세 필드: [`prisma/models/agents.prisma`](../../../../prisma/models/agents.prisma).
 
@@ -47,7 +49,8 @@ keep / delete / rewrite / defer 분류와 hard-delete 기준은
 | `null` | 글로벌 catalog 템플릿 (시스템 시드) | 모든 tenant 허용 | **금지** — platform/seed 만 수정 |
 | `<companyId>` | tenant 가 보유한 인스턴스 (marketplace hire 결과) | 해당 tenant 만 | 해당 tenant 만 |
 
-구현: `agent-registry.service.ts`
+구현: `automation/application/service/agent-registry.types.ts` +
+`agent-{crud,run,lifecycle}.service.ts`
 - 읽기/실행 (`tenantScopeFilter`): `OR: [{ companyId }, { companyId: null }]` — 글로벌 + 본인 tenant
 - 쓰기 (`tenantOwnedFilter`): `{ companyId }` — 본인 tenant 전용. `updateMany` / `deleteMany` 의 actual mutation 에 binding (pre-read 만 scope 하는 패턴 금지).
 
@@ -79,7 +82,7 @@ keep / delete / rewrite / defer 분류와 hard-delete 기준은
 - LLM 모델 식별자에 한정된 규칙. 호출 시점에 모델이 미지정이면 silent default (`model = model or 'claude-haiku'` 같은 패턴) 를 만들지 말 것.
 - 모델은 명시적으로 정해지거나 실패해야 한다. 잘못된 모델로 조용히 빌링되는 것을 막는다.
 
-**Adapter fallback chain** (#6, `adapters/fallback-chain.ts`)
+**Adapter fallback chain** (#6, `automation/adapter/out/agent-runtime/fallback-chain.ts`)
 - 어댑터 (= 실행 런타임: Claude CLI / Python HTTP / 다른 SDK 래퍼) 레벨의 레질리언스.
 - `AgentDefinition.fallbackChain: String[]` 에 명시된 어댑터들을 순서대로 시도. 첫 번째가 process exit / network error 로 실패 → 다음 어댑터.
 - 모델 선택과 무관하다. 같은 모델을 다른 런타임으로 부르는 것 (예: `claude_local` ↔ `python_http`).
@@ -94,12 +97,13 @@ keep / delete / rewrite / defer 분류와 hard-delete 기준은
 Add new runtimes (HTTP, Python, etc.) by implementing an adapter only.
 
 ```
-adapters/types.ts      — ExecutionContext (Readonly) + AdapterModule interface
-adapters/registry.ts   — type → implementation Map
-adapters/claude-local/ — Claude CLI spawn implementation
+automation/adapter/out/agent-runtime/types.ts      — ExecutionContext (Readonly) + AdapterModule interface
+automation/adapter/out/agent-runtime/registry.ts   — type → implementation Map
+automation/adapter/out/agent-runtime/claude-local/ — Claude CLI spawn implementation
 ```
 
-Adding an adapter: implement `adapters/{name}/execute.ts` → register in `registry.ts` Map. Done.
+Adding an adapter: implement `automation/adapter/out/agent-runtime/{name}/execute.ts`
+→ register in `registry.ts` Map. Done.
 
 ### 2. Observer/Pub-Sub — EventEmitter2 + SSE
 
@@ -166,7 +170,8 @@ Execution failure
 | >= 95% | Urgent warning event (error) |
 | >= 100% | Block execution (error) |
 
-Applied in two places: `heartbeat.service.ts:wakeAgent()` + `agent-registry.service.ts:run()`
+Applied in two places: `heartbeat.service.ts:wakeAgent()` +
+`automation/application/service/agent-run.service.ts:run()`
 
 ## Phase 3 Patterns (2026-04-13)
 
@@ -205,7 +210,7 @@ permissions/hierarchy.validator.ts
 `AdapterModule.execute()` → `AsyncGenerator<StreamEvent, ExecutionResult>`.
 
 ```
-adapters/types.ts
+automation/adapter/out/agent-runtime/types.ts
   StreamEvent: { type: 'token_count' | 'content' | 'error', data: unknown }
   collectResult(gen): Promise<ExecutionResult>  — 기존 호환 헬퍼
 ```
@@ -219,7 +224,7 @@ adapters/types.ts
 Adapter 실패 시 체인 순서대로 다음 adapter 시도.
 
 ```
-adapters/fallback-chain.ts
+automation/adapter/out/agent-runtime/fallback-chain.ts
   executeFallbackChain(adapterTypes[], ctx, eventEmitter)
   - 에러 계약: 첫 번째 adapter의 에러 타입 throw (3-strike cascade 호환)
   - 성공 시 agent.fallback 이벤트 발행
@@ -278,7 +283,12 @@ context-manager/compressor.service.ts
 ## Module Structure
 
 ```
-adapters/
+automation/application/service/
+  agent-crud.service.ts            — catalog/tenant-owned CRUD + org tree
+  agent-run.service.ts             — AgentTask creation + heartbeat wakeup boundary
+  agent-lifecycle.service.ts       — run lookup/history/runtime state/pause/resume/session reset
+  agent-cost-analytics.service.ts  — budget reset + cost analytics raw SQL
+automation/adapter/out/agent-runtime/
   types.ts              — ExecutionContext, StreamEvent, AsyncGenerator, collectResult
   registry.ts           — adapter Map + getFallbackChain()
   fallback-chain.ts     — #6 fallback execution
@@ -302,15 +312,15 @@ lifecycle/              — #10 + retry + transcript
 
 | When modifying | Also check |
 |---|---|
-| `adapters/types.ts` (ExecutionContext, StreamEvent) | `heartbeat.service.ts` (ctx assembly + freeze), 모든 adapter execute(), `fallback-chain.ts` |
+| `automation/adapter/out/agent-runtime/types.ts` (ExecutionContext, StreamEvent) | `heartbeat.service.ts` (ctx assembly + freeze), 모든 adapter execute(), `fallback-chain.ts` |
 | `heartbeat.service.ts` (constructor) | `__tests__/heartbeat.service.spec.ts` (mock args), `agent-registry.module.ts` (providers) |
 | `seed-agents.ts` (agent type) | `schemas/agent-output-schemas.ts` (Zod schema + AGENT_OUTPUT_SCHEMAS map) |
 | `events/agent-events.ts` (events) | `events/agent-sse.service.ts` (@OnEvent), `apps/web/src/hooks/useAgentEvents.ts` |
 | `prisma/schema.prisma` (Agent-related) | `packages/shared/src/schemas/agent.ts`, run `npx prisma generate` |
-| `agent-registry.service.ts:run()` budget logic | `heartbeat.service.ts:wakeAgent()` (keep identical pattern) |
-| `agent-registry.service.ts:resumeAgent()` | Verify failCount reset code is preserved |
+| `automation/application/service/agent-run.service.ts` budget logic | `heartbeat.service.ts:wakeAgent()` (keep identical pattern) |
+| `automation/application/service/agent-lifecycle.service.ts:resumeAgent()` | Verify failCount reset code is preserved |
 | `permissions/hierarchy.validator.ts` | `heartbeat.service.ts` (resolvePermissions), `classifier.ts` |
-| `adapters/fallback-chain.ts` | `heartbeat.service.ts` (4개 실행 경로 모두 fallback chain 경유) |
+| `automation/adapter/out/agent-runtime/fallback-chain.ts` | `heartbeat.service.ts` (4개 실행 경로 모두 fallback chain 경유) |
 | `context-manager/compressor.service.ts` | `lifecycle/result-cleanup.service.ts` (summary 필드 의존) |
 | `lifecycle/result-cleanup.service.ts` | `heartbeat.service.ts:runDailyCleanup()` |
 

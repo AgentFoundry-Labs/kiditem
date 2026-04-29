@@ -15,10 +15,10 @@ import { join } from 'path';
 import { PrismaService } from '../../prisma/prisma.service';
 import { WakeupService, WakeupSource } from '../wakeup/wakeup.service';
 import { SkillsService } from '../skills/skills.service';
-import { getFallbackChain } from '../adapters/registry';
-import { executeFallbackChain } from '../adapters/fallback-chain';
-import type { ExecutionContext } from '../adapters/types';
-import { collectResult } from '../adapters/types';
+import { getFallbackChain } from '../../automation/adapter/out/agent-runtime/registry';
+import { executeFallbackChain } from '../../automation/adapter/out/agent-runtime/fallback-chain';
+import type { ExecutionContext } from '../../automation/adapter/out/agent-runtime/types';
+import { collectResult } from '../../automation/adapter/out/agent-runtime/types';
 import {
   AgentStatusChangedEvent,
   AgentBudgetWarningEvent,
