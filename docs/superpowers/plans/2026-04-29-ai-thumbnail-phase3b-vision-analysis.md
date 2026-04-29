@@ -4,6 +4,15 @@
 > Owner domain: `apps/server/src/ai/**`.
 > Companion to [`2026-04-29-reconstruction-current-handoff.md`](./2026-04-29-reconstruction-current-handoff.md).
 
+> **Status (2026-04-29):** transitional split landed; topology converged in `refactor/ai-thumbnail-contract-topology`. Lane B's new modules were created behind transitional `services/adapters/read-models/mappers/` labels and have now moved to the [`2026-04-29-backend-architecture-contract.md`](./2026-04-29-backend-architecture-contract.md) target topology:
+>
+> - `apps/server/src/ai/adapters/gemini-thumbnail-vision.adapter.ts` → [`apps/server/src/ai/adapter/out/gemini/gemini-thumbnail-vision.adapter.ts`](../../../apps/server/src/ai/adapter/out/gemini/gemini-thumbnail-vision.adapter.ts)
+> - `apps/server/src/ai/read-models/thumbnail-analysis-read-model.ts` → [`apps/server/src/ai/adapter/out/prisma/thumbnail-analysis.query.ts`](../../../apps/server/src/ai/adapter/out/prisma/thumbnail-analysis.query.ts)
+> - `apps/server/src/ai/mappers/thumbnail-analysis.mapper.ts` → [`apps/server/src/ai/mapper/thumbnail-analysis.mapper.ts`](../../../apps/server/src/ai/mapper/thumbnail-analysis.mapper.ts)
+> - `apps/server/src/ai/domain/thumbnail-compliance-normalizer.ts` and `apps/server/src/ai/domain/thumbnail-image-spec.ts` (unchanged)
+>
+> The two facade services `thumbnail-vision-ai.service.ts` and `thumbnail-analysis.service.ts` remain in `services/` for now (transitional). The refactor's behavior split (Gemini I/O isolated to the adapter, parsing pure in `domain/`) is preserved — only the on-disk topology changed. Sections below describe the historical layout; treat the contract as the active rule.
+
 ## Goal
 
 Split the two largest fat services in the AI bounded context so that Gemini I/O,

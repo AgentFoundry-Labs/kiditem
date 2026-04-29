@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import * as fs from 'node:fs';
-import { WingAutomationRunner } from '../adapters/wing-automation-runner';
-import { parseDataImageUrl } from '../domain/thumbnail-image-source';
+import { WingAutomationRunner } from '../../adapter/out/wing/wing-automation-runner';
+import { parseDataImageUrl } from '../../domain/thumbnail-image-source';
 import {
   pickRegistrationImageUrl,
   pickWingProductName,
@@ -9,9 +9,9 @@ import {
   toVerificationResult,
   type WingRegistrationResult,
   type WingVerificationResult,
-} from '../mappers/thumbnail-wing.mapper';
-import { ThumbnailWingPersistence } from '../persistence/thumbnail-wing.persistence';
-import { ThumbnailImageFetcherService } from './thumbnail-image-fetcher.service';
+} from '../../mapper/thumbnail-wing.mapper';
+import { ThumbnailWingPersistence } from '../../adapter/out/prisma/thumbnail-wing.persistence';
+import { ThumbnailImageFetcherService } from '../../services/thumbnail-image-fetcher.service';
 
 @Injectable()
 export class ThumbnailWingService {

@@ -12,7 +12,7 @@ import {
 import type {
   AnalysisRow,
   MasterRow,
-} from '../read-models/thumbnail-analysis-read-model';
+} from '../adapter/out/prisma/thumbnail-analysis.query';
 
 export type AnalysisRowMaster = {
   id: string;

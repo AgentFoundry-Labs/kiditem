@@ -17,10 +17,10 @@ import { ThumbnailRecomposeService } from './services/thumbnail-recompose.servic
 import { ThumbnailReferenceImagesService } from './services/thumbnail-reference-images.service';
 import { ThumbnailTrackingService } from './services/thumbnail-tracking.service';
 import { ThumbnailVisionAiService } from './services/thumbnail-vision-ai.service';
-import { ThumbnailWingService } from './services/thumbnail-wing.service';
-import { ThumbnailWingPersistence } from './persistence/thumbnail-wing.persistence';
-import { WingAutomationRunner } from './adapters/wing-automation-runner';
-import { GeminiThumbnailVisionAdapter } from './adapters/gemini-thumbnail-vision.adapter';
+import { ThumbnailWingService } from './application/service/thumbnail-wing.service';
+import { ThumbnailWingPersistence } from './adapter/out/prisma/thumbnail-wing.persistence';
+import { WingAutomationRunner } from './adapter/out/wing/wing-automation-runner';
+import { GeminiThumbnailVisionAdapter } from './adapter/out/gemini/gemini-thumbnail-vision.adapter';
 import { ThumbnailComplianceVerifierService } from './services/thumbnail-compliance-verifier.service';
 
 @Module({

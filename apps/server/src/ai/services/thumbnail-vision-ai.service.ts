@@ -6,7 +6,7 @@ import {
   QUALITY_PROMPT,
 } from './thumbnail-prompts';
 import { ThumbnailReferenceImagesService } from './thumbnail-reference-images.service';
-import { GeminiThumbnailVisionAdapter } from '../adapters/gemini-thumbnail-vision.adapter';
+import { GeminiThumbnailVisionAdapter } from '../adapter/out/gemini/gemini-thumbnail-vision.adapter';
 import { ThumbnailComplianceVerifierService } from './thumbnail-compliance-verifier.service';
 import {
   type AiAnalysisResult,

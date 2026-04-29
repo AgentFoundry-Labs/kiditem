@@ -3,12 +3,12 @@ import type {
   ThumbnailAnalysisListResponse,
   ThumbnailAnalysisSummary,
 } from '@kiditem/shared/ai';
-import type { ThumbnailMasterImageRow } from '../services/thumbnail-master-image-resolver';
+import type { ThumbnailMasterImageRow } from '../../../services/thumbnail-master-image-resolver';
 import {
   hasActualAnalysis,
   toAnalysisResult,
   unclassifiedAnalysisResult,
-} from '../mappers/thumbnail-analysis.mapper';
+} from '../../../mapper/thumbnail-analysis.mapper';
 
 const EMPTY_GRADE_DIST = { S: 0, A: 0, B: 0, C: 0, F: 0 } as const;
 const EMPTY_COMPLIANCE_DIST = { PASS: 0, WARN: 0, FAIL: 0 } as const;

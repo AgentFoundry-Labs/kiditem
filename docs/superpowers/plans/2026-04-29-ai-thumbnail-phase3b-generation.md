@@ -5,6 +5,15 @@
 **Handoff:** [`2026-04-29-reconstruction-current-handoff.md`](2026-04-29-reconstruction-current-handoff.md)
 **Branch:** `refactor/ai-thumbnail-generation-layer`
 
+> **Status (2026-04-29):** transitional split landed; topology converged in `refactor/ai-thumbnail-contract-topology`. The `persistence/`, `read-models/`, `mappers/` waypoints described below were placeholders — production paths now live under [`2026-04-29-backend-architecture-contract.md`](2026-04-29-backend-architecture-contract.md) target topology:
+>
+> - `apps/server/src/ai/persistence/thumbnail-generation.persistence.ts` → [`apps/server/src/ai/adapter/out/prisma/thumbnail-generation.persistence.ts`](../../../apps/server/src/ai/adapter/out/prisma/thumbnail-generation.persistence.ts)
+> - `apps/server/src/ai/read-models/thumbnail-generation-read-model.ts` → [`apps/server/src/ai/adapter/out/prisma/thumbnail-generation.query.ts`](../../../apps/server/src/ai/adapter/out/prisma/thumbnail-generation.query.ts)
+> - `apps/server/src/ai/mappers/thumbnail-generation.mapper.ts` → [`apps/server/src/ai/mapper/thumbnail-generation.mapper.ts`](../../../apps/server/src/ai/mapper/thumbnail-generation.mapper.ts)
+> - `apps/server/src/ai/domain/thumbnail-generation-inputs.ts` (unchanged)
+>
+> The orchestrator service `apps/server/src/ai/services/thumbnail-generation.service.ts` stays in `services/` for now (transitional). A future PR moves it to `application/service/` once a related slice change makes the move cohesive. Sections below describe the historical split layout — read them as context, but the **contract topology is the active rule**.
+
 ## Goal
 
 Reduce `apps/server/src/ai/services/thumbnail-generation.service.ts` from a fat service that mixes Prisma include presets, write transactions, mappers, and pure parsers into a use-case orchestrator that delegates each responsibility to focused modules. This is structural production-code improvement; tests and docs are evidence, not the deliverable.

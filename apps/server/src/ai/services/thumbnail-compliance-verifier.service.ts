@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { GeminiThumbnailVisionAdapter } from '../adapters/gemini-thumbnail-vision.adapter';
+import { GeminiThumbnailVisionAdapter } from '../adapter/out/gemini/gemini-thumbnail-vision.adapter';
 import {
   type RawComplianceEntry,
   TEXT_RELATED_KEYS,
