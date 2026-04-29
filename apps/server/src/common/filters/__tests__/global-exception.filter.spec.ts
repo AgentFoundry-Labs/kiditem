@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { ArgumentsHost, BadRequestException, HttpException } from '@nestjs/common';
-import { AppException } from '@kiditem/shared';
+import { AppException } from '@kiditem/shared/server-errors';
 import { GlobalExceptionFilter } from '../global-exception.filter';
 
 // ── Mocks ──
