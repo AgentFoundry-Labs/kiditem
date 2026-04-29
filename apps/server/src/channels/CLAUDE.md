@@ -110,6 +110,7 @@ await this.prisma.$transaction(async (tx) => {
 - Parameterized binding 만 사용: `${companyId}::uuid`. **String concat 절대 금지** (SQL injection 위험).
 - 결과 typed array로 캐스팅 후 JS 변환.
 - channel-sync 에서는 raw SQL **사용 안 함** (Prisma client 만).
+- **2-hop tenant predicate (필수)**: 단일 `o.company_id` 필터에 의존하지 말고 join 된 모든 tenant-owned 테이블(`orders`, `order_line_items`, `channel_listings`, `master_products`) 에 `... .company_id = ${companyId}::uuid` 을 명시한다. `Order.listing_id` / `ChannelListing.master_id` 는 schema-level cross-FK companyId enforcement 가 없어, 잘못된 backfill / 미래 cross-domain bug 가 들어왔을 때 1-hop 필터만으로는 다른 tenant 의 row 가 leak 될 수 있음. `getRevenueTrend`/`getProductRanking` 가 이 패턴을 사용. 자세한 risk 표는 `docs/superpowers/plans/2026-04-29-channels-channel-listing-boundary.md` 의 R1/R2/R3 참고.
 
 #### getReturnSummary (ADR-0017, Plan D.2)
 
@@ -123,7 +124,7 @@ await this.prisma.$transaction(async (tx) => {
 
 ### 5. Company Isolation
 
-대시보드 모든 엔드포인트는 `@CurrentCompany()` 데코레이터로 companyId 추출. 서비스의 모든 $queryRaw에 `WHERE company_id = ${companyId}::uuid` 필수.
+대시보드 모든 엔드포인트는 `@CurrentCompany()` 데코레이터로 companyId 추출. 서비스의 모든 $queryRaw에 `WHERE company_id = ${companyId}::uuid` 필수. JOIN 으로 다른 tenant-owned 테이블을 끌어오는 경우 §4 의 2-hop tenant predicate 규칙도 함께 적용한다.
 
 **Cross-company 조회 금지** — guard + decorator 가 강제하지만 새 raw 쿼리 추가 시 명시적 체크.
 

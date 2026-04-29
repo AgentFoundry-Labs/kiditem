@@ -771,4 +771,158 @@ describe('Channel dashboard (PG integration)', () => {
       expect(result.customer).toBe(1); // only RET-1, NOT +RET-OTHER
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // #7 2-hop defense-in-depth (R1/R2) — verifies that even if the application
+  //    invariant `Order.companyId == Order.listing.companyId` (or
+  //    `OrderLineItem.companyId == Order.companyId`) is violated, the raw-SQL
+  //    aggregations bind ${companyId}::uuid on every joined tenant-owned table
+  //    and refuse to surface the foreign rows. Schema does not enforce the
+  //    cross-FK companyId match — see plan
+  //    docs/superpowers/plans/2026-04-29-channels-channel-listing-boundary.md.
+  // ---------------------------------------------------------------------------
+  describe('2-hop defense-in-depth (R1/R2)', () => {
+    it('getProductRanking: cross-tenant Order.listingId does not surface foreign master.name', async () => {
+      await seedFixture();
+      // Locate the seeded OTHER_COMPANY_ID listing so we can corrupt an Order
+      // for TEST_COMPANY_ID by pointing its listing_id at the wrong tenant.
+      const otherListing = await prisma.channelListing.findFirstOrThrow({
+        where: { companyId: OTHER_COMPANY_ID, externalId: 'EXT-OTHER' },
+      });
+      const otherListingOption = await prisma.channelListingOption.findFirstOrThrow({
+        where: { companyId: OTHER_COMPANY_ID, listingId: otherListing.id },
+      });
+
+      // Corrupt: Order belongs to TEST_COMPANY_ID, but its listingId references
+      // a row that belongs to OTHER_COMPANY_ID. Schema permits this (FK is on
+      // id only, not companyId). Application code must reject it.
+      const corruptOrder = await prisma.order.create({
+        data: {
+          companyId: TEST_COMPANY_ID,
+          platform: 'coupang',
+          externalOrderId: 'CROSS-TENANT-LISTING',
+          orderedAt: new Date('2026-04-14T15:00:00.000Z'),
+          status: 'paid',
+          totalPrice: 1_000_000,
+          receiverName: 'Cross',
+          listingId: otherListing.id, // ← cross-tenant
+        },
+      });
+      await prisma.orderLineItem.create({
+        data: {
+          companyId: TEST_COMPANY_ID,
+          orderId: corruptOrder.id,
+          listingOptionId: otherListingOption.id, // ← cross-tenant
+          quantity: 1,
+          unitPrice: 1_000_000,
+          totalPrice: 1_000_000,
+          externalLineId: 'CROSS-LI-1',
+        },
+      });
+
+      const from = new Date('2026-04-14T15:00:00.000Z');
+      const to = new Date('2026-04-16T15:00:00.000Z');
+      const result = await service.getProductRanking(TEST_COMPANY_ID, from, to);
+
+      // Without the 2-hop filter, the result would include {sellerProductId:
+      // 'EXT-OTHER', sellerProductName: 'Other Master'}. With it, only the
+      // tenant-clean row (Master A / EXT-A) surfaces.
+      const ids = result.map((r) => r.sellerProductId);
+      const names = result.map((r) => r.sellerProductName);
+      expect(ids).not.toContain('EXT-OTHER');
+      expect(names).not.toContain('Other Master');
+      expect(names).toContain('Master A');
+    });
+
+    it('getRevenueTrend: cross-tenant OrderLineItem.companyId does not inflate revenue', async () => {
+      const { orders } = await seedFixture();
+
+      // Corrupt: an OrderLineItem rows whose companyId belongs to
+      // OTHER_COMPANY_ID, but is attached to a TEST_COMPANY order. Without
+      // the 2-hop filter the SUM(oli.total_price) would absorb its 750_000.
+      const otherListingOption = await prisma.channelListingOption.findFirstOrThrow({
+        where: { companyId: OTHER_COMPANY_ID, externalOptionId: 'VI-OTHER' },
+      });
+      await prisma.orderLineItem.create({
+        data: {
+          companyId: OTHER_COMPANY_ID, // ← cross-tenant on the line item
+          orderId: orders.o1.id,
+          listingOptionId: otherListingOption.id,
+          quantity: 1,
+          unitPrice: 750_000,
+          totalPrice: 750_000,
+          externalLineId: 'CROSS-LI-2',
+        },
+      });
+
+      const from = new Date('2026-04-14T15:00:00.000Z');
+      const to = new Date('2026-04-16T15:00:00.000Z');
+      const result = await service.getRevenueTrend(TEST_COMPANY_ID, from, to);
+
+      // Pre-corruption, O1 day (2026-04-15) sums to 25_000 (20_000 + 5_000).
+      // The 750_000 corruption row must be filtered out by oli.company_id.
+      const total = result.reduce((s, r) => s + r.revenue, 0);
+      expect(total).toBe(49_000); // 25_000 (O1) + 24_000 (O2). Never +750_000.
+      const day15 = result.find((r) => r.day === '2026-04-15');
+      expect(day15?.revenue).toBe(25_000);
+    });
+
+    it('getProductRanking: cross-tenant master_products.companyId mismatch is filtered out', async () => {
+      await seedFixture();
+      // Construct a TEST_COMPANY ChannelListing whose master_id points at the
+      // OTHER tenant's MasterProduct. No FK companyId enforcement, so this
+      // is allowed by Postgres.
+      const otherMaster = await prisma.masterProduct.findFirstOrThrow({
+        where: { companyId: OTHER_COMPANY_ID, code: 'M-OTHER' },
+      });
+      const corruptListing = await prisma.channelListing.create({
+        data: {
+          companyId: TEST_COMPANY_ID,
+          masterId: otherMaster.id, // ← cross-tenant master reference
+          channel: 'coupang',
+          externalId: 'EXT-CROSS',
+          channelName: 'Cross Listing',
+        },
+      });
+      const corruptOption = await prisma.channelListingOption.create({
+        data: {
+          companyId: TEST_COMPANY_ID,
+          listingId: corruptListing.id,
+          externalOptionId: 'VI-CROSS',
+        },
+      });
+      const corruptOrder = await prisma.order.create({
+        data: {
+          companyId: TEST_COMPANY_ID,
+          platform: 'coupang',
+          externalOrderId: 'CROSS-MASTER-1',
+          orderedAt: new Date('2026-04-14T15:00:00.000Z'),
+          status: 'paid',
+          totalPrice: 333_000,
+          receiverName: 'Cross-M',
+          listingId: corruptListing.id,
+        },
+      });
+      await prisma.orderLineItem.create({
+        data: {
+          companyId: TEST_COMPANY_ID,
+          orderId: corruptOrder.id,
+          listingOptionId: corruptOption.id,
+          quantity: 1,
+          unitPrice: 333_000,
+          totalPrice: 333_000,
+          externalLineId: 'CROSS-LI-MASTER',
+        },
+      });
+
+      const from = new Date('2026-04-14T15:00:00.000Z');
+      const to = new Date('2026-04-16T15:00:00.000Z');
+      const result = await service.getProductRanking(TEST_COMPANY_ID, from, to);
+
+      // Even though everything except MasterProduct.companyId is in TEST,
+      // the mp.company_id 2-hop filter must drop the row.
+      const ids = result.map((r) => r.sellerProductId);
+      expect(ids).not.toContain('EXT-CROSS');
+    });
+  });
 });
