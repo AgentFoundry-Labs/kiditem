@@ -2,15 +2,6 @@
 export const QUALITY_GRADE_BG: Record<string, string> = {
   S: 'bg-emerald-500', A: 'bg-blue-500', B: 'bg-amber-500', C: 'bg-orange-500', F: 'bg-red-500',
 };
-export const QUALITY_GRADE_COLORS: Record<string, string> = {
-  S: '#10b981', A: '#3b82f6', B: '#f59e0b', C: '#f97316', F: '#ef4444',
-};
-export const QUALITY_GRADE_TEXT: Record<string, string> = {
-  S: 'text-emerald-500', A: 'text-blue-500', B: 'text-amber-500', C: 'text-orange-500', F: 'text-red-500',
-};
-export const QUALITY_GRADE_LABELS: Record<string, string> = {
-  S: 'EXCELLENT', A: 'GOOD', B: 'AVERAGE', C: 'POOR', F: 'CRITICAL',
-};
 
 // Compliance grades (PASS/WARN/FAIL)
 export const COMPLIANCE_GRADE_BG: Record<string, string> = {
@@ -18,9 +9,6 @@ export const COMPLIANCE_GRADE_BG: Record<string, string> = {
 };
 export const COMPLIANCE_GRADE_COLORS: Record<string, string> = {
   PASS: '#059669', WARN: '#d97706', FAIL: '#dc2626',
-};
-export const COMPLIANCE_GRADE_TEXT: Record<string, string> = {
-  PASS: 'text-emerald-600', WARN: 'text-amber-600', FAIL: 'text-red-600',
 };
 export const COMPLIANCE_GRADE_LABELS: Record<string, string> = {
   PASS: '적합', WARN: '주의', FAIL: '부적합',
