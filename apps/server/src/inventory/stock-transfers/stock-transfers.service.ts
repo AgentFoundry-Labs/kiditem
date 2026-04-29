@@ -1,5 +1,5 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
+import { PrismaService } from '../../prisma/prisma.service';
 import { CreateStockTransferDto, UpdateStockTransferDto } from './dto';
 
 const VALID_TRANSITIONS: Record<string, string[]> = {

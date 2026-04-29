@@ -2,6 +2,27 @@
 
 Plan B2a (2026-04-18) 가 재작성한 Inventory 도메인. Plan A 3-layer schema (Inventory 1:1 ProductOption) 기반.
 
+## Owner domain rule
+
+`inventory` 는 owner domain. 그 아래 capability 들은 독립 owner domain 이 아니라
+이 도메인이 소유하는 surface 다. `AppModule` 은 `InventoryModule` 만 import 하고,
+`InventoryModule` 이 capability module 들을 import 해 NestJS DI 그래프를 구성한다.
+
+| Capability | 위치 | Public route (변경 금지) |
+|---|---|---|
+| Inventory + StockTransaction | `apps/server/src/inventory/{controllers,services,dto}` | `/api/inventory/*` |
+| Warehouses | `apps/server/src/inventory/warehouses/*` | `/api/warehouses/*` |
+| Stock transfers | `apps/server/src/inventory/stock-transfers/*` | `/api/stock-transfers/*` |
+| Stock audits | `apps/server/src/inventory/stock-audits/*` | `/api/stock-audits/*` |
+| Picking | `apps/server/src/inventory/picking/*` | `/api/picking/*` |
+
+Capability 별 `*.module.ts` 는 자체 controller/service 만 wiring 한다. `WarehousesModule`,
+`StockTransfersModule`, `StockAuditsModule`, `PickingModule` 을 `AppModule` 에 직접
+import 하지 않는다 — 새 capability 또는 cross-cutting 변경은 `InventoryModule` 에서 시작.
+
+새 inventory-side surface 가 필요하면 capability 폴더로 추가 (`inventory/<capability>/`),
+top-level `apps/server/src/<capability>/` 를 새로 만들지 않는다.
+
 ## 구조
 
 - `controllers/inventory.controller.ts` — 10 endpoints
@@ -9,6 +30,7 @@ Plan B2a (2026-04-18) 가 재작성한 Inventory 도메인. Plan A 3-layer schem
 - `services/inventory.service.ts` — **단일 통합 서비스** (read + metadata + mutation + ledger)
 - `services/unshipped.service.ts` — `UnshippedItem` 조회 (inventory 와 분리된 도메인)
 - `dto/*` — class-validator DTO. List/Update/Receive/Issue/Adjust/ListTransactions/TransactionSummary
+- `warehouses/`, `stock-transfers/`, `stock-audits/`, `picking/` — 위 표 참고. flat legacy CRUD shape (Controller → Service → PrismaService) 로 유지. Phase 3B 에서 capability 별로 `adapter/application/domain` 분해 결정 시 별도 plan
 
 ## 핵심 규약
 

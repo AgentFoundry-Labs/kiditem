@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Patch, Delete, Param, Body } from '@nestjs/common';
 import { WarehousesService } from './warehouses.service';
 import { CreateWarehouseDto, UpdateWarehouseDto } from './dto';
-import { CurrentCompany } from '../auth/decorators/current-company.decorator';
+import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
 
 @Controller('warehouses')
 export class WarehousesController {

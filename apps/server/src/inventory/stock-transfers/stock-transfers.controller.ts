@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Patch, Param, Query, Body } from '@nestjs/common';
 import { StockTransfersService } from './stock-transfers.service';
 import { ListStockTransfersQueryDto, CreateStockTransferDto, UpdateStockTransferDto } from './dto';
-import { CurrentCompany } from '../auth/decorators/current-company.decorator';
+import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
 
 @Controller('stock-transfers')
 export class StockTransfersController {

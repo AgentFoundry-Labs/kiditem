@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Patch, Param, Body } from '@nestjs/common';
 import { PickingService } from './picking.service';
 import { UpdatePickingItemDto } from './dto';
-import { CurrentCompany } from '../auth/decorators/current-company.decorator';
+import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
 
 @Controller('picking')
 export class PickingController {
