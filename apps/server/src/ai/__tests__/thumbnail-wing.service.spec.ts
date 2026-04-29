@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { ThumbnailWingPersistence } from '../persistence/thumbnail-wing.persistence';
 import { ThumbnailWingService } from '../services/thumbnail-wing.service';
 
 const COMPANY_ID = 'company-1';
@@ -12,26 +13,22 @@ function makeService() {
         masterId: 'master-1',
         selectedUrl: 'http://storage.local/kiditem/thumbnail-generations/a.png',
         candidates: [],
-        master: {
-          name: 'Master product',
-          listings: [{ channelName: '쿠팡 상품명' }],
-        },
+        registrationAttempts: [],
       })),
     },
     masterProduct: {
       findFirst: vi.fn(async () => ({
-        id: 'master-1',
         name: 'Master product',
         listings: [{ channelName: '쿠팡 상품명' }],
       })),
     },
     thumbnailRegistrationAttempt: {
       create: vi.fn(async () => ({ id: 'attempt-1' })),
-      update: vi.fn(async () => ({})),
       updateMany: vi.fn(async () => ({ count: 1 })),
       deleteMany: vi.fn(async () => ({ count: 1 })),
     },
   };
+  const persistence = new ThumbnailWingPersistence(prisma as never);
   const imageFetcher = {
     assertSupportedMime: vi.fn(),
     fetchTrustedStorageImage: vi.fn(async () => ({
@@ -41,10 +38,16 @@ function makeService() {
     })),
     extForMime: vi.fn(() => 'png'),
   };
-  const service = new ThumbnailWingService(prisma as never, imageFetcher as never);
-  vi.spyOn(service as unknown as { runAutomation: () => Promise<{ success: boolean }> }, 'runAutomation')
-    .mockResolvedValue({ success: true });
-  return { service, prisma, imageFetcher };
+  const automationRunner = {
+    runWingUpload: vi.fn(async () => ({ success: true })),
+    checkPlaywriterStatus: vi.fn(async () => ({ connected: true })),
+  };
+  const service = new ThumbnailWingService(
+    persistence,
+    imageFetcher as never,
+    automationRunner as never,
+  );
+  return { service, prisma, imageFetcher, automationRunner };
 }
 
 describe('ThumbnailWingService', () => {
@@ -53,13 +56,19 @@ describe('ThumbnailWingService', () => {
   });
 
   it('registers through Playwriter and records current-schema registration attempts', async () => {
-    const { service, prisma, imageFetcher } = makeService();
+    const { service, prisma, imageFetcher, automationRunner } = makeService();
 
     const result = await service.registerToWing(GENERATION_ID, COMPANY_ID);
 
     expect(result).toMatchObject({ success: true, screenshotPath: `/tmp/wing-upload-${GENERATION_ID}.png` });
     expect(imageFetcher.fetchTrustedStorageImage).toHaveBeenCalledWith(
       'http://storage.local/kiditem/thumbnail-generations/a.png',
+    );
+    expect(automationRunner.runWingUpload).toHaveBeenCalledWith(
+      expect.objectContaining({
+        productName: '쿠팡 상품명',
+        screenshotPath: `/tmp/wing-upload-${GENERATION_ID}.png`,
+      }),
     );
     expect(prisma.thumbnailRegistrationAttempt.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -84,6 +93,10 @@ describe('ThumbnailWingService', () => {
 
     await service.clearRegistrationError(GENERATION_ID, COMPANY_ID);
 
+    expect(prisma.thumbnailGeneration.findFirst).toHaveBeenCalledWith({
+      where: { id: GENERATION_ID, companyId: COMPANY_ID },
+      select: { id: true },
+    });
     expect(prisma.thumbnailRegistrationAttempt.deleteMany).toHaveBeenCalledWith({
       where: { generationId: GENERATION_ID, companyId: COMPANY_ID, status: 'failed' },
     });
@@ -152,5 +165,14 @@ describe('ThumbnailWingService', () => {
       },
     });
     expect(prisma.thumbnailRegistrationAttempt.create).not.toHaveBeenCalled();
+  });
+
+  it('checkPlaywriterStatus delegates to the automation adapter', async () => {
+    const { service, automationRunner } = makeService();
+
+    const status = await service.checkPlaywriterStatus();
+
+    expect(status).toEqual({ connected: true });
+    expect(automationRunner.checkPlaywriterStatus).toHaveBeenCalledTimes(1);
   });
 });

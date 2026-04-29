@@ -18,6 +18,8 @@ import { ThumbnailReferenceImagesService } from './services/thumbnail-reference-
 import { ThumbnailTrackingService } from './services/thumbnail-tracking.service';
 import { ThumbnailVisionAiService } from './services/thumbnail-vision-ai.service';
 import { ThumbnailWingService } from './services/thumbnail-wing.service';
+import { ThumbnailWingPersistence } from './persistence/thumbnail-wing.persistence';
+import { WingAutomationRunner } from './adapters/wing-automation-runner';
 
 @Module({
   controllers: [
@@ -42,6 +44,8 @@ import { ThumbnailWingService } from './services/thumbnail-wing.service';
     ThumbnailTrackingService,
     ThumbnailVisionAiService,
     ThumbnailWingService,
+    ThumbnailWingPersistence,
+    WingAutomationRunner,
   ],
 })
 export class AiModule {}
