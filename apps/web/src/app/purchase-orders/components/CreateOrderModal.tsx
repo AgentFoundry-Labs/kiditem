@@ -55,7 +55,6 @@ export default function CreateOrderModal({ onClose, onCreated }: CreateOrderModa
     try {
       await apiClient.post('/api/purchase-orders', {
         action: 'create',
-        companyId: '00000000-0000-0000-0000-000000000000',
         supplierName: supplierName.trim(),
         expectedDeliveryDate: expectedDate || undefined,
         items: validItems.map((i) => ({

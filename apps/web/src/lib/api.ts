@@ -1,22 +1,6 @@
-import { apiClient } from './api-client';
+// Tenant scope is owned by the backend via `@CurrentCompany()`. The
+// frontend must never send `companyId` in API request bodies or query
+// strings — that path is untrusted and the backend will ignore it. See
+// `apps/web/AGENTS.md` (API Calls) for the full rule and rationale.
 
 export const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
-
-// 회사 ID 캐시 — 앱 시작 시 1회 조회 후 재사용
-let _companyIdCache: string | null = null;
-let _companyIdPromise: Promise<string> | null = null;
-
-export async function getCompanyId(): Promise<string> {
-  if (_companyIdCache) return _companyIdCache;
-  if (_companyIdPromise) return _companyIdPromise;
-
-  _companyIdPromise = apiClient.get<{ id: string }[]>('/api/companies')
-    .then((items) => {
-      if (!items.length) throw new Error('No company found');
-      _companyIdCache = items[0].id;
-      return _companyIdCache!;
-    })
-    .finally(() => { _companyIdPromise = null; });
-
-  return _companyIdPromise;
-}
