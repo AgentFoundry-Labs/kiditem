@@ -9,11 +9,13 @@ function makePrisma() {
     agentDefinition: {
       findUnique: vi.fn(),
       findFirst: vi.fn(),
+      findFirstOrThrow: vi.fn(),
       findMany: vi.fn().mockResolvedValue([]),
       create: vi.fn(),
       update: vi.fn(),
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       delete: vi.fn(),
+      deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
     agentTask: {
       create: vi.fn(),
@@ -174,14 +176,14 @@ describe('AgentRegistryService', () => {
     });
   });
 
-  describe('pauseAgent / resumeAgent — tenant-scoped writes', () => {
+  describe('pauseAgent / resumeAgent — tenant-owned writes (denies global)', () => {
     it('pauses agent with reason via updateMany binding companyId', async () => {
       const { service, prisma } = makeService();
 
       await service.pauseAgent('def-1', 'company-1', 'Budget review');
 
       expect(prisma.agentDefinition.updateMany).toHaveBeenCalledWith({
-        where: { id: 'def-1', OR: [{ companyId: 'company-1' }, { companyId: null }] },
+        where: { id: 'def-1', companyId: 'company-1' },
         data: expect.objectContaining({ status: 'paused', pauseReason: 'Budget review' }),
       });
     });
@@ -193,31 +195,170 @@ describe('AgentRegistryService', () => {
       await expect(service.pauseAgent('def-1', 'company-OTHER')).rejects.toThrow(NotFoundException);
     });
 
-    it('resumes agent — both updates scope to (id, OR companyId)', async () => {
+    it('rejects pause on global definition (companyId=null) — tenant cannot mutate platform template', async () => {
       const { service, prisma } = makeService();
-      prisma.agentDefinition.findFirst.mockResolvedValue({ id: 'def-1' });
+      // updateMany with companyId binding returns 0 because the row's companyId is null
+      prisma.agentDefinition.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(service.pauseAgent('def-global', 'company-1')).rejects.toThrow(NotFoundException);
+      // Confirm the WHERE clause would never match a null companyId row
+      expect(prisma.agentDefinition.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'def-global', companyId: 'company-1' },
+        }),
+      );
+    });
+
+    it('resumes agent — both updates scope to (id, companyId) only', async () => {
+      const { service, prisma } = makeService();
 
       await service.resumeAgent('def-1', 'company-1');
 
       // status reset
       expect(prisma.agentDefinition.updateMany).toHaveBeenCalledWith({
-        where: { id: 'def-1', OR: [{ companyId: 'company-1' }, { companyId: null }] },
+        where: { id: 'def-1', companyId: 'company-1' },
         data: expect.objectContaining({ status: 'idle', pauseReason: null }),
       });
       // failure counter reset
       expect(prisma.agentDefinition.updateMany).toHaveBeenCalledWith({
-        where: { id: 'def-1', OR: [{ companyId: 'company-1' }, { companyId: null }] },
+        where: { id: 'def-1', companyId: 'company-1' },
         data: expect.objectContaining({ rtConsecutiveFailCount: 0, rtLastFailedAt: null }),
       });
     });
 
-    it('resumeAgent throws NotFoundException when target is in a different company', async () => {
+    it('resumeAgent throws NotFoundException when status updateMany returns count=0 (different company OR global)', async () => {
       const { service, prisma } = makeService();
-      prisma.agentDefinition.findFirst.mockResolvedValue(null);
+      prisma.agentDefinition.updateMany.mockResolvedValue({ count: 0 });
 
       await expect(service.resumeAgent('def-1', 'company-OTHER')).rejects.toThrow(NotFoundException);
-      // No write should happen if ownership read fails
-      expect(prisma.agentDefinition.updateMany).not.toHaveBeenCalled();
+      // The first updateMany failed → no second updateMany should fire.
+      expect(prisma.agentDefinition.updateMany).toHaveBeenCalledTimes(1);
+    });
+
+    it('resetSession denies global definition — only tenant-owned rt_session_id is mutable', async () => {
+      const { service, prisma } = makeService();
+      prisma.agentDefinition.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(service.resetSession('def-global', 'company-1')).rejects.toThrow(NotFoundException);
+      expect(prisma.agentDefinition.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'def-global', companyId: 'company-1' },
+          data: expect.objectContaining({ rtSessionId: null }),
+        }),
+      );
+    });
+  });
+
+  describe('update / delete — tenant-owned writes (denies global)', () => {
+    it('update binds companyId in the actual mutation (not just pre-read)', async () => {
+      const { service, prisma } = makeService();
+      prisma.agentDefinition.updateMany.mockResolvedValue({ count: 1 });
+      prisma.agentDefinition.findFirstOrThrow.mockResolvedValue({ ...MOCK_DEF, name: 'updated' });
+
+      await service.update('def-1', 'company-1', { name: 'updated' });
+
+      expect(prisma.agentDefinition.updateMany).toHaveBeenCalledWith({
+        where: { id: 'def-1', companyId: 'company-1' },
+        data: expect.objectContaining({ name: 'updated' }),
+      });
+      // Reload also bound
+      expect(prisma.agentDefinition.findFirstOrThrow).toHaveBeenCalledWith({
+        where: { id: 'def-1', companyId: 'company-1' },
+      });
+      // No bare-id update was issued
+      expect(prisma.agentDefinition.update).not.toHaveBeenCalled();
+    });
+
+    it('update rejects global definition — count=0 throws NotFoundException', async () => {
+      const { service, prisma } = makeService();
+      prisma.agentDefinition.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(
+        service.update('def-global', 'company-1', { name: 'tenant-attempt' }),
+      ).rejects.toThrow(NotFoundException);
+      expect(prisma.agentDefinition.findFirstOrThrow).not.toHaveBeenCalled();
+    });
+
+    it('delete binds companyId in the actual mutation', async () => {
+      const { service, prisma } = makeService();
+      prisma.agentDefinition.deleteMany.mockResolvedValue({ count: 1 });
+
+      await service.delete('def-1', 'company-1');
+
+      expect(prisma.agentDefinition.deleteMany).toHaveBeenCalledWith({
+        where: { id: 'def-1', companyId: 'company-1' },
+      });
+      // No bare-id delete was issued
+      expect(prisma.agentDefinition.delete).not.toHaveBeenCalled();
+    });
+
+    it('delete rejects global definition — count=0 throws NotFoundException', async () => {
+      const { service, prisma } = makeService();
+      prisma.agentDefinition.deleteMany.mockResolvedValue({ count: 0 });
+
+      await expect(service.delete('def-global', 'company-1')).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('run — AgentTask first-class trace fields', () => {
+    it('persists workflowRunId / workflowNodeId / sourceDataId as dedicated columns (not buried in input)', async () => {
+      const { service, prisma } = makeService();
+      prisma.agentDefinition.findFirst.mockResolvedValue(MOCK_DEF);
+      prisma.agentTask.create.mockResolvedValue({ id: 'task-1' });
+
+      await service.run('def-1', {
+        companyId: 'company-1',
+        workflowRunId: '00000000-0000-0000-0000-0000000000aa',
+        workflowNodeId: 'agent-node',
+        sourceDataId: '00000000-0000-0000-0000-0000000000bb',
+      });
+
+      const createCall = prisma.agentTask.create.mock.calls[0][0];
+      expect(createCall.data.companyId).toBe('company-1');
+      expect(createCall.data.workflowRunId).toBe('00000000-0000-0000-0000-0000000000aa');
+      expect(createCall.data.workflowNodeId).toBe('agent-node');
+      expect(createCall.data.sourceDataId).toBe('00000000-0000-0000-0000-0000000000bb');
+      // First-class fields must NOT also be smuggled inside `input`.
+      expect(createCall.data.input.workflowRunId).toBeUndefined();
+      expect(createCall.data.input.workflowNodeId).toBeUndefined();
+      expect(createCall.data.input.sourceDataId).toBeUndefined();
+    });
+
+    it('uses caller-supplied (trusted) companyId on AgentTask, not the definition’s', async () => {
+      const { service, prisma } = makeService();
+      // Global definition (companyId=null) invoked with a tenant-bound caller.
+      prisma.agentDefinition.findFirst.mockResolvedValue({ ...MOCK_DEF, companyId: null });
+      prisma.agentTask.create.mockResolvedValue({ id: 'task-1' });
+
+      await service.run('def-1', { companyId: 'company-1' });
+
+      const createCall = prisma.agentTask.create.mock.calls[0][0];
+      expect(createCall.data.companyId).toBe('company-1');
+    });
+
+    it('falls back to def.companyId when caller supplies no companyId (internal callers)', async () => {
+      const { service, prisma } = makeService();
+      prisma.agentDefinition.findFirst.mockResolvedValue(MOCK_DEF);
+      prisma.agentTask.create.mockResolvedValue({ id: 'task-1' });
+
+      await service.run('def-1');
+
+      const createCall = prisma.agentTask.create.mock.calls[0][0];
+      expect(createCall.data.companyId).toBe('company-1');
+    });
+
+    it('extra payload still merges into input JSON (backward compat envelope)', async () => {
+      const { service, prisma } = makeService();
+      prisma.agentDefinition.findFirst.mockResolvedValue(MOCK_DEF);
+      prisma.agentTask.create.mockResolvedValue({ id: 'task-1' });
+
+      await service.run('def-1', {
+        companyId: 'company-1',
+        extra: { legacy_threshold: 7 },
+      });
+
+      const createCall = prisma.agentTask.create.mock.calls[0][0];
+      expect(createCall.data.input.legacy_threshold).toBe(7);
     });
   });
 
