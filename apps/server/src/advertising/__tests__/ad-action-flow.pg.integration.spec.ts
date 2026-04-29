@@ -527,7 +527,34 @@ describe('AdAction flow (PG integration)', () => {
       expect(otherCount).toBe(0);
     });
 
-    it('#12 markRunning on another tenant id → NotFoundException', async () => {
+    it('#12 generateActions does not propagate cross-tenant listing references from corrupt target rows', async () => {
+      const foreign = await seedListingWithOption({
+        companyId: OTHER_COMPANY_ID,
+        abcGrade: 'A',
+      });
+      const corruptTarget = await seedSnapshot({
+        companyId: TEST_COMPANY_ID,
+        listingId: foreign.listing.id,
+        listingOptionId: foreign.listingOption.id,
+        optionId: foreign.option.id,
+        pageType: 'keyword',
+        externalId: 'CORRUPT-KW',
+        keyword: 'corrupt keyword',
+        spend: 6000,
+        conversions: 0,
+      });
+
+      const result = await adActionService.generateActions(TEST_COMPANY_ID);
+
+      expect(result.generated).toBe(1);
+      const action = await prisma.adAction.findFirstOrThrow({
+        where: { companyId: TEST_COMPANY_ID },
+      });
+      expect(action.adTargetDailyId).toBe(corruptTarget.id);
+      expect(action.listingId).toBeNull();
+    });
+
+    it('#13 markRunning on another tenant id → NotFoundException', async () => {
       const other = await seedListingWithOption({
         companyId: OTHER_COMPANY_ID,
         abcGrade: 'B',
