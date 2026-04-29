@@ -1,14 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { executeFallbackChain } from '../adapters/fallback-chain';
-import type { ExecutionContext, ExecutionResult, StreamEvent } from '../adapters/types';
-import { collectResult } from '../adapters/types';
+import { executeFallbackChain } from '../fallback-chain';
+import type { ExecutionContext, ExecutionResult, StreamEvent } from '../types';
+import { collectResult } from '../types';
 
 // Mock the registry module
-vi.mock('../adapters/registry', () => ({
+vi.mock('../registry', () => ({
   getAdapter: vi.fn(),
 }));
 
-import { getAdapter } from '../adapters/registry';
+import { getAdapter } from '../registry';
 
 const mockGetAdapter = vi.mocked(getAdapter);
 

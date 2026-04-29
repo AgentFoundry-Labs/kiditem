@@ -1,6 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AgentRegistryService } from '../agent-registry.service';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
+import { AgentCostAnalyticsService } from '../../automation/application/service/agent-cost-analytics.service';
+import { AgentCrudService } from '../../automation/application/service/agent-crud.service';
+import { AgentLifecycleService } from '../../automation/application/service/agent-lifecycle.service';
+import { AgentRunService } from '../../automation/application/service/agent-run.service';
 
 // ── Mocks ──
 
@@ -40,8 +44,18 @@ function makeHeartbeat() {
 function makeService(prisma?: any, heartbeat?: any) {
   const p = prisma ?? makePrisma();
   const h = heartbeat ?? makeHeartbeat();
+  const crud = new AgentCrudService(p as any, h as any);
+  const runner = new AgentRunService(p as any, crud, h as any);
+  const lifecycle = new AgentLifecycleService(p as any);
+  const costAnalytics = new AgentCostAnalyticsService(p as any);
   return {
-    service: new AgentRegistryService(p as any, h as any),
+    service: new AgentRegistryService(
+      h as any,
+      crud,
+      runner,
+      lifecycle,
+      costAnalytics,
+    ),
     prisma: p,
     heartbeat: h,
   };

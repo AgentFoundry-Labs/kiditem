@@ -215,12 +215,12 @@ async getProduct(id: string, companyId: string) {
 
 **규칙**: `src/{domain}/` 하위 파일을 Edit 하기 전, 아래 표의 해당 행이 가리키는 scoped document 를 먼저 Read 한다. 현재 전용 도메인 문서는 `CLAUDE.md` 로 유지 중이다. Index 에 없으면 부모 NestJS 패턴(이 문서)으로 충분하다.
 
-### 전용 CLAUDE.md 가 있는 도메인 (15)
+### 전용 CLAUDE.md 가 있는 도메인 (16)
 
 | 경로 | 크기 | 핵심 포인트 |
 |---|---|---|
 | [`src/advertising/CLAUDE.md`](src/advertising/CLAUDE.md) | ~90줄 | Ad Operations — 14+ endpoints `/api/ads/*`, 3-layer schema (listingId required + optionId nullable), AdAction 5 snapshot-level 규칙 (campaign/keyword target), 익스텐션 sync (vendorItemId > externalId 우선순위). Multi-tenant scope rule compliant |
-| [`src/agent-registry/CLAUDE.md`](src/agent-registry/CLAUDE.md) | **261줄** | Agent OS — Adapters / EventEmitter2 / Manager Workflow / FeatureGate / ExecutionContext / Agent OS Phase 3+4 (8 patterns) |
+| [`src/agent-registry/CLAUDE.md`](src/agent-registry/CLAUDE.md) | **260줄** | Agent OS compatibility module — controller/facade, heartbeat, safety, delegation, trace, wakeup; AgentRegistry implementation lives in automation application services |
 | [`src/ai/CLAUDE.md`](src/ai/CLAUDE.md) | 69줄 | Dual-Path — Image=Agent 위임 / Text=Gemini Direct. Preset → hardcoded prompt 매핑 |
 | [`src/auth/CLAUDE.md`](src/auth/CLAUDE.md) | 158줄 | 인증/권한 인프라. `@CurrentUser`/`@CurrentCompany`/`@Roles`/`@SkipAuth`, CompanyScopeGuard, DevAuthMiddleware |
 | [`src/channels/CLAUDE.md`](src/channels/CLAUDE.md) | ~160줄 | Coupang 통합 — `adapters/coupang/` 외부 API 격리, Sync 3종 (Products/Orders/Inventory), $queryRaw 분석. Products/Orders/Returns 는 channel-agnostic spine 사용, Inventory sync 는 InventoryService 단일 writer 경계 결정 전까지 stub |
@@ -231,6 +231,7 @@ async getProduct(id: string, companyId: string) {
 | [`src/marketplace/CLAUDE.md`](src/marketplace/CLAUDE.md) | 75줄 | Workflow/Agent 카탈로그 — read-only 카탈로그 + per-company 설치 추적 + param override |
 | [`src/orders/CLAUDE.md`](src/orders/CLAUDE.md) | 60줄 | Order/Return/CS 통합 — multi-controller 모듈, 외부 채널 어댑터 위임, status 필터링 |
 | [`src/automation/adapter/out/panel-event/CLAUDE.md`](src/automation/adapter/out/panel-event/CLAUDE.md) | ~80줄 | Live Ops SSE projection adapter — `/api/panel/*` HTTP adapter + EventEmitter2 ring buffer + 4-source read-only projection |
+| [`src/automation/adapter/out/agent-runtime/CLAUDE.md`](src/automation/adapter/out/agent-runtime/CLAUDE.md) | ~35줄 | Agent OS runtime adapter — Claude CLI / Python HTTP execution adapters, immutable ExecutionContext, observable adapter fallback |
 | [`src/automation/adapter/out/workflow-runner/CLAUDE.md`](src/automation/adapter/out/workflow-runner/CLAUDE.md) | ~45줄 | Workflow runner outgoing adapter — slim-core executor registry, trusted tenant injection, no generic DB/HTTP/LLM executors |
 | [`src/products/CLAUDE.md`](src/products/CLAUDE.md) | 37줄 | 3-layer Master/Option/Bundle — `MasterProduct` family (code via `master_code_seq`), `ProductOption` SKU (race-free sku via `optionCounter` increment), `BundleComponent` (cross-master 허용, 3-way invariant, nested 금지 B1), `availableStock` = `BundleStockService.recompute` sole writer + `SELECT FOR UPDATE` row-lock |
 | [`src/rules/CLAUDE.md`](src/rules/CLAUDE.md) | 83줄 | Event-Driven — 룰 평가는 agent 비동기 spawn → `@OnEvent` 콜백. CRUD 패턴 아님 |

@@ -3,7 +3,7 @@ import { HeartbeatService } from '../heartbeat.service';
 import { AGENT_EVENTS } from '../../events/agent-events';
 
 // Mock getAdapter + getFallbackChain + validateAgentOutput + extractResultJsonFromStdout
-vi.mock('../../adapters/registry', () => ({
+vi.mock('../../../automation/adapter/out/agent-runtime/registry', () => ({
   getAdapter: vi.fn(),
   getFallbackChain: vi.fn().mockReturnValue(['claude_local']),
 }));
@@ -13,7 +13,7 @@ vi.mock('../../schemas/validate-output', () => ({
   extractResultJsonFromStdout: vi.fn().mockReturnValue({ actions: [] }),
 }));
 
-import { getAdapter } from '../../adapters/registry';
+import { getAdapter } from '../../../automation/adapter/out/agent-runtime/registry';
 import { extractResultJsonFromStdout, validateAgentOutput } from '../../schemas/validate-output';
 
 const MOCK_ADAPTER = {

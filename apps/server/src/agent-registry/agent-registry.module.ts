@@ -21,6 +21,10 @@ import { DelegationService } from './delegation/delegation.service';
 import { BusinessSafetyModule } from './business-safety/business-safety.module';
 import { ContextManagerModule } from './context-manager/context-manager.module';
 import { AgentTraceModule } from './trace/agent-trace.module';
+import { AgentCostAnalyticsService } from '../automation/application/service/agent-cost-analytics.service';
+import { AgentCrudService } from '../automation/application/service/agent-crud.service';
+import { AgentLifecycleService } from '../automation/application/service/agent-lifecycle.service';
+import { AgentRunService } from '../automation/application/service/agent-run.service';
 
 @Global()
 @Module({
@@ -38,6 +42,10 @@ import { AgentTraceModule } from './trace/agent-trace.module';
   controllers: [AgentRegistryController, AdStrategyController, ManagerController],
   providers: [
     AgentRegistryService,
+    AgentCrudService,
+    AgentRunService,
+    AgentLifecycleService,
+    AgentCostAnalyticsService,
     HeartbeatService,
     WakeupService,
     SkillsService,
