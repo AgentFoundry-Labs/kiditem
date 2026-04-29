@@ -1,23 +1,23 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Test } from '@nestjs/testing';
 import type { PrismaClient } from '@prisma/client';
-import { kstMonthStart } from '../../common/kst';
-import { PrismaService } from '../../prisma/prisma.service';
+import { kstMonthStart } from '../../../../common/kst';
+import { PrismaService } from '../../../../prisma/prisma.service';
 import {
   seedAd,
   seedOrderWithLineItems,
   setupChannelListing,
   setupMaster,
   setupProductOption,
-} from '../../test-helpers/finance-seeds';
+} from '../../../../test-helpers/finance-seeds';
 import {
   makeTestPrisma,
   OTHER_COMPANY_ID,
   resetDb,
   seedBaseFixture,
   TEST_COMPANY_ID,
-} from '../../test-helpers/real-prisma';
-import { ActionTaskService } from '../action-task.service';
+} from '../../../../test-helpers/real-prisma';
+import { ActionBoardService } from '../action-board.service';
 
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
 
@@ -37,9 +37,9 @@ function currentMonthIso(day: number, hourKst = 12, now: Date = new Date()) {
     .toISOString();
 }
 
-describe('ActionTask.getTasks (PG integration)', () => {
+describe('ActionBoardService.getTasks (PG integration)', () => {
   let prisma: PrismaClient;
-  let service: ActionTaskService;
+  let service: ActionBoardService;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
@@ -47,11 +47,11 @@ describe('ActionTask.getTasks (PG integration)', () => {
 
     const moduleRef = await Test.createTestingModule({
       providers: [
-        ActionTaskService,
+        ActionBoardService,
         { provide: PrismaService, useValue: prisma },
       ],
     }).compile();
-    service = moduleRef.get(ActionTaskService);
+    service = moduleRef.get(ActionBoardService);
   });
 
   afterAll(async () => {

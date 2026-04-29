@@ -1,8 +1,8 @@
 /**
- * Real Postgres integration test for ActionTask.claim race guard.
+ * Real Postgres integration test for ActionBoardService.claim race guard.
  *
  * 보완 대상 허수 (audit 2026-04-17 P1-3):
- *   action-task-claim.spec.ts 의 race 테스트는 mock `count=0` 만 확인.
+ *   action-board-claim.spec.ts 의 race 테스트는 mock `count=0` 만 확인.
  *   실제 두 사용자가 동시에 claim 시도할 때 정확히 하나만 성공하는지 미검증.
  *
  * 이 파일은 실제 Postgres 동시 updateMany 경쟁을 재현:
@@ -15,7 +15,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { ConflictException } from '@nestjs/common';
 import type { PrismaClient, ActionTask } from '@prisma/client';
 
-import { ActionTaskService } from '../action-task.service';
+import { ActionBoardService } from '../action-board.service';
 import {
   makeTestPrisma,
   resetDb,
@@ -24,7 +24,7 @@ import {
   TEST_USER_ID,
   OTHER_COMPANY_ID,
   OTHER_USER_ID,
-} from '../../test-helpers/real-prisma';
+} from '../../../../test-helpers/real-prisma';
 
 async function seedTask(prisma: PrismaClient, overrides: Partial<ActionTask> = {}) {
   return prisma.actionTask.create({
@@ -42,9 +42,9 @@ async function seedTask(prisma: PrismaClient, overrides: Partial<ActionTask> = {
   });
 }
 
-describe('ActionTask.claim/unclaim — real Postgres race guard', () => {
+describe('ActionBoardService.claim/unclaim — real Postgres race guard', () => {
   let prisma: PrismaClient;
-  let service: ActionTaskService;
+  let service: ActionBoardService;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
@@ -58,7 +58,7 @@ describe('ActionTask.claim/unclaim — real Postgres race guard', () => {
   beforeEach(async () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
-    service = new ActionTaskService(prisma as any);
+    service = new ActionBoardService(prisma as any);
   });
 
   it('단일 claim → assigneeUserId 세팅', async () => {

@@ -318,20 +318,23 @@ Server consumers: panel integration tests only.
 
 Web consumers: `/api/rules/*` and `/api/alerts/*` (web rules/alerts pages).
 
-### `apps/server/src/action-task/` — operator action queue
+### Action board — operator action queue
 
-Files (5 production files + 6 tests):
-- `action-task.module.ts`, `action-task.controller.ts` (6 routes:
-  list, claim, unclaim, update, addNote, executeTask).
-- `action-task.service.ts` (531 lines) — daily seed generation from
-  per-listing metrics + inventory + thumbnail/review thresholds.
-- `types.ts`, `dto/*` (3 DTOs).
-- No `CLAUDE.md` (this PR adds one — see "Scoped Instruction Updates"
-  below — only if needed; current decision is to keep guidance inline in
-  `apps/server/AGENTS.md` "Notable Sub-Domains" section).
+Files after Phase 3C-7:
+- `automation/adapter/in/http/action-task.controller.ts` (6 routes:
+  list, claim, unclaim, update, addNote, executeTask). Public route shape
+  remains `/api/action-tasks/*`.
+- `automation/application/service/action-board.service.ts` — tenant-scoped
+  orchestration over live metrics, action task persistence, source alert joins,
+  claim/unclaim, notes, and execution result logging.
+- `automation/domain/policy/action-seeds.ts` — pure daily seed threshold
+  policy for low CTR / low profit / high ad cost / reorder / review warnings.
+- `automation/adapter/in/http/dto/{list-action-tasks,update-action-task,add-note}.dto.ts`.
+- Tests moved under `automation/application/service/__tests__/action-board-*`.
+- `apps/server/src/action-task/` top-level module is deleted.
 
 Inbound entrypoints:
-- HTTP — `ActionTaskController`. `@CurrentCompany()` on every route.
+- HTTP — `ActionTaskController` in Automation. `@CurrentCompany()` on every route.
 - Cron — daily seed via `executeTask` + scheduled `getTasks` upsert (the
   cron firing happens upstream of this module today).
 - Agent — none directly. Alerts → action-task promotion happens in
@@ -444,8 +447,9 @@ Web consumers: `/api/panel/stream` SSE consumed by the panel UI store.
 | `rules/controllers/rules.controller.ts` direct injection of `AgentRegistryService` + `HeartbeatService` (schedule PATCH) | **Rewritten (Phase 3C-2)** | Schedule control now flows through `AgentScheduleControlPort` (`automation/application/port/in/`) with `AgentRuntimeScheduleControlAdapter` (`automation/adapter/out/agent-runtime/`). `RulesController` injects only the port. Heartbeat timer reload + tenant-ownership rejection live inside the adapter. |
 | `rules/services/rules.service.ts` agent-spawn + `@OnEvent` | **Keep** | Sole correct evaluation pattern. Synchronous evaluation is hard-banned. |
 | `rules/services/alerts.service.ts` promote $transaction + dismiss panel emit | **Keep** | Race-guard contract. Move to `automation/application/service/alert-promotion` post-rewrite. |
-| `action-task/action-task.service.ts` daily seed generation (531 LOC) | **Keep, refactor candidate** | Above ~500 lines. Heavy hardcoded thresholds. Future split: `domain/policy/action-seeds.ts` (pure rules) + `application/service/action-board.service.ts` (orchestration). |
-| `action-task/action-task.service.ts:executeTask` self-fetch via `API_SELF_URL` | **Defer** | Self-fetch back into the same NestJS process is a smell, but the targeted endpoints span `products`, `inventory`, `coupang-category`, etc. Replacement requires a stable internal-call port; defer to executor-rewrite PR. |
+| `automation/domain/policy/action-seeds.ts` daily seed policy | **Keep (Phase 3C-7)** | Pure threshold rules. No NestJS, Prisma, AgentRegistry, event bus, filesystem, or provider SDK imports. |
+| `automation/application/service/action-board.service.ts` orchestration | **Keep (Phase 3C-7)** | Replaces the old top-level `action-task/action-task.service.ts`. Owns tenant-scoped Prisma orchestration for `/api/action-tasks/*`. |
+| `automation/application/service/action-board.service.ts:executeTask` self-fetch via `API_SELF_URL` | **Defer** | Self-fetch back into the same NestJS process is a smell, but the targeted endpoints span `products`, `inventory`, `coupang-category`, etc. Replacement requires a stable internal-call port; defer to a dedicated internal-command port PR. |
 | `marketplace/marketplace.service.ts` slim-core allowlist gate | **Keep** | Catalog defense-in-depth. Allowlist must mirror `executors/builtin.ts` registration; sync rule already in `marketplace/CLAUDE.md`. |
 | `marketplace/marketplace.service.ts` install/uninstall paths | **Rewritten (Phase 3C-3)** | Moved to `automation/application/service/marketplace-install.service.ts` for orchestration and `automation/adapter/out/prisma/marketplace-install-store.adapter.ts` for tenant-scoped persistence. `MarketplaceController` moved to `automation/adapter/in/http/marketplace.controller.ts`; DTOs alongside. Catalog read methods (`listWorkflows` / `getWorkflow` / `listAgents` / `getAgent`) stay in `marketplace/marketplace.service.ts`. Slim-core allowlist extracted to `marketplace/workflow-slim-core.ts` (single source of truth shared with the install service). Public route shape unchanged. |
 | `panel/panel.service.ts` snapshot multi-source backfill | **Rewritten (Phase 3C-4)** | Top-level `panel/` removed. Projection now lives at `automation/adapter/out/panel-event/panel.service.ts`. |
@@ -602,6 +606,12 @@ Each follow-up PR is one owner-domain PR. Do not bundle two of these.
    - Move orchestration to
      `automation/application/service/action-board.service.ts`.
    - Move HTTP layer to `automation/adapter/in/http/action-task.controller.ts`.
+   - **Resolution (PR `refactor/action-task-automation-split`):**
+     implemented. The legacy `apps/server/src/action-task/` top-level module
+     was deleted, `/api/action-tasks/*` is registered by `AutomationModule`,
+     action-board DTOs live beside the HTTP adapter, and existing unit /
+     integration tests moved under Automation with the same tenant-scope
+     behavior locked.
 
 The total is 7 follow-up PRs, not one mega-rewrite. Each PR keeps the
 controller route shape, the WorkflowRun audit shape, and the panel event

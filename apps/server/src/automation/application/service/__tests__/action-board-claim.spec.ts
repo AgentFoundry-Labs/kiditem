@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ActionTaskService } from '../action-task.service';
+import { ActionBoardService } from '../action-board.service';
 
 function makePrisma() {
   return {
@@ -31,13 +31,13 @@ function baseTask(overrides: Record<string, unknown> = {}) {
   };
 }
 
-describe('ActionTaskService — claim/unclaim/list', () => {
-  let service: ActionTaskService;
+describe('ActionBoardService — claim/unclaim/list', () => {
+  let service: ActionBoardService;
   let prisma: ReturnType<typeof makePrisma>;
 
   beforeEach(() => {
     prisma = makePrisma();
-    service = new ActionTaskService(prisma as any);
+    service = new ActionBoardService(prisma as any);
   });
 
   // ── claim ─────────────────────────────────────────────────────────────────
@@ -58,7 +58,7 @@ describe('ActionTaskService — claim/unclaim/list', () => {
     });
 
     // race condition (updateMany count=0) + company scope IDOR 는 real Postgres
-    // spec (`action-task-claim.pg.integration.spec.ts` — "두 유저 동시 claim" /
+    // spec (`action-board-claim.pg.integration.spec.ts` — "두 유저 동시 claim" /
     //  "다른 회사의 task claim → ConflictException") 이 대체하므로 제거.
   });
 
