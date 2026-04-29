@@ -1,47 +1,39 @@
 'use client';
 
-import { getCompanyId } from '@/lib/api';
 import { apiClient } from '@/lib/api-client';
 import type { WorkflowCatalogItem, AgentCatalogItem } from '@kiditem/shared/marketplace';
 
+// All endpoints are scoped on the backend via `@CurrentCompany()`. The
+// client must NOT send `companyId` in query/body — that path is untrusted
+// and the backend would ignore it anyway.
 export const marketplaceApi = {
   // Workflows
-  listWorkflows: async (query?: { module?: string; category?: string }) => {
-    const companyId = await getCompanyId();
+  listWorkflows: (query?: { module?: string; category?: string }) => {
     const qs = new URLSearchParams();
-    qs.set('companyId', companyId);
     if (query?.module) qs.set('module', query.module);
     if (query?.category) qs.set('category', query.category);
-    return apiClient.get<WorkflowCatalogItem[]>(`/api/marketplace/workflows?${qs}`);
+    const suffix = qs.toString();
+    return apiClient.get<WorkflowCatalogItem[]>(`/api/marketplace/workflows${suffix ? `?${suffix}` : ''}`);
   },
   getWorkflow: (id: string) =>
     apiClient.get<WorkflowCatalogItem>(`/api/marketplace/workflows/${id}`),
-  installWorkflow: async (id: string, body: { params?: Record<string, any> }) => {
-    const companyId = await getCompanyId();
-    return apiClient.post<any>(`/api/marketplace/workflows/${id}/install`, { companyId, ...body });
-  },
-  uninstallWorkflow: async (id: string) => {
-    const companyId = await getCompanyId();
-    return apiClient.post<{ ok: boolean }>(`/api/marketplace/workflows/${id}/uninstall`, { companyId });
-  },
+  installWorkflow: (id: string, body: { params?: Record<string, any> }) =>
+    apiClient.post<any>(`/api/marketplace/workflows/${id}/install`, body),
+  uninstallWorkflow: (id: string) =>
+    apiClient.post<{ ok: boolean }>(`/api/marketplace/workflows/${id}/uninstall`, {}),
 
   // Agents
-  listAgents: async (query?: { role?: string; category?: string }) => {
-    const companyId = await getCompanyId();
+  listAgents: (query?: { role?: string; category?: string }) => {
     const qs = new URLSearchParams();
-    qs.set('companyId', companyId);
     if (query?.role) qs.set('role', query.role);
     if (query?.category) qs.set('category', query.category);
-    return apiClient.get<AgentCatalogItem[]>(`/api/marketplace/agents?${qs}`);
+    const suffix = qs.toString();
+    return apiClient.get<AgentCatalogItem[]>(`/api/marketplace/agents${suffix ? `?${suffix}` : ''}`);
   },
   getAgent: (id: string) =>
     apiClient.get<AgentCatalogItem>(`/api/marketplace/agents/${id}`),
-  installAgent: async (id: string, body: { params?: Record<string, any> }) => {
-    const companyId = await getCompanyId();
-    return apiClient.post<any>(`/api/marketplace/agents/${id}/install`, { companyId, ...body });
-  },
-  uninstallAgent: async (id: string) => {
-    const companyId = await getCompanyId();
-    return apiClient.post<{ ok: boolean }>(`/api/marketplace/agents/${id}/uninstall`, { companyId });
-  },
+  installAgent: (id: string, body: { params?: Record<string, any> }) =>
+    apiClient.post<any>(`/api/marketplace/agents/${id}/install`, body),
+  uninstallAgent: (id: string) =>
+    apiClient.post<{ ok: boolean }>(`/api/marketplace/agents/${id}/uninstall`, {}),
 };

@@ -1,6 +1,5 @@
 'use client';
 
-import { getCompanyId } from '@/lib/api';
 import { apiClient } from '@/lib/api-client';
 import type {
   Agent,
@@ -16,19 +15,13 @@ import {
 } from '@kiditem/shared/agent-trace';
 import type { OrgNode } from './agent-types';
 
+// All endpoints are scoped on the backend via `@CurrentCompany()`. The
+// client must NOT send `companyId` in query/body — that path is untrusted
+// and the backend would ignore it anyway.
 export const agentApi = {
-  list: async () => {
-    const companyId = await getCompanyId();
-    return apiClient.get<Agent[]>(`/api/agent-registry?companyId=${companyId}`);
-  },
-  org: async () => {
-    const companyId = await getCompanyId();
-    return apiClient.get<OrgNode[]>(`/api/agent-registry/org?companyId=${companyId}`);
-  },
-  get: async (id: string) => {
-    const companyId = await getCompanyId();
-    return apiClient.get<Agent>(`/api/agent-registry/${id}?companyId=${companyId}`);
-  },
+  list: () => apiClient.get<Agent[]>('/api/agent-registry'),
+  org: () => apiClient.get<OrgNode[]>('/api/agent-registry/org'),
+  get: (id: string) => apiClient.get<Agent>(`/api/agent-registry/${id}`),
   update: (id: string, data: Record<string, unknown>) =>
     apiClient.patch<Agent>(`/api/agent-registry/${id}`, data),
   invoke: (id: string) =>
