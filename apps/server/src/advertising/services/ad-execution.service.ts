@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { scrubSecrets } from '@kiditem/shared';
+import { scrubSecrets } from '@kiditem/shared/security';
 
 const DEFAULT_LIMIT = 3;
 const MAX_SCAN = 50;

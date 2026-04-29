@@ -5,7 +5,7 @@ import { HeartbeatService } from './heartbeat/heartbeat.service';
 import type { AgentListItem, DailyCost, AgentCostSummary, CostAnalytics } from '@kiditem/shared';
 import { validateAllowedTools } from './safety/dangerous-patterns';
 import type { OrgNode } from './types';
-import { scrubSecrets } from '@kiditem/shared';
+import { scrubSecrets } from '@kiditem/shared/security';
 import type { UpdateAgentBodyDto } from './dto';
 
 type AgentDefinitionUpdateData = Omit<UpdateAgentBodyDto, 'schedule'> & {

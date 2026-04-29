@@ -1,6 +1,6 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import type { AdCollectStatus } from '@kiditem/shared';
+import type { AdCollectStatus } from '@kiditem/shared/advertising';
 
 @Injectable()
 export class AdCollectService {

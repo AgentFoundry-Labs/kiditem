@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import type { AdStrategyAction, AdStrategyRecommendation } from '@kiditem/shared';
+import type { AdStrategyAction, AdStrategyRecommendation } from '@kiditem/shared/advertising';
 import { AgentRegistryService } from '../../agent-registry/agent-registry.service';
 import type { RecommendInput } from './types';
 

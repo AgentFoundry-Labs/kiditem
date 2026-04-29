@@ -1,6 +1,6 @@
 import { Type } from 'class-transformer';
 import { IsIn, IsInt, IsNumber, IsOptional, Min } from 'class-validator';
-import { THUMBNAIL_TRACKING_STATUSES, type ThumbnailTrackingStatus } from '@kiditem/shared';
+import { THUMBNAIL_TRACKING_STATUSES, type ThumbnailTrackingStatus } from '@kiditem/shared/ai';
 
 export class ListTrackingQueryDto {
   @IsOptional()

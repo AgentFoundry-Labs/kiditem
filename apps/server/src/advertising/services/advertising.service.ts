@@ -13,13 +13,7 @@ import {
   recomputeCtr,
   recomputeCvr,
 } from '../util/ratio-recompute';
-import type {
-  AdMetrics,
-  AdsHubData,
-  AdsHubSummary,
-  AdsListItem,
-  FindAllAdsResponse,
-} from '@kiditem/shared';
+import type { AdMetrics, AdsHubData, AdsHubSummary, AdsListItem, FindAllAdsResponse } from '@kiditem/shared/advertising';
 
 const VALID_TIERS = ['1차', '2차', '3차', 'OFF'] as const;
 type ValidTier = (typeof VALID_TIERS)[number];

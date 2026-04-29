@@ -19,11 +19,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 const MAX_IMAGE_UPLOAD_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
 const ALLOWED_IMAGE_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
-import {
-  MasterImageItemSchema,
-  MasterSchema, MasterWithOptionsSchema,
-  type Master, type MasterImageItem, type MasterWithOptions,
-} from '@kiditem/shared';
+import { MasterImageItemSchema, MasterSchema, MasterWithOptionsSchema, type Master, type MasterImageItem, type MasterWithOptions } from '@kiditem/shared/product';
 import type { MulterFile } from '../../common/types';
 import { toSerializable } from '../util/serialize';
 import { MastersService } from '../services/masters.service';

@@ -1,9 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import type {
-  AdStrategyAction,
-  AdIssues,
-  ChannelStateSignal,
-} from '@kiditem/shared';
+import type { AdStrategyAction, AdIssues, ChannelStateSignal } from '@kiditem/shared/advertising';
 import type { GradeRulesInput, AdIssuesInput, HydratedListing } from './types';
 import { toListingSummary } from './util/ad-strategy-helpers';
 

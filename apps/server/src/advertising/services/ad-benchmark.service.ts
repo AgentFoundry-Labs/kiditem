@@ -7,7 +7,7 @@ import {
   recomputeCtr,
   recomputeCvr,
 } from '../util/ratio-recompute';
-import type { AdBenchmarkData, AdMetrics } from '@kiditem/shared';
+import type { AdBenchmarkData, AdMetrics } from '@kiditem/shared/advertising';
 import { LISTING_SUMMARY_SELECT } from './types';
 
 function computeMetrics(sums: {

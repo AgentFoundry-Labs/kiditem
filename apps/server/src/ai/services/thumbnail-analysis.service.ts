@@ -6,15 +6,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import type {
-  ComplianceScores,
-  ImageSpec,
-  ThumbnailAnalysisListResponse,
-  ThumbnailAnalysisResult,
-  ThumbnailAnalysisSummary,
-  ThumbnailScores,
-  RecomposeVariantClassification,
-} from '@kiditem/shared';
+import type { ComplianceScores, ImageSpec, ThumbnailAnalysisListResponse, ThumbnailAnalysisResult, ThumbnailAnalysisSummary, ThumbnailScores, RecomposeVariantClassification } from '@kiditem/shared/ai';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AnalysisScope } from '../dto/thumbnail-analyze.dto';
 import {

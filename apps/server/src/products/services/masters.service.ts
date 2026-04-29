@@ -8,7 +8,7 @@ import { MasterProduct, MasterProductImage, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { StorageService } from '../../common/storage/storage.service';
 import type { MulterFile } from '../../common/types';
-import type { MasterImageItem } from '@kiditem/shared';
+import type { MasterImageItem } from '@kiditem/shared/product';
 import { MasterCodeService } from './master-code.service';
 import { CreateMasterDto } from '../dto/create-master.dto';
 import { UpdateMasterDto } from '../dto/update-master.dto';

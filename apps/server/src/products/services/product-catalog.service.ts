@@ -1,12 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
-import type {
-  MoneyRange,
-  ProductCatalogCounts,
-  ProductCatalogDetail,
-  ProductCatalogListItem,
-  ProductCatalogListResponse,
-} from '@kiditem/shared';
+import type { MoneyRange, ProductCatalogCounts, ProductCatalogDetail, ProductCatalogListItem, ProductCatalogListResponse } from '@kiditem/shared/product';
 import { PrismaService } from '../../prisma/prisma.service';
 import { toSerializable } from '../util/serialize';
 import { normalizeMasterImages } from './product-image-normalizer';
