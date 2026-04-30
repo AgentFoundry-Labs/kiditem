@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Body } from '@nestjs/common';
-import { ChannelSyncService } from '../services/channel-sync.service';
-import { SyncOrdersBodyDto } from '../dto';
-import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
+import { ChannelSyncService } from '../../../application/service/channel-sync.service';
+import { SyncOrdersBodyDto } from './dto';
+import { CurrentCompany } from '../../../../auth/decorators/current-company.decorator';
 
 @Controller('coupang-sync')
 export class ChannelSyncController {

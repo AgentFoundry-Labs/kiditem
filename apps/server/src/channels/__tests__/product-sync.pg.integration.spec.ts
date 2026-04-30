@@ -1,26 +1,20 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Test } from '@nestjs/testing';
 import type { PrismaClient } from '@prisma/client';
-import { ChannelSyncService } from '../services/channel-sync.service';
+import { ChannelSyncService } from '../application/service/channel-sync.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import {
+  COUPANG_PROVIDER_PORT,
+  type CoupangProviderPort,
+  type SellerProductListResponse,
+  type SellerProductDetailResponse,
+} from '../application/port/out/coupang-provider.port';
 import {
   makeTestPrisma,
   resetDb,
   seedBaseFixture,
   TEST_COMPANY_ID,
 } from '../../test-helpers/real-prisma';
-import { getSellerProduct, getSellerProducts } from '../adapters/coupang/products';
-
-vi.mock('../adapters/coupang/products', () => ({
-  getSellerProducts: vi.fn(),
-  getSellerProduct: vi.fn(),
-}));
-
-const getSellerProductsMock = vi.mocked(getSellerProducts);
-const getSellerProductMock = vi.mocked(getSellerProduct);
-
-type SellerProductListResponse = Awaited<ReturnType<typeof getSellerProducts>>;
-type SellerProductDetailResponse = Awaited<ReturnType<typeof getSellerProduct>>;
 
 function listOk(
   content: Array<{ sellerProductId: number | string; sellerProductName?: string; statusName?: string }>,
@@ -37,7 +31,7 @@ function listOk(
         statusName: c.statusName,
       })),
     },
-  } as SellerProductListResponse;
+  };
 }
 
 function detailOk(payload: {
@@ -72,21 +66,29 @@ function detailOk(payload: {
         salePrice: i.salePrice ?? 0,
       })),
     },
-  } as SellerProductDetailResponse;
+  };
 }
 
 describe('Product sync (PG integration, Wave C1)', () => {
   let prisma: PrismaClient;
   let service: ChannelSyncService;
+  let coupangPort: CoupangProviderPort;
   const companyId = TEST_COMPANY_ID;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
+    coupangPort = {
+      getVendorId: () => 'TEST_VENDOR',
+      getSellerProducts: vi.fn(),
+      getSellerProduct: vi.fn(),
+      getOrderSheets: vi.fn(),
+    };
     const m = await Test.createTestingModule({
       providers: [
         ChannelSyncService,
         { provide: PrismaService, useValue: prisma },
+        { provide: COUPANG_PROVIDER_PORT, useValue: coupangPort },
       ],
     }).compile();
     service = m.get(ChannelSyncService);
@@ -102,8 +104,8 @@ describe('Product sync (PG integration, Wave C1)', () => {
   });
 
   afterEach(() => {
-    getSellerProductsMock.mockReset();
-    getSellerProductMock.mockReset();
+    vi.mocked(coupangPort.getSellerProducts).mockReset();
+    vi.mocked(coupangPort.getSellerProduct).mockReset();
   });
 
   async function seedListing(externalId: string) {
@@ -129,10 +131,10 @@ describe('Product sync (PG integration, Wave C1)', () => {
   it('refreshes existing listing fields from seller-product detail and stores Coupang status mapped', async () => {
     const listing = await seedListing('100');
 
-    getSellerProductsMock.mockResolvedValueOnce(
+    vi.mocked(coupangPort.getSellerProducts).mockResolvedValueOnce(
       listOk([{ sellerProductId: 100, sellerProductName: 'Stale Name', statusName: 'APPROVED' }]),
     );
-    getSellerProductMock.mockResolvedValueOnce(
+    vi.mocked(coupangPort.getSellerProduct).mockResolvedValueOnce(
       detailOk({
         sellerProductId: 100,
         sellerProductName: 'Fresh Name',
@@ -162,8 +164,8 @@ describe('Product sync (PG integration, Wave C1)', () => {
     const listing = await seedListing('200');
     const list = listOk([{ sellerProductId: 200, statusName: 'APPROVED' }]);
 
-    getSellerProductsMock.mockResolvedValueOnce(list).mockResolvedValueOnce(list);
-    getSellerProductMock
+    vi.mocked(coupangPort.getSellerProducts).mockResolvedValueOnce(list).mockResolvedValueOnce(list);
+    vi.mocked(coupangPort.getSellerProduct)
       .mockResolvedValueOnce(
         detailOk({
           sellerProductId: 200,
@@ -219,7 +221,7 @@ describe('Product sync (PG integration, Wave C1)', () => {
   });
 
   it('skips and reports sellerProductId without an existing ChannelListing — does not create master', async () => {
-    getSellerProductsMock.mockResolvedValueOnce(
+    vi.mocked(coupangPort.getSellerProducts).mockResolvedValueOnce(
       listOk([{ sellerProductId: 999, sellerProductName: 'New Listing' }]),
     );
     const result = await service.syncProducts(companyId);
@@ -228,7 +230,7 @@ describe('Product sync (PG integration, Wave C1)', () => {
     expect(result.details?.[0]).toContain('Listing 999');
     expect(result.details?.[0]).toContain('no matching ChannelListing');
     // Detail call must be skipped — no point fetching options for unmatched listings.
-    expect(getSellerProductMock).not.toHaveBeenCalled();
+    expect(coupangPort.getSellerProduct).not.toHaveBeenCalled();
 
     const masters = await prisma.masterProduct.findMany({ where: { companyId } });
     expect(masters).toHaveLength(0);
@@ -240,10 +242,10 @@ describe('Product sync (PG integration, Wave C1)', () => {
     const listingA = await seedListing('300');
     const listingB = await seedListing('301');
 
-    getSellerProductsMock
+    vi.mocked(coupangPort.getSellerProducts)
       .mockResolvedValueOnce(listOk([{ sellerProductId: 300 }], 'nt-abc'))
       .mockResolvedValueOnce(listOk([{ sellerProductId: 301 }]));
-    getSellerProductMock
+    vi.mocked(coupangPort.getSellerProduct)
       .mockResolvedValueOnce(detailOk({ sellerProductId: 300, items: [] }))
       .mockResolvedValueOnce(detailOk({ sellerProductId: 301, items: [] }));
 
@@ -257,10 +259,10 @@ describe('Product sync (PG integration, Wave C1)', () => {
     await seedListing('350');
     await seedListing('351');
 
-    getSellerProductsMock.mockResolvedValueOnce(
+    vi.mocked(coupangPort.getSellerProducts).mockResolvedValueOnce(
       listOk([{ sellerProductId: 350 }, { sellerProductId: 351 }]),
     );
-    getSellerProductMock
+    vi.mocked(coupangPort.getSellerProduct)
       .mockResolvedValueOnce({
         code: 'FORBIDDEN',
         message: 'invalid credentials',
@@ -291,10 +293,10 @@ describe('Product sync (PG integration, Wave C1)', () => {
   it('does not update options when the matched listing is soft-deleted after the precheck', async () => {
     const listing = await seedListing('360');
 
-    getSellerProductsMock.mockResolvedValueOnce(
+    vi.mocked(coupangPort.getSellerProducts).mockResolvedValueOnce(
       listOk([{ sellerProductId: 360 }]),
     );
-    getSellerProductMock.mockImplementationOnce(async () => {
+    vi.mocked(coupangPort.getSellerProduct).mockImplementationOnce(async () => {
       await prisma.channelListing.update({
         where: { id: listing.id },
         data: { isDeleted: true, deletedAt: new Date() },
@@ -323,10 +325,10 @@ describe('Product sync (PG integration, Wave C1)', () => {
   it('throws inside transaction when Coupang item is missing vendorItemId; option upserts roll back, listing field changes do too', async () => {
     const listing = await seedListing('400');
 
-    getSellerProductsMock.mockResolvedValueOnce(
+    vi.mocked(coupangPort.getSellerProducts).mockResolvedValueOnce(
       listOk([{ sellerProductId: 400, sellerProductName: 'Old Name' }]),
     );
-    getSellerProductMock.mockResolvedValueOnce(
+    vi.mocked(coupangPort.getSellerProduct).mockResolvedValueOnce(
       detailOk({
         sellerProductId: 400,
         sellerProductName: 'New Name',
@@ -353,7 +355,7 @@ describe('Product sync (PG integration, Wave C1)', () => {
   });
 
   it('list endpoint non-success response aborts the run with a single recorded error', async () => {
-    getSellerProductsMock.mockResolvedValueOnce({
+    vi.mocked(coupangPort.getSellerProducts).mockResolvedValueOnce({
       code: 'FORBIDDEN',
       message: 'invalid credentials',
       data: undefined,
@@ -363,6 +365,6 @@ describe('Product sync (PG integration, Wave C1)', () => {
     expect(result.errors).toBe(1);
     expect(result.details?.[0]).toContain('FORBIDDEN');
     expect(result.details?.[0]).toContain('invalid credentials');
-    expect(getSellerProductMock).not.toHaveBeenCalled();
+    expect(coupangPort.getSellerProduct).not.toHaveBeenCalled();
   });
 });

@@ -3,18 +3,17 @@ import {
   Logger,
   BadRequestException,
   NotImplementedException,
+  Inject,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { PrismaService } from '../../prisma/prisma.service';
-import { getSellerProduct, getSellerProducts } from '../adapters/coupang/products';
-import { getOrderSheets } from '../adapters/coupang/orders';
-import { getVendorId } from '../adapters/coupang/coupang-client';
+import { PrismaService } from '../../../prisma/prisma.service';
+import {
+  COUPANG_PROVIDER_PORT,
+  type CoupangProviderPort,
+} from '../port/out/coupang-provider.port';
 import type {
   SyncResult,
   HealthResult,
-  SellerProductListResponse,
-  SellerProductDetailResponse,
-  OrderSheetResponse,
   CoupangSyncOrderPayload,
   CoupangSyncReturnPayload,
 } from './types';
@@ -74,14 +73,17 @@ export function formatKstIso(d: Date): string {
 export class ChannelSyncService {
   private readonly logger = new Logger(ChannelSyncService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(COUPANG_PROVIDER_PORT) private readonly coupang: CoupangProviderPort,
+  ) {}
 
   async checkHealth(): Promise<HealthResult> {
     try {
-      const vendorId = getVendorId();
-      const response = (await getSellerProducts({
+      const vendorId = this.coupang.getVendorId();
+      const response = await this.coupang.getSellerProducts({
         maxPerPage: 1,
-      })) as SellerProductListResponse;
+      });
 
       if (response.code === 'ERROR' || response.code === 'FORBIDDEN') {
         return {
@@ -131,10 +133,10 @@ export class ChannelSyncService {
 
     try {
       do {
-        const listResponse = (await getSellerProducts({
+        const listResponse = await this.coupang.getSellerProducts({
           nextToken,
           maxPerPage: PRODUCT_PAGE_SIZE,
-        })) as SellerProductListResponse;
+        });
 
         if (listResponse.code !== 'SUCCESS') {
           result.errors += 1;
@@ -201,7 +203,7 @@ export class ChannelSyncService {
       return;
     }
 
-    const detailResponse = (await getSellerProduct(sellerProductId)) as SellerProductDetailResponse;
+    const detailResponse = await this.coupang.getSellerProduct(sellerProductId);
     if (detailResponse.code !== 'SUCCESS') {
       throw new Error(
         `detail ${detailResponse.code}: ${detailResponse.message || 'Unknown API error'}`,
@@ -294,11 +296,11 @@ export class ChannelSyncService {
       // Coupang KR market 은 `yyyy-MM-ddTHH:mm:ss+09:00` 포맷 (KST 로컬 + offset) 을 기대한다.
       // 단순 `toISOString().slice(0,19)` (UTC + offset 제거) 로 보내면 Coupang 이 KST 로 해석해
       // 9시간 어긋난 윈도우로 조회됨 (예: KST 09:30 실행 → `00:30` 으로 인식, 00:30~09:30 누락).
-      const response = (await getOrderSheets({
+      const response = await this.coupang.getOrderSheets({
         createdAtFrom: formatKstIso(dateFrom),
         createdAtTo: formatKstIso(dateTo),
         maxPerPage: 50,
-      })) as OrderSheetResponse;
+      });
 
       if (response.code === 'ERROR') {
         return {

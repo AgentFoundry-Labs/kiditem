@@ -7,8 +7,8 @@ import type {
   ReturnReasonRow,
   ReturnFaultSplit,
 } from '@kiditem/shared/channel-dashboard';
-import { PrismaService } from '../../prisma/prisma.service';
-import { kstDayStart } from '../../common/kst';
+import { PrismaService } from '../../../prisma/prisma.service';
+import { kstDayStart } from '../../../common/kst';
 
 /**
  * Channel dashboard response shapes — typed via `@kiditem/shared` Zod schemas
@@ -34,6 +34,12 @@ import { kstDayStart } from '../../common/kst';
  *   (`OrderReturn.companyId` must match `Order.companyId`) per Plan D.2 /
  *   ADR-0017. Past-period orders' returns therefore stay outside the current
  *   period numerator.
+ *
+ * NOTE: PrismaService is injected directly (transitional/legacy pattern).
+ * A dashboard repository port is deliberately NOT introduced — the query
+ * methods here are simple read aggregations that don't justify a port
+ * abstraction at this stage. This is a selective hex decision documented in
+ * the channels CLAUDE.md (Wave H2 Lane C).
  */
 
 @Injectable()

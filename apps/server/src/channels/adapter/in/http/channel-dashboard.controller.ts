@@ -1,8 +1,8 @@
 import { Controller, Get, Query } from '@nestjs/common';
-import { ChannelDashboardService } from '../services/channel-dashboard.service';
-import { kstDayStart } from '../../common/kst';
-import { CoupangDateRangeQueryDto } from '../dto';
-import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
+import { ChannelDashboardService } from '../../../application/service/channel-dashboard.service';
+import { kstDayStart } from '../../../../common/kst';
+import { CoupangDateRangeQueryDto } from './dto';
+import { CurrentCompany } from '../../../../auth/decorators/current-company.decorator';
 
 @Controller('coupang-dashboard')
 export class ChannelDashboardController {

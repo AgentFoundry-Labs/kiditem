@@ -2,12 +2,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Test } from '@nestjs/testing';
 import { BadRequestException } from '@nestjs/common';
 import { ChannelSyncService, formatKstIso, normalizeCoupangOrderStatus } from '../channel-sync.service';
-import { PrismaService } from '../../../prisma/prisma.service';
-
-vi.mock('../../adapters/coupang/orders', () => ({
-  getOrderSheets: vi.fn(),
-}));
-import { getOrderSheets } from '../../adapters/coupang/orders';
+import { PrismaService } from '../../../../prisma/prisma.service';
+import {
+  COUPANG_PROVIDER_PORT,
+  type CoupangProviderPort,
+} from '../../port/out/coupang-provider.port';
 
 describe('ChannelSyncService.syncSingleOrder (Plan A.5)', () => {
   let service: ChannelSyncService;
@@ -23,10 +22,17 @@ describe('ChannelSyncService.syncSingleOrder (Plan A.5)', () => {
     prisma = {
       $transaction: vi.fn(async (cb: any) => cb(tx)),
     };
+    const coupangPortStub: CoupangProviderPort = {
+      getVendorId: () => 'TEST_VENDOR',
+      getSellerProducts: vi.fn(),
+      getSellerProduct: vi.fn(),
+      getOrderSheets: vi.fn(),
+    };
     const m = await Test.createTestingModule({
       providers: [
         ChannelSyncService,
         { provide: PrismaService, useValue: prisma },
+        { provide: COUPANG_PROVIDER_PORT, useValue: coupangPortStub },
       ],
     }).compile();
     service = m.get(ChannelSyncService);
@@ -193,10 +199,17 @@ describe('ChannelSyncService.syncSingleReturn (Plan A.5)', () => {
     prisma = {
       $transaction: vi.fn(async (cb: any) => cb(tx)),
     };
+    const coupangPortStub: CoupangProviderPort = {
+      getVendorId: () => 'TEST_VENDOR',
+      getSellerProducts: vi.fn(),
+      getSellerProduct: vi.fn(),
+      getOrderSheets: vi.fn(),
+    };
     const m = await Test.createTestingModule({
       providers: [
         ChannelSyncService,
         { provide: PrismaService, useValue: prisma },
+        { provide: COUPANG_PROVIDER_PORT, useValue: coupangPortStub },
       ],
     }).compile();
     service = m.get(ChannelSyncService);
@@ -308,21 +321,29 @@ describe('normalizeCoupangOrderStatus (NONE_TRACKING regression)', () => {
 describe('ChannelSyncService.syncOrders (KST adapter boundary)', () => {
   let service: ChannelSyncService;
   let prisma: any;
+  let coupangPortStub: CoupangProviderPort;
 
   beforeEach(async () => {
     vi.clearAllMocks();
     prisma = { $transaction: vi.fn() };
+    coupangPortStub = {
+      getVendorId: () => 'TEST_VENDOR',
+      getSellerProducts: vi.fn(),
+      getSellerProduct: vi.fn(),
+      getOrderSheets: vi.fn(),
+    };
     const m = await Test.createTestingModule({
       providers: [
         ChannelSyncService,
         { provide: PrismaService, useValue: prisma },
+        { provide: COUPANG_PROVIDER_PORT, useValue: coupangPortStub },
       ],
     }).compile();
     service = m.get(ChannelSyncService);
   });
 
   it('Coupang adapter receives `+09:00` KST timestamps (regression — KST 09:30 → 09:30)', async () => {
-    (getOrderSheets as ReturnType<typeof vi.fn>).mockResolvedValue({ code: 'SUCCESS', data: [] });
+    (coupangPortStub.getOrderSheets as ReturnType<typeof vi.fn>).mockResolvedValue({ code: 'SUCCESS', data: [] });
 
     // KST 2026-04-25 09:30 = UTC 2026-04-25T00:30:00Z
     const dateTo = new Date('2026-04-25T00:30:00.000Z');
@@ -330,7 +351,7 @@ describe('ChannelSyncService.syncOrders (KST adapter boundary)', () => {
 
     await service.syncOrders('c1', dateFrom, dateTo);
 
-    expect(getOrderSheets).toHaveBeenCalledWith(
+    expect(coupangPortStub.getOrderSheets).toHaveBeenCalledWith(
       expect.objectContaining({
         createdAtFrom: '2026-04-18T09:00:00+09:00',
         createdAtTo: '2026-04-25T09:30:00+09:00',
