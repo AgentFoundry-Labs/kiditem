@@ -6,8 +6,6 @@ import { HeartbeatService } from './heartbeat/heartbeat.service';
 import { WakeupService } from './wakeup/wakeup.service';
 import { SkillsService } from './skills/skills.service';
 import { AgentSseService } from './events/agent-sse.service';
-import { AdStrategyController } from './domains/ad-strategy/ad-strategy.controller';
-import { AdStrategyService } from './domains/ad-strategy/ad-strategy.service';
 import { ManagerController } from './domains/manager/manager.controller';
 import { ManagerService } from './domains/manager/manager.service';
 // Agent OS modules
@@ -39,7 +37,7 @@ import { AgentRunService } from '../automation/application/service/agent-run.ser
     ContextManagerModule,
     AgentTraceModule,
   ],
-  controllers: [AgentRegistryController, AdStrategyController, ManagerController],
+  controllers: [AgentRegistryController, ManagerController],
   providers: [
     AgentRegistryService,
     AgentCrudService,
@@ -50,7 +48,6 @@ import { AgentRunService } from '../automation/application/service/agent-run.ser
     WakeupService,
     SkillsService,
     AgentSseService,
-    AdStrategyService,
     ManagerService,
   ],
   exports: [AgentRegistryService, HeartbeatService],

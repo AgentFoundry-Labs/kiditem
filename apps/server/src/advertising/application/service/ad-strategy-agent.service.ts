@@ -1,25 +1,27 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { AgentRegistryService } from '../../agent-registry.service';
-import { AGENT_EVENTS, AgentResultReadyEvent } from '../../events/agent-events';
+import {
+  AGENT_RUNNER_PORT,
+  type AgentRunnerPort,
+} from '../../../automation/application/port/in/agent-runner.port';
+import { AGENT_EVENTS, AgentResultReadyEvent } from '../../../agent-registry/events/agent-events';
 
 @Injectable()
-export class AdStrategyService {
-  private readonly logger = new Logger(AdStrategyService.name);
+export class AdStrategyAgentService {
+  private readonly logger = new Logger(AdStrategyAgentService.name);
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly agentRegistry: AgentRegistryService,
+    @Inject(AGENT_RUNNER_PORT)
+    private readonly agentRunner: AgentRunnerPort,
   ) {}
 
   async run(input: {
     companyId: string;
     dryRun?: boolean;
   }) {
-    const def = await this.agentRegistry.findByType('ad_strategy');
-
-    return this.agentRegistry.run(def.id, {
+    return this.agentRunner.runByType('ad_strategy', {
       companyId: input.companyId,
       dryRun: input.dryRun,
     });

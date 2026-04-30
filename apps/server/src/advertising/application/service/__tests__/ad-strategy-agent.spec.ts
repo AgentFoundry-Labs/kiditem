@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { AdStrategyService } from '../ad-strategy.service';
-import { AgentResultReadyEvent } from '../../../events/agent-events';
+import { AdStrategyAgentService } from '../ad-strategy-agent.service';
+import { AgentResultReadyEvent } from '../../../../agent-registry/events/agent-events';
 
 function makePrisma() {
   return {
@@ -9,34 +9,31 @@ function makePrisma() {
   };
 }
 
-function makeAgentRegistry() {
+function makeAgentRunner() {
   return {
-    findByType: vi.fn(),
-    run: vi.fn(),
+    runByType: vi.fn(),
   };
 }
 
 function makeService() {
   const prisma = makePrisma();
-  const registry = makeAgentRegistry();
+  const agentRunner = makeAgentRunner();
   return {
-    service: new AdStrategyService(prisma as any, registry as any),
+    service: new AdStrategyAgentService(prisma as any, agentRunner as any),
     prisma,
-    registry,
+    agentRunner,
   };
 }
 
-describe('AdStrategyService', () => {
+describe('AdStrategyAgentService', () => {
   describe('run', () => {
-    it('resolves ad_strategy definition and delegates to registry', async () => {
-      const { service, registry } = makeService();
-      registry.findByType.mockResolvedValue({ id: 'def-ad', type: 'ad_strategy' });
-      registry.run.mockResolvedValue({ ok: true, taskId: 'task-1', agentType: 'ad_strategy', dryRun: true });
+    it('delegates to agent runner port for ad_strategy', async () => {
+      const { service, agentRunner } = makeService();
+      agentRunner.runByType.mockResolvedValue({ ok: true, taskId: 'task-1', agentType: 'ad_strategy' });
 
       const result = await service.run({ companyId: 'c-1', dryRun: true });
 
-      expect(registry.findByType).toHaveBeenCalledWith('ad_strategy');
-      expect(registry.run).toHaveBeenCalledWith('def-ad', {
+      expect(agentRunner.runByType).toHaveBeenCalledWith('ad_strategy', {
         companyId: 'c-1',
         dryRun: true,
       });
