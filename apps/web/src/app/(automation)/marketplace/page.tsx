@@ -4,13 +4,13 @@ import { useState, useMemo, useEffect } from 'react';
 import { Search, Store } from 'lucide-react';
 import { toast } from 'sonner';
 import PageSkeleton from '@/components/ui/PageSkeleton';
+import { MarketplaceCard } from '@/app/(automation)/_shared/marketplace/components/MarketplaceCard';
+import { AgentDetailModal } from '@/app/(automation)/_shared/marketplace/components/AgentDetailModal';
+import { WorkflowDetailModal } from '@/app/(automation)/_shared/marketplace/components/WorkflowDetailModal';
+import { useMarketplaceAgents, useMarketplaceWorkflows, useInstallAgent, useInstallWorkflow, useUninstallAgent, useUninstallWorkflow } from '@/app/(automation)/_shared/marketplace/hooks/useMarketplace';
 import { cn } from '@/lib/utils';
-import { MarketplaceCard } from '@/components/marketplace/MarketplaceCard';
-import { AgentDetailModal } from '@/components/marketplace/AgentDetailModal';
-import { WorkflowDetailModal } from '@/components/marketplace/WorkflowDetailModal';
-import { useMarketplaceAgents, useMarketplaceWorkflows, useInstallAgent, useInstallWorkflow, useUninstallAgent, useUninstallWorkflow } from '@/hooks/useMarketplace';
 import { isApiError } from '@/lib/api-error';
-import type { AgentCatalogItem, WorkflowCatalogItem } from './lib/marketplace-types';
+import type { AgentCatalogItem, WorkflowCatalogItem } from '@/app/(automation)/_shared/marketplace/lib/marketplace-types';
 
 type TypeFilter = 'all' | 'agent' | 'workflow' | 'installed';
 type SortKey = 'installCount' | 'createdAt' | 'name';

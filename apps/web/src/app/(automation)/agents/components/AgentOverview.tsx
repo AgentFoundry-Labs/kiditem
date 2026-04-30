@@ -9,16 +9,16 @@ import { queryKeys } from '@/lib/query-keys';
 import { isApiError } from '@/lib/api-error';
 import { cn } from '@/lib/utils';
 import PageSkeleton from '@/components/ui/PageSkeleton';
-import { useMarketplaceAgents, useInstallAgent } from '@/hooks/useMarketplace';
-import type { AgentCatalogItem } from '@/app/(automation)/marketplace/lib/marketplace-types';
+import { useMarketplaceAgents, useInstallAgent } from '@/app/(automation)/_shared/marketplace/hooks/useMarketplace';
+import type { AgentCatalogItem } from '@/app/(automation)/_shared/marketplace/lib/marketplace-types';
 import { useAgents, useAgentOrg, useDeleteAgent, useInvokeAgent } from '../hooks/useAgents';
-
-const AgentDetailModal = dynamic(() => import('@/components/marketplace/AgentDetailModal').then(m => ({ default: m.AgentDetailModal })));
 import OrgTree from '../org/components/OrgTree';
 import OrgLegend from '../org/components/OrgLegend';
 import { AgentListPanel } from './AgentListPanel';
 import { AgentToolbar } from './AgentToolbar';
 import type { Agent, OrgNode, FilterTab, ViewMode } from '../lib/agent-types';
+
+const AgentDetailModal = dynamic(() => import('@/app/(automation)/_shared/marketplace/components/AgentDetailModal').then(m => ({ default: m.AgentDetailModal })));
 
 function matchesFilter(status: string, tab: FilterTab, showTerminated: boolean): boolean {
   if (status === 'terminated') return showTerminated;

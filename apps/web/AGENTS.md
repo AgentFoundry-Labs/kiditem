@@ -45,7 +45,7 @@ Routes outside any group (`ad-ops`, `cs-management`, `outbound`, `purchase-order
 ### Data Fetching
 - Use **`useQuery` / `useMutation`** from `@tanstack/react-query` (no useState+useEffect+fetch)
 - Domain hooks are co-located: `app/(automation)/agents/hooks/useAgents.ts`, `app/(automation)/workflows/hooks/useWorkflows.ts`
-- Cross-domain hooks stay in `src/hooks/`: `useMarketplace.ts`
+- App-wide cross-domain hooks stay in `src/hooks/`. Route-group-only shared hooks stay inside that group, for example `app/(automation)/_shared/marketplace/hooks/useMarketplace.ts` (agents + marketplace).
 - For domains without custom hooks: inline `useQuery` + `queryKeys.*` from `lib/query-keys.ts`
 - Polling: `refetchInterval` option (no setInterval)
 - After mutation: `queryClient.invalidateQueries({ queryKey: queryKeys.xxx.all })`
@@ -105,9 +105,10 @@ Ungrouped routes use the same shape at `app/{domain}/`.
 Shared directories (`src/components/`, `src/hooks/`, `src/lib/`) contain ONLY cross-domain code (2+ domains):
 - `src/components/ui/` — PageSkeleton, Pagination, DateRangePicker, StatusBadge
 - `src/components/layout/` — AppLayout, Header, Sidebar
-- `src/components/marketplace/` — InstallModal, MarketplaceCard (agents + workflows)
-- `src/hooks/` — useMarketplace.ts (agents + workflows)
 - `src/lib/` — api-client, api-error, query-keys, utils (universal infra)
+
+Route-group private shared directories contain ONLY code shared by 2+ routes inside that group:
+- `app/(automation)/_shared/marketplace/` — marketplace API/types/hooks/cards/modals (agents + marketplace)
 
 ### Large Component Policy
 
