@@ -1,8 +1,11 @@
 import { Module } from '@nestjs/common';
+import { AutomationModule } from '../automation/automation.module';
 import { AdvertisingController } from './adapter/in/http/advertising.controller';
+import { AdStrategyAgentController } from './adapter/in/http/ad-strategy-agent.controller';
 import { AdvertisingService } from './application/service/advertising.service';
 import { AdCampaignsService } from './application/service/ad-campaigns.service';
 import { AdStrategyService } from './application/service/ad-strategy.service';
+import { AdStrategyAgentService } from './application/service/ad-strategy-agent.service';
 import { AdGradeRulesService } from './application/service/ad-grade-rules.service';
 import { AdBudgetAllocatorService } from './application/service/ad-budget-allocator.service';
 import { AdExposureService } from './application/service/ad-exposure.service';
@@ -16,11 +19,13 @@ import { AdConfigService } from './application/service/ad-config.service';
 import { ChannelScrapePersistenceService } from './services/channel-scrape-persistence.service';
 
 @Module({
-  controllers: [AdvertisingController],
+  imports: [AutomationModule],
+  controllers: [AdvertisingController, AdStrategyAgentController],
   providers: [
     AdvertisingService,
     AdCampaignsService,
     AdStrategyService,
+    AdStrategyAgentService,
     AdGradeRulesService,
     AdBudgetAllocatorService,
     AdExposureService,

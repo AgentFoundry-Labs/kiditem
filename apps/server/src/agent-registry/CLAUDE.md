@@ -22,8 +22,8 @@ keep / delete / rewrite / defer 분류와 hard-delete 기준은
   advertising / AI thumbnail / companies/agent-tasks 가 모두 이 boundary 만 사용한다.
 - `AgentTask` 의 first-class trace columns (`companyId`, `workflowRunId`,
   `workflowNodeId`, `sourceDataId`) 는 production rewrite 까지 호환 보존.
-- `domains/{ad-strategy,manager}/` 는 owner-domain rewrite 후 `automation/application/service/`
-  로 이동 예정. 그 전엔 현 위치 유지.
+- `domains/manager/` 는 owner-domain rewrite 후 `automation/application/service/`
+  로 이동 예정. 그 전엔 현 위치 유지. (AO-3C 에서 `domains/ad-strategy/` 는 `advertising/` owner 로 이동.)
 
 `business-safety/`, `context-manager/`, `delegation/`, `events/`, `heartbeat/`,
 `lifecycle/`, `permissions/`, `safety/`, `schemas/`, `skills/`, `trace/`,
@@ -334,8 +334,12 @@ lifecycle/              — #10 + retry + transcript
 
 ## Domain Post-Processing
 
-- `domains/ad-strategy/` — Ad strategy. `@Controller('ad-agent')`.
 - `domains/manager/` — Manager + workflow (Async Generator). `@Controller('manager')`.
+
+> Ad strategy (`@Controller('ad-agent')`) was moved to the advertising owner
+> domain in AO-3C: `apps/server/src/advertising/adapter/in/http/ad-strategy-agent.controller.ts`
+> + `apps/server/src/advertising/application/service/ad-strategy-agent.service.ts`.
+> It now reaches Agent OS through the `AGENT_RUNNER_PORT` (`AutomationModule`).
 
 ## Agent Data Access
 
