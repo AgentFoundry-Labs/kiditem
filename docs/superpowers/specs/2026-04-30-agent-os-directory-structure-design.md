@@ -2,7 +2,7 @@
 
 **Date:** 2026-04-30
 **Scope:** `apps/server/src/{automation,agent-registry,rules,advertising}` and direct imports that depend on the Agent OS runtime.
-**Status:** Approved direction for the next backend cleanup lane.
+**Status:** AO-3A (rules decoupling), AO-3B (manager → automation), and AO-3C (ad-strategy → advertising) have landed. AO-3D (agent-registry HTTP compatibility move) and AO-3E (runtime internals inventory) remain. See [`2026-04-30-agent-os-directory-structure.md`](../plans/2026-04-30-agent-os-directory-structure.md) for per-task status.
 
 ## Goal
 
@@ -148,11 +148,11 @@ The top-level `agent-registry/` folder may temporarily remain as a compatibility
 1. `rules/` is not folded into `automation/`.
    It is a business policy domain. Agent execution is a runtime dependency reached through an automation port.
 
-2. `agent-registry/domains/manager` belongs to `automation/`.
-   It is an Agent OS operator surface that dispatches other agents and records manager responses.
+2. `agent-registry/domains/manager` belongs to `automation/`. **Landed (AO-3B).**
+   It is an Agent OS operator surface that dispatches other agents and records manager responses. Now lives at `apps/server/src/automation/adapter/in/http/manager.controller.ts` + `apps/server/src/automation/application/service/agent/manager.service.ts` and reaches Agent OS through `AGENT_RUNNER_PORT`.
 
-3. `agent-registry/domains/ad-strategy` belongs to `advertising/`.
-   The public `/api/ad-agent/*` route can remain, but the physical implementation is advertising-owned because it records advertising strategy runs and activity events.
+3. `agent-registry/domains/ad-strategy` belongs to `advertising/`. **Landed (AO-3C).**
+   The public `/api/ad-agent/*` route remains; the physical implementation is advertising-owned because it records advertising strategy runs and activity events. Now lives at `apps/server/src/advertising/adapter/in/http/ad-strategy-agent.controller.ts` + `apps/server/src/advertising/application/service/ad-strategy-agent.service.ts` and reaches Agent OS through `AGENT_RUNNER_PORT`.
 
 4. `AgentRegistryService` remains a compatibility token during migration.
    Its implementation can move to `automation/application/service/agent/agent-registry.service.ts`, while the old path re-exports it until all direct imports are replaced by explicit ports.

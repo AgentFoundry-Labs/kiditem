@@ -22,8 +22,15 @@ keep / delete / rewrite / defer 분류와 hard-delete 기준은
   advertising / AI thumbnail / companies/agent-tasks 가 모두 이 boundary 만 사용한다.
 - `AgentTask` 의 first-class trace columns (`companyId`, `workflowRunId`,
   `workflowNodeId`, `sourceDataId`) 는 production rewrite 까지 호환 보존.
-- `domains/manager/` 는 owner-domain rewrite 후 `automation/application/service/`
-  로 이동 예정. 그 전엔 현 위치 유지. (AO-3C 에서 `domains/ad-strategy/` 는 `advertising/` owner 로 이동.)
+- `domains/` (manager + ad-strategy post-processing) 는 owner domain 으로 모두
+  이동 완료. `manager` 는 AO-3B 에서 `automation` (`apps/server/src/automation/adapter/in/http/manager.controller.ts`
+  + `apps/server/src/automation/application/service/agent/manager.service.ts`) 로,
+  `ad-strategy` 는 AO-3C 에서 `advertising`
+  (`apps/server/src/advertising/adapter/in/http/ad-strategy-agent.controller.ts`
+  + `apps/server/src/advertising/application/service/ad-strategy-agent.service.ts`) 로
+  옮겨졌고 둘 다 `AGENT_RUNNER_PORT` 경유. `agent-registry/` 에는 더 이상
+  `domains/{name}/` 를 두지 않는다 — 신규 custom post-processing 은 owner business
+  domain 또는 `automation` 에 배치하고 Agent OS 는 ports 경유.
 
 `business-safety/`, `context-manager/`, `delegation/`, `events/`, `heartbeat/`,
 `lifecycle/`, `permissions/`, `safety/`, `schemas/`, `skills/`, `trace/`,
@@ -329,17 +336,28 @@ lifecycle/              — #10 + retry + transcript
 1. Add definition in `seed-agents.ts` (or register dynamically via `POST /api/agent-registry`)
 2. Write rules file in `agent-config/rules/{name}.md`
 3. Add result Zod schema in `schemas/agent-output-schemas.ts` + register in `AGENT_OUTPUT_SCHEMAS` map
-4. If custom post-processing needed → create `domains/{name}/` (controller + service)
+4. If custom post-processing needed → place controller + service under the owner
+   business domain (e.g. `advertising/`) or `automation/`, and reach Agent OS
+   through `AGENT_RUNNER_PORT`. Do not create `agent-registry/domains/{name}/`.
 5. If no custom processing → use generic `receiveResults()`, no extra code needed
 
 ## Domain Post-Processing
 
-- `domains/manager/` — Manager + workflow (Async Generator). `@Controller('manager')`.
+`agent-registry/domains/` no longer exists. Both former post-processing surfaces
+moved out to their owner domain and now reach Agent OS through
+`AGENT_RUNNER_PORT` (`AutomationModule`):
 
-> Ad strategy (`@Controller('ad-agent')`) was moved to the advertising owner
-> domain in AO-3C: `apps/server/src/advertising/adapter/in/http/ad-strategy-agent.controller.ts`
-> + `apps/server/src/advertising/application/service/ad-strategy-agent.service.ts`.
-> It now reaches Agent OS through the `AGENT_RUNNER_PORT` (`AutomationModule`).
+- `manager` (`@Controller('manager')`, `/api/manager/*`) — moved to automation
+  in AO-3B: `apps/server/src/automation/adapter/in/http/manager.controller.ts`
+  + `apps/server/src/automation/application/service/agent/manager.service.ts`.
+  Manager + workflow (Async Generator) lifecycle preserved.
+- `ad-strategy` (`@Controller('ad-agent')`, `/api/ad-agent/*`) — moved to
+  advertising in AO-3C: `apps/server/src/advertising/adapter/in/http/ad-strategy-agent.controller.ts`
+  + `apps/server/src/advertising/application/service/ad-strategy-agent.service.ts`.
+
+New custom post-processing surfaces follow the same pattern: place them under
+the owner business domain or `automation`, and call Agent OS through ports.
+Adding a new `agent-registry/domains/{name}/` folder is rejected during review.
 
 ## Agent Data Access
 
