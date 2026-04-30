@@ -11,23 +11,7 @@ import {
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { cn, formatKRW } from '@/lib/utils';
-
-interface Settlement {
-  id: string;
-  period: string;
-  expectedAmount: number;
-  actualAmount: number;
-  commission: number;
-  shippingFee: number;
-  adjustments: number;
-  difference: number;
-  orderCount: number;
-  returnCount: number;
-  status: string;
-  settledAt: string | null;
-  notes: string | null;
-  createdAt: string;
-}
+import type { Settlement } from '@/app/(finance)/_shared/types';
 
 export default function ReceivableSchedule() {
   const { data: settlements = [] } = useQuery({

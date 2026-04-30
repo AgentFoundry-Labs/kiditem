@@ -14,20 +14,7 @@ import {
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatKRW } from '@/lib/utils';
-
-interface Payment {
-  id: string;
-  supplierId: string;
-  supplierName: string;
-  amount: number;
-  paidAmount: number;
-  status: string;
-  dueDate: string | null;
-  paidDate: string | null;
-  purchaseOrderId: string | null;
-  notes: string | null;
-  createdAt: string;
-}
+import type { SupplierPayment } from '@/app/(finance)/_shared/types';
 
 interface Summary {
   totalAmount: number;
@@ -53,7 +40,7 @@ export default function SupplierPayments() {
 
   const { data: paymentsData } = useQuery({
     queryKey: queryKeys.supplierPayments.all,
-    queryFn: () => apiClient.get<Payment[]>('/api/supplier-payments'),
+    queryFn: () => apiClient.get<SupplierPayment[]>('/api/supplier-payments'),
   });
 
   const payments = paymentsData ?? [];
@@ -71,7 +58,7 @@ export default function SupplierPayments() {
 
   const [tab, setTab] = useState('unpaid');
   const [showPayModal, setShowPayModal] = useState(false);
-  const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null);
+  const [selectedPayment, setSelectedPayment] = useState<SupplierPayment | null>(null);
   const [payAmount, setPayAmount] = useState('');
 
   const payMutation = useMutation({
@@ -84,7 +71,7 @@ export default function SupplierPayments() {
     },
   });
 
-  const openPayModal = (payment: Payment) => {
+  const openPayModal = (payment: SupplierPayment) => {
     setSelectedPayment(payment);
     setPayAmount(String(payment.amount - payment.paidAmount));
     setShowPayModal(true);

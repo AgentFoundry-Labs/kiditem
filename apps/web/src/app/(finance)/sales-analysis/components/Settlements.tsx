@@ -23,22 +23,7 @@ import { queryKeys } from '@/lib/query-keys';
 import { cn, formatKRW } from '@/lib/utils';
 import { usePeriodSelector } from '@/hooks/usePeriodSelector';
 import PeriodSelector from '@/components/ui/PeriodSelector';
-
-interface Settlement {
-  id: string;
-  period: string;
-  expectedAmount: number;
-  actualAmount: number;
-  commission: number;
-  shippingFee: number;
-  adjustments: number;
-  difference: number;
-  orderCount: number;
-  returnCount: number;
-  status: string;
-  settledAt: string | null;
-  notes: string | null;
-}
+import type { Settlement } from '@/app/(finance)/_shared/types';
 
 interface ReconcileDetail {
   productId: string;

@@ -10,30 +10,19 @@ import {
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { cn, formatKRW } from '@/lib/utils';
-
-interface Payment {
-  id: string;
-  supplierId: string;
-  supplierName: string;
-  amount: number;
-  paidAmount: number;
-  status: string;
-  dueDate: string | null;
-  notes: string | null;
-  createdAt: string;
-}
+import type { SupplierPayment } from '@/app/(finance)/_shared/types';
 
 interface GroupedPayments {
-  overdue: Payment[];
-  thisWeek: Payment[];
-  thisMonth: Payment[];
-  later: Payment[];
+  overdue: SupplierPayment[];
+  thisWeek: SupplierPayment[];
+  thisMonth: SupplierPayment[];
+  later: SupplierPayment[];
 }
 
 export default function PaymentSchedule() {
   const { data: payments = [] } = useQuery({
     queryKey: ['supplier-payments', 'unpaid'],
-    queryFn: () => apiClient.get<Payment[]>('/api/supplier-payments?status=unpaid'),
+    queryFn: () => apiClient.get<SupplierPayment[]>('/api/supplier-payments?status=unpaid'),
   });
 
   // Group by schedule
@@ -71,7 +60,7 @@ export default function PaymentSchedule() {
   const renderGroup = (
     title: string,
     icon: React.ReactNode,
-    items: Payment[],
+    items: SupplierPayment[],
     colorClass: string
   ) => {
     if (items.length === 0) return null;
