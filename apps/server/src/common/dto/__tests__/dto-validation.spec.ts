@@ -6,7 +6,7 @@ import { PaginationQueryDto } from '../pagination.dto';
 import { OrderActionBodyDto } from '../../../orders/dto/order-action.dto';
 import {
   PurchaseOrderActionBodyDto,
-} from '../../../procurement/dto/purchase-order-action.dto';
+} from '../../../sourcing/adapter/in/http/dto/purchase-order-action.dto';
 
 // ── Helpers ──
 

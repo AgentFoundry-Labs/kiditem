@@ -1,18 +1,24 @@
-# finance — P&L + Sales Analysis (Live Aggregation)
+# finance — P&L + Sales Analysis + Finance Capabilities
 
 > **Plan D.1 완료 (ADR-0016)**: `profit-loss.service.ts` 가 live aggregation 으로 재작성됨 (2026-04-20). `ProfitLoss` 테이블 read-path 는 제거. `ProfitLoss` 테이블 자체는 drop 하지 않음 (legacy data 보존, Plan E 에서 writer 신설 시 cache 재활용 가능). **7개 other readers** (statistics × 5, settlements, sales-plans, ad-strategy, dashboard-inventory, dashboard-trend, action-task × 2) 는 ADR-0016 scope 밖 — 각 D.4/D.5/Plan E phase 에서 migration. (**sales-analysis 는 D.3 에서 migration 완료 — 아래 섹션 참조**)
 
-10 파일. **Prisma ORM 기반 live cross-table 집계** + period parsing + cross-domain pricing resolver.
+> **Wave H1 Lane F 완료 (2026-04-30)**: `manual-ledger`, `processing-costs`, `supplier-payments`, `sales-plans`, `settlements` 5개 finance capability 가 top-level 에서 `apps/server/src/finance/` 아래로 fold. 단일 `FinanceModule` 이 7개 컨트롤러/서비스 등록. 라우트, DTO, Prisma 모델, shared exports, 테넌트 스코프, 서비스 동작 모두 보존. `Settlement` Prisma 모델은 Orders 네임스페이스, `SupplierPayment` Prisma 모델은 Supply 네임스페이스에 그대로 (스키마 변경 없음).
+
+**Prisma ORM 기반 live cross-table 집계** + period parsing + cross-domain pricing resolver + finance capability CRUD (manual ledger, processing costs, supplier payments, sales plans, settlements reconcile).
 
 ## Directory
 
 ```
 finance/
-├── controllers/   # profit-loss, sales-analysis (2개)
-├── services/      # profit-loss, sales-analysis, types
-├── dto/           # 2 query DTO
-├── __tests__/     # pl-flow.spec.ts
-└── finance.module.ts
+├── controllers/                # profit-loss, sales-analysis (2개)
+├── services/                   # profit-loss, sales-analysis
+├── dto/                        # 2 query DTO
+├── manual-ledger/              # 수기 장부 CRUD (companyId scoped)
+├── processing-costs/           # 가공비 CRUD + 월별 집계 + MasterProduct check
+├── supplier-payments/          # 거래처 결제 CRUD (Supplier/PurchaseOrder scoped check)
+├── sales-plans/                # 판매 계획 CRUD + syncActuals (KST month window)
+├── settlements/                # 정산 CRUD + reconcile ($queryRaw + KST window + bigint conversion)
+└── finance.module.ts           # 단일 모듈, 7 controllers + 7 services
 ```
 
 ## Routes
@@ -21,6 +27,11 @@ finance/
 |---|---|
 | `GET /api/profit-loss` | 기간별 P&L (회사 집계) |
 | `GET /api/sales-analysis` | 채널 단위 revenue/cost/profit breakdown |
+| `GET/POST/DELETE /api/manual-ledger` | 수기 장부 — 거래 기록 CRUD |
+| `GET/POST/PATCH /api/processing-costs` | 가공비 — `GET monthly` 월별 집계 포함 |
+| `GET/POST/PATCH /api/supplier-payments` | 거래처 결제 |
+| `GET/POST/PATCH/DELETE /api/sales-plans` + `PATCH /:id/sync` | 판매 계획 + 실적 동기화 |
+| `GET/POST/PATCH /api/settlements` + `POST /reconcile` | 정산 + 월별 reconcile |
 
 ## 핵심 패턴
 
@@ -88,8 +99,10 @@ profit-loss.service.ts:12-14, sales-analysis.service.ts:16-23:
 ## Cross-domain deps
 
 - **common/option-pricing-resolver** — `resolvePricing({ option })` (nested-only)
-- **common/kst** — `kstMonthStart(year, month)` (KST 월 경계)
-- **prisma** — PrismaService (Order, OrderLineItem, OrderReturnLineItem, ChannelListingDailySnapshot)
+- **common/kst** — `kstMonthStart(year, month)` (KST 월 경계, sales-plans + settlements reconcile)
+- **common/per-listing-profit** — `buildPerListingMetrics(...)` (sales-plans `syncActuals`, settlements `reconcile`)
+- **prisma** — PrismaService (Order, OrderLineItem, OrderReturnLineItem, ChannelListingDailySnapshot, ManualLedger, ProcessingCost, SupplierPayment, SalesPlan, Settlement, MasterProduct, Supplier, PurchaseOrder)
+- `Settlement` Prisma 모델은 **Orders 네임스페이스**, `SupplierPayment` 모델은 **Supply 네임스페이스** — 폴드는 백엔드 모듈 경계만 옮긴 것이며 스키마 namespace 는 그대로
 
 ## 함께 수정할 파일 맵
 

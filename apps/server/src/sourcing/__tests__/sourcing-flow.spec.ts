@@ -1,6 +1,6 @@
 import { NotImplementedException } from '@nestjs/common';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { SourcingService } from '../sourcing.service';
+import { SourcingService } from '../application/service/sourcing.service';
 
 function makePrisma() {
   return {
@@ -14,21 +14,21 @@ function makePrisma() {
   };
 }
 
-function makeAgentRegistry() {
+function makeAgentGateway() {
   return {
-    runByType: vi.fn().mockResolvedValue({ taskId: 'task-1', ok: true }),
+    scrapeUrl: vi.fn().mockResolvedValue({ taskId: 'task-1' }),
   };
 }
 
 describe('SourcingService — extension data ingestion', () => {
   let service: SourcingService;
   let prisma: ReturnType<typeof makePrisma>;
-  let agentRegistry: ReturnType<typeof makeAgentRegistry>;
+  let agentGateway: ReturnType<typeof makeAgentGateway>;
 
   beforeEach(() => {
     prisma = makePrisma();
-    agentRegistry = makeAgentRegistry();
-    service = new SourcingService(prisma as any, agentRegistry as any);
+    agentGateway = makeAgentGateway();
+    service = new SourcingService(prisma as any, agentGateway as any);
   });
 
   it('receiveExtensionData with new source_url → rejects create path until MasterCodeService integration', async () => {
@@ -150,6 +150,17 @@ describe('SourcingService — extension data ingestion', () => {
     expect(prisma.masterProduct.findFirst).not.toHaveBeenCalled();
     expect(prisma.masterProduct.create).not.toHaveBeenCalled();
     expect(result.product_count).toBe(42);
+    expect(result.ok).toBe(true);
+  });
+
+  it('scrapeUrl → delegates to SourcingAgentGatewayPort with companyId scope', async () => {
+    const result = await service.scrapeUrl('https://1688.com/item/77', 'company-2');
+
+    expect(agentGateway.scrapeUrl).toHaveBeenCalledWith({
+      companyId: 'company-2',
+      url: 'https://1688.com/item/77',
+    });
+    expect(result.taskId).toBe('task-1');
     expect(result.ok).toBe(true);
   });
 });
