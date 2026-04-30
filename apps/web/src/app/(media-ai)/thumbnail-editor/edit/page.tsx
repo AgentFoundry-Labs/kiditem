@@ -9,9 +9,9 @@ import { MasterSchema } from '@kiditem/shared/product';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import { useStore } from '@/store/useStore';
-import { useSelectCandidate, useWingRegister, useDeleteCandidate } from '@/hooks/useThumbnailGenerations';
+import { useSelectCandidate, useWingRegister, useDeleteCandidate } from '../../_shared/hooks/useThumbnailGenerations';
 import { resolveImageUrl } from '@/lib/resolve-url';
-import { useProductImages } from '@/hooks/useProductImages';
+import { useProductImages } from '../../_shared/hooks/useProductImages';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import type { ThumbnailGenerationItem } from '@kiditem/shared/ai';
 

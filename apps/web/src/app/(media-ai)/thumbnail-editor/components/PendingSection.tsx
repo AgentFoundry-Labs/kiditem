@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { ChevronLeft, ChevronRight, Loader2, PlayCircle, X } from 'lucide-react';
 import { toast } from 'sonner';
 
-import { useDeleteGeneration, useGenerationList } from '@/hooks/useThumbnailGenerations';
+import { useDeleteGeneration, useGenerationList } from '../../_shared/hooks/useThumbnailGenerations';
 import { resolveImageUrl } from '@/lib/resolve-url';
 import { cn } from '@/lib/utils';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';

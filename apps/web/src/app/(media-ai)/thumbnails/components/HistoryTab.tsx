@@ -1,12 +1,12 @@
 import { Loader2 } from 'lucide-react';
 import type { ThumbnailGenerationItem } from '@kiditem/shared/ai';
 import type { ThumbnailTrackingRecord } from '../hooks/useThumbnailTracking';
-import { isApplied, isReady } from '@/lib/thumbnail-status';
+import { isApplied, isReady } from '../../_shared/lib/thumbnail-status';
 import { pickDisplayableImageUrl } from '@/lib/resolve-url';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { ProductCard } from './ProductCard';
+import { ProductCard } from '../../_shared/components/thumbnails/ProductCard';
 import { PaginationBar } from './PaginationBar';
-import { ThumbnailStatusBadge } from './ThumbnailStatusBadge';
+import { ThumbnailStatusBadge } from '../../_shared/components/thumbnails/ThumbnailStatusBadge';
 import { TrackingTab } from './TrackingTab';
 
 type HistorySubTab = 'history' | 'tracking';

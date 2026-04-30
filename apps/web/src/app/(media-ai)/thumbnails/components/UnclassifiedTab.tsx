@@ -1,7 +1,7 @@
 import { Loader2, Zap } from 'lucide-react';
 import type { ThumbnailAnalysisResult } from '@kiditem/shared/ai';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { ProductCard } from './ProductCard';
+import { ProductCard } from '../../_shared/components/thumbnails/ProductCard';
 import { PaginationBar } from './PaginationBar';
 import type { AnalysisScope } from '../hooks/useThumbnailAnalysis';
 import { getEffectiveComplianceGrade, needsThumbnailFix } from '../lib/thumbnail-classification';

@@ -14,9 +14,9 @@ import {
 } from '@kiditem/shared/product';
 import type { ThumbnailGenerationItem } from '@kiditem/shared/ai';
 
-import { useRecentGenerations } from '@/hooks/useRecentGenerations';
+import { useRecentGenerations } from '../hooks/useRecentGenerations';
 import { apiClient } from '@/lib/api-client';
-import { HUB_ROLE_CONFIG, type MasterImageRole } from '@/lib/hub-roles';
+import { HUB_ROLE_CONFIG, type MasterImageRole } from '../../_shared/lib/hub-roles';
 import { queryKeys } from '@/lib/query-keys';
 import { cn } from '@/lib/utils';
 

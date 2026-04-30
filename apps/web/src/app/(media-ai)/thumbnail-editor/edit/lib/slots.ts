@@ -1,4 +1,4 @@
-import type { MasterImageRole } from '@/lib/hub-roles';
+import type { MasterImageRole } from '../../../_shared/lib/hub-roles';
 
 export type SlotKind = 'product' | 'packaging' | 'color_variant' | 'bundle_item' | 'reference';
 export type SlotSource = 'upload' | 'hub' | 'prev-gen' | 'other-product';

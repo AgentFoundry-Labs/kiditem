@@ -7,16 +7,16 @@ import type { ThumbnailAnalysisResult, ThumbnailGenerationItem } from '@kiditem/
 import { ErrorState, EmptyState } from '@/components/ui/EmptyState';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { isApplied, isReady } from '@/lib/thumbnail-status';
+import { isApplied, isReady } from '../_shared/lib/thumbnail-status';
 import { pickDisplayableImageUrl } from '@/lib/resolve-url';
 
 import { useAnalysisList } from './hooks/useThumbnailAnalysis';
-import { useGenerationList } from './hooks/useThumbnailGenerations';
+import { useGenerationList } from '../_shared/hooks/useThumbnailGenerations';
 import { useTrackingList } from './hooks/useThumbnailTracking';
 import { useBatchAnalysis } from './hooks/useBatchAnalysis';
 import { useThumbnailActions } from './hooks/useThumbnailActions';
 
-import { DetailModal } from './components/DetailModal';
+import { DetailModal } from '../_shared/components/thumbnails/DetailModal';
 import { InspectionDrawer } from './components/InspectionDrawer';
 import { ThumbnailHeader } from './components/ThumbnailHeader';
 import { BatchProgressBanner } from './components/BatchProgressBanner';

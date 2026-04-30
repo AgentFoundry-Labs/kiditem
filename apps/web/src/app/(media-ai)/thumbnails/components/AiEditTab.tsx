@@ -20,12 +20,12 @@ import type {
   ThumbnailGenerationItem,
 } from '@kiditem/shared/ai';
 import { cn } from '@/lib/utils';
-import { isActive, isApplied, isReady } from '@/lib/thumbnail-status';
-import { useDeleteGeneration, useReEditGeneration } from '@/hooks/useThumbnailGenerations';
+import { isActive, isApplied, isReady } from '../../_shared/lib/thumbnail-status';
+import { useDeleteGeneration, useReEditGeneration } from '../../_shared/hooks/useThumbnailGenerations';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { ProductCard } from './ProductCard';
-import { RecomposeVariantPicker } from '@/components/thumbnails/RecomposeVariantPicker';
-import { ThumbnailStatusBadge } from './ThumbnailStatusBadge';
+import { ProductCard } from '../../_shared/components/thumbnails/ProductCard';
+import { RecomposeVariantPicker } from '../../_shared/components/thumbnails/RecomposeVariantPicker';
+import { ThumbnailStatusBadge } from '../../_shared/components/thumbnails/ThumbnailStatusBadge';
 import { resolveImageUrl } from '../lib/resolve-url';
 import { buildEditHref } from '@/app/(media-ai)/thumbnail-editor/edit/lib/build-edit-href';
 

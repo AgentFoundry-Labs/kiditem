@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo } from 'react';
-import { useGenerationList } from '@/hooks/useThumbnailGenerations';
+import { useGenerationList } from '../../../_shared/hooks/useThumbnailGenerations';
 import { resolveImageUrl } from '@/lib/resolve-url';
 import type { EditorMode, HistoryCandidate } from '../lib/edit-page-types';
 

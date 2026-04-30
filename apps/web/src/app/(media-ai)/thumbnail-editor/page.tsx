@@ -3,7 +3,7 @@
 import { useRef, useState } from 'react';
 import Link from 'next/link';
 
-import { useGenerationList } from '@/hooks/useThumbnailGenerations';
+import { useGenerationList } from '../_shared/hooks/useThumbnailGenerations';
 import { useAnalysisList } from '@/app/(media-ai)/thumbnails/hooks/useThumbnailAnalysis';
 
 import { HubUploadZone, type HubUploadZoneHandle } from './components/HubUploadZone';

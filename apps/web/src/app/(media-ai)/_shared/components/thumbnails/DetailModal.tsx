@@ -21,7 +21,7 @@ import {
   getViolationEvidence,
 } from '@/app/(media-ai)/thumbnails/lib/thumbnail-classification';
 import { resolveImageUrl } from '@/lib/resolve-url';
-import { isApplied } from '@/lib/thumbnail-status';
+import { isApplied } from '../../lib/thumbnail-status';
 import { CoupangSearchCardPreview } from '@/components/coupang/CoupangPreview';
 import { buildEditHref } from '@/app/(media-ai)/thumbnail-editor/edit/lib/build-edit-href';
 
