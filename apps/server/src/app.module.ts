@@ -21,7 +21,6 @@ import { AiModule } from './ai/ai.module';
 import { FinanceModule } from './finance/finance.module';
 import { RulesModule } from './rules/rules.module';
 import { AgentRegistryModule } from './agent-registry/agent-registry.module';
-import { MarketplaceModule } from './marketplace/marketplace.module';
 import { AutomationModule } from './automation/automation.module';
 import { AdvertisingModule } from './advertising/advertising.module';
 import { FeatureGateModule } from './feature-gate/feature-gate.module';
@@ -55,7 +54,6 @@ import { UploadsModule } from './uploads/uploads.module';
     FinanceModule,
     RulesModule,
     AgentRegistryModule,
-    MarketplaceModule,
     AutomationModule,
     AdvertisingModule,
     ChatModule,

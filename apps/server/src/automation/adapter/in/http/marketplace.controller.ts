@@ -8,26 +8,26 @@ import {
   Query,
 } from '@nestjs/common';
 import { CurrentCompany } from '../../../../auth/decorators/current-company.decorator';
-import { MarketplaceService } from '../../../../marketplace/marketplace.service';
+import { MarketplaceCatalogService } from '../../../application/service/marketplace-catalog.service';
 import { MarketplaceInstallService } from '../../../application/service/marketplace-install.service';
 import { ListMarketplaceQueryDto, InstallMarketplaceBodyDto } from './dto';
 
 /**
  * Inbound HTTP adapter for the Marketplace surface, owned by the
- * Automation owner-domain. Catalog read/list go to the read-side
- * `MarketplaceService` (which still lives next to the catalog data in
- * `apps/server/src/marketplace/`); install + uninstall (the side-
- * effecting paths) go through the `MarketplaceInstallService`
- * application service.
+ * Automation owner-domain. Catalog read/list go to
+ * `MarketplaceCatalogService` (read-side projection); install +
+ * uninstall (the side-effecting paths) go through the
+ * `MarketplaceInstallService` application service. Both live under
+ * `automation/application/service/`.
  *
  * Route shape, DTOs, and response payloads are unchanged from the
- * pre-Phase-3C-3 controller — this is a structural move, not a
- * behavior change.
+ * pre-fold controller — this is a structural move, not a behavior
+ * change.
  */
 @Controller('marketplace')
 export class MarketplaceController {
   constructor(
-    private readonly catalog: MarketplaceService,
+    private readonly catalog: MarketplaceCatalogService,
     private readonly install: MarketplaceInstallService,
   ) {}
 

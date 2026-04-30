@@ -1,20 +1,19 @@
 /**
- * Slim-core workflow node-type allowlist for the Marketplace catalog.
+ * Slim-core workflow node-type allowlist.
  *
  * MUST stay in lockstep with the executor registration list in
- * `apps/server/src/automation/adapter/out/workflow-runner/executors/builtin.ts`.
- * Catalog entries that reference any other node type are hidden from listings
- * (read side) and rejected at install time (write side).
+ * `./builtin.ts`. Catalog entries that reference any other node type are
+ * hidden from listings (read side) and rejected at install time
+ * (write side).
  *
  * Generic DB/HTTP/transform executors are intentionally absent. AI/LLM
  * work is delegated through `agent_task.create` only. Domain-specific
  * executors (e.g. coupang.orders.fetch) must be registered in
  * `builtin.ts` BEFORE being added here.
  *
- * Both consumers — `MarketplaceService` (read-side filter) and
- * `MarketplaceInstallService` (write-side rejection in
- * `automation/application/service/`) — share this single source of
- * truth so the lockstep invariant cannot drift.
+ * Both consumers — `MarketplaceCatalogService` (read-side filter) and
+ * `MarketplaceInstallService` (write-side rejection) — share this
+ * single source of truth so the lockstep invariant cannot drift.
  */
 export const ALLOWED_WORKFLOW_NODE_TYPES: ReadonlySet<string> = new Set([
   'trigger.manual',

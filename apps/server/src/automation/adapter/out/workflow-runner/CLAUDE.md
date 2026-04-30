@@ -105,7 +105,10 @@ External API 응답을 노드 output 으로 노출할 땐 raw key 를 그대로 
 2026-04-29 에 hard-delete 됐다 (`Phase 3C-1`).
 
 새 executor 추가 PR 은 catalog templates 가 사용 가능한 경우
-`marketplace/workflow-slim-core.ts` 도 같은 PR 에서 갱신한다.
+`./executors/slim-core-allowlist.ts` 도 같은 PR 에서 갱신한다 — 카탈로그
+read-side filter (`MarketplaceCatalogService`) 와 install write-side
+defense (`MarketplaceInstallService`) 가 동일 모듈을 import 하므로
+lockstep 이 단일 파일에서 닫힌다.
 
 ## Tenant boundary (runner-injected only)
 

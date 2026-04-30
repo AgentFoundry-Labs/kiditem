@@ -245,7 +245,7 @@ async getProduct(id: string, companyId: string) {
 
 **규칙**: `src/{domain}/` 하위 파일을 Edit 하기 전, 아래 표의 해당 행이 가리키는 scoped document 를 먼저 Read 한다. 현재 전용 도메인 문서는 `CLAUDE.md` 로 유지 중이다. Index 에 없으면 부모 NestJS 패턴(이 문서)으로 충분하다.
 
-### 전용 CLAUDE.md 가 있는 도메인 (16)
+### 전용 CLAUDE.md 가 있는 도메인 (15)
 
 | 경로 | 크기 | 핵심 포인트 |
 |---|---|---|
@@ -258,7 +258,6 @@ async getProduct(id: string, companyId: string) {
 | [`src/chat/CLAUDE.md`](src/chat/CLAUDE.md) | 155줄 | CopilotKit Runtime + ClaudeCliAdapter. Express pre-registration (NestJS 우회), SSE 토큰 스트리밍 |
 | [`src/finance/CLAUDE.md`](src/finance/CLAUDE.md) | 70줄 | P&L + Sales Analysis — $queryRaw cross-table 집계, period parsing, pricing resolver |
 | [`src/inventory/CLAUDE.md`](src/inventory/CLAUDE.md) | ~190줄 | Inventory owner domain — `adapter/application/domain/mapper` 분해. capabilities = inventory + unshipped + warehouses + stock-transfers + stock-audits + picking. `InventoryApplicationService` 단독 writer (ADR-0014). `PrismaService` import 는 `adapter/out/prisma/**` 에 한정 (architecture guard spec 동결). domain layer 는 NestJS/Prisma free. Transfer = record-only. capability state machine + bound check 는 `domain/policy/*` |
-| [`src/marketplace/CLAUDE.md`](src/marketplace/CLAUDE.md) | 75줄 | Workflow/Agent 카탈로그 — read-only 카탈로그 + per-company 설치 추적 + param override |
 | [`src/orders/CLAUDE.md`](src/orders/CLAUDE.md) | 60줄 | Order/Return/CS 통합 — multi-controller 모듈, 외부 채널 어댑터 위임, status 필터링 |
 | [`src/automation/adapter/out/panel-event/CLAUDE.md`](src/automation/adapter/out/panel-event/CLAUDE.md) | ~80줄 | Live Ops SSE projection adapter — `/api/panel/*` HTTP adapter + EventEmitter2 ring buffer + 4-source read-only projection |
 | [`src/automation/adapter/out/agent-runtime/CLAUDE.md`](src/automation/adapter/out/agent-runtime/CLAUDE.md) | ~35줄 | Agent OS runtime adapter — Claude CLI / Python HTTP execution adapters, immutable ExecutionContext, observable adapter fallback |
