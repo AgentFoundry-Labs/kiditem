@@ -50,8 +50,11 @@ fast without re-litigating boundaries.
   policy, AgentTask trace contract.
 - `apps/server/src/rules/CLAUDE.md` — event-driven evaluation flow and tagged
   raw SQL contract.
-- `apps/server/src/marketplace/CLAUDE.md` — read-only catalog + parametrized
-  install + slim-core node-type allowlist.
+- `apps/server/src/automation/adapter/in/http/marketplace.controller.ts` and
+  `apps/server/src/automation/application/service/marketplace-catalog.service.ts`
+  — read-only marketplace catalog surface.
+- `apps/server/src/automation/adapter/out/workflow-runner/executors/slim-core-allowlist.ts`
+  — shared slim-core node-type allowlist for catalog read and install.
 - [`2026-04-28-codebase-reconstruction.md`](2026-04-28-codebase-reconstruction.md)
   Phase 3B priorities and gates.
 - [`2026-04-29-backend-architecture-contract.md`](2026-04-29-backend-architecture-contract.md)
@@ -363,15 +366,20 @@ Server consumers: panel integration tests; `rules/services/alerts.service.ts`
 Web consumers: `/api/action-tasks/*` from
 `apps/web/src/app/action-board/page.tsx`.
 
-### `apps/server/src/marketplace/` — read-only catalog + parametrized install
+### Marketplace catalog — read-only catalog + parametrized install
 
-Files (5 production files):
-- `marketplace.module.ts`, `marketplace.controller.ts` (8 routes —
+Files (post-Wave H3 cleanup, all under `apps/server/src/automation/`):
+- `automation/adapter/in/http/marketplace.controller.ts` (8 routes —
   4 for workflow catalog, 4 for agent catalog).
-- `marketplace.service.ts` (308 lines) — slim-core node-type allowlist gate
-  for workflow catalog, install clones to `workflowTemplate` /
-  `agentDefinition`, uninstall removes the clone.
-- `dto/*` (2 DTOs).
+- `automation/application/service/marketplace-catalog.service.ts` — read-side
+  catalog list/detail projection and per-company installed-state
+  cross-reference.
+- `automation/application/service/marketplace-install.service.ts` — install /
+  uninstall orchestration; clones to `workflowTemplate` / `agentDefinition`
+  and updates install counts.
+- `automation/adapter/out/workflow-runner/executors/slim-core-allowlist.ts`
+  — shared allowlist gate used by catalog reads and install writes.
+- `automation/adapter/in/http/dto/{list-marketplace,install-marketplace}.dto.ts`.
 
 Inbound entrypoints:
 - HTTP — `MarketplaceController`. `@CurrentCompany()` on every install /
@@ -455,8 +463,9 @@ Web consumers: `/api/panel/stream` SSE consumed by the panel UI store.
 | `automation/domain/policy/action-seeds.ts` daily seed policy | **Keep (Phase 3C-7)** | Pure threshold rules. No NestJS, Prisma, AgentRegistry, event bus, filesystem, or provider SDK imports. |
 | `automation/application/service/action-board.service.ts` orchestration | **Keep (Phase 3C-7)** | Replaces the old top-level `action-task/action-task.service.ts`. Owns tenant-scoped Prisma orchestration for `/api/action-tasks/*`. |
 | `automation/application/service/action-board.service.ts:executeTask` self-fetch via `API_SELF_URL` | **Defer** | Self-fetch back into the same NestJS process is a smell, but the targeted endpoints span `products`, `inventory`, `coupang-category`, etc. Replacement requires a stable internal-call port; defer to a dedicated internal-command port PR. |
-| `marketplace/marketplace.service.ts` slim-core allowlist gate | **Keep** | Catalog defense-in-depth. Allowlist must mirror `executors/builtin.ts` registration; sync rule already in `marketplace/CLAUDE.md`. |
-| `marketplace/marketplace.service.ts` install/uninstall paths | **Rewritten (Phase 3C-3)** | Moved to `automation/application/service/marketplace-install.service.ts` for orchestration and `automation/adapter/out/prisma/marketplace-install-store.adapter.ts` for tenant-scoped persistence. `MarketplaceController` moved to `automation/adapter/in/http/marketplace.controller.ts`; DTOs alongside. Catalog read methods (`listWorkflows` / `getWorkflow` / `listAgents` / `getAgent`) stay in `marketplace/marketplace.service.ts`. Slim-core allowlist extracted to `marketplace/workflow-slim-core.ts` (single source of truth shared with the install service). Public route shape unchanged. |
+| `automation/application/service/marketplace-catalog.service.ts` catalog read-side | **Keep (Wave H3 cleanup)** | Former `marketplace/marketplace.service.ts` read-side projection. The top-level `marketplace/` folder was removed; public `/api/marketplace/*` routes still enter through the automation HTTP adapter. |
+| `automation/adapter/out/workflow-runner/executors/slim-core-allowlist.ts` slim-core allowlist gate | **Keep (Wave H3 cleanup)** | Catalog defense-in-depth. Allowlist must mirror `executors/builtin.ts` registration; catalog read filtering and install write rejection import this single source. |
+| `marketplace/marketplace.service.ts` install/uninstall paths | **Rewritten (Phase 3C-3)** | Moved to `automation/application/service/marketplace-install.service.ts` for orchestration and `automation/adapter/out/prisma/marketplace-install-store.adapter.ts` for tenant-scoped persistence. `MarketplaceController` moved to `automation/adapter/in/http/marketplace.controller.ts`; DTOs alongside. Public route shape unchanged. |
 | `panel/panel.service.ts` snapshot multi-source backfill | **Rewritten (Phase 3C-4)** | Top-level `panel/` removed. Projection now lives at `automation/adapter/out/panel-event/panel.service.ts`. |
 | `panel/events/panel-sse.service.ts` ring buffer + multiplex SSE | **Rewritten (Phase 3C-4)** | Moved to `automation/adapter/out/panel-event/panel-sse.service.ts`; event constants moved alongside. |
 | `panel/adapters/*.adapter.ts` | **Rewritten (Phase 3C-4)** | Moved and renamed to `automation/mapper/panel-event/*.mapper.ts`, with `workflow-run.mapper.ts` as the internal upsert helper. |
@@ -549,13 +558,16 @@ Each follow-up PR is one owner-domain PR. Do not bundle two of these.
      `automation/adapter/out/prisma/`. `MarketplaceController` moved to
      `automation/adapter/in/http/marketplace.controller.ts`; HTTP DTOs
      moved alongside under `automation/adapter/in/http/dto/`. Catalog
-     read remains as `MarketplaceService` in `marketplace/` (no port
-     wrap — read-only catalog projection has no runtime side effect).
-     Slim-core node-type allowlist extracted to
-     `marketplace/workflow-slim-core.ts` so the lockstep with
-     `automation/adapter/out/workflow-runner/executors/builtin.ts` is single-source. Routes, DTOs,
-     and response shapes unchanged. New unit spec at
-     `automation/application/service/__tests__/marketplace-install.service.spec.ts`.
+     read initially remained as `MarketplaceService` in `marketplace/`, then
+     the Wave H3 cleanup folded it into
+     `automation/application/service/marketplace-catalog.service.ts` and
+     removed the top-level `marketplace/` folder. Slim-core node-type
+     allowlist now lives at
+     `automation/adapter/out/workflow-runner/executors/slim-core-allowlist.ts`
+     so the lockstep with
+     `automation/adapter/out/workflow-runner/executors/builtin.ts` is
+     single-source. Routes, DTOs, and response shapes unchanged. New unit spec
+     at `automation/application/service/__tests__/marketplace-install.service.spec.ts`.
 
 4. **Phase 3C-4 — Panel as outgoing adapter**
    - Move `panel/` to `automation/adapter/out/panel-event/`. `panel.service.ts`

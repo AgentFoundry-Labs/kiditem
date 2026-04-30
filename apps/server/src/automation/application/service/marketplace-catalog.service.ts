@@ -1,11 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { Marketplace } from '@prisma/client';
 import type { MarketplaceCatalogItem, ConfigurableParam } from '@kiditem/shared/marketplace';
-import { PrismaService } from '../prisma/prisma.service';
+import { PrismaService } from '../../../prisma/prisma.service';
 import {
   collectInvalidNodeTypes,
   isWorkflowCatalogSlimCoreCompatible,
-} from './workflow-slim-core';
+} from '../../adapter/out/workflow-runner/executors/slim-core-allowlist';
 
 function toCatalogItem(item: Marketplace, installed: boolean): MarketplaceCatalogItem {
   return {
@@ -37,16 +37,17 @@ function toCatalogItem(item: Marketplace, installed: boolean): MarketplaceCatalo
  * Catalog read-side service for the Marketplace.
  *
  * Holds only listing / projection / single-item lookups. The
- * side-effecting install + uninstall paths live behind the
- * `MarketplaceInstallService` application service in
- * `apps/server/src/automation/application/service/`. Separating the
- * read side from the application service keeps simple catalog reads
- * out of the application boundary while still gating the runtime
- * side-effects.
+ * side-effecting install + uninstall paths live behind
+ * `MarketplaceInstallService`. Both services live under the Automation
+ * owner-domain because the marketplace catalog is consumed exclusively
+ * by Automation surfaces (HTTP controller + install application service);
+ * folding the read-side into Automation removes the table-shaped
+ * `marketplace/` top-level module while preserving the
+ * `/api/marketplace/*` route shape and slim-core allowlist behavior.
  */
 @Injectable()
-export class MarketplaceService {
-  private readonly logger = new Logger(MarketplaceService.name);
+export class MarketplaceCatalogService {
+  private readonly logger = new Logger(MarketplaceCatalogService.name);
 
   constructor(private readonly prisma: PrismaService) {}
 

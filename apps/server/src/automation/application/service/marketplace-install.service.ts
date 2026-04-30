@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { collectInvalidNodeTypes } from '../../../marketplace/workflow-slim-core';
+import { collectInvalidNodeTypes } from '../../adapter/out/workflow-runner/executors/slim-core-allowlist';
 import {
   MarketplaceInstallParams,
   MarketplaceInstallStorePort,
@@ -53,9 +53,9 @@ function booleanParam(params: MarketplaceInstallParams | undefined, key: string)
  * - Uninstall removes the tenant's installed instance and decrements the
  *   catalog's `installCount`.
  *
- * Catalog read/list (`MarketplaceService` in `marketplace/`) intentionally
- * stays out of this service: it has no runtime side effects and does not
- * benefit from sitting behind an application boundary.
+ * Catalog read/list (`MarketplaceCatalogService` next to this service)
+ * intentionally stays separate: it has no runtime side effects and is a
+ * read-only projection of the catalog table.
  *
  * Tenant scope:
  * - All writes bind `companyId` from the trusted `@CurrentCompany()`

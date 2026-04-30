@@ -1,13 +1,13 @@
 import { Module } from '@nestjs/common';
 import { AGENT_SCHEDULE_CONTROL_PORT } from './application/port/in/agent-schedule-control.port';
 import { AgentRuntimeScheduleControlAdapter } from './adapter/out/agent-runtime/agent-schedule-control.adapter';
+import { MarketplaceCatalogService } from './application/service/marketplace-catalog.service';
 import { MarketplaceInstallService } from './application/service/marketplace-install.service';
 import { ActionTaskController } from './adapter/in/http/action-task.controller';
 import { AlertsController } from './adapter/in/http/alerts.controller';
 import { MarketplaceController } from './adapter/in/http/marketplace.controller';
 import { PanelController } from './adapter/in/http/panel.controller';
 import { WorkflowsController, WorkflowRunsController } from './adapter/in/http/workflows.controller';
-import { MarketplaceModule } from '../marketplace/marketplace.module';
 import { PrismaMarketplaceInstallStoreAdapter } from './adapter/out/prisma/marketplace-install-store.adapter';
 import { MARKETPLACE_INSTALL_STORE_PORT } from './application/port/out/marketplace-install-store.port';
 import { ActionBoardService } from './application/service/action-board.service';
@@ -30,9 +30,9 @@ import { WorkflowRunnerService } from './application/service/workflow-runner.ser
  *   — used by `RulesController` for `rules_evaluation` schedule control.
  * - Phase 3C-3: `MarketplaceInstallService` (install/uninstall
  *   orchestration) + `PrismaMarketplaceInstallStoreAdapter` (tenant-scoped
- *   persistence) + `MarketplaceController` HTTP adapter. Catalog read still
- *   lives behind `MarketplaceService` (imported via `MarketplaceModule`) to
- *   keep simple read paths out of the application boundary.
+ *   persistence) + `MarketplaceController` HTTP adapter. Catalog read
+ *   originally remained behind a separate `MarketplaceModule`; the
+ *   Wave H3 marketplace fold (below) collapsed it into automation.
  * - Phase 3C-4: `PanelController` HTTP adapter + `PanelService` /
  *   `PanelSseService` outgoing panel-event adapter. Panel remains a
  *   read-only projection over workflow / agent / image / alert sources.
@@ -58,9 +58,15 @@ import { WorkflowRunnerService } from './application/service/workflow-runner.ser
  *   guard, panel UPSERT/DISMISS emission contract, and `/api/alerts/*` route
  *   shape are preserved unchanged. The application service now consumes a
  *   `PromoteAlertInput` interface (no class-validator dependency).
+ * - Wave H3 marketplace fold: `MarketplaceCatalogService` (catalog
+ *   read-side projection) absorbed from the deleted top-level
+ *   `marketplace/` module. The slim-core node-type allowlist moved to
+ *   `adapter/out/workflow-runner/executors/slim-core-allowlist.ts` so it
+ *   sits next to its lockstep counterpart `builtin.ts`. Public routes
+ *   `/api/marketplace/workflows*` and `/api/marketplace/agents*` and the
+ *   `@CurrentCompany()` tenant trust contract are unchanged.
  */
 @Module({
-  imports: [MarketplaceModule],
   controllers: [
     MarketplaceController,
     PanelController,
@@ -80,6 +86,7 @@ import { WorkflowRunnerService } from './application/service/workflow-runner.ser
     },
     ActionBoardService,
     AlertsService,
+    MarketplaceCatalogService,
     MarketplaceInstallService,
     PanelService,
     PanelSseService,

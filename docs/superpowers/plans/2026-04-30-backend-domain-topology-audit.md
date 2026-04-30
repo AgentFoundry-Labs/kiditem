@@ -31,7 +31,6 @@ Additional documents read because they govern candidate risk:
 - `apps/server/src/agent-registry/CLAUDE.md`.
 - `apps/server/src/automation/adapter/out/workflow-runner/CLAUDE.md`.
 - `apps/server/src/rules/CLAUDE.md`.
-- `apps/server/src/marketplace/CLAUDE.md`.
 - `apps/server/src/finance/CLAUDE.md`.
 - `apps/server/src/orders/CLAUDE.md`.
 - `apps/server/src/chat/CLAUDE.md`.
@@ -255,7 +254,7 @@ npm run build --workspace=apps/server
 npm run check:idor
 npm run check:tenant-scope
 npm run dev:server
-npm exec --workspace=apps/server -- vitest run src/automation src/agent-registry src/rules src/marketplace
+npm exec --workspace=apps/server -- vitest run src/automation src/agent-registry src/rules
 ```
 
 Add real-Postgres integration when moving panel snapshot/backfill, action-board claims/mutations, workflow run persistence, or AgentTask persistence:
