@@ -5,7 +5,6 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { AgentRegistryService } from '../../../agent-registry/agent-registry.service';
 import { kstInclusiveDaysStart } from '../../../common/kst';
 import { AdConfigService } from './ad-config.service';
 import { AdGradeRulesService } from './ad-grade-rules.service';
@@ -65,7 +64,6 @@ export class AdStrategyService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly adConfigService: AdConfigService,
-    private readonly agentRegistry: AgentRegistryService,
     private readonly adGradeRules: AdGradeRulesService,
     private readonly adBudgetAllocator: AdBudgetAllocatorService,
     private readonly adExposure: AdExposureService,
@@ -305,17 +303,15 @@ export class AdStrategyService {
    * 캠페인 등록 — listing IDOR guard + 중복 차단 + AdAction + ExecutionTask 생성.
    *
    * Write use case kept inside the service because it carries the
-   * IDOR / duplicate / task creation invariants. The `agentRegistry`
-   * dependency is intentionally retained even though this method does not
-   * call it: it is reserved for the campaign approval lifecycle hooks that
-   * other services (ad-recommend) depend on through this service.
+   * IDOR / duplicate / task creation invariants. Agent execution for the
+   * resulting tasks is handled out-of-band by `AdStrategyAgentService`
+   * through the automation `AGENT_RUNNER_PORT`; this service no longer
+   * touches the Agent OS facade directly.
    */
   async registerCampaign(
     dto: RegisterCampaignDto,
     companyId: string,
   ): Promise<{ ok: true; actionId: string; taskId: string | null }> {
-    void this.agentRegistry; // referenced to keep DI parity
-
     // 1. listingId 검증 (per-item IDOR guard)
     for (const listing of dto.listings) {
       const found = await this.prisma.channelListing.findFirst({

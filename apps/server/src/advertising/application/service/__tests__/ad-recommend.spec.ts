@@ -1,8 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-
-vi.mock('../../../../agent-registry/agent-registry.service', () => ({
-  AgentRegistryService: class AgentRegistryService {},
-}));
+import { describe, it, expect, beforeEach } from 'vitest';
 
 import { AdRecommendService } from '../ad-recommend.service';
 import type { AdStrategyAction, AdStrategyRecommendation } from '@kiditem/shared/advertising';
@@ -33,61 +29,32 @@ const makeAction = (overrides: Partial<AdStrategyAction> = {}): AdStrategyAction
 });
 
 // ─────────────────────────────────────────────
-// enhanceActionsWithAi
+// enhanceActionsWithAi — pass-through hook
 // ─────────────────────────────────────────────
 
 describe('AdRecommendService.enhanceActionsWithAi', () => {
   let service: AdRecommendService;
-  let agentRegistry: { findByType: ReturnType<typeof vi.fn> };
 
   beforeEach(() => {
-    agentRegistry = { findByType: vi.fn() };
-    service = new AdRecommendService(agentRegistry as never);
+    service = new AdRecommendService();
   });
 
-  it('returns empty array for empty input (skip agent lookup)', async () => {
+  it('returns empty array for empty input', async () => {
     const result = await service.enhanceActionsWithAi([], 'company-1');
     expect(result).toEqual([]);
-    expect(agentRegistry.findByType).not.toHaveBeenCalled();
   });
 
-  it('returns original actions when agent definition throws NotFoundException (graceful fallback)', async () => {
-    agentRegistry.findByType.mockRejectedValue(new Error("Agent definition with type 'ad_strategy' not found"));
-    const actions = [makeAction()];
-    const result = await service.enhanceActionsWithAi(actions, 'company-1');
-    expect(result).toEqual(actions);
-  });
-
-  it('returns original actions when agent throws generic error (graceful fallback)', async () => {
-    agentRegistry.findByType.mockRejectedValue(new Error('agent unavailable'));
+  it('returns the input actions unchanged (pass-through)', async () => {
     const actions = [makeAction(), makeAction({ actionType: 'change_bid', priority: 'high' })];
     const result = await service.enhanceActionsWithAi(actions, 'company-1');
     expect(result).toEqual(actions);
   });
 
-  it('returns original actions when findByType resolves null (defensive fallback)', async () => {
-    agentRegistry.findByType.mockResolvedValue(null);
+  it('does not mutate the input actions array', async () => {
     const actions = [makeAction()];
-    const result = await service.enhanceActionsWithAi(actions, 'company-1');
-    expect(result).toEqual(actions);
-  });
-
-  it('returns original actions when agent definition belongs to another company (multi-tenant guard)', async () => {
-    agentRegistry.findByType.mockResolvedValue({ id: 'def-1', type: 'ad_strategy', companyId: 'other-company' });
-    const actions = [makeAction()];
-    const result = await service.enhanceActionsWithAi(actions, 'company-1');
-    expect(result).toEqual(actions);
-    // companyId mismatch → fallback, but lookup did occur
-    expect(agentRegistry.findByType).toHaveBeenCalledWith('ad_strategy');
-  });
-
-  it('returns original actions when agent definition resolves (async merge deferred elsewhere)', async () => {
-    agentRegistry.findByType.mockResolvedValue({ id: 'def-1', type: 'ad_strategy', companyId: 'company-1' });
-    const actions = [makeAction()];
-    const result = await service.enhanceActionsWithAi(actions, 'company-1');
-    // Phase 1: 정의 존재 확인만. 동기 merge 없음 (원본 shape 보존).
-    expect(result).toEqual(actions);
-    expect(agentRegistry.findByType).toHaveBeenCalledWith('ad_strategy');
+    const snapshot = JSON.parse(JSON.stringify(actions));
+    await service.enhanceActionsWithAi(actions, 'company-1');
+    expect(actions).toEqual(snapshot);
   });
 });
 
@@ -99,7 +66,7 @@ describe('AdRecommendService.toRecommendations', () => {
   let service: AdRecommendService;
 
   beforeEach(() => {
-    service = new AdRecommendService({ findByType: vi.fn() } as never);
+    service = new AdRecommendService();
   });
 
   it('returns empty array for null input', () => {
