@@ -1,6 +1,5 @@
 import type { OrderListItem, OrderStatus } from '@kiditem/shared/order';
-
-const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+import { KST_OFFSET_MS } from '../../_shared/lib/kst';
 
 /**
  * Derive a `YYYY-MM-DD` KST date string from any ISO timestamp / Date.
