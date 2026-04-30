@@ -2,12 +2,12 @@
 
 비즈니스 규칙 평가는 **agent 비동기 spawn → @OnEvent 콜백** 으로 처리. CRUD 패턴이 아니라 event-driven.
 
-## Owner domain — Automation / Agent OS
+## Owner domain — Business Policy Rules
 
-이 폴더는 backend architecture contract 의 `automation` / `agent-os` owner
-domain 에 속한다. 분류 + hard-delete 기준은
-[`docs/superpowers/plans/2026-04-29-automation-agent-os-hard-delete.md`](../../../../docs/superpowers/plans/2026-04-29-automation-agent-os-hard-delete.md)
-참조.
+이 폴더는 비즈니스 정책 룰 도메인이다. 룰 정의, threshold, 평가 결과
+post-processing, activity event / critical alert 생성 계약을 소유한다.
+Agent 실행과 스케줄 조작은 Agent OS runtime 이므로 `automation/` 포트를
+통해서만 접근한다.
 
 - `RulesController` 의 schedule GET/PATCH 는 `AgentScheduleControlPort`
   (`apps/server/src/automation/application/port/in/agent-schedule-control.port.ts`)
@@ -18,9 +18,9 @@ domain 에 속한다. 분류 + hard-delete 기준은
 - evaluation pattern (agent spawn + `@OnEvent(AGENT_EVENTS.RESULT_READY)`
   callback + `prisma.$transaction(masterProduct.updateMany)` bulk health-score
   + alert 생성 + panel emit) 은 keep — 동기 rules 평가나 service 내 hardcode
-  는 여전히 hard-banned. evaluation 흐름은 `RulesService` 가 여전히
-  `AgentRegistryService.findByType` / `.run` 을 직접 호출 (agent delegation
-  boundary 의 정상 경계 — 포트화 대상 아님).
+  는 여전히 hard-banned. evaluation spawn 은
+  `AgentRunnerPort`(`automation/application/port/in/agent-runner.port.ts`) 로
+  요청한다. `RulesService` 에서 `AgentRegistryService` 를 직접 주입하지 않는다.
 
 Alerts HTTP surface (`/api/alerts/*`) 와 `AlertsService` 는 Wave H3 AO-2
 (2026-04-30) 에 `automation/` owner domain 으로 이동했다. 새 위치:
@@ -69,7 +69,7 @@ async handleAgentResult(event) {
 ### 2. Async Task Spawning
 
 `POST /api/rules/evaluate` →
-1. `agentRegistry.run('rules_evaluation', ...)` → taskId 즉시 반환
+1. `AgentRunnerPort.runByType('rules_evaluation', ...)` → taskId 즉시 반환
 2. 클라이언트가 `/status/:taskId` 로 폴링
 3. Agent 완료 → AGENT_EVENTS.RESULT_READY emit → handler 가 alert 생성
 
@@ -102,7 +102,9 @@ healthScore 일괄 갱신은 `prisma.$transaction(products.map(r => prisma.maste
 
 ## Cross-domain deps
 
-- **agent-registry** — `AgentRegistry.findByType('rules_evaluation')`, `AgentRegistry.run()`
+- **automation** — `AgentRunnerPort.runByType('rules_evaluation')`,
+  `AgentRunnerPort.runByType('rules_suggest')`,
+  `AgentScheduleControlPort` for schedule reads/writes
 - **NestJS @nestjs/event-emitter** — `AGENT_EVENTS.RESULT_READY`
 
 ## 함께 수정할 파일 맵

@@ -21,10 +21,9 @@ function makePrisma() {
   };
 }
 
-function makeAgentRegistry() {
+function makeAgentRunner() {
   return {
-    findByType: vi.fn(),
-    run: vi.fn(),
+    runByType: vi.fn(),
   };
 }
 
@@ -34,27 +33,25 @@ function makeEventEmitter() {
 
 function makeService() {
   const prisma = makePrisma();
-  const registry = makeAgentRegistry();
+  const agentRunner = makeAgentRunner();
   const eventEmitter = makeEventEmitter();
   return {
-    service: new RulesService(prisma as any, registry as any, eventEmitter as any),
+    service: new RulesService(prisma as any, agentRunner as any, eventEmitter as any),
     prisma,
-    registry,
+    agentRunner,
     eventEmitter,
   };
 }
 
 describe('RulesService', () => {
   describe('evaluateAll', () => {
-    it('resolves rules_evaluation definition and delegates to registry', async () => {
-      const { service, registry } = makeService();
-      registry.findByType.mockResolvedValue({ id: 'def-rules' });
-      registry.run.mockResolvedValue({ ok: true, taskId: 'task-1', agentType: 'rules_evaluation' });
+    it('delegates rules_evaluation through the automation agent runner port', async () => {
+      const { service, agentRunner } = makeService();
+      agentRunner.runByType.mockResolvedValue({ ok: true, taskId: 'task-1', agentType: 'rules_evaluation' });
 
       const result = await service.evaluateAll('company-1');
 
-      expect(registry.findByType).toHaveBeenCalledWith('rules_evaluation');
-      expect(registry.run).toHaveBeenCalledWith('def-rules', {
+      expect(agentRunner.runByType).toHaveBeenCalledWith('rules_evaluation', {
         companyId: 'company-1',
         extra: { company_id: 'company-1' },
       });
@@ -317,14 +314,16 @@ describe('RulesService', () => {
   });
 
   describe('suggestThresholds', () => {
-    it('resolves rules_suggest definition and delegates', async () => {
-      const { service, registry } = makeService();
-      registry.findByType.mockResolvedValue({ id: 'def-suggest' });
-      registry.run.mockResolvedValue({ ok: true, taskId: 'task-s1' });
+    it('delegates rules_suggest through the automation agent runner port', async () => {
+      const { service, agentRunner } = makeService();
+      agentRunner.runByType.mockResolvedValue({ ok: true, taskId: 'task-s1' });
 
       const result = await service.suggestThresholds('company-1');
 
-      expect(registry.findByType).toHaveBeenCalledWith('rules_suggest');
+      expect(agentRunner.runByType).toHaveBeenCalledWith('rules_suggest', {
+        companyId: 'company-1',
+        extra: { company_id: 'company-1' },
+      });
       expect(result).toEqual({ taskId: 'task-s1', status: 'running' });
     });
   });

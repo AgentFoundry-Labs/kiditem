@@ -2,7 +2,7 @@
 
 **Date:** 2026-04-29
 **Scope:** `apps/server/src/{workflows,agent-registry,rules,action-task,marketplace,panel}` and their direct shared/web consumers.
-**Status:** Contract + inventory PR. No code deletion is performed in this PR. Future PRs delete or rewrite legacy surface against the rules below.
+**Status:** Contract + inventory PR. No code deletion is performed in this PR. Future PRs delete or rewrite legacy surface against the rules below. Amended 2026-04-30 by [`2026-04-30-agent-os-directory-structure.md`](2026-04-30-agent-os-directory-structure.md): `rules/` remains a business policy domain and reaches Agent OS through automation ports.
 **Parent track:** [`2026-04-28-codebase-reconstruction.md`](2026-04-28-codebase-reconstruction.md) Phase 3B/3C — backend architecture refactor for the `automation` / `agent-os` owner domain.
 **Architecture contract:** [`2026-04-29-backend-architecture-contract.md`](2026-04-29-backend-architecture-contract.md).
 
@@ -13,11 +13,12 @@ move in the Automation / Agent OS owner domain. Contract first, deletion later.
 
 The Automation / Agent OS owner domain (per
 [`backend-architecture-contract.md`](2026-04-29-backend-architecture-contract.md))
-covers: `agent-registry`, `workflows`, `rules`, `action-task`, `marketplace`,
-`panel`. These six folders converge under one owner domain because they share
-the same runtime: agent delegation, workflow runner, rule evaluation, panel
-event projection, marketplace catalog clone, and operator action queue all
-sit on the Agent OS execution boundary and the panel event bus.
+now covers the runtime surfaces behind `agent-registry`, `workflows`,
+`action-task`, `marketplace`, and `panel`. `rules/` was originally inventoried
+with this lane because rule evaluation uses agent delegation, alert projection,
+and schedule control. The 2026-04-30 directory decision keeps `rules/` as the
+business policy owner and moves only its Agent OS dependencies behind
+automation ports.
 
 This PR does **not** start moving folders. It records the keep/delete/rewrite
 classification and the hard-delete criteria, so that follow-up PRs can move
