@@ -5,7 +5,7 @@ import type {
 } from '@kiditem/shared/inventory';
 import { toSerializable } from '../../products/util/serialize';
 import { deriveInventoryStatus } from '../domain/policy/inventory-status';
-import type { InventoryRow, InventoryWithOption } from '../adapter/out/prisma/inventory.query';
+import type { InventoryRow, InventoryWithOption } from '../application/port/out/inventory-query.repository.port';
 
 export function toInventoryListItem(row: InventoryWithOption): InventoryListItem {
   const availableStock = row.option.isBundle

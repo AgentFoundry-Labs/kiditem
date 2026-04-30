@@ -1,11 +1,16 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Inject, Param, Patch, Post } from '@nestjs/common';
 import { CurrentCompany } from '../../../../auth/decorators/current-company.decorator';
-import { WarehousesApplicationService } from '../../../application/service/warehouses-application.service';
+import {
+  WAREHOUSES_PORT,
+  type WarehousesPort,
+} from '../../../application/port/in/warehouses.port';
 import { CreateWarehouseDto, UpdateWarehouseDto } from './dto';
 
 @Controller('warehouses')
 export class WarehousesController {
-  constructor(private readonly warehouses: WarehousesApplicationService) {}
+  constructor(
+    @Inject(WAREHOUSES_PORT) private readonly warehouses: WarehousesPort,
+  ) {}
 
   @Get()
   findAll(@CurrentCompany() companyId: string) {

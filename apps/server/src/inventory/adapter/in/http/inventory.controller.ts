@@ -1,8 +1,11 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Inject, Param, Patch, Post, Query } from '@nestjs/common';
 import { CurrentCompany } from '../../../../auth/decorators/current-company.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../../../../auth/auth.types';
-import { InventoryApplicationService } from '../../../application/service/inventory-application.service';
+import {
+  INVENTORY_PORT,
+  type InventoryPort,
+} from '../../../application/port/in/inventory.port';
 import {
   ListInventoryQueryDto,
   UpdateInventoryMetadataDto,
@@ -15,7 +18,9 @@ import {
 
 @Controller('inventory')
 export class InventoryController {
-  constructor(private readonly inventory: InventoryApplicationService) {}
+  constructor(
+    @Inject(INVENTORY_PORT) private readonly inventory: InventoryPort,
+  ) {}
 
   @Get()
   list(@CurrentCompany() companyId: string, @Query() query: ListInventoryQueryDto) {

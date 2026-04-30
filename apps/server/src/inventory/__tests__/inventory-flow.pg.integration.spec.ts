@@ -1,11 +1,15 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Test } from '@nestjs/testing';
 import type { PrismaClient } from '@prisma/client';
-import { InventoryApplicationService } from '../application/service/inventory-application.service';
-import { InventoryQuery } from '../adapter/out/prisma/inventory.query';
-import { InventoryPersistence } from '../adapter/out/prisma/inventory.persistence';
+import { InventoryService } from '../application/service/inventory.service';
+import { InventoryQueryRepositoryAdapter } from '../adapter/out/repository/inventory-query.repository.adapter';
+import { InventoryRepositoryAdapter } from '../adapter/out/repository/inventory.repository.adapter';
+import { BundleStockAdapter } from '../adapter/out/products/bundle-stock.adapter';
 import { BundleStockService } from '../../products/application/service/bundle-stock.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { INVENTORY_QUERY_REPOSITORY_PORT } from '../application/port/out/inventory-query.repository.port';
+import { INVENTORY_REPOSITORY_PORT } from '../application/port/out/inventory.repository.port';
+import { BUNDLE_STOCK_PORT } from '../application/port/out/bundle-stock.port';
 import {
   makeTestPrisma,
   resetDb,
@@ -16,7 +20,7 @@ import {
 
 describe('Inventory flow (PG integration)', () => {
   let prisma: PrismaClient;
-  let inventory: InventoryApplicationService;
+  let inventory: InventoryService;
   let masterId: string;
 
   const companyId = TEST_COMPANY_ID;
@@ -56,14 +60,18 @@ describe('Inventory flow (PG integration)', () => {
 
     const m = await Test.createTestingModule({
       providers: [
-        InventoryApplicationService,
-        InventoryQuery,
-        InventoryPersistence,
+        InventoryService,
+        InventoryQueryRepositoryAdapter,
+        InventoryRepositoryAdapter,
+        BundleStockAdapter,
         BundleStockService,
+        { provide: INVENTORY_QUERY_REPOSITORY_PORT, useExisting: InventoryQueryRepositoryAdapter },
+        { provide: INVENTORY_REPOSITORY_PORT, useExisting: InventoryRepositoryAdapter },
+        { provide: BUNDLE_STOCK_PORT, useExisting: BundleStockAdapter },
         { provide: PrismaService, useValue: prisma },
       ],
     }).compile();
-    inventory = m.get(InventoryApplicationService);
+    inventory = m.get(InventoryService);
   });
 
   afterAll(async () => { await prisma.$disconnect(); });

@@ -1,39 +1,41 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { StockTransfersPersistence } from '../../adapter/out/prisma/stock-transfers.persistence';
-import type { StockTransferRow } from '../../adapter/out/prisma/stock-transfers.persistence';
+import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  TRANSFERS_PORT,
+  type CreateStockTransferInput,
+  type TransfersPort,
+  type UpdateStockTransferInput,
+} from '../port/in/transfers.port';
+import {
+  TRANSFERS_REPOSITORY_PORT,
+  type StockTransferRow,
+  type TransfersRepositoryPort,
+} from '../port/out/transfers.repository.port';
 import {
   assertValidStockTransferTransition,
   InvalidStockTransferTransition,
 } from '../../domain/policy/stock-transfer-transition';
 
-export type CreateStockTransferInput = {
-  optionId: string;
-  fromWarehouseId: string;
-  toWarehouseId: string;
-  quantity: number;
-  notes?: string;
-};
-
-export type UpdateStockTransferInput = {
-  status: string;
-};
+export { TRANSFERS_PORT } from '../port/in/transfers.port';
 
 @Injectable()
-export class StockTransfersApplicationService {
-  constructor(private readonly persistence: StockTransfersPersistence) {}
+export class TransfersService implements TransfersPort {
+  constructor(
+    @Inject(TRANSFERS_REPOSITORY_PORT)
+    private readonly repository: TransfersRepositoryPort,
+  ) {}
 
   findAll(companyId: string, query: { status?: string }): Promise<StockTransferRow[]> {
-    return this.persistence.listStockTransfers(companyId, query.status);
+    return this.repository.listStockTransfers(companyId, query.status);
   }
 
   async create(
     companyId: string,
     dto: CreateStockTransferInput,
   ): Promise<StockTransferRow> {
-    const option = await this.persistence.findOptionForTransfer(dto.optionId, companyId);
+    const option = await this.repository.findOptionForTransfer(dto.optionId, companyId);
     if (!option) throw new NotFoundException('Option not found');
 
-    return this.persistence.createStockTransfer(companyId, {
+    return this.repository.createStockTransfer(companyId, {
       optionId: dto.optionId,
       optionName: option.optionName ?? '',
       fromWarehouseId: dto.fromWarehouseId,
@@ -48,7 +50,7 @@ export class StockTransfersApplicationService {
     dto: UpdateStockTransferInput,
     companyId: string,
   ): Promise<StockTransferRow> {
-    const existing = await this.persistence.findStockTransferById(id, companyId);
+    const existing = await this.repository.findStockTransferById(id, companyId);
     if (!existing) throw new NotFoundException('재고 이동을 찾을 수 없습니다');
 
     try {
@@ -60,7 +62,7 @@ export class StockTransfersApplicationService {
       throw err;
     }
 
-    return this.persistence.updateStockTransferStatus(
+    return this.repository.updateStockTransferStatus(
       id,
       dto.status,
       dto.status === 'completed',

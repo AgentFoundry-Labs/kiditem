@@ -1,12 +1,15 @@
 import { Injectable } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
-
-export type WarehouseRow = Prisma.WarehouseGetPayload<{}>;
-export type WarehouseListItem = WarehouseRow & { shipmentCount: number };
+import type {
+  CreateWarehouseData,
+  WarehouseListItem,
+  WarehouseRow,
+  WarehouseUpdateData,
+  WarehousesRepositoryPort,
+} from '../../../application/port/out/warehouses.repository.port';
 
 @Injectable()
-export class WarehousesPersistence {
+export class WarehousesRepositoryAdapter implements WarehousesRepositoryPort {
   constructor(private readonly prisma: PrismaService) {}
 
   async listWarehouses(companyId: string): Promise<WarehouseListItem[]> {
@@ -30,18 +33,7 @@ export class WarehousesPersistence {
     return this.prisma.warehouse.findFirst({ where: { id, companyId } });
   }
 
-  createWarehouse(
-    companyId: string,
-    data: {
-      name: string;
-      code?: string;
-      address?: string;
-      manager?: string;
-      phone?: string;
-      isDefault?: boolean;
-      status?: string;
-    },
-  ): Promise<WarehouseRow> {
+  createWarehouse(companyId: string, data: CreateWarehouseData): Promise<WarehouseRow> {
     return this.prisma.warehouse.create({
       data: {
         companyId,
@@ -56,10 +48,7 @@ export class WarehousesPersistence {
     });
   }
 
-  updateWarehouse(
-    id: string,
-    data: Prisma.WarehouseUpdateInput,
-  ): Promise<WarehouseRow> {
+  updateWarehouse(id: string, data: WarehouseUpdateData): Promise<WarehouseRow> {
     return this.prisma.warehouse.update({ where: { id }, data });
   }
 

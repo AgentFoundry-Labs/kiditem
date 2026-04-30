@@ -1,15 +1,22 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Inject, Param, Patch, Post, Query } from '@nestjs/common';
 import { CurrentCompany } from '../../../../auth/decorators/current-company.decorator';
-import { StockTransfersApplicationService } from '../../../application/service/stock-transfers-application.service';
+import {
+  TRANSFERS_PORT,
+  type TransfersPort,
+} from '../../../application/port/in/transfers.port';
 import {
   CreateStockTransferDto,
   ListStockTransfersQueryDto,
   UpdateStockTransferDto,
 } from './dto';
 
+// Route stays `/api/stock-transfers/*` even though the file is now
+// `transfers.controller.ts` — capability owns route shape (Phase 3B contract).
 @Controller('stock-transfers')
-export class StockTransfersController {
-  constructor(private readonly transfers: StockTransfersApplicationService) {}
+export class TransfersController {
+  constructor(
+    @Inject(TRANSFERS_PORT) private readonly transfers: TransfersPort,
+  ) {}
 
   @Get()
   findAll(@CurrentCompany() companyId: string, @Query() query: ListStockTransfersQueryDto) {

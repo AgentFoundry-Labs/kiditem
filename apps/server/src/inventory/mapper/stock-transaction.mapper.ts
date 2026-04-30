@@ -3,7 +3,7 @@ import type {
   TransactionListItem,
 } from '@kiditem/shared/inventory';
 import { deriveStockDelta } from '../domain/policy/stock-mutation';
-import type { StockTransactionRow } from '../adapter/out/prisma/inventory.query';
+import type { StockTransactionRow } from '../application/port/out/inventory-query.repository.port';
 
 export function toTransactionListItem(row: StockTransactionRow): TransactionListItem {
   const type = row.type as StockTransactionType;

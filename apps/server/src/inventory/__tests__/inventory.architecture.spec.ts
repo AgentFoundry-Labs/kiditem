@@ -2,14 +2,18 @@ import { describe, it, expect } from 'vitest';
 import { execSync } from 'node:child_process';
 import path from 'node:path';
 
-// These guard tests freeze the Inventory architecture contract:
+// Architecture guard tests freeze the Inventory port/adapter contract:
 //
-//   - PrismaService is only ever imported under `inventory/adapter/out/prisma/**`.
-//   - Domain code (`inventory/domain/**`) does not depend on NestJS, Prisma, the
-//     PrismaService class, HTTP DTO classes, or any incoming-adapter module.
-//
-// They run as a thin shell-out against the working tree so they cover the
-// production source files exactly the way the scanners do.
+//   - PrismaService is imported only under `inventory/adapter/out/repository/**`.
+//   - `*persistence.ts` is not used as final naming under `apps/server/src/inventory`.
+  //   - `application/**` does not import Prisma client/types.
+  //   - `application/service/**` does not import `adapter/out/**` or
+  //     ProductsModule/BundleStockService directly. Concrete adapters reach
+  //     application code only via Nest token bindings to ports.
+//   - Controllers (`adapter/in/http/**`) depend on `application/port/in/**`,
+//     not on concrete application services.
+//   - Domain code (`inventory/domain/**`) does not depend on NestJS, Prisma,
+//     PrismaService, HTTP DTO classes, or any incoming-adapter module.
 
 const REPO_ROOT = path.resolve(__dirname, '../../../../..');
 const INVENTORY_ROOT = path.resolve(__dirname, '..');
@@ -22,27 +26,91 @@ function rg(args: string): string[] {
       .map((l) => l.trim())
       .filter(Boolean);
   } catch (err: unknown) {
-    // ripgrep exits 1 when no matches; treat as empty result.
     if ((err as { status?: number }).status === 1) return [];
     throw err;
   }
 }
 
+function inventoryRel(): string {
+  return path.relative(REPO_ROOT, INVENTORY_ROOT);
+}
+
 describe('Inventory architecture contract', () => {
-  it('PrismaService is imported only under inventory/adapter/out/prisma/**', () => {
-    const inventoryRel = path.relative(REPO_ROOT, INVENTORY_ROOT);
-    const allowedPrefix = path.join(inventoryRel, 'adapter/out/prisma') + path.sep;
+  it('PrismaService is imported only under inventory/adapter/out/repository/**', () => {
+    const inv = inventoryRel();
+    const allowedPrefix = path.join(inv, 'adapter/out/repository') + path.sep;
     const hits = rg(
-      `--type ts --files-with-matches 'PrismaService' ${inventoryRel} --glob '!**/__tests__/**'`,
+      `--type ts --files-with-matches 'PrismaService' ${inv} --glob '!**/__tests__/**'`,
     );
     const violators = hits.filter((file) => !file.startsWith(allowedPrefix));
-    expect(violators, `PrismaService is leaking outside adapter/out/prisma:\n${violators.join('\n')}`)
-      .toEqual([]);
+    expect(
+      violators,
+      `PrismaService is leaking outside adapter/out/repository:\n${violators.join('\n')}`,
+    ).toEqual([]);
+  });
+
+  it('no *persistence.ts files survive under apps/server/src/inventory', () => {
+    const inv = inventoryRel();
+    const hits = rg(
+      `--type ts --files --glob '${path.join(inv, '**', '*persistence.ts')}'`,
+    );
+    expect(
+      hits,
+      `\`*persistence.ts\` is migration-waypoint naming only — switch to repository adapters:\n${hits.join('\n')}`,
+    ).toEqual([]);
+  });
+
+  it('application layer does not import Prisma client or expose Prisma types', () => {
+    const inv = inventoryRel();
+    const applicationGlob = path.join(inv, 'application') + '/**';
+    const hits = rg(
+      `--type ts --files-with-matches '@prisma/client|Prisma\\.' --glob '${applicationGlob}' --glob '!**/__tests__/**'`,
+    );
+    expect(
+      hits,
+      `application ports/services must stay Prisma-free; Prisma belongs in outgoing adapters:\n${hits.join('\n')}`,
+    ).toEqual([]);
+  });
+
+  it('application/service/** does not import adapter/out/**', () => {
+    const inv = inventoryRel();
+    const serviceGlob = path.join(inv, 'application/service') + '/**';
+    const hits = rg(
+      `--type ts --files-with-matches '\\.\\./adapter/out|adapter/out/' --glob '${serviceGlob}' --glob '!**/__tests__/**'`,
+    );
+    expect(
+      hits,
+      `application services must depend on application/port/out/*, not concrete adapter/out/** files:\n${hits.join('\n')}`,
+    ).toEqual([]);
+  });
+
+  it('application/service/** does not import products module/services directly', () => {
+    const inv = inventoryRel();
+    const serviceGlob = path.join(inv, 'application/service') + '/**';
+    const hits = rg(
+      `--type ts --files-with-matches 'ProductsModule|BundleStockService|products/application|products/adapter|products/domain' --glob '${serviceGlob}' --glob '!**/__tests__/**'`,
+    );
+    expect(
+      hits,
+      `application services must reach products only through BundleStockPort:\n${hits.join('\n')}`,
+    ).toEqual([]);
+  });
+
+  it('adapter/in/http/** controllers depend on application/port/in/**, not concrete services', () => {
+    const inv = inventoryRel();
+    const httpGlob = path.join(inv, 'adapter/in/http') + '/**';
+    const hits = rg(
+      `--type ts --files-with-matches 'application/service/' --glob '${httpGlob}' --glob '!**/__tests__/**'`,
+    );
+    expect(
+      hits,
+      `controllers must inject application/port/in/* tokens, not concrete services:\n${hits.join('\n')}`,
+    ).toEqual([]);
   });
 
   it('domain layer is free of Nest/Prisma/HTTP coupling', () => {
-    const inventoryRel = path.relative(REPO_ROOT, INVENTORY_ROOT);
-    const domainGlob = path.join(inventoryRel, 'domain') + '/**';
+    const inv = inventoryRel();
+    const domainGlob = path.join(inv, 'domain') + '/**';
     const hits = rg(
       `--type ts --files-with-matches '@nestjs|@prisma/client|PrismaService|adapter/in/http|\\.dto'\
        --glob '${domainGlob}' --glob '!**/__tests__/**'`,

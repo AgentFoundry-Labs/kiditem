@@ -1,19 +1,36 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import type {
+  AdjustStockInput,
   Inventory,
   InventoryListResponse,
+  IssueStockInput,
+  ReceiveStockInput,
   StockOperationResult,
   StockTransactionType,
   TransactionListResponse,
   TransactionSummary,
   UpdateInventoryMetadataInput,
-  ReceiveStockInput,
-  IssueStockInput,
-  AdjustStockInput,
 } from '@kiditem/shared/inventory';
-import { BundleStockService } from '../../../products/application/service/bundle-stock.service';
-import { InventoryQuery } from '../../adapter/out/prisma/inventory.query';
-import { InventoryPersistence } from '../../adapter/out/prisma/inventory.persistence';
+import {
+  INVENTORY_PORT,
+  type InventoryPort,
+  type ListInventoryInput,
+  type ListTransactionsInput,
+  type TransactionSummaryInput,
+} from '../port/in/inventory.port';
+import {
+  INVENTORY_QUERY_REPOSITORY_PORT,
+  type InventoryQueryRepositoryPort,
+} from '../port/out/inventory-query.repository.port';
+import {
+  INVENTORY_REPOSITORY_PORT,
+  type InventoryMetadataUpdateData,
+  type InventoryRepositoryPort,
+} from '../port/out/inventory.repository.port';
+import {
+  BUNDLE_STOCK_PORT,
+  type BundleStockPort,
+} from '../port/out/bundle-stock.port';
 import {
   assertSufficientStock,
   computeStoredQuantity,
@@ -26,35 +43,20 @@ import {
   summarizeInventory,
 } from '../../mapper/inventory.mapper';
 import { toTransactionListItem } from '../../mapper/stock-transaction.mapper';
-import { BadRequestException } from '@nestjs/common';
 
-export type ListInventoryInput = {
-  page?: number;
-  limit?: number;
-  status?: 'healthy' | 'low' | 'out';
-  optionId?: string;
-  masterId?: string;
-};
-
-export type ListTransactionsInput = {
-  page?: number;
-  limit?: number;
-  optionId?: string;
-  type?: StockTransactionType;
-  from?: string;
-  to?: string;
-};
-
-export type TransactionSummaryInput = {
-  days?: number;
-};
+// `INVENTORY_PORT` re-export so adapter modules can import the token from a
+// service-adjacent path without reaching into `application/port/in/**` directly.
+export { INVENTORY_PORT } from '../port/in/inventory.port';
 
 @Injectable()
-export class InventoryApplicationService {
+export class InventoryService implements InventoryPort {
   constructor(
-    private readonly query: InventoryQuery,
-    private readonly persistence: InventoryPersistence,
-    private readonly bundleStock: BundleStockService,
+    @Inject(INVENTORY_QUERY_REPOSITORY_PORT)
+    private readonly query: InventoryQueryRepositoryPort,
+    @Inject(INVENTORY_REPOSITORY_PORT)
+    private readonly repository: InventoryRepositoryPort,
+    @Inject(BUNDLE_STOCK_PORT)
+    private readonly bundleStock: BundleStockPort,
   ) {}
 
   // ===== Reads =====
@@ -102,14 +104,14 @@ export class InventoryApplicationService {
     dto: UpdateInventoryMetadataInput,
     companyId: string,
   ): Promise<Inventory> {
-    const data: Record<string, unknown> = {};
+    const data: InventoryMetadataUpdateData = {};
     if (dto.safetyStock !== undefined) data.safetyStock = dto.safetyStock;
     if (dto.reorderPoint !== undefined) data.reorderPoint = dto.reorderPoint;
     if (dto.reorderQuantity !== undefined) data.reorderQuantity = dto.reorderQuantity;
     if (dto.leadTimeDays !== undefined) data.leadTimeDays = dto.leadTimeDays;
     if (dto.warehouseLocation !== undefined) data.warehouseLocation = dto.warehouseLocation;
 
-    const updated = await this.persistence.updateInventoryMetadata(id, companyId, data);
+    const updated = await this.repository.updateInventoryMetadata(id, companyId, data);
     return toInventory(updated);
   }
 
@@ -163,9 +165,9 @@ export class InventoryApplicationService {
     });
   }
 
-  // The application service owns the use case; the persistence adapter owns
-  // the transaction + row lock. Domain policy decides whether the delta is
-  // legal. Bundle fan-out is composed inside the same tx via the products port.
+  // The application service owns the use case; the repository adapter owns the
+  // transaction + row lock. Domain policy decides whether the delta is legal.
+  // Bundle fan-out is composed inside the same tx via the products port.
   private async applyDelta(
     id: string,
     companyId: string,
@@ -180,7 +182,7 @@ export class InventoryApplicationService {
       userId: string;
     },
   ): Promise<StockOperationResult> {
-    return this.persistence.runInventoryStockMutation(id, companyId, async (tx, locked) => {
+    return this.repository.runInventoryStockMutation(id, companyId, async (tx, locked) => {
       try {
         assertSufficientStock(locked.currentStock, params.delta);
       } catch (err) {
@@ -190,7 +192,7 @@ export class InventoryApplicationService {
         throw err;
       }
 
-      const updated = await this.persistence.applyStockDelta(
+      const updated = await this.repository.applyStockDelta(
         tx,
         id,
         params.delta,
@@ -198,7 +200,7 @@ export class InventoryApplicationService {
         locked.lastRestockedAt,
       );
 
-      const optionName = await this.persistence.findOptionNameForLedger(
+      const optionName = await this.repository.findOptionNameForLedger(
         tx,
         updated.optionId,
         companyId,
@@ -206,7 +208,7 @@ export class InventoryApplicationService {
 
       const storedQuantity = computeStoredQuantity(params.type, params.delta);
 
-      const transaction = await this.persistence.appendStockLedger(tx, {
+      const transaction = await this.repository.appendStockLedger(tx, {
         companyId,
         optionId: updated.optionId,
         optionName,

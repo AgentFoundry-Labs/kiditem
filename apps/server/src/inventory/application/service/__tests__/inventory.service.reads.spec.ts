@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NotFoundException } from '@nestjs/common';
-import { InventoryApplicationService } from '../inventory-application.service';
-import type { InventoryQuery } from '../../../adapter/out/prisma/inventory.query';
-import type { InventoryPersistence } from '../../../adapter/out/prisma/inventory.persistence';
-import type { BundleStockService } from '../../../../products/application/service/bundle-stock.service';
+import { InventoryService } from '../inventory.service';
+import type { InventoryQueryRepositoryPort } from '../../port/out/inventory-query.repository.port';
+import type { InventoryRepositoryPort } from '../../port/out/inventory.repository.port';
+import type { BundleStockPort } from '../../port/out/bundle-stock.port';
 
 function makeQuery() {
   return {
@@ -12,19 +12,20 @@ function makeQuery() {
     findInventoryByOptionId: vi.fn(),
     listStockTransactions: vi.fn(),
     groupTransactionsByType: vi.fn(),
-  } satisfies Record<keyof InventoryQuery, ReturnType<typeof vi.fn>>;
+    listUnshipped: vi.fn(),
+  } satisfies Record<keyof InventoryQueryRepositoryPort, ReturnType<typeof vi.fn>>;
 }
 
-describe('InventoryApplicationService — reads', () => {
-  let service: InventoryApplicationService;
+describe('InventoryService — reads', () => {
+  let service: InventoryService;
   let query: ReturnType<typeof makeQuery>;
 
   beforeEach(() => {
     query = makeQuery();
-    service = new InventoryApplicationService(
-      query as unknown as InventoryQuery,
-      {} as InventoryPersistence,
-      {} as BundleStockService,
+    service = new InventoryService(
+      query as unknown as InventoryQueryRepositoryPort,
+      {} as InventoryRepositoryPort,
+      {} as BundleStockPort,
     );
   });
 

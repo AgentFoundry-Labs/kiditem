@@ -1,16 +1,18 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import type { PickingSourceOrder, PickableItem } from '../../../domain/policy/picking-rules';
+import type { PickableItem } from '../../../domain/policy/picking-rules';
+import type {
+  PickingItemRow,
+  PickingItemUpdateData,
+  PickingListRow,
+  PickingRepositoryPort,
+} from '../../../application/port/out/picking.repository.port';
 
 const LIST_WITH_ITEMS_INCLUDE = { items: true } as const;
-export type PickingListRow = Prisma.PickingListGetPayload<{
-  include: typeof LIST_WITH_ITEMS_INCLUDE;
-}>;
-export type PickingItemRow = Prisma.PickingItemGetPayload<{}>;
 
 @Injectable()
-export class PickingPersistence {
+export class PickingRepositoryAdapter implements PickingRepositoryPort {
   constructor(private readonly prisma: PrismaService) {}
 
   listPickingLists(companyId: string): Promise<PickingListRow[]> {
@@ -19,27 +21,6 @@ export class PickingPersistence {
       include: LIST_WITH_ITEMS_INCLUDE,
       orderBy: { createdAt: 'desc' },
     });
-  }
-
-  async findConfirmedOrdersForPicking(companyId: string): Promise<PickingSourceOrder[]> {
-    const rows = await this.prisma.order.findMany({
-      where: { companyId, status: 'confirmed' },
-      include: {
-        lineItems: {
-          include: { option: { select: { sku: true, optionName: true } } },
-        },
-      },
-    });
-    return rows.map((order) => ({
-      id: order.id,
-      lineItems: order.lineItems.map((li) => ({
-        optionId: li.optionId,
-        productName: li.productName,
-        sku: li.sku,
-        quantity: li.quantity,
-        option: li.option ? { sku: li.option.sku } : null,
-      })),
-    }));
   }
 
   createPickingList(
@@ -85,9 +66,10 @@ export class PickingPersistence {
 
   updatePickingItem(
     itemId: string,
-    data: Prisma.PickingItemUpdateInput,
+    data: PickingItemUpdateData,
   ): Promise<PickingItemRow> {
-    return this.prisma.pickingItem.update({ where: { id: itemId }, data });
+    const prismaData: Prisma.PickingItemUpdateInput = data;
+    return this.prisma.pickingItem.update({ where: { id: itemId }, data: prismaData });
   }
 
   countPickedItems(listId: string): Promise<number> {

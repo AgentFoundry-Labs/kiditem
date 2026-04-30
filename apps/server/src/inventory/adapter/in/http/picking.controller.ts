@@ -1,11 +1,16 @@
-import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Get, Inject, Param, Patch, Post } from '@nestjs/common';
 import { CurrentCompany } from '../../../../auth/decorators/current-company.decorator';
-import { PickingApplicationService } from '../../../application/service/picking-application.service';
+import {
+  PICKING_PORT,
+  type PickingPort,
+} from '../../../application/port/in/picking.port';
 import { UpdatePickingItemDto } from './dto';
 
 @Controller('picking')
 export class PickingController {
-  constructor(private readonly picking: PickingApplicationService) {}
+  constructor(
+    @Inject(PICKING_PORT) private readonly picking: PickingPort,
+  ) {}
 
   @Get()
   findAll(@CurrentCompany() companyId: string) {

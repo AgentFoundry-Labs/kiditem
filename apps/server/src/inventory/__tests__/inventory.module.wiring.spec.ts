@@ -4,22 +4,24 @@ import { InventoryModule } from '../inventory.module';
 import { InventoryController } from '../adapter/in/http/inventory.controller';
 import { UnshippedController } from '../adapter/in/http/unshipped.controller';
 import { WarehousesController } from '../adapter/in/http/warehouses.controller';
-import { StockTransfersController } from '../adapter/in/http/stock-transfers.controller';
-import { StockAuditsController } from '../adapter/in/http/stock-audits.controller';
+import { TransfersController } from '../adapter/in/http/transfers.controller';
+import { AuditsController } from '../adapter/in/http/audits.controller';
 import { PickingController } from '../adapter/in/http/picking.controller';
-import { InventoryApplicationService } from '../application/service/inventory-application.service';
-import { UnshippedQueryService } from '../application/service/unshipped-query.service';
-import { WarehousesApplicationService } from '../application/service/warehouses-application.service';
-import { StockTransfersApplicationService } from '../application/service/stock-transfers-application.service';
-import { StockAuditsApplicationService } from '../application/service/stock-audits-application.service';
-import { PickingApplicationService } from '../application/service/picking-application.service';
-import { InventoryQuery } from '../adapter/out/prisma/inventory.query';
-import { InventoryPersistence } from '../adapter/out/prisma/inventory.persistence';
-import { UnshippedQuery } from '../adapter/out/prisma/unshipped.query';
-import { WarehousesPersistence } from '../adapter/out/prisma/warehouses.persistence';
-import { StockTransfersPersistence } from '../adapter/out/prisma/stock-transfers.persistence';
-import { StockAuditsPersistence } from '../adapter/out/prisma/stock-audits.persistence';
-import { PickingPersistence } from '../adapter/out/prisma/picking.persistence';
+import { InventoryService } from '../application/service/inventory.service';
+import { UnshippedService } from '../application/service/unshipped.service';
+import { WarehousesService } from '../application/service/warehouses.service';
+import { TransfersService } from '../application/service/transfers.service';
+import { AuditsService } from '../application/service/audits.service';
+import { PickingService } from '../application/service/picking.service';
+import { InventoryQueryRepositoryAdapter } from '../adapter/out/repository/inventory-query.repository.adapter';
+import { InventoryRepositoryAdapter } from '../adapter/out/repository/inventory.repository.adapter';
+import { WarehousesRepositoryAdapter } from '../adapter/out/repository/warehouses.repository.adapter';
+import { TransfersRepositoryAdapter } from '../adapter/out/repository/transfers.repository.adapter';
+import { AuditsRepositoryAdapter } from '../adapter/out/repository/audits.repository.adapter';
+import { PickingRepositoryAdapter } from '../adapter/out/repository/picking.repository.adapter';
+import { ConfirmedOrdersRepositoryAdapter } from '../adapter/out/repository/confirmed-orders.repository.adapter';
+import { BundleStockAdapter } from '../adapter/out/products/bundle-stock.adapter';
+import { INVENTORY_PORT } from '../application/port/in/inventory.port';
 
 // NestJS @Module / @Controller metadata keys (stable across Nest 10/11).
 const IMPORTS_KEY = 'imports';
@@ -46,23 +48,24 @@ describe('InventoryModule capability wiring', () => {
         InventoryController,
         UnshippedController,
         WarehousesController,
-        StockTransfersController,
-        StockAuditsController,
+        TransfersController,
+        AuditsController,
         PickingController,
       ]),
     );
   });
 
-  it('declares every persistence + query adapter as a provider', () => {
+  it('declares every repository adapter as a provider', () => {
     const providers: unknown[] = Reflect.getMetadata(PROVIDERS_KEY, InventoryModule) ?? [];
     for (const cls of [
-      InventoryQuery,
-      InventoryPersistence,
-      UnshippedQuery,
-      WarehousesPersistence,
-      StockTransfersPersistence,
-      StockAuditsPersistence,
-      PickingPersistence,
+      InventoryQueryRepositoryAdapter,
+      InventoryRepositoryAdapter,
+      WarehousesRepositoryAdapter,
+      TransfersRepositoryAdapter,
+      AuditsRepositoryAdapter,
+      PickingRepositoryAdapter,
+      ConfirmedOrdersRepositoryAdapter,
+      BundleStockAdapter,
     ]) {
       expect(providers).toContain(cls);
     }
@@ -71,28 +74,28 @@ describe('InventoryModule capability wiring', () => {
   it('declares every application service as a provider', () => {
     const providers: unknown[] = Reflect.getMetadata(PROVIDERS_KEY, InventoryModule) ?? [];
     for (const cls of [
-      InventoryApplicationService,
-      UnshippedQueryService,
-      WarehousesApplicationService,
-      StockTransfersApplicationService,
-      StockAuditsApplicationService,
-      PickingApplicationService,
+      InventoryService,
+      UnshippedService,
+      WarehousesService,
+      TransfersService,
+      AuditsService,
+      PickingService,
     ]) {
       expect(providers).toContain(cls);
     }
   });
 
-  it('exports only InventoryApplicationService for cross-module consumers', () => {
+  it('exports only INVENTORY_PORT for cross-module consumers', () => {
     const exports_: unknown[] = Reflect.getMetadata(EXPORTS_KEY, InventoryModule) ?? [];
-    expect(exports_).toEqual([InventoryApplicationService]);
+    expect(exports_).toEqual([INVENTORY_PORT]);
   });
 
   it('keeps public /api route prefixes for inventory + every capability', () => {
     expect(Reflect.getMetadata(PATH_KEY, InventoryController)).toBe('inventory');
     expect(Reflect.getMetadata(PATH_KEY, UnshippedController)).toBe('unshipped');
     expect(Reflect.getMetadata(PATH_KEY, WarehousesController)).toBe('warehouses');
-    expect(Reflect.getMetadata(PATH_KEY, StockTransfersController)).toBe('stock-transfers');
-    expect(Reflect.getMetadata(PATH_KEY, StockAuditsController)).toBe('stock-audits');
+    expect(Reflect.getMetadata(PATH_KEY, TransfersController)).toBe('stock-transfers');
+    expect(Reflect.getMetadata(PATH_KEY, AuditsController)).toBe('stock-audits');
     expect(Reflect.getMetadata(PATH_KEY, PickingController)).toBe('picking');
   });
 });

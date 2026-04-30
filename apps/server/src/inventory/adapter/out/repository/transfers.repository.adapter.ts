@@ -1,6 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import type {
+  CreateStockTransferData,
+  StockTransferBareRow,
+  StockTransferRow,
+  TransfersRepositoryPort,
+} from '../../../application/port/out/transfers.repository.port';
 
 const TRANSFER_INCLUDE = {
   option: true,
@@ -8,13 +14,8 @@ const TRANSFER_INCLUDE = {
   toWarehouse: true,
 } as const;
 
-export type StockTransferRow = Prisma.StockTransferGetPayload<{
-  include: typeof TRANSFER_INCLUDE;
-}>;
-export type StockTransferBareRow = Prisma.StockTransferGetPayload<{}>;
-
 @Injectable()
-export class StockTransfersPersistence {
+export class TransfersRepositoryAdapter implements TransfersRepositoryPort {
   constructor(private readonly prisma: PrismaService) {}
 
   listStockTransfers(companyId: string, status?: string): Promise<StockTransferRow[]> {
@@ -39,14 +40,7 @@ export class StockTransfersPersistence {
 
   createStockTransfer(
     companyId: string,
-    data: {
-      optionId: string;
-      optionName: string | null;
-      fromWarehouseId: string;
-      toWarehouseId: string;
-      quantity: number;
-      notes?: string;
-    },
+    data: CreateStockTransferData,
   ): Promise<StockTransferRow> {
     return this.prisma.stockTransfer.create({
       data: { companyId, ...data },
