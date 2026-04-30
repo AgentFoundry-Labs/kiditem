@@ -17,6 +17,7 @@ cd agents && python -m venv .venv && .venv/bin/pip install -r requirements.txt &
 # DB + schema
 docker compose up -d                           # PostgreSQL only (Docker)
 npm run db:push                                # Apply schema
+npm run db:3layer-setup                        # Reapply partial indexes / CHECK / RLS policies
 
 # Run all at once
 npm run dev:all                                # Next.js + NestJS + Python Agents (concurrently)
@@ -37,6 +38,7 @@ npm run dev                          # Next.js frontend only (localhost:3000)
 npm run dev:server                   # NestJS backend only (localhost:4000)
 npm run dev:agents                   # Python Agents only
 npm run db:push                      # Apply schema
+npm run db:3layer-setup              # Reapply constraints not represented in Prisma schema
 npm run db:studio                    # Prisma Studio (DB GUI)
 ```
 
@@ -50,8 +52,10 @@ npm run db:studio                    # Prisma Studio (DB GUI)
 ## Tests
 
 ```bash
-cd apps/server && npx vitest run    # Backend
-cd apps/web && npx vitest run       # Frontend
+npm exec --workspace=apps/server -- vitest run   # Backend
+npm exec --workspace=apps/web -- vitest run      # Frontend
+npm run check:idor
+npm run check:tenant-scope
 ```
 
 Vitest. Keep only infrastructure-critical tests — no implementation detail (wiring) tests (TkDodo recommendation).

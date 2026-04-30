@@ -133,10 +133,11 @@ npm run db:test:down       # 종료 + 볼륨 자동 소멸 (tmpfs)
 - **Multi-statement 트랜잭션**: `$transaction` 내부 롤백 동작
 - **IDOR end-to-end**: 다른 companyId 로 쿼리 시 실제 row 격리
 
-### 현재 커버 (2026-04-17)
+### 현재 예시 커버
 
-- `panel/__tests__/panel-pr3.pg.integration.spec.ts` — Alert.promote race (`alert.updateMany` + `actionTask.create` P2002)
-- `action-task/__tests__/action-task-claim.pg.integration.spec.ts` — ActionTask.claim/unclaim race
+- `automation/adapter/out/panel-event/__tests__/panel-pr3.pg.integration.spec.ts` — Alert promote race (`alert.updateMany` + `actionTask.create` P2002)
+- `automation/application/service/__tests__/action-board-claim.pg.integration.spec.ts` — ActionTask claim/unclaim race
+- `automation/application/service/__tests__/action-board-mutations.pg.integration.spec.ts` — ActionTask mutation tenant scope
 
 각 파일은 mock 시뮬레이션 대응 파일(`*.spec.ts`) 과 **공존**한다. Mock 은 fast smoke, real 은 동시성 정확성.
 
@@ -170,7 +171,7 @@ npm run db:test:down       # 종료 + 볼륨 자동 소멸 (tmpfs)
 - `test-helpers/real-prisma.ts::assertTestDbUrl` — DATABASE_URL 이 5434 또는 `kiditem_test` 포함 아니면 throw. dev DB 에 TRUNCATE 실수 방지.
 - `vitest.config.integration.ts` — `fileParallelism: false` + `isolate: false` 로 단일 fork serial 실행 (테스트 사이 reset 만 하면 충분).
 
-## CI 통합 (TODO)
+## CI 통합 (future)
 
 현재 `.github/workflows/` 없음. 추가 시 Postgres service 컨테이너로 동일 compose 재사용 가능:
 

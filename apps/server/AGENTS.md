@@ -106,7 +106,10 @@ explicitly retires the compatibility surface.
 - Errors → throw HttpException (no `ok: false` in 200 responses)
 - Types → import from `@kiditem/shared`, use `satisfies` pattern in services
 - Application-internal command/result types → 해당 `application/service/*` 또는 `application/port/*` 근처에 둔다 (interface/type, not class). API DTOs(`adapter/in/http/dto/`)와 분리. `@kiditem/shared`에 넣지 않음.
-- Agent trigger: `AgentRegistryService.runByType()` → HeartbeatService → adapter execution (Claude CLI or Python HTTP)
+- Agent trigger boundary: reconstructed domains inject automation ports such as
+  `AGENT_RUNNER_PORT`; the compatibility implementation delegates to
+  `AgentRegistryService.runByType()` → HeartbeatService → adapter execution
+  (Claude CLI or Python HTTP).
 - Agent data access: `AGENT_DATABASE_URL` (read-only PostgreSQL). Agents query DB directly via psql.
 - Agent prompts: stored in `agent-config/prompts/`, NOT in DB. DB `prompt_template` field holds file path.
 - No data injection in prompts — agents fetch what they need via db-query skill.
@@ -197,7 +200,7 @@ domain instead of growing as standalone bounded contexts:
 | Target owner | Current folders likely to converge |
 |---|---|
 | `products` / `catalog` | `products` (includes `products/categories` compatibility capability for former top-level `categories`) |
-| `sourcing` / `procurement` | `sourcing`, `suppliers`, `procurement` |
+| `sourcing` / `procurement` | `sourcing` (already folds supplier and purchase-order/procurement capabilities) |
 | `inventory` | `inventory`, `warehouses`, `stock-transfers`, `stock-audits`, `picking` |
 | `orders` | `orders`, `return-transfers`, CS/review/order-adjacent surfaces |
 | `finance` | `finance`, `manual-ledger`, `processing-costs`, `supplier-payments`, `settlements` |
@@ -246,7 +249,7 @@ async getProduct(id: string, companyId: string) {
 
 **규칙**: `src/{domain}/` 하위 파일을 Edit 하기 전, 아래 표의 해당 행이 가리키는 scoped document 를 먼저 Read 한다. 현재 전용 도메인 문서는 `CLAUDE.md` 로 유지 중이다. Index 에 없으면 부모 NestJS 패턴(이 문서)으로 충분하다.
 
-### 전용 CLAUDE.md 가 있는 도메인 (15)
+### 전용 CLAUDE.md 가 있는 도메인 (16)
 
 | 경로 | 크기 | 핵심 포인트 |
 |---|---|---|
@@ -264,7 +267,8 @@ async getProduct(id: string, companyId: string) {
 | [`src/automation/adapter/out/agent-runtime/CLAUDE.md`](src/automation/adapter/out/agent-runtime/CLAUDE.md) | ~35줄 | Agent OS runtime adapter — Claude CLI / Python HTTP execution adapters, immutable ExecutionContext, observable adapter fallback |
 | [`src/automation/adapter/out/workflow-runner/CLAUDE.md`](src/automation/adapter/out/workflow-runner/CLAUDE.md) | ~155줄 | Workflow runner outgoing adapter + folded HTTP surface guidance — slim-core executor registry, trusted tenant injection, execution flow, output/error contracts, no generic DB/HTTP/LLM executors. Public route owner = `automation/adapter/in/http/workflows.controller.ts` |
 | [`src/products/CLAUDE.md`](src/products/CLAUDE.md) | ~60줄 | 3-layer Master/Option/Bundle + categories compatibility capability — `MasterProduct` family (code via `master_code_seq`), `ProductOption` SKU (race-free sku via `optionCounter` increment), `BundleComponent` (cross-master 허용, 3-way invariant, nested 금지 B1), `availableStock` = `BundleStockService.recompute` sole writer + `SELECT FOR UPDATE` row-lock. `src/products/categories/` owns `/api/categories` route compatibility under products/catalog |
-| [`src/rules/CLAUDE.md`](src/rules/CLAUDE.md) | 83줄 | Event-Driven — 룰 평가는 agent 비동기 spawn → `@OnEvent` 콜백. CRUD 패턴 아님 |
+| [`src/rules/CLAUDE.md`](src/rules/CLAUDE.md) | 83줄 | Event-Driven — 룰 평가는 automation `AgentRunnerPort` 경유로 Agent OS 에 위임하고 결과 콜백을 처리. CRUD 패턴 아님 |
+| [`src/sourcing/CLAUDE.md`](src/sourcing/CLAUDE.md) | ~130줄 | Sourcing owner domain — folds supplier CRUD and purchase-order/procurement state machine while preserving `/api/sourcing/*`, `/api/suppliers/*`, `/api/purchase-orders/*`. Sourcing agent delegation goes through `SOURCING_AGENT_GATEWAY_PORT`. |
 
 ### Panel — Live Ops SSE
 
@@ -284,15 +288,12 @@ Observable<MessageEvent> 내보냄. Automation workflow application services 가
 
 부모 NestJS 패턴(이 문서)으로 거의 커버되지만, 아래 도메인은 한 가지 특이점이 있다. 별도 문서화 비용이 효익 대비 작아 inline 정리.
 
-- **`src/sourcing/`** — 익스텐션이 product 데이터를 push (POST `/api/sourcing/extension/products`). AgentRegistry 와 cross-coupling: `sourcing.service.ts` 가 `agentRegistry.runByType('sourcing_*')` 호출. 외부 push + 비동기 trigger 패턴.
 - **Action board (`src/automation/.../action-*`)** — Phase 3C-7 에서
   top-level `src/action-task/` 는 제거됐다. `/api/action-tasks/*` HTTP
   surface 는 `automation/adapter/in/http/action-task.controller.ts`, use-case
   orchestration 은 `automation/application/service/action-board.service.ts`,
   seed 임계값은 pure `automation/domain/policy/action-seeds.ts` 가 소유한다.
   룰 임계 변경은 여전히 hardcode 정책 변경이며 DB 설정이 아니다.
-- **`src/procurement/`** — Purchase Order **state machine** (`draft → pending → ordered → shipped → received`). 상태 전이 검증 + status groupBy 카운트. `__tests__/procurement.spec.ts` 로 흐름 보호.
-- **`src/ontology/`** — **DELETED (2026-04-28)**. `master_products` 를 `companyId` 없이 읽던 IDOR 후보였고 UI 소비처도 없어 제품 표면에서 hard-delete 했다. Do not reintroduce without product contract + tenant isolation test.
 - **`src/feature-gate/`** — Feature flag 도메인. `allowedCompanies: string[]` array 로 회사별 enable. 멀티-레벨 enable 로직 (global / per-company). agent-registry 의 FeatureGateService 와 별개 (이건 endpoint, 그건 runtime 평가).
 
 각 도메인 작업 시 위 특이점만 의식하면 부모 NestJS 패턴으로 충분.

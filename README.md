@@ -1,6 +1,6 @@
 # KidItem
 
-이커머스 셀러 관리 자동화 플랫폼. 중국(1688) 소싱 → AI 콘텐츠 생성 → 쿠팡/네이버 리스팅 → 운영 자동화.
+이커머스 셀러 운영 자동화 플랫폼. 소싱 → 상품/채널 카탈로그 → AI 이미지·콘텐츠 처리 → 리스팅 운영 → 재고·주문·정산·광고 자동화.
 
 ## 사전 요구사항
 
@@ -63,24 +63,28 @@ npm run db:studio                    # Prisma Studio (DB GUI, localhost:5555)
 ## 구조
 
 ```
-apps/web/            — Next.js 14 프론트엔드
+apps/web/            — Next.js 16 프론트엔드
 apps/server/         — NestJS 11 백엔드 API
 agents/              — Python 3.11+ AI 에이전트 (백그라운드 워커)
 packages/shared/     — @kiditem/shared (Zod 스키마 + TypeScript 타입 + 에러 코드)
 packages/templates/  — 상세페이지 React 템플릿
-prisma/              — DB 스키마 (source of truth)
+prisma/              — Prisma multi-file DB 스키마 (source of truth)
 extensions/          — Chrome 익스텐션 (1688/Alibaba 스크래퍼)
 ```
+
+프론트엔드 라우트는 Next.js App Router route group으로 도메인별 배치한다. 예: `/agents`는 `apps/web/src/app/(automation)/agents/page.tsx`, `/products`는 `apps/web/src/app/(catalog)/products/page.tsx`에 있다.
+
+백엔드는 owner-domain 기준으로 정리한다. 재구성된 도메인은 `adapter/application/domain/mapper` 구조와 선택적 hexagonal ports를 사용하고, 단순 CRUD는 전환기 flat module로 남을 수 있다. 현재 계약은 [AGENTS.md](AGENTS.md), [apps/server/AGENTS.md](apps/server/AGENTS.md), [apps/web/AGENTS.md](apps/web/AGENTS.md)를 기준으로 한다.
 
 ## 기술 스택
 
 | 레이어 | 기술 |
 |---|---|
-| 프론트엔드 | Next.js 14, Tailwind CSS, TanStack React Query, Zustand, Sonner |
+| 프론트엔드 | Next.js 16, React 19, Tailwind CSS, TanStack React Query, Zustand, Sonner |
 | 백엔드 | NestJS 11, TypeScript, class-validator DTO |
 | DB | PostgreSQL 17, Prisma v7 |
 | 공유 | Zod 스키마 (@kiditem/shared), ESM + CJS dual format |
-| AI | Python (OpenAI/Gemini/fal), Claude CLI agents |
+| AI | NestJS Gemini direct calls, Claude CLI Agent OS, Python agents (OpenAI/Gemini/fal) |
 | 인프라 | Docker Compose |
 
 ## 환경 변수
@@ -90,6 +94,7 @@ extensions/          — Chrome 익스텐션 (1688/Alibaba 스크래퍼)
 ```
 DATABASE_URL=postgresql://kiditem:kiditem@localhost:5433/kiditem
 AGENT_DATABASE_URL=postgresql://agent_reader:agent_readonly@localhost:5433/kiditem
+CHATBOT_DATABASE_URL=postgresql://chatbot_readonly:chatbot_readonly@localhost:5433/kiditem?options=-c%20app.company_id%3D{company_uuid}
 
 # Coupang Wing API
 COUPANG_ACCESS_KEY=
@@ -131,8 +136,10 @@ LANGFUSE_BASE_URL=https://cloud.langfuse.com
 ## 테스트
 
 ```bash
-cd apps/server && npx vitest run    # 백엔드
-cd apps/web && npx vitest run       # 프론트엔드
+npm exec --workspace=apps/server -- vitest run   # 백엔드
+npm exec --workspace=apps/web -- vitest run      # 프론트엔드
+npm run check:idor
+npm run check:tenant-scope
 ```
 
 ## License
