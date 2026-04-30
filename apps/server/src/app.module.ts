@@ -28,7 +28,6 @@ import { AdvertisingModule } from './advertising/advertising.module';
 import { ProcurementModule } from './procurement/procurement.module';
 import { FeatureGateModule } from './feature-gate/feature-gate.module';
 import { ManualLedgerModule } from './manual-ledger/manual-ledger.module';
-import { ReturnTransfersModule } from './return-transfers/return-transfers.module';
 import { SuppliersModule } from './suppliers/suppliers.module';
 import { SupplierStatsModule } from './supplier-stats/supplier-stats.module';
 import { SupplierPaymentsModule } from './supplier-payments/supplier-payments.module';
@@ -73,7 +72,6 @@ import { TrafficModule } from './traffic/traffic.module';
     AdvertisingModule,
     ProcurementModule,
     ManualLedgerModule,
-    ReturnTransfersModule,
     SuppliersModule,
     SupplierStatsModule,
     SupplierPaymentsModule,

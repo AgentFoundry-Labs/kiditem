@@ -1,6 +1,6 @@
-# orders — Order / Return / CS 통합 도메인
+# orders — Order / Return / CS / Return-Transfer 통합 도메인
 
-15 파일. **3개 무관한 도메인(orders / returns / cs)이 한 NestJS 모듈에 묶임**. Plan A.5 (ADR-0015) 가 schema 를 channel-agnostic 으로 통합.
+Order/return-adjacent 표면이 한 NestJS 모듈(`OrdersModule`)에 묶여있다 (orders / returns / cs / reviews / return-transfers). Plan A.5 (ADR-0015) 가 schema 를 channel-agnostic 으로 통합. `return-transfers` 는 Wave H1 Lane O 에서 top-level `src/return-transfers/` 에서 owner 도메인 안으로 fold 됐다 (route + 동작 호환). Prisma 모델 `ReturnTransfer` 는 토폴로지 fold 동안 여전히 Inventory namespace 에 머문다 — 스키마 이동은 별도 PR.
 
 ## Schema — channel-agnostic 통합 (Plan A.5)
 
@@ -23,11 +23,14 @@
 
 ```
 orders/
-├── controllers/  # orders, returns, cs (3개)
-├── services/     # orders, returns, cs (3개)
-├── dto/          # 6 DTO
-└── orders.module.ts
+├── controllers/        # orders, returns, cs, reviews
+├── services/           # orders, returns, cs, reviews
+├── dto/                # order/return/cs/review DTO
+├── return-transfers/   # Wave H1 fold — controller + service + dto
+└── orders.module.ts    # 위 모든 controller/service 단일 모듈
 ```
+
+`return-transfers/` 는 `OrdersModule` 이 `ReturnTransfersController` + `ReturnTransfersService` 를 직접 등록하는 형태. 별도 sub-module 파일은 두지 않는다 (CS / reviews / returns 와 같은 패턴). Prisma 모델은 여전히 `inventory.prisma` 에 namespace=Inventory 로 남아있다.
 
 ## Routes
 
@@ -39,11 +42,14 @@ orders/
 | `GET /api/orders/:id` | 단일 주문 detail |
 | `POST/GET /api/returns` | 반품 lifecycle |
 | `POST/GET /api/cs` | CS 티켓 CRUD + pagination |
+| `GET /api/return-transfers` | 반품 transfer 목록 (status 필터) |
+| `POST /api/return-transfers` | 반품 transfer 생성 (record-only, stock 미변경) |
+| `PATCH /api/return-transfers/:id` | 반품 transfer 상태/수량 업데이트 |
 
 ## 핵심 패턴
 
 ### 1. Multi-controller 모듈
-하나의 `OrdersModule` 이 3 무관 controller (orders/returns/cs) 등록. Cross-service 의존 없음 (orders.module.ts:10). 향후 분리 가능하나 현재 묶여있음.
+하나의 `OrdersModule` 이 5 controller (orders/returns/cs/reviews/return-transfers) 등록. Cross-service 의존 없음. `return-transfers` 는 Wave H1 fold 로 합류했지만 여전히 stock 미변경 record-only 동작이며, stock movement invariant 는 `inventory/CLAUDE.md` 의 record-only 규칙 + integration spec `#8` 가 lock-in.
 
 ### 2. 외부 채널 어댑터 위임
 주문 confirmation, invoice upload는 DB 갱신이 아니라 **`channels.adapters.coupang`** 호출 (orders.service.ts). 서비스에서 `coupangRequest` 직접 호출 절대 금지.
