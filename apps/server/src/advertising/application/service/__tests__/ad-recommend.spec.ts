@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-vi.mock('../../../agent-registry/agent-registry.service', () => ({
+vi.mock('../../../../agent-registry/agent-registry.service', () => ({
   AgentRegistryService: class AgentRegistryService {},
 }));
 

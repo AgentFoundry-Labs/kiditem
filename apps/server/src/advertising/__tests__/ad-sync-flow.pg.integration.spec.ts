@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Test } from '@nestjs/testing';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import type { PrismaClient } from '@prisma/client';
-import { AdSyncService } from '../services/ad-sync.service';
+import { AdSyncService } from '../application/service/ad-sync.service';
 import { ChannelScrapePersistenceService } from '../services/channel-scrape-persistence.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import {

@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { AdStrategyAction, AdStrategyRecommendation } from '@kiditem/shared/advertising';
-import { AgentRegistryService } from '../../agent-registry/agent-registry.service';
-import type { RecommendInput } from '../domain/model/strategy-types';
+import { AgentRegistryService } from '../../../agent-registry/agent-registry.service';
+import type { RecommendInput } from '../../domain/model/strategy-types';
 
 /**
  * Hybrid sub-service — 4 sub-service 중 유일한 예외로 `AgentRegistryService` 주입.

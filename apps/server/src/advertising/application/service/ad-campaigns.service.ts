@@ -1,18 +1,18 @@
 import { Injectable } from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService } from '../../../prisma/prisma.service';
 import { AdConfigService } from './ad-config.service';
-import { findScopedAdListings } from '../adapter/out/prisma/ad-listing.query';
+import { findScopedAdListings } from '../../adapter/out/prisma/ad-listing.query';
 import {
   aggregateDailyAdRows,
   findAdTrendDailyRows,
   findCampaignRollups,
   findGradeBudgetTotals,
-} from '../adapter/out/prisma/ad-campaign.query';
+} from '../../adapter/out/prisma/ad-campaign.query';
 import {
   toAdCampaignSnapshot,
   toAdTrendsData,
-} from '../mapper/ad-campaign.mapper';
-import { periodToDays, type AdPeriod } from '../domain/ad-metrics';
+} from '../../mapper/ad-campaign.mapper';
+import { periodToDays, type AdPeriod } from '../../domain/ad-metrics';
 import type {
   AdCampaignSnapshot,
   AdTrendsData,

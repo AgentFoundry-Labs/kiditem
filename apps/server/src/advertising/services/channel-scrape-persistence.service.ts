@@ -1,19 +1,16 @@
-// Thin facade over the focused channels-namespace persistence helpers.
+// Transitional facade over the focused channels-namespace persistence
+// helpers. Kept inside `apps/server/src/advertising/services/` after the
+// Wave H2 Lane AD convergence move because the integration tests in
+// `apps/server/src/advertising/__tests__/` (channel-scrape-dual-write,
+// ad-sync-flow) still inject this @Injectable wrapper by class name.
 //
 // The actual logic lives in `apps/server/src/advertising/adapter/out/prisma/*.ts`
 // (one module per concern: scrape-run lifecycle, daily-fact upserts,
 // account KPI). Ingest handlers call those persistence functions directly.
-// This @Injectable wrapper exists for two reasons during the Lane A
-// refactor:
-//   1. Integration tests inject `ChannelScrapePersistenceService` directly
-//      (`apps/server/src/advertising/__tests__/channel-scrape-dual-write.pg.integration.spec.ts`).
-//   2. The existing unit test (`channel-scrape-persistence.spec.ts`)
-//      constructs the service with a mocked `PrismaService` to assert the
-//      atomic metaJson merge.
 //
 // New callers should import the persistence functions directly. This
-// facade keeps the contract stable and may be removed once the broader
-// refactor completes.
+// facade may be removed once the integration tests stop relying on the
+// class-name binding.
 
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
