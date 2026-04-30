@@ -1,5 +1,6 @@
 import { CheckCircle, Clock, MapPin, Package, Truck, type LucideIcon } from 'lucide-react';
 import type { OrderListItem, OrderListResponse, OrderPipelineStatus } from '@kiditem/shared/order';
+import { KST_OFFSET_MS } from '../../_shared/lib/kst';
 
 export interface OrderPipelineNode {
   key: OrderPipelineStatus;
@@ -98,7 +99,6 @@ export function getCurrentSyncWindow(
   // KST wall-clock + `+09:00` 으로 변환해 Coupang 에 전달.
   // - `from`: 7일 전 KST start-of-day 의 UTC 표현
   // - `to`: 현재 시각 (윈도우 종료)
-  const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
   const nowKstMs = now.getTime() + KST_OFFSET_MS;
   const sevenDaysAgoKstStartMs =
     Math.floor((nowKstMs - 7 * 86400000) / 86400000) * 86400000;
