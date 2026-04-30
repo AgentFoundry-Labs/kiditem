@@ -18,7 +18,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
 
-import { AlertsService } from '../../../../../rules/services/alerts.service';
+import { AlertsService } from '../../../../application/service/alerts.service';
 import {
   makeTestPrisma,
   resetDb,

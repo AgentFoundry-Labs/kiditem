@@ -1,6 +1,6 @@
 # rules — Event-Driven Agent Callback + Bulk SQL
 
-13 파일. 비즈니스 규칙 평가는 **agent 비동기 spawn → @OnEvent 콜백** 으로 처리. CRUD 패턴이 아니라 event-driven.
+비즈니스 규칙 평가는 **agent 비동기 spawn → @OnEvent 콜백** 으로 처리. CRUD 패턴이 아니라 event-driven.
 
 ## Owner domain — Automation / Agent OS
 
@@ -22,17 +22,23 @@ domain 에 속한다. 분류 + hard-delete 기준은
   `AgentRegistryService.findByType` / `.run` 을 직접 호출 (agent delegation
   boundary 의 정상 경계 — 포트화 대상 아님).
 
-Promote / dismiss path (`AlertsService`) 의 `$transaction` race guard 와 panel
-emit ordering 은 incident regression 으로 보호되는 contract — 약화 금지.
+Alerts HTTP surface (`/api/alerts/*`) 와 `AlertsService` 는 Wave H3 AO-2
+(2026-04-30) 에 `automation/` owner domain 으로 이동했다. 새 위치:
+`automation/adapter/in/http/alerts.controller.ts` +
+`automation/application/service/alerts.service.ts` +
+`automation/adapter/in/http/dto/alerts/`. `rules/` 는 더 이상 alerts
+컨트롤러/서비스를 보유하지 않는다. 이전에 여기 있던 promote / dismiss
+$transaction race guard 와 panel emit ordering 의 incident regression
+contract 는 새 위치에서 그대로 보호된다 — 약화 금지.
 
 ## Directory
 
 ```
 rules/
-├── controllers/   # rules, alerts (2개)
-├── services/      # rules, alerts, types
-├── dto/           # 4 DTO
-├── __tests__/     # rules.service.spec, rules-flow.spec
+├── controllers/   # rules (1개)
+├── services/      # rules, types (1 service + types)
+├── dto/           # 3 DTO (list-rules, update-rule, update-schedule)
+├── __tests__/     # rules.service.spec, rules-flow.spec, rules.controller.spec
 └── rules.module.ts
 ```
 
@@ -44,8 +50,7 @@ rules/
 | `GET /api/rules/evaluate/status/:taskId` | 폴링 |
 | `GET /api/rules` | 회사+카테고리별 룰 리스트 |
 | `GET/PATCH /api/rules/schedule` | 평가 cron 스케줄 |
-| `PATCH /api/rules/:id` | 룰 정의 update |
-| `GET /api/alerts` | alert 리스트 (isRead 필터) |
+| `PATCH /api/rules/:id` | 룰 정의 update (tenant-scoped read 후 write) |
 
 ## 핵심 패턴
 

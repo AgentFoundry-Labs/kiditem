@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NotFoundException, ConflictException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { AlertsService } from '../services/alerts.service';
-import { PANEL_EVENTS } from '../../automation/adapter/out/panel-event/panel-events';
+import { AlertsService, type PromoteAlertInput } from '../alerts.service';
+import { PANEL_EVENTS } from '../../../adapter/out/panel-event/panel-events';
 
 const COMPANY_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const ALERT_ID = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
@@ -285,11 +285,11 @@ describe('AlertsService.promote', () => {
     }
   });
 
-  describe('DTO overrides', () => {
+  describe('PromoteAlertInput overrides', () => {
     it.each([
-      ['priorityOverride', { priorityOverride: 'medium' as const }, 'priority', 'medium'],
-      ['roleOverride', { roleOverride: 'inventory' as const }, 'role', 'inventory'],
-    ])('uses %s from dto instead of severity/type mapping', async (_label, dto, field, expected) => {
+      ['priorityOverride', { priorityOverride: 'medium' } as PromoteAlertInput, 'priority', 'medium'],
+      ['roleOverride', { roleOverride: 'inventory' } as PromoteAlertInput, 'role', 'inventory'],
+    ])('uses %s from input instead of severity/type mapping', async (_label, input, field, expected) => {
       const { service, prisma } = makeService();
       const tx = mockTransaction(prisma);
 
@@ -297,7 +297,7 @@ describe('AlertsService.promote', () => {
       tx.actionTask.create = vi.fn().mockResolvedValue(BASE_TASK);
       tx.alert.updateMany = vi.fn().mockResolvedValue({ count: 1 });
 
-      await service.promote(ALERT_ID, COMPANY_ID, dto, USER_ID);
+      await service.promote(ALERT_ID, COMPANY_ID, input, USER_ID);
 
       expect(tx.actionTask.create).toHaveBeenCalledWith(
         expect.objectContaining({

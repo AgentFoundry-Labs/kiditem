@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -227,7 +227,19 @@ export class RulesService implements OnModuleInit {
     } satisfies RuleItem));
   }
 
-  async updateRule(id: string, data: { threshold?: unknown; active?: boolean; autoExecute?: boolean }) {
+  async updateRule(
+    id: string,
+    companyId: string,
+    data: { threshold?: unknown; active?: boolean; autoExecute?: boolean },
+  ) {
+    // Tenant-scoped read first — IDOR prevention. Mirrors AlertsService.markAsRead
+    // and the kiditem standard pattern in apps/server/AGENTS.md
+    // (멀티테넌트 격리 — 회사 스코프).
+    const existing = await this.prisma.businessRule.findFirst({
+      where: { id, companyId },
+    });
+    if (!existing) throw new NotFoundException('Rule not found');
+
     return this.prisma.businessRule.update({
       where: { id },
       data: {
