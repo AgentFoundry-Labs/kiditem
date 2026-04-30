@@ -3,6 +3,7 @@ import { AGENT_SCHEDULE_CONTROL_PORT } from './application/port/in/agent-schedul
 import { AgentRuntimeScheduleControlAdapter } from './adapter/out/agent-runtime/agent-schedule-control.adapter';
 import { MarketplaceInstallService } from './application/service/marketplace-install.service';
 import { ActionTaskController } from './adapter/in/http/action-task.controller';
+import { AlertsController } from './adapter/in/http/alerts.controller';
 import { MarketplaceController } from './adapter/in/http/marketplace.controller';
 import { PanelController } from './adapter/in/http/panel.controller';
 import { WorkflowsController, WorkflowRunsController } from './adapter/in/http/workflows.controller';
@@ -10,6 +11,7 @@ import { MarketplaceModule } from '../marketplace/marketplace.module';
 import { PrismaMarketplaceInstallStoreAdapter } from './adapter/out/prisma/marketplace-install-store.adapter';
 import { MARKETPLACE_INSTALL_STORE_PORT } from './application/port/out/marketplace-install-store.port';
 import { ActionBoardService } from './application/service/action-board.service';
+import { AlertsService } from './application/service/alerts.service';
 import { PanelService } from './adapter/out/panel-event/panel.service';
 import { PanelSseService } from './adapter/out/panel-event/panel-sse.service';
 import { WorkflowOrchestrationService } from './application/service/workflow-orchestration.service';
@@ -51,6 +53,11 @@ import { WorkflowRunnerService } from './application/service/workflow-runner.ser
  *   adapters fold the former top-level `workflows/` compatibility surface
  *   into automation. Public routes (`/api/workflows/*`,
  *   `/api/workflow-runs/:runId`) are preserved unchanged.
+ * - Wave H3 AO-2: `AlertsController` + `AlertsService` fold the former
+ *   `rules/` alerts HTTP surface into automation. The promote/dismiss race
+ *   guard, panel UPSERT/DISMISS emission contract, and `/api/alerts/*` route
+ *   shape are preserved unchanged. The application service now consumes a
+ *   `PromoteAlertInput` interface (no class-validator dependency).
  */
 @Module({
   imports: [MarketplaceModule],
@@ -58,6 +65,7 @@ import { WorkflowRunnerService } from './application/service/workflow-runner.ser
     MarketplaceController,
     PanelController,
     ActionTaskController,
+    AlertsController,
     WorkflowsController,
     WorkflowRunsController,
   ],
@@ -71,6 +79,7 @@ import { WorkflowRunnerService } from './application/service/workflow-runner.ser
       useClass: PrismaMarketplaceInstallStoreAdapter,
     },
     ActionBoardService,
+    AlertsService,
     MarketplaceInstallService,
     PanelService,
     PanelSseService,

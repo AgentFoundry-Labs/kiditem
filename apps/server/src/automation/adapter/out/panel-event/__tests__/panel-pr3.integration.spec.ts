@@ -30,7 +30,7 @@ import { take, toArray } from 'rxjs/operators';
 
 import { PanelSseService } from '../panel-sse.service';
 import { PANEL_EVENTS } from '../panel-events';
-import { AlertsService } from '../../../../../rules/services/alerts.service';
+import { AlertsService } from '../../../../application/service/alerts.service';
 import { ActionBoardService } from '../../../../application/service/action-board.service';
 import { PrismaService } from '../../../../../prisma/prisma.service';
 

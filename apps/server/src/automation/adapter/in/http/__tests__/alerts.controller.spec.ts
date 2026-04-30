@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { AlertsController } from '../controllers/alerts.controller';
+import { AlertsController } from '../alerts.controller';
 
 const COMPANY_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const ALERT_ID = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
@@ -45,13 +45,41 @@ describe('AlertsController', () => {
     expect(service.markAsRead).toHaveBeenCalledWith(ALERT_ID, COMPANY_ID);
   });
 
-  it('promote forwards id, companyId, dto, and current user id', () => {
+  it('promote forwards id, companyId, mapped application input, and current user id', () => {
     const { controller, service } = makeController();
-    const dto = { priorityOverride: 'high' as const };
+    // class-validator HTTP DTO has the same shape as the application input.
+    const dto = { priorityOverride: 'high' as const, roleOverride: 'ad', note: 'urgent' };
 
     controller.promote(ALERT_ID, COMPANY_ID, { id: USER_ID } as any, dto);
 
-    expect(service.promote).toHaveBeenCalledWith(ALERT_ID, COMPANY_ID, dto, USER_ID);
+    // Controller maps DTO fields explicitly into the PromoteAlertInput shape.
+    expect(service.promote).toHaveBeenCalledWith(
+      ALERT_ID,
+      COMPANY_ID,
+      {
+        priorityOverride: 'high',
+        roleOverride: 'ad',
+        note: 'urgent',
+      },
+      USER_ID,
+    );
+  });
+
+  it('promote forwards undefined fields as-is when dto omits them', () => {
+    const { controller, service } = makeController();
+
+    controller.promote(ALERT_ID, COMPANY_ID, { id: USER_ID } as any, {});
+
+    expect(service.promote).toHaveBeenCalledWith(
+      ALERT_ID,
+      COMPANY_ID,
+      {
+        priorityOverride: undefined,
+        roleOverride: undefined,
+        note: undefined,
+      },
+      USER_ID,
+    );
   });
 
   it('dismiss forwards id and @CurrentCompany companyId to the service', async () => {

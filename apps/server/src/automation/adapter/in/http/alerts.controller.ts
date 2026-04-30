@@ -1,9 +1,9 @@
 import { Controller, Get, Patch, Post, Param, Query, Body } from '@nestjs/common';
-import { AlertsService } from '../services/alerts.service';
-import { ListAlertsQueryDto, PromoteAlertDto } from '../dto';
-import { CurrentCompany } from '../../auth/decorators/current-company.decorator';
-import { CurrentUser } from '../../auth/decorators/current-user.decorator';
-import type { AuthUser } from '../../auth/auth.types';
+import { AlertsService } from '../../../application/service/alerts.service';
+import { ListAlertsQueryDto, PromoteAlertDto } from './dto/alerts';
+import { CurrentCompany } from '../../../../auth/decorators/current-company.decorator';
+import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
+import type { AuthUser } from '../../../../auth/auth.types';
 
 @Controller('alerts')
 export class AlertsController {
@@ -31,7 +31,16 @@ export class AlertsController {
     @CurrentUser() user: AuthUser,
     @Body() dto: PromoteAlertDto,
   ) {
-    return this.alertsService.promote(id, companyId, dto, user.id);
+    return this.alertsService.promote(
+      id,
+      companyId,
+      {
+        priorityOverride: dto.priorityOverride,
+        roleOverride: dto.roleOverride,
+        note: dto.note,
+      },
+      user.id,
+    );
   }
 
   @Post(':id/dismiss')

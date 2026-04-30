@@ -98,7 +98,11 @@ export class RulesController {
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() body: UpdateRuleBodyDto) {
-    return this.rulesService.updateRule(id, body);
+  update(
+    @Param('id') id: string,
+    @CurrentCompany() companyId: string,
+    @Body() body: UpdateRuleBodyDto,
+  ) {
+    return this.rulesService.updateRule(id, companyId, body);
   }
 }

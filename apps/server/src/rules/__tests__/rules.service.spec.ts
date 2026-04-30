@@ -1,10 +1,13 @@
 import { describe, it, expect, vi } from 'vitest';
+import { NotFoundException } from '@nestjs/common';
 import { RulesService } from '../services/rules.service';
 import { AgentResultReadyEvent } from '../../agent-registry/events/agent-events';
 import { PANEL_EVENTS } from '../../automation/adapter/out/panel-event/panel-events';
 
 const COMPANY_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const PRODUCT_ID = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+const RULE_ID = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
+const OTHER_COMPANY_ID = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee';
 
 function makePrisma() {
   return {
@@ -12,7 +15,7 @@ function makePrisma() {
     activityEvent: { create: vi.fn(), createMany: vi.fn() },
     alert: { createManyAndReturn: vi.fn() },
     masterProduct: { count: vi.fn(), findFirst: vi.fn(), findMany: vi.fn(), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
-    businessRule: { findMany: vi.fn(), update: vi.fn(), count: vi.fn() },
+    businessRule: { findFirst: vi.fn(), findMany: vi.fn(), update: vi.fn(), count: vi.fn() },
     company: { findFirst: vi.fn() },
     $transaction: vi.fn().mockResolvedValue([]),
   };
@@ -323,6 +326,59 @@ describe('RulesService', () => {
 
       expect(registry.findByType).toHaveBeenCalledWith('rules_suggest');
       expect(result).toEqual({ taskId: 'task-s1', status: 'running' });
+    });
+  });
+
+  describe('updateRule — tenant scope (IDOR prevention)', () => {
+    it('reads tenant-scoped row first, then updates by id once authorised', async () => {
+      const { service, prisma } = makeService();
+      prisma.businessRule.findFirst.mockResolvedValue({ id: RULE_ID, companyId: COMPANY_ID });
+      prisma.businessRule.update.mockResolvedValue({ id: RULE_ID, active: false });
+
+      const result = await service.updateRule(RULE_ID, COMPANY_ID, { active: false });
+
+      // Tenant-scoped read happens BEFORE the write (apps/server/AGENTS.md
+      // 멀티테넌트 격리 — 회사 스코프).
+      expect(prisma.businessRule.findFirst).toHaveBeenCalledWith({
+        where: { id: RULE_ID, companyId: COMPANY_ID },
+      });
+      expect(prisma.businessRule.update).toHaveBeenCalledWith({
+        where: { id: RULE_ID },
+        data: { active: false },
+      });
+      expect(result).toEqual({ id: RULE_ID, active: false });
+    });
+
+    it('throws NotFoundException when the rule belongs to another company (no write)', async () => {
+      const { service, prisma } = makeService();
+      // Cross-tenant read returns null — service must NOT proceed to update.
+      prisma.businessRule.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.updateRule(RULE_ID, OTHER_COMPANY_ID, { active: false }),
+      ).rejects.toThrow(NotFoundException);
+
+      expect(prisma.businessRule.findFirst).toHaveBeenCalledWith({
+        where: { id: RULE_ID, companyId: OTHER_COMPANY_ID },
+      });
+      expect(prisma.businessRule.update).not.toHaveBeenCalled();
+    });
+
+    it('forwards threshold/active/autoExecute fields on the data payload', async () => {
+      const { service, prisma } = makeService();
+      prisma.businessRule.findFirst.mockResolvedValue({ id: RULE_ID, companyId: COMPANY_ID });
+      prisma.businessRule.update.mockResolvedValue({ id: RULE_ID });
+
+      await service.updateRule(RULE_ID, COMPANY_ID, {
+        threshold: { min: 10 },
+        active: true,
+        autoExecute: false,
+      });
+
+      expect(prisma.businessRule.update).toHaveBeenCalledWith({
+        where: { id: RULE_ID },
+        data: { threshold: { min: 10 }, active: true, autoExecute: false },
+      });
     });
   });
 });

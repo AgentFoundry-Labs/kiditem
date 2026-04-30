@@ -8,12 +8,26 @@ import {
 import { Prisma } from '@prisma/client';
 import type { Alert, ActionTask } from '@prisma/client';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { PrismaService } from '../../prisma/prisma.service';
-import { kstDayStart } from '../../common/kst';
-import { alertPanelMapper } from '../../automation/mapper/panel-event/alert.mapper';
-import { PANEL_EVENTS } from '../../automation/adapter/out/panel-event/panel-events';
+import { PrismaService } from '../../../prisma/prisma.service';
+import { kstDayStart } from '../../../common/kst';
+import { alertPanelMapper } from '../../mapper/panel-event/alert.mapper';
+import { PANEL_EVENTS } from '../../adapter/out/panel-event/panel-events';
 import type { AlertItem } from '@kiditem/shared/alerts';
-import type { PromoteAlertDto } from '../dto';
+
+/**
+ * Application-internal command type for `AlertsService.promote`.
+ *
+ * The HTTP DTO (`PromoteAlertDto` under `adapter/in/http/dto/alerts/`) is a
+ * class-validator class — it belongs at the inbound adapter boundary. The
+ * application service must not type-depend on the HTTP DTO class
+ * (apps/server/AGENTS.md "Application-internal command/result types" rule).
+ * The controller maps DTO fields into this shape.
+ */
+export interface PromoteAlertInput {
+  priorityOverride?: string;
+  roleOverride?: string;
+  note?: string;
+}
 
 // ── severity → ActionTask.priority mapping ──────────────────────────────────
 const SEVERITY_TO_PRIORITY: Record<string, 'urgent' | 'high' | 'medium'> = {
@@ -114,7 +128,7 @@ export class AlertsService {
   async promote(
     alertId: string,
     companyId: string,
-    dto: PromoteAlertDto,
+    input: PromoteAlertInput,
     currentUserId: string,
   ): Promise<{ task: ActionTask; updatedAlert: Alert }> {
     const result = await this.prisma.$transaction(async (tx) => {
@@ -132,8 +146,8 @@ export class AlertsService {
             type: 'human',
             label: alert.title,
             detail: alert.message ?? null,
-            priority: dto.priorityOverride ?? mapSeverityToPriority(alert.severity),
-            role: dto.roleOverride ?? mapAlertTypeToRole(alert.type),
+            priority: input.priorityOverride ?? mapSeverityToPriority(alert.severity),
+            role: input.roleOverride ?? mapAlertTypeToRole(alert.type),
             status: 'pending',
             date: kstDayStart(new Date()),
             assigneeUserId: null,
