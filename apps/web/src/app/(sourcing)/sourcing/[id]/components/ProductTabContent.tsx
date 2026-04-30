@@ -3,11 +3,11 @@
 import Link from 'next/link';
 import { ChevronDown, Download, Pencil, Settings } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import ThumbnailGrid from '../../components/detail/ThumbnailGrid';
-import TagEditor from '../../components/detail/TagEditor';
-import RawDataTab from '../../components/detail/RawDataTab';
+import ThumbnailGrid from './ThumbnailGrid';
+import TagEditor from './TagEditor';
+import RawDataTab from './RawDataTab';
 import { CATEGORIES } from '../lib/types';
-import type { EditTabType } from '../../components/detail/ProductEditTabs';
+import type { EditTabType } from './ProductEditTabs';
 import type { ProductEditState } from '../lib/types';
 
 interface Props {
