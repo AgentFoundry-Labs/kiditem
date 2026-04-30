@@ -5,7 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { X } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
-import { useProductImages } from '@/hooks/useProductImages';
+import { useProductImages } from '../_shared/hooks/useProductImages';
 import GenerateResult from './components/GenerateResult';
 import ProductInputSection from './components/ProductInputSection';
 import CategorySelect from './components/CategorySelect';

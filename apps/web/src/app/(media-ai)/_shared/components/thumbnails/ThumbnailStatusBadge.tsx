@@ -1,6 +1,6 @@
 import { Loader2, Sparkles, CheckCircle, SkipForward, AlertCircle, Clock } from 'lucide-react';
 import type { ThumbnailGenerationItem } from '@kiditem/shared/ai';
-import { isReady, isApplied } from '@/lib/thumbnail-status';
+import { isReady, isApplied } from '../../lib/thumbnail-status';
 
 type Props = { status: ThumbnailGenerationItem['status'] | string; phase?: string | null };
 

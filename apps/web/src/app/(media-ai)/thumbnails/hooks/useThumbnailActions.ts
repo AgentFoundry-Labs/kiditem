@@ -15,7 +15,7 @@ import {
   useDeleteGeneration,
   useSelectCandidate,
   useSkipGeneration,
-} from './useThumbnailGenerations';
+} from '../../_shared/hooks/useThumbnailGenerations';
 
 interface Options {
   onAfterEditStarted?: (gen: ThumbnailGenerationItem) => void;

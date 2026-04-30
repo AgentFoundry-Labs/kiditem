@@ -2,9 +2,9 @@ import Link from 'next/link';
 import { useMemo } from 'react';
 import { AlertTriangle, CheckCircle, Loader2, Wand2, Zap } from 'lucide-react';
 import type { ThumbnailAnalysisResult, ThumbnailGenerationItem } from '@kiditem/shared/ai';
-import { isReady } from '@/lib/thumbnail-status';
+import { isReady } from '../../_shared/lib/thumbnail-status';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { ProductCard } from './ProductCard';
+import { ProductCard } from '../../_shared/components/thumbnails/ProductCard';
 import { PaginationBar } from './PaginationBar';
 import { buildEditHref } from '@/app/(media-ai)/thumbnail-editor/edit/lib/build-edit-href';
 import {

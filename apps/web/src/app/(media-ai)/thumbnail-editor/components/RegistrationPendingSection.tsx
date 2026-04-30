@@ -11,7 +11,7 @@ import {
   useBatchWingRegister,
   useClearRegistrationError,
   type WingBatchItemResult,
-} from '@/hooks/useThumbnailGenerations';
+} from '../../_shared/hooks/useThumbnailGenerations';
 import { apiClient } from '@/lib/api-client';
 import { resolveImageUrl } from '@/lib/resolve-url';
 import { cn } from '@/lib/utils';

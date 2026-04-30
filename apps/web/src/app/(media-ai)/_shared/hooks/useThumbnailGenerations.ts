@@ -6,7 +6,7 @@ import type {
   RecomposeVariantKey,
   ThumbnailGenerationItem,
 } from '@kiditem/shared/ai';
-import { isActive } from '@/lib/thumbnail-status';
+import { isActive } from '../lib/thumbnail-status';
 
 export function useGenerationList() {
   return useQuery({

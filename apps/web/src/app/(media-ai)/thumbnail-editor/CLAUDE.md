@@ -116,6 +116,6 @@ Generation 후 `queryClient.invalidateQueries(queryKeys.thumbnailAnalysis.genera
 | Candidate 표시 변경 | `EditorResultPanel.tsx` |
 | Image source 추가 (단일 슬롯) | `SlotCard.tsx` + `ImageSourceDrawer.tsx` + `HubUploadZone.tsx` |
 | Multi-drop 업로더 변경 | `EditorInputPanel.tsx` `AddSlotTile` + `ImageSourceDrawer.tsx` multi 모드 |
-| ROLE_CONFIG 변경 (role 추가 등) | `apps/web/src/lib/hub-roles.ts` (단일 source) + `image-hub/components/ImageGrid.tsx` + `ImageSourceDrawer.tsx` |
+| ROLE_CONFIG 변경 (role 추가 등) | `apps/web/src/app/(media-ai)/_shared/lib/hub-roles.ts` (단일 source) + `image-hub/components/ImageGrid.tsx` + `ImageSourceDrawer.tsx` |
 | 허브 role → 편집기 슬롯 매핑 규칙 | `EditorInputPanel.tsx` 의 `SlotCard` / `AddSlotTile` role prop. role-slot 매핑 변경 시 EditorInputPanel 해당 case 블록 수정 |
 | ProductSelector / URL 동기화 | `page.tsx` `handleProductSelect`, `handleClearProduct` + `useRouter`. 검색 컴포넌트 변경 시 `apps/web/src/components/product/ProductSelector.tsx` |
