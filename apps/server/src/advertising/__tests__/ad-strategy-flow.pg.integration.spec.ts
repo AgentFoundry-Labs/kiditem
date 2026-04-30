@@ -7,12 +7,12 @@ vi.mock('../../agent-registry/agent-registry.service', () => ({
 import { Test } from '@nestjs/testing';
 import { NotFoundException, ConflictException } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
-import { AdStrategyService } from '../services/ad-strategy.service';
-import { AdConfigService } from '../services/ad-config.service';
-import { AdGradeRulesService } from '../services/ad-grade-rules.service';
-import { AdBudgetAllocatorService } from '../services/ad-budget-allocator.service';
-import { AdExposureService } from '../services/ad-exposure.service';
-import { AdRecommendService } from '../services/ad-recommend.service';
+import { AdStrategyService } from '../application/service/ad-strategy.service';
+import { AdConfigService } from '../application/service/ad-config.service';
+import { AdGradeRulesService } from '../application/service/ad-grade-rules.service';
+import { AdBudgetAllocatorService } from '../application/service/ad-budget-allocator.service';
+import { AdExposureService } from '../application/service/ad-exposure.service';
+import { AdRecommendService } from '../application/service/ad-recommend.service';
 import { AgentRegistryService } from '../../agent-registry/agent-registry.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import {

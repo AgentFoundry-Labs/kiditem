@@ -5,7 +5,7 @@ import type {
   AdsConfig,
   HydratedListing,
   KeyMetricsInput,
-} from '../../domain/model/strategy-types';
+} from '../../../domain/model/strategy-types';
 
 // ─────────────────────────────────────────────
 // Fixtures

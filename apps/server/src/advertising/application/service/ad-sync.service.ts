@@ -16,27 +16,27 @@ import {
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Prisma } from '@prisma/client';
-import { PrismaService } from '../../prisma/prisma.service';
-import { ExtensionSyncDto } from '../dto';
+import { PrismaService } from '../../../prisma/prisma.service';
+import { ExtensionSyncDto } from '../../dto';
 import type { AdExtensionStatus } from '@kiditem/shared/advertising';
 import {
   matchListingFromRow as matchListingFromRowFn,
   type ListingMap,
   type ListingMatch,
-} from '../domain/listing-match';
-import { buildAdSyncListingMap } from '../adapter/out/prisma/ad-sync-listing-map.query';
-import { ingestAdCampaign } from '../application/service/ad-campaign-ingest.handler';
-import { ingestRawScrape } from '../application/service/raw-scrape-ingest.handler';
-import { ingestTraffic } from '../application/service/traffic-ingest.handler';
-import { ingestCoupangAdsDaily } from '../application/service/coupang-ads-daily-ingest.handler';
+} from '../../domain/listing-match';
+import { buildAdSyncListingMap } from '../../adapter/out/prisma/ad-sync-listing-map.query';
+import { ingestAdCampaign } from './ad-campaign-ingest.handler';
+import { ingestRawScrape } from './raw-scrape-ingest.handler';
+import { ingestTraffic } from './traffic-ingest.handler';
+import { ingestCoupangAdsDaily } from './coupang-ads-daily-ingest.handler';
 import {
   createScrapeTarget,
   deleteScrapeTarget,
   listScrapeTargets,
   markScrapeTargetScraped,
-} from '../adapter/out/prisma/scrape-target.persistence';
+} from '../../adapter/out/prisma/scrape-target.persistence';
 
-export type { ListingMap } from '../domain/listing-match';
+export type { ListingMap } from '../../domain/listing-match';
 
 @Injectable()
 export class AdSyncService {

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AdBenchmarkService } from '../ad-benchmark.service';
 import { AdvertisingService } from '../advertising.service';
-import { periodToDays } from '../../domain/ad-metrics';
+import { periodToDays } from '../../../domain/ad-metrics';
 
 /**
  * H3a quality-review fix — period cutoffs in advertising read services must

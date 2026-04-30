@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Test } from '@nestjs/testing';
 import type { PrismaClient } from '@prisma/client';
-import { AdActionService } from '../services/ad-action.service';
+import { AdActionService } from '../application/service/ad-action.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   makeTestPrisma,

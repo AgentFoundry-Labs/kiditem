@@ -4,7 +4,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { validate } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
 import type { PrismaClient } from '@prisma/client';
-import { AdSyncService } from '../services/ad-sync.service';
+import { AdSyncService } from '../application/service/ad-sync.service';
 import { ChannelScrapePersistenceService } from '../services/channel-scrape-persistence.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ExtensionSyncDto } from '../dto/extension-sync.dto';

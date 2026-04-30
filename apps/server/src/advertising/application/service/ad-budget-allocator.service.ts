@@ -8,8 +8,8 @@ import type {
   Top20Input,
   ListingMetricsRow,
   GradeBudgetAllocation,
-} from '../domain/model/strategy-types';
-import { toListingSummary } from '../mapper/ad-listing.mapper';
+} from '../../domain/model/strategy-types';
+import { toListingSummary } from '../../mapper/ad-listing.mapper';
 
 /**
  * Pure calculator — Ad spend / budget / tier / Top 20 집계.

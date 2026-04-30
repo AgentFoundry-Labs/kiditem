@@ -1,10 +1,10 @@
 import { Injectable } from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService } from '../../../prisma/prisma.service';
 import { AdConfigService } from './ad-config.service';
-import { buildAdMetrics } from '../domain/ad-metrics';
-import { findBenchmarkAggregates } from '../adapter/out/prisma/ad-benchmark.query';
-import { findScopedAdListings } from '../adapter/out/prisma/ad-listing.query';
-import { scopedListingToSummary } from '../mapper/ad-listing.mapper';
+import { buildAdMetrics } from '../../domain/ad-metrics';
+import { findBenchmarkAggregates } from '../../adapter/out/prisma/ad-benchmark.query';
+import { findScopedAdListings } from '../../adapter/out/prisma/ad-listing.query';
+import { scopedListingToSummary } from '../../mapper/ad-listing.mapper';
 import type { AdBenchmarkData, AdMetrics } from '@kiditem/shared/advertising';
 
 type DiagnosisMetric = 'ctr' | 'roas' | 'cvr';

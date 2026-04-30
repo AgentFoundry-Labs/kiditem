@@ -1,23 +1,23 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService } from '../../../prisma/prisma.service';
 import {
   findAdActionsForReview,
   findLatestAdActionTargetRows,
   findLatestListingOptionStockById,
   type AdActionQuery,
-} from '../adapter/out/prisma/ad-action.query';
+} from '../../adapter/out/prisma/ad-action.query';
 import {
   createActionCandidate,
   type ActionCandidate,
-} from '../domain/ad-action-rules';
+} from '../../domain/ad-action-rules';
 import {
   approveAdActions,
   createAdActionsFromCandidates,
   rejectAdActions,
   resetFailedAdActions,
   updateActionOrThrow,
-} from '../adapter/out/prisma/ad-action.persistence';
+} from '../../adapter/out/prisma/ad-action.persistence';
 
 const ACTION_DEDUP_HOURS = 24;
 

@@ -1,5 +1,5 @@
 import { Injectable, ConflictException, NotFoundException } from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService } from '../../../prisma/prisma.service';
 import {
   DEFAULT_LEASE_LIMIT,
   MAX_LEASE_LIMIT,
@@ -11,7 +11,7 @@ import {
   upsertExecutionWorkerForLease,
   type ExecutionReportInput,
   type LeaseOptions,
-} from '../adapter/out/prisma/ad-execution.persistence';
+} from '../../adapter/out/prisma/ad-execution.persistence';
 
 /**
  * Application orchestration for the worker execution loop. The service:
